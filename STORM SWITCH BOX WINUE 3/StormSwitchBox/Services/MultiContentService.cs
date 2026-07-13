@@ -215,8 +215,8 @@ namespace StormSwitchBox.Services
 
                 var psi = new System.Diagnostics.ProcessStartInfo
                 {
-                    FileName = squirrelExe,
-                    Arguments = args,
+                    FileName = "cmd.exe",
+                    Arguments = $"/c chcp 65001 >nul & \"{squirrelExe}\" {args}",
                     UseShellExecute = false,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
