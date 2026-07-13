@@ -218,25 +218,18 @@ namespace StormSwitchBox.Services
                     FileName = "cmd.exe",
                     Arguments = $"/c chcp 65001 >nul & \"{squirrelExe}\" {args}",
                     UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    CreateNoWindow = true,
-                    StandardOutputEncoding = System.Text.Encoding.UTF8,
-                    StandardErrorEncoding = System.Text.Encoding.UTF8
+                    CreateNoWindow = true
                 };
                 psi.EnvironmentVariables["USERPROFILE"] = isolatedUserProfile;
                 psi.EnvironmentVariables["LOCALAPPDATA"] = isolatedLocalAppData;
-                psi.EnvironmentVariables["PYTHONIOENCODING"] = "utf-8";
-                psi.EnvironmentVariables["PYTHONUTF8"] = "1";
 
                 using var proc = System.Diagnostics.Process.Start(psi);
                 if (proc == null) throw new Exception("Не удалось запустить squirrel.exe");
 
-                string stdErr = await proc.StandardError.ReadToEndAsync();
                 await proc.WaitForExitAsync(cancellationToken);
 
                 if (proc.ExitCode != 0)
-                    throw new Exception($"NSC_Builder squirrel failed:\n{stdErr}");
+                    throw new Exception($"NSC_Builder squirrel failed with exit code {proc.ExitCode}.");
 
                 string generatedFile = Directory.GetFiles(outFolder).FirstOrDefault();
                 if (string.IsNullOrEmpty(generatedFile))
