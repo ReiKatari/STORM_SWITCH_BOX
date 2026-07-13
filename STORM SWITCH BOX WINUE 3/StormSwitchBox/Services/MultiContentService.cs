@@ -220,34 +220,78 @@ namespace StormSwitchBox.Services
                 string fmt = isTargetXci ? "xci" : "nsp";
                 string args = $"-t {fmt} -o \"{outFolder}\" -tfile \"{mlistFile}\" -dmul \"calculate\"";
                 
-                App.Logger.Log($"[squirrel] {args}", Models.LogLevel.Info);
+                // Log the file list being passed to squirrel for diagnostics
+                App.Logger.Log($"[squirrel] args: {args}", Models.LogLevel.Info);
+                try
+                {
+                    var mlistContents = System.IO.File.ReadAllLines(mlistFile);
+                    for (int i = 0; i < mlistContents.Length; i++)
+                    {
+                        var mf = mlistContents[i];
+                        long mfSize = System.IO.File.Exists(mf) ? new System.IO.FileInfo(mf).Length : -1;
+                        App.Logger.Log($"[squirrel] mlist[{i}]: {mf} ({mfSize} bytes)", Models.LogLevel.Info);
+                    }
+                }
+                catch { }
 
                 var psi = new System.Diagnostics.ProcessStartInfo
                 {
-                    FileName = "cmd.exe",
-                    Arguments = $"/c chcp 65001 >nul & \"{squirrelExe}\" {args}",
+                    FileName = squirrelExe,
+                    Arguments = args,
                     UseShellExecute = false,
-                    CreateNoWindow = true
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    StandardOutputEncoding = System.Text.Encoding.UTF8,
+                    StandardErrorEncoding = System.Text.Encoding.UTF8
                 };
                 psi.EnvironmentVariables["USERPROFILE"] = isolatedUserProfile;
                 psi.EnvironmentVariables["LOCALAPPDATA"] = isolatedLocalAppData;
+                psi.EnvironmentVariables["PYTHONIOENCODING"] = "utf-8";
+                psi.EnvironmentVariables["PYTHONLEGACYWINDOWSSTDIO"] = "utf-8";
+                psi.EnvironmentVariables["PYTHONUTF8"] = "1";
 
                 using var proc = System.Diagnostics.Process.Start(psi);
                 if (proc == null) throw new Exception("Не удалось запустить squirrel.exe");
 
+                string sqStdout = await proc.StandardOutput.ReadToEndAsync();
+                string sqStderr = await proc.StandardError.ReadToEndAsync();
                 await proc.WaitForExitAsync(cancellationToken);
 
-                if (proc.ExitCode != 0)
-                    throw new Exception($"NSC_Builder squirrel failed with exit code {proc.ExitCode}.");
+                // Log all squirrel output for diagnostics
+                if (!string.IsNullOrWhiteSpace(sqStdout))
+                    App.Logger.Log($"[squirrel stdout] {sqStdout}", Models.LogLevel.Info);
+                if (!string.IsNullOrWhiteSpace(sqStderr))
+                    App.Logger.Log($"[squirrel stderr] {sqStderr}", Models.LogLevel.Warning);
+                App.Logger.Log($"[squirrel] exit code: {proc.ExitCode}", Models.LogLevel.Info);
 
-                string generatedFile = Directory.GetFiles(outFolder).FirstOrDefault();
+                if (proc.ExitCode != 0)
+                {
+                    string errDetail = !string.IsNullOrWhiteSpace(sqStderr) ? sqStderr : sqStdout;
+                    throw new Exception($"NSC_Builder squirrel failed:\n{errDetail}");
+                }
+
+                // Search for the actual content file (.nsp/.xci), skipping metadata like .cnmt.xml
+                string[] contentExtensions = new[] { ".nsp", ".xci", ".nsz", ".xcz" };
+                string generatedFile = Directory.GetFiles(outFolder)
+                    .Where(f => contentExtensions.Any(ext => f.EndsWith(ext, StringComparison.OrdinalIgnoreCase)))
+                    .OrderByDescending(f => new System.IO.FileInfo(f).Length)
+                    .FirstOrDefault();
+
+                // If no content file found, list everything in the output folder for diagnostics
                 if (string.IsNullOrEmpty(generatedFile))
-                    throw new Exception("NSC_Builder squirrel didn't produce any output files. Check keys and inputs.");
+                {
+                    var allFiles = Directory.GetFiles(outFolder);
+                    string listing = allFiles.Length == 0
+                        ? "(empty)"
+                        : string.Join("\n", allFiles.Select(f => $"  {System.IO.Path.GetFileName(f)} ({new System.IO.FileInfo(f).Length} bytes)"));
+                    throw new Exception($"NSC_Builder squirrel didn't produce any .nsp/.xci files.\nOutput folder contents:\n{listing}\n\nSquirrel stderr: {sqStderr}");
+                }
                 
                 var fileInfo = new System.IO.FileInfo(generatedFile);
                 if (fileInfo.Length < 100 * 1024)
                 {
-                    throw new Exception($"NSC_Builder output file '{fileInfo.Name}' is suspiciously small ({fileInfo.Length} bytes). Process failed silently. This usually means NSC_Builder rejected the patched base due to missing TitleID/v0 tags or invalid signatures.");
+                    throw new Exception($"NSC_Builder output file '{fileInfo.Name}' is suspiciously small ({fileInfo.Length} bytes). Squirrel stderr: {sqStderr}");
                 }
 
                 if (System.IO.File.Exists(actualIntermediatePath)) System.IO.File.Delete(actualIntermediatePath);
