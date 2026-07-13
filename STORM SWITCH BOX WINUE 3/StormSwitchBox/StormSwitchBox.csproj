@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <RootNamespace>StormSwitchBox</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Platforms>x64</Platforms>
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+    <UseWinUI>true</UseWinUI>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PublishReadyToRun>true</PublishReadyToRun>
+    <TieredCompilation>true</TieredCompilation>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260317003" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.4654" />
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.2.2" />
+    <!-- Библиотеки, которые понадобятся на следующих этапах -->
+    <PackageReference Include="LibHac" Version="0.18.0" />
+    <PackageReference Include="ZstdSharp.Port" Version="0.8.0" />
+    <PackageReference Include="CommunityToolkit.WinUI.UI.Controls.DataGrid" Version="7.1.2" />
+    <Manifest Include="$(ApplicationManifest)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="test_*.cs" />
+    <Compile Remove="scratch_*.cs" />
+    <Compile Remove="test_xts_app\**" />
+    <Compile Remove="scratch_xts\**" />
+    <Compile Remove="test_unpack\**" />
+    <None Include="test_*.cs" />
+    <None Include="scratch_*.cs" />
+    <None Include="test_xts_app\**" />
+    <None Include="scratch_xts\**" />
+    <None Include="test_unpack\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="tools\**\*" CopyToOutputDirectory="PreserveNewest" Link="tools\%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>

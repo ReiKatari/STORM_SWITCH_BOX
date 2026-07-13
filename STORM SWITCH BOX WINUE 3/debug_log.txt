@@ -1,0 +1,2 @@
+Checkpoint 0: main() started
+Checkpoint 1: Arg parsing done. Filepath: 

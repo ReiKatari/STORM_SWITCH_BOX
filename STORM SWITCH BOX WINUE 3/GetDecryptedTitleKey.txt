@@ -1,0 +1,45 @@
+﻿
+> 		public byte[] GetDecryptedTitleKey()
+  		{
+  			int masterKeyRevision = Utilities.GetMasterKeyRevision(Header.KeyGeneration);
+  			byte[] array = KeySet.TitleKeks[masterKeyRevision].DataRo.ToArray();
+  			RightsId rightsId = new RightsId(Header.RightsId);
+  			if (KeySet.ExternalKeySet.Get(rightsId, out var key).IsFailure())
+  			{
+  				throw new MissingKeyException("Missing NCA title key.", rightsId.ToString(), LibHac.Common.Keys.KeyType.Title);
+  			}
+  			if (array.IsZeros())
+  			{
+  				string name = $"titlekek_{masterKeyRevision:x2}";
+  				throw new MissingKeyException("Unable to decrypt title key.", name, LibHac.Common.Keys.KeyType.Common);
+  			}
+  			byte[] array2 = key.Value.ToArray();
+  			byte[] array3 = new byte[16];
+  			LibHac.Crypto.Aes.DecryptEcb128(array2, array3, array);
+  			return array3;
+  		}
+  
+  		internal byte[] GetContentKey(NcaKeyType type)
+> 			return GetDecryptedTitleKey();
+  		}
+  
+  		public bool CanOpenSection(NcaSectionType type)
+  		{
+  			if (!TryGetSectionIndexFromType(type, Header.ContentType, out var index))
+  			{
+  				return false;
+  			}
+  			return CanOpenSection(index);
+  		}
+  
+  		public bool CanOpenSection(int index)
+  		{
+  			if (!SectionExists(index))
+  			{
+  				return false;
+  			}
+  			if (GetFsHeader(index).EncryptionType == NcaEncryptionType.None)
+  			{
+  				return true;
+
+

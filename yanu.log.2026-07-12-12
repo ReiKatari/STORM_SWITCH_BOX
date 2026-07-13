@@ -1,0 +1,10 @@
+Sun, 12 Jul 2026 12:51:58 INFO [crates\yanu-cli\src\main.rs:77]: Launching yanu-cli [3mversion[0m[2m=[0m"0.10.1" [3march[0m[2m=[0m"x86_64" [3mos[0m[2m=[0m"windows"
+Sun, 12 Jul 2026 12:51:58 INFO [crates\yanu-cli\src\main.rs:98]: Parsing args, exit on error
+Sun, 12 Jul 2026 12:52:07 INFO [crates\yanu-cli\src\main.rs:77]: Launching yanu-cli [3mversion[0m[2m=[0m"0.10.1" [3march[0m[2m=[0m"x86_64" [3mos[0m[2m=[0m"windows"
+Sun, 12 Jul 2026 12:52:17 INFO [crates\yanu-cli\src\main.rs:77]: Launching yanu-cli [3mversion[0m[2m=[0m"0.10.1" [3march[0m[2m=[0m"x86_64" [3mos[0m[2m=[0m"windows"
+Sun, 12 Jul 2026 12:52:17 INFO [crates\yanu-cli\src\main.rs:98]: Parsing args, exit on error
+Sun, 12 Jul 2026 12:52:17 DEBUG [crates\yanu-cli\src\main.rs:101]: [3mconfig[0m[2m=[0mConfig { schema_version: 2, nsp_extractor: Hactoolnet, nca_extractor: Hactoolnet, yanu_dir: None, temp_dir: "." }
+Sun, 12 Jul 2026 12:52:17 INFO [crates\yanu-cli\src\main.rs:302]: Updating config at 'C:\Users\ReiKatari\AppData\Roaming\com.github.nozwock.yanu\yanu.ron'
+Sun, 12 Jul 2026 12:52:17 INFO [crates\yanu-cli\src\main.rs:87]: Done
+Sun, 12 Jul 2026 12:53:40 INFO [crates\yanu-cli\src\main.rs:77]: Launching yanu-cli [3mversion[0m[2m=[0m"0.10.1" [3march[0m[2m=[0m"x86_64" [3mos[0m[2m=[0m"windows"
+Sun, 12 Jul 2026 12:54:17 INFO [crates\yanu-cli\src\main.rs:77]: Launching yanu-cli [3mversion[0m[2m=[0m"0.10.1" [3march[0m[2m=[0m"x86_64" [3mos[0m[2m=[0m"windows"

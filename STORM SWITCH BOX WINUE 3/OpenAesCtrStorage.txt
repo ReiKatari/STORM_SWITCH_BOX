@@ -1,0 +1,76 @@
+﻿
+> 					LibHac.Fs.IStorage baseStorage2 = OpenAesCtrStorage(baseStorage, index, sparseInfo.PhysicalOffset + metaOffset, 
+value2);
+  					long num = 0L;
+  					long num2 = IndirectStorage.QueryNodeStorageSize(value.EntryCount);
+  					long offset = num + num2;
+  					long size3 = IndirectStorage.QueryEntryStorageSize(value.EntryCount);
+  					using ValueSubStorage nodeStorage = new ValueSubStorage(baseStorage2, num, num2);
+  					using ValueSubStorage entryStorage = new ValueSubStorage(baseStorage2, offset, size3);
+  					sparseStorage.Initialize(new ArrayPoolMemoryResource(), in nodeStorage, in entryStorage, value.EntryCount).Throw
+IfFailure();
+  					using ValueSubStorage storage2 = new ValueSubStorage(storage, 0L, sparseInfo.GetPhysicalSize());
+  					sparseStorage.SetDataStorage(in storage2);
+  				}
+  				return sparseStorage;
+  			}
+  			if (!IsSubRange(sectionStartOffset, sectionSize, size))
+  			{
+  				throw new InvalidDataException($"Section offset (0x{sectionStartOffset:x}) and length (0x{sectionSize:x}) fall ou
+tside the total NCA length (0x{size:x}).");
+  			}
+  			return BaseStorage.Slice(sectionStartOffset, sectionSize);
+  		}
+  
+  		private LibHac.Fs.IStorage OpenDecryptedStorage(LibHac.Fs.IStorage baseStorage, int index, bool decrypting)
+  		{
+  			NcaFsHeader fsHeader = GetFsHeader(index);
+  			return fsHeader.EncryptionType switch
+  			{
+  				NcaEncryptionType.None => baseStorage, 
+> 				NcaEncryptionType.AesCtr => OpenAesCtrStorage(baseStorage, index, Header.GetSectionStartOffset(index), fsHeader.C
+ounter), 
+  				NcaEncryptionType.AesCtrEx => OpenAesCtrExStorage(baseStorage, index, decrypting), 
+  				_ => throw new ArgumentOutOfRangeException(), 
+  			};
+  		}
+  
+  		private LibHac.Fs.IStorage OpenAesXtsStorage(LibHac.Fs.IStorage baseStorage, int index, bool decrypting)
+  		{
+  			byte[] contentKey = GetContentKey(NcaKeyType.AesXts0);
+  			byte[] contentKey2 = GetContentKey(NcaKeyType.AesXts1);
+  			return new CachedStorage(new Aes128XtsStorage(baseStorage, contentKey, contentKey2, 512, leaveOpen: true, decrypti
+ng), 2, leaveOpen: true);
+  		}
+  
+> 		private LibHac.Fs.IStorage OpenAesCtrStorage(LibHac.Fs.IStorage baseStorage, int index, long offset, ulong upperCou
+nter)
+  		{
+  			byte[] contentKey = GetContentKey(NcaKeyType.AesCtr);
+  			byte[] counterHi = Aes128CtrStorage.CreateCounter(upperCounter, Header.GetSectionStartOffset(index));
+  			return new CachedStorage(new Aes128CtrStorage(baseStorage, contentKey, offset, counterHi, leaveOpen: true), 16384,
+ 4, leaveOpen: true);
+  		}
+  
+  		private LibHac.Fs.IStorage OpenAesCtrExStorage(LibHac.Fs.IStorage baseStorage, int index, bool decrypting)
+  		{
+  			NcaFsHeader fsHeader = GetFsHeader(index);
+  			NcaFsPatchInfo patchInfo = fsHeader.GetPatchInfo();
+  			long sectionStartOffset = Header.GetSectionStartOffset(index);
+  			long sectionSize = Header.GetSectionSize(index);
+  			long relocationTreeOffset = patchInfo.RelocationTreeOffset;
+  			long length = sectionSize - relocationTreeOffset;
+  			long relocationTreeOffset2 = patchInfo.RelocationTreeOffset;
+  			byte[] contentKey = GetContentKey(NcaKeyType.AesCtr);
+  			byte[] counter = Aes128CtrStorage.CreateCounter(fsHeader.Counter, relocationTreeOffset + sectionStartOffset);
+  			byte[] counter2 = Aes128CtrStorage.CreateCounter(fsHeader.Counter, sectionStartOffset);
+  			LibHac.Fs.IStorage storage;
+  			LibHac.Fs.IStorage storage2;
+  			if (decrypting)
+  			{
+  				storage = new CachedStorage(new Aes128CtrStorage(baseStorage.Slice(relocationTreeOffset, length), contentKey, cou
+nter, leaveOpen: true), 4, leaveOpen: true);
+  				storage2 = storage;
+  			}
+
+
