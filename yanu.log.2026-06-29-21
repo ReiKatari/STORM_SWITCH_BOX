@@ -1,0 +1,62 @@
+Mon, 29 Jun 2026 21:58:38 INFO [crates\yanu-cli\src\main.rs:77]: Launching yanu-cli [3mversion[0m[2m=[0m"0.10.1" [3march[0m[2m=[0m"x86_64" [3mos[0m[2m=[0m"windows"
+Mon, 29 Jun 2026 21:58:38 INFO [crates\yanu-cli\src\main.rs:98]: Parsing args, exit on error
+Mon, 29 Jun 2026 21:58:53 INFO [crates\yanu-cli\src\main.rs:77]: Launching yanu-cli [3mversion[0m[2m=[0m"0.10.1" [3march[0m[2m=[0m"x86_64" [3mos[0m[2m=[0m"windows"
+Mon, 29 Jun 2026 21:58:53 INFO [crates\yanu-cli\src\main.rs:98]: Parsing args, exit on error
+Mon, 29 Jun 2026 21:58:53 DEBUG [crates\yanu-cli\src\main.rs:101]: [3mconfig[0m[2m=[0mConfig { schema_version: 2, nsp_extractor: Hactoolnet, nca_extractor: Hactoolnet, yanu_dir: None, temp_dir: "." }
+Mon, 29 Jun 2026 21:58:53 INFO [crates\yanu-cli\src\main.rs:107]: Selected keyfile [3mkeyfile[0m[2m=[0m"E:\\STORM SWITCH BOX\\tools\\prod.keys"
+Mon, 29 Jun 2026 21:58:53 INFO [crates\yanu-cli\src\main.rs:116]: Copied keys successfully to the C2 ^-^
+Mon, 29 Jun 2026 21:58:53 ERROR [crates\yanu-cli\src\main.rs:91]: [3merr[0m[2m=[0m
+   0: [91mfailed to query metadata of file `E:\STORM SWITCH BOX\tools\0 complete_pack.marker`[0m
+   1: [91mНе удается найти указанный файл. (os error 2)[0m
+
+Location:
+   [35mcrates\yanu-cli\src\main.rs[0m:[35m201[0m
+Mon, 29 Jun 2026 21:59:04 INFO [crates\yanu-cli\src\main.rs:77]: Launching yanu-cli [3mversion[0m[2m=[0m"0.10.1" [3march[0m[2m=[0m"x86_64" [3mos[0m[2m=[0m"windows"
+Mon, 29 Jun 2026 21:59:04 INFO [crates\yanu-cli\src\main.rs:98]: Parsing args, exit on error
+Mon, 29 Jun 2026 21:59:04 DEBUG [crates\yanu-cli\src\main.rs:101]: [3mconfig[0m[2m=[0mConfig { schema_version: 2, nsp_extractor: Hactoolnet, nca_extractor: Hactoolnet, yanu_dir: None, temp_dir: "." }
+Mon, 29 Jun 2026 21:59:04 INFO [crates\yanu-cli\src\main.rs:107]: Selected keyfile [3mkeyfile[0m[2m=[0m"C:\\Users\\ReiKatari\\.switch\\prod.keys"
+Mon, 29 Jun 2026 21:59:04 ERROR [crates\yanu-cli\src\main.rs:91]: [3merr[0m[2m=[0m
+   0: [91mfailed to copy file from C:\Users\ReiKatari\.switch\prod.keys to C:\Users\ReiKatari\.switch\prod.keys[0m
+   1: [91mПроцесс не может получить доступ к файлу, так как этот файл занят другим процессом. (os error 32)[0m
+
+Location:
+   [35mcrates\yanu-cli\src\main.rs[0m:[35m115[0m
+Mon, 29 Jun 2026 21:59:10 INFO [crates\yanu-cli\src\main.rs:77]: Launching yanu-cli [3mversion[0m[2m=[0m"0.10.1" [3march[0m[2m=[0m"x86_64" [3mos[0m[2m=[0m"windows"
+Mon, 29 Jun 2026 21:59:10 INFO [crates\yanu-cli\src\main.rs:98]: Parsing args, exit on error
+Mon, 29 Jun 2026 21:59:10 DEBUG [crates\yanu-cli\src\main.rs:101]: [3mconfig[0m[2m=[0mConfig { schema_version: 2, nsp_extractor: Hactoolnet, nca_extractor: Hactoolnet, yanu_dir: None, temp_dir: "." }
+Mon, 29 Jun 2026 21:59:10 ERROR [crates\yanu-cli\src\main.rs:91]: [3merr[0m[2m=[0m
+   0: [91mfailed to query metadata of file `E:\STORM SWITCH BOX\tools\0 complete_pack.marker`[0m
+   1: [91mНе удается найти указанный файл. (os error 2)[0m
+
+Location:
+   [35mcrates\yanu-cli\src\main.rs[0m:[35m201[0m
+Mon, 29 Jun 2026 21:59:18 INFO [crates\yanu-cli\src\main.rs:77]: Launching yanu-cli [3mversion[0m[2m=[0m"0.10.1" [3march[0m[2m=[0m"x86_64" [3mos[0m[2m=[0m"windows"
+Mon, 29 Jun 2026 21:59:18 INFO [crates\yanu-cli\src\main.rs:98]: Parsing args, exit on error
+Mon, 29 Jun 2026 21:59:18 DEBUG [crates\yanu-cli\src\main.rs:101]: [3mconfig[0m[2m=[0mConfig { schema_version: 2, nsp_extractor: Hactoolnet, nca_extractor: Hactoolnet, yanu_dir: None, temp_dir: "." }
+Mon, 29 Jun 2026 21:59:18 INFO [crates\yanu-cli\src\main.rs:107]: Selected keyfile [3mkeyfile[0m[2m=[0m"E:\\STORM SWITCH BOX\\tools\\bad.keys"
+Mon, 29 Jun 2026 21:59:18 INFO [crates\yanu-cli\src\main.rs:116]: Copied keys successfully to the C2 ^-^
+Mon, 29 Jun 2026 21:59:18 ERROR [crates\yanu-cli\src\main.rs:91]: [3merr[0m[2m=[0m
+   0: [91mfailed to query metadata of file `E:\STORM SWITCH BOX\tools\0 complete_pack.marker`[0m
+   1: [91mНе удается найти указанный файл. (os error 2)[0m
+
+Location:
+   [35mcrates\yanu-cli\src\main.rs[0m:[35m201[0m
+Mon, 29 Jun 2026 21:59:25 INFO [crates\yanu-cli\src\main.rs:77]: Launching yanu-cli [3mversion[0m[2m=[0m"0.10.1" [3march[0m[2m=[0m"x86_64" [3mos[0m[2m=[0m"windows"
+Mon, 29 Jun 2026 21:59:31 INFO [crates\yanu-cli\src\main.rs:77]: Launching yanu-cli [3mversion[0m[2m=[0m"0.10.1" [3march[0m[2m=[0m"x86_64" [3mos[0m[2m=[0m"windows"
+Mon, 29 Jun 2026 21:59:31 INFO [crates\yanu-cli\src\main.rs:98]: Parsing args, exit on error
+Mon, 29 Jun 2026 21:59:31 DEBUG [crates\yanu-cli\src\main.rs:101]: [3mconfig[0m[2m=[0mConfig { schema_version: 2, nsp_extractor: Hactoolnet, nca_extractor: Hactoolnet, yanu_dir: None, temp_dir: "." }
+Mon, 29 Jun 2026 21:59:31 INFO [crates\yanu-cli\src\main.rs:107]: Selected keyfile [3mkeyfile[0m[2m=[0m"doesnotexist.keys"
+Mon, 29 Jun 2026 21:59:31 ERROR [crates\yanu-cli\src\main.rs:91]: [3merr[0m[2m=[0m
+   0: [91mfailed to copy file from doesnotexist.keys to C:\Users\ReiKatari\.switch\prod.keys[0m
+   1: [91mНе удается найти указанный файл. (os error 2)[0m
+
+Location:
+   [35mcrates\yanu-cli\src\main.rs[0m:[35m115[0m
+Mon, 29 Jun 2026 21:59:36 INFO [crates\yanu-cli\src\main.rs:77]: Launching yanu-cli [3mversion[0m[2m=[0m"0.10.1" [3march[0m[2m=[0m"x86_64" [3mos[0m[2m=[0m"windows"
+Mon, 29 Jun 2026 21:59:36 INFO [crates\yanu-cli\src\main.rs:98]: Parsing args, exit on error
+Mon, 29 Jun 2026 21:59:36 DEBUG [crates\yanu-cli\src\main.rs:101]: [3mconfig[0m[2m=[0mConfig { schema_version: 2, nsp_extractor: Hactoolnet, nca_extractor: Hactoolnet, yanu_dir: None, temp_dir: "." }
+Mon, 29 Jun 2026 21:59:36 ERROR [crates\yanu-cli\src\main.rs:91]: [3merr[0m[2m=[0m
+   0: [91mInvalid keyfile[0m
+
+Location:
+   [35mcrates\yanu-cli\src\main.rs[0m:[35m105[0m

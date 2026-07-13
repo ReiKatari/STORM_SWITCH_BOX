@@ -1,0 +1,628 @@
+﻿=== Starting StormSwitchBox Verification and Diagnostics ===
+Keys loaded successfully.
+[Diag] base_game already decompressed.
+[Diag] update_game already decompressed.
+[Diag] rebuilt_game already decompressed.
+
+==================================================
+=== DIAGNOSTIC INSPECTION: BASE GAME ===
+
+  NCA Entry: 52253bae1528feee296f3b16150d0fcb.nca
+    ContentType: Manual
+    FormatVersion: Nca3
+    [Header Fields]
+      FormatVersion: Nca3
+      IsEncrypted: True
+      Magic: 859915086
+      Version: 3
+      DistributionType: Download
+      ContentType: Manual
+      KeyGeneration: 21
+      KeyAreaKeyIndex: 0
+      NcaSize: 165376
+      TitleId: 72153870538530816
+      ContentIndex: 0
+      SdkVersion: 21.4.3.0
+      HasRightsId: False
+    Section 0: StartBlock=6 (Offset=0xC00), EndBlock=1 (Size=0xFFFFFFFFFFFFF600)
+      FsHeader: FsType=0, HashType=3, EncryptionType=3
+      Generation: 0000000005000000
+      HierarchicalIntegrity levels:
+        Level 0: Offset=0x0, Size=0x4000
+        Level 1: Offset=0x4000, Size=0x4000
+        Level 2: Offset=0x8000, Size=0x4000
+        Level 3: Offset=0xC000, Size=0x4000
+        Level 4: Offset=0x10000, Size=0x4000
+        Level 5: Offset=0x14000, Size=0x13858
+
+  NCA Entry: 98007ff93b0042bb67c01e28b4f568b3.nca
+    ContentType: Program
+    FormatVersion: Nca3
+    [Header Fields]
+      FormatVersion: Nca3
+      IsEncrypted: True
+      Magic: 859915086
+      Version: 3
+      DistributionType: Download
+      ContentType: Program
+      KeyGeneration: 21
+      KeyAreaKeyIndex: 0
+      NcaSize: 1144455168
+      TitleId: 72153870538530816
+      ContentIndex: 0
+      SdkVersion: 21.4.3.0
+      HasRightsId: True
+    Section 0: StartBlock=2128960 (Offset=0x40F88000), EndBlock=1 (Size=0xFFFFFFFFBF078200)
+      FsHeader: FsType=1, HashType=2, EncryptionType=3
+      Generation: 0000000001000000
+      HierarchicalSha256 Info:
+        BlockSize: 0x10000
+        LayerCount: 2
+        Level 0 (Hash Table): Offset=0x0, Size=0x67C0
+        Level 1 (Data): Offset=0x8000, Size=0x33DE8FE
+        Ciphertext of PFS0 Start: F0C64AB829140F12B671FA4EC94BDB184178B443100CBFE1A643F21602838395
+        [Storage Fields Debug]
+      Type: LibHac.Tools.FsSystem.HierarchicalIntegrityVerificationStorage
+        <Length>k__BackingField: 54388990
+        <LeaveOpen>k__BackingField: True
+        <IntegrityStorages>k__BackingField ->
+          Type: LibHac.Tools.FsSystem.IntegrityVerificationStorage[]
+        Decrypted Plaintext at offset 0: 504653300500000038000000000000000000000000000000C1ACAB0200000000 (ASCII: 'PFS0')
+        Decrypted Plaintext at level1Offset (0x8000): 40F9875EA00522845EA005B1C8CE1439F6B90290D67640103D04EC0EF205F45E (ASCII: '@??^')
+        Decrypted Key 0: 2DCA220F5EE92F25C768AD02EC943FAD
+        Decrypted Key 1: 2DCA220F5EE92F25C768AD02EC943FAD
+        Decrypted Key 2: 2DCA220F5EE92F25C768AD02EC943FAD
+        Decrypted Key 3: 2DCA220F5EE92F25C768AD02EC943FAD
+        Actual Keystream at level1Offset: B03FCDE689112D96E8D1FFFF0185CF21
+        Decrypted IV with Key 0: 38FFFB728B7C92A98FE6CD243147A974
+        Decrypted IV with Key 1: 38FFFB728B7C92A98FE6CD243147A974
+        Decrypted IV with Key 2: 38FFFB728B7C92A98FE6CD243147A974
+        Decrypted IV with Key 3: 38FFFB728B7C92A98FE6CD243147A974
+    Section 1: StartBlock=224 (Offset=0x1C000), EndBlock=1 (Size=0xFFFFFFFFFFFE4200)
+      FsHeader: FsType=0, HashType=3, EncryptionType=3
+      Generation: 0000000002000000
+      HierarchicalIntegrity levels:
+        Level 0: Offset=0x0, Size=0x4000
+        Level 1: Offset=0x4000, Size=0x4000
+        Level 2: Offset=0x8000, Size=0x4000
+        Level 3: Offset=0xC000, Size=0x4000
+        Level 4: Offset=0x10000, Size=0x208000
+        Level 5: Offset=0x218000, Size=0x40D50DB8
+    Section 2: StartBlock=32 (Offset=0x4000), EndBlock=1 (Size=0xFFFFFFFFFFFFC200)
+      FsHeader: FsType=1, HashType=2, EncryptionType=1
+      Generation: 0000000000000000
+      HierarchicalSha256 Info:
+        BlockSize: 0x1000
+        LayerCount: 2
+        Level 0 (Hash Table): Offset=0x0, Size=0x240
+        Level 1 (Data): Offset=0x4000, Size=0x117D4
+        Ciphertext of PFS0 Start: 5046533002000000400000000000000000000000000000000950000000000000
+        [Storage Fields Debug]
+      Type: LibHac.Tools.FsSystem.HierarchicalIntegrityVerificationStorage
+        <Length>k__BackingField: 71636
+        <LeaveOpen>k__BackingField: True
+        <IntegrityStorages>k__BackingField ->
+          Type: LibHac.Tools.FsSystem.IntegrityVerificationStorage[]
+        Decrypted Plaintext at offset 0: 5046533002000000400000000000000000000000000000000950000000000000 (ASCII: 'PFS0')
+        Decrypted Plaintext at level1Offset (0x4000): 2020202020202020202020202020202020202020202020202020202020202020 (ASCII: '    ')
+        Decrypted Key 0: 2DCA220F5EE92F25C768AD02EC943FAD
+        Decrypted Key 1: 2DCA220F5EE92F25C768AD02EC943FAD
+        Decrypted Key 2: 2DCA220F5EE92F25C768AD02EC943FAD
+        Decrypted Key 3: 2DCA220F5EE92F25C768AD02EC943FAD
+        Actual Keystream at level1Offset: 70667310222020206020202020202020
+        Decrypted IV with Key 0: F0792F1CF3E712453AD6BE1EE878CACF
+        Decrypted IV with Key 1: F0792F1CF3E712453AD6BE1EE878CACF
+        Decrypted IV with Key 2: F0792F1CF3E712453AD6BE1EE878CACF
+        Decrypted IV with Key 3: F0792F1CF3E712453AD6BE1EE878CACF
+
+  NCA Entry: c891c06520ad68eb764aa7449049040f.nca
+    ContentType: Control
+    FormatVersion: Nca3
+    [Header Fields]
+      FormatVersion: Nca3
+      IsEncrypted: True
+      Magic: 859915086
+      Version: 3
+      DistributionType: Download
+      ContentType: Control
+      KeyGeneration: 21
+      KeyAreaKeyIndex: 0
+      NcaSize: 834048
+      TitleId: 72153870538530816
+      ContentIndex: 0
+      SdkVersion: 21.4.3.0
+      HasRightsId: False
+    Section 0: StartBlock=6 (Offset=0xC00), EndBlock=1 (Size=0xFFFFFFFFFFFFF600)
+      FsHeader: FsType=0, HashType=3, EncryptionType=3
+      Generation: 0000000000000000
+      HierarchicalIntegrity levels:
+        Level 0: Offset=0x0, Size=0x4000
+        Level 1: Offset=0x4000, Size=0x4000
+        Level 2: Offset=0x8000, Size=0x4000
+        Level 3: Offset=0xC000, Size=0x4000
+        Level 4: Offset=0x10000, Size=0x4000
+        Level 5: Offset=0x14000, Size=0xB6C90
+
+  NCA Entry: f646fc2602ae06f9bebe6ad0d9d85c12.cnmt.nca
+    ContentType: Meta
+    FormatVersion: Nca3
+    [Header Fields]
+      FormatVersion: Nca3
+      IsEncrypted: True
+      Magic: 859915086
+      Version: 3
+      DistributionType: Download
+      ContentType: Meta
+      KeyGeneration: 21
+      KeyAreaKeyIndex: 0
+      NcaSize: 3584
+      TitleId: 72153870538530816
+      ContentIndex: 0
+      SdkVersion: 22.2.0.0
+      HasRightsId: False
+    Section 0: StartBlock=6 (Offset=0xC00), EndBlock=1 (Size=0xFFFFFFFFFFFFF600)
+      FsHeader: FsType=1, HashType=2, EncryptionType=3
+      Generation: 0000000000000000
+      HierarchicalSha256 Info:
+        BlockSize: 0x1000
+        LayerCount: 2
+        Level 0 (Hash Table): Offset=0x0, Size=0x20
+        Level 1 (Data): Offset=0x20, Size=0x158
+        Ciphertext of PFS0 Start: DC9113B3DAE75F7D0EF57036CF59D7607D4B710FA27514776611207312357149
+        [Storage Fields Debug]
+      Type: LibHac.Tools.FsSystem.HierarchicalIntegrityVerificationStorage
+        <Length>k__BackingField: 344
+        <LeaveOpen>k__BackingField: True
+        <IntegrityStorages>k__BackingField ->
+          Type: LibHac.Tools.FsSystem.IntegrityVerificationStorage[]
+        Decrypted Plaintext at offset 0: 504653300100000038000000000000000000000000000000F800000000000000 (ASCII: 'PFS0')
+        Decrypted Plaintext at level1Offset (0x20): 00000000000000004170706C69636174696F6E5F303130303537393031653965 (ASCII: '\0\0\0\0')
+        Decrypted Key 0: 00000000000000000000000000000000
+        Decrypted Key 1: 00000000000000000000000000000000
+        Decrypted Key 2: 46BC20B81DE2ADC4A657A015073625C5
+        Decrypted Key 3: 00000000000000000000000000000000
+        Actual Keystream at level1Offset: DC9113B3DAE75F7D4F85005AA63AB614
+        Decrypted IV with Key 0: 0C1783D7AEF088E68831AA6B36E3CA42
+        Decrypted IV with Key 1: 0C1783D7AEF088E68831AA6B36E3CA42
+        Decrypted IV with Key 2: 224DD65B38EFE6656828AA9D34EBFE6E
+        Decrypted IV with Key 3: 0C1783D7AEF088E68831AA6B36E3CA42
+
+==================================================
+=== DIAGNOSTIC INSPECTION: UPDATE GAME ===
+
+  NCA Entry: 39f7804791d90548e9b02861c281fea4.nca
+    ContentType: Control
+    FormatVersion: Nca3
+    [Header Fields]
+      FormatVersion: Nca3
+      IsEncrypted: True
+      Magic: 859915086
+      Version: 3
+      DistributionType: Download
+      ContentType: Control
+      KeyGeneration: 22
+      KeyAreaKeyIndex: 0
+      NcaSize: 834048
+      TitleId: 72153870538530816
+      ContentIndex: 0
+      SdkVersion: 21.4.3.0
+      HasRightsId: False
+    Section 0: StartBlock=6 (Offset=0xC00), EndBlock=1 (Size=0xFFFFFFFFFFFFF600)
+      FsHeader: FsType=0, HashType=3, EncryptionType=3
+      Generation: 0000000000000000
+      HierarchicalIntegrity levels:
+        Level 0: Offset=0x0, Size=0x4000
+        Level 1: Offset=0x4000, Size=0x4000
+        Level 2: Offset=0x8000, Size=0x4000
+        Level 3: Offset=0xC000, Size=0x4000
+        Level 4: Offset=0x10000, Size=0x4000
+        Level 5: Offset=0x14000, Size=0xB6C90
+
+  NCA Entry: e19c15f9ced8cd89eb257f7e16cdd43e.nca
+    ContentType: Program
+    FormatVersion: Nca3
+    [Header Fields]
+      FormatVersion: Nca3
+      IsEncrypted: True
+      Magic: 859915086
+      Version: 3
+      DistributionType: Download
+      ContentType: Program
+      KeyGeneration: 22
+      KeyAreaKeyIndex: 0
+      NcaSize: 149579776
+      TitleId: 72153870538530816
+      ContentIndex: 0
+      SdkVersion: 21.4.3.0
+      HasRightsId: True
+    Section 0: StartBlock=185844 (Offset=0x5ABE800), EndBlock=1 (Size=0xFFFFFFFFFA541A00)
+      FsHeader: FsType=1, HashType=2, EncryptionType=3
+      Generation: 0000000001000000
+      HierarchicalSha256 Info:
+        BlockSize: 0x10000
+        LayerCount: 2
+        Level 0 (Hash Table): Offset=0x0, Size=0x67C0
+        Level 1 (Data): Offset=0x8000, Size=0x33DF3AF
+        Ciphertext of PFS0 Start: 5144E94ADE683A31CD3BCCE0847B8B9714AD9B9B55EFF746698DC6578D39EAAF
+        [Storage Fields Debug]
+      Type: LibHac.Tools.FsSystem.HierarchicalIntegrityVerificationStorage
+        <Length>k__BackingField: 54391727
+        <LeaveOpen>k__BackingField: True
+        <IntegrityStorages>k__BackingField ->
+          Type: LibHac.Tools.FsSystem.IntegrityVerificationStorage[]
+        Decrypted Plaintext at offset 0: 50465330050000003800000000000000000000000000000072B7AB0200000000 (ASCII: 'PFS0')
+        Decrypted Plaintext at level1Offset (0x8000): DE1B39F6B902D0D66A41103D04EC0EF809F45E1294C00240F9BA8E8294600200 (ASCII: '?9?')
+        Decrypted Key 0: 781544337226C355635D9A4ECB9F108E
+        Decrypted Key 1: 781544337226C355635D9A4ECB9F108E
+        Decrypted Key 2: 781544337226C355635D9A4ECB9F108E
+        Decrypted Key 3: 781544337226C355635D9A4ECB9F108E
+        Actual Keystream at level1Offset: 8F5FD0BC676AEAE7A77ADCDD8097856F
+        Decrypted IV with Key 0: B7B4882C1A0801C613168376BFD78B31
+        Decrypted IV with Key 1: B7B4882C1A0801C613168376BFD78B31
+        Decrypted IV with Key 2: B7B4882C1A0801C613168376BFD78B31
+        Decrypted IV with Key 3: B7B4882C1A0801C613168376BFD78B31
+    Section 1: StartBlock=32 (Offset=0x4000), EndBlock=1 (Size=0xFFFFFFFFFFFFC200)
+      FsHeader: FsType=0, HashType=3, EncryptionType=4
+      Generation: 0000000002000000
+      HierarchicalIntegrity levels:
+        Level 0: Offset=0x0, Size=0x4000
+        Level 1: Offset=0x4000, Size=0x4000
+        Level 2: Offset=0x8000, Size=0x4000
+        Level 3: Offset=0xC000, Size=0x4000
+        Level 4: Offset=0x10000, Size=0x228000
+        Level 5: Offset=0x238000, Size=0x44F3E018
+
+  NCA Entry: fb7dd4dd8547afc32c80e6391eae8bd9.nca
+    ContentType: Manual
+    FormatVersion: Nca3
+    [Header Fields]
+      FormatVersion: Nca3
+      IsEncrypted: True
+      Magic: 859915086
+      Version: 3
+      DistributionType: Download
+      ContentType: Manual
+      KeyGeneration: 22
+      KeyAreaKeyIndex: 0
+      NcaSize: 165376
+      TitleId: 72153870538530816
+      ContentIndex: 0
+      SdkVersion: 21.4.3.0
+      HasRightsId: False
+    Section 0: StartBlock=6 (Offset=0xC00), EndBlock=1 (Size=0xFFFFFFFFFFFFF600)
+      FsHeader: FsType=0, HashType=3, EncryptionType=3
+      Generation: 0000000005000000
+      HierarchicalIntegrity levels:
+        Level 0: Offset=0x0, Size=0x4000
+        Level 1: Offset=0x4000, Size=0x4000
+        Level 2: Offset=0x8000, Size=0x4000
+        Level 3: Offset=0xC000, Size=0x4000
+        Level 4: Offset=0x10000, Size=0x4000
+        Level 5: Offset=0x14000, Size=0x13858
+
+  NCA Entry: ff2c32afc3d7fd75d52ca26ab1f33e7b.cnmt.nca
+    ContentType: Meta
+    FormatVersion: Nca3
+    [Header Fields]
+      FormatVersion: Nca3
+      IsEncrypted: True
+      Magic: 859915086
+      Version: 3
+      DistributionType: Download
+      ContentType: Meta
+      KeyGeneration: 22
+      KeyAreaKeyIndex: 0
+      NcaSize: 4096
+      TitleId: 72153870538532864
+      ContentIndex: 0
+      SdkVersion: 22.2.0.0
+      HasRightsId: False
+    Section 0: StartBlock=6 (Offset=0xC00), EndBlock=1 (Size=0xFFFFFFFFFFFFF600)
+      FsHeader: FsType=1, HashType=2, EncryptionType=3
+      Generation: 0000000000000000
+      HierarchicalSha256 Info:
+        BlockSize: 0x1000
+        LayerCount: 2
+        Level 0 (Hash Table): Offset=0x0, Size=0x20
+        Level 1 (Data): Offset=0x20, Size=0x214
+        Ciphertext of PFS0 Start: 9F1A8C9B44C38B2A78F2BE9790D75D3E705A4358A49898892F05B69BD3F67DFD
+        [Storage Fields Debug]
+      Type: LibHac.Tools.FsSystem.HierarchicalIntegrityVerificationStorage
+        <Length>k__BackingField: 532
+        <LeaveOpen>k__BackingField: True
+        <IntegrityStorages>k__BackingField ->
+          Type: LibHac.Tools.FsSystem.IntegrityVerificationStorage[]
+        Decrypted Plaintext at offset 0: 504653300100000038000000000000000000000000000000B401000000000000 (ASCII: 'PFS0')
+        Decrypted Plaintext at level1Offset (0x20): 000000000000000050617463685F303130303537393031653965363830302E63 (ASCII: '\0\0\0\0')
+        Decrypted Key 0: 00000000000000000000000000000000
+        Decrypted Key 1: 00000000000000000000000000000000
+        Decrypted Key 2: E0D34883C3409515DCB8E51E322B5C5D
+        Decrypted Key 3: 00000000000000000000000000000000
+        Actual Keystream at level1Offset: 9F1A8C9B44C38B2A2893CAF4F8886D0F
+        Decrypted IV with Key 0: 87246BB01223FC63BD4B7CF9C30F08F4
+        Decrypted IV with Key 1: 87246BB01223FC63BD4B7CF9C30F08F4
+        Decrypted IV with Key 2: 52B723505709FE4547826F242691DBAD
+        Decrypted IV with Key 3: 87246BB01223FC63BD4B7CF9C30F08F4
+
+==================================================
+=== DIAGNOSTIC INSPECTION: REBUILT GAME ===
+
+  NCA Entry: 010057901e9e6000.nca
+    ContentType: Program
+    FormatVersion: Nca3
+    [Header Fields]
+      FormatVersion: Nca3
+      IsEncrypted: True
+      Magic: 859915086
+      Version: 3
+      DistributionType: Download
+      ContentType: Program
+      KeyGeneration: 21
+      KeyAreaKeyIndex: 0
+      NcaSize: 1144455168
+      TitleId: 72153870538530816
+      ContentIndex: 0
+      SdkVersion: 21.4.3.0
+      HasRightsId: False
+    Section 0: StartBlock=6 (Offset=0xC00), EndBlock=1 (Size=0xFFFFFFFFFFFFF600)
+      FsHeader: FsType=1, HashType=2, EncryptionType=3
+      Generation: 0000000001000000
+      HierarchicalSha256 Info:
+        BlockSize: 0x1000
+        LayerCount: 2
+        Level 0 (Hash Table): Offset=0x0, Size=0x67C00
+        Level 1 (Data): Offset=0x68000, Size=0x33DF3AF
+        Ciphertext of PFS0 Start: D7843D666528FF622690439E1B79CB46B69A69730FA8B22566255FE2E2D18D1B
+        [Storage Fields Debug]
+      Type: LibHac.Tools.FsSystem.HierarchicalIntegrityVerificationStorage
+        <Length>k__BackingField: 54391727
+        <LeaveOpen>k__BackingField: True
+        <IntegrityStorages>k__BackingField ->
+          Type: LibHac.Tools.FsSystem.IntegrityVerificationStorage[]
+        Decrypted Plaintext at offset 0: 5F33EE6DC5DAC914C20571F9B8E774AE5840B5DF86A6F87CD0C66F28CA36E50D (ASCII: '_3?m')
+        Decrypted Plaintext at level1Offset (0x68000): 65BFD2A22BADDDE9C3102D2BFF0C93192BEB49C580B6E9214788372DCA3EAA41 (ASCII: 'e???')
+        Decrypted Key 0: 468935FAC3AA15A3916F718FBB2D7991
+        Decrypted Key 1: 468935FAC3AA15A3916F718FBB2D7991
+        Decrypted Key 2: 468935FAC3AA15A3916F718FBB2D7991
+        Decrypted Key 3: 468935FAC3AA15A3916F718FBB2D7991
+        Actual Keystream at level1Offset: B23BEFC44E85228BE5806EB5E475585F
+        Decrypted IV with Key 0: 42D4A3E9ED5ED1F90B60C30E72FC233D
+        Decrypted IV with Key 1: 42D4A3E9ED5ED1F90B60C30E72FC233D
+        Decrypted IV with Key 2: 42D4A3E9ED5ED1F90B60C30E72FC233D
+        Decrypted IV with Key 3: 42D4A3E9ED5ED1F90B60C30E72FC233D
+    Section 1: StartBlock=107072 (Offset=0x3448000), EndBlock=1 (Size=0xFFFFFFFFFCBB8200)
+      FsHeader: FsType=0, HashType=3, EncryptionType=3
+      Generation: 0000000002000000
+      HierarchicalIntegrity levels:
+        Level 0: Offset=0x0, Size=0x20
+        Level 1: Offset=0x0, Size=0x20
+        Level 2: Offset=0x4000, Size=0x20
+        Level 3: Offset=0x8000, Size=0x1140
+        Level 4: Offset=0xC000, Size=0x227A00
+        Level 5: Offset=0x234000, Size=0x44F3E020
+    Section 2: StartBlock=2371025 (Offset=0x485BA200), EndBlock=1 (Size=0xFFFFFFFFB7A46000)
+      FsHeader: FsType=1, HashType=2, EncryptionType=1
+      Generation: 0000000000000000
+      HierarchicalSha256 Info:
+        BlockSize: 0x1000
+        LayerCount: 2
+        Level 0 (Hash Table): Offset=0x0, Size=0x240
+        Level 1 (Data): Offset=0x4000, Size=0x117D4
+        Ciphertext of PFS0 Start: 5046533002000000400000000000000000000000000000000950000000000000
+        [Storage Fields Debug]
+      Type: LibHac.Tools.FsSystem.HierarchicalIntegrityVerificationStorage
+        <Length>k__BackingField: 71636
+        <LeaveOpen>k__BackingField: True
+        <IntegrityStorages>k__BackingField ->
+          Type: LibHac.Tools.FsSystem.IntegrityVerificationStorage[]
+        Decrypted Plaintext at offset 0: 5046533002000000400000000000000000000000000000000950000000000000 (ASCII: 'PFS0')
+        Decrypted Plaintext at level1Offset (0x4000): 2020202020202020202020202020202020202020202020202020202020202020 (ASCII: '    ')
+        Decrypted Key 0: 468935FAC3AA15A3916F718FBB2D7991
+        Decrypted Key 1: 468935FAC3AA15A3916F718FBB2D7991
+        Decrypted Key 2: 468935FAC3AA15A3916F718FBB2D7991
+        Decrypted Key 3: 468935FAC3AA15A3916F718FBB2D7991
+        Actual Keystream at level1Offset: 70667310222020206020202020202020
+        Decrypted IV with Key 0: A27564ABA18059CD8BC3E1DEE213C03B
+        Decrypted IV with Key 1: A27564ABA18059CD8BC3E1DEE213C03B
+        Decrypted IV with Key 2: A27564ABA18059CD8BC3E1DEE213C03B
+        Decrypted IV with Key 3: A27564ABA18059CD8BC3E1DEE213C03B
+
+  NCA Entry: 52253bae1528feee296f3b16150d0fcb.nca
+    ContentType: Manual
+    FormatVersion: Nca3
+    [Header Fields]
+      FormatVersion: Nca3
+      IsEncrypted: True
+      Magic: 859915086
+      Version: 3
+      DistributionType: Download
+      ContentType: Manual
+      KeyGeneration: 21
+      KeyAreaKeyIndex: 0
+      NcaSize: 165376
+      TitleId: 72153870538530816
+      ContentIndex: 0
+      SdkVersion: 21.4.3.0
+      HasRightsId: False
+    Section 0: StartBlock=6 (Offset=0xC00), EndBlock=1 (Size=0xFFFFFFFFFFFFF600)
+      FsHeader: FsType=0, HashType=3, EncryptionType=3
+      Generation: 0000000005000000
+      HierarchicalIntegrity levels:
+        Level 0: Offset=0x0, Size=0x4000
+        Level 1: Offset=0x4000, Size=0x4000
+        Level 2: Offset=0x8000, Size=0x4000
+        Level 3: Offset=0xC000, Size=0x4000
+        Level 4: Offset=0x10000, Size=0x4000
+        Level 5: Offset=0x14000, Size=0x13858
+
+  NCA Entry: c891c06520ad68eb764aa7449049040f.nca
+    ContentType: Control
+    FormatVersion: Nca3
+    [Header Fields]
+      FormatVersion: Nca3
+      IsEncrypted: True
+      Magic: 859915086
+      Version: 3
+      DistributionType: Download
+      ContentType: Control
+      KeyGeneration: 21
+      KeyAreaKeyIndex: 0
+      NcaSize: 834048
+      TitleId: 72153870538530816
+      ContentIndex: 0
+      SdkVersion: 21.4.3.0
+      HasRightsId: False
+    Section 0: StartBlock=6 (Offset=0xC00), EndBlock=1 (Size=0xFFFFFFFFFFFFF600)
+      FsHeader: FsType=0, HashType=3, EncryptionType=3
+      Generation: 0000000000000000
+      HierarchicalIntegrity levels:
+        Level 0: Offset=0x0, Size=0x4000
+        Level 1: Offset=0x4000, Size=0x4000
+        Level 2: Offset=0x8000, Size=0x4000
+        Level 3: Offset=0xC000, Size=0x4000
+        Level 4: Offset=0x10000, Size=0x4000
+        Level 5: Offset=0x14000, Size=0xB6C90
+
+  NCA Entry: f646fc2602ae06f9bebe6ad0d9d85c12.cnmt.nca
+    ContentType: Meta
+    FormatVersion: Nca3
+    [Header Fields]
+      FormatVersion: Nca3
+      IsEncrypted: True
+      Magic: 859915086
+      Version: 3
+      DistributionType: Download
+      ContentType: Meta
+      KeyGeneration: 21
+      KeyAreaKeyIndex: 0
+      NcaSize: 3584
+      TitleId: 72153870538530816
+      ContentIndex: 0
+      SdkVersion: 22.2.0.0
+      HasRightsId: False
+    Section 0: StartBlock=6 (Offset=0xC00), EndBlock=1 (Size=0xFFFFFFFFFFFFF600)
+      FsHeader: FsType=1, HashType=2, EncryptionType=3
+      Generation: 0000000000000000
+      HierarchicalSha256 Info:
+        BlockSize: 0x1000
+        LayerCount: 2
+        Level 0 (Hash Table): Offset=0x0, Size=0x20
+        Level 1 (Data): Offset=0x20, Size=0x158
+        Ciphertext of PFS0 Start: DC9113B3DAE75F7D0EF57036CF59D7607D4B710FA27514776611207312357149
+        [Storage Fields Debug]
+      Type: LibHac.Tools.FsSystem.HierarchicalIntegrityVerificationStorage
+        <Length>k__BackingField: 344
+        <LeaveOpen>k__BackingField: True
+        <IntegrityStorages>k__BackingField ->
+          Type: LibHac.Tools.FsSystem.IntegrityVerificationStorage[]
+        Decrypted Plaintext at offset 0: 504653300100000038000000000000000000000000000000F800000000000000 (ASCII: 'PFS0')
+        Decrypted Plaintext at level1Offset (0x20): 00000000000000004170706C69636174696F6E5F303130303537393031653965 (ASCII: '\0\0\0\0')
+        Decrypted Key 0: 00000000000000000000000000000000
+        Decrypted Key 1: 00000000000000000000000000000000
+        Decrypted Key 2: 46BC20B81DE2ADC4A657A015073625C5
+        Decrypted Key 3: 00000000000000000000000000000000
+        Actual Keystream at level1Offset: DC9113B3DAE75F7D4F85005AA63AB614
+        Decrypted IV with Key 0: 0C1783D7AEF088E68831AA6B36E3CA42
+        Decrypted IV with Key 1: 0C1783D7AEF088E68831AA6B36E3CA42
+        Decrypted IV with Key 2: 224DD65B38EFE6656828AA9D34EBFE6E
+        Decrypted IV with Key 3: 0C1783D7AEF088E68831AA6B36E3CA42
+
+  NCA Entry: 39f7804791d90548e9b02861c281fea4.nca
+    ContentType: Control
+    FormatVersion: Nca3
+    [Header Fields]
+      FormatVersion: Nca3
+      IsEncrypted: True
+      Magic: 859915086
+      Version: 3
+      DistributionType: Download
+      ContentType: Control
+      KeyGeneration: 22
+      KeyAreaKeyIndex: 0
+      NcaSize: 834048
+      TitleId: 72153870538530816
+      ContentIndex: 0
+      SdkVersion: 21.4.3.0
+      HasRightsId: False
+    Section 0: StartBlock=6 (Offset=0xC00), EndBlock=1 (Size=0xFFFFFFFFFFFFF600)
+      FsHeader: FsType=0, HashType=3, EncryptionType=3
+      Generation: 0000000000000000
+      HierarchicalIntegrity levels:
+        Level 0: Offset=0x0, Size=0x4000
+        Level 1: Offset=0x4000, Size=0x4000
+        Level 2: Offset=0x8000, Size=0x4000
+        Level 3: Offset=0xC000, Size=0x4000
+        Level 4: Offset=0x10000, Size=0x4000
+        Level 5: Offset=0x14000, Size=0xB6C90
+
+  NCA Entry: fb7dd4dd8547afc32c80e6391eae8bd9.nca
+    ContentType: Manual
+    FormatVersion: Nca3
+    [Header Fields]
+      FormatVersion: Nca3
+      IsEncrypted: True
+      Magic: 859915086
+      Version: 3
+      DistributionType: Download
+      ContentType: Manual
+      KeyGeneration: 22
+      KeyAreaKeyIndex: 0
+      NcaSize: 165376
+      TitleId: 72153870538530816
+      ContentIndex: 0
+      SdkVersion: 21.4.3.0
+      HasRightsId: False
+    Section 0: StartBlock=6 (Offset=0xC00), EndBlock=1 (Size=0xFFFFFFFFFFFFF600)
+      FsHeader: FsType=0, HashType=3, EncryptionType=3
+      Generation: 0000000005000000
+      HierarchicalIntegrity levels:
+        Level 0: Offset=0x0, Size=0x4000
+        Level 1: Offset=0x4000, Size=0x4000
+        Level 2: Offset=0x8000, Size=0x4000
+        Level 3: Offset=0xC000, Size=0x4000
+        Level 4: Offset=0x10000, Size=0x4000
+        Level 5: Offset=0x14000, Size=0x13858
+
+  NCA Entry: ff2c32afc3d7fd75d52ca26ab1f33e7b.cnmt.nca
+    ContentType: Meta
+    FormatVersion: Nca3
+    [Header Fields]
+      FormatVersion: Nca3
+      IsEncrypted: True
+      Magic: 859915086
+      Version: 3
+      DistributionType: Download
+      ContentType: Meta
+      KeyGeneration: 22
+      KeyAreaKeyIndex: 0
+      NcaSize: 4096
+      TitleId: 72153870538532864
+      ContentIndex: 0
+      SdkVersion: 22.2.0.0
+      HasRightsId: False
+    Section 0: StartBlock=6 (Offset=0xC00), EndBlock=1 (Size=0xFFFFFFFFFFFFF600)
+      FsHeader: FsType=1, HashType=2, EncryptionType=3
+      Generation: 0000000000000000
+      HierarchicalSha256 Info:
+        BlockSize: 0x1000
+        LayerCount: 2
+        Level 0 (Hash Table): Offset=0x0, Size=0x20
+        Level 1 (Data): Offset=0x20, Size=0x214
+        Ciphertext of PFS0 Start: 9F1A8C9B44C38B2A78F2BE9790D75D3E705A4358A49898892F05B69BD3F67DFD
+        [Storage Fields Debug]
+      Type: LibHac.Tools.FsSystem.HierarchicalIntegrityVerificationStorage
+        <Length>k__BackingField: 532
+        <LeaveOpen>k__BackingField: True
+        <IntegrityStorages>k__BackingField ->
+          Type: LibHac.Tools.FsSystem.IntegrityVerificationStorage[]
+        Decrypted Plaintext at offset 0: 504653300100000038000000000000000000000000000000B401000000000000 (ASCII: 'PFS0')
+        Decrypted Plaintext at level1Offset (0x20): 000000000000000050617463685F303130303537393031653965363830302E63 (ASCII: '\0\0\0\0')
+        Decrypted Key 0: 00000000000000000000000000000000
+        Decrypted Key 1: 00000000000000000000000000000000
+        Decrypted Key 2: E0D34883C3409515DCB8E51E322B5C5D
+        Decrypted Key 3: 00000000000000000000000000000000
+        Actual Keystream at level1Offset: 9F1A8C9B44C38B2A2893CAF4F8886D0F
+        Decrypted IV with Key 0: 87246BB01223FC63BD4B7CF9C30F08F4
+        Decrypted IV with Key 1: 87246BB01223FC63BD4B7CF9C30F08F4
+        Decrypted IV with Key 2: 52B723505709FE4547826F242691DBAD
+        Decrypted IV with Key 3: 87246BB01223FC63BD4B7CF9C30F08F4

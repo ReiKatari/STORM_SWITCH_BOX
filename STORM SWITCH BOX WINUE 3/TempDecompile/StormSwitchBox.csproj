@@ -1,0 +1,74 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>StormSwitchBox</AssemblyName>
+    <GenerateAssemblyInfo>False</GenerateAssemblyInfo>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+  </PropertyGroup>
+  <PropertyGroup>
+    <LangVersion>15.0</LangVersion>
+    <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
+    <CheckForOverflowUnderflow>False</CheckForOverflowUnderflow>
+  </PropertyGroup>
+  <PropertyGroup>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <ItemGroup />
+  <ItemGroup>
+    <Reference Include="Microsoft.InteractiveExperiences.Projection">
+      <HintPath>..\StormSwitchBox\test_xts_app\bin\x64\Debug\net8.0-windows10.0.19041.0\Microsoft.InteractiveExperiences.Projection.dll</HintPath>
+    </Reference>
+    <Reference Include="Microsoft.Windows.ApplicationModel.DynamicDependency.Projection">
+      <HintPath>..\StormSwitchBox\test_xts_app\bin\x64\Debug\net8.0-windows10.0.19041.0\Microsoft.Windows.ApplicationModel.DynamicDependency.Projection.dll</HintPath>
+    </Reference>
+    <Reference Include="Microsoft.Windows.ApplicationModel.Resources.Projection">
+      <HintPath>..\StormSwitchBox\test_xts_app\bin\x64\Debug\net8.0-windows10.0.19041.0\Microsoft.Windows.ApplicationModel.Resources.Projection.dll</HintPath>
+    </Reference>
+    <Reference Include="Microsoft.Windows.ApplicationModel.WindowsAppRuntime.Projection">
+      <HintPath>..\StormSwitchBox\test_xts_app\bin\x64\Debug\net8.0-windows10.0.19041.0\Microsoft.Windows.ApplicationModel.WindowsAppRuntime.Projection.dll</HintPath>
+    </Reference>
+    <Reference Include="Microsoft.Windows.AppLifecycle.Projection">
+      <HintPath>..\StormSwitchBox\test_xts_app\bin\x64\Debug\net8.0-windows10.0.19041.0\Microsoft.Windows.AppLifecycle.Projection.dll</HintPath>
+    </Reference>
+    <Reference Include="Microsoft.Windows.AppNotifications.Builder.Projection">
+      <HintPath>..\StormSwitchBox\test_xts_app\bin\x64\Debug\net8.0-windows10.0.19041.0\Microsoft.Windows.AppNotifications.Builder.Projection.dll</HintPath>
+    </Reference>
+    <Reference Include="Microsoft.Windows.AppNotifications.Projection">
+      <HintPath>..\StormSwitchBox\test_xts_app\bin\x64\Debug\net8.0-windows10.0.19041.0\Microsoft.Windows.AppNotifications.Projection.dll</HintPath>
+    </Reference>
+    <Reference Include="Microsoft.Windows.Management.Deployment.Projection">
+      <HintPath>..\StormSwitchBox\test_xts_app\bin\x64\Debug\net8.0-windows10.0.19041.0\Microsoft.Windows.Management.Deployment.Projection.dll</HintPath>
+    </Reference>
+    <Reference Include="Microsoft.Windows.PushNotifications.Projection">
+      <HintPath>..\StormSwitchBox\test_xts_app\bin\x64\Debug\net8.0-windows10.0.19041.0\Microsoft.Windows.PushNotifications.Projection.dll</HintPath>
+    </Reference>
+    <Reference Include="Microsoft.Windows.System.Projection">
+      <HintPath>..\StormSwitchBox\test_xts_app\bin\x64\Debug\net8.0-windows10.0.19041.0\Microsoft.Windows.System.Projection.dll</HintPath>
+    </Reference>
+    <Reference Include="Microsoft.Windows.Widgets.Projection">
+      <HintPath>..\StormSwitchBox\test_xts_app\bin\x64\Debug\net8.0-windows10.0.19041.0\Microsoft.Windows.Widgets.Projection.dll</HintPath>
+    </Reference>
+    <Reference Include="Microsoft.WinUI">
+      <HintPath>..\StormSwitchBox\test_xts_app\bin\x64\Debug\net8.0-windows10.0.19041.0\Microsoft.WinUI.dll</HintPath>
+    </Reference>
+    <Reference Include="WinRT.Runtime">
+      <HintPath>..\StormSwitchBox\test_xts_app\bin\x64\Debug\net8.0-windows10.0.19041.0\WinRT.Runtime.dll</HintPath>
+    </Reference>
+    <Reference Include="Microsoft.Windows.SDK.NET">
+      <HintPath>..\StormSwitchBox\test_xts_app\bin\x64\Debug\net8.0-windows10.0.19041.0\Microsoft.Windows.SDK.NET.dll</HintPath>
+    </Reference>
+    <Reference Include="CommunityToolkit.WinUI.UI.Controls.DataGrid">
+      <HintPath>..\StormSwitchBox\test_xts_app\bin\x64\Debug\net8.0-windows10.0.19041.0\CommunityToolkit.WinUI.UI.Controls.DataGrid.dll</HintPath>
+    </Reference>
+    <Reference Include="CommunityToolkit.Mvvm">
+      <HintPath>..\StormSwitchBox\test_xts_app\bin\x64\Debug\net8.0-windows10.0.19041.0\CommunityToolkit.Mvvm.dll</HintPath>
+    </Reference>
+    <Reference Include="LibHac">
+      <HintPath>..\StormSwitchBox\test_xts_app\bin\x64\Debug\net8.0-windows10.0.19041.0\LibHac.dll</HintPath>
+    </Reference>
+    <Reference Include="ZstdSharp">
+      <HintPath>..\StormSwitchBox\test_xts_app\bin\x64\Debug\net8.0-windows10.0.19041.0\ZstdSharp.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+</Project>

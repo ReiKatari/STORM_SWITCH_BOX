@@ -1,0 +1,11 @@
+<Project>
+  <!-- Fix for .NET SDK 10.0.300: PRI tasks DLL path is different in VS 18 Insiders -->
+  <PropertyGroup>
+    <_MrtCoreToolsDirectory>C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Microsoft\VisualStudio\v18.0\AppxPackage\</_MrtCoreToolsDirectory>
+  </PropertyGroup>
+  
+  <!-- Override the UsingTask to point to the correct DLL location -->
+  <UsingTask TaskName="Microsoft.Build.Packaging.Pri.Tasks.ExpandPriContent"
+             AssemblyFile="C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Microsoft\VisualStudio\v18.0\AppxPackage\Microsoft.Build.Packaging.Pri.Tasks.dll"
+             Condition="Exists('C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Microsoft\VisualStudio\v18.0\AppxPackage\Microsoft.Build.Packaging.Pri.Tasks.dll')" />
+</Project>
