@@ -128,7 +128,16 @@ namespace StormSwitchBox.Services
                     if (!string.IsNullOrEmpty(baseFile) && !string.IsNullOrEmpty(updateFile))
                     {
                         App.RunOnUI(() => task.LogDetails += "\n🔵 [HardPatch] Физическая пересборка...");
-                        string tempHardPatchedNsp = System.IO.Path.Combine(tempDecompDir, "patched_base_temp.nsp");
+                        string titleIdStr = "";
+                        try {
+                            titleIdStr = App.SwitchFormat.ParseNsp(baseFile).TitleId;
+                        } catch { }
+                        if (string.IsNullOrEmpty(titleIdStr)) {
+                            var match = System.Text.RegularExpressions.Regex.Match(baseFile, @"\[([0-9A-Fa-f]{16})\]");
+                            if (match.Success) titleIdStr = match.Groups[1].Value;
+                        }
+                        string suffix = string.IsNullOrEmpty(titleIdStr) ? "" : $"_[{titleIdStr}][v0]";
+                        string tempHardPatchedNsp = System.IO.Path.Combine(tempDecompDir, $"patched_base{suffix}.nsp");
                         
                         var hpInput = new List<string> { baseFile, updateFile };
                         
@@ -234,6 +243,12 @@ namespace StormSwitchBox.Services
                 string generatedFile = Directory.GetFiles(outFolder).FirstOrDefault();
                 if (string.IsNullOrEmpty(generatedFile))
                     throw new Exception("NSC_Builder squirrel didn't produce any output files. Check keys and inputs.");
+                
+                var fileInfo = new System.IO.FileInfo(generatedFile);
+                if (fileInfo.Length < 100 * 1024)
+                {
+                    throw new Exception($"NSC_Builder output file '{fileInfo.Name}' is suspiciously small ({fileInfo.Length} bytes). Process failed silently. This usually means NSC_Builder rejected the patched base due to missing TitleID/v0 tags or invalid signatures.");
+                }
 
                 if (System.IO.File.Exists(actualIntermediatePath)) System.IO.File.Delete(actualIntermediatePath);
                 System.IO.File.Move(generatedFile, actualIntermediatePath);
