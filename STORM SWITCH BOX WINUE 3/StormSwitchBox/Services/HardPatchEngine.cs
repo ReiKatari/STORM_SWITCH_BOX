@@ -676,8 +676,8 @@ namespace StormSwitchBox.Services
             
             var psi = new ProcessStartInfo
             {
-                FileName = nszExe,
-                Arguments = args,
+                FileName = "cmd.exe",
+                Arguments = $"/c chcp 65001 >nul & \"{nszExe}\" {args}",
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -686,6 +686,8 @@ namespace StormSwitchBox.Services
                 StandardErrorEncoding = System.Text.Encoding.UTF8
             };
             psi.EnvironmentVariables["USERPROFILE"] = isolatedUserProfile;
+            psi.EnvironmentVariables["PYTHONIOENCODING"] = "utf-8";
+            psi.EnvironmentVariables["PYTHONUTF8"] = "1";
 
             using var proc = Process.Start(psi);
             if (proc == null)
