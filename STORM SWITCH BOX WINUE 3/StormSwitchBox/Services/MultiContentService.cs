@@ -226,6 +226,8 @@ namespace StormSwitchBox.Services
                 };
                 psi.EnvironmentVariables["USERPROFILE"] = isolatedUserProfile;
                 psi.EnvironmentVariables["LOCALAPPDATA"] = isolatedLocalAppData;
+                psi.EnvironmentVariables["PYTHONIOENCODING"] = "utf-8";
+                psi.EnvironmentVariables["PYTHONUTF8"] = "1";
 
                 using var proc = System.Diagnostics.Process.Start(psi);
                 if (proc == null) throw new Exception("Не удалось запустить squirrel.exe");
