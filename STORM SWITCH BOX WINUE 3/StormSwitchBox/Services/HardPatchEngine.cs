@@ -188,8 +188,10 @@ namespace StormSwitchBox.Services
                         FileName = yanuCliPath,
                         Arguments = unpackArgs,
                         UseShellExecute = false,
+                        RedirectStandardOutput = true,
                         RedirectStandardError = true,
                         CreateNoWindow = true,
+                        StandardOutputEncoding = System.Text.Encoding.UTF8,
                         StandardErrorEncoding = System.Text.Encoding.UTF8
                     };
                     unpackPsi.EnvironmentVariables["USERPROFILE"] = isolatedUserProfile;
@@ -197,9 +199,17 @@ namespace StormSwitchBox.Services
                     using var unpackProc = Process.Start(unpackPsi);
                     if (unpackProc == null) throw new Exception("Не удалось запустить yanu-cli unpack");
                     
-                    string unpackErr = await unpackProc.StandardError.ReadToEndAsync();
+                    var unpackStderr = new System.Text.StringBuilder();
+                    unpackProc.OutputDataReceived += (s, e) => {
+                        if (e.Data != null) App.RunOnUI(() => task.LogDetails += $"\n    {e.Data}");
+                    };
+                    unpackProc.ErrorDataReceived += (s, e) => {
+                        if (e.Data != null) unpackStderr.AppendLine(e.Data);
+                    };
+                    unpackProc.BeginOutputReadLine();
+                    unpackProc.BeginErrorReadLine();
                     await unpackProc.WaitForExitAsync(cancellationToken);
-                    if (unpackProc.ExitCode != 0) throw new Exception($"Ошибка yanu-cli unpack:\n{unpackErr}");
+                    if (unpackProc.ExitCode != 0) throw new Exception($"Ошибка yanu-cli unpack:\n{unpackStderr}");
                     
                     App.RunOnUI(() => task.LogDetails += $"\n[2/3] Инъекция модов (romfs/exefs)...");
                     
@@ -235,17 +245,28 @@ namespace StormSwitchBox.Services
                         FileName = yanuCliPath,
                         Arguments = packArgs,
                         UseShellExecute = false,
+                        RedirectStandardOutput = true,
                         RedirectStandardError = true,
                         CreateNoWindow = true,
+                        StandardOutputEncoding = System.Text.Encoding.UTF8,
                         StandardErrorEncoding = System.Text.Encoding.UTF8
                     };
                     packPsi.EnvironmentVariables["USERPROFILE"] = isolatedUserProfile;
                     packPsi.EnvironmentVariables["LOCALAPPDATA"] = isolatedLocalAppData;
                     using var packProc = Process.Start(packPsi);
                     if (packProc == null) throw new Exception("Не удалось запустить yanu-cli pack");
-                    string packErr = await packProc.StandardError.ReadToEndAsync();
+                    
+                    var packStderr = new System.Text.StringBuilder();
+                    packProc.OutputDataReceived += (s, e) => {
+                        if (e.Data != null) App.RunOnUI(() => task.LogDetails += $"\n    {e.Data}");
+                    };
+                    packProc.ErrorDataReceived += (s, e) => {
+                        if (e.Data != null) packStderr.AppendLine(e.Data);
+                    };
+                    packProc.BeginOutputReadLine();
+                    packProc.BeginErrorReadLine();
                     await packProc.WaitForExitAsync(cancellationToken);
-                    if (packProc.ExitCode != 0) throw new Exception($"Ошибка yanu-cli pack:\n{packErr}");
+                    if (packProc.ExitCode != 0) throw new Exception($"Ошибка yanu-cli pack:\n{packStderr}");
                 }
                 else
                 {
@@ -291,8 +312,21 @@ namespace StormSwitchBox.Services
                         using var updateProc = Process.Start(updatePsi);
                         if (updateProc != null)
                         {
-                            string updateStdout = await updateProc.StandardOutput.ReadToEndAsync();
-                            string updateStderr = await updateProc.StandardError.ReadToEndAsync();
+                            var updateStderr = new System.Text.StringBuilder();
+                            
+                            updateProc.OutputDataReceived += (s, e) => {
+                                if (e.Data != null) {
+                                    App.RunOnUI(() => task.LogDetails += $"\n    {e.Data}");
+                                }
+                            };
+                            updateProc.ErrorDataReceived += (s, e) => {
+                                if (e.Data != null) {
+                                    updateStderr.AppendLine(e.Data);
+                                }
+                            };
+                            
+                            updateProc.BeginOutputReadLine();
+                            updateProc.BeginErrorReadLine();
                             await updateProc.WaitForExitAsync(cancellationToken);
                             
                             if (updateProc.ExitCode == 0)
@@ -312,7 +346,7 @@ namespace StormSwitchBox.Services
                             }
                             else
                             {
-                                App.Logger.Log($"[yanu-cli] update failed (exit={updateProc.ExitCode}): {updateStderr.Trim()}", Models.LogLevel.Warning);
+                                App.Logger.Log($"[yanu-cli] update failed (exit={updateProc.ExitCode}): {updateStderr.ToString().Trim()}", Models.LogLevel.Warning);
                                 App.RunOnUI(() => task.LogDetails += $"\n  yanu-cli update: не удалось (BKTR). Fallback...");
                             }
                         }
@@ -575,7 +609,7 @@ namespace StormSwitchBox.Services
             }
         }
 
-        private static async Task RunProcessAsync(string fileName, string arguments, CancellationToken ct)
+        private static async Task RunProcessAsync(string fileName, string arguments, Action<string>? onProgress, CancellationToken ct)
         {
             var psi = new ProcessStartInfo
             {
@@ -590,11 +624,18 @@ namespace StormSwitchBox.Services
             };
             using var proc = Process.Start(psi);
             if (proc == null) return;
-            await proc.StandardOutput.ReadToEndAsync();
-            string err = await proc.StandardError.ReadToEndAsync();
+            var err = new System.Text.StringBuilder();
+            proc.OutputDataReceived += (s, e) => {
+                if (e.Data != null) onProgress?.Invoke(e.Data);
+            };
+            proc.ErrorDataReceived += (s, e) => {
+                if (e.Data != null) err.AppendLine(e.Data);
+            };
+            proc.BeginOutputReadLine();
+            proc.BeginErrorReadLine();
             await proc.WaitForExitAsync(ct);
             if (proc.ExitCode != 0)
-                App.Logger.Log($"[RunProcess] {System.IO.Path.GetFileName(fileName)} exit={proc.ExitCode}: {err.Trim()}", Models.LogLevel.Warning);
+                App.Logger.Log($"[RunProcess] {System.IO.Path.GetFileName(fileName)} exit={proc.ExitCode}: {err.ToString().Trim()}", Models.LogLevel.Warning);
         }
 
         private static string FindYanuCli()
@@ -696,13 +737,20 @@ namespace StormSwitchBox.Services
                 return null;
             }
 
-            string stdout = await proc.StandardOutput.ReadToEndAsync();
-            string stderr = await proc.StandardError.ReadToEndAsync();
+            var stderr = new System.Text.StringBuilder();
+            proc.OutputDataReceived += (s, e) => {
+                if (e.Data != null) App.RunOnUI(() => task.LogDetails += $"\n    {e.Data}");
+            };
+            proc.ErrorDataReceived += (s, e) => {
+                if (e.Data != null) stderr.AppendLine(e.Data);
+            };
+            proc.BeginOutputReadLine();
+            proc.BeginErrorReadLine();
             await proc.WaitForExitAsync(cancellationToken);
 
-            App.Logger.Log($"[nsz.exe] Exit={proc.ExitCode}, stdout={stdout.Trim()}", Models.LogLevel.Info);
-            if (!string.IsNullOrEmpty(stderr))
-                App.Logger.Log($"[nsz.exe] stderr={stderr.Trim()}", Models.LogLevel.Warning);
+            App.Logger.Log($"[nsz.exe] Exit={proc.ExitCode}", Models.LogLevel.Info);
+            if (stderr.Length > 0)
+                App.Logger.Log($"[nsz.exe] stderr={stderr.ToString().Trim()}", Models.LogLevel.Warning);
 
             if (proc.ExitCode != 0)
             {
