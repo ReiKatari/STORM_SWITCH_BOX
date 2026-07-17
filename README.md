@@ -55,6 +55,19 @@ dotnet build "STORM SWITCH BOX WINUE 3/StormSwitchBox/StormSwitchBox.csproj" -c 
 
 ---
 
+## 🤝 Благодарности и сторонние проекты
+
+STORM SWITCH BOX разработан благодаря трудам сообщества разработчиков инструментов для Nintendo Switch. Мы выражаем глубокую признательность авторам следующих проектов:
+
+*   **[LibHac](https://github.com/Thealexbarry/LibHac)** — выдающаяся C# библиотека для работы с файловой системой Nintendo Switch. Огромное спасибо авторам **Thealexbarry**, **SciresM** и **shadowolf** за их неоценимый вклад в реверс-инжиниринг форматов NCA/PFS0.
+*   **[ZstdSharp.Port](https://github.com/oleg-karasik/ZstdSharp.Port)** — высокопроизводительный C# порт алгоритма сжатия Zstandard, разработанный **oleg-karasik** на основе оригинальной библиотеки **[Zstd](https://github.com/facebook/zstd)** Яна Колле (Yann Collet / Meta). Используется для сверхбыстрого сжатия и декомпрессии NSZ/NCZ.
+*   **[NSZ](https://github.com/nicoboss/nsz)** — оригинальный скрипт сжатия на Python, разработанный **Nicoboss**. Созданный им формат сжатия блоков лег в основу алгоритмов оптимизации STORM SWITCH BOX.
+*   **[Yanu (Switch Compressor)](https://github.com/Jumbo-W/yanu)** — классический компрессор от **Jumbo-W** и других контрибьюторов, послуживший ориентиром и вдохновивший концепцию создания нативного WinUI-комбайна.
+*   **[Windows App SDK / WinUI 3](https://github.com/microsoft/microsoft-ui-xaml)** — современный фреймворк пользовательского интерфейса от компании **Microsoft**.
+
+---
+
 ## 📄 Лицензия
 
 Проект распространяется под свободной лицензией **GPL-3.0**. Подробности в файле LICENSE.
+
