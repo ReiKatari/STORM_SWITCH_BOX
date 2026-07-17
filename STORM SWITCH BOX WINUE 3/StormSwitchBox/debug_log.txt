@@ -1,3043 +1,0 @@
-12:21:00.377 [IsNczMagic] Size: 3584, m1: ?,"??_0Y
-12:21:00.378 [IsNczMagic] Size: 347812165, m1: h??qH*??
-12:21:00.378 [IsNczMagic] Size: 347812165, m2: NCZSECTN
-12:21:00.379 [IsNczMagic] Size: 872960, m1: ?ZGH_
-12:21:00.379 [IsNczMagic] Size: 872960, m2: ??2?Y5w?
-12:21:00.379 [IsNczMagic] Size: 216064, m1: ?&?( ??
-12:21:00.379 [IsNczMagic] Size: 216064, m2: "??N?
-12:21:07.770 [IsNczMagic] Size: 4096, m1: iYM?u?
-12:21:07.771 [IsNczMagic] Size: 25954161, m1: ???HtS?y
-12:21:07.771 [IsNczMagic] Size: 25954161, m2: NCZSECTN
-12:21:07.771 [IsNczMagic] Size: 872960, m1: 5?????
-12:21:07.771 [IsNczMagic] Size: 872960, m2: q???v?W?
-12:21:07.772 [IsNczMagic] Size: 216064, m1: ?????q2
-12:21:07.772 [IsNczMagic] Size: 216064, m2: ?s_???
-12:30:51.120 [IsNczMagic] Size: 3584, m1: ?,"??_0Y
-12:30:51.121 [IsNczMagic] Size: 347812165, m1: h??qH*??
-12:30:51.121 [IsNczMagic] Size: 347812165, m2: NCZSECTN
-12:30:51.121 [IsNczMagic] Size: 872960, m1: ?ZGH_
-12:30:51.121 [IsNczMagic] Size: 872960, m2: ??2?Y5w?
-12:30:51.122 [IsNczMagic] Size: 216064, m1: ?&?( ??
-12:30:51.122 [IsNczMagic] Size: 216064, m2: "??N?
-12:30:58.031 [IsNczMagic] Size: 4096, m1: iYM?u?
-12:30:58.031 [IsNczMagic] Size: 25954161, m1: ???HtS?y
-12:30:58.031 [IsNczMagic] Size: 25954161, m2: NCZSECTN
-12:30:58.032 [IsNczMagic] Size: 872960, m1: 5?????
-12:30:58.032 [IsNczMagic] Size: 872960, m2: q???v?W?
-12:30:58.032 [IsNczMagic] Size: 216064, m1: ?????q2
-12:30:58.032 [IsNczMagic] Size: 216064, m2: ?s_???
-12:39:21.846 [IsNczMagic] Size: 3584, m1: ?,"??_0Y
-12:39:21.846 [IsNczMagic] Size: 347812165, m1: h??qH*??
-12:39:21.847 [IsNczMagic] Size: 347812165, m2: NCZSECTN
-12:39:21.847 [IsNczMagic] Size: 872960, m1: ?ZGH_
-12:39:21.847 [IsNczMagic] Size: 872960, m2: ??2?Y5w?
-12:39:21.847 [IsNczMagic] Size: 216064, m1: ?&?( ??
-12:39:21.847 [IsNczMagic] Size: 216064, m2: "??N?
-12:39:38.043 [IsNczMagic] Size: 4096, m1: iYM?u?
-12:39:38.043 [IsNczMagic] Size: 25954161, m1: ???HtS?y
-12:39:38.044 [IsNczMagic] Size: 25954161, m2: NCZSECTN
-12:39:38.044 [IsNczMagic] Size: 872960, m1: 5?????
-12:39:38.112 [IsNczMagic] Size: 872960, m2: q???v?W?
-12:39:38.113 [IsNczMagic] Size: 216064, m1: ?????q2
-12:39:38.113 [IsNczMagic] Size: 216064, m2: ?s_???
-12:54:30.608 [IsNczMagic] Size: 3584, m1: ?,"??_0Y
-12:54:30.608 [IsNczMagic] Size: 347812165, m1: h??qH*??
-12:54:30.609 [IsNczMagic] Size: 347812165, m2: NCZSECTN
-12:54:30.609 [IsNczMagic] Size: 872960, m1: ?ZGH_
-12:54:30.609 [IsNczMagic] Size: 872960, m2: ??2?Y5w?
-12:54:30.609 [IsNczMagic] Size: 216064, m1: ?&?( ??
-12:54:30.609 [IsNczMagic] Size: 216064, m2: "??N?
-12:54:41.083 [IsNczMagic] Size: 4096, m1: iYM?u?
-12:54:41.083 [IsNczMagic] Size: 25954161, m1: ???HtS?y
-12:54:41.083 [IsNczMagic] Size: 25954161, m2: NCZSECTN
-12:54:41.084 [IsNczMagic] Size: 872960, m1: 5?????
-12:54:41.084 [IsNczMagic] Size: 872960, m2: q???v?W?
-12:54:41.084 [IsNczMagic] Size: 216064, m1: ?????q2
-12:54:41.084 [IsNczMagic] Size: 216064, m2: ?s_???
-13:21:01.284 [IsNczMagic] Size: 3584, m1: ?,"??_0Y
-13:21:01.284 [IsNczMagic] Size: 347812165, m1: h??qH*??
-13:21:01.284 [IsNczMagic] Size: 347812165, m2: NCZSECTN
-13:21:01.284 [IsNczMagic] Size: 872960, m1: ?ZGH_
-13:21:01.284 [IsNczMagic] Size: 872960, m2: ??2?Y5w?
-13:21:01.285 [IsNczMagic] Size: 216064, m1: ?&?( ??
-13:21:01.285 [IsNczMagic] Size: 216064, m2: "??N?
-13:21:08.390 [IsNczMagic] Size: 4096, m1: iYM?u?
-13:21:08.390 [IsNczMagic] Size: 25954161, m1: ???HtS?y
-13:21:08.390 [IsNczMagic] Size: 25954161, m2: NCZSECTN
-13:21:08.391 [IsNczMagic] Size: 872960, m1: 5?????
-13:21:08.391 [IsNczMagic] Size: 872960, m2: q???v?W?
-13:21:08.391 [IsNczMagic] Size: 216064, m1: ?????q2
-13:21:08.391 [IsNczMagic] Size: 216064, m2: ?s_???
-13:43:12.386 [IsNczMagic] Size: 3584, m1: ?,"??_0Y
-13:43:12.387 [IsNczMagic] Size: 347812165, m1: h??qH*??
-13:43:12.387 [IsNczMagic] Size: 347812165, m2: NCZSECTN
-13:43:12.387 [IsNczMagic] Size: 872960, m1: ?ZGH_
-13:43:12.387 [IsNczMagic] Size: 872960, m2: ??2?Y5w?
-13:43:12.388 [IsNczMagic] Size: 216064, m1: ?&?( ??
-13:43:12.388 [IsNczMagic] Size: 216064, m2: "??N?
-13:43:19.558 [IsNczMagic] Size: 4096, m1: iYM?u?
-13:43:19.559 [IsNczMagic] Size: 25954161, m1: ???HtS?y
-13:43:19.559 [IsNczMagic] Size: 25954161, m2: NCZSECTN
-13:43:19.559 [IsNczMagic] Size: 872960, m1: 5?????
-13:43:19.559 [IsNczMagic] Size: 872960, m2: q???v?W?
-13:43:19.560 [IsNczMagic] Size: 216064, m1: ?????q2
-13:43:19.560 [IsNczMagic] Size: 216064, m2: ?s_???
-14:12:30.419 [IsNczMagic] Size: 3584, m1: ?,"??_0Y
-14:12:30.420 [IsNczMagic] Size: 347812165, m1: h??qH*??
-14:12:30.420 [IsNczMagic] Size: 347812165, m2: NCZSECTN
-14:12:30.420 [IsNczMagic] Size: 872960, m1: ?ZGH_
-14:12:30.420 [IsNczMagic] Size: 872960, m2: ??2?Y5w?
-14:12:30.420 [IsNczMagic] Size: 216064, m1: ?&?( ??
-14:12:30.420 [IsNczMagic] Size: 216064, m2: "??N?
-14:12:37.910 [IsNczMagic] Size: 4096, m1: iYM?u?
-14:12:37.910 [IsNczMagic] Size: 25954161, m1: ???HtS?y
-14:12:37.910 [IsNczMagic] Size: 25954161, m2: NCZSECTN
-14:12:37.910 [IsNczMagic] Size: 872960, m1: 5?????
-14:12:37.911 [IsNczMagic] Size: 872960, m2: q???v?W?
-14:12:37.911 [IsNczMagic] Size: 216064, m1: ?????q2
-14:12:37.911 [IsNczMagic] Size: 216064, m2: ?s_???
-14:21:47.836 [IsNczMagic] Size: 3584, m1: ?,"??_0Y
-14:21:47.837 [IsNczMagic] Size: 347812165, m1: h??qH*??
-14:21:47.837 [IsNczMagic] Size: 347812165, m2: NCZSECTN
-14:21:47.837 [IsNczMagic] Size: 872960, m1: ?ZGH_
-14:21:47.837 [IsNczMagic] Size: 872960, m2: ??2?Y5w?
-14:21:47.837 [IsNczMagic] Size: 216064, m1: ?&?( ??
-14:21:47.837 [IsNczMagic] Size: 216064, m2: "??N?
-14:21:54.874 [IsNczMagic] Size: 4096, m1: iYM?u?
-14:21:54.874 [IsNczMagic] Size: 25954161, m1: ???HtS?y
-14:21:54.875 [IsNczMagic] Size: 25954161, m2: NCZSECTN
-14:21:54.875 [IsNczMagic] Size: 872960, m1: 5?????
-14:21:54.875 [IsNczMagic] Size: 872960, m2: q???v?W?
-14:21:54.875 [IsNczMagic] Size: 216064, m1: ?????q2
-14:21:54.875 [IsNczMagic] Size: 216064, m2: ?s_???
-14:46:51.080 [IsNczMagic] Size: 3584, m1: ?,"??_0Y
-14:46:51.081 [IsNczMagic] Size: 347812165, m1: h??qH*??
-14:46:51.081 [IsNczMagic] Size: 347812165, m2: NCZSECTN
-14:46:51.081 [IsNczMagic] Size: 872960, m1: ?ZGH_
-14:46:51.081 [IsNczMagic] Size: 872960, m2: ??2?Y5w?
-14:46:51.081 [IsNczMagic] Size: 216064, m1: ?&?( ??
-14:46:51.082 [IsNczMagic] Size: 216064, m2: "??N?
-14:46:58.351 [IsNczMagic] Size: 4096, m1: iYM?u?
-14:46:58.351 [IsNczMagic] Size: 25954161, m1: ???HtS?y
-14:46:58.351 [IsNczMagic] Size: 25954161, m2: NCZSECTN
-14:46:58.351 [IsNczMagic] Size: 872960, m1: 5?????
-14:46:58.352 [IsNczMagic] Size: 872960, m2: q???v?W?
-14:46:58.352 [IsNczMagic] Size: 216064, m1: ?????q2
-14:46:58.352 [IsNczMagic] Size: 216064, m2: ?s_???
-20:31:22.498 [IsNczMagic] Size: 3584, m1: ?,"??_0Y
-20:31:22.517 [IsNczMagic] Size: 347812165, m1: h??qH*??
-20:31:22.518 [IsNczMagic] Size: 347812165, m2: NCZSECTN
-20:31:22.518 [IsNczMagic] Size: 872960, m1: ?ZGH_
-20:31:22.518 [IsNczMagic] Size: 872960, m2: ??2?Y5w?
-20:31:22.519 [IsNczMagic] Size: 216064, m1: ?&?( ??
-20:31:22.519 [IsNczMagic] Size: 216064, m2: "??N?
-20:31:31.900 [IsNczMagic] Size: 4096, m1: iYM?u?
-20:31:31.909 [IsNczMagic] Size: 25954161, m1: ???HtS?y
-20:31:31.909 [IsNczMagic] Size: 25954161, m2: NCZSECTN
-20:31:31.910 [IsNczMagic] Size: 872960, m1: 5?????
-20:31:31.910 [IsNczMagic] Size: 872960, m2: q???v?W?
-20:31:31.910 [IsNczMagic] Size: 216064, m1: ?????q2
-20:31:31.915 [IsNczMagic] Size: 216064, m2: ?s_???
-20:32:42.009 [IsNczMagic] Size: 3584, m1: ?,"??_0Y
-20:32:42.009 [IsNczMagic] Size: 347812165, m1: h??qH*??
-20:32:42.010 [IsNczMagic] Size: 347812165, m2: NCZSECTN
-20:32:42.010 [IsNczMagic] Size: 872960, m1: ?ZGH_
-20:32:42.010 [IsNczMagic] Size: 872960, m2: ??2?Y5w?
-20:32:42.010 [IsNczMagic] Size: 216064, m1: ?&?( ??
-20:32:42.010 [IsNczMagic] Size: 216064, m2: "??N?
-20:34:41.808 [IsNczMagic] Size: 3584, m1: ?,"??_0Y
-20:34:41.808 [IsNczMagic] Size: 347812165, m1: h??qH*??
-20:34:41.808 [IsNczMagic] Size: 347812165, m2: NCZSECTN
-20:34:41.808 [IsNczMagic] Size: 872960, m1: ?ZGH_
-20:34:41.809 [IsNczMagic] Size: 872960, m2: ??2?Y5w?
-20:34:41.809 [IsNczMagic] Size: 216064, m1: ?&?( ??
-20:34:41.809 [IsNczMagic] Size: 216064, m2: "??N?
-20:34:48.756 [IsNczMagic] Size: 4096, m1: iYM?u?
-20:34:48.756 [IsNczMagic] Size: 25954161, m1: ???HtS?y
-20:34:48.756 [IsNczMagic] Size: 25954161, m2: NCZSECTN
-20:34:48.756 [IsNczMagic] Size: 872960, m1: 5?????
-20:34:48.757 [IsNczMagic] Size: 872960, m2: q???v?W?
-20:34:48.757 [IsNczMagic] Size: 216064, m1: ?????q2
-20:34:48.757 [IsNczMagic] Size: 216064, m2: ?s_???
-20:46:50.520 [IsNczMagic] Size: 3584, m1: ?,"??_0Y
-20:46:50.520 [IsNczMagic] Size: 347812165, m1: h??qH*??
-20:46:50.521 [IsNczMagic] Size: 347812165, m2: NCZSECTN
-20:46:50.521 [IsNczMagic] Size: 872960, m1: ?ZGH_
-20:46:50.521 [IsNczMagic] Size: 872960, m2: ??2?Y5w?
-20:46:50.521 [IsNczMagic] Size: 216064, m1: ?&?( ??
-20:46:50.521 [IsNczMagic] Size: 216064, m2: "??N?
-20:46:57.275 [IsNczMagic] Size: 4096, m1: iYM?u?
-20:46:57.275 [IsNczMagic] Size: 25954161, m1: ???HtS?y
-20:46:57.275 [IsNczMagic] Size: 25954161, m2: NCZSECTN
-20:46:57.275 [IsNczMagic] Size: 872960, m1: 5?????
-20:46:57.276 [IsNczMagic] Size: 872960, m2: q???v?W?
-20:46:57.276 [IsNczMagic] Size: 216064, m1: ?????q2
-20:46:57.276 [IsNczMagic] Size: 216064, m2: ?s_???
-20:53:45.220 [IsNczMagic] Size: 3584, m1: ?,"??_0Y
-20:53:45.220 [IsNczMagic] Size: 347812165, m1: h??qH*??
-20:53:45.221 [IsNczMagic] Size: 347812165, m2: NCZSECTN
-20:53:45.221 [IsNczMagic] Size: 872960, m1: ?ZGH_
-20:53:45.221 [IsNczMagic] Size: 872960, m2: ??2?Y5w?
-20:53:45.222 [IsNczMagic] Size: 216064, m1: ?&?( ??
-20:53:45.222 [IsNczMagic] Size: 216064, m2: "??N?
-20:54:02.821 [IsNczMagic] Size: 4096, m1: iYM?u?
-20:54:02.822 [IsNczMagic] Size: 25954161, m1: ???HtS?y
-20:54:02.822 [IsNczMagic] Size: 25954161, m2: NCZSECTN
-20:54:02.822 [IsNczMagic] Size: 872960, m1: 5?????
-20:54:02.822 [IsNczMagic] Size: 872960, m2: q???v?W?
-20:54:02.823 [IsNczMagic] Size: 216064, m1: ?????q2
-20:54:02.823 [IsNczMagic] Size: 216064, m2: ?s_???
-12:04:02.865 [IsNczMagic] Size: 3584, m1: ?,"??_0Y
-12:04:02.865 [IsNczMagic] Size: 347812165, m1: h??qH*??
-12:04:02.866 [IsNczMagic] Size: 347812165, m2: NCZSECTN
-12:04:02.866 [IsNczMagic] Size: 872960, m1: ?ZGH_
-12:04:02.866 [IsNczMagic] Size: 872960, m2: ??2?Y5w?
-12:04:02.867 [IsNczMagic] Size: 216064, m1: ?&?( ??
-12:04:02.867 [IsNczMagic] Size: 216064, m2: "??N?
-12:04:09.838 [IsNczMagic] Size: 4096, m1: iYM?u?
-12:04:09.839 [IsNczMagic] Size: 25954161, m1: ???HtS?y
-12:04:09.839 [IsNczMagic] Size: 25954161, m2: NCZSECTN
-12:04:09.839 [IsNczMagic] Size: 872960, m1: 5?????
-12:04:09.839 [IsNczMagic] Size: 872960, m2: q???v?W?
-12:04:09.840 [IsNczMagic] Size: 216064, m1: ?????q2
-12:04:09.840 [IsNczMagic] Size: 216064, m2: ?s_???
-12:17:18.977 [IsNczMagic] Size: 3584, m1: ?,"??_0Y
-12:17:18.977 [IsNczMagic] Size: 347812165, m1: h??qH*??
-12:17:18.977 [IsNczMagic] Size: 347812165, m2: NCZSECTN
-12:17:18.978 [IsNczMagic] Size: 872960, m1: ?ZGH_
-12:17:18.978 [IsNczMagic] Size: 872960, m2: ??2?Y5w?
-12:17:18.978 [IsNczMagic] Size: 216064, m1: ?&?( ??
-12:17:18.979 [IsNczMagic] Size: 216064, m2: "??N?
-12:17:34.138 [IsNczMagic] Size: 4096, m1: iYM?u?
-12:17:34.138 [IsNczMagic] Size: 25954161, m1: ???HtS?y
-12:17:34.138 [IsNczMagic] Size: 25954161, m2: NCZSECTN
-12:17:34.139 [IsNczMagic] Size: 872960, m1: 5?????
-12:17:34.139 [IsNczMagic] Size: 872960, m2: q???v?W?
-12:17:34.139 [IsNczMagic] Size: 216064, m1: ?????q2
-12:17:34.139 [IsNczMagic] Size: 216064, m2: ?s_???
-12:37:58.499 [IsNczMagic] Size: 3584, m1: ?,"??_0Y
-12:37:58.499 [IsNczMagic] Size: 347812165, m1: h??qH*??
-12:37:58.500 [IsNczMagic] Size: 347812165, m2: NCZSECTN
-12:37:58.500 [IsNczMagic] Size: 872960, m1: ?ZGH_
-12:37:58.500 [IsNczMagic] Size: 872960, m2: ??2?Y5w?
-12:37:58.501 [IsNczMagic] Size: 216064, m1: ?&?( ??
-12:37:58.501 [IsNczMagic] Size: 216064, m2: "??N?
-12:38:05.618 [IsNczMagic] Size: 4096, m1: iYM?u?
-12:38:05.618 [IsNczMagic] Size: 25954161, m1: ???HtS?y
-12:38:05.619 [IsNczMagic] Size: 25954161, m2: NCZSECTN
-12:38:05.619 [IsNczMagic] Size: 872960, m1: 5?????
-12:38:05.619 [IsNczMagic] Size: 872960, m2: q???v?W?
-12:38:05.620 [IsNczMagic] Size: 216064, m1: ?????q2
-12:38:05.620 [IsNczMagic] Size: 216064, m2: ?s_???
-12:55:18.572 [IsNczMagic] Size: 3584, m1: ?,"??_0Y
-12:55:18.572 [IsNczMagic] Size: 347812165, m1: h??qH*??
-12:55:18.573 [IsNczMagic] Size: 347812165, m2: NCZSECTN
-12:55:18.573 [IsNczMagic] Size: 872960, m1: ?ZGH_
-12:55:18.573 [IsNczMagic] Size: 872960, m2: ??2?Y5w?
-12:55:18.573 [IsNczMagic] Size: 216064, m1: ?&?( ??
-12:55:18.573 [IsNczMagic] Size: 216064, m2: "??N?
-12:55:25.680 [IsNczMagic] Size: 4096, m1: iYM?u?
-12:55:25.680 [IsNczMagic] Size: 25954161, m1: ???HtS?y
-12:55:25.680 [IsNczMagic] Size: 25954161, m2: NCZSECTN
-12:55:25.681 [IsNczMagic] Size: 872960, m1: 5?????
-12:55:25.681 [IsNczMagic] Size: 872960, m2: q???v?W?
-12:55:25.681 [IsNczMagic] Size: 216064, m1: ?????q2
-12:55:25.682 [IsNczMagic] Size: 216064, m2: ?s_???
-13:01:14.292 [IsNczMagic] Size: 3584, m1: ?,"??_0Y
-13:01:14.292 [IsNczMagic] Size: 347812165, m1: h??qH*??
-13:01:14.293 [IsNczMagic] Size: 347812165, m2: NCZSECTN
-13:01:14.293 [IsNczMagic] Size: 872960, m1: ?ZGH_
-13:01:14.293 [IsNczMagic] Size: 872960, m2: ??2?Y5w?
-13:01:14.293 [IsNczMagic] Size: 216064, m1: ?&?( ??
-13:01:14.294 [IsNczMagic] Size: 216064, m2: "??N?
-13:01:21.633 [IsNczMagic] Size: 4096, m1: iYM?u?
-13:01:21.633 [IsNczMagic] Size: 25954161, m1: ???HtS?y
-13:01:21.634 [IsNczMagic] Size: 25954161, m2: NCZSECTN
-13:01:21.634 [IsNczMagic] Size: 872960, m1: 5?????
-13:01:21.634 [IsNczMagic] Size: 872960, m2: q???v?W?
-13:01:21.634 [IsNczMagic] Size: 216064, m1: ?????q2
-13:01:21.635 [IsNczMagic] Size: 216064, m2: ?s_???
-13:46:24.789 [IsNczMagic] Size: 3584, m1: ?,"??_0Y
-13:46:24.790 [IsNczMagic] Size: 347812165, m1: h??qH*??
-13:46:24.790 [IsNczMagic] Size: 347812165, m2: NCZSECTN
-13:46:24.790 [IsNczMagic] Size: 872960, m1: ?ZGH_
-13:46:24.790 [IsNczMagic] Size: 872960, m2: ??2?Y5w?
-13:46:24.791 [IsNczMagic] Size: 216064, m1: ?&?( ??
-13:46:24.791 [IsNczMagic] Size: 216064, m2: "??N?
-13:46:31.924 [IsNczMagic] Size: 4096, m1: iYM?u?
-13:46:31.924 [IsNczMagic] Size: 25954161, m1: ???HtS?y
-13:46:31.925 [IsNczMagic] Size: 25954161, m2: NCZSECTN
-13:46:31.925 [IsNczMagic] Size: 872960, m1: 5?????
-13:46:31.925 [IsNczMagic] Size: 872960, m2: q???v?W?
-13:46:31.925 [IsNczMagic] Size: 216064, m1: ?????q2
-13:46:31.926 [IsNczMagic] Size: 216064, m2: ?s_???
-14:01:37.492 [IsNczMagic] Size: 3584, m1: ?,"??_0Y
-14:01:37.492 [IsNczMagic] Size: 347812165, m1: h??qH*??
-14:01:37.492 [IsNczMagic] Size: 347812165, m2: NCZSECTN
-14:01:37.492 [IsNczMagic] Size: 872960, m1: ?ZGH_
-14:01:37.493 [IsNczMagic] Size: 872960, m2: ??2?Y5w?
-14:01:37.493 [IsNczMagic] Size: 216064, m1: ?&?( ??
-14:01:37.493 [IsNczMagic] Size: 216064, m2: "??N?
-14:01:52.521 [IsNczMagic] Size: 4096, m1: iYM?u?
-14:01:52.521 [IsNczMagic] Size: 25954161, m1: ???HtS?y
-14:01:52.521 [IsNczMagic] Size: 25954161, m2: NCZSECTN
-14:01:52.522 [IsNczMagic] Size: 872960, m1: 5?????
-14:01:52.522 [IsNczMagic] Size: 872960, m2: q???v?W?
-14:01:52.522 [IsNczMagic] Size: 216064, m1: ?????q2
-14:01:52.522 [IsNczMagic] Size: 216064, m2: ?s_???
-14:15:18.605 [IsNczMagic] Size: 3584, m1: ?,"??_0Y
-14:15:18.605 [IsNczMagic] Size: 347812165, m1: h??qH*??
-14:15:18.606 [IsNczMagic] Size: 347812165, m2: NCZSECTN
-14:15:18.606 [IsNczMagic] Size: 872960, m1: ?ZGH_
-14:15:18.606 [IsNczMagic] Size: 872960, m2: ??2?Y5w?
-14:15:18.606 [IsNczMagic] Size: 216064, m1: ?&?( ??
-14:15:18.607 [IsNczMagic] Size: 216064, m2: "??N?
-14:15:26.156 [IsNczMagic] Size: 4096, m1: iYM?u?
-14:15:26.156 [IsNczMagic] Size: 25954161, m1: ???HtS?y
-14:15:26.156 [IsNczMagic] Size: 25954161, m2: NCZSECTN
-14:15:26.157 [IsNczMagic] Size: 872960, m1: 5?????
-14:15:26.157 [IsNczMagic] Size: 872960, m2: q???v?W?
-14:15:26.157 [IsNczMagic] Size: 216064, m1: ?????q2
-14:15:26.158 [IsNczMagic] Size: 216064, m2: ?s_???
-14:42:28.362 [IsNczMagic] Size: 3584, m1: ?,"??_0Y
-14:42:28.363 [IsNczMagic] Size: 347812165, m1: h??qH*??
-14:42:28.363 [IsNczMagic] Size: 347812165, m2: NCZSECTN
-14:42:28.363 [IsNczMagic] Size: 872960, m1: ?ZGH_
-14:42:28.363 [IsNczMagic] Size: 872960, m2: ??2?Y5w?
-14:42:28.364 [IsNczMagic] Size: 216064, m1: ?&?( ??
-14:42:28.364 [IsNczMagic] Size: 216064, m2: "??N?
-14:42:36.378 [IsNczMagic] Size: 4096, m1: iYM?u?
-14:42:36.378 [IsNczMagic] Size: 25954161, m1: ???HtS?y
-14:42:36.379 [IsNczMagic] Size: 25954161, m2: NCZSECTN
-14:42:36.379 [IsNczMagic] Size: 872960, m1: 5?????
-14:42:36.379 [IsNczMagic] Size: 872960, m2: q???v?W?
-14:42:36.379 [IsNczMagic] Size: 216064, m1: ?????q2
-14:42:36.380 [IsNczMagic] Size: 216064, m2: ?s_???
-16:25:13.690 [IsNczMagic] Size: 3584, m1: ?,"??_0Y
-16:25:13.691 [IsNczMagic] Size: 347812165, m1: h??qH*??
-16:25:13.691 [IsNczMagic] Size: 347812165, m2: NCZSECTN
-16:25:13.691 [IsNczMagic] Size: 872960, m1: ?ZGH_
-16:25:13.692 [IsNczMagic] Size: 872960, m2: ??2?Y5w?
-16:25:13.692 [IsNczMagic] Size: 216064, m1: ?&?( ??
-16:25:13.692 [IsNczMagic] Size: 216064, m2: "??N?
-16:25:20.976 [IsNczMagic] Size: 4096, m1: iYM?u?
-16:25:20.977 [IsNczMagic] Size: 25954161, m1: ???HtS?y
-16:25:20.977 [IsNczMagic] Size: 25954161, m2: NCZSECTN
-16:25:20.977 [IsNczMagic] Size: 872960, m1: 5?????
-16:25:20.978 [IsNczMagic] Size: 872960, m2: q???v?W?
-16:25:20.978 [IsNczMagic] Size: 216064, m1: ?????q2
-16:25:20.978 [IsNczMagic] Size: 216064, m2: ?s_???
-17:09:12.435 [IsNczMagic] Size: 3034013024, m1: ?? ?n???
-17:09:12.436 [IsNczMagic] Size: 3034013024, m2: NCZSECTN
-17:09:12.437 [IsNczMagic] Size: 606208, m1: ??+o???x
-17:09:12.437 [IsNczMagic] Size: 606208, m2: ? $W?
-17:09:12.437 [IsNczMagic] Size: 170496, m1: f??G\???
-17:09:12.630 [IsNczMagic] Size: 170496, m2: PT/?????
-17:09:12.630 [IsNczMagic] Size: 3584, m1: ???3z
-17:10:23.465 [IsNczMagic] Size: 408404289, m1: :?m?}O?o
-17:10:23.502 [IsNczMagic] Size: 408404289, m2: NCZSECTN
-17:10:23.503 [IsNczMagic] Size: 606208, m1: b?m?WNY
-17:10:23.503 [IsNczMagic] Size: 606208, m2: 3?_?(??
-17:10:23.503 [IsNczMagic] Size: 170496, m1: st??r?
-17:10:23.507 [IsNczMagic] Size: 170496, m2: ???????
-17:10:23.508 [IsNczMagic] Size: 5632, m1: 7??B???
-18:38:24.559 [IsNczMagic] Size: 1493479576, m1: ~a7?????
-18:38:24.559 [IsNczMagic] Size: 1493479576, m2: NCZSECTN
-18:38:24.560 [IsNczMagic] Size: 139264, m1: ??q??'{?
-18:38:24.560 [IsNczMagic] Size: 139264, m2: /????V?h
-18:38:24.560 [IsNczMagic] Size: 3584, m1: 7??6??? 
-18:38:24.561 [IsNczMagic] Size: 196096, m1: ?h?do%
-18:38:24.561 [IsNczMagic] Size: 196096, m2: 5?Elq
-18:38:50.327 [IsNczMagic] Size: 94656807, m1: ?? ??R&
-18:38:50.328 [IsNczMagic] Size: 94656807, m2: NCZSECTN
-18:38:50.328 [IsNczMagic] Size: 195584, m1: 7%9?????
-18:38:50.328 [IsNczMagic] Size: 195584, m2: ?L????
-18:38:50.328 [IsNczMagic] Size: 220160, m1: J????\`e
-18:38:50.328 [IsNczMagic] Size: 220160, m2: ?????a??
-18:38:50.328 [IsNczMagic] Size: 164864, m1: ????7=?
-18:38:50.329 [IsNczMagic] Size: 164864, m2: 87[????
-18:38:50.329 [IsNczMagic] Size: 6656, m1: ?????Q
-18:40:38.841 [IsNczMagic] Size: 72456231, m1: ????M??
-18:40:38.841 [IsNczMagic] Size: 72456231, m2: NCZSECTN
-18:40:38.842 [IsNczMagic] Size: 3584, m1: ?mcu?(v
-19:30:15.135 [IsNczMagic] Size: 1493479576, m1: ~a7?????
-19:30:15.140 [IsNczMagic] Size: 1493479576, m2: NCZSECTN
-19:30:15.184 [IsNczMagic] Size: 139264, m1: ??q??'{?
-19:30:15.249 [IsNczMagic] Size: 139264, m2: /????V?h
-19:30:15.334 [IsNczMagic] Size: 3584, m1: 7??6??? 
-19:30:15.403 [IsNczMagic] Size: 196096, m1: ?h?do%
-19:30:15.470 [IsNczMagic] Size: 196096, m2: 5?Elq
-19:30:49.468 [IsNczMagic] Size: 94656807, m1: ?? ??R&
-19:30:49.953 [IsNczMagic] Size: 94656807, m2: NCZSECTN
-19:30:50.027 [IsNczMagic] Size: 195584, m1: 7%9?????
-19:30:50.060 [IsNczMagic] Size: 195584, m2: ?L????
-19:30:50.098 [IsNczMagic] Size: 220160, m1: J????\`e
-19:30:50.141 [IsNczMagic] Size: 220160, m2: ?????a??
-19:30:50.174 [IsNczMagic] Size: 164864, m1: ????7=?
-19:30:50.239 [IsNczMagic] Size: 164864, m2: 87[????
-19:30:50.272 [IsNczMagic] Size: 6656, m1: ?????Q
-19:33:09.431 [IsNczMagic] Size: 72456231, m1: ????M??
-19:33:09.484 [IsNczMagic] Size: 72456231, m2: NCZSECTN
-19:33:09.512 [IsNczMagic] Size: 3584, m1: ?mcu?(v
-20:50:50.421 [IsNczMagic] Size: 1493479576, m1: ~a7?????
-20:50:50.454 [IsNczMagic] Size: 1493479576, m2: NCZSECTN
-20:50:50.454 [IsNczMagic] Size: 139264, m1: ??q??'{?
-20:50:50.454 [IsNczMagic] Size: 139264, m2: /????V?h
-20:50:50.454 [IsNczMagic] Size: 3584, m1: 7??6??? 
-20:50:50.454 [IsNczMagic] Size: 196096, m1: ?h?do%
-20:50:50.455 [IsNczMagic] Size: 196096, m2: 5?Elq
-20:51:16.505 [IsNczMagic] Size: 94656807, m1: ?? ??R&
-20:51:16.506 [IsNczMagic] Size: 94656807, m2: NCZSECTN
-20:51:16.507 [IsNczMagic] Size: 195584, m1: 7%9?????
-20:51:16.507 [IsNczMagic] Size: 195584, m2: ?L????
-20:51:16.507 [IsNczMagic] Size: 220160, m1: J????\`e
-20:51:16.507 [IsNczMagic] Size: 220160, m2: ?????a??
-20:51:16.507 [IsNczMagic] Size: 164864, m1: ????7=?
-20:51:16.507 [IsNczMagic] Size: 164864, m2: 87[????
-20:51:16.508 [IsNczMagic] Size: 6656, m1: ?????Q
-20:53:30.073 [IsNczMagic] Size: 72456231, m1: ????M??
-20:53:30.074 [IsNczMagic] Size: 72456231, m2: NCZSECTN
-20:53:30.074 [IsNczMagic] Size: 3584, m1: ?mcu?(v
-21:07:41.722 [IsNczMagic] Size: 1493479576, m1: ~a7?????
-21:07:41.722 [IsNczMagic] Size: 1493479576, m2: NCZSECTN
-21:07:41.722 [IsNczMagic] Size: 139264, m1: ??q??'{?
-21:07:41.722 [IsNczMagic] Size: 139264, m2: /????V?h
-21:07:41.722 [IsNczMagic] Size: 3584, m1: 7??6??? 
-21:07:41.723 [IsNczMagic] Size: 196096, m1: ?h?do%
-21:07:41.723 [IsNczMagic] Size: 196096, m2: 5?Elq
-21:08:06.840 [IsNczMagic] Size: 94656807, m1: ?? ??R&
-21:08:06.841 [IsNczMagic] Size: 94656807, m2: NCZSECTN
-21:08:06.841 [IsNczMagic] Size: 195584, m1: 7%9?????
-21:08:06.841 [IsNczMagic] Size: 195584, m2: ?L????
-21:08:06.841 [IsNczMagic] Size: 220160, m1: J????\`e
-21:08:06.842 [IsNczMagic] Size: 220160, m2: ?????a??
-21:08:06.842 [IsNczMagic] Size: 164864, m1: ????7=?
-21:08:06.842 [IsNczMagic] Size: 164864, m2: 87[????
-21:08:06.842 [IsNczMagic] Size: 6656, m1: ?????Q
-21:10:24.165 [IsNczMagic] Size: 72456231, m1: ????M??
-21:10:24.166 [IsNczMagic] Size: 72456231, m2: NCZSECTN
-21:10:24.166 [IsNczMagic] Size: 3584, m1: ?mcu?(v
-21:31:34.443 [IsNczMagic] Size: 1493479576, m1: ~a7?????
-21:31:34.443 [IsNczMagic] Size: 1493479576, m2: NCZSECTN
-21:31:34.443 [IsNczMagic] Size: 139264, m1: ??q??'{?
-21:31:34.443 [IsNczMagic] Size: 139264, m2: /????V?h
-21:31:34.444 [IsNczMagic] Size: 3584, m1: 7??6??? 
-21:31:34.444 [IsNczMagic] Size: 196096, m1: ?h?do%
-21:31:34.444 [IsNczMagic] Size: 196096, m2: 5?Elq
-21:32:00.084 [IsNczMagic] Size: 94656807, m1: ?? ??R&
-21:32:00.088 [IsNczMagic] Size: 94656807, m2: NCZSECTN
-21:32:00.088 [IsNczMagic] Size: 195584, m1: 7%9?????
-21:32:00.089 [IsNczMagic] Size: 195584, m2: ?L????
-21:32:00.089 [IsNczMagic] Size: 220160, m1: J????\`e
-21:32:00.089 [IsNczMagic] Size: 220160, m2: ?????a??
-21:32:00.089 [IsNczMagic] Size: 164864, m1: ????7=?
-21:32:00.089 [IsNczMagic] Size: 164864, m2: 87[????
-21:32:00.089 [IsNczMagic] Size: 6656, m1: ?????Q
-21:34:12.727 [IsNczMagic] Size: 72456231, m1: ????M??
-21:34:12.727 [IsNczMagic] Size: 72456231, m2: NCZSECTN
-21:34:12.727 [IsNczMagic] Size: 3584, m1: ?mcu?(v
-22:05:35.729 [IsNczMagic] Size: 1493479576, m1: ~a7?????
-22:05:35.730 [IsNczMagic] Size: 1493479576, m2: NCZSECTN
-22:05:35.730 [IsNczMagic] Size: 139264, m1: ??q??'{?
-22:05:35.730 [IsNczMagic] Size: 139264, m2: /????V?h
-22:05:35.731 [IsNczMagic] Size: 3584, m1: 7??6??? 
-22:05:35.731 [IsNczMagic] Size: 196096, m1: ?h?do%
-22:05:35.731 [IsNczMagic] Size: 196096, m2: 5?Elq
-22:06:00.834 [IsNczMagic] Size: 94656807, m1: ?? ??R&
-22:06:00.834 [IsNczMagic] Size: 94656807, m2: NCZSECTN
-22:06:00.835 [IsNczMagic] Size: 195584, m1: 7%9?????
-22:06:00.835 [IsNczMagic] Size: 195584, m2: ?L????
-22:06:00.835 [IsNczMagic] Size: 220160, m1: J????\`e
-22:06:00.835 [IsNczMagic] Size: 220160, m2: ?????a??
-22:06:00.835 [IsNczMagic] Size: 164864, m1: ????7=?
-22:06:00.835 [IsNczMagic] Size: 164864, m2: 87[????
-22:06:00.836 [IsNczMagic] Size: 6656, m1: ?????Q
-22:07:47.485 [IsNczMagic] Size: 72456231, m1: ????M??
-22:07:47.486 [IsNczMagic] Size: 72456231, m2: NCZSECTN
-22:07:47.486 [IsNczMagic] Size: 3584, m1: ?mcu?(v
-22:37:51.358 [IsNczMagic] Size: 1493479576, m1: ~a7?????
-22:37:51.358 [IsNczMagic] Size: 1493479576, m2: NCZSECTN
-22:37:51.359 [IsNczMagic] Size: 139264, m1: ??q??'{?
-22:37:51.359 [IsNczMagic] Size: 139264, m2: /????V?h
-22:37:51.359 [IsNczMagic] Size: 3584, m1: 7??6??? 
-22:37:51.359 [IsNczMagic] Size: 196096, m1: ?h?do%
-22:37:51.359 [IsNczMagic] Size: 196096, m2: 5?Elq
-22:38:18.355 [IsNczMagic] Size: 94656807, m1: ?? ??R&
-22:38:18.357 [IsNczMagic] Size: 94656807, m2: NCZSECTN
-22:38:18.357 [IsNczMagic] Size: 195584, m1: 7%9?????
-22:38:18.357 [IsNczMagic] Size: 195584, m2: ?L????
-22:38:18.357 [IsNczMagic] Size: 220160, m1: J????\`e
-22:38:18.358 [IsNczMagic] Size: 220160, m2: ?????a??
-22:38:18.358 [IsNczMagic] Size: 164864, m1: ????7=?
-22:38:18.358 [IsNczMagic] Size: 164864, m2: 87[????
-22:38:18.358 [IsNczMagic] Size: 6656, m1: ?????Q
-22:40:07.386 [IsNczMagic] Size: 72456231, m1: ????M??
-22:40:07.387 [IsNczMagic] Size: 72456231, m2: NCZSECTN
-22:40:07.387 [IsNczMagic] Size: 3584, m1: ?mcu?(v
-23:15:28.312 [IsNczMagic] Size: 3034013024, m1: ?? ?n???
-23:15:28.313 [IsNczMagic] Size: 3034013024, m2: NCZSECTN
-23:15:28.313 [IsNczMagic] Size: 606208, m1: ??+o???x
-23:15:28.313 [IsNczMagic] Size: 606208, m2: ? $W?
-23:15:28.313 [IsNczMagic] Size: 170496, m1: f??G\???
-23:15:28.313 [IsNczMagic] Size: 170496, m2: PT/?????
-23:15:28.313 [IsNczMagic] Size: 3584, m1: ???3z
-23:16:27.919 [IsNczMagic] Size: 408404289, m1: :?m?}O?o
-23:16:27.924 [IsNczMagic] Size: 408404289, m2: NCZSECTN
-23:16:27.924 [IsNczMagic] Size: 606208, m1: b?m?WNY
-23:16:27.925 [IsNczMagic] Size: 606208, m2: 3?_?(??
-23:16:27.925 [IsNczMagic] Size: 170496, m1: st??r?
-23:16:27.925 [IsNczMagic] Size: 170496, m2: ???????
-23:16:27.925 [IsNczMagic] Size: 5632, m1: 7??B???
-23:37:23.298 [IsNczMagic] Size: 3034013024, m1: ?? ?n???
-23:37:23.298 [IsNczMagic] Size: 3034013024, m2: NCZSECTN
-23:37:23.298 [IsNczMagic] Size: 606208, m1: ??+o???x
-23:37:23.299 [IsNczMagic] Size: 606208, m2: ? $W?
-23:37:23.299 [IsNczMagic] Size: 170496, m1: f??G\???
-23:37:23.299 [IsNczMagic] Size: 170496, m2: PT/?????
-23:37:23.299 [IsNczMagic] Size: 3584, m1: ???3z
-23:38:23.062 [IsNczMagic] Size: 408404289, m1: :?m?}O?o
-23:38:23.064 [IsNczMagic] Size: 408404289, m2: NCZSECTN
-23:38:23.064 [IsNczMagic] Size: 606208, m1: b?m?WNY
-23:38:23.064 [IsNczMagic] Size: 606208, m2: 3?_?(??
-23:38:23.064 [IsNczMagic] Size: 170496, m1: st??r?
-23:38:23.064 [IsNczMagic] Size: 170496, m2: ???????
-23:38:23.064 [IsNczMagic] Size: 5632, m1: 7??B???
-00:04:47.720 [IsNczMagic] Size: 3034013024, m1: ?? ?n???
-00:04:47.721 [IsNczMagic] Size: 3034013024, m2: NCZSECTN
-00:04:47.721 [IsNczMagic] Size: 606208, m1: ??+o???x
-00:04:47.721 [IsNczMagic] Size: 606208, m2: ? $W?
-00:04:47.722 [IsNczMagic] Size: 170496, m1: f??G\???
-00:04:47.722 [IsNczMagic] Size: 170496, m2: PT/?????
-00:04:47.722 [IsNczMagic] Size: 3584, m1: ???3z
-00:05:40.331 [IsNczMagic] Size: 408404289, m1: :?m?}O?o
-00:05:40.332 [IsNczMagic] Size: 408404289, m2: NCZSECTN
-00:05:40.332 [IsNczMagic] Size: 606208, m1: b?m?WNY
-00:05:40.332 [IsNczMagic] Size: 606208, m2: 3?_?(??
-00:05:40.332 [IsNczMagic] Size: 170496, m1: st??r?
-00:05:40.332 [IsNczMagic] Size: 170496, m2: ???????
-00:05:40.332 [IsNczMagic] Size: 5632, m1: 7??B???
-00:26:22.214 [IsNczMagic] Size: 3034013024, m1: ?? ?n???
-00:26:22.215 [IsNczMagic] Size: 3034013024, m2: NCZSECTN
-00:26:22.215 [IsNczMagic] Size: 606208, m1: ??+o???x
-00:26:22.215 [IsNczMagic] Size: 606208, m2: ? $W?
-00:26:22.215 [IsNczMagic] Size: 170496, m1: f??G\???
-00:26:22.216 [IsNczMagic] Size: 170496, m2: PT/?????
-00:26:22.216 [IsNczMagic] Size: 3584, m1: ???3z
-00:27:15.722 [IsNczMagic] Size: 408404289, m1: :?m?}O?o
-00:27:15.723 [IsNczMagic] Size: 408404289, m2: NCZSECTN
-00:27:15.723 [IsNczMagic] Size: 606208, m1: b?m?WNY
-00:27:15.723 [IsNczMagic] Size: 606208, m2: 3?_?(??
-00:27:15.723 [IsNczMagic] Size: 170496, m1: st??r?
-00:27:15.723 [IsNczMagic] Size: 170496, m2: ???????
-00:27:15.723 [IsNczMagic] Size: 5632, m1: 7??B???
-00:39:52.572 [IsNczMagic] Size: 3034013024, m1: ?? ?n???
-00:39:52.573 [IsNczMagic] Size: 3034013024, m2: NCZSECTN
-00:39:52.573 [IsNczMagic] Size: 606208, m1: ??+o???x
-00:39:52.573 [IsNczMagic] Size: 606208, m2: ? $W?
-00:39:52.573 [IsNczMagic] Size: 170496, m1: f??G\???
-00:39:52.573 [IsNczMagic] Size: 170496, m2: PT/?????
-00:39:52.573 [IsNczMagic] Size: 3584, m1: ???3z
-00:40:52.991 [IsNczMagic] Size: 408404289, m1: :?m?}O?o
-00:40:52.993 [IsNczMagic] Size: 408404289, m2: NCZSECTN
-00:40:52.993 [IsNczMagic] Size: 606208, m1: b?m?WNY
-00:40:52.993 [IsNczMagic] Size: 606208, m2: 3?_?(??
-00:40:52.994 [IsNczMagic] Size: 170496, m1: st??r?
-00:40:52.994 [IsNczMagic] Size: 170496, m2: ???????
-00:40:52.995 [IsNczMagic] Size: 5632, m1: 7??B???
-01:02:59.955 [IsNczMagic] Size: 165376, m1: B??;???Q
-01:02:59.956 [IsNczMagic] Size: 165376, m2: ????I??
-01:02:59.957 [IsNczMagic] Size: 213958057, m1: ??u?(H?
-
-01:02:59.957 [IsNczMagic] Size: 213958057, m2: NCZSECTN
-01:02:59.957 [IsNczMagic] Size: 834048, m1: ??V?j.??
-01:02:59.957 [IsNczMagic] Size: 834048, m2: O????Bn?
-01:02:59.957 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-01:07:16.421 [IsNczMagic] Size: 165376, m1: B??;???Q
-01:07:16.421 [IsNczMagic] Size: 165376, m2: ????I??
-01:07:16.422 [IsNczMagic] Size: 213958057, m1: ??u?(H?
-
-01:07:16.422 [IsNczMagic] Size: 213958057, m2: NCZSECTN
-01:07:16.422 [IsNczMagic] Size: 834048, m1: ??V?j.??
-01:07:16.422 [IsNczMagic] Size: 834048, m2: O????Bn?
-01:07:16.423 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-01:07:32.345 [IsNczMagic] Size: 834048, m1: ?\E??S?
-01:07:32.346 [IsNczMagic] Size: 834048, m2: ???FGs
-01:07:32.346 [IsNczMagic] Size: 53807830, m1: 'Q?X??T
-01:07:32.346 [IsNczMagic] Size: 53807830, m2: NCZSECTN
-01:07:32.346 [IsNczMagic] Size: 165376, m1: ???Z:?Z
-01:07:32.346 [IsNczMagic] Size: 165376, m2: ??p?v_?
-01:07:32.346 [IsNczMagic] Size: 4096, m1: ?j???@
-01:17:39.986 [IsNczMagic] Size: 165376, m1: B??;???Q
-01:17:39.987 [IsNczMagic] Size: 165376, m2: ????I??
-01:17:39.988 [IsNczMagic] Size: 213958057, m1: ??u?(H?
-
-01:17:39.988 [IsNczMagic] Size: 213958057, m2: NCZSECTN
-01:17:39.988 [IsNczMagic] Size: 834048, m1: ??V?j.??
-01:17:39.988 [IsNczMagic] Size: 834048, m2: O????Bn?
-01:17:39.989 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-01:17:55.337 [IsNczMagic] Size: 834048, m1: ?\E??S?
-01:17:55.338 [IsNczMagic] Size: 834048, m2: ???FGs
-01:17:55.338 [IsNczMagic] Size: 53807830, m1: 'Q?X??T
-01:17:55.338 [IsNczMagic] Size: 53807830, m2: NCZSECTN
-01:17:55.338 [IsNczMagic] Size: 165376, m1: ???Z:?Z
-01:17:55.338 [IsNczMagic] Size: 165376, m2: ??p?v_?
-01:17:55.338 [IsNczMagic] Size: 4096, m1: ?j???@
-02:22:49.061 [IsNczMagic] Size: 165376, m1: B??;???Q
-02:22:49.067 [IsNczMagic] Size: 165376, m2: ????I??
-02:22:49.107 [IsNczMagic] Size: 213958057, m1: ??u?(H?
-
-02:22:49.170 [IsNczMagic] Size: 213958057, m2: NCZSECTN
-02:22:49.215 [IsNczMagic] Size: 834048, m1: ??V?j.??
-02:22:49.251 [IsNczMagic] Size: 834048, m2: O????Bn?
-02:22:49.279 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-02:23:06.585 [IsNczMagic] Size: 834048, m1: ?\E??S?
-02:23:07.085 [IsNczMagic] Size: 834048, m2: ???FGs
-02:23:07.124 [IsNczMagic] Size: 53807830, m1: 'Q?X??T
-02:23:07.193 [IsNczMagic] Size: 53807830, m2: NCZSECTN
-02:23:07.235 [IsNczMagic] Size: 165376, m1: ???Z:?Z
-02:23:07.270 [IsNczMagic] Size: 165376, m2: ??p?v_?
-02:23:07.305 [IsNczMagic] Size: 4096, m1: ?j???@
-02:57:03.314 [IsNczMagic] Size: 165376, m1: B??;???Q
-02:57:03.374 [IsNczMagic] Size: 165376, m2: ????I??
-02:57:03.418 [IsNczMagic] Size: 213958057, m1: ??u?(H?
-
-02:57:03.450 [IsNczMagic] Size: 213958057, m2: NCZSECTN
-02:57:03.482 [IsNczMagic] Size: 834048, m1: ??V?j.??
-02:57:03.516 [IsNczMagic] Size: 834048, m2: O????Bn?
-02:57:03.556 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-02:57:18.524 [IsNczMagic] Size: 834048, m1: ?\E??S?
-02:57:18.562 [IsNczMagic] Size: 834048, m2: ???FGs
-02:57:18.594 [IsNczMagic] Size: 53807830, m1: 'Q?X??T
-02:57:18.637 [IsNczMagic] Size: 53807830, m2: NCZSECTN
-02:57:18.660 [IsNczMagic] Size: 165376, m1: ???Z:?Z
-02:57:18.686 [IsNczMagic] Size: 165376, m2: ??p?v_?
-02:57:18.716 [IsNczMagic] Size: 4096, m1: ?j???@
-03:01:24.469 [IsNczMagic] Size: 1214038935, m1: ??u?(H?
-
-03:01:24.515 [IsNczMagic] Size: 1214038935, m2: NCZSECTN
-03:01:24.540 [IsNczMagic] Size: 165484, m1: B??;???Q
-03:01:24.577 [IsNczMagic] Size: 165484, m2: NCZSECTN
-03:01:24.606 [IsNczMagic] Size: 834048, m1: ??V?j.??
-03:01:24.635 [IsNczMagic] Size: 834048, m2: O????Bn?
-03:01:24.667 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-03:01:24.702 [IsNczMagic] Size: 834048, m1: ?\E??S?
-03:01:24.740 [IsNczMagic] Size: 834048, m2: ???FGs
-03:01:24.778 [IsNczMagic] Size: 165484, m1: ???Z:?Z
-03:01:24.811 [IsNczMagic] Size: 165484, m2: NCZSECTN
-03:01:24.850 [IsNczMagic] Size: 4096, m1: ?j???@
-03:04:03.422 [IsNczMagic] Size: 1214038935, m1: ??u?(H?
-
-03:04:03.444 [IsNczMagic] Size: 1214038935, m2: NCZSECTN
-03:04:03.491 [IsNczMagic] Size: 165484, m1: B??;???Q
-03:04:03.540 [IsNczMagic] Size: 165484, m2: NCZSECTN
-03:04:03.569 [IsNczMagic] Size: 834048, m1: ??V?j.??
-03:04:03.596 [IsNczMagic] Size: 834048, m2: O????Bn?
-03:04:03.629 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-03:04:03.666 [IsNczMagic] Size: 834048, m1: ?\E??S?
-03:04:03.694 [IsNczMagic] Size: 834048, m2: ???FGs
-03:04:03.724 [IsNczMagic] Size: 165484, m1: ???Z:?Z
-03:04:03.757 [IsNczMagic] Size: 165484, m2: NCZSECTN
-03:04:03.785 [IsNczMagic] Size: 4096, m1: ?j???@
-03:05:37.249 [IsNczMagic] Size: 1214038935, m1: ??u?(H?
-
-03:05:37.272 [IsNczMagic] Size: 1214038935, m2: NCZSECTN
-03:05:37.310 [IsNczMagic] Size: 165484, m1: B??;???Q
-03:05:37.349 [IsNczMagic] Size: 165484, m2: NCZSECTN
-03:05:37.376 [IsNczMagic] Size: 834048, m1: ??V?j.??
-03:05:37.401 [IsNczMagic] Size: 834048, m2: O????Bn?
-03:05:37.455 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-03:05:37.483 [IsNczMagic] Size: 834048, m1: ?\E??S?
-03:05:37.514 [IsNczMagic] Size: 834048, m2: ???FGs
-03:05:37.551 [IsNczMagic] Size: 165484, m1: ???Z:?Z
-03:05:37.589 [IsNczMagic] Size: 165484, m2: NCZSECTN
-03:05:37.623 [IsNczMagic] Size: 4096, m1: ?j???@
-03:07:17.310 [IsNczMagic] Size: 1214038935, m1: ??u?(H?
-
-03:07:17.334 [IsNczMagic] Size: 1214038935, m2: NCZSECTN
-03:07:17.360 [IsNczMagic] Size: 165484, m1: B??;???Q
-03:07:17.392 [IsNczMagic] Size: 165484, m2: NCZSECTN
-03:07:17.419 [IsNczMagic] Size: 834048, m1: ??V?j.??
-03:07:17.445 [IsNczMagic] Size: 834048, m2: O????Bn?
-03:07:17.470 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-03:07:17.506 [IsNczMagic] Size: 834048, m1: ?\E??S?
-03:07:17.532 [IsNczMagic] Size: 834048, m2: ???FGs
-03:07:17.561 [IsNczMagic] Size: 165484, m1: ???Z:?Z
-03:07:17.593 [IsNczMagic] Size: 165484, m2: NCZSECTN
-03:07:17.629 [IsNczMagic] Size: 4096, m1: ?j???@
-03:08:44.965 [IsNczMagic] Size: 1214038935, m1: ??u?(H?
-
-03:08:45.043 [IsNczMagic] Size: 1214038935, m2: NCZSECTN
-03:08:45.072 [IsNczMagic] Size: 165484, m1: B??;???Q
-03:08:45.112 [IsNczMagic] Size: 165484, m2: NCZSECTN
-03:08:45.149 [IsNczMagic] Size: 834048, m1: ??V?j.??
-03:08:45.184 [IsNczMagic] Size: 834048, m2: O????Bn?
-03:08:45.224 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-03:08:45.257 [IsNczMagic] Size: 834048, m1: ?\E??S?
-03:08:45.290 [IsNczMagic] Size: 834048, m2: ???FGs
-03:08:45.316 [IsNczMagic] Size: 165484, m1: ???Z:?Z
-03:08:45.354 [IsNczMagic] Size: 165484, m2: NCZSECTN
-03:08:45.391 [IsNczMagic] Size: 4096, m1: ?j???@
-03:10:57.379 [IsNczMagic] Size: 165376, m1: B??;???Q
-03:10:57.426 [IsNczMagic] Size: 165376, m2: ????I??
-03:10:57.464 [IsNczMagic] Size: 213958057, m1: ??u?(H?
-
-03:10:57.498 [IsNczMagic] Size: 213958057, m2: NCZSECTN
-03:10:57.545 [IsNczMagic] Size: 834048, m1: ??V?j.??
-03:10:57.580 [IsNczMagic] Size: 834048, m2: O????Bn?
-03:10:57.607 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-03:11:11.517 [IsNczMagic] Size: 834048, m1: ?\E??S?
-03:11:11.576 [IsNczMagic] Size: 834048, m2: ???FGs
-03:11:11.629 [IsNczMagic] Size: 53807830, m1: 'Q?X??T
-03:11:11.657 [IsNczMagic] Size: 53807830, m2: NCZSECTN
-03:11:11.688 [IsNczMagic] Size: 165376, m1: ???Z:?Z
-03:11:11.726 [IsNczMagic] Size: 165376, m2: ??p?v_?
-03:11:11.754 [IsNczMagic] Size: 4096, m1: ?j???@
-03:13:44.852 [IsNczMagic] Size: 1214038889, m1: ??u?(H?
-
-03:13:44.883 [IsNczMagic] Size: 1214038889, m2: NCZSECTN
-03:13:44.905 [IsNczMagic] Size: 165484, m1: B??;???Q
-03:13:44.931 [IsNczMagic] Size: 165484, m2: NCZSECTN
-03:13:44.960 [IsNczMagic] Size: 834048, m1: ??V?j.??
-03:13:44.984 [IsNczMagic] Size: 834048, m2: O????Bn?
-03:13:45.032 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-03:13:45.069 [IsNczMagic] Size: 834048, m1: ?\E??S?
-03:13:45.101 [IsNczMagic] Size: 834048, m2: ???FGs
-03:13:45.129 [IsNczMagic] Size: 165484, m1: ???Z:?Z
-03:13:45.161 [IsNczMagic] Size: 165484, m2: NCZSECTN
-03:13:45.196 [IsNczMagic] Size: 4096, m1: ?j???@
-03:14:26.375 [IsNczMagic] Size: 165376, m1: B??;???Q
-03:14:26.422 [IsNczMagic] Size: 165376, m2: ????I??
-03:14:26.463 [IsNczMagic] Size: 213958057, m1: ??u?(H?
-
-03:14:26.497 [IsNczMagic] Size: 213958057, m2: NCZSECTN
-03:14:26.529 [IsNczMagic] Size: 834048, m1: ??V?j.??
-03:14:26.571 [IsNczMagic] Size: 834048, m2: O????Bn?
-03:14:26.603 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-03:14:39.786 [IsNczMagic] Size: 834048, m1: ?\E??S?
-03:14:39.870 [IsNczMagic] Size: 834048, m2: ???FGs
-03:14:39.929 [IsNczMagic] Size: 53807830, m1: 'Q?X??T
-03:14:39.968 [IsNczMagic] Size: 53807830, m2: NCZSECTN
-03:14:40.003 [IsNczMagic] Size: 165376, m1: ???Z:?Z
-03:14:40.043 [IsNczMagic] Size: 165376, m2: ??p?v_?
-03:14:40.070 [IsNczMagic] Size: 4096, m1: ?j???@
-03:17:01.971 [IsNczMagic] Size: 1214038889, m1: ??u?(H?
-
-03:17:02.013 [IsNczMagic] Size: 1214038889, m2: NCZSECTN
-03:17:02.037 [IsNczMagic] Size: 165484, m1: B??;???Q
-03:17:02.062 [IsNczMagic] Size: 165484, m2: NCZSECTN
-03:17:02.088 [IsNczMagic] Size: 834048, m1: ??V?j.??
-03:17:02.119 [IsNczMagic] Size: 834048, m2: O????Bn?
-03:17:02.146 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-03:17:02.177 [IsNczMagic] Size: 834048, m1: ?\E??S?
-03:17:02.210 [IsNczMagic] Size: 834048, m2: ???FGs
-03:17:02.238 [IsNczMagic] Size: 165484, m1: ???Z:?Z
-03:17:02.267 [IsNczMagic] Size: 165484, m2: NCZSECTN
-03:17:02.299 [IsNczMagic] Size: 4096, m1: ?j???@
-03:17:58.252 [IsNczMagic] Size: 165376, m1: B??;???Q
-03:17:58.285 [IsNczMagic] Size: 165376, m2: ????I??
-03:17:58.319 [IsNczMagic] Size: 213958057, m1: ??u?(H?
-
-03:17:58.348 [IsNczMagic] Size: 213958057, m2: NCZSECTN
-03:17:58.386 [IsNczMagic] Size: 834048, m1: ??V?j.??
-03:17:58.415 [IsNczMagic] Size: 834048, m2: O????Bn?
-03:17:58.440 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-03:18:10.800 [IsNczMagic] Size: 834048, m1: ?\E??S?
-03:18:10.846 [IsNczMagic] Size: 834048, m2: ???FGs
-03:18:10.907 [IsNczMagic] Size: 53807830, m1: 'Q?X??T
-03:18:10.935 [IsNczMagic] Size: 53807830, m2: NCZSECTN
-03:18:10.966 [IsNczMagic] Size: 165376, m1: ???Z:?Z
-03:18:10.996 [IsNczMagic] Size: 165376, m2: ??p?v_?
-03:18:11.032 [IsNczMagic] Size: 4096, m1: ?j???@
-03:20:34.337 [IsNczMagic] Size: 1214038889, m1: ??u?(H?
-
-03:20:34.377 [IsNczMagic] Size: 1214038889, m2: NCZSECTN
-03:20:34.403 [IsNczMagic] Size: 165484, m1: B??;???Q
-03:20:34.430 [IsNczMagic] Size: 165484, m2: NCZSECTN
-03:20:34.459 [IsNczMagic] Size: 834048, m1: ??V?j.??
-03:20:34.495 [IsNczMagic] Size: 834048, m2: O????Bn?
-03:20:34.530 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-03:20:34.564 [IsNczMagic] Size: 834048, m1: ?\E??S?
-03:20:34.598 [IsNczMagic] Size: 834048, m2: ???FGs
-03:20:34.630 [IsNczMagic] Size: 165484, m1: ???Z:?Z
-03:20:34.664 [IsNczMagic] Size: 165484, m2: NCZSECTN
-03:20:34.699 [IsNczMagic] Size: 4096, m1: ?j???@
-03:21:51.402 [IsNczMagic] Size: 165376, m1: B??;???Q
-03:21:51.429 [IsNczMagic] Size: 165376, m2: ????I??
-03:21:51.480 [IsNczMagic] Size: 213958057, m1: ??u?(H?
-
-03:21:51.526 [IsNczMagic] Size: 213958057, m2: NCZSECTN
-03:21:51.551 [IsNczMagic] Size: 834048, m1: ??V?j.??
-03:21:51.577 [IsNczMagic] Size: 834048, m2: O????Bn?
-03:21:51.608 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-03:22:05.480 [IsNczMagic] Size: 834048, m1: ?\E??S?
-03:22:05.521 [IsNczMagic] Size: 834048, m2: ???FGs
-03:22:05.555 [IsNczMagic] Size: 53807830, m1: 'Q?X??T
-03:22:05.581 [IsNczMagic] Size: 53807830, m2: NCZSECTN
-03:22:05.602 [IsNczMagic] Size: 165376, m1: ???Z:?Z
-03:22:05.632 [IsNczMagic] Size: 165376, m2: ??p?v_?
-03:22:05.669 [IsNczMagic] Size: 4096, m1: ?j???@
-03:24:33.786 [IsNczMagic] Size: 1214038889, m1: ??u?(H?
-
-03:24:33.820 [IsNczMagic] Size: 1214038889, m2: NCZSECTN
-03:24:33.846 [IsNczMagic] Size: 165484, m1: B??;???Q
-03:24:33.870 [IsNczMagic] Size: 165484, m2: NCZSECTN
-03:24:33.897 [IsNczMagic] Size: 834048, m1: ??V?j.??
-03:24:33.926 [IsNczMagic] Size: 834048, m2: O????Bn?
-03:24:33.956 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-03:24:33.986 [IsNczMagic] Size: 834048, m1: ?\E??S?
-03:24:34.016 [IsNczMagic] Size: 834048, m2: ???FGs
-03:24:34.043 [IsNczMagic] Size: 165484, m1: ???Z:?Z
-03:24:34.072 [IsNczMagic] Size: 165484, m2: NCZSECTN
-03:24:34.106 [IsNczMagic] Size: 4096, m1: ?j???@
-03:25:27.559 [IsNczMagic] Size: 165376, m1: B??;???Q
-03:25:27.611 [IsNczMagic] Size: 165376, m2: ????I??
-03:25:27.655 [IsNczMagic] Size: 213958057, m1: ??u?(H?
-
-03:25:27.689 [IsNczMagic] Size: 213958057, m2: NCZSECTN
-03:25:27.718 [IsNczMagic] Size: 834048, m1: ??V?j.??
-03:25:27.748 [IsNczMagic] Size: 834048, m2: O????Bn?
-03:25:27.795 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-03:25:41.374 [IsNczMagic] Size: 834048, m1: ?\E??S?
-03:25:41.421 [IsNczMagic] Size: 834048, m2: ???FGs
-03:25:41.455 [IsNczMagic] Size: 53807830, m1: 'Q?X??T
-03:25:41.489 [IsNczMagic] Size: 53807830, m2: NCZSECTN
-03:25:41.519 [IsNczMagic] Size: 165376, m1: ???Z:?Z
-03:25:41.547 [IsNczMagic] Size: 165376, m2: ??p?v_?
-03:25:41.581 [IsNczMagic] Size: 4096, m1: ?j???@
-03:28:03.183 [IsNczMagic] Size: 1214038889, m1: ??u?(H?
-
-03:28:03.227 [IsNczMagic] Size: 1214038889, m2: NCZSECTN
-03:28:03.260 [IsNczMagic] Size: 165484, m1: B??;???Q
-03:28:03.288 [IsNczMagic] Size: 165484, m2: NCZSECTN
-03:28:03.313 [IsNczMagic] Size: 834048, m1: ??V?j.??
-03:28:03.346 [IsNczMagic] Size: 834048, m2: O????Bn?
-03:28:03.374 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-03:28:03.399 [IsNczMagic] Size: 834048, m1: ?\E??S?
-03:28:03.428 [IsNczMagic] Size: 834048, m2: ???FGs
-03:28:03.459 [IsNczMagic] Size: 165484, m1: ???Z:?Z
-03:28:03.493 [IsNczMagic] Size: 165484, m2: NCZSECTN
-03:28:03.525 [IsNczMagic] Size: 4096, m1: ?j???@
-03:29:29.865 [IsNczMagic] Size: 165376, m1: B??;???Q
-03:29:29.909 [IsNczMagic] Size: 165376, m2: ????I??
-03:29:29.960 [IsNczMagic] Size: 213958057, m1: ??u?(H?
-
-03:29:30.010 [IsNczMagic] Size: 213958057, m2: NCZSECTN
-03:29:30.039 [IsNczMagic] Size: 834048, m1: ??V?j.??
-03:29:30.068 [IsNczMagic] Size: 834048, m2: O????Bn?
-03:29:30.100 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-03:29:44.379 [IsNczMagic] Size: 834048, m1: ?\E??S?
-03:29:44.436 [IsNczMagic] Size: 834048, m2: ???FGs
-03:29:44.466 [IsNczMagic] Size: 53807830, m1: 'Q?X??T
-03:29:44.490 [IsNczMagic] Size: 53807830, m2: NCZSECTN
-03:29:44.525 [IsNczMagic] Size: 165376, m1: ???Z:?Z
-03:29:44.556 [IsNczMagic] Size: 165376, m2: ??p?v_?
-03:29:44.584 [IsNczMagic] Size: 4096, m1: ?j???@
-03:32:06.541 [IsNczMagic] Size: 1214038888, m1: ??u?(H?
-
-03:32:06.575 [IsNczMagic] Size: 1214038888, m2: NCZSECTN
-03:32:06.605 [IsNczMagic] Size: 165484, m1: B??;???Q
-03:32:06.634 [IsNczMagic] Size: 165484, m2: NCZSECTN
-03:32:06.656 [IsNczMagic] Size: 834048, m1: ??V?j.??
-03:32:06.692 [IsNczMagic] Size: 834048, m2: O????Bn?
-03:32:06.719 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-03:32:06.744 [IsNczMagic] Size: 834048, m1: ?\E??S?
-03:32:06.788 [IsNczMagic] Size: 834048, m2: ???FGs
-03:32:06.817 [IsNczMagic] Size: 165484, m1: ???Z:?Z
-03:32:06.854 [IsNczMagic] Size: 165484, m2: NCZSECTN
-03:32:06.891 [IsNczMagic] Size: 4096, m1: ?j???@
-03:33:08.013 [IsNczMagic] Size: 165376, m1: B??;???Q
-03:33:08.049 [IsNczMagic] Size: 165376, m2: ????I??
-03:33:08.080 [IsNczMagic] Size: 213958057, m1: ??u?(H?
-
-03:33:08.104 [IsNczMagic] Size: 213958057, m2: NCZSECTN
-03:33:08.131 [IsNczMagic] Size: 834048, m1: ??V?j.??
-03:33:08.162 [IsNczMagic] Size: 834048, m2: O????Bn?
-03:33:08.195 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-03:33:21.063 [IsNczMagic] Size: 834048, m1: ?\E??S?
-03:33:21.096 [IsNczMagic] Size: 834048, m2: ???FGs
-03:33:21.142 [IsNczMagic] Size: 53807830, m1: 'Q?X??T
-03:33:21.175 [IsNczMagic] Size: 53807830, m2: NCZSECTN
-03:33:21.200 [IsNczMagic] Size: 165376, m1: ???Z:?Z
-03:33:21.234 [IsNczMagic] Size: 165376, m2: ??p?v_?
-03:33:21.264 [IsNczMagic] Size: 4096, m1: ?j???@
-03:35:56.024 [IsNczMagic] Size: 1214038888, m1: ??u?(H?
-
-03:35:56.053 [IsNczMagic] Size: 1214038888, m2: NCZSECTN
-03:35:56.082 [IsNczMagic] Size: 165484, m1: B??;???Q
-03:35:56.113 [IsNczMagic] Size: 165484, m2: NCZSECTN
-03:35:56.152 [IsNczMagic] Size: 834048, m1: ??V?j.??
-03:35:56.181 [IsNczMagic] Size: 834048, m2: O????Bn?
-03:35:56.210 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-03:35:56.237 [IsNczMagic] Size: 834048, m1: ?\E??S?
-03:35:56.271 [IsNczMagic] Size: 834048, m2: ???FGs
-03:35:56.299 [IsNczMagic] Size: 165484, m1: ???Z:?Z
-03:35:56.335 [IsNczMagic] Size: 165484, m2: NCZSECTN
-03:35:56.367 [IsNczMagic] Size: 4096, m1: ?j???@
-03:36:43.229 [IsNczMagic] Size: 165376, m1: B??;???Q
-03:36:43.281 [IsNczMagic] Size: 165376, m2: ????I??
-03:36:43.324 [IsNczMagic] Size: 213958057, m1: ??u?(H?
-
-03:36:43.354 [IsNczMagic] Size: 213958057, m2: NCZSECTN
-03:36:43.389 [IsNczMagic] Size: 834048, m1: ??V?j.??
-03:36:43.421 [IsNczMagic] Size: 834048, m2: O????Bn?
-03:36:43.447 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-03:36:56.341 [IsNczMagic] Size: 834048, m1: ?\E??S?
-03:36:56.383 [IsNczMagic] Size: 834048, m2: ???FGs
-03:36:56.416 [IsNczMagic] Size: 53807830, m1: 'Q?X??T
-03:36:56.438 [IsNczMagic] Size: 53807830, m2: NCZSECTN
-03:36:56.473 [IsNczMagic] Size: 165376, m1: ???Z:?Z
-03:36:56.513 [IsNczMagic] Size: 165376, m2: ??p?v_?
-03:36:56.541 [IsNczMagic] Size: 4096, m1: ?j???@
-03:39:33.819 [IsNczMagic] Size: 1214038888, m1: ??u?(H?
-
-03:39:33.863 [IsNczMagic] Size: 1214038888, m2: NCZSECTN
-03:39:33.889 [IsNczMagic] Size: 165484, m1: B??;???Q
-03:39:33.914 [IsNczMagic] Size: 165484, m2: NCZSECTN
-03:39:33.951 [IsNczMagic] Size: 834048, m1: ??V?j.??
-03:39:33.974 [IsNczMagic] Size: 834048, m2: O????Bn?
-03:39:34.004 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-03:39:34.035 [IsNczMagic] Size: 834048, m1: ?\E??S?
-03:39:34.065 [IsNczMagic] Size: 834048, m2: ???FGs
-03:39:34.093 [IsNczMagic] Size: 165484, m1: ???Z:?Z
-03:39:34.120 [IsNczMagic] Size: 165484, m2: NCZSECTN
-03:39:34.148 [IsNczMagic] Size: 4096, m1: ?j???@
-03:40:41.273 [IsNczMagic] Size: 165376, m1: B??;???Q
-03:40:41.335 [IsNczMagic] Size: 165376, m2: ????I??
-03:40:41.383 [IsNczMagic] Size: 213958057, m1: ??u?(H?
-
-03:40:41.441 [IsNczMagic] Size: 213958057, m2: NCZSECTN
-03:40:41.475 [IsNczMagic] Size: 834048, m1: ??V?j.??
-03:40:41.504 [IsNczMagic] Size: 834048, m2: O????Bn?
-03:40:41.536 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-03:40:55.020 [IsNczMagic] Size: 834048, m1: ?\E??S?
-03:40:55.073 [IsNczMagic] Size: 834048, m2: ???FGs
-03:40:55.120 [IsNczMagic] Size: 53807830, m1: 'Q?X??T
-03:40:55.152 [IsNczMagic] Size: 53807830, m2: NCZSECTN
-03:40:55.182 [IsNczMagic] Size: 165376, m1: ???Z:?Z
-03:40:55.216 [IsNczMagic] Size: 165376, m2: ??p?v_?
-03:40:55.248 [IsNczMagic] Size: 4096, m1: ?j???@
-03:43:21.592 [IsNczMagic] Size: 1214038888, m1: ??u?(H?
-
-03:43:21.624 [IsNczMagic] Size: 1214038888, m2: NCZSECTN
-03:43:21.648 [IsNczMagic] Size: 165484, m1: B??;???Q
-03:43:21.674 [IsNczMagic] Size: 165484, m2: NCZSECTN
-03:43:21.709 [IsNczMagic] Size: 834048, m1: ??V?j.??
-03:43:21.740 [IsNczMagic] Size: 834048, m2: O????Bn?
-03:43:21.775 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-03:43:21.800 [IsNczMagic] Size: 834048, m1: ?\E??S?
-03:43:21.834 [IsNczMagic] Size: 834048, m2: ???FGs
-03:43:21.876 [IsNczMagic] Size: 165484, m1: ???Z:?Z
-03:43:21.905 [IsNczMagic] Size: 165484, m2: NCZSECTN
-03:43:21.940 [IsNczMagic] Size: 4096, m1: ?j???@
-03:45:11.621 [IsNczMagic] Size: 165376, m1: B??;???Q
-03:45:11.678 [IsNczMagic] Size: 165376, m2: ????I??
-03:45:11.745 [IsNczMagic] Size: 213958057, m1: ??u?(H?
-
-03:45:11.791 [IsNczMagic] Size: 213958057, m2: NCZSECTN
-03:45:11.821 [IsNczMagic] Size: 834048, m1: ??V?j.??
-03:45:11.858 [IsNczMagic] Size: 834048, m2: O????Bn?
-03:45:11.896 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-03:45:25.483 [IsNczMagic] Size: 834048, m1: ?\E??S?
-03:45:25.532 [IsNczMagic] Size: 834048, m2: ???FGs
-03:45:25.592 [IsNczMagic] Size: 53807830, m1: 'Q?X??T
-03:45:25.627 [IsNczMagic] Size: 53807830, m2: NCZSECTN
-03:45:25.660 [IsNczMagic] Size: 165376, m1: ???Z:?Z
-03:45:25.683 [IsNczMagic] Size: 165376, m2: ??p?v_?
-03:45:25.715 [IsNczMagic] Size: 4096, m1: ?j???@
-03:47:48.430 [IsNczMagic] Size: 1214038888, m1: ??u?(H?
-
-03:47:48.467 [IsNczMagic] Size: 1214038888, m2: NCZSECTN
-03:47:48.492 [IsNczMagic] Size: 165484, m1: B??;???Q
-03:47:48.528 [IsNczMagic] Size: 165484, m2: NCZSECTN
-03:47:48.563 [IsNczMagic] Size: 834048, m1: ??V?j.??
-03:47:48.593 [IsNczMagic] Size: 834048, m2: O????Bn?
-03:47:48.634 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-03:47:48.666 [IsNczMagic] Size: 834048, m1: ?\E??S?
-03:47:48.701 [IsNczMagic] Size: 834048, m2: ???FGs
-03:47:48.747 [IsNczMagic] Size: 165484, m1: ???Z:?Z
-03:47:48.780 [IsNczMagic] Size: 165484, m2: NCZSECTN
-03:47:48.811 [IsNczMagic] Size: 4096, m1: ?j???@
-03:48:58.569 [IsNczMagic] Size: 165376, m1: B??;???Q
-03:48:58.623 [IsNczMagic] Size: 165376, m2: ????I??
-03:48:58.655 [IsNczMagic] Size: 213958057, m1: ??u?(H?
-
-03:48:58.693 [IsNczMagic] Size: 213958057, m2: NCZSECTN
-03:48:58.717 [IsNczMagic] Size: 834048, m1: ??V?j.??
-03:48:58.749 [IsNczMagic] Size: 834048, m2: O????Bn?
-03:48:58.785 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-03:49:12.740 [IsNczMagic] Size: 834048, m1: ?\E??S?
-03:49:12.775 [IsNczMagic] Size: 834048, m2: ???FGs
-03:49:12.813 [IsNczMagic] Size: 53807830, m1: 'Q?X??T
-03:49:12.840 [IsNczMagic] Size: 53807830, m2: NCZSECTN
-03:49:12.864 [IsNczMagic] Size: 165376, m1: ???Z:?Z
-03:49:12.902 [IsNczMagic] Size: 165376, m2: ??p?v_?
-03:49:12.944 [IsNczMagic] Size: 4096, m1: ?j???@
-03:52:03.153 [IsNczMagic] Size: 1214038888, m1: ??u?(H?
-
-03:52:03.195 [IsNczMagic] Size: 1214038888, m2: NCZSECTN
-03:52:03.234 [IsNczMagic] Size: 165484, m1: B??;???Q
-03:52:03.266 [IsNczMagic] Size: 165484, m2: NCZSECTN
-03:52:03.298 [IsNczMagic] Size: 834048, m1: ??V?j.??
-03:52:03.329 [IsNczMagic] Size: 834048, m2: O????Bn?
-03:52:03.359 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-03:52:03.386 [IsNczMagic] Size: 834048, m1: ?\E??S?
-03:52:03.427 [IsNczMagic] Size: 834048, m2: ???FGs
-03:52:03.460 [IsNczMagic] Size: 165484, m1: ???Z:?Z
-03:52:03.493 [IsNczMagic] Size: 165484, m2: NCZSECTN
-03:52:03.534 [IsNczMagic] Size: 4096, m1: ?j???@
-03:53:03.770 [IsNczMagic] Size: 1214038888, m1: ??u?(H?
-
-03:53:03.793 [IsNczMagic] Size: 1214038888, m2: NCZSECTN
-03:53:03.834 [IsNczMagic] Size: 165484, m1: B??;???Q
-03:53:03.857 [IsNczMagic] Size: 165484, m2: NCZSECTN
-03:53:03.882 [IsNczMagic] Size: 834048, m1: ??V?j.??
-03:53:03.917 [IsNczMagic] Size: 834048, m2: O????Bn?
-03:53:03.956 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-03:53:04.004 [IsNczMagic] Size: 834048, m1: ?\E??S?
-03:53:04.034 [IsNczMagic] Size: 834048, m2: ???FGs
-03:53:04.057 [IsNczMagic] Size: 165484, m1: ???Z:?Z
-03:53:04.089 [IsNczMagic] Size: 165484, m2: NCZSECTN
-03:53:04.115 [IsNczMagic] Size: 4096, m1: ?j???@
-03:55:17.941 [IsNczMagic] Size: 1214038888, m1: ??u?(H?
-
-03:55:17.966 [IsNczMagic] Size: 1214038888, m2: NCZSECTN
-03:55:17.995 [IsNczMagic] Size: 165484, m1: B??;???Q
-03:55:18.030 [IsNczMagic] Size: 165484, m2: NCZSECTN
-03:55:18.066 [IsNczMagic] Size: 834048, m1: ??V?j.??
-03:55:18.106 [IsNczMagic] Size: 834048, m2: O????Bn?
-03:55:18.143 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-03:55:18.174 [IsNczMagic] Size: 834048, m1: ?\E??S?
-03:55:18.205 [IsNczMagic] Size: 834048, m2: ???FGs
-03:55:18.235 [IsNczMagic] Size: 165484, m1: ???Z:?Z
-03:55:18.264 [IsNczMagic] Size: 165484, m2: NCZSECTN
-03:55:18.317 [IsNczMagic] Size: 4096, m1: ?j???@
-03:55:50.155 [IsNczMagic] Size: 165376, m1: B??;???Q
-03:55:50.206 [IsNczMagic] Size: 165376, m2: ????I??
-03:55:50.249 [IsNczMagic] Size: 213958057, m1: ??u?(H?
-
-03:55:50.280 [IsNczMagic] Size: 213958057, m2: NCZSECTN
-03:55:50.306 [IsNczMagic] Size: 834048, m1: ??V?j.??
-03:55:50.337 [IsNczMagic] Size: 834048, m2: O????Bn?
-03:55:50.376 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-03:56:03.540 [IsNczMagic] Size: 834048, m1: ?\E??S?
-03:56:03.577 [IsNczMagic] Size: 834048, m2: ???FGs
-03:56:03.609 [IsNczMagic] Size: 53807830, m1: 'Q?X??T
-03:56:03.637 [IsNczMagic] Size: 53807830, m2: NCZSECTN
-03:56:03.664 [IsNczMagic] Size: 165376, m1: ???Z:?Z
-03:56:03.691 [IsNczMagic] Size: 165376, m2: ??p?v_?
-03:56:03.716 [IsNczMagic] Size: 4096, m1: ?j???@
-03:58:26.630 [IsNczMagic] Size: 1214038929, m1: ??u?(H?
-
-03:58:26.677 [IsNczMagic] Size: 1214038929, m2: NCZSECTN
-03:58:26.700 [IsNczMagic] Size: 165484, m1: B??;???Q
-03:58:26.725 [IsNczMagic] Size: 165484, m2: NCZSECTN
-03:58:26.749 [IsNczMagic] Size: 834048, m1: ??V?j.??
-03:58:26.778 [IsNczMagic] Size: 834048, m2: O????Bn?
-03:58:26.803 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-03:58:26.827 [IsNczMagic] Size: 834048, m1: ?\E??S?
-03:58:26.866 [IsNczMagic] Size: 834048, m2: ???FGs
-03:58:26.899 [IsNczMagic] Size: 165484, m1: ???Z:?Z
-03:58:26.931 [IsNczMagic] Size: 165484, m2: NCZSECTN
-03:58:26.958 [IsNczMagic] Size: 4096, m1: ?j???@
-03:59:32.123 [IsNczMagic] Size: 1214038929, m1: ??u?(H?
-
-03:59:32.153 [IsNczMagic] Size: 1214038929, m2: NCZSECTN
-03:59:32.187 [IsNczMagic] Size: 165484, m1: B??;???Q
-03:59:32.220 [IsNczMagic] Size: 165484, m2: NCZSECTN
-03:59:32.243 [IsNczMagic] Size: 834048, m1: ??V?j.??
-03:59:32.268 [IsNczMagic] Size: 834048, m2: O????Bn?
-03:59:32.304 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-03:59:32.333 [IsNczMagic] Size: 834048, m1: ?\E??S?
-03:59:32.362 [IsNczMagic] Size: 834048, m2: ???FGs
-03:59:32.387 [IsNczMagic] Size: 165484, m1: ???Z:?Z
-03:59:32.418 [IsNczMagic] Size: 165484, m2: NCZSECTN
-03:59:32.454 [IsNczMagic] Size: 4096, m1: ?j???@
-04:01:25.834 [IsNczMagic] Size: 1214038929, m1: ??u?(H?
-
-04:01:25.858 [IsNczMagic] Size: 1214038929, m2: NCZSECTN
-04:01:25.890 [IsNczMagic] Size: 165484, m1: B??;???Q
-04:01:25.916 [IsNczMagic] Size: 165484, m2: NCZSECTN
-04:01:25.947 [IsNczMagic] Size: 834048, m1: ??V?j.??
-04:01:25.970 [IsNczMagic] Size: 834048, m2: O????Bn?
-04:01:25.996 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-04:01:26.025 [IsNczMagic] Size: 834048, m1: ?\E??S?
-04:01:26.066 [IsNczMagic] Size: 834048, m2: ???FGs
-04:01:26.095 [IsNczMagic] Size: 165484, m1: ???Z:?Z
-04:01:26.131 [IsNczMagic] Size: 165484, m2: NCZSECTN
-04:01:26.164 [IsNczMagic] Size: 4096, m1: ?j???@
-04:07:06.964 [IsNczMagic] Size: 1214038929, m1: ??u?(H?
-
-04:07:07.017 [IsNczMagic] Size: 1214038929, m2: NCZSECTN
-04:07:07.053 [IsNczMagic] Size: 165484, m1: B??;???Q
-04:07:07.100 [IsNczMagic] Size: 165484, m2: NCZSECTN
-04:07:07.135 [IsNczMagic] Size: 834048, m1: ??V?j.??
-04:07:07.165 [IsNczMagic] Size: 834048, m2: O????Bn?
-04:07:07.191 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-04:07:07.219 [IsNczMagic] Size: 834048, m1: ?\E??S?
-04:07:07.242 [IsNczMagic] Size: 834048, m2: ???FGs
-04:07:07.271 [IsNczMagic] Size: 165484, m1: ???Z:?Z
-04:07:07.299 [IsNczMagic] Size: 165484, m2: NCZSECTN
-04:07:07.327 [IsNczMagic] Size: 4096, m1: ?j???@
-04:08:45.503 [IsNczMagic] Size: 1214038929, m1: ??u?(H?
-
-04:08:45.532 [IsNczMagic] Size: 1214038929, m2: NCZSECTN
-04:08:45.554 [IsNczMagic] Size: 165484, m1: B??;???Q
-04:08:45.575 [IsNczMagic] Size: 165484, m2: NCZSECTN
-04:08:45.598 [IsNczMagic] Size: 834048, m1: ??V?j.??
-04:08:45.622 [IsNczMagic] Size: 834048, m2: O????Bn?
-04:08:45.654 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-04:08:45.686 [IsNczMagic] Size: 834048, m1: ?\E??S?
-04:08:45.712 [IsNczMagic] Size: 834048, m2: ???FGs
-04:08:45.742 [IsNczMagic] Size: 165484, m1: ???Z:?Z
-04:08:45.771 [IsNczMagic] Size: 165484, m2: NCZSECTN
-04:08:45.805 [IsNczMagic] Size: 4096, m1: ?j???@
-04:09:14.720 [IsNczMagic] Size: 165376, m1: B??;???Q
-04:09:14.792 [IsNczMagic] Size: 165376, m2: ????I??
-04:09:14.870 [IsNczMagic] Size: 213958057, m1: ??u?(H?
-
-04:09:14.910 [IsNczMagic] Size: 213958057, m2: NCZSECTN
-04:09:14.949 [IsNczMagic] Size: 834048, m1: ??V?j.??
-04:09:14.978 [IsNczMagic] Size: 834048, m2: O????Bn?
-04:09:15.005 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-04:09:29.998 [IsNczMagic] Size: 834048, m1: ?\E??S?
-04:09:30.043 [IsNczMagic] Size: 834048, m2: ???FGs
-04:09:30.086 [IsNczMagic] Size: 53807830, m1: 'Q?X??T
-04:09:30.116 [IsNczMagic] Size: 53807830, m2: NCZSECTN
-04:09:30.144 [IsNczMagic] Size: 165376, m1: ???Z:?Z
-04:09:30.171 [IsNczMagic] Size: 165376, m2: ??p?v_?
-04:09:30.196 [IsNczMagic] Size: 4096, m1: ?j???@
-04:11:34.133 [IsNczMagic] Size: 1214038929, m1: ??u?(H?
-
-04:11:34.172 [IsNczMagic] Size: 1214038929, m2: NCZSECTN
-04:11:34.196 [IsNczMagic] Size: 165484, m1: B??;???Q
-04:11:34.221 [IsNczMagic] Size: 165484, m2: NCZSECTN
-04:11:34.246 [IsNczMagic] Size: 834048, m1: ??V?j.??
-04:11:34.274 [IsNczMagic] Size: 834048, m2: O????Bn?
-04:11:34.302 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-04:11:34.332 [IsNczMagic] Size: 834048, m1: ?\E??S?
-04:11:34.364 [IsNczMagic] Size: 834048, m2: ???FGs
-04:11:34.388 [IsNczMagic] Size: 165484, m1: ???Z:?Z
-04:11:34.414 [IsNczMagic] Size: 165484, m2: NCZSECTN
-04:11:34.443 [IsNczMagic] Size: 4096, m1: ?j???@
-04:15:34.346 [IsNczMagic] Size: 1214038929, m1: ??u?(H?
-
-04:15:34.376 [IsNczMagic] Size: 1214038929, m2: NCZSECTN
-04:15:34.398 [IsNczMagic] Size: 165484, m1: B??;???Q
-04:15:34.428 [IsNczMagic] Size: 165484, m2: NCZSECTN
-04:15:34.453 [IsNczMagic] Size: 834048, m1: ??V?j.??
-04:15:34.479 [IsNczMagic] Size: 834048, m2: O????Bn?
-04:15:34.504 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-04:15:34.535 [IsNczMagic] Size: 834048, m1: ?\E??S?
-04:15:34.563 [IsNczMagic] Size: 834048, m2: ???FGs
-04:15:34.593 [IsNczMagic] Size: 165484, m1: ???Z:?Z
-04:15:34.621 [IsNczMagic] Size: 165484, m2: NCZSECTN
-04:15:34.649 [IsNczMagic] Size: 4096, m1: ?j???@
-08:10:18.522 [IsNczMagic] Size: 1214038929, m1: ??u?(H?
-
-08:10:18.548 [IsNczMagic] Size: 1214038929, m2: NCZSECTN
-08:10:18.585 [IsNczMagic] Size: 165484, m1: B??;???Q
-08:10:18.610 [IsNczMagic] Size: 165484, m2: NCZSECTN
-08:10:18.637 [IsNczMagic] Size: 834048, m1: ??V?j.??
-08:10:18.666 [IsNczMagic] Size: 834048, m2: O????Bn?
-08:10:18.696 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-08:10:18.728 [IsNczMagic] Size: 834048, m1: ?\E??S?
-08:10:18.761 [IsNczMagic] Size: 834048, m2: ???FGs
-08:10:18.786 [IsNczMagic] Size: 165484, m1: ???Z:?Z
-08:10:18.806 [IsNczMagic] Size: 165484, m2: NCZSECTN
-08:10:18.841 [IsNczMagic] Size: 4096, m1: ?j???@
-08:14:26.378 [IsNczMagic] Size: 165376, m1: B??;???Q
-08:14:26.410 [IsNczMagic] Size: 165376, m2: ????I??
-08:14:26.432 [IsNczMagic] Size: 213958057, m1: ??u?(H?
-
-08:14:26.463 [IsNczMagic] Size: 213958057, m2: NCZSECTN
-08:14:26.492 [IsNczMagic] Size: 834048, m1: ??V?j.??
-08:14:26.519 [IsNczMagic] Size: 834048, m2: O????Bn?
-08:14:26.545 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-08:14:42.248 [IsNczMagic] Size: 834048, m1: ?\E??S?
-08:14:42.783 [IsNczMagic] Size: 834048, m2: ???FGs
-08:14:42.869 [IsNczMagic] Size: 53807830, m1: 'Q?X??T
-08:14:42.900 [IsNczMagic] Size: 53807830, m2: NCZSECTN
-08:14:42.935 [IsNczMagic] Size: 165376, m1: ???Z:?Z
-08:14:42.968 [IsNczMagic] Size: 165376, m2: ??p?v_?
-08:14:42.998 [IsNczMagic] Size: 4096, m1: ?j???@
-08:14:45.268 [IsNczMagic] Size: 1214038929, m1: ??u?(H?
-
-08:14:45.800 [IsNczMagic] Size: 1214038929, m2: NCZSECTN
-08:14:45.861 [IsNczMagic] Size: 165484, m1: B??;???Q
-08:14:45.892 [IsNczMagic] Size: 165484, m2: NCZSECTN
-08:14:45.921 [IsNczMagic] Size: 834048, m1: ??V?j.??
-08:14:45.950 [IsNczMagic] Size: 834048, m2: O????Bn?
-08:14:45.988 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-08:14:46.024 [IsNczMagic] Size: 834048, m1: ?\E??S?
-08:14:46.058 [IsNczMagic] Size: 834048, m2: ???FGs
-08:14:46.084 [IsNczMagic] Size: 165484, m1: ???Z:?Z
-08:14:46.112 [IsNczMagic] Size: 165484, m2: NCZSECTN
-08:14:46.146 [IsNczMagic] Size: 4096, m1: ?j???@
-08:39:30.140 [IsNczMagic] Size: 165376, m1: B??;???Q
-08:39:30.169 [IsNczMagic] Size: 165376, m2: ????I??
-08:39:30.200 [IsNczMagic] Size: 213958057, m1: ??u?(H?
-
-08:39:30.225 [IsNczMagic] Size: 213958057, m2: NCZSECTN
-08:39:30.253 [IsNczMagic] Size: 834048, m1: ??V?j.??
-08:39:30.284 [IsNczMagic] Size: 834048, m2: O????Bn?
-08:39:30.313 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-08:39:43.426 [IsNczMagic] Size: 834048, m1: ?\E??S?
-08:39:43.991 [IsNczMagic] Size: 834048, m2: ???FGs
-08:39:44.095 [IsNczMagic] Size: 53807830, m1: 'Q?X??T
-08:39:44.132 [IsNczMagic] Size: 53807830, m2: NCZSECTN
-08:39:44.193 [IsNczMagic] Size: 165376, m1: ???Z:?Z
-08:39:44.226 [IsNczMagic] Size: 165376, m2: ??p?v_?
-08:39:44.259 [IsNczMagic] Size: 4096, m1: ?j???@
-08:39:45.927 [IsNczMagic] Size: 1214038929, m1: ??u?(H?
-
-08:39:46.431 [IsNczMagic] Size: 1214038929, m2: NCZSECTN
-08:39:46.478 [IsNczMagic] Size: 165484, m1: B??;???Q
-08:39:46.509 [IsNczMagic] Size: 165484, m2: NCZSECTN
-08:39:46.539 [IsNczMagic] Size: 834048, m1: ??V?j.??
-08:39:46.576 [IsNczMagic] Size: 834048, m2: O????Bn?
-08:39:46.609 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-08:39:46.639 [IsNczMagic] Size: 834048, m1: ?\E??S?
-08:39:46.677 [IsNczMagic] Size: 834048, m2: ???FGs
-08:39:46.708 [IsNczMagic] Size: 165484, m1: ???Z:?Z
-08:39:46.743 [IsNczMagic] Size: 165484, m2: NCZSECTN
-08:39:46.775 [IsNczMagic] Size: 4096, m1: ?j???@
-22:05:29.921 [IsNczMagic] Size: 165376, m1: B??;???Q
-22:05:29.972 [IsNczMagic] Size: 165376, m2: ????I??
-22:05:30.020 [IsNczMagic] Size: 213958057, m1: ??u?(H?
-
-22:05:30.059 [IsNczMagic] Size: 213958057, m2: NCZSECTN
-22:05:30.096 [IsNczMagic] Size: 834048, m1: ??V?j.??
-22:05:30.122 [IsNczMagic] Size: 834048, m2: O????Bn?
-22:05:30.151 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-22:05:47.068 [IsNczMagic] Size: 834048, m1: ?\E??S?
-22:05:47.572 [IsNczMagic] Size: 834048, m2: ???FGs
-22:05:47.615 [IsNczMagic] Size: 53807830, m1: 'Q?X??T
-22:05:47.673 [IsNczMagic] Size: 53807830, m2: NCZSECTN
-22:05:47.705 [IsNczMagic] Size: 165376, m1: ???Z:?Z
-22:05:47.737 [IsNczMagic] Size: 165376, m2: ??p?v_?
-22:05:47.769 [IsNczMagic] Size: 4096, m1: ?j???@
-22:47:52.552 [IsNczMagic] Size: 165376, m1: B??;???Q
-22:47:52.580 [IsNczMagic] Size: 165376, m2: ????I??
-22:47:52.580 [IsNczMagic] Size: 213958057, m1: ??u?(H?
-
-22:47:52.581 [IsNczMagic] Size: 213958057, m2: NCZSECTN
-22:47:52.581 [IsNczMagic] Size: 834048, m1: ??V?j.??
-22:47:52.581 [IsNczMagic] Size: 834048, m2: O????Bn?
-22:47:52.581 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-22:48:06.792 [IsNczMagic] Size: 834048, m1: ?\E??S?
-22:48:06.793 [IsNczMagic] Size: 834048, m2: ???FGs
-22:48:06.793 [IsNczMagic] Size: 53807830, m1: 'Q?X??T
-22:48:06.794 [IsNczMagic] Size: 53807830, m2: NCZSECTN
-22:48:06.794 [IsNczMagic] Size: 165376, m1: ???Z:?Z
-22:48:06.794 [IsNczMagic] Size: 165376, m2: ??p?v_?
-22:48:06.795 [IsNczMagic] Size: 4096, m1: ?j???@
-22:51:47.023 [IsNczMagic] Size: 165376, m1: B??;???Q
-22:51:47.025 [IsNczMagic] Size: 165376, m2: ????I??
-22:51:47.064 [IsNczMagic] Size: 213958057, m1: ??u?(H?
-
-22:51:47.094 [IsNczMagic] Size: 213958057, m2: NCZSECTN
-22:51:47.131 [IsNczMagic] Size: 834048, m1: ??V?j.??
-22:51:47.157 [IsNczMagic] Size: 834048, m2: O????Bn?
-22:51:47.184 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-22:51:59.427 [IsNczMagic] Size: 834048, m1: ?\E??S?
-22:51:59.463 [IsNczMagic] Size: 834048, m2: ???FGs
-22:51:59.504 [IsNczMagic] Size: 53807830, m1: 'Q?X??T
-22:51:59.530 [IsNczMagic] Size: 53807830, m2: NCZSECTN
-22:51:59.562 [IsNczMagic] Size: 165376, m1: ???Z:?Z
-22:51:59.590 [IsNczMagic] Size: 165376, m2: ??p?v_?
-22:51:59.624 [IsNczMagic] Size: 4096, m1: ?j???@
-06:57:44.135 [IsNczMagic] Size: 165376, m1: B??;???Q
-06:57:44.174 [IsNczMagic] Size: 165376, m2: ????I??
-06:57:44.208 [IsNczMagic] Size: 213958057, m1: ??u?(H?
-
-06:57:44.231 [IsNczMagic] Size: 213958057, m2: NCZSECTN
-06:57:44.253 [IsNczMagic] Size: 834048, m1: ??V?j.??
-06:57:44.287 [IsNczMagic] Size: 834048, m2: O????Bn?
-06:57:44.314 [IsNczMagic] Size: 3584, m1: ?O;y?O?
-06:57:56.296 [IsNczMagic] Size: 834048, m1: ?\E??S?
-06:57:56.323 [IsNczMagic] Size: 834048, m2: ???FGs
-06:57:56.357 [IsNczMagic] Size: 53807830, m1: 'Q?X??T
-06:57:56.384 [IsNczMagic] Size: 53807830, m2: NCZSECTN
-06:57:56.419 [IsNczMagic] Size: 165376, m1: ???Z:?Z
-06:57:56.466 [IsNczMagic] Size: 165376, m2: ??p?v_?
-06:57:56.494 [IsNczMagic] Size: 4096, m1: ?j???@
-00:14:20.193 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-00:14:20.229 [IsNczMagic] Size: 1121280, m2: ?A???
-00:14:20.230 [IsNczMagic] Size: 3584, m1: C0????H?
-00:14:20.230 [IsNczMagic] Size: 162304, m1: ?tF???v?
-00:14:20.230 [IsNczMagic] Size: 162304, m2: ?h:??%;
-00:14:20.231 [IsNczMagic] Size: 358767534, m1: ??????q
-00:14:20.231 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-00:14:26.310 [IsNczMagic] Size: 1121280, m1: 	???\???
-00:14:26.310 [IsNczMagic] Size: 1121280, m2: ?8????
-00:14:26.310 [IsNczMagic] Size: 143167791, m1: ?o????.
-00:14:26.310 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-00:14:26.311 [IsNczMagic] Size: 162304, m1: ?~W?????
-00:14:26.313 [IsNczMagic] Size: 162304, m2: i???!?d
-00:14:26.313 [IsNczMagic] Size: 4096, m1: [}??/'
-00:53:44.117 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-00:53:44.125 [IsNczMagic] Size: 1121280, m2: ?A???
-00:53:44.126 [IsNczMagic] Size: 3584, m1: C0????H?
-00:53:44.126 [IsNczMagic] Size: 162304, m1: ?tF???v?
-00:53:44.126 [IsNczMagic] Size: 162304, m2: ?h:??%;
-00:53:44.127 [IsNczMagic] Size: 358767534, m1: ??????q
-00:53:44.127 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-00:53:50.529 [IsNczMagic] Size: 1121280, m1: 	???\???
-00:53:50.529 [IsNczMagic] Size: 1121280, m2: ?8????
-00:53:50.540 [IsNczMagic] Size: 143167791, m1: ?o????.
-00:53:50.541 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-00:53:50.541 [IsNczMagic] Size: 162304, m1: ?~W?????
-00:53:50.548 [IsNczMagic] Size: 162304, m2: i???!?d
-00:53:50.548 [IsNczMagic] Size: 4096, m1: [}??/'
-01:51:30.591 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-01:51:30.592 [IsNczMagic] Size: 1121280, m2: ?A???
-01:51:30.614 [IsNczMagic] Size: 3584, m1: C0????H?
-01:51:30.642 [IsNczMagic] Size: 162304, m1: ?tF???v?
-01:51:30.670 [IsNczMagic] Size: 162304, m2: ?h:??%;
-01:51:30.697 [IsNczMagic] Size: 358767534, m1: ??????q
-01:51:30.725 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-01:51:30.765 [IsNczMagic] Size: 1121280, m1: 	???\???
-01:51:30.794 [IsNczMagic] Size: 1121280, m2: ?8????
-01:51:30.829 [IsNczMagic] Size: 143167791, m1: ?o????.
-01:51:30.863 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-01:51:30.891 [IsNczMagic] Size: 162304, m1: ?~W?????
-01:51:30.922 [IsNczMagic] Size: 162304, m2: i???!?d
-01:51:30.956 [IsNczMagic] Size: 4096, m1: [}??/'
-03:14:22.031 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-03:14:22.111 [IsNczMagic] Size: 1121280, m2: ?A???
-03:14:22.161 [IsNczMagic] Size: 3584, m1: C0????H?
-03:14:22.188 [IsNczMagic] Size: 162304, m1: ?tF???v?
-03:14:22.221 [IsNczMagic] Size: 162304, m2: ?h:??%;
-03:14:22.256 [IsNczMagic] Size: 358767534, m1: ??????q
-03:14:22.293 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-03:14:22.337 [IsNczMagic] Size: 1121280, m1: 	???\???
-03:14:22.392 [IsNczMagic] Size: 1121280, m2: ?8????
-03:14:22.427 [IsNczMagic] Size: 143167791, m1: ?o????.
-03:14:22.466 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-03:14:22.512 [IsNczMagic] Size: 162304, m1: ?~W?????
-03:14:22.557 [IsNczMagic] Size: 162304, m2: i???!?d
-03:14:22.590 [IsNczMagic] Size: 4096, m1: [}??/'
-03:17:04.868 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-03:17:04.903 [IsNczMagic] Size: 1121280, m2: ?A???
-03:17:04.928 [IsNczMagic] Size: 3584, m1: C0????H?
-03:17:04.961 [IsNczMagic] Size: 162304, m1: ?tF???v?
-03:17:04.989 [IsNczMagic] Size: 162304, m2: ?h:??%;
-03:17:05.018 [IsNczMagic] Size: 358767534, m1: ??????q
-03:17:05.047 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-03:17:05.081 [IsNczMagic] Size: 1121280, m1: 	???\???
-03:17:05.127 [IsNczMagic] Size: 1121280, m2: ?8????
-03:17:05.160 [IsNczMagic] Size: 143167791, m1: ?o????.
-03:17:05.192 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-03:17:05.224 [IsNczMagic] Size: 162304, m1: ?~W?????
-03:17:05.261 [IsNczMagic] Size: 162304, m2: i???!?d
-03:17:05.291 [IsNczMagic] Size: 4096, m1: [}??/'
-03:19:20.554 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-03:19:20.593 [IsNczMagic] Size: 1121280, m2: ?A???
-03:19:20.618 [IsNczMagic] Size: 3584, m1: C0????H?
-03:19:20.642 [IsNczMagic] Size: 162304, m1: ?tF???v?
-03:19:20.674 [IsNczMagic] Size: 162304, m2: ?h:??%;
-03:19:20.709 [IsNczMagic] Size: 358767534, m1: ??????q
-03:19:20.737 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-03:19:20.782 [IsNczMagic] Size: 1121280, m1: 	???\???
-03:19:20.837 [IsNczMagic] Size: 1121280, m2: ?8????
-03:19:20.870 [IsNczMagic] Size: 143167791, m1: ?o????.
-03:19:20.901 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-03:19:20.933 [IsNczMagic] Size: 162304, m1: ?~W?????
-03:19:20.966 [IsNczMagic] Size: 162304, m2: i???!?d
-03:19:20.994 [IsNczMagic] Size: 4096, m1: [}??/'
-03:23:26.154 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-03:23:26.210 [IsNczMagic] Size: 1121280, m2: ?A???
-03:23:26.240 [IsNczMagic] Size: 3584, m1: C0????H?
-03:23:26.267 [IsNczMagic] Size: 162304, m1: ?tF???v?
-03:23:26.296 [IsNczMagic] Size: 162304, m2: ?h:??%;
-03:23:26.335 [IsNczMagic] Size: 358767534, m1: ??????q
-03:23:26.363 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-03:23:26.409 [IsNczMagic] Size: 1121280, m1: 	???\???
-03:23:26.461 [IsNczMagic] Size: 1121280, m2: ?8????
-03:23:26.491 [IsNczMagic] Size: 143167791, m1: ?o????.
-03:23:26.524 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-03:23:26.556 [IsNczMagic] Size: 162304, m1: ?~W?????
-03:23:26.599 [IsNczMagic] Size: 162304, m2: i???!?d
-03:23:26.631 [IsNczMagic] Size: 4096, m1: [}??/'
-03:52:45.343 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-03:52:45.379 [IsNczMagic] Size: 1121280, m2: ?A???
-03:52:45.405 [IsNczMagic] Size: 3584, m1: C0????H?
-03:52:45.433 [IsNczMagic] Size: 162304, m1: ?tF???v?
-03:52:45.461 [IsNczMagic] Size: 162304, m2: ?h:??%;
-03:52:45.497 [IsNczMagic] Size: 358767534, m1: ??????q
-03:52:45.534 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-03:52:45.567 [IsNczMagic] Size: 1121280, m1: 	???\???
-03:52:45.623 [IsNczMagic] Size: 1121280, m2: ?8????
-03:52:45.652 [IsNczMagic] Size: 143167791, m1: ?o????.
-03:52:45.682 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-03:52:45.722 [IsNczMagic] Size: 162304, m1: ?~W?????
-03:52:45.752 [IsNczMagic] Size: 162304, m2: i???!?d
-03:52:45.777 [IsNczMagic] Size: 4096, m1: [}??/'
-03:55:14.688 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-03:55:14.716 [IsNczMagic] Size: 1121280, m2: ?A???
-03:55:14.743 [IsNczMagic] Size: 3584, m1: C0????H?
-03:55:14.776 [IsNczMagic] Size: 162304, m1: ?tF???v?
-03:55:14.813 [IsNczMagic] Size: 162304, m2: ?h:??%;
-03:55:14.839 [IsNczMagic] Size: 358767534, m1: ??????q
-03:55:14.866 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-03:55:14.897 [IsNczMagic] Size: 1121280, m1: 	???\???
-03:55:14.934 [IsNczMagic] Size: 1121280, m2: ?8????
-03:55:14.959 [IsNczMagic] Size: 143167791, m1: ?o????.
-03:55:14.993 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-03:55:15.026 [IsNczMagic] Size: 162304, m1: ?~W?????
-03:55:15.057 [IsNczMagic] Size: 162304, m2: i???!?d
-03:55:15.094 [IsNczMagic] Size: 4096, m1: [}??/'
-03:56:44.469 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-03:56:44.494 [IsNczMagic] Size: 1121280, m2: ?A???
-03:56:44.521 [IsNczMagic] Size: 3584, m1: C0????H?
-03:56:44.547 [IsNczMagic] Size: 162304, m1: ?tF???v?
-03:56:44.574 [IsNczMagic] Size: 162304, m2: ?h:??%;
-03:56:44.605 [IsNczMagic] Size: 358767534, m1: ??????q
-03:56:44.635 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-03:56:44.668 [IsNczMagic] Size: 1121280, m1: 	???\???
-03:56:44.719 [IsNczMagic] Size: 1121280, m2: ?8????
-03:56:44.755 [IsNczMagic] Size: 143167791, m1: ?o????.
-03:56:44.781 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-03:56:44.814 [IsNczMagic] Size: 162304, m1: ?~W?????
-03:56:44.845 [IsNczMagic] Size: 162304, m2: i???!?d
-03:56:44.873 [IsNczMagic] Size: 4096, m1: [}??/'
-03:59:32.074 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-03:59:32.105 [IsNczMagic] Size: 1121280, m2: ?A???
-03:59:32.141 [IsNczMagic] Size: 3584, m1: C0????H?
-03:59:32.168 [IsNczMagic] Size: 162304, m1: ?tF???v?
-03:59:32.201 [IsNczMagic] Size: 162304, m2: ?h:??%;
-03:59:32.241 [IsNczMagic] Size: 358767534, m1: ??????q
-03:59:32.272 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-03:59:32.307 [IsNczMagic] Size: 1121280, m1: 	???\???
-03:59:32.368 [IsNczMagic] Size: 1121280, m2: ?8????
-03:59:32.397 [IsNczMagic] Size: 143167791, m1: ?o????.
-03:59:32.430 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-03:59:32.469 [IsNczMagic] Size: 162304, m1: ?~W?????
-03:59:32.499 [IsNczMagic] Size: 162304, m2: i???!?d
-03:59:32.542 [IsNczMagic] Size: 4096, m1: [}??/'
-04:02:02.435 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-04:02:02.472 [IsNczMagic] Size: 1121280, m2: ?A???
-04:02:02.502 [IsNczMagic] Size: 3584, m1: C0????H?
-04:02:02.526 [IsNczMagic] Size: 162304, m1: ?tF???v?
-04:02:02.554 [IsNczMagic] Size: 162304, m2: ?h:??%;
-04:02:02.586 [IsNczMagic] Size: 358767534, m1: ??????q
-04:02:02.614 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-04:02:02.651 [IsNczMagic] Size: 1121280, m1: 	???\???
-04:02:02.711 [IsNczMagic] Size: 1121280, m2: ?8????
-04:02:02.745 [IsNczMagic] Size: 143167791, m1: ?o????.
-04:02:02.779 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-04:02:02.806 [IsNczMagic] Size: 162304, m1: ?~W?????
-04:02:02.838 [IsNczMagic] Size: 162304, m2: i???!?d
-04:02:02.868 [IsNczMagic] Size: 4096, m1: [}??/'
-04:04:59.275 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-04:04:59.302 [IsNczMagic] Size: 1121280, m2: ?A???
-04:04:59.332 [IsNczMagic] Size: 3584, m1: C0????H?
-04:04:59.365 [IsNczMagic] Size: 162304, m1: ?tF???v?
-04:04:59.393 [IsNczMagic] Size: 162304, m2: ?h:??%;
-04:04:59.418 [IsNczMagic] Size: 358767534, m1: ??????q
-04:04:59.453 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-04:04:59.486 [IsNczMagic] Size: 1121280, m1: 	???\???
-04:04:59.525 [IsNczMagic] Size: 1121280, m2: ?8????
-04:04:59.571 [IsNczMagic] Size: 143167791, m1: ?o????.
-04:04:59.599 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-04:04:59.629 [IsNczMagic] Size: 162304, m1: ?~W?????
-04:04:59.656 [IsNczMagic] Size: 162304, m2: i???!?d
-04:04:59.691 [IsNczMagic] Size: 4096, m1: [}??/'
-04:06:59.207 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-04:06:59.229 [IsNczMagic] Size: 1121280, m2: ?A???
-04:06:59.256 [IsNczMagic] Size: 3584, m1: C0????H?
-04:06:59.283 [IsNczMagic] Size: 162304, m1: ?tF???v?
-04:06:59.309 [IsNczMagic] Size: 162304, m2: ?h:??%;
-04:06:59.349 [IsNczMagic] Size: 358767534, m1: ??????q
-04:06:59.403 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-04:06:59.454 [IsNczMagic] Size: 1121280, m1: 	???\???
-04:06:59.500 [IsNczMagic] Size: 1121280, m2: ?8????
-04:06:59.534 [IsNczMagic] Size: 143167791, m1: ?o????.
-04:06:59.567 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-04:06:59.600 [IsNczMagic] Size: 162304, m1: ?~W?????
-04:06:59.630 [IsNczMagic] Size: 162304, m2: i???!?d
-04:06:59.661 [IsNczMagic] Size: 4096, m1: [}??/'
-04:08:44.891 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-04:08:44.920 [IsNczMagic] Size: 1121280, m2: ?A???
-04:08:44.959 [IsNczMagic] Size: 3584, m1: C0????H?
-04:08:44.987 [IsNczMagic] Size: 162304, m1: ?tF???v?
-04:08:45.020 [IsNczMagic] Size: 162304, m2: ?h:??%;
-04:08:45.053 [IsNczMagic] Size: 358767534, m1: ??????q
-04:08:45.091 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-04:08:45.133 [IsNczMagic] Size: 1121280, m1: 	???\???
-04:08:45.198 [IsNczMagic] Size: 1121280, m2: ?8????
-04:08:45.225 [IsNczMagic] Size: 143167791, m1: ?o????.
-04:08:45.255 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-04:08:45.284 [IsNczMagic] Size: 162304, m1: ?~W?????
-04:08:45.317 [IsNczMagic] Size: 162304, m2: i???!?d
-04:08:45.350 [IsNczMagic] Size: 4096, m1: [}??/'
-04:11:56.118 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-04:11:56.149 [IsNczMagic] Size: 1121280, m2: ?A???
-04:11:56.182 [IsNczMagic] Size: 3584, m1: C0????H?
-04:11:56.213 [IsNczMagic] Size: 162304, m1: ?tF???v?
-04:11:56.242 [IsNczMagic] Size: 162304, m2: ?h:??%;
-04:11:56.271 [IsNczMagic] Size: 358767534, m1: ??????q
-04:11:56.301 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-04:11:56.348 [IsNczMagic] Size: 1121280, m1: 	???\???
-04:11:56.400 [IsNczMagic] Size: 1121280, m2: ?8????
-04:11:56.427 [IsNczMagic] Size: 143167791, m1: ?o????.
-04:11:56.457 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-04:11:56.487 [IsNczMagic] Size: 162304, m1: ?~W?????
-04:11:56.516 [IsNczMagic] Size: 162304, m2: i???!?d
-04:11:56.546 [IsNczMagic] Size: 4096, m1: [}??/'
-04:13:45.590 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-04:13:45.617 [IsNczMagic] Size: 1121280, m2: ?A???
-04:13:45.655 [IsNczMagic] Size: 3584, m1: C0????H?
-04:13:45.681 [IsNczMagic] Size: 162304, m1: ?tF???v?
-04:13:45.707 [IsNczMagic] Size: 162304, m2: ?h:??%;
-04:13:45.738 [IsNczMagic] Size: 358767534, m1: ??????q
-04:13:45.775 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-04:13:45.805 [IsNczMagic] Size: 1121280, m1: 	???\???
-04:13:45.848 [IsNczMagic] Size: 1121280, m2: ?8????
-04:13:45.891 [IsNczMagic] Size: 143167791, m1: ?o????.
-04:13:45.920 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-04:13:45.953 [IsNczMagic] Size: 162304, m1: ?~W?????
-04:13:45.991 [IsNczMagic] Size: 162304, m2: i???!?d
-04:13:46.020 [IsNczMagic] Size: 4096, m1: [}??/'
-04:16:25.344 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-04:16:25.372 [IsNczMagic] Size: 1121280, m2: ?A???
-04:16:25.413 [IsNczMagic] Size: 3584, m1: C0????H?
-04:16:25.441 [IsNczMagic] Size: 162304, m1: ?tF???v?
-04:16:25.494 [IsNczMagic] Size: 162304, m2: ?h:??%;
-04:16:25.530 [IsNczMagic] Size: 358767534, m1: ??????q
-04:16:25.558 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-04:16:25.590 [IsNczMagic] Size: 1121280, m1: 	???\???
-04:16:25.635 [IsNczMagic] Size: 1121280, m2: ?8????
-04:16:25.678 [IsNczMagic] Size: 143167791, m1: ?o????.
-04:16:25.708 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-04:16:25.742 [IsNczMagic] Size: 162304, m1: ?~W?????
-04:16:25.775 [IsNczMagic] Size: 162304, m2: i???!?d
-04:16:25.807 [IsNczMagic] Size: 4096, m1: [}??/'
-04:18:08.665 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-04:18:08.694 [IsNczMagic] Size: 1121280, m2: ?A???
-04:18:08.723 [IsNczMagic] Size: 3584, m1: C0????H?
-04:18:08.757 [IsNczMagic] Size: 162304, m1: ?tF???v?
-04:18:08.789 [IsNczMagic] Size: 162304, m2: ?h:??%;
-04:18:08.816 [IsNczMagic] Size: 358767534, m1: ??????q
-04:18:08.856 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-04:18:08.895 [IsNczMagic] Size: 1121280, m1: 	???\???
-04:18:08.933 [IsNczMagic] Size: 1121280, m2: ?8????
-04:18:08.964 [IsNczMagic] Size: 143167791, m1: ?o????.
-04:18:08.991 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-04:18:09.029 [IsNczMagic] Size: 162304, m1: ?~W?????
-04:18:09.058 [IsNczMagic] Size: 162304, m2: i???!?d
-04:18:09.097 [IsNczMagic] Size: 4096, m1: [}??/'
-04:19:47.021 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-04:19:47.054 [IsNczMagic] Size: 1121280, m2: ?A???
-04:19:47.087 [IsNczMagic] Size: 3584, m1: C0????H?
-04:19:47.125 [IsNczMagic] Size: 162304, m1: ?tF???v?
-04:19:47.153 [IsNczMagic] Size: 162304, m2: ?h:??%;
-04:19:47.186 [IsNczMagic] Size: 358767534, m1: ??????q
-04:19:47.216 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-04:19:47.245 [IsNczMagic] Size: 1121280, m1: 	???\???
-04:19:47.303 [IsNczMagic] Size: 1121280, m2: ?8????
-04:19:47.337 [IsNczMagic] Size: 143167791, m1: ?o????.
-04:19:47.370 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-04:19:47.401 [IsNczMagic] Size: 162304, m1: ?~W?????
-04:19:47.430 [IsNczMagic] Size: 162304, m2: i???!?d
-04:19:47.459 [IsNczMagic] Size: 4096, m1: [}??/'
-04:21:29.180 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-04:21:29.204 [IsNczMagic] Size: 1121280, m2: ?A???
-04:21:29.232 [IsNczMagic] Size: 3584, m1: C0????H?
-04:21:29.262 [IsNczMagic] Size: 162304, m1: ?tF???v?
-04:21:29.290 [IsNczMagic] Size: 162304, m2: ?h:??%;
-04:21:29.316 [IsNczMagic] Size: 358767534, m1: ??????q
-04:21:29.339 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-04:21:29.371 [IsNczMagic] Size: 1121280, m1: 	???\???
-04:21:29.416 [IsNczMagic] Size: 1121280, m2: ?8????
-04:21:29.448 [IsNczMagic] Size: 143167791, m1: ?o????.
-04:21:29.481 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-04:21:29.517 [IsNczMagic] Size: 162304, m1: ?~W?????
-04:21:29.543 [IsNczMagic] Size: 162304, m2: i???!?d
-04:21:29.581 [IsNczMagic] Size: 4096, m1: [}??/'
-04:26:19.802 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-04:26:19.840 [IsNczMagic] Size: 1121280, m2: ?A???
-04:26:19.869 [IsNczMagic] Size: 3584, m1: C0????H?
-04:26:19.900 [IsNczMagic] Size: 162304, m1: ?tF???v?
-04:26:19.927 [IsNczMagic] Size: 162304, m2: ?h:??%;
-04:26:19.967 [IsNczMagic] Size: 358767534, m1: ??????q
-04:26:19.992 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-04:26:20.032 [IsNczMagic] Size: 1121280, m1: 	???\???
-04:26:20.069 [IsNczMagic] Size: 1121280, m2: ?8????
-04:26:20.100 [IsNczMagic] Size: 143167791, m1: ?o????.
-04:26:20.135 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-04:26:20.167 [IsNczMagic] Size: 162304, m1: ?~W?????
-04:26:20.199 [IsNczMagic] Size: 162304, m2: i???!?d
-04:26:20.236 [IsNczMagic] Size: 4096, m1: [}??/'
-04:28:33.247 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-04:28:33.272 [IsNczMagic] Size: 1121280, m2: ?A???
-04:28:33.299 [IsNczMagic] Size: 3584, m1: C0????H?
-04:28:33.324 [IsNczMagic] Size: 162304, m1: ?tF???v?
-04:28:33.348 [IsNczMagic] Size: 162304, m2: ?h:??%;
-04:28:33.376 [IsNczMagic] Size: 358767534, m1: ??????q
-04:28:33.411 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-04:28:33.457 [IsNczMagic] Size: 1121280, m1: 	???\???
-04:28:33.493 [IsNczMagic] Size: 1121280, m2: ?8????
-04:28:33.525 [IsNczMagic] Size: 143167791, m1: ?o????.
-04:28:33.552 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-04:28:33.577 [IsNczMagic] Size: 162304, m1: ?~W?????
-04:28:33.605 [IsNczMagic] Size: 162304, m2: i???!?d
-04:28:33.634 [IsNczMagic] Size: 4096, m1: [}??/'
-04:30:01.807 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-04:30:01.832 [IsNczMagic] Size: 1121280, m2: ?A???
-04:30:01.855 [IsNczMagic] Size: 3584, m1: C0????H?
-04:30:01.879 [IsNczMagic] Size: 162304, m1: ?tF???v?
-04:30:01.903 [IsNczMagic] Size: 162304, m2: ?h:??%;
-04:30:01.928 [IsNczMagic] Size: 358767534, m1: ??????q
-04:30:01.958 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-04:30:01.988 [IsNczMagic] Size: 1121280, m1: 	???\???
-04:30:02.046 [IsNczMagic] Size: 1121280, m2: ?8????
-04:30:02.081 [IsNczMagic] Size: 143167791, m1: ?o????.
-04:30:02.104 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-04:30:02.131 [IsNczMagic] Size: 162304, m1: ?~W?????
-04:30:02.157 [IsNczMagic] Size: 162304, m2: i???!?d
-04:30:02.199 [IsNczMagic] Size: 4096, m1: [}??/'
-04:30:14.685 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-04:30:14.713 [IsNczMagic] Size: 1121280, m2: ?A???
-04:30:14.758 [IsNczMagic] Size: 3584, m1: C0????H?
-04:30:14.792 [IsNczMagic] Size: 162304, m1: ?tF???v?
-04:30:14.828 [IsNczMagic] Size: 162304, m2: ?h:??%;
-04:30:14.855 [IsNczMagic] Size: 358767534, m1: ??????q
-04:30:14.885 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-04:30:14.920 [IsNczMagic] Size: 1121280, m1: 	???\???
-04:30:14.962 [IsNczMagic] Size: 1121280, m2: ?8????
-04:30:15.001 [IsNczMagic] Size: 143167791, m1: ?o????.
-04:30:15.029 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-04:30:15.053 [IsNczMagic] Size: 162304, m1: ?~W?????
-04:30:15.084 [IsNczMagic] Size: 162304, m2: i???!?d
-04:30:15.117 [IsNczMagic] Size: 4096, m1: [}??/'
-04:31:44.657 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-04:31:44.691 [IsNczMagic] Size: 1121280, m2: ?A???
-04:31:44.719 [IsNczMagic] Size: 3584, m1: C0????H?
-04:31:44.741 [IsNczMagic] Size: 162304, m1: ?tF???v?
-04:31:44.772 [IsNczMagic] Size: 162304, m2: ?h:??%;
-04:31:44.799 [IsNczMagic] Size: 358767534, m1: ??????q
-04:31:44.825 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-04:31:44.860 [IsNczMagic] Size: 1121280, m1: 	???\???
-04:31:44.915 [IsNczMagic] Size: 1121280, m2: ?8????
-04:31:44.940 [IsNczMagic] Size: 143167791, m1: ?o????.
-04:31:44.968 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-04:31:45.001 [IsNczMagic] Size: 162304, m1: ?~W?????
-04:31:45.028 [IsNczMagic] Size: 162304, m2: i???!?d
-04:31:45.061 [IsNczMagic] Size: 4096, m1: [}??/'
-04:37:11.909 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-04:37:11.941 [IsNczMagic] Size: 1121280, m2: ?A???
-04:37:11.973 [IsNczMagic] Size: 3584, m1: C0????H?
-04:37:12.000 [IsNczMagic] Size: 162304, m1: ?tF???v?
-04:37:12.023 [IsNczMagic] Size: 162304, m2: ?h:??%;
-04:37:12.051 [IsNczMagic] Size: 358767534, m1: ??????q
-04:37:12.086 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-04:37:12.122 [IsNczMagic] Size: 1121280, m1: 	???\???
-04:37:12.162 [IsNczMagic] Size: 1121280, m2: ?8????
-04:37:12.187 [IsNczMagic] Size: 143167791, m1: ?o????.
-04:37:12.220 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-04:37:12.247 [IsNczMagic] Size: 162304, m1: ?~W?????
-04:37:12.273 [IsNczMagic] Size: 162304, m2: i???!?d
-04:37:12.307 [IsNczMagic] Size: 4096, m1: [}??/'
-04:39:13.151 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-04:39:13.171 [IsNczMagic] Size: 1121280, m2: ?A???
-04:39:13.198 [IsNczMagic] Size: 3584, m1: C0????H?
-04:39:13.245 [IsNczMagic] Size: 162304, m1: ?tF???v?
-04:39:13.272 [IsNczMagic] Size: 162304, m2: ?h:??%;
-04:39:13.297 [IsNczMagic] Size: 358767534, m1: ??????q
-04:39:13.325 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-04:39:13.359 [IsNczMagic] Size: 1121280, m1: 	???\???
-04:39:13.397 [IsNczMagic] Size: 1121280, m2: ?8????
-04:39:13.426 [IsNczMagic] Size: 143167791, m1: ?o????.
-04:39:13.471 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-04:39:13.495 [IsNczMagic] Size: 162304, m1: ?~W?????
-04:39:13.523 [IsNczMagic] Size: 162304, m2: i???!?d
-04:39:13.554 [IsNczMagic] Size: 4096, m1: [}??/'
-04:41:03.581 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-04:41:03.621 [IsNczMagic] Size: 1121280, m2: ?A???
-04:41:03.653 [IsNczMagic] Size: 3584, m1: C0????H?
-04:41:03.677 [IsNczMagic] Size: 162304, m1: ?tF???v?
-04:41:03.706 [IsNczMagic] Size: 162304, m2: ?h:??%;
-04:41:03.737 [IsNczMagic] Size: 358767534, m1: ??????q
-04:41:03.763 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-04:41:03.801 [IsNczMagic] Size: 1121280, m1: 	???\???
-04:41:03.847 [IsNczMagic] Size: 1121280, m2: ?8????
-04:41:03.876 [IsNczMagic] Size: 143167791, m1: ?o????.
-04:41:03.904 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-04:41:03.929 [IsNczMagic] Size: 162304, m1: ?~W?????
-04:41:03.960 [IsNczMagic] Size: 162304, m2: i???!?d
-04:41:03.994 [IsNczMagic] Size: 4096, m1: [}??/'
-04:45:18.828 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-04:45:18.858 [IsNczMagic] Size: 1121280, m2: ?A???
-04:45:18.888 [IsNczMagic] Size: 3584, m1: C0????H?
-04:45:18.912 [IsNczMagic] Size: 162304, m1: ?tF???v?
-04:45:18.942 [IsNczMagic] Size: 162304, m2: ?h:??%;
-04:45:18.976 [IsNczMagic] Size: 358767534, m1: ??????q
-04:45:19.007 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-04:45:19.038 [IsNczMagic] Size: 1121280, m1: 	???\???
-04:45:19.076 [IsNczMagic] Size: 1121280, m2: ?8????
-04:45:19.107 [IsNczMagic] Size: 143167791, m1: ?o????.
-04:45:19.134 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-04:45:19.174 [IsNczMagic] Size: 162304, m1: ?~W?????
-04:45:19.199 [IsNczMagic] Size: 162304, m2: i???!?d
-04:45:19.232 [IsNczMagic] Size: 4096, m1: [}??/'
-04:47:58.253 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-04:47:58.281 [IsNczMagic] Size: 1121280, m2: ?A???
-04:47:58.305 [IsNczMagic] Size: 3584, m1: C0????H?
-04:47:58.331 [IsNczMagic] Size: 162304, m1: ?tF???v?
-04:47:58.364 [IsNczMagic] Size: 162304, m2: ?h:??%;
-04:47:58.403 [IsNczMagic] Size: 358767534, m1: ??????q
-04:47:58.431 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-04:47:58.464 [IsNczMagic] Size: 1121280, m1: 	???\???
-04:47:58.505 [IsNczMagic] Size: 1121280, m2: ?8????
-04:47:58.553 [IsNczMagic] Size: 143167791, m1: ?o????.
-04:47:58.580 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-04:47:58.612 [IsNczMagic] Size: 162304, m1: ?~W?????
-04:47:58.639 [IsNczMagic] Size: 162304, m2: i???!?d
-04:47:58.670 [IsNczMagic] Size: 4096, m1: [}??/'
-04:52:53.451 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-04:52:53.482 [IsNczMagic] Size: 1121280, m2: ?A???
-04:52:53.508 [IsNczMagic] Size: 3584, m1: C0????H?
-04:52:53.531 [IsNczMagic] Size: 162304, m1: ?tF???v?
-04:52:53.555 [IsNczMagic] Size: 162304, m2: ?h:??%;
-04:52:53.589 [IsNczMagic] Size: 358767534, m1: ??????q
-04:52:53.619 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-04:52:53.651 [IsNczMagic] Size: 1121280, m1: 	???\???
-04:52:53.701 [IsNczMagic] Size: 1121280, m2: ?8????
-04:52:53.733 [IsNczMagic] Size: 143167791, m1: ?o????.
-04:52:53.774 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-04:52:53.805 [IsNczMagic] Size: 162304, m1: ?~W?????
-04:52:53.833 [IsNczMagic] Size: 162304, m2: i???!?d
-04:52:53.858 [IsNczMagic] Size: 4096, m1: [}??/'
-04:55:08.371 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-04:55:08.403 [IsNczMagic] Size: 1121280, m2: ?A???
-04:55:08.433 [IsNczMagic] Size: 3584, m1: C0????H?
-04:55:08.465 [IsNczMagic] Size: 162304, m1: ?tF???v?
-04:55:08.491 [IsNczMagic] Size: 162304, m2: ?h:??%;
-04:55:08.523 [IsNczMagic] Size: 358767534, m1: ??????q
-04:55:08.548 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-04:55:08.588 [IsNczMagic] Size: 1121280, m1: 	???\???
-04:55:08.633 [IsNczMagic] Size: 1121280, m2: ?8????
-04:55:08.675 [IsNczMagic] Size: 143167791, m1: ?o????.
-04:55:08.706 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-04:55:08.733 [IsNczMagic] Size: 162304, m1: ?~W?????
-04:55:08.769 [IsNczMagic] Size: 162304, m2: i???!?d
-04:55:08.795 [IsNczMagic] Size: 4096, m1: [}??/'
-04:59:43.120 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-04:59:43.142 [IsNczMagic] Size: 1121280, m2: ?A???
-04:59:43.165 [IsNczMagic] Size: 3584, m1: C0????H?
-04:59:43.192 [IsNczMagic] Size: 162304, m1: ?tF???v?
-04:59:43.216 [IsNczMagic] Size: 162304, m2: ?h:??%;
-04:59:43.242 [IsNczMagic] Size: 358767534, m1: ??????q
-04:59:43.268 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-04:59:43.303 [IsNczMagic] Size: 1121280, m1: 	???\???
-04:59:43.341 [IsNczMagic] Size: 1121280, m2: ?8????
-04:59:43.366 [IsNczMagic] Size: 143167791, m1: ?o????.
-04:59:43.397 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-04:59:43.427 [IsNczMagic] Size: 162304, m1: ?~W?????
-04:59:43.455 [IsNczMagic] Size: 162304, m2: i???!?d
-04:59:43.487 [IsNczMagic] Size: 4096, m1: [}??/'
-05:02:14.947 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-05:02:14.971 [IsNczMagic] Size: 1121280, m2: ?A???
-05:02:14.992 [IsNczMagic] Size: 3584, m1: C0????H?
-05:02:15.017 [IsNczMagic] Size: 162304, m1: ?tF???v?
-05:02:15.041 [IsNczMagic] Size: 162304, m2: ?h:??%;
-05:02:15.066 [IsNczMagic] Size: 358767534, m1: ??????q
-05:02:15.094 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-05:02:15.129 [IsNczMagic] Size: 1121280, m1: 	???\???
-05:02:15.175 [IsNczMagic] Size: 1121280, m2: ?8????
-05:02:15.201 [IsNczMagic] Size: 143167791, m1: ?o????.
-05:02:15.225 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-05:02:15.262 [IsNczMagic] Size: 162304, m1: ?~W?????
-05:02:15.293 [IsNczMagic] Size: 162304, m2: i???!?d
-05:02:15.323 [IsNczMagic] Size: 4096, m1: [}??/'
-05:04:48.034 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-05:04:48.054 [IsNczMagic] Size: 1121280, m2: ?A???
-05:04:48.076 [IsNczMagic] Size: 3584, m1: C0????H?
-05:04:48.101 [IsNczMagic] Size: 162304, m1: ?tF???v?
-05:04:48.128 [IsNczMagic] Size: 162304, m2: ?h:??%;
-05:04:48.157 [IsNczMagic] Size: 358767534, m1: ??????q
-05:04:48.181 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-05:04:48.207 [IsNczMagic] Size: 1121280, m1: 	???\???
-05:04:48.242 [IsNczMagic] Size: 1121280, m2: ?8????
-05:04:48.272 [IsNczMagic] Size: 143167791, m1: ?o????.
-05:04:48.307 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-05:04:48.334 [IsNczMagic] Size: 162304, m1: ?~W?????
-05:04:48.361 [IsNczMagic] Size: 162304, m2: i???!?d
-05:04:48.387 [IsNczMagic] Size: 4096, m1: [}??/'
-05:08:12.039 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-05:08:12.064 [IsNczMagic] Size: 1121280, m2: ?A???
-05:08:12.100 [IsNczMagic] Size: 3584, m1: C0????H?
-05:08:12.128 [IsNczMagic] Size: 162304, m1: ?tF???v?
-05:08:12.155 [IsNczMagic] Size: 162304, m2: ?h:??%;
-05:08:12.188 [IsNczMagic] Size: 358767534, m1: ??????q
-05:08:12.214 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-05:08:12.246 [IsNczMagic] Size: 1121280, m1: 	???\???
-05:08:12.299 [IsNczMagic] Size: 1121280, m2: ?8????
-05:08:12.324 [IsNczMagic] Size: 143167791, m1: ?o????.
-05:08:12.354 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-05:08:12.386 [IsNczMagic] Size: 162304, m1: ?~W?????
-05:08:12.416 [IsNczMagic] Size: 162304, m2: i???!?d
-05:08:12.446 [IsNczMagic] Size: 4096, m1: [}??/'
-05:10:24.802 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-05:10:24.836 [IsNczMagic] Size: 1121280, m2: ?A???
-05:10:24.867 [IsNczMagic] Size: 3584, m1: C0????H?
-05:10:24.889 [IsNczMagic] Size: 162304, m1: ?tF???v?
-05:10:24.915 [IsNczMagic] Size: 162304, m2: ?h:??%;
-05:10:24.950 [IsNczMagic] Size: 358767534, m1: ??????q
-05:10:24.975 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-05:10:25.013 [IsNczMagic] Size: 1121280, m1: 	???\???
-05:10:25.058 [IsNczMagic] Size: 1121280, m2: ?8????
-05:10:25.082 [IsNczMagic] Size: 143167791, m1: ?o????.
-05:10:25.125 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-05:10:25.157 [IsNczMagic] Size: 162304, m1: ?~W?????
-05:10:25.193 [IsNczMagic] Size: 162304, m2: i???!?d
-05:10:25.218 [IsNczMagic] Size: 4096, m1: [}??/'
-05:12:16.130 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-05:12:16.153 [IsNczMagic] Size: 1121280, m2: ?A???
-05:12:16.179 [IsNczMagic] Size: 3584, m1: C0????H?
-05:12:16.205 [IsNczMagic] Size: 162304, m1: ?tF???v?
-05:12:16.228 [IsNczMagic] Size: 162304, m2: ?h:??%;
-05:12:16.258 [IsNczMagic] Size: 358767534, m1: ??????q
-05:12:16.286 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-05:12:16.317 [IsNczMagic] Size: 1121280, m1: 	???\???
-05:12:16.358 [IsNczMagic] Size: 1121280, m2: ?8????
-05:12:16.383 [IsNczMagic] Size: 143167791, m1: ?o????.
-05:12:16.410 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-05:12:16.438 [IsNczMagic] Size: 162304, m1: ?~W?????
-05:12:16.474 [IsNczMagic] Size: 162304, m2: i???!?d
-05:12:16.502 [IsNczMagic] Size: 4096, m1: [}??/'
-05:14:34.980 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-05:14:35.008 [IsNczMagic] Size: 1121280, m2: ?A???
-05:14:35.039 [IsNczMagic] Size: 3584, m1: C0????H?
-05:14:35.059 [IsNczMagic] Size: 162304, m1: ?tF???v?
-05:14:35.097 [IsNczMagic] Size: 162304, m2: ?h:??%;
-05:14:35.121 [IsNczMagic] Size: 358767534, m1: ??????q
-05:14:35.150 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-05:14:35.194 [IsNczMagic] Size: 1121280, m1: 	???\???
-05:14:35.233 [IsNczMagic] Size: 1121280, m2: ?8????
-05:14:35.260 [IsNczMagic] Size: 143167791, m1: ?o????.
-05:14:35.298 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-05:14:35.328 [IsNczMagic] Size: 162304, m1: ?~W?????
-05:14:35.360 [IsNczMagic] Size: 162304, m2: i???!?d
-05:14:35.393 [IsNczMagic] Size: 4096, m1: [}??/'
-05:16:28.342 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-05:16:28.365 [IsNczMagic] Size: 1121280, m2: ?A???
-05:16:28.394 [IsNczMagic] Size: 3584, m1: C0????H?
-05:16:28.419 [IsNczMagic] Size: 162304, m1: ?tF???v?
-05:16:28.443 [IsNczMagic] Size: 162304, m2: ?h:??%;
-05:16:28.473 [IsNczMagic] Size: 358767534, m1: ??????q
-05:16:28.498 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-05:16:28.528 [IsNczMagic] Size: 1121280, m1: 	???\???
-05:16:28.565 [IsNczMagic] Size: 1121280, m2: ?8????
-05:16:28.590 [IsNczMagic] Size: 143167791, m1: ?o????.
-05:16:28.620 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-05:16:28.654 [IsNczMagic] Size: 162304, m1: ?~W?????
-05:16:28.681 [IsNczMagic] Size: 162304, m2: i???!?d
-05:16:28.707 [IsNczMagic] Size: 4096, m1: [}??/'
-05:18:29.872 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-05:18:29.897 [IsNczMagic] Size: 1121280, m2: ?A???
-05:18:29.926 [IsNczMagic] Size: 3584, m1: C0????H?
-05:18:29.951 [IsNczMagic] Size: 162304, m1: ?tF???v?
-05:18:29.979 [IsNczMagic] Size: 162304, m2: ?h:??%;
-05:18:30.006 [IsNczMagic] Size: 358767534, m1: ??????q
-05:18:30.036 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-05:18:30.070 [IsNczMagic] Size: 1121280, m1: 	???\???
-05:18:30.107 [IsNczMagic] Size: 1121280, m2: ?8????
-05:18:30.136 [IsNczMagic] Size: 143167791, m1: ?o????.
-05:18:30.164 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-05:18:30.195 [IsNczMagic] Size: 162304, m1: ?~W?????
-05:18:30.226 [IsNczMagic] Size: 162304, m2: i???!?d
-05:18:30.256 [IsNczMagic] Size: 4096, m1: [}??/'
-05:19:50.047 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-05:19:50.069 [IsNczMagic] Size: 1121280, m2: ?A???
-05:19:50.091 [IsNczMagic] Size: 3584, m1: C0????H?
-05:19:50.113 [IsNczMagic] Size: 162304, m1: ?tF???v?
-05:19:50.135 [IsNczMagic] Size: 162304, m2: ?h:??%;
-05:19:50.164 [IsNczMagic] Size: 358767534, m1: ??????q
-05:19:50.195 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-05:19:50.227 [IsNczMagic] Size: 1121280, m1: 	???\???
-05:19:50.295 [IsNczMagic] Size: 1121280, m2: ?8????
-05:19:50.327 [IsNczMagic] Size: 143167791, m1: ?o????.
-05:19:50.351 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-05:19:50.379 [IsNczMagic] Size: 162304, m1: ?~W?????
-05:19:50.407 [IsNczMagic] Size: 162304, m2: i???!?d
-05:19:50.437 [IsNczMagic] Size: 4096, m1: [}??/'
-05:21:12.822 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-05:21:12.847 [IsNczMagic] Size: 1121280, m2: ?A???
-05:21:12.875 [IsNczMagic] Size: 3584, m1: C0????H?
-05:21:12.898 [IsNczMagic] Size: 162304, m1: ?tF???v?
-05:21:12.925 [IsNczMagic] Size: 162304, m2: ?h:??%;
-05:21:12.954 [IsNczMagic] Size: 358767534, m1: ??????q
-05:21:12.976 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-05:21:13.006 [IsNczMagic] Size: 1121280, m1: 	???\???
-05:21:13.049 [IsNczMagic] Size: 1121280, m2: ?8????
-05:21:13.078 [IsNczMagic] Size: 143167791, m1: ?o????.
-05:21:13.110 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-05:21:13.139 [IsNczMagic] Size: 162304, m1: ?~W?????
-05:21:13.166 [IsNczMagic] Size: 162304, m2: i???!?d
-05:21:13.200 [IsNczMagic] Size: 4096, m1: [}??/'
-05:24:47.385 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-05:24:47.411 [IsNczMagic] Size: 1121280, m2: ?A???
-05:24:47.436 [IsNczMagic] Size: 3584, m1: C0????H?
-05:24:47.461 [IsNczMagic] Size: 162304, m1: ?tF???v?
-05:24:47.498 [IsNczMagic] Size: 162304, m2: ?h:??%;
-05:24:47.530 [IsNczMagic] Size: 358767534, m1: ??????q
-05:24:47.556 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-05:24:47.590 [IsNczMagic] Size: 1121280, m1: 	???\???
-05:24:47.626 [IsNczMagic] Size: 1121280, m2: ?8????
-05:24:47.656 [IsNczMagic] Size: 143167791, m1: ?o????.
-05:24:47.691 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-05:24:47.720 [IsNczMagic] Size: 162304, m1: ?~W?????
-05:24:47.746 [IsNczMagic] Size: 162304, m2: i???!?d
-05:24:47.771 [IsNczMagic] Size: 4096, m1: [}??/'
-05:27:41.911 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-05:27:41.943 [IsNczMagic] Size: 1121280, m2: ?A???
-05:27:41.975 [IsNczMagic] Size: 3584, m1: C0????H?
-05:27:41.999 [IsNczMagic] Size: 162304, m1: ?tF???v?
-05:27:42.022 [IsNczMagic] Size: 162304, m2: ?h:??%;
-05:27:42.050 [IsNczMagic] Size: 358767534, m1: ??????q
-05:27:42.074 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-05:27:42.112 [IsNczMagic] Size: 1121280, m1: 	???\???
-05:27:42.172 [IsNczMagic] Size: 1121280, m2: ?8????
-05:27:42.197 [IsNczMagic] Size: 143167791, m1: ?o????.
-05:27:42.231 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-05:27:42.263 [IsNczMagic] Size: 162304, m1: ?~W?????
-05:27:42.301 [IsNczMagic] Size: 162304, m2: i???!?d
-05:27:42.337 [IsNczMagic] Size: 4096, m1: [}??/'
-05:32:45.705 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-05:32:45.730 [IsNczMagic] Size: 1121280, m2: ?A???
-05:32:45.762 [IsNczMagic] Size: 3584, m1: C0????H?
-05:32:45.787 [IsNczMagic] Size: 162304, m1: ?tF???v?
-05:32:45.819 [IsNczMagic] Size: 162304, m2: ?h:??%;
-05:32:45.850 [IsNczMagic] Size: 358767534, m1: ??????q
-05:32:45.875 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-05:32:45.912 [IsNczMagic] Size: 1121280, m1: 	???\???
-05:32:45.963 [IsNczMagic] Size: 1121280, m2: ?8????
-05:32:45.989 [IsNczMagic] Size: 143167791, m1: ?o????.
-05:32:46.015 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-05:32:46.042 [IsNczMagic] Size: 162304, m1: ?~W?????
-05:32:46.088 [IsNczMagic] Size: 162304, m2: i???!?d
-05:32:46.118 [IsNczMagic] Size: 4096, m1: [}??/'
-05:39:26.112 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-05:39:26.156 [IsNczMagic] Size: 1121280, m2: ?A???
-05:39:26.191 [IsNczMagic] Size: 3584, m1: C0????H?
-05:39:26.215 [IsNczMagic] Size: 162304, m1: ?tF???v?
-05:39:26.249 [IsNczMagic] Size: 162304, m2: ?h:??%;
-05:39:26.286 [IsNczMagic] Size: 358767534, m1: ??????q
-05:39:26.317 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-05:39:26.358 [IsNczMagic] Size: 1121280, m1: 	???\???
-05:39:26.407 [IsNczMagic] Size: 1121280, m2: ?8????
-05:39:26.439 [IsNczMagic] Size: 143167791, m1: ?o????.
-05:39:26.465 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-05:39:26.499 [IsNczMagic] Size: 162304, m1: ?~W?????
-05:39:26.533 [IsNczMagic] Size: 162304, m2: i???!?d
-05:39:26.567 [IsNczMagic] Size: 4096, m1: [}??/'
-05:41:31.635 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-05:41:31.659 [IsNczMagic] Size: 1121280, m2: ?A???
-05:41:31.685 [IsNczMagic] Size: 3584, m1: C0????H?
-05:41:31.713 [IsNczMagic] Size: 162304, m1: ?tF???v?
-05:41:31.744 [IsNczMagic] Size: 162304, m2: ?h:??%;
-05:41:31.782 [IsNczMagic] Size: 358767534, m1: ??????q
-05:41:31.810 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-05:41:31.846 [IsNczMagic] Size: 1121280, m1: 	???\???
-05:41:31.890 [IsNczMagic] Size: 1121280, m2: ?8????
-05:41:31.927 [IsNczMagic] Size: 143167791, m1: ?o????.
-05:41:31.954 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-05:41:31.980 [IsNczMagic] Size: 162304, m1: ?~W?????
-05:41:32.005 [IsNczMagic] Size: 162304, m2: i???!?d
-05:41:32.038 [IsNczMagic] Size: 4096, m1: [}??/'
-05:43:10.680 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-05:43:10.716 [IsNczMagic] Size: 1121280, m2: ?A???
-05:43:10.744 [IsNczMagic] Size: 3584, m1: C0????H?
-05:43:10.772 [IsNczMagic] Size: 162304, m1: ?tF???v?
-05:43:10.797 [IsNczMagic] Size: 162304, m2: ?h:??%;
-05:43:10.822 [IsNczMagic] Size: 358767534, m1: ??????q
-05:43:10.847 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-05:43:10.891 [IsNczMagic] Size: 1121280, m1: 	???\???
-05:43:10.928 [IsNczMagic] Size: 1121280, m2: ?8????
-05:43:10.957 [IsNczMagic] Size: 143167791, m1: ?o????.
-05:43:10.990 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-05:43:11.016 [IsNczMagic] Size: 162304, m1: ?~W?????
-05:43:11.051 [IsNczMagic] Size: 162304, m2: i???!?d
-05:43:11.077 [IsNczMagic] Size: 4096, m1: [}??/'
-05:44:58.706 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-05:44:58.737 [IsNczMagic] Size: 1121280, m2: ?A???
-05:44:58.762 [IsNczMagic] Size: 3584, m1: C0????H?
-05:44:58.788 [IsNczMagic] Size: 162304, m1: ?tF???v?
-05:44:58.816 [IsNczMagic] Size: 162304, m2: ?h:??%;
-05:44:58.865 [IsNczMagic] Size: 358767534, m1: ??????q
-05:44:58.893 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-05:44:58.970 [IsNczMagic] Size: 1121280, m1: 	???\???
-05:44:59.033 [IsNczMagic] Size: 1121280, m2: ?8????
-05:44:59.064 [IsNczMagic] Size: 143167791, m1: ?o????.
-05:44:59.094 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-05:44:59.120 [IsNczMagic] Size: 162304, m1: ?~W?????
-05:44:59.147 [IsNczMagic] Size: 162304, m2: i???!?d
-05:44:59.180 [IsNczMagic] Size: 4096, m1: [}??/'
-05:46:24.406 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-05:46:24.446 [IsNczMagic] Size: 1121280, m2: ?A???
-05:46:24.468 [IsNczMagic] Size: 3584, m1: C0????H?
-05:46:24.495 [IsNczMagic] Size: 162304, m1: ?tF???v?
-05:46:24.526 [IsNczMagic] Size: 162304, m2: ?h:??%;
-05:46:24.553 [IsNczMagic] Size: 358767534, m1: ??????q
-05:46:24.581 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-05:46:24.608 [IsNczMagic] Size: 1121280, m1: 	???\???
-05:46:24.662 [IsNczMagic] Size: 1121280, m2: ?8????
-05:46:24.692 [IsNczMagic] Size: 143167791, m1: ?o????.
-05:46:24.717 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-05:46:24.770 [IsNczMagic] Size: 162304, m1: ?~W?????
-05:46:24.800 [IsNczMagic] Size: 162304, m2: i???!?d
-05:46:24.830 [IsNczMagic] Size: 4096, m1: [}??/'
-05:47:41.493 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-05:47:41.517 [IsNczMagic] Size: 1121280, m2: ?A???
-05:47:41.548 [IsNczMagic] Size: 3584, m1: C0????H?
-05:47:41.574 [IsNczMagic] Size: 162304, m1: ?tF???v?
-05:47:41.612 [IsNczMagic] Size: 162304, m2: ?h:??%;
-05:47:41.635 [IsNczMagic] Size: 358767534, m1: ??????q
-05:47:41.663 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-05:47:41.693 [IsNczMagic] Size: 1121280, m1: 	???\???
-05:47:41.760 [IsNczMagic] Size: 1121280, m2: ?8????
-05:47:41.788 [IsNczMagic] Size: 143167791, m1: ?o????.
-05:47:41.813 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-05:47:41.888 [IsNczMagic] Size: 162304, m1: ?~W?????
-05:47:41.925 [IsNczMagic] Size: 162304, m2: i???!?d
-05:47:41.978 [IsNczMagic] Size: 4096, m1: [}??/'
-05:49:29.022 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-05:49:29.052 [IsNczMagic] Size: 1121280, m2: ?A???
-05:49:29.093 [IsNczMagic] Size: 3584, m1: C0????H?
-05:49:29.123 [IsNczMagic] Size: 162304, m1: ?tF???v?
-05:49:29.152 [IsNczMagic] Size: 162304, m2: ?h:??%;
-05:49:29.176 [IsNczMagic] Size: 358767534, m1: ??????q
-05:49:29.204 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-05:49:29.230 [IsNczMagic] Size: 1121280, m1: 	???\???
-05:49:29.275 [IsNczMagic] Size: 1121280, m2: ?8????
-05:49:29.303 [IsNczMagic] Size: 143167791, m1: ?o????.
-05:49:29.345 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-05:49:29.377 [IsNczMagic] Size: 162304, m1: ?~W?????
-05:49:29.405 [IsNczMagic] Size: 162304, m2: i???!?d
-05:49:29.435 [IsNczMagic] Size: 4096, m1: [}??/'
-05:55:14.059 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-05:55:14.089 [IsNczMagic] Size: 1121280, m2: ?A???
-05:55:14.114 [IsNczMagic] Size: 3584, m1: C0????H?
-05:55:14.139 [IsNczMagic] Size: 162304, m1: ?tF???v?
-05:55:14.166 [IsNczMagic] Size: 162304, m2: ?h:??%;
-05:55:14.192 [IsNczMagic] Size: 358767534, m1: ??????q
-05:55:14.218 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-05:55:14.252 [IsNczMagic] Size: 1121280, m1: 	???\???
-05:55:14.288 [IsNczMagic] Size: 1121280, m2: ?8????
-05:55:14.312 [IsNczMagic] Size: 143167791, m1: ?o????.
-05:55:14.348 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-05:55:14.404 [IsNczMagic] Size: 162304, m1: ?~W?????
-05:55:14.431 [IsNczMagic] Size: 162304, m2: i???!?d
-05:55:14.498 [IsNczMagic] Size: 4096, m1: [}??/'
-06:00:07.122 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-06:00:07.149 [IsNczMagic] Size: 1121280, m2: ?A???
-06:00:07.179 [IsNczMagic] Size: 3584, m1: C0????H?
-06:00:07.204 [IsNczMagic] Size: 162304, m1: ?tF???v?
-06:00:07.231 [IsNczMagic] Size: 162304, m2: ?h:??%;
-06:00:07.285 [IsNczMagic] Size: 358767534, m1: ??????q
-06:00:07.322 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-06:00:07.367 [IsNczMagic] Size: 1121280, m1: 	???\???
-06:00:07.409 [IsNczMagic] Size: 1121280, m2: ?8????
-06:00:07.445 [IsNczMagic] Size: 143167791, m1: ?o????.
-06:00:07.473 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-06:00:07.514 [IsNczMagic] Size: 162304, m1: ?~W?????
-06:00:07.565 [IsNczMagic] Size: 162304, m2: i???!?d
-06:00:07.604 [IsNczMagic] Size: 4096, m1: [}??/'
-06:02:07.792 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-06:02:07.837 [IsNczMagic] Size: 1121280, m2: ?A???
-06:02:07.859 [IsNczMagic] Size: 3584, m1: C0????H?
-06:02:07.922 [IsNczMagic] Size: 162304, m1: ?tF???v?
-06:02:07.955 [IsNczMagic] Size: 162304, m2: ?h:??%;
-06:02:07.996 [IsNczMagic] Size: 358767534, m1: ??????q
-06:02:08.060 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-06:02:08.101 [IsNczMagic] Size: 1121280, m1: 	???\???
-06:02:08.173 [IsNczMagic] Size: 1121280, m2: ?8????
-06:02:08.201 [IsNczMagic] Size: 143167791, m1: ?o????.
-06:02:08.234 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-06:02:08.268 [IsNczMagic] Size: 162304, m1: ?~W?????
-06:02:08.301 [IsNczMagic] Size: 162304, m2: i???!?d
-06:02:08.359 [IsNczMagic] Size: 4096, m1: [}??/'
-06:03:40.520 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-06:03:40.554 [IsNczMagic] Size: 1121280, m2: ?A???
-06:03:40.576 [IsNczMagic] Size: 3584, m1: C0????H?
-06:03:40.603 [IsNczMagic] Size: 162304, m1: ?tF???v?
-06:03:40.638 [IsNczMagic] Size: 162304, m2: ?h:??%;
-06:03:40.667 [IsNczMagic] Size: 358767534, m1: ??????q
-06:03:40.695 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-06:03:40.763 [IsNczMagic] Size: 1121280, m1: 	???\???
-06:03:40.799 [IsNczMagic] Size: 1121280, m2: ?8????
-06:03:40.832 [IsNczMagic] Size: 143167791, m1: ?o????.
-06:03:40.859 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-06:03:40.886 [IsNczMagic] Size: 162304, m1: ?~W?????
-06:03:40.910 [IsNczMagic] Size: 162304, m2: i???!?d
-06:03:40.940 [IsNczMagic] Size: 4096, m1: [}??/'
-06:07:38.735 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-06:07:38.766 [IsNczMagic] Size: 1121280, m2: ?A???
-06:07:38.805 [IsNczMagic] Size: 3584, m1: C0????H?
-06:07:38.827 [IsNczMagic] Size: 162304, m1: ?tF???v?
-06:07:38.848 [IsNczMagic] Size: 162304, m2: ?h:??%;
-06:07:38.875 [IsNczMagic] Size: 358767534, m1: ??????q
-06:07:38.909 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-06:07:38.961 [IsNczMagic] Size: 1121280, m1: 	???\???
-06:07:39.026 [IsNczMagic] Size: 1121280, m2: ?8????
-06:07:39.051 [IsNczMagic] Size: 143167791, m1: ?o????.
-06:07:39.082 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-06:07:39.166 [IsNczMagic] Size: 162304, m1: ?~W?????
-06:07:39.198 [IsNczMagic] Size: 162304, m2: i???!?d
-06:07:39.224 [IsNczMagic] Size: 4096, m1: [}??/'
-06:08:44.348 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-06:08:44.370 [IsNczMagic] Size: 1121280, m2: ?A???
-06:08:44.414 [IsNczMagic] Size: 3584, m1: C0????H?
-06:08:44.535 [IsNczMagic] Size: 162304, m1: ?tF???v?
-06:08:44.591 [IsNczMagic] Size: 162304, m2: ?h:??%;
-06:08:44.650 [IsNczMagic] Size: 358767534, m1: ??????q
-06:08:44.678 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-06:08:44.704 [IsNczMagic] Size: 1121280, m1: 	???\???
-06:08:44.740 [IsNczMagic] Size: 1121280, m2: ?8????
-06:08:44.766 [IsNczMagic] Size: 143167791, m1: ?o????.
-06:08:44.792 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-06:08:44.826 [IsNczMagic] Size: 162304, m1: ?~W?????
-06:08:44.854 [IsNczMagic] Size: 162304, m2: i???!?d
-06:08:44.881 [IsNczMagic] Size: 4096, m1: [}??/'
-06:09:47.389 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-06:09:47.413 [IsNczMagic] Size: 1121280, m2: ?A???
-06:09:47.447 [IsNczMagic] Size: 3584, m1: C0????H?
-06:09:47.468 [IsNczMagic] Size: 162304, m1: ?tF???v?
-06:09:47.519 [IsNczMagic] Size: 162304, m2: ?h:??%;
-06:09:47.540 [IsNczMagic] Size: 358767534, m1: ??????q
-06:09:47.586 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-06:09:47.638 [IsNczMagic] Size: 1121280, m1: 	???\???
-06:09:47.677 [IsNczMagic] Size: 1121280, m2: ?8????
-06:09:47.729 [IsNczMagic] Size: 143167791, m1: ?o????.
-06:09:47.753 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-06:09:47.780 [IsNczMagic] Size: 162304, m1: ?~W?????
-06:09:47.809 [IsNczMagic] Size: 162304, m2: i???!?d
-06:09:47.840 [IsNczMagic] Size: 4096, m1: [}??/'
-06:16:07.565 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-06:16:07.582 [IsNczMagic] Size: 1121280, m2: ?A???
-06:16:07.605 [IsNczMagic] Size: 3584, m1: C0????H?
-06:16:07.624 [IsNczMagic] Size: 162304, m1: ?tF???v?
-06:16:07.647 [IsNczMagic] Size: 162304, m2: ?h:??%;
-06:16:07.675 [IsNczMagic] Size: 358767534, m1: ??????q
-06:16:07.701 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-06:16:07.728 [IsNczMagic] Size: 1121280, m1: 	???\???
-06:16:07.751 [IsNczMagic] Size: 1121280, m2: ?8????
-06:16:07.781 [IsNczMagic] Size: 143167791, m1: ?o????.
-06:16:07.818 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-06:16:07.845 [IsNczMagic] Size: 162304, m1: ?~W?????
-06:16:07.881 [IsNczMagic] Size: 162304, m2: i???!?d
-06:16:07.908 [IsNczMagic] Size: 4096, m1: [}??/'
-06:21:37.008 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-06:21:37.036 [IsNczMagic] Size: 1121280, m2: ?A???
-06:21:37.060 [IsNczMagic] Size: 3584, m1: C0????H?
-06:21:37.083 [IsNczMagic] Size: 162304, m1: ?tF???v?
-06:21:37.106 [IsNczMagic] Size: 162304, m2: ?h:??%;
-06:21:37.132 [IsNczMagic] Size: 358767534, m1: ??????q
-06:21:37.166 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-06:21:37.197 [IsNczMagic] Size: 1121280, m1: 	???\???
-06:21:37.221 [IsNczMagic] Size: 1121280, m2: ?8????
-06:21:37.253 [IsNczMagic] Size: 143167791, m1: ?o????.
-06:21:37.285 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-06:21:37.309 [IsNczMagic] Size: 162304, m1: ?~W?????
-06:21:37.344 [IsNczMagic] Size: 162304, m2: i???!?d
-06:21:37.374 [IsNczMagic] Size: 4096, m1: [}??/'
-22:12:23.145 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-22:12:23.162 [IsNczMagic] Size: 1121280, m2: ?A???
-22:12:23.162 [IsNczMagic] Size: 3584, m1: C0????H?
-22:12:23.162 [IsNczMagic] Size: 162304, m1: ?tF???v?
-22:12:23.163 [IsNczMagic] Size: 162304, m2: ?h:??%;
-22:12:23.163 [IsNczMagic] Size: 358767534, m1: ??????q
-22:12:23.163 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-22:12:29.914 [IsNczMagic] Size: 1121280, m1: 	???\???
-22:12:29.914 [IsNczMagic] Size: 1121280, m2: ?8????
-22:12:29.914 [IsNczMagic] Size: 143167791, m1: ?o????.
-22:12:29.914 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-22:12:29.914 [IsNczMagic] Size: 162304, m1: ?~W?????
-22:12:29.914 [IsNczMagic] Size: 162304, m2: i???!?d
-22:12:29.914 [IsNczMagic] Size: 4096, m1: [}??/'
-22:57:14.895 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-22:57:14.895 [IsNczMagic] Size: 1121280, m2: ?A???
-22:57:14.896 [IsNczMagic] Size: 3584, m1: C0????H?
-22:57:14.896 [IsNczMagic] Size: 162304, m1: ?tF???v?
-22:57:14.896 [IsNczMagic] Size: 162304, m2: ?h:??%;
-22:57:14.896 [IsNczMagic] Size: 358767534, m1: ??????q
-22:57:14.896 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-22:57:21.186 [IsNczMagic] Size: 1121280, m1: 	???\???
-22:57:21.186 [IsNczMagic] Size: 1121280, m2: ?8????
-22:57:21.186 [IsNczMagic] Size: 143167791, m1: ?o????.
-22:57:21.187 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-22:57:21.187 [IsNczMagic] Size: 162304, m1: ?~W?????
-22:57:21.187 [IsNczMagic] Size: 162304, m2: i???!?d
-22:57:21.187 [IsNczMagic] Size: 4096, m1: [}??/'
-22:58:30.853 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-22:58:30.854 [IsNczMagic] Size: 1121280, m2: ?A???
-22:58:30.854 [IsNczMagic] Size: 3584, m1: C0????H?
-22:58:30.854 [IsNczMagic] Size: 162304, m1: ?tF???v?
-22:58:30.854 [IsNczMagic] Size: 162304, m2: ?h:??%;
-22:58:30.854 [IsNczMagic] Size: 358767534, m1: ??????q
-22:58:30.854 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-22:58:36.922 [IsNczMagic] Size: 1121280, m1: 	???\???
-22:58:36.922 [IsNczMagic] Size: 1121280, m2: ?8????
-22:58:36.922 [IsNczMagic] Size: 143167791, m1: ?o????.
-22:58:36.922 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-22:58:36.922 [IsNczMagic] Size: 162304, m1: ?~W?????
-22:58:36.923 [IsNczMagic] Size: 162304, m2: i???!?d
-22:58:36.923 [IsNczMagic] Size: 4096, m1: [}??/'
-23:12:04.959 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-23:12:04.959 [IsNczMagic] Size: 1121280, m2: ?A???
-23:12:04.960 [IsNczMagic] Size: 3584, m1: C0????H?
-23:12:04.960 [IsNczMagic] Size: 162304, m1: ?tF???v?
-23:12:04.960 [IsNczMagic] Size: 162304, m2: ?h:??%;
-23:12:04.960 [IsNczMagic] Size: 358767534, m1: ??????q
-23:12:04.960 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-23:12:11.137 [IsNczMagic] Size: 1121280, m1: 	???\???
-23:12:11.137 [IsNczMagic] Size: 1121280, m2: ?8????
-23:12:11.138 [IsNczMagic] Size: 143167791, m1: ?o????.
-23:12:11.138 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-23:12:11.138 [IsNczMagic] Size: 162304, m1: ?~W?????
-23:12:11.138 [IsNczMagic] Size: 162304, m2: i???!?d
-23:12:11.138 [IsNczMagic] Size: 4096, m1: [}??/'
-00:12:40.005 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-00:12:40.005 [IsNczMagic] Size: 1121280, m2: ?A???
-00:12:40.005 [IsNczMagic] Size: 3584, m1: C0????H?
-00:12:40.005 [IsNczMagic] Size: 162304, m1: ?tF???v?
-00:12:40.005 [IsNczMagic] Size: 162304, m2: ?h:??%;
-00:12:40.005 [IsNczMagic] Size: 358767534, m1: ??????q
-00:12:40.005 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-00:12:46.214 [IsNczMagic] Size: 1121280, m1: 	???\???
-00:12:46.215 [IsNczMagic] Size: 1121280, m2: ?8????
-00:12:46.215 [IsNczMagic] Size: 143167791, m1: ?o????.
-00:12:46.215 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-00:12:46.215 [IsNczMagic] Size: 162304, m1: ?~W?????
-00:12:46.215 [IsNczMagic] Size: 162304, m2: i???!?d
-00:12:46.215 [IsNczMagic] Size: 4096, m1: [}??/'
-00:34:27.605 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-00:34:27.606 [IsNczMagic] Size: 1121280, m2: ?A???
-00:34:27.606 [IsNczMagic] Size: 3584, m1: C0????H?
-00:34:27.606 [IsNczMagic] Size: 162304, m1: ?tF???v?
-00:34:27.606 [IsNczMagic] Size: 162304, m2: ?h:??%;
-00:34:27.606 [IsNczMagic] Size: 358767534, m1: ??????q
-00:34:27.606 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-00:34:33.861 [IsNczMagic] Size: 1121280, m1: 	???\???
-00:34:33.861 [IsNczMagic] Size: 1121280, m2: ?8????
-00:34:33.862 [IsNczMagic] Size: 143167791, m1: ?o????.
-00:34:33.862 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-00:34:33.862 [IsNczMagic] Size: 162304, m1: ?~W?????
-00:34:33.862 [IsNczMagic] Size: 162304, m2: i???!?d
-00:34:33.862 [IsNczMagic] Size: 4096, m1: [}??/'
-01:12:22.171 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-01:12:22.177 [IsNczMagic] Size: 1121280, m2: ?A???
-01:12:22.216 [IsNczMagic] Size: 3584, m1: C0????H?
-01:12:22.262 [IsNczMagic] Size: 162304, m1: ?tF???v?
-01:12:22.302 [IsNczMagic] Size: 162304, m2: ?h:??%;
-01:12:22.333 [IsNczMagic] Size: 358767534, m1: ??????q
-01:12:22.359 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-01:12:30.871 [IsNczMagic] Size: 1121280, m1: 	???\???
-01:12:31.396 [IsNczMagic] Size: 1121280, m2: ?8????
-01:12:31.434 [IsNczMagic] Size: 143167791, m1: ?o????.
-01:12:31.487 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-01:12:31.519 [IsNczMagic] Size: 162304, m1: ?~W?????
-01:12:31.548 [IsNczMagic] Size: 162304, m2: i???!?d
-01:12:31.575 [IsNczMagic] Size: 4096, m1: [}??/'
-01:15:37.032 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-01:15:37.073 [IsNczMagic] Size: 1121280, m2: ?A???
-01:15:37.116 [IsNczMagic] Size: 3584, m1: C0????H?
-01:15:37.142 [IsNczMagic] Size: 162304, m1: ?tF???v?
-01:15:37.165 [IsNczMagic] Size: 162304, m2: ?h:??%;
-01:15:37.194 [IsNczMagic] Size: 358767534, m1: ??????q
-01:15:37.221 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-01:15:45.811 [IsNczMagic] Size: 1121280, m1: 	???\???
-01:15:45.852 [IsNczMagic] Size: 1121280, m2: ?8????
-01:15:45.882 [IsNczMagic] Size: 143167791, m1: ?o????.
-01:15:45.907 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-01:15:45.934 [IsNczMagic] Size: 162304, m1: ?~W?????
-01:15:45.957 [IsNczMagic] Size: 162304, m2: i???!?d
-01:15:45.983 [IsNczMagic] Size: 4096, m1: [}??/'
-01:17:49.813 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-01:17:49.852 [IsNczMagic] Size: 1121280, m2: ?A???
-01:17:49.900 [IsNczMagic] Size: 3584, m1: C0????H?
-01:17:49.938 [IsNczMagic] Size: 162304, m1: ?tF???v?
-01:17:49.965 [IsNczMagic] Size: 162304, m2: ?h:??%;
-01:17:49.999 [IsNczMagic] Size: 358767534, m1: ??????q
-01:17:50.047 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-01:17:58.158 [IsNczMagic] Size: 1121280, m1: 	???\???
-01:17:58.194 [IsNczMagic] Size: 1121280, m2: ?8????
-01:17:58.231 [IsNczMagic] Size: 143167791, m1: ?o????.
-01:17:58.279 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-01:17:58.306 [IsNczMagic] Size: 162304, m1: ?~W?????
-01:17:58.329 [IsNczMagic] Size: 162304, m2: i???!?d
-01:17:58.356 [IsNczMagic] Size: 4096, m1: [}??/'
-01:20:34.758 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-01:20:34.799 [IsNczMagic] Size: 1121280, m2: ?A???
-01:20:34.848 [IsNczMagic] Size: 3584, m1: C0????H?
-01:20:34.896 [IsNczMagic] Size: 162304, m1: ?tF???v?
-01:20:34.927 [IsNczMagic] Size: 162304, m2: ?h:??%;
-01:20:34.959 [IsNczMagic] Size: 358767534, m1: ??????q
-01:20:34.997 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-01:20:43.434 [IsNczMagic] Size: 1121280, m1: 	???\???
-01:20:43.477 [IsNczMagic] Size: 1121280, m2: ?8????
-01:20:43.512 [IsNczMagic] Size: 143167791, m1: ?o????.
-01:20:43.539 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-01:20:43.566 [IsNczMagic] Size: 162304, m1: ?~W?????
-01:20:43.591 [IsNczMagic] Size: 162304, m2: i???!?d
-01:20:43.622 [IsNczMagic] Size: 4096, m1: [}??/'
-01:22:27.140 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-01:22:27.183 [IsNczMagic] Size: 1121280, m2: ?A???
-01:22:27.228 [IsNczMagic] Size: 3584, m1: C0????H?
-01:22:27.289 [IsNczMagic] Size: 162304, m1: ?tF???v?
-01:22:27.329 [IsNczMagic] Size: 162304, m2: ?h:??%;
-01:22:27.361 [IsNczMagic] Size: 358767534, m1: ??????q
-01:22:27.390 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-01:22:36.007 [IsNczMagic] Size: 1121280, m1: 	???\???
-01:22:36.049 [IsNczMagic] Size: 1121280, m2: ?8????
-01:22:36.077 [IsNczMagic] Size: 143167791, m1: ?o????.
-01:22:36.101 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-01:22:36.128 [IsNczMagic] Size: 162304, m1: ?~W?????
-01:22:36.156 [IsNczMagic] Size: 162304, m2: i???!?d
-01:22:36.182 [IsNczMagic] Size: 4096, m1: [}??/'
-01:24:01.197 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-01:24:01.239 [IsNczMagic] Size: 1121280, m2: ?A???
-01:24:01.287 [IsNczMagic] Size: 3584, m1: C0????H?
-01:24:01.332 [IsNczMagic] Size: 162304, m1: ?tF???v?
-01:24:01.367 [IsNczMagic] Size: 162304, m2: ?h:??%;
-01:24:01.399 [IsNczMagic] Size: 358767534, m1: ??????q
-01:24:01.431 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-01:24:11.587 [IsNczMagic] Size: 1121280, m1: 	???\???
-01:24:11.626 [IsNczMagic] Size: 1121280, m2: ?8????
-01:24:11.654 [IsNczMagic] Size: 143167791, m1: ?o????.
-01:24:11.677 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-01:24:11.710 [IsNczMagic] Size: 162304, m1: ?~W?????
-01:24:11.732 [IsNczMagic] Size: 162304, m2: i???!?d
-01:24:11.760 [IsNczMagic] Size: 4096, m1: [}??/'
-01:25:18.762 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-01:25:18.813 [IsNczMagic] Size: 1121280, m2: ?A???
-01:25:18.859 [IsNczMagic] Size: 3584, m1: C0????H?
-01:25:18.905 [IsNczMagic] Size: 162304, m1: ?tF???v?
-01:25:18.935 [IsNczMagic] Size: 162304, m2: ?h:??%;
-01:25:18.964 [IsNczMagic] Size: 358767534, m1: ??????q
-01:25:18.989 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-01:25:28.358 [IsNczMagic] Size: 1121280, m1: 	???\???
-01:25:28.396 [IsNczMagic] Size: 1121280, m2: ?8????
-01:25:28.430 [IsNczMagic] Size: 143167791, m1: ?o????.
-01:25:28.456 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-01:25:28.483 [IsNczMagic] Size: 162304, m1: ?~W?????
-01:25:28.509 [IsNczMagic] Size: 162304, m2: i???!?d
-01:25:28.540 [IsNczMagic] Size: 4096, m1: [}??/'
-01:27:36.168 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-01:27:36.215 [IsNczMagic] Size: 1121280, m2: ?A???
-01:27:36.274 [IsNczMagic] Size: 3584, m1: C0????H?
-01:27:36.314 [IsNczMagic] Size: 162304, m1: ?tF???v?
-01:27:36.356 [IsNczMagic] Size: 162304, m2: ?h:??%;
-01:27:36.381 [IsNczMagic] Size: 358767534, m1: ??????q
-01:27:36.409 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-01:27:45.057 [IsNczMagic] Size: 1121280, m1: 	???\???
-01:27:45.098 [IsNczMagic] Size: 1121280, m2: ?8????
-01:27:45.143 [IsNczMagic] Size: 143167791, m1: ?o????.
-01:27:45.169 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-01:27:45.193 [IsNczMagic] Size: 162304, m1: ?~W?????
-01:27:45.229 [IsNczMagic] Size: 162304, m2: i???!?d
-01:27:45.266 [IsNczMagic] Size: 4096, m1: [}??/'
-01:29:36.735 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-01:29:36.773 [IsNczMagic] Size: 1121280, m2: ?A???
-01:29:36.836 [IsNczMagic] Size: 3584, m1: C0????H?
-01:29:36.880 [IsNczMagic] Size: 162304, m1: ?tF???v?
-01:29:36.908 [IsNczMagic] Size: 162304, m2: ?h:??%;
-01:29:36.943 [IsNczMagic] Size: 358767534, m1: ??????q
-01:29:36.969 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-01:29:50.561 [IsNczMagic] Size: 1121280, m1: 	???\???
-01:29:50.602 [IsNczMagic] Size: 1121280, m2: ?8????
-01:29:50.658 [IsNczMagic] Size: 143167791, m1: ?o????.
-01:29:50.682 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-01:29:50.709 [IsNczMagic] Size: 162304, m1: ?~W?????
-01:29:50.740 [IsNczMagic] Size: 162304, m2: i???!?d
-01:29:50.766 [IsNczMagic] Size: 4096, m1: [}??/'
-01:30:37.596 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-01:30:37.642 [IsNczMagic] Size: 1121280, m2: ?A???
-01:30:37.693 [IsNczMagic] Size: 3584, m1: C0????H?
-01:30:37.737 [IsNczMagic] Size: 162304, m1: ?tF???v?
-01:30:37.761 [IsNczMagic] Size: 162304, m2: ?h:??%;
-01:30:37.794 [IsNczMagic] Size: 358767534, m1: ??????q
-01:30:37.820 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-01:30:51.879 [IsNczMagic] Size: 1121280, m1: 	???\???
-01:30:51.924 [IsNczMagic] Size: 1121280, m2: ?8????
-01:30:51.954 [IsNczMagic] Size: 143167791, m1: ?o????.
-01:30:51.981 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-01:30:52.010 [IsNczMagic] Size: 162304, m1: ?~W?????
-01:30:52.035 [IsNczMagic] Size: 162304, m2: i???!?d
-01:30:52.062 [IsNczMagic] Size: 4096, m1: [}??/'
-01:32:13.484 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-01:32:13.522 [IsNczMagic] Size: 1121280, m2: ?A???
-01:32:13.567 [IsNczMagic] Size: 3584, m1: C0????H?
-01:32:13.612 [IsNczMagic] Size: 162304, m1: ?tF???v?
-01:32:13.641 [IsNczMagic] Size: 162304, m2: ?h:??%;
-01:32:13.669 [IsNczMagic] Size: 358767534, m1: ??????q
-01:32:13.694 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-01:32:26.340 [IsNczMagic] Size: 1121280, m1: 	???\???
-01:32:26.386 [IsNczMagic] Size: 1121280, m2: ?8????
-01:32:26.419 [IsNczMagic] Size: 143167791, m1: ?o????.
-01:32:26.442 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-01:32:26.467 [IsNczMagic] Size: 162304, m1: ?~W?????
-01:32:26.498 [IsNczMagic] Size: 162304, m2: i???!?d
-01:32:26.521 [IsNczMagic] Size: 4096, m1: [}??/'
-01:33:04.108 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-01:33:04.148 [IsNczMagic] Size: 1121280, m2: ?A???
-01:33:04.205 [IsNczMagic] Size: 3584, m1: C0????H?
-01:33:04.249 [IsNczMagic] Size: 162304, m1: ?tF???v?
-01:33:04.275 [IsNczMagic] Size: 162304, m2: ?h:??%;
-01:33:04.302 [IsNczMagic] Size: 358767534, m1: ??????q
-01:33:04.328 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-01:33:17.131 [IsNczMagic] Size: 1121280, m1: 	???\???
-01:33:17.167 [IsNczMagic] Size: 1121280, m2: ?8????
-01:33:17.196 [IsNczMagic] Size: 143167791, m1: ?o????.
-01:33:17.220 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-01:33:17.245 [IsNczMagic] Size: 162304, m1: ?~W?????
-01:33:17.269 [IsNczMagic] Size: 162304, m2: i???!?d
-01:33:17.296 [IsNczMagic] Size: 4096, m1: [}??/'
-01:34:21.960 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-01:34:22.007 [IsNczMagic] Size: 1121280, m2: ?A???
-01:34:22.068 [IsNczMagic] Size: 3584, m1: C0????H?
-01:34:22.108 [IsNczMagic] Size: 162304, m1: ?tF???v?
-01:34:22.134 [IsNczMagic] Size: 162304, m2: ?h:??%;
-01:34:22.166 [IsNczMagic] Size: 358767534, m1: ??????q
-01:34:22.198 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-01:34:31.170 [IsNczMagic] Size: 1121280, m1: 	???\???
-01:34:31.207 [IsNczMagic] Size: 1121280, m2: ?8????
-01:34:31.240 [IsNczMagic] Size: 143167791, m1: ?o????.
-01:34:31.264 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-01:34:31.296 [IsNczMagic] Size: 162304, m1: ?~W?????
-01:34:31.324 [IsNczMagic] Size: 162304, m2: i???!?d
-01:34:31.350 [IsNczMagic] Size: 4096, m1: [}??/'
-01:35:33.285 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-01:35:33.330 [IsNczMagic] Size: 1121280, m2: ?A???
-01:35:33.386 [IsNczMagic] Size: 3584, m1: C0????H?
-01:35:33.420 [IsNczMagic] Size: 162304, m1: ?tF???v?
-01:35:33.446 [IsNczMagic] Size: 162304, m2: ?h:??%;
-01:35:33.475 [IsNczMagic] Size: 358767534, m1: ??????q
-01:35:33.502 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-01:35:43.059 [IsNczMagic] Size: 1121280, m1: 	???\???
-01:35:43.103 [IsNczMagic] Size: 1121280, m2: ?8????
-01:35:43.128 [IsNczMagic] Size: 143167791, m1: ?o????.
-01:35:43.147 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-01:35:43.173 [IsNczMagic] Size: 162304, m1: ?~W?????
-01:35:43.199 [IsNczMagic] Size: 162304, m2: i???!?d
-01:35:43.223 [IsNczMagic] Size: 4096, m1: [}??/'
-01:37:40.068 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-01:37:40.255 [IsNczMagic] Size: 1121280, m2: ?A???
-01:37:40.286 [IsNczMagic] Size: 3584, m1: C0????H?
-01:37:40.318 [IsNczMagic] Size: 162304, m1: ?tF???v?
-01:37:40.351 [IsNczMagic] Size: 162304, m2: ?h:??%;
-01:37:40.386 [IsNczMagic] Size: 358767534, m1: ??????q
-01:37:40.412 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-01:37:50.070 [IsNczMagic] Size: 1121280, m1: 	???\???
-01:37:50.112 [IsNczMagic] Size: 1121280, m2: ?8????
-01:37:50.148 [IsNczMagic] Size: 143167791, m1: ?o????.
-01:37:50.174 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-01:37:50.205 [IsNczMagic] Size: 162304, m1: ?~W?????
-01:37:50.243 [IsNczMagic] Size: 162304, m2: i???!?d
-01:37:50.271 [IsNczMagic] Size: 4096, m1: [}??/'
-01:39:24.743 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-01:39:24.780 [IsNczMagic] Size: 1121280, m2: ?A???
-01:39:24.835 [IsNczMagic] Size: 3584, m1: C0????H?
-01:39:24.878 [IsNczMagic] Size: 162304, m1: ?tF???v?
-01:39:24.909 [IsNczMagic] Size: 162304, m2: ?h:??%;
-01:39:24.940 [IsNczMagic] Size: 358767534, m1: ??????q
-01:39:24.968 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-01:39:33.170 [IsNczMagic] Size: 1121280, m1: 	???\???
-01:39:33.243 [IsNczMagic] Size: 1121280, m2: ?8????
-01:39:33.285 [IsNczMagic] Size: 143167791, m1: ?o????.
-01:39:33.324 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-01:39:33.351 [IsNczMagic] Size: 162304, m1: ?~W?????
-01:39:33.383 [IsNczMagic] Size: 162304, m2: i???!?d
-01:39:33.414 [IsNczMagic] Size: 4096, m1: [}??/'
-01:40:52.264 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-01:40:52.308 [IsNczMagic] Size: 1121280, m2: ?A???
-01:40:52.360 [IsNczMagic] Size: 3584, m1: C0????H?
-01:40:52.413 [IsNczMagic] Size: 162304, m1: ?tF???v?
-01:40:52.437 [IsNczMagic] Size: 162304, m2: ?h:??%;
-01:40:52.472 [IsNczMagic] Size: 358767534, m1: ??????q
-01:40:52.497 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-01:41:00.940 [IsNczMagic] Size: 1121280, m1: 	???\???
-01:41:00.984 [IsNczMagic] Size: 1121280, m2: ?8????
-01:41:01.027 [IsNczMagic] Size: 143167791, m1: ?o????.
-01:41:01.055 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-01:41:01.083 [IsNczMagic] Size: 162304, m1: ?~W?????
-01:41:01.105 [IsNczMagic] Size: 162304, m2: i???!?d
-01:41:01.133 [IsNczMagic] Size: 4096, m1: [}??/'
-01:41:27.735 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-01:41:27.774 [IsNczMagic] Size: 1121280, m2: ?A???
-01:41:27.810 [IsNczMagic] Size: 3584, m1: C0????H?
-01:41:27.840 [IsNczMagic] Size: 162304, m1: ?tF???v?
-01:41:27.863 [IsNczMagic] Size: 162304, m2: ?h:??%;
-01:41:27.893 [IsNczMagic] Size: 358767534, m1: ??????q
-01:41:27.923 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-01:41:37.492 [IsNczMagic] Size: 1121280, m1: 	???\???
-01:41:37.541 [IsNczMagic] Size: 1121280, m2: ?8????
-01:41:37.571 [IsNczMagic] Size: 143167791, m1: ?o????.
-01:41:37.597 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-01:41:37.621 [IsNczMagic] Size: 162304, m1: ?~W?????
-01:41:37.649 [IsNczMagic] Size: 162304, m2: i???!?d
-01:41:37.695 [IsNczMagic] Size: 4096, m1: [}??/'
-01:43:15.535 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-01:43:15.579 [IsNczMagic] Size: 1121280, m2: ?A???
-01:43:15.637 [IsNczMagic] Size: 3584, m1: C0????H?
-01:43:15.683 [IsNczMagic] Size: 162304, m1: ?tF???v?
-01:43:15.718 [IsNczMagic] Size: 162304, m2: ?h:??%;
-01:43:15.747 [IsNczMagic] Size: 358767534, m1: ??????q
-01:43:15.773 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-01:43:25.773 [IsNczMagic] Size: 1121280, m1: 	???\???
-01:43:25.826 [IsNczMagic] Size: 1121280, m2: ?8????
-01:43:25.870 [IsNczMagic] Size: 143167791, m1: ?o????.
-01:43:25.896 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-01:43:25.927 [IsNczMagic] Size: 162304, m1: ?~W?????
-01:43:25.952 [IsNczMagic] Size: 162304, m2: i???!?d
-01:43:25.978 [IsNczMagic] Size: 4096, m1: [}??/'
-01:44:23.697 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-01:44:23.742 [IsNczMagic] Size: 1121280, m2: ?A???
-01:44:23.802 [IsNczMagic] Size: 3584, m1: C0????H?
-01:44:23.852 [IsNczMagic] Size: 162304, m1: ?tF???v?
-01:44:23.885 [IsNczMagic] Size: 162304, m2: ?h:??%;
-01:44:23.918 [IsNczMagic] Size: 358767534, m1: ??????q
-01:44:23.945 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-01:44:32.497 [IsNczMagic] Size: 1121280, m1: 	???\???
-01:44:32.555 [IsNczMagic] Size: 1121280, m2: ?8????
-01:44:32.601 [IsNczMagic] Size: 143167791, m1: ?o????.
-01:44:32.628 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-01:44:32.652 [IsNczMagic] Size: 162304, m1: ?~W?????
-01:44:32.678 [IsNczMagic] Size: 162304, m2: i???!?d
-01:44:32.704 [IsNczMagic] Size: 4096, m1: [}??/'
-01:46:50.458 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-01:46:50.499 [IsNczMagic] Size: 1121280, m2: ?A???
-01:46:50.549 [IsNczMagic] Size: 3584, m1: C0????H?
-01:46:50.598 [IsNczMagic] Size: 162304, m1: ?tF???v?
-01:46:50.627 [IsNczMagic] Size: 162304, m2: ?h:??%;
-01:46:50.658 [IsNczMagic] Size: 358767534, m1: ??????q
-01:46:50.686 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-01:46:59.950 [IsNczMagic] Size: 1121280, m1: 	???\???
-01:46:59.988 [IsNczMagic] Size: 1121280, m2: ?8????
-01:47:00.024 [IsNczMagic] Size: 143167791, m1: ?o????.
-01:47:00.048 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-01:47:00.074 [IsNczMagic] Size: 162304, m1: ?~W?????
-01:47:00.102 [IsNczMagic] Size: 162304, m2: i???!?d
-01:47:00.129 [IsNczMagic] Size: 4096, m1: [}??/'
-01:48:48.646 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-01:48:48.689 [IsNczMagic] Size: 1121280, m2: ?A???
-01:48:48.751 [IsNczMagic] Size: 3584, m1: C0????H?
-01:48:48.789 [IsNczMagic] Size: 162304, m1: ?tF???v?
-01:48:48.815 [IsNczMagic] Size: 162304, m2: ?h:??%;
-01:48:48.852 [IsNczMagic] Size: 358767534, m1: ??????q
-01:48:48.881 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-01:48:58.158 [IsNczMagic] Size: 1121280, m1: 	???\???
-01:48:58.211 [IsNczMagic] Size: 1121280, m2: ?8????
-01:48:58.240 [IsNczMagic] Size: 143167791, m1: ?o????.
-01:48:58.265 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-01:48:58.293 [IsNczMagic] Size: 162304, m1: ?~W?????
-01:48:58.321 [IsNczMagic] Size: 162304, m2: i???!?d
-01:48:58.351 [IsNczMagic] Size: 4096, m1: [}??/'
-01:49:58.414 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-01:49:58.458 [IsNczMagic] Size: 1121280, m2: ?A???
-01:49:58.515 [IsNczMagic] Size: 3584, m1: C0????H?
-01:49:58.555 [IsNczMagic] Size: 162304, m1: ?tF???v?
-01:49:58.587 [IsNczMagic] Size: 162304, m2: ?h:??%;
-01:49:58.613 [IsNczMagic] Size: 358767534, m1: ??????q
-01:49:58.647 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-01:50:08.573 [IsNczMagic] Size: 1121280, m1: 	???\???
-01:50:08.613 [IsNczMagic] Size: 1121280, m2: ?8????
-01:50:08.648 [IsNczMagic] Size: 143167791, m1: ?o????.
-01:50:08.672 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-01:50:08.707 [IsNczMagic] Size: 162304, m1: ?~W?????
-01:50:08.737 [IsNczMagic] Size: 162304, m2: i???!?d
-01:50:08.760 [IsNczMagic] Size: 4096, m1: [}??/'
-01:51:24.957 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-01:51:24.997 [IsNczMagic] Size: 1121280, m2: ?A???
-01:51:25.041 [IsNczMagic] Size: 3584, m1: C0????H?
-01:51:25.111 [IsNczMagic] Size: 162304, m1: ?tF???v?
-01:51:25.138 [IsNczMagic] Size: 162304, m2: ?h:??%;
-01:51:25.169 [IsNczMagic] Size: 358767534, m1: ??????q
-01:51:25.203 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-01:51:33.927 [IsNczMagic] Size: 1121280, m1: 	???\???
-01:51:33.987 [IsNczMagic] Size: 1121280, m2: ?8????
-01:51:34.037 [IsNczMagic] Size: 143167791, m1: ?o????.
-01:51:34.064 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-01:51:34.089 [IsNczMagic] Size: 162304, m1: ?~W?????
-01:51:34.113 [IsNczMagic] Size: 162304, m2: i???!?d
-01:51:34.139 [IsNczMagic] Size: 4096, m1: [}??/'
-01:52:45.938 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-01:52:45.972 [IsNczMagic] Size: 1121280, m2: ?A???
-01:52:46.019 [IsNczMagic] Size: 3584, m1: C0????H?
-01:52:46.046 [IsNczMagic] Size: 162304, m1: ?tF???v?
-01:52:46.072 [IsNczMagic] Size: 162304, m2: ?h:??%;
-01:52:46.100 [IsNczMagic] Size: 358767534, m1: ??????q
-01:52:46.137 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-01:52:55.004 [IsNczMagic] Size: 1121280, m1: 	???\???
-01:52:55.044 [IsNczMagic] Size: 1121280, m2: ?8????
-01:52:55.079 [IsNczMagic] Size: 143167791, m1: ?o????.
-01:52:55.105 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-01:52:55.141 [IsNczMagic] Size: 162304, m1: ?~W?????
-01:52:55.175 [IsNczMagic] Size: 162304, m2: i???!?d
-01:52:55.209 [IsNczMagic] Size: 4096, m1: [}??/'
-01:53:54.045 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-01:53:54.101 [IsNczMagic] Size: 1121280, m2: ?A???
-01:53:54.148 [IsNczMagic] Size: 3584, m1: C0????H?
-01:53:54.180 [IsNczMagic] Size: 162304, m1: ?tF???v?
-01:53:54.211 [IsNczMagic] Size: 162304, m2: ?h:??%;
-01:53:54.240 [IsNczMagic] Size: 358767534, m1: ??????q
-01:53:54.274 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-01:54:03.473 [IsNczMagic] Size: 1121280, m1: 	???\???
-01:54:03.520 [IsNczMagic] Size: 1121280, m2: ?8????
-01:54:03.556 [IsNczMagic] Size: 143167791, m1: ?o????.
-01:54:03.592 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-01:54:03.628 [IsNczMagic] Size: 162304, m1: ?~W?????
-01:54:03.657 [IsNczMagic] Size: 162304, m2: i???!?d
-01:54:03.697 [IsNczMagic] Size: 4096, m1: [}??/'
-01:55:18.000 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-01:55:18.062 [IsNczMagic] Size: 1121280, m2: ?A???
-01:55:18.102 [IsNczMagic] Size: 3584, m1: C0????H?
-01:55:18.142 [IsNczMagic] Size: 162304, m1: ?tF???v?
-01:55:18.187 [IsNczMagic] Size: 162304, m2: ?h:??%;
-01:55:18.215 [IsNczMagic] Size: 358767534, m1: ??????q
-01:55:18.244 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-01:55:28.435 [IsNczMagic] Size: 1121280, m1: 	???\???
-01:55:28.476 [IsNczMagic] Size: 1121280, m2: ?8????
-01:55:28.510 [IsNczMagic] Size: 143167791, m1: ?o????.
-01:55:28.542 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-01:55:28.568 [IsNczMagic] Size: 162304, m1: ?~W?????
-01:55:28.597 [IsNczMagic] Size: 162304, m2: i???!?d
-01:55:28.628 [IsNczMagic] Size: 4096, m1: [}??/'
-01:56:32.482 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-01:56:32.535 [IsNczMagic] Size: 1121280, m2: ?A???
-01:56:32.585 [IsNczMagic] Size: 3584, m1: C0????H?
-01:56:32.635 [IsNczMagic] Size: 162304, m1: ?tF???v?
-01:56:32.659 [IsNczMagic] Size: 162304, m2: ?h:??%;
-01:56:32.691 [IsNczMagic] Size: 358767534, m1: ??????q
-01:56:32.718 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-01:56:42.349 [IsNczMagic] Size: 1121280, m1: 	???\???
-01:56:42.396 [IsNczMagic] Size: 1121280, m2: ?8????
-01:56:42.431 [IsNczMagic] Size: 143167791, m1: ?o????.
-01:56:42.457 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-01:56:42.483 [IsNczMagic] Size: 162304, m1: ?~W?????
-01:56:42.514 [IsNczMagic] Size: 162304, m2: i???!?d
-01:56:42.546 [IsNczMagic] Size: 4096, m1: [}??/'
-01:57:44.032 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-01:57:44.078 [IsNczMagic] Size: 1121280, m2: ?A???
-01:57:44.136 [IsNczMagic] Size: 3584, m1: C0????H?
-01:57:44.190 [IsNczMagic] Size: 162304, m1: ?tF???v?
-01:57:44.220 [IsNczMagic] Size: 162304, m2: ?h:??%;
-01:57:44.255 [IsNczMagic] Size: 358767534, m1: ??????q
-01:57:44.281 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-01:57:53.107 [IsNczMagic] Size: 1121280, m1: 	???\???
-01:57:53.168 [IsNczMagic] Size: 1121280, m2: ?8????
-01:57:53.199 [IsNczMagic] Size: 143167791, m1: ?o????.
-01:57:53.228 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-01:57:53.255 [IsNczMagic] Size: 162304, m1: ?~W?????
-01:57:53.290 [IsNczMagic] Size: 162304, m2: i???!?d
-01:57:53.318 [IsNczMagic] Size: 4096, m1: [}??/'
-01:59:07.468 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-01:59:07.511 [IsNczMagic] Size: 1121280, m2: ?A???
-01:59:07.570 [IsNczMagic] Size: 3584, m1: C0????H?
-01:59:07.616 [IsNczMagic] Size: 162304, m1: ?tF???v?
-01:59:07.646 [IsNczMagic] Size: 162304, m2: ?h:??%;
-01:59:07.689 [IsNczMagic] Size: 358767534, m1: ??????q
-01:59:07.719 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-01:59:17.739 [IsNczMagic] Size: 1121280, m1: 	???\???
-01:59:17.780 [IsNczMagic] Size: 1121280, m2: ?8????
-01:59:17.816 [IsNczMagic] Size: 143167791, m1: ?o????.
-01:59:17.847 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-01:59:17.875 [IsNczMagic] Size: 162304, m1: ?~W?????
-01:59:17.905 [IsNczMagic] Size: 162304, m2: i???!?d
-01:59:17.933 [IsNczMagic] Size: 4096, m1: [}??/'
-02:01:02.053 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-02:01:02.107 [IsNczMagic] Size: 1121280, m2: ?A???
-02:01:02.155 [IsNczMagic] Size: 3584, m1: C0????H?
-02:01:02.201 [IsNczMagic] Size: 162304, m1: ?tF???v?
-02:01:02.239 [IsNczMagic] Size: 162304, m2: ?h:??%;
-02:01:02.266 [IsNczMagic] Size: 358767534, m1: ??????q
-02:01:02.299 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-02:01:11.583 [IsNczMagic] Size: 1121280, m1: 	???\???
-02:01:11.610 [IsNczMagic] Size: 1121280, m2: ?8????
-02:01:11.648 [IsNczMagic] Size: 143167791, m1: ?o????.
-02:01:11.673 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-02:01:11.702 [IsNczMagic] Size: 162304, m1: ?~W?????
-02:01:11.731 [IsNczMagic] Size: 162304, m2: i???!?d
-02:01:11.766 [IsNczMagic] Size: 4096, m1: [}??/'
-04:19:40.869 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-04:19:40.917 [IsNczMagic] Size: 1121280, m2: ?A???
-04:19:40.981 [IsNczMagic] Size: 3584, m1: C0????H?
-04:19:41.036 [IsNczMagic] Size: 162304, m1: ?tF???v?
-04:19:41.062 [IsNczMagic] Size: 162304, m2: ?h:??%;
-04:19:41.100 [IsNczMagic] Size: 358767534, m1: ??????q
-04:19:41.132 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-04:19:50.263 [IsNczMagic] Size: 1121280, m1: 	???\???
-04:19:50.837 [IsNczMagic] Size: 1121280, m2: ?8????
-04:19:50.891 [IsNczMagic] Size: 143167791, m1: ?o????.
-04:19:51.041 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-04:19:51.064 [IsNczMagic] Size: 162304, m1: ?~W?????
-04:19:51.100 [IsNczMagic] Size: 162304, m2: i???!?d
-04:19:51.131 [IsNczMagic] Size: 4096, m1: [}??/'
-04:28:06.308 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-04:28:06.355 [IsNczMagic] Size: 1121280, m2: ?A???
-04:28:06.412 [IsNczMagic] Size: 3584, m1: C0????H?
-04:28:06.446 [IsNczMagic] Size: 162304, m1: ?tF???v?
-04:28:06.493 [IsNczMagic] Size: 162304, m2: ?h:??%;
-04:28:06.522 [IsNczMagic] Size: 358767534, m1: ??????q
-04:28:06.550 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-04:28:16.233 [IsNczMagic] Size: 1121280, m1: 	???\???
-04:28:16.274 [IsNczMagic] Size: 1121280, m2: ?8????
-04:28:16.305 [IsNczMagic] Size: 143167791, m1: ?o????.
-04:28:16.329 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-04:28:16.359 [IsNczMagic] Size: 162304, m1: ?~W?????
-04:28:16.386 [IsNczMagic] Size: 162304, m2: i???!?d
-04:28:16.416 [IsNczMagic] Size: 4096, m1: [}??/'
-04:30:56.486 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-04:30:56.532 [IsNczMagic] Size: 1121280, m2: ?A???
-04:30:56.604 [IsNczMagic] Size: 3584, m1: C0????H?
-04:30:56.648 [IsNczMagic] Size: 162304, m1: ?tF???v?
-04:30:56.679 [IsNczMagic] Size: 162304, m2: ?h:??%;
-04:30:56.708 [IsNczMagic] Size: 358767534, m1: ??????q
-04:30:56.733 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-04:31:07.053 [IsNczMagic] Size: 1121280, m1: 	???\???
-04:31:07.118 [IsNczMagic] Size: 1121280, m2: ?8????
-04:31:07.159 [IsNczMagic] Size: 143167791, m1: ?o????.
-04:31:07.186 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-04:31:07.215 [IsNczMagic] Size: 162304, m1: ?~W?????
-04:31:07.272 [IsNczMagic] Size: 162304, m2: i???!?d
-04:31:07.299 [IsNczMagic] Size: 4096, m1: [}??/'
-04:36:22.658 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-04:36:22.721 [IsNczMagic] Size: 1121280, m2: ?A???
-04:36:22.772 [IsNczMagic] Size: 3584, m1: C0????H?
-04:36:22.825 [IsNczMagic] Size: 162304, m1: ?tF???v?
-04:36:22.854 [IsNczMagic] Size: 162304, m2: ?h:??%;
-04:36:22.882 [IsNczMagic] Size: 358767534, m1: ??????q
-04:36:22.911 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-04:36:32.268 [IsNczMagic] Size: 1121280, m1: 	???\???
-04:36:32.309 [IsNczMagic] Size: 1121280, m2: ?8????
-04:36:32.341 [IsNczMagic] Size: 143167791, m1: ?o????.
-04:36:32.365 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-04:36:32.400 [IsNczMagic] Size: 162304, m1: ?~W?????
-04:36:32.432 [IsNczMagic] Size: 162304, m2: i???!?d
-04:36:32.468 [IsNczMagic] Size: 4096, m1: [}??/'
-05:35:22.742 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-05:35:22.789 [IsNczMagic] Size: 1121280, m2: ?A???
-05:35:22.849 [IsNczMagic] Size: 3584, m1: C0????H?
-05:35:22.892 [IsNczMagic] Size: 162304, m1: ?tF???v?
-05:35:22.927 [IsNczMagic] Size: 162304, m2: ?h:??%;
-05:35:22.952 [IsNczMagic] Size: 358767534, m1: ??????q
-05:35:22.979 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-05:35:32.409 [IsNczMagic] Size: 1121280, m1: 	???\???
-05:35:32.448 [IsNczMagic] Size: 1121280, m2: ?8????
-05:35:32.476 [IsNczMagic] Size: 143167791, m1: ?o????.
-05:35:32.511 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-05:35:32.536 [IsNczMagic] Size: 162304, m1: ?~W?????
-05:35:32.568 [IsNczMagic] Size: 162304, m2: i???!?d
-05:35:32.599 [IsNczMagic] Size: 4096, m1: [}??/'
-05:41:33.742 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-05:41:33.788 [IsNczMagic] Size: 1121280, m2: ?A???
-05:41:33.834 [IsNczMagic] Size: 3584, m1: C0????H?
-05:41:33.877 [IsNczMagic] Size: 162304, m1: ?tF???v?
-05:41:33.908 [IsNczMagic] Size: 162304, m2: ?h:??%;
-05:41:33.937 [IsNczMagic] Size: 358767534, m1: ??????q
-05:41:33.965 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-05:41:42.175 [IsNczMagic] Size: 1121280, m1: 	???\???
-05:41:42.229 [IsNczMagic] Size: 1121280, m2: ?8????
-05:41:42.275 [IsNczMagic] Size: 143167791, m1: ?o????.
-05:41:42.304 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-05:41:42.332 [IsNczMagic] Size: 162304, m1: ?~W?????
-05:41:42.358 [IsNczMagic] Size: 162304, m2: i???!?d
-05:41:42.387 [IsNczMagic] Size: 4096, m1: [}??/'
-05:53:01.501 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-05:53:01.551 [IsNczMagic] Size: 1121280, m2: ?A???
-05:53:01.609 [IsNczMagic] Size: 3584, m1: C0????H?
-05:53:01.657 [IsNczMagic] Size: 162304, m1: ?tF???v?
-05:53:01.686 [IsNczMagic] Size: 162304, m2: ?h:??%;
-05:53:01.715 [IsNczMagic] Size: 358767534, m1: ??????q
-05:53:01.744 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-05:53:10.945 [IsNczMagic] Size: 1121280, m1: 	???\???
-05:53:10.980 [IsNczMagic] Size: 1121280, m2: ?8????
-05:53:11.011 [IsNczMagic] Size: 143167791, m1: ?o????.
-05:53:11.033 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-05:53:11.058 [IsNczMagic] Size: 162304, m1: ?~W?????
-05:53:11.082 [IsNczMagic] Size: 162304, m2: i???!?d
-05:53:11.110 [IsNczMagic] Size: 4096, m1: [}??/'
-05:59:24.504 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-05:59:24.539 [IsNczMagic] Size: 1121280, m2: ?A???
-05:59:24.592 [IsNczMagic] Size: 3584, m1: C0????H?
-05:59:24.634 [IsNczMagic] Size: 162304, m1: ?tF???v?
-05:59:24.660 [IsNczMagic] Size: 162304, m2: ?h:??%;
-05:59:24.688 [IsNczMagic] Size: 358767534, m1: ??????q
-05:59:24.712 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-05:59:32.910 [IsNczMagic] Size: 1121280, m1: 	???\???
-05:59:32.946 [IsNczMagic] Size: 1121280, m2: ?8????
-05:59:32.974 [IsNczMagic] Size: 143167791, m1: ?o????.
-05:59:32.999 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-05:59:33.028 [IsNczMagic] Size: 162304, m1: ?~W?????
-05:59:33.053 [IsNczMagic] Size: 162304, m2: i???!?d
-05:59:33.081 [IsNczMagic] Size: 4096, m1: [}??/'
-06:06:07.293 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-06:06:07.334 [IsNczMagic] Size: 1121280, m2: ?A???
-06:06:07.378 [IsNczMagic] Size: 3584, m1: C0????H?
-06:06:07.415 [IsNczMagic] Size: 162304, m1: ?tF???v?
-06:06:07.438 [IsNczMagic] Size: 162304, m2: ?h:??%;
-06:06:07.464 [IsNczMagic] Size: 358767534, m1: ??????q
-06:06:07.486 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-06:06:15.891 [IsNczMagic] Size: 1121280, m1: 	???\???
-06:06:15.928 [IsNczMagic] Size: 1121280, m2: ?8????
-06:06:15.956 [IsNczMagic] Size: 143167791, m1: ?o????.
-06:06:15.976 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-06:06:16.001 [IsNczMagic] Size: 162304, m1: ?~W?????
-06:06:16.028 [IsNczMagic] Size: 162304, m2: i???!?d
-06:06:16.056 [IsNczMagic] Size: 4096, m1: [}??/'
-06:06:31.695 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-06:06:31.738 [IsNczMagic] Size: 1121280, m2: ?A???
-06:06:31.786 [IsNczMagic] Size: 3584, m1: C0????H?
-06:06:31.835 [IsNczMagic] Size: 162304, m1: ?tF???v?
-06:06:31.882 [IsNczMagic] Size: 162304, m2: ?h:??%;
-06:06:31.908 [IsNczMagic] Size: 358767534, m1: ??????q
-06:06:31.932 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-06:06:39.988 [IsNczMagic] Size: 1121280, m1: 	???\???
-06:06:40.017 [IsNczMagic] Size: 1121280, m2: ?8????
-06:06:40.043 [IsNczMagic] Size: 143167791, m1: ?o????.
-06:06:40.066 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-06:06:40.088 [IsNczMagic] Size: 162304, m1: ?~W?????
-06:06:40.115 [IsNczMagic] Size: 162304, m2: i???!?d
-06:06:40.138 [IsNczMagic] Size: 4096, m1: [}??/'
-06:12:48.748 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-06:12:48.787 [IsNczMagic] Size: 1121280, m2: ?A???
-06:12:48.840 [IsNczMagic] Size: 3584, m1: C0????H?
-06:12:48.881 [IsNczMagic] Size: 162304, m1: ?tF???v?
-06:12:48.905 [IsNczMagic] Size: 162304, m2: ?h:??%;
-06:12:48.938 [IsNczMagic] Size: 358767534, m1: ??????q
-06:12:48.963 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-06:12:57.197 [IsNczMagic] Size: 1121280, m1: 	???\???
-06:12:57.238 [IsNczMagic] Size: 1121280, m2: ?8????
-06:12:57.280 [IsNczMagic] Size: 143167791, m1: ?o????.
-06:12:57.306 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-06:12:57.327 [IsNczMagic] Size: 162304, m1: ?~W?????
-06:12:57.351 [IsNczMagic] Size: 162304, m2: i???!?d
-06:12:57.377 [IsNczMagic] Size: 4096, m1: [}??/'
-06:41:44.272 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-06:41:44.301 [IsNczMagic] Size: 1121280, m2: ?A???
-06:41:44.302 [IsNczMagic] Size: 3584, m1: C0????H?
-06:41:44.302 [IsNczMagic] Size: 162304, m1: ?tF???v?
-06:41:44.302 [IsNczMagic] Size: 162304, m2: ?h:??%;
-06:41:44.302 [IsNczMagic] Size: 358767534, m1: ??????q
-06:41:44.302 [IsNczMagic] Size: 358767534, m2: NCZSECTN
-06:41:50.067 [IsNczMagic] Size: 1121280, m1: 	???\???
-06:41:50.067 [IsNczMagic] Size: 1121280, m2: ?8????
-06:41:50.067 [IsNczMagic] Size: 143167791, m1: ?o????.
-06:41:50.067 [IsNczMagic] Size: 143167791, m2: NCZSECTN
-06:41:50.067 [IsNczMagic] Size: 162304, m1: ?~W?????
-06:41:50.067 [IsNczMagic] Size: 162304, m2: i???!?d
-06:41:50.068 [IsNczMagic] Size: 4096, m1: [}??/'
-06:43:55.192 [IsNczMagic] Size: 473631018, m1: ??????q
-06:43:55.192 [IsNczMagic] Size: 473631018, m2: NCZSECTN
-06:43:55.193 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-06:43:55.193 [IsNczMagic] Size: 1121280, m2: ?A???
-06:43:55.193 [IsNczMagic] Size: 3584, m1: C0????H?
-06:43:55.193 [IsNczMagic] Size: 162412, m1: ?tF???v?
-06:43:55.193 [IsNczMagic] Size: 162412, m2: NCZSECTN
-06:43:55.193 [IsNczMagic] Size: 1121280, m1: 	???\???
-06:43:55.193 [IsNczMagic] Size: 1121280, m2: ?8????
-06:43:55.193 [IsNczMagic] Size: 162412, m1: ?~W?????
-06:43:55.193 [IsNczMagic] Size: 162412, m2: NCZSECTN
-06:43:55.194 [IsNczMagic] Size: 4096, m1: [}??/'
-06:44:17.502 [IsNczMagic] Size: 473631018, m1: ??????q
-06:44:17.502 [IsNczMagic] Size: 473631018, m2: NCZSECTN
-06:44:17.502 [IsNczMagic] Size: 1121280, m1: ??2%DFG
-06:44:17.502 [IsNczMagic] Size: 1121280, m2: ?A???
-06:44:17.502 [IsNczMagic] Size: 3584, m1: C0????H?
-06:44:17.503 [IsNczMagic] Size: 162412, m1: ?tF???v?
-06:44:17.503 [IsNczMagic] Size: 162412, m2: NCZSECTN
-06:44:17.503 [IsNczMagic] Size: 1121280, m1: 	???\???
-06:44:17.503 [IsNczMagic] Size: 1121280, m2: ?8????
-06:44:17.503 [IsNczMagic] Size: 162412, m1: ?~W?????
-06:44:17.503 [IsNczMagic] Size: 162412, m2: NCZSECTN
-06:44:17.503 [IsNczMagic] Size: 4096, m1: [}??/'
-02:33:17.343 [IsNczMagic] Size: 1544034253, m1: DT????F(
-02:33:17.358 [IsNczMagic] Size: 1544034253, m2: NCZSECTN
-02:33:17.358 [IsNczMagic] Size: 1011200, m1: c?????
-02:33:17.577 [IsNczMagic] Size: 1011200, m2: "?,?B??
-02:33:17.577 [IsNczMagic] Size: 177664, m1: Y?@???/
-02:33:17.578 [IsNczMagic] Size: 177664, m2: W?^?????
-02:33:17.578 [IsNczMagic] Size: 3584, m1: ????-??
-02:33:51.973 [IsNczMagic] Size: 3774947278, m1: ??#v?
-02:33:51.989 [IsNczMagic] Size: 3774947278, m2: NCZSECTN
-02:33:51.990 [IsNczMagic] Size: 2173440, m1: ????kn`
-02:33:51.994 [IsNczMagic] Size: 2173440, m2: ?#e?????
-02:33:51.994 [IsNczMagic] Size: 169472, m1: '????"??
-02:33:51.996 [IsNczMagic] Size: 169472, m2: ?H???G??
-02:33:51.996 [IsNczMagic] Size: 14336, m1: 4?G???'
-02:50:51.533 [IsNczMagic] Size: 1544034253, m1: DT????F(
-02:50:51.534 [IsNczMagic] Size: 1544034253, m2: NCZSECTN
-02:50:51.534 [IsNczMagic] Size: 1011200, m1: c?????
-02:50:51.534 [IsNczMagic] Size: 1011200, m2: "?,?B??
-02:50:51.534 [IsNczMagic] Size: 177664, m1: Y?@???/
-02:50:51.534 [IsNczMagic] Size: 177664, m2: W?^?????
-02:50:51.534 [IsNczMagic] Size: 3584, m1: ????-??
-02:51:15.983 [IsNczMagic] Size: 3774947278, m1: ??#v?
-02:51:15.983 [IsNczMagic] Size: 3774947278, m2: NCZSECTN
-02:51:15.984 [IsNczMagic] Size: 2173440, m1: ????kn`
-02:51:15.984 [IsNczMagic] Size: 2173440, m2: ?#e?????
-02:51:15.984 [IsNczMagic] Size: 169472, m1: '????"??
-02:51:15.984 [IsNczMagic] Size: 169472, m2: ?H???G??
-02:51:15.984 [IsNczMagic] Size: 14336, m1: 4?G???'
-14:13:52.552 [IsNczMagic] Size: 1544034253, m1: DT????F(
-14:13:52.553 [IsNczMagic] Size: 1544034253, m2: NCZSECTN
-14:13:52.553 [IsNczMagic] Size: 1011200, m1: c?????
-14:13:52.553 [IsNczMagic] Size: 1011200, m2: "?,?B??
-14:13:52.553 [IsNczMagic] Size: 177664, m1: Y?@???/
-14:13:52.553 [IsNczMagic] Size: 177664, m2: W?^?????
-14:13:52.553 [IsNczMagic] Size: 3584, m1: ????-??
-14:14:15.999 [IsNczMagic] Size: 3774947278, m1: ??#v?
-14:14:15.999 [IsNczMagic] Size: 3774947278, m2: NCZSECTN
-14:14:15.999 [IsNczMagic] Size: 2173440, m1: ????kn`
-14:14:15.999 [IsNczMagic] Size: 2173440, m2: ?#e?????
-14:14:15.999 [IsNczMagic] Size: 169472, m1: '????"??
-14:14:15.999 [IsNczMagic] Size: 169472, m2: ?H???G??
-14:14:16.000 [IsNczMagic] Size: 14336, m1: 4?G???'
-16:00:13.135 [IsNczMagic] Size: 1544034253, m1: DT????F(
-16:00:13.135 [IsNczMagic] Size: 1544034253, m2: NCZSECTN
-16:00:13.136 [IsNczMagic] Size: 1011200, m1: c?????
-16:00:13.136 [IsNczMagic] Size: 1011200, m2: "?,?B??
-16:00:13.136 [IsNczMagic] Size: 177664, m1: Y?@???/
-16:00:13.136 [IsNczMagic] Size: 177664, m2: W?^?????
-16:00:13.136 [IsNczMagic] Size: 3584, m1: ????-??
-16:00:37.949 [IsNczMagic] Size: 3774947278, m1: ??#v?
-16:00:37.949 [IsNczMagic] Size: 3774947278, m2: NCZSECTN
-16:00:37.949 [IsNczMagic] Size: 2173440, m1: ????kn`
-16:00:37.949 [IsNczMagic] Size: 2173440, m2: ?#e?????
-16:00:37.949 [IsNczMagic] Size: 169472, m1: '????"??
-16:00:37.949 [IsNczMagic] Size: 169472, m2: ?H???G??
-16:00:37.950 [IsNczMagic] Size: 14336, m1: 4?G???'
-16:17:29.111 [IsNczMagic] Size: 1544034253, m1: DT????F(
-16:17:29.112 [IsNczMagic] Size: 1544034253, m2: NCZSECTN
-16:17:29.112 [IsNczMagic] Size: 1011200, m1: c?????
-16:17:29.112 [IsNczMagic] Size: 1011200, m2: "?,?B??
-16:17:29.112 [IsNczMagic] Size: 177664, m1: Y?@???/
-16:17:29.112 [IsNczMagic] Size: 177664, m2: W?^?????
-16:17:29.112 [IsNczMagic] Size: 3584, m1: ????-??
-16:17:54.397 [IsNczMagic] Size: 3774947278, m1: ??#v?
-16:17:54.399 [IsNczMagic] Size: 3774947278, m2: NCZSECTN
-16:17:54.399 [IsNczMagic] Size: 2173440, m1: ????kn`
-16:17:54.399 [IsNczMagic] Size: 2173440, m2: ?#e?????
-16:17:54.399 [IsNczMagic] Size: 169472, m1: '????"??
-16:17:54.400 [IsNczMagic] Size: 169472, m2: ?H???G??
-16:17:54.400 [IsNczMagic] Size: 14336, m1: 4?G???'
-23:06:26.065 [IsNczMagic] Size: 1544034253, m1: DT????F(
-23:06:26.065 [IsNczMagic] Size: 1544034253, m2: NCZSECTN
-23:06:26.065 [IsNczMagic] Size: 1011200, m1: c?????
-23:06:26.065 [IsNczMagic] Size: 1011200, m2: "?,?B??
-23:06:26.066 [IsNczMagic] Size: 177664, m1: Y?@???/
-23:06:26.066 [IsNczMagic] Size: 177664, m2: W?^?????
-23:06:26.066 [IsNczMagic] Size: 3584, m1: ????-??
-23:06:48.839 [IsNczMagic] Size: 3774947278, m1: ??#v?
-23:06:48.839 [IsNczMagic] Size: 3774947278, m2: NCZSECTN
-23:06:48.839 [IsNczMagic] Size: 2173440, m1: ????kn`
-23:06:48.840 [IsNczMagic] Size: 2173440, m2: ?#e?????
-23:06:48.840 [IsNczMagic] Size: 169472, m1: '????"??
-23:06:48.840 [IsNczMagic] Size: 169472, m2: ?H???G??
-23:06:48.840 [IsNczMagic] Size: 14336, m1: 4?G???'
-00:21:39.976 [IsNczMagic] Size: 1544034253, m1: DT????F(
-00:21:39.984 [IsNczMagic] Size: 1544034253, m2: NCZSECTN
-00:21:40.024 [IsNczMagic] Size: 1011200, m1: c?????
-00:21:40.082 [IsNczMagic] Size: 1011200, m2: "?,?B??
-00:21:40.143 [IsNczMagic] Size: 177664, m1: Y?@???/
-00:21:40.206 [IsNczMagic] Size: 177664, m2: W?^?????
-00:21:40.308 [IsNczMagic] Size: 3584, m1: ????-??
-00:22:07.563 [IsNczMagic] Size: 3774947278, m1: ??#v?
-00:22:08.042 [IsNczMagic] Size: 3774947278, m2: NCZSECTN
-00:22:08.079 [IsNczMagic] Size: 2173440, m1: ????kn`
-00:22:08.156 [IsNczMagic] Size: 2173440, m2: ?#e?????
-00:22:08.188 [IsNczMagic] Size: 169472, m1: '????"??
-00:22:08.223 [IsNczMagic] Size: 169472, m2: ?H???G??
-00:22:08.260 [IsNczMagic] Size: 14336, m1: 4?G???'
-00:35:51.399 [IsNczMagic] Size: 1544034253, m1: DT????F(
-00:35:51.445 [IsNczMagic] Size: 1544034253, m2: NCZSECTN
-00:35:51.524 [IsNczMagic] Size: 1011200, m1: c?????
-00:35:51.584 [IsNczMagic] Size: 1011200, m2: "?,?B??
-00:35:51.645 [IsNczMagic] Size: 177664, m1: Y?@???/
-00:35:51.711 [IsNczMagic] Size: 177664, m2: W?^?????
-00:35:51.781 [IsNczMagic] Size: 3584, m1: ????-??
-00:36:20.646 [IsNczMagic] Size: 3774947278, m1: ??#v?
-00:36:21.137 [IsNczMagic] Size: 3774947278, m2: NCZSECTN
-00:36:21.194 [IsNczMagic] Size: 2173440, m1: ????kn`
-00:36:21.230 [IsNczMagic] Size: 2173440, m2: ?#e?????
-00:36:21.268 [IsNczMagic] Size: 169472, m1: '????"??
-00:36:21.303 [IsNczMagic] Size: 169472, m2: ?H???G??
-00:36:21.346 [IsNczMagic] Size: 14336, m1: 4?G???'
-10:47:25.173 [IsNczMagic] Size: 1544034253, m1: DT????F(
-10:47:25.232 [IsNczMagic] Size: 1544034253, m2: NCZSECTN
-10:47:25.290 [IsNczMagic] Size: 1011200, m1: c?????
-10:47:25.354 [IsNczMagic] Size: 1011200, m2: "?,?B??
-10:47:25.413 [IsNczMagic] Size: 177664, m1: Y?@???/
-10:47:25.480 [IsNczMagic] Size: 177664, m2: W?^?????
-10:47:25.546 [IsNczMagic] Size: 3584, m1: ????-??
-10:47:54.243 [IsNczMagic] Size: 3774947278, m1: ??#v?
-10:47:54.748 [IsNczMagic] Size: 3774947278, m2: NCZSECTN
-10:47:54.804 [IsNczMagic] Size: 2173440, m1: ????kn`
-10:47:54.878 [IsNczMagic] Size: 2173440, m2: ?#e?????
-10:47:54.924 [IsNczMagic] Size: 169472, m1: '????"??
-10:47:54.967 [IsNczMagic] Size: 169472, m2: ?H???G??
-10:47:55.013 [IsNczMagic] Size: 14336, m1: 4?G???'
-11:50:01.333 [IsNczMagic] Size: 1544034253, m1: DT????F(
-11:50:01.350 [IsNczMagic] Size: 1544034253, m2: NCZSECTN
-11:50:01.351 [IsNczMagic] Size: 1011200, m1: c?????
-11:50:01.351 [IsNczMagic] Size: 1011200, m2: "?,?B??
-11:50:01.351 [IsNczMagic] Size: 177664, m1: Y?@???/
-11:50:01.351 [IsNczMagic] Size: 177664, m2: W?^?????
-11:50:01.352 [IsNczMagic] Size: 3584, m1: ????-??
-11:50:28.558 [IsNczMagic] Size: 3774947278, m1: ??#v?
-11:50:28.560 [IsNczMagic] Size: 3774947278, m2: NCZSECTN
-11:50:28.560 [IsNczMagic] Size: 2173440, m1: ????kn`
-11:50:28.560 [IsNczMagic] Size: 2173440, m2: ?#e?????
-11:50:28.560 [IsNczMagic] Size: 169472, m1: '????"??
-11:50:28.560 [IsNczMagic] Size: 169472, m2: ?H???G??
-11:50:28.560 [IsNczMagic] Size: 14336, m1: 4?G???'
-11:37:04.365 [IsNczMagic] Size: 1544034253, m1: DT????F(
-11:37:04.366 [IsNczMagic] Size: 1544034253, m2: NCZSECTN
-11:37:04.366 [IsNczMagic] Size: 1011200, m1: c?????
-11:37:04.366 [IsNczMagic] Size: 1011200, m2: "?,?B??
-11:37:04.367 [IsNczMagic] Size: 177664, m1: Y?@???/
-11:37:04.367 [IsNczMagic] Size: 177664, m2: W?^?????
-11:37:04.367 [IsNczMagic] Size: 3584, m1: ????-??
-11:37:04.370 [IsNczMagic] Size: 3774947278, m1: ??#v?
-11:37:04.370 [IsNczMagic] Size: 3774947278, m2: NCZSECTN
-11:37:04.371 [IsNczMagic] Size: 2173440, m1: ????kn`
-11:37:04.371 [IsNczMagic] Size: 2173440, m2: ?#e?????
-11:37:04.371 [IsNczMagic] Size: 169472, m1: '????"??
-11:37:04.371 [IsNczMagic] Size: 169472, m2: ?H???G??
-11:37:04.371 [IsNczMagic] Size: 14336, m1: 4?G???'
-11:46:29.783 [IsNczMagic] Size: 1544034253, m1: DT????F(
-11:46:29.783 [IsNczMagic] Size: 1544034253, m2: NCZSECTN
-11:46:29.783 [IsNczMagic] Size: 1011200, m1: c?????
-11:46:29.783 [IsNczMagic] Size: 1011200, m2: "?,?B??
-11:46:29.784 [IsNczMagic] Size: 177664, m1: Y?@???/
-11:46:29.784 [IsNczMagic] Size: 177664, m2: W?^?????
-11:46:29.784 [IsNczMagic] Size: 3584, m1: ????-??
-11:46:29.788 [IsNczMagic] Size: 3774947278, m1: ??#v?
-11:46:29.788 [IsNczMagic] Size: 3774947278, m2: NCZSECTN
-11:46:29.788 [IsNczMagic] Size: 2173440, m1: ????kn`
-11:46:29.789 [IsNczMagic] Size: 2173440, m2: ?#e?????
-11:46:29.789 [IsNczMagic] Size: 169472, m1: '????"??
-11:46:29.789 [IsNczMagic] Size: 169472, m2: ?H???G??
-11:46:29.789 [IsNczMagic] Size: 14336, m1: 4?G???'
-12:04:27.069 [IsNczMagic] Size: 1544034253, m1: DT????F(
-12:04:27.069 [IsNczMagic] Size: 1544034253, m2: NCZSECTN
-12:04:27.069 [IsNczMagic] Size: 1011200, m1: c?????
-12:04:27.069 [IsNczMagic] Size: 1011200, m2: "?,?B??
-12:04:27.070 [IsNczMagic] Size: 177664, m1: Y?@???/
-12:04:27.070 [IsNczMagic] Size: 177664, m2: W?^?????
-12:04:27.070 [IsNczMagic] Size: 3584, m1: ????-??
-12:04:27.074 [IsNczMagic] Size: 3774947278, m1: ??#v?
-12:04:27.075 [IsNczMagic] Size: 3774947278, m2: NCZSECTN
-12:04:27.075 [IsNczMagic] Size: 2173440, m1: ????kn`
-12:04:27.075 [IsNczMagic] Size: 2173440, m2: ?#e?????
-12:04:27.075 [IsNczMagic] Size: 169472, m1: '????"??
-12:04:27.075 [IsNczMagic] Size: 169472, m2: ?H???G??
-12:04:27.075 [IsNczMagic] Size: 14336, m1: 4?G???'
-14:03:02.338 [IsNczMagic] Size: 1058962540, m1: ??? ??"
-14:03:02.561 [IsNczMagic] Size: 1058962540, m2: NCZSECTN
-14:03:02.614 [IsNczMagic] Size: 3584, m1: ?>?$
-18:45:05.499 [IsNczMagic] Size: 1058962540, m1: ??? ??"
-18:45:05.981 [IsNczMagic] Size: 1058962540, m2: NCZSECTN
-18:45:05.981 [IsNczMagic] Size: 3584, m1: ?>?$

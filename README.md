@@ -47,11 +47,11 @@
 
 ### Сборка релизной версии:
 ```bash
-dotnet build "STORM SWITCH BOX WINUE 3/StormSwitchBox/StormSwitchBox.csproj" -c Release -r win-x64
+dotnet build "StormSwitchBox.csproj" -c Release -r win-x64
 ```
 
 Выходные файлы будут находиться по пути:
-`STORM SWITCH BOX WINUE 3/StormSwitchBox/bin/x64/Release/net8.0-windows10.0.19041.0/win-x64/`
+`bin/Release/net8.0-windows10.0.19041.0/win-x64/`
 
 ---
 

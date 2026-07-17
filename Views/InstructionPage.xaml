@@ -1,0 +1,81 @@
+<Page
+    x:Class="StormSwitchBox.Views.InstructionPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    Background="Transparent">
+
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="260" />
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <!-- Левая колонка: Навигация по разделам -->
+        <Grid Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,0,1,0">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <StackPanel Padding="16,24,16,16" Spacing="12">
+                <TextBlock Text="Инструкция" Style="{StaticResource SubtitleTextBlockStyle}" FontWeight="Bold" />
+                <AutoSuggestBox x:Name="SearchBox" PlaceholderText="Поиск тем..." QueryIcon="Find" TextChanged="SearchBox_TextChanged" />
+            </StackPanel>
+
+            <ListView x:Name="TopicList" Grid.Row="1" SelectionChanged="TopicList_SelectionChanged" Padding="8,0,8,16">
+                <ListView.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel Orientation="Horizontal" Spacing="12" Padding="8,6">
+                            <FontIcon Glyph="{Binding Icon}" FontSize="16" Foreground="{ThemeResource SystemAccentColor}" Width="20"/>
+                            <TextBlock Text="{Binding Title}" VerticalAlignment="Center" FontWeight="SemiBold"/>
+                        </StackPanel>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ListView>
+        </Grid>
+
+        <!-- Разделитель -->
+        <Border Grid.Column="1" Width="1" Background="{ThemeResource CardStrokeColorDefaultBrush}" VerticalAlignment="Stretch" />
+
+        <!-- Правая колонка: Содержимое раздела -->
+        <ScrollViewer Grid.Column="2" Padding="32,24,32,24" x:Name="ContentScrollViewer">
+            <StackPanel Spacing="24" MaxWidth="800" HorizontalAlignment="Left">
+                <!-- Заголовок темы -->
+                <StackPanel Spacing="4">
+                    <TextBlock x:Name="TopicTitle" Text="Обзор приложения" Style="{StaticResource TitleTextBlockStyle}" FontWeight="Bold"/>
+                    <TextBlock x:Name="TopicCategory" Text="Введение" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </StackPanel>
+
+                <!-- Основной контент (интерактивный текст) -->
+                <RichTextBlock x:Name="TopicDescription" TextWrapping="Wrap" LineHeight="24" FontSize="14">
+                    <!-- Заполняется динамически из C# для поддержки богатого форматирования -->
+                </RichTextBlock>
+
+                <!-- Интерактивная плашка-превью параметров -->
+                <TextBlock Text="Интерактивный предпросмотр параметров" FontWeight="SemiBold" FontSize="16" Margin="0,12,0,0" x:Name="PreviewHeader"/>
+                <Border x:Name="InteractivePreviewCard" Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="20">
+                    <!-- Содержимое карточки предпросмотра меняется динамически -->
+                    <StackPanel x:Name="PreviewContent" Spacing="16">
+                        <!-- Динамические превью-контролы -->
+                    </StackPanel>
+                </Border>
+
+                <!-- Информационная плашка безопасности/совета -->
+                <Border x:Name="TipBorder" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6" Padding="16,12">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <FontIcon Glyph="&#xE946;" Foreground="{ThemeResource SystemAccentColor}" FontSize="18" VerticalAlignment="Top" Margin="0,2,12,0"/>
+                        <TextBlock Grid.Column="1" x:Name="TipText" TextWrapping="Wrap" FontSize="13" LineHeight="20"/>
+                    </Grid>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</Page>
