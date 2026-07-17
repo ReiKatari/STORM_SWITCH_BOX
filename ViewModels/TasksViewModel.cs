@@ -214,6 +214,34 @@ public partial class TasksViewModel : ObservableObject
 
 		var normalPaths = paths.Except(modDirs).ToList();
 
+		// Also scan normal paths (if they are directories) to find nested romfs/exefs folders
+		foreach (var normalPath in normalPaths)
+		{
+			if (Directory.Exists(normalPath))
+			{
+				try
+				{
+					var subDirs = Directory.GetDirectories(normalPath, "*", SearchOption.AllDirectories);
+					foreach (var subDir in subDirs)
+					{
+						string name = Path.GetFileName(subDir);
+						if (name.Equals("romfs", StringComparison.OrdinalIgnoreCase) || 
+							name.Equals("exefs", StringComparison.OrdinalIgnoreCase))
+						{
+							if (!modDirs.Contains(subDir, StringComparer.OrdinalIgnoreCase))
+							{
+								modDirs.Add(subDir);
+							}
+						}
+					}
+				}
+				catch (Exception ex)
+				{
+					App.Logger.Log($"Ошибка сканирования поддиректорий в {normalPath}: {ex.Message}", LogLevel.Error);
+				}
+			}
+		}
+
 		// Keep track of tasks created in this batch
 		var initialTaskCount = Tasks.Count;
 
@@ -279,6 +307,7 @@ public partial class TasksViewModel : ObservableObject
 			}
 		}
 	}
+
 
 	public async Task AddDroppedFileAsync(string path)
 	{
@@ -369,25 +398,14 @@ public partial class TasksViewModel : ObservableObject
 					foreach (string file in verifyFiles)
 					{
 						SwitchFormatInfo verifyMeta = await GetInternalTitleInfoAsync(file);
-						AddOrUpdateTask(new List<string> { file }, file, Path.GetDirectoryName(file) ?? file, verifyMeta.IconBytes);
+						await AddOrUpdateTask(new List<string> { file }, file, Path.GetDirectoryName(file) ?? file, verifyMeta.IconBytes);
 					}
 				}
 				else
 				{
 					if (isDirectory)
 					{
-						List<string> specialDirs = new List<string>();
-						string[] array = await Task.Run(() => Directory.GetDirectories(path, "*", SearchOption.AllDirectories));
-						foreach (string d in array)
-						{
-							string name = Path.GetFileName(d).ToLower();
-							if (name == "romfs" || name == "exefs")
-							{
-								specialDirs.Add(d);
-							}
-						}
 						List<string> gameFiles = (await Task.Run(() => Directory.GetFiles(path, "*.*", SearchOption.AllDirectories))).Where((string f) => GameExtensions.Contains(Path.GetExtension(f).ToLower())).ToList();
-						gameFiles.AddRange(specialDirs);
 						if (gameFiles.Count > 0)
 						{
 							List<(string Path, string? TitleId, string Type, string TopFolder, byte[]? IconBytes)> filesMeta = new();
@@ -459,7 +477,7 @@ public partial class TasksViewModel : ObservableObject
 								if (filesInGroup.Count > 0)
 								{
 									string taskBasePath = ((group.First().Item4 == "ROOT") ? path : Path.Combine(path, group.First().Item4));
-									AddOrUpdateTask(filesInGroup.Select(m => m.Path).ToList(), group.Key, taskBasePath, filesInGroup.FirstOrDefault(m => m.IconBytes != null).IconBytes);
+									await AddOrUpdateTask(filesInGroup.Select(m => m.Path).ToList(), group.Key, taskBasePath, filesInGroup.FirstOrDefault(m => m.IconBytes != null).IconBytes);
 								}
 							}
 							return;
@@ -482,234 +500,243 @@ public partial class TasksViewModel : ObservableObject
 							return;
 						}
 					}
-					AddOrUpdateTask(new List<string> { path }, baseTid, (isDirectory ? path : Path.GetDirectoryName(path)) ?? path, fileMeta.IconBytes);
+					await AddOrUpdateTask(new List<string> { path }, baseTid, (isDirectory ? path : Path.GetDirectoryName(path)) ?? path, fileMeta.IconBytes);
 				}
 			}
 		});
 	}
 
-	private void AddOrUpdateTask(List<string> files, string groupId, string basePath, byte[]? iconBytes = null)
+	private Task AddOrUpdateTask(List<string> files, string groupId, string basePath, byte[]? iconBytes = null)
 	{
 		if (files == null || files.Count == 0)
 		{
-			return;
+			return Task.CompletedTask;
 		}
+		var tcs = new TaskCompletionSource();
 		App.MainDispatcher?.TryEnqueue(async delegate
 		{
-			ProcessingTask? existingTask = null;
-			string? groupBase = (groupId != null && groupId.Length >= 12) ? groupId.Substring(0, 12) : null;
-			if ((_currentPageType == "Update" || _currentPageType == "Multi") && groupBase != null)
+			try
 			{
-				existingTask = Tasks.FirstOrDefault((ProcessingTask t) => t.GroupId != null && t.GroupId.Length >= 12 && t.GroupId.Substring(0, 12) == groupBase && t.Operation == _currentPageType && t.Status == "Ожидание");
-			}
-			if (existingTask != null)
-			{
-				int added = 0;
-				foreach (string f in files)
+				ProcessingTask? existingTask = null;
+				string? groupBase = (groupId != null && groupId.Length >= 12) ? groupId.Substring(0, 12) : null;
+				if ((_currentPageType == "Update" || _currentPageType == "Multi") && groupBase != null)
 				{
-					if (!existingTask.InputFiles.Contains<string>(f, StringComparer.OrdinalIgnoreCase))
-					{
-						existingTask.InputFiles.Add(f);
-						existingTask.FilesList.Add(Path.GetFileName(f));
-						added++;
-					}
+					existingTask = Tasks.FirstOrDefault((ProcessingTask t) => t.GroupId != null && t.GroupId.Length >= 12 && t.GroupId.Substring(0, 12) == groupBase && t.Operation == _currentPageType && t.Status == "Ожидание");
 				}
-				if (added > 0)
+				if (existingTask != null)
 				{
-					existingTask.SourceSizeBytes = existingTask.InputFiles.Sum((string path) => CalculateSize(path));
-					existingTask.FilesCount = existingTask.InputFiles.Count((string path) => File.Exists(path)).ToString();
-					existingTask.SourceFormat = "MULTI";
-					string[] dirs = existingTask.InputFiles.Select((string path) => Path.GetDirectoryName(path)).Where(d => d != null).Select(d => d!).Distinct().ToArray();
-					existingTask.InputFolders = string.Join("; ", dirs);
-					bool romFs = false;
-					bool exeFs = false;
-					foreach (string f2 in existingTask.InputFiles)
+					int added = 0;
+					foreach (string f in files)
 					{
-						if (Directory.Exists(f2))
+						if (!existingTask.InputFiles.Contains<string>(f, StringComparer.OrdinalIgnoreCase))
 						{
-							string dirName = Path.GetFileName(f2).ToLower();
-							if (dirName == "romfs")
-							{
-								romFs = true;
-							}
-							if (dirName == "exefs")
-							{
-								exeFs = true;
-							}
+							existingTask.InputFiles.Add(f);
+							existingTask.FilesList.Add(Path.GetFileName(f));
+							added++;
 						}
 					}
-					existingTask.HasRomFs = (romFs ? "1" : "-");
-					existingTask.HasExeFs = (exeFs ? "1" : "-");
-					App.Logger.Log($"К задаче {existingTask.Id} добавлены новые файлы ({added} шт.)");
-				}
-			}
-			else
-			{
-				string firstFile = files[0];
-				bool isDirectory = Directory.Exists(firstFile);
-				string ext = (isDirectory ? "DIR" : Path.GetExtension(firstFile).ToUpper().Trim('.'));
-				string outputName;
-				if (files.Count > 1)
-				{
-					string baseGame = files.FirstOrDefault(delegate(string filePath)
+					if (added > 0)
 					{
-						try
+						existingTask.SourceSizeBytes = existingTask.InputFiles.Sum((string path) => CalculateSize(path));
+						existingTask.FilesCount = existingTask.InputFiles.Count((string path) => File.Exists(path)).ToString();
+						existingTask.SourceFormat = "MULTI";
+						string[] dirs = existingTask.InputFiles.Select((string path) => Path.GetDirectoryName(path)).Where(d => d != null).Select(d => d!).Distinct().ToArray();
+						existingTask.InputFolders = string.Join("; ", dirs);
+						bool romFs = false;
+						bool exeFs = false;
+						foreach (string f2 in existingTask.InputFiles)
 						{
-							SwitchFormatInfo switchFormatInfo = App.SwitchFormat.ParseNsp(filePath);
-							return switchFormatInfo.ContentType == "Application" || (switchFormatInfo.TitleId != null && switchFormatInfo.TitleId.EndsWith("000"));
+							if (Directory.Exists(f2))
+							{
+								string dirName = Path.GetFileName(f2).ToLower();
+								if (dirName == "romfs")
+								{
+									romFs = true;
+								}
+								if (dirName == "exefs")
+								{
+									exeFs = true;
+								}
+							}
 						}
-						catch
-						{
-							return false;
-						}
-					}) ?? files[0];
-					outputName = Path.GetFileNameWithoutExtension(baseGame);
-					ext = "MULTI";
+						existingTask.HasRomFs = (romFs ? "1" : "-");
+						existingTask.HasExeFs = (exeFs ? "1" : "-");
+						App.Logger.Log($"К задаче {existingTask.Id} добавлены новые файлы ({added} шт.)");
+					}
 				}
 				else
 				{
-					outputName = (isDirectory ? Path.GetFileName(firstFile) : Path.GetFileNameWithoutExtension(firstFile));
-				}
-				if (App.Settings.Current.ComplexFolders && basePath != null)
-				{
-					string dirName2 = Path.GetFileName(basePath);
-					if (dirName2.StartsWith("["))
+					string firstFile = files[0];
+					bool isDirectory = Directory.Exists(firstFile);
+					string ext = (isDirectory ? "DIR" : Path.GetExtension(firstFile).ToUpper().Trim('.'));
+					string outputName;
+					if (files.Count > 1)
 					{
-						string parentDir = Path.GetFileName(Path.GetDirectoryName(basePath) ?? string.Empty);
-						if (!string.IsNullOrEmpty(parentDir))
+						string baseGame = files.FirstOrDefault(delegate(string filePath)
 						{
-							outputName = parentDir + " " + dirName2;
-						}
+							try
+							{
+								SwitchFormatInfo switchFormatInfo = App.SwitchFormat.ParseNsp(filePath);
+								return switchFormatInfo.ContentType == "Application" || (switchFormatInfo.TitleId != null && switchFormatInfo.TitleId.EndsWith("000"));
+							}
+							catch
+							{
+								return false;
+							}
+						}) ?? files[0];
+						outputName = Path.GetFileNameWithoutExtension(baseGame);
+						ext = "MULTI";
 					}
 					else
 					{
+						outputName = (isDirectory ? Path.GetFileName(firstFile) : Path.GetFileNameWithoutExtension(firstFile));
+					}
+					if (App.Settings.Current.ComplexFolders && basePath != null)
+					{
+						string dirName2 = Path.GetFileName(basePath);
+						if (dirName2.StartsWith("["))
+						{
+							string parentDir = Path.GetFileName(Path.GetDirectoryName(basePath) ?? string.Empty);
+							if (!string.IsNullOrEmpty(parentDir))
+							{
+								outputName = parentDir + " " + dirName2;
+							}
+						}
+						else
+						{
+							try
+							{
+								string[] subDirs = Directory.GetDirectories(basePath, "[*");
+								if (subDirs.Length != 0)
+								{
+									string subDirName = Path.GetFileName(subDirs[0]);
+									outputName = dirName2 + " " + subDirName;
+								}
+							}
+							catch
+							{
+							}
+						}
+					}
+					string dbLogInfo = "";
+					if (groupId != null && groupId.Length >= 12 && Regex.IsMatch(groupId.Substring(0, 12), "^[0-9a-fA-F]{12}$"))
+					{
+						string tid16 = groupId.Substring(0, 12).ToUpper() + "000";
+						if (App.TitleDb.TryGetTitleInfo(tid16, out var entry) && entry != null)
+						{
+							if (!string.IsNullOrEmpty(entry.Name))
+							{
+								string safeName = string.Join("_", entry.Name.Split(Path.GetInvalidFileNameChars())).Replace(" ", "_");
+								outputName = safeName;
+								if (_currentPageType == "Multi")
+								{
+									outputName += "_Multi";
+								}
+								else if (_currentPageType == "Update")
+								{
+									outputName += "_Update";
+								}
+							}
+							int totalDlc = App.TitleDb.GetDlcCount(tid16);
+							string remoteVer = entry.Version ?? "";
+							dbLogInfo = dbLogInfo + "\n[NSWDB] Игра найдена: " + entry.Name;
+							if (!string.IsNullOrEmpty(remoteVer))
+							{
+								dbLogInfo = dbLogInfo + "\n[NSWDB] Актуальная версия патча: " + remoteVer;
+							}
+							if (totalDlc > 0)
+							{
+								dbLogInfo += $"\n[NSWDB] Всего выпущено DLC: {totalDlc}";
+							}
+						}
+					}
+					long sizeBytes = files.Sum((string path) => CalculateSize(path));
+					int filesCount = files.Count((string path) => File.Exists(path));
+					List<string> inputFiles = new List<string>(files);
+					List<string> filesList = files.Select((string path) => Path.GetFileName(path)).ToList();
+					bool rFs = false;
+					bool eFs = false;
+					foreach (string f3 in files)
+					{
+						if (Directory.Exists(f3))
+						{
+							string dirName3 = Path.GetFileName(f3).ToLower();
+							if (dirName3 == "romfs")
+							{
+								rFs = true;
+							}
+							if (dirName3 == "exefs")
+							{
+								eFs = true;
+							}
+						}
+					}
+					string outFolder = App.Settings.Current.OutputFolder;
+					if (string.IsNullOrEmpty(outFolder))
+					{
+						outFolder = GetOutPathForPage(_currentPageType);
+					}
+					ObservableCollection<ProcessingTask> targetList = ((_currentPageType == "Verify") ? VerifyTasks : Tasks);
+					ProcessingTask task = new ProcessingTask
+					{
+						Id = $"T{targetList.Count + 1:D3}",
+						GroupId = (groupId ?? ""),
+						Operation = _currentPageType,
+						SourceFormat = ext,
+						TargetFormat = SelectedFormat,
+						SourceSizeBytes = sizeBytes,
+						TargetSize = "-",
+						SizeDifference = "-",
+						CompressionLevel = App.Settings.Current.CompressionLevel.ToString(),
+						FilesCount = filesCount.ToString(),
+						InputFiles = inputFiles,
+						FilesList = filesList,
+						HasRomFs = (rFs ? "1" : "-"),
+						HasExeFs = (eFs ? "1" : "-"),
+						Status = "Ожидание",
+						Progress = 0.0,
+						InputFolders = string.Join("; ", inputFiles.Select((string path) => Path.GetDirectoryName(path)).Distinct()),
+						OutputFolder = outFolder,
+						OutputFileName = outputName,
+						LogDetails = "Готов к обработке..." + dbLogInfo
+					};
+					targetList.Add(task);
+					if (iconBytes != null && iconBytes.Length != 0)
+					{
 						try
 						{
-							string[] subDirs = Directory.GetDirectories(basePath, "[*");
-							if (subDirs.Length != 0)
+							InMemoryRandomAccessStream stream = new InMemoryRandomAccessStream();
+							using (DataWriter writer = new DataWriter(stream.GetOutputStreamAt(0uL)))
 							{
-								string subDirName = Path.GetFileName(subDirs[0]);
-								outputName = dirName2 + " " + subDirName;
+								writer.WriteBytes(iconBytes);
+								await writer.StoreAsync();
 							}
+							BitmapImage bitmap = new BitmapImage();
+							await bitmap.SetSourceAsync(stream);
+							task.GameIcon = bitmap;
 						}
 						catch
 						{
 						}
 					}
+					App.Logger.Log($"Добавлена задача: {outputName} ({filesCount} файлов)");
+					App.TicketHarvester.HarvestTicketsBackground(inputFiles);
 				}
-				string dbLogInfo = "";
-				if (groupId != null && groupId.Length >= 12 && Regex.IsMatch(groupId.Substring(0, 12), "^[0-9a-fA-F]{12}$"))
-				{
-					string tid16 = groupId.Substring(0, 12).ToUpper() + "000";
-					if (App.TitleDb.TryGetTitleInfo(tid16, out var entry) && entry != null)
-					{
-						if (!string.IsNullOrEmpty(entry.Name))
-						{
-							string safeName = string.Join("_", entry.Name.Split(Path.GetInvalidFileNameChars())).Replace(" ", "_");
-							outputName = safeName;
-							if (_currentPageType == "Multi")
-							{
-								outputName += "_Multi";
-							}
-							else if (_currentPageType == "Update")
-							{
-								outputName += "_Update";
-							}
-						}
-						int totalDlc = App.TitleDb.GetDlcCount(tid16);
-						string remoteVer = entry.Version ?? "";
-						dbLogInfo = dbLogInfo + "\n[NSWDB] Игра найдена: " + entry.Name;
-						if (!string.IsNullOrEmpty(remoteVer))
-						{
-							dbLogInfo = dbLogInfo + "\n[NSWDB] Актуальная версия патча: " + remoteVer;
-						}
-						if (totalDlc > 0)
-						{
-							dbLogInfo += $"\n[NSWDB] Всего выпущено DLC: {totalDlc}";
-						}
-					}
-				}
-				long sizeBytes = files.Sum((string path) => CalculateSize(path));
-				int filesCount = files.Count((string path) => File.Exists(path));
-				List<string> inputFiles = new List<string>(files);
-				List<string> filesList = files.Select((string path) => Path.GetFileName(path)).ToList();
-				bool rFs = false;
-				bool eFs = false;
-				foreach (string f3 in files)
-				{
-					if (Directory.Exists(f3))
-					{
-						string dirName3 = Path.GetFileName(f3).ToLower();
-						if (dirName3 == "romfs")
-						{
-							rFs = true;
-						}
-						if (dirName3 == "exefs")
-						{
-							eFs = true;
-						}
-					}
-				}
-				string outFolder = App.Settings.Current.OutputFolder;
-				if (string.IsNullOrEmpty(outFolder))
-				{
-					outFolder = GetOutPathForPage(_currentPageType);
-				}
-				ObservableCollection<ProcessingTask> targetList = ((_currentPageType == "Verify") ? VerifyTasks : Tasks);
-				ProcessingTask task = new ProcessingTask
-				{
-					Id = $"T{targetList.Count + 1:D3}",
-					GroupId = (groupId ?? ""),
-					Operation = _currentPageType,
-					SourceFormat = ext,
-					TargetFormat = SelectedFormat,
-					SourceSizeBytes = sizeBytes,
-					TargetSize = "-",
-					SizeDifference = "-",
-					CompressionLevel = App.Settings.Current.CompressionLevel.ToString(),
-					FilesCount = filesCount.ToString(),
-					InputFiles = inputFiles,
-					FilesList = filesList,
-					HasRomFs = (rFs ? "1" : "-"),
-					HasExeFs = (eFs ? "1" : "-"),
-					Status = "Ожидание",
-					Progress = 0.0,
-					InputFolders = string.Join("; ", inputFiles.Select((string path) => Path.GetDirectoryName(path)).Distinct()),
-					OutputFolder = outFolder,
-					OutputFileName = outputName,
-					LogDetails = "Готов к обработке..." + dbLogInfo
-				};
-				targetList.Add(task);
-				if (iconBytes != null && iconBytes.Length != 0)
-				{
-					try
-					{
-						InMemoryRandomAccessStream stream = new InMemoryRandomAccessStream();
-						using (DataWriter writer = new DataWriter(stream.GetOutputStreamAt(0uL)))
-						{
-							writer.WriteBytes(iconBytes);
-							await writer.StoreAsync();
-						}
-						BitmapImage bitmap = new BitmapImage();
-						await bitmap.SetSourceAsync(stream);
-						task.GameIcon = bitmap;
-					}
-					catch
-					{
-					}
-				}
-				App.Logger.Log($"Добавлена задача: {outputName} ({filesCount} файлов)");
-				App.TicketHarvester.HarvestTicketsBackground(inputFiles);
+				tcs.SetResult();
+			}
+			catch (Exception ex)
+			{
+				tcs.SetException(ex);
 			}
 		});
 		if (iconBytes == null || iconBytes.Length == 0 || string.IsNullOrEmpty(groupId) || !(_currentPageType != "Verify"))
 		{
-			return;
+			return tcs.Task;
 		}
 		string safeGroupId = string.Join("_", groupId.Split(Path.GetInvalidFileNameChars()));
 		if (string.IsNullOrEmpty(safeGroupId))
 		{
-			return;
+			return tcs.Task;
 		}
 		Task.Run(delegate
 		{
@@ -727,6 +754,7 @@ public partial class TasksViewModel : ObservableObject
 			{
 			}
 		});
+		return tcs.Task;
 	}
 
 	private string GetOutPathForPage(string pageType)
