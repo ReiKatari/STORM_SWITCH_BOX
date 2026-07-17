@@ -10,3 +10,4 @@ TestResults/
 *.log
 tools/cache/
 temp/
+*.zip

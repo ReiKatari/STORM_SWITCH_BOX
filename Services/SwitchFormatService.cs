@@ -748,6 +748,7 @@ namespace StormSwitchBox.Services
             string[] candidatePaths = new[]
             {
                 System.IO.Path.Combine(baseDir, "tools", "com.github.nozwock.yanu", "hactoolnet.exe"),
+                System.IO.Path.Combine(baseDir, "..", "tools", "com.github.nozwock.yanu", "hactoolnet.exe"),
                 System.IO.Path.Combine(baseDir, "..", "..", "..", "..", "tools", "com.github.nozwock.yanu", "hactoolnet.exe"),
                 System.IO.Path.Combine(baseDir, "..", "..", "tools", "com.github.nozwock.yanu", "hactoolnet.exe"),
                 @"E:\STORM SWITCH BOX\tools\com.github.nozwock.yanu\hactoolnet.exe",

@@ -192,6 +192,14 @@ namespace StormSwitchBox.Services
 
                 string appDir = AppDomain.CurrentDomain.BaseDirectory;
                 string toolsDir = System.IO.Path.Combine(appDir, "tools");
+                if (!System.IO.Directory.Exists(toolsDir))
+                {
+                    string parentTools = System.IO.Path.Combine(appDir, "..", "tools");
+                    if (System.IO.Directory.Exists(parentTools))
+                    {
+                        toolsDir = parentTools;
+                    }
+                }
                 string squirrelExe = System.IO.Path.Combine(toolsDir, "nscb", "ztools", "squirrel.exe");
 
                 if (!System.IO.File.Exists(squirrelExe))
