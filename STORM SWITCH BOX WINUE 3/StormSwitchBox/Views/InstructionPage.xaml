@@ -65,7 +65,7 @@
                 </Border>
 
                 <!-- Информационная плашка безопасности/совета -->
-                <Border x:Name="TipBorder" Background="{ThemeResource SystemFillColorAttentionBackgroundBrush}" BorderBrush="{ThemeResource SystemStrokeColorAttentionBrush}" BorderThickness="1" CornerRadius="6" Padding="16,12">
+                <Border x:Name="TipBorder" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6" Padding="16,12">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>

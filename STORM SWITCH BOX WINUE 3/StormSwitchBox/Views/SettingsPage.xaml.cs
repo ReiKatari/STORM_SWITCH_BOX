@@ -23,6 +23,7 @@ namespace StormSwitchBox.Views
             else CompressionCombo.SelectedIndex = 3;
 
             InitializeLanguages();
+            PopulateKeysVersion(App.Settings.Current.KeysVersion ?? "");
         }
 
         private void InitializeLanguages()
@@ -293,6 +294,18 @@ namespace StormSwitchBox.Views
                 client.DefaultRequestHeaders.Add("User-Agent", "StormSwitchBox-Updater");
 
                 var response = await client.GetAsync("https://api.github.com/repos/ReiKatari/STORM_SWITCH_BOX/releases/latest");
+                if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                {
+                    var dialog = new ContentDialog
+                    {
+                        Title = "Обновления не найдены",
+                        Content = new TextBlock { Text = "У вас установлена актуальная версия STORM SWITCH BOX v3.5." },
+                        CloseButtonText = "OK",
+                        XamlRoot = this.XamlRoot
+                    };
+                    await dialog.ShowAsync();
+                    return;
+                }
                 if (!response.IsSuccessStatusCode)
                 {
                     throw new Exception($"Ошибка запроса к GitHub API: {response.ReasonPhrase}");
@@ -338,7 +351,7 @@ namespace StormSwitchBox.Views
                             Children =
                             {
                                 new TextBlock { Text = $"Доступна версия: v{cleanTag} (Текущая: v3.5)", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold },
-                                new TextBlock { Text = "Список изменений:", FontSize = 12, Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorSecondaryBrush"] },
+                                new TextBlock { Text = "Список изменений:", FontSize = 12, Foreground = Application.Current.Resources.TryGetValue("TextFillColorSecondaryBrush", out var resBrush) && resBrush is Microsoft.UI.Xaml.Media.Brush b ? b : new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Gray) },
                                 new ScrollViewer
                                 {
                                     MaxHeight = 150,
@@ -516,6 +529,84 @@ del ""{tempPath}""
                 }
             }
             catch { }
+        }
+
+        private bool _isInitializingVersion = false;
+        private void PopulateKeysVersion(string ver)
+        {
+            _isInitializingVersion = true;
+            try
+            {
+                string digits = new string(ver.Where(char.IsDigit).ToArray());
+                VerBox1.Text = digits.Length >= 1 ? digits[0].ToString() : "";
+                VerBox2.Text = digits.Length >= 2 ? digits[1].ToString() : "";
+                VerBox4.Text = digits.Length >= 3 ? digits[2].ToString() : "";
+                VerBox6.Text = digits.Length >= 4 ? digits[3].ToString() : "";
+            }
+            finally
+            {
+                _isInitializingVersion = false;
+            }
+        }
+
+        private async void VerBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (_isInitializingVersion) return;
+
+            if (sender is TextBox tb)
+            {
+                string val = new string(tb.Text.Where(char.IsDigit).ToArray());
+                if (tb.Text != val)
+                {
+                    tb.Text = val;
+                    tb.SelectionStart = val.Length;
+                    return;
+                }
+
+                if (val.Length == 1)
+                {
+                    if (tb == VerBox1) VerBox2.Focus(FocusState.Programmatic);
+                    else if (tb == VerBox2) VerBox4.Focus(FocusState.Programmatic);
+                    else if (tb == VerBox4) VerBox6.Focus(FocusState.Programmatic);
+                }
+            }
+
+            string v1 = VerBox1.Text;
+            string v2 = VerBox2.Text;
+            string v4 = VerBox4.Text;
+            string v6 = VerBox6.Text;
+
+            string fullVersion = $"{v1}{v2}.{v4}.{v6}";
+            if (App.Settings.Current.KeysVersion != fullVersion)
+            {
+                App.Settings.Current.KeysVersion = fullVersion;
+                await App.Settings.SaveAsync();
+            }
+        }
+
+        private void VerBox_KeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
+        {
+            if (e.Key == Windows.System.VirtualKey.Back)
+            {
+                if (sender is TextBox tb && string.IsNullOrEmpty(tb.Text))
+                {
+                    if (tb == VerBox6)
+                    {
+                        VerBox4.Focus(FocusState.Programmatic);
+                        VerBox4.SelectAll();
+                    }
+                    else if (tb == VerBox4)
+                    {
+                        VerBox2.Focus(FocusState.Programmatic);
+                        VerBox2.SelectAll();
+                    }
+                    else if (tb == VerBox2)
+                    {
+                        VerBox1.Focus(FocusState.Programmatic);
+                        VerBox1.SelectAll();
+                    }
+                }
+            }
         }
     }
 }
