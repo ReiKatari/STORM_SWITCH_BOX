@@ -12,7 +12,7 @@ namespace StormSwitchBox
         public MainWindow()
         {
             this.InitializeComponent();
-            this.Title = "STORM SWITCH BOX v3.0.1";
+            this.Title = "STORM SWITCH BOX v3.5";
             this.ExtendsContentIntoTitleBar = true; // Современный заголовок окна
             
             // Включаем эффект полупрозрачности Mica (как в Windows 11)
@@ -75,6 +75,10 @@ namespace StormSwitchBox
                     else if (tag == "Catalog")
                     {
                         ContentFrame.Navigate(typeof(CatalogPage));
+                    }
+                    else if (tag == "Instruction")
+                    {
+                        ContentFrame.Navigate(typeof(InstructionPage));
                     }
                     else
                     {

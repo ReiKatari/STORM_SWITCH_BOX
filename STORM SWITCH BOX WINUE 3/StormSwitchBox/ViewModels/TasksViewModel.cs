@@ -359,7 +359,7 @@ public partial class TasksViewModel : ObservableObject
 								var filesInGroup = group.ToList();
 								if (_currentPageType == "Update")
 								{
-									filesInGroup = filesInGroup.Where(delegate((string Path, string TitleId, string Type, string TopFolder, byte[] IconBytes) m)
+									filesInGroup = filesInGroup.Where(m =>
 									{
 										if (Directory.Exists(m.Path))
 										{
@@ -382,7 +382,7 @@ public partial class TasksViewModel : ObservableObject
 								if (filesInGroup.Count > 0)
 								{
 									string taskBasePath = ((group.First().Item4 == "ROOT") ? path : Path.Combine(path, group.First().Item4));
-									AddOrUpdateTask(filesInGroup.Select(((string Path, string TitleId, string Type, string TopFolder, byte[] IconBytes) m) => m.Path).ToList(), group.Key, taskBasePath, filesInGroup.FirstOrDefault(((string Path, string TitleId, string Type, string TopFolder, byte[] IconBytes) m) => m.IconBytes != null).IconBytes);
+									AddOrUpdateTask(filesInGroup.Select(m => m.Path).ToList(), group.Key, taskBasePath, filesInGroup.FirstOrDefault(m => m.IconBytes != null).IconBytes);
 								}
 							}
 							return;

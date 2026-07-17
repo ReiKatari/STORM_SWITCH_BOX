@@ -97,7 +97,6 @@ namespace StormSwitchBox.Views
                 picker.SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.ComputerFolder;
                 picker.FileTypeFilter.Add(".keys");
                 picker.FileTypeFilter.Add(".txt");
-                picker.FileTypeFilter.Add("*");
 
                 var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindow);
                 WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
@@ -130,7 +129,47 @@ namespace StormSwitchBox.Views
             }
             catch (Exception ex)
             {
-                App.Logger.Log($"Ошибка выбора файла ключей: {ex.Message}", Models.LogLevel.Error);
+                App.Logger.Log($"Ошибка выбора файла ключей: {ex.Message}", Models.LogLevel.Warning);
+                
+                var dialog = new ContentDialog
+                {
+                    Title = "Укажите путь к файлу ключей",
+                    CloseButtonText = "Отмена",
+                    PrimaryButtonText = "OK",
+                    XamlRoot = this.XamlRoot
+                };
+                var textBox = new TextBox
+                {
+                    PlaceholderText = @"Например: C:\Switch\prod.keys",
+                    Text = App.Settings.Current.KeysPath ?? "",
+                    Width = 400
+                };
+                dialog.Content = textBox;
+
+                var result = await dialog.ShowAsync();
+                if (result == ContentDialogResult.Primary && !string.IsNullOrWhiteSpace(textBox.Text) && System.IO.File.Exists(textBox.Text.Trim()))
+                {
+                    string filePath = textBox.Text.Trim();
+                    string toolsDir = System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory, "tools");
+                    if (!System.IO.Directory.Exists(toolsDir))
+                    {
+                        string devToolsDir = System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory, "..", "..", "tools");
+                        if (System.IO.Directory.Exists(devToolsDir)) toolsDir = devToolsDir;
+                        else System.IO.Directory.CreateDirectory(toolsDir);
+                    }
+
+                    string targetTxt = System.IO.Path.Combine(toolsDir, "keys.txt");
+                    string targetProd = System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory, "prod.keys");
+
+                    try { System.IO.File.Copy(filePath, targetTxt, true); } catch { }
+                    try { System.IO.File.Copy(filePath, targetProd, true); } catch { }
+
+                    App.Settings.Current.KeysPath = targetTxt;
+                    await App.Settings.SaveAsync();
+                    App.Keys.LoadKeys(targetTxt);
+                    App.Logger.Log($"Файл ключей скопирован и применен (вручную): {targetTxt}", Models.LogLevel.Success);
+                    this.Bindings.Update();
+                }
             }
         }
 
@@ -240,6 +279,243 @@ namespace StormSwitchBox.Views
                     }
                 }
             }
+        }
+
+        private async void CheckUpdatesButton_Click(object sender, RoutedEventArgs e)
+        {
+            CheckUpdatesButton.IsEnabled = false;
+            UpdateProgressRing.IsActive = true;
+            UpdateProgressRing.Visibility = Visibility.Visible;
+
+            try
+            {
+                using var client = new System.Net.Http.HttpClient();
+                client.DefaultRequestHeaders.Add("User-Agent", "StormSwitchBox-Updater");
+
+                var response = await client.GetAsync("https://api.github.com/repos/ReiKatari/STORM_SWITCH_BOX/releases/latest");
+                if (!response.IsSuccessStatusCode)
+                {
+                    throw new Exception($"Ошибка запроса к GitHub API: {response.ReasonPhrase}");
+                }
+
+                var jsonString = await response.Content.ReadAsStringAsync();
+                
+                using var doc = System.Text.Json.JsonDocument.Parse(jsonString);
+                var root = doc.RootElement;
+                
+                string tagName = root.GetProperty("tag_name").GetString() ?? "";
+                string body = root.TryGetProperty("body", out var bodyProp) ? bodyProp.GetString() ?? "" : "";
+                
+                string downloadUrl = "";
+                string assetName = "";
+                if (root.TryGetProperty("assets", out var assetsProp) && assetsProp.ValueKind == System.Text.Json.JsonValueKind.Array)
+                {
+                    foreach (var asset in assetsProp.EnumerateArray())
+                    {
+                        string name = asset.GetProperty("name").GetString() ?? "";
+                        if (name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) || name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                        {
+                            downloadUrl = asset.GetProperty("browser_download_url").GetString() ?? "";
+                            assetName = name;
+                            break;
+                        }
+                    }
+                }
+
+                string cleanTag = tagName.TrimStart('v');
+                var currentVer = new Version("3.5.0");
+                if (Version.TryParse(cleanTag, out var latestVer) && latestVer > currentVer)
+                {
+                    var dialog = new ContentDialog
+                    {
+                        Title = "Доступно новое обновление!",
+                        PrimaryButtonText = "Скачать и обновить",
+                        CloseButtonText = "Отмена",
+                        XamlRoot = this.XamlRoot,
+                        Content = new StackPanel
+                        {
+                            Spacing = 12,
+                            Children =
+                            {
+                                new TextBlock { Text = $"Доступна версия: v{cleanTag} (Текущая: v3.5)", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold },
+                                new TextBlock { Text = "Список изменений:", FontSize = 12, Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorSecondaryBrush"] },
+                                new ScrollViewer
+                                {
+                                    MaxHeight = 150,
+                                    Content = new TextBlock { Text = body, TextWrapping = TextWrapping.Wrap, FontSize = 12 }
+                                }
+                            }
+                        }
+                    };
+
+                    var result = await dialog.ShowAsync();
+                    if (result == ContentDialogResult.Primary && !string.IsNullOrEmpty(downloadUrl))
+                    {
+                        await StartDownloadAndUpdateAsync(downloadUrl, assetName);
+                    }
+                }
+                else
+                {
+                    var dialog = new ContentDialog
+                    {
+                        Title = "Обновления не найдены",
+                        Content = new TextBlock { Text = "У вас установлена актуальная версия STORM SWITCH BOX v3.5." },
+                        CloseButtonText = "OK",
+                        XamlRoot = this.XamlRoot
+                    };
+                    await dialog.ShowAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                var dialog = new ContentDialog
+                {
+                    Title = "Ошибка при проверке обновлений",
+                    Content = new TextBlock { Text = ex.Message, TextWrapping = TextWrapping.Wrap },
+                    CloseButtonText = "OK",
+                    XamlRoot = this.XamlRoot
+                };
+                await dialog.ShowAsync();
+            }
+            finally
+            {
+                CheckUpdatesButton.IsEnabled = true;
+                UpdateProgressRing.IsActive = false;
+                UpdateProgressRing.Visibility = Visibility.Collapsed;
+            }
+        }
+
+        private async System.Threading.Tasks.Task StartDownloadAndUpdateAsync(string url, string assetName)
+        {
+            var progressRing = new ProgressRing { IsActive = true, Width = 50, Height = 50, HorizontalAlignment = HorizontalAlignment.Center };
+            var progressText = new TextBlock { Text = "Подготовка к скачиванию...", HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0,12,0,0) };
+            var progressBar = new ProgressBar { Minimum = 0, Maximum = 100, Value = 0, Height = 10, Margin = new Thickness(0,12,0,0), Visibility = Visibility.Collapsed };
+
+            var dialog = new ContentDialog
+            {
+                Title = "Загрузка обновления...",
+                Content = new StackPanel { Children = { progressRing, progressText, progressBar } },
+                XamlRoot = this.XamlRoot
+            };
+
+            _ = dialog.ShowAsync();
+
+            try
+            {
+                using var client = new System.Net.Http.HttpClient();
+                client.DefaultRequestHeaders.Add("User-Agent", "StormSwitchBox-Updater");
+
+                using var response = await client.GetAsync(url, System.Net.Http.HttpCompletionOption.ResponseHeadersRead);
+                response.EnsureSuccessStatusCode();
+
+                var totalBytes = response.Content.Headers.ContentLength;
+                progressBar.Visibility = totalBytes.HasValue ? Visibility.Visible : Visibility.Collapsed;
+                progressRing.Visibility = totalBytes.HasValue ? Visibility.Collapsed : Visibility.Visible;
+
+                var tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), assetName);
+                using var fileStream = new System.IO.FileStream(tempPath, System.IO.FileMode.Create, System.IO.FileAccess.Write, System.IO.FileShare.None);
+                using var contentStream = await response.Content.ReadAsStreamAsync();
+
+                var buffer = new byte[81920];
+                long totalRead = 0;
+                int read;
+
+                while ((read = await contentStream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+                {
+                    await fileStream.WriteAsync(buffer, 0, read);
+                    totalRead += read;
+
+                    if (totalBytes.HasValue)
+                    {
+                        var pct = (double)totalRead / totalBytes.Value * 100;
+                        progressBar.Value = pct;
+                        progressText.Text = $"Скачано: {totalRead / 1024 / 1024} МБ / {totalBytes.Value / 1024 / 1024} МБ ({pct:F1}%)";
+                    }
+                    else
+                    {
+                        progressText.Text = $"Скачано: {totalRead / 1024 / 1024} МБ...";
+                    }
+                }
+
+                await fileStream.FlushAsync();
+                fileStream.Close();
+
+                progressText.Text = "Скачивание завершено. Запуск обновления...";
+                await System.Threading.Tasks.Task.Delay(1000);
+
+                var appDir = System.AppDomain.CurrentDomain.BaseDirectory;
+                var exePath = System.IO.Path.Combine(appDir, "StormSwitchBox.exe");
+                var batchPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ssb_update.bat");
+
+                string batchContent = "";
+                if (assetName.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+                {
+                    batchContent = $@"@echo off
+chcp 65001 > nul
+echo Ожидание закрытия приложения...
+timeout /t 2 /nobreak > nul
+echo Извлечение обновления...
+powershell -Command ""Expand-Archive -Path '{tempPath}' -DestinationPath '{appDir}' -Force""
+echo Запуск новой версии...
+start """" ""{exePath}""
+del ""{tempPath}""
+(goto) 2>nul & del ""%~f0""
+";
+                }
+                else
+                {
+                    batchContent = $@"@echo off
+chcp 65001 > nul
+echo Ожидание закрытия...
+timeout /t 2 /nobreak > nul
+echo Обновление исполняемого файла...
+copy /y ""{tempPath}"" ""{exePath}""
+echo Запуск новой версии...
+start """" ""{exePath}""
+del ""{tempPath}""
+(goto) 2>nul & del ""%~f0""
+";
+                }
+
+                await System.IO.File.WriteAllTextAsync(batchPath, batchContent, System.Text.Encoding.UTF8);
+
+                var psi = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "cmd.exe",
+                    Arguments = $"/c \"{batchPath}\"",
+                    CreateNoWindow = true,
+                    UseShellExecute = false
+                };
+                System.Diagnostics.Process.Start(psi);
+
+                dialog.Hide();
+                System.Environment.Exit(0);
+            }
+            catch (Exception ex)
+            {
+                dialog.Hide();
+                var errorDialog = new ContentDialog
+                {
+                    Title = "Ошибка при загрузке обновления",
+                    Content = new TextBlock { Text = ex.Message, TextWrapping = TextWrapping.Wrap },
+                    CloseButtonText = "OK",
+                    XamlRoot = this.XamlRoot
+                };
+                await errorDialog.ShowAsync();
+            }
+        }
+
+        private void OpenLogsFolder_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                string logsDir = System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory, "logs");
+                if (System.IO.Directory.Exists(logsDir))
+                {
+                    System.Diagnostics.Process.Start("explorer.exe", logsDir);
+                }
+            }
+            catch { }
         }
     }
 }

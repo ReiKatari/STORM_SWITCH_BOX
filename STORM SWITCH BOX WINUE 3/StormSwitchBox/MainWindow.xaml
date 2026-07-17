@@ -23,6 +23,7 @@
             </NavigationView.MenuItems>
             
             <NavigationView.FooterMenuItems>
+                <NavigationViewItem Icon="Document" Content="Инструкция" Tag="Instruction" />
                 <NavigationViewItem Icon="Pictures" Content="Информация" Tag="Catalog" />
                 <NavigationViewItem Icon="Clock" Content="История" Tag="History" />
             </NavigationView.FooterMenuItems>

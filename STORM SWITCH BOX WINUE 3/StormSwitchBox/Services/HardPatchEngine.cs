@@ -88,7 +88,19 @@ namespace StormSwitchBox.Services
 
                 string? targetDir = System.IO.Path.GetDirectoryName(outPath);
                 if (string.IsNullOrEmpty(targetDir)) targetDir = AppDomain.CurrentDomain.BaseDirectory;
-                tempDir = System.IO.Path.Combine(targetDir, $"temp_hardpatch_{Guid.NewGuid().ToString("N").Substring(0, 6)}");
+                
+                string targetDrive = System.IO.Path.GetPathRoot(targetDir) ?? "C:\\";
+                string appDrive = System.IO.Path.GetPathRoot(AppDomain.CurrentDomain.BaseDirectory) ?? "C:\\";
+                
+                if (targetDrive.Equals(appDrive, StringComparison.OrdinalIgnoreCase))
+                {
+                    string appDirTemp = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "temp");
+                    tempDir = System.IO.Path.Combine(appDirTemp, $"STORM_TMP_{Guid.NewGuid().ToString("N").Substring(0, 6)}");
+                }
+                else
+                {
+                    tempDir = System.IO.Path.Combine(targetDrive, $"STORM_TMP_{Guid.NewGuid().ToString("N").Substring(0, 6)}");
+                }
                 Directory.CreateDirectory(tempDir);
 
                 // Декомпрессия NSZ через nsz.exe (проверенный инструмент, корректно регенерирует IVFC хеш-деревья)
@@ -200,15 +212,18 @@ namespace StormSwitchBox.Services
                     if (unpackProc == null) throw new Exception("Не удалось запустить yanu-cli unpack");
                     
                     var unpackStderr = new System.Text.StringBuilder();
-                    unpackProc.OutputDataReceived += (s, e) => {
-                        if (e.Data != null) App.RunOnUI(() => task.LogDetails += $"\n    {e.Data}");
-                    };
-                    unpackProc.ErrorDataReceived += (s, e) => {
-                        if (e.Data != null) unpackStderr.AppendLine(e.Data);
-                    };
-                    unpackProc.BeginOutputReadLine();
-                    unpackProc.BeginErrorReadLine();
-                    await unpackProc.WaitForExitAsync(cancellationToken);
+                    using (var logBuffer = new ProgressLogBuffer(task))
+                    {
+                        unpackProc.OutputDataReceived += (s, e) => {
+                            if (e.Data != null) logBuffer.AppendLine(e.Data);
+                        };
+                        unpackProc.ErrorDataReceived += (s, e) => {
+                            if (e.Data != null) unpackStderr.AppendLine(e.Data);
+                        };
+                        unpackProc.BeginOutputReadLine();
+                        unpackProc.BeginErrorReadLine();
+                        await unpackProc.WaitForExitAsync(cancellationToken);
+                    }
                     if (unpackProc.ExitCode != 0) throw new Exception($"Ошибка yanu-cli unpack:\n{unpackStderr}");
                     
                     App.RunOnUI(() => task.LogDetails += $"\n[2/3] Инъекция модов (romfs/exefs)...");
@@ -257,15 +272,18 @@ namespace StormSwitchBox.Services
                     if (packProc == null) throw new Exception("Не удалось запустить yanu-cli pack");
                     
                     var packStderr = new System.Text.StringBuilder();
-                    packProc.OutputDataReceived += (s, e) => {
-                        if (e.Data != null) App.RunOnUI(() => task.LogDetails += $"\n    {e.Data}");
-                    };
-                    packProc.ErrorDataReceived += (s, e) => {
-                        if (e.Data != null) packStderr.AppendLine(e.Data);
-                    };
-                    packProc.BeginOutputReadLine();
-                    packProc.BeginErrorReadLine();
-                    await packProc.WaitForExitAsync(cancellationToken);
+                    using (var logBuffer = new ProgressLogBuffer(task))
+                    {
+                        packProc.OutputDataReceived += (s, e) => {
+                            if (e.Data != null) logBuffer.AppendLine(e.Data);
+                        };
+                        packProc.ErrorDataReceived += (s, e) => {
+                            if (e.Data != null) packStderr.AppendLine(e.Data);
+                        };
+                        packProc.BeginOutputReadLine();
+                        packProc.BeginErrorReadLine();
+                        await packProc.WaitForExitAsync(cancellationToken);
+                    }
                     if (packProc.ExitCode != 0) throw new Exception($"Ошибка yanu-cli pack:\n{packStderr}");
                 }
                 else
@@ -313,21 +331,18 @@ namespace StormSwitchBox.Services
                         if (updateProc != null)
                         {
                             var updateStderr = new System.Text.StringBuilder();
-                            
-                            updateProc.OutputDataReceived += (s, e) => {
-                                if (e.Data != null) {
-                                    App.RunOnUI(() => task.LogDetails += $"\n    {e.Data}");
-                                }
-                            };
-                            updateProc.ErrorDataReceived += (s, e) => {
-                                if (e.Data != null) {
-                                    updateStderr.AppendLine(e.Data);
-                                }
-                            };
-                            
-                            updateProc.BeginOutputReadLine();
-                            updateProc.BeginErrorReadLine();
-                            await updateProc.WaitForExitAsync(cancellationToken);
+                            using (var logBuffer = new ProgressLogBuffer(task))
+                            {
+                                updateProc.OutputDataReceived += (s, e) => {
+                                    if (e.Data != null) logBuffer.AppendLine(e.Data);
+                                };
+                                updateProc.ErrorDataReceived += (s, e) => {
+                                    if (e.Data != null) updateStderr.AppendLine(e.Data);
+                                };
+                                updateProc.BeginOutputReadLine();
+                                updateProc.BeginErrorReadLine();
+                                await updateProc.WaitForExitAsync(cancellationToken);
+                            }
                             
                             if (updateProc.ExitCode == 0)
                             {
@@ -360,127 +375,16 @@ namespace StormSwitchBox.Services
                     // Не используем yanu-cli unpack — он создаёт .cnmt.xml артефакты
                     if (!yanuUpdateSuccess)
                     {
-                        App.RunOnUI(() => task.LogDetails += $"\n[1/2] Чтение NSP через LibHac...");
-                        
-                        var openedStreams = new List<FileStream>();
-                        var openedFiles = new List<IFile>();
-                        
-                        try
+                        if (string.IsNullOrEmpty(updateFile))
                         {
-                            // Собираем все записи из обоих NSP
-                            // Ключ = имя файла, значение = (IFile, parentStream) 
-                            var mergedEntries = new Dictionary<string, (IFile file, string source)>(StringComparer.OrdinalIgnoreCase);
-                            
-                            // Читаем базовый NSP
-                            var baseStream = new FileStream(baseFile, FileMode.Open, FileAccess.Read, FileShare.Read);
-                            openedStreams.Add(baseStream);
-                            var basePfs = new PartitionFileSystem(baseStream.AsStorage());
-                            
-                            foreach (var entry in basePfs.EnumerateEntries())
-                            {
-                                if (entry.Type == DirectoryEntryType.Directory) continue;
-                                string name = entry.Name;
-                                
-                                // Фильтруем: только валидные файлы NSP (без .xml артефактов)
-                                if (!IsValidNspEntry(name)) continue;
-                                
-                                var file = OpenFileSafe(basePfs, entry.FullPath);
-                                openedFiles.Add(file);
-                                mergedEntries[name] = (file, "base");
-                            }
-                            
-                            App.Logger.Log($"[hardpatch] Base NSP: {mergedEntries.Count} entries", Models.LogLevel.Info);
-                            
-                            // Читаем update NSP (перезаписывает дубликаты)
-                            if (!string.IsNullOrEmpty(updateFile))
-                            {
-                                var updateStream = new FileStream(updateFile, FileMode.Open, FileAccess.Read, FileShare.Read);
-                                openedStreams.Add(updateStream);
-                                var updatePfs = new PartitionFileSystem(updateStream.AsStorage());
-                                
-                                int updateCount = 0;
-                                foreach (var entry in updatePfs.EnumerateEntries())
-                                {
-                                    if (entry.Type == DirectoryEntryType.Directory) continue;
-                                    string name = entry.Name;
-                                    
-                                    if (!IsValidNspEntry(name)) continue;
-                                    
-                                    // Если дубликат из base — закрываем старый IFile
-                                    if (mergedEntries.TryGetValue(name, out var existing) && existing.source == "base")
-                                    {
-                                        try { existing.file.Dispose(); } catch { }
-                                        openedFiles.Remove(existing.file);
-                                    }
-                                    
-                                    var file = OpenFileSafe(updatePfs, entry.FullPath);
-                                    openedFiles.Add(file);
-                                    mergedEntries[name] = (file, "update");
-                                    updateCount++;
-                                }
-                                
-                                App.Logger.Log($"[hardpatch] Update NSP: {updateCount} entries. Total merged: {mergedEntries.Count}", Models.LogLevel.Info);
-                            }
-                            
-                            if (mergedEntries.Count == 0)
-                                throw new Exception("Не найдены файлы в NSP-контейнерах.");
-                            
-                            // === ШАГ 2: Сборка PFS0 через LibHac PartitionFileSystemBuilder ===
-                            App.RunOnUI(() => task.LogDetails += $"\n[2/2] Сборка NSP (PFS0) из {mergedEntries.Count} файлов...");
-                            
-                            var pfsBuilder = new PartitionFileSystemBuilder();
-                            
-                            foreach (var kvp in mergedEntries.OrderBy(k => k.Key, StringComparer.OrdinalIgnoreCase))
-                            {
-                                IStorage entryStorage = kvp.Value.file.AsStorage();
-                                pfsBuilder.AddFile(kvp.Key, new StorageFile(new SafeStorageWrapper(entryStorage), LibHac.Fs.OpenMode.Read));
-                            }
-                            
+                            // Нет апдейта — просто копируем базовый файл для конвейера
                             string outputNspPath = System.IO.Path.Combine(yanuOutDir, $"{titleId}.nsp");
-                            
-                            using (var builtPfs = pfsBuilder.Build(PartitionFileSystemType.Standard))
-                            {
-                                builtPfs.GetSize(out long totalPfsSize).ThrowIfFailure();
-                                
-                                using var destStream = new FileStream(outputNspPath, FileMode.Create, FileAccess.Write, FileShare.None, 16 * 1024 * 1024);
-                                long remaining = totalPfsSize;
-                                long offset = 0;
-                                byte[] buffer = new byte[1024 * 1024]; // 1MB буфер
-                                var sw = System.Diagnostics.Stopwatch.StartNew();
-                                
-                                while (remaining > 0)
-                                {
-                                    cancellationToken.ThrowIfCancellationRequested();
-                                    int toRead = (int)Math.Min(buffer.Length, remaining);
-                                    builtPfs.Read(offset, buffer.AsSpan(0, toRead)).ThrowIfFailure();
-                                    destStream.Write(buffer, 0, toRead);
-                                    offset += toRead;
-                                    remaining -= toRead;
-                                    
-                                    if (sw.ElapsedMilliseconds > 300 || remaining == 0)
-                                    {
-                                        sw.Restart();
-                                        double pct = (double)offset / totalPfsSize * 100.0;
-                                        App.RunOnUI(() => task.Progress = Math.Min(99.9, pct));
-                                    }
-                                }
-                            }
-                            
-                            if (File.Exists(outputNspPath))
-                            {
-                                long outSize = new FileInfo(outputNspPath).Length;
-                                App.Logger.Log($"[hardpatch] LibHac PFS0 assembled: {outputNspPath} ({outSize / 1024 / 1024} MB)", Models.LogLevel.Info);
-                                App.RunOnUI(() => task.LogDetails += $"\n  Собран NSP: {outSize / 1024 / 1024} MB");
-                            }
-                            else
-                            {
-                                throw new Exception("Ошибка: PFS0 NSP не был создан.");
-                            }
+                            System.IO.File.Copy(baseFile, outputNspPath, true);
+                            App.RunOnUI(() => task.LogDetails += $"\n[1/1] Оригинальный файл скопирован (патч не применялся).");
                         }
-                        finally
+                        else
                         {
-                            foreach (var f in openedFiles) try { f.Dispose(); } catch { }
-                            foreach (var s in openedStreams) try { s.Dispose(); } catch { }
+                            throw new Exception("Не удалось применить Hard Patch (Update). yanu-cli вернул ошибку.");
                         }
                     }
 
@@ -712,8 +616,8 @@ namespace StormSwitchBox.Services
             string nszExe = FindNszExe();
             App.Logger.Log($"[nsz.exe] Decompressing: {System.IO.Path.GetFileName(inputFile)}", Models.LogLevel.Info);
             
-            // nsz.exe -D <input> -o <output_dir> --overwrite
-            string args = $"-D \"{inputFile}\" -o \"{outputDir}\" --overwrite";
+            // nsz.exe -D <input> -o <output_dir> --overwrite -t 0
+            string args = $"-D \"{inputFile}\" -o \"{outputDir}\" --overwrite -t 0";
             
             var psi = new ProcessStartInfo
             {
@@ -738,15 +642,18 @@ namespace StormSwitchBox.Services
             }
 
             var stderr = new System.Text.StringBuilder();
-            proc.OutputDataReceived += (s, e) => {
-                if (e.Data != null) App.RunOnUI(() => task.LogDetails += $"\n    {e.Data}");
-            };
-            proc.ErrorDataReceived += (s, e) => {
-                if (e.Data != null) stderr.AppendLine(e.Data);
-            };
-            proc.BeginOutputReadLine();
-            proc.BeginErrorReadLine();
-            await proc.WaitForExitAsync(cancellationToken);
+            using (var logBuffer = new ProgressLogBuffer(task))
+            {
+                proc.OutputDataReceived += (s, e) => {
+                    if (e.Data != null) logBuffer.AppendLine(e.Data);
+                };
+                proc.ErrorDataReceived += (s, e) => {
+                    if (e.Data != null) stderr.AppendLine(e.Data);
+                };
+                proc.BeginOutputReadLine();
+                proc.BeginErrorReadLine();
+                await proc.WaitForExitAsync(cancellationToken);
+            }
 
             App.Logger.Log($"[nsz.exe] Exit={proc.ExitCode}", Models.LogLevel.Info);
             if (stderr.Length > 0)
@@ -808,6 +715,7 @@ namespace StormSwitchBox.Services
         private static void BuildPfs0Nsp(string sourceDir, string outputPath)
         {
             var files = Directory.GetFiles(sourceDir)
+                .Where(f => IsValidNspEntry(System.IO.Path.GetFileName(f)))
                 .OrderBy(f => System.IO.Path.GetFileName(f), StringComparer.OrdinalIgnoreCase)
                 .ToArray();
             if (files.Length == 0) return;
@@ -856,7 +764,7 @@ namespace StormSwitchBox.Services
             writer.Write(stringTableData);
 
             // File data
-            byte[] buffer = new byte[1024 * 1024]; // 1MB buffer
+            byte[] buffer = new byte[8 * 1024 * 1024]; // 8MB buffer
             for (int i = 0; i < files.Length; i++)
             {
                 using var fileStream = new FileStream(files[i], FileMode.Open, FileAccess.Read, FileShare.Read);
@@ -875,11 +783,10 @@ namespace StormSwitchBox.Services
         /// </summary>
         private static bool IsValidNspEntry(string name)
         {
-            // Valid NSP entries: .nca, .ncz, .tik, .cert, .cnmt.nca
+            // Valid NSP entries: .nca, .ncz, .tik, .cert
             // Invalid: .xml, .json, .cnmt.xml (yanu-cli artifacts)
-            if (name.EndsWith(".xml", StringComparison.OrdinalIgnoreCase)) return false;
-            if (name.EndsWith(".json", StringComparison.OrdinalIgnoreCase)) return false;
-            return true;
+            string ext = System.IO.Path.GetExtension(name).ToLowerInvariant();
+            return ext == ".nca" || ext == ".ncz" || ext == ".tik" || ext == ".cert";
         }
 
         /// <summary>
@@ -892,6 +799,136 @@ namespace StormSwitchBox.Services
             path.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(pth))).ThrowIfFailure();
             fsToOpen.OpenFile(ref fRef.Ref, in path, LibHac.Fs.OpenMode.Read).ThrowIfFailure();
             return fRef.Release();
+        }
+    }
+
+    public class ProgressLogBuffer : IDisposable
+    {
+        private readonly Models.ProcessingTask _task;
+        private readonly List<string> _buffer = new List<string>();
+        private readonly System.Timers.Timer _timer;
+        private readonly object _lock = new object();
+        private string? _lastProgressLine = null;
+
+        public ProgressLogBuffer(Models.ProcessingTask task)
+        {
+            _task = task;
+            _timer = new System.Timers.Timer(150); // Update UI every 150 ms
+            _timer.Elapsed += (s, e) => Flush();
+            _timer.AutoReset = true;
+            _timer.Start();
+        }
+
+        public void AppendLine(string line)
+        {
+            if (string.IsNullOrEmpty(line)) return;
+
+            lock (_lock)
+            {
+                if (IsProgressLine(line))
+                {
+                    _lastProgressLine = line;
+                }
+                else
+                {
+                    _buffer.Add(line);
+                }
+            }
+        }
+
+        private static bool IsProgressLine(string line)
+        {
+            string trimmed = line.Trim();
+            return trimmed.StartsWith("[") && (trimmed.Contains("%") || trimmed.Contains("/") || trimmed.Contains("]"));
+        }
+
+        public void Flush()
+        {
+            List<string> linesToAppend;
+            string? progressLine;
+
+            lock (_lock)
+            {
+                if (_buffer.Count == 0 && _lastProgressLine == null) return;
+                
+                linesToAppend = new List<string>(_buffer);
+                _buffer.Clear();
+                
+                progressLine = _lastProgressLine;
+                _lastProgressLine = null;
+            }
+
+            App.RunOnUI(() =>
+            {
+                string current = _task.LogDetails ?? "";
+                var sb = new System.Text.StringBuilder(current);
+
+                // If the last line of current log is a progress line, remove it
+                int lastNewLine = current.LastIndexOf('\n');
+                string lastLine = lastNewLine >= 0 ? current.Substring(lastNewLine + 1) : current;
+                if (IsProgressLine(lastLine))
+                {
+                    sb.Length = Math.Max(0, lastNewLine);
+                }
+
+                // Append new non-progress lines
+                foreach (var line in linesToAppend)
+                {
+                    if (sb.Length > 0 && sb[sb.Length - 1] != '\n') sb.Append('\n');
+                    sb.Append("    ").Append(line);
+                }
+
+                // Append or update the progress line
+                if (progressLine != null)
+                {
+                    if (sb.Length > 0 && sb[sb.Length - 1] != '\n') sb.Append('\n');
+                    sb.Append("    ").Append(progressLine);
+                }
+
+                _task.LogDetails = LimitLines(sb.ToString(), 250);
+            });
+        }
+
+        private static string LimitLines(string text, int maxLines)
+        {
+            if (string.IsNullOrEmpty(text)) return text;
+            
+            int lineCount = 0;
+            for (int i = 0; i < text.Length; i++)
+            {
+                if (text[i] == '\n') lineCount++;
+            }
+            
+            if (lineCount <= maxLines) return text;
+            
+            int linesToSkip = lineCount - maxLines;
+            int currentSkip = 0;
+            int cutIndex = -1;
+            for (int i = 0; i < text.Length; i++)
+            {
+                if (text[i] == '\n')
+                {
+                    currentSkip++;
+                    if (currentSkip == linesToSkip)
+                    {
+                        cutIndex = i + 1;
+                        break;
+                    }
+                }
+            }
+            
+            if (cutIndex > 0 && cutIndex < text.Length)
+            {
+                return "[...] " + text.Substring(cutIndex);
+            }
+            return text;
+        }
+
+        public void Dispose()
+        {
+            _timer.Stop();
+            _timer.Dispose();
+            Flush();
         }
     }
 }

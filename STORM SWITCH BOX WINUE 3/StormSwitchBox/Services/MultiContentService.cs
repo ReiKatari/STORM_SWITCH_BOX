@@ -70,7 +70,17 @@ namespace StormSwitchBox.Services
                 App.RunOnUI(() => task.LogDetails += "\n🟣 [Декомпрессия] Распаковка NSZ/XCZ...");
                 
                 var finalInputFiles = new System.Collections.Concurrent.ConcurrentBag<string>();
-                tempDecompDir = System.IO.Path.Combine(string.IsNullOrEmpty(targetDir) ? System.IO.Path.GetTempPath() : targetDir, "StormDecomp_" + Guid.NewGuid().ToString("N").Substring(0, 8));
+                string targetDrive = System.IO.Path.GetPathRoot(targetDir) ?? "C:\\";
+                string appDrive = System.IO.Path.GetPathRoot(AppDomain.CurrentDomain.BaseDirectory) ?? "C:\\";
+                if (targetDrive.Equals(appDrive, StringComparison.OrdinalIgnoreCase))
+                {
+                    string appDirTemp = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "temp");
+                    tempDecompDir = System.IO.Path.Combine(appDirTemp, "StormDecomp_" + Guid.NewGuid().ToString("N").Substring(0, 8));
+                }
+                else
+                {
+                    tempDecompDir = System.IO.Path.Combine(string.IsNullOrEmpty(targetDir) ? System.IO.Path.GetTempPath() : targetDir, "StormDecomp_" + Guid.NewGuid().ToString("N").Substring(0, 8));
+                }
                 Directory.CreateDirectory(tempDecompDir);
 
                 var decompTasks = inputFiles.Select(async f =>
@@ -211,54 +221,176 @@ namespace StormSwitchBox.Services
                     catch { }
                 }
 
-                string mlistFile = System.IO.Path.Combine(tempDecompDir, "mlist.txt");
-                System.IO.File.WriteAllLines(mlistFile, finalInputFilesList);
+                // ══════════════════════════════════════════════════════════════════
+                // СОРТИРОВКА ДЛЯ ЭМУЛЯТОРОВ: Base игра всегда должна быть первой!
+                // Иначе эмулятор (Yuzu/Ryujinx/STORM EDEN) не найдет main executable
+                // ══════════════════════════════════════════════════════════════════
+                var sortedList = new List<string>();
+                string? mainApp = null;
+                string? patchApp = null;
+                var dlcs = new List<string>();
 
+                foreach (var f in finalInputFilesList)
+                {
+                    if (Directory.Exists(f)) continue; // Пропускаем папки
+
+                    bool isBase = false;
+                    bool isPatch = false;
+
+                    try
+                    {
+                        var info = App.SwitchFormat.ParseNsp(f);
+                        if (info.ContentType == "Application") isBase = true;
+                        else if (info.ContentType == "Patch") isPatch = true;
+                    } 
+                    catch { }
+
+                    if (!isBase && !isPatch)
+                    {
+                        // Fallback по имени
+                        if (f.Contains("[v0]") || f.EndsWith("v0.nsp", StringComparison.OrdinalIgnoreCase) || f.Contains("patched_base")) isBase = true;
+                        else if (f.Contains("v") && !f.Contains("v0")) isPatch = true;
+                    }
+
+                    if (isBase && mainApp == null) mainApp = f;
+                    else if (isPatch && patchApp == null) patchApp = f;
+                    else dlcs.Add(f);
+                }
+
+                if (!string.IsNullOrEmpty(mainApp)) sortedList.Add(mainApp);
+                if (!string.IsNullOrEmpty(patchApp)) sortedList.Add(patchApp);
+                sortedList.AddRange(dlcs);
+
+                if (sortedList.Count == 0) sortedList = finalInputFilesList.Where(f => !Directory.Exists(f)).ToList();
+
+                string fmt = isTargetXci ? "xci" : "nsp";
                 string outFolder = System.IO.Path.Combine(tempDecompDir, "nscb_out");
                 Directory.CreateDirectory(outFolder);
 
-                string fmt = isTargetXci ? "xci" : "nsp";
-                string args = $"-t {fmt} -o \"{outFolder}\" -tfile \"{mlistFile}\" -dmul \"calculate\"";
-                
-                // Log the file list being passed to squirrel for diagnostics
-                App.Logger.Log($"[squirrel] args: {args}", Models.LogLevel.Info);
-                try
+                string mlistFile = System.IO.Path.Combine(tempDecompDir, "mlist.txt");
+                System.IO.File.WriteAllLines(mlistFile, sortedList);
+
+                if (!isTargetXci)
                 {
-                    var mlistContents = System.IO.File.ReadAllLines(mlistFile);
-                    for (int i = 0; i < mlistContents.Length; i++)
+                    App.RunOnUI(() =>
                     {
-                        var mf = mlistContents[i];
-                        long mfSize = System.IO.File.Exists(mf) ? new System.IO.FileInfo(mf).Length : -1;
-                        App.Logger.Log($"[squirrel] mlist[{i}]: {mf} ({mfSize} bytes)", Models.LogLevel.Info);
+                        task.LogDetails += "\n📦 [LibHac] Быстрая сборка Multi-NSP (PFS0)...";
+                    });
+
+                    var pfsBuilder = new PartitionFileSystemBuilder();
+                    var mergedEntries = new Dictionary<string, LibHac.Fs.Fsa.IFile>(StringComparer.OrdinalIgnoreCase);
+                    var openedFs = new List<PartitionFileSystem>();
+                    var openedStreams = new List<FileStream>();
+                    var openedFiles = new List<LibHac.Fs.Fsa.IFile>();
+
+                    try
+                    {
+                        foreach (string nspPath in sortedList)
+                        {
+                            if (!System.IO.File.Exists(nspPath)) continue;
+                            
+                            var stream = new FileStream(nspPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                            openedStreams.Add(stream);
+                            var fs = new PartitionFileSystem(stream.AsStorage());
+                            openedFs.Add(fs);
+                            
+                            foreach (var entry in fs.EnumerateEntries())
+                            {
+                                if (entry.Type == DirectoryEntryType.Directory) continue;
+                                string name = entry.Name;
+                                
+                                // Пропускаем дубликаты и невалидные метаданные
+                                if (mergedEntries.ContainsKey(name) || !IsValidNspEntry(name)) continue;
+                                
+                                var file = OpenFileSafe(fs, entry.FullPath);
+                                
+                                openedFiles.Add(file);
+                                mergedEntries[name] = file;
+                                
+                                pfsBuilder.AddFile(name, new StorageFile(new StormSwitchBox.Services.SafeStorageWrapper(file.AsStorage()), LibHac.Fs.OpenMode.Read));
+                            }
+                        }
+
+                        string outputNspPath = System.IO.Path.Combine(outFolder, $"multi_out_{Guid.NewGuid().ToString("N").Substring(0, 8)}.nsp");
+
+                        using (var builtPfs = pfsBuilder.Build(PartitionFileSystemType.Standard))
+                        {
+                            builtPfs.GetSize(out long totalPfsSize).ThrowIfFailure();
+                            
+                            using var destStream = new FileStream(outputNspPath, FileMode.Create, FileAccess.Write, FileShare.None, 16 * 1024 * 1024);
+                            long remaining = totalPfsSize;
+                            long offset = 0;
+                            byte[] buffer = new byte[8 * 1024 * 1024]; // 8MB буфер
+                            var sw = System.Diagnostics.Stopwatch.StartNew();
+                            
+                            while (remaining > 0)
+                            {
+                                cancellationToken.ThrowIfCancellationRequested();
+                                int toRead = (int)Math.Min(buffer.Length, remaining);
+                                builtPfs.Read(offset, buffer.AsSpan(0, toRead)).ThrowIfFailure();
+                                destStream.Write(buffer, 0, toRead);
+                                offset += toRead;
+                                remaining -= toRead;
+                                
+                                if (sw.ElapsedMilliseconds > 300 || remaining == 0)
+                                {
+                                    sw.Restart();
+                                    double pct = (double)offset / totalPfsSize * 100.0;
+                                    App.RunOnUI(() => task.Progress = Math.Min(99.9, pct));
+                                }
+                            }
+                        }
+                    }
+                    finally
+                    {
+                        foreach (var f in openedFiles) { try { f.Dispose(); } catch { } }
+                        foreach (var s in openedStreams) { try { s.Dispose(); } catch { } }
                     }
                 }
-                catch { }
-
-                var psi = new System.Diagnostics.ProcessStartInfo
+                else
                 {
-                    FileName = "cmd.exe",
-                    Arguments = $"/c chcp 65001 >nul & \"{squirrelExe}\" {args}",
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
-                psi.EnvironmentVariables["USERPROFILE"] = isolatedUserProfile;
-                psi.EnvironmentVariables["LOCALAPPDATA"] = isolatedLocalAppData;
+                    string args = $"-t {fmt} -o \"{outFolder}\" -tfile \"{mlistFile}\" -dmul \"calculate\"";
+                    
+                    // Log the file list being passed to squirrel for diagnostics
+                    App.Logger.Log($"[squirrel] args: {args}", Models.LogLevel.Info);
+                    try
+                    {
+                        var mlistContents = System.IO.File.ReadAllLines(mlistFile);
+                        for (int i = 0; i < mlistContents.Length; i++)
+                        {
+                            var mf = mlistContents[i];
+                            long mfSize = System.IO.File.Exists(mf) ? new System.IO.FileInfo(mf).Length : -1;
+                            App.Logger.Log($"[squirrel] mlist[{i}]: {mf} ({mfSize} bytes)", Models.LogLevel.Info);
+                        }
+                    }
+                    catch { }
 
-                using var proc = System.Diagnostics.Process.Start(psi);
-                if (proc == null) throw new Exception("Не удалось запустить squirrel.exe");
+                    var psi = new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = "cmd.exe",
+                        Arguments = $"/c chcp 65001 >nul & \"{squirrelExe}\" {args}",
+                        UseShellExecute = false,
+                        CreateNoWindow = true
+                    };
+                    psi.EnvironmentVariables["USERPROFILE"] = isolatedUserProfile;
+                    psi.EnvironmentVariables["LOCALAPPDATA"] = isolatedLocalAppData;
 
-                await proc.WaitForExitAsync(cancellationToken);
+                    using var proc = System.Diagnostics.Process.Start(psi);
+                    if (proc == null) throw new Exception("Не удалось запустить squirrel.exe");
 
-                App.Logger.Log($"[squirrel] exit code: {proc.ExitCode}", Models.LogLevel.Info);
+                    await proc.WaitForExitAsync(cancellationToken);
 
-                if (proc.ExitCode != 0)
-                {
-                    throw new Exception($"NSC_Builder squirrel failed with exit code {proc.ExitCode}.");
+                    App.Logger.Log($"[squirrel] exit code: {proc.ExitCode}", Models.LogLevel.Info);
+
+                    if (proc.ExitCode != 0)
+                    {
+                        throw new Exception($"NSC_Builder squirrel failed with exit code {proc.ExitCode}.");
+                    }
                 }
 
                 // Search for the actual content file (.nsp/.xci), skipping metadata like .cnmt.xml
                 string[] contentExtensions = new[] { ".nsp", ".xci", ".nsz", ".xcz" };
-                string generatedFile = Directory.GetFiles(outFolder)
+                string? generatedFile = Directory.GetFiles(outFolder)
                     .Where(f => contentExtensions.Any(ext => f.EndsWith(ext, StringComparison.OrdinalIgnoreCase)))
                     .OrderByDescending(f => new System.IO.FileInfo(f).Length)
                     .FirstOrDefault();
@@ -410,6 +542,21 @@ namespace StormSwitchBox.Services
             path.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(pth))).ThrowIfFailure();
             fsToOpen.OpenFile(ref fRef.Ref, in path, OpenMode.Read).ThrowIfFailure();
             return fRef.Release();
+        }
+        private static LibHac.Fs.Fsa.IFile OpenFileSafe(PartitionFileSystem fs, string fullPath)
+        {
+            var path = new LibHac.Fs.Path();
+            path.Initialize(new LibHac.Common.U8Span(System.Text.Encoding.UTF8.GetBytes(fullPath))).ThrowIfFailure();
+            using var fileRef = new LibHac.Common.UniqueRef<LibHac.Fs.Fsa.IFile>();
+            fs.OpenFile(ref fileRef.Ref, in path, LibHac.Fs.OpenMode.Read).ThrowIfFailure();
+            return fileRef.Release();
+        }
+
+        private static bool IsValidNspEntry(string name)
+        {
+            // Valid NSP entries: .nca, .ncz, .tik, .cert
+            string ext = System.IO.Path.GetExtension(name).ToLowerInvariant();
+            return ext == ".nca" || ext == ".ncz" || ext == ".tik" || ext == ".cert";
         }
     }
 }

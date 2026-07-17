@@ -157,8 +157,9 @@
                             <TextBlock Text="Специализированный комбайн для обработки, сжатия и конвертации игр Nintendo Switch. Интеграция нативных алгоритмов (LibHac + ZstdSharp) для максимальной производительности." 
                                        TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Margin="0,8,0,0" LineHeight="22"/>
                             <StackPanel Orientation="Horizontal" Spacing="16" Margin="0,20,0,0">
-                                <Button Content="Проверить обновления" Style="{StaticResource AccentButtonStyle}" Padding="16,8"/>
-                                <Button Content="Открыть папку с логами" Padding="16,8"/>
+                                <Button Content="Проверить обновления" Style="{StaticResource AccentButtonStyle}" Padding="16,8" Click="CheckUpdatesButton_Click" x:Name="CheckUpdatesButton"/>
+                                <ProgressRing x:Name="UpdateProgressRing" IsActive="False" Width="20" Height="20" VerticalAlignment="Center" Visibility="Collapsed"/>
+                                <Button Content="Открыть папку с логами" Padding="16,8" Click="OpenLogsFolder_Click"/>
                             </StackPanel>
                         </StackPanel>
                     </Grid>

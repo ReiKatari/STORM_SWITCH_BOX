@@ -509,7 +509,7 @@ namespace StormSwitchBox.Core.NSZ
             catch { }
             
             // Limit parallelism to prevent WinUI 3 render thread starvation and system freezes
-            int maxParallelism = Math.Max(1, usedCores > 0 ? usedCores : Math.Max(1, Environment.ProcessorCount / 2));
+            int maxParallelism = Math.Max(1, usedCores > 0 ? usedCores : Environment.ProcessorCount);
             int batchSize = maxParallelism * 4; // Размер окна для обработки (баланс памяти и скорости)
             
             int[] compressedSizes = new int[blocksToCompress];
