@@ -63,6 +63,7 @@ STORM SWITCH BOX разработан благодаря трудам сообщ
 *   **[ZstdSharp.Port](https://github.com/oleg-karasik/ZstdSharp.Port)** — высокопроизводительный C# порт алгоритма сжатия Zstandard, разработанный **oleg-karasik** на основе оригинальной библиотеки **[Zstd](https://github.com/facebook/zstd)** Яна Колле (Yann Collet / Meta). Используется для сверхбыстрого сжатия и декомпрессии NSZ/NCZ.
 *   **[NSZ](https://github.com/nicoboss/nsz)** — оригинальный скрипт сжатия на Python, разработанный **Nicoboss**. Созданный им формат сжатия блоков лег в основу алгоритмов оптимизации STORM SWITCH BOX.
 *   **[Yanu (Switch Compressor)](https://github.com/Jumbo-W/yanu)** — классический компрессор от **Jumbo-W** и других контрибьюторов, послуживший ориентиром и вдохновивший концепцию создания нативного WinUI-комбайна.
+*   **[YanuExt](https://github.com/vvvooopy/yanuext)** — форк оригинального компрессора Yanu от разработчика **vvvooopy**, содержащий важные улучшения стабильности логики обработки Switch-контейнеров.
 *   **[Windows App SDK / WinUI 3](https://github.com/microsoft/microsoft-ui-xaml)** — современный фреймворк пользовательского интерфейса от компании **Microsoft**.
 
 ---
