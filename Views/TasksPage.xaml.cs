@@ -233,12 +233,10 @@ namespace StormSwitchBox.Views
                 InitializePicker(picker);
 
                 var files = await picker.PickMultipleFilesAsync();
-                foreach (var file in files)
+                if (files != null && files.Count > 0)
                 {
-                    if (file != null)
-                    {
-                        await ViewModel.AddDroppedFileAsync(file.Path);
-                    }
+                    var paths = files.Select(file => file.Path).ToList();
+                    await ViewModel.AddDroppedFilesBatchAsync(paths);
                 }
             }
             catch (Exception ex)
@@ -260,7 +258,7 @@ namespace StormSwitchBox.Views
                 var folder = await picker.PickSingleFolderAsync();
                 if (folder != null)
                 {
-                    await ViewModel.AddDroppedFileAsync(folder.Path);
+                    await ViewModel.AddDroppedFilesBatchAsync(new List<string> { folder.Path });
                 }
             }
             catch (Exception ex)
@@ -481,9 +479,10 @@ namespace StormSwitchBox.Views
                 if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
                 {
                     var items = await e.DataView.GetStorageItemsAsync();
-                    foreach (var item in items)
+                    if (items != null && items.Count > 0)
                     {
-                        await ViewModel.AddDroppedFileAsync(item.Path);
+                        var paths = items.Select(item => item.Path).ToList();
+                        await ViewModel.AddDroppedFilesBatchAsync(paths);
                     }
                 }
             }
