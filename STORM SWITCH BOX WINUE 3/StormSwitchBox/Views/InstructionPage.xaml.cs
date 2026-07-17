@@ -130,7 +130,7 @@ namespace StormSwitchBox.Views
                     Title = "Мульти-контент (Multi)",
                     Category = "Компоновка",
                     Icon = "\uE7BE",
-                    DescriptionText = "Наиболее продвинутый режим, позволяющий объединить базовую игру (Base Game), файл обновления (Update) и неограниченное число дополнений (DLC) в один монолитный файл NSP или NSZ.\n\nПрограмма анализирует Title ID каждого элемента, верифицирует их принадлежность к одной базовой игре и корректно перестраивает файловую систему PFS0.",
+                    DescriptionText = "Наиболее продвинутый режим, позволяющий объединить базовую игру (Base Game), файл обновления (Update) и неограниченное число дополнений (DLC) в один монолитный файл NSP или NSZ.\n\nПрограмма анализирует Title ID каждого элемента, верифицирует их принадлежность к одной базовой игре и корректно перестраивает файловую систему PFS0. Также поддерживается интеграция модифицированных разделов RomFS/ExeFS и специальных DLC-разблокировщиков (Unlocker) для активации платного контента.",
                     Tip = "Объединение DLC и обновлений позволяет избавиться от сотен мелких файлов в вашей библиотеке и ускоряет сканирование в эмуляторах.",
                     SetupPreview = container =>
                     {
@@ -143,7 +143,8 @@ namespace StormSwitchBox.Views
                         sp.Children.Add(new TextBlock { Text = "[Base] Zelda: Breath of the Wild (10 GB)", FontSize = 12, Foreground = GetSecondaryBrush() });
                         sp.Children.Add(new TextBlock { Text = "[Update] v1.6.0 (3 GB)", FontSize = 12, Foreground = GetSecondaryBrush() });
                         sp.Children.Add(new TextBlock { Text = "[DLC] The Master Trials (100 MB)", FontSize = 12, Foreground = GetSecondaryBrush() });
-                        sp.Children.Add(new TextBlock { Text = "[DLC] The Champions' Ballad (1.2 GB)", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "[Unlocker] All DLC Unlocker (64 KB)", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "[Mod RomFS] Russian Voiceover (1.5 GB)", FontSize = 12, Foreground = GetSecondaryBrush() });
                         
                         grid.Children.Add(sp);
                         container.Children.Add(grid);
@@ -162,6 +163,59 @@ namespace StormSwitchBox.Views
                         var label = new TextBlock { Text = "Проверка разделов: 75% завершено (Ошибок не обнаружено)", FontSize = 12, Foreground = GetSecondaryBrush(), Margin = new Thickness(0,4,0,0) };
                         container.Children.Add(progress);
                         container.Children.Add(label);
+                    }
+                },
+                new TopicItem
+                {
+                    Title = "Информация (Info)",
+                    Category = "Утилиты",
+                    Icon = "\uE946",
+                    DescriptionText = "Данный модуль позволяет мгновенно просмотреть подробные метаданные любого NSP, NSZ или XCI-образа без его распаковки.\n\nВы можете узнать официальное название игры, уникальный Title ID, точную версию, минимально требуемую версию прошивки (System Version), размер игры, а также просмотреть все встроенные языковые локализации и иконку игры.",
+                    Tip = "Используйте этот режим для быстрой проверки скачанных образов перед их установкой на консоль или эмулятор.",
+                    SetupPreview = container =>
+                    {
+                        var sp = new StackPanel { Spacing = 8 };
+                        sp.Children.Add(new TextBlock { Text = "Супер Марио (Super Mario Odyssey)", FontSize = 14, FontWeight = Microsoft.UI.Text.FontWeights.Bold });
+                        sp.Children.Add(new TextBlock { Text = "Title ID: 0100000000010000", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "Версия: 1.3.0 (Update)", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "Требуемая прошивка: 16.0.0+", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        container.Children.Add(sp);
+                    }
+                },
+                new TopicItem
+                {
+                    Title = "История (History)",
+                    Category = "Утилиты",
+                    Icon = "\uE81C",
+                    DescriptionText = "Модуль истории отображает подробный список всех выполненных, выполняемых и запланированных задач.\n\nЗдесь вы можете отслеживать текущие фоновые процессы сжатия, конвертации или патчинга, просматривать подробный лог выполнения в реальном времени, а также принудительно останавливать задачи.",
+                    Tip = "Вы можете скопировать лог выбранной задачи в буфер обмена для отправки отчетов об ошибках.",
+                    SetupPreview = container =>
+                    {
+                        var sp = new StackPanel { Spacing = 8 };
+                        sp.Children.Add(new TextBlock { Text = "Активные задачи:", FontSize = 13, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+                        sp.Children.Add(new TextBlock { Text = "✔ Сжатие: Zelda.nsz — Выполнено (12 мин)", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
+                        sp.Children.Add(new TextBlock { Text = "⏳ Патчинг: TOTK.nsp — Выполняется (64%)", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        container.Children.Add(sp);
+                    }
+                },
+                new TopicItem
+                {
+                    Title = "Параметры (Settings)",
+                    Category = "Конфигурация",
+                    Icon = "\uE713",
+                    DescriptionText = "Вкладка параметров позволяет настроить глобальные конфигурации приложения под ваши нужды:\n\n1. Путь к файлу криптографических ключей (keys.txt / prod.keys).\n2. Версию прошивки ключей (через удобные 6 квадратиков для ввода).\n3. Выходной каталог по умолчанию для сжатых и собранных образов.\n4. Уровень Zstandard-сжатия по умолчанию (Fast, Balanced, High, Max).\n5. Выбор языка интерфейса.\n6. Кнопку ручной проверки и установки обновлений.",
+                    Tip = "Все изменения сохраняются в файл конфигурации приложения автоматически.",
+                    SetupPreview = container =>
+                    {
+                        var sp = new StackPanel { Spacing = 12 };
+                        var cb = new ComboBox { Header = "Язык интерфейса:" };
+                        cb.Items.Add("Русский (Russian)");
+                        cb.Items.Add("English (Английский)");
+                        cb.SelectedIndex = 0;
+                        sp.Children.Add(cb);
+                        
+                        sp.Children.Add(new Button { Content = "Проверить обновление", HorizontalAlignment = Microsoft.UI.Xaml.HorizontalAlignment.Left });
+                        container.Children.Add(sp);
                     }
                 }
             };
