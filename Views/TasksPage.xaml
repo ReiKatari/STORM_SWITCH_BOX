@@ -126,14 +126,21 @@
                         <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}"/>
                         <Setter Property="HorizontalContentAlignment" Value="Center"/>
                         <Setter Property="Padding" Value="8,10"/>
+                        <Setter Property="ContentTemplate">
+                            <Setter.Value>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding}" TextAlignment="Center" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="SemiBold"/>
+                                </DataTemplate>
+                            </Setter.Value>
+                        </Setter>
                     </Style>
                 </controls:DataGrid.ColumnHeaderStyle>
                 
                 <controls:DataGrid.Columns>
-                    <controls:DataGridTemplateColumn Header="Иконка" Width="80" MinWidth="60" IsReadOnly="True">
+                    <controls:DataGridTemplateColumn Header="Иконка" Width="100" MinWidth="80" IsReadOnly="True">
                         <controls:DataGridTemplateColumn.CellTemplate>
                             <DataTemplate x:DataType="models:ProcessingTask">
-                                <Image Source="{x:Bind GameIcon, Mode=OneWay}" Width="64" Height="64" Stretch="Uniform" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="0,2"/>
+                                <Image Source="{x:Bind GameIcon, Mode=OneWay}" Width="76" Height="76" Stretch="Uniform" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="0,2"/>
                             </DataTemplate>
                         </controls:DataGridTemplateColumn.CellTemplate>
                     </controls:DataGridTemplateColumn>

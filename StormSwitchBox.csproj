@@ -41,6 +41,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="tools\**\*" CopyToOutputDirectory="PreserveNewest" Link="tools\%(RecursiveDir)%(Filename)%(Extension)" />
+    <None Include="tools\**\*" CopyToOutputDirectory="PreserveNewest" Link="tools\%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
+
+  <Target Name="PostBuild" AfterTargets="PostBuildEvent">
+    <Exec Command="powershell -ExecutionPolicy Bypass -Command &quot;$store = New-Object System.Security.Cryptography.X509Certificates.X509Store('My', 'CurrentUser'); $store.Open('ReadOnly'); $cert = $store.Certificates | Where-Object { $_.Subject -like '*CN=StormSwitchBox*' } | Select-Object -First 1; $store.Close(); if ($cert) { &amp; 'C:\Program Files (x86)\Windows Kits\10\bin\10.0.28000.0\x64\signtool.exe' sign /fd SHA256 /a /sha1 $cert.Thumbprint '$(TargetDir)$(TargetName).exe' }&quot;" />
+  </Target>
 </Project>
