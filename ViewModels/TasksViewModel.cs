@@ -203,6 +203,83 @@ public partial class TasksViewModel : ObservableObject
 		return GameExtensions.Contains(extension);
 	}
 
+	public async Task AddDroppedFilesBatchAsync(List<string> paths)
+	{
+		if (paths == null || paths.Count == 0) return;
+
+		// 1. Separate mod directories (romfs/exefs) from other paths
+		var modDirs = paths.Where(p => Directory.Exists(p) && 
+			(Path.GetFileName(p).Equals("romfs", StringComparison.OrdinalIgnoreCase) || 
+			 Path.GetFileName(p).Equals("exefs", StringComparison.OrdinalIgnoreCase))).ToList();
+
+		var normalPaths = paths.Except(modDirs).ToList();
+
+		// Keep track of tasks created in this batch
+		var initialTaskCount = Tasks.Count;
+
+		// 2. Process normal files/folders
+		if (normalPaths.Count > 0)
+		{
+			foreach (var path in normalPaths)
+			{
+				await AddDroppedFileAsync(path);
+			}
+		}
+
+		// 3. Attach mod directories to game tasks
+		if (modDirs.Count > 0)
+		{
+			// Find newly created tasks first
+			var newlyCreatedTasks = Tasks.Skip(initialTaskCount).ToList();
+			
+			// If no new tasks were created, find the last pending task
+			if (newlyCreatedTasks.Count == 0)
+			{
+				var lastPendingTask = Tasks.LastOrDefault(t => t.Status == "Ожидание");
+				if (lastPendingTask != null)
+				{
+					newlyCreatedTasks.Add(lastPendingTask);
+				}
+			}
+
+			if (newlyCreatedTasks.Count > 0)
+			{
+				foreach (var task in newlyCreatedTasks)
+				{
+					bool updated = false;
+					foreach (var modDir in modDirs)
+					{
+						if (!task.InputFiles.Contains(modDir, StringComparer.OrdinalIgnoreCase))
+						{
+							task.InputFiles.Add(modDir);
+							task.FilesList.Add(Path.GetFileName(modDir));
+							updated = true;
+						}
+					}
+					
+					if (updated)
+					{
+						// Update task properties
+						task.SourceSizeBytes = task.InputFiles.Sum(p => CalculateSize(p));
+						task.FilesCount = task.InputFiles.Count(p => File.Exists(p)).ToString();
+						
+						bool hasRomFs = task.InputFiles.Any(p => Directory.Exists(p) && Path.GetFileName(p).Equals("romfs", StringComparison.OrdinalIgnoreCase));
+						bool hasExeFs = task.InputFiles.Any(p => Directory.Exists(p) && Path.GetFileName(p).Equals("exefs", StringComparison.OrdinalIgnoreCase));
+						
+						task.HasRomFs = hasRomFs ? "1" : "-";
+						task.HasExeFs = hasExeFs ? "1" : "-";
+						
+						App.Logger.Log($"Папки модов привязаны к задаче {task.Id} ({task.OutputFileName})", LogLevel.Success);
+					}
+				}
+			}
+			else
+			{
+				App.Logger.Log("Не найдено активной задачи для привязки папок модов (romfs/exefs). Пожалуйста, перетащите их вместе с игрой.", LogLevel.Warning);
+			}
+		}
+	}
+
 	public async Task AddDroppedFileAsync(string path)
 	{
 		await Task.Run(async delegate
