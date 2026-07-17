@@ -228,7 +228,11 @@ namespace StormSwitchBox.Views
 
         private Brush GetSecondaryBrush()
         {
-            return (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"];
+            if (Application.Current.Resources.TryGetValue("TextFillColorSecondaryBrush", out var res) && res is Brush brush)
+            {
+                return brush;
+            }
+            return new SolidColorBrush(Microsoft.UI.Colors.Gray);
         }
     }
 }
