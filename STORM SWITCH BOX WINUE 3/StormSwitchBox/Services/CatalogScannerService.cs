@@ -249,6 +249,9 @@ namespace StormSwitchBox.Services
                                 string title = nacp.Title[0].NameString.ToString();
                                 string pub = nacp.Title[0].PublisherString.ToString();
 
+                                if (HasGarbageCharacters(title)) title = "";
+                                if (HasGarbageCharacters(pub)) pub = "";
+
                                 if (string.IsNullOrWhiteSpace(title))
                                 {
                                     for (int i = 0; i < 16; i++)
@@ -518,6 +521,17 @@ namespace StormSwitchBox.Services
                 App.TitleDb.EnrichCatalogItem(item);
                 item.IsLoading = false;
             });
+        }
+
+        private static bool HasGarbageCharacters(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return false;
+            foreach (char c in s)
+            {
+                if (c == '\uFFFD' || c == '✦' || char.IsControl(c))
+                    return true;
+            }
+            return false;
         }
     }
 }

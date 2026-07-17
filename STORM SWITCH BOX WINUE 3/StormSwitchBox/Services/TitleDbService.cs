@@ -229,7 +229,7 @@ namespace StormSwitchBox.Services
             {
                 App.MainDispatcher?.TryEnqueue(async () =>
                 {
-                    if (item.TitleName == "Unknown Game" || item.TitleName == "Unknown" || string.IsNullOrEmpty(item.TitleName))
+                    if (item.TitleName == "Unknown Game" || item.TitleName == "Unknown" || string.IsNullOrEmpty(item.TitleName) || HasGarbageCharacters(item.TitleName))
                         item.TitleName = entry.Name ?? item.TitleName;
 
                     if (!string.IsNullOrEmpty(entry.Description))
@@ -461,6 +461,17 @@ namespace StormSwitchBox.Services
                     yield return entry;
                 }
             }
+        }
+
+        private static bool HasGarbageCharacters(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return false;
+            foreach (char c in s)
+            {
+                if (c == '\uFFFD' || c == '✦' || char.IsControl(c))
+                    return true;
+            }
+            return false;
         }
     }
 }

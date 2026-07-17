@@ -1,0 +1,234 @@
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Documents;
+using Microsoft.UI.Xaml.Media;
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Linq;
+
+namespace StormSwitchBox.Views
+{
+    public sealed partial class InstructionPage : Page
+    {
+        public class TopicItem
+        {
+            public string Title { get; set; } = string.Empty;
+            public string Category { get; set; } = string.Empty;
+            public string Icon { get; set; } = string.Empty;
+            public string DescriptionText { get; set; } = string.Empty;
+            public string Tip { get; set; } = string.Empty;
+            public Action<StackPanel> SetupPreview { get; set; } = _ => { };
+        }
+
+        private List<TopicItem> _allTopics = new List<TopicItem>();
+        private ObservableCollection<TopicItem> _filteredTopics = new ObservableCollection<TopicItem>();
+
+        public InstructionPage()
+        {
+            this.InitializeComponent();
+            InitializeTopics();
+            TopicList.ItemsSource = _filteredTopics;
+            
+            // Выбираем первый элемент по умолчанию
+            if (_filteredTopics.Count > 0)
+            {
+                TopicList.SelectedIndex = 0;
+            }
+        }
+
+        private void InitializeTopics()
+        {
+            _allTopics = new List<TopicItem>
+            {
+                new TopicItem
+                {
+                    Title = "Обзор приложения",
+                    Category = "Введение",
+                    Icon = "\uE9CE",
+                    DescriptionText = "STORM SWITCH BOX — это высокопроизводительный комбайн для всесторонней обработки образов игр Nintendo Switch. Программа позволяет собирать обновления, распаковывать ресурсы, компилировать файлы в NSP/NSZ, конвертировать XCI в NSP, а также объединять игры с обновлениями и DLC в единый файл (Мульти-контент).\n\nБлагодаря полной интеграции библиотек LibHac и ZstdSharp (на C#), приложение выполняет сжатие и патчинг в 10–20 раз быстрее классических консольных утилит на Python, задействуя многопоточность процессора.",
+                    Tip = "Используйте встроенную консоль логов в реальном времени, чтобы следить за каждым этапом выполнения задач.",
+                    SetupPreview = container =>
+                    {
+                        container.Children.Add(new TextBlock { Text = "STORM SWITCH BOX v3.5", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.Bold });
+                        container.Children.Add(new TextBlock { Text = "• Быстрый Zstandard компрессор\n• Дельта-патчинг образов в реальном времени\n• Корректное определение контрольных заголовков NCA\n• Поддержка TitleDB для отображения названий игр", Foreground = GetSecondaryBrush() });
+                    }
+                },
+                new TopicItem
+                {
+                    Title = "Обновление (HardPatch)",
+                    Category = "Патчинг",
+                    Icon = "\uE72C",
+                    DescriptionText = "Данный режим позволяет жестко интегрировать (HardPatch) файл обновления (.nsp/.nsz) в базовый образ игры (.nsp/.nsz/.xci).\n\nИнтеграция происходит за счет слияния RomFS таблиц и применения дельта-патчей BKTR. Полученный файл не требует отдельной установки обновлений в эмулятор и запускается как единый готовый образ.",
+                    Tip = "Для тяжелых игр (например, The Legend of Zelda: Tears of the Kingdom) рекомендуется использовать уровень сжатия 'Balanced' для сохранения оптимального баланса скорости и размера.",
+                    SetupPreview = container =>
+                    {
+                        var sp = new StackPanel { Spacing = 12 };
+                        sp.Children.Add(new CheckBox { Content = "Сжать готовый образ в NSZ", IsChecked = true });
+                        
+                        var slider = new Slider { Header = "Уровень сжатия (Zstandard)", Minimum = 1, Maximum = 22, Value = 18 };
+                        sp.Children.Add(slider);
+                        
+                        sp.Children.Add(new CheckBox { Content = "Удалить неиспользуемые локализации", IsChecked = false });
+                        container.Children.Add(sp);
+                    }
+                },
+                new TopicItem
+                {
+                    Title = "Распаковка (Unpack)",
+                    Category = "Моддинг",
+                    Icon = "\uE896",
+                    DescriptionText = "Режим предназначен для извлечения ресурсов игры из контейнеров (.nsp, .nsz, .xci).\n\nВы можете распаковать RomFS (игровые файлы: текстуры, модели, звуки) для создания модификаций, ExeFS (исполняемый код NSO, метаданные NPDM) для отладки или чит-кодов, а также извлечь чистые NCA-разделы.",
+                    Tip = "Для извлечения ресурсов требуется правильно настроенный файл ключей (prod.keys/keys.txt) в параметрах.",
+                    SetupPreview = container =>
+                    {
+                        var sp = new StackPanel { Spacing = 8 };
+                        sp.Children.Add(new RadioButton { Content = "Распаковать RomFS (содержимое игры)", IsChecked = true });
+                        sp.Children.Add(new RadioButton { Content = "Распаковать ExeFS (код и бинарники)" });
+                        sp.Children.Add(new RadioButton { Content = "Только NCA разделы (без расшифровки)" });
+                        container.Children.Add(sp);
+                    }
+                },
+                new TopicItem
+                {
+                    Title = "Упаковка (Pack)",
+                    Category = "Сборка",
+                    Icon = "\uE74E",
+                    DescriptionText = "Позволяет упаковать ранее распакованные RomFS/ExeFS папки или отдельные файлы обратно в официальный Switch-контейнер NSP или NSZ.\n\nЭтот режим незаменим для упаковки модифицированных игр, переводов и фанатских патчей в полноценные установочные пакеты.",
+                    Tip = "Имя выходного контейнера формируется автоматически на основе названия папки, но вы можете изменить его вручную.",
+                    SetupPreview = container =>
+                    {
+                        var sp = new StackPanel { Spacing = 12 };
+                        sp.Children.Add(new TextBox { Header = "Имя выходного файла:", PlaceholderText = "MyCustomModdedGame.nsz" });
+                        
+                        var cb = new ComboBox { Header = "Выходной контейнер:" };
+                        cb.Items.Add("NSZ (Сжатый Zstd)");
+                        cb.Items.Add("NSP (Стандартный без сжатия)");
+                        cb.SelectedIndex = 0;
+                        sp.Children.Add(cb);
+                        
+                        container.Children.Add(sp);
+                    }
+                },
+                new TopicItem
+                {
+                    Title = "Конвертация (Convert)",
+                    Category = "Форматы",
+                    Icon = "\uE8D4",
+                    DescriptionText = "Этот режим предназначен для быстрого изменения формата файлов:\n1. Конвертация картриджных образов (.xci) в устанавливаемые файлы (.nsp).\n2. Быстрое сжатие стандартных несжатых файлов (.nsp) в сжатый формат (.nsz).\n\nКонвертация из XCI в NSP может происходить без пережатия (простое извлечение NCA-файлов), что занимает считанные секунды.",
+                    Tip = "Быстрая конвертация не ухудшает качество образов и экономит много процессорного времени.",
+                    SetupPreview = container =>
+                    {
+                        var sp = new StackPanel { Spacing = 8 };
+                        sp.Children.Add(new CheckBox { Content = "Быстрая конвертация (без пережатия видео/ресурсов)", IsChecked = true });
+                        sp.Children.Add(new CheckBox { Content = "Игнорировать ошибки заголовка (для битых дампов)", IsChecked = false });
+                        container.Children.Add(sp);
+                    }
+                },
+                new TopicItem
+                {
+                    Title = "Мульти-контент (Multi)",
+                    Category = "Компоновка",
+                    Icon = "\uE7BE",
+                    DescriptionText = "Наиболее продвинутый режим, позволяющий объединить базовую игру (Base Game), файл обновления (Update) и неограниченное число дополнений (DLC) в один монолитный файл NSP или NSZ.\n\nПрограмма анализирует Title ID каждого элемента, верифицирует их принадлежность к одной базовой игре и корректно перестраивает файловую систему PFS0.",
+                    Tip = "Объединение DLC и обновлений позволяет избавиться от сотен мелких файлов в вашей библиотеке и ускоряет сканирование в эмуляторах.",
+                    SetupPreview = container =>
+                    {
+                        var grid = new Grid();
+                        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                        
+                        var sp = new StackPanel { Spacing = 4 };
+                        sp.Children.Add(new TextBlock { Text = "Список объединения:", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+                        sp.Children.Add(new TextBlock { Text = "[Base] Zelda: Breath of the Wild (10 GB)", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "[Update] v1.6.0 (3 GB)", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "[DLC] The Master Trials (100 MB)", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "[DLC] The Champions' Ballad (1.2 GB)", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        
+                        grid.Children.Add(sp);
+                        container.Children.Add(grid);
+                    }
+                },
+                new TopicItem
+                {
+                    Title = "Проверка (Verify)",
+                    Category = "Валидация",
+                    Icon = "\uE8FB",
+                    DescriptionText = "Верификатор целостности файлов (.nsp, .nsz, .xci).\n\nРежим считывает внутренние хэши NCA-разделов и сравнивает их с сигнатурами заголовка. Это позволяет на 100% подтвердить, что файл не поврежден при скачивании или сборке.",
+                    Tip = "Используйте полную проверку перед отправкой собранных NSZ-файлов на портативные консоли.",
+                    SetupPreview = container =>
+                    {
+                        var progress = new ProgressBar { Value = 75, Minimum = 0, Maximum = 100, Height = 10 };
+                        var label = new TextBlock { Text = "Проверка разделов: 75% завершено (Ошибок не обнаружено)", FontSize = 12, Foreground = GetSecondaryBrush(), Margin = new Thickness(0,4,0,0) };
+                        container.Children.Add(progress);
+                        container.Children.Add(label);
+                    }
+                }
+            };
+
+            FilterTopics(string.Empty);
+        }
+
+        private void FilterTopics(string query)
+        {
+            _filteredTopics.Clear();
+            var search = query.Trim().ToLowerInvariant();
+            
+            foreach (var topic in _allTopics)
+            {
+                if (string.IsNullOrEmpty(search) || 
+                    topic.Title.ToLowerInvariant().Contains(search) || 
+                    topic.Category.ToLowerInvariant().Contains(search) || 
+                    topic.DescriptionText.ToLowerInvariant().Contains(search))
+                {
+                    _filteredTopics.Add(topic);
+                }
+            }
+        }
+
+        private void SearchBox_TextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
+        {
+            FilterTopics(sender.Text);
+            if (_filteredTopics.Count > 0 && TopicList.SelectedIndex == -1)
+            {
+                TopicList.SelectedIndex = 0;
+            }
+        }
+
+        private void TopicList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (TopicList.SelectedItem is TopicItem topic)
+            {
+                TopicTitle.Text = topic.Title;
+                TopicCategory.Text = topic.Category;
+                TipText.Text = topic.Tip;
+                
+                // Наполняем описание
+                TopicDescription.Blocks.Clear();
+                var paragraph = new Paragraph();
+                
+                // Делим текст по переносам и добавляем
+                var lines = topic.DescriptionText.Split(new[] { "\n\n" }, StringSplitOptions.None);
+                for (int i = 0; i < lines.Length; i++)
+                {
+                    paragraph.Inlines.Add(new Run { Text = lines[i] });
+                    if (i < lines.Length - 1)
+                    {
+                        paragraph.Inlines.Add(new LineBreak());
+                        paragraph.Inlines.Add(new LineBreak());
+                    }
+                }
+                TopicDescription.Blocks.Add(paragraph);
+                
+                // Очищаем и настраиваем интерактивное превью
+                PreviewContent.Children.Clear();
+                topic.SetupPreview(PreviewContent);
+            }
+        }
+
+        private Brush GetSecondaryBrush()
+        {
+            return (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"];
+        }
+    }
+}

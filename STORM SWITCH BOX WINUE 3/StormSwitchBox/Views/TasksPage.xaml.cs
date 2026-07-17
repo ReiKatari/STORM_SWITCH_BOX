@@ -88,6 +88,7 @@ namespace StormSwitchBox.Views
         }
 
         private object? _itemAtPointerPressed;
+        private ProcessingTask? _activeDetailTask;
 
         private void TasksGrid_PointerPressed(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
         {
@@ -102,7 +103,9 @@ namespace StormSwitchBox.Views
             {
                 if (grid.SelectedItem == row.DataContext)
                 {
+                    _activeDetailTask = null;
                     grid.SelectedItem = null;
+                    UpdateDetailsVisibility();
                     e.Handled = true;
                     return;
                 }
@@ -120,17 +123,8 @@ namespace StormSwitchBox.Views
             var grid = sender as CommunityToolkit.WinUI.UI.Controls.DataGrid;
             if (grid?.SelectedItem is ProcessingTask selectedTask)
             {
-                if (NoSelectionPlaceholder != null) NoSelectionPlaceholder.Visibility = Visibility.Collapsed;
-                if (DetailsContainer != null)
-                {
-                    DetailsContainer.Visibility = Visibility.Visible;
-                    DetailsContainer.DataContext = selectedTask;
-                    if (ParamsColumn != null)
-                    {
-                        ParamsColumn.Width = selectedTask.Operation == "Verify" ? new GridLength(0) : new GridLength(680);
-                    }
-                }
-                if (DetailsPivot != null) DetailsPivot.SelectedIndex = 1;
+                _activeDetailTask = selectedTask;
+                UpdateDetailsVisibility();
 
                 // Снимаем выбор с другого грида, чтобы избежать рассинхронизации
                 if (grid == TasksGrid && VerifyGrid != null) VerifyGrid.SelectedItem = null;
@@ -138,11 +132,53 @@ namespace StormSwitchBox.Views
             }
             else
             {
-                bool hasSelection = (TasksGrid != null && TasksGrid.SelectedItem != null) || (VerifyGrid != null && VerifyGrid.SelectedItem != null);
-                if (!hasSelection)
+                // Если выбор сбросился, проверяем, существует ли еще выбранная задача
+                bool stillExists = _activeDetailTask != null && (ViewModel.Tasks.Contains(_activeDetailTask) || ViewModel.VerifyTasks.Contains(_activeDetailTask));
+                if (!stillExists)
                 {
-                    if (NoSelectionPlaceholder != null) NoSelectionPlaceholder.Visibility = Visibility.Visible;
-                    if (DetailsContainer != null) DetailsContainer.Visibility = Visibility.Collapsed;
+                    _activeDetailTask = null;
+                    UpdateDetailsVisibility();
+                }
+                else
+                {
+                    // Сохраняем визуальное выделение в гриде, если оно пропало из-за рендеринга виртуализации
+                    if (grid != null && grid.SelectedItem == null && _activeDetailTask != null)
+                    {
+                        var taskToSelect = _activeDetailTask;
+                        App.MainDispatcher?.TryEnqueue(() =>
+                        {
+                            if (grid.SelectedItem == null && (ViewModel.Tasks.Contains(taskToSelect) || ViewModel.VerifyTasks.Contains(taskToSelect)))
+                            {
+                                grid.SelectedItem = taskToSelect;
+                            }
+                        });
+                    }
+                }
+            }
+        }
+
+        private void UpdateDetailsVisibility()
+        {
+            if (_activeDetailTask != null)
+            {
+                if (NoSelectionPlaceholder != null) NoSelectionPlaceholder.Visibility = Visibility.Collapsed;
+                if (DetailsContainer != null)
+                {
+                    DetailsContainer.Visibility = Visibility.Visible;
+                    DetailsContainer.DataContext = _activeDetailTask;
+                    if (ParamsColumn != null)
+                    {
+                        ParamsColumn.Width = _activeDetailTask.Operation == "Verify" ? new GridLength(0) : new GridLength(680);
+                    }
+                }
+                if (DetailsPivot != null) DetailsPivot.SelectedIndex = 1;
+            }
+            else
+            {
+                if (NoSelectionPlaceholder != null) NoSelectionPlaceholder.Visibility = Visibility.Visible;
+                if (DetailsContainer != null)
+                {
+                    DetailsContainer.Visibility = Visibility.Collapsed;
                     if (DetailsPivot != null) DetailsPivot.SelectedIndex = 0;
                 }
             }
@@ -277,10 +313,10 @@ namespace StormSwitchBox.Views
         // ===== Свернуть все =====
         private void CollapseAll_Click(object sender, RoutedEventArgs e)
         {
-            if (TasksGrid != null)
-            {
-                TasksGrid.SelectedItem = null;
-            }
+            _activeDetailTask = null;
+            UpdateDetailsVisibility();
+            if (TasksGrid != null) TasksGrid.SelectedItem = null;
+            if (VerifyGrid != null) VerifyGrid.SelectedItem = null;
         }
 
         // ===== Смена формата =====
