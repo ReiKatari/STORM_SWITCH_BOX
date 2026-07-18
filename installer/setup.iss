@@ -1,11 +1,11 @@
-﻿[Setup]
+[Setup]
 AppName=STORM SWITCH BOX
-AppVersion=3.8.4
+AppVersion=3.8.5
 AppPublisher=ReiKatari
 AppPublisherURL=https://github.com/ReiKatari/STORM_SWITCH_BOX
 DefaultDirName={localappdata}\Programs\STORM_SWITCH_BOX
 DefaultGroupName=STORM_SWITCH_BOX
-OutputBaseFilename=STORM_SWITCH_BOX_3.8.4_Setup
+OutputBaseFilename=STORM_SWITCH_BOX_3.8.5_Setup
 SetupIconFile=..\storm_switch_box.ico
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -24,10 +24,11 @@ Name: "portable"; Description: "Портативная распаковка"; Ty
 [Files]
 ; Source files from publish output
 Source: "..\publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\bin\Release\net8.0-windows10.0.19041.0\win-x64\StormSwitchBox.pri"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\STORM_SWITCH_BOX"; Filename: "{app}\StormSwitchBox.exe"; Components: full
-Name: "{autodesktop}\STORM_SWITCH_BOX"; Filename: "{app}\StormSwitchBox.exe"; Components: full; Tasks: desktopicon
+Name: "{group}\STORM_SWITCH_BOX"; Filename: "{app}\StormSwitchBox.exe"; WorkingDir: "{app}"; Components: full
+Name: "{autodesktop}\STORM_SWITCH_BOX"; Filename: "{app}\StormSwitchBox.exe"; WorkingDir: "{app}"; Components: full; Tasks: desktopicon
 
 [Tasks]
 Name: "desktopicon"; Description: "Создать ярлык на рабочем столе"; Components: full

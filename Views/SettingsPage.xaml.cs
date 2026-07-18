@@ -31,17 +31,17 @@ namespace StormSwitchBox.Views
             var langs = new (string Name, string[] Codes)[]
             {
                 ("Русский", new[] { "ru", "ru-RU" }),
-                ("English", new[] { "en", "en-US", "en-GB" }),
-                ("Japanese", new[] { "ja", "ja-JP", "Japanese" }),
-                ("Spanish", new[] { "es", "es-ES", "es-MX", "Spanish" }),
-                ("French", new[] { "fr", "fr-FR", "fr-CA", "French" }),
-                ("German", new[] { "de", "de-DE", "German" }),
-                ("Italian", new[] { "it", "it-IT", "Italian" }),
-                ("Dutch", new[] { "nl", "nl-NL", "Dutch" }),
-                ("Portuguese", new[] { "pt", "pt-BR", "pt-PT", "Portuguese" }),
-                ("Korean", new[] { "ko", "ko-KR", "Korean" }),
-                ("Chinese (Simp)", new[] { "zh-Hans", "zh-CN" }),
-                ("Chinese (Trad)", new[] { "zh-Hant", "zh-TW" })
+                ("Английский", new[] { "en", "en-US", "en-GB" }),
+                ("Японский", new[] { "ja", "ja-JP", "Japanese" }),
+                ("Испанский", new[] { "es", "es-ES", "es-MX", "Spanish" }),
+                ("Французский", new[] { "fr", "fr-FR", "fr-CA", "French" }),
+                ("Немецкий", new[] { "de", "de-DE", "German" }),
+                ("Итальянский", new[] { "it", "it-IT", "Italian" }),
+                ("Нидерландский", new[] { "nl", "nl-NL", "Dutch" }),
+                ("Португальский", new[] { "pt", "pt-BR", "pt-PT", "Portuguese" }),
+                ("Корейский", new[] { "ko", "ko-KR", "Korean" }),
+                ("Китайский (упр.)", new[] { "zh-Hans", "zh-CN" }),
+                ("Китайский (трад.)", new[] { "zh-Hant", "zh-TW" })
             };
 
             foreach (var lang in langs)
@@ -299,7 +299,7 @@ namespace StormSwitchBox.Views
                     var dialog = new ContentDialog
                     {
                         Title = "Обновления не найдены",
-                        Content = new TextBlock { Text = "У вас установлена актуальная версия STORM SWITCH BOX v3.8.2." },
+                        Content = new TextBlock { Text = "У вас установлена актуальная версия STORM SWITCH BOX v3.8.5." },
                         CloseButtonText = "OK",
                         XamlRoot = this.XamlRoot
                     };
@@ -336,7 +336,7 @@ namespace StormSwitchBox.Views
                 }
 
                 string cleanTag = tagName.TrimStart('v');
-                var currentVer = new Version("3.8.2");
+                var currentVer = new Version("3.8.5");
                 if (Version.TryParse(cleanTag, out var latestVer) && latestVer > currentVer)
                 {
                     var dialog = new ContentDialog
@@ -350,7 +350,7 @@ namespace StormSwitchBox.Views
                             Spacing = 12,
                             Children =
                             {
-                                new TextBlock { Text = $"Доступна версия: v{cleanTag} (Текущая: v3.8.2)", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold },
+                                new TextBlock { Text = $"Доступна версия: v{cleanTag} (Текущая: v3.8.5)", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold },
                                 new TextBlock { Text = "Список изменений:", FontSize = 12, Foreground = Application.Current.Resources.TryGetValue("TextFillColorSecondaryBrush", out var resBrush) && resBrush is Microsoft.UI.Xaml.Media.Brush b ? b : new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Gray) },
                                 new ScrollViewer
                                 {
@@ -372,7 +372,7 @@ namespace StormSwitchBox.Views
                     var dialog = new ContentDialog
                     {
                         Title = "Обновления не найдены",
-                        Content = new TextBlock { Text = "У вас установлена актуальная версия STORM SWITCH BOX v3.8.2." },
+                        Content = new TextBlock { Text = "У вас установлена актуальная версия STORM SWITCH BOX v3.8.5." },
                         CloseButtonText = "OK",
                         XamlRoot = this.XamlRoot
                     };

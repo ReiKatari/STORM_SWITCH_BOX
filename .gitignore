@@ -11,3 +11,5 @@ TestResults/
 tools/cache/
 temp/
 *.zip
+publish/
+installer/Output/
