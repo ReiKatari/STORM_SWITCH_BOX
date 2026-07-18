@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
@@ -227,7 +227,7 @@ namespace StormSwitchBox.Services
         {
             if (TryGetTitleInfo(item.TitleId, out var entry) && entry != null)
             {
-                App.MainDispatcher?.TryEnqueue(async () =>
+                App.RunOnUI(async () =>
                 {
                     if (item.TitleName == "Unknown Game" || item.TitleName == "Unknown" || string.IsNullOrEmpty(item.TitleName) || HasGarbageCharacters(item.TitleName))
                         item.TitleName = entry.Name ?? item.TitleName;
@@ -290,7 +290,7 @@ namespace StormSwitchBox.Services
                     await System.Threading.Tasks.Task.Run(() => 
                     {
                         var dlcs = GetDlcs(item.TitleId);
-                        App.MainDispatcher?.TryEnqueue(() =>
+                        App.RunOnUI(() =>
                         {
                             item.DlcCount = dlcs.Count;
                             item.DlcList.Clear();
@@ -325,7 +325,7 @@ namespace StormSwitchBox.Services
                     if (App.Settings.Current.VersionOverrides.TryGetValue(item.TitleId ?? "", out string? manualVer) && !string.IsNullOrEmpty(manualVer))
                     {
                         currentVersionCode = manualVer;
-                        App.MainDispatcher?.TryEnqueue(() => item.VersionCode = manualVer);
+                        App.RunOnUI(() => item.VersionCode = manualVer);
                     }
 
                     if (currentVersionCode == "0" && dictToUse != null && !string.IsNullOrEmpty(item.Version))
@@ -337,7 +337,7 @@ namespace StormSwitchBox.Services
                         if (matchingPair.Key != null)
                         {
                             currentVersionCode = matchingPair.Key;
-                            App.MainDispatcher?.TryEnqueue(() => item.VersionCode = matchingPair.Key);
+                            App.RunOnUI(() => item.VersionCode = matchingPair.Key);
                         }
                     }
 
@@ -358,7 +358,7 @@ namespace StormSwitchBox.Services
                         // Если база TitleDB не знает о патчах (800), то remoteVerStr - это просто CDN версия базовой игры.
                         // Поэтому мы можем смело назначить ее нашему файлу, чтобы не выводить "0".
                         currentVersionCode = remoteVerStr;
-                        App.MainDispatcher?.TryEnqueue(() => item.VersionCode = remoteVerStr);
+                        App.RunOnUI(() => item.VersionCode = remoteVerStr);
                     }
 
                     if (!string.IsNullOrEmpty(remoteVerStr) && remoteVerStr != "0")

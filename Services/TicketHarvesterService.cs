@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -133,7 +133,7 @@ namespace StormSwitchBox.Services
                         {
                             File.AppendAllLines(titleKeysPath, newKeys);
                             App.Logger.Log($"[Ticket Harvester] Найдено и добавлено {newKeys.Count} новых билетов из {Path.GetFileName(filePath)}", Models.LogLevel.Success);
-                            App.MainDispatcher?.TryEnqueue(() =>
+                            App.RunOnUI(() =>
                             {
                                 if (App.Keys.KeysFilePath != null && File.Exists(App.Keys.KeysFilePath))
                                 {

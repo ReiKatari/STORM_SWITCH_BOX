@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -45,7 +45,7 @@ namespace StormSwitchBox.Services
                     FileSize = Models.ProcessingTask.FormatSize(new FileInfo(file).Length)
                 };
 
-                App.MainDispatcher?.TryEnqueue(() => catalog.Add(item));
+                App.RunOnUI(() => catalog.Add(item));
 
                 await Task.Run(async () =>
                 {
@@ -55,7 +55,7 @@ namespace StormSwitchBox.Services
                     }
                     catch (Exception ex)
                     {
-                        App.MainDispatcher?.TryEnqueue(() => 
+                        App.RunOnUI(() => 
                         {
                             item.IsLoading = false;
                             item.HasError = true;
@@ -83,7 +83,7 @@ namespace StormSwitchBox.Services
                 FileSize = Models.ProcessingTask.FormatSize(new FileInfo(filePath).Length)
             };
 
-            App.MainDispatcher?.TryEnqueue(() => catalog.Add(item));
+            App.RunOnUI(() => catalog.Add(item));
 
             await Task.Run(() =>
             {
@@ -93,7 +93,7 @@ namespace StormSwitchBox.Services
                 }
                 catch (Exception ex)
                 {
-                    App.MainDispatcher?.TryEnqueue(() => 
+                    App.RunOnUI(() => 
                     {
                         item.IsLoading = false;
                         item.HasError = true;
@@ -306,7 +306,7 @@ namespace StormSwitchBox.Services
                                 string saveSize = "Неизвестно";
                                 try { saveSize = Models.ProcessingTask.FormatSize(nacp.UserAccountSaveDataSize); } catch { }
 
-                                App.MainDispatcher?.TryEnqueue(() =>
+                                App.RunOnUI(() =>
                                 {
                                     bool isCurrentUpdate = titleIdHex.EndsWith("800");
                                     
@@ -384,7 +384,7 @@ namespace StormSwitchBox.Services
                                     memStream.Position = 0;
                                     var buffer = memStream.ToArray();
 
-                                    App.MainDispatcher?.TryEnqueue(async () =>
+                                    App.RunOnUI(async () =>
                                     {
                                         try
                                         {
@@ -400,7 +400,7 @@ namespace StormSwitchBox.Services
                                 }
                             }
                             
-                            App.MainDispatcher?.TryEnqueue(() => item.IsLoading = false);
+                            App.RunOnUI(() => item.IsLoading = false);
                         }
                         else if (nca.Header.ContentType == NcaContentType.Manual)
                         {
@@ -422,7 +422,7 @@ namespace StormSwitchBox.Services
                                         imgFileRef.Release().AsStream().CopyTo(memStream);
                                         var buffer = memStream.ToArray();
 
-                                        App.MainDispatcher?.TryEnqueue(async () =>
+                                        App.RunOnUI(async () =>
                                         {
                                             try
                                             {
@@ -465,7 +465,7 @@ namespace StormSwitchBox.Services
                                     }
                                     catch { }
                                     
-                                    App.MainDispatcher?.TryEnqueue(() => 
+                                    App.RunOnUI(() => 
                                     {
                                         uint currentVer = 0;
                                         uint.TryParse(item.VersionCode, out currentVer);
@@ -486,7 +486,7 @@ namespace StormSwitchBox.Services
                             }
                             catch
                             {
-                                App.MainDispatcher?.TryEnqueue(() => {
+                                App.RunOnUI(() => {
                                     if (item.VersionCode == "0") item.VersionCode = "ERR_META";
                                 });
                             }
@@ -516,7 +516,7 @@ namespace StormSwitchBox.Services
 
             // Обогащаем данными из онлайн базы TitleDB и завершаем загрузку строго после того,
             // как все предыдущие задачи TryEnqueue (NACP и CNMT) закончат заполнение свойств item.
-            App.MainDispatcher?.TryEnqueue(() => 
+            App.RunOnUI(() => 
             {
                 App.TitleDb.EnrichCatalogItem(item);
                 item.IsLoading = false;

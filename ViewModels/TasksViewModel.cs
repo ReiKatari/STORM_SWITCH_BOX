@@ -327,7 +327,7 @@ public partial class TasksViewModel : ObservableObject
 					{
 						string tempDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "temp", "archives", Guid.NewGuid().ToString("N").Substring(0, 8));
 						Directory.CreateDirectory(tempDir);
-						App.MainDispatcher?.TryEnqueue(delegate
+						App.RunOnUI(delegate
 						{
 							App.Logger.Log("Предварительная распаковка архива " + Path.GetFileName(path) + "...");
 						});
@@ -513,7 +513,7 @@ public partial class TasksViewModel : ObservableObject
 			return Task.CompletedTask;
 		}
 		var tcs = new TaskCompletionSource();
-		App.MainDispatcher?.TryEnqueue(async delegate
+		App.RunOnUI(async delegate
 		{
 			try
 			{
@@ -788,7 +788,7 @@ public partial class TasksViewModel : ObservableObject
 		{
 			return;
 		}
-		App.MainDispatcher?.TryEnqueue(delegate
+		App.RunOnUI(delegate
 		{
 			try
 			{
@@ -866,6 +866,11 @@ public partial class TasksViewModel : ObservableObject
 
 	private void StartAllTasks()
 	{
+		Task.Run(async () => await StartAllTasksAsync());
+	}
+
+	public async Task StartAllTasksAsync()
+	{
 		App.Logger.Log("Запуск фоновой обработки очереди задач...");
 		if (_isProcessingQueue)
 		{
@@ -874,64 +879,74 @@ public partial class TasksViewModel : ObservableObject
 		_isProcessingQueue = true;
 		bool flag = _currentPageType == "Verify";
 		ObservableCollection<ProcessingTask> targetList = (flag ? VerifyTasks : Tasks);
-		Task.Run(async delegate
+		int executedCount = 0;
+		try
 		{
-			try
+			while (_isProcessingQueue)
 			{
-				while (_isProcessingQueue)
+				int maxConcurrent = App.Settings.Current.ConcurrentTasks;
+				if (maxConcurrent < 1)
 				{
-					int maxConcurrent = App.Settings.Current.ConcurrentTasks;
-					if (maxConcurrent < 1)
+					maxConcurrent = 1;
+				}
+				int runningCount = 0;
+				ProcessingTask? nextTask = null;
+				bool hasWaitTasks = false;
+				TaskCompletionSource<bool> tcs = new TaskCompletionSource<bool>();
+				App.RunOnUI(delegate
+				{
+					runningCount = targetList.Count((ProcessingTask t) => t.IsRunning);
+					hasWaitTasks = targetList.Any((ProcessingTask t) => t.Status == "Ожидание");
+					if (runningCount < maxConcurrent)
 					{
-						maxConcurrent = 1;
-					}
-					int runningCount = 0;
-					ProcessingTask? nextTask = null;
-					bool hasWaitTasks = false;
-					TaskCompletionSource<bool> tcs = new TaskCompletionSource<bool>();
-					App.MainDispatcher?.TryEnqueue(delegate
-					{
-						runningCount = targetList.Count((ProcessingTask t) => t.IsRunning);
-						hasWaitTasks = targetList.Any((ProcessingTask t) => t.Status == "Ожидание");
-						if (runningCount < maxConcurrent)
+						nextTask = targetList.FirstOrDefault((ProcessingTask t) => t.Status == "Ожидание");
+						if (nextTask != null)
 						{
-							nextTask = targetList.FirstOrDefault((ProcessingTask t) => t.Status == "Ожидание");
-							if (nextTask != null)
-							{
-								nextTask.Status = "Подготовка...";
-								nextTask.IsRunning = true;
-							}
+							nextTask.Status = "Подготовка...";
+							nextTask.IsRunning = true;
 						}
-						tcs.SetResult(result: true);
-					});
-					if (App.MainDispatcher != null)
-					{
-						await tcs.Task;
 					}
-					if (nextTask != null)
+					tcs.SetResult(result: true);
+				});
+				if (App.MainDispatcher != null)
+				{
+					await tcs.Task;
+				}
+				if (nextTask != null)
+				{
+					executedCount++;
+					_ = ExecuteTaskSafelyAsync(nextTask);
+				}
+				else
+				{
+					if (!hasWaitTasks && runningCount == 0)
 					{
-						_ = ExecuteTaskSafelyAsync(nextTask);
+						break;
 					}
-					else
-					{
-						if (!hasWaitTasks && runningCount == 0)
-						{
-							break;
-						}
-						await Task.Delay(500);
-					}
+					await Task.Delay(500);
 				}
 			}
-			catch (Exception ex)
+			if (executedCount > 0)
 			{
-				Exception ex2 = ex;
-				App.Logger.Log("Критическая ошибка в главном цикле очереди: " + ex2.Message, LogLevel.Error);
+				int failed = targetList.Count(t => t.Status == "Ошибка");
+				if (failed > 0)
+				{
+					App.ShowToastNotification("STORM SWITCH BOX", $"Обработка завершена. Успешно: {executedCount - failed}, Ошибок: {failed}");
+				}
+				else
+				{
+					App.ShowToastNotification("STORM SWITCH BOX", "Обработка успешно завершена!");
+				}
 			}
-			finally
-			{
-				_isProcessingQueue = false;
-			}
-		});
+		}
+		catch (Exception ex)
+		{
+			App.Logger.Log("Критическая ошибка в главном цикле очереди: " + ex.Message, LogLevel.Error);
+		}
+		finally
+		{
+			_isProcessingQueue = false;
+		}
 	}
 
 	private async Task ExecuteTaskSafelyAsync(ProcessingTask task)
@@ -939,7 +954,7 @@ public partial class TasksViewModel : ObservableObject
 		try
 		{
 			await ExecuteTaskAsync(task);
-			App.MainDispatcher?.TryEnqueue(delegate
+			App.RunOnUI(delegate
 			{
 				if (task.Status == "Подготовка..." || task.Status == "Сжатие..." || task.Status == "Распаковка..." || task.Status == "Сборка..." || task.Status == "Ожидание" || string.IsNullOrEmpty(task.Status))
 				{
@@ -954,7 +969,7 @@ public partial class TasksViewModel : ObservableObject
 		{
 			Exception ex2 = ex;
 			Exception ex3 = ex2;
-			App.MainDispatcher?.TryEnqueue(delegate
+			App.RunOnUI(delegate
 			{
 				task.Status = "Ошибка";
 				task.IsRunning = false;
@@ -1083,7 +1098,7 @@ public partial class TasksViewModel : ObservableObject
 			}
 			if (!cts.IsCancellationRequested)
 			{
-				App.MainDispatcher?.TryEnqueue(delegate
+				App.RunOnUI(delegate
 				{
 					task.Status = "Успешно";
 					task.IsRunning = false;
@@ -1147,7 +1162,7 @@ public partial class TasksViewModel : ObservableObject
 				{
 					if (task.Status != "Отменен")
 					{
-						App.MainDispatcher?.TryEnqueue(delegate
+						App.RunOnUI(delegate
 						{
 							task.Status = "Ошибка";
 							task.LogDetails += "\nОшибка предварительной сборки (HardPatch)!";
@@ -1201,7 +1216,7 @@ public partial class TasksViewModel : ObservableObject
 					File.WriteAllBytes(inputPath, new byte[1024]);
 				}
 				await App.SwitchFormat.UnpackContainerAsync(task, inputPath, outBaseFolder, cts.Token);
-				App.MainDispatcher?.TryEnqueue(delegate
+				App.RunOnUI(delegate
 				{
 					task.IsRunning = false;
 					task.Status = "Готово";
@@ -1212,7 +1227,7 @@ public partial class TasksViewModel : ObservableObject
 			{
 				Exception ex2 = ex;
 				Exception ex3 = ex2;
-				App.MainDispatcher?.TryEnqueue(delegate
+				App.RunOnUI(delegate
 				{
 					task.IsRunning = false;
 					task.Status = "Ошибка";
@@ -1269,7 +1284,7 @@ public partial class TasksViewModel : ObservableObject
 				{
 					await App.NszCompression.CompressToNszAsync(task, expectedOutPath, outBaseFolder2, cts.Token);
 				}
-				App.MainDispatcher?.TryEnqueue(delegate
+				App.RunOnUI(delegate
 				{
 					task.IsRunning = false;
 					task.Status = "Готово";
@@ -1280,7 +1295,7 @@ public partial class TasksViewModel : ObservableObject
 			{
 				Exception ex2 = ex4;
 				Exception ex5 = ex2;
-				App.MainDispatcher?.TryEnqueue(delegate
+				App.RunOnUI(delegate
 				{
 					task.IsRunning = false;
 					task.Status = "Ошибка";
@@ -1302,7 +1317,7 @@ public partial class TasksViewModel : ObservableObject
 			string workingInput = inputPath2;
 			if (inputPath2.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) || inputPath2.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase))
 			{
-				App.MainDispatcher?.TryEnqueue(delegate
+				App.RunOnUI(delegate
 				{
 					task.LogDetails += "\nВходной файл сжат. Запуск предварительной декомпрессии...";
 				});
@@ -1364,7 +1379,7 @@ public partial class TasksViewModel : ObservableObject
 				string destPath = Path.Combine(task.OutputFolder, Path.GetFileName(workingInput));
 				if (workingInput != destPath)
 				{
-					App.MainDispatcher?.TryEnqueue(delegate
+					App.RunOnUI(delegate
 					{
 						task.LogDetails += "\nКопирование в выходную директорию (с 16MB буферизацией)...";
 					});
@@ -1372,7 +1387,7 @@ public partial class TasksViewModel : ObservableObject
 					using FileStream destStream = new FileStream(destPath, FileMode.Create, FileAccess.Write, FileShare.None, 16777216);
 					await sourceStream.CopyToAsync(destStream);
 				}
-				App.MainDispatcher?.TryEnqueue(delegate
+				App.RunOnUI(delegate
 				{
 					task.Status = "Успешно";
 					task.IsRunning = false;
@@ -1385,7 +1400,7 @@ public partial class TasksViewModel : ObservableObject
 		{
 			Exception ex2 = ex6;
 			Exception ex7 = ex2;
-			App.MainDispatcher?.TryEnqueue(delegate
+			App.RunOnUI(delegate
 			{
 				task.Status = "Ошибка";
 				task.IsRunning = false;

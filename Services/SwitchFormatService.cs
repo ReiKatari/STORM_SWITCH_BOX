@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -197,9 +197,9 @@ namespace StormSwitchBox.Services
         {
             if (!_keysService.IsLoaded) throw new Exception("  .");
 
-            App.MainDispatcher?.TryEnqueue(() => { task.Status = "..."; });
+            App.RunOnUI(() => { task.Status = "..."; });
             
-                App.MainDispatcher?.TryEnqueue(() => { 
+                App.RunOnUI(() => { 
                     task.LogDetails += $"\n    LibHac (Zero-Disk-IO)..."; 
                 });
 
@@ -284,7 +284,7 @@ namespace StormSwitchBox.Services
                     
                     if (stopwatch.ElapsedMilliseconds > 100 || currentFile == totalFiles)
                     {
-                        App.MainDispatcher?.TryEnqueue(() => 
+                        App.RunOnUI(() => 
                         {
                             task.LogDetails = $": {entryName}";
                             task.Progress = (currentFile / (double)totalFiles) * 100.0;
@@ -339,7 +339,7 @@ namespace StormSwitchBox.Services
             string targetExt = targetFormat.ToLower() == "xci" || targetFormat.ToLower() == "xcz" ? ".xci" : ".nsp";
             bool isInputXci = inputPath.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) || inputPath.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase);
             
-            App.MainDispatcher?.TryEnqueue(() =>
+            App.RunOnUI(() =>
             {
                 task.LogDetails += $"\n    {targetExt.ToUpper()}...";
                 task.Status = $" {targetExt.ToUpper()}...";
@@ -350,7 +350,7 @@ namespace StormSwitchBox.Services
             // If input is XCI and target is XCI — just copy
             if (isInputXci && targetExt == ".xci")
             {
-                App.MainDispatcher?.TryEnqueue(() => task.LogDetails += "\n XCI: копирование...");
+                App.RunOnUI(() => task.LogDetails += "\n XCI: копирование...");
                 string expectedXci = System.IO.Path.ChangeExtension(expectedNsp, ".xci");
                 if (!inputPath.Equals(expectedXci, StringComparison.OrdinalIgnoreCase))
                 {
@@ -358,7 +358,7 @@ namespace StormSwitchBox.Services
                 }
                 expectedNsp = expectedXci;
                 
-                App.MainDispatcher?.TryEnqueue(() =>
+                App.RunOnUI(() =>
                 {
                     task.LogDetails += $"\n : {expectedNsp}";
                     task.Progress = 100;
@@ -370,12 +370,12 @@ namespace StormSwitchBox.Services
             // If input is NSP and target is XCI — build XCI directly without re-parsing
             if (!isInputXci && targetExt == ".xci")
             {
-                App.MainDispatcher?.TryEnqueue(() => task.LogDetails += "\n  NSP → XCI (HFS0)...");
+                App.RunOnUI(() => task.LogDetails += "\n  NSP → XCI (HFS0)...");
                 string expectedXci = System.IO.Path.ChangeExtension(expectedNsp, ".xci");
                 Core.NCA.StormXciBuilder.BuildXciFromPfs0(inputPath, expectedXci, _keysService.CurrentKeyset);
                 expectedNsp = expectedXci;
                 
-                App.MainDispatcher?.TryEnqueue(() =>
+                App.RunOnUI(() =>
                 {
                     task.LogDetails += $"\n : {expectedNsp}";
                     task.Progress = 100;
@@ -387,12 +387,12 @@ namespace StormSwitchBox.Services
             // If input is NSP and target is NSP — just copy
             if (!isInputXci && targetExt == ".nsp")
             {
-                App.MainDispatcher?.TryEnqueue(() => task.LogDetails += "\n NSP: копирование...");
+                App.RunOnUI(() => task.LogDetails += "\n NSP: копирование...");
                 if (!inputPath.Equals(expectedNsp, StringComparison.OrdinalIgnoreCase))
                 {
                     System.IO.File.Copy(inputPath, expectedNsp, true);
                 }
-                App.MainDispatcher?.TryEnqueue(() =>
+                App.RunOnUI(() =>
                 {
                     task.LogDetails += $"\n : {expectedNsp}";
                     task.Progress = 100;
@@ -438,7 +438,7 @@ namespace StormSwitchBox.Services
                         pfsBuilder.AddFile(entry.Name, new StorageFile(new StormSwitchBox.Services.SafeStorageWrapper(entryStorage), OpenMode.Read));
                     }
 
-                    App.MainDispatcher?.TryEnqueue(() => task.LogDetails += "\n NSP  ...");
+                    App.RunOnUI(() => task.LogDetails += "\n NSP  ...");
                     using var builtPfs = pfsBuilder.Build(PartitionFileSystemType.Standard);
                     using var destStream = new FileStream(expectedNsp, FileMode.Create, FileAccess.Write, FileShare.None, 16 * 1024 * 1024);
                     
@@ -458,7 +458,7 @@ namespace StormSwitchBox.Services
                         double percent = 100.0 - ((double)remaining / totalPfsSize * 100.0);
                         if (task.Progress != (int)percent)
                         {
-                            App.MainDispatcher?.TryEnqueue(() => task.Progress = (int)percent);
+                            App.RunOnUI(() => task.Progress = (int)percent);
                         }
                     }
                 }
@@ -484,14 +484,14 @@ namespace StormSwitchBox.Services
 
             if (targetExt == ".xci")
             {
-                App.MainDispatcher?.TryEnqueue(() => task.LogDetails += "\n  HFS0 (XCI)...");
+                App.RunOnUI(() => task.LogDetails += "\n  HFS0 (XCI)...");
                 string expectedXci = System.IO.Path.ChangeExtension(expectedNsp, ".xci");
                 Core.NCA.StormXciBuilder.BuildXciFromPfs0(expectedNsp, expectedXci, _keysService.CurrentKeyset);
                 try { System.IO.File.Delete(expectedNsp); } catch { }
                 expectedNsp = expectedXci;
             }
 
-            App.MainDispatcher?.TryEnqueue(() =>
+            App.RunOnUI(() =>
             {
                 task.LogDetails += $"\n : {expectedNsp}";
                 task.Progress = 100;
@@ -946,7 +946,7 @@ namespace StormSwitchBox.Services
         {
             try
             {
-                App.MainDispatcher?.TryEnqueue(() =>
+                App.RunOnUI(() =>
                 {
                     task.LogDetails = $" : {inputFolder}";
                     task.Status = "...";
@@ -975,7 +975,7 @@ namespace StormSwitchBox.Services
 
                 if (hasMods)
                 {
-                    App.MainDispatcher?.TryEnqueue(() => task.LogDetails = "  romfs/exefs.    NSP...");
+                    App.RunOnUI(() => task.LogDetails = "  romfs/exefs.    NSP...");
                     
                     string controlNca = "";
                     string baseProgramNca = "";
@@ -1064,7 +1064,7 @@ namespace StormSwitchBox.Services
                 }
                 else
                 {
-                    App.MainDispatcher?.TryEnqueue(() => task.LogDetails = $" PFS0   NCA ...");
+                    App.RunOnUI(() => task.LogDetails = $" PFS0   NCA ...");
                     var pfsBuilder = new PartitionFileSystemBuilder();
 
                     await System.Threading.Tasks.Task.Run(() => 
@@ -1098,7 +1098,7 @@ namespace StormSwitchBox.Services
                     }, cancellationToken);
                 }
 
-                App.MainDispatcher?.TryEnqueue(() =>
+                App.RunOnUI(() =>
                 {
                     task.Progress = 100;
                     task.LogDetails += $"\n !\n: {outPath}";
@@ -1129,7 +1129,7 @@ namespace StormSwitchBox.Services
         {
             try
             {
-                App.MainDispatcher?.TryEnqueue(() =>
+                App.RunOnUI(() =>
                 {
                     task.Status = "...";
                     task.LogDetails = $"  : {System.IO.Path.GetFileName(filePath)}";
@@ -1199,7 +1199,7 @@ namespace StormSwitchBox.Services
                         if (entryName.EndsWith(".nca", StringComparison.OrdinalIgnoreCase) || 
                             entryName.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase))
                         {
-                            App.MainDispatcher?.TryEnqueue(() => task.LogDetails = $"[{processedSize * 100 / totalSize}%]  : {entryName}");
+                            App.RunOnUI(() => task.LogDetails = $"[{processedSize * 100 / totalSize}%]  : {entryName}");
 
                             using var fileRefOut = new UniqueRef<IFile>();
                             using var entryPath = new LibHac.Fs.Path();
@@ -1353,7 +1353,7 @@ namespace StormSwitchBox.Services
                     }
                 }, cancellationToken);
 
-                App.MainDispatcher?.TryEnqueue(() =>
+                App.RunOnUI(() =>
                 {
                     task.VerifyType = verifyType;
                     task.VerifyStructure = structureStatus;
@@ -1367,7 +1367,7 @@ namespace StormSwitchBox.Services
             }
             catch (Exception ex)
             {
-                App.MainDispatcher?.TryEnqueue(() =>
+                App.RunOnUI(() =>
                 {
                     task.Status = "";
                     task.IsRunning = false;

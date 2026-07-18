@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using LibHac.Common.Keys;
 using StormSwitchBox.Models;

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Text.Json;
@@ -22,7 +22,7 @@ namespace StormSwitchBox.Services
                     var items = JsonSerializer.Deserialize<ObservableCollection<ProcessingTask>>(json);
                     if (items != null)
                     {
-                        App.MainDispatcher?.TryEnqueue(() =>
+                        App.RunOnUI(() =>
                         {
                             HistoryTasks.Clear();
                             foreach (var item in items)
@@ -54,7 +54,7 @@ namespace StormSwitchBox.Services
                     try
                     {
                         var bytes = await File.ReadAllBytesAsync(iconPath);
-                        App.MainDispatcher?.TryEnqueue(async () =>
+                        App.RunOnUI(async () =>
                         {
                             try
                             {
@@ -91,7 +91,7 @@ namespace StormSwitchBox.Services
 
         public static void AddToHistory(ProcessingTask task)
         {
-            App.MainDispatcher?.TryEnqueue(async () =>
+            App.RunOnUI(async () =>
             {
                 // Клонируем задачу для истории
                 var copy = new ProcessingTask
