@@ -9,7 +9,9 @@ namespace StormSwitchBox.Models
     public partial class ProcessingTask : ObservableObject
     {
         [ObservableProperty] private string _id = string.Empty;
-        [ObservableProperty] private Microsoft.UI.Xaml.Media.Imaging.BitmapImage? _gameIcon;
+        [ObservableProperty]
+        [property: System.Text.Json.Serialization.JsonIgnore]
+        private Microsoft.UI.Xaml.Media.Imaging.BitmapImage? _gameIcon;
         [ObservableProperty] private string _gameName = string.Empty;
         [ObservableProperty] private string _operation = string.Empty;
         [ObservableProperty] private string _sourceFormat = string.Empty;
@@ -85,7 +87,7 @@ namespace StormSwitchBox.Models
         partial void OnOperationChanged(string value) => OnPropertyChanged(nameof(OperationDisplay));
 
 
-        /// <summary>Форматирование размера: 2 320,21 MB</summary>
+        /// <summary>Форматирование размера: 2 320,21 МБ</summary>
         public static string FormatSize(long bytes)
         {
             if (bytes <= 0) return "-";
@@ -96,21 +98,21 @@ namespace StormSwitchBox.Models
             if (bytes >= 1_073_741_824L)
             {
                 value = bytes / 1_073_741_824.0;
-                unit = "GB";
+                unit = "ГБ";
             }
             else if (bytes >= 1_048_576L)
             {
                 value = bytes / 1_048_576.0;
-                unit = "MB";
+                unit = "МБ";
             }
             else if (bytes >= 1024L)
             {
                 value = bytes / 1024.0;
-                unit = "KB";
+                unit = "КБ";
             }
             else
             {
-                return $"{bytes} B";
+                return $"{bytes} Б";
             }
 
             string formatted = value.ToString("N2", System.Globalization.CultureInfo.GetCultureInfo("ru-RU"));

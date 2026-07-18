@@ -50,16 +50,16 @@ namespace StormSwitchBox.Views
                     Tip = "Используйте встроенную консоль логов в реальном времени, чтобы следить за каждым этапом выполнения задач.",
                     SetupPreview = container =>
                     {
-                        container.Children.Add(new TextBlock { Text = "STORM SWITCH BOX v3.8.2", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.Bold });
+                        container.Children.Add(new TextBlock { Text = "STORM SWITCH BOX v3.8.5", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.Bold });
                         container.Children.Add(new TextBlock { Text = "• Быстрый Zstandard компрессор\n• Дельта-патчинг образов в реальном времени\n• Корректное определение контрольных заголовков NCA\n• Поддержка TitleDB для отображения названий игр", Foreground = GetSecondaryBrush() });
                     }
                 },
                 new TopicItem
                 {
-                    Title = "Обновление (HardPatch)",
+                    Title = "Обновление",
                     Category = "Патчинг",
                     Icon = "\uE72C",
-                    DescriptionText = "Данный режим позволяет жестко интегрировать (HardPatch) файл обновления (.nsp/.nsz) в базовый образ игры (.nsp/.nsz/.xci).\n\nИнтеграция происходит за счет слияния RomFS таблиц и применения дельта-патчей BKTR. Полученный файл не требует отдельной установки обновлений в эмулятор и запускается как единый готовый образ.",
+                    DescriptionText = "Данный режим позволяет жестко интегрировать файл обновления (.nsp/.nsz) в базовый образ игры (.nsp/.nsz/.xci).\n\nИнтеграция происходит за счет слияния RomFS таблиц и применения дельта-патчей BKTR. Полученный файл не требует отдельной установки обновлений в эмулятор и запускается как единый готовый образ.",
                     Tip = "Для тяжелых игр (например, The Legend of Zelda: Tears of the Kingdom) рекомендуется использовать уровень сжатия 'Balanced' для сохранения оптимального баланса скорости и размера.",
                     SetupPreview = container =>
                     {
@@ -75,7 +75,7 @@ namespace StormSwitchBox.Views
                 },
                 new TopicItem
                 {
-                    Title = "Распаковка (Unpack)",
+                    Title = "Распаковка",
                     Category = "Моддинг",
                     Icon = "\uE896",
                     DescriptionText = "Режим предназначен для извлечения ресурсов игры из контейнеров (.nsp, .nsz, .xci).\n\nВы можете распаковать RomFS (игровые файлы: текстуры, модели, звуки) для создания модификаций, ExeFS (исполняемый код NSO, метаданные NPDM) для отладки или чит-кодов, а также извлечь чистые NCA-разделы.",
@@ -91,7 +91,7 @@ namespace StormSwitchBox.Views
                 },
                 new TopicItem
                 {
-                    Title = "Упаковка (Pack)",
+                    Title = "Упаковка",
                     Category = "Сборка",
                     Icon = "\uE74E",
                     DescriptionText = "Позволяет упаковать ранее распакованные RomFS/ExeFS папки или отдельные файлы обратно в официальный Switch-контейнер NSP или NSZ.\n\nЭтот режим незаменим для упаковки модифицированных игр, переводов и фанатских патчей в полноценные установочные пакеты.",
@@ -112,7 +112,7 @@ namespace StormSwitchBox.Views
                 },
                 new TopicItem
                 {
-                    Title = "Конвертация (Convert)",
+                    Title = "Конвертация",
                     Category = "Форматы",
                     Icon = "\uE8D4",
                     DescriptionText = "Этот режим предназначен для быстрого изменения формата файлов:\n1. Конвертация картриджных образов (.xci) в устанавливаемые файлы (.nsp).\n2. Быстрое сжатие стандартных несжатых файлов (.nsp) в сжатый формат (.nsz).\n\nКонвертация из XCI в NSP может происходить без пережатия (простое извлечение NCA-файлов), что занимает считанные секунды.",
@@ -127,10 +127,10 @@ namespace StormSwitchBox.Views
                 },
                 new TopicItem
                 {
-                    Title = "Мульти-контент (Multi)",
+                    Title = "Мульти-контент",
                     Category = "Компоновка",
                     Icon = "\uE7BE",
-                    DescriptionText = "Наиболее продвинутый режим, позволяющий объединить базовую игру (Base Game), файл обновления (Update) и неограниченное число дополнений (DLC) в один монолитный файл NSP или NSZ.\n\nПрограмма анализирует Title ID каждого элемента, верифицирует их принадлежность к одной базовой игре и корректно перестраивает файловую систему PFS0. Также поддерживается интеграция модифицированных разделов RomFS/ExeFS и специальных DLC-разблокировщиков (Unlocker) для активации платного контента.",
+                    DescriptionText = "Наиболее продвинутый режим, позволяющий объединить базовую игру, файл обновления и неограниченное число дополнений (DLC) в один монолитный файл NSP или NSZ.\n\nПрограмма анализирует Title ID каждого элемента, верифицирует их принадлежность к одной базовой игре и корректно перестраивает файловую систему PFS0. Также поддерживается интеграция модифицированных разделов RomFS/ExeFS и специальных DLC-разблокировщиков (Unlocker) для активации платного контента.",
                     Tip = "Объединение DLC и обновлений позволяет избавиться от сотен мелких файлов в вашей библиотеке и ускоряет сканирование в эмуляторах.",
                     SetupPreview = container =>
                     {
@@ -140,11 +140,11 @@ namespace StormSwitchBox.Views
                         
                         var sp = new StackPanel { Spacing = 4 };
                         sp.Children.Add(new TextBlock { Text = "Список объединения:", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-                        sp.Children.Add(new TextBlock { Text = "[Base] Zelda: Breath of the Wild (10 GB)", FontSize = 12, Foreground = GetSecondaryBrush() });
-                        sp.Children.Add(new TextBlock { Text = "[Update] v1.6.0 (3 GB)", FontSize = 12, Foreground = GetSecondaryBrush() });
-                        sp.Children.Add(new TextBlock { Text = "[DLC] The Master Trials (100 MB)", FontSize = 12, Foreground = GetSecondaryBrush() });
-                        sp.Children.Add(new TextBlock { Text = "[Unlocker] All DLC Unlocker (64 KB)", FontSize = 12, Foreground = GetSecondaryBrush() });
-                        sp.Children.Add(new TextBlock { Text = "[Mod RomFS] Russian Voiceover (1.5 GB)", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "[Базовая игра] Zelda: Breath of the Wild (10 ГБ)", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "[Обновление] v1.6.0 (3 ГБ)", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "[Дополнение] The Master Trials (100 МБ)", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "[Разблокировщик] All DLC Unlocker (64 КБ)", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "[Модификация RomFS] Russian Voiceover (1.5 ГБ)", FontSize = 12, Foreground = GetSecondaryBrush() });
                         
                         grid.Children.Add(sp);
                         container.Children.Add(grid);
@@ -152,7 +152,7 @@ namespace StormSwitchBox.Views
                 },
                 new TopicItem
                 {
-                    Title = "Проверка (Verify)",
+                    Title = "Проверка",
                     Category = "Валидация",
                     Icon = "\uE8FB",
                     DescriptionText = "Верификатор целостности файлов (.nsp, .nsz, .xci).\n\nРежим считывает внутренние хэши NCA-разделов и сравнивает их с сигнатурами заголовка. Это позволяет на 100% подтвердить, что файл не поврежден при скачивании или сборке.",
@@ -167,7 +167,7 @@ namespace StormSwitchBox.Views
                 },
                 new TopicItem
                 {
-                    Title = "Информация (Info)",
+                    Title = "Информация",
                     Category = "Утилиты",
                     Icon = "\uE946",
                     DescriptionText = "Данный модуль позволяет мгновенно просмотреть подробные метаданные любого NSP, NSZ или XCI-образа без его распаковки.\n\nВы можете узнать официальное название игры, уникальный Title ID, точную версию, минимально требуемую версию прошивки (System Version), размер игры, а также просмотреть все встроенные языковые локализации и иконку игры.",
@@ -184,7 +184,7 @@ namespace StormSwitchBox.Views
                 },
                 new TopicItem
                 {
-                    Title = "История (History)",
+                    Title = "История",
                     Category = "Утилиты",
                     Icon = "\uE81C",
                     DescriptionText = "Модуль истории отображает подробный список всех выполненных, выполняемых и запланированных задач.\n\nЗдесь вы можете отслеживать текущие фоновые процессы сжатия, конвертации или патчинга, просматривать подробный лог выполнения в реальном времени, а также принудительно останавливать задачи.",
@@ -200,10 +200,10 @@ namespace StormSwitchBox.Views
                 },
                 new TopicItem
                 {
-                    Title = "Параметры (Settings)",
+                    Title = "Параметры",
                     Category = "Конфигурация",
                     Icon = "\uE713",
-                    DescriptionText = "Вкладка параметров позволяет настроить глобальные конфигурации приложения под ваши нужды:\n\n1. Путь к файлу криптографических ключей (keys.txt / prod.keys).\n2. Версию прошивки ключей (через удобные 6 квадратиков для ввода).\n3. Выходной каталог по умолчанию для сжатых и собранных образов.\n4. Уровень Zstandard-сжатия по умолчанию (Fast, Balanced, High, Max).\n5. Выбор языка интерфейса.\n6. Кнопку ручной проверки и установки обновлений.",
+                    DescriptionText = "Вкладка параметров позволяет настроить глобальные конфигурации приложения под ваши нужды:\n\n1. Путь к файлу криптографических ключей (keys.txt / prod.keys).\n2. Версию прошивки ключей (через удобные 6 квадратиков для ввода).\n3. Выходной каталог по умолчанию для сжатых и собранных образов.\n4. Уровень Zstandard-сжатия по умолчанию (Быстрый, Сбалансированный, Высокий, Максимальный).\n5. Выбор языка интерфейса.\n6. Кнопку ручной проверки и установки обновлений.",
                     Tip = "Все изменения сохраняются в файл конфигурации приложения автоматически.",
                     SetupPreview = container =>
                     {
