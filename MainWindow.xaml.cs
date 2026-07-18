@@ -4,21 +4,35 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Windowing;
 using StormSwitchBox.Views;
 using Windows.Graphics;
+using WinForms = System.Windows.Forms;
 
 namespace StormSwitchBox
 {
     public sealed partial class MainWindow : Window
     {
+        private WinForms.NotifyIcon? _notifyIcon;
+
+        private static class Win32
+        {
+            [System.Runtime.InteropServices.DllImport("user32.dll")]
+            public static extern bool ShowWindow(System.IntPtr hWnd, int nCmdShow);
+            
+            [System.Runtime.InteropServices.DllImport("user32.dll")]
+            public static extern bool SetForegroundWindow(System.IntPtr hWnd);
+            
+            public const int SW_RESTORE = 9;
+        }
+
         public MainWindow()
         {
             this.InitializeComponent();
-            this.Title = "STORM SWITCH BOX v3.8.2";
+            this.Title = "STORM SWITCH BOX v3.8.3";
             this.ExtendsContentIntoTitleBar = true; // Современный заголовок окна
 
             var hWnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
             var windowId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hWnd);
             var appWindow = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(windowId);
-            appWindow.SetIcon(System.IO.Path.Combine(System.AppContext.BaseDirectory, "storm_switch_box.ico"));
+            appWindow.SetIcon(System.IO.Path.Combine(System.AppContext.BaseDirectory, "assets", "storm_switch_box.ico"));
             
             // Включаем эффект полупрозрачности Mica (как в Windows 11)
             this.SystemBackdrop = new MicaBackdrop();
@@ -26,6 +40,10 @@ namespace StormSwitchBox
             // Восстанавливаем размеры и позицию окна из настроек
             RestoreWindowState();
             
+            // Инициализируем системный трей
+            InitializeTrayIcon();
+            this.AppWindow.Closing += AppWindow_Closing;
+
             // Загружаем историю обработок
             _ = StormSwitchBox.Services.HistoryService.LoadHistoryAsync();
             
@@ -111,10 +129,75 @@ namespace StormSwitchBox
             }
         }
 
+        private void InitializeTrayIcon()
+        {
+            _notifyIcon = new WinForms.NotifyIcon();
+            var iconPath = System.IO.Path.Combine(System.AppContext.BaseDirectory, "assets", "storm_switch_box.ico");
+            if (System.IO.File.Exists(iconPath))
+            {
+                _notifyIcon.Icon = new System.Drawing.Icon(iconPath);
+            }
+            _notifyIcon.Text = "STORM_SWITCH_BOX";
+            _notifyIcon.Visible = false;
+            
+            _notifyIcon.DoubleClick += (s, e) => RestoreWindow();
+            
+            var contextMenu = new WinForms.ContextMenuStrip();
+            var restoreItem = new WinForms.ToolStripMenuItem("Развернуть", null, (s, e) => RestoreWindow());
+            var exitItem = new WinForms.ToolStripMenuItem("Выход", null, (s, e) =>
+            {
+                _notifyIcon.Visible = false;
+                _notifyIcon.Dispose();
+                SaveWindowState();
+                System.Environment.Exit(0);
+            });
+            
+            contextMenu.Items.Add(restoreItem);
+            contextMenu.Items.Add(exitItem);
+            _notifyIcon.ContextMenuStrip = contextMenu;
+        }
+
+        private void AppWindow_Closing(AppWindow sender, AppWindowClosingEventArgs args)
+        {
+            args.Cancel = true;
+            SaveWindowState();
+            MinimizeToTray();
+        }
+
+        private void MinimizeToTray()
+        {
+            this.AppWindow.Hide();
+            if (_notifyIcon != null)
+            {
+                _notifyIcon.Visible = true;
+            }
+        }
+
+        private void RestoreWindow()
+        {
+            this.AppWindow.Show();
+            this.AppWindow.MoveInZOrderAtTop();
+            
+            var hWnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            Win32.ShowWindow(hWnd, Win32.SW_RESTORE);
+            Win32.SetForegroundWindow(hWnd);
+            
+            if (_notifyIcon != null)
+            {
+                _notifyIcon.Visible = false;
+            }
+        }
+
         private void Window_Closed(object sender, WindowEventArgs args)
         {
             // Сохраняем позицию и размер окна перед закрытием
             SaveWindowState();
+            
+            if (_notifyIcon != null)
+            {
+                _notifyIcon.Visible = false;
+                _notifyIcon.Dispose();
+            }
             
             // Жестко завершаем процесс при закрытии окна, чтобы он не оставался висеть в памяти
             System.Environment.Exit(0);

@@ -30,6 +30,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Compile Remove="test_*.cs" />
     <Compile Remove="scratch_*.cs" />
     <Compile Remove="test_xts_app\**" />
@@ -44,6 +48,10 @@
 
   <ItemGroup>
     <None Include="tools\**\*" CopyToOutputDirectory="PreserveNewest" Link="tools\%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="storm_switch_box.ico" CopyToOutputDirectory="PreserveNewest" Link="assets\storm_switch_box.ico" TargetPath="assets\storm_switch_box.ico" />
   </ItemGroup>
 
   <Target Name="PostBuild" AfterTargets="PostBuildEvent">
