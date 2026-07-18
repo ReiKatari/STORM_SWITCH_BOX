@@ -132,13 +132,89 @@ namespace StormSwitchBox
                 }
             }
 
-            MainWindow = new MainWindow();
-            MainWindow.Activate();
-
             if (cliAction != null && cliPaths.Count > 0)
             {
-                ((MainWindow)MainWindow).NavigateToAction(cliAction, cliPaths.ToArray(), cliFormat);
+                MainDispatcher = null; // Forces App.RunOnUI to execute actions synchronously
+                try
+                {
+                    RunBackgroundAction(cliAction, cliPaths.ToArray(), cliFormat);
+                }
+                catch (Exception ex)
+                {
+                    Logger.Log($"Ошибка фоновой обработки: {ex.Message}", Models.LogLevel.Error);
+                }
+                Environment.Exit(0);
+                return;
             }
+
+            MainWindow = new MainWindow();
+            MainWindow.Activate();
+        }
+
+        public static void ShowToastNotification(string title, string message)
+        {
+            try
+            {
+                var toastXml = Windows.UI.Notifications.ToastNotificationManager.GetTemplateContent(Windows.UI.Notifications.ToastTemplateType.ToastText02);
+                var toastTextElements = toastXml.GetElementsByTagName("text");
+                toastTextElements[0].AppendChild(toastXml.CreateTextNode(title));
+                toastTextElements[1].AppendChild(toastXml.CreateTextNode(message));
+                var toast = new Windows.UI.Notifications.ToastNotification(toastXml);
+                Windows.UI.Notifications.ToastNotificationManager.CreateToastNotifier().Show(toast);
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"Не удалось показать уведомление: {ex.Message}", Models.LogLevel.Warning);
+            }
+        }
+
+        private static void RunBackgroundAction(string action, string[] paths, string? format)
+        {
+            Logger.Log($"Запуск фоновой операции: Action={action}, Format={format}", Models.LogLevel.Info);
+            
+            // Map CLI action to page type tag
+            string tag = action switch
+            {
+                "update"  => "Update",
+                "unpack"  => "Unpack",
+                "pack"    => "Pack",
+                "convert" => "Convert",
+                "multi"   => "Multi",
+                _         => "Multi"
+            };
+
+            // Setup TasksViewModel
+            var vm = TasksVM;
+            vm.SetPageType(tag);
+            
+            if (!string.IsNullOrEmpty(format))
+            {
+                int formatIndex = format.ToUpper() switch
+                {
+                    "NSP" => 0,
+                    "NSZ" => 1,
+                    "XCI" => 2,
+                    "XCZ" => 3,
+                    _ => -1
+                };
+                if (formatIndex >= 0)
+                {
+                    vm.SelectedFormatIndex = formatIndex;
+                }
+            }
+            
+            // Add paths. Wait for completion synchronously.
+            vm.AddDroppedFilesBatchAsync(new System.Collections.Generic.List<string>(paths)).GetAwaiter().GetResult();
+            
+            if (vm.Tasks.Count == 0 && vm.VerifyTasks.Count == 0)
+            {
+                Logger.Log("Очередь задач пуста. Выход.", Models.LogLevel.Warning);
+                return;
+            }
+
+            Logger.Log("Запуск выполнения очереди задач в фоновом режиме...", Models.LogLevel.Info);
+            vm.StartAllTasksAsync().GetAwaiter().GetResult();
+            Logger.Log("Фоновая обработка полностью завершена.", Models.LogLevel.Info);
         }
 
         private void App_UnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)

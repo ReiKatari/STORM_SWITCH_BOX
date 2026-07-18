@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -41,7 +41,7 @@ namespace StormSwitchBox.Services
 
             try
             {
-                App.MainDispatcher?.TryEnqueue(() =>
+                App.RunOnUI(() =>
                 {
                     task.Status = "...";
                     task.IsRunning = true;
@@ -57,7 +57,7 @@ namespace StormSwitchBox.Services
 
                 long totalBytes = new FileInfo(inputPath).Length;
 
-                App.MainDispatcher?.TryEnqueue(() =>
+                App.RunOnUI(() =>
                 {
                     // Update log details without overwriting initial SourceSizeBytes
                     if (task.SourceSizeBytes <= 0) task.SourceSizeBytes = totalBytes;
@@ -123,7 +123,7 @@ namespace StormSwitchBox.Services
                         string nczName = System.IO.Path.ChangeExtension(entryName, ".ncz");
                         string tempNczPath = System.IO.Path.Combine(tempDir, nczName);
 
-                        App.MainDispatcher?.TryEnqueue(() =>
+                        App.RunOnUI(() =>
                         {
                             task.Status = $" {entryName}...";
                             task.LogDetails += $"\n[{entryIdx}/{totalEntries}]  {entryName} -> {nczName}";
@@ -147,7 +147,7 @@ namespace StormSwitchBox.Services
                     }
                     else
                     {
-                        App.MainDispatcher?.TryEnqueue(() =>
+                        App.RunOnUI(() =>
                         {
                             task.LogDetails += $"\n[{entryIdx}/{totalEntries}]  : {entryName}";
                         });
@@ -165,7 +165,7 @@ namespace StormSwitchBox.Services
                     try { File.Delete(outNszPath); } catch { }
                 }
 
-                App.MainDispatcher?.TryEnqueue(() =>
+                App.RunOnUI(() =>
                 {
                     task.Status = " ...";
                     task.LogDetails += "\n    ...";
@@ -194,7 +194,7 @@ namespace StormSwitchBox.Services
                             {
                                 uiSw.Restart();
                                 double packProgress = 99.0 + ((double)offset / totalPfsSize * 1.0);
-                                App.MainDispatcher?.TryEnqueue(() => task.Progress = Math.Min(99.9, packProgress));
+                                App.RunOnUI(() => task.Progress = Math.Min(99.9, packProgress));
                             }
                         }
                     }
@@ -203,7 +203,7 @@ namespace StormSwitchBox.Services
                 long finalSize = new FileInfo(outNszPath).Length;
                 double ratio = (double)finalSize / totalBytes * 100.0;
 
-                App.MainDispatcher?.TryEnqueue(() =>
+                App.RunOnUI(() =>
                 {
                     task.Progress = 100;
                     task.Status = "";
@@ -222,11 +222,11 @@ namespace StormSwitchBox.Services
             }
             catch (OperationCanceledException)
             {
-                App.MainDispatcher?.TryEnqueue(() => { task.Status = ""; task.IsRunning = false; StormSwitchBox.Services.HistoryService.AddToHistory(task); });
+                App.RunOnUI(() => { task.Status = ""; task.IsRunning = false; StormSwitchBox.Services.HistoryService.AddToHistory(task); });
             }
             catch (Exception ex)
             {
-                App.MainDispatcher?.TryEnqueue(() =>
+                App.RunOnUI(() =>
                 {
                     task.Status = "";
                     task.IsRunning = false;
@@ -277,7 +277,7 @@ namespace StormSwitchBox.Services
             var openedFiles = new List<IFile>();
             try
             {
-                App.MainDispatcher?.TryEnqueue(() =>
+                App.RunOnUI(() =>
                 {
                     task.Status = "...";
                     task.IsRunning = true;
@@ -388,7 +388,7 @@ namespace StormSwitchBox.Services
                             byte[] tKey = ticket.GetTitleKey(App.Keys.CurrentKeyset);
                             string rightsIdStr = BitConverter.ToString(ticket.RightsId).Replace("-", "").ToLowerInvariant();
                             titleKeyMap[rightsIdStr] = tKey;
-                            App.MainDispatcher?.TryEnqueue(() => task.LogDetails += $"\n  TitleKey (Zero-Disk-IO)  {rightsIdStr}");
+                            App.RunOnUI(() => task.LogDetails += $"\n  TitleKey (Zero-Disk-IO)  {rightsIdStr}");
 
                             try
                             {
@@ -429,7 +429,7 @@ namespace StormSwitchBox.Services
                                 if (!keyExists)
                                 {
                                     File.AppendAllLines(titleKeysPath, new string[] { keyLine });
-                                    App.MainDispatcher?.TryEnqueue(() => task.LogDetails += $"\n[INFO]  TitleKey  title.keys  .");
+                                    App.RunOnUI(() => task.LogDetails += $"\n[INFO]  TitleKey  title.keys  .");
                                 }
                             }
                             catch (Exception ex)
@@ -439,7 +439,7 @@ namespace StormSwitchBox.Services
                         }
                         catch (Exception ex) 
                         {
-                            App.MainDispatcher?.TryEnqueue(() => task.LogDetails += $"\n[]     {entry.Name}: {ex.Message}");
+                            App.RunOnUI(() => task.LogDetails += $"\n[]     {entry.Name}: {ex.Message}");
                         }
                     }
                 }
@@ -463,7 +463,7 @@ namespace StormSwitchBox.Services
 
                         int currentEntry = entryIdx;
                         int totalEntries = sortedEntries.Count;
-                        App.MainDispatcher?.TryEnqueue(() =>
+                        App.RunOnUI(() =>
                             task.LogDetails += $"\n[{currentEntry}/{totalEntries}]   : {entryName}");
 
                         if (solidFiles.Contains(entryName))
@@ -489,7 +489,7 @@ namespace StormSwitchBox.Services
                         }
                     }
 
-                    App.MainDispatcher?.TryEnqueue(() => task.LogDetails += "\n   (  )...");
+                    App.RunOnUI(() => task.LogDetails += "\n   (  )...");
                     using var builtPfs = pfsBuilder.Build(PartitionFileSystemType.Standard);
                     
                     using var destStream = new FileStream(outNspPath, FileMode.Create, FileAccess.Write, FileShare.None, 16 * 1024 * 1024);
@@ -513,7 +513,7 @@ namespace StormSwitchBox.Services
                         {
                             uiSw.Restart();
                             double packProgress = 99.0 + ((double)offset / totalPfsSize * 1.0);
-                            App.MainDispatcher?.TryEnqueue(() => task.Progress = Math.Min(99.9, packProgress));
+                            App.RunOnUI(() => task.Progress = Math.Min(99.9, packProgress));
                         }
                     }
                 }, cancellationToken);
