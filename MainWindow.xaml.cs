@@ -14,6 +14,11 @@ namespace StormSwitchBox
             this.InitializeComponent();
             this.Title = "STORM SWITCH BOX v3.8.2";
             this.ExtendsContentIntoTitleBar = true; // Современный заголовок окна
+
+            var hWnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            var windowId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hWnd);
+            var appWindow = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(windowId);
+            appWindow.SetIcon(System.IO.Path.Combine(System.AppContext.BaseDirectory, "storm_switch_box.ico"));
             
             // Включаем эффект полупрозрачности Mica (как в Windows 11)
             this.SystemBackdrop = new MicaBackdrop();
@@ -42,6 +47,24 @@ namespace StormSwitchBox
             {
                 appWindow.Move(new PointInt32(settings.WindowX, settings.WindowY));
             }
+        }
+
+        public void NavigateToAction(string action, string[] paths)
+        {
+            // Map CLI action to XAML navigation Tag and nav item index
+            var (tag, index) = action switch
+            {
+                "update"  => ("Update",  0),
+                "unpack"  => ("Unpack",  1),
+                "pack"    => ("Pack",    2),
+                "convert" => ("Convert", 3),
+                "multi"   => ("Multi",   4),
+                _         => ("Multi",   4)
+            };
+            
+            // Select the appropriate nav item
+            MainNavigation.SelectedItem = MainNavigation.MenuItems[index];
+            ContentFrame.Navigate(typeof(Views.TasksPage), new Views.TasksStartupArgs { Action = tag, Paths = paths });
         }
 
         private void SaveWindowState()

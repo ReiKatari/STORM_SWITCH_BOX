@@ -112,8 +112,28 @@ namespace StormSwitchBox
                 return;
             }
 
+            // Check for --action argument  
+            string? cliAction = null;
+            System.Collections.Generic.List<string> cliPaths = new();
+            for (int i = 1; i < cmdArgs.Length; i++)
+            {
+                if (cmdArgs[i] == "--action" && i + 1 < cmdArgs.Length)
+                {
+                    cliAction = cmdArgs[++i];
+                }
+                else if (!cmdArgs[i].StartsWith("--"))
+                {
+                    cliPaths.Add(cmdArgs[i]);
+                }
+            }
+
             MainWindow = new MainWindow();
             MainWindow.Activate();
+
+            if (cliAction != null && cliPaths.Count > 0)
+            {
+                ((MainWindow)MainWindow).NavigateToAction(cliAction, cliPaths.ToArray());
+            }
         }
 
         private void App_UnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)
