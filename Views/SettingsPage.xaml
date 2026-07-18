@@ -157,7 +157,7 @@
                         </Border>
                         <StackPanel Grid.Column="1" Spacing="6">
                             <StackPanel Orientation="Horizontal" Spacing="12">
-                                <TextBlock Text="STORM SWITCH BOX 3.8.5" FontWeight="Bold" FontSize="24"/>
+                                <TextBlock Text="STORM SWITCH BOX 3.8.6" FontWeight="Bold" FontSize="24"/>
 
                             </StackPanel>
                             <TextBlock Text="Нативная версия WinUI 3" Foreground="{ThemeResource SystemAccentColor}" FontSize="16" FontWeight="SemiBold"/>
