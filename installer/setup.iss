@@ -1,16 +1,17 @@
 [Setup]
 AppName=STORM SWITCH BOX
-AppVersion=3.8.2
+AppVersion=3.8.3
 AppPublisher=ReiKatari
 AppPublisherURL=https://github.com/ReiKatari/STORM_SWITCH_BOX
-DefaultDirName={autopf}\STORM SWITCH BOX
-DefaultGroupName=STORM SWITCH BOX
-OutputBaseFilename=STORM_SWITCH_BOX_3.8.2_Setup
+DefaultDirName={localappdata}\Programs\STORM_SWITCH_BOX
+DefaultGroupName=STORM_SWITCH_BOX
+OutputBaseFilename=STORM_SWITCH_BOX_3.8.3_Setup
 SetupIconFile=..\storm_switch_box.ico
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 Compression=lzma2/ultra64
 UninstallDisplayIcon={app}\StormSwitchBox.exe
+PrivilegesRequired=lowest
 
 [Types]
 Name: "full"; Description: "Стандартная установка"
@@ -23,105 +24,236 @@ Name: "portable"; Description: "Портативная распаковка"; Ty
 [Files]
 ; Source files from publish output
 Source: "..\publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "..\storm_switch_box.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\STORM SWITCH BOX"; Filename: "{app}\StormSwitchBox.exe"; Components: full
-Name: "{autodesktop}\STORM SWITCH BOX"; Filename: "{app}\StormSwitchBox.exe"; Components: full; Tasks: desktopicon
+Name: "{group}\STORM_SWITCH_BOX"; Filename: "{app}\StormSwitchBox.exe"; Components: full
+Name: "{autodesktop}\STORM_SWITCH_BOX"; Filename: "{app}\StormSwitchBox.exe"; Components: full; Tasks: desktopicon
 
 [Tasks]
 Name: "desktopicon"; Description: "Создать ярлык на рабочем столе"; Components: full
 Name: "contextmenu"; Description: "Добавить пункты в контекстное меню"; Components: full
 
 [Registry]
-; Context Menu Extensions - only for full install
+; Context Menu Extensions - per-user (HKCU\Software\Classes = user HKCR)
 
 ; .nsp
-Root: HKCR; Subkey: "SystemFileAssociations\.nsp\shell\StormSwitchBox"; ValueType: string; ValueData: "STORM SWITCH BOX"; Components: full; Tasks: contextmenu; Flags: uninsdeletekey
-Root: HKCR; Subkey: "SystemFileAssociations\.nsp\shell\StormSwitchBox"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\StormSwitchBox.exe"; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "SystemFileAssociations\.nsp\shell\StormSwitchBox"; ValueType: string; ValueName: "SubCommands"; ValueData: ""; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\01update"; ValueType: string; ValueData: "Обновление"; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\01update\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action update ""%1"""; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\02unpack"; ValueType: string; ValueData: "Распаковка"; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\02unpack\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action unpack ""%1"""; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\03pack"; ValueType: string; ValueData: "Упаковка"; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\03pack\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action pack ""%1"""; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\04convert"; ValueType: string; ValueData: "Конвертация"; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\04convert\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action convert ""%1"""; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\05multi"; ValueType: string; ValueData: "Мульти-контент"; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\05multi\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action multi ""%1"""; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox"; ValueType: string; ValueName: "MUIVerb"; ValueData: "STORM SWITCH BOX"; Components: full; Tasks: contextmenu; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\StormSwitchBox.exe"; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox"; ValueType: string; ValueName: "SubCommands"; ValueData: ""; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\01update"; ValueType: string; ValueData: "Обновление"; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\01update\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action update ""%1"""; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\02unpack"; ValueType: string; ValueData: "Распаковка"; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\02unpack\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action unpack ""%1"""; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\03pack"; ValueType: string; ValueData: "Упаковка"; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\03pack\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action pack ""%1"""; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\04convert"; ValueType: string; ValueData: "Конвертация"; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\04convert\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action convert ""%1"""; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\05multi"; ValueType: string; ValueData: "Мульти-контент"; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\05multi\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action multi ""%1"""; Components: full; Tasks: contextmenu
 
 ; .nsz
-Root: HKCR; Subkey: "SystemFileAssociations\.nsz\shell\StormSwitchBox"; ValueType: string; ValueData: "STORM SWITCH BOX"; Components: full; Tasks: contextmenu; Flags: uninsdeletekey
-Root: HKCR; Subkey: "SystemFileAssociations\.nsz\shell\StormSwitchBox"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\StormSwitchBox.exe"; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "SystemFileAssociations\.nsz\shell\StormSwitchBox"; ValueType: string; ValueName: "SubCommands"; ValueData: ""; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\01update"; ValueType: string; ValueData: "Обновление"; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\01update\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action update ""%1"""; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\02unpack"; ValueType: string; ValueData: "Распаковка"; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\02unpack\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action unpack ""%1"""; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\03pack"; ValueType: string; ValueData: "Упаковка"; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\03pack\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action pack ""%1"""; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\04convert"; ValueType: string; ValueData: "Конвертация"; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\04convert\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action convert ""%1"""; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\05multi"; ValueType: string; ValueData: "Мульти-контент"; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\05multi\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action multi ""%1"""; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox"; ValueType: string; ValueName: "MUIVerb"; ValueData: "STORM SWITCH BOX"; Components: full; Tasks: contextmenu; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\StormSwitchBox.exe"; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox"; ValueType: string; ValueName: "SubCommands"; ValueData: ""; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\01update"; ValueType: string; ValueData: "Обновление"; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\01update\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action update ""%1"""; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\02unpack"; ValueType: string; ValueData: "Распаковка"; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\02unpack\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action unpack ""%1"""; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\03pack"; ValueType: string; ValueData: "Упаковка"; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\03pack\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action pack ""%1"""; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\04convert"; ValueType: string; ValueData: "Конвертация"; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\04convert\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action convert ""%1"""; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\05multi"; ValueType: string; ValueData: "Мульти-контент"; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\05multi\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action multi ""%1"""; Components: full; Tasks: contextmenu
 
 ; .xci
-Root: HKCR; Subkey: "SystemFileAssociations\.xci\shell\StormSwitchBox"; ValueType: string; ValueData: "STORM SWITCH BOX"; Components: full; Tasks: contextmenu; Flags: uninsdeletekey
-Root: HKCR; Subkey: "SystemFileAssociations\.xci\shell\StormSwitchBox"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\StormSwitchBox.exe"; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "SystemFileAssociations\.xci\shell\StormSwitchBox"; ValueType: string; ValueName: "SubCommands"; ValueData: ""; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "SystemFileAssociations\.xci\shell\StormSwitchBox\shell\01update"; ValueType: string; ValueData: "Обновление"; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "SystemFileAssociations\.xci\shell\StormSwitchBox\shell\01update\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action update ""%1"""; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "SystemFileAssociations\.xci\shell\StormSwitchBox\shell\02unpack"; ValueType: string; ValueData: "Распаковка"; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "SystemFileAssociations\.xci\shell\StormSwitchBox\shell\02unpack\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action unpack ""%1"""; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "SystemFileAssociations\.xci\shell\StormSwitchBox\shell\03pack"; ValueType: string; ValueData: "Упаковка"; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "SystemFileAssociations\.xci\shell\StormSwitchBox\shell\03pack\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action pack ""%1"""; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "SystemFileAssociations\.xci\shell\StormSwitchBox\shell\04convert"; ValueType: string; ValueData: "Конвертация"; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "SystemFileAssociations\.xci\shell\StormSwitchBox\shell\04convert\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action convert ""%1"""; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "SystemFileAssociations\.xci\shell\StormSwitchBox\shell\05multi"; ValueType: string; ValueData: "Мульти-контент"; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "SystemFileAssociations\.xci\shell\StormSwitchBox\shell\05multi\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action multi ""%1"""; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox"; ValueType: string; ValueName: "MUIVerb"; ValueData: "STORM SWITCH BOX"; Components: full; Tasks: contextmenu; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\StormSwitchBox.exe"; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox"; ValueType: string; ValueName: "SubCommands"; ValueData: ""; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox\shell\01update"; ValueType: string; ValueData: "Обновление"; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox\shell\01update\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action update ""%1"""; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox\shell\02unpack"; ValueType: string; ValueData: "Распаковка"; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox\shell\02unpack\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action unpack ""%1"""; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox\shell\03pack"; ValueType: string; ValueData: "Упаковка"; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox\shell\03pack\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action pack ""%1"""; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox\shell\04convert"; ValueType: string; ValueData: "Конвертация"; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox\shell\04convert\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action convert ""%1"""; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox\shell\05multi"; ValueType: string; ValueData: "Мульти-контент"; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox\shell\05multi\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action multi ""%1"""; Components: full; Tasks: contextmenu
 
 ; .xcz
-Root: HKCR; Subkey: "SystemFileAssociations\.xcz\shell\StormSwitchBox"; ValueType: string; ValueData: "STORM SWITCH BOX"; Components: full; Tasks: contextmenu; Flags: uninsdeletekey
-Root: HKCR; Subkey: "SystemFileAssociations\.xcz\shell\StormSwitchBox"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\StormSwitchBox.exe"; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "SystemFileAssociations\.xcz\shell\StormSwitchBox"; ValueType: string; ValueName: "SubCommands"; ValueData: ""; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\01update"; ValueType: string; ValueData: "Обновление"; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\01update\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action update ""%1"""; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\02unpack"; ValueType: string; ValueData: "Распаковка"; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\02unpack\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action unpack ""%1"""; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\03pack"; ValueType: string; ValueData: "Упаковка"; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\03pack\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action pack ""%1"""; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\04convert"; ValueType: string; ValueData: "Конвертация"; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\04convert\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action convert ""%1"""; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\05multi"; ValueType: string; ValueData: "Мульти-контент"; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\05multi\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action multi ""%1"""; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox"; ValueType: string; ValueName: "MUIVerb"; ValueData: "STORM SWITCH BOX"; Components: full; Tasks: contextmenu; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\StormSwitchBox.exe"; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox"; ValueType: string; ValueName: "SubCommands"; ValueData: ""; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\01update"; ValueType: string; ValueData: "Обновление"; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\01update\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action update ""%1"""; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\02unpack"; ValueType: string; ValueData: "Распаковка"; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\02unpack\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action unpack ""%1"""; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\03pack"; ValueType: string; ValueData: "Упаковка"; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\03pack\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action pack ""%1"""; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\04convert"; ValueType: string; ValueData: "Конвертация"; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\04convert\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action convert ""%1"""; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\05multi"; ValueType: string; ValueData: "Мульти-контент"; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\05multi\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action multi ""%1"""; Components: full; Tasks: contextmenu
 
 ; Directory
-Root: HKCR; Subkey: "Directory\shell\StormSwitchBox"; ValueType: string; ValueData: "STORM SWITCH BOX"; Components: full; Tasks: contextmenu; Flags: uninsdeletekey
-Root: HKCR; Subkey: "Directory\shell\StormSwitchBox"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\StormSwitchBox.exe"; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "Directory\shell\StormSwitchBox"; ValueType: string; ValueName: "SubCommands"; ValueData: ""; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "Directory\shell\StormSwitchBox\shell\01update"; ValueType: string; ValueData: "Обновление"; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "Directory\shell\StormSwitchBox\shell\01update\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action update ""%1"""; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "Directory\shell\StormSwitchBox\shell\02unpack"; ValueType: string; ValueData: "Распаковка"; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "Directory\shell\StormSwitchBox\shell\02unpack\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action unpack ""%1"""; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "Directory\shell\StormSwitchBox\shell\03pack"; ValueType: string; ValueData: "Упаковка"; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "Directory\shell\StormSwitchBox\shell\03pack\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action pack ""%1"""; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "Directory\shell\StormSwitchBox\shell\04convert"; ValueType: string; ValueData: "Конвертация"; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "Directory\shell\StormSwitchBox\shell\04convert\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action convert ""%1"""; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "Directory\shell\StormSwitchBox\shell\05multi"; ValueType: string; ValueData: "Мульти-контент"; Components: full; Tasks: contextmenu
-Root: HKCR; Subkey: "Directory\shell\StormSwitchBox\shell\05multi\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action multi ""%1"""; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\Directory\shell\StormSwitchBox"; ValueType: string; ValueName: "MUIVerb"; ValueData: "STORM SWITCH BOX"; Components: full; Tasks: contextmenu; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\Directory\shell\StormSwitchBox"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\StormSwitchBox.exe"; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\Directory\shell\StormSwitchBox"; ValueType: string; ValueName: "SubCommands"; ValueData: ""; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\Directory\shell\StormSwitchBox\shell\01update"; ValueType: string; ValueData: "Обновление"; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\Directory\shell\StormSwitchBox\shell\01update\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action update ""%1"""; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\Directory\shell\StormSwitchBox\shell\02unpack"; ValueType: string; ValueData: "Распаковка"; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\Directory\shell\StormSwitchBox\shell\02unpack\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action unpack ""%1"""; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\Directory\shell\StormSwitchBox\shell\03pack"; ValueType: string; ValueData: "Упаковка"; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\Directory\shell\StormSwitchBox\shell\03pack\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action pack ""%1"""; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\Directory\shell\StormSwitchBox\shell\04convert"; ValueType: string; ValueData: "Конвертация"; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\Directory\shell\StormSwitchBox\shell\04convert\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action convert ""%1"""; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\Directory\shell\StormSwitchBox\shell\05multi"; ValueType: string; ValueData: "Мульти-контент"; Components: full; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\Directory\shell\StormSwitchBox\shell\05multi\command"; ValueType: string; ValueData: """{app}\StormSwitchBox.exe"" --action multi ""%1"""; Components: full; Tasks: contextmenu
 
 [Languages]
 Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Code]
+var
+  BackupSettingsExist: Boolean;
+  BackupHistoryExist: Boolean;
+
+function InitializeSetup(): Boolean;
+var
+  UninstallKey: string;
+  UninstallString: string;
+  InstallLocation: string;
+  ResultCode: Integer;
+  BackupDir: string;
+  Found: Boolean;
+begin
+  Result := True;
+  UninstallKey := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\STORM SWITCH BOX_is1';
+  BackupSettingsExist := False;
+  BackupHistoryExist := False;
+  UninstallString := '';
+  InstallLocation := '';
+  Found := False;
+
+  Log('SSB_Update: InitializeSetup started.');
+
+  // 1. Проверяем HKCU
+  if RegQueryStringValue(HKCU, UninstallKey, 'UninstallString', UninstallString) then
+  begin
+    RegQueryStringValue(HKCU, UninstallKey, 'InstallLocation', InstallLocation);
+    Found := True;
+    Log('SSB_Update: Found old installation in HKCU.');
+  end
+  // 2. Проверяем HKLM64
+  else if RegQueryStringValue(HKLM64, UninstallKey, 'UninstallString', UninstallString) then
+  begin
+    RegQueryStringValue(HKLM64, UninstallKey, 'InstallLocation', InstallLocation);
+    Found := True;
+    Log('SSB_Update: Found old installation in HKLM64.');
+  end
+  // 3. Проверяем HKLM32
+  else if RegQueryStringValue(HKLM32, UninstallKey, 'UninstallString', UninstallString) then
+  begin
+    RegQueryStringValue(HKLM32, UninstallKey, 'InstallLocation', InstallLocation);
+    Found := True;
+    Log('SSB_Update: Found old installation in HKLM32.');
+  end
+  // 4. Проверяем HKLM (на всякий случай)
+  else if RegQueryStringValue(HKLM, UninstallKey, 'UninstallString', UninstallString) then
+  begin
+    RegQueryStringValue(HKLM, UninstallKey, 'InstallLocation', InstallLocation);
+    Found := True;
+    Log('SSB_Update: Found old installation in HKLM.');
+  end;
+
+  if Found then
+  begin
+    Log('SSB_Update: Old InstallLocation = ' + InstallLocation);
+    Log('SSB_Update: Old UninstallString = ' + UninstallString);
+
+    if (UninstallString <> '') and (InstallLocation <> '') then
+    begin
+      BackupDir := ExpandConstant('{tmp}\SSB_Backup');
+      CreateDir(BackupDir);
+      Log('SSB_Update: Created backup directory ' + BackupDir);
+      
+      // Резервное копирование настроек
+      if FileExists(InstallLocation + '\ssb_native.settings.json') then
+      begin
+        if CopyFile(InstallLocation + '\ssb_native.settings.json', BackupDir + '\ssb_native.settings.json', False) then
+        begin
+          BackupSettingsExist := True;
+          Log('SSB_Update: Settings backup created successfully.');
+        end
+        else
+          Log('SSB_Update: Failed to backup settings.');
+      end
+      else
+        Log('SSB_Update: Settings file ssb_native.settings.json not found in old installation.');
+      
+      // Резервное копирование истории
+      if FileExists(InstallLocation + '\history.json') then
+      begin
+        if CopyFile(InstallLocation + '\history.json', BackupDir + '\history.json', False) then
+        begin
+          BackupHistoryExist := True;
+          Log('SSB_Update: History backup created successfully.');
+        end
+        else
+          Log('SSB_Update: Failed to backup history.');
+      end
+      else
+        Log('SSB_Update: History file history.json not found in old installation.');
+
+      // Очищаем путь от кавычек
+      UninstallString := RemoveQuotes(UninstallString);
+      Log('SSB_Update: Executing quiet uninstall via ShellExec: ' + UninstallString);
+      
+      // Запускаем тихий деинсталлятор через ShellExec для поддержки UAC-подъема
+      if ShellExec('open', UninstallString, '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /NOCLOSEAPPLICATIONS', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+      begin
+        Log('SSB_Update: Uninstall completed with ResultCode = ' + IntToStr(ResultCode));
+      end
+      else
+      begin
+        Log('SSB_Update: Failed to execute uninstall. Error code = ' + SysErrorMessage(DllGetLastError()));
+      end;
+    end;
+  end
+  else
+  begin
+    Log('SSB_Update: No previous installation found in registry.');
+  end;
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
+var
+  BackupDir: string;
+  AppDir: string;
 begin
   if CurStep = ssPostInstall then
   begin
-    if IsComponentSelected('portable') then
-      SaveStringToFile(ExpandConstant('{app}\portable.marker'), '', False);
+    AppDir := ExpandConstant('{app}');
+    BackupDir := ExpandConstant('{tmp}\SSB_Backup');
+
+    // Восстановление настроек
+    if BackupSettingsExist and FileExists(BackupDir + '\ssb_native.settings.json') then
+    begin
+      CopyFile(BackupDir + '\ssb_native.settings.json', AppDir + '\ssb_native.settings.json', False);
+      Log('SSB_Update: Restored settings successfully.');
+    end;
+
+    // Восстановление истории
+    if BackupHistoryExist and FileExists(BackupDir + '\history.json') then
+    begin
+      CopyFile(BackupDir + '\history.json', AppDir + '\history.json', False);
+      Log('SSB_Update: Restored history successfully.');
+    end;
+
+    if WizardIsComponentSelected('portable') then
+      SaveStringToFile(AppDir + '\portable.marker', '', False);
   end;
 end;
 
