@@ -114,12 +114,17 @@ namespace StormSwitchBox
 
             // Check for --action argument  
             string? cliAction = null;
+            string? cliFormat = null;
             System.Collections.Generic.List<string> cliPaths = new();
             for (int i = 1; i < cmdArgs.Length; i++)
             {
                 if (cmdArgs[i] == "--action" && i + 1 < cmdArgs.Length)
                 {
                     cliAction = cmdArgs[++i];
+                }
+                else if (cmdArgs[i] == "--format" && i + 1 < cmdArgs.Length)
+                {
+                    cliFormat = cmdArgs[++i];
                 }
                 else if (!cmdArgs[i].StartsWith("--"))
                 {
@@ -132,7 +137,7 @@ namespace StormSwitchBox
 
             if (cliAction != null && cliPaths.Count > 0)
             {
-                ((MainWindow)MainWindow).NavigateToAction(cliAction, cliPaths.ToArray());
+                ((MainWindow)MainWindow).NavigateToAction(cliAction, cliPaths.ToArray(), cliFormat);
             }
         }
 

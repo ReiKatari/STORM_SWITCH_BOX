@@ -73,6 +73,23 @@ namespace StormSwitchBox.Views
                 {
                     VerifyGrid.Visibility = Visibility.Collapsed;
                 }
+
+                // Применить переданный формат, если он указан
+                if (!string.IsNullOrEmpty(startupArgs.Format))
+                {
+                    int formatIndex = startupArgs.Format.ToUpper() switch
+                    {
+                        "NSP" => 0,
+                        "NSZ" => 1,
+                        "XCI" => 2,
+                        "XCZ" => 3,
+                        _ => -1
+                    };
+                    if (formatIndex >= 0)
+                    {
+                        FormatComboBox.SelectedIndex = formatIndex;
+                    }
+                }
                 
                 // Добавить файлы из аргументов командной строки
                 if (startupArgs.Paths.Length > 0)
