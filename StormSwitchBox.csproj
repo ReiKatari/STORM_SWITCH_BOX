@@ -15,6 +15,7 @@
     <PublishReadyToRun>true</PublishReadyToRun>
     <TieredCompilation>true</TieredCompilation>
     <SuppressNETCoreSdkPreviewMessage>true</SuppressNETCoreSdkPreviewMessage>
+    <ApplicationIcon>storm_switch_box.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>

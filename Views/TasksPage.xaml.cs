@@ -60,10 +60,33 @@ namespace StormSwitchBox.Views
             this.ProtectedCursor = Microsoft.UI.Input.InputSystemCursor.Create(Microsoft.UI.Input.InputSystemCursorShape.Arrow);
         }
 
-        protected override void OnNavigatedTo(NavigationEventArgs e)
+        protected override async void OnNavigatedTo(NavigationEventArgs e)
         {
             base.OnNavigatedTo(e);
-            if (e.Parameter is string pageType)
+            if (e.Parameter is TasksStartupArgs startupArgs)
+            {
+                // Вызов из контекстного меню: задать тип страницы, добавить файлы и запустить
+                ViewModel.SetPageType(startupArgs.Action);
+                TasksGrid.Visibility = Visibility.Visible;
+                TasksGrid.ItemsSource = ViewModel.Tasks;
+                if (VerifyGrid != null)
+                {
+                    VerifyGrid.Visibility = Visibility.Collapsed;
+                }
+                
+                // Добавить файлы из аргументов командной строки
+                if (startupArgs.Paths.Length > 0)
+                {
+                    await ViewModel.AddDroppedFilesBatchAsync(new System.Collections.Generic.List<string>(startupArgs.Paths));
+                    
+                    // Автоматически запустить обработку
+                    if (ViewModel.Tasks.Count > 0)
+                    {
+                        ViewModel.StartAllTasksCommand.Execute(null);
+                    }
+                }
+            }
+            else if (e.Parameter is string pageType)
             {
                 ViewModel.SetPageType(pageType);
                 if (pageType == "Verify")
