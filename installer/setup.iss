@@ -1,11 +1,11 @@
-﻿[Setup]
+[Setup]
 AppName=STORM SWITCH BOX
-AppVersion=3.8.5
+AppVersion=3.8.6
 AppPublisher=ReiKatari
 AppPublisherURL=https://github.com/ReiKatari/STORM_SWITCH_BOX
 DefaultDirName={localappdata}\Programs\STORM_SWITCH_BOX
 DefaultGroupName=STORM_SWITCH_BOX
-OutputBaseFilename=STORM_SWITCH_BOX_3.8.5_Setup
+OutputBaseFilename=STORM_SWITCH_BOX_3.8.6_Setup
 SetupIconFile=..\storm_switch_box.ico
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible

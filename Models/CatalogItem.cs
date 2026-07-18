@@ -89,7 +89,7 @@ namespace StormSwitchBox.Models
         public Microsoft.UI.Xaml.Visibility OutdatedVisibility => IsOutdated ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
         public Microsoft.UI.Xaml.Visibility RegionsVisibility => string.IsNullOrEmpty(Regions) || Regions == "N/A" ? Microsoft.UI.Xaml.Visibility.Collapsed : Microsoft.UI.Xaml.Visibility.Visible;
         public Microsoft.UI.Xaml.Visibility ReleaseDateVisibility => string.IsNullOrEmpty(ReleaseDate) || ReleaseDate == "N/A" ? Microsoft.UI.Xaml.Visibility.Collapsed : Microsoft.UI.Xaml.Visibility.Visible;
-        public string DlcCountDisplay => $"DLC: {DlcCount}";
+        public string DlcCountDisplay => $"Дополнения: {DlcCount}";
         
         [ObservableProperty]
         private System.Collections.ObjectModel.ObservableCollection<BitmapImage> _screenshots = new();

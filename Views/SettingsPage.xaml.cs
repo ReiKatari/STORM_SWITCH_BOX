@@ -299,7 +299,7 @@ namespace StormSwitchBox.Views
                     var dialog = new ContentDialog
                     {
                         Title = "Обновления не найдены",
-                        Content = new TextBlock { Text = "У вас установлена актуальная версия STORM SWITCH BOX v3.8.5." },
+                        Content = new TextBlock { Text = "У вас установлена актуальная версия STORM SWITCH BOX v3.8.6." },
                         CloseButtonText = "OK",
                         XamlRoot = this.XamlRoot
                     };
@@ -336,7 +336,7 @@ namespace StormSwitchBox.Views
                 }
 
                 string cleanTag = tagName.TrimStart('v');
-                var currentVer = new Version("3.8.5");
+                var currentVer = new Version("3.8.6");
                 if (Version.TryParse(cleanTag, out var latestVer) && latestVer > currentVer)
                 {
                     var dialog = new ContentDialog
@@ -350,7 +350,7 @@ namespace StormSwitchBox.Views
                             Spacing = 12,
                             Children =
                             {
-                                new TextBlock { Text = $"Доступна версия: v{cleanTag} (Текущая: v3.8.5)", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold },
+                                new TextBlock { Text = $"Доступна версия: v{cleanTag} (Текущая: v3.8.6)", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold },
                                 new TextBlock { Text = "Список изменений:", FontSize = 12, Foreground = Application.Current.Resources.TryGetValue("TextFillColorSecondaryBrush", out var resBrush) && resBrush is Microsoft.UI.Xaml.Media.Brush b ? b : new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Gray) },
                                 new ScrollViewer
                                 {
@@ -372,7 +372,7 @@ namespace StormSwitchBox.Views
                     var dialog = new ContentDialog
                     {
                         Title = "Обновления не найдены",
-                        Content = new TextBlock { Text = "У вас установлена актуальная версия STORM SWITCH BOX v3.8.5." },
+                        Content = new TextBlock { Text = "У вас установлена актуальная версия STORM SWITCH BOX v3.8.6." },
                         CloseButtonText = "OK",
                         XamlRoot = this.XamlRoot
                     };
