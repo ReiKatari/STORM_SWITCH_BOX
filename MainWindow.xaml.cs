@@ -26,7 +26,7 @@ namespace StormSwitchBox
         public MainWindow()
         {
             this.InitializeComponent();
-            this.Title = "STORM SWITCH BOX v3.8.3";
+            this.Title = "STORM SWITCH BOX v3.8.4";
             this.ExtendsContentIntoTitleBar = true; // Современный заголовок окна
 
             var hWnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
@@ -67,7 +67,7 @@ namespace StormSwitchBox
             }
         }
 
-        public void NavigateToAction(string action, string[] paths)
+        public void NavigateToAction(string action, string[] paths, string? format = null)
         {
             // Map CLI action to XAML navigation Tag and nav item index
             var (tag, index) = action switch
@@ -82,7 +82,7 @@ namespace StormSwitchBox
             
             // Select the appropriate nav item
             MainNavigation.SelectedItem = MainNavigation.MenuItems[index];
-            ContentFrame.Navigate(typeof(Views.TasksPage), new Views.TasksStartupArgs { Action = tag, Paths = paths });
+            ContentFrame.Navigate(typeof(Views.TasksPage), new Views.TasksStartupArgs { Action = tag, Paths = paths, Format = format });
         }
 
         private void SaveWindowState()
