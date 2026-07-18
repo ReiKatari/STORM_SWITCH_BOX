@@ -1,0 +1,3 @@
+Fri, 17 Jul 2026 23:44:10 INFO [crates\yanu-cli\src\main.rs:77]: Launching yanu-cli [3mversion[0m[2m=[0m"0.10.1" [3march[0m[2m=[0m"x86_64" [3mos[0m[2m=[0m"windows"
+Fri, 17 Jul 2026 23:44:10 INFO [crates\yanu-cli\src\main.rs:98]: Parsing args, exit on error
+Fri, 17 Jul 2026 23:44:18 INFO [crates\yanu-cli\src\main.rs:77]: Launching yanu-cli [3mversion[0m[2m=[0m"0.10.1" [3march[0m[2m=[0m"x86_64" [3mos[0m[2m=[0m"windows"

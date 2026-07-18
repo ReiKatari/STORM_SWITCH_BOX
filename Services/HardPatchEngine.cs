@@ -24,7 +24,7 @@ namespace StormSwitchBox.Services
             _keysService = keysService;
         }
 
-        public async Task PatchUpdateAsync(Models.ProcessingTask task, List<string> inputFiles, string outPath, CancellationToken cancellationToken, bool isMultiContent = false)
+        public async Task PatchUpdateAsync(Models.ProcessingTask task, List<string> inputFiles, string outPath, CancellationToken cancellationToken, bool isMultiContent = false, string explicitBaseFile = "", string explicitUpdateFile = "")
         {
             App.RunOnUI(() =>
             {
@@ -74,21 +74,24 @@ namespace StormSwitchBox.Services
                     throw new Exception("Ошибка - нет входных файлов (база + патч).");
                 }
 
-                string baseFile = string.Empty;
-                string updateFile = string.Empty;
+                string baseFile = explicitBaseFile;
+                string updateFile = explicitUpdateFile;
 
-                App.RunOnUI(() => task.LogDetails += $"\nАнализ исходных файлов...");
-                
-                foreach (var file in inputFiles)
+                if (string.IsNullOrEmpty(baseFile) || string.IsNullOrEmpty(updateFile))
                 {
-                    if (System.IO.Directory.Exists(file)) continue;
-                    var info = App.SwitchFormat.ParseNsp(file);
-                    if (info.ContentType == "Application") baseFile = file;
-                    else if (info.ContentType == "Patch") updateFile = file;
-                }
+                    App.RunOnUI(() => task.LogDetails += $"\nАнализ исходных файлов...");
+                    
+                    foreach (var file in inputFiles)
+                    {
+                        if (System.IO.Directory.Exists(file)) continue;
+                        var info = App.SwitchFormat.ParseNsp(file);
+                        if (info.ContentType == "Application") baseFile = file;
+                        else if (info.ContentType == "Patch") updateFile = file;
+                    }
 
-                if (string.IsNullOrEmpty(baseFile)) baseFile = inputFiles.FirstOrDefault(f => !System.IO.Directory.Exists(f) && (f.Contains("[v0]") || f.Contains("v0"))) ?? inputFiles.FirstOrDefault(f => !System.IO.Directory.Exists(f)) ?? "";
-                if (string.IsNullOrEmpty(updateFile)) updateFile = inputFiles.FirstOrDefault(f => !System.IO.Directory.Exists(f) && f != baseFile && (f.Contains("v") && !f.Contains("v0"))) ?? inputFiles.FirstOrDefault(f => !System.IO.Directory.Exists(f) && f != baseFile) ?? "";
+                    if (string.IsNullOrEmpty(baseFile)) baseFile = inputFiles.FirstOrDefault(f => !System.IO.Directory.Exists(f) && (f.Contains("[v0]") || f.Contains("v0"))) ?? inputFiles.FirstOrDefault(f => !System.IO.Directory.Exists(f)) ?? "";
+                    if (string.IsNullOrEmpty(updateFile)) updateFile = inputFiles.FirstOrDefault(f => !System.IO.Directory.Exists(f) && f != baseFile && (f.Contains("v") && !f.Contains("v0"))) ?? inputFiles.FirstOrDefault(f => !System.IO.Directory.Exists(f) && f != baseFile) ?? "";
+                }
 
                 App.RunOnUI(() => task.LogDetails += $"\nБаза: {System.IO.Path.GetFileName(baseFile)}\nПатч: {System.IO.Path.GetFileName(updateFile)}");
 
@@ -245,15 +248,19 @@ namespace StormSwitchBox.Services
                     App.RunOnUI(() => task.LogDetails += $"\n[3/3] Упаковка (yanu-cli pack)...");
                     
                     string controlNca = "";
-                    foreach (var ncaFile in Directory.GetFiles(tempUnpack, "*.nca", SearchOption.AllDirectories))
+                    ulong maxTitleId = 0;
+                    var ncaFiles = Directory.GetFiles(tempUnpack, "*.nca", SearchOption.AllDirectories).OrderByDescending(f => f.Contains("patchdata", StringComparison.OrdinalIgnoreCase) ? 1 : 0).ToList();
+                    foreach (var ncaFile in ncaFiles)
                     {
                         try 
                         {
                             using var fs = new FileStream(ncaFile, FileMode.Open, FileAccess.Read, FileShare.Read);
                             var nca = new LibHac.Tools.FsSystem.NcaUtils.Nca(_keysService.CurrentKeyset, fs.AsStorage());
                             if (nca.Header.ContentType == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Control) {
-                                controlNca = ncaFile;
-                                break;
+                                if (nca.Header.TitleId >= maxTitleId) {
+                                    maxTitleId = nca.Header.TitleId;
+                                    controlNca = ncaFile;
+                                }
                             }
                         } catch { }
                     }
