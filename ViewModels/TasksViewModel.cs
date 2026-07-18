@@ -1107,21 +1107,6 @@ public partial class TasksViewModel : ObservableObject
 			bool hasMods = task.HasRomFs == "1" || task.HasExeFs == "1";
 			if (App.Settings.Current.ForceMultiRebuild || hasMods)
 			{
-				string tempPatchPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "temp", "prepatch_" + Guid.NewGuid().ToString("N").Substring(0, 8) + ".nsp");
-				Directory.CreateDirectory(Path.GetDirectoryName(tempPatchPath)!);
-				await App.HardPatch.PatchUpdateAsync(task, inputFiles3, tempPatchPath, cts.Token, isMultiContent: true);
-				if (!File.Exists(tempPatchPath))
-				{
-					if (task.Status != "Отменен")
-					{
-						App.MainDispatcher?.TryEnqueue(delegate
-						{
-							task.Status = "Ошибка";
-							task.LogDetails += "\nОшибка предварительной сборки (HardPatch)!";
-						});
-					}
-					return;
-				}
 				string baseFile = "";
 				string updateFile = "";
 				foreach (string file in inputFiles3)
@@ -1132,7 +1117,7 @@ public partial class TasksViewModel : ObservableObject
 					}
 					try
 					{
-						SwitchFormatInfo info = App.SwitchFormat.ParseNsp(file);
+						SwitchFormatInfo info = await GetInternalTitleInfoAsync(file);
 						if (info.ContentType == "Application")
 						{
 							baseFile = file;
@@ -1153,6 +1138,22 @@ public partial class TasksViewModel : ObservableObject
 				if (string.IsNullOrEmpty(updateFile))
 				{
 					updateFile = inputFiles3.FirstOrDefault((string text) => !Directory.Exists(text) && text != baseFile && text.Contains("v") && !text.Contains("v0")) ?? "";
+				}
+
+				string tempPatchPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "temp", "prepatch_" + Guid.NewGuid().ToString("N").Substring(0, 8) + ".nsp");
+				Directory.CreateDirectory(Path.GetDirectoryName(tempPatchPath)!);
+				await App.HardPatch.PatchUpdateAsync(task, inputFiles3, tempPatchPath, cts.Token, isMultiContent: true, baseFile, updateFile);
+				if (!File.Exists(tempPatchPath))
+				{
+					if (task.Status != "Отменен")
+					{
+						App.MainDispatcher?.TryEnqueue(delegate
+						{
+							task.Status = "Ошибка";
+							task.LogDetails += "\nОшибка предварительной сборки (HardPatch)!";
+						});
+					}
+					return;
 				}
 				List<string> finalInputs = new List<string> { tempPatchPath };
 				foreach (string file2 in inputFiles3)
