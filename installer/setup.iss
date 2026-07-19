@@ -154,6 +154,7 @@ end;
 procedure CreateVerb(Association: string; Verb: string; LabelName: string);
 begin
   RegWriteStringValue(HKCU, 'Software\Classes\' + Association + '\shell\StormSwitchBox\shell\' + Verb, 'MUIVerb', LabelName);
+  RegWriteStringValue(HKCU, 'Software\Classes\' + Association + '\shell\StormSwitchBox\shell\' + Verb, 'SubCommands', '');
 end;
 
 procedure CreateCommand(Association: string; Verb: string; SubVerb: string; LabelName: string; Action: string; Format: string);
@@ -180,6 +181,7 @@ procedure RegisterForAssociation(Association: string);
 begin
   RegWriteStringValue(HKCU, 'Software\Classes\' + Association + '\shell\StormSwitchBox', 'MUIVerb', 'STORM SWITCH BOX');
   RegWriteStringValue(HKCU, 'Software\Classes\' + Association + '\shell\StormSwitchBox', 'Icon', ExpandConstant('{app}') + '\StormSwitchBox.exe');
+  RegWriteStringValue(HKCU, 'Software\Classes\' + Association + '\shell\StormSwitchBox', 'SubCommands', '');
   
   // Update
   CreateVerb(Association, '01update', 'Обновление');
