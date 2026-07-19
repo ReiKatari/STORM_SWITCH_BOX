@@ -1,11 +1,11 @@
 [Setup]
 AppName=STORM SWITCH BOX
-AppVersion=3.8.6
+AppVersion=3.8.7
 AppPublisher=ReiKatari
 AppPublisherURL=https://github.com/ReiKatari/STORM_SWITCH_BOX
 DefaultDirName={localappdata}\Programs\STORM_SWITCH_BOX
 DefaultGroupName=STORM_SWITCH_BOX
-OutputBaseFilename=STORM_SWITCH_BOX_3.8.6_Setup
+OutputBaseFilename=STORM_SWITCH_BOX_3.8.7_Setup
 SetupIconFile=..\storm_switch_box.ico
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -151,29 +151,15 @@ begin
   end;
 end;
 
-procedure CreateVerb(Association: string; Verb: string; LabelName: string);
-begin
-  RegWriteStringValue(HKCU, 'Software\Classes\' + Association + '\shell\StormSwitchBox\shell\' + Verb, 'MUIVerb', LabelName);
-  RegWriteStringValue(HKCU, 'Software\Classes\' + Association + '\shell\StormSwitchBox\shell\' + Verb, 'SubCommands', '');
-end;
-
-procedure CreateCommand(Association: string; Verb: string; SubVerb: string; LabelName: string; Action: string; Format: string);
+procedure CreateDirectCommand(Association: string; Verb: string; LabelName: string; Action: string);
 var
   Path: string;
   Cmd: string;
 begin
   Path := 'Software\Classes\' + Association + '\shell\StormSwitchBox\shell\' + Verb;
-  if SubVerb <> '' then
-  begin
-    Path := Path + '\shell\' + SubVerb;
-    RegWriteStringValue(HKCU, Path, 'MUIVerb', LabelName);
-  end;
+  RegWriteStringValue(HKCU, Path, 'MUIVerb', LabelName);
   
-  if Format <> '' then
-    Cmd := '"' + ExpandConstant('{app}') + '\StormSwitchBox.exe" --action ' + Action + ' --format ' + Format + ' "%1"'
-  else
-    Cmd := '"' + ExpandConstant('{app}') + '\StormSwitchBox.exe" --action ' + Action + ' "%1"';
-    
+  Cmd := '"' + ExpandConstant('{app}') + '\StormSwitchBox.exe" --action ' + Action + ' "%1"';
   RegWriteStringValue(HKCU, Path + '\command', '', Cmd);
 end;
 
@@ -183,36 +169,11 @@ begin
   RegWriteStringValue(HKCU, 'Software\Classes\' + Association + '\shell\StormSwitchBox', 'Icon', ExpandConstant('{app}') + '\StormSwitchBox.exe');
   RegWriteStringValue(HKCU, 'Software\Classes\' + Association + '\shell\StormSwitchBox', 'SubCommands', '');
   
-  // Update
-  CreateVerb(Association, '01update', 'Обновление');
-  CreateCommand(Association, '01update', 'Nsp', 'в формат NSP', 'update', 'NSP');
-  CreateCommand(Association, '01update', 'Nsz', 'в формат NSZ', 'update', 'NSZ');
-  CreateCommand(Association, '01update', 'Xci', 'в формат XCI', 'update', 'XCI');
-  CreateCommand(Association, '01update', 'Xcz', 'в формат XCZ', 'update', 'XCZ');
-  
-  // Unpack
-  CreateCommand(Association, '02unpack', '', 'Распаковка', 'unpack', '');
-  
-  // Pack
-  CreateVerb(Association, '03pack', 'Упаковка');
-  CreateCommand(Association, '03pack', 'Nsp', 'в формат NSP', 'pack', 'NSP');
-  CreateCommand(Association, '03pack', 'Nsz', 'в формат NSZ', 'pack', 'NSZ');
-  CreateCommand(Association, '03pack', 'Xci', 'в формат XCI', 'pack', 'XCI');
-  CreateCommand(Association, '03pack', 'Xcz', 'в формат XCZ', 'pack', 'XCZ');
-  
-  // Convert
-  CreateVerb(Association, '04convert', 'Конвертация');
-  CreateCommand(Association, '04convert', 'Nsp', 'в формат NSP', 'convert', 'NSP');
-  CreateCommand(Association, '04convert', 'Nsz', 'в формат NSZ', 'convert', 'NSZ');
-  CreateCommand(Association, '04convert', 'Xci', 'в формат XCI', 'convert', 'XCI');
-  CreateCommand(Association, '04convert', 'Xcz', 'в формат XCZ', 'convert', 'XCZ');
-  
-  // Multi
-  CreateVerb(Association, '05multi', 'Мульти-контент');
-  CreateCommand(Association, '05multi', 'Nsp', 'в формат NSP', 'multi', 'NSP');
-  CreateCommand(Association, '05multi', 'Nsz', 'в формат NSZ', 'multi', 'NSZ');
-  CreateCommand(Association, '05multi', 'Xci', 'в формат XCI', 'multi', 'XCI');
-  CreateCommand(Association, '05multi', 'Xcz', 'в формат XCZ', 'multi', 'XCZ');
+  CreateDirectCommand(Association, '01update', 'Обновление', 'update');
+  CreateDirectCommand(Association, '02unpack', 'Распаковка', 'unpack');
+  CreateDirectCommand(Association, '03pack', 'Упаковка', 'pack');
+  CreateDirectCommand(Association, '04convert', 'Конвертация', 'convert');
+  CreateDirectCommand(Association, '05multi', 'Мульти-контент', 'multi');
 end;
 
 procedure RegisterAllContextMenus();
