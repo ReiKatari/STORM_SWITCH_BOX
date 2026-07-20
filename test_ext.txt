@@ -1,0 +1,111 @@
+Windows Registry Editor Version 5.00
+
+[-HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBox]
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBox]
+"MUIVerb"="STORM SWITCH BOX"
+"Icon"="C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe"
+"ExtendedSubCommandsKey"="Directory\\shell\\StormSwitchBoxMenu"
+
+[-HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBoxMenu]
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBoxMenu\shell\01update]
+"MUIVerb"="Обновление"
+"ExtendedSubCommandsKey"="Directory\\shell\\StormSwitchBoxUpdate"
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBoxUpdate\shell\NSP]
+"MUIVerb"="в формат NSP"
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBoxUpdate\shell\NSP\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action update --format NSP \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBoxUpdate\shell\NSZ]
+"MUIVerb"="в формат NSZ"
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBoxUpdate\shell\NSZ\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action update --format NSZ \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBoxUpdate\shell\XCI]
+"MUIVerb"="в формат XCI"
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBoxUpdate\shell\XCI\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action update --format XCI \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBoxUpdate\shell\XCZ]
+"MUIVerb"="в формат XCZ"
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBoxUpdate\shell\XCZ\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action update --format XCZ \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBoxMenu\shell\02unpack]
+"MUIVerb"="Распаковка"
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBoxMenu\shell\02unpack\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action unpack \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBoxMenu\shell\03pack]
+"MUIVerb"="Упаковка"
+"ExtendedSubCommandsKey"="Directory\\shell\\StormSwitchBoxPack"
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBoxPack\shell\NSP]
+"MUIVerb"="в формат NSP"
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBoxPack\shell\NSP\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action pack --format NSP \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBoxPack\shell\NSZ]
+"MUIVerb"="в формат NSZ"
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBoxPack\shell\NSZ\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action pack --format NSZ \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBoxPack\shell\XCI]
+"MUIVerb"="в формат XCI"
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBoxPack\shell\XCI\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action pack --format XCI \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBoxPack\shell\XCZ]
+"MUIVerb"="в формат XCZ"
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBoxPack\shell\XCZ\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action pack --format XCZ \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBoxMenu\shell\04convert]
+"MUIVerb"="Конвертация"
+"ExtendedSubCommandsKey"="Directory\\shell\\StormSwitchBoxConvert"
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBoxConvert\shell\NSP]
+"MUIVerb"="в формат NSP"
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBoxConvert\shell\NSP\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action convert --format NSP \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBoxConvert\shell\NSZ]
+"MUIVerb"="в формат NSZ"
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBoxConvert\shell\NSZ\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action convert --format NSZ \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBoxConvert\shell\XCI]
+"MUIVerb"="в формат XCI"
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBoxConvert\shell\XCI\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action convert --format XCI \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBoxConvert\shell\XCZ]
+"MUIVerb"="в формат XCZ"
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBoxConvert\shell\XCZ\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action convert --format XCZ \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBoxMenu\shell\05multi]
+"MUIVerb"="Мульти-контент"
+"ExtendedSubCommandsKey"="Directory\\shell\\StormSwitchBoxMulti"
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBoxMulti\shell\NSP]
+"MUIVerb"="в формат NSP"
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBoxMulti\shell\NSP\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action multi --format NSP \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBoxMulti\shell\NSZ]
+"MUIVerb"="в формат NSZ"
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBoxMulti\shell\NSZ\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action multi --format NSZ \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBoxMulti\shell\XCI]
+"MUIVerb"="в формат XCI"
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBoxMulti\shell\XCI\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action multi --format XCI \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBoxMulti\shell\XCZ]
+"MUIVerb"="в формат XCZ"
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBoxMulti\shell\XCZ\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action multi --format XCZ \"%1\""

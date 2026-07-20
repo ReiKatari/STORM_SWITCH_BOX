@@ -40,6 +40,9 @@ namespace StormSwitchBox
             RunOnUI(() => TaskCompleted?.Invoke(task));
         }
 
+        private static System.Threading.Mutex? _singleInstanceMutex;
+        private static readonly string PipeName = "StormSwitchBox_SingleInstancePipe";
+
         public App()
         {
             this.InitializeComponent();
@@ -48,6 +51,47 @@ namespace StormSwitchBox
 
         protected override async void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
         {
+            // Single Instance Check
+            bool isFirstInstance = false;
+            _singleInstanceMutex = new System.Threading.Mutex(true, "StormSwitchBox_SingleInstanceMutex", out isFirstInstance);
+
+            if (!isFirstInstance)
+            {
+                // Send arguments to first instance
+                try
+                {
+                    using var client = new System.IO.Pipes.NamedPipeClientStream(".", PipeName, System.IO.Pipes.PipeDirection.Out);
+                    client.Connect(2000);
+                    using var writer = new System.IO.StreamWriter(client, System.Text.Encoding.UTF8);
+                    writer.WriteLine(string.Join("|", Environment.GetCommandLineArgs()));
+                    writer.Flush();
+                }
+                catch { }
+                Environment.Exit(0);
+                return;
+            }
+
+            // Start NamedPipe Server to listen for other instances
+            _ = Task.Run(() =>
+            {
+                while (true)
+                {
+                    try
+                    {
+                        using var server = new System.IO.Pipes.NamedPipeServerStream(PipeName, System.IO.Pipes.PipeDirection.In);
+                        server.WaitForConnection();
+                        using var reader = new System.IO.StreamReader(server, System.Text.Encoding.UTF8);
+                        string? line = reader.ReadLine();
+                        if (!string.IsNullOrWhiteSpace(line))
+                        {
+                            string[] incomingArgs = line.Split('|');
+                            RunOnUI(() => ProcessCommandLineArgs(incomingArgs));
+                        }
+                    }
+                    catch { }
+                }
+            });
+
             // Сохраняем UI диспетчер для возможности обновления интерфейса из фоновых потоков (Task.Run)
             MainDispatcher = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
 
@@ -121,7 +165,16 @@ namespace StormSwitchBox
                 return;
             }
 
-            // Check for --action argument  
+            // Handle current process args
+            if (!ProcessCommandLineArgs(cmdArgs))
+            {
+                MainWindow = new MainWindow();
+                MainWindow.Activate();
+            }
+        }
+
+        private static bool ProcessCommandLineArgs(string[] cmdArgs)
+        {
             string? cliAction = null;
             string? cliFormat = null;
             System.Collections.Generic.List<string> cliPaths = new();
@@ -143,16 +196,22 @@ namespace StormSwitchBox
 
             if (cliAction != null && cliPaths.Count > 0)
             {
-                MainWindow = new MainWindow();
+                if (MainWindow == null)
+                {
+                    MainWindow = new MainWindow();
+                }
                 MainWindow.Activate();
                 
                 // Initialize the page and add tasks visually instead of background execution
                 InitializeTasksFromCommandLine(cliAction, cliPaths.ToArray(), cliFormat);
-                return;
+                return true;
             }
-
-            MainWindow = new MainWindow();
-            MainWindow.Activate();
+            
+            if (MainWindow != null)
+            {
+                MainWindow.Activate();
+            }
+            return false;
         }
 
         public static void ShowToastNotification(string title, string message)

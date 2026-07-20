@@ -1,0 +1,623 @@
+Windows Registry Editor Version 5.00
+
+[-HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBox]
+[-HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox]
+[-HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox]
+[-HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox]
+[-HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox]
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBox]
+"MUIVerb"="STORM SWITCH BOX"
+"Icon"="C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe"
+"SubCommands"=""
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBox\shell\01update]
+"MUIVerb"="Обновление"
+"SubCommands"=""
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBox\shell\01update\shell\NSP]
+"MUIVerb"="в формат NSP"
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBox\shell\01update\shell\NSP\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action update --format NSP \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBox\shell\01update\shell\NSZ]
+"MUIVerb"="в формат NSZ"
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBox\shell\01update\shell\NSZ\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action update --format NSZ \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBox\shell\01update\shell\XCI]
+"MUIVerb"="в формат XCI"
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBox\shell\01update\shell\XCI\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action update --format XCI \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBox\shell\01update\shell\XCZ]
+"MUIVerb"="в формат XCZ"
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBox\shell\01update\shell\XCZ\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action update --format XCZ \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBox\shell\02unpack]
+"MUIVerb"="Распаковка"
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBox\shell\02unpack\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action unpack \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBox\shell\03pack]
+"MUIVerb"="Упаковка"
+"SubCommands"=""
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBox\shell\03pack\shell\NSP]
+"MUIVerb"="в формат NSP"
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBox\shell\03pack\shell\NSP\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action pack --format NSP \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBox\shell\03pack\shell\NSZ]
+"MUIVerb"="в формат NSZ"
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBox\shell\03pack\shell\NSZ\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action pack --format NSZ \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBox\shell\03pack\shell\XCI]
+"MUIVerb"="в формат XCI"
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBox\shell\03pack\shell\XCI\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action pack --format XCI \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBox\shell\03pack\shell\XCZ]
+"MUIVerb"="в формат XCZ"
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBox\shell\03pack\shell\XCZ\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action pack --format XCZ \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBox\shell\04convert]
+"MUIVerb"="Конвертация"
+"SubCommands"=""
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBox\shell\04convert\shell\NSP]
+"MUIVerb"="в формат NSP"
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBox\shell\04convert\shell\NSP\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action convert --format NSP \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBox\shell\04convert\shell\NSZ]
+"MUIVerb"="в формат NSZ"
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBox\shell\04convert\shell\NSZ\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action convert --format NSZ \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBox\shell\04convert\shell\XCI]
+"MUIVerb"="в формат XCI"
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBox\shell\04convert\shell\XCI\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action convert --format XCI \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBox\shell\04convert\shell\XCZ]
+"MUIVerb"="в формат XCZ"
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBox\shell\04convert\shell\XCZ\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action convert --format XCZ \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBox\shell\05multi]
+"MUIVerb"="Мульти-контент"
+"SubCommands"=""
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBox\shell\05multi\shell\NSP]
+"MUIVerb"="в формат NSP"
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBox\shell\05multi\shell\NSP\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action multi --format NSP \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBox\shell\05multi\shell\NSZ]
+"MUIVerb"="в формат NSZ"
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBox\shell\05multi\shell\NSZ\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action multi --format NSZ \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBox\shell\05multi\shell\XCI]
+"MUIVerb"="в формат XCI"
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBox\shell\05multi\shell\XCI\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action multi --format XCI \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBox\shell\05multi\shell\XCZ]
+"MUIVerb"="в формат XCZ"
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StormSwitchBox\shell\05multi\shell\XCZ\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action multi --format XCZ \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox]
+"MUIVerb"="STORM SWITCH BOX"
+"Icon"="C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe"
+"SubCommands"=""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\01update]
+"MUIVerb"="Обновление"
+"SubCommands"=""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\01update\shell\NSP]
+"MUIVerb"="в формат NSP"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\01update\shell\NSP\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action update --format NSP \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\01update\shell\NSZ]
+"MUIVerb"="в формат NSZ"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\01update\shell\NSZ\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action update --format NSZ \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\01update\shell\XCI]
+"MUIVerb"="в формат XCI"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\01update\shell\XCI\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action update --format XCI \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\01update\shell\XCZ]
+"MUIVerb"="в формат XCZ"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\01update\shell\XCZ\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action update --format XCZ \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\02unpack]
+"MUIVerb"="Распаковка"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\02unpack\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action unpack \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\03pack]
+"MUIVerb"="Упаковка"
+"SubCommands"=""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\03pack\shell\NSP]
+"MUIVerb"="в формат NSP"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\03pack\shell\NSP\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action pack --format NSP \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\03pack\shell\NSZ]
+"MUIVerb"="в формат NSZ"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\03pack\shell\NSZ\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action pack --format NSZ \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\03pack\shell\XCI]
+"MUIVerb"="в формат XCI"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\03pack\shell\XCI\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action pack --format XCI \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\03pack\shell\XCZ]
+"MUIVerb"="в формат XCZ"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\03pack\shell\XCZ\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action pack --format XCZ \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\04convert]
+"MUIVerb"="Конвертация"
+"SubCommands"=""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\04convert\shell\NSP]
+"MUIVerb"="в формат NSP"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\04convert\shell\NSP\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action convert --format NSP \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\04convert\shell\NSZ]
+"MUIVerb"="в формат NSZ"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\04convert\shell\NSZ\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action convert --format NSZ \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\04convert\shell\XCI]
+"MUIVerb"="в формат XCI"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\04convert\shell\XCI\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action convert --format XCI \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\04convert\shell\XCZ]
+"MUIVerb"="в формат XCZ"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\04convert\shell\XCZ\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action convert --format XCZ \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\05multi]
+"MUIVerb"="Мульти-контент"
+"SubCommands"=""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\05multi\shell\NSP]
+"MUIVerb"="в формат NSP"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\05multi\shell\NSP\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action multi --format NSP \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\05multi\shell\NSZ]
+"MUIVerb"="в формат NSZ"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\05multi\shell\NSZ\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action multi --format NSZ \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\05multi\shell\XCI]
+"MUIVerb"="в формат XCI"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\05multi\shell\XCI\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action multi --format XCI \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\05multi\shell\XCZ]
+"MUIVerb"="в формат XCZ"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsp\shell\StormSwitchBox\shell\05multi\shell\XCZ\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action multi --format XCZ \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox]
+"MUIVerb"="STORM SWITCH BOX"
+"Icon"="C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe"
+"SubCommands"=""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\01update]
+"MUIVerb"="Обновление"
+"SubCommands"=""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\01update\shell\NSP]
+"MUIVerb"="в формат NSP"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\01update\shell\NSP\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action update --format NSP \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\01update\shell\NSZ]
+"MUIVerb"="в формат NSZ"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\01update\shell\NSZ\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action update --format NSZ \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\01update\shell\XCI]
+"MUIVerb"="в формат XCI"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\01update\shell\XCI\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action update --format XCI \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\01update\shell\XCZ]
+"MUIVerb"="в формат XCZ"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\01update\shell\XCZ\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action update --format XCZ \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\02unpack]
+"MUIVerb"="Распаковка"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\02unpack\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action unpack \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\03pack]
+"MUIVerb"="Упаковка"
+"SubCommands"=""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\03pack\shell\NSP]
+"MUIVerb"="в формат NSP"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\03pack\shell\NSP\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action pack --format NSP \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\03pack\shell\NSZ]
+"MUIVerb"="в формат NSZ"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\03pack\shell\NSZ\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action pack --format NSZ \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\03pack\shell\XCI]
+"MUIVerb"="в формат XCI"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\03pack\shell\XCI\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action pack --format XCI \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\03pack\shell\XCZ]
+"MUIVerb"="в формат XCZ"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\03pack\shell\XCZ\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action pack --format XCZ \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\04convert]
+"MUIVerb"="Конвертация"
+"SubCommands"=""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\04convert\shell\NSP]
+"MUIVerb"="в формат NSP"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\04convert\shell\NSP\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action convert --format NSP \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\04convert\shell\NSZ]
+"MUIVerb"="в формат NSZ"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\04convert\shell\NSZ\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action convert --format NSZ \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\04convert\shell\XCI]
+"MUIVerb"="в формат XCI"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\04convert\shell\XCI\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action convert --format XCI \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\04convert\shell\XCZ]
+"MUIVerb"="в формат XCZ"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\04convert\shell\XCZ\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action convert --format XCZ \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\05multi]
+"MUIVerb"="Мульти-контент"
+"SubCommands"=""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\05multi\shell\NSP]
+"MUIVerb"="в формат NSP"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\05multi\shell\NSP\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action multi --format NSP \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\05multi\shell\NSZ]
+"MUIVerb"="в формат NSZ"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\05multi\shell\NSZ\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action multi --format NSZ \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\05multi\shell\XCI]
+"MUIVerb"="в формат XCI"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\05multi\shell\XCI\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action multi --format XCI \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\05multi\shell\XCZ]
+"MUIVerb"="в формат XCZ"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox\shell\05multi\shell\XCZ\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action multi --format XCZ \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox]
+"MUIVerb"="STORM SWITCH BOX"
+"Icon"="C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe"
+"SubCommands"=""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox\shell\01update]
+"MUIVerb"="Обновление"
+"SubCommands"=""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox\shell\01update\shell\NSP]
+"MUIVerb"="в формат NSP"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox\shell\01update\shell\NSP\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action update --format NSP \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox\shell\01update\shell\NSZ]
+"MUIVerb"="в формат NSZ"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox\shell\01update\shell\NSZ\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action update --format NSZ \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox\shell\01update\shell\XCI]
+"MUIVerb"="в формат XCI"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox\shell\01update\shell\XCI\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action update --format XCI \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox\shell\01update\shell\XCZ]
+"MUIVerb"="в формат XCZ"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox\shell\01update\shell\XCZ\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action update --format XCZ \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox\shell\02unpack]
+"MUIVerb"="Распаковка"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox\shell\02unpack\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action unpack \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox\shell\03pack]
+"MUIVerb"="Упаковка"
+"SubCommands"=""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox\shell\03pack\shell\NSP]
+"MUIVerb"="в формат NSP"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox\shell\03pack\shell\NSP\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action pack --format NSP \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox\shell\03pack\shell\NSZ]
+"MUIVerb"="в формат NSZ"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox\shell\03pack\shell\NSZ\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action pack --format NSZ \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox\shell\03pack\shell\XCI]
+"MUIVerb"="в формат XCI"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox\shell\03pack\shell\XCI\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action pack --format XCI \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox\shell\03pack\shell\XCZ]
+"MUIVerb"="в формат XCZ"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox\shell\03pack\shell\XCZ\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action pack --format XCZ \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox\shell\04convert]
+"MUIVerb"="Конвертация"
+"SubCommands"=""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox\shell\04convert\shell\NSP]
+"MUIVerb"="в формат NSP"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox\shell\04convert\shell\NSP\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action convert --format NSP \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox\shell\04convert\shell\NSZ]
+"MUIVerb"="в формат NSZ"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox\shell\04convert\shell\NSZ\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action convert --format NSZ \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox\shell\04convert\shell\XCI]
+"MUIVerb"="в формат XCI"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox\shell\04convert\shell\XCI\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action convert --format XCI \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox\shell\04convert\shell\XCZ]
+"MUIVerb"="в формат XCZ"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox\shell\04convert\shell\XCZ\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action convert --format XCZ \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox\shell\05multi]
+"MUIVerb"="Мульти-контент"
+"SubCommands"=""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox\shell\05multi\shell\NSP]
+"MUIVerb"="в формат NSP"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox\shell\05multi\shell\NSP\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action multi --format NSP \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox\shell\05multi\shell\NSZ]
+"MUIVerb"="в формат NSZ"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox\shell\05multi\shell\NSZ\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action multi --format NSZ \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox\shell\05multi\shell\XCI]
+"MUIVerb"="в формат XCI"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox\shell\05multi\shell\XCI\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action multi --format XCI \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox\shell\05multi\shell\XCZ]
+"MUIVerb"="в формат XCZ"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox\shell\05multi\shell\XCZ\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action multi --format XCZ \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox]
+"MUIVerb"="STORM SWITCH BOX"
+"Icon"="C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe"
+"SubCommands"=""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\01update]
+"MUIVerb"="Обновление"
+"SubCommands"=""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\01update\shell\NSP]
+"MUIVerb"="в формат NSP"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\01update\shell\NSP\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action update --format NSP \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\01update\shell\NSZ]
+"MUIVerb"="в формат NSZ"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\01update\shell\NSZ\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action update --format NSZ \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\01update\shell\XCI]
+"MUIVerb"="в формат XCI"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\01update\shell\XCI\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action update --format XCI \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\01update\shell\XCZ]
+"MUIVerb"="в формат XCZ"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\01update\shell\XCZ\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action update --format XCZ \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\02unpack]
+"MUIVerb"="Распаковка"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\02unpack\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action unpack \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\03pack]
+"MUIVerb"="Упаковка"
+"SubCommands"=""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\03pack\shell\NSP]
+"MUIVerb"="в формат NSP"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\03pack\shell\NSP\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action pack --format NSP \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\03pack\shell\NSZ]
+"MUIVerb"="в формат NSZ"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\03pack\shell\NSZ\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action pack --format NSZ \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\03pack\shell\XCI]
+"MUIVerb"="в формат XCI"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\03pack\shell\XCI\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action pack --format XCI \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\03pack\shell\XCZ]
+"MUIVerb"="в формат XCZ"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\03pack\shell\XCZ\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action pack --format XCZ \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\04convert]
+"MUIVerb"="Конвертация"
+"SubCommands"=""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\04convert\shell\NSP]
+"MUIVerb"="в формат NSP"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\04convert\shell\NSP\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action convert --format NSP \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\04convert\shell\NSZ]
+"MUIVerb"="в формат NSZ"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\04convert\shell\NSZ\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action convert --format NSZ \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\04convert\shell\XCI]
+"MUIVerb"="в формат XCI"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\04convert\shell\XCI\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action convert --format XCI \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\04convert\shell\XCZ]
+"MUIVerb"="в формат XCZ"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\04convert\shell\XCZ\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action convert --format XCZ \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\05multi]
+"MUIVerb"="Мульти-контент"
+"SubCommands"=""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\05multi\shell\NSP]
+"MUIVerb"="в формат NSP"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\05multi\shell\NSP\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action multi --format NSP \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\05multi\shell\NSZ]
+"MUIVerb"="в формат NSZ"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\05multi\shell\NSZ\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action multi --format NSZ \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\05multi\shell\XCI]
+"MUIVerb"="в формат XCI"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\05multi\shell\XCI\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action multi --format XCI \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\05multi\shell\XCZ]
+"MUIVerb"="в формат XCZ"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox\shell\05multi\shell\XCZ\command]
+@="\"C:\\Users\\ReiKatari\\AppData\\Local\\Programs\\STORM_SWITCH_BOX\\StormSwitchBox.exe\" --action multi --format XCZ \"%1\""
+
