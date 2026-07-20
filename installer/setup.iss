@@ -151,7 +151,7 @@ begin
   end;
 end;
 
-procedure CreateCommand(Association: string; Verb: string; LabelName: string; Action: string);
+procedure CreateDirectCommand(Association: string; Verb: string; LabelName: string; Action: string);
 var
   Path: string;
   Cmd: string;
@@ -162,17 +162,43 @@ begin
   RegWriteStringValue(HKCU, Path + '\command', '', Cmd);
 end;
 
+procedure CreateFormatCommands(Association: string; Verb: string; LabelName: string; Action: string);
+var
+  Formats: array[0..3] of string;
+  I: Integer;
+  Path: string;
+  SubPath: string;
+  Cmd: string;
+  Fmt: string;
+begin
+  Formats[0] := 'NSP';
+  Formats[1] := 'NSZ';
+  Formats[2] := 'XCI';
+  Formats[3] := 'XCZ';
+  
+  Path := 'Software\Classes\' + Association + '\shell\StormSwitchBox\shell\' + Verb;
+  RegWriteStringValue(HKCU, Path, 'MUIVerb', LabelName);
+  
+  for I := 0 to 3 do
+  begin
+    Fmt := Formats[I];
+    SubPath := Path + '\shell\' + Fmt;
+    RegWriteStringValue(HKCU, SubPath, 'MUIVerb', 'в формат ' + Fmt);
+    Cmd := '"' + ExpandConstant('{app}') + '\StormSwitchBox.exe" --action ' + Action + ' --format ' + Fmt + ' "%1"';
+    RegWriteStringValue(HKCU, SubPath + '\command', '', Cmd);
+  end;
+end;
+
 procedure RegisterForAssociation(Association: string);
 begin
   RegWriteStringValue(HKCU, 'Software\Classes\' + Association + '\shell\StormSwitchBox', 'MUIVerb', 'STORM SWITCH BOX');
   RegWriteStringValue(HKCU, 'Software\Classes\' + Association + '\shell\StormSwitchBox', 'Icon', ExpandConstant('{app}') + '\StormSwitchBox.exe');
-  RegWriteStringValue(HKCU, 'Software\Classes\' + Association + '\shell\StormSwitchBox', 'SubCommands', '');
   
-  CreateCommand(Association, '01update', 'Обновление', 'update');
-  CreateCommand(Association, '02unpack', 'Распаковка', 'unpack');
-  CreateCommand(Association, '03pack', 'Упаковка', 'pack');
-  CreateCommand(Association, '04convert', 'Конвертация', 'convert');
-  CreateCommand(Association, '05multi', 'Мульти-контент', 'multi');
+  CreateFormatCommands(Association, '01update', 'Обновление', 'update');
+  CreateDirectCommand(Association, '02unpack', 'Распаковка', 'unpack');
+  CreateFormatCommands(Association, '03pack', 'Упаковка', 'pack');
+  CreateFormatCommands(Association, '04convert', 'Конвертация', 'convert');
+  CreateFormatCommands(Association, '05multi', 'Мульти-контент', 'multi');
 end;
 
 procedure RegisterAllContextMenus();
