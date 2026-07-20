@@ -203,6 +203,27 @@ public partial class TasksViewModel : ObservableObject
 		return GameExtensions.Contains(extension);
 	}
 
+	private List<string> SafeGetGameFiles(string path)
+	{
+		var result = new List<string>();
+		try
+		{
+			foreach (var file in Directory.EnumerateFiles(path))
+			{
+				result.Add(file);
+			}
+			foreach (var dir in Directory.EnumerateDirectories(path))
+			{
+				result.AddRange(SafeGetGameFiles(dir));
+			}
+		}
+		catch (Exception ex)
+		{
+			App.Logger.Log($"Ошибка чтения директории {path}: {ex.Message}", LogLevel.Warning);
+		}
+		return result;
+	}
+
 	public async Task AddDroppedFilesBatchAsync(List<string> paths)
 	{
 		if (paths == null || paths.Count == 0) return;
@@ -388,7 +409,7 @@ public partial class TasksViewModel : ObservableObject
 					List<string> verifyFiles = new List<string>();
 					if (isDirectory)
 					{
-						List<string> allFiles = (await Task.Run(() => Directory.GetFiles(path, "*.*", SearchOption.AllDirectories))).Where((string f) => GameExtensions.Contains(Path.GetExtension(f).ToLower())).ToList();
+						List<string> allFiles = (await Task.Run(() => SafeGetGameFiles(path))).Where((string f) => GameExtensions.Contains(Path.GetExtension(f).ToLower())).ToList();
 						verifyFiles.AddRange(allFiles);
 					}
 					else
@@ -405,7 +426,7 @@ public partial class TasksViewModel : ObservableObject
 				{
 					if (isDirectory)
 					{
-						List<string> gameFiles = (await Task.Run(() => Directory.GetFiles(path, "*.*", SearchOption.AllDirectories))).Where((string f) => GameExtensions.Contains(Path.GetExtension(f).ToLower())).ToList();
+						List<string> gameFiles = (await Task.Run(() => SafeGetGameFiles(path))).Where((string f) => GameExtensions.Contains(Path.GetExtension(f).ToLower())).ToList();
 						if (gameFiles.Count > 0)
 						{
 							List<(string Path, string? TitleId, string Type, string TopFolder, byte[]? IconBytes)> filesMeta = new();
@@ -676,6 +697,10 @@ public partial class TasksViewModel : ObservableObject
 					{
 						outFolder = GetOutPathForPage(_currentPageType);
 					}
+					if (string.IsNullOrEmpty(outFolder) && inputFiles != null && inputFiles.Count > 0)
+					{
+						outFolder = Path.GetDirectoryName(inputFiles[0]) ?? "";
+					}
 					ObservableCollection<ProcessingTask> targetList = ((_currentPageType == "Verify") ? VerifyTasks : Tasks);
 					ProcessingTask task = new ProcessingTask
 					{
@@ -771,6 +796,10 @@ public partial class TasksViewModel : ObservableObject
 			"Multi" => App.Settings.Current.LastOutPath_Multi, 
 			_ => "", 
 		};
+		if (string.IsNullOrEmpty(result))
+		{
+			result = App.Settings.Current.OutputFolder;
+		}
 		if (1 == 0)
 		{
 		}

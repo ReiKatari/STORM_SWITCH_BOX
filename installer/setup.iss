@@ -1,11 +1,11 @@
 [Setup]
 AppName=STORM SWITCH BOX
-AppVersion=3.8.7
+AppVersion=3.8.8
 AppPublisher=ReiKatari
 AppPublisherURL=https://github.com/ReiKatari/STORM_SWITCH_BOX
 DefaultDirName={localappdata}\Programs\STORM_SWITCH_BOX
 DefaultGroupName=STORM_SWITCH_BOX
-OutputBaseFilename=STORM_SWITCH_BOX_3.8.7_Setup
+OutputBaseFilename=STORM_SWITCH_BOX_3.8.8_Installer
 SetupIconFile=..\storm_switch_box.ico
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -23,8 +23,8 @@ Name: "portable"; Description: "Портативная распаковка"; Ty
 
 [Files]
 ; Source files from publish output
-Source: "..\bin\Release\net8.0-windows10.0.19041.0\win-x64\publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "..\bin\Release\net8.0-windows10.0.19041.0\win-x64\StormSwitchBox.pri"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\publish\StormSwitchBox.pri"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 
 [Icons]
 Name: "{group}\STORM_SWITCH_BOX"; Filename: "{app}\StormSwitchBox.exe"; WorkingDir: "{app}"; Components: full
@@ -151,14 +151,13 @@ begin
   end;
 end;
 
-procedure CreateDirectCommand(Association: string; Verb: string; LabelName: string; Action: string);
+procedure CreateCommand(Association: string; Verb: string; LabelName: string; Action: string);
 var
   Path: string;
   Cmd: string;
 begin
   Path := 'Software\Classes\' + Association + '\shell\StormSwitchBox\shell\' + Verb;
   RegWriteStringValue(HKCU, Path, 'MUIVerb', LabelName);
-  
   Cmd := '"' + ExpandConstant('{app}') + '\StormSwitchBox.exe" --action ' + Action + ' "%1"';
   RegWriteStringValue(HKCU, Path + '\command', '', Cmd);
 end;
@@ -169,11 +168,11 @@ begin
   RegWriteStringValue(HKCU, 'Software\Classes\' + Association + '\shell\StormSwitchBox', 'Icon', ExpandConstant('{app}') + '\StormSwitchBox.exe');
   RegWriteStringValue(HKCU, 'Software\Classes\' + Association + '\shell\StormSwitchBox', 'SubCommands', '');
   
-  CreateDirectCommand(Association, '01update', 'Обновление', 'update');
-  CreateDirectCommand(Association, '02unpack', 'Распаковка', 'unpack');
-  CreateDirectCommand(Association, '03pack', 'Упаковка', 'pack');
-  CreateDirectCommand(Association, '04convert', 'Конвертация', 'convert');
-  CreateDirectCommand(Association, '05multi', 'Мульти-контент', 'multi');
+  CreateCommand(Association, '01update', 'Обновление', 'update');
+  CreateCommand(Association, '02unpack', 'Распаковка', 'unpack');
+  CreateCommand(Association, '03pack', 'Упаковка', 'pack');
+  CreateCommand(Association, '04convert', 'Конвертация', 'convert');
+  CreateCommand(Association, '05multi', 'Мульти-контент', 'multi');
 end;
 
 procedure RegisterAllContextMenus();

@@ -55,6 +55,15 @@ namespace StormSwitchBox
             await Settings.LoadAsync();
             Logger.Log("Приложение запущено. Настройки загружены.", Models.LogLevel.Info);
 
+            try
+            {
+                Microsoft.Windows.AppNotifications.AppNotificationManager.Default.Register();
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"Ошибка регистрации AppNotificationManager: {ex.Message}", Models.LogLevel.Warning);
+            }
+
             // Пытаемся автоматически загрузить ключи при старте
             string keysPath = Settings.Current.KeysPath;
 
@@ -134,16 +143,11 @@ namespace StormSwitchBox
 
             if (cliAction != null && cliPaths.Count > 0)
             {
-                MainDispatcher = null; // Forces App.RunOnUI to execute actions synchronously
-                try
-                {
-                    RunBackgroundAction(cliAction, cliPaths.ToArray(), cliFormat);
-                }
-                catch (Exception ex)
-                {
-                    Logger.Log($"Ошибка фоновой обработки: {ex.Message}", Models.LogLevel.Error);
-                }
-                Environment.Exit(0);
+                MainWindow = new MainWindow();
+                MainWindow.Activate();
+                
+                // Initialize the page and add tasks visually instead of background execution
+                InitializeTasksFromCommandLine(cliAction, cliPaths.ToArray(), cliFormat);
                 return;
             }
 
@@ -155,12 +159,11 @@ namespace StormSwitchBox
         {
             try
             {
-                var toastXml = Windows.UI.Notifications.ToastNotificationManager.GetTemplateContent(Windows.UI.Notifications.ToastTemplateType.ToastText02);
-                var toastTextElements = toastXml.GetElementsByTagName("text");
-                toastTextElements[0].AppendChild(toastXml.CreateTextNode(title));
-                toastTextElements[1].AppendChild(toastXml.CreateTextNode(message));
-                var toast = new Windows.UI.Notifications.ToastNotification(toastXml);
-                Windows.UI.Notifications.ToastNotificationManager.CreateToastNotifier().Show(toast);
+                var notification = new Microsoft.Windows.AppNotifications.Builder.AppNotificationBuilder()
+                    .AddText(title)
+                    .AddText(message)
+                    .BuildNotification();
+                Microsoft.Windows.AppNotifications.AppNotificationManager.Default.Show(notification);
             }
             catch (Exception ex)
             {
@@ -168,11 +171,10 @@ namespace StormSwitchBox
             }
         }
 
-        private static void RunBackgroundAction(string action, string[] paths, string? format)
+        private static void InitializeTasksFromCommandLine(string action, string[] paths, string? format)
         {
-            Logger.Log($"Запуск фоновой операции: Action={action}, Format={format}", Models.LogLevel.Info);
+            Logger.Log($"Запуск операции из командной строки: Action={action}, Format={format}", Models.LogLevel.Info);
             
-            // Map CLI action to page type tag
             string tag = action switch
             {
                 "update"  => "Update",
@@ -185,36 +187,37 @@ namespace StormSwitchBox
 
             // Setup TasksViewModel
             var vm = TasksVM;
-            vm.SetPageType(tag);
             
-            if (!string.IsNullOrEmpty(format))
+            // Wait for main window to be fully initialized before navigating
+            RunOnUI(async () =>
             {
-                int formatIndex = format.ToUpper() switch
+                vm.SetPageType(tag);
+                
+                if (!string.IsNullOrEmpty(format))
                 {
-                    "NSP" => 0,
-                    "NSZ" => 1,
-                    "XCI" => 2,
-                    "XCZ" => 3,
-                    _ => -1
-                };
-                if (formatIndex >= 0)
-                {
-                    vm.SelectedFormatIndex = formatIndex;
+                    int formatIndex = format.ToUpper() switch
+                    {
+                        "NSP" => 0,
+                        "NSZ" => 1,
+                        "XCI" => 2,
+                        "XCZ" => 3,
+                        _ => -1
+                    };
+                    if (formatIndex >= 0)
+                    {
+                        vm.SelectedFormatIndex = formatIndex;
+                    }
                 }
-            }
-            
-            // Add paths. Wait for completion synchronously.
-            vm.AddDroppedFilesBatchAsync(new System.Collections.Generic.List<string>(paths)).GetAwaiter().GetResult();
-            
-            if (vm.Tasks.Count == 0 && vm.VerifyTasks.Count == 0)
-            {
-                Logger.Log("Очередь задач пуста. Выход.", Models.LogLevel.Warning);
-                return;
-            }
-
-            Logger.Log("Запуск выполнения очереди задач в фоновом режиме...", Models.LogLevel.Info);
-            vm.StartAllTasksAsync().GetAwaiter().GetResult();
-            Logger.Log("Фоновая обработка полностью завершена.", Models.LogLevel.Info);
+                
+                // Add paths asynchronously so UI doesn't freeze
+                await vm.AddDroppedFilesBatchAsync(new System.Collections.Generic.List<string>(paths));
+                
+                if (vm.Tasks.Count > 0 || vm.VerifyTasks.Count > 0)
+                {
+                    ShowToastNotification("STORM SWITCH BOX", "Задача выполняется. Программа запущена.");
+                    await vm.StartAllTasksAsync();
+                }
+            });
         }
 
         private void App_UnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)
