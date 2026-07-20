@@ -1,4 +1,4 @@
-﻿using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Documents;
 using Microsoft.UI.Xaml.Media;
@@ -50,7 +50,7 @@ namespace StormSwitchBox.Views
                     Tip = "Используйте встроенную консоль логов в реальном времени, чтобы следить за каждым этапом выполнения задач.",
                     SetupPreview = container =>
                     {
-                        container.Children.Add(new TextBlock { Text = "STORM SWITCH BOX v3.8.8", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.Bold });
+                        container.Children.Add(new TextBlock { Text = "STORM SWITCH BOX v3.8.9", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.Bold });
                         container.Children.Add(new TextBlock { Text = "• Быстрый Zstandard компрессор\n• Дельта-патчинг образов в реальном времени\n• Корректное определение контрольных заголовков NCA\n• Поддержка TitleDB для отображения названий игр", Foreground = GetSecondaryBrush() });
                     }
                 },

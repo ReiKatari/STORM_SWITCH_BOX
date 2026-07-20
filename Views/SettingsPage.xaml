@@ -1,4 +1,4 @@
-﻿<Page
+<Page
     x:Class="StormSwitchBox.Views.SettingsPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -157,7 +157,7 @@
                         </Border>
                         <StackPanel Grid.Column="1" Spacing="6">
                             <StackPanel Orientation="Horizontal" Spacing="12">
-                                <TextBlock Text="STORM SWITCH BOX 3.8.8" FontWeight="Bold" FontSize="24"/>
+                                <TextBlock Text="STORM SWITCH BOX 3.8.9" FontWeight="Bold" FontSize="24"/>
 
                             </StackPanel>
                             <TextBlock Text="Нативная версия WinUI 3" Foreground="{ThemeResource SystemAccentColor}" FontSize="16" FontWeight="SemiBold"/>
