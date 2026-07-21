@@ -1,11 +1,20 @@
-# ⚡ STORM SWITCH BOX v3.8.7
+<h1 align="center">
+  <br>
+  <img src="./logo.png" alt="STORM SWITCH BOX" width="200">
+  <br>
+  <b>⚡ STORM SWITCH BOX</b>
+  <br>
+</h1>
 
-[![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-blue?style=flat-spec)](https://microsoft.com)
-[![Framework](https://img.shields.io/badge/framework-WinUI%203%20%2F%20Windows%20App%20SDK-purple?style=flat-spec)](https://github.com/microsoft/WindowsAppSDK)
-[![Language](https://img.shields.io/badge/language-C%23%2012%20%2F%20.NET%208-green?style=flat-spec)](https://dotnet.microsoft.com)
-[![License](https://img.shields.io/badge/license-GPL--3.0-orange?style=flat-spec)](LICENSE)
+<div align="center">
+  <a href="https://microsoft.com"><img src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-blue?style=flat-spec" alt="Platform"></a>
+  <a href="https://github.com/microsoft/WindowsAppSDK"><img src="https://img.shields.io/badge/framework-WinUI%203%20%2F%20Windows%20App%20SDK-purple?style=flat-spec" alt="Framework"></a>
+  <a href="https://dotnet.microsoft.com"><img src="https://img.shields.io/badge/language-C%23%2012%20%2F%20.NET%208-green?style=flat-spec" alt="Language"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-orange?style=flat-spec" alt="License"></a>
+</div>
+<br>
 
-**STORM SWITCH BOX** — это современный, высокопроизводительный комбайн на базе **WinUI 3** и **Windows App SDK** для всесторонней обработки, конвертации, патчинга и сжатия игровых образов консоли Nintendo Switch (NSP, NSZ, XCI). 
+<h4 align="center"><b>STORM SWITCH BOX</b> — это современный, высокопроизводительный комбайн на базе <b>WinUI 3</b> и <b>Windows App SDK</b> для всесторонней обработки, конвертации, патчинга и сжатия игровых образов консоли Nintendo Switch (NSP, NSZ, XCI).</h4>
 
 В версии **3.8.7** добавлены следующие улучшения:
 *   **🛠️ Исправлено контекстное меню**: Полностью убраны неудобные вложенные подменю форматов (NSP/NSZ/XCI/XCZ) при вызове команд "Обновление", "Упаковка", "Конвертация", "Мульти-контент" в Проводнике. Теперь команды запускаются напрямую, автоматически используя формат по умолчанию.
