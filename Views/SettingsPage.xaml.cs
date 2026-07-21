@@ -326,17 +326,25 @@ namespace StormSwitchBox.Views
                     foreach (var asset in assetsProp.EnumerateArray())
                     {
                         string name = asset.GetProperty("name").GetString() ?? "";
-                        if (name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) || name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                        if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
                         {
                             downloadUrl = asset.GetProperty("browser_download_url").GetString() ?? "";
                             assetName = name;
-                            break;
+                            break; // Prefer .exe installer
+                        }
+                        else if (name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) && string.IsNullOrEmpty(downloadUrl))
+                        {
+                            downloadUrl = asset.GetProperty("browser_download_url").GetString() ?? "";
+                            assetName = name;
                         }
                     }
                 }
 
                 string cleanTag = tagName.TrimStart('v');
-                var currentVer = new Version("3.8.9");
+                var asmVer = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+                var currentVer = new Version(asmVer.Major, asmVer.Minor, asmVer.Build);
+                string currentVerStr = currentVer.ToString();
+                
                 if (Version.TryParse(cleanTag, out var latestVer) && latestVer > currentVer)
                 {
                     var dialog = new ContentDialog
@@ -350,7 +358,7 @@ namespace StormSwitchBox.Views
                             Spacing = 12,
                             Children =
                             {
-                                new TextBlock { Text = $"Доступна версия: v{cleanTag} (Текущая: v3.8.9)", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold },
+                                new TextBlock { Text = $"Доступна версия: v{cleanTag} (Текущая: v{currentVerStr})", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold },
                                 new TextBlock { Text = "Список изменений:", FontSize = 12, Foreground = Application.Current.Resources.TryGetValue("TextFillColorSecondaryBrush", out var resBrush) && resBrush is Microsoft.UI.Xaml.Media.Brush b ? b : new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Gray) },
                                 new ScrollViewer
                                 {
@@ -372,7 +380,7 @@ namespace StormSwitchBox.Views
                     var dialog = new ContentDialog
                     {
                         Title = "Обновления не найдены",
-                        Content = new TextBlock { Text = "У вас установлена актуальная версия STORM SWITCH BOX v3.8.9." },
+                        Content = new TextBlock { Text = $"У вас установлена актуальная версия STORM SWITCH BOX v{currentVerStr}." },
                         CloseButtonText = "OK",
                         XamlRoot = this.XamlRoot
                     };
@@ -466,7 +474,7 @@ namespace StormSwitchBox.Views
                     batchContent = $@"@echo off
 chcp 65001 > nul
 echo Ожидание закрытия приложения...
-timeout /t 2 /nobreak > nul
+timeout /t 4 /nobreak > nul
 echo Извлечение обновления...
 powershell -Command ""Expand-Archive -Path '{tempPath}' -DestinationPath '{appDir}' -Force""
 echo Запуск новой версии...
@@ -480,9 +488,9 @@ del ""{tempPath}""
                     batchContent = $@"@echo off
 chcp 65001 > nul
 echo Ожидание закрытия...
-timeout /t 2 /nobreak > nul
+timeout /t 4 /nobreak > nul
 echo Обновление исполняемого файла...
-copy /y ""{tempPath}"" ""{exePath}""
+start /wait """" ""{tempPath}"" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /FORCECLOSEAPPLICATIONS /DIR=""{appDir.TrimEnd('\\')}""
 echo Запуск новой версии...
 start """" ""{exePath}""
 del ""{tempPath}""
