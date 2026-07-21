@@ -1,6 +1,5 @@
 <h1 align="center">
   <br>
-  <img src="./logo.png" alt="STORM SWITCH BOX" width="200">
   <br>
   <b>⚡ STORM SWITCH BOX</b>
   <br>
