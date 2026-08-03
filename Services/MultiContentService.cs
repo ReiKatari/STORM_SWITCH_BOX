@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading;
@@ -278,122 +278,42 @@ namespace StormSwitchBox.Services
                 string mlistFile = System.IO.Path.Combine(tempDecompDir, "mlist.txt");
                 System.IO.File.WriteAllLines(mlistFile, sortedList);
 
-                if (!isTargetXci)
+                string args = $"-t {fmt} -o \"{outFolder}\" -tfile \"{mlistFile}\" -dmul \"calculate\"";
+                
+                // Log the file list being passed to squirrel for diagnostics
+                App.Logger.Log($"[squirrel] args: {args}", Models.LogLevel.Info);
+                try
                 {
-                    App.RunOnUI(() =>
+                    var mlistContents = System.IO.File.ReadAllLines(mlistFile);
+                    for (int i = 0; i < mlistContents.Length; i++)
                     {
-                        task.LogDetails += "\n📦 [LibHac] Быстрая сборка Multi-NSP (PFS0)...";
-                    });
-
-                    var pfsBuilder = new PartitionFileSystemBuilder();
-                    var mergedEntries = new Dictionary<string, LibHac.Fs.Fsa.IFile>(StringComparer.OrdinalIgnoreCase);
-                    var openedFs = new List<PartitionFileSystem>();
-                    var openedStreams = new List<FileStream>();
-                    var openedFiles = new List<LibHac.Fs.Fsa.IFile>();
-
-                    try
-                    {
-                        foreach (string nspPath in sortedList)
-                        {
-                            if (!System.IO.File.Exists(nspPath)) continue;
-                            
-                            var stream = new FileStream(nspPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-                            openedStreams.Add(stream);
-                            var fs = new PartitionFileSystem(stream.AsStorage());
-                            openedFs.Add(fs);
-                            
-                            foreach (var entry in fs.EnumerateEntries())
-                            {
-                                if (entry.Type == DirectoryEntryType.Directory) continue;
-                                string name = entry.Name;
-                                
-                                // Пропускаем дубликаты и невалидные метаданные
-                                if (mergedEntries.ContainsKey(name) || !IsValidNspEntry(name)) continue;
-                                
-                                var file = OpenFileSafe(fs, entry.FullPath);
-                                
-                                openedFiles.Add(file);
-                                mergedEntries[name] = file;
-                                
-                                pfsBuilder.AddFile(name, new StorageFile(new StormSwitchBox.Services.SafeStorageWrapper(file.AsStorage()), LibHac.Fs.OpenMode.Read));
-                            }
-                        }
-
-                        string outputNspPath = System.IO.Path.Combine(outFolder, $"multi_out_{Guid.NewGuid().ToString("N").Substring(0, 8)}.nsp");
-
-                        using (var builtPfs = pfsBuilder.Build(PartitionFileSystemType.Standard))
-                        {
-                            builtPfs.GetSize(out long totalPfsSize).ThrowIfFailure();
-                            
-                            using var destStream = new FileStream(outputNspPath, FileMode.Create, FileAccess.Write, FileShare.None, 16 * 1024 * 1024);
-                            long remaining = totalPfsSize;
-                            long offset = 0;
-                            byte[] buffer = new byte[8 * 1024 * 1024]; // 8MB буфер
-                            var sw = System.Diagnostics.Stopwatch.StartNew();
-                            
-                            while (remaining > 0)
-                            {
-                                cancellationToken.ThrowIfCancellationRequested();
-                                int toRead = (int)Math.Min(buffer.Length, remaining);
-                                builtPfs.Read(offset, buffer.AsSpan(0, toRead)).ThrowIfFailure();
-                                destStream.Write(buffer, 0, toRead);
-                                offset += toRead;
-                                remaining -= toRead;
-                                
-                                if (sw.ElapsedMilliseconds > 300 || remaining == 0)
-                                {
-                                    sw.Restart();
-                                    double pct = (double)offset / totalPfsSize * 100.0;
-                                    App.RunOnUI(() => task.Progress = Math.Min(99.9, pct));
-                                }
-                            }
-                        }
-                    }
-                    finally
-                    {
-                        foreach (var f in openedFiles) { try { f.Dispose(); } catch { } }
-                        foreach (var s in openedStreams) { try { s.Dispose(); } catch { } }
+                        var mf = mlistContents[i];
+                        long mfSize = System.IO.File.Exists(mf) ? new System.IO.FileInfo(mf).Length : -1;
+                        App.Logger.Log($"[squirrel] mlist[{i}]: {mf} ({mfSize} bytes)", Models.LogLevel.Info);
                     }
                 }
-                else
+                catch { }
+
+                var psi = new System.Diagnostics.ProcessStartInfo
                 {
-                    string args = $"-t {fmt} -o \"{outFolder}\" -tfile \"{mlistFile}\" -dmul \"calculate\"";
-                    
-                    // Log the file list being passed to squirrel for diagnostics
-                    App.Logger.Log($"[squirrel] args: {args}", Models.LogLevel.Info);
-                    try
-                    {
-                        var mlistContents = System.IO.File.ReadAllLines(mlistFile);
-                        for (int i = 0; i < mlistContents.Length; i++)
-                        {
-                            var mf = mlistContents[i];
-                            long mfSize = System.IO.File.Exists(mf) ? new System.IO.FileInfo(mf).Length : -1;
-                            App.Logger.Log($"[squirrel] mlist[{i}]: {mf} ({mfSize} bytes)", Models.LogLevel.Info);
-                        }
-                    }
-                    catch { }
+                    FileName = "cmd.exe",
+                    Arguments = $"/c chcp 65001 >nul & \"{squirrelExe}\" {args}",
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+                psi.EnvironmentVariables["USERPROFILE"] = isolatedUserProfile;
+                psi.EnvironmentVariables["LOCALAPPDATA"] = isolatedLocalAppData;
 
-                    var psi = new System.Diagnostics.ProcessStartInfo
-                    {
-                        FileName = "cmd.exe",
-                        Arguments = $"/c chcp 65001 >nul & \"{squirrelExe}\" {args}",
-                        UseShellExecute = false,
-                        CreateNoWindow = true
-                    };
-                    psi.EnvironmentVariables["USERPROFILE"] = isolatedUserProfile;
-                    psi.EnvironmentVariables["LOCALAPPDATA"] = isolatedLocalAppData;
+                using var proc = System.Diagnostics.Process.Start(psi);
+                if (proc == null) throw new Exception("Не удалось запустить squirrel.exe");
 
-                    using var proc = System.Diagnostics.Process.Start(psi);
-                    if (proc == null) throw new Exception("Не удалось запустить squirrel.exe");
+                await proc.WaitForExitAsync(cancellationToken);
 
-                    await proc.WaitForExitAsync(cancellationToken);
+                App.Logger.Log($"[squirrel] exit code: {proc.ExitCode}", Models.LogLevel.Info);
 
-                    App.Logger.Log($"[squirrel] exit code: {proc.ExitCode}", Models.LogLevel.Info);
-
-                    if (proc.ExitCode != 0)
-                    {
-                        throw new Exception($"NSC_Builder squirrel failed with exit code {proc.ExitCode}.");
-                    }
+                if (proc.ExitCode != 0)
+                {
+                    throw new Exception($"NSC_Builder squirrel failed with exit code {proc.ExitCode}.");
                 }
 
                 // Search for the actual content file (.nsp/.xci), skipping metadata like .cnmt.xml
