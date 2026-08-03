@@ -400,10 +400,10 @@
                                             <RowDefinition Height="Auto"/>
                                         </Grid.RowDefinitions>
                                         
-                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Входные файлы:" FontWeight="SemiBold" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" FontSize="11" VerticalAlignment="Top" Margin="0,4,0,0"/>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Входные файлы:" FontWeight="SemiBold" Foreground="{ThemeResource SystemControlHighlightAccentBrush}" FontSize="11" VerticalAlignment="Top" Margin="0,4,0,0"/>
                                         <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding InputFolders}" TextWrapping="Wrap" FontSize="11" VerticalAlignment="Center" HorizontalAlignment="Left" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                                         
-                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Выходная папка:" FontWeight="SemiBold" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" FontSize="11" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Выходная папка:" FontWeight="SemiBold" Foreground="{ThemeResource SystemControlHighlightAccentBrush}" FontSize="11" VerticalAlignment="Center"/>
                                         <Grid Grid.Row="1" Grid.Column="1" ColumnSpacing="6">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*"/>
@@ -417,9 +417,9 @@
                                             <Button Grid.Column="1" Content="Обзор..." Click="BrowseOutputFolder_Click" Tag="{Binding}" FontSize="10" Padding="6,2" Height="28" IsEnabled="{Binding IsNotRunning, Mode=OneWay}"/>
                                         </Grid>
                                         
-                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Имя файла:" FontWeight="SemiBold" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" FontSize="11" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Имя файла:" FontWeight="SemiBold" Foreground="{ThemeResource SystemControlHighlightAccentBrush}" FontSize="11" VerticalAlignment="Center"/>
                                         <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding OutputFileName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" 
-                                                 FontSize="11" AllowDrop="True" DragOver="OutputName_DragOver" Drop="OutputName_Drop" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" Height="28" MinHeight="0" Padding="6,2" VerticalContentAlignment="Center" IsEnabled="{Binding IsNotRunning, Mode=OneWay}"/> 
+                                                 FontSize="11" AllowDrop="True" DragOver="OutputName_DragOver" Drop="OutputName_Drop" Foreground="{ThemeResource SystemControlHighlightAccentBrush}" Height="28" MinHeight="0" Padding="6,2" VerticalContentAlignment="Center" IsEnabled="{Binding IsNotRunning, Mode=OneWay}"/> 
                                     </Grid>
                                 </StackPanel>
                             </ScrollViewer>
