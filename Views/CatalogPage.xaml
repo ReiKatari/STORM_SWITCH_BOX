@@ -31,7 +31,7 @@
                         <Flyout>
                             <StackPanel Spacing="10" Width="300">
                                 <TextBlock Text="Папки для сканирования" FontWeight="SemiBold"/>
-                                <ListView x:Name="FoldersListView" Height="150" Background="#1A1A1A" CornerRadius="4" SelectionMode="Single"/>
+                                <ListView x:Name="FoldersListView" Height="150" Background="{ThemeResource LayerFillColorDefaultBrush}" CornerRadius="4" SelectionMode="Single"/>
                                 <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
                                     <Button Content="Добавить" Click="AddFolder_Click">
                                         <Button.ContentTemplate>

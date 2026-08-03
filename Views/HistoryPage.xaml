@@ -140,7 +140,7 @@
             <!-- Детали задачи (Лог и инфо) -->
             <controls:DataGrid.RowDetailsTemplate>
                 <DataTemplate x:DataType="models:ProcessingTask">
-                    <Border Background="#1A1A1A" Padding="15" Margin="0,0,0,10" CornerRadius="4">
+                    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" Padding="15" Margin="0,0,0,10" CornerRadius="4">
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
