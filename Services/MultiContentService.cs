@@ -300,6 +300,19 @@ namespace StormSwitchBox.Services
                 }
                 catch { }
 
+                // Гарантируем наличие папок temp для утилиты squirrel.exe во всех возможных местоположениях
+                string appBaseTemp = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "temp");
+                if (!Directory.Exists(appBaseTemp)) Directory.CreateDirectory(appBaseTemp);
+
+                string parentBaseTemp = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "temp");
+                try { if (!Directory.Exists(parentBaseTemp)) Directory.CreateDirectory(parentBaseTemp); } catch { }
+
+                string nscbTemp = System.IO.Path.Combine(nscbDir, "temp");
+                if (!Directory.Exists(nscbTemp)) Directory.CreateDirectory(nscbTemp);
+
+                string toolsTemp = System.IO.Path.Combine(toolsDir, "temp");
+                if (!Directory.Exists(toolsTemp)) Directory.CreateDirectory(toolsTemp);
+
                 var psi = new System.Diagnostics.ProcessStartInfo
                 {
                     FileName = "cmd.exe",
@@ -348,7 +361,33 @@ namespace StormSwitchBox.Services
                 if (proc.ExitCode != 0)
                 {
                     string logErr = squirrelLog.ToString().Trim();
-                    throw new Exception($"NSC_Builder squirrel failed with exit code {proc.ExitCode}.\nЛог NSC_Builder:\n{logErr}");
+                    string extraErr = string.Empty;
+                    
+                    var possibleLogPaths = new[]
+                    {
+                        System.IO.Path.Combine(appBaseTemp, "squirrel_error.log"),
+                        System.IO.Path.Combine(nscbTemp, "squirrel_error.log"),
+                        System.IO.Path.Combine(toolsTemp, "squirrel_error.log"),
+                        System.IO.Path.Combine(parentBaseTemp, "squirrel_error.log")
+                    };
+
+                    foreach (var path in possibleLogPaths)
+                    {
+                        if (System.IO.File.Exists(path))
+                        {
+                            try
+                            {
+                                string content = System.IO.File.ReadAllText(path).Trim();
+                                if (!string.IsNullOrWhiteSpace(content))
+                                {
+                                    extraErr += $"\n\n[squirrel_error.log]\n{content}";
+                                }
+                            }
+                            catch { }
+                        }
+                    }
+
+                    throw new Exception($"NSC_Builder squirrel failed with exit code {proc.ExitCode}.\nЛог NSC_Builder:\n{logErr}{extraErr}");
                 }
 
                 // Search for the actual content file (.nsp/.xci), skipping metadata like .cnmt.xml
