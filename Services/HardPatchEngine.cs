@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -51,6 +51,7 @@ namespace StormSwitchBox.Services
                 
                 string userProfileSwitch = System.IO.Path.Combine(isolatedUserProfile, ".switch");
                 string userProfileKeys = System.IO.Path.Combine(userProfileSwitch, "prod.keys");
+                string squirrelKeys = System.IO.Path.Combine(toolsDir, "nscb", "ztools", "keys.txt");
                 
                 lock (_keysLock)
                 {
@@ -170,6 +171,10 @@ namespace StormSwitchBox.Services
                 string keysPath = App.Settings.Current.KeysPath;
                 if (string.IsNullOrEmpty(keysPath) || !File.Exists(keysPath))
                     keysPath = userProfileKeys;
+                if (string.IsNullOrEmpty(keysPath) || !File.Exists(keysPath))
+                    keysPath = squirrelKeys;
+
+                string keyfileFlag = (!string.IsNullOrEmpty(keysPath) && File.Exists(keysPath)) ? $"-k \"{keysPath}\" " : "";
 
                 string yanuOutDir = System.IO.Path.Combine(tempDir, "yanu_output");
                 Directory.CreateDirectory(yanuOutDir);
@@ -202,7 +207,7 @@ namespace StormSwitchBox.Services
                     string tempUnpack = System.IO.Path.Combine(tempDir, "unpack_modded");
                     Directory.CreateDirectory(tempUnpack);
                     
-                    string unpackArgs = $"unpack --base \"{baseFile}\"";
+                    string unpackArgs = $"{keyfileFlag}unpack --base \"{baseFile}\"";
                     if (!string.IsNullOrEmpty(updateFile)) unpackArgs += $" --update \"{updateFile}\"";
                     unpackArgs += $" -o \"{tempUnpack}\"";
                     
@@ -264,12 +269,14 @@ namespace StormSwitchBox.Services
                             }
                         } catch { }
                     }
-                    if (string.IsNullOrEmpty(controlNca)) throw new Exception("Не удалось найти control.nca после распаковки для сборки модов.");
+                    if (string.IsNullOrEmpty(controlNca))
+                        controlNca = ncaFiles.FirstOrDefault(f => f.EndsWith(".nca", StringComparison.OrdinalIgnoreCase)) ?? "";
 
                     if (!Directory.Exists(targetRomFs)) Directory.CreateDirectory(targetRomFs);
                     if (!Directory.Exists(targetExeFs)) Directory.CreateDirectory(targetExeFs);
 
-                    string packArgs = $"pack --titleid {titleId} --controlnca \"{controlNca}\" --romfsdir \"{targetRomFs}\" --exefsdir \"{targetExeFs}\" -o \"{yanuOutDir}\" {keepLangsArg} {titleVersionArg}".TrimEnd();
+                    string titleIdStr = maxTitleId > 0 ? maxTitleId.ToString("X16") : titleId;
+                    string packArgs = $"{keyfileFlag}pack --titleid {titleIdStr} --controlnca \"{controlNca}\" --romfsdir \"{targetRomFs}\" --exefsdir \"{targetExeFs}\" -o \"{yanuOutDir}\" {keepLangsArg} {titleVersionArg}".TrimEnd();
                     var packPsi = new ProcessStartInfo
                     {
                         FileName = yanuCliPath,
@@ -303,16 +310,8 @@ namespace StormSwitchBox.Services
                 }
                 else
                 {
-                    // ═══════════════════════════════════════════════════════════════
-                    // ПЕРЕСБОРКА: Стратегия 1 → yanu-cli update (один шаг)
-                    //              Стратегия 2 → unpack + PFS0 combine (fallback)
-                    // yanu-cli unpack НЕ создаёт romfs/exefs для BKTR-обновлений,
-                    // поэтому pack без них невозможен. Используем PFS0-сборку.
-                    // ═══════════════════════════════════════════════════════════════
-                    
                     bool yanuUpdateSuccess = false;
                     
-                    // === СТРАТЕГИЯ 1: yanu-cli update (один шаг, работает для простых обновлений) ===
                     if (!string.IsNullOrEmpty(updateFile))
                     {
                         App.RunOnUI(() => task.LogDetails += $"\n[1/2] Попытка пересборки (yanu-cli update)...");

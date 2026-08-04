@@ -299,7 +299,7 @@ namespace StormSwitchBox.Views
                     var dialog = new ContentDialog
                     {
                         Title = "Обновления не найдены",
-                        Content = new TextBlock { Text = "У вас установлена актуальная версия STORM SWITCH BOX v3.8.9." },
+                        Content = new TextBlock { Text = "У вас установлена актуальная версия STORM SWITCH BOX v3.9.0." },
                         CloseButtonText = "OK",
                         XamlRoot = this.XamlRoot
                     };

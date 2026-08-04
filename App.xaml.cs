@@ -200,7 +200,7 @@ namespace StormSwitchBox
                 {
                     MainWindow = new MainWindow();
                 }
-                MainWindow.Activate();
+                if (MainWindow is MainWindow mw1) mw1.RestoreWindow(); else MainWindow.Activate();
                 
                 // Initialize the page and add tasks visually instead of background execution
                 InitializeTasksFromCommandLine(cliAction, cliPaths.ToArray(), cliFormat);
@@ -209,7 +209,7 @@ namespace StormSwitchBox
             
             if (MainWindow != null)
             {
-                MainWindow.Activate();
+                if (MainWindow is MainWindow mw2) mw2.RestoreWindow(); else MainWindow.Activate();
             }
             return false;
         }
