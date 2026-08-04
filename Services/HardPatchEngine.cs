@@ -167,12 +167,10 @@ namespace StormSwitchBox.Services
                 string outDir = System.IO.Path.GetDirectoryName(outPath) ?? string.Empty;
                 Directory.CreateDirectory(outDir);
 
+                App.EnsureUserKeysAvailable();
+
                 string yanuCliPath = FindYanuCli();
                 string keysPath = App.Settings.Current.KeysPath;
-                if (string.IsNullOrEmpty(keysPath) || !File.Exists(keysPath))
-                    keysPath = userProfileKeys;
-                if (string.IsNullOrEmpty(keysPath) || !File.Exists(keysPath))
-                    keysPath = squirrelKeys;
 
                 string keyfileFlag = (!string.IsNullOrEmpty(keysPath) && File.Exists(keysPath)) ? $"-k \"{keysPath}\" " : "";
 
