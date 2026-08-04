@@ -284,7 +284,8 @@ namespace StormSwitchBox.Services
                 string mlistFile = System.IO.Path.Combine(tempDecompDir, "mlist.txt");
                 System.IO.File.WriteAllLines(mlistFile, sortedList);
 
-                string args = $"-t {fmt} -o \"{outFolder}\" -tfile \"{mlistFile}\" -dmul \"calculate\"";
+                // Полная эталонная строка аргументов из STORM_SWITCH_BOX+(1.1.000)
+                string args = $"-b 65536 -pv false -kp false -fat exfat -fx files -ND true -roma TRUE -t {fmt} -o \"{outFolder}\" -tfile \"{mlistFile}\" -dmul \"calculate\"";
                 
                 // Log the file list being passed to squirrel for diagnostics
                 App.Logger.Log($"[squirrel] args: {args}", Models.LogLevel.Info);
@@ -310,6 +311,10 @@ namespace StormSwitchBox.Services
                 string nscbTemp = System.IO.Path.Combine(nscbDir, "temp");
                 if (!Directory.Exists(nscbTemp)) Directory.CreateDirectory(nscbTemp);
 
+                string ztoolsDir = System.IO.Path.Combine(nscbDir, "ztools");
+                string ztoolsTemp = System.IO.Path.Combine(ztoolsDir, "temp");
+                if (!Directory.Exists(ztoolsTemp)) Directory.CreateDirectory(ztoolsTemp);
+
                 string toolsTemp = System.IO.Path.Combine(toolsDir, "temp");
                 if (!Directory.Exists(toolsTemp)) Directory.CreateDirectory(toolsTemp);
 
@@ -317,7 +322,7 @@ namespace StormSwitchBox.Services
                 {
                     FileName = "cmd.exe",
                     Arguments = $"/c chcp 65001 >nul & \"{squirrelExe}\" {args}",
-                    WorkingDirectory = nscbDir,
+                    WorkingDirectory = ztoolsDir, // <--- ЭТАЛОННАЯ РАБОЧАЯ ДИРЕКТОРИЯ NSCB!
                     UseShellExecute = false,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,

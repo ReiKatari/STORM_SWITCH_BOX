@@ -7,8 +7,9 @@ dotnet publish "e:\STORM SWITCH BOX\StormSwitchBox.csproj" -c Release -r win-x64
 echo ==============================================
 echo 2. Очистка старого файла установки...
 echo ==============================================
-if exist "e:\STORM SWITCH BOX\installer\Output\STORM_SWITCH_BOX_3.9.2_Setup.exe" (
-    del /f /q "e:\STORM SWITCH BOX\installer\Output\STORM_SWITCH_BOX_3.9.2_Setup.exe" 2>nul
+if exist "e:\STORM SWITCH BOX\installer\Output\STORM_SWITCH_BOX_v3.9.2_Setup.exe" (
+    powershell -Command "Get-Process -Name STORM_SWITCH_BOX*, setup* -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue" 2>nul
+    del /f /q /a "e:\STORM SWITCH BOX\installer\Output\STORM_SWITCH_BOX_v3.9.2_Setup.exe" 2>nul
 )
 
 echo ==============================================
