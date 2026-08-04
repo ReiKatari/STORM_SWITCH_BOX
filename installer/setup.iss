@@ -11,7 +11,10 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 Compression=lzma2/ultra64
 UninstallDisplayIcon={app}\StormSwitchBox.exe
-PrivilegesRequired=lowest
+AppMutex=StormSwitchBox_SingleInstanceMutex
+CloseApplications=yes
+CloseApplicationsFilter=*StormSwitchBox*
+RestartApplications=no
 
 [Types]
 Name: "full"; Description: "Стандартная установка"
@@ -53,6 +56,9 @@ var
   Found: Boolean;
 begin
   Result := True;
+  // Принудительное завершение работающих экземпляров приложения перед установкой/заменой файлов
+  Exec('taskkill.exe', '/F /IM StormSwitchBox.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+
   UninstallKey := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\STORM SWITCH BOX_is1';
   BackupSettingsExist := False;
   BackupHistoryExist := False;
