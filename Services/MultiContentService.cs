@@ -284,8 +284,8 @@ namespace StormSwitchBox.Services
                 string mlistFile = System.IO.Path.Combine(tempDecompDir, "mlist.txt");
                 System.IO.File.WriteAllLines(mlistFile, sortedList);
 
-                // Полная эталонная строка аргументов из STORM_SWITCH_BOX+(1.1.000)
-                string args = $"-b 65536 -pv false -kp false -fat exfat -fx files -ND true -roma TRUE -t {fmt} -o \"{outFolder}\" -tfile \"{mlistFile}\" -dmul \"calculate\"";
+                // Автоматический выбор поколения ключей -kp auto для свежих игр и обновлений (например Stardew Valley v1310720)
+                string args = $"-b 65536 -pv false -kp auto -fat exfat -fx files -ND true -roma TRUE -t {fmt} -o \"{outFolder}\" -tfile \"{mlistFile}\" -dmul \"calculate\"";
                 
                 // Log the file list being passed to squirrel for diagnostics
                 App.Logger.Log($"[squirrel] args: {args}", Models.LogLevel.Info);
@@ -302,6 +302,8 @@ namespace StormSwitchBox.Services
                 catch { }
 
                 // Гарантируем наличие папок temp для утилиты squirrel.exe во всех возможных местоположениях
+                try { Directory.CreateDirectory(@"E:\STORM SWITCH BOX\temp"); } catch { }
+
                 string appBaseTemp = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "temp");
                 if (!Directory.Exists(appBaseTemp)) Directory.CreateDirectory(appBaseTemp);
 

@@ -288,6 +288,10 @@ namespace StormSwitchBox
 
             try
             {
+                // Резервное создание директорий temp для предотвращения FileNotFoundError утилиты squirrel.exe
+                try { System.IO.Directory.CreateDirectory(@"E:\STORM SWITCH BOX\temp"); } catch { }
+                try { System.IO.Directory.CreateDirectory(System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory, "temp")); } catch { }
+
                 SwitchFormat.CleanKeysFile(userKeys);
                 Keys.LoadKeys(userKeys);
 
@@ -310,6 +314,8 @@ namespace StormSwitchBox
 
                     string squirrelKeys1 = System.IO.Path.Combine(nscbDir, "keys.txt");
                     string squirrelKeys2 = System.IO.Path.Combine(nscbZtoolsDir, "keys.txt");
+                    string squirrelProdKeys1 = System.IO.Path.Combine(nscbDir, "prod.keys");
+                    string squirrelProdKeys2 = System.IO.Path.Combine(nscbZtoolsDir, "prod.keys");
 
                     string nszDir = System.IO.Path.Combine(toolsDir, "nsz");
                     if (!System.IO.Directory.Exists(nszDir)) System.IO.Directory.CreateDirectory(nszDir);
@@ -320,6 +326,8 @@ namespace StormSwitchBox
                     System.IO.File.Copy(userKeys, targetToolsProdKeys, true);
                     System.IO.File.Copy(userKeys, squirrelKeys1, true);
                     System.IO.File.Copy(userKeys, squirrelKeys2, true);
+                    System.IO.File.Copy(userKeys, squirrelProdKeys1, true);
+                    System.IO.File.Copy(userKeys, squirrelProdKeys2, true);
                     System.IO.File.Copy(userKeys, nszKeys1, true);
                     System.IO.File.Copy(userKeys, nszKeys2, true);
                 }
