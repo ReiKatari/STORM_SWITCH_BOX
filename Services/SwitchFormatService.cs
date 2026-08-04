@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -1025,7 +1025,14 @@ namespace StormSwitchBox.Services
 
                     try
                     {
-                        string packArgs = $"pack --titleid {titleId} --controlnca \"{controlNca}\" --romfsdir \"{romfsDir}\" --exefsdir \"{exefsDir}\" -o \"{tempOut}\"";
+                        string keysPath = App.Settings.Current.KeysPath;
+                        if (string.IsNullOrEmpty(keysPath) || !File.Exists(keysPath))
+                        {
+                            keysPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tools", "keys.txt");
+                        }
+                        string keyfileFlag = (!string.IsNullOrEmpty(keysPath) && File.Exists(keysPath)) ? $"-k \"{keysPath}\" " : "";
+
+                        string packArgs = $"{keyfileFlag}pack --titleid {titleId} --controlnca \"{controlNca}\" --romfsdir \"{romfsDir}\" --exefsdir \"{exefsDir}\" -o \"{tempOut}\"";
                         var packPsi = new System.Diagnostics.ProcessStartInfo
                         {
                             FileName = yanuCliPath,
