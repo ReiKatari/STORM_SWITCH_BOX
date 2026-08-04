@@ -108,26 +108,19 @@ namespace StormSwitchBox
                 Logger.Log($"Ошибка регистрации AppNotificationManager: {ex.Message}", Models.LogLevel.Warning);
             }
 
-            // Пытаемся автоматически загрузить ключи при старте
+            // Проверяем и загружаем ключи пользователя
             string keysPath = Settings.Current.KeysPath;
-
-            if (string.IsNullOrEmpty(keysPath) || !System.IO.File.Exists(keysPath))
+            if (!string.IsNullOrEmpty(keysPath) && System.IO.File.Exists(keysPath))
             {
-                keysPath = System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory, "prod.keys");
-                if (!System.IO.File.Exists(keysPath))
+                try
                 {
-                    keysPath = System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory, "..", "..", "tools", "keys.txt");
+                    EnsureUserKeysAvailable();
                 }
-            }
-            
-            if (System.IO.File.Exists(keysPath))
-            {
-                Settings.Current.KeysPath = keysPath;
-                Keys.LoadKeys(keysPath);
+                catch { }
             }
             else
             {
-                Logger.Log($"Файл ключей не найден. Укажите его в параметрах.", Models.LogLevel.Error);
+                Logger.Log("Файл криптографических ключей не найден. Пожалуйста, укажите его в параметрах.", Models.LogLevel.Warning);
             }
 
             // AUTOMATED TEST BYPASS
@@ -283,6 +276,64 @@ namespace StormSwitchBox
         {
             Logger.Log($"CRASH: {e.Exception.Message}\n{e.Exception.StackTrace}", Models.LogLevel.Error);
             System.IO.File.WriteAllText(System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory, "crash.log"), e.Exception.ToString());
+        }
+
+        public static void EnsureUserKeysAvailable()
+        {
+            string userKeys = Settings.Current.KeysPath;
+            if (string.IsNullOrEmpty(userKeys) || !System.IO.File.Exists(userKeys))
+            {
+                throw new Exception("Отсутствуют криптографические ключи (prod.keys / keys.txt). Пожалуйста, выберите их в Параметрах.");
+            }
+
+            try
+            {
+                SwitchFormat.CleanKeysFile(userKeys);
+                Keys.LoadKeys(userKeys);
+
+                string appDir = System.AppDomain.CurrentDomain.BaseDirectory;
+                string toolsDir = System.IO.Path.Combine(appDir, "tools");
+                if (!System.IO.Directory.Exists(toolsDir))
+                {
+                    string parentTools = System.IO.Path.Combine(appDir, "..", "..", "tools");
+                    if (System.IO.Directory.Exists(parentTools)) toolsDir = parentTools;
+                }
+
+                if (System.IO.Directory.Exists(toolsDir))
+                {
+                    string targetToolsKeys = System.IO.Path.Combine(toolsDir, "keys.txt");
+                    string targetToolsProdKeys = System.IO.Path.Combine(toolsDir, "prod.keys");
+                    
+                    string nscbDir = System.IO.Path.Combine(toolsDir, "nscb");
+                    string nscbZtoolsDir = System.IO.Path.Combine(nscbDir, "ztools");
+                    if (!System.IO.Directory.Exists(nscbZtoolsDir)) System.IO.Directory.CreateDirectory(nscbZtoolsDir);
+
+                    string squirrelKeys1 = System.IO.Path.Combine(nscbDir, "keys.txt");
+                    string squirrelKeys2 = System.IO.Path.Combine(nscbZtoolsDir, "keys.txt");
+
+                    string nszDir = System.IO.Path.Combine(toolsDir, "nsz");
+                    if (!System.IO.Directory.Exists(nszDir)) System.IO.Directory.CreateDirectory(nszDir);
+                    string nszKeys1 = System.IO.Path.Combine(nszDir, "keys.txt");
+                    string nszKeys2 = System.IO.Path.Combine(nszDir, "prod.keys");
+
+                    System.IO.File.Copy(userKeys, targetToolsKeys, true);
+                    System.IO.File.Copy(userKeys, targetToolsProdKeys, true);
+                    System.IO.File.Copy(userKeys, squirrelKeys1, true);
+                    System.IO.File.Copy(userKeys, squirrelKeys2, true);
+                    System.IO.File.Copy(userKeys, nszKeys1, true);
+                    System.IO.File.Copy(userKeys, nszKeys2, true);
+                }
+
+                // Синхронизация в профиль пользователя Windows (.switch)
+                string userProfileSwitch = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch");
+                if (!System.IO.Directory.Exists(userProfileSwitch)) System.IO.Directory.CreateDirectory(userProfileSwitch);
+                System.IO.File.Copy(userKeys, System.IO.Path.Combine(userProfileSwitch, "prod.keys"), true);
+                System.IO.File.Copy(userKeys, System.IO.Path.Combine(userProfileSwitch, "keys.txt"), true);
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"Предупреждение при рассылке ключей: {ex.Message}", Models.LogLevel.Warning);
+            }
         }
     }
 }

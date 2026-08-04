@@ -105,26 +105,10 @@ namespace StormSwitchBox.Views
                 var file = await picker.PickSingleFileAsync();
                 if (file != null)
                 {
-                    string toolsDir = System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory, "tools");
-                    if (!System.IO.Directory.Exists(toolsDir))
-                    {
-                        string devToolsDir = System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory, "..", "..", "tools");
-                        if (System.IO.Directory.Exists(devToolsDir))
-                            toolsDir = devToolsDir;
-                        else
-                            System.IO.Directory.CreateDirectory(toolsDir);
-                    }
-
-                    string targetTxt = System.IO.Path.Combine(toolsDir, "keys.txt");
-                    string targetProd = System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory, "prod.keys");
-
-                    try { System.IO.File.Copy(file.Path, targetTxt, true); } catch { }
-                    try { System.IO.File.Copy(file.Path, targetProd, true); } catch { }
-
-                    App.Settings.Current.KeysPath = targetTxt;
+                    App.Settings.Current.KeysPath = file.Path;
                     await App.Settings.SaveAsync();
-                    App.Keys.LoadKeys(targetTxt);
-                    App.Logger.Log($"Файл ключей скопирован и применен: {targetTxt}", Models.LogLevel.Success);
+                    App.EnsureUserKeysAvailable();
+                    App.Logger.Log($"Файл ключей применен и расслан во все модули: {file.Path}", Models.LogLevel.Success);
                     this.Bindings.Update();
                 }
             }
@@ -151,24 +135,10 @@ namespace StormSwitchBox.Views
                 if (result == ContentDialogResult.Primary && !string.IsNullOrWhiteSpace(textBox.Text) && System.IO.File.Exists(textBox.Text.Trim()))
                 {
                     string filePath = textBox.Text.Trim();
-                    string toolsDir = System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory, "tools");
-                    if (!System.IO.Directory.Exists(toolsDir))
-                    {
-                        string devToolsDir = System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory, "..", "..", "tools");
-                        if (System.IO.Directory.Exists(devToolsDir)) toolsDir = devToolsDir;
-                        else System.IO.Directory.CreateDirectory(toolsDir);
-                    }
-
-                    string targetTxt = System.IO.Path.Combine(toolsDir, "keys.txt");
-                    string targetProd = System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory, "prod.keys");
-
-                    try { System.IO.File.Copy(filePath, targetTxt, true); } catch { }
-                    try { System.IO.File.Copy(filePath, targetProd, true); } catch { }
-
-                    App.Settings.Current.KeysPath = targetTxt;
+                    App.Settings.Current.KeysPath = filePath;
                     await App.Settings.SaveAsync();
-                    App.Keys.LoadKeys(targetTxt);
-                    App.Logger.Log($"Файл ключей скопирован и применен (вручную): {targetTxt}", Models.LogLevel.Success);
+                    App.EnsureUserKeysAvailable();
+                    App.Logger.Log($"Файл ключей применен и расслан во все модули: {filePath}", Models.LogLevel.Success);
                     this.Bindings.Update();
                 }
             }

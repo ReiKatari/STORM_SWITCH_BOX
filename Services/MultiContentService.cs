@@ -200,7 +200,11 @@ namespace StormSwitchBox.Services
                         toolsDir = parentTools;
                     }
                 }
-                string squirrelExe = System.IO.Path.Combine(toolsDir, "nscb", "ztools", "squirrel.exe");
+                App.EnsureUserKeysAvailable();
+
+                // Ищем рабочий каталог утилиты NSC_Builder
+                string nscbDir = System.IO.Path.Combine(toolsDir, "nscb");
+                string squirrelExe = System.IO.Path.Combine(nscbDir, "ztools", "squirrel.exe");
 
                 if (!System.IO.File.Exists(squirrelExe))
                     throw new Exception($"NSC_Builder (squirrel.exe) не найден по пути: {squirrelExe}");
@@ -210,7 +214,8 @@ namespace StormSwitchBox.Services
 
                 string userProfileSwitch = System.IO.Path.Combine(isolatedUserProfile, ".switch");
                 string userProfileKeys = System.IO.Path.Combine(userProfileSwitch, "prod.keys");
-                string squirrelKeys = System.IO.Path.Combine(toolsDir, "nscb", "ztools", "keys.txt");
+                string squirrelKeys1 = System.IO.Path.Combine(nscbDir, "keys.txt");
+                string squirrelKeys2 = System.IO.Path.Combine(nscbDir, "ztools", "keys.txt");
 
                 lock (typeof(HardPatchEngine)) // Using type lock for safety as _keysLock is private
                 {
@@ -223,7 +228,8 @@ namespace StormSwitchBox.Services
                         {
                             App.SwitchFormat.CleanKeysFile(App.Settings.Current.KeysPath);
                             System.IO.File.Copy(App.Settings.Current.KeysPath, userProfileKeys, true);
-                            System.IO.File.Copy(App.Settings.Current.KeysPath, squirrelKeys, true);
+                            System.IO.File.Copy(App.Settings.Current.KeysPath, squirrelKeys1, true);
+                            System.IO.File.Copy(App.Settings.Current.KeysPath, squirrelKeys2, true);
                         }
                     }
                     catch { }
@@ -298,14 +304,42 @@ namespace StormSwitchBox.Services
                 {
                     FileName = "cmd.exe",
                     Arguments = $"/c chcp 65001 >nul & \"{squirrelExe}\" {args}",
+                    WorkingDirectory = nscbDir,
                     UseShellExecute = false,
-                    CreateNoWindow = true
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true,
+                    StandardOutputEncoding = System.Text.Encoding.UTF8,
+                    StandardErrorEncoding = System.Text.Encoding.UTF8
                 };
                 psi.EnvironmentVariables["USERPROFILE"] = isolatedUserProfile;
                 psi.EnvironmentVariables["LOCALAPPDATA"] = isolatedLocalAppData;
 
-                using var proc = System.Diagnostics.Process.Start(psi);
-                if (proc == null) throw new Exception("Не удалось запустить squirrel.exe");
+                var squirrelLog = new System.Text.StringBuilder();
+
+                using var proc = new System.Diagnostics.Process { StartInfo = psi };
+
+                proc.OutputDataReceived += (s, e) =>
+                {
+                    if (e.Data != null)
+                    {
+                        lock (squirrelLog) { squirrelLog.AppendLine(e.Data); }
+                        App.RunOnUI(() => task.LogDetails += $"\n[NSC_Builder] {e.Data}");
+                    }
+                };
+
+                proc.ErrorDataReceived += (s, e) =>
+                {
+                    if (e.Data != null)
+                    {
+                        lock (squirrelLog) { squirrelLog.AppendLine(e.Data); }
+                        App.RunOnUI(() => task.LogDetails += $"\n[NSC_Builder Error] {e.Data}");
+                    }
+                };
+
+                proc.Start();
+                proc.BeginOutputReadLine();
+                proc.BeginErrorReadLine();
 
                 await proc.WaitForExitAsync(cancellationToken);
 
@@ -313,7 +347,8 @@ namespace StormSwitchBox.Services
 
                 if (proc.ExitCode != 0)
                 {
-                    throw new Exception($"NSC_Builder squirrel failed with exit code {proc.ExitCode}.");
+                    string logErr = squirrelLog.ToString().Trim();
+                    throw new Exception($"NSC_Builder squirrel failed with exit code {proc.ExitCode}.\nЛог NSC_Builder:\n{logErr}");
                 }
 
                 // Search for the actual content file (.nsp/.xci), skipping metadata like .cnmt.xml
