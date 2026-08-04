@@ -100,56 +100,6 @@ begin
   if Found then
   begin
     Log('SSB_Update: Old InstallLocation = ' + InstallLocation);
-    Log('SSB_Update: Old UninstallString = ' + UninstallString);
-
-    if (UninstallString <> '') and (InstallLocation <> '') then
-    begin
-      BackupDir := ExpandConstant('{tmp}\SSB_Backup');
-      CreateDir(BackupDir);
-      Log('SSB_Update: Created backup directory ' + BackupDir);
-      
-      // Резервное копирование настроек
-      if FileExists(InstallLocation + '\ssb_native.settings.json') then
-      begin
-        if CopyFile(InstallLocation + '\ssb_native.settings.json', BackupDir + '\ssb_native.settings.json', False) then
-        begin
-          BackupSettingsExist := True;
-          Log('SSB_Update: Settings backup created successfully.');
-        end
-        else
-          Log('SSB_Update: Failed to backup settings.');
-      end
-      else
-        Log('SSB_Update: Settings file ssb_native.settings.json not found in old installation.');
-      
-      // Резервное копирование истории
-      if FileExists(InstallLocation + '\history.json') then
-      begin
-        if CopyFile(InstallLocation + '\history.json', BackupDir + '\history.json', False) then
-        begin
-          BackupHistoryExist := True;
-          Log('SSB_Update: History backup created successfully.');
-        end
-        else
-          Log('SSB_Update: Failed to backup history.');
-      end
-      else
-        Log('SSB_Update: History file history.json not found in old installation.');
-
-      // Очищаем путь от кавычек
-      UninstallString := RemoveQuotes(UninstallString);
-      Log('SSB_Update: Executing quiet uninstall via ShellExec: ' + UninstallString);
-      
-      // Запускаем тихий деинсталлятор через ShellExec для поддержки UAC-подъема
-      if ShellExec('open', UninstallString, '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /NOCLOSEAPPLICATIONS', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
-      begin
-        Log('SSB_Update: Uninstall completed with ResultCode = ' + IntToStr(ResultCode));
-      end
-      else
-      begin
-        Log('SSB_Update: Failed to execute uninstall. Error code = ' + SysErrorMessage(DllGetLastError()));
-      end;
-    end;
   end
   else
   begin
