@@ -82,16 +82,72 @@ namespace StormSwitchBox.Services
                 {
                     App.RunOnUI(() => task.LogDetails += $"\nАнализ исходных файлов...");
                     
+                    var dlcFiles = new List<string>();
+
                     foreach (var file in inputFiles)
                     {
                         if (System.IO.Directory.Exists(file)) continue;
+                        
                         var info = App.SwitchFormat.ParseNsp(file);
-                        if (info.ContentType == "Application") baseFile = file;
-                        else if (info.ContentType == "Patch") updateFile = file;
+                        string tid = (info.TitleId ?? "").Trim().ToUpperInvariant();
+                        
+                        bool isDlc = info.ContentType == "AddOnContent" || 
+                                     (!string.IsNullOrEmpty(tid) && tid.Length == 16 && !tid.EndsWith("000") && !tid.EndsWith("800")) ||
+                                     file.Contains("DLC", StringComparison.OrdinalIgnoreCase);
+
+                        bool isBase = info.ContentType == "Application" || 
+                                      (!string.IsNullOrEmpty(tid) && tid.Length == 16 && tid.EndsWith("000"));
+
+                        bool isPatch = info.ContentType == "Patch" || 
+                                       (!string.IsNullOrEmpty(tid) && tid.Length == 16 && tid.EndsWith("800"));
+
+                        if (isBase && string.IsNullOrEmpty(baseFile))
+                        {
+                            baseFile = file;
+                        }
+                        else if (isPatch && string.IsNullOrEmpty(updateFile))
+                        {
+                            updateFile = file;
+                        }
+                        else if (isDlc)
+                        {
+                            dlcFiles.Add(file);
+                        }
                     }
 
-                    if (string.IsNullOrEmpty(baseFile)) baseFile = inputFiles.FirstOrDefault(f => !System.IO.Directory.Exists(f) && (f.Contains("[v0]") || f.Contains("v0"))) ?? inputFiles.FirstOrDefault(f => !System.IO.Directory.Exists(f)) ?? "";
-                    if (string.IsNullOrEmpty(updateFile)) updateFile = inputFiles.FirstOrDefault(f => !System.IO.Directory.Exists(f) && f != baseFile && (f.Contains("v") && !f.Contains("v0"))) ?? inputFiles.FirstOrDefault(f => !System.IO.Directory.Exists(f) && f != baseFile) ?? "";
+                    if (string.IsNullOrEmpty(baseFile))
+                    {
+                        baseFile = inputFiles.FirstOrDefault(f => !System.IO.Directory.Exists(f) && 
+                            !f.Contains("DLC", StringComparison.OrdinalIgnoreCase) && 
+                            (f.Contains("[v0]") || f.Contains("v0"))) ?? 
+                            inputFiles.FirstOrDefault(f => !System.IO.Directory.Exists(f) && !f.Contains("DLC", StringComparison.OrdinalIgnoreCase)) ?? "";
+                    }
+
+                    if (string.IsNullOrEmpty(updateFile))
+                    {
+                        updateFile = inputFiles.FirstOrDefault(f => !System.IO.Directory.Exists(f) && 
+                            f != baseFile && 
+                            !f.Contains("DLC", StringComparison.OrdinalIgnoreCase) && 
+                            f.Contains("v") && !f.Contains("v0")) ?? "";
+                    }
+
+                    if (dlcFiles.Count > 0)
+                    {
+                        App.RunOnUI(() => task.LogDetails += $"\nℹ️ Найдено DLC файлов: {dlcFiles.Count} (пропущены для Hard Patch обновления).");
+                    }
+                }
+
+                if (string.IsNullOrEmpty(updateFile))
+                {
+                    if (isMultiContent)
+                    {
+                        App.RunOnUI(() => task.LogDetails += "\nℹ️ Файл обновления (Update v196608...) отсутствует. Пропускаем HardPatch и переходим к прямой сборке файлов...");
+                        return;
+                    }
+                    else
+                    {
+                        throw new Exception("Ошибка: не найден файл обновления (Update .nsp/.nsz с ключом 800). Файлы DLC не содержат системных обновлений игры.");
+                    }
                 }
 
                 App.RunOnUI(() => task.LogDetails += $"\nБаза: {System.IO.Path.GetFileName(baseFile)}\nПатч: {System.IO.Path.GetFileName(updateFile)}");
