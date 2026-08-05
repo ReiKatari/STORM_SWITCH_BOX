@@ -132,8 +132,8 @@ namespace StormSwitchBox.Services
                         catch { }
                     }
                     
-                    if (string.IsNullOrEmpty(baseFile)) baseFile = finalInputFilesList.FirstOrDefault(f => f.Contains("[v0]") || f.Contains("v0")) ?? finalInputFilesList.FirstOrDefault(f => !f.Contains("v")) ?? "";
-                    if (string.IsNullOrEmpty(updateFile)) updateFile = finalInputFilesList.FirstOrDefault(f => f != baseFile && (f.Contains("v") && !f.Contains("v0"))) ?? finalInputFilesList.FirstOrDefault(f => f != baseFile) ?? "";
+                    if (string.IsNullOrEmpty(baseFile)) baseFile = finalInputFilesList.FirstOrDefault(f => !f.Contains("DLC", StringComparison.OrdinalIgnoreCase) && (f.Contains("[v0]") || f.Contains("v0"))) ?? finalInputFilesList.FirstOrDefault(f => !f.Contains("DLC", StringComparison.OrdinalIgnoreCase) && !f.Contains("v")) ?? "";
+                    if (string.IsNullOrEmpty(updateFile)) updateFile = finalInputFilesList.FirstOrDefault(f => f != baseFile && !f.Contains("DLC", StringComparison.OrdinalIgnoreCase) && (f.Contains("v") && !f.Contains("v0"))) ?? "";
                     
                     if (!string.IsNullOrEmpty(baseFile) && !string.IsNullOrEmpty(updateFile))
                     {
