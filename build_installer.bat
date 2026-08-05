@@ -10,8 +10,8 @@ dotnet publish "e:\STORM SWITCH BOX\StormSwitchBox.csproj" -c Release -r win-x64
 echo ==============================================
 echo 2. Очистка старого файла установки...
 echo ==============================================
-if exist "e:\STORM SWITCH BOX\installer\Output\STORM_SWITCH_BOX_3.9.6_Setup.exe" (
-    del /f /q /a "e:\STORM SWITCH BOX\installer\Output\STORM_SWITCH_BOX_3.9.6_Setup.exe" 2>nul
+if exist "e:\STORM SWITCH BOX\installer\Output\STORM_SWITCH_BOX_3.9.7_Setup.exe" (
+    del /f /q /a "e:\STORM SWITCH BOX\installer\Output\STORM_SWITCH_BOX_3.9.7_Setup.exe" 2>nul
 )
 
 echo ==============================================
@@ -22,4 +22,4 @@ echo ==============================================
 echo ==============================================
 echo 4. Упаковка портативного ZIP архива...
 echo ==============================================
-powershell -Command "if (Test-Path 'e:\STORM SWITCH BOX\installer\Output\STORM_SWITCH_BOX_3.9.6_win-x64.zip') { Remove-Item 'e:\STORM SWITCH BOX\installer\Output\STORM_SWITCH_BOX_3.9.6_win-x64.zip' }; Compress-Archive -Path 'e:\STORM SWITCH BOX\bin\Release\net8.0-windows10.0.19041.0\win-x64\publish\*' -DestinationPath 'e:\STORM SWITCH BOX\installer\Output\STORM_SWITCH_BOX_3.9.6_win-x64.zip'"
+powershell -Command "if (Test-Path 'e:\STORM SWITCH BOX\installer\Output\STORM_SWITCH_BOX_3.9.7_win-x64.zip') { Remove-Item 'e:\STORM SWITCH BOX\installer\Output\STORM_SWITCH_BOX_3.9.7_win-x64.zip' }; Compress-Archive -Path 'e:\STORM SWITCH BOX\bin\Release\net8.0-windows10.0.19041.0\win-x64\publish\*' -DestinationPath 'e:\STORM SWITCH BOX\installer\Output\STORM_SWITCH_BOX_3.9.7_win-x64.zip'"
