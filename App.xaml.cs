@@ -108,6 +108,8 @@ namespace StormSwitchBox
                 return;
             }
 
+            Services.TempCleanupService.PurgeStaleTempDirectories();
+
             // Start NamedPipe Server to listen for other instances
             _ = Task.Run(() =>
             {
