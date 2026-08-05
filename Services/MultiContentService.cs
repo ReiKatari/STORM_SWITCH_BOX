@@ -123,17 +123,32 @@ namespace StormSwitchBox.Services
                     
                     foreach (var f in finalInputFilesList)
                     {
+                        if (Directory.Exists(f)) continue;
+                        string tid = "";
                         try 
                         {
                             var info = App.SwitchFormat.ParseNsp(f);
                             if (info.ContentType == "Application") baseFile = f;
                             else if (info.ContentType == "Patch") updateFile = f;
+                            tid = (info.TitleId ?? "").Trim().ToUpperInvariant();
                         }
                         catch { }
+
+                        if (string.IsNullOrEmpty(tid))
+                        {
+                            var match = System.Text.RegularExpressions.Regex.Match(f, @"\[([0-9A-Fa-f]{16})\]");
+                            if (match.Success) tid = match.Groups[1].Value.ToUpperInvariant();
+                        }
+
+                        if (!string.IsNullOrEmpty(tid) && tid.Length == 16)
+                        {
+                            if (tid.EndsWith("000") && string.IsNullOrEmpty(baseFile)) baseFile = f;
+                            else if (tid.EndsWith("800") && string.IsNullOrEmpty(updateFile)) updateFile = f;
+                        }
                     }
                     
-                    if (string.IsNullOrEmpty(baseFile)) baseFile = finalInputFilesList.FirstOrDefault(f => !f.Contains("DLC", StringComparison.OrdinalIgnoreCase) && (f.Contains("[v0]") || f.Contains("v0"))) ?? finalInputFilesList.FirstOrDefault(f => !f.Contains("DLC", StringComparison.OrdinalIgnoreCase) && !f.Contains("v")) ?? "";
-                    if (string.IsNullOrEmpty(updateFile)) updateFile = finalInputFilesList.FirstOrDefault(f => f != baseFile && !f.Contains("DLC", StringComparison.OrdinalIgnoreCase) && (f.Contains("v") && !f.Contains("v0"))) ?? "";
+                    if (string.IsNullOrEmpty(baseFile)) baseFile = finalInputFilesList.FirstOrDefault(f => !Directory.Exists(f) && !f.Contains("DLC", StringComparison.OrdinalIgnoreCase) && (f.Contains("[v0]") || f.Contains("v0"))) ?? finalInputFilesList.FirstOrDefault(f => !Directory.Exists(f) && !f.Contains("DLC", StringComparison.OrdinalIgnoreCase) && !f.Contains("v")) ?? "";
+                    if (string.IsNullOrEmpty(updateFile)) updateFile = finalInputFilesList.FirstOrDefault(f => !Directory.Exists(f) && f != baseFile && !f.Contains("DLC", StringComparison.OrdinalIgnoreCase) && (f.Contains("v") && !f.Contains("v0"))) ?? "";
                     
                     if (!string.IsNullOrEmpty(baseFile) && !string.IsNullOrEmpty(updateFile))
                     {
@@ -170,7 +185,7 @@ namespace StormSwitchBox.Services
                         }
                         else 
                         {
-                            throw new Exception("Не удалось создать пересобранный файл базы.");
+                            App.RunOnUI(() => task.LogDetails += "\nℹ️ Пересборка HardPatch пропущена (файл обновления не найден). Переходим к сшиванию мультиконтента...");
                         }
                     }
                 }
