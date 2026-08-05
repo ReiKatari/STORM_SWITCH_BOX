@@ -68,6 +68,17 @@ namespace StormSwitchBox.Models
         [ObservableProperty]
         private string _errorMessage = "";
 
+        public string FileFormat
+        {
+            get
+            {
+                string path = !string.IsNullOrEmpty(FilePath) ? FilePath : FileName;
+                if (string.IsNullOrEmpty(path)) return "NSP";
+                string ext = System.IO.Path.GetExtension(path).TrimStart('.').ToUpperInvariant();
+                return string.IsNullOrEmpty(ext) ? "NSP" : ext;
+            }
+        }
+
         [ObservableProperty] private string _supportedLanguages = "";
         [ObservableProperty] private string _ratingAge = "";
         [ObservableProperty] private string _videoCapture = "";

@@ -134,6 +134,7 @@ begin
   
   Path := 'Software\Classes\' + Association + '\shell\StormSwitchBox\shell\' + Verb;
   RegWriteStringValue(HKCU, Path, 'MUIVerb', LabelName);
+  RegWriteStringValue(HKCU, Path, 'SubCommands', '');
   
   for I := 0 to 3 do
   begin
@@ -149,12 +150,14 @@ procedure RegisterForAssociation(Association: string);
 begin
   RegWriteStringValue(HKCU, 'Software\Classes\' + Association + '\shell\StormSwitchBox', 'MUIVerb', 'STORM SWITCH BOX');
   RegWriteStringValue(HKCU, 'Software\Classes\' + Association + '\shell\StormSwitchBox', 'Icon', ExpandConstant('{app}') + '\StormSwitchBox.exe');
+  RegWriteStringValue(HKCU, 'Software\Classes\' + Association + '\shell\StormSwitchBox', 'SubCommands', '');
   
   CreateFormatCommands(Association, '01update', 'Обновление', 'update');
   CreateDirectCommand(Association, '02unpack', 'Распаковка', 'unpack');
   CreateFormatCommands(Association, '03pack', 'Упаковка', 'pack');
   CreateFormatCommands(Association, '04convert', 'Конвертация', 'convert');
   CreateFormatCommands(Association, '05multi', 'Мульти-контент', 'multi');
+  CreateDirectCommand(Association, '06verify', 'Проверка', 'verify');
 end;
 
 procedure RegisterAllContextMenus();
@@ -163,6 +166,10 @@ begin
   RegisterForAssociation('SystemFileAssociations\.nsz');
   RegisterForAssociation('SystemFileAssociations\.xci');
   RegisterForAssociation('SystemFileAssociations\.xcz');
+  RegisterForAssociation('.nsp');
+  RegisterForAssociation('.nsz');
+  RegisterForAssociation('.xci');
+  RegisterForAssociation('.xcz');
   RegisterForAssociation('Directory');
 end;
 
@@ -172,6 +179,10 @@ begin
   RegDeleteKeyIncludingSubkeys(HKCU, 'Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox');
   RegDeleteKeyIncludingSubkeys(HKCU, 'Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox');
   RegDeleteKeyIncludingSubkeys(HKCU, 'Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox');
+  RegDeleteKeyIncludingSubkeys(HKCU, 'Software\Classes\.nsp\shell\StormSwitchBox');
+  RegDeleteKeyIncludingSubkeys(HKCU, 'Software\Classes\.nsz\shell\StormSwitchBox');
+  RegDeleteKeyIncludingSubkeys(HKCU, 'Software\Classes\.xci\shell\StormSwitchBox');
+  RegDeleteKeyIncludingSubkeys(HKCU, 'Software\Classes\.xcz\shell\StormSwitchBox');
   RegDeleteKeyIncludingSubkeys(HKCU, 'Software\Classes\Directory\shell\StormSwitchBox');
 end;
 
