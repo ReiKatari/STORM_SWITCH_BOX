@@ -292,43 +292,12 @@ namespace StormSwitchBox.Services
 
                 if (sortedList.Count == 0) sortedList = finalInputFilesList.Where(f => !Directory.Exists(f)).ToList();
 
-                var cleanSortedList = new List<string>();
-                for (int i = 0; i < sortedList.Count; i++)
-                {
-                    string origFile = sortedList[i];
-                    string ext = System.IO.Path.GetExtension(origFile);
-                    string cleanFileName = $"mc_input_{i}{ext}";
-                    string cleanPath = System.IO.Path.Combine(tempDecompDir, cleanFileName);
-
-                    try
-                    {
-                        if (System.IO.File.Exists(cleanPath)) System.IO.File.Delete(cleanPath);
-                        System.IO.File.CreateSymbolicLink(cleanPath, origFile);
-                        cleanSortedList.Add(cleanPath);
-                    }
-                    catch
-                    {
-                        try
-                        {
-                            if (!System.IO.File.Exists(cleanPath))
-                            {
-                                System.IO.File.Copy(origFile, cleanPath, true);
-                            }
-                            cleanSortedList.Add(cleanPath);
-                        }
-                        catch
-                        {
-                            cleanSortedList.Add(origFile);
-                        }
-                    }
-                }
-
                 string fmt = isTargetXci ? "xci" : "nsp";
                 string outFolder = System.IO.Path.Combine(tempDecompDir, "nscb_out");
                 Directory.CreateDirectory(outFolder);
 
                 string mlistFile = System.IO.Path.Combine(tempDecompDir, "mlist.txt");
-                System.IO.File.WriteAllLines(mlistFile, cleanSortedList, System.Text.Encoding.UTF8);
+                System.IO.File.WriteAllLines(mlistFile, sortedList, System.Text.Encoding.UTF8);
 
                 // Автоматический выбор поколения ключей -kp auto для свежих игр и обновлений (например Stardew Valley v1310720)
                 string args = $"-b 65536 -pv false -kp auto -fat exfat -fx files -ND true -roma TRUE -t {fmt} -o \"{outFolder}\" -tfile \"{mlistFile}\" -dmul \"calculate\"";
