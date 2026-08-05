@@ -125,7 +125,7 @@
                         
                         <!-- Info Section -->
                         <StackPanel Grid.Row="1" Margin="0,12,0,0" Spacing="4">
-                            <TextBlock Text="{Binding TitleName}" FontWeight="Bold" FontSize="15" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" Foreground="{ThemeResource TextFillColorPrimaryBrush}" ToolTipService.ToolTip="{Binding TitleName}"/>
+                            <TextBlock Text="{Binding TitleName}" FontWeight="Bold" FontSize="15" TextWrapping="Wrap" MaxLines="3" TextTrimming="CharacterEllipsis" Foreground="{ThemeResource TextFillColorPrimaryBrush}" ToolTipService.ToolTip="{Binding TitleName}"/>
                             <TextBlock Text="{Binding Publisher}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis"/>
                             
                             <Grid Margin="0,4,0,0">
@@ -149,6 +149,9 @@
                             </Grid>
                             
                             <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,4,0,0">
+                                <Border Background="#2980B9" CornerRadius="4" Padding="6,2" ToolTipService.ToolTip="Формат файла">
+                                    <TextBlock Text="{Binding FileFormat}" FontSize="11" Foreground="White" FontWeight="Bold"/>
+                                </Border>
                                 <Button Background="#333333" CornerRadius="4" Padding="6,2" BorderThickness="0" Click="CardCopyTitleId_Click" ToolTipService.ToolTip="Копировать Title ID">
                                     <TextBlock Text="{Binding TitleId}" FontSize="11" Foreground="White" FontFamily="Consolas"/>
                                 </Button>
