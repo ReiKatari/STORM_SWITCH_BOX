@@ -26,7 +26,7 @@ namespace StormSwitchBox
         public MainWindow()
         {
             this.InitializeComponent();
-            this.Title = "STORM SWITCH BOX v3.9.5";
+            this.Title = "STORM SWITCH BOX v3.9.6";
             this.ExtendsContentIntoTitleBar = true; // Современный заголовок окна
 
             var hWnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
@@ -34,8 +34,15 @@ namespace StormSwitchBox
             var appWindow = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(windowId);
             appWindow.SetIcon(System.IO.Path.Combine(System.AppContext.BaseDirectory, "assets", "storm_switch_box.ico"));
             
-            // Включаем эффект полупрозрачности Mica (как в Windows 11)
-            this.SystemBackdrop = new MicaBackdrop();
+            // Безопасное включение фонового эффекта в зависимости от ОС (Mica на Win11, Acrylic на Win10)
+            if (Microsoft.UI.Composition.SystemBackdrops.MicaController.IsSupported())
+            {
+                this.SystemBackdrop = new MicaBackdrop();
+            }
+            else if (Microsoft.UI.Composition.SystemBackdrops.DesktopAcrylicController.IsSupported())
+            {
+                this.SystemBackdrop = new DesktopAcrylicBackdrop();
+            }
             
             // Восстанавливаем размеры и позицию окна из настроек
             RestoreWindowState();
@@ -56,14 +63,28 @@ namespace StormSwitchBox
             var settings = App.Settings.Current;
             var appWindow = this.AppWindow;
             
-            if (settings.WindowWidth > 100 && settings.WindowHeight > 100)
-            {
-                appWindow.Resize(new SizeInt32(settings.WindowWidth, settings.WindowHeight));
-            }
+            int width = settings.WindowWidth >= 600 ? settings.WindowWidth : 1200;
+            int height = settings.WindowHeight >= 400 ? settings.WindowHeight : 800;
+            appWindow.Resize(new SizeInt32(width, height));
             
-            if (settings.WindowX >= 0 && settings.WindowY >= 0)
+            var point = new PointInt32(settings.WindowX, settings.WindowY);
+            var displayArea = Microsoft.UI.Windowing.DisplayArea.GetFromPoint(point, Microsoft.UI.Windowing.DisplayAreaFallback.Nearest);
+            
+            if (displayArea != null && settings.WindowX >= 0 && settings.WindowY >= 0 &&
+                settings.WindowX < (displayArea.WorkArea.X + displayArea.WorkArea.Width - 100) &&
+                settings.WindowY < (displayArea.WorkArea.Y + displayArea.WorkArea.Height - 100))
             {
-                appWindow.Move(new PointInt32(settings.WindowX, settings.WindowY));
+                appWindow.Move(point);
+            }
+            else
+            {
+                var primaryArea = Microsoft.UI.Windowing.DisplayArea.Primary;
+                if (primaryArea != null)
+                {
+                    int centerX = primaryArea.WorkArea.X + (primaryArea.WorkArea.Width - width) / 2;
+                    int centerY = primaryArea.WorkArea.Y + (primaryArea.WorkArea.Height - height) / 2;
+                    appWindow.Move(new PointInt32(Math.Max(0, centerX), Math.Max(0, centerY)));
+                }
             }
         }
 
@@ -176,6 +197,14 @@ namespace StormSwitchBox
         public void RestoreWindow()
         {
             this.AppWindow.Show();
+            if (this.AppWindow.Presenter is OverlappedPresenter presenter)
+            {
+                if (presenter.State == OverlappedPresenterState.Minimized)
+                {
+                    presenter.Restore();
+                }
+                presenter.Activate();
+            }
             this.AppWindow.MoveInZOrderAtTop();
             
             var hWnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
