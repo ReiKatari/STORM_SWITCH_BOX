@@ -149,11 +149,8 @@
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <Border Width="100" Height="100" CornerRadius="12" Background="{ThemeResource SystemAccentColor}" Margin="0,0,24,0" VerticalAlignment="Top">
-                            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-                                <TextBlock Text="STORM" FontWeight="Black" FontSize="20" HorizontalAlignment="Center" Foreground="White"/>
-                                <TextBlock Text="BOX" FontWeight="Bold" FontSize="16" HorizontalAlignment="Center" Foreground="White"/>
-                            </StackPanel>
+                        <Border Width="100" Height="100" CornerRadius="12" Background="Transparent" Margin="0,0,24,0" VerticalAlignment="Top">
+                            <Image Source="ms-appx:///Assets/logo.png" Stretch="Uniform" Width="100" Height="100"/>
                         </Border>
                         <StackPanel Grid.Column="1" Spacing="6">
                             <StackPanel Orientation="Horizontal" Spacing="12">
