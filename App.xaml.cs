@@ -234,6 +234,7 @@ namespace StormSwitchBox
                 "pack"    => "Pack",
                 "convert" => "Convert",
                 "multi"   => "Multi",
+                "verify"  => "Verify",
                 _         => "Multi"
             };
 
