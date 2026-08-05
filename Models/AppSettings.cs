@@ -16,10 +16,10 @@ namespace StormSwitchBox.Models
         public int CompressionLevel { get; set; } = 22;
         public int KeyGeneration { get; set; } = 19;
         public bool UnpackStitched { get; set; } = false;
-        public bool ComplexFolders { get; set; } = false;   // По умолчанию ВЫКЛЮЧЕН
-        public bool ForceMultiRebuild { get; set; } = false;  // По умолчанию ВЫКЛЮЧЕН — Multi-контент просто склеивает файлы
+        public bool ComplexFolders { get; set; } = true;   // По умолчанию ВКЛЮЧЕН
+        public bool ForceMultiRebuild { get; set; } = true;  // По умолчанию ВКЛЮЧЕН
         public bool DeleteSourceOnSuccess { get; set; } = false;
-        public bool TrimXci { get; set; } = true;
+        public bool TrimXci { get; set; } = false;         // По умолчанию ВЫКЛЮЧЕН
         public List<string> KeepLanguages { get; set; } = new List<string> { "ru", "ru-RU", "en-US", "en-GB", "en" };
         public int UsedCores { get; set; } = 16;
         public int ConcurrentTasks { get; set; } = 3;

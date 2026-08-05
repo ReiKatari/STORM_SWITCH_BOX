@@ -28,13 +28,13 @@
                                     <FontIcon Glyph="&#xE73E;" Foreground="LimeGreen" FontSize="14"/>
                                     <TextBlock Text="Файл выбран" Foreground="LimeGreen" FontWeight="SemiBold" VerticalAlignment="Center" FontSize="12"/>
                                 </StackPanel>
-                                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                                    <TextBox x:Name="VerBox1" Width="40" Height="40" MaxLength="1" FontSize="16" FontWeight="Bold" Padding="0,6,0,0" TextAlignment="Center" KeyDown="VerBox_KeyDown" TextChanged="VerBox_TextChanged"/>
-                                    <TextBox x:Name="VerBox2" Width="40" Height="40" MaxLength="1" FontSize="16" FontWeight="Bold" Padding="0,6,0,0" TextAlignment="Center" KeyDown="VerBox_KeyDown" TextChanged="VerBox_TextChanged"/>
-                                    <TextBox x:Name="VerBox3" Width="40" Height="40" IsReadOnly="True" Text="." FontSize="16" FontWeight="Bold" Padding="0,6,0,0" TextAlignment="Center" IsTabStop="False" Background="Transparent" BorderThickness="1"/>
-                                    <TextBox x:Name="VerBox4" Width="40" Height="40" MaxLength="1" FontSize="16" FontWeight="Bold" Padding="0,6,0,0" TextAlignment="Center" KeyDown="VerBox_KeyDown" TextChanged="VerBox_TextChanged"/>
-                                    <TextBox x:Name="VerBox5" Width="40" Height="40" IsReadOnly="True" Text="." FontSize="16" FontWeight="Bold" Padding="0,6,0,0" TextAlignment="Center" IsTabStop="False" Background="Transparent" BorderThickness="1"/>
-                                    <TextBox x:Name="VerBox6" Width="40" Height="40" MaxLength="1" FontSize="16" FontWeight="Bold" Padding="0,6,0,0" TextAlignment="Center" KeyDown="VerBox_KeyDown" TextChanged="VerBox_TextChanged"/>
+                                <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                    <TextBox x:Name="VerBox1" Width="32" Height="32" CornerRadius="6" MaxLength="1" FontSize="14" FontWeight="Bold" Padding="0,3,0,0" TextAlignment="Center" KeyDown="VerBox_KeyDown" TextChanged="VerBox_TextChanged"/>
+                                    <TextBox x:Name="VerBox2" Width="32" Height="32" CornerRadius="6" MaxLength="1" FontSize="14" FontWeight="Bold" Padding="0,3,0,0" TextAlignment="Center" KeyDown="VerBox_KeyDown" TextChanged="VerBox_TextChanged"/>
+                                    <TextBlock Text="." FontSize="18" FontWeight="Bold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" Margin="1,0,1,0"/>
+                                    <TextBox x:Name="VerBox4" Width="32" Height="32" CornerRadius="6" MaxLength="1" FontSize="14" FontWeight="Bold" Padding="0,3,0,0" TextAlignment="Center" KeyDown="VerBox_KeyDown" TextChanged="VerBox_TextChanged"/>
+                                    <TextBlock Text="." FontSize="18" FontWeight="Bold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" Margin="1,0,1,0"/>
+                                    <TextBox x:Name="VerBox6" Width="32" Height="32" CornerRadius="6" MaxLength="1" FontSize="14" FontWeight="Bold" Padding="0,3,0,0" TextAlignment="Center" KeyDown="VerBox_KeyDown" TextChanged="VerBox_TextChanged"/>
                                 </StackPanel>
                                 <Button Content="Выбрать файл..." Click="SelectKeysButton_Click" VerticalAlignment="Center"/>
                             </StackPanel>
@@ -154,7 +154,7 @@
                         </Border>
                         <StackPanel Grid.Column="1" Spacing="6">
                             <StackPanel Orientation="Horizontal" Spacing="12">
-                                <TextBlock Text="STORM SWITCH BOX 3.9.5" FontWeight="Bold" FontSize="24"/>
+                                <TextBlock Text="STORM SWITCH BOX 3.9.6" FontWeight="Bold" FontSize="24"/>
 
                             </StackPanel>
                             <TextBlock Text="Нативная версия WinUI 3" Foreground="{ThemeResource SystemAccentColor}" FontSize="16" FontWeight="SemiBold"/>
