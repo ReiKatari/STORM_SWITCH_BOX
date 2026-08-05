@@ -1,11 +1,11 @@
 [Setup]
 AppName=STORM SWITCH BOX
-AppVersion=3.9.4
+AppVersion=3.9.5
 AppPublisher=ReiKatari
 AppPublisherURL=https://github.com/ReiKatari/STORM_SWITCH_BOX
 DefaultDirName={localappdata}\Programs\STORM_SWITCH_BOX
 DefaultGroupName=STORM_SWITCH_BOX
-OutputBaseFilename=STORM_SWITCH_BOX_v3.9.4_Setup
+OutputBaseFilename=STORM_SWITCH_BOX_3.9.5_Setup
 SetupIconFile=..\storm_switch_box.ico
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -156,6 +156,7 @@ begin
   RegDeleteKeyIncludingSubkeys(HKCU, 'Software\Classes\.xci\shell\StormSwitchBox');
   RegDeleteKeyIncludingSubkeys(HKCU, 'Software\Classes\.xcz\shell\StormSwitchBox');
   RegDeleteKeyIncludingSubkeys(HKCU, 'Software\Classes\Directory\shell\StormSwitchBox');
+  RegDeleteKeyIncludingSubkeys(HKCU, 'Software\Classes\*\shell\StormSwitchBox');
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
@@ -188,6 +189,8 @@ begin
     // Регистрация контекстного меню
     if WizardIsComponentSelected('full') and WizardIsTaskSelected('contextmenu') then
     begin
+      Log('SSB_Setup: Cleaning legacy context menus...');
+      UnregisterAllContextMenus();
       Log('SSB_Setup: Registering context menus...');
       RegisterAllContextMenus();
     end;
