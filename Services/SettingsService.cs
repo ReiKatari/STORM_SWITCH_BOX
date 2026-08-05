@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -27,7 +27,17 @@ namespace StormSwitchBox.Services
                 {
                     var json = await File.ReadAllTextAsync(SettingsPath);
                     var settings = JsonSerializer.Deserialize<AppSettings>(json);
-                    if (settings != null) Current = settings;
+                    if (settings != null)
+                    {
+                        if (settings.AppVersion != "3.9.6")
+                        {
+                            settings.AppVersion = "3.9.6";
+                            settings.ComplexFolders = true;
+                            settings.ForceMultiRebuild = true;
+                            settings.TrimXci = false;
+                        }
+                        Current = settings;
+                    }
                 }
                 catch { }
             }

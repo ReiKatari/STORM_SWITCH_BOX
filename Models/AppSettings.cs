@@ -6,8 +6,9 @@ namespace StormSwitchBox.Models
     public class AppSettings
     {
         // Окно
-        public int WindowX { get; set; } = 100;
-        public int WindowY { get; set; } = 100;
+        public string AppVersion { get; set; } = "3.9.6";
+        public int WindowX { get; set; } = -1;
+        public int WindowY { get; set; } = -1;
         public int WindowWidth { get; set; } = 1200;
         public int WindowHeight { get; set; } = 800;
         public string WindowState { get; set; } = "Normal";

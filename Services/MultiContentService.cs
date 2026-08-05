@@ -341,19 +341,30 @@ namespace StormSwitchBox.Services
 
                 proc.OutputDataReceived += (s, e) =>
                 {
-                    if (e.Data != null)
+                    if (!string.IsNullOrWhiteSpace(e.Data))
                     {
                         lock (squirrelLog) { squirrelLog.AppendLine(e.Data); }
-                        App.RunOnUI(() => task.LogDetails += $"\n[NSC_Builder] {e.Data}");
+                        string line = e.Data.Trim();
+                        // Исключаем огромный спам тысяч мелких файлов hacpack
+                        if (!line.StartsWith("Writing ") || !line.Contains(" to hacpack_temp"))
+                        {
+                            App.RunOnUI(() => task.LogDetails += $"\n[NSC_Builder] {line}");
+                        }
                     }
                 };
 
                 proc.ErrorDataReceived += (s, e) =>
                 {
-                    if (e.Data != null)
+                    if (!string.IsNullOrWhiteSpace(e.Data))
                     {
                         lock (squirrelLog) { squirrelLog.AppendLine(e.Data); }
-                        App.RunOnUI(() => task.LogDetails += $"\n[NSC_Builder Error] {e.Data}");
+                        string line = e.Data.Trim();
+                        // Исключаем tqdm прогресс-бары и спам hacpack, чтобы не засорять лог ложными ошибками [NSC_Builder Error]
+                        if (line.Contains("%|") || line.Contains("B/s]") || line.Contains("00:<") || line.StartsWith("Writing "))
+                        {
+                            return;
+                        }
+                        App.RunOnUI(() => task.LogDetails += $"\n[NSC_Builder] {line}");
                     }
                 };
 
