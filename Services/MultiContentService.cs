@@ -335,68 +335,21 @@ namespace StormSwitchBox.Services
                 string toolsTemp = System.IO.Path.Combine(toolsDir, "temp");
                 if (!Directory.Exists(toolsTemp)) Directory.CreateDirectory(toolsTemp);
 
-                var psi = new System.Diagnostics.ProcessStartInfo
+                int exitCode = await ExternalProcessRunner.RunAsync(
+                    "cmd.exe",
+                    $"/c chcp 65001 >nul & \"{squirrelExe}\" {args}",
+                    ztoolsDir,
+                    task,
+                    cancellationToken,
+                    isolatedUserProfile,
+                    isolatedLocalAppData
+                );
+
+                App.Logger.Log($"[squirrel] exit code: {exitCode}", Models.LogLevel.Info);
+
+                if (exitCode != 0)
                 {
-                    FileName = "cmd.exe",
-                    Arguments = $"/c chcp 65001 >nul & \"{squirrelExe}\" {args}",
-                    WorkingDirectory = ztoolsDir, // <--- ЭТАЛОННАЯ РАБОЧАЯ ДИРЕКТОРИЯ NSCB!
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    CreateNoWindow = true,
-                    StandardOutputEncoding = System.Text.Encoding.UTF8,
-                    StandardErrorEncoding = System.Text.Encoding.UTF8
-                };
-                psi.EnvironmentVariables["USERPROFILE"] = isolatedUserProfile;
-                psi.EnvironmentVariables["LOCALAPPDATA"] = isolatedLocalAppData;
-                psi.EnvironmentVariables["PYTHONIOENCODING"] = "utf-8";
-                psi.EnvironmentVariables["PYTHONUTF8"] = "1";
-                psi.EnvironmentVariables["PYTHONLEGACYWINDOWSSTDIO"] = "0";
-
-                var squirrelLog = new System.Text.StringBuilder();
-
-                using var proc = new System.Diagnostics.Process { StartInfo = psi };
-
-                proc.OutputDataReceived += (s, e) =>
-                {
-                    if (!string.IsNullOrWhiteSpace(e.Data))
-                    {
-                        lock (squirrelLog) { squirrelLog.AppendLine(e.Data); }
-                        string line = e.Data.Trim();
-                        // Исключаем огромный спам тысяч мелких файлов hacpack
-                        if (!line.StartsWith("Writing ") || !line.Contains(" to hacpack_temp"))
-                        {
-                            App.RunOnUI(() => task.LogDetails += $"\n[NSC_Builder] {line}");
-                        }
-                    }
-                };
-
-                proc.ErrorDataReceived += (s, e) =>
-                {
-                    if (!string.IsNullOrWhiteSpace(e.Data))
-                    {
-                        lock (squirrelLog) { squirrelLog.AppendLine(e.Data); }
-                        string line = e.Data.Trim();
-                        // Исключаем tqdm прогресс-бары и спам hacpack, чтобы не засорять лог ложными ошибками [NSC_Builder Error]
-                        if (line.Contains("%|") || line.Contains("B/s]") || line.Contains("00:<") || line.StartsWith("Writing "))
-                        {
-                            return;
-                        }
-                        App.RunOnUI(() => task.LogDetails += $"\n[NSC_Builder] {line}");
-                    }
-                };
-
-                proc.Start();
-                proc.BeginOutputReadLine();
-                proc.BeginErrorReadLine();
-
-                await proc.WaitForExitAsync(cancellationToken);
-
-                App.Logger.Log($"[squirrel] exit code: {proc.ExitCode}", Models.LogLevel.Info);
-
-                if (proc.ExitCode != 0)
-                {
-                    string logErr = squirrelLog.ToString().Trim();
+                    string logErr = task.LogDetails.Trim();
                     string extraErr = string.Empty;
                     
                     var possibleLogPaths = new[]
@@ -423,7 +376,7 @@ namespace StormSwitchBox.Services
                         }
                     }
 
-                    throw new Exception($"NSC_Builder squirrel failed with exit code {proc.ExitCode}.\nЛог NSC_Builder:\n{logErr}{extraErr}");
+                    throw new Exception($"NSC_Builder squirrel failed with exit code {exitCode}.\nЛог NSC_Builder:\n{logErr}{extraErr}");
                 }
 
                 // Search for the actual content file (.nsp/.xci), skipping metadata like .cnmt.xml
