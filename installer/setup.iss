@@ -9,6 +9,8 @@ OutputBaseFilename=STORM_SWITCH_BOX_3.9.7_Setup
 SetupIconFile=..\storm_switch_box.ico
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
+PrivilegesRequired=lowest
+PrivilegesRequiredOverridesAllowed=dialog
 Compression=lzma2/ultra64
 UninstallDisplayIcon={app}\StormSwitchBox.exe
 AppMutex=StormSwitchBox_SingleInstanceMutex
@@ -161,25 +163,21 @@ end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 var
+  ResCode: Integer;
   BackupDir: string;
   AppDir: string;
 begin
   if CurStep = ssPostInstall then
   begin
+    BackupDir := ExpandConstant('{userappdata}\StormSwitchBoxBackup');
     AppDir := ExpandConstant('{app}');
-    BackupDir := ExpandConstant('{tmp}\SSB_Backup');
-
-    // Восстановление настроек
-    if BackupSettingsExist and FileExists(BackupDir + '\ssb_native.settings.json') then
+    if DirExists(BackupDir) then
     begin
-      CopyFile(BackupDir + '\ssb_native.settings.json', AppDir + '\ssb_native.settings.json', False);
-      Log('SSB_Update: Restored settings successfully.');
-    end;
-
-    // Восстановление истории
-    if BackupHistoryExist and FileExists(BackupDir + '\history.json') then
-    begin
-      CopyFile(BackupDir + '\history.json', AppDir + '\history.json', False);
+      if FileExists(BackupDir + '\ssb_native.settings.json') then
+        FileCopy(BackupDir + '\ssb_native.settings.json', AppDir + '\ssb_native.settings.json', True);
+      if FileExists(BackupDir + '\history.json') then
+        FileCopy(BackupDir + '\history.json', AppDir + '\history.json', True);
+      DelTree(BackupDir, True, True, True);
       Log('SSB_Update: Restored history successfully.');
     end;
 
@@ -194,6 +192,9 @@ begin
       Log('SSB_Setup: Registering context menus...');
       RegisterAllContextMenus();
     end;
+
+    // Снятие интернет-блокировки Zone.Identifier со всех установленных файлов
+    Exec('powershell.exe', '-NoProfile -ExecutionPolicy Bypass -Command "Get-ChildItem -Path ''' + ExpandConstant('{app}') + ''' -Recurse | Unblock-File"', '', SW_HIDE, ewWaitUntilTerminated, ResCode);
   end;
 end;
 

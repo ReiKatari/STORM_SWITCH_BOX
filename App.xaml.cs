@@ -45,8 +45,45 @@ namespace StormSwitchBox
 
         public App()
         {
+            UnblockApplicationFiles();
             this.InitializeComponent();
             this.UnhandledException += App_UnhandledException;
+        }
+
+        private static void UnblockApplicationFiles()
+        {
+            try
+            {
+                string baseDir = System.AppContext.BaseDirectory;
+                if (System.IO.Directory.Exists(baseDir))
+                {
+                    var files = System.IO.Directory.GetFiles(baseDir, "*.*", System.IO.SearchOption.AllDirectories);
+                    foreach (var file in files)
+                    {
+                        if (file.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) || 
+                            file.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ||
+                            file.EndsWith(".sys", StringComparison.OrdinalIgnoreCase) ||
+                            file.EndsWith(".pri", StringComparison.OrdinalIgnoreCase))
+                        {
+                            DeleteZoneStream(file);
+                        }
+                    }
+                }
+            }
+            catch { }
+        }
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
+        private static extern bool DeleteFile(string lpFileName);
+
+        private static void DeleteZoneStream(string filePath)
+        {
+            try
+            {
+                string streamPath = filePath + ":Zone.Identifier";
+                DeleteFile(streamPath);
+            }
+            catch { }
         }
 
         protected override async void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
