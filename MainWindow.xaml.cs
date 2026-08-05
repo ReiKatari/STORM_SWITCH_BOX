@@ -203,7 +203,6 @@ namespace StormSwitchBox
                 {
                     presenter.Restore();
                 }
-                presenter.Activate();
             }
             this.AppWindow.MoveInZOrderAtTop();
             
