@@ -302,7 +302,7 @@ namespace StormSwitchBox.Views
                 DetailIntro.Text = item.Intro ?? "";
                 DetailIntro.Visibility = string.IsNullOrEmpty(item.Intro) ? Visibility.Collapsed : Visibility.Visible;
                 
-                DetailDescription.Text = item.Description ?? "";
+                DetailDescription.Text = TitleDbService.EnsureRussianDescription(item);
                 
                 if (item.HasScreenshots)
                 {

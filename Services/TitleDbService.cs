@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
@@ -94,17 +94,69 @@ namespace StormSwitchBox.Services
         private bool _isLoaded = false;
         private readonly HttpClient _httpClient;
 
-        // URL для загрузки базы (может быть переопределен в настройках)
-        private const string DbUrl = "https://tinfoil.media/repo/db/titles.json";
+        // URL для загрузки русскоязычной базы TitleDB
+        private const string DbUrl = "https://tinfoil.media/repo/db/titles.RU.json";
+        private const string FallbackDbUrl = "https://raw.githubusercontent.com/blawar/titledb/master/titles.RU.json";
 
         public TitleDbService()
         {
-            _dbPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "titledb.json");
+            _dbPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "titledb.RU.json");
             _httpClient = new HttpClient();
-            _httpClient.DefaultRequestHeaders.Add("User-Agent", "StormSwitchBox/2.5");
+            _httpClient.DefaultRequestHeaders.Add("User-Agent", "StormSwitchBox/3.9.5");
             
             // Асинхронно загружаем базу из локального кэша
             _ = LoadLocalDbAsync();
+        }
+
+        public static string EnsureRussianDescription(CatalogItem item, TitleDbEntry? entry = null)
+        {
+            string desc = entry?.Description ?? item.Description;
+            
+            // Если есть готовое описание и оно на русском языке
+            if (!string.IsNullOrWhiteSpace(desc) && desc != "Нет описания" && desc != "No description available.")
+            {
+                if (ContainsRussian(desc))
+                {
+                    return desc.Trim();
+                }
+            }
+            
+            // Динамический генератор развернутого описания на русском языке на основе доступных метаданных
+            string title = !string.IsNullOrEmpty(item.TitleName) && item.TitleName != "Unknown Game" ? item.TitleName : (entry?.Name ?? "Данная игра");
+            string publisher = !string.IsNullOrEmpty(item.Publisher) && item.Publisher != "Unknown" ? item.Publisher : (!string.IsNullOrEmpty(entry?.Publisher) ? entry.Publisher : "Nintendo");
+            string developer = !string.IsNullOrEmpty(item.Developer) ? item.Developer : (!string.IsNullOrEmpty(entry?.Developer) ? entry.Developer : publisher);
+            string category = !string.IsNullOrEmpty(item.Category) ? item.Category : "Увлекательный игровой проект";
+            string release = !string.IsNullOrEmpty(item.ReleaseDate) ? $"Дата выхода: {item.ReleaseDate}." : "";
+            string languages = !string.IsNullOrEmpty(item.SupportedLanguages) ? $"Поддерживаемые языки: {item.SupportedLanguages}." : "";
+            string dlcInfo = item.DlcCount > 0 ? $"Для игры доступно {item.DlcCount} дополнений (DLC)." : "";
+
+            string intro = !string.IsNullOrEmpty(item.Intro) ? item.Intro : $"{title} — это {category.ToLowerInvariant()} от разработчика {developer} и издателя {publisher}.";
+
+            string generated = $"{intro}\n\n" +
+                               $"🎮 Жанр: {category}\n" +
+                               $"🏢 Издатель / Разработчик: {publisher} / {developer}\n" +
+                               (!string.IsNullOrEmpty(release) ? $"📅 {release}\n" : "") +
+                               (!string.IsNullOrEmpty(languages) ? $"🌐 {languages}\n" : "") +
+                               (!string.IsNullOrEmpty(dlcInfo) ? $"📦 {dlcInfo}\n" : "") +
+                               $"\nПроект полностью подготовлен для комфортного прохождения на Nintendo Switch.";
+
+            if (!string.IsNullOrWhiteSpace(desc) && desc != "Нет описания" && desc != "No description available.")
+            {
+                return generated + $"\n\n--- Описание (оригинал) ---\n{desc.Trim()}";
+            }
+
+            return generated;
+        }
+
+        private static bool ContainsRussian(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return false;
+            foreach (char c in text)
+            {
+                if ((c >= 'а' && c <= 'я') || (c >= 'А' && c <= 'Я') || c == 'ё' || c == 'Ё')
+                    return true;
+            }
+            return false;
         }
 
         public bool IsDatabaseFresh()
@@ -232,8 +284,7 @@ namespace StormSwitchBox.Services
                     if (item.TitleName == "Unknown Game" || item.TitleName == "Unknown" || string.IsNullOrEmpty(item.TitleName) || HasGarbageCharacters(item.TitleName))
                         item.TitleName = entry.Name ?? item.TitleName;
 
-                    if (!string.IsNullOrEmpty(entry.Description))
-                        item.Description = entry.Description;
+                    item.Description = EnsureRussianDescription(item, entry);
 
                     if (!string.IsNullOrEmpty(entry.Intro))
                         item.Intro = entry.Intro;
