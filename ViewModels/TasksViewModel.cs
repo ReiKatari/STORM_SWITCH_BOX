@@ -1149,7 +1149,7 @@ public partial class TasksViewModel : ObservableObject
 			task.IsRunning = true;
 			List<string> inputFiles3 = task.InputFiles;
 			string outPath2 = Path.Combine(task.OutputFolder, task.OutputFileName + "." + task.TargetFormat.ToLower());
-			await App.MultiContent.BuildMultiContentAsync(task, inputFiles3, outPath2, patchFirmware: false, cts.Token);
+			await App.MultiContent.BuildMultiContentAsync(task, inputFiles3, outPath2, patchFirmware: App.Settings.Current.ForceMultiRebuild, cts.Token);
 			return;
 		}
 		if (task.Operation == "Unpack")
