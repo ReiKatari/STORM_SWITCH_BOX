@@ -265,23 +265,48 @@ namespace StormSwitchBox.Services
 
                     bool isBase = false;
                     bool isPatch = false;
+                    bool isDlc = false;
 
                     try
                     {
                         var info = App.SwitchFormat.ParseNsp(f);
                         if (info.ContentType == "Application") isBase = true;
                         else if (info.ContentType == "Patch") isPatch = true;
+                        else if (info.ContentType == "AddOnContent") isDlc = true;
                     } 
                     catch { }
 
-                    if (!isBase && !isPatch)
+                    if (!isBase && !isPatch && !isDlc)
                     {
-                        // Fallback по имени
-                        if (f.Contains("[v0]") || f.EndsWith("v0.nsp", StringComparison.OrdinalIgnoreCase) || f.Contains("patched_base")) isBase = true;
-                        else if (f.Contains("v") && !f.Contains("v0")) isPatch = true;
+                        string tid = "";
+                        var match = System.Text.RegularExpressions.Regex.Match(f, @"\[([0-9A-Fa-f]{16})\]");
+                        if (match.Success) tid = match.Groups[1].Value.ToUpperInvariant();
+
+                        if (!string.IsNullOrEmpty(tid) && tid.Length == 16)
+                        {
+                            if (tid.EndsWith("000")) isBase = true;
+                            else if (tid.EndsWith("800")) isPatch = true;
+                            else isDlc = true;
+                        }
+                        else
+                        {
+                            if (f.Contains("DLC", StringComparison.OrdinalIgnoreCase) || f.Contains("AddOn", StringComparison.OrdinalIgnoreCase))
+                            {
+                                isDlc = true;
+                            }
+                            else if (f.Contains("[v0]") || f.EndsWith("v0.nsp", StringComparison.OrdinalIgnoreCase) || f.Contains("patched_base"))
+                            {
+                                isBase = true;
+                            }
+                            else if (f.Contains("v") && !f.Contains("v0"))
+                            {
+                                isPatch = true;
+                            }
+                        }
                     }
 
-                    if (isBase && mainApp == null) mainApp = f;
+                    if (isDlc) dlcs.Add(f);
+                    else if (isBase && mainApp == null) mainApp = f;
                     else if (isPatch && patchApp == null) patchApp = f;
                     else dlcs.Add(f);
                 }
