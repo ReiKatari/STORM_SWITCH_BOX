@@ -20,6 +20,9 @@ namespace StormSwitchBox.Services
     /// </summary>
     public class NszCompressionService
     {
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true, CharSet = System.Runtime.InteropServices.CharSet.Auto)]
+        private static extern bool CreateHardLink(string lpFileName, string lpExistingFileName, IntPtr lpSecurityAttributes);
+
         private readonly SwitchFormatService _formatService;
 
         public NszCompressionService(SwitchFormatService formatService)
@@ -296,7 +299,22 @@ namespace StormSwitchBox.Services
                         task.LogDetails += $"\n🟡 [Декомпрессия] Распаковка через nsz.exe: {System.IO.Path.GetFileName(inputPath)}";
                     });
 
-                    string nszArgs = $"-D -w -o \"{outDir}\" \"{inputPath}\"";
+                    // Изолируем путь к входному файлу с помощью безопасного ASCII имени
+                    string safeInputExt = System.IO.Path.GetExtension(inputPath);
+                    string tempSafeInputName = $"nsz_in_{Guid.NewGuid().ToString("N").Substring(0, 8)}{safeInputExt}";
+                    string tempSafeInputPath = System.IO.Path.Combine(outDir, tempSafeInputName);
+
+                    bool linkCreated = false;
+                    try { linkCreated = CreateHardLink(tempSafeInputPath, inputPath, IntPtr.Zero); } catch { }
+                    if (!linkCreated)
+                    {
+                        try { File.Copy(inputPath, tempSafeInputPath, true); linkCreated = true; } catch { }
+                    }
+
+                    string targetInputForNsz = linkCreated ? tempSafeInputPath : inputPath;
+                    string expectedTempNsp = System.IO.Path.ChangeExtension(targetInputForNsz, expectedExt);
+
+                    string nszArgs = $"-D -w --quick-verify -o \"{outDir}\" \"{targetInputForNsz}\"";
                     int exitCode = await ExternalProcessRunner.RunAsync(
                         nszExe,
                         nszArgs,
@@ -305,7 +323,20 @@ namespace StormSwitchBox.Services
                         cancellationToken: cancellationToken
                     );
 
-                    if (exitCode == 0 && File.Exists(outNspPath) && new FileInfo(outNspPath).Length > 0)
+                    if (linkCreated && File.Exists(tempSafeInputPath))
+                    {
+                        try { File.Delete(tempSafeInputPath); } catch { }
+                    }
+
+                    if (File.Exists(expectedTempNsp) && new FileInfo(expectedTempNsp).Length > 0)
+                    {
+                        if (File.Exists(outNspPath)) try { File.Delete(outNspPath); } catch { }
+                        File.Move(expectedTempNsp, outNspPath);
+                        App.Logger.Log($"[NSZ Engine] Успешная распаковка nsz.exe: {fileName}", LogLevel.Success);
+                        return outNspPath;
+                    }
+
+                    if (File.Exists(outNspPath) && new FileInfo(outNspPath).Length > 0)
                     {
                         App.Logger.Log($"[NSZ Engine] Успешная распаковка nsz.exe: {fileName}", LogLevel.Success);
                         return outNspPath;

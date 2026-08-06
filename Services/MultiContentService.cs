@@ -296,9 +296,35 @@ namespace StormSwitchBox.Services
                 string outFolder = System.IO.Path.Combine(tempDecompDir, "nscb_out");
                 Directory.CreateDirectory(outFolder);
 
+                var safeSortedList = new List<string>();
+                for (int i = 0; i < sortedList.Count; i++)
+                {
+                    string fPath = sortedList[i];
+                    string ext = System.IO.Path.GetExtension(fPath);
+                    string safeFileName = $"mc_item_{i:D2}{ext}";
+                    string safePath = System.IO.Path.Combine(tempDecompDir, safeFileName);
+                    
+                    if (fPath.Equals(safePath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        safeSortedList.Add(fPath);
+                        continue;
+                    }
+
+                    if (File.Exists(safePath)) try { File.Delete(safePath); } catch { }
+
+                    bool linked = false;
+                    try { linked = CreateHardLink(safePath, fPath, IntPtr.Zero); } catch { }
+                    if (!linked)
+                    {
+                        try { File.Copy(fPath, safePath, true); linked = true; } catch { }
+                    }
+
+                    safeSortedList.Add(linked ? safePath : fPath);
+                }
+
                 string mlistFile = System.IO.Path.Combine(tempDecompDir, "mlist.txt");
                 var utf8NoBom = new System.Text.UTF8Encoding(false);
-                System.IO.File.WriteAllLines(mlistFile, sortedList, utf8NoBom);
+                System.IO.File.WriteAllLines(mlistFile, safeSortedList, utf8NoBom);
 
                 // Чистое сшивание мульти-контента с сохранением оригинальных валидных заголовков NCA без порчи -ND / -roma
                 string args = $"-b 65536 -pv false -fat exfat -t {fmt} -o \"{outFolder}\" -tfile \"{mlistFile}\" -dmul \"calculate\"";

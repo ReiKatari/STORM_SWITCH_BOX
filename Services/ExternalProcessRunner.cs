@@ -39,9 +39,10 @@ namespace StormSwitchBox.Services
             };
 
             // Гарантия Юникода для Python и утилит
-            psi.EnvironmentVariables["PYTHONIOENCODING"] = "utf-8";
+            psi.EnvironmentVariables["PYTHONIOENCODING"] = "utf-8:surrogateescape";
             psi.EnvironmentVariables["PYTHONUTF8"] = "1";
             psi.EnvironmentVariables["PYTHONLEGACYWINDOWSSTDIO"] = "0";
+            psi.EnvironmentVariables["PYTHONUNBUFFERED"] = "1";
 
             if (!string.IsNullOrEmpty(isolatedUserProfile))
                 psi.EnvironmentVariables["USERPROFILE"] = isolatedUserProfile;
