@@ -28,20 +28,37 @@ namespace StormSwitchBox.Services
             if (string.IsNullOrEmpty(fileName)) return fileName;
 
             string cleaned = fileName
-                .Replace('’', '\'')
-                .Replace('‘', '\'')
-                .Replace('“', '"')
-                .Replace('”', '"')
+                .Replace('’', '_')
+                .Replace('‘', '_')
+                .Replace('`', '_')
+                .Replace('\'', '_')
+                .Replace('“', '_')
+                .Replace('”', '_')
+                .Replace('"', '_')
                 .Replace('–', '-')
                 .Replace('—', '-');
 
             var sb = new System.Text.StringBuilder(cleaned.Length);
             foreach (char c in cleaned)
             {
-                if (c <= 127) sb.Append(c);
-                else sb.Append('_');
+                // Сохраняем ASCII (c <= 127) и кириллицу (А-Я, а-я, Ё, ё: 0x0400..0x04FF)
+                if (c <= 127 || (c >= 0x0400 && c <= 0x04FF))
+                {
+                    sb.Append(c);
+                }
+                else
+                {
+                    sb.Append('_');
+                }
             }
-            return sb.ToString();
+
+            string result = sb.ToString();
+            foreach (char invalidChar in System.IO.Path.GetInvalidFileNameChars())
+            {
+                result = result.Replace(invalidChar, '_');
+            }
+
+            return result;
         }
 
         private readonly SwitchFormatService _formatService;
