@@ -382,44 +382,141 @@ namespace StormSwitchBox.Views
             }
         }
 
-        // ===== Список файлов (широкий диалог) =====
+        // ===== Список файлов (широкий диалог с бэйджами) =====
         private async void FilesCount_Click(object sender, RoutedEventArgs e)
         {
             if (sender is Button btn && btn.Tag is ProcessingTask task)
             {
                 if (task.FilesList == null || task.FilesList.Count == 0) return;
 
-                var sb = new StringBuilder();
+                var stackPanel = new StackPanel
+                {
+                    Spacing = 8,
+                    Margin = new Thickness(0, 4, 16, 16)
+                };
+
                 foreach (var file in task.FilesList)
                 {
-                    // Показываем только имя файла, без папок
                     string fileName = System.IO.Path.GetFileName(file);
-                    sb.AppendLine(fileName);
+                    var (label, bgBrushHex, fgBrushHex) = ClassifyFileForUi(fileName, file);
+
+                    var rowGrid = new Grid
+                    {
+                        ColumnDefinitions =
+                        {
+                            new ColumnDefinition { Width = GridLength.Auto },
+                            new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }
+                        },
+                        Margin = new Thickness(0, 2, 0, 2)
+                    };
+
+                    var badgeBorder = new Border
+                    {
+                        Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(ParseColor(bgBrushHex)),
+                        CornerRadius = new CornerRadius(4),
+                        Padding = new Thickness(8, 3, 8, 3),
+                        Margin = new Thickness(0, 0, 12, 0),
+                        VerticalAlignment = VerticalAlignment.Center
+                    };
+
+                    var badgeText = new TextBlock
+                    {
+                        Text = label,
+                        Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(ParseColor(fgBrushHex)),
+                        FontSize = 11,
+                        FontWeight = Microsoft.UI.Text.FontWeights.Bold
+                    };
+                    badgeBorder.Child = badgeText;
+                    Grid.SetColumn(badgeBorder, 0);
+
+                    var fileNameText = new TextBlock
+                    {
+                        Text = fileName,
+                        FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas"),
+                        FontSize = 13,
+                        VerticalAlignment = VerticalAlignment.Center,
+                        IsTextSelectionEnabled = true,
+                        TextWrapping = TextWrapping.Wrap
+                    };
+                    Grid.SetColumn(fileNameText, 1);
+
+                    rowGrid.Children.Add(badgeBorder);
+                    rowGrid.Children.Add(fileNameText);
+
+                    stackPanel.Children.Add(rowGrid);
                 }
+
+                var scrollViewer = new ScrollViewer
+                {
+                    MaxHeight = 520,
+                    Padding = new Thickness(0, 0, 16, 20),
+                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                    HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                    Content = stackPanel
+                };
 
                 var dialog = new ContentDialog
                 {
                     Title = $"Список файлов ({task.FilesList.Count})",
                     CloseButtonText = "Закрыть",
                     XamlRoot = this.XamlRoot,
-                    MinWidth = 700,
-                    Content = new ScrollViewer
-                    {
-                        MaxHeight = 500,
-                        HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
-                        Content = new TextBlock
-                        {
-                            Text = sb.ToString().TrimEnd(),
-                            FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas"),
-                            FontSize = 12,
-                            IsTextSelectionEnabled = true,
-                            TextWrapping = TextWrapping.NoWrap
-                        }
-                    }
+                    MinWidth = 950,
+                    MaxWidth = 1150,
+                    Content = scrollViewer
                 };
 
                 await dialog.ShowAsync();
             }
+        }
+
+        private static (string Label, string BgHex, string FgHex) ClassifyFileForUi(string fileName, string fullPath)
+        {
+            long sizeBytes = 0;
+            try { if (System.IO.File.Exists(fullPath)) sizeBytes = new System.IO.FileInfo(fullPath).Length; } catch { }
+
+            string tid = "";
+            var match = System.Text.RegularExpressions.Regex.Match(fileName, @"\[([0-9A-Fa-f]{16})\]");
+            if (match.Success) tid = match.Groups[1].Value.ToUpperInvariant();
+
+            bool isDlc = (!string.IsNullOrEmpty(tid) && tid.Length == 16 && !tid.EndsWith("000") && !tid.EndsWith("800")) ||
+                         fileName.Contains("DLC", StringComparison.OrdinalIgnoreCase) ||
+                         fileName.Contains("AddOn", StringComparison.OrdinalIgnoreCase);
+
+            if (isDlc)
+            {
+                if ((sizeBytes > 0 && sizeBytes < 1024 * 1024) || fileName.Contains("Unlock", StringComparison.OrdinalIgnoreCase))
+                {
+                    return ("РАЗБЛОКИРОВЩИК", "#D35400", "#FFFFFF");
+                }
+                return ("ДОПОЛНЕНИЕ", "#8E44AD", "#FFFFFF");
+            }
+
+            bool isPatch = (!string.IsNullOrEmpty(tid) && tid.Length == 16 && tid.EndsWith("800")) ||
+                           (fileName.Contains("[v") && !fileName.Contains("[v0]")) ||
+                           fileName.Contains("Update", StringComparison.OrdinalIgnoreCase) ||
+                           fileName.Contains("Patch", StringComparison.OrdinalIgnoreCase);
+
+            if (isPatch)
+            {
+                return ("ОБНОВЛЕНИЕ", "#2980B9", "#FFFFFF");
+            }
+
+            return ("ИГРА", "#27AE60", "#FFFFFF");
+        }
+
+        private static Windows.UI.Color ParseColor(string hex)
+        {
+            hex = hex.TrimStart('#');
+            byte a = 255;
+            byte r = Convert.ToByte(hex.Substring(0, 2), 16);
+            byte g = Convert.ToByte(hex.Substring(2, 2), 16);
+            byte b = Convert.ToByte(hex.Substring(4, 2), 16);
+            return Windows.UI.Color.FromArgb(a, r, g, b);
+        }
+
+        private static Windows.UI.Color fgHexToColor(string hex)
+        {
+            return ParseColor(hex);
         }
 
         // ===== Выходная папка — Drag-and-Drop на TextBox =====
