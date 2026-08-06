@@ -110,12 +110,18 @@ namespace StormSwitchBox.Services
                 string listFile = System.IO.Path.Combine(tempDecompDir, $"list_conv_{Guid.NewGuid().ToString("N").Substring(0, 8)}.txt");
                 System.IO.File.WriteAllLines(listFile, finalInputFilesList, new System.Text.UTF8Encoding(false));
 
-                // Патчинг прошивки (пересборка)
-                if (patchFirmware)
+                bool hasMods = finalInputFilesList.Any(d => Directory.Exists(d) && 
+                    (System.IO.Path.GetFileName(d).Equals("romfs", StringComparison.OrdinalIgnoreCase) || 
+                     System.IO.Path.GetFileName(d).Equals("exefs", StringComparison.OrdinalIgnoreCase)));
+
+                // Патчинг прошивки (пересборка) - принудительно запускаем при наличии модов romfs/exefs
+                if (patchFirmware || hasMods)
                 {
                     App.RunOnUI(() =>
                     {
-                        task.LogDetails += "\n🔵 [HardPatch] Поиск Base и Update...";
+                        task.LogDetails += hasMods 
+                            ? "\n🔵 [HardPatch] Обнаружены папки модов (romfs/exefs). Запуск распаковки и пересборки..." 
+                            : "\n🔵 [HardPatch] Поиск Base и Update...";
                     });
                     
                     string? baseFile = null;
@@ -150,7 +156,7 @@ namespace StormSwitchBox.Services
                     if (string.IsNullOrEmpty(baseFile)) baseFile = finalInputFilesList.FirstOrDefault(f => !Directory.Exists(f) && !f.Contains("DLC", StringComparison.OrdinalIgnoreCase) && (f.Contains("[v0]") || f.Contains("v0"))) ?? finalInputFilesList.FirstOrDefault(f => !Directory.Exists(f) && !f.Contains("DLC", StringComparison.OrdinalIgnoreCase) && !f.Contains("v")) ?? "";
                     if (string.IsNullOrEmpty(updateFile)) updateFile = finalInputFilesList.FirstOrDefault(f => !Directory.Exists(f) && f != baseFile && !f.Contains("DLC", StringComparison.OrdinalIgnoreCase) && (f.Contains("v") && !f.Contains("v0"))) ?? "";
                     
-                    if (!string.IsNullOrEmpty(baseFile) && !string.IsNullOrEmpty(updateFile))
+                    if (!string.IsNullOrEmpty(baseFile) && (!string.IsNullOrEmpty(updateFile) || hasMods))
                     {
                         App.RunOnUI(() => task.LogDetails += "\n🔵 [HardPatch] Физическая пересборка...");
                         string titleIdStr = "";
@@ -164,7 +170,8 @@ namespace StormSwitchBox.Services
                         string suffix = string.IsNullOrEmpty(titleIdStr) ? "" : $"_[{titleIdStr}][v0]";
                         string tempHardPatchedNsp = System.IO.Path.Combine(tempDecompDir, $"patched_base{suffix}.nsp");
                         
-                        var hpInput = new List<string> { baseFile, updateFile };
+                        var hpInput = new List<string> { baseFile };
+                        if (!string.IsNullOrEmpty(updateFile)) hpInput.Add(updateFile);
                         
                         // Add mod directories (romfs/exefs) to be processed
                         var modDirs = finalInputFilesList.Where(d => Directory.Exists(d)).ToList();
@@ -175,7 +182,7 @@ namespace StormSwitchBox.Services
                         if (System.IO.File.Exists(tempHardPatchedNsp))
                         {
                             finalInputFilesList.Remove(baseFile);
-                            finalInputFilesList.Remove(updateFile);
+                            if (!string.IsNullOrEmpty(updateFile)) finalInputFilesList.Remove(updateFile);
                             foreach (var mod in modDirs)
                             {
                                 finalInputFilesList.Remove(mod);
@@ -185,7 +192,7 @@ namespace StormSwitchBox.Services
                         }
                         else 
                         {
-                            App.RunOnUI(() => task.LogDetails += "\nℹ️ Пересборка HardPatch пропущена (файл обновления не найден). Переходим к сшиванию мультиконтента...");
+                            App.RunOnUI(() => task.LogDetails += "\nℹ️ Пересборка HardPatch пропущена. Переходим к сшиванию мультиконтента...");
                         }
                     }
                 }
@@ -530,15 +537,20 @@ namespace StormSwitchBox.Services
                     .OrderByDescending(f => new System.IO.FileInfo(f).Length)
                     .FirstOrDefault();
 
-                if (string.IsNullOrEmpty(generatedFile))
+            FinalizeAssembly:
+                string formattedPath = FormatOutputFileName(outPath, inputFiles);
+                if (!string.IsNullOrEmpty(formattedPath) && !formattedPath.Equals(outPath, StringComparison.OrdinalIgnoreCase))
                 {
-                    throw new Exception("Итоговый файл мультиконтента не найден в выходной папке.");
+                    if (intermediatePath.Equals(outPath, StringComparison.OrdinalIgnoreCase))
+                        intermediatePath = formattedPath;
+                    outPath = formattedPath;
                 }
 
-                if (System.IO.File.Exists(intermediatePath)) System.IO.File.Delete(intermediatePath);
-                System.IO.File.Move(generatedFile, intermediatePath);
-
-            FinalizeAssembly:
+                if (System.IO.File.Exists(generatedFile) && !generatedFile.Equals(intermediatePath, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (System.IO.File.Exists(intermediatePath)) System.IO.File.Delete(intermediatePath);
+                    System.IO.File.Move(generatedFile, intermediatePath);
+                }
 
                 // 5. Zstandard Сжатие (NSZ/XCZ), если необходимо
                 if (isCompressedFormat)
@@ -699,6 +711,113 @@ namespace StormSwitchBox.Services
             // Valid NSP entries: .nca, .ncz, .tik, .cert
             string ext = System.IO.Path.GetExtension(name).ToLowerInvariant();
             return ext == ".nca" || ext == ".ncz" || ext == ".tik" || ext == ".cert";
+        }
+
+        private static string FormatOutputFileName(string originalOutPath, List<string> allInputFiles)
+        {
+            string targetDir = System.IO.Path.GetDirectoryName(originalOutPath) ?? "";
+            string origFileName = System.IO.Path.GetFileNameWithoutExtension(originalOutPath);
+            string ext = System.IO.Path.GetExtension(originalOutPath);
+
+            string titleId = "";
+            string patchVer = "";
+            int gameCount = 0;
+            int updateCount = 0;
+            int dlcCount = 0;
+
+            foreach (var f in allInputFiles)
+            {
+                if (System.IO.Directory.Exists(f)) continue;
+
+                string fname = System.IO.Path.GetFileName(f);
+                string tid = "";
+                var matchTid = System.Text.RegularExpressions.Regex.Match(fname, @"\[([0-9A-Fa-f]{16})\]");
+                if (matchTid.Success) tid = matchTid.Groups[1].Value.ToUpperInvariant();
+
+                bool isDlc = (!string.IsNullOrEmpty(tid) && tid.Length == 16 && !tid.EndsWith("000") && !tid.EndsWith("800")) ||
+                             fname.Contains("DLC", StringComparison.OrdinalIgnoreCase) ||
+                             fname.Contains("AddOn", StringComparison.OrdinalIgnoreCase);
+
+                bool isPatch = (!string.IsNullOrEmpty(tid) && tid.Length == 16 && tid.EndsWith("800")) ||
+                               (fname.Contains("[v") && !fname.Contains("[v0]")) ||
+                               fname.Contains("Update", StringComparison.OrdinalIgnoreCase) ||
+                               fname.Contains("Patch", StringComparison.OrdinalIgnoreCase);
+
+                bool isBase = (!string.IsNullOrEmpty(tid) && tid.Length == 16 && tid.EndsWith("000")) ||
+                              fname.Contains("[v0]") || fname.EndsWith("v0.nsp", StringComparison.OrdinalIgnoreCase) ||
+                              fname.Contains("patched_base");
+
+                if (isDlc)
+                {
+                    dlcCount++;
+                }
+                else if (isPatch)
+                {
+                    updateCount++;
+                    var matchVer = System.Text.RegularExpressions.Regex.Match(fname, @"\[v(\d+)\]", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    if (matchVer.Success && string.IsNullOrEmpty(patchVer))
+                    {
+                        patchVer = matchVer.Groups[1].Value;
+                    }
+                }
+                else if (isBase)
+                {
+                    gameCount++;
+                    if (string.IsNullOrEmpty(titleId) && !string.IsNullOrEmpty(tid)) titleId = tid;
+                }
+            }
+
+            if (string.IsNullOrEmpty(titleId) || string.IsNullOrEmpty(patchVer))
+            {
+                try
+                {
+                    foreach (var f in allInputFiles)
+                    {
+                        if (System.IO.Directory.Exists(f)) continue;
+                        var info = App.SwitchFormat.ParseNsp(f);
+                        if (string.IsNullOrEmpty(titleId) && info.ContentType == "Application" && !string.IsNullOrEmpty(info.TitleId))
+                            titleId = info.TitleId.Trim().ToUpperInvariant();
+                        if (string.IsNullOrEmpty(patchVer) && info.ContentType == "Patch" && !string.IsNullOrEmpty(info.Version))
+                            patchVer = info.Version.Trim();
+                    }
+                }
+                catch { }
+            }
+
+            if (gameCount == 0) gameCount = 1;
+
+            string baseGameTitle = origFileName;
+            if (baseGameTitle.EndsWith("_Multi", StringComparison.OrdinalIgnoreCase))
+                baseGameTitle = baseGameTitle.Substring(0, baseGameTitle.Length - 6);
+            if (baseGameTitle.EndsWith("_Update", StringComparison.OrdinalIgnoreCase))
+                baseGameTitle = baseGameTitle.Substring(0, baseGameTitle.Length - 7);
+
+            var sb = new System.Text.StringBuilder();
+            sb.Append(baseGameTitle);
+
+            if (!string.IsNullOrEmpty(titleId))
+            {
+                sb.Append($" [{titleId}]");
+            }
+
+            if (!string.IsNullOrEmpty(patchVer))
+            {
+                sb.Append(patchVer.StartsWith("v", StringComparison.OrdinalIgnoreCase) ? $" [{patchVer}]" : $" [v{patchVer}]");
+            }
+
+            var parts = new List<string>();
+            if (gameCount > 0) parts.Add($"{gameCount}G");
+            if (updateCount > 0) parts.Add($"{updateCount}U");
+            if (dlcCount > 0) parts.Add($"{dlcCount}D");
+
+            if (parts.Count > 0)
+            {
+                sb.Append($" ({string.Join("+", parts)})");
+            }
+
+            sb.Append(ext);
+            string newFileName = NszCompressionService.SanitizeFileName(sb.ToString());
+            return System.IO.Path.Combine(targetDir, newFileName);
         }
     }
 }
