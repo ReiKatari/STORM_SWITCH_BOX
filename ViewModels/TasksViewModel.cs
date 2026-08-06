@@ -648,6 +648,7 @@ public partial class TasksViewModel : ObservableObject
 							if (!string.IsNullOrEmpty(entry.Name))
 							{
 								string safeName = string.Join("_", entry.Name.Split(Path.GetInvalidFileNameChars())).Replace(" ", "_");
+								safeName = StormSwitchBox.Services.NszCompressionService.SanitizeFileName(safeName);
 								outputName = safeName;
 								if (_currentPageType == "Multi")
 								{

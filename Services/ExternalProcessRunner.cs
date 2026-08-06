@@ -33,16 +33,18 @@ namespace StormSwitchBox.Services
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
+                RedirectStandardInput = true,
                 CreateNoWindow = true,
                 StandardOutputEncoding = Encoding.UTF8,
                 StandardErrorEncoding = Encoding.UTF8
             };
 
-            // Гарантия Юникода для Python и утилит
+            // Гарантия Юникода для Python и утилит (включая PyInstaller-замороженные .exe)
             psi.EnvironmentVariables["PYTHONIOENCODING"] = "utf-8:surrogateescape";
             psi.EnvironmentVariables["PYTHONUTF8"] = "1";
             psi.EnvironmentVariables["PYTHONLEGACYWINDOWSSTDIO"] = "0";
             psi.EnvironmentVariables["PYTHONUNBUFFERED"] = "1";
+            psi.EnvironmentVariables["PYTHONCOERCECLOCALE"] = "1";
 
             if (!string.IsNullOrEmpty(isolatedUserProfile))
                 psi.EnvironmentVariables["USERPROFILE"] = isolatedUserProfile;
@@ -66,6 +68,7 @@ namespace StormSwitchBox.Services
             process.ErrorDataReceived += handler;
 
             process.Start();
+            process.StandardInput.Close(); // Закрываем stdin чтобы процесс не ждал ввода
             process.BeginOutputReadLine();
             process.BeginErrorReadLine();
 

@@ -349,16 +349,34 @@ namespace StormSwitchBox.Services
                         try { File.Delete(tempSafeInputPath); } catch { }
                     }
 
+                    // Ищем результат: 1) точное совпадение с ожидаемым именем, 2) файл с оригинальным именем, 3) сканируем outDir
+                    string? foundNsp = null;
                     if (File.Exists(expectedTempNsp) && new FileInfo(expectedTempNsp).Length > 0)
+                        foundNsp = expectedTempNsp;
+                    else if (File.Exists(outNspPath) && new FileInfo(outNspPath).Length > 0)
+                        foundNsp = outNspPath;
+                    else
                     {
-                        if (File.Exists(outNspPath)) try { File.Delete(outNspPath); } catch { }
-                        File.Move(expectedTempNsp, outNspPath);
-                        App.Logger.Log($"[NSZ Engine] Успешная распаковка nsz.exe: {fileName}", LogLevel.Success);
-                        return outNspPath;
+                        // nsz.exe может дать файлу своё имя — ищем любой новый файл с нужным расширением в outDir
+                        try
+                        {
+                            var candidates = Directory.GetFiles(outDir, "*" + expectedExt)
+                                .Where(f => !f.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) && !f.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase))
+                                .Where(f => new FileInfo(f).Length > 0)
+                                .OrderByDescending(f => new FileInfo(f).Length)
+                                .ToList();
+                            if (candidates.Count > 0) foundNsp = candidates[0];
+                        }
+                        catch { }
                     }
 
-                    if (File.Exists(outNspPath) && new FileInfo(outNspPath).Length > 0)
+                    if (!string.IsNullOrEmpty(foundNsp))
                     {
+                        if (!foundNsp.Equals(outNspPath, StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (File.Exists(outNspPath)) try { File.Delete(outNspPath); } catch { }
+                            File.Move(foundNsp, outNspPath);
+                        }
                         App.Logger.Log($"[NSZ Engine] Успешная распаковка nsz.exe: {fileName}", LogLevel.Success);
                         return outNspPath;
                     }
