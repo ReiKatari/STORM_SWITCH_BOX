@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -273,6 +273,49 @@ namespace StormSwitchBox.Services
             string fileName = System.IO.Path.GetFileNameWithoutExtension(inputPath);
             string expectedExt = inputPath.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase) ? ".xci" : ".nsp";
             string outNspPath = System.IO.Path.Combine(outDir, fileName + expectedExt);
+
+            // 1. Сначала пробуем надежную распаковку через nsz.exe для восстановления всех NCA блоков 1-в-1
+            string appDir = AppDomain.CurrentDomain.BaseDirectory;
+            string toolsDir = System.IO.Path.Combine(appDir, "tools");
+            if (!Directory.Exists(toolsDir))
+            {
+                string parentTools = System.IO.Path.Combine(appDir, "..", "tools");
+                if (Directory.Exists(parentTools)) toolsDir = parentTools;
+            }
+            string nszExe = System.IO.Path.Combine(toolsDir, "nsz", "nsz.exe");
+
+            if (File.Exists(nszExe))
+            {
+                try
+                {
+                    App.EnsureUserKeysAvailable();
+                    App.RunOnUI(() =>
+                    {
+                        task.Status = "Распаковка NSZ...";
+                        task.IsRunning = true;
+                        task.LogDetails += $"\n🟡 [Декомпрессия] Распаковка через nsz.exe: {System.IO.Path.GetFileName(inputPath)}";
+                    });
+
+                    string nszArgs = $"-D -w -o \"{outDir}\" \"{inputPath}\"";
+                    int exitCode = await ExternalProcessRunner.RunAsync(
+                        nszExe,
+                        nszArgs,
+                        workingDirectory: System.IO.Path.GetDirectoryName(nszExe) ?? "",
+                        task: task,
+                        cancellationToken: cancellationToken
+                    );
+
+                    if (exitCode == 0 && File.Exists(outNspPath) && new FileInfo(outNspPath).Length > 0)
+                    {
+                        App.Logger.Log($"[NSZ Engine] Успешная распаковка nsz.exe: {fileName}", LogLevel.Success);
+                        return outNspPath;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    App.Logger.Log($"[NSZ Engine] nsz.exe warning: {ex.Message}. Fallback to Zero-Disk-IO...", LogLevel.Warning);
+                }
+            }
 
             var openedFiles = new List<IFile>();
             try
