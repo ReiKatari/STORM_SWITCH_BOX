@@ -335,7 +335,7 @@ namespace StormSwitchBox.Services
                     string targetInputForNsz = linkCreated ? tempSafeInputPath : inputPath;
                     string expectedTempNsp = System.IO.Path.Combine(outDir, System.IO.Path.GetFileNameWithoutExtension(safeInputName) + expectedExt);
 
-                    string nszArgs = $"-D -w --quick-verify -o \"{outDir}\" \"{targetInputForNsz}\"";
+                    string nszArgs = $"-D -w -o \"{outDir}\" \"{targetInputForNsz}\"";
                     int exitCode = await ExternalProcessRunner.RunAsync(
                         nszExe,
                         nszArgs,
@@ -443,17 +443,6 @@ namespace StormSwitchBox.Services
                     using var entryFile = OpenFileSafe(fileSystem, entry.FullPath);
                     IStorage entryStorage = entryFile.AsStorage();
 
-                    //  .nca/.ncz     
-                    bool isSolidBlob = false;
-                    try {
-                        entryStorage.GetSize(out long sz2).ThrowIfFailure();
-                        if (sz2 >= 8) {
-                            byte[] mb = new byte[8];
-                            entryStorage.Read(0, mb);
-                            if (System.Text.Encoding.ASCII.GetString(mb) == "NCZSECTN") isSolidBlob = true;
-                        }
-                    } catch { }
-                    if (isSolidBlob) { continue; }
                     bool isVirtualOrBlock = IsNczMagic(entryStorage) || entry.Name.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase);
                     
                     if (isVirtualOrBlock)
