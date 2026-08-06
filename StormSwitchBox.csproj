@@ -16,9 +16,9 @@
     <PublishReadyToRun>true</PublishReadyToRun>
     <TieredCompilation>true</TieredCompilation>
     <SuppressNETCoreSdkPreviewMessage>true</SuppressNETCoreSdkPreviewMessage>
-    <Version>3.9.16</Version>
-    <AssemblyVersion>3.9.16.0</AssemblyVersion>
-    <FileVersion>3.9.16.0</FileVersion>
+    <Version>3.9.17</Version>
+    <AssemblyVersion>3.9.17.0</AssemblyVersion>
+    <FileVersion>3.9.17.0</FileVersion>
     <ApplicationIcon>storm_switch_box.ico</ApplicationIcon>
   </PropertyGroup>
 
@@ -67,5 +67,7 @@
   <!-- Ensure StormSwitchBox.pri is copied to publish output (WinUI3 does not do this automatically for WindowsPackageType=None) -->
   <Target Name="CopyPriToPublish" AfterTargets="Publish">
     <Copy SourceFiles="$(TargetDir)$(AssemblyName).pri" DestinationFolder="$(PublishDir)" Condition="Exists('$(TargetDir)$(AssemblyName).pri')" />
+    <!-- Подписание опубликованного StormSwitchBox.exe в папке publish для разблокировки Smart App Control -->
+    <Exec Command="powershell -ExecutionPolicy Bypass -Command &quot;$store = New-Object System.Security.Cryptography.X509Certificates.X509Store('My', 'CurrentUser'); $store.Open('ReadOnly'); $cert = $store.Certificates | Where-Object { $_.Subject -like '*CN=StormSwitchBox*' -and $_.Subject -notlike '*Dev*' } | Select-Object -First 1; $store.Close(); if ($cert) { &amp; 'C:\Program Files (x86)\Windows Kits\10\bin\10.0.28000.0\x64\signtool.exe' sign /fd SHA256 /a /sha1 $cert.Thumbprint '$(PublishDir)$(TargetName).exe' }&quot;" ContinueOnError="true" />
   </Target>
 </Project>
