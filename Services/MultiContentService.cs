@@ -363,25 +363,84 @@ namespace StormSwitchBox.Services
                 if (!Directory.Exists(toolsTemp)) Directory.CreateDirectory(toolsTemp);
 
                 // ══════════════════════════════════════════════════════════════════
-                // КРИТИЧНО: squirrel.exe (PyInstaller + Python 3.7) ИГНОРИРУЕТ
-                // PYTHONIOENCODING и PYTHONUTF8 — он всегда берёт cp1251 из GetACP().
-                // Единственный 100% надёжный способ — создать РЕАЛЬНУЮ (скрытую) консоль
-                // через forceUtf8Console + cmd /c chcp 65001 ПЕРЕД запуском squirrel.exe.
-                // CreateNoWindow=true УНИЧТОЖАЕТ консоль → chcp бесполезен!
-                // WindowStyle=Hidden создаёт скрытую консоль → chcp работает.
+                // КРИТИЧНО: squirrel.exe (PyInstaller + Python 3.7) крашится с
+                // UnicodeEncodeError cp1251 при ЛЮБОМ способе запуска через
+                // UseShellExecute=false (pipe → Python видит не-консоль → GetACP()=1251).
+                //
+                // ЕДИНСТВЕННЫЙ рабочий путь:
+                //   UseShellExecute=true + WindowStyle.Hidden
+                //   → создаётся РЕАЛЬНАЯ скрытая консоль
+                //   → chcp 65001 РЕАЛЬНО ставит кодировку
+                //   → Python определяет stdout как консоль (isatty=true)
+                //   → GetConsoleOutputCP()=65001 → UTF-8 ✅
+                //
+                // Недостаток: нет real-time логирования. Лог squirrel'а читаем из
+                // файла после завершения.
                 // ══════════════════════════════════════════════════════════════════
-                string cmdArgs = $"/c chcp 65001 >nul & \"{squirrelExe}\" {args}";
+                string squirrelLogFile = System.IO.Path.Combine(tempDecompDir, "squirrel_stdout.log");
+                string squirrelBat = System.IO.Path.Combine(tempDecompDir, "run_squirrel.bat");
+                
+                var batBuilder = new System.Text.StringBuilder();
+                batBuilder.AppendLine("@echo off");
+                batBuilder.AppendLine("chcp 65001 >nul 2>nul");
+                batBuilder.AppendLine("set PYTHONIOENCODING=utf-8:surrogateescape");
+                batBuilder.AppendLine("set PYTHONUTF8=1");
+                batBuilder.AppendLine("set PYTHONUNBUFFERED=1");
+                batBuilder.AppendLine("set PYTHONLEGACYWINDOWSSTDIO=0");
+                batBuilder.AppendLine("set PYTHONCOERCECLOCALE=1");
+                if (!string.IsNullOrEmpty(isolatedUserProfile))
+                    batBuilder.AppendLine($"set USERPROFILE={isolatedUserProfile}");
+                if (!string.IsNullOrEmpty(isolatedLocalAppData))
+                    batBuilder.AppendLine($"set LOCALAPPDATA={isolatedLocalAppData}");
+                batBuilder.AppendLine($"cd /d \"{ztoolsDir}\"");
+                batBuilder.AppendLine($"\"{squirrelExe}\" {args} > \"{squirrelLogFile}\" 2>&1");
+                batBuilder.AppendLine("exit /b %errorlevel%");
+                
+                System.IO.File.WriteAllText(squirrelBat, batBuilder.ToString(), new System.Text.UTF8Encoding(false));
 
-                int exitCode = await ExternalProcessRunner.RunAsync(
-                    "cmd.exe",
-                    cmdArgs,
-                    ztoolsDir,
-                    task,
-                    cancellationToken,
-                    isolatedUserProfile,
-                    isolatedLocalAppData,
-                    forceUtf8Console: true
-                );
+                var squirrelPsi = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = squirrelBat,
+                    UseShellExecute = true,
+                    WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden
+                };
+
+                task.LogDetails += "\n📦 [NSC_Builder] Запуск squirrel.exe (UTF-8 консоль)...";
+
+                int exitCode;
+                using (var squirrelProc = new System.Diagnostics.Process { StartInfo = squirrelPsi })
+                {
+                    squirrelProc.Start();
+                    
+                    using var squirrelCts = cancellationToken.Register(() =>
+                    {
+                        try { if (!squirrelProc.HasExited) squirrelProc.Kill(true); } catch { }
+                    });
+
+                    await squirrelProc.WaitForExitAsync(cancellationToken);
+                    
+                    // Читаем stdout/stderr squirrel из файла-лога
+                    if (System.IO.File.Exists(squirrelLogFile))
+                    {
+                        try
+                        {
+                            string logContent = System.IO.File.ReadAllText(squirrelLogFile, System.Text.Encoding.UTF8);
+                            foreach (var logLine in logContent.Split('\n'))
+                            {
+                                string trimmed = logLine.TrimEnd('\r', '\n');
+                                if (!string.IsNullOrEmpty(trimmed))
+                                    task.LogDetails += "\n" + trimmed;
+                            }
+                        }
+                        catch { }
+                    }
+
+                    exitCode = squirrelProc.ExitCode;
+                }
+                
+                // Очистка временных файлов bat-обёртки
+                try { if (System.IO.File.Exists(squirrelBat)) System.IO.File.Delete(squirrelBat); } catch { }
+                try { if (System.IO.File.Exists(squirrelLogFile)) System.IO.File.Delete(squirrelLogFile); } catch { }
 
                 App.Logger.Log($"[squirrel] exit code: {exitCode}", Models.LogLevel.Info);
 
