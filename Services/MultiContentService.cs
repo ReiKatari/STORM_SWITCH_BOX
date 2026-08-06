@@ -250,10 +250,6 @@ namespace StormSwitchBox.Services
                     catch { }
                 }
 
-                // ══════════════════════════════════════════════════════════════════
-                // СОРТИРОВКА ДЛЯ ЭМУЛЯТОРОВ: Base игра всегда должна быть первой!
-                // Иначе эмулятор (Yuzu/Ryujinx/STORM EDEN) не найдет main executable
-                // ══════════════════════════════════════════════════════════════════
                 var sortedList = new List<string>();
                 string? mainApp = null;
                 string? patchApp = null;
@@ -261,7 +257,7 @@ namespace StormSwitchBox.Services
 
                 foreach (var f in finalInputFilesList)
                 {
-                    if (Directory.Exists(f)) continue; // Пропускаем папки
+                    if (Directory.Exists(f)) continue;
 
                     bool isBase = false;
                     bool isPatch = false;
@@ -290,18 +286,9 @@ namespace StormSwitchBox.Services
                         }
                         else
                         {
-                            if (f.Contains("DLC", StringComparison.OrdinalIgnoreCase) || f.Contains("AddOn", StringComparison.OrdinalIgnoreCase))
-                            {
-                                isDlc = true;
-                            }
-                            else if (f.Contains("[v0]") || f.EndsWith("v0.nsp", StringComparison.OrdinalIgnoreCase) || f.Contains("patched_base"))
-                            {
-                                isBase = true;
-                            }
-                            else if (f.Contains("v") && !f.Contains("v0"))
-                            {
-                                isPatch = true;
-                            }
+                            if (f.Contains("DLC", StringComparison.OrdinalIgnoreCase) || f.Contains("AddOn", StringComparison.OrdinalIgnoreCase)) isDlc = true;
+                            else if (f.Contains("[v0]") || f.EndsWith("v0.nsp", StringComparison.OrdinalIgnoreCase) || f.Contains("patched_base")) isBase = true;
+                            else if (f.Contains("v") && !f.Contains("v0")) isPatch = true;
                         }
                     }
 
@@ -321,116 +308,219 @@ namespace StormSwitchBox.Services
                 string outFolder = System.IO.Path.Combine(tempDecompDir, "nscb_out");
                 Directory.CreateDirectory(outFolder);
 
-                var safeSortedList = new List<string>();
-                for (int i = 0; i < sortedList.Count; i++)
+                bool buildDone = false;
+
+                if (System.IO.File.Exists(squirrelExe))
                 {
-                    string fPath = sortedList[i];
-                    string origFileName = System.IO.Path.GetFileName(fPath);
-                    string safeFileName = NszCompressionService.SanitizeFileName(origFileName);
-                    string safePath = System.IO.Path.Combine(tempDecompDir, safeFileName);
-                    
-                    if (fPath.Equals(safePath, StringComparison.OrdinalIgnoreCase))
+                    try
                     {
-                        safeSortedList.Add(fPath);
-                        continue;
+                        var safeSortedList = new List<string>();
+                        for (int i = 0; i < sortedList.Count; i++)
+                        {
+                            string fPath = sortedList[i];
+                            string origFileName = System.IO.Path.GetFileName(fPath);
+                            string safeFileName = NszCompressionService.SanitizeFileName(origFileName);
+                            string safePath = System.IO.Path.Combine(tempDecompDir, safeFileName);
+                            
+                            if (fPath.Equals(safePath, StringComparison.OrdinalIgnoreCase))
+                            {
+                                safeSortedList.Add(fPath);
+                                continue;
+                            }
+
+                            if (File.Exists(safePath)) try { File.Delete(safePath); } catch { }
+
+                            bool linked = false;
+                            try { linked = CreateHardLink(safePath, fPath, IntPtr.Zero); } catch { }
+                            if (!linked)
+                            {
+                                try { File.Copy(fPath, safePath, true); linked = true; } catch { }
+                            }
+
+                            safeSortedList.Add(linked ? safePath : fPath);
+                        }
+
+                        string mlistFile = System.IO.Path.Combine(tempDecompDir, "mlist.txt");
+                        var utf8NoBom = new System.Text.UTF8Encoding(false);
+                        System.IO.File.WriteAllLines(mlistFile, safeSortedList, utf8NoBom);
+
+                        string args = $"-b 65536 -pv false -fat exfat -t {fmt} -o \"{outFolder}\" -tfile \"{mlistFile}\" -dmul \"calculate\"";
+                        
+                        App.Logger.Log($"[squirrel] args: {args}", Models.LogLevel.Info);
+
+                        string squirrelLogFile = System.IO.Path.Combine(tempDecompDir, "squirrel_stdout.log");
+                        string squirrelBat = System.IO.Path.Combine(tempDecompDir, "run_squirrel.bat");
+                        string ztoolsDir = System.IO.Path.Combine(nscbDir, "ztools");
+                        
+                        var batBuilder = new System.Text.StringBuilder();
+                        batBuilder.AppendLine("@echo off");
+                        batBuilder.AppendLine("chcp 65001 >nul 2>nul");
+                        batBuilder.AppendLine("set PYTHONIOENCODING=utf-8:surrogateescape");
+                        batBuilder.AppendLine("set PYTHONUTF8=1");
+                        batBuilder.AppendLine("set PYTHONUNBUFFERED=1");
+                        batBuilder.AppendLine("set PYTHONLEGACYWINDOWSSTDIO=0");
+                        batBuilder.AppendLine("set PYTHONCOERCECLOCALE=1");
+                        if (!string.IsNullOrEmpty(isolatedUserProfile))
+                            batBuilder.AppendLine($"set USERPROFILE={isolatedUserProfile}");
+                        if (!string.IsNullOrEmpty(isolatedLocalAppData))
+                            batBuilder.AppendLine($"set LOCALAPPDATA={isolatedLocalAppData}");
+                        batBuilder.AppendLine($"cd /d \"{ztoolsDir}\"");
+                        batBuilder.AppendLine($"\"{squirrelExe}\" {args} > \"{squirrelLogFile}\" 2>&1");
+                        batBuilder.AppendLine("exit /b %errorlevel%");
+                        
+                        System.IO.File.WriteAllText(squirrelBat, batBuilder.ToString(), new System.Text.UTF8Encoding(false));
+
+                        var squirrelPsi = new System.Diagnostics.ProcessStartInfo
+                        {
+                            FileName = squirrelBat,
+                            UseShellExecute = true,
+                            WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden
+                        };
+
+                        App.RunOnUI(() => task.LogDetails += "\n📦 [NSC_Builder] Запуск squirrel.exe (-dmul calculate)...");
+
+                        int exitCode;
+                        using (var squirrelProc = new System.Diagnostics.Process { StartInfo = squirrelPsi })
+                        {
+                            squirrelProc.Start();
+                            
+                            using var squirrelCts = cancellationToken.Register(() =>
+                            {
+                                try { if (!squirrelProc.HasExited) squirrelProc.Kill(true); } catch { }
+                            });
+
+                            await squirrelProc.WaitForExitAsync(cancellationToken);
+                            
+                            if (System.IO.File.Exists(squirrelLogFile))
+                            {
+                                try
+                                {
+                                    string logContent = System.IO.File.ReadAllText(squirrelLogFile, System.Text.Encoding.UTF8);
+                                    var logLines = new System.Text.StringBuilder();
+                                    foreach (var logLine in logContent.Split('\n'))
+                                    {
+                                        string trimmed = logLine.TrimEnd('\r', '\n');
+                                        if (!string.IsNullOrEmpty(trimmed))
+                                            logLines.Append('\n').Append(trimmed);
+                                    }
+                                    if (logLines.Length > 0)
+                                    {
+                                        string batch = logLines.ToString();
+                                        App.RunOnUI(() => task.LogDetails += batch);
+                                    }
+                                }
+                                catch { }
+                            }
+
+                            exitCode = squirrelProc.ExitCode;
+                        }
+                        
+                        try { if (System.IO.File.Exists(squirrelBat)) System.IO.File.Delete(squirrelBat); } catch { }
+                        try { if (System.IO.File.Exists(squirrelLogFile)) System.IO.File.Delete(squirrelLogFile); } catch { }
+
+                        App.Logger.Log($"[squirrel] exit code: {exitCode}", Models.LogLevel.Info);
+
+                        if (exitCode == 0)
+                        {
+                            buildDone = true;
+                        }
+                        else
+                        {
+                            App.RunOnUI(() => task.LogDetails += $"\n⚠️ [NSC_Builder] squirrel.exe завершился с кодом {exitCode} (возможно, заблокирован политикой Device Guard). Переход на нативную сборку C# (LibHac)...");
+                        }
                     }
-
-                    if (File.Exists(safePath)) try { File.Delete(safePath); } catch { }
-
-                    bool linked = false;
-                    try { linked = CreateHardLink(safePath, fPath, IntPtr.Zero); } catch { }
-                    if (!linked)
+                    catch (Exception ex)
                     {
-                        try { File.Copy(fPath, safePath, true); linked = true; } catch { }
+                        App.RunOnUI(() => task.LogDetails += $"\n⚠️ [NSC_Builder] Запуск squirrel.exe недоступен ({ex.Message}). Переход на нативную сборку C# (LibHac)...");
                     }
-
-                    safeSortedList.Add(linked ? safePath : fPath);
                 }
 
-                string mlistFile = System.IO.Path.Combine(tempDecompDir, "mlist.txt");
-                var utf8NoBom = new System.Text.UTF8Encoding(false);
-                System.IO.File.WriteAllLines(mlistFile, safeSortedList, utf8NoBom);
-
-                string args = $"-b 65536 -pv false -fat exfat -t {fmt} -o \"{outFolder}\" -tfile \"{mlistFile}\" -dmul \"calculate\"";
-                
-                App.Logger.Log($"[squirrel] args: {args}", Models.LogLevel.Info);
-
-                string squirrelLogFile = System.IO.Path.Combine(tempDecompDir, "squirrel_stdout.log");
-                string squirrelBat = System.IO.Path.Combine(tempDecompDir, "run_squirrel.bat");
-                string ztoolsDir = System.IO.Path.Combine(nscbDir, "ztools");
-                
-                var batBuilder = new System.Text.StringBuilder();
-                batBuilder.AppendLine("@echo off");
-                batBuilder.AppendLine("chcp 65001 >nul 2>nul");
-                batBuilder.AppendLine("set PYTHONIOENCODING=utf-8:surrogateescape");
-                batBuilder.AppendLine("set PYTHONUTF8=1");
-                batBuilder.AppendLine("set PYTHONUNBUFFERED=1");
-                batBuilder.AppendLine("set PYTHONLEGACYWINDOWSSTDIO=0");
-                batBuilder.AppendLine("set PYTHONCOERCECLOCALE=1");
-                if (!string.IsNullOrEmpty(isolatedUserProfile))
-                    batBuilder.AppendLine($"set USERPROFILE={isolatedUserProfile}");
-                if (!string.IsNullOrEmpty(isolatedLocalAppData))
-                    batBuilder.AppendLine($"set LOCALAPPDATA={isolatedLocalAppData}");
-                batBuilder.AppendLine($"cd /d \"{ztoolsDir}\"");
-                batBuilder.AppendLine($"\"{squirrelExe}\" {args} > \"{squirrelLogFile}\" 2>&1");
-                batBuilder.AppendLine("exit /b %errorlevel%");
-                
-                System.IO.File.WriteAllText(squirrelBat, batBuilder.ToString(), new System.Text.UTF8Encoding(false));
-
-                var squirrelPsi = new System.Diagnostics.ProcessStartInfo
+                // Fallback to native LibHac PFS0 assembly if squirrel.exe failed or was blocked
+                if (!buildDone && !isTargetXci)
                 {
-                    FileName = squirrelBat,
-                    UseShellExecute = true,
-                    WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden
-                };
+                    App.RunOnUI(() => task.LogDetails += "\n📦 [LibHac] Нативная сборка Multi-NSP (PFS0)...");
 
-                App.RunOnUI(() => task.LogDetails += "\n📦 [NSC_Builder] Запуск squirrel.exe (-dmul calculate)...");
-
-                int exitCode;
-                using (var squirrelProc = new System.Diagnostics.Process { StartInfo = squirrelPsi })
-                {
-                    squirrelProc.Start();
-                    
-                    using var squirrelCts = cancellationToken.Register(() =>
+                    try
                     {
-                        try { if (!squirrelProc.HasExited) squirrelProc.Kill(true); } catch { }
-                    });
+                        var pfsBuilder = new PartitionFileSystemBuilder();
+                        var mergedEntries = new Dictionary<string, LibHac.Fs.Fsa.IFile>(StringComparer.OrdinalIgnoreCase);
+                        var openedFs = new List<PartitionFileSystem>();
+                        var openedStreams = new List<FileStream>();
+                        var openedFiles = new List<LibHac.Fs.Fsa.IFile>();
 
-                    await squirrelProc.WaitForExitAsync(cancellationToken);
-                    
-                    if (System.IO.File.Exists(squirrelLogFile))
-                    {
                         try
                         {
-                            string logContent = System.IO.File.ReadAllText(squirrelLogFile, System.Text.Encoding.UTF8);
-                            var logLines = new System.Text.StringBuilder();
-                            foreach (var logLine in logContent.Split('\n'))
+                            foreach (string nspPath in sortedList)
                             {
-                                string trimmed = logLine.TrimEnd('\r', '\n');
-                                if (!string.IsNullOrEmpty(trimmed))
-                                    logLines.Append('\n').Append(trimmed);
+                                if (!System.IO.File.Exists(nspPath)) continue;
+                                
+                                var stream = new FileStream(nspPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                                openedStreams.Add(stream);
+                                var fs = new PartitionFileSystem(stream.AsStorage());
+                                openedFs.Add(fs);
+                                
+                                foreach (var entry in fs.EnumerateEntries())
+                                {
+                                    if (entry.Type == LibHac.Fs.DirectoryEntryType.Directory) continue;
+                                    string name = entry.Name;
+                                    
+                                    if (mergedEntries.ContainsKey(name) || !IsValidNspEntry(name)) continue;
+                                    
+                                    var file = OpenFileSafe(fs, entry.FullPath);
+                                    
+                                    openedFiles.Add(file);
+                                    mergedEntries[name] = file;
+                                    
+                                    pfsBuilder.AddFile(name, new LibHac.FsSystem.StorageFile(new StormSwitchBox.Services.SafeStorageWrapper(file.AsStorage()), LibHac.Fs.OpenMode.Read));
+                                }
                             }
-                            if (logLines.Length > 0)
+
+                            string outputNspPath = System.IO.Path.Combine(outFolder, $"multi_out_{Guid.NewGuid().ToString("N").Substring(0, 8)}.nsp");
+
+                            using (var builtPfs = pfsBuilder.Build(PartitionFileSystemType.Standard))
                             {
-                                string batch = logLines.ToString();
-                                App.RunOnUI(() => task.LogDetails += batch);
+                                builtPfs.GetSize(out long totalPfsSize).ThrowIfFailure();
+                                
+                                using var destStream = new FileStream(outputNspPath, FileMode.Create, FileAccess.Write, FileShare.None, 16 * 1024 * 1024);
+                                long remaining = totalPfsSize;
+                                long offset = 0;
+                                byte[] buffer = new byte[8 * 1024 * 1024];
+                                var sw = System.Diagnostics.Stopwatch.StartNew();
+                                
+                                while (remaining > 0)
+                                {
+                                    cancellationToken.ThrowIfCancellationRequested();
+                                    int toRead = (int)Math.Min(buffer.Length, remaining);
+                                    builtPfs.Read(offset, buffer.AsSpan(0, toRead)).ThrowIfFailure();
+                                    destStream.Write(buffer, 0, toRead);
+                                    offset += toRead;
+                                    remaining -= toRead;
+                                    
+                                    if (sw.ElapsedMilliseconds > 300 || remaining == 0)
+                                    {
+                                        sw.Restart();
+                                        double pct = (double)offset / totalPfsSize * 100.0;
+                                        App.RunOnUI(() => task.Progress = Math.Min(99.9, pct));
+                                    }
+                                }
                             }
+                            buildDone = true;
                         }
-                        catch { }
+                        finally
+                        {
+                            foreach (var f in openedFiles) { try { f.Dispose(); } catch { } }
+                            foreach (var s in openedStreams) { try { s.Dispose(); } catch { } }
+                        }
                     }
-
-                    exitCode = squirrelProc.ExitCode;
+                    catch (Exception ex)
+                    {
+                        throw new Exception($"Не удалось собрать мультиконтент: {ex.Message}");
+                    }
                 }
-                
-                try { if (System.IO.File.Exists(squirrelBat)) System.IO.File.Delete(squirrelBat); } catch { }
-                try { if (System.IO.File.Exists(squirrelLogFile)) System.IO.File.Delete(squirrelLogFile); } catch { }
 
-                App.Logger.Log($"[squirrel] exit code: {exitCode}", Models.LogLevel.Info);
-
-                if (exitCode != 0)
+                if (!buildDone)
                 {
-                    string logErr = task.LogDetails.Trim();
-                    throw new Exception($"NSC_Builder squirrel failed with exit code {exitCode}.\nЛог NSC_Builder:\n{logErr}");
+                    throw new Exception("Не удалось создать мультиконтент — сшивание завершилось без результата.");
                 }
 
                 // Search for the actual content file (.nsp/.xci), skipping metadata like .cnmt.xml
@@ -440,24 +530,15 @@ namespace StormSwitchBox.Services
                     .OrderByDescending(f => new System.IO.FileInfo(f).Length)
                     .FirstOrDefault();
 
-                // If no content file found, list everything in the output folder for diagnostics
                 if (string.IsNullOrEmpty(generatedFile))
                 {
-                    var allFiles = Directory.GetFiles(outFolder);
-                    string listing = allFiles.Length == 0
-                        ? "(empty)"
-                        : string.Join("\n", allFiles.Select(f => $"  {System.IO.Path.GetFileName(f)} ({new System.IO.FileInfo(f).Length} bytes)"));
-                    throw new Exception($"NSC_Builder squirrel didn't produce any .nsp/.xci files.\nOutput folder contents:\n{listing}");
-                }
-                
-                var fileInfo = new System.IO.FileInfo(generatedFile);
-                if (fileInfo.Length < 100 * 1024)
-                {
-                    throw new Exception($"NSC_Builder output file '{fileInfo.Name}' is suspiciously small ({fileInfo.Length} bytes). Process failed silently. This usually means NSC_Builder rejected the patched base due to missing TitleID/v0 tags or invalid signatures.");
+                    throw new Exception("Итоговый файл мультиконтента не найден в выходной папке.");
                 }
 
-                if (System.IO.File.Exists(actualIntermediatePath)) System.IO.File.Delete(actualIntermediatePath);
-                System.IO.File.Move(generatedFile, actualIntermediatePath);
+                if (System.IO.File.Exists(intermediatePath)) System.IO.File.Delete(intermediatePath);
+                System.IO.File.Move(generatedFile, intermediatePath);
+
+            FinalizeAssembly:
 
                 // 5. Zstandard Сжатие (NSZ/XCZ), если необходимо
                 if (isCompressedFormat)
