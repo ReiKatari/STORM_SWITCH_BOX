@@ -21,7 +21,8 @@ namespace StormSwitchBox.Services
             ProcessingTask task,
             CancellationToken cancellationToken,
             string? isolatedUserProfile = null,
-            string? isolatedLocalAppData = null)
+            string? isolatedLocalAppData = null,
+            bool forceUtf8Console = false)
         {
             var batcher = new LogBatcher(task);
 
@@ -34,10 +35,26 @@ namespace StormSwitchBox.Services
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 RedirectStandardInput = true,
-                CreateNoWindow = true,
                 StandardOutputEncoding = Encoding.UTF8,
                 StandardErrorEncoding = Encoding.UTF8
             };
+
+            // ══════════════════════════════════════════════════════════════════
+            // forceUtf8Console: для PyInstaller-замороженных Python 3.7 .exe
+            // (squirrel.exe) env-переменные PYTHONIOENCODING/PYTHONUTF8 НЕ работают.
+            // Единственный способ — создать РЕАЛЬНУЮ (скрытую) консоль с chcp 65001.
+            // CreateNoWindow=true уничтожает консоль → chcp бесполезен.
+            // WindowStyle=Hidden создаёт скрытую консоль → chcp работает.
+            // ══════════════════════════════════════════════════════════════════
+            if (forceUtf8Console)
+            {
+                psi.CreateNoWindow = false;
+                psi.WindowStyle = ProcessWindowStyle.Hidden;
+            }
+            else
+            {
+                psi.CreateNoWindow = true;
+            }
 
             // Гарантия Юникода для Python и утилит (включая PyInstaller-замороженные .exe)
             psi.EnvironmentVariables["PYTHONIOENCODING"] = "utf-8:surrogateescape";
