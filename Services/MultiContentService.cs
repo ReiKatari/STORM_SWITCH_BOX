@@ -91,7 +91,7 @@ namespace StormSwitchBox.Services
                         
                         if (!string.IsNullOrEmpty(decompResult) && File.Exists(decompResult))
                         {
-                            finalInputFiles.Add(CreateHardLinkWithTags(decompResult, tempDecompDir));
+                            finalInputFiles.Add(PrepareSafeFileForTemp(decompResult, tempDecompDir));
                         }
                         else
                         {
@@ -100,7 +100,7 @@ namespace StormSwitchBox.Services
                     }
                     else
                     {
-                        finalInputFiles.Add(CreateHardLinkWithTags(f, tempDecompDir));
+                        finalInputFiles.Add(PrepareSafeFileForTemp(f, tempDecompDir));
                     }
                 });
 
@@ -517,12 +517,34 @@ namespace StormSwitchBox.Services
         [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true, CharSet = System.Runtime.InteropServices.CharSet.Auto)]
         static extern bool CreateHardLink(string lpFileName, string lpExistingFileName, IntPtr lpSecurityAttributes);
 
-        private string CreateHardLinkWithTags(string sourcePath, string tempDir)
+        private string PrepareSafeFileForTemp(string sourcePath, string tempDir)
         {
-            // Поскольку мы перешли на нативную сборку, нам больше не нужно
-            // складывать все файлы в одну папку (HardLink) для squirrel.exe.
-            // Мы можем просто возвращать исходный путь.
-            return sourcePath;
+            if (Directory.Exists(sourcePath)) return sourcePath;
+
+            string origName = System.IO.Path.GetFileName(sourcePath);
+            string safeName = origName
+                .Replace('’', '\'')
+                .Replace('‘', '\'')
+                .Replace('“', '"')
+                .Replace('”', '"')
+                .Replace('–', '-')
+                .Replace('—', '-');
+
+            string destPath = System.IO.Path.Combine(tempDir, safeName);
+            if (sourcePath.Equals(destPath, StringComparison.OrdinalIgnoreCase)) return sourcePath;
+
+            if (!File.Exists(destPath))
+            {
+                try
+                {
+                    File.Copy(sourcePath, destPath, true);
+                }
+                catch
+                {
+                    return sourcePath;
+                }
+            }
+            return destPath;
         }
 
 
