@@ -363,8 +363,8 @@ namespace StormSwitchBox.Services
                 if (!Directory.Exists(toolsTemp)) Directory.CreateDirectory(toolsTemp);
 
                 int exitCode = await ExternalProcessRunner.RunAsync(
-                    "cmd.exe",
-                    $"/c chcp 65001 >nul & \"{squirrelExe}\" {args}",
+                    squirrelExe,
+                    args,
                     ztoolsDir,
                     task,
                     cancellationToken,
