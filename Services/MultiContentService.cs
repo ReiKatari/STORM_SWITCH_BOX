@@ -816,7 +816,7 @@ namespace StormSwitchBox.Services
             }
 
             sb.Append(ext);
-            string newFileName = NszCompressionService.SanitizeFileName(sb.ToString());
+            string newFileName = NszCompressionService.SanitizeFinalOutputFileName(sb.ToString());
             return System.IO.Path.Combine(targetDir, newFileName);
         }
     }

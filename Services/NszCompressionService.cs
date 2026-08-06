@@ -58,7 +58,31 @@ namespace StormSwitchBox.Services
                 result = result.Replace(invalidChar, '_');
             }
 
-            return result;
+            return result.Trim('_');
+        }
+
+        public static string SanitizeFinalOutputFileName(string fileName)
+        {
+            if (string.IsNullOrEmpty(fileName)) return fileName;
+
+            string cleaned = fileName
+                .Replace('’', '\'')
+                .Replace('‘', '\'')
+                .Replace('`', '\'')
+                .Replace('–', '-')
+                .Replace('—', '-');
+
+            foreach (char invalidChar in System.IO.Path.GetInvalidFileNameChars())
+            {
+                cleaned = cleaned.Replace(invalidChar, '_');
+            }
+
+            while (cleaned.Contains("__"))
+            {
+                cleaned = cleaned.Replace("__", "_");
+            }
+
+            return cleaned.Trim();
         }
 
         private readonly SwitchFormatService _formatService;
