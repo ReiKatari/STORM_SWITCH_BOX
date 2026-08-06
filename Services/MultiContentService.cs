@@ -365,9 +365,10 @@ namespace StormSwitchBox.Services
                 // ══════════════════════════════════════════════════════════════════
                 // КРИТИЧНО: squirrel.exe (PyInstaller + Python 3.7) ИГНОРИРУЕТ
                 // PYTHONIOENCODING и PYTHONUTF8 — он всегда берёт cp1251 из GetACP().
-                // Единственный 100% надёжный способ — принудительная смена кодовой
-                // страницы консоли через chcp 65001 ПЕРЕД запуском squirrel.exe.
-                // Это НЕ влияет на другие утилиты (nsz.exe и т.д.).
+                // Единственный 100% надёжный способ — создать РЕАЛЬНУЮ (скрытую) консоль
+                // через forceUtf8Console + cmd /c chcp 65001 ПЕРЕД запуском squirrel.exe.
+                // CreateNoWindow=true УНИЧТОЖАЕТ консоль → chcp бесполезен!
+                // WindowStyle=Hidden создаёт скрытую консоль → chcp работает.
                 // ══════════════════════════════════════════════════════════════════
                 string cmdArgs = $"/c chcp 65001 >nul & \"{squirrelExe}\" {args}";
 
@@ -378,7 +379,8 @@ namespace StormSwitchBox.Services
                     task,
                     cancellationToken,
                     isolatedUserProfile,
-                    isolatedLocalAppData
+                    isolatedLocalAppData,
+                    forceUtf8Console: true
                 );
 
                 App.Logger.Log($"[squirrel] exit code: {exitCode}", Models.LogLevel.Info);
