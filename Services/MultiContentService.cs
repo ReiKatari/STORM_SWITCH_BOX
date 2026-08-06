@@ -477,9 +477,17 @@ namespace StormSwitchBox.Services
                                     
                                     openedFiles.Add(file);
                                     mergedEntries[name] = file;
-                                    
-                                    pfsBuilder.AddFile(name, new LibHac.FsSystem.StorageFile(new StormSwitchBox.Services.SafeStorageWrapper(file.AsStorage()), LibHac.Fs.OpenMode.Read));
                                 }
+                            }
+
+                            // Strictly order entries so Base CNMT (0), Control/Icon NCA (1), Program NCA (2) are FIRST
+                            var orderedEntries = mergedEntries
+                                .OrderBy(kvp => GetNspEntryPriority(kvp.Key))
+                                .ThenBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase);
+
+                            foreach (var kvp in orderedEntries)
+                            {
+                                pfsBuilder.AddFile(kvp.Key, new LibHac.FsSystem.StorageFile(new StormSwitchBox.Services.SafeStorageWrapper(kvp.Value.AsStorage()), LibHac.Fs.OpenMode.Read));
                             }
 
                             string outputNspPath = System.IO.Path.Combine(outFolder, $"multi_out_{Guid.NewGuid().ToString("N").Substring(0, 8)}.nsp");
@@ -787,13 +795,20 @@ namespace StormSwitchBox.Services
             if (gameCount == 0) gameCount = 1;
 
             string baseGameTitle = origFileName;
+
+            // Clean off any existing tags like (1G+1U+5D), [v196608], [0100670014482000], (1.3 - 196608...) to prevent duplicate tags
+            baseGameTitle = System.Text.RegularExpressions.Regex.Replace(baseGameTitle, @"\s*\(\d+G(?:\+\d+U)?(?:\+\d+D)?\)", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            baseGameTitle = System.Text.RegularExpressions.Regex.Replace(baseGameTitle, @"\s*\[v\d+\]", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            baseGameTitle = System.Text.RegularExpressions.Regex.Replace(baseGameTitle, @"\s*\[[0-9A-Fa-f]{16}\]", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            baseGameTitle = System.Text.RegularExpressions.Regex.Replace(baseGameTitle, @"\s*\([^)]*\d{16}[^)]*\)", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
             if (baseGameTitle.EndsWith("_Multi", StringComparison.OrdinalIgnoreCase))
                 baseGameTitle = baseGameTitle.Substring(0, baseGameTitle.Length - 6);
             if (baseGameTitle.EndsWith("_Update", StringComparison.OrdinalIgnoreCase))
                 baseGameTitle = baseGameTitle.Substring(0, baseGameTitle.Length - 7);
 
             var sb = new System.Text.StringBuilder();
-            sb.Append(baseGameTitle);
+            sb.Append(baseGameTitle.Trim());
 
             if (!string.IsNullOrEmpty(titleId))
             {
@@ -818,6 +833,35 @@ namespace StormSwitchBox.Services
             sb.Append(ext);
             string newFileName = NszCompressionService.SanitizeFinalOutputFileName(sb.ToString());
             return System.IO.Path.Combine(targetDir, newFileName);
+        }
+
+        private static int GetNspEntryPriority(string fileName)
+        {
+            string lower = fileName.ToLowerInvariant();
+
+            // 0. Base Game CNMT (meta NCA/XML ending with 000.cnmt or first cnmt)
+            if (lower.EndsWith(".cnmt.nca") || lower.EndsWith(".cnmt.xml"))
+            {
+                if (lower.Contains("000.cnmt") || lower.Contains("000_")) return 0;
+                if (lower.Contains("800.cnmt") || lower.Contains("800_")) return 10;
+                return 50; // DLC CNMTs
+            }
+
+            // 1. Control NCA (contains Icon artwork & Title metadata)
+            if (lower.Contains("control") || lower.EndsWith(".control.nca")) return 1;
+
+            // 2. Program NCA (Main Game Executable)
+            if (lower.Contains("program") || lower.EndsWith(".program.nca")) return 2;
+
+            // 3. Manual, Legal, HtmlDocument
+            if (lower.Contains("manual") || lower.Contains("legal")) return 3;
+
+            // 4. Tickets and Certs at the very end
+            if (lower.EndsWith(".tik")) return 90;
+            if (lower.EndsWith(".cert")) return 91;
+
+            // 5. Other NCAs / NCZs
+            return 20;
         }
     }
 }
