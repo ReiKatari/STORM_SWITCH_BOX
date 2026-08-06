@@ -297,7 +297,8 @@ namespace StormSwitchBox.Services
                 Directory.CreateDirectory(outFolder);
 
                 string mlistFile = System.IO.Path.Combine(tempDecompDir, "mlist.txt");
-                System.IO.File.WriteAllLines(mlistFile, sortedList, System.Text.Encoding.UTF8);
+                var utf8NoBom = new System.Text.UTF8Encoding(false);
+                System.IO.File.WriteAllLines(mlistFile, sortedList, utf8NoBom);
 
                 // Автоматический выбор поколения ключей -kp auto для свежих игр и обновлений (например Stardew Valley v1310720)
                 string args = $"-b 65536 -pv false -kp auto -fat exfat -fx files -ND true -roma TRUE -t {fmt} -o \"{outFolder}\" -tfile \"{mlistFile}\" -dmul \"calculate\"";
