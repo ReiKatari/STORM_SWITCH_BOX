@@ -362,9 +362,18 @@ namespace StormSwitchBox.Services
                 string toolsTemp = System.IO.Path.Combine(toolsDir, "temp");
                 if (!Directory.Exists(toolsTemp)) Directory.CreateDirectory(toolsTemp);
 
+                // ══════════════════════════════════════════════════════════════════
+                // КРИТИЧНО: squirrel.exe (PyInstaller + Python 3.7) ИГНОРИРУЕТ
+                // PYTHONIOENCODING и PYTHONUTF8 — он всегда берёт cp1251 из GetACP().
+                // Единственный 100% надёжный способ — принудительная смена кодовой
+                // страницы консоли через chcp 65001 ПЕРЕД запуском squirrel.exe.
+                // Это НЕ влияет на другие утилиты (nsz.exe и т.д.).
+                // ══════════════════════════════════════════════════════════════════
+                string cmdArgs = $"/c chcp 65001 >nul & \"{squirrelExe}\" {args}";
+
                 int exitCode = await ExternalProcessRunner.RunAsync(
-                    squirrelExe,
-                    args,
+                    "cmd.exe",
+                    cmdArgs,
                     ztoolsDir,
                     task,
                     cancellationToken,
