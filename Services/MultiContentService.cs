@@ -405,7 +405,7 @@ namespace StormSwitchBox.Services
                     WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden
                 };
 
-                task.LogDetails += "\n📦 [NSC_Builder] Запуск squirrel.exe (UTF-8 консоль)...";
+                App.RunOnUI(() => task.LogDetails += "\n📦 [NSC_Builder] Запуск squirrel.exe (UTF-8 консоль)...");
 
                 int exitCode;
                 using (var squirrelProc = new System.Diagnostics.Process { StartInfo = squirrelPsi })
@@ -425,11 +425,17 @@ namespace StormSwitchBox.Services
                         try
                         {
                             string logContent = System.IO.File.ReadAllText(squirrelLogFile, System.Text.Encoding.UTF8);
+                            var logLines = new System.Text.StringBuilder();
                             foreach (var logLine in logContent.Split('\n'))
                             {
                                 string trimmed = logLine.TrimEnd('\r', '\n');
                                 if (!string.IsNullOrEmpty(trimmed))
-                                    task.LogDetails += "\n" + trimmed;
+                                    logLines.Append('\n').Append(trimmed);
+                            }
+                            if (logLines.Length > 0)
+                            {
+                                string batch = logLines.ToString();
+                                App.RunOnUI(() => task.LogDetails += batch);
                             }
                         }
                         catch { }
