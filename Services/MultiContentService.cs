@@ -481,8 +481,22 @@ namespace StormSwitchBox.Services
                             }
 
                             // Strictly order entries so Base CNMT (0), Control/Icon NCA (1), Program NCA (2) are FIRST
+                            ulong baseTitleId = 0;
+                            if (!string.IsNullOrEmpty(mainApp))
+                            {
+                                try
+                                {
+                                    var info = App.SwitchFormat.ParseNsp(mainApp);
+                                    if (!string.IsNullOrEmpty(info.TitleId) && ulong.TryParse(info.TitleId, System.Globalization.NumberStyles.HexNumber, null, out ulong parsedTid))
+                                    {
+                                        baseTitleId = parsedTid;
+                                    }
+                                }
+                                catch { }
+                            }
+
                             var orderedEntries = mergedEntries
-                                .OrderBy(kvp => GetNspEntryPriority(kvp.Key))
+                                .OrderBy(kvp => GetNcaPriority(kvp.Value, kvp.Key, baseTitleId))
                                 .ThenBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase);
 
                             foreach (var kvp in orderedEntries)
@@ -835,32 +849,58 @@ namespace StormSwitchBox.Services
             return System.IO.Path.Combine(targetDir, newFileName);
         }
 
-        private static int GetNspEntryPriority(string fileName)
+        private int GetNcaPriority(LibHac.Fs.Fsa.IFile file, string fileName, ulong baseTitleId)
         {
             string lower = fileName.ToLowerInvariant();
 
-            // 0. Base Game CNMT (meta NCA/XML ending with 000.cnmt or first cnmt)
-            if (lower.EndsWith(".cnmt.nca") || lower.EndsWith(".cnmt.xml"))
-            {
-                if (lower.Contains("000.cnmt") || lower.Contains("000_")) return 0;
-                if (lower.Contains("800.cnmt") || lower.Contains("800_")) return 10;
-                return 50; // DLC CNMTs
-            }
-
-            // 1. Control NCA (contains Icon artwork & Title metadata)
-            if (lower.Contains("control") || lower.EndsWith(".control.nca")) return 1;
-
-            // 2. Program NCA (Main Game Executable)
-            if (lower.Contains("program") || lower.EndsWith(".program.nca")) return 2;
-
-            // 3. Manual, Legal, HtmlDocument
-            if (lower.Contains("manual") || lower.Contains("legal")) return 3;
-
-            // 4. Tickets and Certs at the very end
             if (lower.EndsWith(".tik")) return 90;
             if (lower.EndsWith(".cert")) return 91;
 
-            // 5. Other NCAs / NCZs
+            if (lower.EndsWith(".cnmt.xml"))
+            {
+                if (lower.Contains("000") || lower.Contains("base")) return 0;
+                if (lower.Contains("800") || lower.Contains("update")) return 10;
+                return 50;
+            }
+
+            try
+            {
+                var nca = new LibHac.Tools.FsSystem.NcaUtils.Nca(_keysService.CurrentKeyset, file.AsStorage());
+                var type = nca.Header.ContentType;
+                ulong tid = nca.Header.TitleId;
+
+                bool isBaseTitle = (baseTitleId != 0 && tid == baseTitleId) || tid.ToString("X16").EndsWith("000");
+                bool isUpdateTitle = tid.ToString("X16").EndsWith("800");
+
+                if (type == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Meta) // CNMT
+                {
+                    if (isBaseTitle) return 0; // Base Game CNMT FIRST (Priority 0)
+                    if (isUpdateTitle) return 10; // Update CNMT (Priority 10)
+                    return 50; // DLC CNMT (Priority 50)
+                }
+
+                if (type == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Control) // Icon artwork & Title strings
+                {
+                    if (isBaseTitle) return 1; // Base Game Control NCA SECOND (Priority 1)
+                    if (isUpdateTitle) return 11;
+                    return 51;
+                }
+
+                if (type == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Program) // Executable code
+                {
+                    if (isBaseTitle) return 2; // Base Game Program NCA THIRD (Priority 2)
+                    if (isUpdateTitle) return 12;
+                    return 52;
+                }
+
+                if (type == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Manual) return 3;
+            }
+            catch
+            {
+                if (lower.Contains("control")) return 1;
+                if (lower.Contains("program")) return 2;
+            }
+
             return 20;
         }
     }

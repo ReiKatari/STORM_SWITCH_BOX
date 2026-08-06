@@ -122,14 +122,15 @@
 
                 <controls:DataGrid.ColumnHeaderStyle>
                     <Style TargetType="primitives:DataGridColumnHeader">
-                        <Setter Property="Background" Value="{ThemeResource LayerFillColorDefaultBrush}"/>
+                        <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorSecondaryBrush}"/>
                         <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}"/>
                         <Setter Property="HorizontalContentAlignment" Value="Center"/>
-                        <Setter Property="Padding" Value="8,10"/>
+                        <Setter Property="Padding" Value="10,12"/>
+                        <Setter Property="MinHeight" Value="44"/>
                         <Setter Property="ContentTemplate">
                             <Setter.Value>
                                 <DataTemplate>
-                                    <TextBlock Text="{Binding}" TextAlignment="Center" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="SemiBold"/>
+                                    <TextBlock Text="{Binding}" TextAlignment="Center" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="Bold" FontSize="13" TextTrimming="None" TextWrapping="NoWrap"/>
                                 </DataTemplate>
                             </Setter.Value>
                         </Setter>
