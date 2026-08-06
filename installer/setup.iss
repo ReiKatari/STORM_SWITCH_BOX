@@ -17,6 +17,7 @@ AppMutex=StormSwitchBox_SingleInstanceMutex
 CloseApplications=yes
 CloseApplicationsFilter=*StormSwitchBox*
 RestartApplications=no
+SignTool=signtool
 
 [Types]
 Name: "full"; Description: "Стандартная установка"
