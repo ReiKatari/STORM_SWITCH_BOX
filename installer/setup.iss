@@ -1,11 +1,11 @@
 [Setup]
 AppName=STORM SWITCH BOX
-AppVersion=3.9.15
+AppVersion=3.9.16
 AppPublisher=ReiKatari
 AppPublisherURL=https://github.com/ReiKatari/STORM_SWITCH_BOX
 DefaultDirName={localappdata}\Programs\STORM_SWITCH_BOX
 DefaultGroupName=STORM_SWITCH_BOX
-OutputBaseFilename=STORM_SWITCH_BOX_3.9.15_Setup
+OutputBaseFilename=STORM_SWITCH_BOX_3.9.16_Setup
 SetupIconFile=..\storm_switch_box.ico
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -58,6 +58,8 @@ var
   Found: Boolean;
 begin
   Result := True;
+  // Разблокировка файла инсталлятора от Windows Smart App Control / Zone.Identifier
+  Exec('powershell.exe', '-NoProfile -ExecutionPolicy Bypass -Command "Unblock-File -Path ''' + ExpandConstant('{srcexe}') + '''"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   // Принудительное завершение работающих экземпляров приложения перед установкой/заменой файлов
   Exec('taskkill.exe', '/F /IM StormSwitchBox.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 

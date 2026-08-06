@@ -7,6 +7,6 @@ $files = @(
 )
 foreach ($file in $files) {
     $content = Get-Content $file -Encoding UTF8
-    $content = $content -replace '3\.9\.14', '3.9.15'
+    $content = $content -replace '3\.9\.15', '3.9.16'
     Set-Content $file -Value $content -Encoding UTF8
 }
