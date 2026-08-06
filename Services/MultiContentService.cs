@@ -300,8 +300,8 @@ namespace StormSwitchBox.Services
                 for (int i = 0; i < sortedList.Count; i++)
                 {
                     string fPath = sortedList[i];
-                    string ext = System.IO.Path.GetExtension(fPath);
-                    string safeFileName = $"mc_item_{i:D2}{ext}";
+                    string origFileName = System.IO.Path.GetFileName(fPath);
+                    string safeFileName = NszCompressionService.SanitizeFileName(origFileName);
                     string safePath = System.IO.Path.Combine(tempDecompDir, safeFileName);
                     
                     if (fPath.Equals(safePath, StringComparison.OrdinalIgnoreCase))
@@ -548,13 +548,7 @@ namespace StormSwitchBox.Services
             if (Directory.Exists(sourcePath)) return sourcePath;
 
             string origName = System.IO.Path.GetFileName(sourcePath);
-            string safeName = origName
-                .Replace('’', '\'')
-                .Replace('‘', '\'')
-                .Replace('“', '"')
-                .Replace('”', '"')
-                .Replace('–', '-')
-                .Replace('—', '-');
+            string safeName = NszCompressionService.SanitizeFileName(origName);
 
             string destPath = System.IO.Path.Combine(tempDir, safeName);
             if (sourcePath.Equals(destPath, StringComparison.OrdinalIgnoreCase)) return sourcePath;

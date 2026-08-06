@@ -23,6 +23,27 @@ namespace StormSwitchBox.Services
         [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true, CharSet = System.Runtime.InteropServices.CharSet.Auto)]
         private static extern bool CreateHardLink(string lpFileName, string lpExistingFileName, IntPtr lpSecurityAttributes);
 
+        public static string SanitizeFileName(string fileName)
+        {
+            if (string.IsNullOrEmpty(fileName)) return fileName;
+
+            string cleaned = fileName
+                .Replace('’', '\'')
+                .Replace('‘', '\'')
+                .Replace('“', '"')
+                .Replace('”', '"')
+                .Replace('–', '-')
+                .Replace('—', '-');
+
+            var sb = new System.Text.StringBuilder(cleaned.Length);
+            foreach (char c in cleaned)
+            {
+                if (c <= 127) sb.Append(c);
+                else sb.Append('_');
+            }
+            return sb.ToString();
+        }
+
         private readonly SwitchFormatService _formatService;
 
         public NszCompressionService(SwitchFormatService formatService)
@@ -299,10 +320,10 @@ namespace StormSwitchBox.Services
                         task.LogDetails += $"\n🟡 [Декомпрессия] Распаковка через nsz.exe: {System.IO.Path.GetFileName(inputPath)}";
                     });
 
-                    // Изолируем путь к входному файлу с помощью безопасного ASCII имени
-                    string safeInputExt = System.IO.Path.GetExtension(inputPath);
-                    string tempSafeInputName = $"nsz_in_{Guid.NewGuid().ToString("N").Substring(0, 8)}{safeInputExt}";
-                    string tempSafeInputPath = System.IO.Path.Combine(outDir, tempSafeInputName);
+                    // Очищаем имя от Юникод-символов, сохраняя метки [TitleID] и [vVersion] для nsz.exe
+                    string origFileName = System.IO.Path.GetFileName(inputPath);
+                    string safeInputName = SanitizeFileName(origFileName);
+                    string tempSafeInputPath = System.IO.Path.Combine(outDir, safeInputName);
 
                     bool linkCreated = false;
                     try { linkCreated = CreateHardLink(tempSafeInputPath, inputPath, IntPtr.Zero); } catch { }
@@ -312,7 +333,7 @@ namespace StormSwitchBox.Services
                     }
 
                     string targetInputForNsz = linkCreated ? tempSafeInputPath : inputPath;
-                    string expectedTempNsp = System.IO.Path.ChangeExtension(targetInputForNsz, expectedExt);
+                    string expectedTempNsp = System.IO.Path.Combine(outDir, System.IO.Path.GetFileNameWithoutExtension(safeInputName) + expectedExt);
 
                     string nszArgs = $"-D -w --quick-verify -o \"{outDir}\" \"{targetInputForNsz}\"";
                     int exitCode = await ExternalProcessRunner.RunAsync(
