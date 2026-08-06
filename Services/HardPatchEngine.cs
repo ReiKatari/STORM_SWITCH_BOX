@@ -137,20 +137,30 @@ namespace StormSwitchBox.Services
                     }
                 }
 
-                if (string.IsNullOrEmpty(updateFile))
+                bool hasModFolders = inputFiles.Any(d => System.IO.Directory.Exists(d) && 
+                    (System.IO.Path.GetFileName(d).Equals("romfs", StringComparison.OrdinalIgnoreCase) || 
+                     System.IO.Path.GetFileName(d).Equals("exefs", StringComparison.OrdinalIgnoreCase)));
+
+                if (string.IsNullOrEmpty(updateFile) && !hasModFolders)
                 {
                     if (isMultiContent)
                     {
-                        App.RunOnUI(() => task.LogDetails += "\nℹ️ Файл обновления (Update v196608...) отсутствует. Пропускаем HardPatch и переходим к прямой сборке файлов...");
+                        App.RunOnUI(() => task.LogDetails += "\nℹ️ Файл обновления и папки модов (romfs/exefs) отсутствуют. Пропускаем HardPatch...");
                         return;
                     }
                     else
                     {
-                        throw new Exception("Ошибка: не найден файл обновления (Update .nsp/.nsz с ключом 800). Файлы DLC не содержат системных обновлений игры.");
+                        throw new Exception("Ошибка: не найден файл обновления или папки модов romfs/exefs.");
                     }
                 }
 
-                App.RunOnUI(() => task.LogDetails += $"\nБаза: {System.IO.Path.GetFileName(baseFile)}\nПатч: {System.IO.Path.GetFileName(updateFile)}");
+                App.RunOnUI(() =>
+                {
+                    string infoStr = $"\nБаза: {System.IO.Path.GetFileName(baseFile)}";
+                    if (!string.IsNullOrEmpty(updateFile)) infoStr += $"\nПатч: {System.IO.Path.GetFileName(updateFile)}";
+                    if (hasModFolders) infoStr += "\nОбнаружены моды romfs/exefs";
+                    task.LogDetails += infoStr;
+                });
 
                 string titleId = string.Empty;
 
