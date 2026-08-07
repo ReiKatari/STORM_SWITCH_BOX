@@ -422,12 +422,22 @@ namespace StormSwitchBox.Services
                         
                         System.IO.File.WriteAllText(squirrelBat, batBuilder.ToString(), new System.Text.UTF8Encoding(false));
 
+                        // ══════════════════════════════════════════════════════════════════
+                        // CreateNoWindow=false + WindowStyle=Hidden:
+                        // Создаёт РЕАЛЬНУЮ скрытую консоль Windows (а не уничтожает её).
+                        // chcp 65001 в bat-файле устанавливает кодовую страницу ЭТОЙ консоли.
+                        // Python 3.7 (frozen PyInstaller) определяет кодировку stdout через
+                        // GetConsoleOutputCP() → 65001 (UTF-8), а не locale → cp1251.
+                        // Без этого squirrel.exe крашится с UnicodeEncodeError при выводе
+                        // CJK-символов из NUTDB (напр. Assassin's Creed Ezio Collection).
+                        // ══════════════════════════════════════════════════════════════════
                         var squirrelPsi = new System.Diagnostics.ProcessStartInfo
                         {
                             FileName = "cmd.exe",
                             Arguments = $"/c \"\"{squirrelBat}\"\"",
                             UseShellExecute = false,
-                            CreateNoWindow = true,
+                            CreateNoWindow = false,
+                            WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden,
                             WorkingDirectory = ztoolsDir
                         };
 
