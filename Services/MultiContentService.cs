@@ -457,7 +457,20 @@ namespace StormSwitchBox.Services
 
                         try
                         {
-                            foreach (string nspPath in sortedList)
+                            var scanList = new List<string>();
+                            if (!string.IsNullOrEmpty(mainApp) && System.IO.File.Exists(mainApp)) scanList.Add(mainApp);
+                            foreach (var f in sortedList)
+                            {
+                                if (!scanList.Contains(f, StringComparer.OrdinalIgnoreCase) && System.IO.File.Exists(f))
+                                    scanList.Add(f);
+                            }
+                            foreach (var f in finalInputFilesList)
+                            {
+                                if (!System.IO.Directory.Exists(f) && !scanList.Contains(f, StringComparer.OrdinalIgnoreCase) && System.IO.File.Exists(f))
+                                    scanList.Add(f);
+                            }
+
+                            foreach (string nspPath in scanList)
                             {
                                 if (!System.IO.File.Exists(nspPath)) continue;
                                 
@@ -865,7 +878,17 @@ namespace StormSwitchBox.Services
 
             try
             {
-                var nca = new LibHac.Tools.FsSystem.NcaUtils.Nca(_keysService.CurrentKeyset, file.AsStorage());
+                LibHac.Fs.IStorage storage = file.AsStorage();
+                if (lower.EndsWith(".ncz"))
+                {
+                    try
+                    {
+                        storage = new Core.NSZ.StormNczStorage(storage, null, null, _keysService.CurrentKeyset);
+                    }
+                    catch { }
+                }
+
+                var nca = new LibHac.Tools.FsSystem.NcaUtils.Nca(_keysService.CurrentKeyset, storage);
                 var type = nca.Header.ContentType;
                 ulong tid = nca.Header.TitleId;
 
