@@ -366,7 +366,7 @@ namespace StormSwitchBox.Services
                         var utf8NoBom = new System.Text.UTF8Encoding(false);
                         System.IO.File.WriteAllLines(mlistFile, safeSortedList, utf8NoBom);
 
-                        string args = $"-b 65536 -pv false -fat exfat -t {fmt} -o \"{outFolder}\" -tfile \"{mlistFile}\" -dmul \"calculate\"";
+                        string args = $"-b 65536 -pv false -fat exfat -roma TRUE -t {fmt} -o \"{outFolder}\" -tfile \"{mlistFile}\" -dmul \"calculate\"";
                         
                         App.Logger.Log($"[squirrel] args: {args}", Models.LogLevel.Info);
 
@@ -487,8 +487,6 @@ namespace StormSwitchBox.Services
                                     scanList.Add(f);
                             }
 
-                            bool hardPatchPerformed = !string.IsNullOrEmpty(mainApp) && mainApp.Contains("patched_base");
-
                             foreach (string nspPath in scanList)
                             {
                                 if (!System.IO.File.Exists(nspPath)) continue;
@@ -504,12 +502,6 @@ namespace StormSwitchBox.Services
                                     string name = entry.Name;
                                     
                                     if (mergedEntries.ContainsKey(name) || !IsValidNspEntry(name)) continue;
-                                    
-                                    // Skip stale update CNMTs if HardPatch was already applied to base
-                                    if (hardPatchPerformed && nspPath != mainApp && (name.Contains("800.cnmt") || name.Contains("800_") || name.EndsWith("800.cnmt.nca")))
-                                    {
-                                        continue;
-                                    }
 
                                     var file = OpenFileSafe(fs, entry.FullPath);
                                     
@@ -919,25 +911,24 @@ namespace StormSwitchBox.Services
 
                 bool isBaseTitle = (baseTitleId != 0 && tid == baseTitleId) || tid.ToString("X16").EndsWith("000");
                 bool isUpdateTitle = tid.ToString("X16").EndsWith("800");
+                bool isMainGameTitle = isBaseTitle || isUpdateTitle;
 
                 if (type == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Meta) // CNMT
                 {
+                    if (isUpdateTitle) return 0; // Update CNMT (has highest version v196608) FIRST (Priority 0)
                     if (isBaseTitle) return 0; // Base Game CNMT FIRST (Priority 0)
-                    if (isUpdateTitle) return 10; // Update CNMT (Priority 10)
                     return 50; // DLC CNMT (Priority 50)
                 }
 
                 if (type == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Control) // Icon artwork & Title strings
                 {
-                    if (isBaseTitle) return 1; // Base Game Control NCA SECOND (Priority 1)
-                    if (isUpdateTitle) return 11;
+                    if (isMainGameTitle) return 1; // Main Game Control NCA SECOND (Priority 1)
                     return 51;
                 }
 
                 if (type == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Program) // Executable code
                 {
-                    if (isBaseTitle) return 2; // Base Game Program NCA THIRD (Priority 2)
-                    if (isUpdateTitle) return 12;
+                    if (isMainGameTitle) return 2; // Main Game Program NCA THIRD (Priority 2)
                     return 52;
                 }
 
