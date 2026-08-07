@@ -33,10 +33,11 @@ Source: "..\bin\Release\net8.0-windows10.0.19041.0\win-x64\publish\*"; DestDir: 
 Source: "..\bin\Release\net8.0-windows10.0.19041.0\win-x64\publish\StormSwitchBox.pri"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 
 [Icons]
-Name: "{group}\STORM_SWITCH_BOX"; Filename: "{app}\StormSwitchBox.exe"; WorkingDir: "{app}"; Components: full
+Name: "{group}\STORM_SWITCH_BOX"; Filename: "{app}\StormSwitchBox.exe"; WorkingDir: "{app}"; Components: full; Tasks: startmenu
 Name: "{autodesktop}\STORM_SWITCH_BOX"; Filename: "{app}\StormSwitchBox.exe"; WorkingDir: "{app}"; Components: full; Tasks: desktopicon
 
 [Tasks]
+Name: "startmenu"; Description: "Добавить в меню «Пуск»"; Components: full
 Name: "desktopicon"; Description: "Создать ярлык на рабочем столе"; Components: full
 Name: "contextmenu"; Description: "Добавить пункты в контекстное меню"; Components: full
 
