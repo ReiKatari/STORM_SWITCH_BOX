@@ -379,9 +379,11 @@ namespace StormSwitchBox.Services
 
                         var squirrelPsi = new System.Diagnostics.ProcessStartInfo
                         {
-                            FileName = squirrelBat,
-                            UseShellExecute = true,
-                            WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden
+                            FileName = "cmd.exe",
+                            Arguments = $"/c \"\"{squirrelBat}\"\"",
+                            UseShellExecute = false,
+                            CreateNoWindow = true,
+                            WorkingDirectory = ztoolsDir
                         };
 
                         App.RunOnUI(() => task.LogDetails += "\n📦 [NSC_Builder] Запуск squirrel.exe (-dmul calculate)...");
@@ -470,6 +472,8 @@ namespace StormSwitchBox.Services
                                     scanList.Add(f);
                             }
 
+                            bool hardPatchPerformed = !string.IsNullOrEmpty(mainApp) && mainApp.Contains("patched_base");
+
                             foreach (string nspPath in scanList)
                             {
                                 if (!System.IO.File.Exists(nspPath)) continue;
@@ -486,6 +490,12 @@ namespace StormSwitchBox.Services
                                     
                                     if (mergedEntries.ContainsKey(name) || !IsValidNspEntry(name)) continue;
                                     
+                                    // Skip stale update CNMTs if HardPatch was already applied to base
+                                    if (hardPatchPerformed && nspPath != mainApp && (name.Contains("800.cnmt") || name.Contains("800_") || name.EndsWith("800.cnmt.nca")))
+                                    {
+                                        continue;
+                                    }
+
                                     var file = OpenFileSafe(fs, entry.FullPath);
                                     
                                     openedFiles.Add(file);
