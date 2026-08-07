@@ -16,9 +16,9 @@
     <PublishReadyToRun>true</PublishReadyToRun>
     <TieredCompilation>true</TieredCompilation>
     <SuppressNETCoreSdkPreviewMessage>true</SuppressNETCoreSdkPreviewMessage>
-    <Version>3.9.36</Version>
-    <AssemblyVersion>3.9.36.0</AssemblyVersion>
-    <FileVersion>3.9.36.0</FileVersion>
+    <Version>3.9.37</Version>
+    <AssemblyVersion>3.9.37.0</AssemblyVersion>
+    <FileVersion>3.9.37.0</FileVersion>
     <ApplicationIcon>storm_switch_box.ico</ApplicationIcon>
   </PropertyGroup>
 

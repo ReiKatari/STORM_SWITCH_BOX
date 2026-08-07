@@ -236,6 +236,10 @@ namespace StormSwitchBox.Services
 
                 string userProfileSwitch = System.IO.Path.Combine(isolatedUserProfile, ".switch");
                 string userProfileKeys = System.IO.Path.Combine(userProfileSwitch, "prod.keys");
+                string userProfileKeysTxt = System.IO.Path.Combine(userProfileSwitch, "keys.txt");
+                string realProfileSwitch = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch");
+                string realProfileKeys = System.IO.Path.Combine(realProfileSwitch, "prod.keys");
+                string realProfileKeysTxt = System.IO.Path.Combine(realProfileSwitch, "keys.txt");
                 string squirrelKeys1 = System.IO.Path.Combine(nscbDir, "keys.txt");
                 string squirrelKeys2 = System.IO.Path.Combine(nscbDir, "ztools", "keys.txt");
 
@@ -244,14 +248,25 @@ namespace StormSwitchBox.Services
                     try
                     {
                         if (!Directory.Exists(userProfileSwitch)) Directory.CreateDirectory(userProfileSwitch);
+                        if (!Directory.Exists(realProfileSwitch)) Directory.CreateDirectory(realProfileSwitch);
                         if (!Directory.Exists(isolatedLocalAppData)) Directory.CreateDirectory(isolatedLocalAppData);
 
                         if (!string.IsNullOrEmpty(App.Settings.Current.KeysPath) && System.IO.File.Exists(App.Settings.Current.KeysPath))
                         {
                             App.SwitchFormat.CleanKeysFile(App.Settings.Current.KeysPath);
                             System.IO.File.Copy(App.Settings.Current.KeysPath, userProfileKeys, true);
+                            System.IO.File.Copy(App.Settings.Current.KeysPath, userProfileKeysTxt, true);
+                            System.IO.File.Copy(App.Settings.Current.KeysPath, realProfileKeys, true);
+                            System.IO.File.Copy(App.Settings.Current.KeysPath, realProfileKeysTxt, true);
                             System.IO.File.Copy(App.Settings.Current.KeysPath, squirrelKeys1, true);
                             System.IO.File.Copy(App.Settings.Current.KeysPath, squirrelKeys2, true);
+
+                            App.SwitchFormat.CleanKeysFile(userProfileKeys);
+                            App.SwitchFormat.CleanKeysFile(userProfileKeysTxt);
+                            App.SwitchFormat.CleanKeysFile(realProfileKeys);
+                            App.SwitchFormat.CleanKeysFile(realProfileKeysTxt);
+                            App.SwitchFormat.CleanKeysFile(squirrelKeys1);
+                            App.SwitchFormat.CleanKeysFile(squirrelKeys2);
                         }
                     }
                     catch { }
