@@ -326,7 +326,7 @@ namespace StormSwitchBox.Services
 
                 if (sortedList.Count == 0) sortedList = finalInputFilesList.Where(f => !Directory.Exists(f)).ToList();
 
-                string fmt = isTargetXci ? "xci" : "nsp";
+                string fmt = isTargetXci ? "xci" : "cnsp";
                 string outFolder = System.IO.Path.Combine(tempDecompDir, "nscb_out");
                 Directory.CreateDirectory(outFolder);
 
@@ -340,18 +340,47 @@ namespace StormSwitchBox.Services
                         for (int i = 0; i < sortedList.Count; i++)
                         {
                             string fPath = sortedList[i];
+                            string ext = System.IO.Path.GetExtension(fPath).ToLowerInvariant();
                             string origFileName = System.IO.Path.GetFileName(fPath);
-                            string safeFileName = NszCompressionService.SanitizeFileName(origFileName);
-                            string safePath = System.IO.Path.Combine(tempDecompDir, safeFileName);
-                            
-                            if (fPath.Equals(safePath, StringComparison.OrdinalIgnoreCase))
+
+                            var tags = new List<string>();
+                            var tidMatch = System.Text.RegularExpressions.Regex.Match(origFileName, @"\[([0-9a-fA-F]{16})\]");
+                            if (tidMatch.Success) tags.Add(tidMatch.Value);
+                            var verMatch = System.Text.RegularExpressions.Regex.Match(origFileName, @"\[v\d+\]", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                            if (verMatch.Success) tags.Add(verMatch.Value);
+
+                            string tagSuffix = tags.Count > 0 ? "_" + string.Join("", tags) : "";
+
+                            if (ext == ".nsz" || ext == ".xcz" || ext == ".xci")
                             {
-                                safeSortedList.Add(fPath);
-                                continue;
+                                string nspName = $"src_{i}{tagSuffix}.nsp";
+                                string targetNspPath = System.IO.Path.Combine(tempDecompDir, nspName);
+
+                                App.RunOnUI(() => task.LogDetails += $"\n📦 [NSC_Builder] Распаковка {System.IO.Path.GetFileName(fPath)} -> {nspName}...");
+
+                                bool decompressed = (await App.NszCompression.DecompressNszAsync(task, fPath, tempDecompDir, cancellationToken)) != null;
+                                if (decompressed)
+                                {
+                                    var producedNsp = new DirectoryInfo(tempDecompDir).GetFiles("*.nsp")
+                                        .OrderByDescending(f => f.LastWriteTime)
+                                        .FirstOrDefault();
+
+                                    if (producedNsp != null)
+                                    {
+                                        if (!producedNsp.FullName.Equals(targetNspPath, StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            if (File.Exists(targetNspPath)) File.Delete(targetNspPath);
+                                            File.Move(producedNsp.FullName, targetNspPath);
+                                        }
+                                        safeSortedList.Add(targetNspPath);
+                                        continue;
+                                    }
+                                }
                             }
 
+                            string safeFileName = $"src_{i}{tagSuffix}.nsp";
+                            string safePath = System.IO.Path.Combine(tempDecompDir, safeFileName);
                             if (File.Exists(safePath)) try { File.Delete(safePath); } catch { }
-
                             bool linked = false;
                             try { linked = CreateHardLink(safePath, fPath, IntPtr.Zero); } catch { }
                             if (!linked)
