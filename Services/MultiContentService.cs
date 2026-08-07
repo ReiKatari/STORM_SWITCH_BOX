@@ -355,27 +355,28 @@ namespace StormSwitchBox.Services
                             {
                                 string nspName = $"src_{i}{tagSuffix}.nsp";
                                 string targetNspPath = System.IO.Path.Combine(tempDecompDir, nspName);
+                                string itemDecompDir = System.IO.Path.Combine(tempDecompDir, $"decomp_{i}");
+                                Directory.CreateDirectory(itemDecompDir);
 
                                 App.RunOnUI(() => task.LogDetails += $"\n📦 [NSC_Builder] Распаковка {System.IO.Path.GetFileName(fPath)} -> {nspName}...");
 
-                                bool decompressed = (await App.NszCompression.DecompressNszAsync(task, fPath, tempDecompDir, cancellationToken)) != null;
-                                if (decompressed)
+                                string? decompResult = await App.NszCompression.DecompressNszAsync(task, fPath, itemDecompDir, cancellationToken);
+                                if (decompResult != null)
                                 {
-                                    var producedNsp = new DirectoryInfo(tempDecompDir).GetFiles("*.nsp")
-                                        .OrderByDescending(f => f.LastWriteTime)
+                                    var producedNsp = new DirectoryInfo(itemDecompDir).GetFiles("*.nsp")
+                                        .OrderByDescending(f => f.Length)
                                         .FirstOrDefault();
 
                                     if (producedNsp != null)
                                     {
-                                        if (!producedNsp.FullName.Equals(targetNspPath, StringComparison.OrdinalIgnoreCase))
-                                        {
-                                            if (File.Exists(targetNspPath)) File.Delete(targetNspPath);
-                                            File.Move(producedNsp.FullName, targetNspPath);
-                                        }
+                                        if (File.Exists(targetNspPath)) try { File.Delete(targetNspPath); } catch { }
+                                        File.Move(producedNsp.FullName, targetNspPath);
+                                        try { Directory.Delete(itemDecompDir, true); } catch { }
                                         safeSortedList.Add(targetNspPath);
                                         continue;
                                     }
                                 }
+                                try { Directory.Delete(itemDecompDir, true); } catch { }
                             }
 
                             string safeFileName = $"src_{i}{tagSuffix}.nsp";
