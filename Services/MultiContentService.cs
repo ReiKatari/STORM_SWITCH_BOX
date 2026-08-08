@@ -393,10 +393,16 @@ namespace StormSwitchBox.Services
                         }
 
                         string mlistFile = System.IO.Path.Combine(tempDecompDir, "mlist.txt");
-                        var utf8NoBom = new System.Text.UTF8Encoding(false);
-                        System.IO.File.WriteAllLines(mlistFile, safeSortedList, utf8NoBom);
+                        // Старая версия 0.1.007 использовала ASCII для mlist —
+                        // squirrel.exe (Python 3.7) может не корректно читать UTF-8 BOM
+                        System.IO.File.WriteAllLines(mlistFile, safeSortedList, System.Text.Encoding.ASCII);
 
-                        string args = $"-b 65536 -pv false -fat exfat -roma TRUE -t {fmt} -o \"{outFolder}\" -tfile \"{mlistFile}\" -dmul \"calculate\"";
+                        // Аргументы из рабочей версии 0.1.007:
+                        // -kp false      — отключить KeyPatch generation
+                        // --RSVcap 268435656 — ограничить Required System Version
+                        // -fx files      — режим обработки файлов
+                        // -ND true       — флаг NSCB (No Delete / preserve structure)
+                        string args = $"-b 65536 -pv false -kp false --RSVcap 268435656 -fat exfat -fx files -ND true -roma TRUE -t {fmt} -o \"{outFolder}\" -tfile \"{mlistFile}\" -dmul \"calculate\"";
                         
                         App.Logger.Log($"[squirrel] args: {args}", Models.LogLevel.Info);
 
