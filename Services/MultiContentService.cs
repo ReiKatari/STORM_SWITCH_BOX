@@ -562,18 +562,41 @@ namespace StormSwitchBox.Services
                                         }
                                     }
 
+                                    // Считаем ожидаемое количество тикетов из входных файлов
+                                    int expectedTikCount = 0;
+                                    foreach (var sf in sortedList)
+                                    {
+                                        if (Directory.Exists(sf) || !File.Exists(sf)) continue;
+                                        try
+                                        {
+                                            using var tikCheckStream = new FileStream(sf, FileMode.Open, FileAccess.Read, FileShare.Read);
+                                            using var tikCheckPfs = new PartitionFileSystem(tikCheckStream.AsStorage());
+                                            foreach (var tikEntry in tikCheckPfs.EnumerateEntries())
+                                            {
+                                                if (tikEntry.Type == LibHac.Fs.DirectoryEntryType.Directory) continue;
+                                                if (tikEntry.Name.EndsWith(".tik", StringComparison.OrdinalIgnoreCase))
+                                                    expectedTikCount++;
+                                            }
+                                        }
+                                        catch { }
+                                    }
+
                                     // Строгая валидация:
                                     // 1. CNMT для каждого Title (base + update + каждый DLC)
                                     int expectedCnmtCount = sortedList.Count(f => !Directory.Exists(f));
                                     // 2. Минимум 1 Control NCA (для иконки/названия)
                                     // 3. Достаточно NCA в целом
                                     int expectedMinNca = Math.Max(3, sortedList.Count);
+                                    // 4. Тикеты: если входные файлы содержали тикеты, выход тоже должен
                                     
+                                    bool tikValid = expectedTikCount == 0 || tikCount >= expectedTikCount;
+
                                     valid = cnmtCount >= expectedCnmtCount && 
                                             controlCount >= 1 && 
-                                            totalNca >= expectedMinNca;
+                                            totalNca >= expectedMinNca &&
+                                            tikValid;
 
-                                    App.Logger.Log($"[squirrel] validation: cnmt={cnmtCount}/{expectedCnmtCount}, control-like={controlCount}, total={totalNca}, tik={tikCount}, expected>={expectedMinNca}, valid={valid}", Models.LogLevel.Info);
+                                    App.Logger.Log($"[squirrel] validation: cnmt={cnmtCount}/{expectedCnmtCount}, control-like={controlCount}, total={totalNca}, tik={tikCount}/{expectedTikCount}, expected>={expectedMinNca}, valid={valid}", Models.LogLevel.Info);
                                 }
                                 catch (Exception vex)
                                 {
