@@ -469,7 +469,80 @@ namespace StormSwitchBox.Services
 
                         if (exitCode == 0)
                         {
-                            buildDone = true;
+                            // Валидация вывода: squirrel может вернуть 0 но создать
+                            // некорректный NSP (без Control NCA, с битыми CNMT и т.д.)
+                            string[] checkExts = { ".nsp", ".xci" };
+                            string? squirrelOut = Directory.GetFiles(outFolder)
+                                .Where(f => checkExts.Any(e => f.EndsWith(e, StringComparison.OrdinalIgnoreCase)))
+                                .OrderByDescending(f => new FileInfo(f).Length)
+                                .FirstOrDefault();
+
+                            bool valid = false;
+                            if (!string.IsNullOrEmpty(squirrelOut) && File.Exists(squirrelOut))
+                            {
+                                try
+                                {
+                                    using var checkStream = new FileStream(squirrelOut, FileMode.Open, FileAccess.Read, FileShare.Read);
+                                    using var checkPfs = new PartitionFileSystem(checkStream.AsStorage());
+
+                                    int cnmtCount = 0, controlCount = 0, totalNca = 0;
+                                    long largestNca = 0;
+
+                                    foreach (var entry in checkPfs.EnumerateEntries())
+                                    {
+                                        if (entry.Type == LibHac.Fs.DirectoryEntryType.Directory) continue;
+                                        string name = entry.Name;
+                                        if (!name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase) &&
+                                            !name.EndsWith(".cnmt.nca", StringComparison.OrdinalIgnoreCase)) continue;
+
+                                        totalNca++;
+                                        if (name.EndsWith(".cnmt.nca", StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            cnmtCount++;
+                                        }
+                                        else
+                                        {
+                                            // Проверяем тип NCA по заголовку (Content Type)
+                                            try
+                                            {
+                                                var ncaFile = OpenFileSafe(checkPfs, "/" + name);
+                                                using var ncaStorage = ncaFile.AsStorage();
+                                                ncaStorage.GetSize(out long ncaSize);
+                                                if (ncaSize > largestNca) largestNca = ncaSize;
+
+                                                // Control NCA обычно < 5 MB и содержит icon/title
+                                                if (ncaSize > 0 && ncaSize < 10 * 1024 * 1024)
+                                                    controlCount++;
+                                            }
+                                            catch { }
+                                        }
+                                    }
+
+                                    // Ожидаем: минимум 1 CNMT, минимум 1 Control-like NCA,
+                                    // и минимум N NCAs (base + DLCs = sortedList.Count * ~2)
+                                    int expectedMinNca = Math.Max(3, sortedList.Count);
+                                    valid = cnmtCount >= 1 && controlCount >= 1 && totalNca >= expectedMinNca;
+
+                                    App.Logger.Log($"[squirrel] validation: cnmt={cnmtCount}, control-like={controlCount}, total={totalNca}, expected>={expectedMinNca}, valid={valid}", Models.LogLevel.Info);
+                                }
+                                catch (Exception vex)
+                                {
+                                    App.Logger.Log($"[squirrel] validation error: {vex.Message}", Models.LogLevel.Warning);
+                                }
+                            }
+
+                            if (valid)
+                            {
+                                buildDone = true;
+                            }
+                            else
+                            {
+                                App.Logger.Log("[squirrel] output validation failed — fallback to LibHac", Models.LogLevel.Warning);
+                                // Удаляем некорректный файл squirrel'а
+                                if (!string.IsNullOrEmpty(squirrelOut) && File.Exists(squirrelOut))
+                                    try { File.Delete(squirrelOut); } catch { }
+                                App.RunOnUI(() => task.LogDetails += "\n⚠️ [NSC_Builder] Вывод squirrel.exe не прошёл валидацию (недостаточно NCA). Переход на нативную сборку C# (LibHac)...");
+                            }
                         }
                         else
                         {
