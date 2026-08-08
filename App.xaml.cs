@@ -250,16 +250,26 @@ namespace StormSwitchBox
         {
             try
             {
-                var notification = new Microsoft.Windows.AppNotifications.Builder.AppNotificationBuilder()
-                    .AddText(title)
-                    .AddText(message)
-                    .BuildNotification();
-                Microsoft.Windows.AppNotifications.AppNotificationManager.Default.Show(notification);
+                // Вызов вынесен в отдельный NoInlining-метод, чтобы JIT не пытался
+                // разрешить тип AppNotificationBuilder при компиляции ЭТОГО метода.
+                // Если DLL заблокирована WDAC/Smart App Control, исключение возникает
+                // при JIT-компиляции внутреннего метода и ловится здесь.
+                ShowToastNotificationImpl(title, message);
             }
             catch (Exception ex)
             {
                 Logger.Log($"Не удалось показать уведомление: {ex.Message}", Models.LogLevel.Warning);
             }
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void ShowToastNotificationImpl(string title, string message)
+        {
+            var notification = new Microsoft.Windows.AppNotifications.Builder.AppNotificationBuilder()
+                .AddText(title)
+                .AddText(message)
+                .BuildNotification();
+            Microsoft.Windows.AppNotifications.AppNotificationManager.Default.Show(notification);
         }
 
         private static void InitializeTasksFromCommandLine(string action, string[] paths, string? format)
