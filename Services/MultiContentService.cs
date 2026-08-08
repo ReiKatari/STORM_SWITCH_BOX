@@ -114,14 +114,14 @@ namespace StormSwitchBox.Services
                     (System.IO.Path.GetFileName(d).Equals("romfs", StringComparison.OrdinalIgnoreCase) || 
                      System.IO.Path.GetFileName(d).Equals("exefs", StringComparison.OrdinalIgnoreCase)));
 
-                // Патчинг прошивки (пересборка) - принудительно запускаем при наличии модов romfs/exefs
-                if (patchFirmware || hasMods)
+                // HardPatch (пересборка через yanu-cli) запускается ТОЛЬКО при наличии модов romfs/exefs.
+                // Без модов оригинальные Base + Update + DLCs передаются напрямую в squirrel/LibHac,
+                // что сохраняет все CNMT, тикеты и метаданные версии (как в старой версии 0.1.007).
+                if (hasMods)
                 {
                     App.RunOnUI(() =>
                     {
-                        task.LogDetails += hasMods 
-                            ? "\n🔵 [HardPatch] Обнаружены папки модов (romfs/exefs). Запуск распаковки и пересборки..." 
-                            : "\n🔵 [HardPatch] Поиск Base и Update...";
+                        task.LogDetails += "\n🔵 [HardPatch] Обнаружены папки модов (romfs/exefs). Запуск распаковки и пересборки...";
                     });
                     
                     string? baseFile = null;
@@ -156,7 +156,7 @@ namespace StormSwitchBox.Services
                     if (string.IsNullOrEmpty(baseFile)) baseFile = finalInputFilesList.FirstOrDefault(f => !Directory.Exists(f) && !f.Contains("DLC", StringComparison.OrdinalIgnoreCase) && (f.Contains("[v0]") || f.Contains("v0"))) ?? finalInputFilesList.FirstOrDefault(f => !Directory.Exists(f) && !f.Contains("DLC", StringComparison.OrdinalIgnoreCase) && !f.Contains("v")) ?? "";
                     if (string.IsNullOrEmpty(updateFile)) updateFile = finalInputFilesList.FirstOrDefault(f => !Directory.Exists(f) && f != baseFile && !f.Contains("DLC", StringComparison.OrdinalIgnoreCase) && (f.Contains("v") && !f.Contains("v0"))) ?? "";
                     
-                    if (!string.IsNullOrEmpty(baseFile) && (!string.IsNullOrEmpty(updateFile) || hasMods))
+                    if (!string.IsNullOrEmpty(baseFile))
                     {
                         App.RunOnUI(() => task.LogDetails += "\n🔵 [HardPatch] Физическая пересборка...");
                         string titleIdStr = "";
@@ -182,9 +182,7 @@ namespace StormSwitchBox.Services
                         if (System.IO.File.Exists(tempHardPatchedNsp))
                         {
                             finalInputFilesList.Remove(baseFile);
-                            // НЕ удаляем updateFile — его CNMT NCA нужен для правильной версии.
-                            // patched_base содержит данные обновления, но имеет Application CNMT (v0).
-                            // Patch CNMT (v196608 и т.д.) необходим, чтобы эмулятор показал правильную версию.
+                            if (!string.IsNullOrEmpty(updateFile)) finalInputFilesList.Remove(updateFile);
                             foreach (var mod in modDirs)
                             {
                                 finalInputFilesList.Remove(mod);
