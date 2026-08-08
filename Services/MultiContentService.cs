@@ -400,7 +400,7 @@ namespace StormSwitchBox.Services
                         
                         App.Logger.Log($"[squirrel] args: {args}", Models.LogLevel.Info);
 
-                        string squirrelLogFile = System.IO.Path.Combine(tempDecompDir, "squirrel_stdout.log");
+
                         string squirrelBat = System.IO.Path.Combine(tempDecompDir, "run_squirrel.bat");
                         string ztoolsDir = System.IO.Path.Combine(nscbDir, "ztools");
                         
@@ -417,27 +417,26 @@ namespace StormSwitchBox.Services
                         if (!string.IsNullOrEmpty(isolatedLocalAppData))
                             batBuilder.AppendLine($"set LOCALAPPDATA={isolatedLocalAppData}");
                         batBuilder.AppendLine($"cd /d \"{ztoolsDir}\"");
-                        batBuilder.AppendLine($"\"{squirrelExe}\" {args} > \"{squirrelLogFile}\" 2>&1");
+                        // Не перенаправляем stdout в файл! При файловом перенаправлении
+                        // Python 3.7 (frozen PyInstaller) использует locale → cp1251 для
+                        // кодирования stdout, игнорируя chcp 65001. CJK-символы из NUTDB
+                        // вызывают UnicodeEncodeError. PYTHONIOENCODING=utf-8 работает
+                        // для перенаправлённого stdout и принудительно устанавливает UTF-8.
+                        batBuilder.AppendLine($"\"{squirrelExe}\" {args}");
                         batBuilder.AppendLine("exit /b %errorlevel%");
                         
                         System.IO.File.WriteAllText(squirrelBat, batBuilder.ToString(), new System.Text.UTF8Encoding(false));
 
-                        // ══════════════════════════════════════════════════════════════════
-                        // CreateNoWindow=false + WindowStyle=Hidden:
-                        // Создаёт РЕАЛЬНУЮ скрытую консоль Windows (а не уничтожает её).
-                        // chcp 65001 в bat-файле устанавливает кодовую страницу ЭТОЙ консоли.
-                        // Python 3.7 (frozen PyInstaller) определяет кодировку stdout через
-                        // GetConsoleOutputCP() → 65001 (UTF-8), а не locale → cp1251.
-                        // Без этого squirrel.exe крашится с UnicodeEncodeError при выводе
-                        // CJK-символов из NUTDB (напр. Assassin's Creed Ezio Collection).
-                        // ══════════════════════════════════════════════════════════════════
                         var squirrelPsi = new System.Diagnostics.ProcessStartInfo
                         {
                             FileName = "cmd.exe",
                             Arguments = $"/c \"\"{squirrelBat}\"\"",
                             UseShellExecute = false,
-                            CreateNoWindow = false,
-                            WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden,
+                            CreateNoWindow = true,
+                            RedirectStandardOutput = true,
+                            RedirectStandardError = true,
+                            StandardOutputEncoding = System.Text.Encoding.UTF8,
+                            StandardErrorEncoding = System.Text.Encoding.UTF8,
                             WorkingDirectory = ztoolsDir
                         };
 
@@ -446,7 +445,13 @@ namespace StormSwitchBox.Services
                         int exitCode;
                         using (var squirrelProc = new System.Diagnostics.Process { StartInfo = squirrelPsi })
                         {
+                            var outputBuilder = new System.Text.StringBuilder();
+                            squirrelProc.OutputDataReceived += (s, e) => { if (e.Data != null) outputBuilder.AppendLine(e.Data); };
+                            squirrelProc.ErrorDataReceived += (s, e) => { if (e.Data != null) outputBuilder.AppendLine(e.Data); };
+                            
                             squirrelProc.Start();
+                            squirrelProc.BeginOutputReadLine();
+                            squirrelProc.BeginErrorReadLine();
                             
                             using var squirrelCts = cancellationToken.Register(() =>
                             {
@@ -455,32 +460,28 @@ namespace StormSwitchBox.Services
 
                             await squirrelProc.WaitForExitAsync(cancellationToken);
                             
-                            if (System.IO.File.Exists(squirrelLogFile))
+                            // Логируем весь вывод squirrel.exe
+                            string logContent = outputBuilder.ToString();
+                            if (!string.IsNullOrWhiteSpace(logContent))
                             {
-                                try
+                                var logLines = new System.Text.StringBuilder();
+                                foreach (var logLine in logContent.Split('\n'))
                                 {
-                                    string logContent = System.IO.File.ReadAllText(squirrelLogFile, System.Text.Encoding.UTF8);
-                                    var logLines = new System.Text.StringBuilder();
-                                    foreach (var logLine in logContent.Split('\n'))
-                                    {
-                                        string trimmed = logLine.TrimEnd('\r', '\n');
-                                        if (!string.IsNullOrEmpty(trimmed))
-                                            logLines.Append('\n').Append(trimmed);
-                                    }
-                                    if (logLines.Length > 0)
-                                    {
-                                        string batch = logLines.ToString();
-                                        App.RunOnUI(() => task.LogDetails += batch);
-                                    }
+                                    string trimmed = logLine.TrimEnd('\r', '\n');
+                                    if (!string.IsNullOrEmpty(trimmed))
+                                        logLines.Append('\n').Append(trimmed);
                                 }
-                                catch { }
+                                if (logLines.Length > 0)
+                                {
+                                    string batch = logLines.ToString();
+                                    App.RunOnUI(() => task.LogDetails += batch);
+                                }
                             }
 
                             exitCode = squirrelProc.ExitCode;
                         }
                         
                         try { if (System.IO.File.Exists(squirrelBat)) System.IO.File.Delete(squirrelBat); } catch { }
-                        try { if (System.IO.File.Exists(squirrelLogFile)) System.IO.File.Delete(squirrelLogFile); } catch { }
 
                         App.Logger.Log($"[squirrel] exit code: {exitCode}", Models.LogLevel.Info);
 
