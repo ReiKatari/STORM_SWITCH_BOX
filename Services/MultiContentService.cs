@@ -488,35 +488,73 @@ namespace StormSwitchBox.Services
                             {
                                 try
                                 {
+                                    // Собираем все уникальные TitleID из входных файлов
+                                    var expectedTitleIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                                    foreach (var sf in sortedList)
+                                    {
+                                        if (Directory.Exists(sf)) continue;
+                                        var m = System.Text.RegularExpressions.Regex.Match(
+                                            System.IO.Path.GetFileName(sf), @"\[([0-9a-fA-F]{16})\]");
+                                        if (m.Success) expectedTitleIds.Add(m.Groups[1].Value.ToUpperInvariant());
+                                        // Также пытаемся из парсинга NSP
+                                        try
+                                        {
+                                            var pInfo = App.SwitchFormat.ParseNsp(sf);
+                                            if (!string.IsNullOrEmpty(pInfo.TitleId))
+                                                expectedTitleIds.Add(pInfo.TitleId.Trim().ToUpperInvariant());
+                                        }
+                                        catch { }
+                                    }
+
                                     using var checkStream = new FileStream(squirrelOut, FileMode.Open, FileAccess.Read, FileShare.Read);
                                     using var checkPfs = new PartitionFileSystem(checkStream.AsStorage());
 
-                                    int cnmtCount = 0, controlCount = 0, totalNca = 0;
-                                    long largestNca = 0;
+                                    int cnmtCount = 0, controlCount = 0, totalNca = 0, tikCount = 0;
+                                    var foundTitleIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
                                     foreach (var entry in checkPfs.EnumerateEntries())
                                     {
                                         if (entry.Type == LibHac.Fs.DirectoryEntryType.Directory) continue;
                                         string name = entry.Name;
-                                        if (!name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase) &&
-                                            !name.EndsWith(".cnmt.nca", StringComparison.OrdinalIgnoreCase)) continue;
+
+                                        if (name.EndsWith(".tik", StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            tikCount++;
+                                            continue;
+                                        }
+
+                                        if (!name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase)) continue;
 
                                         totalNca++;
                                         if (name.EndsWith(".cnmt.nca", StringComparison.OrdinalIgnoreCase))
                                         {
                                             cnmtCount++;
+                                            // Пытаемся извлечь TitleID из CNMT NCA
+                                            try
+                                            {
+                                                var ncaFile = OpenFileSafe(checkPfs, "/" + name);
+                                                using var ncaStorage = ncaFile.AsStorage();
+                                                // Первые 16 байт заголовка NCA содержат сигнатуру,
+                                                // TitleID обычно по смещению 0x210 (в зашифрованных NCA)
+                                                // Используем имя файла CNMT — в правильном NSP,
+                                                // squirrel включает TitleID в заголовок
+                                                ncaStorage.GetSize(out long cnmtSize);
+                                                if (cnmtSize > 0)
+                                                {
+                                                    // Каждый CNMT NCA = один Title
+                                                    foundTitleIds.Add($"cnmt_{cnmtCount}");
+                                                }
+                                            }
+                                            catch { }
                                         }
                                         else
                                         {
-                                            // Проверяем тип NCA по заголовку (Content Type)
                                             try
                                             {
                                                 var ncaFile = OpenFileSafe(checkPfs, "/" + name);
                                                 using var ncaStorage = ncaFile.AsStorage();
                                                 ncaStorage.GetSize(out long ncaSize);
-                                                if (ncaSize > largestNca) largestNca = ncaSize;
-
-                                                // Control NCA обычно < 5 MB и содержит icon/title
+                                                // Control NCA обычно < 10 MB
                                                 if (ncaSize > 0 && ncaSize < 10 * 1024 * 1024)
                                                     controlCount++;
                                             }
@@ -524,12 +562,18 @@ namespace StormSwitchBox.Services
                                         }
                                     }
 
-                                    // Ожидаем: минимум 1 CNMT, минимум 1 Control-like NCA,
-                                    // и минимум N NCAs (base + DLCs = sortedList.Count * ~2)
+                                    // Строгая валидация:
+                                    // 1. CNMT для каждого Title (base + update + каждый DLC)
+                                    int expectedCnmtCount = sortedList.Count(f => !Directory.Exists(f));
+                                    // 2. Минимум 1 Control NCA (для иконки/названия)
+                                    // 3. Достаточно NCA в целом
                                     int expectedMinNca = Math.Max(3, sortedList.Count);
-                                    valid = cnmtCount >= 1 && controlCount >= 1 && totalNca >= expectedMinNca;
+                                    
+                                    valid = cnmtCount >= expectedCnmtCount && 
+                                            controlCount >= 1 && 
+                                            totalNca >= expectedMinNca;
 
-                                    App.Logger.Log($"[squirrel] validation: cnmt={cnmtCount}, control-like={controlCount}, total={totalNca}, expected>={expectedMinNca}, valid={valid}", Models.LogLevel.Info);
+                                    App.Logger.Log($"[squirrel] validation: cnmt={cnmtCount}/{expectedCnmtCount}, control-like={controlCount}, total={totalNca}, tik={tikCount}, expected>={expectedMinNca}, valid={valid}", Models.LogLevel.Info);
                                 }
                                 catch (Exception vex)
                                 {
@@ -547,7 +591,7 @@ namespace StormSwitchBox.Services
                                 // Удаляем некорректный файл squirrel'а
                                 if (!string.IsNullOrEmpty(squirrelOut) && File.Exists(squirrelOut))
                                     try { File.Delete(squirrelOut); } catch { }
-                                App.RunOnUI(() => task.LogDetails += "\n⚠️ [NSC_Builder] Вывод squirrel.exe не прошёл валидацию (недостаточно NCA). Переход на нативную сборку C# (LibHac)...");
+                                App.RunOnUI(() => task.LogDetails += "\n⚠️ [NSC_Builder] Вывод squirrel.exe не прошёл валидацию (недостаточно CNMT/NCA). Переход на нативную сборку C# (LibHac)...");
                             }
                         }
                         else
