@@ -182,7 +182,9 @@ namespace StormSwitchBox.Services
                         if (System.IO.File.Exists(tempHardPatchedNsp))
                         {
                             finalInputFilesList.Remove(baseFile);
-                            if (!string.IsNullOrEmpty(updateFile)) finalInputFilesList.Remove(updateFile);
+                            // НЕ удаляем updateFile — его CNMT NCA нужен для правильной версии.
+                            // patched_base содержит данные обновления, но имеет Application CNMT (v0).
+                            // Patch CNMT (v196608 и т.д.) необходим, чтобы эмулятор показал правильную версию.
                             foreach (var mod in modDirs)
                             {
                                 finalInputFilesList.Remove(mod);
