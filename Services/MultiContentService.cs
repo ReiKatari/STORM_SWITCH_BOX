@@ -114,14 +114,17 @@ namespace StormSwitchBox.Services
                     (System.IO.Path.GetFileName(d).Equals("romfs", StringComparison.OrdinalIgnoreCase) || 
                      System.IO.Path.GetFileName(d).Equals("exefs", StringComparison.OrdinalIgnoreCase)));
 
-                // HardPatch (пересборка через yanu-cli) запускается ТОЛЬКО при наличии модов romfs/exefs.
-                // Без модов оригинальные Base + Update + DLCs передаются напрямую в squirrel/LibHac,
-                // что сохраняет все CNMT, тикеты и метаданные версии (как в старой версии 0.1.007).
-                if (hasMods)
+                // Путь к оригинальному Update NSP — нужен в LibHac fallback для Patch CNMT и тикетов
+                string? savedUpdateFile = null;
+
+                // Патчинг прошивки (пересборка base+update через yanu-cli)
+                if (patchFirmware || hasMods)
                 {
                     App.RunOnUI(() =>
                     {
-                        task.LogDetails += "\n🔵 [HardPatch] Обнаружены папки модов (romfs/exefs). Запуск распаковки и пересборки...";
+                        task.LogDetails += hasMods 
+                            ? "\n🔵 [HardPatch] Обнаружены папки модов (romfs/exefs). Запуск распаковки и пересборки..." 
+                            : "\n🔵 [HardPatch] Поиск Base и Update...";
                     });
                     
                     string? baseFile = null;
@@ -156,7 +159,7 @@ namespace StormSwitchBox.Services
                     if (string.IsNullOrEmpty(baseFile)) baseFile = finalInputFilesList.FirstOrDefault(f => !Directory.Exists(f) && !f.Contains("DLC", StringComparison.OrdinalIgnoreCase) && (f.Contains("[v0]") || f.Contains("v0"))) ?? finalInputFilesList.FirstOrDefault(f => !Directory.Exists(f) && !f.Contains("DLC", StringComparison.OrdinalIgnoreCase) && !f.Contains("v")) ?? "";
                     if (string.IsNullOrEmpty(updateFile)) updateFile = finalInputFilesList.FirstOrDefault(f => !Directory.Exists(f) && f != baseFile && !f.Contains("DLC", StringComparison.OrdinalIgnoreCase) && (f.Contains("v") && !f.Contains("v0"))) ?? "";
                     
-                    if (!string.IsNullOrEmpty(baseFile))
+                    if (!string.IsNullOrEmpty(baseFile) && (!string.IsNullOrEmpty(updateFile) || hasMods))
                     {
                         App.RunOnUI(() => task.LogDetails += "\n🔵 [HardPatch] Физическая пересборка...");
                         string titleIdStr = "";
@@ -181,6 +184,11 @@ namespace StormSwitchBox.Services
                         
                         if (System.IO.File.Exists(tempHardPatchedNsp))
                         {
+                            // Сохраняем путь к оригинальному Update — его Patch CNMT и тикеты
+                            // нужны для LibHac fallback (версия + расшифровка)
+                            if (!string.IsNullOrEmpty(updateFile) && System.IO.File.Exists(updateFile))
+                                savedUpdateFile = updateFile;
+
                             finalInputFilesList.Remove(baseFile);
                             if (!string.IsNullOrEmpty(updateFile)) finalInputFilesList.Remove(updateFile);
                             foreach (var mod in modDirs)
@@ -654,6 +662,14 @@ namespace StormSwitchBox.Services
                             {
                                 if (!System.IO.Directory.Exists(f) && !scanList.Contains(f, StringComparer.OrdinalIgnoreCase) && System.IO.File.Exists(f))
                                     scanList.Add(f);
+                            }
+                            // Добавляем оригинальный Update NSP (если был удалён после HardPatch)
+                            // для извлечения Patch CNMT (версия) и тикетов
+                            if (!string.IsNullOrEmpty(savedUpdateFile) && System.IO.File.Exists(savedUpdateFile) 
+                                && !scanList.Contains(savedUpdateFile, StringComparer.OrdinalIgnoreCase))
+                            {
+                                scanList.Add(savedUpdateFile);
+                                App.Logger.Log($"[LibHac] Добавлен оригинальный Update для Patch CNMT: {System.IO.Path.GetFileName(savedUpdateFile)}", Models.LogLevel.Info);
                             }
 
                             foreach (string nspPath in scanList)
