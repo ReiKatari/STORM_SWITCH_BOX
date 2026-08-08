@@ -942,11 +942,35 @@ namespace StormSwitchBox.Services
 
             string baseGameTitle = origFileName;
 
-            // Clean off any existing tags like (1G+1U+5D), [v196608], [0100670014482000], (1.3 - 196608...) to prevent duplicate tags
+            // Проверяем, содержит ли оригинальное имя файла уже TitleID и/или версию
+            // Если пользователь указал их в своём формате (например, в круглых скобках),
+            // не нужно удалять и добавлять заново в квадратных скобках
+            bool origHasTitleId = !string.IsNullOrEmpty(titleId) &&
+                origFileName.Contains(titleId, StringComparison.OrdinalIgnoreCase);
+            bool origHasPatchVer = !string.IsNullOrEmpty(patchVer) &&
+                (origFileName.Contains($"v{patchVer}", StringComparison.OrdinalIgnoreCase) ||
+                 origFileName.Contains(patchVer, StringComparison.OrdinalIgnoreCase));
+
+            // Удаляем только тег содержимого (1G+1U+5D) — он всегда пересчитывается
             baseGameTitle = System.Text.RegularExpressions.Regex.Replace(baseGameTitle, @"\s*\(\d+G(?:\+\d+U)?(?:\+\d+D)?\)", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-            baseGameTitle = System.Text.RegularExpressions.Regex.Replace(baseGameTitle, @"\s*\[v\d+\]", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-            baseGameTitle = System.Text.RegularExpressions.Regex.Replace(baseGameTitle, @"\s*\[[0-9A-Fa-f]{16}\]", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-            baseGameTitle = System.Text.RegularExpressions.Regex.Replace(baseGameTitle, @"\s*\([^)]*\d{16}[^)]*\)", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            // Удаляем квадратные теги [TitleID] и [vXXX] ТОЛЬКО если их нет в оригинале
+            // (т.е. они были добавлены автоматически ранее, а не пользователем)
+            if (!origHasTitleId)
+            {
+                baseGameTitle = System.Text.RegularExpressions.Regex.Replace(baseGameTitle, @"\s*\[[0-9A-Fa-f]{16}\]", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            }
+            if (!origHasPatchVer)
+            {
+                baseGameTitle = System.Text.RegularExpressions.Regex.Replace(baseGameTitle, @"\s*\[v\d+\]", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            }
+
+            // Не удаляем пользовательские круглые скобки с информацией о версии (1.0.9 - 458752 - TitleID)
+            // Удаляем только если TitleID НЕ был в оригинале (значит это автоматический тег)
+            if (!origHasTitleId)
+            {
+                baseGameTitle = System.Text.RegularExpressions.Regex.Replace(baseGameTitle, @"\s*\([^)]*\d{16}[^)]*\)", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            }
 
             if (baseGameTitle.EndsWith("_Multi", StringComparison.OrdinalIgnoreCase))
                 baseGameTitle = baseGameTitle.Substring(0, baseGameTitle.Length - 6);
@@ -956,12 +980,13 @@ namespace StormSwitchBox.Services
             var sb = new System.Text.StringBuilder();
             sb.Append(baseGameTitle.Trim());
 
-            if (!string.IsNullOrEmpty(titleId))
+            // Добавляем TitleID и версию ТОЛЬКО если их нет в оригинальном имени
+            if (!origHasTitleId && !string.IsNullOrEmpty(titleId))
             {
                 sb.Append($" [{titleId}]");
             }
 
-            if (!string.IsNullOrEmpty(patchVer))
+            if (!origHasPatchVer && !string.IsNullOrEmpty(patchVer))
             {
                 sb.Append(patchVer.StartsWith("v", StringComparison.OrdinalIgnoreCase) ? $" [{patchVer}]" : $" [v{patchVer}]");
             }
