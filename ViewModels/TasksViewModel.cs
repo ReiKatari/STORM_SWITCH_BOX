@@ -17,6 +17,8 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media.Imaging;
 using StormSwitchBox.Models;
 using StormSwitchBox.Services;
+using LibHac.FsSystem;
+using LibHac.Tools.FsSystem;
 using WinRT;
 using WinRT.StormSwitchBoxVtableClasses;
 using Windows.Storage.Streams;
@@ -1149,6 +1151,10 @@ public partial class TasksViewModel : ObservableObject
 			task.IsRunning = true;
 			List<string> inputFiles3 = task.InputFiles;
 			string outPath2 = Path.Combine(task.OutputFolder, task.OutputFileName + "." + task.TargetFormat.ToLower());
+			
+			// Предварительный анализ файлов
+			await PreAnalyzeFilesAsync(task, inputFiles3);
+			
 			await App.MultiContent.BuildMultiContentAsync(task, inputFiles3, outPath2, patchFirmware: App.Settings.Current.ForceMultiRebuild, cts.Token);
 			return;
 		}
@@ -1385,5 +1391,169 @@ public partial class TasksViewModel : ObservableObject
 				}
 			}
 		}
+	}
+
+	/// <summary>
+	/// Предварительный анализ файлов перед обработкой.
+	/// Сканирует NSP/NSZ для определения структуры, типов контента,
+	/// мульти-программных тайтлов, наличия NCZ и тикетов.
+	/// </summary>
+	private async Task PreAnalyzeFilesAsync(ProcessingTask task, List<string> inputFiles)
+	{
+		await Task.Run(() =>
+		{
+			try
+			{
+				var sb = new System.Text.StringBuilder();
+				sb.AppendLine("╔══════════════════════════════════════════╗");
+				sb.AppendLine("║      📊 ПРЕДВАРИТЕЛЬНЫЙ АНАЛИЗ ФАЙЛОВ     ║");
+				sb.AppendLine("╚══════════════════════════════════════════╝");
+				
+				int totalNspFiles = 0;
+				int totalNcaCount = 0;
+				int totalNczCount = 0;
+				int totalTickets = 0;
+				var allTitleIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+				var contentTypes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase); // titleId -> type
+				bool hasMultiProgram = false;
+
+				foreach (var filePath in inputFiles)
+				{
+					if (Directory.Exists(filePath)) // romfs/exefs mod folder
+					{
+						sb.AppendLine($"\n📁 {Path.GetFileName(filePath)}  [Папка модов]");
+						continue;
+					}
+					if (!File.Exists(filePath)) continue;
+					
+					string ext = Path.GetExtension(filePath).ToLower();
+					if (ext != ".nsp" && ext != ".nsz") continue;
+					
+					totalNspFiles++;
+					string fileName = Path.GetFileName(filePath);
+					
+					try
+					{
+						var info = App.SwitchFormat.ParseNsp(filePath);
+						string type = info.ContentType ?? "Unknown";
+						string tid = (info.TitleId ?? "").Trim().ToUpperInvariant();
+						string ver = info.Version ?? "?";
+						
+						// Классификация
+						string typeLabel = type switch
+						{
+							"Application" => "🎮 ИГРА",
+							"Patch" => "🔄 ОБНОВЛЕНИЕ",
+							"AddOnContent" => "📦 DLC",
+							_ => $"❓ {type}"
+						};
+						
+						sb.AppendLine($"\n{typeLabel}  {fileName}");
+						sb.AppendLine($"  ├ TitleID: {tid}");
+						sb.AppendLine($"  ├ Версия:  {ver}");
+						
+						if (!string.IsNullOrEmpty(tid))
+						{
+							allTitleIds.Add(tid);
+							if (!contentTypes.ContainsKey(tid))
+								contentTypes[tid] = type;
+						}
+						
+						// Глубокий анализ: подсчёт NCA внутри контейнера
+						int ncaInFile = 0;
+						int nczInFile = 0;
+						int tikInFile = 0;
+						var titleIdsInFile = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+						
+						try
+						{
+							using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+							using var pfs = new PartitionFileSystem(fs.AsStorage());
+							foreach (var entry in pfs.EnumerateEntries())
+							{
+								if (entry.Type == LibHac.Fs.DirectoryEntryType.Directory) continue;
+								string name = entry.Name;
+								if (name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase))
+								{
+									ncaInFile++;
+									// Извлечение TitleID из CNMT-NCA (содержит TitleID в имени)
+									if (name.Contains(".cnmt.nca", StringComparison.OrdinalIgnoreCase))
+									{
+										// Формат CNMT: <hash>.cnmt.nca — TitleID недоступен из имени
+										// Используем ParseNsp выше для основного TitleID
+									}
+								}
+								else if (name.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase))
+								{
+									nczInFile++;
+									ncaInFile++; // NCZ = сжатый NCA
+								}
+								else if (name.EndsWith(".tik", StringComparison.OrdinalIgnoreCase))
+								{
+									tikInFile++;
+									// TitleID из тикета: первые 16 символов имени файла
+									if (name.Length >= 16)
+									{
+										string tikTid = name.Substring(0, 16).ToUpperInvariant();
+										if (System.Text.RegularExpressions.Regex.IsMatch(tikTid, @"^[0-9A-F]{16}$"))
+											titleIdsInFile.Add(tikTid);
+									}
+								}
+							}
+						}
+						catch { }
+						
+						totalNcaCount += ncaInFile;
+						totalNczCount += nczInFile;
+						totalTickets += tikInFile;
+						
+						sb.AppendLine($"  ├ NCA: {ncaInFile}" + (nczInFile > 0 ? $"  NCZ: {nczInFile} (сжатые)" : ""));
+						sb.AppendLine($"  └ Тикеты: {tikInFile}  Размер: {ProcessingTask.FormatSize(new FileInfo(filePath).Length)}");
+						
+						// Детект мульти-программного тайтла
+						if (titleIdsInFile.Count > 2 && (type == "Application" || type == "Patch"))
+						{
+							hasMultiProgram = true;
+							sb.AppendLine($"  ⚠️ МУЛЬТИ-ПРОГРАММНЫЙ: {titleIdsInFile.Count} уникальных TitleID внутри!");
+						}
+					}
+					catch (Exception ex)
+					{
+						sb.AppendLine($"\n❓ {fileName}  [Не удалось проанализировать: {ex.Message}]");
+					}
+				}
+				
+				// Итоговая сводка
+				sb.AppendLine("\n══════════════════════════════════════════");
+				sb.AppendLine($"📊 Итого: {totalNspFiles} файлов | {totalNcaCount} NCA | {totalNczCount} NCZ | {totalTickets} тикетов");
+				sb.AppendLine($"📊 Уникальных TitleID: {allTitleIds.Count}");
+				
+				if (hasMultiProgram)
+				{
+					sb.AppendLine("⚠️ Обнаружен мульти-программный тайтл — yanu-cli будет пропущен");
+					task.IsMultiProgramTitle = true;
+				}
+				
+				if (totalNczCount > 0)
+				{
+					sb.AppendLine($"📦 Обнаружены сжатые NCZ ({totalNczCount} шт.) — потребуется декомпрессия");
+				}
+				
+				sb.AppendLine("══════════════════════════════════════════\n");
+				
+				task.PreAnalysisLog = sb.ToString();
+				
+				App.RunOnUI(() =>
+				{
+					task.LogDetails = sb.ToString();
+				});
+				
+				App.Logger.Log($"[PreAnalysis] {task.OutputFileName}: {totalNspFiles} files, {totalNcaCount} NCA, multiProgram={hasMultiProgram}", LogLevel.Info);
+			}
+			catch (Exception ex)
+			{
+				App.Logger.Log($"[PreAnalysis] Ошибка: {ex.Message}", LogLevel.Warning);
+			}
+		});
 	}
 }

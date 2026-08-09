@@ -335,18 +335,21 @@
         <Border Grid.Row="3" Margin="0,4,0,0" Background="{ThemeResource LayerFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8">
             <Pivot x:Name="DetailsPivot" Padding="0">
                 <!-- Вкладка 1: Журнал событий -->
-                <PivotItem Header="Журнал событий">
+                <PivotItem Header="📋 Журнал событий">
                     <Grid Padding="12,4,12,12">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="*"/>
                         </Grid.RowDefinitions>
-                          <Grid Grid.Row="0" Margin="0,4,0,6">
-                              <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Left">
-                                  <FontIcon Glyph="&#xE756;" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
-                                  <TextBlock Text="ПОЛНЫЙ ЖУРНАЛ СОБЫТИЙ ПРОГРАММЫ" FontWeight="Bold" FontSize="10" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" CharacterSpacing="100"/>
+                          <Grid Grid.Row="0" Margin="0,4,0,8">
+                              <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Left">
+                                  <FontIcon Glyph="&#xE756;" FontSize="15" Foreground="#82B1FF" VerticalAlignment="Center"/>
+                                  <TextBlock Text="ПОЛНЫЙ ЖУРНАЛ СОБЫТИЙ" FontWeight="Bold" FontSize="10" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" CharacterSpacing="120"/>
                               </StackPanel>
-                              <Button Content="Копировать всё" Click="CopyLogs_Click" HorizontalAlignment="Right" Padding="8,4" FontSize="12" CornerRadius="4" ToolTipService.ToolTip="Скопировать все логи в буфер обмена"/>
+                              <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right">
+                                  <Button Content="🗑️ Очистить" Click="ClearLogs_Click" Padding="8,4" FontSize="11" CornerRadius="4" ToolTipService.ToolTip="Очистить журнал"/>
+                                  <Button Content="📋 Копировать" Click="CopyLogs_Click" Padding="8,4" FontSize="11" CornerRadius="4" ToolTipService.ToolTip="Скопировать все логи в буфер обмена"/>
+                              </StackPanel>
                           </Grid>
                         <ListView x:Name="LogsListView" Grid.Row="1" ItemsSource="{x:Bind AppLogs}" SelectionMode="None"
                                   ItemContainerStyle="{StaticResource LogListItem}">
@@ -357,13 +360,23 @@
                             </ListView.ItemsPanel>
                             <ListView.ItemTemplate>
                                 <DataTemplate x:DataType="models:LogMessage">
-                                    <Grid Margin="0,1">
+                                    <Grid Margin="0,1" Padding="4,3" Background="{x:Bind RowBackground}" CornerRadius="3">
                                         <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="54"/>
                                             <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="90"/>
                                             <ColumnDefinition Width="*"/>
                                         </Grid.ColumnDefinitions>
-                                        <TextBlock Grid.Column="0" Text="{x:Bind FormattedTime}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontFamily="Consolas" FontSize="11" Margin="0,0,12,0"/>
-                                        <TextBlock Grid.Column="1" Text="{x:Bind Message}" Foreground="{x:Bind ColorBrush}" FontFamily="Consolas" FontSize="11" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" IsTextSelectionEnabled="True"/>
+                                        <!-- Бейдж уровня -->
+                                        <Border Grid.Column="0" Background="{x:Bind LevelBadgeBackground}" CornerRadius="3" Padding="4,2" HorizontalAlignment="Center" VerticalAlignment="Center" MinWidth="46">
+                                            <TextBlock Text="{x:Bind LevelLabel}" Foreground="{x:Bind LevelBadgeForeground}" FontFamily="Consolas" FontSize="9" FontWeight="Bold" HorizontalTextAlignment="Center"/>
+                                        </Border>
+                                        <!-- Иконка -->
+                                        <FontIcon Grid.Column="1" Glyph="{x:Bind LevelIcon}" FontSize="11" Foreground="{x:Bind LevelBadgeForeground}" VerticalAlignment="Center" Margin="6,0,8,0"/>
+                                        <!-- Время -->
+                                        <TextBlock Grid.Column="2" Text="{x:Bind FormattedTime}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontFamily="Consolas" FontSize="11" VerticalAlignment="Center" Opacity="0.7"/>
+                                        <!-- Сообщение -->
+                                        <TextBlock Grid.Column="3" Text="{x:Bind Message}" Foreground="{x:Bind ColorBrush}" FontFamily="Consolas" FontSize="11" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" IsTextSelectionEnabled="True" VerticalAlignment="Center" Margin="4,0,0,0"/>
                                     </Grid>
                                 </DataTemplate>
                             </ListView.ItemTemplate>
@@ -372,13 +385,14 @@
                 </PivotItem>
                 
                 <!-- Вкладка 2: Детали и лог задачи -->
-                <PivotItem Header="Параметры и Лог выбранной задачи">
+                <PivotItem Header="⚙️ Параметры и Лог задачи">
                     <Grid DataContext="{Binding ElementName=TasksGrid, Path=SelectedItem}" Padding="12,8">
                         <!-- Если ничего не выбрано, показываем плейсхолдер -->
-                        <TextBlock x:Name="NoSelectionPlaceholder" 
-                                   Text="Выберите задачу в таблице для просмотра её параметров и лога выполнения" 
-                                   HorizontalAlignment="Center" VerticalAlignment="Center" 
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" FontStyle="Italic"/>
+                        <StackPanel x:Name="NoSelectionPlaceholder" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8">
+                            <FontIcon Glyph="&#xE8A5;" FontSize="32" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Center" Opacity="0.5"/>
+                            <TextBlock Text="Выберите задачу в таблице для просмотра параметров и лога" 
+                                       HorizontalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" FontStyle="Italic" Opacity="0.7"/>
+                        </StackPanel>
                         
                         <!-- Если задача выбрана, показываем детали -->
                         <Grid x:Name="DetailsContainer" Visibility="Collapsed">
@@ -389,45 +403,78 @@
                             
                             <!-- Левая колонка: параметры -->
                             <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto" Margin="0,0,12,0">
-                                <StackPanel Spacing="6" Padding="0,4,0,4">
-                                    <Grid RowSpacing="6" ColumnSpacing="8">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="120"/>
-                                            <ColumnDefinition Width="*"/>
-                                        </Grid.ColumnDefinitions>
-                                        <Grid.RowDefinitions>
-                                            <RowDefinition Height="Auto"/>
-                                            <RowDefinition Height="Auto"/>
-                                            <RowDefinition Height="Auto"/>
-                                        </Grid.RowDefinitions>
-                                        
-                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Входные файлы:" FontWeight="SemiBold" Foreground="{ThemeResource SystemControlHighlightAccentBrush}" FontSize="11" VerticalAlignment="Top" Margin="0,4,0,0"/>
-                                        <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding InputFolders}" TextWrapping="Wrap" FontSize="11" VerticalAlignment="Center" HorizontalAlignment="Left" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                                        
-                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Выходная папка:" FontWeight="SemiBold" Foreground="{ThemeResource SystemControlHighlightAccentBrush}" FontSize="11" VerticalAlignment="Center"/>
-                                        <Grid Grid.Row="1" Grid.Column="1" ColumnSpacing="6">
+                                <StackPanel Spacing="10" Padding="0,0,0,4">
+                                    <!-- Заголовок -->
+                                    <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,0,0,4">
+                                        <FontIcon Glyph="&#xE713;" FontSize="14" Foreground="#82B1FF"/>
+                                        <TextBlock Text="ПАРАМЕТРЫ ЗАДАЧИ" FontWeight="Bold" FontSize="10" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" CharacterSpacing="120"/>
+                                    </StackPanel>
+                                    
+                                    <!-- Карточка: Входные файлы -->
+                                    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="6" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" Padding="12,8">
+                                        <Grid ColumnSpacing="10">
                                             <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <FontIcon Grid.Column="0" Glyph="&#xE8B7;" FontSize="16" Foreground="#64B5F6" VerticalAlignment="Top" Margin="0,3,0,0"/>
+                                            <TextBlock Grid.Column="1" Text="Входные файлы:" FontWeight="SemiBold" Foreground="#82B1FF" FontSize="11" VerticalAlignment="Top" Margin="0,3,0,0"/>
+                                            <TextBlock Grid.Column="2" Text="{Binding InputFolders}" TextWrapping="Wrap" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                        </Grid>
+                                    </Border>
+                                    
+                                    <!-- Карточка: Выходная папка -->
+                                    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="6" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" Padding="12,8">
+                                        <Grid ColumnSpacing="10">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="Auto"/>
                                                 <ColumnDefinition Width="*"/>
                                                 <ColumnDefinition Width="Auto"/>
                                             </Grid.ColumnDefinitions>
-                                            <TextBox Grid.Column="0" Text="{Binding OutputFolder, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" 
+                                            <FontIcon Grid.Column="0" Glyph="&#xE8DA;" FontSize="16" Foreground="#FFB74D" VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="1" Text="Выходная папка:" FontWeight="SemiBold" Foreground="#FFB74D" FontSize="11" VerticalAlignment="Center"/>
+                                            <TextBox Grid.Column="2" Text="{Binding OutputFolder, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" 
                                                      FontSize="11" IsEnabled="{Binding IsNotRunning, Mode=OneWay}" Height="28" MinHeight="0" Padding="6,2"
                                                      VerticalContentAlignment="Center"
                                                      AllowDrop="True" DragOver="OutputFolder_DragOver" Drop="OutputFolder_Drop"
                                                      PlaceholderText="Путь или перетащите папку"/>
-                                            <Button Grid.Column="1" Content="Обзор..." Click="BrowseOutputFolder_Click" Tag="{Binding}" FontSize="10" Padding="6,2" Height="28" IsEnabled="{Binding IsNotRunning, Mode=OneWay}"/>
+                                            <Button Grid.Column="3" Content="📂 Обзор" Click="BrowseOutputFolder_Click" Tag="{Binding}" FontSize="10" Padding="8,2" Height="28" IsEnabled="{Binding IsNotRunning, Mode=OneWay}" CornerRadius="4"/>
                                         </Grid>
-                                        
-                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Имя файла:" FontWeight="SemiBold" Foreground="{ThemeResource SystemControlHighlightAccentBrush}" FontSize="11" VerticalAlignment="Center"/>
-                                        <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding OutputFileName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" 
-                                                 FontSize="11" AllowDrop="True" DragOver="OutputName_DragOver" Drop="OutputName_Drop" Foreground="{ThemeResource SystemControlHighlightAccentBrush}" Height="28" MinHeight="0" Padding="6,2" VerticalContentAlignment="Center" IsEnabled="{Binding IsNotRunning, Mode=OneWay}"/> 
-                                    </Grid>
+                                    </Border>
+                                    
+                                    <!-- Карточка: Имя файла -->
+                                    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="6" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" Padding="12,8">
+                                        <Grid ColumnSpacing="10">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <FontIcon Grid.Column="0" Glyph="&#xE8A5;" FontSize="16" Foreground="#81C784" VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="1" Text="Имя файла:" FontWeight="SemiBold" Foreground="#81C784" FontSize="11" VerticalAlignment="Center"/>
+                                            <TextBox Grid.Column="2" Text="{Binding OutputFileName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" 
+                                                     FontSize="11" AllowDrop="True" DragOver="OutputName_DragOver" Drop="OutputName_Drop" Foreground="#81C784" Height="28" MinHeight="0" Padding="6,2" VerticalContentAlignment="Center" IsEnabled="{Binding IsNotRunning, Mode=OneWay}"/>
+                                        </Grid>
+                                    </Border>
                                 </StackPanel>
                             </ScrollViewer>
                             
                             <!-- Правая колонка: лог выполнения -->
-                            <Grid Grid.Column="1" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="4" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" Margin="0,0,0,4">
-                                <ScrollViewer x:Name="TaskLogScrollViewer" Padding="8,4" VerticalScrollBarVisibility="Auto">
+                            <Grid Grid.Column="1" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="6" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" Margin="0,0,0,4">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
+                                <!-- Заголовок лога -->
+                                <Border Grid.Row="0" Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}" CornerRadius="6,6,0,0" Padding="10,6">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <FontIcon Glyph="&#xE756;" FontSize="13" Foreground="#82B1FF"/>
+                                        <TextBlock Text="ЛОГ ВЫПОЛНЕНИЯ" FontWeight="Bold" FontSize="10" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" CharacterSpacing="100"/>
+                                    </StackPanel>
+                                </Border>
+                                <ScrollViewer x:Name="TaskLogScrollViewer" Grid.Row="1" Padding="10,6" VerticalScrollBarVisibility="Auto">
                                     <TextBlock Text="{Binding LogDetails}" TextWrapping="Wrap" FontFamily="Consolas" Foreground="{ThemeResource TextFillColorPrimaryBrush}" FontSize="11" IsTextSelectionEnabled="True" SizeChanged="TaskLogTextBlock_SizeChanged"/>
                                 </ScrollViewer>
                             </Grid>
