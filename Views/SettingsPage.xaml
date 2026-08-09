@@ -139,6 +139,33 @@
                             <TextBlock Text="Пересборка файлов в Мульти-контенте" VerticalAlignment="Center"/>
                             <ToggleSwitch HorizontalAlignment="Right" IsOn="{x:Bind Settings.ForceMultiRebuild, Mode=TwoWay}" Toggled="Toggle_Changed"/>
                         </Grid>
+
+                        <Grid>
+                            <StackPanel>
+                                <TextBlock Text="Удалить Titlerights (Ticketless NSP)" VerticalAlignment="Center"/>
+                                <TextBlock Text="Конвертирует ticket-зависимые NSP в стандартный крипто без тикетов" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap" MaxWidth="400"/>
+                            </StackPanel>
+                            <ToggleSwitch HorizontalAlignment="Right" IsOn="{x:Bind Settings.RemoveTitlerights, Mode=TwoWay}" Toggled="Toggle_Changed" 
+                                          ToolTipService.ToolTip="Игры установятся на любом CFW без привязки к тикетам. Работает через NSC_Builder (--C_clean_ND)."/>
+                        </Grid>
+
+                        <Grid>
+                            <StackPanel>
+                                <TextBlock Text="Удалять Delta NCA из обновлений" VerticalAlignment="Center"/>
+                                <TextBlock Text="Удаляет дельта-патчи из Update-файлов для экономии места (до 30%)" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap" MaxWidth="400"/>
+                            </StackPanel>
+                            <ToggleSwitch HorizontalAlignment="Right" IsOn="{x:Bind Settings.RemoveDeltaNca, Mode=TwoWay}" Toggled="Toggle_Changed" 
+                                          ToolTipService.ToolTip="Дельта-патчи не нужны для standalone-пакетов. Включено по умолчанию."/>
+                        </Grid>
+
+                        <Grid>
+                            <StackPanel>
+                                <TextBlock Text="Разделять файлы для FAT32 (> 4 GB)" VerticalAlignment="Center"/>
+                                <TextBlock Text="Автоматически разбивает файлы на чанки для SD-карт FAT32" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap" MaxWidth="400"/>
+                            </StackPanel>
+                            <ToggleSwitch HorizontalAlignment="Right" IsOn="{x:Bind Settings.SplitFat32, Mode=TwoWay}" Toggled="Toggle_Changed" 
+                                          ToolTipService.ToolTip="Разбивает выходные файлы >4GB на .xc0/.xc1 или .00/.01 чанки для FAT32 SD-карт."/>
+                        </Grid>
                     </StackPanel>
                 </Border>
             </StackPanel>

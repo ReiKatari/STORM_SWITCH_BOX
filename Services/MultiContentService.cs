@@ -463,12 +463,11 @@ namespace StormSwitchBox.Services
                         // squirrel.exe (Python 3.7) может не корректно читать UTF-8 BOM
                         System.IO.File.WriteAllLines(mlistFile, safeSortedList, System.Text.Encoding.ASCII);
 
-                        // Аргументы из рабочей версии 0.1.007:
-                        // -kp false      — отключить KeyPatch generation
-                        // --RSVcap 268435656 — ограничить Required System Version
-                        // -fx files      — режим обработки файлов
-                        // -ND true       — флаг NSCB (No Delete / preserve structure)
-                        string args = $"-b 65536 -pv false -kp false --RSVcap 268435656 -fat exfat -fx files -ND true -roma TRUE -t {fmt} -o \"{outFolder}\" -tfile \"{mlistFile}\" -dmul \"calculate\"";
+                        // Аргументы из рабочей версии 0.1.007 + динамические настройки:
+                        string fatMode = App.Settings.Current.SplitFat32 ? "fat32" : "exfat";
+                        string ndFlag = App.Settings.Current.RemoveDeltaNca ? "true" : "false";
+                        string cleanFlag = App.Settings.Current.RemoveTitlerights ? " --C_clean_ND" : "";
+                        string args = $"-b 65536 -pv false -kp false --RSVcap 268435656 -fat {fatMode} -fx files -ND {ndFlag} -roma TRUE{cleanFlag} -t {fmt} -o \"{outFolder}\" -tfile \"{mlistFile}\" -dmul \"calculate\"";
                         
                         App.Logger.Log($"[squirrel] args: {args}", Models.LogLevel.Info);
 
