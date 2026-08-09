@@ -1,13 +1,12 @@
 [Setup]
 AppName=STORM SWITCH BOX
-AppVersion=4.1.0
+AppVersion=4.1.1
 AppPublisher=STORM CHANNEL & ReiKatari
 AppPublisherURL=https://rutube.ru/channel/42609927/
 DefaultDirName={localappdata}\Programs\STORM_SWITCH_BOX
 DefaultGroupName=STORM_SWITCH_BOX
-OutputBaseFilename=STORM_SWITCH_BOX_4.1.0_Setup
+OutputBaseFilename=STORM_SWITCH_BOX_4.1.1_Setup
 SetupIconFile=..\storm_switch_box.ico
-WizardSmallImageFile=..\storm_switch_box.ico
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=lowest
@@ -42,7 +41,7 @@ Name: "desktopicon"; Description: "Создать ярлык на рабочем
 Name: "contextmenu"; Description: "Добавить пункты в контекстное меню Explorer"; Components: full
 
 [Run]
-Filename: "{app}\StormSwitchBox.exe"; Description: "🚀 Запустить STORM SWITCH BOX v4.1.0"; Flags: postinstall nowait
+Filename: "{app}\StormSwitchBox.exe"; Description: "🚀 Запустить STORM SWITCH BOX v4.1.1"; Flags: postinstall nowait
 Filename: "https://rutube.ru/channel/42609927/"; Description: "📺 Открыть официальный канал STORM CHANNEL на RuTube"; Flags: postinstall shellexec unchecked
 
 [Languages]
