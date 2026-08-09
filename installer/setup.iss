@@ -1,11 +1,11 @@
 [Setup]
 AppName=STORM SWITCH BOX
-AppVersion=4.0.9
+AppVersion=4.1.0
 AppPublisher=STORM CHANNEL & ReiKatari
 AppPublisherURL=https://rutube.ru/channel/42609927/
 DefaultDirName={localappdata}\Programs\STORM_SWITCH_BOX
 DefaultGroupName=STORM_SWITCH_BOX
-OutputBaseFilename=STORM_SWITCH_BOX_4.0.9_Setup
+OutputBaseFilename=STORM_SWITCH_BOX_4.1.0_Setup
 SetupIconFile=..\storm_switch_box.ico
 WizardSmallImageFile=..\storm_switch_box.ico
 ArchitecturesAllowed=x64compatible
@@ -42,7 +42,7 @@ Name: "desktopicon"; Description: "Создать ярлык на рабочем
 Name: "contextmenu"; Description: "Добавить пункты в контекстное меню Explorer"; Components: full
 
 [Run]
-Filename: "{app}\StormSwitchBox.exe"; Description: "🚀 Запустить STORM SWITCH BOX v4.0.9"; Flags: postinstall nowait
+Filename: "{app}\StormSwitchBox.exe"; Description: "🚀 Запустить STORM SWITCH BOX v4.1.0"; Flags: postinstall nowait
 Filename: "https://rutube.ru/channel/42609927/"; Description: "📺 Открыть официальный канал STORM CHANNEL на RuTube"; Flags: postinstall shellexec unchecked
 
 [Languages]
@@ -64,7 +64,7 @@ procedure ApplyDarkThemeToWizard();
 var
   BgColor: TColor;
 begin
-  // Тёмная тема инсталлятора STORM ($BBGGRR формат в Pascal: R=$12, G=$0F, B=$1A)
+  // Тёмная тема инсталлятора ($BBGGRR формат в Pascal: R=$12, G=$0F, B=$1A)
   BgColor := $1A0F12;
   
   WizardForm.WelcomePage.Color := BgColor;
@@ -101,12 +101,8 @@ begin
 end;
 
 function InitializeSetup(): Boolean;
-var
-  ResultCode: Integer;
 begin
   Result := True;
-  Exec('powershell.exe', '-NoProfile -ExecutionPolicy Bypass -Command "Unblock-File -Path ''' + ExpandConstant('{srcexe}') + '''"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  Exec('taskkill.exe', '/F /IM StormSwitchBox.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 end;
 
 procedure CreateDirectCommand(Association: string; Verb: string; LabelName: string; Action: string);
@@ -163,7 +159,6 @@ end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 var
-  ResCode: Integer;
   BackupDir: string;
   AppDir: string;
 begin
@@ -191,8 +186,6 @@ begin
       Log('SSB_Setup: Registering context menus...');
       RegisterAllContextMenus();
     end;
-
-    Exec('powershell.exe', '-NoProfile -ExecutionPolicy Bypass -Command "Get-ChildItem -Path ''' + ExpandConstant('{app}') + ''' -Recurse | Unblock-File"', '', SW_HIDE, ewWaitUntilTerminated, ResCode);
   end;
 end;
 
