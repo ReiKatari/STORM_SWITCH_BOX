@@ -203,18 +203,26 @@ namespace StormSwitchBox.Views
                     Title = "Параметры",
                     Category = "Конфигурация",
                     Icon = "\uE713",
-                    DescriptionText = "Вкладка параметров позволяет настроить глобальные конфигурации приложения под ваши нужды:\n\n1. Путь к файлу криптографических ключей (keys.txt / prod.keys).\n2. Версию прошивки ключей (через удобные 6 квадратиков для ввода).\n3. Выходной каталог по умолчанию для сжатых и собранных образов.\n4. Уровень Zstandard-сжатия по умолчанию (Быстрый, Сбалансированный, Высокий, Максимальный).\n5. Выбор языка интерфейса.\n6. Кнопку ручной проверки и установки обновлений.",
-                    Tip = "Все изменения сохраняются в файл конфигурации приложения автоматически.",
+                    DescriptionText = "Вкладка параметров позволяет детально настроить все алгоритмы обработки и глобальные конфигурации:\n\n" +
+                                      "1. Файл криптографических ключей (keys.txt / prod.keys) с поддержкой Drag-and-Drop прямо в окно.\n" +
+                                      "2. Версия прошивки ключей — удобный 6-ячеечный ввод версии с автоматическим подхватом.\n" +
+                                      "3. Выходная папка по умолчанию — единый каталог сохранения файлов с поддержкой перетаскивания папок.\n" +
+                                      "4. Уровень сжатия Zstandard (Быстрый 3, Баланс 10, Стандарт 18, Ультра 22).\n" +
+                                      "5. Понижение версии (KeyGen) — маскирование минимальной прошивки (0–30) в Мульти-контенте и XCI.\n" +
+                                      "6. Удалить Titlerights (Ticketless NSP) — конвертация ticket-зависимых файлов в стандартный крипто-формат (--C_clean_ND) для гарантированной установки на любом CFW.\n" +
+                                      "7. Удалять Delta NCA из обновлений — автоматическая очистка дельта-патчей из файлов обновлений (-ND true), экономящая до 30% дискового пространства.\n" +
+                                      "8. Разделять файлы для FAT32 (> 4 GB) — автоматически разбивает файлы крупнее 4 ГБ на чанки (.xc0/.xc1 или .00/.01) для FAT32 SD-карт.\n" +
+                                      "9. Удалять неиспользуемые языки — интерактивный выбор сохраняемых локализаций (ru, en и др.) с вырезанием лишних данных из RomFS.\n" +
+                                      "10. Комплексное имя по папкам и принудительная пересборка Мульти-контента.",
+                    Tip = "Все тултипы (всплывающие подсказки) в параметрах содержат подробные подсказки о работе каждой опции.",
                     SetupPreview = container =>
                     {
-                        var sp = new StackPanel { Spacing = 12 };
-                        var cb = new ComboBox { Header = "Язык интерфейса:" };
-                        cb.Items.Add("Русский (Russian)");
-                        cb.Items.Add("English (Английский)");
-                        cb.SelectedIndex = 0;
-                        sp.Children.Add(cb);
-                        
-                        sp.Children.Add(new Button { Content = "Проверить обновление", HorizontalAlignment = Microsoft.UI.Xaml.HorizontalAlignment.Left });
+                        var sp = new StackPanel { Spacing = 8 };
+                        sp.Children.Add(new TextBlock { Text = "🔑 Файл ключей: prod.keys (Загружен)", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
+                        sp.Children.Add(new CheckBox { Content = "🔓 Удалить Titlerights (Ticketless NSP)", IsChecked = false });
+                        sp.Children.Add(new CheckBox { Content = "🗑️ Удалять Delta NCA из обновлений", IsChecked = true });
+                        sp.Children.Add(new CheckBox { Content = "💾 Разделять файлы для FAT32 (> 4 GB)", IsChecked = false });
+                        sp.Children.Add(new CheckBox { Content = "🌐 Удалять неиспользуемые языки", IsChecked = false });
                         container.Children.Add(sp);
                     }
                 }
