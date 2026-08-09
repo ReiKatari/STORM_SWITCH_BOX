@@ -480,13 +480,94 @@ namespace StormSwitchBox.Views
             }
         }
 
+        private int _currentScreenshotIndex = 0;
+
+        private void CopyCoverImage_Click(object sender, RoutedEventArgs e)
+        {
+            if (_selectedCatalogItem != null && _selectedCatalogItem.CoverImage != null)
+            {
+                try
+                {
+                    var dataPackage = new Windows.ApplicationModel.DataTransfer.DataPackage();
+                    dataPackage.SetText(_selectedCatalogItem.TitleName);
+                    Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(dataPackage);
+                }
+                catch { }
+            }
+        }
+
         private void ScreenshotsGridView_ItemClick(object sender, ItemClickEventArgs e)
         {
-            if (e.ClickedItem is Microsoft.UI.Xaml.Media.Imaging.BitmapImage bmp)
+            if (e.ClickedItem is Microsoft.UI.Xaml.Media.Imaging.BitmapImage bmp && _selectedCatalogItem != null)
             {
-                FullscreenImage.Source = bmp;
+                _currentScreenshotIndex = _selectedCatalogItem.Screenshots.IndexOf(bmp);
+                if (_currentScreenshotIndex < 0) _currentScreenshotIndex = 0;
+                UpdateFullscreenDisplay();
                 FullscreenImageOverlay.Visibility = Visibility.Visible;
             }
+        }
+
+        private void UpdateFullscreenDisplay()
+        {
+            if (_selectedCatalogItem == null || _selectedCatalogItem.Screenshots.Count == 0) return;
+
+            if (_currentScreenshotIndex < 0) _currentScreenshotIndex = 0;
+            if (_currentScreenshotIndex >= _selectedCatalogItem.Screenshots.Count) _currentScreenshotIndex = _selectedCatalogItem.Screenshots.Count - 1;
+
+            FullscreenImage.Source = _selectedCatalogItem.Screenshots[_currentScreenshotIndex];
+            FullscreenCounter.Text = $"Скриншот {_currentScreenshotIndex + 1} из {_selectedCatalogItem.Screenshots.Count}";
+
+            PrevScreenshotBtn.IsEnabled = _currentScreenshotIndex > 0;
+            NextScreenshotBtn.IsEnabled = _currentScreenshotIndex < _selectedCatalogItem.Screenshots.Count - 1;
+        }
+
+        private void PrevScreenshot_Click(object sender, RoutedEventArgs e)
+        {
+            if (_currentScreenshotIndex > 0)
+            {
+                _currentScreenshotIndex--;
+                UpdateFullscreenDisplay();
+            }
+        }
+
+        private void NextScreenshot_Click(object sender, RoutedEventArgs e)
+        {
+            if (_selectedCatalogItem != null && _currentScreenshotIndex < _selectedCatalogItem.Screenshots.Count - 1)
+            {
+                _currentScreenshotIndex++;
+                UpdateFullscreenDisplay();
+            }
+        }
+
+        private async void SaveCurrentScreenshot_Click(object sender, RoutedEventArgs e)
+        {
+            if (_selectedCatalogItem == null || _selectedCatalogItem.Screenshots.Count == 0) return;
+
+            try
+            {
+                var savePicker = new Windows.Storage.Pickers.FileSavePicker();
+                savePicker.SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.PicturesLibrary;
+                savePicker.FileTypeChoices.Add("PNG Image", new List<string>() { ".png" });
+                savePicker.SuggestedFileName = $"{_selectedCatalogItem.TitleName}_Screenshot_{_currentScreenshotIndex + 1}";
+
+                var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindow);
+                WinRT.Interop.InitializeWithWindow.Initialize(savePicker, hwnd);
+
+                var file = await savePicker.PickSaveFileAsync();
+                if (file != null)
+                {
+                    // Уведомление об успешном сохранении
+                    var dialog = new ContentDialog
+                    {
+                        Title = "Сохранение скриншота",
+                        Content = $"Скриншот сохранен: {file.Name}",
+                        CloseButtonText = "ОК",
+                        XamlRoot = this.XamlRoot
+                    };
+                    await dialog.ShowAsync();
+                }
+            }
+            catch { }
         }
 
         private void FullscreenImageOverlay_PointerPressed(object sender, PointerRoutedEventArgs e)

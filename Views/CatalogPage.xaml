@@ -248,19 +248,23 @@
                             
                             <!-- Left: Cover & Basic Info -->
                             <StackPanel Grid.Column="0" Spacing="16">
-                                <Border CornerRadius="12" Background="{ThemeResource ControlFillColorDefaultBrush}" BorderBrush="{ThemeResource SurfaceStrokeColorFlyoutBrush}" BorderThickness="1">
+                                <Border CornerRadius="12" Background="{ThemeResource ControlFillColorDefaultBrush}" BorderBrush="{ThemeResource SurfaceStrokeColorFlyoutBrush}" BorderThickness="1" ToolTipService.ToolTip="Нажмите правой кнопкой мыши для сохранения обложки">
+                                    <Border.ContextFlyout>
+                                        <MenuFlyout>
+                                            <MenuFlyoutItem Text="Сохранить обложку (PNG)" Click="SaveCoverButton_Click">
+                                                <MenuFlyoutItem.Icon>
+                                                    <FontIcon Glyph="&#xE886;"/>
+                                                </MenuFlyoutItem.Icon>
+                                            </MenuFlyoutItem>
+                                            <MenuFlyoutItem Text="Копировать изображение" Click="CopyCoverImage_Click">
+                                                <MenuFlyoutItem.Icon>
+                                                    <FontIcon Glyph="&#xE8C8;"/>
+                                                </MenuFlyoutItem.Icon>
+                                            </MenuFlyoutItem>
+                                        </MenuFlyout>
+                                    </Border.ContextFlyout>
                                     <Image x:Name="DetailCover" Stretch="UniformToFill" Width="250" Height="250"/>
                                 </Border>
-                                <Button x:Name="SaveCoverButton" HorizontalAlignment="Stretch" Style="{StaticResource AccentButtonStyle}" Click="SaveCoverButton_Click">
-                                    <Button.ContentTemplate>
-                                        <DataTemplate>
-                                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                                <FontIcon Glyph="&#xE886;" FontSize="14"/>
-                                                <TextBlock Text="Сохранить обложку (PNG)" FontWeight="SemiBold"/>
-                                            </StackPanel>
-                                        </DataTemplate>
-                                    </Button.ContentTemplate>
-                                </Button>
                                 
                                 <StackPanel Spacing="8">
                                     <TextBlock Text="Издатель:" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
@@ -390,11 +394,40 @@
         </Grid>
 
         <!-- Fullscreen Screenshot Overlay -->
-        <Grid x:Name="FullscreenImageOverlay" Grid.RowSpan="2" Background="#DD000000" Visibility="Collapsed" PointerPressed="FullscreenImageOverlay_PointerPressed">
-            <Image x:Name="FullscreenImage" Stretch="Uniform" Margin="48"/>
-            <Button HorizontalAlignment="Right" VerticalAlignment="Top" Margin="24" Background="Transparent" BorderThickness="0" Click="CloseFullscreen_Click">
-                <FontIcon Glyph="&#xE711;" FontSize="24" Foreground="White"/>
-            </Button>
+        <Grid x:Name="FullscreenImageOverlay" Grid.RowSpan="2" Background="#F0000000" Visibility="Collapsed" PointerPressed="FullscreenImageOverlay_PointerPressed">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <!-- Top Header -->
+            <Grid Grid.Row="0" Padding="24,16">
+                <TextBlock x:Name="FullscreenCounter" Text="Скриншот 1 из 1" Foreground="White" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="12">
+                    <Button Style="{StaticResource AccentButtonStyle}" Click="SaveCurrentScreenshot_Click" CornerRadius="6">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon Glyph="&#xE78C;" FontSize="14"/>
+                            <TextBlock Text="Сохранить скриншот" FontWeight="SemiBold"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Background="#33FFFFFF" BorderThickness="0" CornerRadius="6" Width="36" Height="36" Click="CloseFullscreen_Click">
+                        <FontIcon Glyph="&#xE711;" FontSize="18" Foreground="White"/>
+                    </Button>
+                </StackPanel>
+            </Grid>
+
+            <!-- Image & Nav -->
+            <Grid Grid.Row="1">
+                <Image x:Name="FullscreenImage" Stretch="Uniform" Margin="48,12,48,24"/>
+
+                <Button x:Name="PrevScreenshotBtn" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="24,0,0,0" Width="48" Height="48" CornerRadius="24" Background="#88000000" BorderThickness="0" Click="PrevScreenshot_Click">
+                    <FontIcon Glyph="&#xE0E2;" FontSize="20" Foreground="White"/>
+                </Button>
+
+                <Button x:Name="NextScreenshotBtn" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,24,0" Width="48" Height="48" CornerRadius="24" Background="#88000000" BorderThickness="0" Click="NextScreenshot_Click">
+                    <FontIcon Glyph="&#xE0E3;" FontSize="20" Foreground="White"/>
+                </Button>
+            </Grid>
         </Grid>
     </Grid>
 </Page>

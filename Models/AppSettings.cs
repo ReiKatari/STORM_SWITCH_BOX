@@ -6,7 +6,7 @@ namespace StormSwitchBox.Models
     public class AppSettings
     {
         // Окно
-        public string AppVersion { get; set; } = "4.0.3";
+        public string AppVersion { get; set; } = "4.0.4";
         public int WindowX { get; set; } = -1;
         public int WindowY { get; set; } = -1;
         public int WindowWidth { get; set; } = 1200;
@@ -29,6 +29,19 @@ namespace StormSwitchBox.Models
         public int ConcurrentTasks { get; set; } = 3;
         public string KeysVersion { get; set; } = "";
         public string KeysPath { get; set; } = "";
+
+        // Понижение версии прошивки (RSV Cap)
+        public int RsvCap { get; set; } = 268435656; // FW 18.0
+        public bool EnableRsvCap { get; set; } = true;
+
+        // Папка наблюдения (Watch Folder)
+        public string WatchFolder { get; set; } = "";
+        public bool EnableWatchFolder { get; set; } = false;
+        public int WatchFolderAction { get; set; } = 0; // 0 = Сжатие в NSZ, 1 = Проверка
+
+        // Уведомления и оформление
+        public bool EnableSoundNotifications { get; set; } = true;
+        public string AccentColorTheme { get; set; } = "Default";
 
         // Выходной формат (по умолчанию NSP)
         public int SelectedFormatIndex { get; set; } = 0;

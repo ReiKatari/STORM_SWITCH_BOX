@@ -18,6 +18,7 @@ namespace StormSwitchBox
         public static HardPatchEngine HardPatch { get; } = new HardPatchEngine(Keys);
         public static TitleDbService TitleDb { get; } = new TitleDbService();
         public static TicketHarvesterService TicketHarvester { get; } = new TicketHarvesterService();
+        public static WatchFolderService WatchFolderService { get; } = new WatchFolderService();
         private static StormSwitchBox.ViewModels.TasksViewModel? _tasksVM;
         public static StormSwitchBox.ViewModels.TasksViewModel TasksVM => _tasksVM ??= new StormSwitchBox.ViewModels.TasksViewModel();
 
@@ -137,6 +138,11 @@ namespace StormSwitchBox
             // Загружаем настройки перед показом окна
             await Settings.LoadAsync();
             Logger.Log("Приложение запущено. Настройки загружены.", Models.LogLevel.Info);
+
+            if (Settings.Current.EnableWatchFolder)
+            {
+                WatchFolderService.Start();
+            }
 
             try
             {

@@ -97,6 +97,32 @@
                             <ToggleSwitch HorizontalAlignment="Right" IsOn="{x:Bind Settings.DeleteSourceOnSuccess, Mode=TwoWay}" Toggled="Toggle_Changed"
                                           ToolTipService.ToolTip="Внимание: Исходные файлы будут удалены только при 100% успешном завершении задачи."/>
                         </Grid>
+
+                        <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
+
+                        <!-- Автоматическая папка (Watch Folder) -->
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <StackPanel Grid.Row="0" Margin="0,0,0,8" Spacing="2">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <TextBlock Text="«Умная» папка автоматического наблюдения (Watch Folder)" FontWeight="Medium" VerticalAlignment="Center"/>
+                                    <ToggleSwitch x:Name="WatchFolderToggle" IsOn="{x:Bind Settings.EnableWatchFolder, Mode=TwoWay}" Toggled="WatchFolderToggle_Toggled" VerticalAlignment="Center"/>
+                                </StackPanel>
+                                <TextBlock Text="Автоматически обнаруживает новые файлы NSP/NSZ/XCI в папке (например, при скачивании) и добавляет в очередь задач" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                            </StackPanel>
+                            <Grid Grid.Row="1" Visibility="{x:Bind WatchFolderToggle.IsOn, Mode=OneWay}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBox x:Name="WatchFolderBox" HorizontalAlignment="Stretch" Margin="0,0,12,0" PlaceholderText="Папка не выбрана" 
+                                         Text="{x:Bind Settings.WatchFolder, Mode=TwoWay}" IsReadOnly="True" VerticalAlignment="Center"/>
+                                <Button Grid.Column="1" Content="Выбрать папку..." Click="SelectWatchFolder_Click" VerticalAlignment="Center" CornerRadius="6"/>
+                            </Grid>
+                        </Grid>
                     </StackPanel>
                 </Border>
             </StackPanel>
@@ -160,10 +186,28 @@
                         <!-- KeyGen downgrade -->
                         <Grid>
                             <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
-                                <TextBlock Text="Понижение версии (KeyGen) в Мульти-контенте / XCI" FontWeight="Medium"/>
+                                <TextBlock Text="Понижение версии ключей (KeyGen)" FontWeight="Medium"/>
                                 <TextBlock Text="Маскирует требования к прошивке (0-30), позволяя запускать новые игры на старых FW" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
                             </StackPanel>
                             <NumberBox HorizontalAlignment="Right" Width="220" Value="{x:Bind Settings.KeyGeneration, Mode=TwoWay}" Minimum="0" Maximum="30" SpinButtonPlacementMode="Inline" ValueChanged="Setting_ValueChanged" VerticalAlignment="Center"/>
+                        </Grid>
+
+                        <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
+
+                        <!-- RSV Cap Downgrade -->
+                        <Grid>
+                            <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                                <TextBlock Text="Понижение системных требований (RSV Cap Downgrade)" FontWeight="Medium"/>
+                                <TextBlock Text="Ограничивает проверку версии системного ПО консоли в метаданных CNMT" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                            </StackPanel>
+                            <ComboBox x:Name="RsvCapCombo" HorizontalAlignment="Right" Width="220" SelectionChanged="RsvCapCombo_SelectionChanged" VerticalAlignment="Center">
+                                <ComboBoxItem Content="FW 18.0 (268435656)" Tag="268435656"/>
+                                <ComboBoxItem Content="FW 17.0 (251658240)" Tag="251658240"/>
+                                <ComboBoxItem Content="FW 16.0 (234880824)" Tag="234880824"/>
+                                <ComboBoxItem Content="FW 15.0 (218103408)" Tag="218103408"/>
+                                <ComboBoxItem Content="FW 10.0 (134217728)" Tag="134217728"/>
+                                <ComboBoxItem Content="FW 1.0 (65796 - Отключить)" Tag="65796"/>
+                            </ComboBox>
                         </Grid>
 
                         <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
@@ -246,7 +290,47 @@
                 </Border>
             </StackPanel>
 
-            <!-- БЛОК 5: О программе -->
+            <!-- БЛОК 5: Оформление и звуковые уведомления -->
+            <StackPanel Spacing="8">
+                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <FontIcon Glyph="&#xE771;" Foreground="{ThemeResource SystemAccentColor}" FontSize="16"/>
+                    <TextBlock Text="Оформление и звуковые уведомления" FontWeight="SemiBold" FontSize="15" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                </StackPanel>
+                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="20">
+                    <StackPanel Spacing="16">
+
+                        <!-- Sound notifications -->
+                        <Grid>
+                            <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                                <TextBlock Text="Звуковые уведомления" FontWeight="Medium"/>
+                                <TextBlock Text="Воспроизводить звуковой сигнал по окончании выполнения очереди задач" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                            </StackPanel>
+                            <ToggleSwitch HorizontalAlignment="Right" IsOn="{x:Bind Settings.EnableSoundNotifications, Mode=TwoWay}" Toggled="Toggle_Changed"/>
+                        </Grid>
+
+                        <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
+
+                        <!-- Accent Color theme -->
+                        <Grid>
+                            <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                                <TextBlock Text="Цветовой акцент интерфейса" FontWeight="Medium"/>
+                                <TextBlock Text="Выбор главного акцентного цвета элементов приложения" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                            </StackPanel>
+                            <ComboBox x:Name="AccentColorCombo" HorizontalAlignment="Right" Width="220" SelectionChanged="AccentColorCombo_SelectionChanged" VerticalAlignment="Center">
+                                <ComboBoxItem Content="Системный (Default)" Tag="Default"/>
+                                <ComboBoxItem Content="Электрический Синий" Tag="#0078D4"/>
+                                <ComboBoxItem Content="Изумрудный Зеленый" Tag="#107C41"/>
+                                <ComboBoxItem Content="Неоновый Фиолетовый" Tag="#8E44AD"/>
+                                <ComboBoxItem Content="Закат Оранжевый" Tag="#E67E22"/>
+                                <ComboBoxItem Content="Алый Красный" Tag="#E74C3C"/>
+                            </ComboBox>
+                        </Grid>
+
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+
+            <!-- БЛОК 6: О программе -->
             <StackPanel Spacing="8">
                 <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                     <FontIcon Glyph="&#xE946;" Foreground="{ThemeResource SystemAccentColor}" FontSize="16"/>
@@ -263,7 +347,7 @@
                         </Border>
                         <StackPanel Grid.Column="1" Spacing="6">
                             <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                                <TextBlock Text="STORM SWITCH BOX 4.0.3" FontWeight="Bold" FontSize="22"/>
+                                <TextBlock Text="STORM SWITCH BOX 4.0.4" FontWeight="Bold" FontSize="22"/>
                                 <Border Background="{ThemeResource SystemAccentColor}" CornerRadius="4" Padding="6,2" VerticalAlignment="Center">
                                     <TextBlock Text="WinUI 3 Native" Foreground="White" FontSize="11" FontWeight="Bold"/>
                                 </Border>

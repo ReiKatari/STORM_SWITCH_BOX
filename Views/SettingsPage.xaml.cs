@@ -22,8 +22,81 @@ namespace StormSwitchBox.Views
             else if (level <= 18) CompressionCombo.SelectedIndex = 2;
             else CompressionCombo.SelectedIndex = 3;
 
+            // RsvCap combo initialization
+            int rsvVal = App.Settings.Current.RsvCap;
+            if (rsvVal == 251658240) RsvCapCombo.SelectedIndex = 1;
+            else if (rsvVal == 234880824) RsvCapCombo.SelectedIndex = 2;
+            else if (rsvVal == 218103408) RsvCapCombo.SelectedIndex = 3;
+            else if (rsvVal == 134217728) RsvCapCombo.SelectedIndex = 4;
+            else if (rsvVal == 65796) RsvCapCombo.SelectedIndex = 5;
+            else RsvCapCombo.SelectedIndex = 0;
+
+            // AccentColor combo initialization
+            string color = App.Settings.Current.AccentColorTheme ?? "Default";
+            if (color == "#0078D4") AccentColorCombo.SelectedIndex = 1;
+            else if (color == "#107C41") AccentColorCombo.SelectedIndex = 2;
+            else if (color == "#8E44AD") AccentColorCombo.SelectedIndex = 3;
+            else if (color == "#E67E22") AccentColorCombo.SelectedIndex = 4;
+            else if (color == "#E74C3C") AccentColorCombo.SelectedIndex = 5;
+            else AccentColorCombo.SelectedIndex = 0;
+
             InitializeLanguages();
             PopulateKeysVersion(App.Settings.Current.KeysVersion ?? "");
+        }
+
+        private async void RsvCapCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (RsvCapCombo.SelectedItem is ComboBoxItem item && item.Tag is string tagStr && int.TryParse(tagStr, out int val))
+            {
+                App.Settings.Current.RsvCap = val;
+                await App.Settings.SaveAsync();
+            }
+        }
+
+        private async void WatchFolderToggle_Toggled(object sender, RoutedEventArgs e)
+        {
+            await App.Settings.SaveAsync();
+            if (App.WatchFolderService != null)
+            {
+                if (App.Settings.Current.EnableWatchFolder) App.WatchFolderService.Start();
+                else App.WatchFolderService.Stop();
+            }
+        }
+
+        private async void SelectWatchFolder_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var folderPicker = new Windows.Storage.Pickers.FolderPicker();
+                folderPicker.SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.ComputerFolder;
+                folderPicker.FileTypeFilter.Add("*");
+
+                var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindow);
+                WinRT.Interop.InitializeWithWindow.Initialize(folderPicker, hwnd);
+
+                var folder = await folderPicker.PickSingleFolderAsync();
+                if (folder != null)
+                {
+                    App.Settings.Current.WatchFolder = folder.Path;
+                    WatchFolderBox.Text = folder.Path;
+                    await App.Settings.SaveAsync();
+
+                    if (App.WatchFolderService != null && App.Settings.Current.EnableWatchFolder)
+                    {
+                        App.WatchFolderService.Start();
+                    }
+                }
+            }
+            catch { }
+        }
+
+        private async void AccentColorCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (AccentColorCombo.SelectedItem is ComboBoxItem item && item.Tag is string tagStr)
+            {
+                App.Settings.Current.AccentColorTheme = tagStr;
+                await App.Settings.SaveAsync();
+            }
         }
 
         private void InitializeLanguages()
@@ -312,7 +385,7 @@ namespace StormSwitchBox.Views
                     var dialog = new ContentDialog
                     {
                         Title = "Обновления не найдены",
-                        Content = new TextBlock { Text = "У вас установлена актуальная версия STORM SWITCH BOX v4.0.3." },
+                        Content = new TextBlock { Text = "У вас установлена актуальная версия STORM SWITCH BOX v4.0.4." },
                         CloseButtonText = "OK",
                         XamlRoot = this.XamlRoot
                     };

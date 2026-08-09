@@ -93,6 +93,7 @@ namespace StormSwitchBox.Services
         private Dictionary<string, TitleDbEntry> _db = new();
         private bool _isLoaded = false;
         private readonly HttpClient _httpClient;
+        private readonly NintendoEShopService _eShopService;
 
         // URL для загрузки русскоязычной базы TitleDB
         private const string DbUrl = "https://tinfoil.media/repo/db/titles.RU.json";
@@ -102,7 +103,8 @@ namespace StormSwitchBox.Services
         {
             _dbPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "titledb.RU.json");
             _httpClient = new HttpClient();
-            _httpClient.DefaultRequestHeaders.Add("User-Agent", "StormSwitchBox/4.0.3");
+            _httpClient.DefaultRequestHeaders.Add("User-Agent", "StormSwitchBox/4.0.4");
+            _eShopService = new NintendoEShopService();
             
             // Асинхронно загружаем базу из локального кэша
             _ = LoadLocalDbAsync();
@@ -121,20 +123,21 @@ namespace StormSwitchBox.Services
                 }
             }
             
-            // Динамический генератор развернутого описания на русском языке на основе доступных метаданных
-            string title = !string.IsNullOrEmpty(item.TitleName) && item.TitleName != "Unknown Game" ? item.TitleName : (entry?.Name ?? "Данная игра");
+            // Динамический генератор уникального описания на русском языке для конкретной игры
+            string title = !string.IsNullOrEmpty(item.TitleName) && item.TitleName != "Unknown Game" && item.TitleName != "Unknown" ? item.TitleName : (entry?.Name ?? "Игра");
             string publisher = !string.IsNullOrEmpty(item.Publisher) && item.Publisher != "Unknown" ? item.Publisher : (!string.IsNullOrEmpty(entry?.Publisher) ? entry.Publisher : "Nintendo");
-            string developer = !string.IsNullOrEmpty(item.Developer) ? item.Developer : (!string.IsNullOrEmpty(entry?.Developer) ? entry.Developer : publisher);
+            string developer = !string.IsNullOrEmpty(item.Developer) && item.Developer != "Unknown" ? item.Developer : (!string.IsNullOrEmpty(entry?.Developer) ? entry.Developer : publisher);
             string category = !string.IsNullOrEmpty(item.Category) ? item.Category : "Увлекательный игровой проект";
             string release = !string.IsNullOrEmpty(item.ReleaseDate) ? $"Дата выхода: {item.ReleaseDate}." : "";
             string languages = !string.IsNullOrEmpty(item.SupportedLanguages) ? $"Поддерживаемые языки: {item.SupportedLanguages}." : "";
             string dlcInfo = item.DlcCount > 0 ? $"Для игры доступно {item.DlcCount} дополнений (DLC)." : "";
 
-            string intro = !string.IsNullOrEmpty(item.Intro) ? item.Intro : $"{title} — это {category.ToLowerInvariant()} от разработчика {developer} и издателя {publisher}.";
+            string generatedIntro = $"{title} — это {category.ToLowerInvariant()} от разработчика {developer} и издателя {publisher}.";
 
-            string generated = $"{intro}\n\n" +
+            string generated = $"{generatedIntro}\n\n" +
                                $"🎮 Жанр: {category}\n" +
-                               $"🏢 Издатель / Разработчик: {publisher} / {developer}\n" +
+                               $"🏢 Издатель: {publisher}\n" +
+                               $"💻 Разработчик: {developer}\n" +
                                (!string.IsNullOrEmpty(release) ? $"📅 {release}\n" : "") +
                                (!string.IsNullOrEmpty(languages) ? $"🌐 {languages}\n" : "") +
                                (!string.IsNullOrEmpty(dlcInfo) ? $"📦 {dlcInfo}\n" : "") +
@@ -277,9 +280,11 @@ namespace StormSwitchBox.Services
 
         public void EnrichCatalogItem(CatalogItem item)
         {
-            if (TryGetTitleInfo(item.TitleId, out var entry) && entry != null)
+            bool hasTitleDbEntry = TryGetTitleInfo(item.TitleId, out var entry) && entry != null;
+
+            App.RunOnUI(async () =>
             {
-                App.RunOnUI(async () =>
+                if (hasTitleDbEntry && entry != null)
                 {
                     if (item.TitleName == "Unknown Game" || item.TitleName == "Unknown" || string.IsNullOrEmpty(item.TitleName) || HasGarbageCharacters(item.TitleName))
                         item.TitleName = entry.Name ?? item.TitleName;
@@ -317,40 +322,89 @@ namespace StormSwitchBox.Services
                     if (entry.Rating.HasValue)
                         item.RatingAge = entry.Rating.Value.ToString() + "+";
 
-                    // Условие 1: Из файла (уже стоит в item.Regions, если не UNKNOWN)
-                    // Условие 2: База TitleDB
-                    // Условие 3: Имя файла
                     if (item.Regions == "UNKNOWN")
                     {
                         if (!string.IsNullOrEmpty(entry.Regions))
                         {
-                            item.Regions = entry.Regions; // Условие 2
+                            item.Regions = entry.Regions;
                         }
                         else
                         {
-                            // Условие 3
                             var regMatch = System.Text.RegularExpressions.Regex.Match(item.FileName ?? "", @"\[(US|WW|EU|JP|KR|UK|AS)\]", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
                             if (regMatch.Success) item.Regions = regMatch.Groups[1].Value.ToUpper();
-                            else item.Regions = "WW"; // Крайний случай
+                            else item.Regions = "WW";
                         }
                     }
 
                     if (!string.IsNullOrEmpty(entry.Publisher) && (item.Publisher == "Unknown" || string.IsNullOrEmpty(item.Publisher)))
                         item.Publisher = entry.Publisher;
+                }
 
-                    await System.Threading.Tasks.Task.Run(() => 
+                // Включаем безопасное распределение разработчика если он не задан
+                if (string.IsNullOrEmpty(item.Developer) || item.Developer == "Unknown")
+                {
+                    item.Developer = !string.IsNullOrEmpty(item.Publisher) && item.Publisher != "Unknown" ? item.Publisher : "Nintendo";
+                }
+
+                // Гарантируем уникальное правильное описание
+                item.Description = EnsureRussianDescription(item, entry);
+
+                // Загружаем eShop метаданные (описание на русском, скриншоты, официальный разработчик)
+                _ = Task.Run(async () =>
+                {
+                    var eshopData = await _eShopService.SearchGameInfoAsync(item.TitleName);
+                    if (eshopData != null)
                     {
-                        var dlcs = GetDlcs(item.TitleId);
                         App.RunOnUI(() =>
                         {
-                            item.DlcCount = dlcs.Count;
-                            item.DlcList.Clear();
-                            foreach (var dlc in dlcs)
+                            if (!string.IsNullOrWhiteSpace(eshopData.Description) && (string.IsNullOrEmpty(entry?.Description) || !ContainsRussian(entry.Description)))
                             {
-                                item.DlcList.Add(dlc);
+                                item.Description = eshopData.Description;
+                            }
+                            if (!string.IsNullOrWhiteSpace(eshopData.Developer))
+                            {
+                                item.Developer = eshopData.Developer;
+                            }
+                            if (!string.IsNullOrWhiteSpace(eshopData.Publisher) && (item.Publisher == "Unknown" || string.IsNullOrEmpty(item.Publisher)))
+                            {
+                                item.Publisher = eshopData.Publisher;
+                            }
+                            if (!string.IsNullOrWhiteSpace(eshopData.ReleaseDate) && (string.IsNullOrEmpty(item.ReleaseDate) || item.ReleaseDate == "N/A"))
+                            {
+                                item.ReleaseDate = eshopData.ReleaseDate;
+                            }
+
+                            // Скриншоты из eShop
+                            if (eshopData.Screenshots.Count > 0)
+                            {
+                                foreach (var shotUrl in eshopData.Screenshots)
+                                {
+                                    try
+                                    {
+                                        var bmp = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(shotUrl));
+                                        item.Screenshots.Add(bmp);
+                                        item.HasScreenshots = true;
+                                    }
+                                    catch { }
+                                }
                             }
                         });
+                    }
+                });
+
+                await System.Threading.Tasks.Task.Run(() => 
+                {
+                    var dlcs = GetDlcs(item.TitleId);
+                    App.RunOnUI(() =>
+                    {
+                        item.DlcCount = dlcs.Count;
+                        item.DlcList.Clear();
+                        foreach (var dlc in dlcs)
+                        {
+                            item.DlcList.Add(dlc);
+                        }
                     });
+                });
 
                     // Проверка обновлений
                     TitleDbEntry updateEntry = entry;
@@ -490,7 +544,6 @@ namespace StormSwitchBox.Services
                         catch { }
                     }
                 });
-            }
         }
 
         public IEnumerable<TitleDbEntry> SearchTitles(string query)
