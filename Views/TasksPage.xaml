@@ -140,7 +140,7 @@
                 <controls:DataGrid.ColumnHeaderStyle>
                     <Style TargetType="primitives:DataGridColumnHeader">
                         <Setter Property="Background" Value="#1E293B"/>
-                        <Setter Property="Foreground" Value="#82B1FF"/>
+                        <Setter Property="Foreground" Value="White"/>
                         <Setter Property="HorizontalContentAlignment" Value="Center"/>
                         <Setter Property="Padding" Value="8,10"/>
                         <Setter Property="MinHeight" Value="40"/>
@@ -150,7 +150,7 @@
                             <Setter.Value>
                                 <DataTemplate>
                                     <TextBlock Text="{Binding}" TextAlignment="Center" HorizontalAlignment="Center" VerticalAlignment="Center" 
-                                               FontWeight="SemiBold" FontSize="11" CharacterSpacing="80"
+                                               Foreground="White" FontWeight="Bold" FontSize="11" CharacterSpacing="80"
                                                TextTrimming="None" TextWrapping="NoWrap"/>
                                 </DataTemplate>
                             </Setter.Value>
@@ -272,7 +272,7 @@
                 <controls:DataGrid.ColumnHeaderStyle>
                     <Style TargetType="primitives:DataGridColumnHeader">
                         <Setter Property="Background" Value="#1E293B"/>
-                        <Setter Property="Foreground" Value="#82B1FF"/>
+                        <Setter Property="Foreground" Value="White"/>
                         <Setter Property="HorizontalContentAlignment" Value="Center"/>
                         <Setter Property="Padding" Value="8,10"/>
                         <Setter Property="MinHeight" Value="40"/>
@@ -282,7 +282,7 @@
                             <Setter.Value>
                                 <DataTemplate>
                                     <TextBlock Text="{Binding}" TextAlignment="Center" HorizontalAlignment="Center" VerticalAlignment="Center" 
-                                               FontWeight="SemiBold" FontSize="11" CharacterSpacing="80"
+                                               Foreground="White" FontWeight="Bold" FontSize="11" CharacterSpacing="80"
                                                TextTrimming="None" TextWrapping="NoWrap"/>
                                 </DataTemplate>
                             </Setter.Value>
