@@ -26,7 +26,7 @@ namespace StormSwitchBox
         public MainWindow()
         {
             this.InitializeComponent();
-            this.Title = "STORM SWITCH BOX v4.0.4";
+            this.Title = "STORM SWITCH BOX v4.0.5";
             this.ExtendsContentIntoTitleBar = true; // Современный заголовок окна
 
             var hWnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
@@ -50,6 +50,10 @@ namespace StormSwitchBox
             // Инициализируем системный трей
             InitializeTrayIcon();
             this.AppWindow.Closing += AppWindow_Closing;
+
+            // Применяем сохраненную тему и акцентный цвет
+            Services.ThemeService.ApplyTheme(App.Settings.Current.AppTheme);
+            Services.ThemeService.ApplyAccentColor(App.Settings.Current.AccentColorTheme);
 
             // Загружаем историю обработок
             _ = StormSwitchBox.Services.HistoryService.LoadHistoryAsync();

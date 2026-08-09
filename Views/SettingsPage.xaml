@@ -310,11 +310,27 @@
 
                         <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
 
+                        <!-- Visual Theme -->
+                        <Grid>
+                            <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                                <TextBlock Text="Тема оформления интерфейса" FontWeight="Medium"/>
+                                <TextBlock Text="Выбор общей стилистической темы (STORM MIDNIGHT, NIGHT OLED, DAY Light, CYBERPUNK 2077)" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                            </StackPanel>
+                            <ComboBox x:Name="ThemeCombo" HorizontalAlignment="Right" Width="220" SelectionChanged="ThemeCombo_SelectionChanged" VerticalAlignment="Center">
+                                <ComboBoxItem Content="🌌 STORM MIDNIGHT" Tag="STORM MIDNIGHT"/>
+                                <ComboBoxItem Content="🖤 STORM NIGHT (OLED Black)" Tag="STORM NIGHT"/>
+                                <ComboBoxItem Content="☀️ STORM DAY (Light)" Tag="STORM DAY"/>
+                                <ComboBoxItem Content="⚡ STORM CYBERPUNK" Tag="STORM CYBERPUNK"/>
+                            </ComboBox>
+                        </Grid>
+
+                        <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
+
                         <!-- Accent Color theme -->
                         <Grid>
                             <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
                                 <TextBlock Text="Цветовой акцент интерфейса" FontWeight="Medium"/>
-                                <TextBlock Text="Выбор главного акцентного цвета элементов приложения" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                <TextBlock Text="Выбор главного акцентного цвета элементов приложения (применяется мгновенно)" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
                             </StackPanel>
                             <ComboBox x:Name="AccentColorCombo" HorizontalAlignment="Right" Width="220" SelectionChanged="AccentColorCombo_SelectionChanged" VerticalAlignment="Center">
                                 <ComboBoxItem Content="Системный (Default)" Tag="Default"/>
@@ -347,7 +363,7 @@
                         </Border>
                         <StackPanel Grid.Column="1" Spacing="6">
                             <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                                <TextBlock Text="STORM SWITCH BOX 4.0.4" FontWeight="Bold" FontSize="22"/>
+                                <TextBlock Text="STORM SWITCH BOX 4.0.5" FontWeight="Bold" FontSize="22"/>
                                 <Border Background="{ThemeResource SystemAccentColor}" CornerRadius="4" Padding="6,2" VerticalAlignment="Center">
                                     <TextBlock Text="WinUI 3 Native" Foreground="White" FontSize="11" FontWeight="Bold"/>
                                 </Border>

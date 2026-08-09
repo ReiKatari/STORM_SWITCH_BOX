@@ -40,6 +40,13 @@ namespace StormSwitchBox.Views
             else if (color == "#E74C3C") AccentColorCombo.SelectedIndex = 5;
             else AccentColorCombo.SelectedIndex = 0;
 
+            // Visual Theme combo initialization
+            string th = App.Settings.Current.AppTheme ?? "STORM MIDNIGHT";
+            if (th == "STORM NIGHT") ThemeCombo.SelectedIndex = 1;
+            else if (th == "STORM DAY") ThemeCombo.SelectedIndex = 2;
+            else if (th == "STORM CYBERPUNK") ThemeCombo.SelectedIndex = 3;
+            else ThemeCombo.SelectedIndex = 0;
+
             InitializeLanguages();
             PopulateKeysVersion(App.Settings.Current.KeysVersion ?? "");
         }
@@ -90,12 +97,23 @@ namespace StormSwitchBox.Views
             catch { }
         }
 
+        private async void ThemeCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (ThemeCombo.SelectedItem is ComboBoxItem item && item.Tag is string tagStr)
+            {
+                App.Settings.Current.AppTheme = tagStr;
+                await App.Settings.SaveAsync();
+                Services.ThemeService.ApplyTheme(tagStr);
+            }
+        }
+
         private async void AccentColorCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (AccentColorCombo.SelectedItem is ComboBoxItem item && item.Tag is string tagStr)
             {
                 App.Settings.Current.AccentColorTheme = tagStr;
                 await App.Settings.SaveAsync();
+                Services.ThemeService.ApplyAccentColor(tagStr);
             }
         }
 
@@ -385,7 +403,7 @@ namespace StormSwitchBox.Views
                     var dialog = new ContentDialog
                     {
                         Title = "Обновления не найдены",
-                        Content = new TextBlock { Text = "У вас установлена актуальная версия STORM SWITCH BOX v4.0.4." },
+                        Content = new TextBlock { Text = "У вас установлена актуальная версия STORM SWITCH BOX v4.0.5." },
                         CloseButtonText = "OK",
                         XamlRoot = this.XamlRoot
                     };
