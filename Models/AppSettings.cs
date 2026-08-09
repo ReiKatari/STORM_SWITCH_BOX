@@ -21,6 +21,9 @@ namespace StormSwitchBox.Models
         public bool ForceMultiRebuild { get; set; } = true;  // По умолчанию ВКЛЮЧЕН
         public bool DeleteSourceOnSuccess { get; set; } = false;
         public bool TrimXci { get; set; } = false;         // По умолчанию ВЫКЛЮЧЕН
+        public bool RemoveTitlerights { get; set; } = false; // Удалить Titlerights (ticketless NSP)
+        public bool RemoveDeltaNca { get; set; } = true;     // Удалить Delta NCA из обновлений
+        public bool SplitFat32 { get; set; } = false;        // Разделить >4GB для FAT32
         public List<string> KeepLanguages { get; set; } = new List<string> { "ru", "ru-RU", "en-US", "en-GB", "en" };
         public int UsedCores { get; set; } = 16;
         public int ConcurrentTasks { get; set; } = 3;
