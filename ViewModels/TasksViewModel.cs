@@ -993,6 +993,27 @@ public partial class TasksViewModel : ObservableObject
 					task.Status = "Успешно";
 				}
 				task.IsRunning = false;
+
+				// Удаление исходных файлов при включенной опции DeleteSourceOnSuccess
+				if ((task.Status == "Успешно" || task.Status == "Готово") && App.Settings.Current.DeleteSourceOnSuccess && task.InputFiles != null)
+				{
+					foreach (var file in task.InputFiles)
+					{
+						try
+						{
+							if (System.IO.File.Exists(file))
+							{
+								System.IO.File.Delete(file);
+								App.Logger.Log($"[Очистка] Исходный файл удален: {System.IO.Path.GetFileName(file)}", LogLevel.Info);
+							}
+						}
+						catch (Exception delEx)
+						{
+							App.Logger.Log($"[Очистка] Не удалось удалить исходный файл {System.IO.Path.GetFileName(file)}: {delEx.Message}", LogLevel.Warning);
+						}
+					}
+				}
+
 				AppendStyledSummary(task, task.Status);
 				HistoryService.AddToHistory(task);
 			});

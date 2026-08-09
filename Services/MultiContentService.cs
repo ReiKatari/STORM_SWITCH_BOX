@@ -467,7 +467,10 @@ namespace StormSwitchBox.Services
                         string fatMode = App.Settings.Current.SplitFat32 ? "fat32" : "exfat";
                         string ndFlag = App.Settings.Current.RemoveDeltaNca ? "true" : "false";
                         string cleanFlag = App.Settings.Current.RemoveTitlerights ? " --C_clean_ND" : "";
-                        string args = $"-b 65536 -pv false -kp false --RSVcap 268435656 -fat {fatMode} -fx files -ND {ndFlag} -roma TRUE{cleanFlag} -t {fmt} -o \"{outFolder}\" -tfile \"{mlistFile}\" -dmul \"calculate\"";
+                        int keyGen = App.Settings.Current.KeyGeneration;
+                        string kpFlag = (keyGen >= 0 && keyGen <= 30) ? keyGen.ToString() : "false";
+                        string pvFlag = (keyGen >= 0 && keyGen < 19) ? "true" : "false";
+                        string args = $"-b 65536 -pv {pvFlag} -kp {kpFlag} --RSVcap 268435656 -fat {fatMode} -fx files -ND {ndFlag} -roma TRUE{cleanFlag} -t {fmt} -o \"{outFolder}\" -tfile \"{mlistFile}\" -dmul \"calculate\"";
                         
                         App.Logger.Log($"[squirrel] args: {args}", Models.LogLevel.Info);
 
