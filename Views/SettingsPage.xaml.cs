@@ -89,6 +89,49 @@ namespace StormSwitchBox.Views
         }
 
         // ===== Выбор файла ключей =====
+        private void KeysFile_DragOver(object sender, Microsoft.UI.Xaml.DragEventArgs e)
+        {
+            e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
+            e.DragUIOverride.Caption = "Загрузить ключи";
+            e.DragUIOverride.IsCaptionVisible = true;
+            e.DragUIOverride.IsGlyphVisible = true;
+            // Подсветка при наведении
+            if (sender is Grid grid)
+            {
+                grid.BorderBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.LimeGreen);
+            }
+        }
+
+        private async void KeysFile_Drop(object sender, Microsoft.UI.Xaml.DragEventArgs e)
+        {
+            // Сброс подсветки
+            if (sender is Grid grid)
+            {
+                grid.BorderBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent);
+            }
+            
+            if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+            {
+                var items = await e.DataView.GetStorageItemsAsync();
+                if (items.Count > 0 && items[0] is Windows.Storage.StorageFile file)
+                {
+                    string ext = System.IO.Path.GetExtension(file.Path).ToLower();
+                    if (ext == ".keys" || ext == ".txt" || ext == ".dat")
+                    {
+                        App.Settings.Current.KeysPath = file.Path;
+                        await App.Settings.SaveAsync();
+                        App.EnsureUserKeysAvailable();
+                        App.Logger.Log($"Файл ключей применен (drag-and-drop): {file.Path}", Models.LogLevel.Success);
+                        this.Bindings.Update();
+                    }
+                    else
+                    {
+                        App.Logger.Log($"Неподдерживаемый формат файла ключей: {ext}", Models.LogLevel.Warning);
+                    }
+                }
+            }
+        }
+
         private async void SelectKeysButton_Click(object sender, RoutedEventArgs e)
         {
             try
@@ -269,7 +312,7 @@ namespace StormSwitchBox.Views
                     var dialog = new ContentDialog
                     {
                         Title = "Обновления не найдены",
-                        Content = new TextBlock { Text = "У вас установлена актуальная версия STORM SWITCH BOX v4.0.0." },
+                        Content = new TextBlock { Text = "У вас установлена актуальная версия STORM SWITCH BOX v4.0.1." },
                         CloseButtonText = "OK",
                         XamlRoot = this.XamlRoot
                     };
