@@ -107,7 +107,7 @@
                     <ComboBoxItem Content="Распаковка" Tag="Unpack"/>
                     <ComboBoxItem Content="Упаковка" Tag="Pack"/>
                     <ComboBoxItem Content="Конвертация" Tag="Convert"/>
-                    <ComboBoxItem Content="Мульти" Tag="Multi"/>
+                    <ComboBoxItem Content="Мульти-контент" Tag="Multi"/>
                     <ComboBoxItem Content="Проверка" Tag="Verify"/>
                 </ComboBox>
             </AppBarElementContainer>

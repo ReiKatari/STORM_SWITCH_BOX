@@ -6,7 +6,7 @@ namespace StormSwitchBox.Models
     public class AppSettings
     {
         // Окно
-        public string AppVersion { get; set; } = "4.0.4";
+        public string AppVersion { get; set; } = "4.0.5";
         public int WindowX { get; set; } = -1;
         public int WindowY { get; set; } = -1;
         public int WindowWidth { get; set; } = 1200;
@@ -42,6 +42,7 @@ namespace StormSwitchBox.Models
         // Уведомления и оформление
         public bool EnableSoundNotifications { get; set; } = true;
         public string AccentColorTheme { get; set; } = "Default";
+        public string AppTheme { get; set; } = "STORM MIDNIGHT";
 
         // Выходной формат (по умолчанию NSP)
         public int SelectedFormatIndex { get; set; } = 0;
