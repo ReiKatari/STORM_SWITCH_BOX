@@ -1,13 +1,12 @@
 [Setup]
-AppName=STORM SWITCH BOX (STORM CHANNEL Edition)
-AppVersion=4.0.8
+AppName=STORM SWITCH BOX
+AppVersion=4.0.9
 AppPublisher=STORM CHANNEL & ReiKatari
 AppPublisherURL=https://rutube.ru/channel/42609927/
 DefaultDirName={localappdata}\Programs\STORM_SWITCH_BOX
 DefaultGroupName=STORM_SWITCH_BOX
-OutputBaseFilename=STORM_SWITCH_BOX_4.0.8_Setup
+OutputBaseFilename=STORM_SWITCH_BOX_4.0.9_Setup
 SetupIconFile=..\storm_switch_box.ico
-WizardImageFile=storm_channel_banner.jpg
 WizardSmallImageFile=..\storm_switch_box.ico
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -22,7 +21,7 @@ RestartApplications=no
 SignTool=signtool
 
 [Types]
-Name: "full"; Description: "Стандартная установка (STORM CHANNEL Edition)"
+Name: "full"; Description: "Стандартная установка"
 Name: "portable"; Description: "Портативная распаковка"
 
 [Components]
@@ -43,7 +42,7 @@ Name: "desktopicon"; Description: "Создать ярлык на рабочем
 Name: "contextmenu"; Description: "Добавить пункты в контекстное меню Explorer"; Components: full
 
 [Run]
-Filename: "{app}\StormSwitchBox.exe"; Description: "🚀 Запустить STORM SWITCH BOX v4.0.8"; Flags: postinstall nowait
+Filename: "{app}\StormSwitchBox.exe"; Description: "🚀 Запустить STORM SWITCH BOX v4.0.9"; Flags: postinstall nowait
 Filename: "https://rutube.ru/channel/42609927/"; Description: "📺 Открыть официальный канал STORM CHANNEL на RuTube"; Flags: postinstall shellexec unchecked
 
 [Languages]
@@ -65,18 +64,12 @@ procedure ApplyDarkThemeToWizard();
 var
   BgColor: TColor;
 begin
-  // Тёмная тема инсталлятора STORM CHANNEL ($BBGGRR формат в Pascal: R=$12, G=$0F, B=$12)
+  // Тёмная тема инсталлятора STORM ($BBGGRR формат в Pascal: R=$12, G=$0F, B=$1A)
   BgColor := $1A0F12;
   
-  WizardForm.Color := BgColor;
-  WizardForm.InnerNotebook.Color := BgColor;
-  WizardForm.OuterNotebook.Color := BgColor;
   WizardForm.WelcomePage.Color := BgColor;
   WizardForm.FinishedPage.Color := BgColor;
-  WizardForm.SelectDirPage.Color := BgColor;
-  WizardForm.SelectComponentsPage.Color := BgColor;
-  WizardForm.SelectTasksPage.Color := BgColor;
-  WizardForm.InstallingPage.Color := BgColor;
+  WizardForm.InnerPage.Color := BgColor;
 
   WizardForm.PageNameLabel.Font.Color := $00F0FF;
   WizardForm.PageNameLabel.Font.Style := [fsBold];
