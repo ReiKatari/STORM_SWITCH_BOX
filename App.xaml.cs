@@ -96,17 +96,27 @@ namespace StormSwitchBox
             if (!isFirstInstance)
             {
                 // Send arguments to first instance
+                bool pipeSuccess = false;
                 try
                 {
                     using var client = new System.IO.Pipes.NamedPipeClientStream(".", PipeName, System.IO.Pipes.PipeDirection.Out);
-                    client.Connect(2000);
+                    client.Connect(1000);
                     using var writer = new System.IO.StreamWriter(client, System.Text.Encoding.UTF8);
                     writer.WriteLine(string.Join("|", Environment.GetCommandLineArgs()));
                     writer.Flush();
+                    pipeSuccess = true;
                 }
                 catch { }
-                Environment.Exit(0);
-                return;
+
+                if (pipeSuccess)
+                {
+                    Environment.Exit(0);
+                    return;
+                }
+                else
+                {
+                    App.Logger.Log("[Startup] Предыдущий экземпляр не ответил на Pipe. Запуск текущего процесса.", Models.LogLevel.Warning);
+                }
             }
 
             Services.TempCleanupService.PurgeStaleTempDirectories();

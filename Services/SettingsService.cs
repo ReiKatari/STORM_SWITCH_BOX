@@ -29,9 +29,9 @@ namespace StormSwitchBox.Services
                     var settings = JsonSerializer.Deserialize<AppSettings>(json);
                     if (settings != null)
                     {
-                        if (settings.AppVersion != "4.0.7")
+                        if (settings.AppVersion != "4.0.8")
                         {
-                            settings.AppVersion = "4.0.7";
+                            settings.AppVersion = "4.0.8";
                             settings.ComplexFolders = true;
                             settings.ForceMultiRebuild = true;
                             settings.TrimXci = false;

@@ -1,12 +1,14 @@
 [Setup]
-AppName=STORM SWITCH BOX
-AppVersion=4.0.7
-AppPublisher=ReiKatari
-AppPublisherURL=https://github.com/ReiKatari/STORM_SWITCH_BOX
+AppName=STORM SWITCH BOX (STORM CHANNEL Edition)
+AppVersion=4.0.8
+AppPublisher=STORM CHANNEL & ReiKatari
+AppPublisherURL=https://rutube.ru/channel/42609927/
 DefaultDirName={localappdata}\Programs\STORM_SWITCH_BOX
 DefaultGroupName=STORM_SWITCH_BOX
-OutputBaseFilename=STORM_SWITCH_BOX_4.0.7_Setup
+OutputBaseFilename=STORM_SWITCH_BOX_4.0.8_Setup
 SetupIconFile=..\storm_switch_box.ico
+WizardImageFile=storm_channel_banner.jpg
+WizardSmallImageFile=..\storm_switch_box.ico
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=lowest
@@ -20,7 +22,7 @@ RestartApplications=no
 SignTool=signtool
 
 [Types]
-Name: "full"; Description: "Стандартная установка"
+Name: "full"; Description: "Стандартная установка (STORM CHANNEL Edition)"
 Name: "portable"; Description: "Портативная распаковка"
 
 [Components]
@@ -28,7 +30,6 @@ Name: "full"; Description: "Стандартная установка"; Types: f
 Name: "portable"; Description: "Портативная распаковка"; Types: portable
 
 [Files]
-; Source files from publish output
 Source: "..\bin\Release\net8.0-windows10.0.19041.0\win-x64\publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\bin\Release\net8.0-windows10.0.19041.0\win-x64\publish\StormSwitchBox.pri"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 
@@ -39,7 +40,11 @@ Name: "{autodesktop}\STORM_SWITCH_BOX"; Filename: "{app}\StormSwitchBox.exe"; Wo
 [Tasks]
 Name: "startmenu"; Description: "Добавить в меню «Пуск»"; Components: full
 Name: "desktopicon"; Description: "Создать ярлык на рабочем столе"; Components: full
-Name: "contextmenu"; Description: "Добавить пункты в контекстное меню"; Components: full
+Name: "contextmenu"; Description: "Добавить пункты в контекстное меню Explorer"; Components: full
+
+[Run]
+Filename: "{app}\StormSwitchBox.exe"; Description: "🚀 Запустить STORM SWITCH BOX v4.0.8"; Flags: postinstall nowait
+Filename: "https://rutube.ru/channel/42609927/"; Description: "📺 Открыть официальный канал STORM CHANNEL на RuTube"; Flags: postinstall shellexec unchecked
 
 [Languages]
 Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
@@ -47,70 +52,68 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Code]
 var
-  BackupSettingsExist: Boolean;
-  BackupHistoryExist: Boolean;
+  ChannelLinkLabel: TLabel;
+
+procedure ChannelLinkClick(Sender: TObject);
+var
+  ErrorCode: Integer;
+begin
+  ShellExec('open', 'https://rutube.ru/channel/42609927/', '', '', SW_SHOWNORMAL, ewNoWait, ErrorCode);
+end;
+
+procedure ApplyDarkThemeToWizard();
+var
+  BgColor: TColor;
+begin
+  // Тёмная тема инсталлятора STORM CHANNEL ($BBGGRR формат в Pascal: R=$12, G=$0F, B=$12)
+  BgColor := $1A0F12;
+  
+  WizardForm.Color := BgColor;
+  WizardForm.InnerNotebook.Color := BgColor;
+  WizardForm.OuterNotebook.Color := BgColor;
+  WizardForm.WelcomePage.Color := BgColor;
+  WizardForm.FinishedPage.Color := BgColor;
+  WizardForm.SelectDirPage.Color := BgColor;
+  WizardForm.SelectComponentsPage.Color := BgColor;
+  WizardForm.SelectTasksPage.Color := BgColor;
+  WizardForm.InstallingPage.Color := BgColor;
+
+  WizardForm.PageNameLabel.Font.Color := $00F0FF;
+  WizardForm.PageNameLabel.Font.Style := [fsBold];
+  WizardForm.PageDescriptionLabel.Font.Color := $E0E0E0;
+
+  WizardForm.WelcomeLabel1.Font.Color := $09EEFC;
+  WizardForm.WelcomeLabel1.Font.Style := [fsBold];
+  WizardForm.WelcomeLabel2.Font.Color := $E0E0E0;
+
+  WizardForm.FinishedHeadingLabel.Font.Color := $09EEFC;
+  WizardForm.FinishedHeadingLabel.Font.Style := [fsBold];
+  WizardForm.FinishedLabel.Font.Color := $E0E0E0;
+end;
+
+procedure InitializeWizard();
+begin
+  ApplyDarkThemeToWizard();
+
+  // Создаем ссылку на STORM CHANNEL внизу слева окна инсталлятора
+  ChannelLinkLabel := TLabel.Create(WizardForm);
+  ChannelLinkLabel.Parent := WizardForm;
+  ChannelLinkLabel.Left := 16;
+  ChannelLinkLabel.Top := WizardForm.CancelButton.Top + 4;
+  ChannelLinkLabel.Caption := '📺 STORM CHANNEL (RuTube)';
+  ChannelLinkLabel.Font.Color := $00F0FF;
+  ChannelLinkLabel.Font.Style := [fsBold, fsUnderline];
+  ChannelLinkLabel.Cursor := crHand;
+  ChannelLinkLabel.OnClick := @ChannelLinkClick;
+end;
 
 function InitializeSetup(): Boolean;
 var
-  UninstallKey: string;
-  UninstallString: string;
-  InstallLocation: string;
   ResultCode: Integer;
-  BackupDir: string;
-  Found: Boolean;
 begin
   Result := True;
-  // Разблокировка файла инсталлятора от Windows Smart App Control / Zone.Identifier
   Exec('powershell.exe', '-NoProfile -ExecutionPolicy Bypass -Command "Unblock-File -Path ''' + ExpandConstant('{srcexe}') + '''"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  // Принудительное завершение работающих экземпляров приложения перед установкой/заменой файлов
   Exec('taskkill.exe', '/F /IM StormSwitchBox.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-
-  UninstallKey := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\STORM SWITCH BOX_is1';
-  BackupSettingsExist := False;
-  BackupHistoryExist := False;
-  UninstallString := '';
-  InstallLocation := '';
-  Found := False;
-
-  Log('SSB_Update: InitializeSetup started.');
-
-  // 1. Проверяем HKCU
-  if RegQueryStringValue(HKCU, UninstallKey, 'UninstallString', UninstallString) then
-  begin
-    RegQueryStringValue(HKCU, UninstallKey, 'InstallLocation', InstallLocation);
-    Found := True;
-    Log('SSB_Update: Found old installation in HKCU.');
-  end
-  // 2. Проверяем HKLM64
-  else if RegQueryStringValue(HKLM64, UninstallKey, 'UninstallString', UninstallString) then
-  begin
-    RegQueryStringValue(HKLM64, UninstallKey, 'InstallLocation', InstallLocation);
-    Found := True;
-    Log('SSB_Update: Found old installation in HKLM64.');
-  end
-  // 3. Проверяем HKLM32
-  else if RegQueryStringValue(HKLM32, UninstallKey, 'UninstallString', UninstallString) then
-  begin
-    RegQueryStringValue(HKLM32, UninstallKey, 'InstallLocation', InstallLocation);
-    Found := True;
-    Log('SSB_Update: Found old installation in HKLM32.');
-  end
-  // 4. Проверяем HKLM (на всякий случай)
-  else if RegQueryStringValue(HKLM, UninstallKey, 'UninstallString', UninstallString) then
-  begin
-    RegQueryStringValue(HKLM, UninstallKey, 'InstallLocation', InstallLocation);
-    Found := True;
-    Log('SSB_Update: Found old installation in HKLM.');
-  end;
-
-  if Found then
-  begin
-    Log('SSB_Update: Old InstallLocation = ' + InstallLocation);
-  end
-  else
-  begin
-    Log('SSB_Update: No previous installation found in registry.');
-  end;
 end;
 
 procedure CreateDirectCommand(Association: string; Verb: string; LabelName: string; Action: string);
@@ -178,9 +181,9 @@ begin
     if DirExists(BackupDir) then
     begin
       if FileExists(BackupDir + '\ssb_native.settings.json') then
-        FileCopy(BackupDir + '\ssb_native.settings.json', AppDir + '\ssb_native.settings.json', True);
+        CopyFile(BackupDir + '\ssb_native.settings.json', AppDir + '\ssb_native.settings.json', True);
       if FileExists(BackupDir + '\history.json') then
-        FileCopy(BackupDir + '\history.json', AppDir + '\history.json', True);
+        CopyFile(BackupDir + '\history.json', AppDir + '\history.json', True);
       DelTree(BackupDir, True, True, True);
       Log('SSB_Update: Restored history successfully.');
     end;
@@ -188,7 +191,6 @@ begin
     if WizardIsComponentSelected('portable') then
       SaveStringToFile(AppDir + '\portable.marker', '', False);
 
-    // Регистрация контекстного меню
     if WizardIsComponentSelected('full') and WizardIsTaskSelected('contextmenu') then
     begin
       Log('SSB_Setup: Cleaning legacy context menus...');
@@ -197,7 +199,6 @@ begin
       RegisterAllContextMenus();
     end;
 
-    // Снятие интернет-блокировки Zone.Identifier со всех установленных файлов
     Exec('powershell.exe', '-NoProfile -ExecutionPolicy Bypass -Command "Get-ChildItem -Path ''' + ExpandConstant('{app}') + ''' -Recurse | Unblock-File"', '', SW_HIDE, ewWaitUntilTerminated, ResCode);
   end;
 end;
@@ -206,7 +207,6 @@ procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
   if CurUninstallStep = usUninstall then
   begin
-    // Удаляем ветки реестра контекстного меню
     UnregisterAllContextMenus();
   end;
   if CurUninstallStep = usPostUninstall then
@@ -214,4 +214,3 @@ begin
     DeleteFile(ExpandConstant('{app}\portable.marker'));
   end;
 end;
-
