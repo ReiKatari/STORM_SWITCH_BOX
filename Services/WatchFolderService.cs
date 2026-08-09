@@ -63,7 +63,14 @@ namespace StormSwitchBox.Services
 
             App.RunOnUI(() =>
             {
-                App.Logger.Log($"[WatchFolder] Обнаружен новый файл для авто-обработки: {Path.GetFileName(e.FullPath)}", Models.LogLevel.Info);
+                var settings = App.Settings.Current;
+                string[] actions = new string[] { "Сжатие", "Распаковка", "Упаковка", "Конвертация", "Мульти-контент", "Проверка" };
+                string[] formats = new string[] { "NSP", "NSZ", "XCI", "XCZ" };
+                
+                string actionStr = settings.WatchFolderAction >= 0 && settings.WatchFolderAction < actions.Length ? actions[settings.WatchFolderAction] : "Обработка";
+                string formatStr = settings.WatchFolderFormat >= 0 && settings.WatchFolderFormat < formats.Length ? formats[settings.WatchFolderFormat] : "NSP";
+
+                App.Logger.Log($"[WatchFolder] Авто-обработка «{Path.GetFileName(e.FullPath)}»: {actionStr} в {formatStr}", Models.LogLevel.Success);
                 
                 // Добавляем файл в очередь задач
                 _ = App.TasksVM.AddDroppedFilesBatchAsync(new System.Collections.Generic.List<string> { e.FullPath });

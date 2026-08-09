@@ -47,8 +47,53 @@ namespace StormSwitchBox.Views
             else if (th == "STORM CYBERPUNK") ThemeCombo.SelectedIndex = 3;
             else ThemeCombo.SelectedIndex = 0;
 
+            // Watch Folder combos initialization
+            int wfAction = App.Settings.Current.WatchFolderAction;
+            if (wfAction >= 0 && wfAction <= 5) WatchFolderActionCombo.SelectedIndex = wfAction;
+            else WatchFolderActionCombo.SelectedIndex = 0;
+
+            int wfFormat = App.Settings.Current.WatchFolderFormat;
+            if (wfFormat >= 0 && wfFormat <= 3) WatchFolderFormatCombo.SelectedIndex = wfFormat;
+            else WatchFolderFormatCombo.SelectedIndex = 0;
+
+            UpdateWatchFolderBadge();
+
             InitializeLanguages();
             PopulateKeysVersion(App.Settings.Current.KeysVersion ?? "");
+        }
+
+        private void UpdateWatchFolderBadge()
+        {
+            if (WatchFolderSummaryBadge == null) return;
+            string actionText = "Сжатие";
+            if (WatchFolderActionCombo?.SelectedItem is ComboBoxItem aItem && aItem.Content != null)
+                actionText = aItem.Content.ToString()!;
+
+            string formatText = "NSZ";
+            if (WatchFolderFormatCombo?.SelectedItem is ComboBoxItem fItem && fItem.Content != null)
+                formatText = fItem.Content.ToString()!;
+
+            WatchFolderSummaryBadge.Text = $"⚡ Авто-обработка: {actionText} в {formatText}";
+        }
+
+        private async void WatchFolderActionCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (WatchFolderActionCombo.SelectedItem is ComboBoxItem item && item.Tag is string tagStr && int.TryParse(tagStr, out int val))
+            {
+                App.Settings.Current.WatchFolderAction = val;
+                await App.Settings.SaveAsync();
+                UpdateWatchFolderBadge();
+            }
+        }
+
+        private async void WatchFolderFormatCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (WatchFolderFormatCombo.SelectedItem is ComboBoxItem item && item.Tag is string tagStr && int.TryParse(tagStr, out int val))
+            {
+                App.Settings.Current.WatchFolderFormat = val;
+                await App.Settings.SaveAsync();
+                UpdateWatchFolderBadge();
+            }
         }
 
         private async void RsvCapCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -403,7 +448,7 @@ namespace StormSwitchBox.Views
                     var dialog = new ContentDialog
                     {
                         Title = "Обновления не найдены",
-                        Content = new TextBlock { Text = "У вас установлена актуальная версия STORM SWITCH BOX v4.0.6." },
+                        Content = new TextBlock { Text = "У вас установлена актуальная версия STORM SWITCH BOX v4.0.7." },
                         CloseButtonText = "OK",
                         XamlRoot = this.XamlRoot
                     };

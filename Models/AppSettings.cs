@@ -6,7 +6,7 @@ namespace StormSwitchBox.Models
     public class AppSettings
     {
         // Окно
-        public string AppVersion { get; set; } = "4.0.6";
+        public string AppVersion { get; set; } = "4.0.7";
         public int WindowX { get; set; } = -1;
         public int WindowY { get; set; } = -1;
         public int WindowWidth { get; set; } = 1200;
@@ -37,7 +37,8 @@ namespace StormSwitchBox.Models
         // Папка наблюдения (Watch Folder)
         public string WatchFolder { get; set; } = "";
         public bool EnableWatchFolder { get; set; } = false;
-        public int WatchFolderAction { get; set; } = 0; // 0 = Сжатие в NSZ, 1 = Проверка
+        public int WatchFolderAction { get; set; } = 0; // 0 = Сжатие в NSZ, 1 = Конвертация, 2 = Мульти-контент, 3 = Проверка
+        public int WatchFolderFormat { get; set; } = 0; // 0 = NSP, 1 = NSZ, 2 = XCI, 3 = XCZ
 
         // Уведомления и оформление
         public bool EnableSoundNotifications { get; set; } = true;
