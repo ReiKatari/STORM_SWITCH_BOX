@@ -15,12 +15,11 @@ namespace StormSwitchBox.Services
 
             ElementTheme targetElementTheme = (themeName == "STORM DAY") ? ElementTheme.Light : ElementTheme.Dark;
 
-            // Определяем палитру цветов
             Color bg, cardBg, cardSecBg, cardBorder, textPrimary, textSecondary, textTertiary;
 
             switch (themeName)
             {
-                case "STORM NIGHT": // Глубокая OLED Чёрная тема
+                case "STORM NIGHT": // Чистая OLED Чёрная тема
                     bg = ParseHexColor("#000000");
                     cardBg = ParseHexColor("#0D0D10");
                     cardSecBg = ParseHexColor("#16161C");
@@ -30,12 +29,12 @@ namespace StormSwitchBox.Services
                     textTertiary = ParseHexColor("#757585");
                     break;
 
-                case "STORM DAY": // Чистая светлая тема
+                case "STORM DAY": // Чистая Светлая тема
                     bg = ParseHexColor("#F3F4F8");
                     cardBg = ParseHexColor("#FFFFFF");
                     cardSecBg = ParseHexColor("#EAEFF5");
                     cardBorder = ParseHexColor("#D1D5DB");
-                    textPrimary = ParseHexColor("#111827"); // Темно-углистый текст для 100% читаемости!
+                    textPrimary = ParseHexColor("#111827"); // Темно-углистый текст 100% читаемости!
                     textSecondary = ParseHexColor("#4B5563");
                     textTertiary = ParseHexColor("#6B7280");
                     break;
@@ -51,28 +50,28 @@ namespace StormSwitchBox.Services
                     break;
 
                 case "STORM MIDNIGHT":
-                default: // Классическая темно-синеватая полночь
-                    bg = ParseHexColor("#18181C");
-                    cardBg = ParseHexColor("#222228");
-                    cardSecBg = ParseHexColor("#2B2B34");
-                    cardBorder = ParseHexColor("#363642");
+                default: // Переработанный Фиолетовый Полночный стиль!
+                    bg = ParseHexColor("#120F1D");
+                    cardBg = ParseHexColor("#1C172E");
+                    cardSecBg = ParseHexColor("#26203D");
+                    cardBorder = ParseHexColor("#3D305C");
                     textPrimary = ParseHexColor("#FFFFFF");
-                    textSecondary = ParseHexColor("#B0B0C0");
-                    textTertiary = ParseHexColor("#808090");
+                    textSecondary = ParseHexColor("#C4B5FD"); // Фиолетово-лавандовый оттенок
+                    textTertiary = ParseHexColor("#8B7AA8");
                     break;
             }
 
-            // Записываем ресурсы в глобальные словари приложения
-            SetResource("ApplicationPageBackgroundThemeBrush", new SolidColorBrush(bg));
-            SetResource("CardBackgroundFillColorDefaultBrush", new SolidColorBrush(cardBg));
-            SetResource("CardBackgroundFillColorSecondaryBrush", new SolidColorBrush(cardSecBg));
-            SetResource("CardStrokeColorDefaultBrush", new SolidColorBrush(cardBorder));
-            SetResource("SurfaceStrokeColorDefaultBrush", new SolidColorBrush(cardBorder));
-            SetResource("TextFillColorPrimaryBrush", new SolidColorBrush(textPrimary));
-            SetResource("TextFillColorSecondaryBrush", new SolidColorBrush(textSecondary));
-            SetResource("TextFillColorTertiaryBrush", new SolidColorBrush(textTertiary));
+            // Записываем ресурсы в глобальные словари
+            SetResourceBrush("ApplicationPageBackgroundThemeBrush", bg);
+            SetResourceBrush("CardBackgroundFillColorDefaultBrush", cardBg);
+            SetResourceBrush("CardBackgroundFillColorSecondaryBrush", cardSecBg);
+            SetResourceBrush("CardStrokeColorDefaultBrush", cardBorder);
+            SetResourceBrush("SurfaceStrokeColorDefaultBrush", cardBorder);
+            SetResourceBrush("TextFillColorPrimaryBrush", textPrimary);
+            SetResourceBrush("TextFillColorSecondaryBrush", textSecondary);
+            SetResourceBrush("TextFillColorTertiaryBrush", textTertiary);
 
-            // Применяем тему к главному окну, контейнеру и навигации
+            // Применяем тему к окну и навигации
             if (App.MainWindow != null)
             {
                 if (App.MainWindow.Content is FrameworkElement root)
@@ -81,20 +80,20 @@ namespace StormSwitchBox.Services
 
                     if (root is Grid mainGrid)
                     {
-                        mainGrid.Background = new SolidColorBrush(bg);
+                        mainGrid.Background = GetSolidBrush(bg);
                         foreach (var child in mainGrid.Children)
                         {
                             if (child is NavigationView nav)
                             {
                                 nav.RequestedTheme = targetElementTheme;
-                                nav.Background = new SolidColorBrush(bg);
+                                nav.Background = GetSolidBrush(bg);
                             }
                         }
                     }
                 }
             }
 
-            // Переприменяем акцентный цвет для выравнивания контраста
+            // Переприменяем акцентный цвет
             ApplyAccentColor(App.Settings.Current.AccentColorTheme);
         }
 
@@ -103,17 +102,16 @@ namespace StormSwitchBox.Services
             Color accentColor;
             if (string.IsNullOrEmpty(colorHex) || colorHex == "Default")
             {
-                accentColor = ParseHexColor("#0078D4");
+                if (App.Settings.Current.AppTheme == "STORM MIDNIGHT")
+                    accentColor = ParseHexColor("#8E44AD"); // Нативный фиолетовый акцент для MIDNIGHT
+                else if (App.Settings.Current.AppTheme == "STORM CYBERPUNK")
+                    accentColor = ParseHexColor("#FCEE09"); // Неоновый жёлтый для CYBERPUNK
+                else
+                    accentColor = ParseHexColor("#0078D4");
             }
             else
             {
                 accentColor = ParseHexColor(colorHex);
-            }
-
-            // В теме Cyberpunk дефолтный акцент - Неоново-Желтый
-            if (App.Settings.Current.AppTheme == "STORM CYBERPUNK" && (string.IsNullOrEmpty(colorHex) || colorHex == "Default"))
-            {
-                accentColor = ParseHexColor("#FCEE09");
             }
 
             Color dark1 = ChangeColorBrightness(accentColor, -0.15f);
@@ -121,45 +119,67 @@ namespace StormSwitchBox.Services
             Color light1 = ChangeColorBrightness(accentColor, 0.20f);
             Color light2 = ChangeColorBrightness(accentColor, 0.40f);
 
-            var accentBrush = new SolidColorBrush(accentColor);
-            var light1Brush = new SolidColorBrush(light1);
-            var dark1Brush = new SolidColorBrush(dark1);
+            SetResourceValue("SystemAccentColor", accentColor);
+            SetResourceValue("SystemAccentColorDark1", dark1);
+            SetResourceValue("SystemAccentColorDark2", dark2);
+            SetResourceValue("SystemAccentColorLight1", light1);
+            SetResourceValue("SystemAccentColorLight2", light2);
 
-            SetResource("SystemAccentColor", accentColor);
-            SetResource("SystemAccentColorDark1", dark1);
-            SetResource("SystemAccentColorDark2", dark2);
-            SetResource("SystemAccentColorLight1", light1);
-            SetResource("SystemAccentColorLight2", light2);
+            SetResourceBrush("SystemControlHighlightAccentBrush", accentColor);
+            SetResourceBrush("SystemControlHighlightListAccentLowBrush", Color.FromArgb(60, accentColor.R, accentColor.G, accentColor.B));
+            SetResourceBrush("SystemAccentColorBrush", accentColor);
 
-            SetResource("SystemControlHighlightAccentBrush", accentBrush);
-            SetResource("SystemControlHighlightListAccentLowBrush", new SolidColorBrush(Color.FromArgb(60, accentColor.R, accentColor.G, accentColor.B)));
-            SetResource("SystemAccentColorBrush", accentBrush);
-
-            // Элементы управления WinUI (ToggleSwitch, AccentButton, NavigationView Selection)
-            SetResource("ToggleSwitchFillOn", accentBrush);
-            SetResource("ToggleSwitchFillOnPointerOver", light1Brush);
-            SetResource("ToggleSwitchFillOnPressed", dark1Brush);
-            SetResource("AccentButtonBackground", accentBrush);
-            SetResource("AccentButtonBackgroundPointerOver", light1Brush);
-            SetResource("AccentButtonBackgroundPressed", dark1Brush);
-            SetResource("NavigationViewItemForegroundSelected", accentBrush);
-            SetResource("NavigationViewItemIconForegroundSelected", accentBrush);
+            // Кнопки, переключатели, фокусы и навигация
+            SetResourceBrush("ToggleSwitchFillOn", accentColor);
+            SetResourceBrush("ToggleSwitchFillOnPointerOver", light1);
+            SetResourceBrush("ToggleSwitchFillOnPressed", dark1);
+            SetResourceBrush("AccentButtonBackground", accentColor);
+            SetResourceBrush("AccentButtonBackgroundPointerOver", light1);
+            SetResourceBrush("AccentButtonBackgroundPressed", dark1);
+            SetResourceBrush("NavigationViewItemForegroundSelected", accentColor);
+            SetResourceBrush("NavigationViewItemIconForegroundSelected", accentColor);
 
             RefreshUI();
         }
 
-        private static void SetResource(string key, object value)
+        private static void SetResourceValue(string key, object value)
         {
             Application.Current.Resources[key] = value;
 
-            if (Application.Current.Resources.ThemeDictionaries.TryGetValue("Dark", out var darkDictObj) && darkDictObj is ResourceDictionary darkDict)
-            {
+            if (Application.Current.Resources.ThemeDictionaries.TryGetValue("Dark", out var darkObj) && darkObj is ResourceDictionary darkDict)
                 darkDict[key] = value;
-            }
-            if (Application.Current.Resources.ThemeDictionaries.TryGetValue("Light", out var lightDictObj) && lightDictObj is ResourceDictionary lightDict)
-            {
+
+            if (Application.Current.Resources.ThemeDictionaries.TryGetValue("Light", out var lightObj) && lightObj is ResourceDictionary lightDict)
                 lightDict[key] = value;
+        }
+
+        private static void SetResourceBrush(string key, Color color)
+        {
+            SetBrushInDictionary(Application.Current.Resources, key, color);
+
+            if (Application.Current.Resources.ThemeDictionaries.TryGetValue("Dark", out var darkObj) && darkObj is ResourceDictionary darkDict)
+                SetBrushInDictionary(darkDict, key, color);
+
+            if (Application.Current.Resources.ThemeDictionaries.TryGetValue("Light", out var lightObj) && lightObj is ResourceDictionary lightDict)
+                SetBrushInDictionary(lightDict, key, color);
+        }
+
+        private static void SetBrushInDictionary(ResourceDictionary dict, string key, Color color)
+        {
+            if (dict.TryGetValue(key, out var existingObj) && existingObj is SolidColorBrush solidBrush)
+            {
+                // Мутируем существующий объект кисти на месте!
+                solidBrush.Color = color;
             }
+            else
+            {
+                dict[key] = new SolidColorBrush(color);
+            }
+        }
+
+        private static SolidColorBrush GetSolidBrush(Color color)
+        {
+            return new SolidColorBrush(color);
         }
 
         private static void RefreshUI()

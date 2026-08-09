@@ -101,28 +101,55 @@
                         <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
 
                         <!-- Автоматическая папка (Watch Folder) -->
-                        <Grid>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="Auto"/>
-                            </Grid.RowDefinitions>
-                            <StackPanel Grid.Row="0" Margin="0,0,0,8" Spacing="2">
-                                <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <TextBlock Text="«Умная» папка автоматического наблюдения (Watch Folder)" FontWeight="Medium" VerticalAlignment="Center"/>
-                                    <ToggleSwitch x:Name="WatchFolderToggle" IsOn="{x:Bind Settings.EnableWatchFolder, Mode=TwoWay}" Toggled="WatchFolderToggle_Toggled" VerticalAlignment="Center"/>
+                        <StackPanel Spacing="12">
+                            <Grid>
+                                <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock Text="«Умная» папка автоматического наблюдения (Watch Folder)" FontWeight="Medium"/>
+                                    <TextBlock Text="Автоматически обнаруживает новые файлы NSP/NSZ/XCI в папке (например, при скачивании) и запускает назначенный процесс" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
                                 </StackPanel>
-                                <TextBlock Text="Автоматически обнаруживает новые файлы NSP/NSZ/XCI в папке (например, при скачивании) и добавляет в очередь задач" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
-                            </StackPanel>
-                            <Grid Grid.Row="1" Visibility="{x:Bind WatchFolderToggle.IsOn, Mode=OneWay}">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBox x:Name="WatchFolderBox" HorizontalAlignment="Stretch" Margin="0,0,12,0" PlaceholderText="Папка не выбрана" 
-                                         Text="{x:Bind Settings.WatchFolder, Mode=TwoWay}" IsReadOnly="True" VerticalAlignment="Center"/>
-                                <Button Grid.Column="1" Content="Выбрать папку..." Click="SelectWatchFolder_Click" VerticalAlignment="Center" CornerRadius="6"/>
+                                <ToggleSwitch x:Name="WatchFolderToggle" HorizontalAlignment="Right" IsOn="{x:Bind Settings.EnableWatchFolder, Mode=TwoWay}" Toggled="WatchFolderToggle_Toggled" VerticalAlignment="Center"/>
                             </Grid>
-                        </Grid>
+
+                            <StackPanel Visibility="{x:Bind WatchFolderToggle.IsOn, Mode=OneWay}" Spacing="12" Margin="0,4,0,0">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox x:Name="WatchFolderBox" HorizontalAlignment="Stretch" Margin="0,0,12,0" PlaceholderText="Папка не выбрана" 
+                                             Text="{x:Bind Settings.WatchFolder, Mode=TwoWay}" IsReadOnly="True" VerticalAlignment="Center"/>
+                                    <Button Grid.Column="1" Content="Выбрать папку..." Click="SelectWatchFolder_Click" VerticalAlignment="Center" CornerRadius="6"/>
+                                </Grid>
+
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel VerticalAlignment="Center" Spacing="2">
+                                        <TextBlock Text="Выполняемая задача и формат:" FontSize="12" FontWeight="SemiBold"/>
+                                        <TextBlock x:Name="WatchFolderSummaryBadge" Text="⚡ Авто-обработка: Сжатие в NSZ" FontSize="11" Foreground="{ThemeResource SystemAccentColor}" FontWeight="Bold"/>
+                                    </StackPanel>
+
+                                    <ComboBox x:Name="WatchFolderActionCombo" Grid.Column="1" Width="170" Margin="0,0,8,0" SelectionChanged="WatchFolderActionCombo_SelectionChanged" VerticalAlignment="Center">
+                                        <ComboBoxItem Content="Сжатие" Tag="0"/>
+                                        <ComboBoxItem Content="Распаковка" Tag="1"/>
+                                        <ComboBoxItem Content="Упаковка" Tag="2"/>
+                                        <ComboBoxItem Content="Конвертация" Tag="3"/>
+                                        <ComboBoxItem Content="Мульти-контент" Tag="4"/>
+                                        <ComboBoxItem Content="Проверка" Tag="5"/>
+                                    </ComboBox>
+
+                                    <ComboBox x:Name="WatchFolderFormatCombo" Grid.Column="2" Width="100" SelectionChanged="WatchFolderFormatCombo_SelectionChanged" VerticalAlignment="Center">
+                                        <ComboBoxItem Content="NSP" Tag="0"/>
+                                        <ComboBoxItem Content="NSZ" Tag="1"/>
+                                        <ComboBoxItem Content="XCI" Tag="2"/>
+                                        <ComboBoxItem Content="XCZ" Tag="3"/>
+                                    </ComboBox>
+                                </Grid>
+                            </StackPanel>
+                        </StackPanel>
                     </StackPanel>
                 </Border>
             </StackPanel>
@@ -363,7 +390,7 @@
                         </Border>
                         <StackPanel Grid.Column="1" Spacing="6">
                             <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                                <TextBlock Text="STORM SWITCH BOX 4.0.6" FontWeight="Bold" FontSize="22"/>
+                                <TextBlock Text="STORM SWITCH BOX 4.0.7" FontWeight="Bold" FontSize="22"/>
                                 <Border Background="{ThemeResource SystemAccentColor}" CornerRadius="4" Padding="6,2" VerticalAlignment="Center">
                                     <TextBlock Text="WinUI 3 Native" Foreground="White" FontSize="11" FontWeight="Bold"/>
                                 </Border>
