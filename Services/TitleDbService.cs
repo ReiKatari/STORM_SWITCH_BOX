@@ -102,7 +102,7 @@ namespace StormSwitchBox.Services
         {
             _dbPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "titledb.RU.json");
             _httpClient = new HttpClient();
-            _httpClient.DefaultRequestHeaders.Add("User-Agent", "StormSwitchBox/4.0.1");
+            _httpClient.DefaultRequestHeaders.Add("User-Agent", "StormSwitchBox/4.0.2");
             
             // Асинхронно загружаем базу из локального кэша
             _ = LoadLocalDbAsync();
