@@ -64,6 +64,15 @@ namespace StormSwitchBox.Models
 
         // Список файлов (для отображения по клику - только имена)
         public List<string> FilesList { get; set; } = new();
+        
+        // Предварительный анализ
+        /// <summary>Мульти-программный тайтл (несколько TitleID в одном NSP) — yanu-cli не может обработать</summary>
+        [System.Text.Json.Serialization.JsonIgnore]
+        public bool IsMultiProgramTitle { get; set; }
+        
+        /// <summary>Результат предварительного анализа входных файлов</summary>
+        [System.Text.Json.Serialization.JsonIgnore]
+        public string PreAnalysisLog { get; set; } = string.Empty;
 
         /// <summary>Видимость панели деталей (привязка к IsExpanded)</summary>
         [System.Text.Json.Serialization.JsonIgnore]

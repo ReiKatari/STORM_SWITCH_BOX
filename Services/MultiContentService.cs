@@ -118,7 +118,9 @@ namespace StormSwitchBox.Services
                 string? savedUpdateFile = null;
 
                 // Патчинг прошивки (пересборка base+update через yanu-cli)
-                if (patchFirmware || hasMods)
+                // Пропускаем для мульти-программных тайтлов (напр. AC Ezio Collection)
+                bool skipHardPatch = task.IsMultiProgramTitle;
+                if ((patchFirmware || hasMods) && !skipHardPatch)
                 {
                     App.RunOnUI(() =>
                     {
@@ -254,6 +256,11 @@ namespace StormSwitchBox.Services
                             App.RunOnUI(() => task.LogDetails += "\nℹ️ Пересборка HardPatch пропущена. Переходим к сшиванию мультиконтента...");
                         }
                     }
+                }
+                else if (skipHardPatch)
+                {
+                    App.RunOnUI(() => task.LogDetails += "\n⚠️ [HardPatch] Мульти-программный тайтл — пропуск yanu-cli, используем оригинальные файлы.");
+                    App.Logger.Log("[HardPatch] Skipped: multi-program title detected by pre-analysis", LogLevel.Info);
                 }
 
                 // 4.5 Сшивание мультиконтента через NSC_Builder (squirrel.exe)

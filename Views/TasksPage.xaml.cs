@@ -448,7 +448,7 @@ namespace StormSwitchBox.Views
 
                 var scrollViewer = new ScrollViewer
                 {
-                    MaxHeight = 520,
+                    MaxHeight = 680,
                     Padding = new Thickness(0, 0, 16, 20),
                     VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                     HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
@@ -460,8 +460,8 @@ namespace StormSwitchBox.Views
                     Title = $"Список файлов ({task.FilesList.Count})",
                     CloseButtonText = "Закрыть",
                     XamlRoot = this.XamlRoot,
-                    MinWidth = 950,
-                    MaxWidth = 1150,
+                    MinWidth = 1425,
+                    MaxWidth = 1725,
                     Content = scrollViewer
                 };
 
@@ -708,13 +708,18 @@ namespace StormSwitchBox.Views
             }
         }
 
+        private void ClearLogs_Click(object sender, RoutedEventArgs e)
+        {
+            if (AppLogs != null) AppLogs.Clear();
+        }
+
         private void CopyLogs_Click(object sender, RoutedEventArgs e)
         {
             if (AppLogs == null || AppLogs.Count == 0) return;
             var sb = new System.Text.StringBuilder();
             foreach (var log in AppLogs)
             {
-                sb.AppendLine(log.Message);
+                sb.AppendLine($"[{log.FormattedTime}] [{log.LevelLabel.Trim()}] {log.Message}");
             }
             var dp = new Windows.ApplicationModel.DataTransfer.DataPackage();
             dp.SetText(sb.ToString());
