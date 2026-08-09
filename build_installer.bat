@@ -16,7 +16,12 @@ echo ==============================================
 echo 2. Очистка старого файла установки...
 echo ==============================================
 if exist "e:\STORM SWITCH BOX\installer\Output\STORM_SWITCH_BOX_4.0.2_Setup.exe" (
-    del /f /q /a "e:\STORM SWITCH BOX\installer\Output\STORM_SWITCH_BOX_4.0.2_Setup.exe" 2>nul
+    powershell -Command "Remove-Item 'e:\STORM SWITCH BOX\installer\Output\STORM_SWITCH_BOX_4.0.2_Setup.exe' -Force -ErrorAction SilentlyContinue"
+    if exist "e:\STORM SWITCH BOX\installer\Output\STORM_SWITCH_BOX_4.0.2_Setup.exe" (
+        powershell -Command "Stop-Process -Name 'STORM_SWITCH_BOX*', 'setup*', 'signtool*', 'iscc*' -Force -ErrorAction SilentlyContinue"
+        timeout /t 2 /nobreak >nul
+        del /f /q /a "e:\STORM SWITCH BOX\installer\Output\STORM_SWITCH_BOX_4.0.2_Setup.exe" 2>nul
+    )
 )
 
 echo ==============================================
