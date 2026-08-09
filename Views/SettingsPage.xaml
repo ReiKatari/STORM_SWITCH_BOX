@@ -14,14 +14,14 @@
                 <TextBlock Text="Системные файлы" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                 <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="20">
                     <StackPanel Spacing="16">
-                        <Grid>
+                        <Grid AllowDrop="True" DragOver="KeysFile_DragOver" Drop="KeysFile_Drop" Padding="8" CornerRadius="6" BorderBrush="Transparent" BorderThickness="2">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <StackPanel>
                                 <TextBlock Text="Файл криптографических ключей (prod.keys / keys.txt)" VerticalAlignment="Center"/>
-                                <TextBlock Text="Загружать ключи для расшифровки форматов Nintendo Switch" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                <TextBlock Text="Загружать ключи для расшифровки. Можно перетащить файл сюда" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
                             </StackPanel>
                             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12">
                                 <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" Visibility="{x:Bind KeysSelectedVisibility, Mode=OneTime}">
@@ -36,7 +36,7 @@
                                     <TextBlock Text="." FontSize="18" FontWeight="Bold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" Margin="1,0,1,0"/>
                                     <TextBox x:Name="VerBox6" Width="32" Height="32" CornerRadius="6" MaxLength="1" FontSize="14" FontWeight="Bold" Padding="0,3,0,0" TextAlignment="Center" KeyDown="VerBox_KeyDown" TextChanged="VerBox_TextChanged"/>
                                 </StackPanel>
-                                <Button Content="Выбрать файл..." Click="SelectKeysButton_Click" VerticalAlignment="Center"/>
+                                <Button Content="📂 Выбрать файл" Click="SelectKeysButton_Click" VerticalAlignment="Center" CornerRadius="4"/>
                             </StackPanel>
                         </Grid>
                     </StackPanel>
@@ -107,8 +107,11 @@
 
                         <StackPanel Spacing="12">
                             <Grid>
-                                <TextBlock Text="Удалять неиспользуемые языки" VerticalAlignment="Center"/>
-                                <ToggleSwitch x:Name="TrimXciToggle" HorizontalAlignment="Right" IsOn="{x:Bind Settings.TrimXci, Mode=TwoWay}" Toggled="Toggle_Changed"/>
+                                <StackPanel>
+                                    <TextBlock Text="Удалять неиспользуемые языки" VerticalAlignment="Center"/>
+                                    <TextBlock Text="Работает только при конвертации NSP/NSZ → XCI/XCZ и при HardPatch (пересборка Base+Update)" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap" MaxWidth="400"/>
+                                </StackPanel>
+                                <ToggleSwitch x:Name="TrimXciToggle" HorizontalAlignment="Right" IsOn="{x:Bind Settings.TrimXci, Mode=TwoWay}" Toggled="Toggle_Changed" ToolTipService.ToolTip="Удаляет неиспользуемые языковые данные из RomFS при конвертации или пересборке. Уменьшает размер файла."/>
                             </Grid>
                             
                             <!-- Выбор языков -->
@@ -154,7 +157,7 @@
                         </Border>
                         <StackPanel Grid.Column="1" Spacing="6">
                             <StackPanel Orientation="Horizontal" Spacing="12">
-                                <TextBlock Text="STORM SWITCH BOX 4.0.0" FontWeight="Bold" FontSize="24"/>
+                                <TextBlock Text="STORM SWITCH BOX 4.0.1" FontWeight="Bold" FontSize="24"/>
 
                             </StackPanel>
                             <TextBlock Text="Нативная версия WinUI 3" Foreground="{ThemeResource SystemAccentColor}" FontSize="16" FontWeight="SemiBold"/>

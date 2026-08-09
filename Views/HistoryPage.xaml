@@ -25,14 +25,37 @@
         </Grid.RowDefinitions>
 
         <!-- Header Panel -->
-        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="15" Margin="0,0,0,20">
-            <Button Click="ClearHistory_Click" Style="{StaticResource AccentButtonStyle}" Background="#CC3333">
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <FontIcon Glyph="&#xE74D;" Foreground="White"/>
-                    <TextBlock Text="Очистить историю"/>
-                </StackPanel>
-            </Button>
-        </StackPanel>
+        <Grid Grid.Row="0" Margin="0,0,0,12">
+            <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Left">
+                <Button Click="ClearHistory_Click" Style="{StaticResource AccentButtonStyle}" Background="#CC3333" CornerRadius="4">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE74D;" Foreground="White" FontSize="13"/>
+                        <TextBlock Text="Очистить историю"/>
+                    </StackPanel>
+                </Button>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                <TextBox x:Name="HistorySearchBox" PlaceholderText="🔍 Поиск по задачам..." Width="260" Height="32" 
+                         TextChanged="HistorySearchBox_TextChanged" VerticalContentAlignment="Center" FontSize="12" CornerRadius="4"/>
+                <ComboBox x:Name="HistoryFilterCombo" PlaceholderText="Все обработки" Width="160" Height="32"
+                          SelectionChanged="HistoryFilterCombo_Changed" VerticalContentAlignment="Center" FontSize="12" CornerRadius="4">
+                    <ComboBoxItem Content="Все обработки" Tag=""/>
+                    <ComboBoxItem Content="Обновление" Tag="Update"/>
+                    <ComboBoxItem Content="Распаковка" Tag="Unpack"/>
+                    <ComboBoxItem Content="Упаковка" Tag="Pack"/>
+                    <ComboBoxItem Content="Конвертация" Tag="Convert"/>
+                    <ComboBoxItem Content="Мульти-контент" Tag="Multi"/>
+                    <ComboBoxItem Content="Проверка" Tag="Verify"/>
+                </ComboBox>
+                <ComboBox x:Name="HistoryStatusCombo" PlaceholderText="Все статусы" Width="140" Height="32"
+                          SelectionChanged="HistoryStatusCombo_Changed" VerticalContentAlignment="Center" FontSize="12" CornerRadius="4">
+                    <ComboBoxItem Content="Все статусы" Tag=""/>
+                    <ComboBoxItem Content="Успешно" Tag="Успешно"/>
+                    <ComboBoxItem Content="Ошибка" Tag="Ошибка"/>
+                    <ComboBoxItem Content="Отменен" Tag="Отменен"/>
+                </ComboBox>
+            </StackPanel>
+        </Grid>
 
         <!-- History Grid -->
         <controls:DataGrid x:Name="HistoryGrid" Grid.Row="1" ItemsSource="{x:Bind HistoryTasks, Mode=OneWay}"
@@ -50,15 +73,19 @@
 
             <controls:DataGrid.ColumnHeaderStyle>
                 <Style TargetType="primitives:DataGridColumnHeader">
-                    <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorSecondaryBrush}"/>
-                    <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}"/>
+                    <Setter Property="Background" Value="#1E293B"/>
+                    <Setter Property="Foreground" Value="#82B1FF"/>
                     <Setter Property="HorizontalContentAlignment" Value="Center"/>
-                    <Setter Property="Padding" Value="10,12"/>
-                    <Setter Property="MinHeight" Value="44"/>
+                    <Setter Property="Padding" Value="8,10"/>
+                    <Setter Property="MinHeight" Value="40"/>
+                    <Setter Property="BorderBrush" Value="#334155"/>
+                    <Setter Property="BorderThickness" Value="0,0,1,1"/>
                     <Setter Property="ContentTemplate">
                         <Setter.Value>
                             <DataTemplate>
-                                <TextBlock Text="{Binding}" TextAlignment="Center" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="Bold" FontSize="13" TextTrimming="None" TextWrapping="NoWrap"/>
+                                <TextBlock Text="{Binding}" TextAlignment="Center" HorizontalAlignment="Center" VerticalAlignment="Center" 
+                                           FontWeight="SemiBold" FontSize="11" CharacterSpacing="80"
+                                           TextTrimming="None" TextWrapping="NoWrap"/>
                             </DataTemplate>
                         </Setter.Value>
                     </Setter>

@@ -94,6 +94,23 @@
                     <FontIcon Glyph="&#xE74D;" Foreground="#FF5252"/>
                 </AppBarButton.Icon>
             </AppBarButton>
+            <AppBarSeparator/>
+            <AppBarElementContainer VerticalAlignment="Center">
+                <TextBox x:Name="TaskSearchBox" PlaceholderText="🔍 Поиск..." Width="200" Height="30" 
+                         TextChanged="TaskSearchBox_TextChanged" VerticalContentAlignment="Center" FontSize="11" CornerRadius="4"/>
+            </AppBarElementContainer>
+            <AppBarElementContainer VerticalAlignment="Center" Margin="4,0">
+                <ComboBox x:Name="TaskOpFilter" PlaceholderText="Фильтр" Width="130" Height="30"
+                          SelectionChanged="TaskOpFilter_Changed" VerticalContentAlignment="Center" FontSize="11" CornerRadius="4">
+                    <ComboBoxItem Content="Все" Tag=""/>
+                    <ComboBoxItem Content="Обновление" Tag="Update"/>
+                    <ComboBoxItem Content="Распаковка" Tag="Unpack"/>
+                    <ComboBoxItem Content="Упаковка" Tag="Pack"/>
+                    <ComboBoxItem Content="Конвертация" Tag="Convert"/>
+                    <ComboBoxItem Content="Мульти" Tag="Multi"/>
+                    <ComboBoxItem Content="Проверка" Tag="Verify"/>
+                </ComboBox>
+            </AppBarElementContainer>
         </CommandBar>
 
         <!-- ========== ТАБЛИЦА ЗАДАЧ ========== -->
@@ -122,15 +139,19 @@
 
                 <controls:DataGrid.ColumnHeaderStyle>
                     <Style TargetType="primitives:DataGridColumnHeader">
-                        <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorSecondaryBrush}"/>
-                        <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}"/>
+                        <Setter Property="Background" Value="#1E293B"/>
+                        <Setter Property="Foreground" Value="#82B1FF"/>
                         <Setter Property="HorizontalContentAlignment" Value="Center"/>
-                        <Setter Property="Padding" Value="10,12"/>
-                        <Setter Property="MinHeight" Value="44"/>
+                        <Setter Property="Padding" Value="8,10"/>
+                        <Setter Property="MinHeight" Value="40"/>
+                        <Setter Property="BorderBrush" Value="#334155"/>
+                        <Setter Property="BorderThickness" Value="0,0,1,1"/>
                         <Setter Property="ContentTemplate">
                             <Setter.Value>
                                 <DataTemplate>
-                                    <TextBlock Text="{Binding}" TextAlignment="Center" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="Bold" FontSize="13" TextTrimming="None" TextWrapping="NoWrap"/>
+                                    <TextBlock Text="{Binding}" TextAlignment="Center" HorizontalAlignment="Center" VerticalAlignment="Center" 
+                                               FontWeight="SemiBold" FontSize="11" CharacterSpacing="80"
+                                               TextTrimming="None" TextWrapping="NoWrap"/>
                                 </DataTemplate>
                             </Setter.Value>
                         </Setter>
@@ -249,10 +270,22 @@
 
                 <controls:DataGrid.ColumnHeaderStyle>
                     <Style TargetType="primitives:DataGridColumnHeader">
-                        <Setter Property="Background" Value="{ThemeResource LayerFillColorDefaultBrush}"/>
-                        <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}"/>
+                        <Setter Property="Background" Value="#1E293B"/>
+                        <Setter Property="Foreground" Value="#82B1FF"/>
                         <Setter Property="HorizontalContentAlignment" Value="Center"/>
                         <Setter Property="Padding" Value="8,10"/>
+                        <Setter Property="MinHeight" Value="40"/>
+                        <Setter Property="BorderBrush" Value="#334155"/>
+                        <Setter Property="BorderThickness" Value="0,0,1,1"/>
+                        <Setter Property="ContentTemplate">
+                            <Setter.Value>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding}" TextAlignment="Center" HorizontalAlignment="Center" VerticalAlignment="Center" 
+                                               FontWeight="SemiBold" FontSize="11" CharacterSpacing="80"
+                                               TextTrimming="None" TextWrapping="NoWrap"/>
+                                </DataTemplate>
+                            </Setter.Value>
+                        </Setter>
                     </Style>
                 </controls:DataGrid.ColumnHeaderStyle>
 

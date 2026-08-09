@@ -88,5 +88,69 @@ namespace StormSwitchBox.Views
             if (parentObject is T parent) return parent;
             return FindParent<T>(parentObject);
         }
+
+        private void HistorySearchBox_TextChanged(object sender, TextChangedEventArgs e) => ApplyHistoryFilters();
+        private void HistoryFilterCombo_Changed(object sender, SelectionChangedEventArgs e) => ApplyHistoryFilters();
+        private void HistoryStatusCombo_Changed(object sender, SelectionChangedEventArgs e) => ApplyHistoryFilters();
+
+        private void ApplyHistoryFilters()
+        {
+            string search = HistorySearchBox?.Text?.Trim().ToLower() ?? "";
+            string opFilter = (HistoryFilterCombo?.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "";
+            string statusFilter = (HistoryStatusCombo?.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "";
+
+            var allTasks = HistoryService.HistoryTasks;
+            
+            foreach (var task in allTasks)
+            {
+                bool visible = true;
+                
+                if (!string.IsNullOrEmpty(search))
+                {
+                    bool matchName = (task.OutputFileName ?? "").ToLower().Contains(search);
+                    bool matchOp = (task.OperationDisplay ?? "").ToLower().Contains(search);
+                    visible = matchName || matchOp;
+                }
+                
+                if (visible && !string.IsNullOrEmpty(opFilter))
+                {
+                    visible = string.Equals(task.Operation, opFilter, System.StringComparison.OrdinalIgnoreCase);
+                }
+                
+                if (visible && !string.IsNullOrEmpty(statusFilter))
+                {
+                    visible = (task.Status ?? "").Contains(statusFilter, System.StringComparison.OrdinalIgnoreCase);
+                }
+                
+                // Use DataGrid row visibility approach — hide via RowStyle isn't easy,
+                // so we set a filter property if available, or just re-bind filtered list
+            }
+            
+            // Simple approach: re-bind a filtered view
+            if (string.IsNullOrEmpty(search) && string.IsNullOrEmpty(opFilter) && string.IsNullOrEmpty(statusFilter))
+            {
+                HistoryGrid.ItemsSource = HistoryService.HistoryTasks;
+            }
+            else
+            {
+                var filtered = new System.Collections.Generic.List<ProcessingTask>();
+                foreach (var task in allTasks)
+                {
+                    bool visible = true;
+                    if (!string.IsNullOrEmpty(search))
+                    {
+                        bool matchName = (task.OutputFileName ?? "").ToLower().Contains(search);
+                        bool matchOp = (task.OperationDisplay ?? "").ToLower().Contains(search);
+                        visible = matchName || matchOp;
+                    }
+                    if (visible && !string.IsNullOrEmpty(opFilter))
+                        visible = string.Equals(task.Operation, opFilter, System.StringComparison.OrdinalIgnoreCase);
+                    if (visible && !string.IsNullOrEmpty(statusFilter))
+                        visible = (task.Status ?? "").Contains(statusFilter, System.StringComparison.OrdinalIgnoreCase);
+                    if (visible) filtered.Add(task);
+                }
+                HistoryGrid.ItemsSource = filtered;
+            }
+        }
     }
 }

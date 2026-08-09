@@ -357,6 +357,38 @@ namespace StormSwitchBox.Views
             if (VerifyGrid != null) VerifyGrid.SelectedItem = null;
         }
 
+        // ===== Фильтрация таблицы =====
+        private void TaskSearchBox_TextChanged(object sender, TextChangedEventArgs e) => ApplyTaskFilters();
+        private void TaskOpFilter_Changed(object sender, SelectionChangedEventArgs e) => ApplyTaskFilters();
+
+        private void ApplyTaskFilters()
+        {
+            string search = TaskSearchBox?.Text?.Trim().ToLower() ?? "";
+            string opFilter = (TaskOpFilter?.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "";
+
+            if (string.IsNullOrEmpty(search) && string.IsNullOrEmpty(opFilter))
+            {
+                TasksGrid.ItemsSource = ViewModel.Tasks;
+                return;
+            }
+
+            var filtered = new System.Collections.Generic.List<ProcessingTask>();
+            foreach (var task in ViewModel.Tasks)
+            {
+                bool visible = true;
+                if (!string.IsNullOrEmpty(search))
+                {
+                    bool matchName = (task.OutputFileName ?? "").ToLower().Contains(search);
+                    bool matchOp = (task.OperationDisplay ?? "").ToLower().Contains(search);
+                    visible = matchName || matchOp;
+                }
+                if (visible && !string.IsNullOrEmpty(opFilter))
+                    visible = string.Equals(task.Operation, opFilter, System.StringComparison.OrdinalIgnoreCase);
+                if (visible) filtered.Add(task);
+            }
+            TasksGrid.ItemsSource = filtered;
+        }
+
         // ===== Смена формата =====
         private void FormatComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
