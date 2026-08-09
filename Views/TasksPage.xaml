@@ -159,7 +159,7 @@
                 </controls:DataGrid.ColumnHeaderStyle>
                 
                 <controls:DataGrid.Columns>
-                    <controls:DataGridTemplateColumn Header="Иконка" Width="100" MinWidth="80" IsReadOnly="True">
+                    <controls:DataGridTemplateColumn Header="Иконка" Width="150" MinWidth="80" IsReadOnly="True">
                         <controls:DataGridTemplateColumn.CellTemplate>
                             <DataTemplate x:DataType="models:ProcessingTask">
                                 <Image Source="{x:Bind GameIcon, Mode=OneWay}" Width="76" Height="76" Stretch="Uniform" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="0,2"/>
@@ -167,7 +167,7 @@
                         </controls:DataGridTemplateColumn.CellTemplate>
                     </controls:DataGridTemplateColumn>
                     
-                    <controls:DataGridTemplateColumn Header="Задача" Width="375" MinWidth="150" IsReadOnly="True">
+                    <controls:DataGridTemplateColumn Header="Задача" Width="400" MinWidth="150" IsReadOnly="True">
                         <controls:DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                                 <TextBlock Text="{Binding OutputFileName}" TextWrapping="Wrap" VerticalAlignment="Center" Margin="12,0,12,0"/>
@@ -175,11 +175,11 @@
                         </controls:DataGridTemplateColumn.CellTemplate>
                     </controls:DataGridTemplateColumn>
                     
-                    <controls:DataGridTextColumn Header="Обработка" Binding="{Binding OperationDisplay}" IsReadOnly="True" Width="180" MinWidth="50" ElementStyle="{StaticResource CenterAlignedCell}"/>
+                    <controls:DataGridTextColumn Header="Обработка" Binding="{Binding OperationDisplay}" IsReadOnly="True" Width="250" MinWidth="50" ElementStyle="{StaticResource CenterAlignedCell}"/>
                     
-                    <controls:DataGridTextColumn Header="Нач. формат" Binding="{Binding SourceFormat}" IsReadOnly="True" Width="130" MinWidth="50" ElementStyle="{StaticResource CenterAlignedCell}"/>
+                    <controls:DataGridTextColumn Header="Нач. формат" Binding="{Binding SourceFormat}" IsReadOnly="True" Width="150" MinWidth="50" ElementStyle="{StaticResource CenterAlignedCell}"/>
                     
-                    <controls:DataGridTemplateColumn Header="Кон. формат" Width="130" MinWidth="50">
+                    <controls:DataGridTemplateColumn Header="Кон. формат" Width="150" MinWidth="50">
                         <controls:DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                                 <ComboBox SelectedItem="{Binding TargetFormat, Mode=TwoWay}" IsEnabled="{Binding IsNotRunning, Mode=OneWay}" VerticalAlignment="Center" HorizontalAlignment="Center"
@@ -193,28 +193,29 @@
                         </controls:DataGridTemplateColumn.CellTemplate>
                     </controls:DataGridTemplateColumn>
 
-                    <controls:DataGridTextColumn Header="Нач. размер" Binding="{Binding SourceSize}" IsReadOnly="True" Width="130" MinWidth="50" ElementStyle="{StaticResource CenterAlignedCell}"/>
-                    <controls:DataGridTextColumn Header="Кон. размер" Binding="{Binding TargetSize}" IsReadOnly="True" Width="130" MinWidth="50" ElementStyle="{StaticResource CenterAlignedCell}"/>
-                    <controls:DataGridTextColumn Header="Разница" Binding="{Binding SizeDifference}" IsReadOnly="True" Width="180" MinWidth="50" ElementStyle="{StaticResource CenterAlignedCell}"/>
-                    <controls:DataGridTextColumn Header="Сжатие" Binding="{Binding CompressionLevel}" IsReadOnly="True" Width="110" MinWidth="50" ElementStyle="{StaticResource CenterAlignedCell}"/>
+                    <controls:DataGridTextColumn Header="Нач. размер" Binding="{Binding SourceSize}" IsReadOnly="True" Width="150" MinWidth="50" ElementStyle="{StaticResource CenterAlignedCell}"/>
+                    <controls:DataGridTextColumn Header="Кон. размер" Binding="{Binding TargetSize}" IsReadOnly="True" Width="150" MinWidth="50" ElementStyle="{StaticResource CenterAlignedCell}"/>
+                    <controls:DataGridTextColumn Header="Разница" Binding="{Binding SizeDifference}" IsReadOnly="True" Width="200" MinWidth="50" ElementStyle="{StaticResource CenterAlignedCell}"/>
+                    <controls:DataGridTextColumn Header="Сжатие" Binding="{Binding CompressionLevel}" IsReadOnly="True" Width="100" MinWidth="50" ElementStyle="{StaticResource CenterAlignedCell}"/>
                     
-                    <controls:DataGridTemplateColumn Header="Файлы" Width="110" MinWidth="50">
+                    <controls:DataGridTemplateColumn Header="Файлы" Width="100" MinWidth="50">
                         <controls:DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
-                                <Button Content="{Binding FilesCount}" 
+                                <Button Click="FilesCount_Click" Tag="{Binding}" 
                                         VerticalAlignment="Center" HorizontalAlignment="Center"
-                                        Padding="6,2" MinHeight="0" MinWidth="0"
-                                        Background="Transparent" BorderThickness="0"
-                                        ToolTipService.ToolTip="Показать список файлов"
-                                        Click="FilesCount_Click" Tag="{Binding}"/>
+                                        Padding="10,4" MinHeight="28" MinWidth="36"
+                                        Background="#2A3A5C" BorderBrush="#4A6FA5" BorderThickness="1" CornerRadius="6"
+                                        ToolTipService.ToolTip="Показать список файлов">
+                                    <TextBlock Text="{Binding FilesCount}" FontWeight="Bold" FontSize="14" Foreground="#82B1FF"/>
+                                </Button>
                             </DataTemplate>
                         </controls:DataGridTemplateColumn.CellTemplate>
                     </controls:DataGridTemplateColumn>
 
-                    <controls:DataGridTextColumn Header="RomFS" Binding="{Binding HasRomFs}" IsReadOnly="True" Width="110" MinWidth="50" ElementStyle="{StaticResource CenterAlignedCell}"/>
-                    <controls:DataGridTextColumn Header="ExeFS" Binding="{Binding HasExeFs}" IsReadOnly="True" Width="110" MinWidth="50" ElementStyle="{StaticResource CenterAlignedCell}"/>
+                    <controls:DataGridTextColumn Header="RomFS" Binding="{Binding HasRomFs}" IsReadOnly="True" Width="100" MinWidth="50" ElementStyle="{StaticResource CenterAlignedCell}"/>
+                    <controls:DataGridTextColumn Header="ExeFS" Binding="{Binding HasExeFs}" IsReadOnly="True" Width="100" MinWidth="50" ElementStyle="{StaticResource CenterAlignedCell}"/>
 
-                    <controls:DataGridTemplateColumn Header="Статус" Width="150" MinWidth="50">
+                    <controls:DataGridTemplateColumn Header="Статус" Width="200" MinWidth="50">
                         <controls:DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="6" VerticalAlignment="Center" Margin="4,0">
@@ -227,7 +228,7 @@
                         </controls:DataGridTemplateColumn.CellTemplate>
                     </controls:DataGridTemplateColumn>
 
-                    <controls:DataGridTemplateColumn Header="Выполнение" Width="160" MinWidth="50">
+                    <controls:DataGridTemplateColumn Header="Выполнение" Width="200" MinWidth="50">
                         <controls:DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                                 <Grid Margin="8,0" VerticalAlignment="Center">
@@ -290,15 +291,15 @@
                 </controls:DataGrid.ColumnHeaderStyle>
 
                 <controls:DataGrid.Columns>
-                    <controls:DataGridTemplateColumn Header="Иконка" Width="80" MinWidth="60" IsReadOnly="True">
+                    <controls:DataGridTemplateColumn Header="Иконка" Width="150" MinWidth="80" IsReadOnly="True">
                         <controls:DataGridTemplateColumn.CellTemplate>
                             <DataTemplate x:DataType="models:ProcessingTask">
-                                <Image Source="{x:Bind GameIcon, Mode=OneWay}" Width="64" Height="64" Stretch="Uniform" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="0,2"/>
+                                <Image Source="{x:Bind GameIcon, Mode=OneWay}" Width="76" Height="76" Stretch="Uniform" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="0,2"/>
                             </DataTemplate>
                         </controls:DataGridTemplateColumn.CellTemplate>
                     </controls:DataGridTemplateColumn>
 
-                    <controls:DataGridTemplateColumn Header="Файл" Width="260" MinWidth="150" IsReadOnly="True">
+                    <controls:DataGridTemplateColumn Header="Файл" Width="400" MinWidth="150" IsReadOnly="True">
                         <controls:DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                                 <TextBlock Text="{Binding OutputFileName}" TextWrapping="Wrap" VerticalAlignment="Center" Margin="12,0,12,0"/>
@@ -306,14 +307,14 @@
                         </controls:DataGridTemplateColumn.CellTemplate>
                     </controls:DataGridTemplateColumn>
 
-                    <controls:DataGridTextColumn Header="Размер" Binding="{Binding SourceSize}" IsReadOnly="True" Width="120" MinWidth="50" ElementStyle="{StaticResource CenterAlignedCell}"/>
-                    <controls:DataGridTextColumn Header="Тип контента" Binding="{Binding VerifyType}" IsReadOnly="True" Width="130" MinWidth="50" ElementStyle="{StaticResource CenterAlignedCell}"/>
-                    <controls:DataGridTextColumn Header="Title ID" Binding="{Binding VerifyTitleId}" IsReadOnly="True" Width="150" MinWidth="50" ElementStyle="{StaticResource CenterAlignedCell}"/>
-                    <controls:DataGridTextColumn Header="Версия" Binding="{Binding VerifyVersion}" IsReadOnly="True" Width="90" MinWidth="40" ElementStyle="{StaticResource CenterAlignedCell}"/>
-                    <controls:DataGridTextColumn Header="Структура" Binding="{Binding VerifyStructure}" IsReadOnly="True" Width="200" MinWidth="100" ElementStyle="{StaticResource CenterAlignedCell}"/>
+                    <controls:DataGridTextColumn Header="Размер" Binding="{Binding SourceSize}" IsReadOnly="True" Width="150" MinWidth="50" ElementStyle="{StaticResource CenterAlignedCell}"/>
+                    <controls:DataGridTextColumn Header="Тип контента" Binding="{Binding VerifyType}" IsReadOnly="True" Width="200" MinWidth="50" ElementStyle="{StaticResource CenterAlignedCell}"/>
+                    <controls:DataGridTextColumn Header="Title ID" Binding="{Binding VerifyTitleId}" IsReadOnly="True" Width="200" MinWidth="50" ElementStyle="{StaticResource CenterAlignedCell}"/>
+                    <controls:DataGridTextColumn Header="Версия" Binding="{Binding VerifyVersion}" IsReadOnly="True" Width="150" MinWidth="40" ElementStyle="{StaticResource CenterAlignedCell}"/>
+                    <controls:DataGridTextColumn Header="Структура" Binding="{Binding VerifyStructure}" IsReadOnly="True" Width="300" MinWidth="100" ElementStyle="{StaticResource CenterAlignedCell}"/>
                     <controls:DataGridTextColumn Header="Сшит правильно" Binding="{Binding VerifyMergedStatus}" IsReadOnly="True" Width="150" MinWidth="80" ElementStyle="{StaticResource CenterAlignedCell}"/>
 
-                    <controls:DataGridTemplateColumn Header="Статус" Width="150" MinWidth="50">
+                    <controls:DataGridTemplateColumn Header="Статус" Width="200" MinWidth="50">
                         <controls:DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="6" VerticalAlignment="Center" Margin="4,0">
@@ -326,7 +327,7 @@
                         </controls:DataGridTemplateColumn.CellTemplate>
                     </controls:DataGridTemplateColumn>
 
-                    <controls:DataGridTemplateColumn Header="Выполнение" Width="160" MinWidth="50">
+                    <controls:DataGridTemplateColumn Header="Выполнение" Width="200" MinWidth="50">
                         <controls:DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                                 <Grid Margin="8,0" VerticalAlignment="Center">
