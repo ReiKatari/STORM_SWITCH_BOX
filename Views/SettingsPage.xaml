@@ -21,9 +21,9 @@
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <StackPanel VerticalAlignment="Center" Spacing="4">
-                            <TextBlock Text="Файл криптографических ключей (prod.keys / keys.txt)" FontWeight="Medium" VerticalAlignment="Center"/>
-                            <TextBlock Text="Загружать ключи для расшифровки. Можно перетащить файл прямо сюда" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                        <StackPanel VerticalAlignment="Center" Spacing="4" Margin="0,0,16,0">
+                            <TextBlock Text="Файл криптографических ключей (prod.keys / keys.txt)" FontWeight="Medium" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                            <TextBlock Text="Загружать ключи для расшифровки. Можно перетащить файл прямо сюда" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
                         </StackPanel>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
                             <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" Visibility="{x:Bind KeysSelectedVisibility, Mode=OneTime}">
@@ -60,7 +60,7 @@
                             </Grid.RowDefinitions>
                             <StackPanel Grid.Row="0" Margin="0,0,0,8" Spacing="2">
                                 <TextBlock Text="Выходная папка по умолчанию" FontWeight="Medium" VerticalAlignment="Center"/>
-                                <TextBlock Text="Общая папка для сохранения обработанных файлов (можно перетащить папку в поле ниже)" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                <TextBlock Text="Общая папка для сохранения обработанных файлов (можно перетащить папку в поле ниже)" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
                             </StackPanel>
                             <Grid Grid.Row="1">
                                 <Grid.ColumnDefinitions>
@@ -111,9 +111,9 @@
                     <StackPanel Spacing="16">
                         <!-- Уровень сжатия -->
                         <Grid>
-                            <StackPanel Spacing="2" VerticalAlignment="Center">
+                            <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
                                 <TextBlock Text="Уровень сжатия Zstandard (NSZ / XCZ)" FontWeight="Medium"/>
-                                <TextBlock Text="Выбор уровня сжатия алгоритма Zstd (от Быстрого 3 до Ультра 22)" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                <TextBlock Text="Выбор уровня сжатия алгоритма Zstd (от Быстрого 3 до Ультра 22)" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
                             </StackPanel>
                             <ComboBox x:Name="CompressionCombo" HorizontalAlignment="Right" Width="220" SelectionChanged="CompressionCombo_Changed" VerticalAlignment="Center">
                                 <ComboBoxItem Content="Быстрое (уровень 3)" Tag="3"/>
@@ -127,9 +127,9 @@
 
                         <!-- Одновременные задачи -->
                         <Grid>
-                            <StackPanel Spacing="2" VerticalAlignment="Center">
+                            <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
                                 <TextBlock Text="Максимум одновременных задач" FontWeight="Medium"/>
-                                <TextBlock Text="Количество задач, выполняемых одновременно в фоновой очереди (от 1 до 5)" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                <TextBlock Text="Количество задач, выполняемых одновременно в фоновой очереди (от 1 до 5)" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
                             </StackPanel>
                             <NumberBox HorizontalAlignment="Right" Width="220" Value="{x:Bind Settings.ConcurrentTasks, Mode=TwoWay}" Minimum="1" Maximum="5" SpinButtonPlacementMode="Inline" ValueChanged="Setting_ValueChanged" VerticalAlignment="Center"/>
                         </Grid>
@@ -138,9 +138,9 @@
 
                         <!-- Многопоточность -->
                         <Grid>
-                            <StackPanel Spacing="2" VerticalAlignment="Center">
+                            <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
                                 <TextBlock Text="Многопоточность (Используемые ядра)" FontWeight="Medium"/>
-                                <TextBlock Text="Максимальное количество ядер ЦП, выделяемых для ZstdSharp-сжатия" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                <TextBlock Text="Максимальное количество ядер ЦП, выделяемых для ZstdSharp-сжатия" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
                             </StackPanel>
                             <NumberBox HorizontalAlignment="Right" Width="220" Value="{x:Bind Settings.UsedCores, Mode=TwoWay}" Minimum="1" Maximum="{x:Bind MaxCores, Mode=OneTime}" SpinButtonPlacementMode="Inline" ValueChanged="Setting_ValueChanged" VerticalAlignment="Center"/>
                         </Grid>
