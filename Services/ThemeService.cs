@@ -1,5 +1,6 @@
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using System;
 using Windows.UI;
@@ -8,109 +9,170 @@ namespace StormSwitchBox.Services
 {
     public static class ThemeService
     {
-        public static void ApplyAccentColor(string colorHex)
-        {
-            if (string.IsNullOrEmpty(colorHex) || colorHex == "Default")
-            {
-                Application.Current.Resources.Remove("SystemAccentColor");
-                Application.Current.Resources.Remove("SystemAccentColorDark1");
-                Application.Current.Resources.Remove("SystemAccentColorLight1");
-                return;
-            }
-
-            try
-            {
-                Color accentColor = ParseHexColor(colorHex);
-
-                Application.Current.Resources["SystemAccentColor"] = accentColor;
-                Application.Current.Resources["SystemAccentColorDark1"] = ChangeColorBrightness(accentColor, -0.15f);
-                Application.Current.Resources["SystemAccentColorDark2"] = ChangeColorBrightness(accentColor, -0.30f);
-                Application.Current.Resources["SystemAccentColorLight1"] = ChangeColorBrightness(accentColor, 0.15f);
-                Application.Current.Resources["SystemAccentColorLight2"] = ChangeColorBrightness(accentColor, 0.30f);
-
-                var accentBrush = new SolidColorBrush(accentColor);
-                Application.Current.Resources["SystemControlHighlightAccentBrush"] = accentBrush;
-                Application.Current.Resources["SystemControlHighlightListAccentLowBrush"] = new SolidColorBrush(ChangeColorBrightness(accentColor, -0.4f));
-
-                // Принудительное мгновенное переключение темы для перерисовки WinUI 3
-                if (App.MainWindow?.Content is FrameworkElement root)
-                {
-                    var currentTheme = root.RequestedTheme;
-                    root.RequestedTheme = currentTheme == ElementTheme.Dark ? ElementTheme.Light : ElementTheme.Dark;
-                    root.RequestedTheme = currentTheme;
-                }
-            }
-            catch { }
-        }
-
         public static void ApplyTheme(string themeName)
         {
-            if (App.MainWindow?.Content is FrameworkElement root)
-            {
-                switch (themeName)
-                {
-                    case "STORM DAY":
-                        root.RequestedTheme = ElementTheme.Light;
-                        ApplyCustomThemeResources("STORM DAY");
-                        break;
-                    case "STORM NIGHT":
-                        root.RequestedTheme = ElementTheme.Dark;
-                        ApplyCustomThemeResources("STORM NIGHT");
-                        break;
-                    case "STORM CYBERPUNK":
-                        root.RequestedTheme = ElementTheme.Dark;
-                        ApplyCustomThemeResources("STORM CYBERPUNK");
-                        break;
-                    case "STORM MIDNIGHT":
-                    default:
-                        root.RequestedTheme = ElementTheme.Dark;
-                        ApplyCustomThemeResources("STORM MIDNIGHT");
-                        break;
-                }
-            }
-        }
+            if (string.IsNullOrEmpty(themeName)) themeName = "STORM MIDNIGHT";
 
-        private static void ApplyCustomThemeResources(string themeName)
-        {
-            var res = Application.Current.Resources;
+            ElementTheme targetElementTheme = (themeName == "STORM DAY") ? ElementTheme.Light : ElementTheme.Dark;
+
+            // Определяем палитру цветов
+            Color bg, cardBg, cardSecBg, cardBorder, textPrimary, textSecondary, textTertiary;
+
             switch (themeName)
             {
-                case "STORM DAY":
-                    res["ApplicationPageBackgroundThemeBrush"] = new SolidColorBrush(ParseHexColor("#F5F6F8"));
-                    res["CardBackgroundFillColorDefaultBrush"] = new SolidColorBrush(ParseHexColor("#FFFFFF"));
-                    res["CardBackgroundFillColorSecondaryBrush"] = new SolidColorBrush(ParseHexColor("#EFEFEF"));
-                    res["TextFillColorPrimaryBrush"] = new SolidColorBrush(ParseHexColor("#1A1D20"));
-                    res["TextFillColorSecondaryBrush"] = new SolidColorBrush(ParseHexColor("#5A626A"));
+                case "STORM NIGHT": // Глубокая OLED Чёрная тема
+                    bg = ParseHexColor("#000000");
+                    cardBg = ParseHexColor("#0D0D10");
+                    cardSecBg = ParseHexColor("#16161C");
+                    cardBorder = ParseHexColor("#252530");
+                    textPrimary = ParseHexColor("#FFFFFF");
+                    textSecondary = ParseHexColor("#A5A5B5");
+                    textTertiary = ParseHexColor("#757585");
                     break;
 
-                case "STORM NIGHT": // OLED Deep Black
-                    res["ApplicationPageBackgroundThemeBrush"] = new SolidColorBrush(ParseHexColor("#000000"));
-                    res["CardBackgroundFillColorDefaultBrush"] = new SolidColorBrush(ParseHexColor("#0B0C0E"));
-                    res["CardBackgroundFillColorSecondaryBrush"] = new SolidColorBrush(ParseHexColor("#141518"));
-                    res["TextFillColorPrimaryBrush"] = new SolidColorBrush(ParseHexColor("#FFFFFF"));
-                    res["TextFillColorSecondaryBrush"] = new SolidColorBrush(ParseHexColor("#A0A5B0"));
+                case "STORM DAY": // Чистая светлая тема
+                    bg = ParseHexColor("#F3F4F8");
+                    cardBg = ParseHexColor("#FFFFFF");
+                    cardSecBg = ParseHexColor("#EAEFF5");
+                    cardBorder = ParseHexColor("#D1D5DB");
+                    textPrimary = ParseHexColor("#111827"); // Темно-углистый текст для 100% читаемости!
+                    textSecondary = ParseHexColor("#4B5563");
+                    textTertiary = ParseHexColor("#6B7280");
                     break;
 
-                case "STORM CYBERPUNK": // Cyberpunk 2077 Neon Yellow & Cyan & Dark Charcoal
-                    res["ApplicationPageBackgroundThemeBrush"] = new SolidColorBrush(ParseHexColor("#0A0B10"));
-                    res["CardBackgroundFillColorDefaultBrush"] = new SolidColorBrush(ParseHexColor("#12141F"));
-                    res["CardBackgroundFillColorSecondaryBrush"] = new SolidColorBrush(ParseHexColor("#1A1D2E"));
-                    res["TextFillColorPrimaryBrush"] = new SolidColorBrush(ParseHexColor("#FCEE09")); // Neon Yellow
-                    res["TextFillColorSecondaryBrush"] = new SolidColorBrush(ParseHexColor("#00F0FF")); // Neon Cyan
+                case "STORM CYBERPUNK": // Киберпанк 2077
+                    bg = ParseHexColor("#08090E");
+                    cardBg = ParseHexColor("#10121D");
+                    cardSecBg = ParseHexColor("#191C2E");
+                    cardBorder = ParseHexColor("#00F0FF"); // Неоновый циан
+                    textPrimary = ParseHexColor("#FCEE09"); // Неоновый жёлтый
+                    textSecondary = ParseHexColor("#00F0FF"); // Неоновый циан
+                    textTertiary = ParseHexColor("#8A95C0");
                     break;
 
                 case "STORM MIDNIGHT":
-                default:
-                    res["ApplicationPageBackgroundThemeBrush"] = new SolidColorBrush(ParseHexColor("#1C1C1E"));
-                    res["CardBackgroundFillColorDefaultBrush"] = new SolidColorBrush(ParseHexColor("#2C2C2E"));
-                    res["CardBackgroundFillColorSecondaryBrush"] = new SolidColorBrush(ParseHexColor("#3A3A3C"));
-                    res["TextFillColorPrimaryBrush"] = new SolidColorBrush(ParseHexColor("#FFFFFF"));
-                    res["TextFillColorSecondaryBrush"] = new SolidColorBrush(ParseHexColor("#8E8E93"));
+                default: // Классическая темно-синеватая полночь
+                    bg = ParseHexColor("#18181C");
+                    cardBg = ParseHexColor("#222228");
+                    cardSecBg = ParseHexColor("#2B2B34");
+                    cardBorder = ParseHexColor("#363642");
+                    textPrimary = ParseHexColor("#FFFFFF");
+                    textSecondary = ParseHexColor("#B0B0C0");
+                    textTertiary = ParseHexColor("#808090");
                     break;
+            }
+
+            // Записываем ресурсы в глобальные словари приложения
+            SetResource("ApplicationPageBackgroundThemeBrush", new SolidColorBrush(bg));
+            SetResource("CardBackgroundFillColorDefaultBrush", new SolidColorBrush(cardBg));
+            SetResource("CardBackgroundFillColorSecondaryBrush", new SolidColorBrush(cardSecBg));
+            SetResource("CardStrokeColorDefaultBrush", new SolidColorBrush(cardBorder));
+            SetResource("SurfaceStrokeColorDefaultBrush", new SolidColorBrush(cardBorder));
+            SetResource("TextFillColorPrimaryBrush", new SolidColorBrush(textPrimary));
+            SetResource("TextFillColorSecondaryBrush", new SolidColorBrush(textSecondary));
+            SetResource("TextFillColorTertiaryBrush", new SolidColorBrush(textTertiary));
+
+            // Применяем тему к главному окну, контейнеру и навигации
+            if (App.MainWindow != null)
+            {
+                if (App.MainWindow.Content is FrameworkElement root)
+                {
+                    root.RequestedTheme = targetElementTheme;
+
+                    if (root is Grid mainGrid)
+                    {
+                        mainGrid.Background = new SolidColorBrush(bg);
+                        foreach (var child in mainGrid.Children)
+                        {
+                            if (child is NavigationView nav)
+                            {
+                                nav.RequestedTheme = targetElementTheme;
+                                nav.Background = new SolidColorBrush(bg);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Переприменяем акцентный цвет для выравнивания контраста
+            ApplyAccentColor(App.Settings.Current.AccentColorTheme);
+        }
+
+        public static void ApplyAccentColor(string colorHex)
+        {
+            Color accentColor;
+            if (string.IsNullOrEmpty(colorHex) || colorHex == "Default")
+            {
+                accentColor = ParseHexColor("#0078D4");
+            }
+            else
+            {
+                accentColor = ParseHexColor(colorHex);
+            }
+
+            // В теме Cyberpunk дефолтный акцент - Неоново-Желтый
+            if (App.Settings.Current.AppTheme == "STORM CYBERPUNK" && (string.IsNullOrEmpty(colorHex) || colorHex == "Default"))
+            {
+                accentColor = ParseHexColor("#FCEE09");
+            }
+
+            Color dark1 = ChangeColorBrightness(accentColor, -0.15f);
+            Color dark2 = ChangeColorBrightness(accentColor, -0.30f);
+            Color light1 = ChangeColorBrightness(accentColor, 0.20f);
+            Color light2 = ChangeColorBrightness(accentColor, 0.40f);
+
+            var accentBrush = new SolidColorBrush(accentColor);
+            var light1Brush = new SolidColorBrush(light1);
+            var dark1Brush = new SolidColorBrush(dark1);
+
+            SetResource("SystemAccentColor", accentColor);
+            SetResource("SystemAccentColorDark1", dark1);
+            SetResource("SystemAccentColorDark2", dark2);
+            SetResource("SystemAccentColorLight1", light1);
+            SetResource("SystemAccentColorLight2", light2);
+
+            SetResource("SystemControlHighlightAccentBrush", accentBrush);
+            SetResource("SystemControlHighlightListAccentLowBrush", new SolidColorBrush(Color.FromArgb(60, accentColor.R, accentColor.G, accentColor.B)));
+            SetResource("SystemAccentColorBrush", accentBrush);
+
+            // Элементы управления WinUI (ToggleSwitch, AccentButton, NavigationView Selection)
+            SetResource("ToggleSwitchFillOn", accentBrush);
+            SetResource("ToggleSwitchFillOnPointerOver", light1Brush);
+            SetResource("ToggleSwitchFillOnPressed", dark1Brush);
+            SetResource("AccentButtonBackground", accentBrush);
+            SetResource("AccentButtonBackgroundPointerOver", light1Brush);
+            SetResource("AccentButtonBackgroundPressed", dark1Brush);
+            SetResource("NavigationViewItemForegroundSelected", accentBrush);
+            SetResource("NavigationViewItemIconForegroundSelected", accentBrush);
+
+            RefreshUI();
+        }
+
+        private static void SetResource(string key, object value)
+        {
+            Application.Current.Resources[key] = value;
+
+            if (Application.Current.Resources.ThemeDictionaries.TryGetValue("Dark", out var darkDictObj) && darkDictObj is ResourceDictionary darkDict)
+            {
+                darkDict[key] = value;
+            }
+            if (Application.Current.Resources.ThemeDictionaries.TryGetValue("Light", out var lightDictObj) && lightDictObj is ResourceDictionary lightDict)
+            {
+                lightDict[key] = value;
             }
         }
 
-        private static Color ParseHexColor(string hex)
+        private static void RefreshUI()
+        {
+            if (App.MainWindow?.Content is FrameworkElement root)
+            {
+                var currentTheme = root.RequestedTheme;
+                root.RequestedTheme = currentTheme == ElementTheme.Dark ? ElementTheme.Light : ElementTheme.Dark;
+                root.RequestedTheme = currentTheme;
+            }
+        }
+
+        public static Color ParseHexColor(string hex)
         {
             hex = hex.Replace("#", "").Trim();
             if (hex.Length == 6)
