@@ -184,19 +184,70 @@ namespace StormSwitchBox.Services
                         
                         if (System.IO.File.Exists(tempHardPatchedNsp))
                         {
-                            // Сохраняем путь к оригинальному Update — его Patch CNMT и тикеты
-                            // нужны для LibHac fallback (версия + расшифровка)
-                            if (!string.IsNullOrEmpty(updateFile) && System.IO.File.Exists(updateFile))
-                                savedUpdateFile = updateFile;
-
-                            finalInputFilesList.Remove(baseFile);
-                            if (!string.IsNullOrEmpty(updateFile)) finalInputFilesList.Remove(updateFile);
-                            foreach (var mod in modDirs)
+                            // Валидация: проверяем, что patched_base содержит достаточно NCA.
+                            // Мульти-программные игры (напр. AC Ezio Collection) содержат NCA 
+                            // для нескольких sub-programs внутри одного NSP. yanu-cli обрабатывает
+                            // только основной TitleID и теряет остальные sub-programs.
+                            int originalNcaCount = 0;
+                            int patchedNcaCount = 0;
+                            try
                             {
-                                finalInputFilesList.Remove(mod);
+                                // Считаем NCA в оригинальном base
+                                using (var bs = new FileStream(baseFile, FileMode.Open, FileAccess.Read, FileShare.Read))
+                                using (var bfs = new PartitionFileSystem(bs.AsStorage()))
+                                {
+                                    foreach (var e in bfs.EnumerateEntries())
+                                    {
+                                        if (e.Type == LibHac.Fs.DirectoryEntryType.Directory) continue;
+                                        if (e.Name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase) || 
+                                            e.Name.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase))
+                                            originalNcaCount++;
+                                    }
+                                }
+                                // Считаем NCA в patched_base
+                                using (var ps = new FileStream(tempHardPatchedNsp, FileMode.Open, FileAccess.Read, FileShare.Read))
+                                using (var pfs = new PartitionFileSystem(ps.AsStorage()))
+                                {
+                                    foreach (var e in pfs.EnumerateEntries())
+                                    {
+                                        if (e.Type == LibHac.Fs.DirectoryEntryType.Directory) continue;
+                                        if (e.Name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase) || 
+                                            e.Name.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase))
+                                            patchedNcaCount++;
+                                    }
+                                }
                             }
-                            finalInputFilesList.Add(tempHardPatchedNsp);
-                            App.RunOnUI(() => task.LogDetails += "\n🔵 [HardPatch] Успешно завершено.");
+                            catch { }
+
+                            App.Logger.Log($"[HardPatch] NCA validation: original={originalNcaCount}, patched={patchedNcaCount}", Models.LogLevel.Info);
+
+                            if (originalNcaCount > 0 && patchedNcaCount > 0 && patchedNcaCount < originalNcaCount / 2)
+                            {
+                                // patched_base потерял слишком много NCA (мульти-программный тайтл)
+                                // Отменяем HardPatch и используем оригинальные файлы
+                                App.RunOnUI(() => task.LogDetails += $"\n⚠️ [HardPatch] Мульти-программный тайтл ({originalNcaCount} NCA → {patchedNcaCount}). Используем оригинальные файлы.");
+                                App.Logger.Log($"[HardPatch] Multi-program title detected: {originalNcaCount} -> {patchedNcaCount}. Discarding patched_base, using originals.", Models.LogLevel.Warning);
+                                try { System.IO.File.Delete(tempHardPatchedNsp); } catch { }
+                                
+                                // Сохраняем Update для LibHac fallback (Patch CNMT + тикеты)
+                                if (!string.IsNullOrEmpty(updateFile) && System.IO.File.Exists(updateFile))
+                                    savedUpdateFile = updateFile;
+                            }
+                            else
+                            {
+                                // Нормальный тайтл — используем patched_base
+                                if (!string.IsNullOrEmpty(updateFile) && System.IO.File.Exists(updateFile))
+                                    savedUpdateFile = updateFile;
+
+                                finalInputFilesList.Remove(baseFile);
+                                if (!string.IsNullOrEmpty(updateFile)) finalInputFilesList.Remove(updateFile);
+                                foreach (var mod in modDirs)
+                                {
+                                    finalInputFilesList.Remove(mod);
+                                }
+                                finalInputFilesList.Add(tempHardPatchedNsp);
+                                App.RunOnUI(() => task.LogDetails += "\n🔵 [HardPatch] Успешно завершено.");
+                            }
                         }
                         else 
                         {
