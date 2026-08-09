@@ -131,13 +131,21 @@
                         </StackPanel>
 
                         <Grid>
-                            <TextBlock Text="Комплексное выходное имя файла по папкам" VerticalAlignment="Center"/>
-                            <ToggleSwitch HorizontalAlignment="Right" IsOn="{x:Bind Settings.ComplexFolders, Mode=TwoWay}" Toggled="Toggle_Changed"/>
+                            <StackPanel>
+                                <TextBlock Text="Комплексное выходное имя файла по папкам" VerticalAlignment="Center"/>
+                                <TextBlock Text="Формирует удобные структурированные папки с метаданными игры" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap" MaxWidth="400"/>
+                            </StackPanel>
+                            <ToggleSwitch HorizontalAlignment="Right" IsOn="{x:Bind Settings.ComplexFolders, Mode=TwoWay}" Toggled="Toggle_Changed"
+                                          ToolTipService.ToolTip="Создает подпапки формата [Название Игры]/[Формат] с добавлением TitleID и версии в имя файла."/>
                         </Grid>
 
                         <Grid>
-                            <TextBlock Text="Пересборка файлов в Мульти-контенте" VerticalAlignment="Center"/>
-                            <ToggleSwitch HorizontalAlignment="Right" IsOn="{x:Bind Settings.ForceMultiRebuild, Mode=TwoWay}" Toggled="Toggle_Changed"/>
+                            <StackPanel>
+                                <TextBlock Text="Пересборка файлов в Мульти-контенте" VerticalAlignment="Center"/>
+                                <TextBlock Text="Полная пересборка PFS0 контейнера при объединении через NSC_Builder" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap" MaxWidth="400"/>
+                            </StackPanel>
+                            <ToggleSwitch HorizontalAlignment="Right" IsOn="{x:Bind Settings.ForceMultiRebuild, Mode=TwoWay}" Toggled="Toggle_Changed"
+                                          ToolTipService.ToolTip="Принудительно пересобирает разделы в Мульти-контенте, гарантируя работу в эмуляторах Eden, Yuzu и Ryujinx."/>
                         </Grid>
 
                         <Grid>
