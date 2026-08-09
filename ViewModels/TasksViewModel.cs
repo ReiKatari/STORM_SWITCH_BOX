@@ -1016,6 +1016,11 @@ public partial class TasksViewModel : ObservableObject
 
 				AppendStyledSummary(task, task.Status);
 				HistoryService.AddToHistory(task);
+
+				if (App.Settings.Current.EnableSoundNotifications)
+				{
+					try { System.Media.SystemSounds.Asterisk.Play(); } catch { }
+				}
 			});
 		}
 		catch (Exception ex)

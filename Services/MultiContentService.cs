@@ -470,7 +470,8 @@ namespace StormSwitchBox.Services
                         int keyGen = App.Settings.Current.KeyGeneration;
                         string kpFlag = (keyGen >= 0 && keyGen <= 30) ? keyGen.ToString() : "false";
                         string pvFlag = (keyGen >= 0 && keyGen < 19) ? "true" : "false";
-                        string args = $"-b 65536 -pv {pvFlag} -kp {kpFlag} --RSVcap 268435656 -fat {fatMode} -fx files -ND {ndFlag} -roma TRUE{cleanFlag} -t {fmt} -o \"{outFolder}\" -tfile \"{mlistFile}\" -dmul \"calculate\"";
+                        int rsvCapVal = App.Settings.Current.EnableRsvCap ? App.Settings.Current.RsvCap : 268435656;
+                        string args = $"-b 65536 -pv {pvFlag} -kp {kpFlag} --RSVcap {rsvCapVal} -fat {fatMode} -fx files -ND {ndFlag} -roma TRUE{cleanFlag} -t {fmt} -o \"{outFolder}\" -tfile \"{mlistFile}\" -dmul \"calculate\"";
                         
                         App.Logger.Log($"[squirrel] args: {args}", Models.LogLevel.Info);
 
