@@ -25,14 +25,9 @@ if exist "e:\STORM SWITCH BOX\installer\Output\STORM_SWITCH_BOX_4.1.1_Setup.exe"
 )
 
 echo ==============================================
-echo 3. Компиляция установщика Inno Setup (с цифровой подписью внутренних модулей)...
+echo 3. Компиляция и подпись установщика Inno Setup (ISCC SignTool)...
 echo ==============================================
 "C:\Program Files (x86)\Inno Setup\iscc.exe" "/Ssigntool=C:\Program Files (x86)\Windows Kits\10\bin\10.0.28000.0\x64\signtool.exe sign /fd SHA256 /sha1 8D31BDFA114987A887FB3F6255D023324731CF9C $f" "e:\STORM SWITCH BOX\installer\setup.iss"
-
-echo ==============================================
-echo 3.1. Подписание внешнего файла инсталлятора...
-echo ==============================================
-powershell -ExecutionPolicy Bypass -Command "$store = New-Object System.Security.Cryptography.X509Certificates.X509Store('My', 'CurrentUser'); $store.Open('ReadOnly'); $cert = $store.Certificates | Where-Object { $_.Subject -like '*CN=StormSwitchBox*' -and $_.Subject -notlike '*Dev*' } | Select-Object -First 1; $store.Close(); if ($cert) { & 'C:\Program Files (x86)\Windows Kits\10\bin\10.0.28000.0\x64\signtool.exe' sign /fd SHA256 /a /sha1 $cert.Thumbprint 'e:\STORM SWITCH BOX\installer\Output\STORM_SWITCH_BOX_4.1.1_Setup.exe' }"
 
 echo ==============================================
 echo 4. Упаковка портативного ZIP архива...
