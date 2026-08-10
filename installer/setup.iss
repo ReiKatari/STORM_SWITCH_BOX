@@ -59,41 +59,30 @@ begin
   ShellExec('open', 'https://rutube.ru/channel/42609927/', '', '', SW_SHOWNORMAL, ewNoWait, ErrorCode);
 end;
 
-procedure ApplyDarkThemeToWizard();
-var
-  BgColor: TColor;
+procedure ApplyCustomStylesToWizard();
 begin
-  // Тёмная тема инсталлятора ($BBGGRR формат в Pascal: R=$12, G=$0F, B=$1A)
-  BgColor := $1A0F12;
-  
-  WizardForm.WelcomePage.Color := BgColor;
-  WizardForm.FinishedPage.Color := BgColor;
-  WizardForm.InnerPage.Color := BgColor;
-
-  WizardForm.PageNameLabel.Font.Color := $00F0FF;
+  // Синевато-циановые стили заголовков шапки
+  WizardForm.PageNameLabel.Font.Color := $C86400;
   WizardForm.PageNameLabel.Font.Style := [fsBold];
-  WizardForm.PageDescriptionLabel.Font.Color := $E0E0E0;
 
-  WizardForm.WelcomeLabel1.Font.Color := $09EEFC;
+  WizardForm.WelcomeLabel1.Font.Color := $C86400;
   WizardForm.WelcomeLabel1.Font.Style := [fsBold];
-  WizardForm.WelcomeLabel2.Font.Color := $E0E0E0;
 
-  WizardForm.FinishedHeadingLabel.Font.Color := $09EEFC;
+  WizardForm.FinishedHeadingLabel.Font.Color := $C86400;
   WizardForm.FinishedHeadingLabel.Font.Style := [fsBold];
-  WizardForm.FinishedLabel.Font.Color := $E0E0E0;
 end;
 
 procedure InitializeWizard();
 begin
-  ApplyDarkThemeToWizard();
+  ApplyCustomStylesToWizard();
 
-  // Создаем ссылку на STORM CHANNEL внизу слева окна инсталлятора
+  // Ссылка на STORM CHANNEL внизу слева окна инсталлятора
   ChannelLinkLabel := TLabel.Create(WizardForm);
   ChannelLinkLabel.Parent := WizardForm;
   ChannelLinkLabel.Left := 16;
   ChannelLinkLabel.Top := WizardForm.CancelButton.Top + 4;
   ChannelLinkLabel.Caption := '📺 STORM CHANNEL (RuTube)';
-  ChannelLinkLabel.Font.Color := $00F0FF;
+  ChannelLinkLabel.Font.Color := $C86400;
   ChannelLinkLabel.Font.Style := [fsBold, fsUnderline];
   ChannelLinkLabel.Cursor := crHand;
   ChannelLinkLabel.OnClick := @ChannelLinkClick;
