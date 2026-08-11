@@ -273,7 +273,7 @@ namespace StormSwitchBox.Views
             }
         }
 
-        private void CatalogGridView_ItemClick(object sender, ItemClickEventArgs e)
+        private async void CatalogGridView_ItemClick(object sender, ItemClickEventArgs e)
         {
             if (e.ClickedItem is CatalogItem item)
             {
@@ -316,6 +316,71 @@ namespace StormSwitchBox.Views
                 }
                 
                 DetailsOverlay.Visibility = Visibility.Visible;
+
+                // Если eShop данные ещё не загружены — подгружаем при открытии деталей
+                if (!item.HasScreenshots || string.IsNullOrEmpty(item.Category) || item.Category == "N/A" 
+                    || item.Description == "Описание не найдено." || string.IsNullOrEmpty(item.ReleaseDate) || item.ReleaseDate == "N/A")
+                {
+                    try
+                    {
+                        var eShopService = new Services.NintendoEShopService();
+                        var eshopData = await eShopService.SearchGameInfoAsync(item.TitleName);
+                        if (eshopData != null)
+                        {
+                            // Описание
+                            if (!string.IsNullOrWhiteSpace(eshopData.Description) && (item.Description == "Описание не найдено." || item.Description == "Нет описания"))
+                            {
+                                item.Description = eshopData.Description;
+                                DetailDescription.Text = eshopData.Description;
+                            }
+                            // Жанр
+                            if (!string.IsNullOrWhiteSpace(eshopData.Genre) && (string.IsNullOrEmpty(item.Category) || item.Category == "N/A"))
+                            {
+                                item.Category = eshopData.Genre;
+                                DetailCategory.Text = eshopData.Genre;
+                            }
+                            // Дата выхода
+                            if (!string.IsNullOrWhiteSpace(eshopData.ReleaseDate) && (string.IsNullOrEmpty(item.ReleaseDate) || item.ReleaseDate == "N/A"))
+                            {
+                                item.ReleaseDate = eshopData.ReleaseDate;
+                                DetailReleaseDate.Text = eshopData.ReleaseDate;
+                            }
+                            // Разработчик
+                            if (!string.IsNullOrWhiteSpace(eshopData.Developer))
+                            {
+                                item.Developer = eshopData.Developer;
+                                DetailDeveloper.Text = eshopData.Developer;
+                            }
+                            // Издатель
+                            if (!string.IsNullOrWhiteSpace(eshopData.Publisher) && (item.Publisher == "Unknown" || string.IsNullOrEmpty(item.Publisher)))
+                            {
+                                item.Publisher = eshopData.Publisher;
+                                DetailPublisher.Text = eshopData.Publisher;
+                            }
+                            // Скриншоты
+                            if (eshopData.Screenshots.Count > 0 && !item.HasScreenshots)
+                            {
+                                item.Screenshots.Clear();
+                                foreach (var shotUrl in eshopData.Screenshots)
+                                {
+                                    try
+                                    {
+                                        var bmp = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(shotUrl));
+                                        item.Screenshots.Add(bmp);
+                                    }
+                                    catch { }
+                                }
+                                if (item.Screenshots.Count > 0)
+                                {
+                                    item.HasScreenshots = true;
+                                    ScreenshotsPanel.Visibility = Visibility.Visible;
+                                    ScreenshotsGridView.ItemsSource = item.Screenshots;
+                                }
+                            }
+                        }
+                    }
+                    catch { }
+                }
             }
         }
 
