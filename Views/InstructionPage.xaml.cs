@@ -68,7 +68,7 @@ namespace StormSwitchBox.Views
                 },
                 new TopicItem
                 {
-                    Title = "«Умная» папка (Watch Folder)",
+                    Title = "«Умная» папка",
                     Category = "Автоматизация",
                     Icon = "\uE812",
                     DescriptionText = "«Умная» папка предназначена для автоматической фоновой обработки игр.\n\n" +
