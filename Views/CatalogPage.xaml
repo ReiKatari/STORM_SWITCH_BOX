@@ -29,7 +29,17 @@
                     </StackPanel>
                     <Button.Flyout>
                         <Flyout>
-                            <StackPanel Spacing="10" Width="450" MaxHeight="400">
+                            <Flyout.FlyoutPresenterStyle>
+                                <Style TargetType="FlyoutPresenter">
+                                    <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled"/>
+                                    <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Disabled"/>
+                                    <Setter Property="ScrollViewer.HorizontalScrollMode" Value="Disabled"/>
+                                    <Setter Property="Padding" Value="16"/>
+                                    <Setter Property="MinWidth" Value="350"/>
+                                    <Setter Property="MaxWidth" Value="500"/>
+                                </Style>
+                            </Flyout.FlyoutPresenterStyle>
+                            <StackPanel Spacing="10" Width="400">
                                 <TextBlock Text="Папки для сканирования" FontWeight="SemiBold" FontSize="15"/>
                                 <ListView x:Name="FoldersListView" MaxHeight="200" Background="{ThemeResource LayerFillColorDefaultBrush}" CornerRadius="4" SelectionMode="Single" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.HorizontalScrollMode="Disabled"/>
                                 <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
