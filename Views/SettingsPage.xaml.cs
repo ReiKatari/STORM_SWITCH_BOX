@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using System;
+using System.Threading.Tasks;
 
 namespace StormSwitchBox.Views
 {
@@ -110,8 +111,16 @@ namespace StormSwitchBox.Views
             await App.Settings.SaveAsync();
             if (App.WatchFolderService != null)
             {
-                if (App.Settings.Current.EnableWatchFolder) App.WatchFolderService.Start();
-                else App.WatchFolderService.Stop();
+                if (App.Settings.Current.EnableWatchFolder)
+                {
+                    App.WatchFolderService.Start();
+                    // При включении — сразу сканируем существующие файлы
+                    await ScanWatchFolderAsync();
+                }
+                else
+                {
+                    App.WatchFolderService.Stop();
+                }
             }
         }
 
@@ -145,7 +154,7 @@ namespace StormSwitchBox.Views
         private void WatchFolderBox_DragOver(object sender, DragEventArgs e)
         {
             e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
-            e.DragUIOverride.Caption = "Выбрать как Watch Folder";
+            e.DragUIOverride.Caption = "Выбрать как «Умную» папку";
             e.DragUIOverride.IsCaptionVisible = true;
             e.DragUIOverride.IsContentVisible = true;
         }
@@ -179,25 +188,16 @@ namespace StormSwitchBox.Views
             }
         }
 
-        private async void WatchFolderScanNow_Click(object sender, RoutedEventArgs e)
+        private async Task ScanWatchFolderAsync()
         {
             var settings = App.Settings.Current;
             string watchPath = settings.WatchFolder;
 
             if (string.IsNullOrWhiteSpace(watchPath) || !System.IO.Directory.Exists(watchPath))
             {
-                var dialog = new ContentDialog
-                {
-                    Title = "Папка не найдена",
-                    Content = new TextBlock { Text = "Укажите существующую папку для сканирования.", TextWrapping = Microsoft.UI.Xaml.TextWrapping.Wrap },
-                    CloseButtonText = "OK",
-                    XamlRoot = this.XamlRoot
-                };
-                await dialog.ShowAsync();
+                App.Logger.Log("[WatchFolder] Папка не указана или не существует", Models.LogLevel.Warning);
                 return;
             }
-
-            WatchFolderScanNowBtn.IsEnabled = false;
 
             try
             {
@@ -233,7 +233,6 @@ namespace StormSwitchBox.Views
                     var subFiles = new System.Collections.Generic.List<string>();
                     var subFolders = new System.Collections.Generic.List<string>();
 
-                    // NSP/NSZ/XCI/XCZ в этой подпапке (и вложенных)
                     foreach (var file in System.IO.Directory.EnumerateFiles(subDir, "*.*", System.IO.SearchOption.AllDirectories))
                     {
                         string ext = System.IO.Path.GetExtension(file).ToLowerInvariant();
@@ -244,11 +243,10 @@ namespace StormSwitchBox.Views
                         }
                     }
 
-                    // Подпапки с romfs/exefs — добавляем как папки (не как файлы)
+                    // Подпапки с romfs/exefs или TitleID — добавляем как папки
                     foreach (var innerDir in System.IO.Directory.GetDirectories(subDir))
                     {
                         string dirName = System.IO.Path.GetFileName(innerDir).ToLowerInvariant();
-                        // Папки romfs/exefs или папки с TitleID (16 hex chars)
                         if (dirName == "romfs" || dirName == "exefs" || 
                             (dirName.Length == 16 && System.Text.RegularExpressions.Regex.IsMatch(dirName, "^[0-9a-fA-F]{16}$")))
                         {
@@ -258,7 +256,6 @@ namespace StormSwitchBox.Views
 
                     if (subFiles.Count > 0 || subFolders.Count > 0)
                     {
-                        // Объединяем файлы и папки в один батч для этой подпапки
                         var batch = new System.Collections.Generic.List<string>();
                         batch.AddRange(subFiles);
                         batch.AddRange(subFolders);
@@ -275,14 +272,6 @@ namespace StormSwitchBox.Views
                 if (totalFiles == 0)
                 {
                     App.Logger.Log($"[WatchFolder] В папке «{watchPath}» не найдено файлов NSP/NSZ/XCI/XCZ", Models.LogLevel.Warning);
-                    var dialog = new ContentDialog
-                    {
-                        Title = "Файлы не найдены",
-                        Content = new TextBlock { Text = $"В папке «{watchPath}» не найдено файлов NSP/NSZ/XCI/XCZ.", TextWrapping = Microsoft.UI.Xaml.TextWrapping.Wrap },
-                        CloseButtonText = "OK",
-                        XamlRoot = this.XamlRoot
-                    };
-                    await dialog.ShowAsync();
                 }
                 else
                 {
@@ -297,10 +286,6 @@ namespace StormSwitchBox.Views
             catch (Exception ex)
             {
                 App.Logger.Log($"[WatchFolder] Ошибка сканирования: {ex.Message}", Models.LogLevel.Warning);
-            }
-            finally
-            {
-                WatchFolderScanNowBtn.IsEnabled = true;
             }
         }
 
@@ -610,7 +595,7 @@ namespace StormSwitchBox.Views
                     var dialog = new ContentDialog
                     {
                         Title = "Обновления не найдены",
-                        Content = new TextBlock { Text = "У вас установлена актуальная версия STORM SWITCH BOX v4.2.4." },
+                        Content = new TextBlock { Text = "У вас установлена актуальная версия STORM SWITCH BOX v4.2.5." },
                         CloseButtonText = "OK",
                         XamlRoot = this.XamlRoot
                     };
