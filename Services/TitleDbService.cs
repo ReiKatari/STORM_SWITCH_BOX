@@ -323,7 +323,7 @@ namespace StormSwitchBox.Services
                 // Гарантируем уникальное правильное описание
                 item.Description = EnsureRussianDescription(item, entry);
 
-                // Загружаем eShop метаданные (описание на русском, скриншоты, официальный разработчик)
+                // Загружаем eShop метаданные (описание на русском, скриншоты, жанр, дата)
                 _ = Task.Run(async () =>
                 {
                     var eshopData = await _eShopService.SearchGameInfoAsync(item.TitleName);
@@ -331,6 +331,7 @@ namespace StormSwitchBox.Services
                     {
                         App.RunOnUI(() =>
                         {
+                            // Описание — eShop RU имеет приоритет
                             if (!string.IsNullOrWhiteSpace(eshopData.Description) && (string.IsNullOrEmpty(entry?.Description) || !ContainsRussian(entry.Description)))
                             {
                                 item.Description = eshopData.Description;
@@ -343,14 +344,21 @@ namespace StormSwitchBox.Services
                             {
                                 item.Publisher = eshopData.Publisher;
                             }
+                            // Дата выхода
                             if (!string.IsNullOrWhiteSpace(eshopData.ReleaseDate) && (string.IsNullOrEmpty(item.ReleaseDate) || item.ReleaseDate == "N/A"))
                             {
                                 item.ReleaseDate = eshopData.ReleaseDate;
+                            }
+                            // Жанр из eShop
+                            if (!string.IsNullOrWhiteSpace(eshopData.Genre) && (string.IsNullOrEmpty(item.Category) || item.Category == "N/A"))
+                            {
+                                item.Category = eshopData.Genre;
                             }
 
                             // Скриншоты из eShop
                             if (eshopData.Screenshots.Count > 0)
                             {
+                                item.Screenshots.Clear();
                                 foreach (var shotUrl in eshopData.Screenshots)
                                 {
                                     try
