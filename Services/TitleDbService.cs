@@ -103,7 +103,7 @@ namespace StormSwitchBox.Services
         {
             _dbPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "titledb.RU.json");
             _httpClient = new HttpClient();
-            _httpClient.DefaultRequestHeaders.Add("User-Agent", "StormSwitchBox/4.1.1");
+            _httpClient.DefaultRequestHeaders.Add("User-Agent", "StormSwitchBox/4.2.0");
             _eShopService = new NintendoEShopService();
             
             // Асинхронно загружаем базу из локального кэша
@@ -112,44 +112,18 @@ namespace StormSwitchBox.Services
 
         public static string EnsureRussianDescription(CatalogItem item, TitleDbEntry? entry = null)
         {
+            // Приоритет: 1) eShop описание (русское), 2) TitleDB описание (русское), 3) TitleDB описание (оригинал), 4) заглушка
             string desc = entry?.Description ?? item.Description;
             
-            // Если есть готовое описание и оно на русском языке
+            // Если описание есть и оно не пустое/не заглушка — возвращаем как есть
             if (!string.IsNullOrWhiteSpace(desc) && desc != "Нет описания" && desc != "No description available.")
             {
-                if (ContainsRussian(desc))
-                {
-                    return desc.Trim();
-                }
+                return desc.Trim();
             }
             
-            // Динамический генератор уникального описания на русском языке для конкретной игры
-            string title = !string.IsNullOrEmpty(item.TitleName) && item.TitleName != "Unknown Game" && item.TitleName != "Unknown" ? item.TitleName : (entry?.Name ?? "Игра");
-            string publisher = !string.IsNullOrEmpty(item.Publisher) && item.Publisher != "Unknown" ? item.Publisher : (!string.IsNullOrEmpty(entry?.Publisher) ? entry.Publisher : "Nintendo");
-            string developer = !string.IsNullOrEmpty(item.Developer) && item.Developer != "Unknown" ? item.Developer : (!string.IsNullOrEmpty(entry?.Developer) ? entry.Developer : publisher);
-            string category = !string.IsNullOrEmpty(item.Category) ? item.Category : "Увлекательный игровой проект";
-            string release = !string.IsNullOrEmpty(item.ReleaseDate) ? $"Дата выхода: {item.ReleaseDate}." : "";
-            string languages = !string.IsNullOrEmpty(item.SupportedLanguages) ? $"Поддерживаемые языки: {item.SupportedLanguages}." : "";
-            string dlcInfo = item.DlcCount > 0 ? $"Для игры доступно {item.DlcCount} дополнений (DLC)." : "";
-
-            string generatedIntro = $"{title} — это {category.ToLowerInvariant()} от разработчика {developer} и издателя {publisher}.";
-
-            string generated = $"{generatedIntro}\n\n" +
-                               $"🎮 Жанр: {category}\n" +
-                               $"🏢 Издатель: {publisher}\n" +
-                               $"💻 Разработчик: {developer}\n" +
-                               (!string.IsNullOrEmpty(release) ? $"📅 {release}\n" : "") +
-                               (!string.IsNullOrEmpty(languages) ? $"🌐 {languages}\n" : "") +
-                               (!string.IsNullOrEmpty(dlcInfo) ? $"📦 {dlcInfo}\n" : "") +
-                               $"\nПроект полностью подготовлен для комфортного прохождения на Nintendo Switch.";
-
-            if (!string.IsNullOrWhiteSpace(desc) && desc != "Нет описания" && desc != "No description available.")
-            {
-                return generated + $"\n\n--- Описание (оригинал) ---\n{desc.Trim()}";
-            }
-
-            return generated;
+            return "Описание не найдено.";
         }
+
 
         private static bool ContainsRussian(string text)
         {

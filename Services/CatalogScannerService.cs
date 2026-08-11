@@ -1,5 +1,6 @@
-﻿using System;
+using System;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -29,14 +30,30 @@ namespace StormSwitchBox.Services
         {
             if (!Directory.Exists(directoryPath)) return;
 
+            // Автоматическое извлечение архивов (.zip, .rar, .7z) перед сканированием
+            await ExtractArchivesInDirectoryAsync(directoryPath, token);
+
             string[] extensions = { ".nsp", ".nsz", ".xci", ".xcz" };
             var files = Directory.EnumerateFiles(directoryPath, "*.*", SearchOption.AllDirectories)
                 .Where(f => extensions.Contains(System.IO.Path.GetExtension(f).ToLowerInvariant()))
                 .ToList();
 
+            // Дедупликация — отслеживаем уже добавленные пути
+            var processedPaths = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var existing in catalog)
+                processedPaths.Add(existing.FilePath);
+
             foreach (var file in files)
             {
                 token.ThrowIfCancellationRequested();
+
+                // Пропуск уже добавленных файлов (дедупликация по пути)
+                if (processedPaths.Contains(file)) continue;
+
+                // Проверка целостности — пропускаем недокачанные/временные файлы
+                if (!IsFileComplete(file)) continue;
+
+                processedPaths.Add(file);
 
                 var item = new CatalogItem
                 {
@@ -65,6 +82,116 @@ namespace StormSwitchBox.Services
                 }, token);
             }
         }
+
+        /// <summary>
+        /// Проверяет, что файл полностью скачан и готов к обработке.
+        /// </summary>
+        private static bool IsFileComplete(string filePath)
+        {
+            try
+            {
+                var fi = new FileInfo(filePath);
+                
+                // Пропуск файлов нулевого размера
+                if (fi.Length == 0) return false;
+
+                // Пропуск временных/недокачанных файлов
+                string ext = fi.Extension.ToLowerInvariant();
+                string[] incompleteExtensions = { ".part", ".crdownload", ".tmp", ".downloading", ".partial", ".!ut", ".bc!" };
+                if (incompleteExtensions.Contains(ext)) return false;
+
+                // Проверка наличия рядом файла-спутника недокачки (.part и т.д.)
+                string dir = fi.DirectoryName ?? "";
+                string nameNoExt = System.IO.Path.GetFileNameWithoutExtension(filePath);
+                string fullName = fi.Name;
+                foreach (var marker in incompleteExtensions)
+                {
+                    if (File.Exists(System.IO.Path.Combine(dir, fullName + marker))) return false;
+                    if (File.Exists(System.IO.Path.Combine(dir, nameNoExt + marker))) return false;
+                }
+
+                // Проверка блокировки файла (если файл занят — вероятно ещё качается)
+                using (var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                {
+                    // Файл доступен для чтения
+                }
+
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Автоматически извлекает архивы (.zip, .rar, .7z) внутри директории.
+        /// </summary>
+        private async Task ExtractArchivesInDirectoryAsync(string directoryPath, CancellationToken token)
+        {
+            string[] archiveExtensions = { ".zip", ".rar", ".7z" };
+            var archives = Directory.EnumerateFiles(directoryPath, "*.*", SearchOption.AllDirectories)
+                .Where(f => archiveExtensions.Contains(System.IO.Path.GetExtension(f).ToLowerInvariant()))
+                .ToList();
+
+            foreach (var archive in archives)
+            {
+                token.ThrowIfCancellationRequested();
+                if (!IsFileComplete(archive)) continue;
+
+                string extractDir = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(archive)!, System.IO.Path.GetFileNameWithoutExtension(archive));
+                
+                // Не извлекаем, если папка уже есть (уже извлечено ранее)
+                if (Directory.Exists(extractDir)) continue;
+
+                string ext = System.IO.Path.GetExtension(archive).ToLowerInvariant();
+                
+                App.RunOnUI(() => App.Logger.Log($"📦 Автоизвлечение архива: {System.IO.Path.GetFileName(archive)}..."));
+
+                bool extracted = false;
+
+                if (ext == ".zip")
+                {
+                    try
+                    {
+                        System.IO.Compression.ZipFile.ExtractToDirectory(archive, extractDir, overwriteFiles: true);
+                        extracted = true;
+                    }
+                    catch (Exception ex)
+                    {
+                        App.RunOnUI(() => App.Logger.Log($"⚠️ Ошибка распаковки ZIP: {ex.Message}", LogLevel.Warning));
+                    }
+                }
+                else
+                {
+                    string sevenZipPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tools", "7z.exe");
+                    if (File.Exists(sevenZipPath))
+                    {
+                        try
+                        {
+                            var proc = new System.Diagnostics.Process();
+                            proc.StartInfo.FileName = sevenZipPath;
+                            proc.StartInfo.Arguments = $"x \"{archive}\" -o\"{extractDir}\" -y";
+                            proc.StartInfo.UseShellExecute = false;
+                            proc.StartInfo.CreateNoWindow = true;
+                            proc.Start();
+                            await proc.WaitForExitAsync();
+                            if (proc.ExitCode == 0) extracted = true;
+                        }
+                        catch (Exception ex)
+                        {
+                            App.RunOnUI(() => App.Logger.Log($"⚠️ Ошибка распаковки через 7z: {ex.Message}", LogLevel.Warning));
+                        }
+                    }
+                }
+
+                if (extracted)
+                {
+                    App.RunOnUI(() => App.Logger.Log($"✅ Архив {System.IO.Path.GetFileName(archive)} распакован.", LogLevel.Success));
+                }
+            }
+        }
+
 
         public async Task ScanSingleFileAsync(string filePath, ObservableCollection<CatalogItem> catalog, CancellationToken token)
         {

@@ -26,7 +26,7 @@ namespace StormSwitchBox
         public MainWindow()
         {
             this.InitializeComponent();
-            this.Title = "STORM SWITCH BOX v4.1.1";
+            this.Title = "STORM SWITCH BOX v4.2.0";
             this.ExtendsContentIntoTitleBar = true; // Современный заголовок окна
 
             var hWnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
@@ -174,6 +174,7 @@ namespace StormSwitchBox
                 _notifyIcon.Visible = false;
                 _notifyIcon.Dispose();
                 SaveWindowState();
+                Services.JobObjectManager.KillAllToolProcesses();
                 System.Environment.Exit(0);
             });
             
@@ -231,7 +232,8 @@ namespace StormSwitchBox
                 _notifyIcon.Dispose();
             }
             
-            // Жестко завершаем процесс при закрытии окна, чтобы он не оставался висеть в памяти
+            // Жестко завершаем процесс и все утилиты при закрытии
+            Services.JobObjectManager.KillAllToolProcesses();
             System.Environment.Exit(0);
         }
     }

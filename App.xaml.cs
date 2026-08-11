@@ -89,6 +89,12 @@ namespace StormSwitchBox
 
         protected override async void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
         {
+            JobObjectManager.InitializeJobForCurrentProcess();
+            AppDomain.CurrentDomain.ProcessExit += (s, e) =>
+            {
+                JobObjectManager.KillAllToolProcesses();
+            };
+
             // Single Instance Check
             bool isFirstInstance = false;
             _singleInstanceMutex = new System.Threading.Mutex(true, "StormSwitchBox_SingleInstanceMutex", out isFirstInstance);
@@ -344,8 +350,39 @@ namespace StormSwitchBox
             System.IO.File.WriteAllText(System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory, "crash.log"), e.Exception.ToString());
         }
 
+        public static void UnblockFile(string filePath)
+        {
+            DeleteZoneStream(filePath);
+        }
+
+        public static void UnblockAllTools()
+        {
+            try
+            {
+                string appDir = System.AppDomain.CurrentDomain.BaseDirectory;
+                string toolsDir = System.IO.Path.Combine(appDir, "tools");
+                if (!System.IO.Directory.Exists(toolsDir))
+                {
+                    string parentTools = System.IO.Path.Combine(appDir, "..", "..", "tools");
+                    if (System.IO.Directory.Exists(parentTools)) toolsDir = parentTools;
+                }
+
+                if (System.IO.Directory.Exists(toolsDir))
+                {
+                    var files = System.IO.Directory.GetFiles(toolsDir, "*.*", System.IO.SearchOption.AllDirectories);
+                    foreach (var f in files)
+                    {
+                        UnblockFile(f);
+                    }
+                }
+            }
+            catch { }
+        }
+
         public static void EnsureUserKeysAvailable()
         {
+            UnblockAllTools();
+
             string userKeys = Settings.Current.KeysPath;
             if (string.IsNullOrEmpty(userKeys) || !System.IO.File.Exists(userKeys))
             {

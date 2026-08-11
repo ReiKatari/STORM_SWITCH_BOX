@@ -476,69 +476,30 @@ namespace StormSwitchBox.Services
                         App.Logger.Log($"[squirrel] args: {args}", Models.LogLevel.Info);
 
 
-                        string squirrelBat = System.IO.Path.Combine(tempDecompDir, "run_squirrel.bat");
                         string ztoolsDir = System.IO.Path.Combine(nscbDir, "ztools");
-                        
-                        var batBuilder = new System.Text.StringBuilder();
-                        batBuilder.AppendLine("@echo off");
-                        batBuilder.AppendLine("chcp 65001 >nul 2>nul");
-                        batBuilder.AppendLine("set PYTHONIOENCODING=utf-8");
-                        batBuilder.AppendLine("set PYTHONUTF8=1");
-                        batBuilder.AppendLine("set PYTHONUNBUFFERED=1");
-                        batBuilder.AppendLine("set PYTHONLEGACYWINDOWSSTDIO=0");
-                        batBuilder.AppendLine("set PYTHONCOERCECLOCALE=1");
-                        if (!string.IsNullOrEmpty(isolatedUserProfile))
-                            batBuilder.AppendLine($"set USERPROFILE={isolatedUserProfile}");
-                        if (!string.IsNullOrEmpty(isolatedLocalAppData))
-                            batBuilder.AppendLine($"set LOCALAPPDATA={isolatedLocalAppData}");
-                        batBuilder.AppendLine($"cd /d \"{ztoolsDir}\"");
-                        batBuilder.AppendLine($"\"{squirrelExe}\" {args}");
-                        batBuilder.AppendLine("exit /b %errorlevel%");
-                        
-                        System.IO.File.WriteAllText(squirrelBat, batBuilder.ToString(), new System.Text.UTF8Encoding(false));
-
-                        // ══════════════════════════════════════════════════════════════════
-                        // UseShellExecute=true + WindowStyle=Hidden:
-                        //
-                        // squirrel.exe — frozen Python 3.7 (PyInstaller). Определяет
-                        // кодировку sys.stdout через GetConsoleOutputCP(). Для этого stdout
-                        // ОБЯЗАН быть реальной Windows-консолью (не pipe, не файл).
-                        //
-                        // ❌ CreateNoWindow=true → нет консоли → chcp бесполезен
-                        // ❌ RedirectStandardOutput → pipe → locale cp1251
-                        // ❌ > logfile 2>&1 → файл → locale cp1251
-                        // ❌ PYTHONIOENCODING → игнорируется frozen PyInstaller
-                        //
-                        // ✅ UseShellExecute=true + Hidden → реальная скрытая консоль
-                        //    chcp 65001 → GetConsoleOutputCP()=65001 → UTF-8 stdout
-                        //    CJK-символы из NUTDB кодируются без ошибок.
-                        // ══════════════════════════════════════════════════════════════════
-                        var squirrelPsi = new System.Diagnostics.ProcessStartInfo
-                        {
-                            FileName = squirrelBat,
-                            UseShellExecute = true,
-                            WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden,
-                            WorkingDirectory = ztoolsDir
-                        };
+                        App.UnblockFile(squirrelExe);
 
                         App.RunOnUI(() => task.LogDetails += "\n📦 [NSC_Builder] Запуск squirrel.exe (-dmul calculate)...");
 
-                        int exitCode;
-                        using (var squirrelProc = new System.Diagnostics.Process { StartInfo = squirrelPsi })
+                        int exitCode = -1;
+                        try
                         {
-                            squirrelProc.Start();
-                            
-                            using var squirrelCts = cancellationToken.Register(() =>
-                            {
-                                try { if (!squirrelProc.HasExited) squirrelProc.Kill(true); } catch { }
-                            });
-
-                            await Task.Run(() => squirrelProc.WaitForExit(), cancellationToken);
-
-                            exitCode = squirrelProc.ExitCode;
+                            exitCode = await ExternalProcessRunner.RunAsync(
+                                squirrelExe,
+                                args,
+                                ztoolsDir,
+                                task,
+                                cancellationToken,
+                                isolatedUserProfile,
+                                isolatedLocalAppData,
+                                forceUtf8Console: true
+                            );
                         }
-                        
-                        try { if (System.IO.File.Exists(squirrelBat)) System.IO.File.Delete(squirrelBat); } catch { }
+                        catch (Exception ex)
+                        {
+                            App.Logger.Log($"[squirrel] launch error: {ex.Message}", Models.LogLevel.Warning);
+                            App.RunOnUI(() => task.LogDetails += $"\n⚠️ [NSC_Builder] Ошибка запуска squirrel.exe ({ex.Message}).");
+                        }
 
                         App.Logger.Log($"[squirrel] exit code: {exitCode}", Models.LogLevel.Info);
 
@@ -650,20 +611,18 @@ namespace StormSwitchBox.Services
                                         catch { }
                                     }
 
-                                    // Строгая валидация:
+                                    // Валидация вывода squirrel.exe:
                                     // 1. CNMT для каждого Title (base + update + каждый DLC)
                                     int expectedCnmtCount = sortedList.Count(f => !Directory.Exists(f));
                                     // 2. Минимум 1 Control NCA (для иконки/названия)
                                     // 3. Достаточно NCA в целом
                                     int expectedMinNca = Math.Max(3, sortedList.Count);
-                                    // 4. Тикеты: если входные файлы содержали тикеты, выход тоже должен
                                     
-                                    bool tikValid = expectedTikCount == 0 || tikCount >= expectedTikCount;
-
+                                    // squirrel.exe с аргументом -roma TRUE очищает тикеты (.tik),
+                                    // поэтому отсутствие .tik на выходе — нормальное поведение и не должно браковать сборку.
                                     valid = cnmtCount >= expectedCnmtCount && 
                                             controlCount >= 1 && 
-                                            totalNca >= expectedMinNca &&
-                                            tikValid;
+                                            totalNca >= expectedMinNca;
 
                                     App.Logger.Log($"[squirrel] validation: cnmt={cnmtCount}/{expectedCnmtCount}, control-like={controlCount}, total={totalNca}, tik={tikCount}/{expectedTikCount}, expected>={expectedMinNca}, valid={valid}", Models.LogLevel.Info);
                                 }
@@ -724,9 +683,9 @@ namespace StormSwitchBox.Services
                                 if (!System.IO.Directory.Exists(f) && !scanList.Contains(f, StringComparer.OrdinalIgnoreCase) && System.IO.File.Exists(f))
                                     scanList.Add(f);
                             }
-                            // Добавляем оригинальный Update NSP (если был удалён после HardPatch)
-                            // для извлечения Patch CNMT (версия) и тикетов
-                            if (!string.IsNullOrEmpty(savedUpdateFile) && System.IO.File.Exists(savedUpdateFile) 
+                            // Добавляем оригинальный Update NSP только если HardPatch НЕ создавал patched_base (например при сбое/пропуске)
+                            bool hasPatchedBase = scanList.Any(f => f.Contains("patched_base", StringComparison.OrdinalIgnoreCase));
+                            if (!hasPatchedBase && !string.IsNullOrEmpty(savedUpdateFile) && System.IO.File.Exists(savedUpdateFile) 
                                 && !scanList.Contains(savedUpdateFile, StringComparer.OrdinalIgnoreCase))
                             {
                                 scanList.Add(savedUpdateFile);
