@@ -266,6 +266,9 @@ namespace StormSwitchBox.Views
                     string formatStr = settings.WatchFolderFormat >= 0 && settings.WatchFolderFormat < formats.Length ? formats[settings.WatchFolderFormat] : "NSP";
 
                     App.Logger.Log($"[WatchFolder] Добавлено {totalTasks} задач → {actionStr} в {formatStr}", Models.LogLevel.Success);
+
+                    // Автозапуск задач
+                    await App.TasksVM.StartAllTasksAsync();
                 }
             }
             catch (Exception ex)
@@ -580,7 +583,7 @@ namespace StormSwitchBox.Views
                     var dialog = new ContentDialog
                     {
                         Title = "Обновления не найдены",
-                        Content = new TextBlock { Text = "У вас установлена актуальная версия STORM SWITCH BOX v4.3.0." },
+                        Content = new TextBlock { Text = "У вас установлена актуальная версия STORM SWITCH BOX v4.3.1." },
                         CloseButtonText = "OK",
                         XamlRoot = this.XamlRoot
                     };

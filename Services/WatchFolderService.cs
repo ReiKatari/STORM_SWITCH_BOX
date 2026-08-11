@@ -61,7 +61,7 @@ namespace StormSwitchBox.Services
             bool ready = await WaitForFileReadyAsync(e.FullPath);
             if (!ready) return;
 
-            App.RunOnUI(() =>
+            App.RunOnUI(async () =>
             {
                 var settings = App.Settings.Current;
                 string[] actions = new string[] { "Сжатие", "Распаковка", "Упаковка", "Конвертация", "Мульти-контент", "Проверка" };
@@ -72,8 +72,9 @@ namespace StormSwitchBox.Services
 
                 App.Logger.Log($"[WatchFolder] Авто-обработка «{Path.GetFileName(e.FullPath)}»: {actionStr} в {formatStr}", Models.LogLevel.Success);
                 
-                // Добавляем файл в очередь задач
-                _ = App.TasksVM.AddDroppedFilesBatchAsync(new System.Collections.Generic.List<string> { e.FullPath });
+                // Добавляем файл в очередь задач и автозапуск
+                await App.TasksVM.AddDroppedFilesBatchAsync(new System.Collections.Generic.List<string> { e.FullPath });
+                await App.TasksVM.StartAllTasksAsync();
             });
         }
 
