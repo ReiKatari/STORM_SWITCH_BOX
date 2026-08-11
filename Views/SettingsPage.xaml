@@ -105,7 +105,7 @@
                             <Grid>
                                 <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
                                     <TextBlock Text="«Умная» папка автоматического наблюдения (Watch Folder)" FontWeight="Medium"/>
-                                    <TextBlock Text="Автоматически обнаруживает новые файлы NSP/NSZ/XCI в папке (например, при скачивании) и запускает назначенный процесс" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                    <TextBlock Text="Автоматически обнаруживает новые файлы NSP/NSZ/XCI в папке и запускает обработку. Можно перетащить папку в поле ниже" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
                                 </StackPanel>
                                 <ToggleSwitch x:Name="WatchFolderToggle" HorizontalAlignment="Right" IsOn="{x:Bind Settings.EnableWatchFolder, Mode=TwoWay}" Toggled="WatchFolderToggle_Toggled" VerticalAlignment="Center"/>
                             </Grid>
@@ -116,14 +116,16 @@
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBox x:Name="WatchFolderBox" HorizontalAlignment="Stretch" Margin="0,0,12,0" PlaceholderText="Папка не выбрана" 
-                                             Text="{x:Bind Settings.WatchFolder, Mode=TwoWay}" IsReadOnly="True" VerticalAlignment="Center"/>
+                                    <TextBox x:Name="WatchFolderBox" HorizontalAlignment="Stretch" Margin="0,0,12,0" PlaceholderText="Папка не выбрана (можно перетащить)" 
+                                             Text="{x:Bind Settings.WatchFolder, Mode=TwoWay}" IsReadOnly="True" VerticalAlignment="Center"
+                                             AllowDrop="True" DragOver="WatchFolderBox_DragOver" Drop="WatchFolderBox_Drop"/>
                                     <Button Grid.Column="1" Content="Выбрать папку..." Click="SelectWatchFolder_Click" VerticalAlignment="Center" CornerRadius="6"/>
                                 </Grid>
 
                                 <Grid>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
                                         <ColumnDefinition Width="Auto"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
@@ -141,12 +143,21 @@
                                         <ComboBoxItem Content="Проверка" Tag="5"/>
                                     </ComboBox>
 
-                                    <ComboBox x:Name="WatchFolderFormatCombo" Grid.Column="2" Width="100" SelectionChanged="WatchFolderFormatCombo_SelectionChanged" VerticalAlignment="Center">
+                                    <ComboBox x:Name="WatchFolderFormatCombo" Grid.Column="2" Width="100" Margin="0,0,8,0" SelectionChanged="WatchFolderFormatCombo_SelectionChanged" VerticalAlignment="Center">
                                         <ComboBoxItem Content="NSP" Tag="0"/>
                                         <ComboBoxItem Content="NSZ" Tag="1"/>
                                         <ComboBoxItem Content="XCI" Tag="2"/>
                                         <ComboBoxItem Content="XCZ" Tag="3"/>
                                     </ComboBox>
+
+                                    <Button x:Name="WatchFolderScanNowBtn" Grid.Column="3" VerticalAlignment="Center" CornerRadius="6"
+                                            Click="WatchFolderScanNow_Click"
+                                            ToolTipService.ToolTip="Сканировать папку и добавить все найденные файлы в очередь задач">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <FontIcon Glyph="&#xE768;" FontSize="14"/>
+                                            <TextBlock Text="Сканировать"/>
+                                        </StackPanel>
+                                    </Button>
                                 </Grid>
                             </StackPanel>
                         </StackPanel>
@@ -390,7 +401,7 @@
                         </Border>
                         <StackPanel Grid.Column="1" Spacing="6">
                             <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                                <TextBlock Text="STORM SWITCH BOX 4.2.2" FontWeight="Bold" FontSize="22"/>
+                                <TextBlock Text="STORM SWITCH BOX 4.2.3" FontWeight="Bold" FontSize="22"/>
                                 <Border Background="{ThemeResource SystemAccentColor}" CornerRadius="4" Padding="6,2" VerticalAlignment="Center">
                                     <TextBlock Text="WinUI 3 Native" Foreground="White" FontSize="11" FontWeight="Bold"/>
                                 </Border>
