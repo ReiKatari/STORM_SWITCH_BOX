@@ -73,7 +73,7 @@ namespace StormSwitchBox.Services
                 App.Logger.Log($"[WatchFolder] Авто-обработка «{Path.GetFileName(e.FullPath)}»: {actionStr} в {formatStr}", Models.LogLevel.Success);
                 
                 // Добавляем файл в очередь задач
-                _ = App.TasksVM.AddDroppedFilesBatchAsync(new System.Collections.Generic.List<string> { e.FullPath }, isolateBatch: true);
+                _ = App.TasksVM.AddDroppedFilesBatchAsync(new System.Collections.Generic.List<string> { e.FullPath });
             });
         }
 

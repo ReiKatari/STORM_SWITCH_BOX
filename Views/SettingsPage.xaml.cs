@@ -222,7 +222,7 @@ namespace StormSwitchBox.Views
 
                 if (rootFiles.Count > 0)
                 {
-                    await App.TasksVM.AddDroppedFilesBatchAsync(rootFiles, isolateBatch: true);
+                    await App.TasksVM.AddDroppedFilesBatchAsync(rootFiles);
                     totalFiles += rootFiles.Count;
                     totalTasks++;
                 }
@@ -260,7 +260,7 @@ namespace StormSwitchBox.Views
                         batch.AddRange(subFiles);
                         batch.AddRange(subFolders);
 
-                        await App.TasksVM.AddDroppedFilesBatchAsync(batch, isolateBatch: true);
+                        await App.TasksVM.AddDroppedFilesBatchAsync(batch);
                         totalFiles += subFiles.Count;
                         totalTasks++;
 
@@ -595,7 +595,7 @@ namespace StormSwitchBox.Views
                     var dialog = new ContentDialog
                     {
                         Title = "Обновления не найдены",
-                        Content = new TextBlock { Text = "У вас установлена актуальная версия STORM SWITCH BOX v4.2.7." },
+                        Content = new TextBlock { Text = "У вас установлена актуальная версия STORM SWITCH BOX v4.2.8." },
                         CloseButtonText = "OK",
                         XamlRoot = this.XamlRoot
                     };
