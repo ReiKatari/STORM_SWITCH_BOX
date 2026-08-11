@@ -298,20 +298,37 @@ public partial class TasksViewModel : ObservableObject
 				foreach (var task in newlyCreatedTasks)
 				{
 					bool updated = false;
-					// Определяем базовую папку задачи по первому входному файлу
+					// Определяем общий корень всех входных файлов задачи
 					string taskBaseDir = "";
 					if (task.InputFiles.Count > 0)
 					{
-						string firstFile = task.InputFiles[0];
-						taskBaseDir = Directory.Exists(firstFile) ? firstFile : (Path.GetDirectoryName(firstFile) ?? "");
+						var dirs = task.InputFiles.Select(f => 
+							Directory.Exists(f) ? f : (Path.GetDirectoryName(f) ?? ""))
+							.Where(d => !string.IsNullOrEmpty(d)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+						if (dirs.Count == 1)
+						{
+							taskBaseDir = dirs[0];
+						}
+						else if (dirs.Count > 1)
+						{
+							// Находим кратчайший общий путь-префикс
+							taskBaseDir = dirs[0];
+							foreach (var dir in dirs.Skip(1))
+							{
+								while (!string.IsNullOrEmpty(taskBaseDir) && 
+									!dir.StartsWith(taskBaseDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) &&
+									!dir.Equals(taskBaseDir, StringComparison.OrdinalIgnoreCase))
+								{
+									taskBaseDir = Path.GetDirectoryName(taskBaseDir) ?? "";
+								}
+							}
+						}
 					}
 
 					foreach (var modDir in modDirs)
 					{
 						// Привязываем modDir только если он из того же дерева директорий, что и задача
-						if (!string.IsNullOrEmpty(taskBaseDir) && 
-							!modDir.StartsWith(taskBaseDir, StringComparison.OrdinalIgnoreCase) &&
-							!taskBaseDir.StartsWith(Path.GetDirectoryName(modDir) ?? "", StringComparison.OrdinalIgnoreCase))
+						if (!string.IsNullOrEmpty(taskBaseDir) && !modDir.StartsWith(taskBaseDir, StringComparison.OrdinalIgnoreCase))
 						{
 							continue; // modDir из другой папки — пропускаем
 						}
