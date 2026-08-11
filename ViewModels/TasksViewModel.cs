@@ -226,7 +226,7 @@ public partial class TasksViewModel : ObservableObject
 		return result;
 	}
 
-	public async Task AddDroppedFilesBatchAsync(List<string> paths, bool forceNewTask = false)
+	public async Task AddDroppedFilesBatchAsync(List<string> paths, bool isolateBatch = false)
 	{
 		if (paths == null || paths.Count == 0) return;
 
@@ -271,9 +271,11 @@ public partial class TasksViewModel : ObservableObject
 		// 2. Process normal files/folders
 		if (normalPaths.Count > 0)
 		{
+			// When isolateBatch=true, restrict grouping to tasks created in THIS batch only
+			int batchStartIndex = isolateBatch ? initialTaskCount : -1;
 			foreach (var path in normalPaths)
 			{
-				await AddDroppedFileAsync(path, forceNewTask);
+				await AddDroppedFileAsync(path, batchStartIndex);
 			}
 		}
 
@@ -332,7 +334,7 @@ public partial class TasksViewModel : ObservableObject
 	}
 
 
-	public async Task AddDroppedFileAsync(string path, bool forceNewTask = false)
+	public async Task AddDroppedFileAsync(string path, int batchStartIndex = -1)
 	{
 		await Task.Run(async delegate
 		{
@@ -500,7 +502,7 @@ public partial class TasksViewModel : ObservableObject
 								if (filesInGroup.Count > 0)
 								{
 									string taskBasePath = ((group.First().Item4 == "ROOT") ? path : Path.Combine(path, group.First().Item4));
-									await AddOrUpdateTask(filesInGroup.Select(m => m.Path).ToList(), group.Key, taskBasePath, filesInGroup.FirstOrDefault(m => m.IconBytes != null).IconBytes, forceNewTask);
+									await AddOrUpdateTask(filesInGroup.Select(m => m.Path).ToList(), group.Key, taskBasePath, filesInGroup.FirstOrDefault(m => m.IconBytes != null).IconBytes, batchStartIndex);
 								}
 							}
 							return;
@@ -523,13 +525,13 @@ public partial class TasksViewModel : ObservableObject
 							return;
 						}
 					}
-					await AddOrUpdateTask(new List<string> { path }, baseTid, (isDirectory ? path : Path.GetDirectoryName(path)) ?? path, fileMeta.IconBytes, forceNewTask);
+					await AddOrUpdateTask(new List<string> { path }, baseTid, (isDirectory ? path : Path.GetDirectoryName(path)) ?? path, fileMeta.IconBytes, batchStartIndex);
 				}
 			}
 		});
 	}
 
-	private Task AddOrUpdateTask(List<string> files, string groupId, string basePath, byte[]? iconBytes = null, bool forceNewTask = false)
+	private Task AddOrUpdateTask(List<string> files, string groupId, string basePath, byte[]? iconBytes = null, int batchStartIndex = -1)
 	{
 		if (files == null || files.Count == 0)
 		{
@@ -542,9 +544,11 @@ public partial class TasksViewModel : ObservableObject
 			{
 				ProcessingTask? existingTask = null;
 				string? groupBase = (groupId != null && groupId.Length >= 12) ? groupId.Substring(0, 12) : null;
-				if (!forceNewTask && (_currentPageType == "Update" || _currentPageType == "Multi") && groupBase != null)
+				if ((_currentPageType == "Update" || _currentPageType == "Multi") && groupBase != null)
 				{
-					existingTask = Tasks.FirstOrDefault((ProcessingTask t) => t.GroupId != null && t.GroupId.Length >= 12 && t.GroupId.Substring(0, 12) == groupBase && t.Operation == _currentPageType && t.Status == "Ожидание");
+					// When batchStartIndex >= 0, only search tasks created in this batch (isolate from pre-existing)
+					var searchScope = batchStartIndex >= 0 ? Tasks.Skip(batchStartIndex) : Tasks;
+					existingTask = searchScope.FirstOrDefault((ProcessingTask t) => t.GroupId != null && t.GroupId.Length >= 12 && t.GroupId.Substring(0, 12) == groupBase && t.Operation == _currentPageType && t.Status == "Ожидание");
 				}
 				if (existingTask != null)
 				{
