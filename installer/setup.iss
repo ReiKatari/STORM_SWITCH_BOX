@@ -1,11 +1,11 @@
 [Setup]
 AppName=STORM SWITCH BOX
-AppVersion=4.1.1
+AppVersion=4.2.0
 AppPublisher=STORM CHANNEL & ReiKatari
 AppPublisherURL=https://rutube.ru/channel/42609927/
 DefaultDirName={localappdata}\Programs\STORM_SWITCH_BOX
 DefaultGroupName=STORM_SWITCH_BOX
-OutputBaseFilename=STORM_SWITCH_BOX_4.1.1_Setup
+OutputBaseFilename=STORM_SWITCH_BOX_4.2.0_Setup
 SetupIconFile=..\storm_switch_box.ico
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -14,10 +14,11 @@ PrivilegesRequiredOverridesAllowed=dialog
 Compression=lzma2/ultra64
 UninstallDisplayIcon={app}\StormSwitchBox.exe
 AppMutex=StormSwitchBox_SingleInstanceMutex
-CloseApplications=yes
-CloseApplicationsFilter=*StormSwitchBox*
+CloseApplications=no
 RestartApplications=no
 SignTool=signtool
+WizardStyle=modern
+ShowLanguageDialog=no
 
 [Types]
 Name: "full"; Description: "Стандартная установка"
@@ -38,58 +39,24 @@ Name: "{autodesktop}\STORM_SWITCH_BOX"; Filename: "{app}\StormSwitchBox.exe"; Wo
 [Tasks]
 Name: "startmenu"; Description: "Добавить в меню «Пуск»"; Components: full
 Name: "desktopicon"; Description: "Создать ярлык на рабочем столе"; Components: full
-Name: "contextmenu"; Description: "Добавить пункты в контекстное меню Explorer"; Components: full
+Name: "contextmenu"; Description: "Добавить пункты в контекстное меню Проводника"; Components: full
 
 [Run]
-Filename: "{app}\StormSwitchBox.exe"; Description: "🚀 Запустить STORM SWITCH BOX v4.1.1"; Flags: postinstall nowait
-Filename: "https://rutube.ru/channel/42609927/"; Description: "📺 Открыть официальный канал STORM CHANNEL на RuTube"; Flags: postinstall shellexec unchecked
+Filename: "{app}\StormSwitchBox.exe"; Description: "Запустить STORM SWITCH BOX"; Flags: postinstall nowait
 
 [Languages]
 Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Code]
-var
-  ChannelLinkLabel: TLabel;
-
-procedure ChannelLinkClick(Sender: TObject);
-var
-  ErrorCode: Integer;
-begin
-  ShellExec('open', 'https://rutube.ru/channel/42609927/', '', '', SW_SHOWNORMAL, ewNoWait, ErrorCode);
-end;
-
-procedure ApplyCustomStylesToWizard();
-begin
-  // Синевато-циановые стили заголовков шапки
-  WizardForm.PageNameLabel.Font.Color := $C86400;
-  WizardForm.PageNameLabel.Font.Style := [fsBold];
-
-  WizardForm.WelcomeLabel1.Font.Color := $C86400;
-  WizardForm.WelcomeLabel1.Font.Style := [fsBold];
-
-  WizardForm.FinishedHeadingLabel.Font.Color := $C86400;
-  WizardForm.FinishedHeadingLabel.Font.Style := [fsBold];
-end;
-
-procedure InitializeWizard();
-begin
-  ApplyCustomStylesToWizard();
-
-  // Ссылка на STORM CHANNEL внизу слева окна инсталлятора
-  ChannelLinkLabel := TLabel.Create(WizardForm);
-  ChannelLinkLabel.Parent := WizardForm;
-  ChannelLinkLabel.Left := 16;
-  ChannelLinkLabel.Top := WizardForm.CancelButton.Top + 4;
-  ChannelLinkLabel.Caption := '📺 STORM CHANNEL (RuTube)';
-  ChannelLinkLabel.Font.Color := $C86400;
-  ChannelLinkLabel.Font.Style := [fsBold, fsUnderline];
-  ChannelLinkLabel.Cursor := crHand;
-  ChannelLinkLabel.OnClick := @ChannelLinkClick;
-end;
 
 function InitializeSetup(): Boolean;
+var
+  ResultCode: Integer;
 begin
+  Exec('taskkill.exe', '/F /IM StormSwitchBox.exe /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec('taskkill.exe', '/F /IM STORM_SWITCH_BOX.exe /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Sleep(500);
   Result := True;
 end;
 
@@ -109,13 +76,12 @@ begin
   RegWriteStringValue(HKCU, 'Software\Classes\' + Association + '\shell\StormSwitchBox', 'MUIVerb', 'STORM SWITCH BOX');
   RegWriteStringValue(HKCU, 'Software\Classes\' + Association + '\shell\StormSwitchBox', 'Icon', ExpandConstant('{app}') + '\StormSwitchBox.exe');
   RegWriteStringValue(HKCU, 'Software\Classes\' + Association + '\shell\StormSwitchBox', 'SubCommands', '');
-  
-  CreateDirectCommand(Association, '01update', 'Обновление', 'update');
-  CreateDirectCommand(Association, '02unpack', 'Распаковка', 'unpack');
-  CreateDirectCommand(Association, '03pack', 'Упаковка', 'pack');
-  CreateDirectCommand(Association, '04convert', 'Конвертация', 'convert');
-  CreateDirectCommand(Association, '05multi', 'Мульти-контент', 'multi');
-  CreateDirectCommand(Association, '06verify', 'Проверка', 'verify');
+  CreateDirectCommand(Association, '01update', 'Update', 'update');
+  CreateDirectCommand(Association, '02unpack', 'Unpack', 'unpack');
+  CreateDirectCommand(Association, '03pack', 'Pack', 'pack');
+  CreateDirectCommand(Association, '04convert', 'Convert', 'convert');
+  CreateDirectCommand(Association, '05multi', 'Multi-content', 'multi');
+  CreateDirectCommand(Association, '06verify', 'Verify', 'verify');
 end;
 
 procedure RegisterAllContextMenus();
@@ -157,11 +123,10 @@ begin
     if DirExists(BackupDir) then
     begin
       if FileExists(BackupDir + '\ssb_native.settings.json') then
-        CopyFile(BackupDir + '\ssb_native.settings.json', AppDir + '\ssb_native.settings.json', True);
+        FileCopy(BackupDir + '\ssb_native.settings.json', AppDir + '\ssb_native.settings.json', False);
       if FileExists(BackupDir + '\history.json') then
-        CopyFile(BackupDir + '\history.json', AppDir + '\history.json', True);
+        FileCopy(BackupDir + '\history.json', AppDir + '\history.json', False);
       DelTree(BackupDir, True, True, True);
-      Log('SSB_Update: Restored history successfully.');
     end;
 
     if WizardIsComponentSelected('portable') then
@@ -169,9 +134,7 @@ begin
 
     if WizardIsComponentSelected('full') and WizardIsTaskSelected('contextmenu') then
     begin
-      Log('SSB_Setup: Cleaning legacy context menus...');
       UnregisterAllContextMenus();
-      Log('SSB_Setup: Registering context menus...');
       RegisterAllContextMenus();
     end;
   end;
@@ -180,11 +143,7 @@ end;
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
   if CurUninstallStep = usUninstall then
-  begin
     UnregisterAllContextMenus();
-  end;
   if CurUninstallStep = usPostUninstall then
-  begin
     DeleteFile(ExpandConstant('{app}\portable.marker'));
-  end;
 end;

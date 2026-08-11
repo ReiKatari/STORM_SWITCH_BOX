@@ -28,8 +28,6 @@ namespace StormSwitchBox.Services
 
             var psi = new ProcessStartInfo
             {
-                FileName = fileName,
-                Arguments = arguments,
                 WorkingDirectory = workingDirectory,
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
@@ -39,25 +37,21 @@ namespace StormSwitchBox.Services
                 StandardErrorEncoding = Encoding.UTF8
             };
 
-            // ══════════════════════════════════════════════════════════════════
-            // forceUtf8Console: для PyInstaller-замороженных Python 3.7 .exe
-            // (squirrel.exe) env-переменные PYTHONIOENCODING/PYTHONUTF8 НЕ работают.
-            // Единственный способ — создать РЕАЛЬНУЮ (скрытую) консоль с chcp 65001.
-            // CreateNoWindow=true уничтожает консоль → chcp бесполезен.
-            // WindowStyle=Hidden создаёт скрытую консоль → chcp работает.
-            // ══════════════════════════════════════════════════════════════════
             if (forceUtf8Console)
             {
-                psi.CreateNoWindow = false;
-                psi.WindowStyle = ProcessWindowStyle.Hidden;
+                psi.FileName = "cmd.exe";
+                psi.Arguments = $"/c \"chcp 65001 >nul && \"{fileName}\" {arguments}\"";
+                psi.CreateNoWindow = true;
             }
             else
             {
+                psi.FileName = fileName;
+                psi.Arguments = arguments;
                 psi.CreateNoWindow = true;
             }
 
             // Гарантия Юникода для Python и утилит (включая PyInstaller-замороженные .exe)
-            psi.EnvironmentVariables["PYTHONIOENCODING"] = "utf-8:surrogateescape";
+            psi.EnvironmentVariables["PYTHONIOENCODING"] = "utf-8:replace";
             psi.EnvironmentVariables["PYTHONUTF8"] = "1";
             psi.EnvironmentVariables["PYTHONLEGACYWINDOWSSTDIO"] = "0";
             psi.EnvironmentVariables["PYTHONUNBUFFERED"] = "1";
@@ -85,6 +79,7 @@ namespace StormSwitchBox.Services
             process.ErrorDataReceived += handler;
 
             process.Start();
+            JobObjectManager.AddProcess(process);
             process.StandardInput.Close(); // Закрываем stdin чтобы процесс не ждал ввода
             process.BeginOutputReadLine();
             process.BeginErrorReadLine();
