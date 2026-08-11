@@ -95,13 +95,14 @@ namespace StormSwitchBox.Services
         private readonly HttpClient _httpClient;
         private readonly NintendoEShopService _eShopService;
 
-        // URL для загрузки русскоязычной базы TitleDB
-        private const string DbUrl = "https://tinfoil.media/repo/db/titles.RU.json";
-        private const string FallbackDbUrl = "https://raw.githubusercontent.com/blawar/titledb/master/titles.RU.json";
+        // URL для загрузки базы TitleDB (RU мертва — tinfoil 523, github 404)
+        // Используем общую базу + US зеркало
+        private const string DbUrl = "https://tinfoil.media/repo/db/titles.json";
+        private const string FallbackDbUrl = "https://raw.githubusercontent.com/blawar/titledb/master/US.en.json";
 
         public TitleDbService()
         {
-            _dbPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "titledb.RU.json");
+            _dbPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "titledb.json");
             _httpClient = new HttpClient();
             _httpClient.DefaultRequestHeaders.Add("User-Agent", "StormSwitchBox/4.2.0");
             _eShopService = new NintendoEShopService();
