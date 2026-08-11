@@ -104,7 +104,7 @@ namespace StormSwitchBox.Services
         {
             _dbPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "titledb.json");
             _httpClient = new HttpClient();
-            _httpClient.DefaultRequestHeaders.Add("User-Agent", "StormSwitchBox/4.2.9");
+            _httpClient.DefaultRequestHeaders.Add("User-Agent", "StormSwitchBox/4.3.0");
             _eShopService = new NintendoEShopService();
             
             // Асинхронно загружаем базу из локального кэша

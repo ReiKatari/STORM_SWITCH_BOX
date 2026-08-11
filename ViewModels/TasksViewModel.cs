@@ -298,8 +298,24 @@ public partial class TasksViewModel : ObservableObject
 				foreach (var task in newlyCreatedTasks)
 				{
 					bool updated = false;
+					// Определяем базовую папку задачи по первому входному файлу
+					string taskBaseDir = "";
+					if (task.InputFiles.Count > 0)
+					{
+						string firstFile = task.InputFiles[0];
+						taskBaseDir = Directory.Exists(firstFile) ? firstFile : (Path.GetDirectoryName(firstFile) ?? "");
+					}
+
 					foreach (var modDir in modDirs)
 					{
+						// Привязываем modDir только если он из того же дерева директорий, что и задача
+						if (!string.IsNullOrEmpty(taskBaseDir) && 
+							!modDir.StartsWith(taskBaseDir, StringComparison.OrdinalIgnoreCase) &&
+							!taskBaseDir.StartsWith(Path.GetDirectoryName(modDir) ?? "", StringComparison.OrdinalIgnoreCase))
+						{
+							continue; // modDir из другой папки — пропускаем
+						}
+
 						if (!task.InputFiles.Contains(modDir, StringComparer.OrdinalIgnoreCase))
 						{
 							task.InputFiles.Add(modDir);
