@@ -202,20 +202,77 @@ namespace StormSwitchBox.Views
             try
             {
                 string[] supportedExts = { ".nsp", ".nsz", ".xci", ".xcz" };
-                var files = new System.Collections.Generic.List<string>();
+                int totalFiles = 0;
+                int totalTasks = 0;
 
-                foreach (var file in System.IO.Directory.EnumerateFiles(watchPath, "*.*", System.IO.SearchOption.AllDirectories))
+                // Собираем подпапки первого уровня — каждая = отдельная задача
+                var subDirs = System.IO.Directory.GetDirectories(watchPath);
+                
+                // Файлы в корне watchPath (без подпапок)
+                var rootFiles = new System.Collections.Generic.List<string>();
+                foreach (var file in System.IO.Directory.EnumerateFiles(watchPath))
                 {
                     string ext = System.IO.Path.GetExtension(file).ToLowerInvariant();
-                    if (Array.Exists(supportedExts, e2 => e2 == ext))
+                    if (Array.Exists(supportedExts, x => x == ext))
                     {
                         var fi = new System.IO.FileInfo(file);
-                        if (fi.Length > 0)
-                            files.Add(file);
+                        if (fi.Length > 0) rootFiles.Add(file);
                     }
                 }
 
-                if (files.Count == 0)
+                if (rootFiles.Count > 0)
+                {
+                    await App.TasksVM.AddDroppedFilesBatchAsync(rootFiles);
+                    totalFiles += rootFiles.Count;
+                    totalTasks++;
+                }
+
+                // Каждая подпапка первого уровня — отдельная задача
+                foreach (var subDir in subDirs)
+                {
+                    var subFiles = new System.Collections.Generic.List<string>();
+                    var subFolders = new System.Collections.Generic.List<string>();
+
+                    // NSP/NSZ/XCI/XCZ в этой подпапке (и вложенных)
+                    foreach (var file in System.IO.Directory.EnumerateFiles(subDir, "*.*", System.IO.SearchOption.AllDirectories))
+                    {
+                        string ext = System.IO.Path.GetExtension(file).ToLowerInvariant();
+                        if (Array.Exists(supportedExts, x => x == ext))
+                        {
+                            var fi = new System.IO.FileInfo(file);
+                            if (fi.Length > 0) subFiles.Add(file);
+                        }
+                    }
+
+                    // Подпапки с romfs/exefs — добавляем как папки (не как файлы)
+                    foreach (var innerDir in System.IO.Directory.GetDirectories(subDir))
+                    {
+                        string dirName = System.IO.Path.GetFileName(innerDir).ToLowerInvariant();
+                        // Папки romfs/exefs или папки с TitleID (16 hex chars)
+                        if (dirName == "romfs" || dirName == "exefs" || 
+                            (dirName.Length == 16 && System.Text.RegularExpressions.Regex.IsMatch(dirName, "^[0-9a-fA-F]{16}$")))
+                        {
+                            subFolders.Add(innerDir);
+                        }
+                    }
+
+                    if (subFiles.Count > 0 || subFolders.Count > 0)
+                    {
+                        // Объединяем файлы и папки в один батч для этой подпапки
+                        var batch = new System.Collections.Generic.List<string>();
+                        batch.AddRange(subFiles);
+                        batch.AddRange(subFolders);
+
+                        await App.TasksVM.AddDroppedFilesBatchAsync(batch);
+                        totalFiles += subFiles.Count;
+                        totalTasks++;
+
+                        string folderName = System.IO.Path.GetFileName(subDir);
+                        App.Logger.Log($"[WatchFolder] Подпапка «{folderName}»: {subFiles.Count} файлов{(subFolders.Count > 0 ? $" + {subFolders.Count} мод-папок" : "")}", Models.LogLevel.Info);
+                    }
+                }
+
+                if (totalFiles == 0)
                 {
                     App.Logger.Log($"[WatchFolder] В папке «{watchPath}» не найдено файлов NSP/NSZ/XCI/XCZ", Models.LogLevel.Warning);
                     var dialog = new ContentDialog
@@ -229,15 +286,12 @@ namespace StormSwitchBox.Views
                 }
                 else
                 {
-                    App.Logger.Log($"[WatchFolder] Сканирование: найдено {files.Count} файлов в «{watchPath}»", Models.LogLevel.Success);
-                    await App.TasksVM.AddDroppedFilesBatchAsync(files);
-
                     string[] actions = { "Сжатие", "Распаковка", "Упаковка", "Конвертация", "Мульти-контент", "Проверка" };
                     string[] formats = { "NSP", "NSZ", "XCI", "XCZ" };
                     string actionStr = settings.WatchFolderAction >= 0 && settings.WatchFolderAction < actions.Length ? actions[settings.WatchFolderAction] : "Обработка";
                     string formatStr = settings.WatchFolderFormat >= 0 && settings.WatchFolderFormat < formats.Length ? formats[settings.WatchFolderFormat] : "NSP";
 
-                    App.Logger.Log($"[WatchFolder] Добавлено {files.Count} файлов → {actionStr} в {formatStr}", Models.LogLevel.Success);
+                    App.Logger.Log($"[WatchFolder] Добавлено {totalFiles} файлов в {totalTasks} задач → {actionStr} в {formatStr}", Models.LogLevel.Success);
                 }
             }
             catch (Exception ex)
@@ -556,7 +610,7 @@ namespace StormSwitchBox.Views
                     var dialog = new ContentDialog
                     {
                         Title = "Обновления не найдены",
-                        Content = new TextBlock { Text = "У вас установлена актуальная версия STORM SWITCH BOX v4.2.3." },
+                        Content = new TextBlock { Text = "У вас установлена актуальная версия STORM SWITCH BOX v4.2.4." },
                         CloseButtonText = "OK",
                         XamlRoot = this.XamlRoot
                     };
