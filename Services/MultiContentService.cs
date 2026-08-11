@@ -466,7 +466,7 @@ namespace StormSwitchBox.Services
                         // Аргументы из рабочей версии 0.1.007 + динамические настройки:
                         string fatMode = App.Settings.Current.SplitFat32 ? "fat32" : "exfat";
                         string ndFlag = App.Settings.Current.RemoveDeltaNca ? "true" : "false";
-                        string cleanFlag = App.Settings.Current.RemoveTitlerights ? " --C_clean_ND" : "";
+                        string cleanFlag = App.Settings.Current.RemoveTitlerights ? " --C_clean_ND true" : "";
                         int keyGen = App.Settings.Current.KeyGeneration;
                         string kpFlag = (keyGen >= 0 && keyGen <= 30) ? keyGen.ToString() : "false";
                         string pvFlag = (keyGen >= 0 && keyGen < 19) ? "true" : "false";
@@ -647,7 +647,8 @@ namespace StormSwitchBox.Services
                         }
                         else
                         {
-                            App.RunOnUI(() => task.LogDetails += $"\n⚠️ [NSC_Builder] squirrel.exe завершился с кодом {exitCode} (возможно, заблокирован политикой Device Guard). Переход на нативную сборку C# (LibHac)...");
+                            string reason = exitCode == 2 ? "ошибка аргументов командной строки" : exitCode == 1 ? "ошибка выполнения" : exitCode == -1 ? "не удалось запустить (возможно, заблокирован Device Guard)" : $"неизвестная ошибка";
+                            App.RunOnUI(() => task.LogDetails += $"\n⚠️ [NSC_Builder] squirrel.exe завершился с кодом {exitCode} ({reason}). Переход на нативную сборку C# (LibHac)...");
                         }
                     }
                     catch (Exception ex)
