@@ -35,37 +35,8 @@ namespace StormSwitchBox.Services
             if (string.IsNullOrWhiteSpace(gameTitle) || gameTitle == "Unknown Game" || gameTitle == "Unknown")
                 return null;
 
-            // Пробуем сначала RU (русское описание), затем EN (скриншоты и жанр)
-            var ruResult = await SearchByLocaleAsync(gameTitle, "ru");
-            var enResult = await SearchByLocaleAsync(gameTitle, "en");
-
-            if (ruResult == null && enResult == null) return null;
-
-            var result = ruResult ?? enResult ?? new EShopGameItem();
-
-            // Мёрджим: русское описание + английские скриншоты/жанр
-            if (enResult != null)
-            {
-                // Скриншоты — берём больше из EN, если RU не имеет
-                if (result.Screenshots.Count == 0 && enResult.Screenshots.Count > 0)
-                    result.Screenshots = enResult.Screenshots;
-
-                // Жанр — если RU пусто, берём из EN
-                if (string.IsNullOrEmpty(result.Genre) && !string.IsNullOrEmpty(enResult.Genre))
-                    result.Genre = enResult.Genre;
-
-                // Дата выхода
-                if (string.IsNullOrEmpty(result.ReleaseDate) && !string.IsNullOrEmpty(enResult.ReleaseDate))
-                    result.ReleaseDate = enResult.ReleaseDate;
-
-                // Developer/Publisher fallback
-                if (string.IsNullOrEmpty(result.Developer) && !string.IsNullOrEmpty(enResult.Developer))
-                    result.Developer = enResult.Developer;
-                if (string.IsNullOrEmpty(result.Publisher) && !string.IsNullOrEmpty(enResult.Publisher))
-                    result.Publisher = enResult.Publisher;
-            }
-
-            return result;
+            // RU локаль мертва (возвращает 0 результатов), используем только EN
+            return await SearchByLocaleAsync(gameTitle, "en");
         }
 
         private async Task<EShopGameItem?> SearchByLocaleAsync(string gameTitle, string locale)
@@ -76,7 +47,9 @@ namespace StormSwitchBox.Services
                 if (string.IsNullOrWhiteSpace(cleanQuery)) return null;
 
                 string encodedQuery = Uri.EscapeDataString(cleanQuery);
-                string url = $"https://search.nintendo-europe.com/{locale}/select?q={encodedQuery}&fq=type:GAME%20AND%20system_type:nintendo_switch*&rows=3&wt=json";
+                // Убран фильтр system_type — Nintendo удаляет старые Switch листинги,
+                // оставляя только Switch 2. type:GAME достаточно.
+                string url = $"https://search.nintendo-europe.com/{locale}/select?q={encodedQuery}&fq=type:GAME&rows=5&wt=json";
 
                 var response = await _httpClient.GetAsync(url);
                 if (!response.IsSuccessStatusCode) return null;
@@ -89,17 +62,36 @@ namespace StormSwitchBox.Services
                     docsProp.ValueKind == JsonValueKind.Array &&
                     docsProp.GetArrayLength() > 0)
                 {
-                    var docElement = docsProp[0];
+                    // Ищем наиболее релевантный результат (title содержит запрос)
+                    JsonElement? bestDoc = null;
+                    string lowerQuery = cleanQuery.ToLowerInvariant();
+                    
+                    foreach (var candidate in docsProp.EnumerateArray())
+                    {
+                        if (candidate.TryGetProperty("title", out var tProp))
+                        {
+                            string candidateTitle = (tProp.GetString() ?? "").ToLowerInvariant();
+                            if (candidateTitle.Contains(lowerQuery) || lowerQuery.Contains(candidateTitle.Replace("™", "").Replace("®", "").Trim()))
+                            {
+                                bestDoc = candidate;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    // Если не нашли точное совпадение — берём первый результат
+                    if (!bestDoc.HasValue)
+                        bestDoc = docsProp[0];
+
+                    var docElement = bestDoc.Value;
                     var item = new EShopGameItem();
 
                     if (docElement.TryGetProperty("title", out var titleProp))
                         item.Title = titleProp.GetString() ?? "";
 
-                    // Описание — сначала excerpt, потом description, потом product_catalog_description_s
+                    // Описание — excerpt -> product_catalog_description_s
                     if (docElement.TryGetProperty("excerpt", out var excerptProp) && !string.IsNullOrWhiteSpace(excerptProp.GetString()))
                         item.Description = excerptProp.GetString() ?? "";
-                    else if (docElement.TryGetProperty("description", out var descProp) && !string.IsNullOrWhiteSpace(descProp.GetString()))
-                        item.Description = descProp.GetString() ?? "";
                     else if (docElement.TryGetProperty("product_catalog_description_s", out var catDescProp) && !string.IsNullOrWhiteSpace(catDescProp.GetString()))
                         item.Description = catDescProp.GetString() ?? "";
 
@@ -140,7 +132,7 @@ namespace StormSwitchBox.Services
                             item.ReleaseDate = dt.ToString("dd.MM.yyyy");
                     }
 
-                    // Скриншоты — собираем все доступные
+                    // Скриншоты — собираем все доступные изображения
                     // 1. screenshot_img_url_list (массив скриншотов)
                     if (docElement.TryGetProperty("screenshot_img_url_list", out var screenshotListProp) && screenshotListProp.ValueKind == JsonValueKind.Array)
                     {
@@ -149,28 +141,19 @@ namespace StormSwitchBox.Services
                             var s = screenshotUrl.GetString();
                             if (!string.IsNullOrEmpty(s))
                             {
-                                item.Screenshots.Add(s.StartsWith("https:") ? s : "https:" + s);
+                                item.Screenshots.Add(s.StartsWith("https:") || s.StartsWith("http:") ? s : "https:" + s);
                             }
                         }
                     }
 
-                    // 2. image_url_h2x1_s (основной баннер)
-                    if (docElement.TryGetProperty("image_url_h2x1_s", out var bannerProp) && !string.IsNullOrEmpty(bannerProp.GetString()))
-                    {
-                        string bannerUrl = bannerProp.GetString()!;
-                        bannerUrl = bannerUrl.StartsWith("https:") ? bannerUrl : "https:" + bannerUrl;
-                        if (!item.Screenshots.Contains(bannerUrl))
-                            item.Screenshots.Add(bannerUrl);
-                    }
+                    // 2. image_url_h16x9_s (широкоформатный баннер — лучше для скриншотов)
+                    AddImageIfAvailable(docElement, "image_url_h16x9_s", item.Screenshots);
 
-                    // 3. image_url (дополнительное изображение)
-                    if (docElement.TryGetProperty("image_url", out var imgUrlProp) && !string.IsNullOrEmpty(imgUrlProp.GetString()))
-                    {
-                        string imgUrl = imgUrlProp.GetString()!;
-                        imgUrl = imgUrl.StartsWith("https:") ? imgUrl : "https:" + imgUrl;
-                        if (!item.Screenshots.Contains(imgUrl))
-                            item.Screenshots.Add(imgUrl);
-                    }
+                    // 3. image_url_h2x1_s (2:1 баннер)
+                    AddImageIfAvailable(docElement, "image_url_h2x1_s", item.Screenshots);
+
+                    // 4. wishlist_email_banner640w_image_url_s
+                    AddImageIfAvailable(docElement, "wishlist_email_banner640w_image_url_s", item.Screenshots);
 
                     return item;
                 }
@@ -181,6 +164,17 @@ namespace StormSwitchBox.Services
             }
 
             return null;
+        }
+
+        private static void AddImageIfAvailable(JsonElement docElement, string propName, List<string> screenshots)
+        {
+            if (docElement.TryGetProperty(propName, out var prop) && !string.IsNullOrEmpty(prop.GetString()))
+            {
+                string url = prop.GetString()!;
+                url = (url.StartsWith("https:") || url.StartsWith("http:")) ? url : "https:" + url;
+                if (!screenshots.Contains(url))
+                    screenshots.Add(url);
+            }
         }
 
         private static string CleanTitleForSearch(string rawTitle)
