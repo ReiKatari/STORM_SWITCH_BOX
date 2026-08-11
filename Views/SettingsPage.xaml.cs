@@ -142,6 +142,114 @@ namespace StormSwitchBox.Views
             catch { }
         }
 
+        private void WatchFolderBox_DragOver(object sender, DragEventArgs e)
+        {
+            e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
+            e.DragUIOverride.Caption = "Выбрать как Watch Folder";
+            e.DragUIOverride.IsCaptionVisible = true;
+            e.DragUIOverride.IsContentVisible = true;
+        }
+
+        private async void WatchFolderBox_Drop(object sender, DragEventArgs e)
+        {
+            if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+            {
+                var items = await e.DataView.GetStorageItemsAsync();
+                if (items.Count > 0)
+                {
+                    var item = items[0];
+                    string path = item.Path;
+                    if (System.IO.File.Exists(path))
+                    {
+                        path = System.IO.Path.GetDirectoryName(path) ?? path;
+                    }
+                    if (System.IO.Directory.Exists(path))
+                    {
+                        App.Settings.Current.WatchFolder = path;
+                        WatchFolderBox.Text = path;
+                        await App.Settings.SaveAsync();
+                        App.Logger.Log($"[WatchFolder] Папка установлена перетягиванием: {path}", Models.LogLevel.Success);
+
+                        if (App.WatchFolderService != null && App.Settings.Current.EnableWatchFolder)
+                        {
+                            App.WatchFolderService.Start();
+                        }
+                    }
+                }
+            }
+        }
+
+        private async void WatchFolderScanNow_Click(object sender, RoutedEventArgs e)
+        {
+            var settings = App.Settings.Current;
+            string watchPath = settings.WatchFolder;
+
+            if (string.IsNullOrWhiteSpace(watchPath) || !System.IO.Directory.Exists(watchPath))
+            {
+                var dialog = new ContentDialog
+                {
+                    Title = "Папка не найдена",
+                    Content = new TextBlock { Text = "Укажите существующую папку для сканирования.", TextWrapping = Microsoft.UI.Xaml.TextWrapping.Wrap },
+                    CloseButtonText = "OK",
+                    XamlRoot = this.XamlRoot
+                };
+                await dialog.ShowAsync();
+                return;
+            }
+
+            WatchFolderScanNowBtn.IsEnabled = false;
+
+            try
+            {
+                string[] supportedExts = { ".nsp", ".nsz", ".xci", ".xcz" };
+                var files = new System.Collections.Generic.List<string>();
+
+                foreach (var file in System.IO.Directory.EnumerateFiles(watchPath, "*.*", System.IO.SearchOption.AllDirectories))
+                {
+                    string ext = System.IO.Path.GetExtension(file).ToLowerInvariant();
+                    if (Array.Exists(supportedExts, e2 => e2 == ext))
+                    {
+                        var fi = new System.IO.FileInfo(file);
+                        if (fi.Length > 0)
+                            files.Add(file);
+                    }
+                }
+
+                if (files.Count == 0)
+                {
+                    App.Logger.Log($"[WatchFolder] В папке «{watchPath}» не найдено файлов NSP/NSZ/XCI/XCZ", Models.LogLevel.Warning);
+                    var dialog = new ContentDialog
+                    {
+                        Title = "Файлы не найдены",
+                        Content = new TextBlock { Text = $"В папке «{watchPath}» не найдено файлов NSP/NSZ/XCI/XCZ.", TextWrapping = Microsoft.UI.Xaml.TextWrapping.Wrap },
+                        CloseButtonText = "OK",
+                        XamlRoot = this.XamlRoot
+                    };
+                    await dialog.ShowAsync();
+                }
+                else
+                {
+                    App.Logger.Log($"[WatchFolder] Сканирование: найдено {files.Count} файлов в «{watchPath}»", Models.LogLevel.Success);
+                    await App.TasksVM.AddDroppedFilesBatchAsync(files);
+
+                    string[] actions = { "Сжатие", "Распаковка", "Упаковка", "Конвертация", "Мульти-контент", "Проверка" };
+                    string[] formats = { "NSP", "NSZ", "XCI", "XCZ" };
+                    string actionStr = settings.WatchFolderAction >= 0 && settings.WatchFolderAction < actions.Length ? actions[settings.WatchFolderAction] : "Обработка";
+                    string formatStr = settings.WatchFolderFormat >= 0 && settings.WatchFolderFormat < formats.Length ? formats[settings.WatchFolderFormat] : "NSP";
+
+                    App.Logger.Log($"[WatchFolder] Добавлено {files.Count} файлов → {actionStr} в {formatStr}", Models.LogLevel.Success);
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Logger.Log($"[WatchFolder] Ошибка сканирования: {ex.Message}", Models.LogLevel.Warning);
+            }
+            finally
+            {
+                WatchFolderScanNowBtn.IsEnabled = true;
+            }
+        }
+
         private async void ThemeCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (ThemeCombo.SelectedItem is ComboBoxItem item && item.Tag is string tagStr)
@@ -448,7 +556,7 @@ namespace StormSwitchBox.Views
                     var dialog = new ContentDialog
                     {
                         Title = "Обновления не найдены",
-                        Content = new TextBlock { Text = "У вас установлена актуальная версия STORM SWITCH BOX v4.2.2." },
+                        Content = new TextBlock { Text = "У вас установлена актуальная версия STORM SWITCH BOX v4.2.3." },
                         CloseButtonText = "OK",
                         XamlRoot = this.XamlRoot
                     };
