@@ -43,7 +43,7 @@
 
         <!-- Правая колонка: Содержимое раздела -->
         <ScrollViewer Grid.Column="2" Padding="32,24,32,24" x:Name="ContentScrollViewer">
-            <StackPanel Spacing="24" MaxWidth="800" HorizontalAlignment="Left">
+            <StackPanel Spacing="24" MaxWidth="950" HorizontalAlignment="Left">
                 <!-- Заголовок темы -->
                 <StackPanel Spacing="4">
                     <TextBlock x:Name="TopicTitle" Text="Обзор приложения" Style="{StaticResource TitleTextBlockStyle}" FontWeight="Bold"/>
@@ -52,20 +52,20 @@
 
                 <!-- Основной контент (интерактивный текст) -->
                 <RichTextBlock x:Name="TopicDescription" TextWrapping="Wrap" LineHeight="24" FontSize="14">
-                    <!-- Заполняется динамически из C# для поддержки богатого форматирования -->
+                    <!-- Заполняется динамически из C# -->
                 </RichTextBlock>
 
-                <!-- Интерактивная плашка-превью параметров -->
-                <TextBlock Text="Интерактивный предпросмотр параметров" FontWeight="SemiBold" FontSize="16" Margin="0,12,0,0" x:Name="PreviewHeader"/>
-                <Border x:Name="InteractivePreviewCard" Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="20">
+                <!-- Интерактивная плашка-превью / Симулятор -->
+                <TextBlock Text="Интерактивный предпросмотр и симуляция" FontWeight="SemiBold" FontSize="16" Margin="0,12,0,0" x:Name="PreviewHeader"/>
+                <Border x:Name="InteractivePreviewCard" Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="10" Padding="20">
                     <!-- Содержимое карточки предпросмотра меняется динамически -->
                     <StackPanel x:Name="PreviewContent" Spacing="16">
-                        <!-- Динамические превью-контролы -->
+                        <!-- Динамические превью-контролы и симулятор -->
                     </StackPanel>
                 </Border>
 
                 <!-- Информационная плашка безопасности/совета -->
-                <Border x:Name="TipBorder" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6" Padding="16,12">
+                <Border x:Name="TipBorder" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="16,12">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
