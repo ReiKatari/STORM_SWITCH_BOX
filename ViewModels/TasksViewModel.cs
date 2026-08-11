@@ -226,7 +226,7 @@ public partial class TasksViewModel : ObservableObject
 		return result;
 	}
 
-	public async Task AddDroppedFilesBatchAsync(List<string> paths)
+	public async Task AddDroppedFilesBatchAsync(List<string> paths, bool forceNewTask = false)
 	{
 		if (paths == null || paths.Count == 0) return;
 
@@ -273,7 +273,7 @@ public partial class TasksViewModel : ObservableObject
 		{
 			foreach (var path in normalPaths)
 			{
-				await AddDroppedFileAsync(path);
+				await AddDroppedFileAsync(path, forceNewTask);
 			}
 		}
 
@@ -332,7 +332,7 @@ public partial class TasksViewModel : ObservableObject
 	}
 
 
-	public async Task AddDroppedFileAsync(string path)
+	public async Task AddDroppedFileAsync(string path, bool forceNewTask = false)
 	{
 		await Task.Run(async delegate
 		{
@@ -500,7 +500,7 @@ public partial class TasksViewModel : ObservableObject
 								if (filesInGroup.Count > 0)
 								{
 									string taskBasePath = ((group.First().Item4 == "ROOT") ? path : Path.Combine(path, group.First().Item4));
-									await AddOrUpdateTask(filesInGroup.Select(m => m.Path).ToList(), group.Key, taskBasePath, filesInGroup.FirstOrDefault(m => m.IconBytes != null).IconBytes);
+									await AddOrUpdateTask(filesInGroup.Select(m => m.Path).ToList(), group.Key, taskBasePath, filesInGroup.FirstOrDefault(m => m.IconBytes != null).IconBytes, forceNewTask);
 								}
 							}
 							return;
@@ -523,13 +523,13 @@ public partial class TasksViewModel : ObservableObject
 							return;
 						}
 					}
-					await AddOrUpdateTask(new List<string> { path }, baseTid, (isDirectory ? path : Path.GetDirectoryName(path)) ?? path, fileMeta.IconBytes);
+					await AddOrUpdateTask(new List<string> { path }, baseTid, (isDirectory ? path : Path.GetDirectoryName(path)) ?? path, fileMeta.IconBytes, forceNewTask);
 				}
 			}
 		});
 	}
 
-	private Task AddOrUpdateTask(List<string> files, string groupId, string basePath, byte[]? iconBytes = null)
+	private Task AddOrUpdateTask(List<string> files, string groupId, string basePath, byte[]? iconBytes = null, bool forceNewTask = false)
 	{
 		if (files == null || files.Count == 0)
 		{
@@ -542,7 +542,7 @@ public partial class TasksViewModel : ObservableObject
 			{
 				ProcessingTask? existingTask = null;
 				string? groupBase = (groupId != null && groupId.Length >= 12) ? groupId.Substring(0, 12) : null;
-				if ((_currentPageType == "Update" || _currentPageType == "Multi") && groupBase != null)
+				if (!forceNewTask && (_currentPageType == "Update" || _currentPageType == "Multi") && groupBase != null)
 				{
 					existingTask = Tasks.FirstOrDefault((ProcessingTask t) => t.GroupId != null && t.GroupId.Length >= 12 && t.GroupId.Substring(0, 12) == groupBase && t.Operation == _currentPageType && t.Status == "Ожидание");
 				}
