@@ -464,14 +464,27 @@ public partial class TasksViewModel : ObservableObject
 						List<string> gameFiles = (await Task.Run(() => SafeGetGameFiles(path))).Where((string f) => GameExtensions.Contains(Path.GetExtension(f).ToLower())).ToList();
 						if (gameFiles.Count > 0)
 						{
+							bool hasRootGameFiles = false;
+							try
+							{
+								hasRootGameFiles = Directory.EnumerateFiles(path).Any(f => 
+									GameExtensions.Contains(Path.GetExtension(f).ToLowerInvariant()));
+							}
+							catch { }
+
 							List<(string Path, string? TitleId, string Type, string TopFolder, byte[]? IconBytes)> filesMeta = new();
 							var metaTasks = gameFiles.Select(async delegate(string f)
 							{
 								string relPath = Path.GetRelativePath(path, f);
-								string topFolder = relPath.Split(Path.DirectorySeparatorChar)[0];
-								if (relPath == topFolder)
+								string topFolder;
+								if (hasRootGameFiles)
 								{
 									topFolder = "ROOT";
+								}
+								else
+								{
+									var parts = relPath.Split(Path.DirectorySeparatorChar);
+									topFolder = parts.Length > 0 ? parts[0] : "ROOT";
 								}
 								string? tid = null;
 								string ctype = "";

@@ -6375,6 +6375,7 @@ class ChromeNsp(Pfs0):
 					if crypto2<=crypto1:
 						masterKeyRev=crypto1
 					if file.header.getRightsId() != 0:
+						encryptedkey = b'\x00' * 16
 						for i in range(len(ticketlist)):
 							#print(str(file.header.rightsId))
 							#print(ticketlist[i][1])

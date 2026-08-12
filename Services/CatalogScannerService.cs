@@ -621,7 +621,14 @@ namespace StormSwitchBox.Services
                     }
                     catch (Exception ex)
                     {
-                        App.Logger.Log($"[CatalogScanner] Ошибка парсинга {entryName}: {ex.Message}\n{ex.StackTrace}", LogLevel.Error);
+                        if (ex.Message.Contains("Unable to decrypt NCA header", StringComparison.OrdinalIgnoreCase))
+                        {
+                            App.Logger.Log($"[CatalogScanner] Заголовок {entryName} зашифрован (пропущен)", LogLevel.Warning);
+                        }
+                        else
+                        {
+                            App.Logger.Log($"[CatalogScanner] Ошибка парсинга {entryName}: {ex.Message}", LogLevel.Warning);
+                        }
                     }
                     finally
                     {
