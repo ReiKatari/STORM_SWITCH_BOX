@@ -238,7 +238,18 @@ namespace StormSwitchBox.Services
                 string yanuCliPath = FindYanuCli();
                 string keysPath = App.Settings.Current.KeysPath;
 
-                string keyfileFlag = (!string.IsNullOrEmpty(keysPath) && File.Exists(keysPath)) ? $"-k \"{keysPath}\" " : "";
+                string defaultKeysPath = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "prod.keys");
+                bool isDefaultLocation = false;
+                try
+                {
+                    if (!string.IsNullOrEmpty(keysPath) && File.Exists(keysPath) && File.Exists(defaultKeysPath))
+                    {
+                        isDefaultLocation = System.IO.Path.GetFullPath(keysPath).Equals(System.IO.Path.GetFullPath(defaultKeysPath), StringComparison.OrdinalIgnoreCase);
+                    }
+                }
+                catch { }
+
+                string keyfileFlag = (!string.IsNullOrEmpty(keysPath) && File.Exists(keysPath) && !isDefaultLocation) ? $"-k \"{keysPath}\" " : "";
 
                 string yanuOutDir = System.IO.Path.Combine(tempDir, "yanu_output");
                 Directory.CreateDirectory(yanuOutDir);
@@ -384,7 +395,7 @@ namespace StormSwitchBox.Services
                         string updateWorkDir = System.IO.Path.Combine(tempDir, "update_work");
                         Directory.CreateDirectory(updateWorkDir);
                         
-                        string updateArgs = $"update --base \"{baseFile}\" --update \"{updateFile}\" -o \"{yanuOutDir}\"";
+                        string updateArgs = $"{keyfileFlag}update --base \"{baseFile}\" --update \"{updateFile}\" -o \"{yanuOutDir}\"";
                         if (!string.IsNullOrEmpty(keepLangsArg)) updateArgs += $" {keepLangsArg}";
                         if (!string.IsNullOrEmpty(titleVersionArg)) updateArgs += $" {titleVersionArg}";
                         
