@@ -49,11 +49,11 @@ namespace StormSwitchBox.Views
                     Title = "Обзор приложения",
                     Category = "Введение",
                     Icon = "\uE9CE",
-                    DescriptionText = "STORM SWITCH BOX v4.3.3 — это высокопроизводительный комбайн для всесторонней обработки образов игр Nintendo Switch. Программа позволяет собирать обновления (HardPatch), распаковывать ресурсы, компилировать файлы в NSP/NSZ, конвертировать XCI в NSP, объединять игры с обновлениями и DLC в единый файл (Мульти-контент), а также осуществлять автоматический мониторинг через «Умную» папку.\n\nБлагодаря полной интеграции C# библиотек LibHac и ZstdSharp, приложение выполняет сжатие, вырезание языков и дельта-патчинг в 10–20 раз быстрее классических утилит на Python, задействуя многопоточность ЦП.",
+                    DescriptionText = "STORM SWITCH BOX v4.3.4 — это высокопроизводительный комбайн для всесторонней обработки образов игр Nintendo Switch. Программа позволяет собирать обновления (HardPatch), распаковывать ресурсы, компилировать файлы в NSP/NSZ, конвертировать XCI в NSP, объединять игры с обновлениями и DLC в единый файл (Мульти-контент), а также осуществлять автоматический мониторинг через «Умную» папку.\n\nБлагодаря полной интеграции C# библиотек LibHac и ZstdSharp, приложение выполняет сжатие, вырезание языков и дельта-патчинг в 10–20 раз быстрее классических утилит на Python, задействуя многопоточность ЦП.",
                     Tip = "Вы можете включить автоматическое отслеживание «Умной» папки в Параметрах: файлы и папки будут мгновенно определяться и запускаться в обработку.",
                     SetupPreview = container =>
                     {
-                        container.Children.Add(new TextBlock { Text = "STORM SWITCH BOX v4.3.3", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.Bold });
+                        container.Children.Add(new TextBlock { Text = "STORM SWITCH BOX v4.3.4", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.Bold });
                         container.Children.Add(new TextBlock { Text = "• Умная папка с авто-группировкой по папкам и TitleID\n• Автоматический запуск задач при поступлении новых файлов\n• Изолированная проверка RomFS / ExeFS для каждой задачи\n• Быстрый Zstandard компрессор и дельта-патчинг BKTR\n• Интерактивное удаление неиспользуемых языковых локализаций", Foreground = GetSecondaryBrush() });
                     }
                 },
@@ -62,7 +62,7 @@ namespace StormSwitchBox.Views
                     Title = "Симулятор группировки задач",
                     Category = "Интерактив",
                     Icon = "\uE8E5",
-                    DescriptionText = "Интерактивный симулятор алгоритма группировки v4.3.3.\n\nПеретащите реальные файлы/папки в зону ниже или выберите один из готовых сценариев («Dispatch» или «Cadence of Hyrule»), чтобы увидеть, как программа сформирует изолированные комплектные задачи (ИГРА + UPDATE + DLC + ROMFS/EXEFS), определит RomFS для нужных папок и выведет полный сгруппированный результат построчно с нумерацией.",
+                    DescriptionText = "Интерактивный симулятор алгоритма группировки v4.3.4.\n\nПеретащите реальные файлы/папки в зону ниже или выберите один из готовых сценариев («Dispatch» или «Cadence of Hyrule»), чтобы увидеть, как программа сформирует изолированные комплектные задачи (ИГРА + UPDATE + DLC + ROMFS/EXEFS), определит RomFS для нужных папок и выведет полный сгруппированный результат построчно с нумерацией.",
                     Tip = "Перетаскивайте папки с несколькими релизами прямо в симулятор: вы сразу увидите, как файлы разделятся по независимым задачам!",
                     SetupPreview = container => BuildSimulatorPreview(container)
                 },
@@ -72,7 +72,7 @@ namespace StormSwitchBox.Views
                     Category = "Автоматизация",
                     Icon = "\uE812",
                     DescriptionText = "«Умная» папка предназначена для автоматической фоновой обработки игр.\n\n" +
-                                      "Принцип работы в v4.3.3:\n" +
+                                      "Принцип работы в v4.3.4:\n" +
                                       "1. Активация — просто включите переключатель в Параметрах. Сканирование начинается мгновенно!\n" +
                                       "2. Изоляция по папкам — каждая подпапка первого уровня формирует отдельную изолированную задачу.\n" +
                                       "3. Комплектность по TitleID — внутри одной подпапки базовая игра, файлы обновления, DLC и модификации (RomFS/ExeFS) автоматически объединяются в один комплект.\n" +
@@ -94,7 +94,7 @@ namespace StormSwitchBox.Views
                     Title = "Мульти-контент",
                     Category = "Компоновка",
                     Icon = "\uE7BE",
-                    DescriptionText = "Наиболее продвинутый режим для сборки монолитных образов NSP или NSZ.\n\nПрограмма объединяет Базовую игру, Файл обновления, Все дополнения (DLC), Модификации RomFS/ExeFS и Unlocker в единый устанавливаемый файл.\n\nБлагодаря правилам v4.3.3 образы из разных каталогов никогда не перемешиваются, сохраняя чистую структуру комплектов.",
+                    DescriptionText = "Наиболее продвинутый режим для сборки монолитных образов NSP или NSZ.\n\nПрограмма объединяет Базовую игру, Файл обновления, Все дополнения (DLC), Модификации RomFS/ExeFS и Unlocker в единый устанавливаемый файл.\n\nБлагодаря правилам v4.3.4 образы из разных каталогов никогда не перемешиваются, сохраняя чистую структуру комплектов.",
                     Tip = "Сборка Мульти-контента в NSZ позволяет сэкономить гигабайты места при хранении единого файла игры со всеми DLC.",
                     SetupPreview = container =>
                     {
@@ -250,7 +250,7 @@ namespace StormSwitchBox.Views
             }
         }
 
-        #region Interactive Task Simulator (v4.3.3)
+        #region Interactive Task Simulator (v4.3.4)
 
         private void BuildSimulatorPreview(StackPanel container)
         {
@@ -293,7 +293,7 @@ namespace StormSwitchBox.Views
             var dropContent = new StackPanel { Spacing = 8, HorizontalAlignment = HorizontalAlignment.Center };
             dropContent.Children.Add(new FontIcon { Glyph = "\uE8E5", FontSize = 32, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue), HorizontalAlignment = HorizontalAlignment.Center });
             dropContent.Children.Add(new TextBlock { Text = "Перетащите сюда файлы (.nsp/.nsz/.xci) или папки с играми", FontWeight = Microsoft.UI.Text.FontWeights.Bold, FontSize = 14, HorizontalAlignment = HorizontalAlignment.Center });
-            dropContent.Children.Add(new TextBlock { Text = "Симулятор проанализирует пути, разделит подпапки, подберет TitleID и роутит RomFS/ExeFS по правилам v4.3.3", FontSize = 12, Foreground = GetSecondaryBrush(), HorizontalAlignment = HorizontalAlignment.Center, TextWrapping = TextWrapping.Wrap, MaxWidth = 550, TextAlignment = TextAlignment.Center });
+            dropContent.Children.Add(new TextBlock { Text = "Симулятор проанализирует пути, разделит подпапки, подберет TitleID и роутит RomFS/ExeFS по правилам v4.3.4", FontSize = 12, Foreground = GetSecondaryBrush(), HorizontalAlignment = HorizontalAlignment.Center, TextWrapping = TextWrapping.Wrap, MaxWidth = 550, TextAlignment = TextAlignment.Center });
 
             dropZoneBorder.Child = dropContent;
             mainSp.Children.Add(dropZoneBorder);
@@ -372,7 +372,7 @@ namespace StormSwitchBox.Views
 
             _simulatorResultsPanel.Children.Add(new TextBlock
             {
-                Text = "результат симуляции v4.3.3 — Папка «Dispatch» (2 подпапки = 2 изолированные задачи):",
+                Text = "результат симуляции v4.3.4 — Папка «Dispatch» (2 подпапки = 2 изолированные задачи):",
                 FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
                 FontSize = 14,
                 Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen)
@@ -417,7 +417,7 @@ namespace StormSwitchBox.Views
 
             _simulatorResultsPanel.Children.Add(new TextBlock
             {
-                Text = "результат симуляции v4.3.3 — Папка «Cadence of Hyrule» (3 подпапки = 3 изолированные задачи):",
+                Text = "результат симуляции v4.3.4 — Папка «Cadence of Hyrule» (3 подпапки = 3 изолированные задачи):",
                 FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
                 FontSize = 14,
                 Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen)
@@ -489,7 +489,7 @@ namespace StormSwitchBox.Views
 
             _simulatorResultsPanel.Children.Add(new TextBlock
             {
-                Text = $"Результат симуляции анализа {items.Count} элементов по правилам v4.3.3:",
+                Text = $"Результат симуляции анализа {items.Count} элементов по правилам v4.3.4:",
                 FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
                 FontSize = 14,
                 Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen)
