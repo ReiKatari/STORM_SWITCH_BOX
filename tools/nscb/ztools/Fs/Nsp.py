@@ -6803,6 +6803,7 @@ class Nsp(Pfs0):
 					if file.header.getRightsId() != 0:
 						if not unmod:
 							gc_flag='00'*0x01
+						encryptedkey = b'\x00' * 16
 						for i in range(len(ticketlist)):
 							#print(str(file.header.rightsId))
 							#print(ticketlist[i][1])
@@ -7150,6 +7151,7 @@ class Nsp(Pfs0):
 				if crypto2<=crypto1:
 					masterKeyRev=crypto1
 				if ncztype.header.getRightsId() != 0:
+					encryptedkey = b'\x00' * 16
 					for i in range(len(ticketlist)):
 						#print(str(ncztype.header.rightsId))
 						#print(ticketlist[i][1])
