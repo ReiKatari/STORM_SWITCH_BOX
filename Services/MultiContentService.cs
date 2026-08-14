@@ -477,8 +477,17 @@ namespace StormSwitchBox.Services
                         // Аргументы из рабочей версии 0.1.007 + динамические настройки:
                         string fatMode = App.Settings.Current.SplitFat32 ? "fat32" : "exfat";
                         string ndFlag = App.Settings.Current.RemoveDeltaNca ? "true" : "false";
-                        string cleanFlag = App.Settings.Current.RemoveTitlerights ? " --C_clean_ND true" : "";
-                        string romaFlag = App.Settings.Current.RemoveTitlerights ? "TRUE" : "FALSE";
+                        bool hasUnlocker = sortedList.Any(f => System.IO.Path.GetFileName(f).Contains("unlocker", StringComparison.OrdinalIgnoreCase));
+                        bool shouldRemoveTitlerights = App.Settings.Current.RemoveTitlerights && !hasUnlocker;
+
+                        if (App.Settings.Current.RemoveTitlerights && hasUnlocker)
+                        {
+                            App.Logger.Log("[NSC_Builder] Обнаружен DLC Unlocker: сохраняем билеты (.tik) для гарантированной разблокировки контента.", Models.LogLevel.Info);
+                            App.RunOnUI(() => task.LogDetails += "\nℹ️ [NSC_Builder] Обнаружен Unlocker: сохраняем билеты (.tik) для разблокировки контента.");
+                        }
+
+                        string cleanFlag = shouldRemoveTitlerights ? " --C_clean_ND true" : "";
+                        string romaFlag = shouldRemoveTitlerights ? "TRUE" : "FALSE";
                         int keyGen = App.Settings.Current.KeyGeneration;
                         string kpFlag = (keyGen >= 0 && keyGen <= 30) ? keyGen.ToString() : "false";
                         string pvFlag = (keyGen >= 0 && keyGen < 19) ? "true" : "false";
