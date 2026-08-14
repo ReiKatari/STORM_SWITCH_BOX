@@ -1,11 +1,11 @@
 [Setup]
 AppName=STORM SWITCH BOX
-AppVersion=4.3.5
+AppVersion=4.3.6
 AppPublisher=STORM CHANNEL & ReiKatari
 AppPublisherURL=https://rutube.ru/channel/42609927/
 DefaultDirName={localappdata}\Programs\STORM_SWITCH_BOX
 DefaultGroupName=STORM_SWITCH_BOX
-OutputBaseFilename=STORM_SWITCH_BOX_4.3.5_Setup
+OutputBaseFilename=STORM_SWITCH_BOX_4.3.6_Setup
 SetupIconFile=..\storm_switch_box.ico
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
