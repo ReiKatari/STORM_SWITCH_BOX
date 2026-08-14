@@ -269,9 +269,85 @@ namespace StormSwitchBox.Services
                 string newControlNca = producedNcas[0];
                 string newControlNcaName = Path.GetFileName(newControlNca);
 
-                // 4. Замена Control NCA в targetNspPath с помощью LibHac PartitionFileSystemBuilder
+                // 4. Поиск Program NCA и пересборка Meta NCA (CNMT) чтобы метаданные ссылались на новый Control NCA
+                string? newMetaNca = null;
+                string? newMetaNcaName = null;
+
                 if (File.Exists(targetNspPath))
                 {
+                    string extractedProgNca = Path.Combine(tempDir, "extracted_prog.nca");
+                    string extractedLegalNca = Path.Combine(tempDir, "extracted_legal.nca");
+                    string extractedManualNca = Path.Combine(tempDir, "extracted_manual.nca");
+                    string? progPath = null;
+                    string? manualPath = null;
+                    string titleVersionHex = "0x0";
+
+                    // Извлекаем Program NCA и другие мета-зависимости из целевого NSP
+                    using (var srcStream = new FileStream(targetNspPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                    {
+                        IStorage srcStorage = srcStream.AsStorage();
+                        var srcPfs = new PartitionFileSystem(srcStorage);
+
+                        foreach (var entry in srcPfs.EnumerateEntries())
+                        {
+                            if (entry.Type == DirectoryEntryType.Directory) continue;
+                            string name = entry.Name;
+                            if (!name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase)) continue;
+
+                            try
+                            {
+                                using var ef = OpenFileSafe(srcPfs, "/" + name);
+                                var nca = new Nca(App.Keys.CurrentKeyset, ef.AsStorage());
+                                
+                                if (nca.Header.ContentType == NcaContentType.Program && progPath == null)
+                                {
+                                    using var ps = ef.AsStream();
+                                    using var fs = new FileStream(extractedProgNca, FileMode.Create, FileAccess.Write);
+                                    ps.CopyTo(fs);
+                                    progPath = extractedProgNca;
+                                }
+                                else if (nca.Header.ContentType == NcaContentType.Manual && manualPath == null)
+                                {
+                                    using var ms = ef.AsStream();
+                                    using var fs = new FileStream(extractedManualNca, FileMode.Create, FileAccess.Write);
+                                    ms.CopyTo(fs);
+                                    manualPath = extractedManualNca;
+                                }
+                            }
+                            catch { }
+                        }
+                    }
+
+                    // Если Program NCA найден, собираем обновленный Meta NCA через hacpack
+                    if (progPath != null && File.Exists(progPath))
+                    {
+                        string metaArgs = $"-k \"{keysFile}\" --type nca --ncatype meta --titleid {titleId} --titletype application --titleversion {titleVersionHex} --programnca \"{progPath}\" --controlnca \"{newControlNca}\"";
+                        if (manualPath != null && File.Exists(manualPath))
+                        {
+                            metaArgs += $" --htmldocnca \"{manualPath}\"";
+                        }
+                        metaArgs += $" -o \"{outNcaDir}\"";
+
+                        int metaCode = await ExternalProcessRunner.RunAsync(
+                            _hacpackExe,
+                            metaArgs,
+                            _toolsDir,
+                            task,
+                            ct
+                        );
+
+                        if (metaCode == 0)
+                        {
+                            var metaNcas = Directory.GetFiles(outNcaDir, "*.cnmt.nca");
+                            if (metaNcas.Length > 0)
+                            {
+                                newMetaNca = metaNcas[0];
+                                newMetaNcaName = Path.GetFileName(newMetaNca);
+                            }
+                        }
+                    }
+
+                    // 5. Замена Control NCA и Meta NCA в targetNspPath с помощью LibHac PartitionFileSystemBuilder
                     await Task.Run(() =>
                     {
                         string tempPatchedNsp = Path.Combine(tempDir, "patched_target.nsp");
@@ -282,6 +358,7 @@ namespace StormSwitchBox.Services
                             IStorage srcStorage = srcStream.AsStorage();
                             var srcPfs = new PartitionFileSystem(srcStorage);
                             var openedFiles = new List<IFile>();
+                            var entryList = new List<KeyValuePair<string, IFile>>();
 
                             try
                             {
@@ -290,9 +367,15 @@ namespace StormSwitchBox.Services
                                     if (entry.Type == DirectoryEntryType.Directory) continue;
                                     string name = entry.Name;
 
-                                    // Проверяем, не является ли это старым Control NCA
+                                    // Пропускаем старый Control NCA
                                     bool isOldControl = false;
-                                    if (name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase))
+                                    bool isOldMeta = false;
+
+                                    if (name.EndsWith(".cnmt.nca", StringComparison.OrdinalIgnoreCase) || name.EndsWith(".cnmt.xml", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        if (newMetaNca != null) isOldMeta = true; // Заменим новым Meta NCA
+                                    }
+                                    else if (name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase))
                                     {
                                         try
                                         {
@@ -302,20 +385,36 @@ namespace StormSwitchBox.Services
                                             {
                                                 isOldControl = true;
                                             }
+                                            else if (nca.Header.ContentType == NcaContentType.Meta && newMetaNca != null)
+                                            {
+                                                isOldMeta = true;
+                                            }
                                         }
                                         catch { }
                                     }
 
-                                    if (isOldControl) continue; // Пропускаем старый Control NCA
+                                    if (isOldControl || isOldMeta) continue;
 
                                     var oldFile = OpenFileSafe(srcPfs, "/" + name);
                                     openedFiles.Add(oldFile);
-                                    pfsBuilder.AddFile(name, new StorageFile(new SafeStorageWrapper(oldFile.AsStorage()), OpenMode.Read));
+                                    entryList.Add(new KeyValuePair<string, IFile>(name, oldFile));
                                 }
 
-                                // Добавляем новый Control NCA
-                                using var newControlStream = new FileStream(newControlNca, FileMode.Open, FileAccess.Read, FileShare.Read);
-                                pfsBuilder.AddFile(newControlNcaName, new StorageFile(new SafeStorageWrapper(newControlStream.AsStorage()), OpenMode.Read));
+                                // Сортируем файлы в строгом порядке Nintendo Switch PFS0:
+                                // 0: Meta (CNMT) -> 1: Control -> 2: Program -> 3: Manual -> 50: DLC -> 90: Tickets/Certs
+                                if (newMetaNca != null && newMetaNcaName != null)
+                                {
+                                    using var metaStream = new FileStream(newMetaNca, FileMode.Open, FileAccess.Read, FileShare.Read);
+                                    pfsBuilder.AddFile(newMetaNcaName, new StorageFile(new SafeStorageWrapper(metaStream.AsStorage()), OpenMode.Read));
+                                }
+
+                                using var controlStream = new FileStream(newControlNca, FileMode.Open, FileAccess.Read, FileShare.Read);
+                                pfsBuilder.AddFile(newControlNcaName, new StorageFile(new SafeStorageWrapper(controlStream.AsStorage()), OpenMode.Read));
+
+                                foreach (var kvp in entryList)
+                                {
+                                    pfsBuilder.AddFile(kvp.Key, new StorageFile(new SafeStorageWrapper(kvp.Value.AsStorage()), OpenMode.Read));
+                                }
 
                                 using var builtPfs = pfsBuilder.Build(PartitionFileSystemType.Standard);
                                 builtPfs.GetSize(out long totalSize).ThrowIfFailure();
