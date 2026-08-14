@@ -186,15 +186,14 @@ namespace StormSwitchBox.Services
                         
                         if (System.IO.File.Exists(tempHardPatchedNsp))
                         {
-                            // Валидация: проверяем, что patched_base содержит достаточно NCA.
-                            // Мульти-программные игры (напр. AC Ezio Collection) содержат NCA 
-                            // для нескольких sub-programs внутри одного NSP. yanu-cli обрабатывает
-                            // только основной TitleID и теряет остальные sub-programs.
-                            int originalNcaCount = 0;
-                            int patchedNcaCount = 0;
+                            // Валидация: проверяем, что patched_base не потерял исполняемые под-программы (Program NCA > 100MB).
+                            // Мульти-программные сборники (напр. AC Ezio Collection) содержат несколько Program NCA (>100MB)
+                            // для разных субигр в одном NSP. yanu-cli обрабатывает только основной TitleID и теряет остальные субигры.
+                            int originalProgramNcaCount = 0;
+                            int patchedProgramNcaCount = 0;
                             try
                             {
-                                // Считаем NCA в оригинальном base
+                                // Считаем Program NCA (>100MB) в оригинальном base
                                 using (var bs = new FileStream(baseFile, FileMode.Open, FileAccess.Read, FileShare.Read))
                                 using (var bfs = new PartitionFileSystem(bs.AsStorage()))
                                 {
@@ -203,10 +202,16 @@ namespace StormSwitchBox.Services
                                         if (e.Type == LibHac.Fs.DirectoryEntryType.Directory) continue;
                                         if (e.Name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase) || 
                                             e.Name.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase))
-                                            originalNcaCount++;
+                                        {
+                                            var f = OpenFileSafe(bfs, "/" + e.Name);
+                                            f.GetSize(out long size);
+                                            f.Dispose();
+                                            if (size > 100 * 1024 * 1024)
+                                                originalProgramNcaCount++;
+                                        }
                                     }
                                 }
-                                // Считаем NCA в patched_base
+                                // Считаем Program NCA (>100MB) в patched_base
                                 using (var ps = new FileStream(tempHardPatchedNsp, FileMode.Open, FileAccess.Read, FileShare.Read))
                                 using (var pfs = new PartitionFileSystem(ps.AsStorage()))
                                 {
@@ -215,20 +220,26 @@ namespace StormSwitchBox.Services
                                         if (e.Type == LibHac.Fs.DirectoryEntryType.Directory) continue;
                                         if (e.Name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase) || 
                                             e.Name.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase))
-                                            patchedNcaCount++;
+                                        {
+                                            var f = OpenFileSafe(pfs, "/" + e.Name);
+                                            f.GetSize(out long size);
+                                            f.Dispose();
+                                            if (size > 100 * 1024 * 1024)
+                                                patchedProgramNcaCount++;
+                                        }
                                     }
                                 }
                             }
                             catch { }
 
-                            App.Logger.Log($"[HardPatch] NCA validation: original={originalNcaCount}, patched={patchedNcaCount}", Models.LogLevel.Info);
+                            App.Logger.Log($"[HardPatch] Program NCA (>100MB) validation: original={originalProgramNcaCount}, patched={patchedProgramNcaCount}", Models.LogLevel.Info);
 
-                            if (originalNcaCount > 0 && patchedNcaCount > 0 && patchedNcaCount < originalNcaCount / 2)
+                            if (originalProgramNcaCount > 1 && patchedProgramNcaCount < originalProgramNcaCount)
                             {
-                                // patched_base потерял слишком много NCA (мульти-программный тайтл)
+                                // patched_base потерял под-программы (мульти-программный тайтл)
                                 // Отменяем HardPatch и используем оригинальные файлы
-                                App.RunOnUI(() => task.LogDetails += $"\n⚠️ [HardPatch] Мульти-программный тайтл ({originalNcaCount} NCA → {patchedNcaCount}). Используем оригинальные файлы.");
-                                App.Logger.Log($"[HardPatch] Multi-program title detected: {originalNcaCount} -> {patchedNcaCount}. Discarding patched_base, using originals.", Models.LogLevel.Warning);
+                                App.RunOnUI(() => task.LogDetails += $"\n⚠️ [HardPatch] Мульти-программный тайтл ({originalProgramNcaCount} игр → {patchedProgramNcaCount}). Используем оригинальные файлы.");
+                                App.Logger.Log($"[HardPatch] Multi-program title detected: {originalProgramNcaCount} -> {patchedProgramNcaCount}. Discarding patched_base, using originals.", Models.LogLevel.Warning);
                                 try { System.IO.File.Delete(tempHardPatchedNsp); } catch { }
                                 
                                 // Сохраняем Update для LibHac fallback (Patch CNMT + тикеты)
