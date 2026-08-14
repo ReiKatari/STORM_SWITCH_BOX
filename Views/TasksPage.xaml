@@ -269,19 +269,35 @@
 
                 <controls:DataGrid.ContextFlyout>
                     <MenuFlyout>
-                        <MenuFlyoutItem Text="🎨 Редактировать иконку и название..." Click="EditMetadata_Click">
+                        <MenuFlyout.MenuFlyoutPresenterStyle>
+                            <Style TargetType="MenuFlyoutPresenter">
+                                <Setter Property="MinWidth" Value="320"/>
+                            </Style>
+                        </MenuFlyout.MenuFlyoutPresenterStyle>
+                        <MenuFlyoutItem Text="Редактировать иконку и название..." Click="EditMetadata_Click" MinWidth="300">
                             <MenuFlyoutItem.Icon>
-                                <FontIcon Glyph="&#xE70F;"/>
+                                <FontIcon Glyph="&#xE70F;" Foreground="#82B1FF"/>
                             </MenuFlyoutItem.Icon>
                         </MenuFlyoutItem>
-                        <MenuFlyoutItem Text="⏹ Отменить задачу" Click="CancelTask_Click">
+                        <MenuFlyoutItem Text="Отменить выполнение задачи" Click="CancelTask_Click" MinWidth="300">
                             <MenuFlyoutItem.Icon>
-                                <FontIcon Glyph="&#xE71A;"/>
+                                <FontIcon Glyph="&#xE71A;" Foreground="#F59E0B"/>
                             </MenuFlyoutItem.Icon>
                         </MenuFlyoutItem>
-                        <MenuFlyoutItem Text="🗑 Удалить задачу" Click="DeleteTask_Click">
+                        <MenuFlyoutItem Text="Удалить задачу из списка" Click="DeleteTask_Click" MinWidth="300">
                             <MenuFlyoutItem.Icon>
-                                <FontIcon Glyph="&#xE74D;"/>
+                                <FontIcon Glyph="&#xE74D;" Foreground="IndianRed"/>
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutSeparator/>
+                        <MenuFlyoutItem Text="Открыть выходную папку" Click="OpenOutputFolder_Click" MinWidth="300">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xED25;"/>
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem Text="Копировать журнал (лог)" Click="CopyLog_Click" MinWidth="300">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE8C8;"/>
                             </MenuFlyoutItem.Icon>
                         </MenuFlyoutItem>
                     </MenuFlyout>
@@ -384,6 +400,27 @@
                         </controls:DataGridTemplateColumn.CellTemplate>
                     </controls:DataGridTemplateColumn>
                 </controls:DataGrid.Columns>
+
+                <controls:DataGrid.ContextFlyout>
+                    <MenuFlyout>
+                        <MenuFlyout.MenuFlyoutPresenterStyle>
+                            <Style TargetType="MenuFlyoutPresenter">
+                                <Setter Property="MinWidth" Value="320"/>
+                            </Style>
+                        </MenuFlyout.MenuFlyoutPresenterStyle>
+                        <MenuFlyoutItem Text="Удалить задачу из списка" Click="DeleteTask_Click" MinWidth="300">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE74D;" Foreground="IndianRed"/>
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutSeparator/>
+                        <MenuFlyoutItem Text="Копировать журнал (лог)" Click="CopyLog_Click" MinWidth="300">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE8C8;"/>
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                    </MenuFlyout>
+                </controls:DataGrid.ContextFlyout>
             </controls:DataGrid>
         </Grid>
 

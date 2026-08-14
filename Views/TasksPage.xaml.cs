@@ -139,9 +139,18 @@ namespace StormSwitchBox.Views
             if (originalSource == null) return;
 
             var row = FindParent<CommunityToolkit.WinUI.UI.Controls.DataGridRow>(originalSource);
-            if (row != null && row.DataContext != null)
+            if (row != null && row.DataContext is ProcessingTask rowTask)
             {
-                if (grid.SelectedItem == row.DataContext)
+                var point = e.GetCurrentPoint(grid);
+                if (point.Properties.IsRightButtonPressed)
+                {
+                    grid.SelectedItem = rowTask;
+                    _activeDetailTask = rowTask;
+                    UpdateDetailsVisibility();
+                    return;
+                }
+
+                if (grid.SelectedItem == rowTask)
                 {
                     _activeDetailTask = null;
                     grid.SelectedItem = null;
@@ -224,13 +233,56 @@ namespace StormSwitchBox.Views
             }
         }
 
+        private ProcessingTask? GetTargetTask(object sender)
+        {
+            if (sender is FrameworkElement elem)
+            {
+                if (elem.Tag is ProcessingTask tagTask) return tagTask;
+                if (elem.DataContext is ProcessingTask dcTask) return dcTask;
+            }
+            if (TasksGrid?.SelectedItem is ProcessingTask selTask) return selTask;
+            if (VerifyGrid?.SelectedItem is ProcessingTask selVerTask) return selVerTask;
+            if (_activeDetailTask != null) return _activeDetailTask;
+            return null;
+        }
+
         private void CopyLog_Click(object sender, RoutedEventArgs e)
         {
-            if (sender is Button btn && btn.DataContext is Models.ProcessingTask task)
+            var task = GetTargetTask(sender);
+            if (task != null && !string.IsNullOrEmpty(task.LogDetails))
             {
                 var dp = new Windows.ApplicationModel.DataTransfer.DataPackage();
-                dp.SetText(task.LogDetails ?? string.Empty);
+                dp.SetText(task.LogDetails);
                 Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(dp);
+                App.Logger.Log("Журнал задачи скопирован в буфер обмена.", LogLevel.Info);
+            }
+        }
+
+        private void OpenOutputFolder_Click(object sender, RoutedEventArgs e)
+        {
+            var task = GetTargetTask(sender);
+            if (task == null) return;
+
+            string folderToOpen = task.OutputFolder;
+            if (string.IsNullOrEmpty(folderToOpen) || !System.IO.Directory.Exists(folderToOpen))
+            {
+                folderToOpen = App.Settings.Current.OutputFolder;
+            }
+
+            if (!string.IsNullOrEmpty(folderToOpen) && System.IO.Directory.Exists(folderToOpen))
+            {
+                try
+                {
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = folderToOpen,
+                        UseShellExecute = true
+                    });
+                }
+                catch (Exception ex)
+                {
+                    App.Logger.Log($"Не удалось открыть папку: {ex.Message}", LogLevel.Warning);
+                }
             }
         }
 
@@ -405,11 +457,7 @@ namespace StormSwitchBox.Views
         // ===== Отмена задачи =====
         private void CancelTask_Click(object sender, RoutedEventArgs e)
         {
-            ProcessingTask? task = null;
-            if (sender is FrameworkElement elem)
-            {
-                task = (elem.Tag as ProcessingTask) ?? (elem.DataContext as ProcessingTask);
-            }
+            var task = GetTargetTask(sender);
 
             if (task != null && task.IsRunning)
             {
@@ -422,13 +470,13 @@ namespace StormSwitchBox.Views
         // ===== Редактирование иконки и названия игры =====
         private async void EditMetadata_Click(object sender, RoutedEventArgs e)
         {
-            ProcessingTask? task = null;
-            if (sender is FrameworkElement elem)
-            {
-                task = (elem.Tag as ProcessingTask) ?? (elem.DataContext as ProcessingTask);
-            }
+            var task = GetTargetTask(sender);
 
-            if (task == null) return;
+            if (task == null)
+            {
+                App.Logger.Log("Выберите задачу для редактирования метаданных.", LogLevel.Warning);
+                return;
+            }
 
             string? sourceFile = task.InputFiles?.FirstOrDefault(f => !System.IO.Directory.Exists(f) && 
                 (f.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) || 
@@ -481,11 +529,7 @@ namespace StormSwitchBox.Views
         // ===== Удаление задачи =====
         private void DeleteTask_Click(object sender, RoutedEventArgs e)
         {
-            ProcessingTask? task = null;
-            if (sender is FrameworkElement elem)
-            {
-                task = (elem.Tag as ProcessingTask) ?? (elem.DataContext as ProcessingTask);
-            }
+            var task = GetTargetTask(sender);
 
             if (task != null && !task.IsRunning)
             {
