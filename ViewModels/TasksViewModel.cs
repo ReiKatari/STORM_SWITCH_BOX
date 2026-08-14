@@ -1043,9 +1043,12 @@ public partial class TasksViewModel : ObservableObject
 			await ExecuteTaskAsync(task);
 			App.RunOnUI(delegate
 			{
-				if (task.Status == "Подготовка..." || task.Status == "Сжатие..." || task.Status == "Распаковка..." || task.Status == "Сборка..." || task.Status == "Ожидание" || string.IsNullOrEmpty(task.Status))
+				if (task.Status != "Отменено" && task.Status != "Ошибка" && task.Status != "Отменен")
 				{
-					task.Status = "Успешно";
+					if (task.Status == "Подготовка..." || task.Status == "Сжатие..." || task.Status == "Распаковка..." || task.Status == "Сборка..." || task.Status == "Ожидание" || string.IsNullOrEmpty(task.Status))
+					{
+						task.Status = "Успешно";
+					}
 				}
 				task.IsRunning = false;
 
@@ -1072,10 +1075,21 @@ public partial class TasksViewModel : ObservableObject
 				AppendStyledSummary(task, task.Status);
 				HistoryService.AddToHistory(task);
 
-				if (App.Settings.Current.EnableSoundNotifications)
+				if (App.Settings.Current.EnableSoundNotifications && (task.Status == "Успешно" || task.Status == "Готово"))
 				{
 					try { System.Media.SystemSounds.Asterisk.Play(); } catch { }
 				}
+			});
+		}
+		catch (OperationCanceledException)
+		{
+			App.RunOnUI(delegate
+			{
+				task.Status = "Отменено";
+				task.IsRunning = false;
+				task.LogDetails += "\n⚠️ [Отмена] Задача была отменена пользователем.";
+				AppendStyledSummary(task, task.Status);
+				HistoryService.AddToHistory(task);
 			});
 		}
 		catch (Exception ex)

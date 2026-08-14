@@ -134,6 +134,21 @@ namespace StormSwitchBox.Models
             SourceSize = FormatSize(value);
         }
 
+        // Кастомные метаданные (иконка, название игры, издатель)
+        [System.Text.Json.Serialization.JsonIgnore]
+        public GameMetadataEditModel? CustomMetadata { get; set; }
+
+        public void Cancel()
+        {
+            try
+            {
+                Cts?.Cancel();
+            }
+            catch { }
+            Status = "Отменено";
+            IsRunning = false;
+        }
+
         [System.Text.Json.Serialization.JsonIgnore]
         public SolidColorBrush StatusColor
         {
@@ -143,7 +158,7 @@ namespace StormSwitchBox.Models
                     return new SolidColorBrush(Windows.UI.Color.FromArgb(255, 46, 204, 113)); // Emerald Green
                 if (Status == "Ошибка" || Status == "Поврежден" || Status.StartsWith("Нет") || Status.Contains("ошибка") || Status.Contains("Ошибка")) 
                     return new SolidColorBrush(Windows.UI.Color.FromArgb(255, 231, 76, 60)); // Alizarin Red
-                if (Status == "Отменен" || Status.Contains("Предупреждение")) 
+                if (Status == "Отменен" || Status == "Отменено" || Status.Contains("Предупреждение")) 
                     return new SolidColorBrush(Windows.UI.Color.FromArgb(255, 243, 156, 18)); // Orange
                 if (Status == "Ожидание") 
                     return new SolidColorBrush(Windows.UI.Color.FromArgb(255, 149, 165, 166)); // Asbestos Gray
