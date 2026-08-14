@@ -818,8 +818,8 @@ namespace StormSwitchBox.Services
                     System.IO.File.Move(generatedFile, intermediatePath);
                 }
 
-                // Применяем кастомные метаданные / иконку, если они заданы пользователем
-                if (task.CustomMetadata != null && System.IO.File.Exists(intermediatePath) && intermediatePath.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase))
+                // Применяем кастомные метаданные / иконку, если они заданы пользователем (и еще не применены в HardPatch)
+                if (task.CustomMetadata != null && !hasPatchedBase && System.IO.File.Exists(intermediatePath) && intermediatePath.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase))
                 {
                     await App.ControlEditor.ApplyCustomMetadataAsync(task.CustomMetadata, intermediatePath, task, cancellationToken);
                 }
@@ -1134,8 +1134,15 @@ namespace StormSwitchBox.Services
             if (lower.EndsWith(".cnmt.xml"))
             {
                 if (lower.Contains("000") || lower.Contains("base")) return 0;
-                if (lower.Contains("800") || lower.Contains("update")) return 10;
+                if (lower.Contains("800") || lower.Contains("update")) return 0;
                 return 50;
+            }
+
+            if (lower.EndsWith(".cnmt.nca"))
+            {
+                if (lower.Contains("000") || lower.Contains("base")) return 0;
+                if (lower.Contains("800") || lower.Contains("update")) return 0;
+                return 0; // Base/Update CNMT is ALWAYS top priority in PFS0
             }
 
             try
@@ -1160,20 +1167,19 @@ namespace StormSwitchBox.Services
 
                 if (type == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Meta) // CNMT
                 {
-                    if (isUpdateTitle) return 0; // Update CNMT (has highest version v196608) FIRST (Priority 0)
-                    if (isBaseTitle) return 0; // Base Game CNMT FIRST (Priority 0)
-                    return 50; // DLC CNMT (Priority 50)
+                    if (isUpdateTitle || isBaseTitle) return 0;
+                    return 50;
                 }
 
                 if (type == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Control) // Icon artwork & Title strings
                 {
-                    if (isMainGameTitle) return 1; // Main Game Control NCA SECOND (Priority 1)
+                    if (isMainGameTitle) return 1;
                     return 51;
                 }
 
                 if (type == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Program) // Executable code
                 {
-                    if (isMainGameTitle) return 2; // Main Game Program NCA THIRD (Priority 2)
+                    if (isMainGameTitle) return 2;
                     return 52;
                 }
 
@@ -1181,8 +1187,16 @@ namespace StormSwitchBox.Services
             }
             catch
             {
+                if (lower.EndsWith(".cnmt.nca")) return 0;
                 if (lower.Contains("control")) return 1;
                 if (lower.Contains("program")) return 2;
+                
+                try
+                {
+                    file.GetSize(out long fSize);
+                    if (fSize > 0 && fSize < 5 * 1024 * 1024) return 1; // Control-sized NCA
+                }
+                catch { }
             }
 
             return 20;
