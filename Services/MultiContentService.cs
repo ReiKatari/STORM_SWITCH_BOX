@@ -831,6 +831,12 @@ namespace StormSwitchBox.Services
                     System.IO.File.Move(generatedFile, intermediatePath);
                 }
 
+                // Применяем кастомные метаданные / иконку, если они заданы пользователем
+                if (task.CustomMetadata != null && System.IO.File.Exists(intermediatePath) && intermediatePath.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase))
+                {
+                    await App.ControlEditor.ApplyCustomMetadataAsync(task.CustomMetadata, intermediatePath, task, cancellationToken);
+                }
+
                 // 5. Zstandard Сжатие (NSZ/XCZ), если необходимо
                 if (isCompressedFormat)
                 {

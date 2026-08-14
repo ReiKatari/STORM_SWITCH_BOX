@@ -493,6 +493,12 @@ namespace StormSwitchBox.Services
                 {
                     string genFile = generatedFiles.OrderByDescending(f => new FileInfo(f).CreationTime).First();
                     
+                    // Применяем кастомные метаданные / иконку при необходимости
+                    if (task.CustomMetadata != null && File.Exists(genFile))
+                    {
+                        await App.ControlEditor.ApplyCustomMetadataAsync(task.CustomMetadata, genFile, task, cancellationToken);
+                    }
+
                     string targetExt = System.IO.Path.GetExtension(outPath).ToLower();
                     if (targetExt == ".nsp")
                     {

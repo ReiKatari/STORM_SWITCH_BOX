@@ -17,6 +17,7 @@ namespace StormSwitchBox
         public static MultiContentService MultiContent { get; } = new MultiContentService(Keys);
         public static HardPatchEngine HardPatch { get; } = new HardPatchEngine(Keys);
         public static TitleDbService TitleDb { get; } = new TitleDbService();
+        public static ControlEditorService ControlEditor { get; } = new ControlEditorService();
         public static TicketHarvesterService TicketHarvester { get; } = new TicketHarvesterService();
         public static WatchFolderService WatchFolderService { get; } = new WatchFolderService();
         private static StormSwitchBox.ViewModels.TasksViewModel? _tasksVM;

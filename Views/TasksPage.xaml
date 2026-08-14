@@ -238,18 +238,54 @@
                             </DataTemplate>
                         </controls:DataGridTemplateColumn.CellTemplate>
                     </controls:DataGridTemplateColumn>
-
-                    <controls:DataGridTemplateColumn Width="45" MinWidth="40">
+                    <controls:DataGridTemplateColumn Width="80" MinWidth="60">
                         <controls:DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
-                                <Button Click="DeleteTask_Click" Tag="{Binding}" VerticalAlignment="Center" HorizontalAlignment="Center"
-                                        Padding="4,2" MinHeight="0" MinWidth="0" Background="Transparent" BorderThickness="0" ToolTipService.ToolTip="Удалить задачу">
-                                    <FontIcon Glyph="&#xE74D;" FontSize="12" Foreground="IndianRed"/>
-                                </Button>
+                                <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" HorizontalAlignment="Center">
+                                    <Button Click="EditMetadata_Click" Tag="{Binding}" VerticalAlignment="Center"
+                                            Padding="4,2" MinHeight="0" MinWidth="0" Background="Transparent" BorderThickness="0" 
+                                            ToolTipService.ToolTip="Редактировать иконку и название игры">
+                                        <FontIcon Glyph="&#xE70F;" FontSize="12" Foreground="#82B1FF"/>
+                                    </Button>
+
+                                    <Button Click="CancelTask_Click" Tag="{Binding}" VerticalAlignment="Center"
+                                            Visibility="{Binding IsRunning, Mode=OneWay}"
+                                            Padding="4,2" MinHeight="0" MinWidth="0" Background="Transparent" BorderThickness="0" 
+                                            ToolTipService.ToolTip="Отменить задачу">
+                                        <FontIcon Glyph="&#xE71A;" FontSize="12" Foreground="#F59E0B"/>
+                                    </Button>
+
+                                    <Button Click="DeleteTask_Click" Tag="{Binding}" VerticalAlignment="Center"
+                                            Visibility="{Binding IsNotRunning, Mode=OneWay}"
+                                            Padding="4,2" MinHeight="0" MinWidth="0" Background="Transparent" BorderThickness="0" 
+                                            ToolTipService.ToolTip="Удалить задачу">
+                                        <FontIcon Glyph="&#xE74D;" FontSize="12" Foreground="IndianRed"/>
+                                    </Button>
+                                </StackPanel>
                             </DataTemplate>
                         </controls:DataGridTemplateColumn.CellTemplate>
                     </controls:DataGridTemplateColumn>
                 </controls:DataGrid.Columns>
+
+                <controls:DataGrid.ContextFlyout>
+                    <MenuFlyout>
+                        <MenuFlyoutItem Text="🎨 Редактировать иконку и название..." Click="EditMetadata_Click">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE70F;"/>
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem Text="⏹ Отменить задачу" Click="CancelTask_Click">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE71A;"/>
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem Text="🗑 Удалить задачу" Click="DeleteTask_Click">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE74D;"/>
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                    </MenuFlyout>
+                </controls:DataGrid.ContextFlyout>
             </controls:DataGrid>
 
             <!-- ========== ТАБЛИЦА ВЕРИФИКАЦИИ (РАЗДЕЛ ПРОВЕРКА) ========== -->

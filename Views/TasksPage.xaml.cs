@@ -402,15 +402,94 @@ namespace StormSwitchBox.Views
             }
         }
 
+        // ===== Отмена задачи =====
+        private void CancelTask_Click(object sender, RoutedEventArgs e)
+        {
+            ProcessingTask? task = null;
+            if (sender is FrameworkElement elem)
+            {
+                task = (elem.Tag as ProcessingTask) ?? (elem.DataContext as ProcessingTask);
+            }
+
+            if (task != null && task.IsRunning)
+            {
+                task.Cancel();
+                App.Logger.Log($"Задача отменена пользователем: {task.OutputFileName}", LogLevel.Warning);
+                App.RunOnUI(() => task.LogDetails += "\n⚠️ [Пользователь] Обработка задачи была принудительно отменена.");
+            }
+        }
+
+        // ===== Редактирование иконки и названия игры =====
+        private async void EditMetadata_Click(object sender, RoutedEventArgs e)
+        {
+            ProcessingTask? task = null;
+            if (sender is FrameworkElement elem)
+            {
+                task = (elem.Tag as ProcessingTask) ?? (elem.DataContext as ProcessingTask);
+            }
+
+            if (task == null) return;
+
+            string? sourceFile = task.InputFiles?.FirstOrDefault(f => !System.IO.Directory.Exists(f) && 
+                (f.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) || 
+                 f.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) || 
+                 f.EndsWith(".xci", StringComparison.OrdinalIgnoreCase)));
+
+            if (string.IsNullOrEmpty(sourceFile) || !System.IO.File.Exists(sourceFile))
+            {
+                App.Logger.Log("Не найден подходящий файл игры для извлечения метаданных.", LogLevel.Warning);
+                return;
+            }
+
+            var model = task.CustomMetadata ?? await App.ControlEditor.ExtractMetadataAsync(sourceFile);
+            if (model == null)
+            {
+                model = new GameMetadataEditModel
+                {
+                    SourceFilePath = sourceFile,
+                    TitleNameEnglish = task.GameName,
+                    TitleNameRussian = task.GameName
+                };
+            }
+
+            var dialog = new Dialogs.ControlEditorDialog(model);
+            var result = await dialog.ShowAsync();
+            if (result == ContentDialogResult.Primary)
+            {
+                task.CustomMetadata = model;
+                if (!string.IsNullOrEmpty(model.TitleNameRussian))
+                {
+                    task.GameName = model.TitleNameRussian;
+                }
+                else if (!string.IsNullOrEmpty(model.TitleNameEnglish))
+                {
+                    task.GameName = model.TitleNameEnglish;
+                }
+
+                if (model.CustomIconBytes != null && model.CustomIconBytes.Length > 0)
+                {
+                    using var ms = new System.IO.MemoryStream(model.CustomIconBytes);
+                    var bmp = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
+                    bmp.SetSource(ms.AsRandomAccessStream());
+                    task.GameIcon = bmp;
+                }
+
+                App.Logger.Log($"Кастомные метаданные сохранены для задачи: {task.GameName}", LogLevel.Success);
+            }
+        }
+
         // ===== Удаление задачи =====
         private void DeleteTask_Click(object sender, RoutedEventArgs e)
         {
-            if (sender is Button btn && btn.Tag is ProcessingTask task)
+            ProcessingTask? task = null;
+            if (sender is FrameworkElement elem)
             {
-                if (!task.IsRunning)
-                {
-                    ViewModel.DeleteTaskCommand.Execute(task);
-                }
+                task = (elem.Tag as ProcessingTask) ?? (elem.DataContext as ProcessingTask);
+            }
+
+            if (task != null && !task.IsRunning)
+            {
+                ViewModel.DeleteTaskCommand.Execute(task);
             }
         }
 
