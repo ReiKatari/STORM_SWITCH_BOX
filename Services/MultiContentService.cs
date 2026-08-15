@@ -410,39 +410,54 @@ namespace StormSwitchBox.Services
                 bool buildDone = false;
                 bool hasPatchedBase = finalInputFilesList.Any(f => f.Contains("patched_base", StringComparison.OrdinalIgnoreCase));
 
-                // Если уже выполнен HardPatch (Base + Update пропатчены), используем прямую нативную сборку LibHac PFS0.
-                // Это в 20 раз быстрее (секунды вместо минут) и гарантирует сохранение Control NCA, Base CNMT и DLC билетов без искажений squirrel.
-                if (hasPatchedBase)
+                // Универсальная прямая нативная сборка LibHac PFS0 для 100% целостности метаданных, иконки, заголовков и дополнений
+                App.RunOnUI(() => task.LogDetails += "\n📦 [LibHac] Нативная сборка Multi-NSP (PFS0)...");
+
+                try
                 {
-                    App.Logger.Log("[MultiContent] HardPatch detected — using direct LibHac PFS0 assembly for 100% metadata & icon integrity", Models.LogLevel.Info);
-                }
-                else if (System.IO.File.Exists(squirrelExe))
-                {
+                    var pfsBuilder = new PartitionFileSystemBuilder();
+                    var mergedEntries = new Dictionary<string, LibHac.Fs.Fsa.IFile>(StringComparer.OrdinalIgnoreCase);
+                    var openedFs = new List<PartitionFileSystem>();
+                    var openedStreams = new List<FileStream>();
+                    var openedFiles = new List<LibHac.Fs.Fsa.IFile>();
+
                     try
                     {
-                        var safeSortedList = new List<string>();
-                        for (int i = 0; i < sortedList.Count; i++)
+                        var scanList = new List<string>();
+                        if (!string.IsNullOrEmpty(mainApp) && System.IO.File.Exists(mainApp)) scanList.Add(mainApp);
+                        foreach (var f in sortedList)
                         {
-                            string fPath = sortedList[i];
+                            if (!scanList.Contains(f, StringComparer.OrdinalIgnoreCase) && System.IO.File.Exists(f))
+                                scanList.Add(f);
+                        }
+                        foreach (var f in finalInputFilesList)
+                        {
+                            if (!System.IO.Directory.Exists(f) && !scanList.Contains(f, StringComparer.OrdinalIgnoreCase) && System.IO.File.Exists(f))
+                                scanList.Add(f);
+                        }
+                        // Добавляем оригинальный Update NSP только если HardPatch НЕ создавал patched_base (например при сбое/пропуске)
+                        if (!hasPatchedBase && !string.IsNullOrEmpty(savedUpdateFile) && System.IO.File.Exists(savedUpdateFile) 
+                            && !scanList.Contains(savedUpdateFile, StringComparer.OrdinalIgnoreCase))
+                        {
+                            scanList.Add(savedUpdateFile);
+                            App.Logger.Log($"[LibHac] Добавлен оригинальный Update для Patch CNMT: {System.IO.Path.GetFileName(savedUpdateFile)}", Models.LogLevel.Info);
+                        }
+
+                        // Если целевой формат несжатый NSP/XCI, а часть файлов — NSZ/XCZ/XCI, предварительно распаковываем их
+                        var processedScanList = new List<string>();
+                        for (int i = 0; i < scanList.Count; i++)
+                        {
+                            string fPath = scanList[i];
                             string ext = System.IO.Path.GetExtension(fPath).ToLowerInvariant();
-                            string origFileName = System.IO.Path.GetFileName(fPath);
 
-                            var tags = new List<string>();
-                            var tidMatch = System.Text.RegularExpressions.Regex.Match(origFileName, @"\[([0-9a-fA-F]{16})\]");
-                            if (tidMatch.Success) tags.Add(tidMatch.Value);
-                            var verMatch = System.Text.RegularExpressions.Regex.Match(origFileName, @"\[v\d+\]", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-                            if (verMatch.Success) tags.Add(verMatch.Value);
-
-                            string tagSuffix = tags.Count > 0 ? "_" + string.Join("", tags) : "";
-
-                            if (ext == ".nsz" || ext == ".xcz" || ext == ".xci")
+                            if (!isCompressedFormat && (ext == ".nsz" || ext == ".xcz" || ext == ".xci"))
                             {
-                                string nspName = $"src_{i}{tagSuffix}.nsp";
+                                string nspName = $"src_{i}_{System.IO.Path.GetFileNameWithoutExtension(fPath)}.nsp";
                                 string targetNspPath = System.IO.Path.Combine(tempDecompDir, nspName);
                                 string itemDecompDir = System.IO.Path.Combine(tempDecompDir, $"decomp_{i}");
                                 Directory.CreateDirectory(itemDecompDir);
 
-                                App.RunOnUI(() => task.LogDetails += $"\n📦 [NSC_Builder] Распаковка {System.IO.Path.GetFileName(fPath)} -> {nspName}...");
+                                App.RunOnUI(() => task.LogDetails += $"\n📦 [LibHac] Распаковка {System.IO.Path.GetFileName(fPath)} -> {nspName}...");
 
                                 string? decompResult = await App.NszCompression.DecompressNszAsync(task, fPath, itemDecompDir, cancellationToken);
                                 if (decompResult != null)
@@ -456,273 +471,50 @@ namespace StormSwitchBox.Services
                                         if (File.Exists(targetNspPath)) try { File.Delete(targetNspPath); } catch { }
                                         File.Move(producedNsp.FullName, targetNspPath);
                                         try { Directory.Delete(itemDecompDir, true); } catch { }
-                                        safeSortedList.Add(targetNspPath);
+                                        processedScanList.Add(targetNspPath);
                                         continue;
                                     }
                                 }
                                 try { Directory.Delete(itemDecompDir, true); } catch { }
                             }
 
-                            string safeFileName = $"src_{i}{tagSuffix}.nsp";
-                            string safePath = System.IO.Path.Combine(tempDecompDir, safeFileName);
-                            if (File.Exists(safePath)) try { File.Delete(safePath); } catch { }
-                            bool linked = false;
-                            try { linked = CreateHardLink(safePath, fPath, IntPtr.Zero); } catch { }
-                            if (!linked)
-                            {
-                                try { File.Copy(fPath, safePath, true); linked = true; } catch { }
-                            }
-
-                            safeSortedList.Add(linked ? safePath : fPath);
+                            processedScanList.Add(fPath);
                         }
 
-                        string mlistFile = System.IO.Path.Combine(tempDecompDir, "mlist.txt");
-                        // Старая версия 0.1.007 использовала ASCII для mlist —
-                        // squirrel.exe (Python 3.7) может не корректно читать UTF-8 BOM
-                        System.IO.File.WriteAllLines(mlistFile, safeSortedList, System.Text.Encoding.ASCII);
+                        var baseEntries = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-                        // Аргументы из рабочей версии 0.1.007 + динамические настройки:
-                        string fatMode = App.Settings.Current.SplitFat32 ? "fat32" : "exfat";
-                        string ndFlag = App.Settings.Current.RemoveDeltaNca ? "true" : "false";
-                        bool hasUnlocker = sortedList.Any(f => System.IO.Path.GetFileName(f).Contains("unlocker", StringComparison.OrdinalIgnoreCase));
-                        bool shouldRemoveTitlerights = App.Settings.Current.RemoveTitlerights && !hasUnlocker;
-
-                        if (App.Settings.Current.RemoveTitlerights && hasUnlocker)
+                        for (int scanIdx = 0; scanIdx < processedScanList.Count; scanIdx++)
                         {
-                            App.Logger.Log("[NSC_Builder] Обнаружен DLC Unlocker: сохраняем билеты (.tik) для гарантированной разблокировки контента.", Models.LogLevel.Info);
-                            App.RunOnUI(() => task.LogDetails += "\nℹ️ [NSC_Builder] Обнаружен Unlocker: сохраняем билеты (.tik) для разблокировки контента.");
-                        }
+                            string nspPath = processedScanList[scanIdx];
+                            if (!System.IO.File.Exists(nspPath)) continue;
+                            
+                            var stream = new FileStream(nspPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                            openedStreams.Add(stream);
+                            var fs = new PartitionFileSystem(stream.AsStorage());
+                            openedFs.Add(fs);
 
-                        string cleanFlag = shouldRemoveTitlerights ? " --C_clean_ND true" : "";
-                        string romaFlag = shouldRemoveTitlerights ? "TRUE" : "FALSE";
-                        int keyGen = App.Settings.Current.KeyGeneration;
-                        string kpFlag = (keyGen >= 0 && keyGen <= 30) ? keyGen.ToString() : "false";
-                        string pvFlag = (keyGen >= 0 && keyGen < 19) ? "true" : "false";
-                        int rsvCapVal = App.Settings.Current.EnableRsvCap ? App.Settings.Current.RsvCap : 268435656;
-                        string args = $"-b 65536 -pv {pvFlag} -kp {kpFlag} --RSVcap {rsvCapVal} -fat {fatMode} -fx files -ND {ndFlag} -roma {romaFlag}{cleanFlag} -t {fmt} -o \"{outFolder}\" -tfile \"{mlistFile}\" -dmul \"calculate\"";
-                        
-                        App.Logger.Log($"[squirrel] args: {args}", Models.LogLevel.Info);
-
-
-                        string ztoolsDir = System.IO.Path.Combine(nscbDir, "ztools");
-                        App.UnblockFile(squirrelExe);
-
-                        App.RunOnUI(() => task.LogDetails += "\n📦 [NSC_Builder] Запуск squirrel.exe (-dmul calculate)...");
-
-                        int exitCode = -1;
-                        try
-                        {
-                            exitCode = await ExternalProcessRunner.RunAsync(
-                                squirrelExe,
-                                args,
-                                ztoolsDir,
-                                task,
-                                cancellationToken,
-                                isolatedUserProfile,
-                                isolatedLocalAppData,
-                                forceUtf8Console: true
-                            );
-                        }
-                        catch (Exception ex)
-                        {
-                            App.Logger.Log($"[squirrel] launch error: {ex.Message}", Models.LogLevel.Warning);
-                            App.RunOnUI(() => task.LogDetails += $"\n⚠️ [NSC_Builder] Ошибка запуска squirrel.exe ({ex.Message}).");
-                        }
-
-                        App.Logger.Log($"[squirrel] exit code: {exitCode}", Models.LogLevel.Info);
-
-                        if (exitCode == 0)
-                        {
-                            // Валидация вывода: squirrel может вернуть 0 но создать
-                            // некорректный NSP (без Control NCA, с битыми CNMT и т.д.)
-                            string[] checkExts = { ".nsp", ".xci" };
-                            string? squirrelOut = Directory.GetFiles(outFolder)
-                                .Where(f => checkExts.Any(e => f.EndsWith(e, StringComparison.OrdinalIgnoreCase)))
-                                .OrderByDescending(f => new FileInfo(f).Length)
-                                .FirstOrDefault();
-
-                            bool valid = false;
-                            if (!string.IsNullOrEmpty(squirrelOut) && File.Exists(squirrelOut))
+                            bool isMainOrUpdate = (scanIdx == 0) || 
+                                                  (!string.IsNullOrEmpty(savedUpdateFile) && nspPath.Contains(System.IO.Path.GetFileNameWithoutExtension(savedUpdateFile), StringComparison.OrdinalIgnoreCase)) ||
+                                                  (!string.IsNullOrEmpty(patchApp) && nspPath.Contains(System.IO.Path.GetFileNameWithoutExtension(patchApp), StringComparison.OrdinalIgnoreCase));
+                            
+                            foreach (var entry in fs.EnumerateEntries())
                             {
-                                try
-                                {
-                                    // Собираем все уникальные TitleID из входных файлов
-                                    var expectedTitleIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                                    foreach (var sf in sortedList)
-                                    {
-                                        if (Directory.Exists(sf)) continue;
-                                        var m = System.Text.RegularExpressions.Regex.Match(
-                                            System.IO.Path.GetFileName(sf), @"\[([0-9a-fA-F]{16})\]");
-                                        if (m.Success) expectedTitleIds.Add(m.Groups[1].Value.ToUpperInvariant());
-                                        // Также пытаемся из парсинга NSP
-                                        try
-                                        {
-                                            var pInfo = App.SwitchFormat.ParseNsp(sf);
-                                            if (!string.IsNullOrEmpty(pInfo.TitleId))
-                                                expectedTitleIds.Add(pInfo.TitleId.Trim().ToUpperInvariant());
-                                        }
-                                        catch { }
-                                    }
-
-                                    using var checkStream = new FileStream(squirrelOut, FileMode.Open, FileAccess.Read, FileShare.Read);
-                                    using var checkPfs = new PartitionFileSystem(checkStream.AsStorage());
-
-                                    int cnmtCount = 0, controlCount = 0, totalNca = 0, tikCount = 0;
-                                    var foundTitleIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-                                    foreach (var entry in checkPfs.EnumerateEntries())
-                                    {
-                                        if (entry.Type == LibHac.Fs.DirectoryEntryType.Directory) continue;
-                                        string name = entry.Name;
-
-                                        if (name.EndsWith(".tik", StringComparison.OrdinalIgnoreCase))
-                                        {
-                                            tikCount++;
-                                            continue;
-                                        }
-
-                                        if (!name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase)) continue;
-
-                                        totalNca++;
-                                        if (name.EndsWith(".cnmt.nca", StringComparison.OrdinalIgnoreCase))
-                                        {
-                                            cnmtCount++;
-                                            foundTitleIds.Add($"cnmt_{cnmtCount}");
-                                        }
-                                        else
-                                        {
-                                            try
-                                            {
-                                                var ncaFile = OpenFileSafe(checkPfs, "/" + name);
-                                                using var ncaStorage = ncaFile.AsStorage();
-                                                try
-                                                {
-                                                    var nca = new LibHac.Tools.FsSystem.NcaUtils.Nca(_keysService.CurrentKeyset, ncaStorage);
-                                                    if (nca.Header.ContentType == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Control)
-                                                    {
-                                                        controlCount++;
-                                                    }
-                                                }
-                                                catch
-                                                {
-                                                    ncaStorage.GetSize(out long ncaSize);
-                                                    if (ncaSize > 0 && ncaSize < 5 * 1024 * 1024 && name.Contains("control", StringComparison.OrdinalIgnoreCase))
-                                                        controlCount++;
-                                                }
-                                            }
-                                            catch { }
-                                        }
-                                    }
-
-                                    // Валидация вывода squirrel.exe:
-                                    // 1. CNMT для каждого Title (base + update + каждый DLC)
-                                    int expectedCnmtCount = sortedList.Count(f => !Directory.Exists(f));
-                                    // 2. Минимум 1 настоящий Control NCA (для иконки/названия)
-                                    // 3. Достаточно NCA в целом
-                                    int expectedMinNca = Math.Max(3, sortedList.Count);
-                                    
-                                    valid = cnmtCount >= expectedCnmtCount && 
-                                            controlCount >= 1 && 
-                                            totalNca >= expectedMinNca;
-
-                                    App.Logger.Log($"[squirrel] validation: cnmt={cnmtCount}/{expectedCnmtCount}, control={controlCount}, total={totalNca}, tik={tikCount}, expected>={expectedMinNca}, valid={valid}", Models.LogLevel.Info);
-                                }
-                                catch (Exception vex)
-                                {
-                                    App.Logger.Log($"[squirrel] validation error: {vex.Message}", Models.LogLevel.Warning);
-                                }
-                            }
-
-                            if (valid)
-                            {
-                                buildDone = true;
-                            }
-                            else
-                            {
-                                App.Logger.Log("[squirrel] output validation failed (missing Control NCA or CNMT) — fallback to LibHac", Models.LogLevel.Warning);
-                                // Удаляем некорректный файл squirrel'а
-                                if (!string.IsNullOrEmpty(squirrelOut) && File.Exists(squirrelOut))
-                                    try { File.Delete(squirrelOut); } catch { }
-                                App.RunOnUI(() => task.LogDetails += "\n⚠️ [NSC_Builder] Вывод squirrel.exe не прошёл валидацию (отсутствует Control NCA или CNMT). Переход на нативную сборку C# (LibHac)...");
-                            }
-                        }
-                        else
-                        {
-                            string reason = exitCode == 2 ? "ошибка аргументов командной строки" : exitCode == 1 ? "ошибка выполнения" : exitCode == -1 ? "не удалось запустить (возможно, заблокирован Device Guard)" : $"неизвестная ошибка";
-                            App.RunOnUI(() => task.LogDetails += $"\n⚠️ [NSC_Builder] squirrel.exe завершился с кодом {exitCode} ({reason}). Переход на нативную сборку C# (LibHac)...");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        App.RunOnUI(() => task.LogDetails += $"\n⚠️ [NSC_Builder] Запуск squirrel.exe недоступен ({ex.Message}). Переход на нативную сборку C# (LibHac)...");
-                    }
-                }
-
-                // Native LibHac PFS0 assembly (when hasPatchedBase or squirrel failed/skipped)
-                if (!buildDone)
-                {
-                    App.RunOnUI(() => task.LogDetails += "\n📦 [LibHac] Нативная сборка Multi-NSP (PFS0)...");
-
-                    try
-                    {
-                        var pfsBuilder = new PartitionFileSystemBuilder();
-                        var mergedEntries = new Dictionary<string, LibHac.Fs.Fsa.IFile>(StringComparer.OrdinalIgnoreCase);
-                        var openedFs = new List<PartitionFileSystem>();
-                        var openedStreams = new List<FileStream>();
-                        var openedFiles = new List<LibHac.Fs.Fsa.IFile>();
-
-                        try
-                        {
-                            var scanList = new List<string>();
-                            if (!string.IsNullOrEmpty(mainApp) && System.IO.File.Exists(mainApp)) scanList.Add(mainApp);
-                            foreach (var f in sortedList)
-                            {
-                                if (!scanList.Contains(f, StringComparer.OrdinalIgnoreCase) && System.IO.File.Exists(f))
-                                    scanList.Add(f);
-                            }
-                            foreach (var f in finalInputFilesList)
-                            {
-                                if (!System.IO.Directory.Exists(f) && !scanList.Contains(f, StringComparer.OrdinalIgnoreCase) && System.IO.File.Exists(f))
-                                    scanList.Add(f);
-                            }
-                            // Добавляем оригинальный Update NSP только если HardPatch НЕ создавал patched_base (например при сбое/пропуске)
-                            if (!hasPatchedBase && !string.IsNullOrEmpty(savedUpdateFile) && System.IO.File.Exists(savedUpdateFile) 
-                                && !scanList.Contains(savedUpdateFile, StringComparer.OrdinalIgnoreCase))
-                            {
-                                scanList.Add(savedUpdateFile);
-                                App.Logger.Log($"[LibHac] Добавлен оригинальный Update для Patch CNMT: {System.IO.Path.GetFileName(savedUpdateFile)}", Models.LogLevel.Info);
-                            }
-
-                            var baseEntries = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-                            for (int scanIdx = 0; scanIdx < scanList.Count; scanIdx++)
-                            {
-                                string nspPath = scanList[scanIdx];
-                                if (!System.IO.File.Exists(nspPath)) continue;
+                                if (entry.Type == LibHac.Fs.DirectoryEntryType.Directory) continue;
+                                string name = entry.Name;
                                 
-                                var stream = new FileStream(nspPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-                                openedStreams.Add(stream);
-                                var fs = new PartitionFileSystem(stream.AsStorage());
-                                openedFs.Add(fs);
-                                
-                                foreach (var entry in fs.EnumerateEntries())
+                                if (isMainOrUpdate)
                                 {
-                                    if (entry.Type == LibHac.Fs.DirectoryEntryType.Directory) continue;
-                                    string name = entry.Name;
-                                    
-                                    if (scanIdx == 0)
-                                    {
-                                        baseEntries.Add(name);
-                                    }
-
-                                    if (mergedEntries.ContainsKey(name) || !IsValidNspEntry(name)) continue;
-
-                                    var file = OpenFileSafe(fs, entry.FullPath);
-                                    
-                                    openedFiles.Add(file);
-                                    mergedEntries[name] = file;
+                                    baseEntries.Add(name);
                                 }
+
+                                if (mergedEntries.ContainsKey(name) || !IsValidNspEntry(name)) continue;
+
+                                var file = OpenFileSafe(fs, entry.FullPath);
+                                
+                                openedFiles.Add(file);
+                                mergedEntries[name] = file;
                             }
+                        }
 
                             // Strictly order entries so Base CNMT (0), Control/Icon NCA (1), Program NCA (2) are FIRST
                             ulong baseTitleId = 0;
@@ -797,7 +589,6 @@ namespace StormSwitchBox.Services
                     {
                         throw new Exception($"Не удалось собрать мультиконтент: {ex.Message}");
                     }
-                }
 
                 if (!buildDone)
                 {
