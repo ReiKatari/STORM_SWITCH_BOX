@@ -693,8 +693,11 @@ namespace StormSwitchBox.Services
                                 App.Logger.Log($"[LibHac] Добавлен оригинальный Update для Patch CNMT: {System.IO.Path.GetFileName(savedUpdateFile)}", Models.LogLevel.Info);
                             }
 
-                            foreach (string nspPath in scanList)
+                            var baseEntries = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                            for (int scanIdx = 0; scanIdx < scanList.Count; scanIdx++)
                             {
+                                string nspPath = scanList[scanIdx];
                                 if (!System.IO.File.Exists(nspPath)) continue;
                                 
                                 var stream = new FileStream(nspPath, FileMode.Open, FileAccess.Read, FileShare.Read);
@@ -707,6 +710,11 @@ namespace StormSwitchBox.Services
                                     if (entry.Type == LibHac.Fs.DirectoryEntryType.Directory) continue;
                                     string name = entry.Name;
                                     
+                                    if (scanIdx == 0)
+                                    {
+                                        baseEntries.Add(name);
+                                    }
+
                                     if (mergedEntries.ContainsKey(name) || !IsValidNspEntry(name)) continue;
 
                                     var file = OpenFileSafe(fs, entry.FullPath);
@@ -732,7 +740,7 @@ namespace StormSwitchBox.Services
                             }
 
                             var orderedEntries = mergedEntries
-                                .OrderBy(kvp => GetNcaPriority(kvp.Value, kvp.Key, baseTitleId))
+                                .OrderBy(kvp => GetNcaPriority(kvp.Value, kvp.Key, baseTitleId, baseEntries))
                                 .ThenBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase);
 
                             foreach (var kvp in orderedEntries)
@@ -1124,25 +1132,27 @@ namespace StormSwitchBox.Services
             return System.IO.Path.Combine(targetDir, newFileName);
         }
 
-        private int GetNcaPriority(LibHac.Fs.Fsa.IFile file, string fileName, ulong baseTitleId)
+        private int GetNcaPriority(LibHac.Fs.Fsa.IFile file, string fileName, ulong baseTitleId, HashSet<string>? baseEntries = null)
         {
             string lower = fileName.ToLowerInvariant();
 
             if (lower.EndsWith(".tik")) return 90;
             if (lower.EndsWith(".cert")) return 91;
 
+            bool isFromBase = baseEntries != null && baseEntries.Contains(fileName);
+
             if (lower.EndsWith(".cnmt.xml"))
             {
-                if (lower.Contains("000") || lower.Contains("base")) return 0;
-                if (lower.Contains("800") || lower.Contains("update")) return 0;
+                if (isFromBase || lower.Contains("000") || lower.Contains("base") || lower.Contains("800") || lower.Contains("update")) return 0;
                 return 50;
             }
 
             if (lower.EndsWith(".cnmt.nca"))
             {
-                if (lower.Contains("000") || lower.Contains("base")) return 0;
-                if (lower.Contains("800") || lower.Contains("update")) return 0;
-                return 0; // Base/Update CNMT is ALWAYS top priority in PFS0
+                if (isFromBase) return 0; // Base/Patched Game CNMT is ALWAYS top priority in PFS0
+                if (lower.Contains("000") || lower.Contains("base") || lower.Contains("800") || lower.Contains("update")) return 0;
+                if (baseTitleId != 0 && (lower.Contains(baseTitleId.ToString("x16")) || lower.Contains((baseTitleId + 0x800).ToString("x16")))) return 0;
+                return 50; // DLC CNMT
             }
 
             try
@@ -1163,11 +1173,11 @@ namespace StormSwitchBox.Services
 
                 bool isBaseTitle = (baseTitleId != 0 && tid == baseTitleId) || tid.ToString("X16").EndsWith("000");
                 bool isUpdateTitle = tid.ToString("X16").EndsWith("800");
-                bool isMainGameTitle = isBaseTitle || isUpdateTitle;
+                bool isMainGameTitle = isFromBase || isBaseTitle || isUpdateTitle;
 
                 if (type == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Meta) // CNMT
                 {
-                    if (isUpdateTitle || isBaseTitle) return 0;
+                    if (isMainGameTitle) return 0;
                     return 50;
                 }
 
@@ -1187,19 +1197,27 @@ namespace StormSwitchBox.Services
             }
             catch
             {
-                if (lower.EndsWith(".cnmt.nca")) return 0;
-                if (lower.Contains("control")) return 1;
-                if (lower.Contains("program")) return 2;
-                
-                try
+                if (isFromBase)
                 {
-                    file.GetSize(out long fSize);
-                    if (fSize > 0 && fSize < 5 * 1024 * 1024) return 1; // Control-sized NCA
+                    if (lower.EndsWith(".cnmt.nca")) return 0;
+                    if (lower.Contains("control")) return 1;
+                    if (lower.Contains("program")) return 2;
+                    
+                    try
+                    {
+                        file.GetSize(out long fSize);
+                        if (fSize > 0 && fSize < 5 * 1024 * 1024) return 1; // Control-sized NCA
+                    }
+                    catch { }
+                    return 2;
                 }
-                catch { }
+
+                if (lower.EndsWith(".cnmt.nca")) return 50;
+                if (lower.Contains("control")) return 51;
+                if (lower.Contains("program")) return 52;
             }
 
-            return 20;
+            return isFromBase ? 4 : 53;
         }
     }
 }
