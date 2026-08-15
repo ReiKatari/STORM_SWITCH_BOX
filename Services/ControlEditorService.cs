@@ -358,7 +358,8 @@ namespace StormSwitchBox.Services
                             IStorage srcStorage = srcStream.AsStorage();
                             var srcPfs = new PartitionFileSystem(srcStorage);
                             var openedFiles = new List<IFile>();
-                            var entryList = new List<KeyValuePair<string, IFile>>();
+                            var openedStreams = new List<FileStream>();
+                            var entryDict = new Dictionary<string, IStorage>(StringComparer.OrdinalIgnoreCase);
 
                             try
                             {
@@ -397,23 +398,37 @@ namespace StormSwitchBox.Services
 
                                     var oldFile = OpenFileSafe(srcPfs, "/" + name);
                                     openedFiles.Add(oldFile);
-                                    entryList.Add(new KeyValuePair<string, IFile>(name, oldFile));
+                                    entryDict[name] = oldFile.AsStorage();
                                 }
+
+                                if (newMetaNca != null && newMetaNcaName != null)
+                                {
+                                    var metaStream = new FileStream(newMetaNca, FileMode.Open, FileAccess.Read, FileShare.Read);
+                                    openedStreams.Add(metaStream);
+                                    entryDict[newMetaNcaName] = metaStream.AsStorage();
+                                }
+
+                                var controlStream = new FileStream(newControlNca, FileMode.Open, FileAccess.Read, FileShare.Read);
+                                openedStreams.Add(controlStream);
+                                entryDict[newControlNcaName] = controlStream.AsStorage();
 
                                 // Сортируем файлы в строгом порядке Nintendo Switch PFS0:
                                 // 0: Meta (CNMT) -> 1: Control -> 2: Program -> 3: Manual -> 50: DLC -> 90: Tickets/Certs
-                                if (newMetaNca != null && newMetaNcaName != null)
+                                var ordered = entryDict.OrderBy(kvp =>
                                 {
-                                    using var metaStream = new FileStream(newMetaNca, FileMode.Open, FileAccess.Read, FileShare.Read);
-                                    pfsBuilder.AddFile(newMetaNcaName, new StorageFile(new SafeStorageWrapper(metaStream.AsStorage()), OpenMode.Read));
-                                }
+                                    string lower = kvp.Key.ToLowerInvariant();
+                                    if (lower.EndsWith(".tik")) return 90;
+                                    if (lower.EndsWith(".cert")) return 91;
+                                    if (lower.EndsWith(".cnmt.nca") || lower.EndsWith(".cnmt.xml")) return 0;
+                                    if (lower.Equals(newControlNcaName, StringComparison.OrdinalIgnoreCase) || lower.Contains("control")) return 1;
+                                    if (lower.Contains("program")) return 2;
+                                    if (lower.Contains("manual")) return 3;
+                                    return 5;
+                                }).ThenBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase);
 
-                                using var controlStream = new FileStream(newControlNca, FileMode.Open, FileAccess.Read, FileShare.Read);
-                                pfsBuilder.AddFile(newControlNcaName, new StorageFile(new SafeStorageWrapper(controlStream.AsStorage()), OpenMode.Read));
-
-                                foreach (var kvp in entryList)
+                                foreach (var kvp in ordered)
                                 {
-                                    pfsBuilder.AddFile(kvp.Key, new StorageFile(new SafeStorageWrapper(kvp.Value.AsStorage()), OpenMode.Read));
+                                    pfsBuilder.AddFile(kvp.Key, new StorageFile(new SafeStorageWrapper(kvp.Value), OpenMode.Read));
                                 }
 
                                 using var builtPfs = pfsBuilder.Build(PartitionFileSystemType.Standard);
@@ -437,6 +452,7 @@ namespace StormSwitchBox.Services
                             finally
                             {
                                 foreach (var f in openedFiles) try { f.Dispose(); } catch { }
+                                foreach (var s in openedStreams) try { s.Dispose(); } catch { }
                             }
                         }
 
