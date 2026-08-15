@@ -281,6 +281,15 @@ namespace StormSwitchBox.Services
                     string? progPath = null;
                     string? manualPath = null;
                     string titleVersionHex = "0x0";
+                    try
+                    {
+                        var pInfo = App.SwitchFormat.ParseNsp(targetNspPath);
+                        if (!string.IsNullOrEmpty(pInfo.Version) && uint.TryParse(pInfo.Version, out uint parsedV))
+                        {
+                            titleVersionHex = $"0x{parsedV:X}";
+                        }
+                    }
+                    catch { }
 
                     // Извлекаем Program NCA и другие мета-зависимости из целевого NSP
                     using (var srcStream = new FileStream(targetNspPath, FileMode.Open, FileAccess.Read, FileShare.Read))
