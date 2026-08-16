@@ -795,10 +795,19 @@ namespace StormSwitchBox.Services
             int gameCount = 0;
             int updateCount = 0;
             int dlcCount = 0;
+            int modCount = 0;
 
             foreach (var f in allInputFiles)
             {
-                if (System.IO.Directory.Exists(f)) continue;
+                if (System.IO.Directory.Exists(f))
+                {
+                    string dirName = System.IO.Path.GetFileName(f).ToLowerInvariant();
+                    if (dirName == "romfs" || dirName == "exefs" || f.Contains("romfs", StringComparison.OrdinalIgnoreCase) || f.Contains("exefs", StringComparison.OrdinalIgnoreCase))
+                    {
+                        modCount = 1;
+                    }
+                    continue;
+                }
 
                 string fname = System.IO.Path.GetFileName(f);
                 string tid = "";
@@ -868,8 +877,8 @@ namespace StormSwitchBox.Services
                 (origFileName.Contains($"v{patchVer}", StringComparison.OrdinalIgnoreCase) ||
                  origFileName.Contains(patchVer, StringComparison.OrdinalIgnoreCase));
 
-            // Удаляем только тег содержимого (1G+1U+5D) — он всегда пересчитывается
-            baseGameTitle = System.Text.RegularExpressions.Regex.Replace(baseGameTitle, @"\s*\(\d+G(?:\+\d+U)?(?:\+\d+D)?\)", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            // Удаляем любой существующий тег содержимого (1G+1U+4D), (1G+1U+4D+1M), (1G+1U+1M), (1G+5D) и т.д. — он всегда пересчитывается заново
+            baseGameTitle = System.Text.RegularExpressions.Regex.Replace(baseGameTitle, @"\s*\(\d+[A-Za-z](?:\+\d+[A-Za-z])*\)", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
             // Удаляем квадратные теги [TitleID] и [vXXX] ТОЛЬКО если их нет в оригинале
             // (т.е. они были добавлены автоматически ранее, а не пользователем)
@@ -912,6 +921,7 @@ namespace StormSwitchBox.Services
             if (gameCount > 0) parts.Add($"{gameCount}G");
             if (updateCount > 0) parts.Add($"{updateCount}U");
             if (dlcCount > 0) parts.Add($"{dlcCount}D");
+            if (modCount > 0) parts.Add($"{modCount}M");
 
             if (parts.Count > 0)
             {
