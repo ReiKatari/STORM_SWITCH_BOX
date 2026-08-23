@@ -54,7 +54,7 @@ Write-Host "==============================================" -ForegroundColor Cya
 Write-Host "4. Compiling custom StormInstaller (Cyber Dark UI standard)..." -ForegroundColor Cyan
 Write-Host "==============================================" -ForegroundColor Cyan
 
-dotnet publish "$root\installer\StormInstaller\StormInstaller.csproj" -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true
+dotnet publish "$root\installer\StormInstaller\StormInstaller.csproj" -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=false -p:EnableCompressionInSingleFile=false
 
 $installerExe = "$root\installer\StormInstaller\bin\Release\net8.0-windows\win-x64\publish\StormInstaller.exe"
 $setupExe = "$outputDir\STORM_SWITCH_BOX_4.7.0_Setup.exe"
