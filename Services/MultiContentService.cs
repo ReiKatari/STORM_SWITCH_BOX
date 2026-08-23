@@ -12,6 +12,7 @@ using LibHac.FsSystem;
 using LibHac.Tools.FsSystem;
 using LibHac.Tools.FsSystem.NcaUtils;
 using StormSwitchBox.Models;
+using Path = System.IO.Path;
 
 namespace StormSwitchBox.Services
 {
@@ -82,6 +83,7 @@ namespace StormSwitchBox.Services
                     tempDecompDir = System.IO.Path.Combine(string.IsNullOrEmpty(targetDir) ? System.IO.Path.GetTempPath() : targetDir, "StormDecomp_" + Guid.NewGuid().ToString("N").Substring(0, 8));
                 }
                 Directory.CreateDirectory(tempDecompDir);
+                TempCleanupService.RegisterActiveTempDirectory(tempDecompDir);
 
                 var decompTasks = inputFiles.Select(async f =>
                 {
@@ -112,20 +114,23 @@ namespace StormSwitchBox.Services
 
                 bool hasMods = finalInputFilesList.Any(d => Directory.Exists(d) && 
                     (System.IO.Path.GetFileName(d).Equals("romfs", StringComparison.OrdinalIgnoreCase) || 
-                     System.IO.Path.GetFileName(d).Equals("exefs", StringComparison.OrdinalIgnoreCase)));
+                     System.IO.Path.GetFileName(d).Equals("exefs", StringComparison.OrdinalIgnoreCase) ||
+                     System.IO.Path.GetFileName(d).Equals("exefs_patches", StringComparison.OrdinalIgnoreCase)));
 
-                // Путь к оригинальному Update NSP — нужен в LibHac fallback для Patch CNMT и тикетов
+                string? savedBaseFile = null;
                 string? savedUpdateFile = null;
+                bool hasPatchedBase = false;
 
                 // Патчинг прошивки (пересборка base+update через yanu-cli)
                 // Пропускаем для мульти-программных тайтлов (напр. AC Ezio Collection)
                 bool skipHardPatch = task.IsMultiProgramTitle;
-                if ((patchFirmware || hasMods) && !skipHardPatch)
+                bool shouldHardPatch = (patchFirmware || App.Settings.Current.ForceMultiRebuild || hasMods) && !skipHardPatch;
+                if (shouldHardPatch)
                 {
                     App.RunOnUI(() =>
                     {
                         task.LogDetails += hasMods 
-                            ? "\n🔵 [HardPatch] Обнаружены папки модов (romfs/exefs). Запуск распаковки и пересборки..." 
+                            ? "\n🔵 [HardPatch] Обнаружены папки модов (romfs/exefs/exefs_patches). Запуск распаковки и пересборки..." 
                             : "\n🔵 [HardPatch] Поиск Base и Update...";
                     });
                     
@@ -163,6 +168,9 @@ namespace StormSwitchBox.Services
                     
                     if (!string.IsNullOrEmpty(baseFile) && (!string.IsNullOrEmpty(updateFile) || hasMods))
                     {
+                        savedBaseFile = baseFile;
+                        savedUpdateFile = updateFile;
+
                         App.RunOnUI(() => task.LogDetails += "\n🔵 [HardPatch] Физическая пересборка...");
                         string titleIdStr = "";
                         try {
@@ -193,7 +201,7 @@ namespace StormSwitchBox.Services
                             int patchedProgramNcaCount = 0;
                             try
                             {
-                                // Считаем Program NCA (>100MB) в оригинальном base
+                                // Считаем Program NCA в оригинальном base
                                 using (var bs = new FileStream(baseFile, FileMode.Open, FileAccess.Read, FileShare.Read))
                                 using (var bfs = new PartitionFileSystem(bs.AsStorage()))
                                 {
@@ -203,15 +211,27 @@ namespace StormSwitchBox.Services
                                         if (e.Name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase) || 
                                             e.Name.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase))
                                         {
+                                            if (e.Name.EndsWith(".cnmt.nca", StringComparison.OrdinalIgnoreCase) || e.Name.EndsWith(".cnmt.ncz", StringComparison.OrdinalIgnoreCase)) continue;
                                             var f = OpenFileSafe(bfs, "/" + e.Name);
                                             f.GetSize(out long size);
+                                            
+                                            bool isProgram = false;
+                                            try
+                                            {
+                                                var nca = new LibHac.Tools.FsSystem.NcaUtils.Nca(App.Keys.CurrentKeyset, f.AsStorage());
+                                                isProgram = nca.Header.ContentType == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Program;
+                                            }
+                                            catch
+                                            {
+                                                isProgram = size > 10 * 1024 * 1024; // Fallback для ретро-игр и крупных программ
+                                            }
                                             f.Dispose();
-                                            if (size > 100 * 1024 * 1024)
+                                            if (isProgram)
                                                 originalProgramNcaCount++;
                                         }
                                     }
                                 }
-                                // Считаем Program NCA (>100MB) в patched_base
+                                // Считаем Program NCA в patched_base
                                 using (var ps = new FileStream(tempHardPatchedNsp, FileMode.Open, FileAccess.Read, FileShare.Read))
                                 using (var pfs = new PartitionFileSystem(ps.AsStorage()))
                                 {
@@ -221,10 +241,22 @@ namespace StormSwitchBox.Services
                                         if (e.Name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase) || 
                                             e.Name.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase))
                                         {
+                                            if (e.Name.EndsWith(".cnmt.nca", StringComparison.OrdinalIgnoreCase) || e.Name.EndsWith(".cnmt.ncz", StringComparison.OrdinalIgnoreCase)) continue;
                                             var f = OpenFileSafe(pfs, "/" + e.Name);
                                             f.GetSize(out long size);
+                                            
+                                            bool isProgram = false;
+                                            try
+                                            {
+                                                var nca = new LibHac.Tools.FsSystem.NcaUtils.Nca(App.Keys.CurrentKeyset, f.AsStorage());
+                                                isProgram = nca.Header.ContentType == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Program;
+                                            }
+                                            catch
+                                            {
+                                                isProgram = size > 10 * 1024 * 1024;
+                                            }
                                             f.Dispose();
-                                            if (size > 100 * 1024 * 1024)
+                                            if (isProgram)
                                                 patchedProgramNcaCount++;
                                         }
                                     }
@@ -232,7 +264,7 @@ namespace StormSwitchBox.Services
                             }
                             catch { }
 
-                            App.Logger.Log($"[HardPatch] Program NCA (>100MB) validation: original={originalProgramNcaCount}, patched={patchedProgramNcaCount}", Models.LogLevel.Info);
+                            App.Logger.Log($"[HardPatch] Program NCA validation: original={originalProgramNcaCount}, patched={patchedProgramNcaCount}", Models.LogLevel.Info);
 
                             if (originalProgramNcaCount > 1 && patchedProgramNcaCount < originalProgramNcaCount)
                             {
@@ -241,17 +273,11 @@ namespace StormSwitchBox.Services
                                 App.RunOnUI(() => task.LogDetails += $"\n⚠️ [HardPatch] Мульти-программный тайтл ({originalProgramNcaCount} игр → {patchedProgramNcaCount}). Используем оригинальные файлы.");
                                 App.Logger.Log($"[HardPatch] Multi-program title detected: {originalProgramNcaCount} -> {patchedProgramNcaCount}. Discarding patched_base, using originals.", Models.LogLevel.Warning);
                                 try { System.IO.File.Delete(tempHardPatchedNsp); } catch { }
-                                
-                                // Сохраняем Update для LibHac fallback (Patch CNMT + тикеты)
-                                if (!string.IsNullOrEmpty(updateFile) && System.IO.File.Exists(updateFile))
-                                    savedUpdateFile = updateFile;
                             }
                             else
                             {
                                 // Нормальный тайтл — используем patched_base
-                                if (!string.IsNullOrEmpty(updateFile) && System.IO.File.Exists(updateFile))
-                                    savedUpdateFile = updateFile;
-
+                                hasPatchedBase = true;
                                 finalInputFilesList.Remove(baseFile);
                                 if (!string.IsNullOrEmpty(updateFile)) finalInputFilesList.Remove(updateFile);
                                 foreach (var mod in modDirs)
@@ -274,7 +300,7 @@ namespace StormSwitchBox.Services
                     App.Logger.Log("[HardPatch] Skipped: multi-program title detected by pre-analysis", LogLevel.Info);
                 }
 
-                // 4.5 Сшивание мультиконтента через NSC_Builder (squirrel.exe)
+                // 4.5 Сшивание мультиконтента через нативный движок LibHac PFS0
                 App.RunOnUI(() =>
                 {
                     task.LogDetails += "\n📦 [NSC_Builder] Сшивание мультиконтента...";
@@ -282,13 +308,7 @@ namespace StormSwitchBox.Services
                 });
 
                 bool isTargetXci = task.TargetFormat.Equals("XCI", StringComparison.OrdinalIgnoreCase) || task.TargetFormat.Equals("XCZ", StringComparison.OrdinalIgnoreCase);
-                string actualIntermediatePath = intermediatePath;
-                if (isTargetXci)
-                {
-                    // squirrel can generate XCI directly, so we just use intermediatePath directly
-                    // no need for temp.nsp wrapping.
-                }
-
+                
                 string appDir = AppDomain.CurrentDomain.BaseDirectory;
                 string toolsDir = System.IO.Path.Combine(appDir, "tools");
                 if (!System.IO.Directory.Exists(toolsDir))
@@ -299,55 +319,8 @@ namespace StormSwitchBox.Services
                         toolsDir = parentTools;
                     }
                 }
+
                 App.EnsureUserKeysAvailable();
-
-                // Ищем рабочий каталог утилиты NSC_Builder
-                string nscbDir = System.IO.Path.Combine(toolsDir, "nscb");
-                string squirrelExe = System.IO.Path.Combine(nscbDir, "ztools", "squirrel.exe");
-
-                if (!System.IO.File.Exists(squirrelExe))
-                    throw new Exception($"NSC_Builder (squirrel.exe) не найден по пути: {squirrelExe}");
-
-                string isolatedUserProfile = System.IO.Path.Combine(toolsDir, "keys");
-                string isolatedLocalAppData = System.IO.Path.Combine(toolsDir, "cache");
-
-                string userProfileSwitch = System.IO.Path.Combine(isolatedUserProfile, ".switch");
-                string userProfileKeys = System.IO.Path.Combine(userProfileSwitch, "prod.keys");
-                string userProfileKeysTxt = System.IO.Path.Combine(userProfileSwitch, "keys.txt");
-                string realProfileSwitch = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch");
-                string realProfileKeys = System.IO.Path.Combine(realProfileSwitch, "prod.keys");
-                string realProfileKeysTxt = System.IO.Path.Combine(realProfileSwitch, "keys.txt");
-                string squirrelKeys1 = System.IO.Path.Combine(nscbDir, "keys.txt");
-                string squirrelKeys2 = System.IO.Path.Combine(nscbDir, "ztools", "keys.txt");
-
-                lock (typeof(HardPatchEngine)) // Using type lock for safety as _keysLock is private
-                {
-                    try
-                    {
-                        if (!Directory.Exists(userProfileSwitch)) Directory.CreateDirectory(userProfileSwitch);
-                        if (!Directory.Exists(realProfileSwitch)) Directory.CreateDirectory(realProfileSwitch);
-                        if (!Directory.Exists(isolatedLocalAppData)) Directory.CreateDirectory(isolatedLocalAppData);
-
-                        if (!string.IsNullOrEmpty(App.Settings.Current.KeysPath) && System.IO.File.Exists(App.Settings.Current.KeysPath))
-                        {
-                            App.SwitchFormat.CleanKeysFile(App.Settings.Current.KeysPath);
-                            System.IO.File.Copy(App.Settings.Current.KeysPath, userProfileKeys, true);
-                            System.IO.File.Copy(App.Settings.Current.KeysPath, userProfileKeysTxt, true);
-                            System.IO.File.Copy(App.Settings.Current.KeysPath, realProfileKeys, true);
-                            System.IO.File.Copy(App.Settings.Current.KeysPath, realProfileKeysTxt, true);
-                            System.IO.File.Copy(App.Settings.Current.KeysPath, squirrelKeys1, true);
-                            System.IO.File.Copy(App.Settings.Current.KeysPath, squirrelKeys2, true);
-
-                            App.SwitchFormat.CleanKeysFile(userProfileKeys);
-                            App.SwitchFormat.CleanKeysFile(userProfileKeysTxt);
-                            App.SwitchFormat.CleanKeysFile(realProfileKeys);
-                            App.SwitchFormat.CleanKeysFile(realProfileKeysTxt);
-                            App.SwitchFormat.CleanKeysFile(squirrelKeys1);
-                            App.SwitchFormat.CleanKeysFile(squirrelKeys2);
-                        }
-                    }
-                    catch { }
-                }
 
                 var sortedList = new List<string>();
                 string? mainApp = null;
@@ -403,14 +376,11 @@ namespace StormSwitchBox.Services
 
                 if (sortedList.Count == 0) sortedList = finalInputFilesList.Where(f => !Directory.Exists(f)).ToList();
 
-                string fmt = isTargetXci ? "xci" : "cnsp";
-                string outFolder = System.IO.Path.Combine(tempDecompDir, "nscb_out");
+                string outFolder = System.IO.Path.Combine(tempDecompDir, "libhac_out");
                 Directory.CreateDirectory(outFolder);
 
                 bool buildDone = false;
-                bool hasPatchedBase = finalInputFilesList.Any(f => f.Contains("patched_base", StringComparison.OrdinalIgnoreCase));
-
-                // Универсальная прямая нативная сборка LibHac PFS0 для 100% целостности метаданных, иконки, заголовков и дополнений
+                
                 App.RunOnUI(() => task.LogDetails += "\n📦 [LibHac] Нативная сборка Multi-NSP (PFS0)...");
 
                 try
@@ -434,13 +404,6 @@ namespace StormSwitchBox.Services
                         {
                             if (!System.IO.Directory.Exists(f) && !scanList.Contains(f, StringComparer.OrdinalIgnoreCase) && System.IO.File.Exists(f))
                                 scanList.Add(f);
-                        }
-                        // Добавляем оригинальный Update NSP только если HardPatch НЕ создавал patched_base (например при сбое/пропуске)
-                        if (!hasPatchedBase && !string.IsNullOrEmpty(savedUpdateFile) && System.IO.File.Exists(savedUpdateFile) 
-                            && !scanList.Contains(savedUpdateFile, StringComparer.OrdinalIgnoreCase))
-                        {
-                            scanList.Add(savedUpdateFile);
-                            App.Logger.Log($"[LibHac] Добавлен оригинальный Update для Patch CNMT: {System.IO.Path.GetFileName(savedUpdateFile)}", Models.LogLevel.Info);
                         }
 
                         // Если целевой формат несжатый NSP/XCI, а часть файлов — NSZ/XCZ/XCI, предварительно распаковываем их
@@ -483,6 +446,7 @@ namespace StormSwitchBox.Services
 
                         var baseEntries = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+                        // 1. Сканируем основные файлы сборки (Base/Patched Base + DLCs + Unlockers)
                         for (int scanIdx = 0; scanIdx < processedScanList.Count; scanIdx++)
                         {
                             string nspPath = processedScanList[scanIdx];
@@ -493,16 +457,14 @@ namespace StormSwitchBox.Services
                             var fs = new PartitionFileSystem(stream.AsStorage());
                             openedFs.Add(fs);
 
-                            bool isMainOrUpdate = (scanIdx == 0) || 
-                                                  (!string.IsNullOrEmpty(savedUpdateFile) && nspPath.Contains(System.IO.Path.GetFileNameWithoutExtension(savedUpdateFile), StringComparison.OrdinalIgnoreCase)) ||
-                                                  (!string.IsNullOrEmpty(patchApp) && nspPath.Contains(System.IO.Path.GetFileNameWithoutExtension(patchApp), StringComparison.OrdinalIgnoreCase));
+                            bool isMainGame = (scanIdx == 0);
                             
                             foreach (var entry in fs.EnumerateEntries())
                             {
                                 if (entry.Type == LibHac.Fs.DirectoryEntryType.Directory) continue;
                                 string name = entry.Name;
                                 
-                                if (isMainOrUpdate)
+                                if (isMainGame)
                                 {
                                     baseEntries.Add(name);
                                 }
@@ -510,85 +472,207 @@ namespace StormSwitchBox.Services
                                 if (mergedEntries.ContainsKey(name) || !IsValidNspEntry(name)) continue;
 
                                 var file = OpenFileSafe(fs, entry.FullPath);
-                                
                                 openedFiles.Add(file);
                                 mergedEntries[name] = file;
                             }
                         }
 
-                            // Strictly order entries so Base CNMT (0), Control/Icon NCA (1), Program NCA (2) are FIRST
-                            ulong baseTitleId = 0;
-                            if (!string.IsNullOrEmpty(mainApp))
+                        // 2. Сохраняем тикеты (.tik), сертификаты (.cert) и Update CNMT из оригинального Update NSP и Base NSP
+                        var extraSources = new List<string>();
+                        if (!string.IsNullOrEmpty(savedUpdateFile) && File.Exists(savedUpdateFile)) extraSources.Add(savedUpdateFile);
+                        if (!string.IsNullOrEmpty(savedBaseFile) && File.Exists(savedBaseFile)) extraSources.Add(savedBaseFile);
+
+                        foreach (var extraPath in extraSources)
+                        {
+                            try
+                            {
+                                var stream = new FileStream(extraPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                                openedStreams.Add(stream);
+                                var fs = new PartitionFileSystem(stream.AsStorage());
+                                openedFs.Add(fs);
+
+                                foreach (var entry in fs.EnumerateEntries())
+                                {
+                                    if (entry.Type == LibHac.Fs.DirectoryEntryType.Directory) continue;
+                                    string name = entry.Name;
+                                    string lower = name.ToLowerInvariant();
+
+                                    // Извлекаем тикеты (.tik), сертификаты (.cert) и Patch CNMT (.cnmt.nca)
+                                    bool isTicketOrCert = lower.EndsWith(".tik") || lower.EndsWith(".cert");
+                                    bool isPatchCnmt = lower.EndsWith(".cnmt.nca") || lower.EndsWith(".cnmt.xml");
+
+                                    if (isTicketOrCert || isPatchCnmt)
+                                    {
+                                        if (!mergedEntries.ContainsKey(name))
+                                        {
+                                            var file = OpenFileSafe(fs, entry.FullPath);
+                                            openedFiles.Add(file);
+                                            mergedEntries[name] = file;
+                                            if (isTicketOrCert)
+                                            {
+                                                App.Logger.Log($"[LibHac] Вшит тикет/сертификат Unlocker: {name}", Models.LogLevel.Info);
+                                            }
+                                            else if (isPatchCnmt)
+                                            {
+                                                App.Logger.Log($"[LibHac] Вшит Update Patch CNMT: {name}", Models.LogLevel.Info);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            catch { }
+                        }
+
+                        // Strictly order entries so Base CNMT (0), Control/Icon NCA (1), Program NCA (2) are FIRST
+                        ulong baseTitleId = 0;
+                        if (!string.IsNullOrEmpty(mainApp))
+                        {
+                            try
+                            {
+                                var info = App.SwitchFormat.ParseNsp(mainApp);
+                                if (!string.IsNullOrEmpty(info.TitleId) && ulong.TryParse(info.TitleId, System.Globalization.NumberStyles.HexNumber, null, out ulong parsedTid))
+                                {
+                                    baseTitleId = parsedTid;
+                                }
+                            }
+                            catch { }
+                        }
+                        if (baseTitleId == 0 && !string.IsNullOrEmpty(savedBaseFile))
+                        {
+                            try
+                            {
+                                var info = App.SwitchFormat.ParseNsp(savedBaseFile);
+                                if (!string.IsNullOrEmpty(info.TitleId) && ulong.TryParse(info.TitleId, System.Globalization.NumberStyles.HexNumber, null, out ulong parsedTid))
+                                {
+                                    baseTitleId = parsedTid;
+                                }
+                            }
+                            catch { }
+                        }
+                        if (baseTitleId == 0)
+                        {
+                            string combinedHint = $"{task.OutputFileName} {mainApp} {savedBaseFile} {task.GroupId} " + string.Join(" ", inputFiles);
+                            var m = System.Text.RegularExpressions.Regex.Match(combinedHint, @"0100[0-9A-Fa-f]{12}");
+                            if (m.Success && ulong.TryParse(m.Value, System.Globalization.NumberStyles.HexNumber, null, out ulong regexTid))
+                            {
+                                baseTitleId = regexTid;
+                            }
+                        }
+
+                        // 3. Если в игру вшивались моды (RomFS / ExeFS), генерируем метаданные AddOnContent для отображения в "Дополнения" эмулятора
+                        if (hasMods && baseTitleId != 0)
+                        {
+                            bool hasRomFsMod = inputFiles.Any(d => Directory.Exists(d) && Path.GetFileName(d).Equals("romfs", StringComparison.OrdinalIgnoreCase));
+                            bool hasExeFsMod = inputFiles.Any(d => Directory.Exists(d) && 
+                                (Path.GetFileName(d).Equals("exefs", StringComparison.OrdinalIgnoreCase) || 
+                                 Path.GetFileName(d).Equals("exefs_patches", StringComparison.OrdinalIgnoreCase)));
+                            
+                            App.RunOnUI(() => task.LogDetails += "\n🏷️ [ModAddon] Интеграция метаданных модификаций в Дополнения...");
+                            var modNcas = await GenerateModAddonEntriesAsync(baseTitleId, tempDecompDir, hasRomFsMod, hasExeFsMod, dlcs.Count, task, cancellationToken);
+                            foreach (var modNcaPath in modNcas)
                             {
                                 try
                                 {
-                                    var info = App.SwitchFormat.ParseNsp(mainApp);
-                                    if (!string.IsNullOrEmpty(info.TitleId) && ulong.TryParse(info.TitleId, System.Globalization.NumberStyles.HexNumber, null, out ulong parsedTid))
+                                    var stream = new FileStream(modNcaPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                                    openedStreams.Add(stream);
+                                    string ncaFileName = Path.GetFileName(modNcaPath);
+                                    if (!mergedEntries.ContainsKey(ncaFileName))
                                     {
-                                        baseTitleId = parsedTid;
+                                        var sFile = new LibHac.FsSystem.StorageFile(stream.AsStorage(), LibHac.Fs.OpenMode.Read);
+                                        openedFiles.Add(sFile);
+                                        mergedEntries[ncaFileName] = sFile;
                                     }
                                 }
                                 catch { }
                             }
+                        }
 
-                            var orderedEntries = mergedEntries
-                                .OrderBy(kvp => GetNcaPriority(kvp.Value, kvp.Key, baseTitleId, baseEntries))
-                                .ThenBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase);
+                        var orderedEntries = mergedEntries
+                            .OrderBy(kvp => GetNcaPriority(kvp.Value, kvp.Key, baseTitleId, baseEntries))
+                            .ThenBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase);
 
-                            foreach (var kvp in orderedEntries)
+                        foreach (var kvp in orderedEntries)
+                        {
+                            pfsBuilder.AddFile(kvp.Key, new LibHac.FsSystem.StorageFile(new StormSwitchBox.Services.SafeStorageWrapper(kvp.Value.AsStorage()), LibHac.Fs.OpenMode.Read));
+                        }
+
+                        string outputNspPath = System.IO.Path.Combine(outFolder, $"multi_out_{Guid.NewGuid().ToString("N").Substring(0, 8)}.nsp");
+
+                        using (var builtPfs = pfsBuilder.Build(PartitionFileSystemType.Standard))
+                        {
+                            builtPfs.GetSize(out long totalPfsSize).ThrowIfFailure();
+                            
+                            FileStream destStream;
+                            try
                             {
-                                pfsBuilder.AddFile(kvp.Key, new LibHac.FsSystem.StorageFile(new StormSwitchBox.Services.SafeStorageWrapper(kvp.Value.AsStorage()), LibHac.Fs.OpenMode.Read));
+                                var fsOptions = new FileStreamOptions
+                                {
+                                    Mode = FileMode.Create,
+                                    Access = FileAccess.Write,
+                                    Share = FileShare.None,
+                                    BufferSize = 8 * 1024 * 1024,
+                                    Options = FileOptions.SequentialScan
+                                };
+                                destStream = new FileStream(outputNspPath, fsOptions);
+                            }
+                            catch
+                            {
+                                destStream = new FileStream(outputNspPath, FileMode.Create, FileAccess.Write, FileShare.None, 4 * 1024 * 1024);
                             }
 
-                            string outputNspPath = System.IO.Path.Combine(outFolder, $"multi_out_{Guid.NewGuid().ToString("N").Substring(0, 8)}.nsp");
-
-                            using (var builtPfs = pfsBuilder.Build(PartitionFileSystemType.Standard))
+                            using (destStream)
                             {
-                                builtPfs.GetSize(out long totalPfsSize).ThrowIfFailure();
-                                
-                                using var destStream = new FileStream(outputNspPath, FileMode.Create, FileAccess.Write, FileShare.None, 32 * 1024 * 1024);
                                 long remaining = totalPfsSize;
                                 long offset = 0;
-                                byte[] buffer = new byte[32 * 1024 * 1024];
+                                int chunkSize = 8 * 1024 * 1024;
+                                byte[] rentedBuffer = System.Buffers.ArrayPool<byte>.Shared.Rent(chunkSize);
                                 var sw = System.Diagnostics.Stopwatch.StartNew();
-                                
-                                while (remaining > 0)
+
+                                try
                                 {
-                                    cancellationToken.ThrowIfCancellationRequested();
-                                    int toRead = (int)Math.Min(buffer.Length, remaining);
-                                    builtPfs.Read(offset, buffer.AsSpan(0, toRead)).ThrowIfFailure();
-                                    destStream.Write(buffer, 0, toRead);
-                                    offset += toRead;
-                                    remaining -= toRead;
-                                    
-                                    if (sw.ElapsedMilliseconds > 300 || remaining == 0)
+                                    while (remaining > 0)
                                     {
-                                        sw.Restart();
-                                        double pct = (double)offset / totalPfsSize * 100.0;
-                                        App.RunOnUI(() => task.Progress = Math.Min(99.9, pct));
+                                        cancellationToken.ThrowIfCancellationRequested();
+                                        int toRead = (int)Math.Min(chunkSize, remaining);
+                                        builtPfs.Read(offset, rentedBuffer.AsSpan(0, toRead)).ThrowIfFailure();
+                                        destStream.Write(rentedBuffer, 0, toRead);
+                                        offset += toRead;
+                                        remaining -= toRead;
+
+                                        if (sw.ElapsedMilliseconds > 350 || remaining == 0)
+                                        {
+                                            sw.Restart();
+                                            double pct = (double)offset / totalPfsSize * 100.0;
+                                            App.RunOnUI(() => task.Progress = Math.Min(99.9, pct));
+                                        }
                                     }
                                 }
+                                finally
+                                {
+                                    System.Buffers.ArrayPool<byte>.Shared.Return(rentedBuffer);
+                                }
                             }
-
-                            if (isTargetXci)
-                            {
-                                App.RunOnUI(() => task.LogDetails += "\n🔄 [Конвертация] Сборка XCI из Multi-NSP (4nxci)...");
-                                await App.SwitchFormat.ConvertContainerAsync(task, outputNspPath, outFolder, "XCI", cancellationToken);
-                                try { if (File.Exists(outputNspPath)) File.Delete(outputNspPath); } catch { }
-                            }
-
-                            buildDone = true;
                         }
-                        finally
+
+                        if (isTargetXci)
                         {
-                            foreach (var f in openedFiles) { try { f.Dispose(); } catch { } }
-                            foreach (var s in openedStreams) { try { s.Dispose(); } catch { } }
+                            App.RunOnUI(() => task.LogDetails += "\n🔄 [Конвертация] Сборка XCI из Multi-NSP (4nxci)...");
+                            await App.SwitchFormat.ConvertContainerAsync(task, outputNspPath, outFolder, "XCI", cancellationToken);
+                            try { if (File.Exists(outputNspPath)) File.Delete(outputNspPath); } catch { }
                         }
+
+                        buildDone = true;
                     }
-                    catch (Exception ex)
+                    finally
                     {
-                        throw new Exception($"Не удалось собрать мультиконтент: {ex.Message}");
+                        foreach (var f in openedFiles) { try { f.Dispose(); } catch { } }
+                        foreach (var s in openedStreams) { try { s.Dispose(); } catch { } }
                     }
+                }
+                catch (Exception ex)
+                {
+                    throw new Exception($"Не удалось собрать мультиконтент: {ex.Message}");
+                }
 
                 if (!buildDone)
                 {
@@ -708,26 +792,12 @@ namespace StormSwitchBox.Services
             }
             finally
             {
-                if (!string.IsNullOrEmpty(tempDecompDir) && System.IO.Directory.Exists(tempDecompDir))
-                {
-                    for (int i = 0; i < 3; i++)
-                    {
-                        try 
-                        { 
-                            System.IO.Directory.Delete(tempDecompDir, true); 
-                            break;
-                        } 
-                        catch 
-                        { 
-                            System.Threading.Thread.Sleep(500); 
-                        }
-                    }
-                }
+                TempCleanupService.ForceDeleteDirectory(tempDecompDir);
                 
                 // Ensure intermediatePath is removed if it wasn't the final output
                 if (intermediatePath != outPath && !string.IsNullOrEmpty(intermediatePath) && System.IO.File.Exists(intermediatePath))
                 {
-                    try { System.IO.File.Delete(intermediatePath); } catch { }
+                    TempCleanupService.ForceDeleteFile(intermediatePath);
                 }
             }
         }
@@ -802,7 +872,10 @@ namespace StormSwitchBox.Services
                 if (System.IO.Directory.Exists(f))
                 {
                     string dirName = System.IO.Path.GetFileName(f).ToLowerInvariant();
-                    if (dirName == "romfs" || dirName == "exefs" || f.Contains("romfs", StringComparison.OrdinalIgnoreCase) || f.Contains("exefs", StringComparison.OrdinalIgnoreCase))
+                    if (dirName == "romfs" || dirName == "exefs" || dirName == "exefs_patches" || 
+                        f.Contains("romfs", StringComparison.OrdinalIgnoreCase) || 
+                        f.Contains("exefs", StringComparison.OrdinalIgnoreCase) ||
+                        f.Contains("exefs_patches", StringComparison.OrdinalIgnoreCase))
                     {
                         modCount = 1;
                     }
@@ -944,16 +1017,19 @@ namespace StormSwitchBox.Services
 
             if (lower.EndsWith(".cnmt.xml"))
             {
-                if (isFromBase || lower.Contains("000") || lower.Contains("base") || lower.Contains("800") || lower.Contains("update")) return 0;
+                if (isFromBase || lower.Contains("000") || lower.Contains("base")) return 0;
+                if (lower.Contains("800") || lower.Contains("update") || lower.Contains("patch")) return 10;
                 return 50;
             }
 
             if (lower.EndsWith(".cnmt.nca"))
             {
                 if (isFromBase) return 0; // Base/Patched Game CNMT is ALWAYS top priority in PFS0
-                if (lower.Contains("000") || lower.Contains("base") || lower.Contains("800") || lower.Contains("update")) return 0;
-                if (baseTitleId != 0 && (lower.Contains(baseTitleId.ToString("x16")) || lower.Contains((baseTitleId + 0x800).ToString("x16")))) return 0;
-                return 50; // DLC CNMT
+                if (lower.Contains("000") || lower.Contains("base")) return 0;
+                if (lower.Contains("800") || lower.Contains("update") || lower.Contains("patch")) return 10; // Update Patch CNMT
+                if (baseTitleId != 0 && lower.Contains(baseTitleId.ToString("x16"))) return 0;
+                if (baseTitleId != 0 && lower.Contains((baseTitleId + 0x800).ToString("x16"))) return 10;
+                return 50; // DLC / Mod CNMT
             }
 
             try
@@ -974,23 +1050,23 @@ namespace StormSwitchBox.Services
 
                 bool isBaseTitle = (baseTitleId != 0 && tid == baseTitleId) || tid.ToString("X16").EndsWith("000");
                 bool isUpdateTitle = tid.ToString("X16").EndsWith("800");
-                bool isMainGameTitle = isFromBase || isBaseTitle || isUpdateTitle;
 
                 if (type == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Meta) // CNMT
                 {
-                    if (isMainGameTitle) return 0;
+                    if (isBaseTitle) return 0;
+                    if (isUpdateTitle) return 10;
                     return 50;
                 }
 
                 if (type == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Control) // Icon artwork & Title strings
                 {
-                    if (isMainGameTitle) return 1;
+                    if (isBaseTitle) return 1;
                     return 51;
                 }
 
                 if (type == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Program) // Executable code
                 {
-                    if (isMainGameTitle) return 2;
+                    if (isBaseTitle || isUpdateTitle) return 2;
                     return 52;
                 }
 
@@ -1019,6 +1095,212 @@ namespace StormSwitchBox.Services
             }
 
             return isFromBase ? 4 : 53;
+        }
+
+        private async Task<List<string>> GenerateModAddonEntriesAsync(
+            ulong baseTitleId, 
+            string tempDir, 
+            bool hasRomFs, 
+            bool hasExeFs, 
+            int existingDlcCount,
+            Models.ProcessingTask task, 
+            CancellationToken ct)
+        {
+            var generatedNcas = new List<string>();
+            try
+            {
+                string toolsDir = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tools");
+                if (!Directory.Exists(toolsDir))
+                {
+                    string parentTools = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "tools");
+                    if (Directory.Exists(parentTools)) toolsDir = parentTools;
+                }
+
+                string hacpackExe = Path.Combine(toolsDir, "com.github.nozwock.yanu", "hacpack.exe");
+                if (!File.Exists(hacpackExe)) return generatedNcas;
+
+                string? keysFile = App.Settings.Current.KeysPath;
+                if (string.IsNullOrEmpty(keysFile) || !File.Exists(keysFile))
+                {
+                    string userKeys = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "prod.keys");
+                    if (File.Exists(userKeys)) keysFile = userKeys;
+                }
+                if (string.IsNullOrEmpty(keysFile) || !File.Exists(keysFile))
+                {
+                    string toolsKeys = Path.Combine(toolsDir, "keys", ".switch", "prod.keys");
+                    if (File.Exists(toolsKeys)) keysFile = toolsKeys;
+                }
+                if (string.IsNullOrEmpty(keysFile) || !File.Exists(keysFile))
+                {
+                    string nscbKeys = Path.Combine(toolsDir, "nscb", "ztools", "keys.txt");
+                    if (File.Exists(nscbKeys)) keysFile = nscbKeys;
+                }
+
+                if (string.IsNullOrEmpty(keysFile) || !File.Exists(keysFile))
+                {
+                    App.Logger.Log("[ModAddon] Файл ключей не найден. Пропуск создания метаданных дополнений.", LogLevel.Warning);
+                    return generatedNcas;
+                }
+
+                string modTempDir = Path.Combine(tempDir, "mod_addon_gen");
+                Directory.CreateDirectory(modTempDir);
+
+                // Извлекаем или генерируем иконку для Control NCA (256x256 JPEG)
+                byte[]? iconBytes = task.CustomMetadata?.CustomIconBytes ?? task.CustomMetadata?.OriginalIconBytes;
+                if (iconBytes == null || iconBytes.Length == 0)
+                {
+                    try
+                    {
+                        using var bmp = new System.Drawing.Bitmap(256, 256);
+                        using (var g = System.Drawing.Graphics.FromImage(bmp))
+                        {
+                            g.Clear(System.Drawing.Color.FromArgb(30, 130, 230));
+                            using var font = new System.Drawing.Font("Arial", 28, System.Drawing.FontStyle.Bold);
+                            using var brush = new System.Drawing.SolidBrush(System.Drawing.Color.White);
+                            g.DrawString("MOD", font, brush, 75, 105);
+                        }
+                        using var ms = new MemoryStream();
+                        bmp.Save(ms, System.Drawing.Imaging.ImageFormat.Jpeg);
+                        iconBytes = ms.ToArray();
+                    }
+                    catch { }
+                }
+
+                ulong baseTitleIdClean = baseTitleId & ~0xFFFUL;
+                int currentDlcIdx = existingDlcCount + 1;
+
+                if (hasRomFs)
+                {
+                    ulong modTid = baseTitleIdClean | 0x1000 | (ulong)currentDlcIdx;
+                    string modTidHex = modTid.ToString("X16");
+
+                    string romfsControlDir = Path.Combine(modTempDir, "romfs_mod_control");
+                    Directory.CreateDirectory(romfsControlDir);
+
+                    string romFsTitle = !string.IsNullOrWhiteSpace(task.ModNameRomFs) ? task.ModNameRomFs : "Модификации: RomFS";
+
+                    byte[] nacp = new byte[0x4000];
+                    byte[] nameBytes = System.Text.Encoding.UTF8.GetBytes(romFsTitle);
+                    byte[] devBytes = System.Text.Encoding.UTF8.GetBytes("STORM MODS");
+
+                    // Записываем имя и разработчика во все языковые слоты NACP (16 языков по 0x300 байт)
+                    for (int l = 0; l < 16; l++)
+                    {
+                        int titleOffset = l * 0x300;
+                        int devOffset = titleOffset + 0x200;
+                        Array.Copy(nameBytes, 0, nacp, titleOffset, Math.Min(nameBytes.Length, 0x200));
+                        Array.Copy(devBytes, 0, nacp, devOffset, Math.Min(devBytes.Length, 0x100));
+                    }
+                    File.WriteAllBytes(Path.Combine(romfsControlDir, "control.nacp"), nacp);
+
+                    if (iconBytes != null && iconBytes.Length > 0)
+                    {
+                        File.WriteAllBytes(Path.Combine(romfsControlDir, "icon_AmericanEnglish.dat"), iconBytes);
+                        File.WriteAllBytes(Path.Combine(romfsControlDir, "icon_Russian.dat"), iconBytes);
+                    }
+
+                    string dataRomfsDir = Path.Combine(modTempDir, "romfs_mod_data");
+                    Directory.CreateDirectory(dataRomfsDir);
+                    File.WriteAllText(Path.Combine(dataRomfsDir, "mod.txt"), "Storm Switch Box Integrated RomFS Mod");
+
+                    string outControlDir = Path.Combine(modTempDir, "out_romfs_control");
+                    string outDataDir = Path.Combine(modTempDir, "out_romfs_data");
+                    string outMetaDir = Path.Combine(modTempDir, "out_romfs_meta");
+                    Directory.CreateDirectory(outControlDir);
+                    Directory.CreateDirectory(outDataDir);
+                    Directory.CreateDirectory(outMetaDir);
+
+                    // 1. Control NCA
+                    await ExternalProcessRunner.RunAsync(hacpackExe, $"-k \"{keysFile}\" --type nca --ncatype control --titleid {modTidHex} --romfsdir \"{romfsControlDir}\" -o \"{outControlDir}\"", toolsDir, task, ct);
+                    // 2. PublicData NCA
+                    await ExternalProcessRunner.RunAsync(hacpackExe, $"-k \"{keysFile}\" --type nca --ncatype publicdata --titleid {modTidHex} --romfsdir \"{dataRomfsDir}\" -o \"{outDataDir}\"", toolsDir, task, ct);
+
+                    var controlNcas = Directory.GetFiles(outControlDir, "*.nca");
+                    var dataNcas = Directory.GetFiles(outDataDir, "*.nca");
+
+                    if (controlNcas.Length > 0 && dataNcas.Length > 0)
+                    {
+                        string controlNca = controlNcas[0];
+                        string publicDataNca = dataNcas[0];
+
+                        // 3. Addon CNMT NCA
+                        await ExternalProcessRunner.RunAsync(hacpackExe, $"-k \"{keysFile}\" --type nca --ncatype meta --titletype addon --titleid {modTidHex} --titleversion 0x0 --publicdatanca \"{publicDataNca}\" --controlnca \"{controlNca}\" -o \"{outMetaDir}\"", toolsDir, task, ct);
+                        
+                        generatedNcas.Add(controlNca);
+                        generatedNcas.Add(publicDataNca);
+                        generatedNcas.AddRange(Directory.GetFiles(outMetaDir, "*.nca"));
+                    }
+
+                    currentDlcIdx++;
+                }
+
+                if (hasExeFs)
+                {
+                    ulong modTid = baseTitleIdClean | 0x1000 | (ulong)currentDlcIdx;
+                    string modTidHex = modTid.ToString("X16");
+
+                    string exefsControlDir = Path.Combine(modTempDir, "exefs_mod_control");
+                    Directory.CreateDirectory(exefsControlDir);
+
+                    string exeFsTitle = !string.IsNullOrWhiteSpace(task.ModNameExeFs) ? task.ModNameExeFs : "Модификации: ExeFS";
+
+                    byte[] nacp = new byte[0x4000];
+                    byte[] nameBytes = System.Text.Encoding.UTF8.GetBytes(exeFsTitle);
+                    byte[] devBytes = System.Text.Encoding.UTF8.GetBytes("STORM MODS");
+
+                    for (int l = 0; l < 16; l++)
+                    {
+                        int titleOffset = l * 0x300;
+                        int devOffset = titleOffset + 0x200;
+                        Array.Copy(nameBytes, 0, nacp, titleOffset, Math.Min(nameBytes.Length, 0x200));
+                        Array.Copy(devBytes, 0, nacp, devOffset, Math.Min(devBytes.Length, 0x100));
+                    }
+                    File.WriteAllBytes(Path.Combine(exefsControlDir, "control.nacp"), nacp);
+
+                    if (iconBytes != null && iconBytes.Length > 0)
+                    {
+                        File.WriteAllBytes(Path.Combine(exefsControlDir, "icon_AmericanEnglish.dat"), iconBytes);
+                        File.WriteAllBytes(Path.Combine(exefsControlDir, "icon_Russian.dat"), iconBytes);
+                    }
+
+                    string dataRomfsDir = Path.Combine(modTempDir, "exefs_mod_data");
+                    Directory.CreateDirectory(dataRomfsDir);
+                    File.WriteAllText(Path.Combine(dataRomfsDir, "mod.txt"), "Storm Switch Box Integrated ExeFS Mod");
+
+                    string outControlDir = Path.Combine(modTempDir, "out_exefs_control");
+                    string outDataDir = Path.Combine(modTempDir, "out_exefs_data");
+                    string outMetaDir = Path.Combine(modTempDir, "out_exefs_meta");
+                    Directory.CreateDirectory(outControlDir);
+                    Directory.CreateDirectory(outDataDir);
+                    Directory.CreateDirectory(outMetaDir);
+
+                    // 1. Control NCA
+                    await ExternalProcessRunner.RunAsync(hacpackExe, $"-k \"{keysFile}\" --type nca --ncatype control --titleid {modTidHex} --romfsdir \"{exefsControlDir}\" -o \"{outControlDir}\"", toolsDir, task, ct);
+                    // 2. PublicData NCA
+                    await ExternalProcessRunner.RunAsync(hacpackExe, $"-k \"{keysFile}\" --type nca --ncatype publicdata --titleid {modTidHex} --romfsdir \"{dataRomfsDir}\" -o \"{outDataDir}\"", toolsDir, task, ct);
+
+                    var controlNcas = Directory.GetFiles(outControlDir, "*.nca");
+                    var dataNcas = Directory.GetFiles(outDataDir, "*.nca");
+
+                    if (controlNcas.Length > 0 && dataNcas.Length > 0)
+                    {
+                        string controlNca = controlNcas[0];
+                        string publicDataNca = dataNcas[0];
+
+                        // 3. Addon CNMT NCA
+                        await ExternalProcessRunner.RunAsync(hacpackExe, $"-k \"{keysFile}\" --type nca --ncatype meta --titletype addon --titleid {modTidHex} --titleversion 0x0 --publicdatanca \"{publicDataNca}\" --controlnca \"{controlNca}\" -o \"{outMetaDir}\"", toolsDir, task, ct);
+                        
+                        generatedNcas.Add(controlNca);
+                        generatedNcas.Add(publicDataNca);
+                        generatedNcas.AddRange(Directory.GetFiles(outMetaDir, "*.nca"));
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Logger.Log($"[ModAddon] Ошибка создания метаданных модификаций: {ex.Message}", Models.LogLevel.Warning);
+            }
+            return generatedNcas;
         }
     }
 }

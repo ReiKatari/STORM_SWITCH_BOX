@@ -95,6 +95,8 @@ namespace StormSwitchBox.Services
         private readonly HttpClient _httpClient;
         private readonly NintendoEShopService _eShopService;
 
+        public event Action? DatabaseLoaded;
+
         // URL для загрузки базы TitleDB (RU мертва — tinfoil 523, github 404)
         // Используем общую базу + US зеркало
         private const string DbUrl = "https://tinfoil.media/repo/db/titles.json";
@@ -104,7 +106,7 @@ namespace StormSwitchBox.Services
         {
             _dbPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "titledb.json");
             _httpClient = new HttpClient();
-            _httpClient.DefaultRequestHeaders.Add("User-Agent", "StormSwitchBox/4.4.4");
+            _httpClient.DefaultRequestHeaders.Add("User-Agent", "StormSwitchBox/4.6.4");
             _eShopService = new NintendoEShopService();
             
             // Асинхронно загружаем базу из локального кэша
@@ -144,27 +146,51 @@ namespace StormSwitchBox.Services
             return (DateTime.Now - fi.LastWriteTime).TotalDays < 1;
         }
 
+        public IReadOnlyDictionary<string, TitleDbEntry> Database => _db;
+        public IEnumerable<TitleDbEntry> GetAllEntries() => _db.Values;
+
         private async Task LoadLocalDbAsync()
         {
-            if (File.Exists(_dbPath))
+            try
             {
-                try
+                string path = _dbPath;
+                if (!File.Exists(path))
                 {
-                    using var stream = File.OpenRead(_dbPath);
-                    _db = await JsonSerializer.DeserializeAsync<Dictionary<string, TitleDbEntry>>(stream) ?? new();
-                    
-                    // Устанавливаем Id из ключа словаря
-                    foreach (var kvp in _db)
+                    string nutDbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tools", "nscb", "zconfig", "DB", "nutdb.json");
+                    if (File.Exists(nutDbPath))
                     {
-                        kvp.Value.Id = kvp.Key;
+                        path = nutDbPath;
+                    }
+                }
+
+                if (File.Exists(path))
+                {
+                    using var stream = File.OpenRead(path);
+                    var rawDb = await JsonSerializer.DeserializeAsync<Dictionary<string, TitleDbEntry>>(stream) ?? new();
+                    
+                    var reindexedDb = new Dictionary<string, TitleDbEntry>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var kvp in rawDb)
+                    {
+                        var entry = kvp.Value;
+                        if (string.IsNullOrEmpty(entry.Id))
+                        {
+                            entry.Id = kvp.Key;
+                        }
+                        reindexedDb[kvp.Key] = entry;
+                        if (!string.IsNullOrEmpty(entry.Id))
+                        {
+                            reindexedDb[entry.Id.ToUpperInvariant()] = entry;
+                        }
                     }
                     
+                    _db = reindexedDb;
                     _isLoaded = true;
+                    DatabaseLoaded?.Invoke();
                 }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"Ошибка загрузки локальной БД TitleDB: {ex.Message}");
-                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Ошибка загрузки локальной БД TitleDB: {ex.Message}");
             }
         }
 

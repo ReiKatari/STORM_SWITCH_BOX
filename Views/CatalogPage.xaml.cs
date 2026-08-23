@@ -28,6 +28,9 @@ namespace StormSwitchBox.Views
             FoldersListView.ItemsSource = App.Settings.Current.CatalogFolders;
             this.Loaded += CatalogPage_Loaded;
             App.TaskCompleted += App_TaskCompleted;
+
+            ApplyLocalization();
+            App.Localization.LanguageChanged += () => App.RunOnUI(ApplyLocalization);
         }
 
         private async void App_TaskCompleted(Models.ProcessingTask task)
@@ -187,8 +190,52 @@ namespace StormSwitchBox.Views
         }
 
         private CancellationTokenSource? _searchCts;
+        private int _selectedPlatformFilter = 0; // 0 = All, 1 = Switch, 2 = 3DS
 
-        private async void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
+        private void AllPlatformButton_Click(object sender, RoutedEventArgs e)
+        {
+            _selectedPlatformFilter = 0;
+            UpdatePlatformButtons();
+            ApplyCurrentFilter();
+        }
+
+        private void SwitchPlatformButton_Click(object sender, RoutedEventArgs e)
+        {
+            _selectedPlatformFilter = 1;
+            UpdatePlatformButtons();
+            ApplyCurrentFilter();
+        }
+
+        private void ThreeDsPlatformButton_Click(object sender, RoutedEventArgs e)
+        {
+            _selectedPlatformFilter = 2;
+            UpdatePlatformButtons();
+            ApplyCurrentFilter();
+        }
+
+        private void UpdatePlatformButtons()
+        {
+            var accentBg = Application.Current.Resources["AccentButtonBackground"] as Microsoft.UI.Xaml.Media.Brush ?? new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.DodgerBlue);
+            var accentFg = Application.Current.Resources["AccentButtonForeground"] as Microsoft.UI.Xaml.Media.Brush ?? new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.White);
+            var transparent = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent);
+            var secondaryFg = Application.Current.Resources["TextFillColorSecondaryBrush"] as Microsoft.UI.Xaml.Media.Brush ?? new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Gray);
+
+            AllPlatformButton.Background = _selectedPlatformFilter == 0 ? accentBg : transparent;
+            AllPlatformButton.Foreground = _selectedPlatformFilter == 0 ? accentFg : secondaryFg;
+
+            SwitchPlatformButton.Background = _selectedPlatformFilter == 1 ? accentBg : transparent;
+            SwitchPlatformButton.Foreground = _selectedPlatformFilter == 1 ? accentFg : secondaryFg;
+
+            ThreeDsPlatformButton.Background = _selectedPlatformFilter == 2 ? accentBg : transparent;
+            ThreeDsPlatformButton.Foreground = _selectedPlatformFilter == 2 ? accentFg : secondaryFg;
+        }
+
+        private void ApplyCurrentFilter()
+        {
+            SearchBox_TextChanged(SearchBox, null!);
+        }
+
+        private async void SearchBox_TextChanged(object sender, TextChangedEventArgs? e)
         {
             string query = SearchBox.Text.Trim();
             
@@ -196,54 +243,115 @@ namespace StormSwitchBox.Views
             _searchCts = new CancellationTokenSource();
             var token = _searchCts.Token;
 
-            if (string.IsNullOrWhiteSpace(query))
-            {
-                CatalogGridView.ItemsSource = _allCatalogItems;
-                return;
-            }
-
             try
             {
-                await Task.Delay(300, token); // Debounce
-                if (token.IsCancellationRequested) return;
+                if (!string.IsNullOrWhiteSpace(query))
+                {
+                    await Task.Delay(300, token); // Debounce
+                    if (token.IsCancellationRequested) return;
+                }
 
                 var filtered = await Task.Run(() => 
                 {
                     var itemsCopy = _allCatalogItems.ToList();
+                    
+                    // Filter by platform
+                    if (_selectedPlatformFilter == 1) // Switch only
+                    {
+                        itemsCopy = itemsCopy.Where(i => !i.Is3ds).ToList();
+                    }
+                    else if (_selectedPlatformFilter == 2) // 3DS only
+                    {
+                        itemsCopy = itemsCopy.Where(i => i.Is3ds).ToList();
+                    }
+
+                    if (string.IsNullOrWhiteSpace(query))
+                    {
+                        return itemsCopy;
+                    }
+
                     var local = itemsCopy.Where(i => 
                         (i.TitleName != null && i.TitleName.Contains(query, StringComparison.OrdinalIgnoreCase)) || 
                         (i.TitleId != null && i.TitleId.Contains(query, StringComparison.OrdinalIgnoreCase)) ||
                         (i.Publisher != null && i.Publisher.Contains(query, StringComparison.OrdinalIgnoreCase))).ToList();
 
-                    // Ищем в онлайне
-                    var onlineResults = App.TitleDb.SearchTitles(query);
-                    foreach (var dbEntry in onlineResults)
+                    // Ищем в онлайне для Switch или All
+                    if (_selectedPlatformFilter != 2)
                     {
-                        if (local.Any(i => i.TitleName == dbEntry.Name || i.TitleId == dbEntry.Id))
-                            continue;
-
-                        var newItem = new CatalogItem
+                        var onlineResults = App.TitleDb.SearchTitles(query);
+                        foreach (var dbEntry in onlineResults)
                         {
-                            TitleName = dbEntry.Name ?? "Unknown Game",
-                            TitleId = dbEntry.Id ?? "0000000000000000",
-                            Publisher = dbEntry.Publisher ?? "Unknown",
-                            Description = dbEntry.Description ?? "Нет описания",
-                            FileSize = "TitleDB (Онлайн)",
-                            IsOnlineOnly = true,
-                            IsLoading = false
-                        };
-                        
-                        if (!string.IsNullOrEmpty(dbEntry.Version))
-                            newItem.Version = dbEntry.Version;
+                            if (local.Any(i => i.TitleName == dbEntry.Name || i.TitleId == dbEntry.Id))
+                                continue;
 
-                        App.TitleDb.EnrichCatalogItem(newItem);
-                        local.Add(newItem);
+                            var newItem = new CatalogItem
+                            {
+                                TitleName = dbEntry.Name ?? "Unknown Game",
+                                TitleId = dbEntry.Id ?? "0000000000000000",
+                                Publisher = dbEntry.Publisher ?? "Unknown",
+                                Description = dbEntry.Description ?? "Нет описания",
+                                FileSize = "TitleDB (Онлайн)",
+                                IsOnlineOnly = true,
+                                IsLoading = false
+                            };
+                            
+                            if (!string.IsNullOrEmpty(dbEntry.Version))
+                                newItem.Version = dbEntry.Version;
+
+                            App.TitleDb.EnrichCatalogItem(newItem);
+                            local.Add(newItem);
+                        }
+                    }
+
+                    // Ищем в базе Nintendo 3DS (для фильтра 3DS или Все)
+                    if (_selectedPlatformFilter != 1)
+                    {
+                        var threeDsResults = App.NintendoLibrary.Search3dsGames(query);
+                        foreach (var entry in threeDsResults)
+                        {
+                            if (local.Any(i => i.TitleName.Equals(entry.Title, StringComparison.OrdinalIgnoreCase) || 
+                                (!string.IsNullOrEmpty(entry.Id) && i.TitleId.Equals(entry.Id, StringComparison.OrdinalIgnoreCase))))
+                                continue;
+
+                            var newItem = new CatalogItem
+                            {
+                                TitleName = entry.Title,
+                                TitleId = entry.Id,
+                                Publisher = entry.Publisher,
+                                Developer = entry.Developer,
+                                Category = entry.Genre,
+                                Description = entry.Description,
+                                ReleaseDate = NintendoLibraryService.FormatDate(entry.ReleaseDate),
+                                Version = NintendoLibraryService.FormatVersion(entry.Version),
+                                FileSize = "3DS База",
+                                Is3ds = true,
+                                Platform = "3DS",
+                                IsOnlineOnly = true,
+                                IsLoading = false,
+                                Intro = entry.CoverUrl // Сохраняем URL для безопасной загрузки на UI потоке
+                            };
+
+                            local.Add(newItem);
+                        }
                     }
                     return local;
                 }, token);
 
                 if (!token.IsCancellationRequested)
                 {
+                    foreach (var item in filtered)
+                    {
+                        if (item.CoverImage == null && !string.IsNullOrEmpty(item.Intro))
+                        {
+                            try
+                            {
+                                string resolved = CoverCacheService.ResolveCoverUrl(item.Intro, item.Platform, item.TitleName, item.TitleId);
+                                item.CoverImage = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(resolved));
+                            }
+                            catch { }
+                        }
+                    }
+
                     CatalogGridView.ItemsSource = new ObservableCollection<CatalogItem>(filtered);
                 }
             }
@@ -282,9 +390,8 @@ namespace StormSwitchBox.Views
                 DetailPublisher.Text = item.Publisher ?? "Unknown";
                 DetailDeveloper.Text = !string.IsNullOrEmpty(item.Developer) ? item.Developer : "Unknown";
                 DetailCategory.Text = !string.IsNullOrEmpty(item.Category) ? item.Category : "N/A";
-                DetailReleaseDate.Text = !string.IsNullOrEmpty(item.ReleaseDate) ? item.ReleaseDate : "N/A";
-                
-                DetailDisplayVersion.Text = item.Version ?? "v0";
+                DetailReleaseDate.Text = !string.IsNullOrEmpty(item.ReleaseDate) ? NintendoLibraryService.FormatDate(item.ReleaseDate) : "N/A";
+                DetailDisplayVersion.Text = NintendoLibraryService.FormatVersion(item.Version);
                 DetailVersionCode.Text = !string.IsNullOrEmpty(item.VersionCode) ? item.VersionCode : "0";
                 
                 DetailRegions.Text = item.Regions ?? "N/A";
@@ -292,7 +399,26 @@ namespace StormSwitchBox.Views
 
                 DetailTitleId.Text = item.TitleId ?? "0000000000000000";
                 DetailSize.Text = item.FileSize ?? "0 MB";
-                DetailCover.Source = item.CoverImage;
+                if (item.CoverImage != null)
+                {
+                    DetailCover.Source = item.CoverImage;
+                }
+                else if (!string.IsNullOrEmpty(item.Intro))
+                {
+                    try
+                    {
+                        string resolved = CoverCacheService.ResolveCoverUrl(item.Intro, item.Platform, item.TitleName, item.TitleId);
+                        DetailCover.Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(resolved));
+                    }
+                    catch
+                    {
+                        DetailCover.Source = null;
+                    }
+                }
+                else
+                {
+                    DetailCover.Source = null;
+                }
                 
                 DetailRating.Text = !string.IsNullOrEmpty(item.RatingAge) ? item.RatingAge : "N/A";
                 DetailVideoCap.Text = item.VideoCapture ?? "N/A";
@@ -662,6 +788,19 @@ namespace StormSwitchBox.Views
                     item.UpdateVersionCode = "";
                 }
             }
+        }
+
+        public void ApplyLocalization()
+        {
+            var loc = App.Localization;
+            if (BrowseButtonTextBlock != null) BrowseButtonTextBlock.Text = loc["Catalog_ScanFolders"];
+            if (FlyoutFoldersTitle != null) FlyoutFoldersTitle.Text = loc["Catalog_ScanFolders_Title"];
+            if (ScanAllButton != null) ScanAllButton.Content = loc["Catalog_ScanAll"];
+            if (AllPlatformButton != null) AllPlatformButton.Content = loc["Catalog_Filter_All"];
+            if (SwitchPlatformButton != null) SwitchPlatformButton.Content = loc["Catalog_Filter_Switch"];
+            if (ThreeDsPlatformButton != null) ThreeDsPlatformButton.Content = loc["Catalog_Filter_3ds"];
+            if (SearchBox != null) SearchBox.PlaceholderText = loc["Catalog_Search_Placeholder"];
+            if (UpdateDbTextBlock != null) UpdateDbTextBlock.Text = loc["Catalog_UpdateDb"];
         }
     }
 }

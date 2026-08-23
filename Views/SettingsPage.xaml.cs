@@ -10,6 +10,7 @@ namespace StormSwitchBox.Views
         public int MaxCores => Environment.ProcessorCount;
         public Models.AppSettings Settings => App.Settings.Current;
         public Visibility KeysSelectedVisibility => string.IsNullOrEmpty(App.Settings.Current.KeysPath) ? Visibility.Collapsed : Visibility.Visible;
+        public Visibility Keys3dsSelectedVisibility => string.IsNullOrEmpty(App.Settings.Current.KeysPath3ds) ? Visibility.Collapsed : Visibility.Visible;
 
         public SettingsPage()
         {
@@ -32,6 +33,12 @@ namespace StormSwitchBox.Views
             else if (rsvVal == 65796) RsvCapCombo.SelectedIndex = 5;
             else RsvCapCombo.SelectedIndex = 0;
 
+            // 3DS Format combo initialization
+            string f3ds = App.Settings.Current.DefaultFormat3ds ?? "3DS";
+            if (f3ds == "CIA") Format3dsCombo.SelectedIndex = 1;
+            else if (f3ds == "CXI") Format3dsCombo.SelectedIndex = 2;
+            else Format3dsCombo.SelectedIndex = 0;
+
             // AccentColor combo initialization
             string color = App.Settings.Current.AccentColorTheme ?? "Default";
             if (color == "#0078D4") AccentColorCombo.SelectedIndex = 1;
@@ -48,52 +55,106 @@ namespace StormSwitchBox.Views
             else if (th == "STORM CYBERPUNK") ThemeCombo.SelectedIndex = 3;
             else ThemeCombo.SelectedIndex = 0;
 
-            // Watch Folder combos initialization
-            int wfAction = App.Settings.Current.WatchFolderAction;
-            if (wfAction >= 0 && wfAction <= 5) WatchFolderActionCombo.SelectedIndex = wfAction;
-            else WatchFolderActionCombo.SelectedIndex = 0;
+            // Switch Watch Folder combos initialization
+            int wfActionSwitch = App.Settings.Current.WatchFolderActionSwitch;
+            if (wfActionSwitch >= 0 && wfActionSwitch <= 5) WatchFolderActionComboSwitch.SelectedIndex = wfActionSwitch;
+            else WatchFolderActionComboSwitch.SelectedIndex = 0;
 
-            int wfFormat = App.Settings.Current.WatchFolderFormat;
-            if (wfFormat >= 0 && wfFormat <= 3) WatchFolderFormatCombo.SelectedIndex = wfFormat;
-            else WatchFolderFormatCombo.SelectedIndex = 0;
+            int wfFormatSwitch = App.Settings.Current.WatchFolderFormatSwitch;
+            if (wfFormatSwitch >= 0 && wfFormatSwitch <= 3) WatchFolderFormatComboSwitch.SelectedIndex = wfFormatSwitch;
+            else WatchFolderFormatComboSwitch.SelectedIndex = 0;
 
-            UpdateWatchFolderBadge();
+            // 3DS Watch Folder combos initialization
+            int wfAction3ds = App.Settings.Current.WatchFolderAction3ds;
+            if (wfAction3ds >= 0 && wfAction3ds <= 4) WatchFolderActionCombo3ds.SelectedIndex = wfAction3ds;
+            else WatchFolderActionCombo3ds.SelectedIndex = 0;
+
+            int wfFormat3ds = App.Settings.Current.WatchFolderFormat3ds;
+            if (wfFormat3ds >= 0 && wfFormat3ds <= 2) WatchFolderFormatCombo3ds.SelectedIndex = wfFormat3ds;
+            else WatchFolderFormatCombo3ds.SelectedIndex = 0;
+
+            // Language combo initialization
+            string lang = App.Settings.Current.Language ?? "ru";
+            LanguageCombo.SelectedIndex = lang switch
+            {
+                "en" => 1,
+                "de" => 2,
+                "zh" => 3,
+                "ja" => 4,
+                _ => 0
+            };
+
+            UpdateWatchFolderUiState();
+            if (App.WatchFolderService != null)
+            {
+                App.WatchFolderService.StateChanged += () => App.RunOnUI(UpdateWatchFolderUiState);
+            }
 
             InitializeLanguages();
             PopulateKeysVersion(App.Settings.Current.KeysVersion ?? "");
+
+            SelectTab(App.Settings.Current.SelectedSettingsTab);
+
+            ApplyLocalization();
+            App.Localization.LanguageChanged += () => App.RunOnUI(ApplyLocalization);
         }
 
-        private void UpdateWatchFolderBadge()
+        private void UpdateWatchFolderUiState()
         {
-            if (WatchFolderSummaryBadge == null) return;
-            string actionText = "Сжатие";
-            if (WatchFolderActionCombo?.SelectedItem is ComboBoxItem aItem && aItem.Content != null)
-                actionText = aItem.Content.ToString()!;
+            var loc = App.Localization;
 
-            string formatText = "NSZ";
-            if (WatchFolderFormatCombo?.SelectedItem is ComboBoxItem fItem && fItem.Content != null)
-                formatText = fItem.Content.ToString()!;
-
-            WatchFolderSummaryBadge.Text = $"⚡ Авто-обработка: {actionText} в {formatText}";
-        }
-
-        private async void WatchFolderActionCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            if (WatchFolderActionCombo.SelectedItem is ComboBoxItem item && item.Tag is string tagStr && int.TryParse(tagStr, out int val))
+            // 1. Switch UI
+            if (WatchFolderSwitchSummaryBadge != null)
             {
-                App.Settings.Current.WatchFolderAction = val;
-                await App.Settings.SaveAsync();
-                UpdateWatchFolderBadge();
+                string actionText = "Сжатие";
+                if (WatchFolderActionComboSwitch?.SelectedItem is ComboBoxItem aItem && aItem.Content != null)
+                    actionText = aItem.Content.ToString()!;
+
+                string formatText = "NSP";
+                if (WatchFolderFormatComboSwitch?.SelectedItem is ComboBoxItem fItem && fItem.Content != null)
+                    formatText = fItem.Content.ToString()!;
+
+                WatchFolderSwitchSummaryBadge.Text = $"{loc["Settings_Switch_WatchFolder_Badge"]} {actionText} в {formatText}";
             }
-        }
 
-        private async void WatchFolderFormatCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            if (WatchFolderFormatCombo.SelectedItem is ComboBoxItem item && item.Tag is string tagStr && int.TryParse(tagStr, out int val))
+            bool isSwitchRunning = App.WatchFolderService?.IsSwitchRunning == true;
+            if (ToggleWatchFolderSwitchBtn != null)
             {
-                App.Settings.Current.WatchFolderFormat = val;
-                await App.Settings.SaveAsync();
-                UpdateWatchFolderBadge();
+                ToggleWatchFolderSwitchBtn.Content = isSwitchRunning ? loc["Settings_Switch_WatchFolder_Stop"] : loc["Settings_Switch_WatchFolder_Start"];
+            }
+            if (WatchFolderSwitchStatusTxt != null)
+            {
+                WatchFolderSwitchStatusTxt.Text = isSwitchRunning ? loc["Settings_Switch_WatchFolder_Active"] : loc["Settings_Switch_WatchFolder_Stopped"];
+                WatchFolderSwitchStatusTxt.Foreground = isSwitchRunning 
+                    ? new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.LimeGreen)
+                    : (Application.Current.Resources["TextFillColorSecondaryBrush"] as Microsoft.UI.Xaml.Media.Brush ?? new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Gray));
+            }
+
+            // 2. 3DS UI
+            if (WatchFolder3dsSummaryBadge != null)
+            {
+                string actionText = "Мульти-контент";
+                if (WatchFolderActionCombo3ds?.SelectedItem is ComboBoxItem aItem && aItem.Content != null)
+                    actionText = aItem.Content.ToString()!;
+
+                string formatText = "3DS";
+                if (WatchFolderFormatCombo3ds?.SelectedItem is ComboBoxItem fItem && fItem.Content != null)
+                    formatText = fItem.Content.ToString()!;
+
+                WatchFolder3dsSummaryBadge.Text = $"{loc["Settings_3ds_WatchFolder_Badge"]} {actionText} в {formatText}";
+            }
+
+            bool is3dsRunning = App.WatchFolderService?.Is3dsRunning == true;
+            if (ToggleWatchFolder3dsBtn != null)
+            {
+                ToggleWatchFolder3dsBtn.Content = is3dsRunning ? loc["Settings_3ds_WatchFolder_Stop"] : loc["Settings_3ds_WatchFolder_Start"];
+            }
+            if (WatchFolder3dsStatusTxt != null)
+            {
+                WatchFolder3dsStatusTxt.Text = is3dsRunning ? loc["Settings_3ds_WatchFolder_Active"] : loc["Settings_3ds_WatchFolder_Stopped"];
+                WatchFolder3dsStatusTxt.Foreground = is3dsRunning 
+                    ? new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.LimeGreen)
+                    : (Application.Current.Resources["TextFillColorSecondaryBrush"] as Microsoft.UI.Xaml.Media.Brush ?? new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Gray));
             }
         }
 
@@ -106,25 +167,39 @@ namespace StormSwitchBox.Views
             }
         }
 
-        private async void WatchFolderToggle_Toggled(object sender, RoutedEventArgs e)
+        #region Switch Watch Folder Handlers
+
+        private async void WatchFolderActionComboSwitch_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            await App.Settings.SaveAsync();
-            if (App.WatchFolderService != null)
+            if (WatchFolderActionComboSwitch.SelectedItem is ComboBoxItem item && item.Tag is string tagStr && int.TryParse(tagStr, out int val))
             {
-                if (App.Settings.Current.EnableWatchFolder)
-                {
-                    App.WatchFolderService.Start();
-                    // При включении — сразу сканируем существующие файлы
-                    await ScanWatchFolderAsync();
-                }
-                else
-                {
-                    App.WatchFolderService.Stop();
-                }
+                App.Settings.Current.WatchFolderActionSwitch = val;
+                await App.Settings.SaveAsync();
+                UpdateWatchFolderUiState();
             }
         }
 
-        private async void SelectWatchFolder_Click(object sender, RoutedEventArgs e)
+        private async void WatchFolderFormatComboSwitch_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (WatchFolderFormatComboSwitch.SelectedItem is ComboBoxItem item && item.Tag is string tagStr && int.TryParse(tagStr, out int val))
+            {
+                App.Settings.Current.WatchFolderFormatSwitch = val;
+                await App.Settings.SaveAsync();
+                UpdateWatchFolderUiState();
+            }
+        }
+
+        private async void WatchFolderSwitchToggle_Toggled(object sender, RoutedEventArgs e)
+        {
+            await App.Settings.SaveAsync();
+            if (!App.Settings.Current.EnableWatchFolderSwitch && App.WatchFolderService != null && App.WatchFolderService.IsSwitchRunning)
+            {
+                App.WatchFolderService.StopSwitch();
+            }
+            UpdateWatchFolderUiState();
+        }
+
+        private async void SelectWatchFolderSwitch_Click(object sender, RoutedEventArgs e)
         {
             try
             {
@@ -138,28 +213,23 @@ namespace StormSwitchBox.Views
                 var folder = await folderPicker.PickSingleFolderAsync();
                 if (folder != null)
                 {
-                    App.Settings.Current.WatchFolder = folder.Path;
-                    WatchFolderBox.Text = folder.Path;
+                    App.Settings.Current.WatchFolderSwitch = folder.Path;
+                    WatchFolderBoxSwitch.Text = folder.Path;
                     await App.Settings.SaveAsync();
-
-                    if (App.WatchFolderService != null && App.Settings.Current.EnableWatchFolder)
-                    {
-                        App.WatchFolderService.Start();
-                    }
                 }
             }
             catch { }
         }
 
-        private void WatchFolderBox_DragOver(object sender, DragEventArgs e)
+        private void WatchFolderBoxSwitch_DragOver(object sender, DragEventArgs e)
         {
             e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
-            e.DragUIOverride.Caption = "Выбрать как «Умную» папку";
+            e.DragUIOverride.Caption = "Выбрать как «Умную» папку Switch";
             e.DragUIOverride.IsCaptionVisible = true;
             e.DragUIOverride.IsContentVisible = true;
         }
 
-        private async void WatchFolderBox_Drop(object sender, DragEventArgs e)
+        private async void WatchFolderBoxSwitch_Drop(object sender, DragEventArgs e)
         {
             if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
             {
@@ -168,43 +238,52 @@ namespace StormSwitchBox.Views
                 {
                     var item = items[0];
                     string path = item.Path;
-                    if (System.IO.File.Exists(path))
-                    {
-                        path = System.IO.Path.GetDirectoryName(path) ?? path;
-                    }
+                    if (System.IO.File.Exists(path)) path = System.IO.Path.GetDirectoryName(path) ?? path;
                     if (System.IO.Directory.Exists(path))
                     {
-                        App.Settings.Current.WatchFolder = path;
-                        WatchFolderBox.Text = path;
+                        App.Settings.Current.WatchFolderSwitch = path;
+                        WatchFolderBoxSwitch.Text = path;
                         await App.Settings.SaveAsync();
-                        App.Logger.Log($"[WatchFolder] Папка установлена перетягиванием: {path}", Models.LogLevel.Success);
-
-                        if (App.WatchFolderService != null && App.Settings.Current.EnableWatchFolder)
-                        {
-                            App.WatchFolderService.Start();
-                        }
+                        App.Logger.Log($"[WatchFolder Switch] Папка установлена: {path}", Models.LogLevel.Success);
                     }
                 }
             }
         }
 
-        private async Task ScanWatchFolderAsync()
+        private async void ToggleWatchFolderSwitchBtn_Click(object sender, RoutedEventArgs e)
+        {
+            if (App.WatchFolderService == null) return;
+
+            if (App.WatchFolderService.IsSwitchRunning)
+            {
+                App.WatchFolderService.StopSwitch();
+            }
+            else
+            {
+                if (string.IsNullOrWhiteSpace(App.Settings.Current.WatchFolderSwitch) || !System.IO.Directory.Exists(App.Settings.Current.WatchFolderSwitch))
+                {
+                    App.Logger.Log("[WatchFolder Switch] Укажите корректную существующую папку для отслеживания", Models.LogLevel.Warning);
+                    return;
+                }
+                App.WatchFolderService.StartSwitch();
+                await ScanWatchFolderSwitchAsync();
+            }
+            UpdateWatchFolderUiState();
+        }
+
+        private async Task ScanWatchFolderSwitchAsync()
         {
             var settings = App.Settings.Current;
-            string watchPath = settings.WatchFolder;
+            string watchPath = settings.WatchFolderSwitch;
 
             if (string.IsNullOrWhiteSpace(watchPath) || !System.IO.Directory.Exists(watchPath))
-            {
-                App.Logger.Log("[WatchFolder] Папка не указана или не существует", Models.LogLevel.Warning);
                 return;
-            }
 
             try
             {
                 string[] supportedExts = { ".nsp", ".nsz", ".xci", ".xcz" };
                 int totalTasks = 0;
 
-                // 1. Файлы в корне watchPath
                 var rootFiles = new System.Collections.Generic.List<string>();
                 foreach (var file in System.IO.Directory.EnumerateFiles(watchPath))
                 {
@@ -218,18 +297,14 @@ namespace StormSwitchBox.Views
 
                 if (rootFiles.Count > 0)
                 {
+                    App.TasksVM.SelectedPlatform = 0;
                     await App.TasksVM.AddDroppedFilesBatchAsync(rootFiles);
                     totalTasks++;
-                    App.Logger.Log($"[WatchFolder] Корень: {rootFiles.Count} файлов", Models.LogLevel.Info);
                 }
 
-                // 2. Каждая подпапка — передаём как директорию целиком
-                // AddDroppedFileAsync сам сканирует содержимое, группирует по TitleID,
-                // обнаруживает romfs/exefs и формирует комплектные задачи
                 var subDirs = System.IO.Directory.GetDirectories(watchPath);
                 foreach (var subDir in subDirs)
                 {
-                    // Проверяем, что подпапка содержит хоть что-то полезное
                     bool hasGameFiles = false;
                     try
                     {
@@ -247,35 +322,198 @@ namespace StormSwitchBox.Views
 
                     if (hasGameFiles)
                     {
+                        App.TasksVM.SelectedPlatform = 0;
                         await App.TasksVM.AddDroppedFilesBatchAsync(new System.Collections.Generic.List<string> { subDir });
                         totalTasks++;
-                        string folderName = System.IO.Path.GetFileName(subDir);
-                        App.Logger.Log($"[WatchFolder] Подпапка «{folderName}» → задача добавлена", Models.LogLevel.Info);
                     }
                 }
 
-                if (totalTasks == 0)
+                if (totalTasks > 0)
                 {
-                    App.Logger.Log($"[WatchFolder] В папке «{watchPath}» не найдено файлов NSP/NSZ/XCI/XCZ", Models.LogLevel.Warning);
-                }
-                else
-                {
-                    string[] actions = { "Сжатие", "Распаковка", "Упаковка", "Конвертация", "Мульти-контент", "Проверка" };
-                    string[] formats = { "NSP", "NSZ", "XCI", "XCZ" };
-                    string actionStr = settings.WatchFolderAction >= 0 && settings.WatchFolderAction < actions.Length ? actions[settings.WatchFolderAction] : "Обработка";
-                    string formatStr = settings.WatchFolderFormat >= 0 && settings.WatchFolderFormat < formats.Length ? formats[settings.WatchFolderFormat] : "NSP";
-
-                    App.Logger.Log($"[WatchFolder] Добавлено {totalTasks} задач → {actionStr} в {formatStr}", Models.LogLevel.Success);
-
-                    // Автозапуск задач
                     await App.TasksVM.StartAllTasksAsync();
                 }
             }
             catch (Exception ex)
             {
-                App.Logger.Log($"[WatchFolder] Ошибка сканирования: {ex.Message}", Models.LogLevel.Warning);
+                App.Logger?.Log($"[WatchFolder Switch] Ошибка сканирования: {ex.Message}", Models.LogLevel.Warning);
             }
         }
+
+        #endregion
+
+        #region 3DS Watch Folder Handlers
+
+        private async void WatchFolderActionCombo3ds_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (WatchFolderActionCombo3ds.SelectedItem is ComboBoxItem item && item.Tag is string tagStr && int.TryParse(tagStr, out int val))
+            {
+                App.Settings.Current.WatchFolderAction3ds = val;
+                await App.Settings.SaveAsync();
+                UpdateWatchFolderUiState();
+            }
+        }
+
+        private async void WatchFolderFormatCombo3ds_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (WatchFolderFormatCombo3ds.SelectedItem is ComboBoxItem item && item.Tag is string tagStr && int.TryParse(tagStr, out int val))
+            {
+                App.Settings.Current.WatchFolderFormat3ds = val;
+                await App.Settings.SaveAsync();
+                UpdateWatchFolderUiState();
+            }
+        }
+
+        private async void WatchFolder3dsToggle_Toggled(object sender, RoutedEventArgs e)
+        {
+            await App.Settings.SaveAsync();
+            if (!App.Settings.Current.EnableWatchFolder3ds && App.WatchFolderService != null && App.WatchFolderService.Is3dsRunning)
+            {
+                App.WatchFolderService.Stop3ds();
+            }
+            UpdateWatchFolderUiState();
+        }
+
+        private async void SelectWatchFolder3ds_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var folderPicker = new Windows.Storage.Pickers.FolderPicker();
+                folderPicker.SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.ComputerFolder;
+                folderPicker.FileTypeFilter.Add("*");
+
+                var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindow);
+                WinRT.Interop.InitializeWithWindow.Initialize(folderPicker, hwnd);
+
+                var folder = await folderPicker.PickSingleFolderAsync();
+                if (folder != null)
+                {
+                    App.Settings.Current.WatchFolder3ds = folder.Path;
+                    WatchFolderBox3ds.Text = folder.Path;
+                    await App.Settings.SaveAsync();
+                }
+            }
+            catch { }
+        }
+
+        private void WatchFolderBox3ds_DragOver(object sender, DragEventArgs e)
+        {
+            e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
+            e.DragUIOverride.Caption = "Выбрать как «Умную» папку 3DS";
+            e.DragUIOverride.IsCaptionVisible = true;
+            e.DragUIOverride.IsContentVisible = true;
+        }
+
+        private async void WatchFolderBox3ds_Drop(object sender, DragEventArgs e)
+        {
+            if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+            {
+                var items = await e.DataView.GetStorageItemsAsync();
+                if (items.Count > 0)
+                {
+                    var item = items[0];
+                    string path = item.Path;
+                    if (System.IO.File.Exists(path)) path = System.IO.Path.GetDirectoryName(path) ?? path;
+                    if (System.IO.Directory.Exists(path))
+                    {
+                        App.Settings.Current.WatchFolder3ds = path;
+                        WatchFolderBox3ds.Text = path;
+                        await App.Settings.SaveAsync();
+                        App.Logger.Log($"[WatchFolder 3DS] Папка установлена: {path}", Models.LogLevel.Success);
+                    }
+                }
+            }
+        }
+
+        private async void ToggleWatchFolder3dsBtn_Click(object sender, RoutedEventArgs e)
+        {
+            if (App.WatchFolderService == null) return;
+
+            if (App.WatchFolderService.Is3dsRunning)
+            {
+                App.WatchFolderService.Stop3ds();
+            }
+            else
+            {
+                if (string.IsNullOrWhiteSpace(App.Settings.Current.WatchFolder3ds) || !System.IO.Directory.Exists(App.Settings.Current.WatchFolder3ds))
+                {
+                    App.Logger.Log("[WatchFolder 3DS] Укажите корректную существующую папку для отслеживания", Models.LogLevel.Warning);
+                    return;
+                }
+                App.WatchFolderService.Start3ds();
+                await ScanWatchFolder3dsAsync();
+            }
+            UpdateWatchFolderUiState();
+        }
+
+        private async Task ScanWatchFolder3dsAsync()
+        {
+            var settings = App.Settings.Current;
+            string watchPath = settings.WatchFolder3ds;
+
+            if (string.IsNullOrWhiteSpace(watchPath) || !System.IO.Directory.Exists(watchPath))
+                return;
+
+            try
+            {
+                string[] supportedExts = { ".3ds", ".cci", ".cia", ".cxi", ".cfa" };
+                int totalTasks = 0;
+
+                var rootFiles = new System.Collections.Generic.List<string>();
+                foreach (var file in System.IO.Directory.EnumerateFiles(watchPath))
+                {
+                    string ext = System.IO.Path.GetExtension(file).ToLowerInvariant();
+                    if (Array.Exists(supportedExts, x => x == ext))
+                    {
+                        var fi = new System.IO.FileInfo(file);
+                        if (fi.Length > 0) rootFiles.Add(file);
+                    }
+                }
+
+                if (rootFiles.Count > 0)
+                {
+                    App.TasksVM.SelectedPlatform = 1;
+                    await App.TasksVM.AddDroppedFilesBatchAsync(rootFiles);
+                    totalTasks++;
+                }
+
+                var subDirs = System.IO.Directory.GetDirectories(watchPath);
+                foreach (var subDir in subDirs)
+                {
+                    bool hasGameFiles = false;
+                    try
+                    {
+                        foreach (var file in System.IO.Directory.EnumerateFiles(subDir, "*.*", System.IO.SearchOption.AllDirectories))
+                        {
+                            string ext = System.IO.Path.GetExtension(file).ToLowerInvariant();
+                            if (Array.Exists(supportedExts, x => x == ext))
+                            {
+                                hasGameFiles = true;
+                                break;
+                            }
+                        }
+                    }
+                    catch { }
+
+                    if (hasGameFiles)
+                    {
+                        App.TasksVM.SelectedPlatform = 1;
+                        await App.TasksVM.AddDroppedFilesBatchAsync(new System.Collections.Generic.List<string> { subDir });
+                        totalTasks++;
+                    }
+                }
+
+                if (totalTasks > 0)
+                {
+                    await App.TasksVM.StartAllTasksAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[WatchFolder 3DS] Ошибка сканирования: {ex.Message}", Models.LogLevel.Warning);
+            }
+        }
+
+        #endregion
 
         private async void ThemeCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
@@ -299,25 +537,32 @@ namespace StormSwitchBox.Views
 
         private void InitializeLanguages()
         {
-            var langs = new (string Name, string[] Codes)[]
+            if (LanguageItemsControl == null) return;
+            LanguageItemsControl.Items.Clear();
+
+            var loc = App.Localization;
+            var langs = new (string LocKey, string[] Codes)[]
             {
-                ("Русский", new[] { "ru", "ru-RU" }),
-                ("Английский", new[] { "en", "en-US", "en-GB" }),
-                ("Японский", new[] { "ja", "ja-JP", "Japanese" }),
-                ("Испанский", new[] { "es", "es-ES", "es-MX", "Spanish" }),
-                ("Французский", new[] { "fr", "fr-FR", "fr-CA", "French" }),
-                ("Немецкий", new[] { "de", "de-DE", "German" }),
-                ("Итальянский", new[] { "it", "it-IT", "Italian" }),
-                ("Нидерландский", new[] { "nl", "nl-NL", "Dutch" }),
-                ("Португальский", new[] { "pt", "pt-BR", "pt-PT", "Portuguese" }),
-                ("Корейский", new[] { "ko", "ko-KR", "Korean" }),
-                ("Китайский (упр.)", new[] { "zh-Hans", "zh-CN" }),
-                ("Китайский (трад.)", new[] { "zh-Hant", "zh-TW" })
+                ("Lang_Russian", new[] { "ru", "ru-RU" }),
+                ("Lang_English", new[] { "en", "en-US", "en-GB" }),
+                ("Lang_Japanese", new[] { "ja", "ja-JP", "Japanese" }),
+                ("Lang_Spanish", new[] { "es", "es-ES", "es-MX", "Spanish" }),
+                ("Lang_French", new[] { "fr", "fr-FR", "fr-CA", "French" }),
+                ("Lang_German", new[] { "de", "de-DE", "German" }),
+                ("Lang_Italian", new[] { "it", "it-IT", "Italian" }),
+                ("Lang_Dutch", new[] { "nl", "nl-NL", "Dutch" }),
+                ("Lang_Portuguese", new[] { "pt", "pt-BR", "pt-PT", "Portuguese" }),
+                ("Lang_Korean", new[] { "ko", "ko-KR", "Korean" }),
+                ("Lang_Chinese_Simplified", new[] { "zh-Hans", "zh-CN" }),
+                ("Lang_Chinese_Traditional", new[] { "zh-Hant", "zh-TW" })
             };
 
             foreach (var lang in langs)
             {
-                var cb = new CheckBox { Content = lang.Name, Margin = new Thickness(0, 0, 16, 8) };
+                string displayName = loc.GetString(lang.LocKey);
+                if (string.IsNullOrEmpty(displayName)) displayName = lang.LocKey;
+
+                var cb = new CheckBox { Content = displayName, Margin = new Thickness(0, 0, 16, 8) };
                 
                 bool isChecked = false;
                 if (Settings.KeepLanguages != null)
@@ -458,6 +703,257 @@ namespace StormSwitchBox.Views
             }
         }
 
+        // ===== Переключение вкладок параметров (Общие / Switch / 3DS) =====
+        private void GeneralTabButton_Click(object sender, RoutedEventArgs e)
+        {
+            SelectTab(0);
+        }
+
+        private void SwitchTabButton_Click(object sender, RoutedEventArgs e)
+        {
+            SelectTab(1);
+        }
+
+        private void ThreeDsTabButton_Click(object sender, RoutedEventArgs e)
+        {
+            SelectTab(2);
+        }
+
+        private void SelectTab(int index)
+        {
+            App.Settings.Current.SelectedSettingsTab = index;
+
+            GeneralSettingsPanel.Visibility = index == 0 ? Visibility.Visible : Visibility.Collapsed;
+            SwitchSettingsPanel.Visibility = index == 1 ? Visibility.Visible : Visibility.Collapsed;
+            ThreeDsSettingsPanel.Visibility = index == 2 ? Visibility.Visible : Visibility.Collapsed;
+
+            var accentBrush = Application.Current.Resources["SystemControlHighlightAccentBrush"] as Microsoft.UI.Xaml.Media.Brush 
+                ?? new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.DodgerBlue);
+            var defaultBrush = Application.Current.Resources["CardStrokeColorDefaultBrush"] as Microsoft.UI.Xaml.Media.Brush 
+                ?? new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Gray);
+            var secondaryTextBrush = Application.Current.Resources["TextFillColorSecondaryBrush"] as Microsoft.UI.Xaml.Media.Brush 
+                ?? new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Gray);
+
+            GeneralTabButton.BorderBrush = index == 0 ? accentBrush : defaultBrush;
+            GeneralTabButton.BorderThickness = new Thickness(index == 0 ? 2 : 1);
+            GeneralTabIcon.Foreground = index == 0 ? accentBrush : secondaryTextBrush;
+
+            SwitchTabButton.BorderBrush = index == 1 ? accentBrush : defaultBrush;
+            SwitchTabButton.BorderThickness = new Thickness(index == 1 ? 2 : 1);
+            SwitchTabIcon.Foreground = index == 1 ? accentBrush : secondaryTextBrush;
+
+            ThreeDsTabButton.BorderBrush = index == 2 ? accentBrush : defaultBrush;
+            ThreeDsTabButton.BorderThickness = new Thickness(index == 2 ? 2 : 1);
+            ThreeDsTabIcon.Foreground = index == 2 ? accentBrush : secondaryTextBrush;
+        }
+
+        private async void LanguageCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (LanguageCombo.SelectedItem is ComboBoxItem item && item.Tag is string langCode)
+            {
+                if (App.Settings.Current.Language != langCode)
+                {
+                    App.Settings.Current.Language = langCode;
+                    await App.Settings.SaveAsync();
+                    App.Localization.CurrentLanguage = langCode;
+                }
+            }
+        }
+
+        public void ApplyLocalization()
+        {
+            var loc = App.Localization;
+
+            if (PageTitleText != null) PageTitleText.Text = loc["Settings_Title"];
+            if (GeneralTabText != null) GeneralTabText.Text = loc["Settings_Tab_General"];
+            if (SwitchTabText != null) SwitchTabText.Text = loc["Settings_Tab_Switch"];
+            if (ThreeDsTabText != null) ThreeDsTabText.Text = loc["Settings_Tab_3ds"];
+
+            // General Panel
+            if (LangHeaderTxt != null) LangHeaderTxt.Text = loc["Settings_General_Language_Header"];
+            if (LangTitleTxt != null) LangTitleTxt.Text = loc["Settings_General_Language_Title"];
+            if (LangDescTxt != null) LangDescTxt.Text = loc["Settings_General_Language_Desc"];
+
+            if (AppearHeaderTxt != null) AppearHeaderTxt.Text = loc["Settings_General_Appearance_Header"];
+            if (ThemeTitleTxt != null) ThemeTitleTxt.Text = loc["Settings_General_Theme_Title"];
+            if (ThemeDescTxt != null) ThemeDescTxt.Text = loc["Settings_General_Theme_Desc"];
+            if (AccentTitleTxt != null) AccentTitleTxt.Text = loc["Settings_General_Accent_Title"];
+            if (AccentDescTxt != null) AccentDescTxt.Text = loc["Settings_General_Accent_Desc"];
+            if (SoundTitleTxt != null) SoundTitleTxt.Text = loc["Settings_General_Sound_Title"];
+            if (SoundDescTxt != null) SoundDescTxt.Text = loc["Settings_General_Sound_Desc"];
+
+            if (FilesHeaderTxt != null) FilesHeaderTxt.Text = loc["Settings_General_Files_Header"];
+            if (ComplexTitleTxt != null) ComplexTitleTxt.Text = loc["Settings_General_Complex_Title"];
+            if (ComplexDescTxt != null) ComplexDescTxt.Text = loc["Settings_General_Complex_Desc"];
+            if (DeleteSrcTitleTxt != null) DeleteSrcTitleTxt.Text = loc["Settings_General_DeleteSource_Title"];
+            if (DeleteSrcDescTxt != null) DeleteSrcDescTxt.Text = loc["Settings_General_DeleteSource_Desc"];
+
+            if (PerfHeaderTxt != null) PerfHeaderTxt.Text = loc["Settings_General_Perf_Header"];
+            if (CompTitleTxt != null) CompTitleTxt.Text = loc["Settings_General_Compression_Title"];
+            if (CompDescTxt != null) CompDescTxt.Text = loc["Settings_General_Compression_Desc"];
+            if (TasksTitleTxt != null) TasksTitleTxt.Text = loc["Settings_General_Tasks_Title"];
+            if (TasksDescTxt != null) TasksDescTxt.Text = loc["Settings_General_Tasks_Desc"];
+            if (ThreadsTitleTxt != null) ThreadsTitleTxt.Text = loc["Settings_General_Threads_Title"];
+            if (ThreadsDescTxt != null) ThreadsDescTxt.Text = loc["Settings_General_Threads_Desc"];
+
+            if (AboutHeaderTxt != null) AboutHeaderTxt.Text = loc["Settings_General_About_Header"];
+            if (AppTitleVersionTxt != null) AppTitleVersionTxt.Text = $"STORM SWITCH BOX {App.Settings.Current.AppVersion}";
+            if (AboutDescriptionTxt != null) AboutDescriptionTxt.Text = loc["Settings_General_About_Desc"];
+            if (CheckUpdatesButton != null) CheckUpdatesButton.Content = loc["Settings_General_CheckUpdates"];
+            if (OpenLogsButton != null) OpenLogsButton.Content = loc["Settings_General_OpenLogs"];
+
+            // Switch Panel
+            if (SwitchKeysHeaderTxt != null) SwitchKeysHeaderTxt.Text = loc["Settings_Switch_Keys_Header"];
+            if (SwitchKeysTitleTxt != null) SwitchKeysTitleTxt.Text = loc["Settings_Switch_Keys_Title"];
+            if (SwitchKeysDescTxt != null) SwitchKeysDescTxt.Text = loc["Settings_Switch_Keys_Desc"];
+            if (SwitchKeysLoadedTxt != null) SwitchKeysLoadedTxt.Text = loc["Settings_Switch_Keys_Loaded"];
+            if (SelectKeysButton != null) SelectKeysButton.Content = loc["Settings_Switch_Keys_Pick"];
+
+            if (SwitchAlgoHeaderTxt != null) SwitchAlgoHeaderTxt.Text = loc["Settings_Switch_Algorithms_Header"];
+            if (KeyGenTitleTxt != null) KeyGenTitleTxt.Text = loc["Settings_Switch_KeyGen_Title"];
+            if (KeyGenDescTxt != null) KeyGenDescTxt.Text = loc["Settings_Switch_KeyGen_Desc"];
+            if (RsvTitleTxt != null) RsvTitleTxt.Text = loc["Settings_Switch_Rsv_Title"];
+            if (RsvDescTxt != null) RsvDescTxt.Text = loc["Settings_Switch_Rsv_Desc"];
+            if (TitlerightsTitleTxt != null) TitlerightsTitleTxt.Text = loc["Settings_Switch_Titlerights_Title"];
+            if (TitlerightsDescTxt != null) TitlerightsDescTxt.Text = loc["Settings_Switch_Titlerights_Desc"];
+            if (DeltaTitleTxt != null) DeltaTitleTxt.Text = loc["Settings_Switch_Delta_Title"];
+            if (DeltaDescTxt != null) DeltaDescTxt.Text = loc["Settings_Switch_Delta_Desc"];
+            if (Fat32TitleTxt != null) Fat32TitleTxt.Text = loc["Settings_Switch_Fat32_Title"];
+            if (Fat32DescTxt != null) Fat32DescTxt.Text = loc["Settings_Switch_Fat32_Desc"];
+            if (ForceMultiTitleTxt != null) ForceMultiTitleTxt.Text = loc["Settings_Switch_ForceMulti_Title"];
+            if (ForceMultiDescTxt != null) ForceMultiDescTxt.Text = loc["Settings_Switch_ForceMulti_Desc"];
+            if (LangTrimTitleTxt != null) LangTrimTitleTxt.Text = loc["Settings_Switch_LangTrim_Title"];
+            if (LangTrimDescTxt != null) LangTrimDescTxt.Text = loc["Settings_Switch_LangTrim_Desc"];
+            if (LangTrimSubTxt != null) LangTrimSubTxt.Text = loc["Settings_Switch_LangTrim_Sub"];
+
+            if (SwitchWatchTitleTxt != null) SwitchWatchTitleTxt.Text = loc["Settings_Switch_WatchFolder_Title"];
+            if (SwitchWatchDescTxt != null) SwitchWatchDescTxt.Text = loc["Settings_Switch_WatchFolder_Desc"];
+            if (SelectWatchFolderSwitchButton != null) SelectWatchFolderSwitchButton.Content = loc["Settings_Switch_WatchFolder_Pick"];
+            if (WatchFolderBoxSwitch != null) WatchFolderBoxSwitch.PlaceholderText = loc["Settings_Switch_OutFolder_Placeholder"];
+
+            if (SwitchOutFolderTitleTxt != null) SwitchOutFolderTitleTxt.Text = loc["Settings_Switch_OutFolder_Title"];
+            if (SwitchOutFolderDescTxt != null) SwitchOutFolderDescTxt.Text = loc["Settings_Switch_OutFolder_Desc"];
+            if (OutputFolderBox != null) OutputFolderBox.PlaceholderText = loc["Settings_Switch_OutFolder_Placeholder"];
+            if (SelectOutputFolderButton != null) SelectOutputFolderButton.Content = loc["Settings_Switch_OutFolder_Browse"];
+
+            // 3DS Panel
+            if (ThreeDsKeysHeaderTxt != null) ThreeDsKeysHeaderTxt.Text = loc["Settings_3ds_Keys_Header"];
+            if (ThreeDsKeysTitleTxt != null) ThreeDsKeysTitleTxt.Text = loc["Settings_3ds_Keys_Title"];
+            if (ThreeDsKeysDescTxt != null) ThreeDsKeysDescTxt.Text = loc["Settings_3ds_Keys_Desc"];
+            if (ThreeDsKeysLoadedTxt != null) ThreeDsKeysLoadedTxt.Text = loc["Settings_3ds_Keys_Loaded"];
+            if (SelectKeys3dsButton != null) SelectKeys3dsButton.Content = loc["Settings_3ds_Keys_Pick"];
+
+            if (ThreeDsAlgoHeaderTxt != null) ThreeDsAlgoHeaderTxt.Text = loc["Settings_3ds_Algorithms_Header"];
+            if (ThreeDsFormatTitleTxt != null) ThreeDsFormatTitleTxt.Text = loc["Settings_3ds_Format_Title"];
+            if (ThreeDsFormatDescTxt != null) ThreeDsFormatDescTxt.Text = loc["Settings_3ds_Format_Desc"];
+            if (ThreeDsHardPatchTitleTxt != null) ThreeDsHardPatchTitleTxt.Text = loc["Settings_3ds_HardPatch_Title"];
+            if (ThreeDsHardPatchDescTxt != null) ThreeDsHardPatchDescTxt.Text = loc["Settings_3ds_HardPatch_Desc"];
+
+            if (ThreeDsWatchTitleTxt != null) ThreeDsWatchTitleTxt.Text = loc["Settings_3ds_WatchFolder_Title"];
+            if (ThreeDsWatchDescTxt != null) ThreeDsWatchDescTxt.Text = loc["Settings_3ds_WatchFolder_Desc"];
+            if (SelectWatchFolder3dsButton != null) SelectWatchFolder3dsButton.Content = loc["Settings_3ds_WatchFolder_Pick"];
+            if (WatchFolderBox3ds != null) WatchFolderBox3ds.PlaceholderText = loc["Settings_3ds_OutFolder_Placeholder"];
+
+            if (ThreeDsOutFolderTitleTxt != null) ThreeDsOutFolderTitleTxt.Text = loc["Settings_3ds_OutFolder_Title"];
+            if (ThreeDsOutFolderDescTxt != null) ThreeDsOutFolderDescTxt.Text = loc["Settings_3ds_OutFolder_Desc"];
+            if (OutputFolderBox3ds != null) OutputFolderBox3ds.PlaceholderText = loc["Settings_3ds_OutFolder_Placeholder"];
+            if (SelectOutputFolder3dsButton != null) SelectOutputFolder3dsButton.Content = loc["Settings_3ds_OutFolder_Browse"];
+
+            // Localize Toggle Switches
+            string onTxt = loc.GetString("Common_On");
+            if (string.IsNullOrEmpty(onTxt)) onTxt = "Вкл.";
+            string offTxt = loc.GetString("Common_Off");
+            if (string.IsNullOrEmpty(offTxt)) offTxt = "Откл.";
+
+            if (SoundToggle != null) { SoundToggle.OnContent = onTxt; SoundToggle.OffContent = offTxt; }
+            if (ComplexFoldersToggle != null) { ComplexFoldersToggle.OnContent = onTxt; ComplexFoldersToggle.OffContent = offTxt; }
+            if (DeleteSourceToggle != null) { DeleteSourceToggle.OnContent = onTxt; DeleteSourceToggle.OffContent = offTxt; }
+            if (RemoveTitlerightsToggle != null) { RemoveTitlerightsToggle.OnContent = onTxt; RemoveTitlerightsToggle.OffContent = offTxt; }
+            if (RemoveDeltaNcaToggle != null) { RemoveDeltaNcaToggle.OnContent = onTxt; RemoveDeltaNcaToggle.OffContent = offTxt; }
+            if (SplitFat32Toggle != null) { SplitFat32Toggle.OnContent = onTxt; SplitFat32Toggle.OffContent = offTxt; }
+            if (ForceMultiRebuildToggle != null) { ForceMultiRebuildToggle.OnContent = onTxt; ForceMultiRebuildToggle.OffContent = offTxt; }
+            if (TrimXciToggle != null) { TrimXciToggle.OnContent = onTxt; TrimXciToggle.OffContent = offTxt; }
+            if (WatchFolderSwitchToggle != null) { WatchFolderSwitchToggle.OnContent = onTxt; WatchFolderSwitchToggle.OffContent = offTxt; }
+            if (HardPatch3dsToggle != null) { HardPatch3dsToggle.OnContent = onTxt; HardPatch3dsToggle.OffContent = offTxt; }
+            if (WatchFolder3dsToggle != null) { WatchFolder3dsToggle.OnContent = onTxt; WatchFolder3dsToggle.OffContent = offTxt; }
+
+            // Re-render RomFS trim languages with current language
+            InitializeLanguages();
+
+            UpdateWatchFolderUiState();
+        }
+
+        // ===== 3DS Ключи и настройки =====
+        private async void SelectKeys3dsButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var filePicker = new Windows.Storage.Pickers.FileOpenPicker();
+                filePicker.SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.ComputerFolder;
+                filePicker.FileTypeFilter.Add(".txt");
+                filePicker.FileTypeFilter.Add(".bin");
+                filePicker.FileTypeFilter.Add("*");
+
+                var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindow);
+                WinRT.Interop.InitializeWithWindow.Initialize(filePicker, hwnd);
+
+                var file = await filePicker.PickSingleFileAsync();
+                if (file != null)
+                {
+                    App.Settings.Current.KeysPath3ds = file.Path;
+                    await App.Settings.SaveAsync();
+                    App.Logger.Log($"[3DS Keys] Подключен файл ключей: {file.Path}", Models.LogLevel.Success);
+                    this.Bindings.Update();
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Logger.Log($"[3DS Keys] Ошибка выбора ключей: {ex.Message}", Models.LogLevel.Error);
+            }
+        }
+
+        private void KeysFile3ds_DragOver(object sender, DragEventArgs e)
+        {
+            e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
+            e.DragUIOverride.Caption = "Установить файл ключей 3DS";
+            e.DragUIOverride.IsCaptionVisible = true;
+            e.DragUIOverride.IsContentVisible = true;
+        }
+
+        private async void KeysFile3ds_Drop(object sender, DragEventArgs e)
+        {
+            if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+            {
+                var items = await e.DataView.GetStorageItemsAsync();
+                if (items.Count > 0)
+                {
+                    var file = items[0];
+                    if (System.IO.File.Exists(file.Path))
+                    {
+                        App.Settings.Current.KeysPath3ds = file.Path;
+                        await App.Settings.SaveAsync();
+                        App.Logger.Log($"[3DS Keys] Установлен файл ключей: {file.Path}", Models.LogLevel.Success);
+                        this.Bindings.Update();
+                    }
+                }
+            }
+        }
+
+        private async void Format3dsCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (Format3dsCombo?.SelectedItem is ComboBoxItem item && item.Tag is string tagStr)
+            {
+                App.Settings.Current.DefaultFormat3ds = tagStr;
+                App.Settings.Current.SelectedFormatIndex3ds = Format3dsCombo.SelectedIndex;
+                await App.Settings.SaveAsync();
+            }
+        }
+
+        private async void Toggle3ds_Changed(object sender, RoutedEventArgs e)
+        {
+            await App.Settings.SaveAsync();
+        }
+
         // ===== Выбор выходной папки =====
         private async void SelectOutputFolder_Click(object sender, RoutedEventArgs e)
         {
@@ -560,7 +1056,92 @@ namespace StormSwitchBox.Views
                         App.Settings.Current.OutputFolder = path;
                         OutputFolderBox.Text = path;
                         await App.Settings.SaveAsync();
-                        App.Logger.Log($"Выходная папка установлена перетягиванием: {path}", Models.LogLevel.Success);
+                        App.Logger.Log($"Выходная папка Switch установлена перетягиванием: {path}", Models.LogLevel.Success);
+                    }
+                }
+            }
+        }
+
+        // ===== Выбор выходной папки 3DS =====
+        private async void SelectOutputFolder3ds_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var picker = new Windows.Storage.Pickers.FolderPicker();
+                picker.SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.Desktop;
+                picker.FileTypeFilter.Add("*");
+
+                var window = App.MainWindow;
+                if (window != null)
+                {
+                    var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(window);
+                    WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+                }
+
+                var folder = await picker.PickSingleFolderAsync();
+                if (folder != null)
+                {
+                    App.Settings.Current.OutputFolder3ds = folder.Path;
+                    OutputFolderBox3ds.Text = folder.Path;
+                    await App.Settings.SaveAsync();
+                    App.Logger.Log($"Выходная папка 3DS: {folder.Path}", Models.LogLevel.Info);
+                }
+            }
+            catch (Exception)
+            {
+                var dialog = new ContentDialog
+                {
+                    Title = "Укажите выходную папку 3DS",
+                    CloseButtonText = "Отмена",
+                    PrimaryButtonText = "OK",
+                    XamlRoot = this.XamlRoot
+                };
+                var textBox = new TextBox
+                {
+                    PlaceholderText = @"Например: E:\3DS_OUT",
+                    Text = App.Settings.Current.OutputFolder3ds ?? "",
+                    Width = 400
+                };
+                dialog.Content = textBox;
+
+                var result = await dialog.ShowAsync();
+                if (result == ContentDialogResult.Primary && !string.IsNullOrWhiteSpace(textBox.Text))
+                {
+                    App.Settings.Current.OutputFolder3ds = textBox.Text.Trim();
+                    OutputFolderBox3ds.Text = textBox.Text.Trim();
+                    await App.Settings.SaveAsync();
+                    App.Logger.Log($"Выходная папка 3DS (вручную): {textBox.Text.Trim()}", Models.LogLevel.Info);
+                }
+            }
+        }
+
+        private void OutputFolderBox3ds_DragOver(object sender, DragEventArgs e)
+        {
+            e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
+            e.DragUIOverride.Caption = "Выбрать как выходную папку 3DS";
+            e.DragUIOverride.IsCaptionVisible = true;
+            e.DragUIOverride.IsContentVisible = true;
+        }
+
+        private async void OutputFolderBox3ds_Drop(object sender, DragEventArgs e)
+        {
+            if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+            {
+                var items = await e.DataView.GetStorageItemsAsync();
+                if (items.Count > 0)
+                {
+                    var item = items[0];
+                    string path = item.Path;
+                    if (System.IO.File.Exists(path))
+                    {
+                        path = System.IO.Path.GetDirectoryName(path) ?? path;
+                    }
+                    if (System.IO.Directory.Exists(path))
+                    {
+                        App.Settings.Current.OutputFolder3ds = path;
+                        OutputFolderBox3ds.Text = path;
+                        await App.Settings.SaveAsync();
+                        App.Logger.Log($"Выходная папка 3DS установлена перетягиванием: {path}", Models.LogLevel.Success);
                     }
                 }
             }
@@ -583,7 +1164,7 @@ namespace StormSwitchBox.Views
                     var dialog = new ContentDialog
                     {
                         Title = "Обновления не найдены",
-                        Content = new TextBlock { Text = "У вас установлена актуальная версия STORM SWITCH BOX v4.4.4." },
+                        Content = new TextBlock { Text = $"У вас установлена актуальная версия STORM SWITCH BOX v{App.Settings.Current.AppVersion}." },
                         CloseButtonText = "OK",
                         XamlRoot = this.XamlRoot
                     };
@@ -748,55 +1329,99 @@ namespace StormSwitchBox.Views
                 progressText.Text = "Скачивание завершено. Запуск обновления...";
                 await System.Threading.Tasks.Task.Delay(1000);
 
-                var appDir = System.AppDomain.CurrentDomain.BaseDirectory;
+                var appDir = System.AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
                 var exePath = System.IO.Path.Combine(appDir, "StormSwitchBox.exe");
                 var batchPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ssb_update.bat");
+                var logPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ssb_update_log.txt");
+                var pid = System.Diagnostics.Process.GetCurrentProcess().Id;
 
-                string batchContent = "";
+                string batchContent;
                 if (assetName.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
                 {
-                    batchContent = $@"@echo off
+                    batchContent =
+$@"@echo off
 chcp 65001 > nul
-echo Завершение работающего приложения...
-taskkill /F /IM StormSwitchBox.exe > nul 2>&1
-timeout /t 2 /nobreak > nul
-echo Извлечение обновления...
-powershell -Command ""Expand-Archive -Path '{tempPath}' -DestinationPath '{appDir}' -Force""
+echo [SSB Updater] Начало обновления... > ""{logPath}""
+echo Завершение STORM SWITCH BOX (PID {pid})...
+taskkill /F /PID {pid} > nul 2>&1
+:WAIT_LOOP
+timeout /t 1 /nobreak > nul
+tasklist /FI ""PID eq {pid}"" 2>nul | find /i ""StormSwitchBox"" > nul
+if not errorlevel 1 (
+    echo Ожидание завершения процесса... >> ""{logPath}""
+    goto WAIT_LOOP
+)
+echo Процесс завершён. >> ""{logPath}""
+echo Извлечение обновления из ZIP...
+echo Извлечение в: {appDir} >> ""{logPath}""
+powershell -NoProfile -ExecutionPolicy Bypass -Command ""Expand-Archive -LiteralPath '{tempPath}' -DestinationPath '{appDir}' -Force"" >> ""{logPath}"" 2>&1
+if errorlevel 1 (
+    echo ОШИБКА: Не удалось извлечь архив! >> ""{logPath}""
+    echo Ошибка извлечения архива. Файл сохранён: {tempPath}
+    pause
+    exit /b 1
+)
+echo Извлечение завершено успешно. >> ""{logPath}""
 echo Запуск новой версии...
 start """" ""{exePath}""
-del ""{tempPath}""
+del ""{tempPath}"" > nul 2>&1
+echo Обновление завершено. >> ""{logPath}""
 (goto) 2>nul & del ""%~f0""
 ";
                 }
                 else
                 {
-                    batchContent = $@"@echo off
+                    // Inno Setup installer
+                    batchContent =
+$@"@echo off
 chcp 65001 > nul
-echo Завершение работающего приложения...
-taskkill /F /IM StormSwitchBox.exe > nul 2>&1
-timeout /t 2 /nobreak > nul
-echo Обновление исполняемого файла...
-start /wait """" ""{tempPath}"" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /FORCECLOSEAPPLICATIONS /DIR=""{appDir.TrimEnd('\\')}""
+echo [SSB Updater] Начало обновления (installer)... > ""{logPath}""
+echo Завершение STORM SWITCH BOX (PID {pid})...
+taskkill /F /PID {pid} > nul 2>&1
+:WAIT_LOOP
+timeout /t 1 /nobreak > nul
+tasklist /FI ""PID eq {pid}"" 2>nul | find /i ""StormSwitchBox"" > nul
+if not errorlevel 1 (
+    echo Ожидание завершения процесса... >> ""{logPath}""
+    goto WAIT_LOOP
+)
+echo Процесс завершён. >> ""{logPath}""
+echo Запуск установщика...
+echo Запуск: {tempPath} /VERYSILENT /DIR={appDir} >> ""{logPath}""
+""{tempPath}"" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /FORCECLOSEAPPLICATIONS /DIR=""{appDir}""
+if errorlevel 1 (
+    echo ОШИБКА: Установщик завершился с ошибкой! >> ""{logPath}""
+    echo Ошибка установки. Файл сохранён: {tempPath}
+    pause
+    exit /b 1
+)
+echo Установка завершена. >> ""{logPath}""
 echo Запуск новой версии...
 start """" ""{exePath}""
-del ""{tempPath}""
+del ""{tempPath}"" > nul 2>&1
+echo Обновление завершено. >> ""{logPath}""
 (goto) 2>nul & del ""%~f0""
 ";
                 }
 
-                await System.IO.File.WriteAllTextAsync(batchPath, batchContent, System.Text.Encoding.UTF8);
+                // Записываем bat без BOM (cmd.exe не любит UTF-8 BOM)
+                await System.IO.File.WriteAllTextAsync(batchPath, batchContent, new System.Text.UTF8Encoding(false));
 
+                // КРИТИЧЕСКИ ВАЖНО: UseShellExecute = true запускает bat как НЕЗАВИСИМЫЙ процесс,
+                // который НЕ будет убит при завершении текущего приложения (без Job Object наследования)
                 var psi = new System.Diagnostics.ProcessStartInfo
                 {
-                    FileName = "cmd.exe",
-                    Arguments = $"/c \"{batchPath}\"",
-                    CreateNoWindow = true,
-                    UseShellExecute = false
+                    FileName = batchPath,
+                    UseShellExecute = true,
+                    WindowStyle = System.Diagnostics.ProcessWindowStyle.Normal
                 };
                 System.Diagnostics.Process.Start(psi);
 
                 dialog.Hide();
-                System.Environment.Exit(0);
+
+                // Даём bat-скрипту время стартовать перед закрытием
+                await System.Threading.Tasks.Task.Delay(500);
+                Application.Current.Exit();
             }
             catch (Exception ex)
             {

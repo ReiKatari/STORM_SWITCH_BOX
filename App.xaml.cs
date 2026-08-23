@@ -20,6 +20,9 @@ namespace StormSwitchBox
         public static ControlEditorService ControlEditor { get; } = new ControlEditorService();
         public static TicketHarvesterService TicketHarvester { get; } = new TicketHarvesterService();
         public static WatchFolderService WatchFolderService { get; } = new WatchFolderService();
+        public static Nintendo3dsService Nintendo3ds { get; } = new Nintendo3dsService();
+        public static NintendoLibraryService NintendoLibrary { get; } = new NintendoLibraryService();
+        public static LocalizationService Localization => LocalizationService.Instance;
         private static StormSwitchBox.ViewModels.TasksViewModel? _tasksVM;
         public static StormSwitchBox.ViewModels.TasksViewModel TasksVM => _tasksVM ??= new StormSwitchBox.ViewModels.TasksViewModel();
 
@@ -29,11 +32,28 @@ namespace StormSwitchBox
         {
             if (MainDispatcher != null)
             {
-                MainDispatcher.TryEnqueue(() => action());
+                MainDispatcher.TryEnqueue(() =>
+                {
+                    try
+                    {
+                        action();
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger?.Log($"[UI Exception Intercepted] {ex.Message}", Models.LogLevel.Warning);
+                    }
+                });
             }
             else
             {
-                action();
+                try
+                {
+                    action();
+                }
+                catch (Exception ex)
+                {
+                    Logger?.Log($"[UI Exception Intercepted] {ex.Message}", Models.LogLevel.Warning);
+                }
             }
         }
 
@@ -50,6 +70,34 @@ namespace StormSwitchBox
             UnblockApplicationFiles();
             this.InitializeComponent();
             this.UnhandledException += App_UnhandledException;
+
+            AppDomain.CurrentDomain.UnhandledException += (s, ev) =>
+            {
+                try
+                {
+                    JobObjectManager.KillAllToolProcesses();
+                    TempCleanupService.PurgeActiveTempDirectories();
+                    var ex = ev.ExceptionObject as Exception;
+                    Logger?.Log($"[Критический сбой] {ex?.Message}\n{ex?.StackTrace}", Models.LogLevel.Error);
+                    System.IO.File.AppendAllText(
+                        System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory, "crash.log"),
+                        $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] AppDomain: {ex}\n\n");
+                }
+                catch { }
+            };
+
+            TaskScheduler.UnobservedTaskException += (s, ev) =>
+            {
+                ev.SetObserved();
+                try
+                {
+                    Logger?.Log($"[Фоновое исключение Task] {ev.Exception?.Message}", Models.LogLevel.Warning);
+                    System.IO.File.AppendAllText(
+                        System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory, "crash.log"),
+                        $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] TaskScheduler: {ev.Exception}\n\n");
+                }
+                catch { }
+            };
         }
 
         private static void UnblockApplicationFiles()
@@ -94,6 +142,7 @@ namespace StormSwitchBox
             AppDomain.CurrentDomain.ProcessExit += (s, e) =>
             {
                 JobObjectManager.KillAllToolProcesses();
+                TempCleanupService.PurgeActiveTempDirectories();
             };
 
             // Single Instance Check
@@ -154,11 +203,16 @@ namespace StormSwitchBox
 
             // Загружаем настройки перед показом окна
             await Settings.LoadAsync();
+            Localization.CurrentLanguage = Settings.Current.Language ?? "ru";
             Logger.Log("Приложение запущено. Настройки загружены.", Models.LogLevel.Info);
 
-            if (Settings.Current.EnableWatchFolder)
+            if (Settings.Current.EnableWatchFolderSwitch)
             {
-                WatchFolderService.Start();
+                WatchFolderService.StartSwitch();
+            }
+            if (Settings.Current.EnableWatchFolder3ds)
+            {
+                WatchFolderService.Start3ds();
             }
 
             try
@@ -209,7 +263,7 @@ namespace StormSwitchBox
                         @"P:\CONSOLES\Nintendo Switch\DOWNLOADS\Devil Jam\[WW] [RUS] (1.0.1 - 65536 - 0100C6A0235D4000) (1G+1U)\Devil Jam [0100C6A0235D4800][v65536] (0.19 GB).nsz"
                     };
                     
-                    await MultiContent.BuildMultiContentAsync(task, inputFiles, outPath, patchFirmware: false, CancellationToken.None);
+                    await MultiContent.BuildMultiContentAsync(task, inputFiles, outPath, patchFirmware: true, CancellationToken.None);
                     System.IO.File.WriteAllText(System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory, "test_result.txt"), "SUCCESS\n" + task.LogDetails);
                 }
                 catch (Exception ex)
@@ -347,8 +401,15 @@ namespace StormSwitchBox
 
         private void App_UnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)
         {
-            Logger.Log($"CRASH: {e.Exception.Message}\n{e.Exception.StackTrace}", Models.LogLevel.Error);
-            System.IO.File.WriteAllText(System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory, "crash.log"), e.Exception.ToString());
+            e.Handled = true;
+            Logger?.Log($"[Перехвачено UI исключение] {e.Exception?.Message}\n{e.Exception?.StackTrace}", Models.LogLevel.Error);
+            try
+            {
+                System.IO.File.AppendAllText(
+                    System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory, "crash.log"),
+                    $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] WinUI Unhandled: {e.Exception}\n\n");
+            }
+            catch { }
         }
 
         public static void UnblockFile(string filePath)

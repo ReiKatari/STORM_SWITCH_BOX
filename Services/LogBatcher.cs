@@ -44,6 +44,10 @@ namespace StormSwitchBox.Services
 
             App.RunOnUI(() =>
             {
+                if (_task.LogDetails != null && _task.LogDetails.Length > 150_000)
+                {
+                    _task.LogDetails = "..." + _task.LogDetails.Substring(_task.LogDetails.Length - 80_000);
+                }
                 _task.LogDetails += chunk;
             });
         }

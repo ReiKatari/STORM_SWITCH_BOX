@@ -31,49 +31,69 @@
         
         <!-- ========== ТУЛБАР ========== -->
         <CommandBar Grid.Row="0" DefaultLabelPosition="Right" HorizontalAlignment="Left" Background="Transparent" Margin="0,0,0,6">
-            <AppBarButton Label="Добавить">
+            <AppBarButton x:Name="AddButton" Label="Добавить">
                 <AppBarButton.Icon>
                     <FontIcon Glyph="&#xE896;" Foreground="#2ECC71"/>
                 </AppBarButton.Icon>
                 <AppBarButton.Flyout>
                     <MenuFlyout>
-                        <MenuFlyoutItem Text="Добавить файлы..." Click="AddFiles_Click"/>
-                        <MenuFlyoutItem Text="Добавить папку..." Click="AddFolder_Click"/>
+                        <MenuFlyoutItem x:Name="AddFilesItem" Text="Добавить файлы..." Click="AddFiles_Click"/>
+                        <MenuFlyoutItem x:Name="AddFolderItem" Text="Добавить папку..." Click="AddFolder_Click"/>
                     </MenuFlyout>
                 </AppBarButton.Flyout>
             </AppBarButton>
-            <AppBarElementContainer VerticalAlignment="Center" Margin="16,0">
-                <ComboBox x:Name="FormatComboBox" SelectedIndex="{x:Bind ViewModel.SelectedFormatIndex, Mode=TwoWay}" Width="100" SelectionChanged="FormatComboBox_SelectionChanged">
-                    <ComboBoxItem Content="NSP"/>
-                    <ComboBoxItem Content="NSZ"/>
-                    <ComboBoxItem Content="XCI"/>
-                    <ComboBoxItem Content="XCZ"/>
-                </ComboBox>
+            <AppBarElementContainer VerticalAlignment="Center" Margin="12,0">
+                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                    <Button Click="PlatformToggle_Click" Padding="8,5" CornerRadius="6"
+                            ToolTipService.ToolTip="Переключить платформу (Switch / 3DS)">
+                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                            <FontIcon Glyph="&#xE7FC;" FontSize="12" Foreground="{ThemeResource SystemAccentColor}"/>
+                            <TextBlock Text="{x:Bind ViewModel.CurrentPlatformLabel, Mode=OneWay}" FontWeight="SemiBold" FontSize="12"/>
+                        </StackPanel>
+                    </Button>
+                    <ComboBox x:Name="FormatComboBox" SelectedIndex="{x:Bind ViewModel.SelectedFormatIndex, Mode=TwoWay}" Width="90" 
+                              SelectionChanged="FormatComboBox_SelectionChanged"
+                              ToolTipService.ToolTip="Выходной формат для Switch"
+                              Visibility="{x:Bind ViewModel.IsSwitchPlatformVisible, Mode=OneWay}">
+                        <ComboBoxItem Content="NSP"/>
+                        <ComboBoxItem Content="NSZ"/>
+                        <ComboBoxItem Content="XCI"/>
+                        <ComboBoxItem Content="XCZ"/>
+                    </ComboBox>
+                    <ComboBox x:Name="FormatComboBox3ds" SelectedIndex="{x:Bind ViewModel.SelectedFormatIndex3ds, Mode=TwoWay}" Width="95" 
+                              SelectionChanged="FormatComboBox3ds_SelectionChanged"
+                              ToolTipService.ToolTip="Выходной формат для 3DS"
+                              Visibility="{x:Bind ViewModel.Is3dsPlatformVisible, Mode=OneWay}">
+                        <ComboBoxItem Content="3DS"/>
+                        <ComboBoxItem Content="CIA"/>
+                        <ComboBoxItem Content="CXI"/>
+                    </ComboBox>
+                </StackPanel>
             </AppBarElementContainer>
-            <AppBarButton Label="Запустить всё" Command="{x:Bind ViewModel.StartAllTasksCommand}">
+            <AppBarButton x:Name="StartAllButton" Label="Запустить всё" Command="{x:Bind ViewModel.StartAllTasksCommand}">
                 <AppBarButton.Icon>
                     <FontIcon Glyph="&#xE768;" Foreground="#00E5FF"/>
                 </AppBarButton.Icon>
             </AppBarButton>
-            <AppBarButton Label="Остановить" Command="{x:Bind ViewModel.StopAllTasksCommand}" IsEnabled="{x:Bind ViewModel.IsAnyTaskRunning, Mode=OneWay}">
+            <AppBarButton x:Name="StopAllButton" Label="Остановить" Command="{x:Bind ViewModel.StopAllTasksCommand}" IsEnabled="{x:Bind ViewModel.IsAnyTaskRunning, Mode=OneWay}">
                 <AppBarButton.Icon>
                     <FontIcon Glyph="&#xE73B;" Foreground="#FFC107"/>
                 </AppBarButton.Icon>
             </AppBarButton>
-            <AppBarButton Label="Свернуть все" Click="CollapseAll_Click" ToolTipService.ToolTip="Закрыть детальную информацию у всех задач">
+            <AppBarButton x:Name="CollapseAllButton" Label="Свернуть все" Click="CollapseAll_Click" ToolTipService.ToolTip="Закрыть детальную информацию у всех задач">
                 <AppBarButton.Icon>
                     <FontIcon Glyph="&#xE8A0;" Foreground="#B388FF"/>
                 </AppBarButton.Icon>
             </AppBarButton>
             <AppBarSeparator/>
-            <AppBarButton Label="Столбцы">
+            <AppBarButton x:Name="ColumnsButton" Label="Столбцы">
                 <AppBarButton.Icon>
                     <FontIcon Glyph="&#xE8B3;" Foreground="#536DFE"/>
                 </AppBarButton.Icon>
                 <AppBarButton.Flyout>
                     <Flyout>
                         <StackPanel Spacing="8">
-                            <TextBlock Text="Отображение столбцов" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                            <TextBlock x:Name="ColumnsFlyoutTitle" Text="Отображение столбцов" FontWeight="SemiBold" Margin="0,0,0,4"/>
                             <CheckBox Content="Обработка" IsChecked="True" Checked="ColumnVisibility_Checked" Unchecked="ColumnVisibility_Unchecked" Tag="2"/>
                             <CheckBox Content="Нач. формат" IsChecked="True" Checked="ColumnVisibility_Checked" Unchecked="ColumnVisibility_Unchecked" Tag="3"/>
                             <CheckBox Content="Кон. формат" IsChecked="True" Checked="ColumnVisibility_Checked" Unchecked="ColumnVisibility_Unchecked" Tag="4"/>
@@ -89,7 +109,7 @@
                 </AppBarButton.Flyout>
             </AppBarButton>
             <AppBarSeparator/>
-            <AppBarButton Label="Очистить" Command="{x:Bind ViewModel.ClearTasksCommand}">
+            <AppBarButton x:Name="ClearButton" Label="Очистить" Command="{x:Bind ViewModel.ClearTasksCommand}">
                 <AppBarButton.Icon>
                     <FontIcon Glyph="&#xE74D;" Foreground="#FF5252"/>
                 </AppBarButton.Icon>
@@ -182,12 +202,13 @@
                     <controls:DataGridTemplateColumn Header="Кон. формат" Width="150" MinWidth="50">
                         <controls:DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
-                                <ComboBox SelectedItem="{Binding TargetFormat, Mode=TwoWay}" IsEnabled="{Binding IsNotRunning, Mode=OneWay}" VerticalAlignment="Center" HorizontalAlignment="Center"
-                                          Foreground="Cyan" Padding="4,0" MinWidth="55" MinHeight="24" Height="24" BorderThickness="0" Background="Transparent">
-                                    <x:String>NSP</x:String>
-                                    <x:String>NSZ</x:String>
-                                    <x:String>XCI</x:String>
-                                    <x:String>XCZ</x:String>
+                                <ComboBox ItemsSource="{Binding AvailableTargetFormats}"
+                                          SelectedItem="{Binding TargetFormat, Mode=TwoWay}" 
+                                          IsEnabled="{Binding CanChangeFormat, Mode=OneWay}" 
+                                          Foreground="{Binding TargetFormatColor, Mode=OneWay}"
+                                          FontWeight="{Binding TargetFormatWeight, Mode=OneWay}"
+                                          VerticalAlignment="Center" HorizontalAlignment="Center"
+                                          Padding="6,2" MinWidth="65" MinHeight="26" Height="26" BorderThickness="0" Background="Transparent">
                                 </ComboBox>
                             </DataTemplate>
                         </controls:DataGridTemplateColumn.CellTemplate>

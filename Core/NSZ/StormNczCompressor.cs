@@ -24,9 +24,10 @@ namespace StormSwitchBox.Core.NSZ
     public static class StormNczCompressor
     {
         public static readonly Dictionary<string, (byte[] Key, byte CryptoType, byte[] Counter)[]> NcaKeysCache = new Dictionary<string, (byte[] Key, byte CryptoType, byte[] Counter)[]>(StringComparer.OrdinalIgnoreCase);
+        public static readonly Dictionary<string, byte[]> TitleKeysCache = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
 
         private const long NCA_HEADER_SIZE = 0x4000;
-        private const int BLOCK_SIZE_EXPONENT = 18; // 2^18 = 256 KB per block
+        private const int BLOCK_SIZE_EXPONENT = 18; // 2^18 = 256 KB standard NSZ block size (100% emulator compatibility)
         private const int BLOCK_SIZE = 1 << BLOCK_SIZE_EXPONENT;
 
         public static void CompressNcaToNcz(
@@ -35,7 +36,8 @@ namespace StormSwitchBox.Core.NSZ
             int compressionLevel,
             KeySet keyset,
             ProcessingTask task,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            Dictionary<string, byte[]>? externalTitleKeys = null)
         {
             ncaStorage.GetSize(out long ncaSize).ThrowIfFailure();
 
@@ -133,7 +135,6 @@ namespace StormSwitchBox.Core.NSZ
 
             enabledSections.Sort((a, b) => a.VOffset.CompareTo(b.VOffset));
 
-            long currentPhysicalOffset = 0x4000;
             var decryptInfos = new List<SectionDecryptInfo>();
 
             foreach (var secInfo in enabledSections)
@@ -141,15 +142,16 @@ namespace StormSwitchBox.Core.NSZ
                 int i = secInfo.Index;
                 long vOffset = secInfo.VOffset;
                 long vSize = secInfo.VSize;
-                long pSize = (vOffset < 0x4000) ? Math.Max(0, vSize - (0x4000 - vOffset)) : vSize;
-                long pOffset = currentPhysicalOffset;
-                currentPhysicalOffset += pSize;
+                // Реальное физическое смещение секции в NCA файле = VOffset (т.к. NCA хранит секции по виртуальным адресам).
+                // Если секция начинается до заголовка NCA (0x4000), обрезаем до 0x4000.
+                long pOffset = Math.Max(vOffset, NCA_HEADER_SIZE);
+                long pSize = vSize - (pOffset - vOffset); // Размер физических данных за вычетом перекрытия с заголовком
 
                     byte[] startMagic = new byte[16];
                     try
                     {
                         ncaStorage.Read(pOffset, startMagic).ThrowIfFailure();
-                        Console.WriteLine($"[StormNczCompressor Debug] Section {i} start bytes: {BitConverter.ToString(startMagic)}");
+                        Console.WriteLine($"[StormNczCompressor Debug] Section {i} vOffset=0x{vOffset:X} pOffset=0x{pOffset:X} pSize=0x{pSize:X} start bytes: {BitConverter.ToString(startMagic)}");
                     }
                     catch (Exception ex)
                     {
@@ -220,11 +222,11 @@ namespace StormSwitchBox.Core.NSZ
                             Console.WriteLine($"[StormNczCompressor] NCA HasRightsId={nca.Header.HasRightsId}, Section={i} uses TitleKey, RightsId={ridHex}");
                             try
                             {
-                                byte[] tKey = GetTitleKeyFromKeyset(keyset, nca.Header.RightsId.ToArray());
+                                byte[] tKey = GetTitleKeyFromKeyset(keyset, nca.Header.RightsId.ToArray(), externalTitleKeys);
                                 if (tKey != null)
                                 {
                                     tKey.CopyTo((Span<byte>)cryptoKey);
-                                    Console.WriteLine($"[StormNczCompressor] Found TitleKey={BitConverter.ToString(tKey).Replace("-", "").ToLowerInvariant()}");
+                                    Console.WriteLine($"[StormNczCompressor] Found TitleKey={BitConverter.ToString(tKey).Replace("-", "").ToLowerInvariant()} for RightsId {ridHex}");
                                 }
                                 else
                                 {
@@ -258,17 +260,28 @@ namespace StormSwitchBox.Core.NSZ
                                 {
                                     int keysetIndex = nca.Header.KeyGeneration;
                                     int keyAreaKeyIndex = nca.Header.KeyAreaKeyIndex;
-                                    byte[] areaKey = new byte[16];
-                                    ((ReadOnlySpan<byte>)keyset.KeyAreaKeys[keysetIndex][keyAreaKeyIndex]).CopyTo(areaKey);
                                     
-                                    int keyOffset = 0x300 + keyAreaKeyIndex * 16;
-                                    byte[] encryptedKey = new byte[16];
-                                    Array.Copy(decryptedHeader, keyOffset, encryptedKey, 0, 16);
-                                    
-                                    Console.WriteLine($"[StormNczCompressor Debug] Manual key decryption info for Section={i}: KeyGeneration={keysetIndex}, KeyAreaKeyIndex={keyAreaKeyIndex}, keyOffset=0x{keyOffset:X}, AreaKey={BitConverter.ToString(areaKey).Replace("-","").ToLowerInvariant()}, EncryptedKey={BitConverter.ToString(encryptedKey).Replace("-","").ToLowerInvariant()}");
-                                    
-                                    byte[] decryptedKey = AesEcbDecrypt(encryptedKey, areaKey);
-                                    decryptedKey.CopyTo((Span<byte>)cryptoKey);
+                                    if (keysetIndex >= 0 && keysetIndex < keyset.KeyAreaKeys.Length && 
+                                        keyAreaKeyIndex >= 0 && keyAreaKeyIndex < 3)
+                                    {
+                                        byte[] areaKey = new byte[16];
+                                        ((ReadOnlySpan<byte>)keyset.KeyAreaKeys[keysetIndex][keyAreaKeyIndex]).CopyTo(areaKey);
+                                        
+                                        int keyOffset = 0x300 + keyAreaKeyIndex * 16;
+                                        byte[] encryptedKey = new byte[16];
+                                        Array.Copy(decryptedHeader, keyOffset, encryptedKey, 0, 16);
+                                        
+                                        Console.WriteLine($"[StormNczCompressor Debug] Manual key decryption info for Section={i}: KeyGeneration={keysetIndex}, KeyAreaKeyIndex={keyAreaKeyIndex}, keyOffset=0x{keyOffset:X}, AreaKey={BitConverter.ToString(areaKey).Replace("-","").ToLowerInvariant()}, EncryptedKey={BitConverter.ToString(encryptedKey).Replace("-","").ToLowerInvariant()}");
+                                        
+                                        byte[] decryptedKey = AesEcbDecrypt(encryptedKey, areaKey);
+                                        decryptedKey.CopyTo((Span<byte>)cryptoKey);
+                                    }
+                                    else
+                                    {
+                                        string msg = $"Ключи шифрования KeyGeneration={keysetIndex} отсутствуют в prod.keys. Пожалуйста, обновите prod.keys до актуальной версии прошивки!";
+                                        Console.WriteLine($"[StormNczCompressor] {msg}");
+                                        App.Logger?.Log($"[Внимание] {msg}", LogLevel.Warning);
+                                    }
                                 }
                                 
                                 Console.WriteLine($"[StormNczCompressor] Decrypted key area key: {BitConverter.ToString(cryptoKey).Replace("-", "").ToLowerInvariant()}");
@@ -401,9 +414,7 @@ namespace StormSwitchBox.Core.NSZ
                             if (magicVal == 0x30534650 || magicVal == 0x43465649) // 'PFS0' or 'IVFC'
                             {
                                 isAlreadyDecrypted = true;
-                                Console.WriteLine($"[StormNczCompressor] Section {i} is already decrypted/clear. Bypassing CTR decryption during compression.");
-                                nczCryptoType = 1;
-                                Array.Clear(cryptoKey, 0, cryptoKey.Length);
+                                Console.WriteLine($"[StormNczCompressor] Section {i} is already decrypted/clear ('PFS0'/'IVFC'). Skipping CTR decryption during compression, preserving CryptoType={nczCryptoType} for NCZSECTN.");
                             }
                         }
 
@@ -888,12 +899,28 @@ namespace StormSwitchBox.Core.NSZ
             public byte[] CryptoCounter { get; set; }
         }
 
-        private static byte[] GetTitleKeyFromKeyset(KeySet keyset, byte[] targetRightsIdBytes)
+        private static byte[] GetTitleKeyFromKeyset(KeySet keyset, byte[] targetRightsIdBytes, Dictionary<string, byte[]>? externalTitleKeys = null)
         {
             try
             {
                 string targetRightsIdHex = BitConverter.ToString(targetRightsIdBytes).Replace("-", "").ToLowerInvariant();
                 
+                // 1. Check externalTitleKeys passed from caller (harvested from .tik files)
+                if (externalTitleKeys != null && externalTitleKeys.TryGetValue(targetRightsIdHex, out var extKey) && extKey != null && extKey.Length == 16)
+                {
+                    return extKey;
+                }
+
+                // 2. Check static TitleKeysCache in memory
+                lock (TitleKeysCache)
+                {
+                    if (TitleKeysCache.TryGetValue(targetRightsIdHex, out var cachedKey) && cachedKey != null && cachedKey.Length == 16)
+                    {
+                        return cachedKey;
+                    }
+                }
+
+                // 3. Check title.keys on disk
                 string titleKeysPath1 = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "title.keys");
                 string titleKeysPath2 = "title.keys"; // Current directory fallback
                 string[] pathsToCheck = { titleKeysPath1, titleKeysPath2 };
@@ -911,10 +938,10 @@ namespace StormSwitchBox.Core.NSZ
                                 string rightsIdStr = parts[0].Trim().ToLowerInvariant();
                                 string keyStr = parts[1].Trim().ToLowerInvariant();
                                 
-                                if (rightsIdStr == targetRightsIdHex)
+                                if (rightsIdStr == targetRightsIdHex && keyStr.Length >= 32)
                                 {
-                                    byte[] keyBytes = new byte[keyStr.Length / 2];
-                                    for (int i = 0; i < keyBytes.Length; i++)
+                                    byte[] keyBytes = new byte[16];
+                                    for (int i = 0; i < 16; i++)
                                     {
                                         keyBytes[i] = Convert.ToByte(keyStr.Substring(i * 2, 2), 16);
                                     }

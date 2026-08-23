@@ -146,6 +146,86 @@ namespace StormSwitchBox.Services
                 int totalEntries = entries.Count;
                 int entryIdx = 0;
 
+                var harvestedTitleKeys = new Dictionary<string, byte[]>();
+
+                // Предварительно извлекаем все TitleKey из тикетов (.tik) во входном файле для расшифровки секций перед Zstd-сжатием
+                foreach (var entry in entries)
+                {
+                    if (entry.Name.EndsWith(".tik", StringComparison.OrdinalIgnoreCase))
+                    {
+                        try
+                        {
+                            using var tikFile = OpenFileSafe(pfs, entry.FullPath);
+                            IStorage tikStorage = tikFile.AsStorage();
+                            tikStorage.GetSize(out long tikSize).ThrowIfFailure();
+                            byte[] tikData = new byte[tikSize];
+                            tikStorage.Read(0, tikData).ThrowIfFailure();
+
+                            var ticketInfo = TicketHarvesterService.ExtractDecryptedTicket(tikData, (int)tikSize, App.Keys.CurrentKeyset);
+                            if (ticketInfo.HasValue && !string.IsNullOrEmpty(ticketInfo.Value.RightsId) && ticketInfo.Value.TitleKey != null && ticketInfo.Value.TitleKey.Length == 16)
+                            {
+                                string rId = ticketInfo.Value.RightsId;
+                                byte[] tKey = ticketInfo.Value.TitleKey;
+                                harvestedTitleKeys[rId] = tKey;
+                                lock (Core.NSZ.StormNczCompressor.TitleKeysCache)
+                                {
+                                    Core.NSZ.StormNczCompressor.TitleKeysCache[rId] = tKey;
+                                }
+
+                                App.Logger?.Log($"[NSZ Engine] Успешно извлечён и расшифрован TitleKey для {rId} из {entry.Name}", LogLevel.Info);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            App.Logger?.Log($"[NSZ Engine] Ошибка чтения билета {entry.Name}: {ex.Message}", LogLevel.Warning);
+                        }
+                    }
+                }
+
+                if (harvestedTitleKeys.Count > 0)
+                {
+                    try
+                    {
+                        string titleKeysPath = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "title.keys");
+                        var dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                        if (System.IO.File.Exists(titleKeysPath))
+                        {
+                            var lines = System.IO.File.ReadAllLines(titleKeysPath);
+                            foreach (var line in lines)
+                            {
+                                var parts = line.Split('=');
+                                if (parts.Length == 2)
+                                {
+                                    dict[parts[0].Trim().ToLowerInvariant()] = parts[1].Trim().ToLowerInvariant();
+                                }
+                            }
+                        }
+                        else
+                        {
+                            System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(titleKeysPath)!);
+                        }
+
+                        bool changed = false;
+                        foreach (var kvp in harvestedTitleKeys)
+                        {
+                            string rid = kvp.Key.Trim().ToLowerInvariant();
+                            string keyHex = BitConverter.ToString(kvp.Value).Replace("-", "").ToLowerInvariant();
+                            if (!dict.TryGetValue(rid, out var existingVal) || existingVal != keyHex)
+                            {
+                                dict[rid] = keyHex;
+                                changed = true;
+                            }
+                        }
+
+                        if (changed)
+                        {
+                            var outputLines = dict.Select(kv => $"{kv.Key} = {kv.Value}").ToList();
+                            System.IO.File.WriteAllLines(titleKeysPath, outputLines);
+                        }
+                    }
+                    catch { }
+                }
+
                 foreach (var entry in entries)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
@@ -155,33 +235,10 @@ namespace StormSwitchBox.Services
 
                     string entryName = entry.Name;
                     bool isNca = entryName.EndsWith(".nca", StringComparison.OrdinalIgnoreCase) &&
-                                 !entryName.EndsWith(".cnmt.nca", StringComparison.OrdinalIgnoreCase);
+                                 !entryName.EndsWith(".cnmt.nca", StringComparison.OrdinalIgnoreCase) &&
+                                 !entryName.EndsWith(".cnmt.xml", StringComparison.OrdinalIgnoreCase);
 
-                    bool shouldCompress = false;
-                    if (isNca)
-                    {
-                        try
-                        {
-                            using (var entryFile = OpenFileSafe(pfs, entry.FullPath))
-                            {
-                                IStorage entryStorage = entryFile.AsStorage();
-                                var nca = new Nca(App.Keys.CurrentKeyset, entryStorage);
-                                if (nca.Header.ContentType != NcaContentType.Control && nca.Header.ContentType != NcaContentType.Meta)
-                                {
-                                    shouldCompress = true;
-                                }
-                                else
-                                {
-                                    App.Logger.Log($"[NSZ Engine]    NCA  {nca.Header.ContentType}: {entryName}", LogLevel.Info);
-                                }
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            App.Logger.Log($"[NSZ Engine]    NCA   {entryName}: {ex.Message}. NCA    .", LogLevel.Warning);
-                            shouldCompress = true;
-                        }
-                    }
+                    bool shouldCompress = isNca;
 
                     if (isNca && shouldCompress)
                     {
@@ -190,8 +247,8 @@ namespace StormSwitchBox.Services
 
                         App.RunOnUI(() =>
                         {
-                            task.Status = $" {entryName}...";
-                            task.LogDetails += $"\n[{entryIdx}/{totalEntries}]  {entryName} -> {nczName}";
+                            task.Status = $"Сжатие {entryName}...";
+                            task.LogDetails += $"\n[{entryIdx}/{totalEntries}] Сжатие: {entryName} -> {nczName}";
                         });
 
                         using (var entryFile = OpenFileSafe(pfs, entry.FullPath))
@@ -203,7 +260,8 @@ namespace StormSwitchBox.Services
                                 level,
                                 App.Keys.CurrentKeyset,
                                 task,
-                                cancellationToken);
+                                cancellationToken,
+                                harvestedTitleKeys);
                         }
 
                         var fs = new FileStream(tempNczPath, FileMode.Open, FileAccess.Read, FileShare.Read);
@@ -526,66 +584,28 @@ namespace StormSwitchBox.Services
                             tikStorage.GetSize(out long tikSize).ThrowIfFailure();
                             byte[] tikData = new byte[tikSize];
                             tikStorage.Read(0, tikData).ThrowIfFailure();
-                            using var stream = new MemoryStream(tikData);
-                            var ticket = new LibHac.Tools.Es.Ticket(stream);
-                            byte[] tKey = ticket.GetTitleKey(App.Keys.CurrentKeyset);
-                            string rightsIdStr = BitConverter.ToString(ticket.RightsId).Replace("-", "").ToLowerInvariant();
-                            titleKeyMap[rightsIdStr] = tKey;
-                            App.RunOnUI(() => task.LogDetails += $"\n  TitleKey (Zero-Disk-IO)  {rightsIdStr}");
 
-                            try
+                            var ticketInfo = TicketHarvesterService.ExtractDecryptedTicket(tikData, (int)tikSize, App.Keys.CurrentKeyset);
+                            if (ticketInfo.HasValue && !string.IsNullOrEmpty(ticketInfo.Value.RightsId) && ticketInfo.Value.TitleKey != null && ticketInfo.Value.TitleKey.Length == 16)
                             {
-                                string titleKeysDir = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch");
-                                if (!Directory.Exists(titleKeysDir)) Directory.CreateDirectory(titleKeysDir);
-                                string titleKeysPath = System.IO.Path.Combine(titleKeysDir, "title.keys");
-                                
-                                byte[] contentKey = ticket.GetTitleKey(App.Keys.CurrentKeyset);
-                                int masterKeyRev = Math.Max(0, ticket.RightsId[15] - 1);
-                                byte[] titleKek = App.Keys.CurrentKeyset.TitleKeks[masterKeyRev].DataRo.ToArray();
-                                byte[] encryptedKey = new byte[16];
-                                using (var aes = System.Security.Cryptography.Aes.Create())
+                                string rightsIdStr = ticketInfo.Value.RightsId;
+                                byte[] tKey = ticketInfo.Value.TitleKey;
+                                titleKeyMap[rightsIdStr] = tKey;
+                                lock (Core.NSZ.StormNczCompressor.TitleKeysCache)
                                 {
-                                    aes.Mode = System.Security.Cryptography.CipherMode.ECB;
-                                    aes.Padding = System.Security.Cryptography.PaddingMode.None;
-                                    aes.Key = titleKek;
-                                    using (var encryptor = aes.CreateEncryptor())
-                                    {
-                                        encryptor.TransformBlock(contentKey, 0, 16, encryptedKey, 0);
-                                    }
+                                    Core.NSZ.StormNczCompressor.TitleKeysCache[rightsIdStr] = tKey;
                                 }
-                                string titleKeyBlockHex = BitConverter.ToString(encryptedKey).Replace("-", "").ToLowerInvariant();
-
-                                string keyLine = $"{rightsIdStr} = {titleKeyBlockHex}";
-                                bool keyExists = false;
-                                if (File.Exists(titleKeysPath))
-                                {
-                                    var lines = File.ReadAllLines(titleKeysPath);
-                                    foreach (var line in lines)
-                                    {
-                                        if (line.Split('=')[0].Trim().ToLowerInvariant() == rightsIdStr)
-                                        {
-                                            keyExists = true;
-                                            break;
-                                        }
-                                    }
-                                }
-                                if (!keyExists)
-                                {
-                                    File.AppendAllLines(titleKeysPath, new string[] { keyLine });
-                                    App.RunOnUI(() => task.LogDetails += $"\n[INFO]  TitleKey  title.keys  .");
-                                }
-                            }
-                            catch (Exception ex)
-                            {
-                                App.Logger.Log($"[NSZ Engine]   TitleKey  : {ex.Message}", LogLevel.Warning);
+                                App.RunOnUI(() => task.LogDetails += $"\n  TitleKey (Zero-Disk-IO)  {rightsIdStr}");
                             }
                         }
-                        catch (Exception ex) 
+                        catch (Exception ex)
                         {
-                            App.RunOnUI(() => task.LogDetails += $"\n[]     {entry.Name}: {ex.Message}");
+                            App.Logger?.Log($"[NSZ Engine] Ошибка чтения билета {entry.Name}: {ex.Message}", LogLevel.Warning);
                         }
                     }
                 }
+
+
 
                 IStorage? globalSolidStorage = null;
                 var solidEntry = sortedEntries.FirstOrDefault(e => e.Name.EndsWith(".solid", StringComparison.OrdinalIgnoreCase));
@@ -732,77 +752,131 @@ namespace StormSwitchBox.Services
     /// <summary>
     ///   IStorage       .
     ///      ,   (PartitionFileSystemBuilder)      .
-    /// </summary>
     public class SafeStorageWrapper : IStorage
     {
         private readonly IStorage _baseStorage;
+        private readonly object _lock = new object();
+        private long _cachedSize = -1;
+
         public SafeStorageWrapper(IStorage baseStorage)
         {
             _baseStorage = baseStorage;
+            try
+            {
+                if (_baseStorage != null && _baseStorage.GetSize(out long sz).IsSuccess())
+                {
+                    _cachedSize = sz;
+                }
+            }
+            catch { }
         }
 
         public override Result Read(long offset, Span<byte> destination)
         {
-            try
+            lock (_lock)
             {
-                long size = 0;
-                var res = _baseStorage.GetSize(out size);
-                if (res.IsSuccess())
+                try
                 {
-                    if (offset >= size)
+                    long size = _cachedSize;
+                    if (size < 0)
+                    {
+                        var res = _baseStorage.GetSize(out size);
+                        if (res.IsSuccess()) _cachedSize = size;
+                    }
+
+                    if (size >= 0)
+                    {
+                        if (offset >= size)
+                        {
+                            destination.Fill(0);
+                            return Result.Success;
+                        }
+                        if (offset + destination.Length > size)
+                        {
+                            int allowed = (int)(size - offset);
+                            var subDest = destination.Slice(0, allowed);
+                            var readRes = _baseStorage.Read(offset, subDest);
+                            if (readRes.IsFailure()) return readRes;
+                            destination.Slice(allowed).Fill(0);
+                            return Result.Success;
+                        }
+                    }
+                    return _baseStorage.Read(offset, destination);
+                }
+                catch (Exception ex)
+                {
+                    if (_cachedSize >= 0 && offset >= _cachedSize)
                     {
                         destination.Fill(0);
                         return Result.Success;
                     }
-                    if (offset + destination.Length > size)
-                    {
-                        int allowed = (int)(size - offset);
-                        var subDest = destination.Slice(0, allowed);
-                        var readRes = _baseStorage.Read(offset, subDest);
-                        if (readRes.IsFailure()) return readRes;
-                        destination.Slice(allowed).Fill(0);
-                        return Result.Success;
-                    }
+                    App.Logger?.Log($"[SafeStorageWrapper Error] Offset: {offset}, Len: {destination.Length}: {ex.Message}", Models.LogLevel.Warning);
+                    return LibHac.Fs.ResultFs.OutOfRange.Log();
                 }
-                return _baseStorage.Read(offset, destination);
-            }
-            catch (Exception ex)
-            {
-                long size = 0;
-                try { _baseStorage.GetSize(out size); } catch { }
-                if (offset >= size)
-                {
-                    destination.Fill(0);
-                    return Result.Success;
-                }
-                App.Logger.Log($"[SafeStorageWrapper]    ( {offset},  {size}): {ex.Message}", Models.LogLevel.Error);
-                return LibHac.Fs.ResultFs.OutOfRange.Log();
             }
         }
 
         public override Result Write(long offset, ReadOnlySpan<byte> source)
         {
-            return _baseStorage.Write(offset, source);
+            lock (_lock)
+            {
+                try { return _baseStorage.Write(offset, source); }
+                catch { return LibHac.Fs.ResultFs.OutOfRange.Log(); }
+            }
         }
 
         public override Result Flush()
         {
-            return _baseStorage.Flush();
+            lock (_lock)
+            {
+                try { return _baseStorage.Flush(); }
+                catch { return Result.Success; }
+            }
         }
 
         public override Result SetSize(long size)
         {
-            return _baseStorage.SetSize(size);
+            lock (_lock)
+            {
+                try
+                {
+                    _cachedSize = size;
+                    return _baseStorage.SetSize(size);
+                }
+                catch { return LibHac.Fs.ResultFs.OutOfRange.Log(); }
+            }
         }
 
         public override Result GetSize(out long size)
         {
-            return _baseStorage.GetSize(out size);
+            lock (_lock)
+            {
+                if (_cachedSize >= 0)
+                {
+                    size = _cachedSize;
+                    return Result.Success;
+                }
+                try
+                {
+                    var res = _baseStorage.GetSize(out size);
+                    if (res.IsSuccess()) _cachedSize = size;
+                    return res;
+                }
+                catch
+                {
+                    size = 0;
+                    return LibHac.Fs.ResultFs.OutOfRange.Log();
+                }
+            }
         }
 
         public override Result OperateRange(Span<byte> outBuffer, OperationId operationId, long offset, long size, ReadOnlySpan<byte> inBuffer)
         {
-            return _baseStorage.OperateRange(outBuffer, operationId, offset, size, inBuffer);
+            lock (_lock)
+            {
+                try { return _baseStorage.OperateRange(outBuffer, operationId, offset, size, inBuffer); }
+                catch { return Result.Success; }
+            }
         }
     }
 }

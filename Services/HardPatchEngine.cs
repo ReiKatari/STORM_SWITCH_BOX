@@ -139,18 +139,19 @@ namespace StormSwitchBox.Services
 
                 bool hasModFolders = inputFiles.Any(d => System.IO.Directory.Exists(d) && 
                     (System.IO.Path.GetFileName(d).Equals("romfs", StringComparison.OrdinalIgnoreCase) || 
-                     System.IO.Path.GetFileName(d).Equals("exefs", StringComparison.OrdinalIgnoreCase)));
+                     System.IO.Path.GetFileName(d).Equals("exefs", StringComparison.OrdinalIgnoreCase) ||
+                     System.IO.Path.GetFileName(d).Equals("exefs_patches", StringComparison.OrdinalIgnoreCase)));
 
                 if (string.IsNullOrEmpty(updateFile) && !hasModFolders)
                 {
                     if (isMultiContent)
                     {
-                        App.RunOnUI(() => task.LogDetails += "\nℹ️ Файл обновления и папки модов (romfs/exefs) отсутствуют. Пропускаем HardPatch...");
+                        App.RunOnUI(() => task.LogDetails += "\nℹ️ Файл обновления и папки модов (romfs/exefs/exefs_patches) отсутствуют. Пропускаем HardPatch...");
                         return;
                     }
                     else
                     {
-                        throw new Exception("Ошибка: не найден файл обновления или папки модов romfs/exefs.");
+                        throw new Exception("Ошибка: не найден файл обновления или папки модов romfs/exefs/exefs_patches.");
                     }
                 }
 
@@ -158,7 +159,7 @@ namespace StormSwitchBox.Services
                 {
                     string infoStr = $"\nБаза: {System.IO.Path.GetFileName(baseFile)}";
                     if (!string.IsNullOrEmpty(updateFile)) infoStr += $"\nПатч: {System.IO.Path.GetFileName(updateFile)}";
-                    if (hasModFolders) infoStr += "\nОбнаружены моды romfs/exefs";
+                    if (hasModFolders) infoStr += "\nОбнаружены моды (romfs/exefs/exefs_patches)";
                     task.LogDetails += infoStr;
                 });
 
@@ -180,6 +181,7 @@ namespace StormSwitchBox.Services
                     tempDir = System.IO.Path.Combine(targetDrive, $"STORM_TMP_{Guid.NewGuid().ToString("N").Substring(0, 6)}");
                 }
                 Directory.CreateDirectory(tempDir);
+                TempCleanupService.RegisterActiveTempDirectory(tempDir);
 
                 // Декомпрессия NSZ через nsz.exe (проверенный инструмент, корректно регенерирует IVFC хеш-деревья)
                 // StormNczStorage НЕ используется здесь — он создаёт NCA с невалидными хеш-деревьями целостности
@@ -263,6 +265,7 @@ namespace StormSwitchBox.Services
 
                 string? romfsMod = inputFiles.FirstOrDefault(d => System.IO.Directory.Exists(d) && System.IO.Path.GetFileName(d).Equals("romfs", StringComparison.OrdinalIgnoreCase));
                 string? exefsMod = inputFiles.FirstOrDefault(d => System.IO.Directory.Exists(d) && System.IO.Path.GetFileName(d).Equals("exefs", StringComparison.OrdinalIgnoreCase));
+                string? exefsPatchesMod = inputFiles.FirstOrDefault(d => System.IO.Directory.Exists(d) && System.IO.Path.GetFileName(d).Equals("exefs_patches", StringComparison.OrdinalIgnoreCase));
                 
                 string titleVersionArg = "";
                 if (!string.IsNullOrEmpty(updateFile))
@@ -275,7 +278,7 @@ namespace StormSwitchBox.Services
                     } catch { }
                 }
                 
-                if (applyMods && (romfsMod != null || exefsMod != null))
+                if (applyMods && (romfsMod != null || exefsMod != null || exefsPatchesMod != null))
                 {
                     App.RunOnUI(() => task.LogDetails += $"\n[1/3] Распаковка файлов для применения модов (yanu-cli unpack)...");
                     
@@ -317,13 +320,14 @@ namespace StormSwitchBox.Services
                     }
                     if (unpackProc.ExitCode != 0) throw new Exception($"Ошибка yanu-cli unpack:\n{unpackStderr}");
                     
-                    App.RunOnUI(() => task.LogDetails += $"\n[2/3] Инъекция модов (romfs/exefs)...");
+                    App.RunOnUI(() => task.LogDetails += $"\n[2/3] Инъекция модов (romfs/exefs/exefs_patches)...");
                     
                     string targetRomFs = System.IO.Path.Combine(tempUnpack, "romfs");
                     string targetExeFs = System.IO.Path.Combine(tempUnpack, "exefs");
                     
                     if (!string.IsNullOrEmpty(romfsMod)) CopyDirectoryContent(romfsMod, targetRomFs);
                     if (!string.IsNullOrEmpty(exefsMod)) CopyDirectoryContent(exefsMod, targetExeFs);
+                    if (!string.IsNullOrEmpty(exefsPatchesMod)) ApplyExeFsPatches(exefsPatchesMod, targetExeFs, task);
                     
                     App.RunOnUI(() => task.LogDetails += $"\n[3/3] Упаковка (yanu-cli pack)...");
                     
@@ -546,7 +550,7 @@ namespace StormSwitchBox.Services
                     throw new Exception("Критическая ошибка: Результирующий NSP файл не найден после работы yanu-cli.");
                 }
 
-                try { if (!string.IsNullOrEmpty(tempDir)) Directory.Delete(tempDir, true); } catch { }
+                TempCleanupService.ForceDeleteDirectory(tempDir);
 
                 App.RunOnUI(() =>
                 {
@@ -569,7 +573,7 @@ namespace StormSwitchBox.Services
             }
             catch (Exception ex)
             {
-                try { if (!string.IsNullOrEmpty(tempDir) && Directory.Exists(tempDir)) Directory.Delete(tempDir, true); } catch { }
+                TempCleanupService.ForceDeleteDirectory(tempDir);
 
                 App.RunOnUI(() =>
                 {
@@ -894,6 +898,114 @@ namespace StormSwitchBox.Services
             path.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(pth))).ThrowIfFailure();
             fsToOpen.OpenFile(ref fRef.Ref, in path, LibHac.Fs.OpenMode.Read).ThrowIfFailure();
             return fRef.Release();
+        }
+
+        /// <summary>
+        /// Применяет модификации из папки exefs_patches (IPS патчи и бинарные правки)
+        /// </summary>
+        private static void ApplyExeFsPatches(string exefsPatchesDir, string targetExeFsDir, Models.ProcessingTask task)
+        {
+            if (!Directory.Exists(exefsPatchesDir) || !Directory.Exists(targetExeFsDir)) return;
+
+            var ipsFiles = Directory.GetFiles(exefsPatchesDir, "*.ips", SearchOption.AllDirectories);
+            if (ipsFiles.Length > 0)
+            {
+                string mainBin = System.IO.Path.Combine(targetExeFsDir, "main");
+                if (!File.Exists(mainBin))
+                {
+                    mainBin = Directory.GetFiles(targetExeFsDir).FirstOrDefault(f => System.IO.Path.GetFileName(f).StartsWith("main", StringComparison.OrdinalIgnoreCase)) ?? "";
+                }
+
+                foreach (var ipsFile in ipsFiles)
+                {
+                    try
+                    {
+                        if (File.Exists(mainBin))
+                        {
+                            ApplyIpsPatchToFile(ipsFile, mainBin);
+                            App.RunOnUI(() => task.LogDetails += $"\n  ✓ Применен IPS патч: {System.IO.Path.GetFileName(ipsFile)} -> {System.IO.Path.GetFileName(mainBin)}");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        App.RunOnUI(() => task.LogDetails += $"\n  ⚠️ Ошибка применения IPS патча {System.IO.Path.GetFileName(ipsFile)}: {ex.Message}");
+                    }
+                }
+            }
+
+            // Копируем любые другие файлы из exefs_patches
+            try
+            {
+                foreach (var file in Directory.GetFiles(exefsPatchesDir, "*.*", SearchOption.AllDirectories))
+                {
+                    if (file.EndsWith(".ips", StringComparison.OrdinalIgnoreCase)) continue;
+                    string rel = System.IO.Path.GetRelativePath(exefsPatchesDir, file);
+                    string dest = System.IO.Path.Combine(targetExeFsDir, rel);
+                    string? dDir = System.IO.Path.GetDirectoryName(dest);
+                    if (!string.IsNullOrEmpty(dDir)) Directory.CreateDirectory(dDir);
+                    File.Copy(file, dest, true);
+                }
+            }
+            catch { }
+        }
+
+        /// <summary>
+        /// Применяет стандартный IPS/IPSwitch патч к бинарному исполняемому файлу
+        /// </summary>
+        private static void ApplyIpsPatchToFile(string ipsFilePath, string targetBinaryPath)
+        {
+            if (!File.Exists(ipsFilePath) || !File.Exists(targetBinaryPath)) return;
+
+            byte[] ips = File.ReadAllBytes(ipsFilePath);
+            if (ips.Length < 8) return;
+
+            // Проверка сигнатуры "PATCH" (0x50, 0x41, 0x54, 0x43, 0x48)
+            if (ips[0] != (byte)'P' || ips[1] != (byte)'A' || ips[2] != (byte)'T' || ips[3] != (byte)'C' || ips[4] != (byte)'H')
+                return;
+
+            using var fs = new FileStream(targetBinaryPath, FileMode.Open, FileAccess.ReadWrite, FileShare.Read);
+            int pos = 5;
+
+            while (pos + 3 <= ips.Length)
+            {
+                // Проверка EOF ("EOF" = 0x45, 0x4F, 0x46)
+                if (ips[pos] == (byte)'E' && ips[pos + 1] == (byte)'O' && ips[pos + 2] == (byte)'F')
+                    break;
+
+                int offset = (ips[pos] << 16) | (ips[pos + 1] << 8) | ips[pos + 2];
+                pos += 3;
+
+                if (pos + 2 > ips.Length) break;
+                int length = (ips[pos] << 8) | ips[pos + 1];
+                pos += 2;
+
+                if (length == 0) // RLE запись
+                {
+                    if (pos + 3 > ips.Length) break;
+                    int rleLen = (ips[pos] << 8) | ips[pos + 1];
+                    pos += 2;
+                    byte val = ips[pos++];
+
+                    if (offset + rleLen > fs.Length)
+                        fs.SetLength(offset + rleLen);
+
+                    fs.Seek(offset, SeekOrigin.Begin);
+                    byte[] fill = new byte[rleLen];
+                    Array.Fill(fill, val);
+                    fs.Write(fill, 0, rleLen);
+                }
+                else // Обычная запись
+                {
+                    if (pos + length > ips.Length) break;
+
+                    if (offset + length > fs.Length)
+                        fs.SetLength(offset + length);
+
+                    fs.Seek(offset, SeekOrigin.Begin);
+                    fs.Write(ips, pos, length);
+                    pos += length;
+                }
+            }
         }
     }
 

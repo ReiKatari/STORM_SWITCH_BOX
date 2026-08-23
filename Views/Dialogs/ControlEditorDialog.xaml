@@ -82,10 +82,26 @@
                 <TextBlock Text="Издатель / Разработчик" FontSize="12" FontWeight="SemiBold"/>
                 <TextBox x:Name="PublisherBox" PlaceholderText="Например: Warner Bros. Games" CornerRadius="4"/>
             </StackPanel>
+
+            <!-- Раздел названий модификаций (RomFS / ExeFS) -->
+            <StackPanel x:Name="ModsSection" Spacing="10" Margin="0,4,0,0">
+                <MenuFlyoutSeparator Margin="0,4,0,4"/>
+                <TextBlock Text="🏷️ Вшиваемые модификации (отображение в эмуляторе в «Дополнения»)" FontSize="12" FontWeight="Bold" Foreground="{ThemeResource SystemAccentColor}"/>
+
+                <StackPanel x:Name="RomFsNamePanel" Spacing="4">
+                    <TextBlock Text="Название RomFS модификации (патча)" FontSize="12" FontWeight="SemiBold"/>
+                    <TextBox x:Name="ModRomFsBox" PlaceholderText="Например: Модификации: RomFS или Русская озвучка GamesVoice" CornerRadius="4"/>
+                </StackPanel>
+
+                <StackPanel x:Name="ExeFsNamePanel" Spacing="4">
+                    <TextBlock Text="Название ExeFS / IPS модификации (патча)" FontSize="12" FontWeight="SemiBold"/>
+                    <TextBox x:Name="ModExeFsBox" PlaceholderText="Например: Модификации: ExeFS, 60 FPS Patch или IPS Патч" CornerRadius="4"/>
+                </StackPanel>
+            </StackPanel>
         </StackPanel>
 
         <!-- Подсказка -->
-        <TextBlock Grid.Row="3" Text="💡 Изменения будут вшиты в Control NCA (NACP + иконка) при следующей сборке игры."
+        <TextBlock Grid.Row="3" Text="💡 Изменения будут вшиты в Control NCA (NACP + иконка + дополнения) при следующей сборке игры."
                    FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
     </Grid>
 </ContentDialog>

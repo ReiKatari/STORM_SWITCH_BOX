@@ -33,7 +33,7 @@ namespace StormSwitchBox.Services
             // Автоматическое извлечение архивов (.zip, .rar, .7z) перед сканированием
             await ExtractArchivesInDirectoryAsync(directoryPath, token);
 
-            string[] extensions = { ".nsp", ".nsz", ".xci", ".xcz" };
+            string[] extensions = { ".nsp", ".nsz", ".xci", ".xcz", ".3ds", ".cci", ".cia", ".cxi" };
             var files = Directory.EnumerateFiles(directoryPath, "*.*", SearchOption.AllDirectories)
                 .Where(f => extensions.Contains(System.IO.Path.GetExtension(f).ToLowerInvariant()))
                 .ToList();
@@ -200,7 +200,7 @@ namespace StormSwitchBox.Services
             // Check if it already exists in the catalog to prevent duplicates
             if (catalog.Any(c => c.FilePath.Equals(filePath, StringComparison.OrdinalIgnoreCase))) return;
 
-            string[] extensions = { ".nsp", ".nsz", ".xci", ".xcz" };
+            string[] extensions = { ".nsp", ".nsz", ".xci", ".xcz", ".3ds", ".cci", ".cia", ".cxi" };
             if (!extensions.Contains(System.IO.Path.GetExtension(filePath).ToLowerInvariant())) return;
 
             var item = new CatalogItem
@@ -232,6 +232,36 @@ namespace StormSwitchBox.Services
 
         private void ExtractMetadata(CatalogItem item, string filePath, CancellationToken token)
         {
+            string ext = System.IO.Path.GetExtension(filePath).ToLowerInvariant();
+            if (Nintendo3dsService.Is3dsExtension(ext))
+            {
+                item.Is3ds = true;
+                item.Platform = "3DS";
+                var info3ds = App.Nintendo3ds.Parse3dsFile(filePath);
+                App.RunOnUI(() =>
+                {
+                    item.TitleId = !string.IsNullOrEmpty(info3ds?.TitleId) ? info3ds.TitleId : "3DS";
+                    item.TitleName = !string.IsNullOrEmpty(info3ds?.GameName) ? info3ds.GameName : System.IO.Path.GetFileNameWithoutExtension(filePath);
+                    item.Version = !string.IsNullOrEmpty(info3ds?.Version) ? info3ds.Version : "v0";
+                    item.Publisher = !string.IsNullOrEmpty(info3ds?.Publisher) ? info3ds.Publisher : "Nintendo";
+                    item.Category = "Nintendo 3DS";
+                    if (info3ds?.IconBytes != null && info3ds.IconBytes.Length > 0)
+                    {
+                        item.CoverBytes = info3ds.IconBytes;
+                        try
+                        {
+                            var bmp = new BitmapImage();
+                            using var ms = new MemoryStream(info3ds.IconBytes);
+                            bmp.SetSource(ms.AsRandomAccessStream());
+                            item.CoverImage = bmp;
+                        }
+                        catch { }
+                    }
+                    item.IsLoading = false;
+                });
+                return;
+            }
+
             bool isXci = filePath.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) || filePath.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase);
 
             using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
@@ -283,11 +313,17 @@ namespace StormSwitchBox.Services
                             tikStorage.GetSize(out long tikSize).ThrowIfFailure();
                             byte[] tikData = new byte[tikSize];
                             tikStorage.Read(0, tikData).ThrowIfFailure();
-                            using var stream = new MemoryStream(tikData);
-                            var ticket = new LibHac.Tools.Es.Ticket(stream);
-                            byte[] tKey = ticket.GetTitleKey(_keysService.CurrentKeyset);
-                            string rightsIdStr = BitConverter.ToString(ticket.RightsId).Replace("-", "").ToLowerInvariant();
-                            titleKeyMap[rightsIdStr] = tKey;
+                            var ticketInfo = TicketHarvesterService.ExtractDecryptedTicket(tikData, (int)tikSize, _keysService.CurrentKeyset);
+                            if (ticketInfo.HasValue && !string.IsNullOrEmpty(ticketInfo.Value.RightsId) && ticketInfo.Value.TitleKey != null && ticketInfo.Value.TitleKey.Length == 16)
+                            {
+                                string rightsIdStr = ticketInfo.Value.RightsId;
+                                byte[] tKey = ticketInfo.Value.TitleKey;
+                                titleKeyMap[rightsIdStr] = tKey;
+                                lock (Core.NSZ.StormNczCompressor.TitleKeysCache)
+                                {
+                                    Core.NSZ.StormNczCompressor.TitleKeysCache[rightsIdStr] = tKey;
+                                }
+                            }
                         }
                     }
                     catch (Exception ex)
@@ -648,11 +684,10 @@ namespace StormSwitchBox.Services
                 }
             }
 
-            // Обогащаем данными из онлайн базы TitleDB и завершаем загрузку строго после того,
-            // как все предыдущие задачи TryEnqueue (NACP и CNMT) закончат заполнение свойств item.
+            // Обогащаем данными из онлайн базы TitleDB в фоне и завершаем загрузку
+            App.TitleDb.EnrichCatalogItem(item);
             App.RunOnUI(() => 
             {
-                App.TitleDb.EnrichCatalogItem(item);
                 item.IsLoading = false;
             });
         }
