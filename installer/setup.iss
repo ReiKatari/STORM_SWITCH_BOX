@@ -1,11 +1,12 @@
 [Setup]
 AppName=STORM SWITCH BOX
-AppVersion=4.6.5
+AppVersion=4.7.0
 AppPublisher=STORM CHANNEL & ReiKatari
 AppPublisherURL=https://rutube.ru/channel/42609927/
-DefaultDirName={localappdata}\Programs\STORM_SWITCH_BOX
-DefaultGroupName=STORM_SWITCH_BOX
-OutputBaseFilename=STORM_SWITCH_BOX_4.6.5_Setup
+DefaultDirName={autopf}\STORM SWITCH BOX
+DefaultGroupName=STORM SWITCH BOX
+OutputBaseFilename=STORM_SWITCH_BOX_4.7.0_Setup
+OutputDir=Output
 SetupIconFile=..\storm_switch_box.ico
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -16,7 +17,6 @@ UninstallDisplayIcon={app}\StormSwitchBox.exe
 AppMutex=StormSwitchBox_SingleInstanceMutex
 CloseApplications=no
 RestartApplications=no
-SignTool=signtool
 WizardStyle=modern
 ShowLanguageDialog=no
 
