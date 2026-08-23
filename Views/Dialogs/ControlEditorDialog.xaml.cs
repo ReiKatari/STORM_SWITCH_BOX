@@ -8,6 +8,7 @@ using Windows.ApplicationModel.DataTransfer;
 using Windows.Storage;
 using Windows.Storage.Pickers;
 using StormSwitchBox.Models;
+using StormSwitchBox.Services;
 using WinRT.Interop;
 
 namespace StormSwitchBox.Views.Dialogs
@@ -97,21 +98,13 @@ namespace StormSwitchBox.Views.Dialogs
         {
             try
             {
-                var picker = new FileOpenPicker();
-                IntPtr hwnd = WindowNative.GetWindowHandle(App.MainWindow);
-                InitializeWithWindow.Initialize(picker, hwnd);
+                var filePath = await SystemDialogService.OpenFileDialogAsync(
+                    "Выберите изображение иконки (PNG/JPG/WEBP)",
+                    "Изображения (*.png;*.jpg;*.jpeg;*.webp)|*.png;*.jpg;*.jpeg;*.webp|Все файлы (*.*)|*.*");
 
-                picker.ViewMode = PickerViewMode.Thumbnail;
-                picker.SuggestedStartLocation = PickerLocationId.PicturesLibrary;
-                picker.FileTypeFilter.Add(".png");
-                picker.FileTypeFilter.Add(".jpg");
-                picker.FileTypeFilter.Add(".jpeg");
-                picker.FileTypeFilter.Add(".webp");
-
-                var file = await picker.PickSingleFileAsync();
-                if (file != null)
+                if (!string.IsNullOrWhiteSpace(filePath) && File.Exists(filePath))
                 {
-                    await LoadCustomIconFileAsync(file.Path);
+                    await LoadCustomIconFileAsync(filePath);
                 }
             }
             catch (Exception ex)

@@ -460,11 +460,13 @@
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
                                     <TextBox x:Name="OutputFolderBox" HorizontalAlignment="Stretch" Margin="0,0,12,0" PlaceholderText="Не указана (сохранять в папку с исходным файлом)" 
                                              Text="{x:Bind Settings.OutputFolder, Mode=TwoWay}" IsReadOnly="True" VerticalAlignment="Center"
                                              AllowDrop="True" DragOver="OutputFolderBox_DragOver" Drop="OutputFolderBox_Drop"/>
-                                    <Button x:Name="SelectOutputFolderButton" Grid.Column="1" Content="Обзор..." Click="SelectOutputFolder_Click" VerticalAlignment="Center" CornerRadius="6"/>
+                                    <Button x:Name="SelectOutputFolderButton" Grid.Column="1" Content="Обзор..." Click="SelectOutputFolder_Click" VerticalAlignment="Center" CornerRadius="6" Margin="0,0,8,0"/>
+                                    <Button x:Name="ClearOutputFolderButton" Grid.Column="2" Content="✕ Очистить" Click="ClearOutputFolder_Click" VerticalAlignment="Center" CornerRadius="6" ToolTipService.ToolTip="Очистить выходную папку Switch"/>
                                 </Grid>
                             </Grid>
 
@@ -610,11 +612,13 @@
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
                                     <TextBox x:Name="OutputFolderBox3ds" HorizontalAlignment="Stretch" Margin="0,0,12,0" PlaceholderText="Не указана (сохранять в папку с исходным файлом)" 
                                              Text="{x:Bind Settings.OutputFolder3ds, Mode=TwoWay}" IsReadOnly="True" VerticalAlignment="Center"
                                              AllowDrop="True" DragOver="OutputFolderBox3ds_DragOver" Drop="OutputFolderBox3ds_Drop"/>
-                                    <Button x:Name="SelectOutputFolder3dsButton" Grid.Column="1" Content="Обзор..." Click="SelectOutputFolder3ds_Click" VerticalAlignment="Center" CornerRadius="6"/>
+                                    <Button x:Name="SelectOutputFolder3dsButton" Grid.Column="1" Content="Обзор..." Click="SelectOutputFolder3ds_Click" VerticalAlignment="Center" CornerRadius="6" Margin="0,0,8,0"/>
+                                    <Button x:Name="ClearOutputFolder3dsButton" Grid.Column="2" Content="✕ Очистить" Click="ClearOutputFolder3ds_Click" VerticalAlignment="Center" CornerRadius="6" ToolTipService.ToolTip="Очистить выходную папку 3DS"/>
                                 </Grid>
                             </Grid>
                         </StackPanel>

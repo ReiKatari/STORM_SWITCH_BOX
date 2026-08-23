@@ -6,6 +6,7 @@ namespace StormSwitchBox
     public partial class App : Application
     {
         public static Window? MainWindow { get; private set; }
+        public static IntPtr MainWindowHandle { get; set; }
 
         // Глобальные сервисы
         public static Microsoft.UI.Dispatching.DispatcherQueue? MainDispatcher { get; private set; }
