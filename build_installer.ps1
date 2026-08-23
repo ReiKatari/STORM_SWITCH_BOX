@@ -21,7 +21,7 @@ Write-Host "2. Unblocking and signing published application and tools with RFC 3
 Write-Host "==============================================" -ForegroundColor Cyan
 
 $signtool = "C:\Program Files (x86)\Windows Kits\10\bin\10.0.28000.0\x64\signtool.exe"
-$certThumb = "F8A8D6D6A6954867F08F480210CA0A81F2FEF756"
+$certThumb = "8D31BDFA114987A887FB3F6255D023324731CF9C"
 $tsUrl = "http://timestamp.digicert.com"
 
 Get-ChildItem "$root\bin\Release\net8.0-windows10.0.19041.0\win-x64\publish" -Recurse | Unblock-File -ErrorAction SilentlyContinue
