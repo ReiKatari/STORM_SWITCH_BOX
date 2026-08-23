@@ -391,9 +391,14 @@ namespace StormSwitchBox.Installer
                 string targetCer = Path.Combine(targetDir, "STORM_Certificate.cer");
                 string targetIco = Path.Combine(targetDir, IcoName);
 
+                if (!Directory.Exists(targetDir))
+                {
+                    Directory.CreateDirectory(targetDir);
+                }
+
                 if (chkInstallCert.Checked)
                 {
-                    lblStatus.Text = "Регистрация доверенного сертификата STORM TEAM (Root & Publisher)...";
+                    lblStatus.Text = "Регистрация доверенного сертификата (Root & Publisher)...";
                     progressBar.Value = 25;
                     await Task.Delay(150);
 
@@ -598,20 +603,29 @@ namespace StormSwitchBox.Installer
 
         private void ExtractResource(string resNameEnding, string targetPath)
         {
-            var asm = Assembly.GetExecutingAssembly();
-            foreach (var name in asm.GetManifestResourceNames())
+            try
             {
-                if (name.EndsWith(resNameEnding, StringComparison.OrdinalIgnoreCase))
+                string? dir = Path.GetDirectoryName(targetPath);
+                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
                 {
-                    using var inStream = asm.GetManifestResourceStream(name);
-                    if (inStream != null)
+                    Directory.CreateDirectory(dir);
+                }
+                var asm = Assembly.GetExecutingAssembly();
+                foreach (var name in asm.GetManifestResourceNames())
+                {
+                    if (name.EndsWith(resNameEnding, StringComparison.OrdinalIgnoreCase))
                     {
-                        using var outStream = File.Create(targetPath);
-                        inStream.CopyTo(outStream);
+                        using var inStream = asm.GetManifestResourceStream(name);
+                        if (inStream != null)
+                        {
+                            using var outStream = File.Create(targetPath);
+                            inStream.CopyTo(outStream);
+                        }
+                        return;
                     }
-                    return;
                 }
             }
+            catch { }
         }
 
         private void CreateShortcuts(string targetDir, string targetExe, string targetIco, bool desktopShortcut, bool startMenuShortcut)
