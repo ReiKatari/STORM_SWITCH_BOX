@@ -16,5 +16,9 @@ namespace StormSwitchBox.Models
         public byte[]? CustomIconBytes { get; set; }
         public byte[]? RawNacpBytes { get; set; }
         public string TempExtractDir { get; set; } = string.Empty;
+        public string ModNameRomFs { get; set; } = "Модификации: RomFS";
+        public string ModNameExeFs { get; set; } = "Модификации: ExeFS";
+        public bool HasRomFs { get; set; }
+        public bool HasExeFs { get; set; }
     }
 }

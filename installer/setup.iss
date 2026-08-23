@@ -1,11 +1,11 @@
 [Setup]
 AppName=STORM SWITCH BOX
-AppVersion=4.4.4
+AppVersion=4.6.5
 AppPublisher=STORM CHANNEL & ReiKatari
 AppPublisherURL=https://rutube.ru/channel/42609927/
 DefaultDirName={localappdata}\Programs\STORM_SWITCH_BOX
 DefaultGroupName=STORM_SWITCH_BOX
-OutputBaseFilename=STORM_SWITCH_BOX_4.4.4_Setup
+OutputBaseFilename=STORM_SWITCH_BOX_4.6.5_Setup
 SetupIconFile=..\storm_switch_box.ico
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -76,12 +76,12 @@ begin
   RegWriteStringValue(HKCU, 'Software\Classes\' + Association + '\shell\StormSwitchBox', 'MUIVerb', 'STORM SWITCH BOX');
   RegWriteStringValue(HKCU, 'Software\Classes\' + Association + '\shell\StormSwitchBox', 'Icon', ExpandConstant('{app}') + '\StormSwitchBox.exe');
   RegWriteStringValue(HKCU, 'Software\Classes\' + Association + '\shell\StormSwitchBox', 'SubCommands', '');
-  CreateDirectCommand(Association, '01update', 'Update', 'update');
-  CreateDirectCommand(Association, '02unpack', 'Unpack', 'unpack');
-  CreateDirectCommand(Association, '03pack', 'Pack', 'pack');
-  CreateDirectCommand(Association, '04convert', 'Convert', 'convert');
-  CreateDirectCommand(Association, '05multi', 'Multi-content', 'multi');
-  CreateDirectCommand(Association, '06verify', 'Verify', 'verify');
+  CreateDirectCommand(Association, '01update', 'Обновление', 'update');
+  CreateDirectCommand(Association, '02unpack', 'Распаковка', 'unpack');
+  CreateDirectCommand(Association, '03pack', 'Упаковка', 'pack');
+  CreateDirectCommand(Association, '04convert', 'Конвертация', 'convert');
+  CreateDirectCommand(Association, '05multi', 'Мульти-контент', 'multi');
+  CreateDirectCommand(Association, '06verify', 'Проверка', 'verify');
 end;
 
 procedure RegisterAllContextMenus();
@@ -90,10 +90,18 @@ begin
   RegisterForAssociation('SystemFileAssociations\.nsz');
   RegisterForAssociation('SystemFileAssociations\.xci');
   RegisterForAssociation('SystemFileAssociations\.xcz');
+  RegisterForAssociation('SystemFileAssociations\.3ds');
+  RegisterForAssociation('SystemFileAssociations\.cci');
+  RegisterForAssociation('SystemFileAssociations\.cia');
+  RegisterForAssociation('SystemFileAssociations\.cxi');
   RegisterForAssociation('.nsp');
   RegisterForAssociation('.nsz');
   RegisterForAssociation('.xci');
   RegisterForAssociation('.xcz');
+  RegisterForAssociation('.3ds');
+  RegisterForAssociation('.cci');
+  RegisterForAssociation('.cia');
+  RegisterForAssociation('.cxi');
   RegisterForAssociation('Directory');
 end;
 
@@ -103,10 +111,18 @@ begin
   RegDeleteKeyIncludingSubkeys(HKCU, 'Software\Classes\SystemFileAssociations\.nsz\shell\StormSwitchBox');
   RegDeleteKeyIncludingSubkeys(HKCU, 'Software\Classes\SystemFileAssociations\.xci\shell\StormSwitchBox');
   RegDeleteKeyIncludingSubkeys(HKCU, 'Software\Classes\SystemFileAssociations\.xcz\shell\StormSwitchBox');
+  RegDeleteKeyIncludingSubkeys(HKCU, 'Software\Classes\SystemFileAssociations\.3ds\shell\StormSwitchBox');
+  RegDeleteKeyIncludingSubkeys(HKCU, 'Software\Classes\SystemFileAssociations\.cci\shell\StormSwitchBox');
+  RegDeleteKeyIncludingSubkeys(HKCU, 'Software\Classes\SystemFileAssociations\.cia\shell\StormSwitchBox');
+  RegDeleteKeyIncludingSubkeys(HKCU, 'Software\Classes\SystemFileAssociations\.cxi\shell\StormSwitchBox');
   RegDeleteKeyIncludingSubkeys(HKCU, 'Software\Classes\.nsp\shell\StormSwitchBox');
   RegDeleteKeyIncludingSubkeys(HKCU, 'Software\Classes\.nsz\shell\StormSwitchBox');
   RegDeleteKeyIncludingSubkeys(HKCU, 'Software\Classes\.xci\shell\StormSwitchBox');
   RegDeleteKeyIncludingSubkeys(HKCU, 'Software\Classes\.xcz\shell\StormSwitchBox');
+  RegDeleteKeyIncludingSubkeys(HKCU, 'Software\Classes\.3ds\shell\StormSwitchBox');
+  RegDeleteKeyIncludingSubkeys(HKCU, 'Software\Classes\.cci\shell\StormSwitchBox');
+  RegDeleteKeyIncludingSubkeys(HKCU, 'Software\Classes\.cia\shell\StormSwitchBox');
+  RegDeleteKeyIncludingSubkeys(HKCU, 'Software\Classes\.cxi\shell\StormSwitchBox');
   RegDeleteKeyIncludingSubkeys(HKCU, 'Software\Classes\Directory\shell\StormSwitchBox');
   RegDeleteKeyIncludingSubkeys(HKCU, 'Software\Classes\*\shell\StormSwitchBox');
 end;

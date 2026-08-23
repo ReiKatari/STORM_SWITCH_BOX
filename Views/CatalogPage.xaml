@@ -25,7 +25,7 @@
                 <Button x:Name="BrowseButton" Style="{StaticResource AccentButtonStyle}" Height="40" Padding="16,0" CornerRadius="8">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <FontIcon Glyph="&#xE838;" FontSize="16"/>
-                        <TextBlock Text="Папки сканирования" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="BrowseButtonTextBlock" Text="Папки сканирования" FontWeight="SemiBold" VerticalAlignment="Center"/>
                     </StackPanel>
                     <Button.Flyout>
                         <Flyout>
@@ -40,31 +40,43 @@
                                 </Style>
                             </Flyout.FlyoutPresenterStyle>
                             <StackPanel Spacing="10" Width="400">
-                                <TextBlock Text="Папки для сканирования" FontWeight="SemiBold" FontSize="15"/>
+                                <TextBlock x:Name="FlyoutFoldersTitle" Text="Папки для сканирования" FontWeight="SemiBold" FontSize="15"/>
                                 <ListView x:Name="FoldersListView" MaxHeight="200" Background="{ThemeResource LayerFillColorDefaultBrush}" CornerRadius="4" SelectionMode="Single" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.HorizontalScrollMode="Disabled"/>
                                 <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
-                                    <Button Content="Добавить" Click="AddFolder_Click">
+                                    <Button Click="AddFolder_Click">
                                         <Button.ContentTemplate>
                                             <DataTemplate>
-                                                <StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE710;" FontSize="14" Foreground="#4CAF50"/><TextBlock Text="Добавить"/></StackPanel>
+                                                <StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE710;" FontSize="14" Foreground="#4CAF50"/><TextBlock x:Name="AddFolderButtonTextBlock" Text="Добавить"/></StackPanel>
                                             </DataTemplate>
                                         </Button.ContentTemplate>
                                     </Button>
-                                    <Button Content="Удалить" Click="RemoveFolder_Click">
+                                    <Button Click="RemoveFolder_Click">
                                         <Button.ContentTemplate>
                                             <DataTemplate>
-                                                <StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE74D;" FontSize="14" Foreground="#F44336"/><TextBlock Text="Удалить"/></StackPanel>
+                                                <StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE74D;" FontSize="14" Foreground="#F44336"/><TextBlock x:Name="RemoveFolderButtonTextBlock" Text="Удалить"/></StackPanel>
                                             </DataTemplate>
                                         </Button.ContentTemplate>
                                     </Button>
                                 </StackPanel>
-                                <Button Content="Сканировать все" Click="ScanAllFolders_Click" HorizontalAlignment="Stretch" Style="{StaticResource AccentButtonStyle}" Margin="0,6,0,0"/>
+                                <Button x:Name="ScanAllButton" Content="Сканировать все" Click="ScanAllFolders_Click" HorizontalAlignment="Stretch" Style="{StaticResource AccentButtonStyle}" Margin="0,6,0,0"/>
                             </StackPanel>
                         </Flyout>
                     </Button.Flyout>
                 </Button>
+                <!-- Переключатель платформы: Все / Switch / 3DS -->
+                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="3" VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <Button x:Name="AllPlatformButton" Content="Все игры" Click="AllPlatformButton_Click" Height="34" CornerRadius="6"
+                                Background="{ThemeResource AccentButtonBackground}" Foreground="{ThemeResource AccentButtonForeground}" FontWeight="SemiBold" Padding="12,0"/>
+                        <Button x:Name="SwitchPlatformButton" Content="🎮 Nintendo Switch" Click="SwitchPlatformButton_Click" Height="34" CornerRadius="6"
+                                Background="Transparent" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontWeight="SemiBold" Padding="12,0"/>
+                        <Button x:Name="ThreeDsPlatformButton" Content="🕹️ Nintendo 3DS" Click="ThreeDsPlatformButton_Click" Height="34" CornerRadius="6"
+                                Background="Transparent" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontWeight="SemiBold" Padding="12,0"/>
+                    </StackPanel>
+                </Border>
+
                 <Grid VerticalAlignment="Center" Height="40">
-                    <TextBox x:Name="SearchBox" PlaceholderText="Поиск по названию или Title ID..." Width="320" TextChanged="SearchBox_TextChanged" CornerRadius="8" Padding="36,8,8,8" Height="40"/>
+                    <TextBox x:Name="SearchBox" PlaceholderText="Поиск по названию или Title ID..." Width="280" TextChanged="SearchBox_TextChanged" CornerRadius="8" Padding="36,8,8,8" Height="40"/>
                     <FontIcon Glyph="&#xE721;" FontSize="14" Foreground="Gray" HorizontalAlignment="Left" Margin="14,0,0,0" IsHitTestVisible="False"/>
                 </Grid>
             </StackPanel>
@@ -123,6 +135,14 @@
                                 <ProgressRing IsActive="{Binding IsLoading}" Width="32" Height="32" Foreground="Cyan" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                 <FontIcon Glyph="&#xEA39;" FontSize="32" Foreground="Crimson" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="{Binding HasError}" ToolTipService.ToolTip="{Binding ErrorMessage}"/>
                                 
+                                <!-- Platform Badge Bottom-Left -->
+                                <Border Background="{Binding PlatformBadgeBackground}" CornerRadius="6" Padding="6,2" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="8">
+                                    <StackPanel Orientation="Horizontal" Spacing="4">
+                                        <FontIcon Glyph="{Binding PlatformBadgeGlyph}" FontSize="10" Foreground="White"/>
+                                        <TextBlock Text="{Binding PlatformBadgeText}" FontSize="10" FontWeight="Bold" Foreground="White"/>
+                                    </StackPanel>
+                                </Border>
+
                                 <!-- Update Indicator -->
                                 <Border Background="Crimson" CornerRadius="12" Padding="6,2" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="8" Visibility="{Binding OutdatedVisibility, Mode=OneWay}">
                                     <StackPanel Orientation="Horizontal" Spacing="4">

@@ -27,15 +27,63 @@ namespace StormSwitchBox.ViewModels;
 
 public partial class TasksViewModel : ObservableObject
 {
+	public static readonly string[] FormatNames = new string[4] { "NSP", "NSZ", "XCI", "XCZ" };
+	public static readonly string[] FormatNames3ds = new string[3] { "3DS", "CIA", "CXI" };
+
+	private static readonly HashSet<string> GameExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) 
+	{ 
+		".NSP", ".XCI", ".NSZ", ".XCZ",
+		".3DS", ".CCI", ".CIA", ".CXI", ".CFA" 
+	};
+
 	private string _selectedFormat = "NSP";
+	private int _selectedFormatIndex;
 
-	private int _selectedFormatIndex = 0;
+	private int _selectedFormatIndex3ds = 0;
+	public int SelectedFormatIndex3ds
+	{
+		get => _selectedFormatIndex3ds;
+		set
+		{
+			if (SetProperty(ref _selectedFormatIndex3ds, value))
+			{
+				if (value >= 0 && value < FormatNames3ds.Length)
+				{
+					App.Settings.Current.SelectedFormatIndex3ds = value;
+					App.Settings.Current.DefaultFormat3ds = FormatNames3ds[value];
+					_ = App.Settings.SaveAsync();
+				}
+			}
+		}
+	}
 
-	private static readonly string[] FormatNames = new string[4] { "NSP", "NSZ", "XCI", "XCZ" };
+	private int _selectedPlatform = 0; // 0 = Switch, 1 = 3DS
+	public int SelectedPlatform
+	{
+		get => _selectedPlatform;
+		set
+		{
+			if (SetProperty(ref _selectedPlatform, value))
+			{
+				OnPropertyChanged(nameof(IsSwitchPlatformVisible));
+				OnPropertyChanged(nameof(Is3dsPlatformVisible));
+				OnPropertyChanged(nameof(CurrentPlatformLabel));
+				App.Settings.Current.SelectedPlatformIndex = value;
+				_ = App.Settings.SaveAsync();
+			}
+		}
+	}
 
-	private static readonly HashSet<string> GameExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".NSP", ".XCI", ".NSZ", ".XCZ" };
+	public bool IsSwitchPlatformVisible => SelectedPlatform == 0;
+	public bool Is3dsPlatformVisible => SelectedPlatform == 1;
+	public string CurrentPlatformLabel => SelectedPlatform == 0 ? "Nintendo Switch" : "Nintendo 3DS";
 
-	private string _currentPageType = "Update";
+	public void TogglePlatform()
+	{
+		SelectedPlatform = SelectedPlatform == 0 ? 1 : 0;
+	}
+
+	private string _currentPageType = "Multi";
 
 	private bool _isProcessingQueue = false;
 
@@ -102,6 +150,9 @@ public partial class TasksViewModel : ObservableObject
 			_selectedFormatIndex = selectedFormatIndex;
 			_selectedFormat = FormatNames[selectedFormatIndex];
 		}
+		_selectedFormatIndex3ds = Math.Clamp(App.Settings.Current.SelectedFormatIndex3ds, 0, FormatNames3ds.Length - 1);
+		_selectedPlatform = Math.Clamp(App.Settings.Current.SelectedPlatformIndex, 0, 1);
+		
 		DispatcherTimer dispatcherTimer = new DispatcherTimer
 		{
 			Interval = TimeSpan.FromMilliseconds(500.0)
@@ -123,6 +174,26 @@ public partial class TasksViewModel : ObservableObject
 	{
 		return await Task.Run(delegate
 		{
+			if (Nintendo3dsService.Is3dsExtension(Path.GetExtension(filePath)))
+			{
+				try
+				{
+					var n3ds = App.Nintendo3ds.Parse3dsFile(filePath);
+					return new SwitchFormatInfo
+					{
+						TitleId = n3ds.TitleId,
+						ContentType = n3ds.ContentType,
+						Version = n3ds.Version,
+						GameName = n3ds.GameName,
+						Publisher = n3ds.Publisher,
+						IconBytes = n3ds.IconBytes
+					};
+				}
+				catch
+				{
+				}
+			}
+
 			try
 			{
 				SwitchFormatInfo switchFormatInfo = App.SwitchFormat.ParseNsp(filePath);
@@ -187,7 +258,7 @@ public partial class TasksViewModel : ObservableObject
 			return (hasRomFs: false, hasExeFs: false);
 		}
 		bool item = Directory.Exists(Path.Combine(path, "romfs"));
-		bool item2 = Directory.Exists(Path.Combine(path, "exefs"));
+		bool item2 = Directory.Exists(Path.Combine(path, "exefs")) || Directory.Exists(Path.Combine(path, "exefs_patches"));
 		return (hasRomFs: item, hasExeFs: item2);
 	}
 
@@ -226,18 +297,154 @@ public partial class TasksViewModel : ObservableObject
 		return result;
 	}
 
+	public static string GetSevenZipPath()
+	{
+		string[] candidatePaths = new[]
+		{
+			Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tools", "7z.exe"),
+			Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "tools", "7z.exe"),
+			Path.Combine(AppContext.BaseDirectory, "tools", "7z.exe"),
+			Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tools", "nscb", "ztools", "7za.exe"),
+			Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "7-Zip", "7z.exe"),
+			Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "7-Zip", "7z.exe")
+		};
+
+		foreach (var p in candidatePaths)
+		{
+			if (File.Exists(p)) return p;
+		}
+
+		return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tools", "7z.exe");
+	}
+
+	/// <summary>
+	/// Автоматически находит и распаковывает архивы (.zip, .rar, .7z) с проверкой на уже распакованные
+	/// </summary>
+	private async Task<List<string>> EnsureArchivesExtractedAsync(List<string> paths)
+	{
+		var expandedPaths = new List<string>(paths);
+		var archivesToProcess = new List<string>();
+
+		foreach (var p in paths)
+		{
+			if (File.Exists(p))
+			{
+				string ext = Path.GetExtension(p).ToLowerInvariant();
+				if (ext == ".zip" || ext == ".rar" || ext == ".7z")
+					archivesToProcess.Add(p);
+			}
+			else if (Directory.Exists(p))
+			{
+				try
+				{
+					var subArchives = Directory.EnumerateFiles(p, "*.*", SearchOption.AllDirectories)
+						.Where(f => {
+							string ext = Path.GetExtension(f).ToLowerInvariant();
+							return ext == ".zip" || ext == ".rar" || ext == ".7z";
+						});
+					archivesToProcess.AddRange(subArchives);
+				}
+				catch { }
+			}
+		}
+
+		foreach (var archive in archivesToProcess.Distinct(StringComparer.OrdinalIgnoreCase))
+		{
+			try
+			{
+				string archiveDir = Path.GetDirectoryName(archive) ?? "";
+				string extractDir = Path.Combine(archiveDir, Path.GetFileNameWithoutExtension(archive));
+
+				// Проверка: распакован ли архив уже ранее
+				bool isAlreadyUnpacked = Directory.Exists(extractDir) && Directory.EnumerateFileSystemEntries(extractDir).Any();
+
+				if (isAlreadyUnpacked)
+				{
+					App.Logger.Log($"ℹ️ Архив {Path.GetFileName(archive)} уже распакован в «{Path.GetFileName(extractDir)}» (пропуск повторного извлечения).", LogLevel.Info);
+					if (!expandedPaths.Contains(extractDir, StringComparer.OrdinalIgnoreCase))
+						expandedPaths.Add(extractDir);
+					continue;
+				}
+
+				App.RunOnUI(() => App.Logger.Log($"📦 Автораспаковка архива: {Path.GetFileName(archive)}..."));
+				bool extracted = false;
+				string ext = Path.GetExtension(archive).ToLowerInvariant();
+
+				if (ext == ".zip")
+				{
+					try
+					{
+						Directory.CreateDirectory(extractDir);
+						ZipFile.ExtractToDirectory(archive, extractDir, overwriteFiles: true);
+						extracted = true;
+					}
+					catch (Exception ex)
+					{
+						App.Logger.Log($"⚠️ Ошибка распаковки ZIP: {ex.Message}", LogLevel.Warning);
+					}
+				}
+
+				if (!extracted)
+				{
+					string sevenZipPath = GetSevenZipPath();
+
+					if (File.Exists(sevenZipPath))
+					{
+						try
+						{
+							Directory.CreateDirectory(extractDir);
+							var proc = new Process();
+							proc.StartInfo.FileName = sevenZipPath;
+							proc.StartInfo.Arguments = $"x \"{archive}\" -o\"{extractDir}\" -y -aoa -mmt=on -bso0 -bsp0";
+							proc.StartInfo.UseShellExecute = false;
+							proc.StartInfo.CreateNoWindow = true;
+							proc.Start();
+							await proc.WaitForExitAsync();
+							if (proc.ExitCode == 0) extracted = true;
+						}
+						catch (Exception ex)
+						{
+							App.Logger.Log($"⚠️ Ошибка распаковки через 7z.exe: {ex.Message}", LogLevel.Error);
+						}
+					}
+					else
+					{
+						App.Logger.Log($"Для распаковки {ext} требуется наличие tools\\7z.exe", LogLevel.Warning);
+					}
+				}
+
+				if (extracted)
+				{
+					App.RunOnUI(() => App.Logger.Log($"✅ Архив {Path.GetFileName(archive)} успешно распакован в папку: «{Path.GetFileName(extractDir)}».", LogLevel.Success));
+					if (!expandedPaths.Contains(extractDir, StringComparer.OrdinalIgnoreCase))
+						expandedPaths.Add(extractDir);
+				}
+			}
+			catch (Exception ex)
+			{
+				App.Logger.Log($"Ошибка обработки архива {Path.GetFileName(archive)}: {ex.Message}", LogLevel.Warning);
+			}
+		}
+
+		return expandedPaths;
+	}
+
 	public async Task AddDroppedFilesBatchAsync(List<string> paths)
 	{
 		if (paths == null || paths.Count == 0) return;
 
-		// 1. Separate mod directories (romfs/exefs) from other paths
+		// Автораспаковка любых архивов в путях или подпапках
+		paths = await EnsureArchivesExtractedAsync(paths);
+
+		// 1. Separate mod directories (romfs/exefs/exefs_patches) from other paths
 		var modDirs = paths.Where(p => Directory.Exists(p) && 
 			(Path.GetFileName(p).Equals("romfs", StringComparison.OrdinalIgnoreCase) || 
-			 Path.GetFileName(p).Equals("exefs", StringComparison.OrdinalIgnoreCase))).ToList();
+			 Path.GetFileName(p).Equals("exefs", StringComparison.OrdinalIgnoreCase) ||
+			 Path.GetFileName(p).Equals("exefs_patches", StringComparison.OrdinalIgnoreCase))).ToList();
 
 		var normalPaths = paths.Except(modDirs).ToList();
 
-		// Also scan normal paths (if they are directories) to find nested romfs/exefs folders
+		// Also scan normal paths (if they are directories) to find nested romfs/exefs/exefs_patches folders
 		foreach (var normalPath in normalPaths)
 		{
 			if (Directory.Exists(normalPath))
@@ -249,7 +456,8 @@ public partial class TasksViewModel : ObservableObject
 					{
 						string name = Path.GetFileName(subDir);
 						if (name.Equals("romfs", StringComparison.OrdinalIgnoreCase) || 
-							name.Equals("exefs", StringComparison.OrdinalIgnoreCase))
+							name.Equals("exefs", StringComparison.OrdinalIgnoreCase) ||
+							name.Equals("exefs_patches", StringComparison.OrdinalIgnoreCase))
 						{
 							if (!modDirs.Contains(subDir, StringComparer.OrdinalIgnoreCase))
 							{
@@ -336,7 +544,6 @@ public partial class TasksViewModel : ObservableObject
 						if (!task.InputFiles.Contains(modDir, StringComparer.OrdinalIgnoreCase))
 						{
 							task.InputFiles.Add(modDir);
-							task.FilesList.Add(Path.GetFileName(modDir));
 							updated = true;
 						}
 					}
@@ -348,7 +555,9 @@ public partial class TasksViewModel : ObservableObject
 						task.FilesCount = task.InputFiles.Count(p => File.Exists(p)).ToString();
 						
 						bool hasRomFs = task.InputFiles.Any(p => Directory.Exists(p) && Path.GetFileName(p).Equals("romfs", StringComparison.OrdinalIgnoreCase));
-						bool hasExeFs = task.InputFiles.Any(p => Directory.Exists(p) && Path.GetFileName(p).Equals("exefs", StringComparison.OrdinalIgnoreCase));
+						bool hasExeFs = task.InputFiles.Any(p => Directory.Exists(p) && 
+							(Path.GetFileName(p).Equals("exefs", StringComparison.OrdinalIgnoreCase) || 
+							 Path.GetFileName(p).Equals("exefs_patches", StringComparison.OrdinalIgnoreCase)));
 						
 						task.HasRomFs = hasRomFs ? "1" : "-";
 						task.HasExeFs = hasExeFs ? "1" : "-";
@@ -383,6 +592,7 @@ public partial class TasksViewModel : ObservableObject
 					{
 						string tempDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "temp", "archives", Guid.NewGuid().ToString("N").Substring(0, 8));
 						Directory.CreateDirectory(tempDir);
+						TempCleanupService.RegisterActiveTempDirectory(tempDir);
 						App.RunOnUI(delegate
 						{
 							App.Logger.Log("Предварительная распаковка архива " + Path.GetFileName(path) + "...");
@@ -403,14 +613,14 @@ public partial class TasksViewModel : ObservableObject
 						}
 						else
 						{
-							string sevenZipPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tools", "7z.exe");
+							string sevenZipPath = GetSevenZipPath();
 							if (File.Exists(sevenZipPath))
 							{
 								try
 								{
 									Process proc = new Process();
 									proc.StartInfo.FileName = sevenZipPath;
-									proc.StartInfo.Arguments = $"x \"{path}\" -o\"{tempDir}\" -y";
+									proc.StartInfo.Arguments = $"x \"{path}\" -o\"{tempDir}\" -y -aoa -mmt=on -bso0 -bsp0";
 									proc.StartInfo.UseShellExecute = false;
 									proc.StartInfo.CreateNoWindow = true;
 									proc.Start();
@@ -575,6 +785,38 @@ public partial class TasksViewModel : ObservableObject
 		});
 	}
 
+	private string DetermineSourceFormat(List<string> filePaths)
+	{
+		if (filePaths == null || filePaths.Count == 0) return "MULTI CONTENT";
+
+		var validFiles = filePaths.Where(f => !Directory.Exists(f)).ToList();
+		var hasMods = filePaths.Any(f => Directory.Exists(f));
+		if (validFiles.Count == 0 || hasMods) return "MULTI CONTENT";
+
+		var exts = validFiles
+			.Select(f =>
+			{
+				string e = Path.GetExtension(f).ToUpperInvariant().TrimStart('.');
+				if (e == "CCI") return "3DS";
+				return e;
+			})
+			.Where(e => !string.IsNullOrEmpty(e))
+			.Distinct()
+			.ToList();
+
+		if (exts.Count == 1)
+		{
+			string singleExt = exts[0];
+			if (singleExt == "NSP" || singleExt == "NSZ" || singleExt == "XCI" || singleExt == "XCZ" ||
+			    singleExt == "3DS" || singleExt == "CIA" || singleExt == "CXI")
+			{
+				return singleExt;
+			}
+		}
+
+		return "MULTI CONTENT";
+	}
+
 	private Task AddOrUpdateTask(List<string> files, string groupId, string basePath, byte[]? iconBytes = null)
 	{
 		if (files == null || files.Count == 0)
@@ -609,7 +851,10 @@ public partial class TasksViewModel : ObservableObject
 						if (!existingTask.InputFiles.Contains<string>(f, StringComparer.OrdinalIgnoreCase))
 						{
 							existingTask.InputFiles.Add(f);
-							existingTask.FilesList.Add(Path.GetFileName(f));
+							if (!Directory.Exists(f))
+							{
+								existingTask.FilesList.Add(Path.GetFileName(f));
+							}
 							added++;
 						}
 					}
@@ -617,7 +862,7 @@ public partial class TasksViewModel : ObservableObject
 					{
 						existingTask.SourceSizeBytes = existingTask.InputFiles.Sum((string path) => CalculateSize(path));
 						existingTask.FilesCount = existingTask.InputFiles.Count((string path) => File.Exists(path)).ToString();
-						existingTask.SourceFormat = "MULTI";
+						existingTask.SourceFormat = DetermineSourceFormat(existingTask.InputFiles);
 						string[] dirs = existingTask.InputFiles.Select((string path) => Path.GetDirectoryName(path)).Where(d => d != null).Select(d => d!).Distinct().ToArray();
 						existingTask.InputFolders = string.Join("; ", dirs);
 						bool romFs = false;
@@ -631,7 +876,7 @@ public partial class TasksViewModel : ObservableObject
 								{
 									romFs = true;
 								}
-								if (dirName == "exefs")
+								if (dirName == "exefs" || dirName == "exefs_patches")
 								{
 									exeFs = true;
 								}
@@ -646,7 +891,7 @@ public partial class TasksViewModel : ObservableObject
 				{
 					string firstFile = files[0];
 					bool isDirectory = Directory.Exists(firstFile);
-					string ext = (isDirectory ? "DIR" : Path.GetExtension(firstFile).ToUpper().Trim('.'));
+					string ext = DetermineSourceFormat(files);
 					string outputName;
 					if (files.Count > 1)
 					{
@@ -663,7 +908,6 @@ public partial class TasksViewModel : ObservableObject
 							}
 						}) ?? files[0];
 						outputName = Path.GetFileNameWithoutExtension(baseGame);
-						ext = "MULTI";
 					}
 					else
 					{
@@ -732,7 +976,7 @@ public partial class TasksViewModel : ObservableObject
 					long sizeBytes = files.Sum((string path) => CalculateSize(path));
 					int filesCount = files.Count((string path) => File.Exists(path));
 					List<string> inputFiles = new List<string>(files);
-					List<string> filesList = files.Select((string path) => Path.GetFileName(path)).ToList();
+					List<string> filesList = files.Where((string path) => !Directory.Exists(path)).Select((string path) => Path.GetFileName(path)).ToList();
 					bool rFs = false;
 					bool eFs = false;
 					foreach (string f3 in files)
@@ -744,13 +988,17 @@ public partial class TasksViewModel : ObservableObject
 							{
 								rFs = true;
 							}
-							if (dirName3 == "exefs")
+							if (dirName3 == "exefs" || dirName3 == "exefs_patches")
 							{
 								eFs = true;
 							}
 						}
 					}
-					string outFolder = App.Settings.Current.OutputFolder;
+					bool is3ds = files.Any(f => Nintendo3dsService.Is3dsExtension(Path.GetExtension(f)));
+					string outFolder = is3ds 
+						? (!string.IsNullOrEmpty(App.Settings.Current.OutputFolder3ds) ? App.Settings.Current.OutputFolder3ds : (!string.IsNullOrEmpty(App.Settings.Current.LastOutPath_3ds) ? App.Settings.Current.LastOutPath_3ds : App.Settings.Current.OutputFolder))
+						: App.Settings.Current.OutputFolder;
+
 					if (string.IsNullOrEmpty(outFolder))
 					{
 						outFolder = GetOutPathForPage(_currentPageType);
@@ -759,6 +1007,11 @@ public partial class TasksViewModel : ObservableObject
 					{
 						outFolder = Path.GetDirectoryName(inputFiles[0]) ?? "";
 					}
+
+					string targetFmt = is3ds 
+						? FormatNames3ds[Math.Clamp(SelectedFormatIndex3ds, 0, FormatNames3ds.Length - 1)] 
+						: SelectedFormat;
+
 					ObservableCollection<ProcessingTask> targetList = ((_currentPageType == "Verify") ? VerifyTasks : Tasks);
 					ProcessingTask task = new ProcessingTask
 					{
@@ -766,7 +1019,8 @@ public partial class TasksViewModel : ObservableObject
 						GroupId = (groupId ?? ""),
 						Operation = _currentPageType,
 						SourceFormat = ext,
-						TargetFormat = SelectedFormat,
+						Is3dsTask = is3ds,
+						TargetFormat = targetFmt,
 						SourceSizeBytes = sizeBytes,
 						TargetSize = "-",
 						SizeDifference = "-",
@@ -852,6 +1106,7 @@ public partial class TasksViewModel : ObservableObject
 			"Pack" => App.Settings.Current.LastOutPath_Pack, 
 			"Convert" => App.Settings.Current.LastOutPath_Convert, 
 			"Multi" => App.Settings.Current.LastOutPath_Multi, 
+			"ThreeDs" => !string.IsNullOrEmpty(App.Settings.Current.OutputFolder3ds) ? App.Settings.Current.OutputFolder3ds : App.Settings.Current.LastOutPath_3ds,
 			_ => "", 
 		};
 		if (string.IsNullOrEmpty(result))
@@ -949,6 +1204,11 @@ public partial class TasksViewModel : ObservableObject
 				item.LogDetails += "\nЗадача была отменена пользователем.";
 			}
 		}
+		Task.Run(() => 
+		{
+			Thread.Sleep(300);
+			TempCleanupService.PurgeActiveTempDirectories();
+		});
 	}
 
 	private void StartAllTasks()
@@ -1211,6 +1471,74 @@ public partial class TasksViewModel : ObservableObject
 	{
 		CancellationTokenSource cts = new CancellationTokenSource();
 		task.Cts = cts;
+
+		if (task.Is3dsTask)
+		{
+			task.IsRunning = true;
+			try
+			{
+				if (task.Operation == "Verify")
+				{
+					foreach (string f in task.InputFiles)
+					{
+						if (cts.IsCancellationRequested) break;
+						var meta = await App.Nintendo3ds.Parse3dsFileAsync(f);
+						task.VerifyType = meta.ContentType;
+						task.VerifyStructure = meta.FileFormat;
+						task.VerifyTitleId = meta.TitleId;
+						task.VerifyVersion = meta.Version;
+					}
+					if (!cts.IsCancellationRequested)
+					{
+						App.RunOnUI(() =>
+						{
+							task.Status = "Корректна";
+							task.IsRunning = false;
+							task.LogDetails += "\n✅ [3DS Verify] Структура файла корректна.";
+						});
+					}
+					return;
+				}
+				if (task.Operation == "Update" || task.Operation == "Multi")
+				{
+					string outExt = (task.TargetFormat ?? "3DS").ToLowerInvariant().Replace(" (cci)", "").Trim();
+					if (outExt == "3ds" || outExt == "cci") outExt = "3ds";
+					else if (outExt == "cia") outExt = "cia";
+					else outExt = "cxi";
+					string outPath = Path.Combine(task.OutputFolder, task.OutputFileName + "." + outExt);
+					await App.Nintendo3ds.Build3dsMultiContentAsync(task, task.InputFiles, outPath, task.TargetFormat ?? "3DS", cts.Token);
+					return;
+				}
+				if (task.Operation == "Unpack")
+				{
+					string inputPath = task.InputFiles.FirstOrDefault() ?? "";
+					await App.Nintendo3ds.Unpack3dsContainerAsync(task, inputPath, task.OutputFolder, cts.Token);
+					return;
+				}
+				if (task.Operation == "Pack")
+				{
+					string inputFolder = task.InputFolders.Split(';').FirstOrDefault()?.Trim() ?? "";
+					await App.Nintendo3ds.Pack3dsContainerAsync(task, inputFolder, task.OutputFolder, task.OutputFileName, cts.Token);
+					return;
+				}
+				if (task.Operation == "Convert")
+				{
+					string inputPath = task.InputFiles.FirstOrDefault() ?? "";
+					await App.Nintendo3ds.Convert3dsContainerAsync(task, inputPath, task.OutputFolder, task.TargetFormat ?? "3DS", cts.Token);
+					return;
+				}
+			}
+			catch (Exception ex)
+			{
+				App.RunOnUI(() =>
+				{
+					task.IsRunning = false;
+					task.Status = "Ошибка";
+					task.LogDetails += "\n❌ " + ex.Message;
+				});
+			}
+			return;
+		}
 		if (task.Operation == "Verify")
 		{
 			task.IsRunning = true;
@@ -1382,6 +1710,7 @@ public partial class TasksViewModel : ObservableObject
 				});
 				tempDecompDirConvert = Path.Combine(Path.GetTempPath(), "StormDecomp_" + Guid.NewGuid().ToString("N").Substring(0, 8));
 				Directory.CreateDirectory(tempDecompDirConvert);
+				TempCleanupService.RegisterActiveTempDirectory(tempDecompDirConvert);
 				string? decompResult = await App.NszCompression.DecompressNszAsync(task, inputPath2, tempDecompDirConvert, cts.Token);
 				if (!string.IsNullOrEmpty(decompResult) && File.Exists(decompResult))
 				{
@@ -1469,21 +1798,9 @@ public partial class TasksViewModel : ObservableObject
 		}
 		finally
 		{
-			if (task.Operation == "Convert" && !string.IsNullOrEmpty(tempDecompDirConvert) && Directory.Exists(tempDecompDirConvert))
+			if (task.Operation == "Convert" && !string.IsNullOrEmpty(tempDecompDirConvert))
 			{
-				for (int i = 0; i < 3; i++)
-				{
-					try
-					{
-						Directory.Delete(tempDecompDirConvert, recursive: true);
-					}
-					catch
-					{
-						Thread.Sleep(500);
-						continue;
-					}
-					break;
-				}
+				TempCleanupService.ForceDeleteDirectory(tempDecompDirConvert);
 			}
 		}
 	}
@@ -1605,11 +1922,12 @@ public partial class TasksViewModel : ObservableObject
 						sb.AppendLine($"  ├ NCA: {ncaInFile}" + (nczInFile > 0 ? $"  NCZ: {nczInFile} (сжатые)" : ""));
 						sb.AppendLine($"  └ Тикеты: {tikInFile}  Размер: {ProcessingTask.FormatSize(new FileInfo(filePath).Length)}");
 						
-						// Детект мульти-программного тайтла
-						if (titleIdsInFile.Count > 2 && (type == "Application" || type == "Patch"))
+						// Детект мульти-программного тайтла: проверяем наличие нескольких РАЗНЫХ Application TitleID (>2)
+						// Тикеты DLC и старых версий не являются признаком мульти-программы
+						if (type == "Application" && titleIdsInFile.Count(id => id.EndsWith("000", StringComparison.OrdinalIgnoreCase)) > 1)
 						{
 							hasMultiProgram = true;
-							sb.AppendLine($"  ⚠️ МУЛЬТИ-ПРОГРАММНЫЙ: {titleIdsInFile.Count} уникальных TitleID внутри!");
+							sb.AppendLine($"  ⚠️ МУЛЬТИ-ПРОГРАММНЫЙ СБОРНИК: найдено {titleIdsInFile.Count} игровых программ!");
 						}
 					}
 					catch (Exception ex)

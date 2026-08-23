@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml.Navigation;
 using StormSwitchBox.ViewModels;
 using System.Collections.ObjectModel;
 using StormSwitchBox.Models;
+using StormSwitchBox.Services;
 using System;
 using System.Text;
 using Microsoft.UI.Xaml.Media;
@@ -33,6 +34,9 @@ namespace StormSwitchBox.Views
 
             // Перехватываем PointerPressed ДО того, как DataGrid его обработает и изменит Selection
             TasksGrid.AddHandler(Microsoft.UI.Xaml.UIElement.PointerPressedEvent, new Microsoft.UI.Xaml.Input.PointerEventHandler(TasksGrid_PointerPressed), true);
+
+            ApplyLocalization();
+            App.Localization.LanguageChanged += () => App.RunOnUI(ApplyLocalization);
         }
 
         private void LogResizer_DragDelta(object sender, Microsoft.UI.Xaml.Controls.Primitives.DragDeltaEventArgs e)
@@ -441,7 +445,13 @@ namespace StormSwitchBox.Views
             TasksGrid.ItemsSource = filtered;
         }
 
-        // ===== Смена формата =====
+        // ===== Переключение платформы =====
+        private void PlatformToggle_Click(object sender, RoutedEventArgs e)
+        {
+            ViewModel.TogglePlatform();
+        }
+
+        // ===== Смена формата Switch =====
         private void FormatComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (sender is ComboBox cb && cb.SelectedItem is ComboBoxItem item)
@@ -450,6 +460,19 @@ namespace StormSwitchBox.Views
                 ViewModel.SelectedFormat = format;
                 ViewModel.SelectedFormatIndex = cb.SelectedIndex;
                 App.Settings.Current.SelectedFormatIndex = cb.SelectedIndex;
+                _ = App.Settings.SaveAsync();
+            }
+        }
+
+        // ===== Смена формата 3DS =====
+        private void FormatComboBox3ds_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (sender is ComboBox cb && cb.SelectedItem is ComboBoxItem item)
+            {
+                string format = item.Content?.ToString() ?? "3DS";
+                ViewModel.SelectedFormatIndex3ds = cb.SelectedIndex;
+                App.Settings.Current.SelectedFormatIndex3ds = cb.SelectedIndex;
+                App.Settings.Current.DefaultFormat3ds = format;
                 _ = App.Settings.SaveAsync();
             }
         }
@@ -481,7 +504,12 @@ namespace StormSwitchBox.Views
             string? sourceFile = task.InputFiles?.FirstOrDefault(f => !System.IO.Directory.Exists(f) && 
                 (f.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) || 
                  f.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) || 
-                 f.EndsWith(".xci", StringComparison.OrdinalIgnoreCase)));
+                 f.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) ||
+                 f.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase) ||
+                 f.EndsWith(".3ds", StringComparison.OrdinalIgnoreCase) ||
+                 f.EndsWith(".cci", StringComparison.OrdinalIgnoreCase) ||
+                 f.EndsWith(".cia", StringComparison.OrdinalIgnoreCase) ||
+                 f.EndsWith(".cxi", StringComparison.OrdinalIgnoreCase)));
 
             if (string.IsNullOrEmpty(sourceFile) || !System.IO.File.Exists(sourceFile))
             {
@@ -489,7 +517,27 @@ namespace StormSwitchBox.Views
                 return;
             }
 
-            var model = task.CustomMetadata ?? await App.ControlEditor.ExtractMetadataAsync(sourceFile);
+            GameMetadataEditModel? model = task.CustomMetadata;
+            if (model == null)
+            {
+                if (task.Is3dsTask || Nintendo3dsService.Is3dsExtension(Path.GetExtension(sourceFile)))
+                {
+                    var info3ds = App.Nintendo3ds.Parse3dsFile(sourceFile);
+                    model = new GameMetadataEditModel
+                    {
+                        SourceFilePath = sourceFile,
+                        TitleNameEnglish = !string.IsNullOrEmpty(info3ds?.GameName) ? info3ds.GameName : task.GameName,
+                        TitleNameRussian = !string.IsNullOrEmpty(info3ds?.GameName) ? info3ds.GameName : task.GameName,
+                        Publisher = !string.IsNullOrEmpty(info3ds?.Publisher) ? info3ds.Publisher : "Nintendo",
+                        OriginalIconBytes = info3ds?.IconBytes
+                    };
+                }
+                else
+                {
+                    model = await App.ControlEditor.ExtractMetadataAsync(sourceFile);
+                }
+            }
+
             if (model == null)
             {
                 model = new GameMetadataEditModel
@@ -500,11 +548,19 @@ namespace StormSwitchBox.Views
                 };
             }
 
+            model.HasRomFs = task.HasRomFs != "-";
+            model.HasExeFs = task.HasExeFs != "-";
+            model.ModNameRomFs = task.ModNameRomFs;
+            model.ModNameExeFs = task.ModNameExeFs;
+
             var dialog = new Dialogs.ControlEditorDialog(model);
             var result = await dialog.ShowAsync();
             if (result == ContentDialogResult.Primary)
             {
                 task.CustomMetadata = model;
+                task.ModNameRomFs = model.ModNameRomFs;
+                task.ModNameExeFs = model.ModNameExeFs;
+
                 if (!string.IsNullOrEmpty(model.TitleNameRussian))
                 {
                     task.GameName = model.TitleNameRussian;
@@ -879,6 +935,18 @@ namespace StormSwitchBox.Views
             var dp = new Windows.ApplicationModel.DataTransfer.DataPackage();
             dp.SetText(sb.ToString());
             Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(dp);
+        }
+
+        public void ApplyLocalization()
+        {
+            var loc = App.Localization;
+            if (AddButton != null) AddButton.Label = loc["Tasks_AddFiles"];
+            if (AddFilesItem != null) AddFilesItem.Text = loc["Tasks_AddFiles"] + "...";
+            if (AddFolderItem != null) AddFolderItem.Text = loc["Tasks_AddFolder"] + "...";
+            if (StartAllButton != null) StartAllButton.Label = loc["Tasks_StartAll"];
+            if (StopAllButton != null) StopAllButton.Label = loc["Tasks_StopAll"];
+            if (ClearButton != null) ClearButton.Label = loc["Tasks_ClearList"];
+            if (ColumnsFlyoutTitle != null) ColumnsFlyoutTitle.Text = loc["Tasks_Col_Actions"];
         }
     }
 }

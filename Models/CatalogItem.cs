@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Microsoft.UI.Xaml.Media.Imaging;
@@ -21,6 +22,26 @@ namespace StormSwitchBox.Models
         private string _titleId = "0000000000000000";
 
         [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(PlatformBadgeText))]
+        [NotifyPropertyChangedFor(nameof(PlatformBadgeGlyph))]
+        [NotifyPropertyChangedFor(nameof(PlatformBadgeBackground))]
+        [NotifyPropertyChangedFor(nameof(FileFormat))]
+        private bool _is3ds = false;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(PlatformBadgeText))]
+        [NotifyPropertyChangedFor(nameof(PlatformBadgeGlyph))]
+        [NotifyPropertyChangedFor(nameof(PlatformBadgeBackground))]
+        [NotifyPropertyChangedFor(nameof(FileFormat))]
+        private string _platform = "Switch";
+
+        public string PlatformBadgeText => (Is3ds || Platform == "3DS" || Platform == "Nintendo 3DS") ? "Nintendo 3DS" : "Nintendo Switch";
+        public string PlatformBadgeGlyph => (Is3ds || Platform == "3DS" || Platform == "Nintendo 3DS") ? "\uE8EA" : "\uE7FC";
+        public Microsoft.UI.Xaml.Media.SolidColorBrush PlatformBadgeBackground => (Is3ds || Platform == "3DS" || Platform == "Nintendo 3DS") 
+            ? new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(230, 211, 47, 47))
+            : new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(230, 0, 120, 215));
+
+        [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(RegionsVisibility))]
         private string _regions = "WW";
 
@@ -29,7 +50,7 @@ namespace StormSwitchBox.Models
         private int _dlcCount = 0;
 
         [ObservableProperty]
-        private string _version = "v0";
+        private string _version = "0";
 
         [ObservableProperty]
         private string _versionCode = "0";
@@ -73,9 +94,13 @@ namespace StormSwitchBox.Models
             get
             {
                 string path = !string.IsNullOrEmpty(FilePath) ? FilePath : FileName;
-                if (string.IsNullOrEmpty(path)) return "NSP";
-                string ext = System.IO.Path.GetExtension(path).TrimStart('.').ToUpperInvariant();
-                return string.IsNullOrEmpty(ext) ? "NSP" : ext;
+                if (!string.IsNullOrEmpty(path))
+                {
+                    string ext = System.IO.Path.GetExtension(path).TrimStart('.').ToUpperInvariant();
+                    if (!string.IsNullOrEmpty(ext)) return ext;
+                }
+                if (Is3ds || Platform == "3DS" || Platform == "Nintendo 3DS") return "3DS";
+                return "NSP";
             }
         }
 

@@ -11,21 +11,22 @@
     <Grid Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
         <NavigationView x:Name="MainNavigation" PaneDisplayMode="Left" OpenPaneLength="220" SelectionChanged="MainNavigation_SelectionChanged">
             <NavigationView.MenuItems>
-                <NavigationViewItem Icon="Refresh" Content="Обновление" Tag="Update" />
-                <NavigationViewItem Icon="Download" Content="Распаковка" Tag="Unpack" />
-                <NavigationViewItem Icon="Save" Content="Упаковка" Tag="Pack" />
-                <NavigationViewItem Icon="Switch" Content="Конвертация" Tag="Convert" />
-                <NavigationViewItem Icon="Library" Content="Мульти-контент" Tag="Multi" />
+                <NavigationViewItem x:Name="NavUpdateItem" Icon="Refresh" Content="Обновление" Tag="Update" />
+                <NavigationViewItem x:Name="NavUnpackItem" Icon="Download" Content="Распаковка" Tag="Unpack" />
+                <NavigationViewItem x:Name="NavPackItem" Icon="Save" Content="Упаковка" Tag="Pack" />
+                <NavigationViewItem x:Name="NavConvertItem" Icon="Switch" Content="Конвертация" Tag="Convert" />
+                <NavigationViewItem x:Name="NavMultiItem" Icon="Library" Content="Мульти-контент" Tag="Multi" />
                 
                 <NavigationViewItemSeparator />
                 
-                <NavigationViewItem Icon="Accept" Content="Проверка" Tag="Verify" />
+                <NavigationViewItem x:Name="NavVerifyItem" Icon="Accept" Content="Проверка" Tag="Verify" />
             </NavigationView.MenuItems>
             
             <NavigationView.FooterMenuItems>
-                <NavigationViewItem Icon="Document" Content="Инструкция" Tag="Instruction" />
-                <NavigationViewItem Icon="Pictures" Content="Информация" Tag="Catalog" />
-                <NavigationViewItem Icon="Clock" Content="История" Tag="History" />
+                <NavigationViewItem x:Name="NavInstructionItem" Icon="Document" Content="Инструкция" Tag="Instruction" />
+                <NavigationViewItem x:Name="NavGameLibraryItem" Icon="AllApps" Content="Библиотека игр" Tag="GameLibrary" />
+                <NavigationViewItem x:Name="NavCatalogItem" Icon="Pictures" Content="Информация" Tag="Catalog" />
+                <NavigationViewItem x:Name="NavHistoryItem" Icon="Clock" Content="История" Tag="History" />
             </NavigationView.FooterMenuItems>
             
             <Frame x:Name="ContentFrame" Padding="0,32,0,0">

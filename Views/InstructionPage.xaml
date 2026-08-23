@@ -9,7 +9,7 @@
 
     <Grid>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="320" />
+            <ColumnDefinition Width="390" />
             <ColumnDefinition Width="Auto" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
@@ -22,7 +22,7 @@
             </Grid.RowDefinitions>
 
             <StackPanel Padding="16,24,16,16" Spacing="12">
-                <TextBlock Text="Инструкция" Style="{StaticResource SubtitleTextBlockStyle}" FontWeight="Bold" />
+                <TextBlock x:Name="PageHeaderTitle" Text="Инструкция" Style="{StaticResource SubtitleTextBlockStyle}" FontWeight="Bold" />
                 <AutoSuggestBox x:Name="SearchBox" PlaceholderText="Поиск тем..." QueryIcon="Find" TextChanged="SearchBox_TextChanged" />
             </StackPanel>
 

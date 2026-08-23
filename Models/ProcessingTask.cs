@@ -35,11 +35,43 @@ namespace StormSwitchBox.Models
         
         [System.Text.Json.Serialization.JsonIgnore]
         public bool IsNotRunning => !IsRunning;
-        partial void OnIsRunningChanged(bool value) => OnPropertyChanged(nameof(IsNotRunning));
+        partial void OnIsRunningChanged(bool value)
+        {
+            OnPropertyChanged(nameof(IsNotRunning));
+            OnPropertyChanged(nameof(CanChangeFormat));
+        }
+
+        [ObservableProperty] private bool _is3dsTask;
+        partial void OnIs3dsTaskChanged(bool value)
+        {
+            AvailableTargetFormats = value
+                ? new List<string> { "3DS", "CIA", "CXI" }
+                : new List<string> { "NSP", "NSZ", "XCI", "XCZ" };
+        }
+
+        [ObservableProperty] private List<string> _availableTargetFormats = new() { "NSP", "NSZ", "XCI", "XCZ" };
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public bool IsCompleted => Status == "Успешно" || Status == "Готово" || Status == "Корректна" || Status == "Ок" || Status == "Да" || Status == "Да (Гибрид)";
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public bool CanChangeFormat => !IsRunning && !IsCompleted;
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public SolidColorBrush TargetFormatColor => IsCompleted 
+            ? new SolidColorBrush(Windows.UI.Color.FromArgb(255, 46, 204, 113)) 
+            : new SolidColorBrush(Windows.UI.Color.FromArgb(255, 0, 229, 255));
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public Windows.UI.Text.FontWeight TargetFormatWeight => IsCompleted 
+            ? Microsoft.UI.Text.FontWeights.Bold 
+            : Microsoft.UI.Text.FontWeights.Normal;
 
         [ObservableProperty] private long _sourceSizeBytes;
         [ObservableProperty] private string _hasRomFs = "-";
         [ObservableProperty] private string _hasExeFs = "-";
+        [ObservableProperty] private string _modNameRomFs = "Модификации: RomFS";
+        [ObservableProperty] private string _modNameExeFs = "Модификации: ExeFS";
         [ObservableProperty] private string _speed = string.Empty;
         [ObservableProperty] private bool _isExpanded;
 
@@ -166,6 +198,13 @@ namespace StormSwitchBox.Models
             }
         }
 
-        partial void OnStatusChanged(string value) => OnPropertyChanged(nameof(StatusColor));
+        partial void OnStatusChanged(string value)
+        {
+            OnPropertyChanged(nameof(StatusColor));
+            OnPropertyChanged(nameof(IsCompleted));
+            OnPropertyChanged(nameof(CanChangeFormat));
+            OnPropertyChanged(nameof(TargetFormatColor));
+            OnPropertyChanged(nameof(TargetFormatWeight));
+        }
     }
 }

@@ -7,405 +7,619 @@
     <ScrollViewer Padding="24">
         <StackPanel Spacing="24" HorizontalAlignment="Stretch" MaxWidth="1000">
             
-            <TextBlock Text="Параметры" Style="{StaticResource TitleTextBlockStyle}" FontWeight="SemiBold" />
+            <TextBlock x:Name="PageTitleText" Text="Параметры" Style="{StaticResource TitleTextBlockStyle}" FontWeight="SemiBold" />
 
-            <!-- БЛОК 1: Криптографические ключи -->
-            <StackPanel Spacing="8">
-                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                    <FontIcon Glyph="&#xE8D7;" Foreground="{ThemeResource SystemAccentColor}" FontSize="16"/>
-                    <TextBlock Text="Криптографические ключи" FontWeight="SemiBold" FontSize="15" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
-                </StackPanel>
-                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="20">
-                    <Grid AllowDrop="True" DragOver="KeysFile_DragOver" Drop="KeysFile_Drop" Padding="4" CornerRadius="6">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <StackPanel VerticalAlignment="Center" Spacing="4" Margin="0,0,16,0">
-                            <TextBlock Text="Файл криптографических ключей (prod.keys / keys.txt)" FontWeight="Medium" VerticalAlignment="Center" TextWrapping="Wrap"/>
-                            <TextBlock Text="Загружать ключи для расшифровки. Можно перетащить файл прямо сюда" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
-                        </StackPanel>
-                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
-                            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" Visibility="{x:Bind KeysSelectedVisibility, Mode=OneTime}">
-                                <FontIcon Glyph="&#xE73E;" Foreground="LimeGreen" FontSize="14"/>
-                                <TextBlock Text="Файл выбран" Foreground="LimeGreen" FontWeight="SemiBold" VerticalAlignment="Center" FontSize="12"/>
-                            </StackPanel>
-                            <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" ToolTipService.ToolTip="Версия ключей прошивки (6 ячеек)">
-                                <TextBox x:Name="VerBox1" Width="32" Height="32" CornerRadius="6" MaxLength="1" FontSize="14" FontWeight="Bold" Padding="0,3,0,0" TextAlignment="Center" KeyDown="VerBox_KeyDown" TextChanged="VerBox_TextChanged"/>
-                                <TextBox x:Name="VerBox2" Width="32" Height="32" CornerRadius="6" MaxLength="1" FontSize="14" FontWeight="Bold" Padding="0,3,0,0" TextAlignment="Center" KeyDown="VerBox_KeyDown" TextChanged="VerBox_TextChanged"/>
-                                <TextBlock Text="." FontSize="18" FontWeight="Bold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" Margin="1,0,1,0"/>
-                                <TextBox x:Name="VerBox4" Width="32" Height="32" CornerRadius="6" MaxLength="1" FontSize="14" FontWeight="Bold" Padding="0,3,0,0" TextAlignment="Center" KeyDown="VerBox_KeyDown" TextChanged="VerBox_TextChanged"/>
-                                <TextBlock Text="." FontSize="18" FontWeight="Bold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" Margin="1,0,1,0"/>
-                                <TextBox x:Name="VerBox6" Width="32" Height="32" CornerRadius="6" MaxLength="1" FontSize="14" FontWeight="Bold" Padding="0,3,0,0" TextAlignment="Center" KeyDown="VerBox_KeyDown" TextChanged="VerBox_TextChanged"/>
-                            </StackPanel>
-                            <Button Content="📂 Выбрать файл" Click="SelectKeysButton_Click" VerticalAlignment="Center" CornerRadius="6"/>
-                        </StackPanel>
-                    </Grid>
-                </Border>
-            </StackPanel>
-
-            <!-- БЛОК 2: Файловая система и пути -->
-            <StackPanel Spacing="8">
-                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                    <FontIcon Glyph="&#xE8B7;" Foreground="{ThemeResource SystemAccentColor}" FontSize="16"/>
-                    <TextBlock Text="Пути и организация файлов" FontWeight="SemiBold" FontSize="15" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
-                </StackPanel>
-                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="20">
-                    <StackPanel Spacing="16">
-                        <!-- Выходная папка по умолчанию -->
-                        <Grid>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="Auto"/>
-                            </Grid.RowDefinitions>
-                            <StackPanel Grid.Row="0" Margin="0,0,0,8" Spacing="2">
-                                <TextBlock Text="Выходная папка по умолчанию" FontWeight="Medium" VerticalAlignment="Center"/>
-                                <TextBlock Text="Общая папка для сохранения обработанных файлов (можно перетащить папку в поле ниже)" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
-                            </StackPanel>
-                            <Grid Grid.Row="1">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBox x:Name="OutputFolderBox" HorizontalAlignment="Stretch" Margin="0,0,12,0" PlaceholderText="Не указана (сохранять в папку с исходным файлом)" 
-                                         Text="{x:Bind Settings.OutputFolder, Mode=TwoWay}" IsReadOnly="True" VerticalAlignment="Center"
-                                         AllowDrop="True" DragOver="OutputFolderBox_DragOver" Drop="OutputFolderBox_Drop"/>
-                                <Button Grid.Column="1" Content="Обзор..." Click="SelectOutputFolder_Click" VerticalAlignment="Center" CornerRadius="6"/>
-                            </Grid>
-                        </Grid>
-
-                        <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
-
-                        <!-- Комплексные имена -->
-                        <Grid>
-                            <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
-                                <TextBlock Text="Комплексное выходное имя файла по папкам" FontWeight="Medium" VerticalAlignment="Center"/>
-                                <TextBlock Text="Создает удобные вложенные папки формата [Название Игры]/[Формат] с TitleID и версией в названии" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
-                            </StackPanel>
-                            <ToggleSwitch HorizontalAlignment="Right" IsOn="{x:Bind Settings.ComplexFolders, Mode=TwoWay}" Toggled="Toggle_Changed"
-                                          ToolTipService.ToolTip="Автоматически раскладывает готовые файлы по папкам и добавляет [TitleID] [vVersion] в имя файла."/>
-                        </Grid>
-
-                        <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
-
-                        <!-- Удалять исходники после успеха -->
-                        <Grid>
-                            <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
-                                <TextBlock Text="Удалять исходные файлы после успешной обработки" FontWeight="Medium" VerticalAlignment="Center"/>
-                                <TextBlock Text="Автоматически удаляет оригинальный входной файл после успешной конвертации или сборки" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
-                            </StackPanel>
-                            <ToggleSwitch HorizontalAlignment="Right" IsOn="{x:Bind Settings.DeleteSourceOnSuccess, Mode=TwoWay}" Toggled="Toggle_Changed"
-                                          ToolTipService.ToolTip="Внимание: Исходные файлы будут удалены только при 100% успешном завершении задачи."/>
-                        </Grid>
-
-                        <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
-
-                        <!-- Автоматическая папка (Watch Folder) -->
-                        <StackPanel Spacing="12">
-                            <Grid>
-                                <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
-                                    <TextBlock Text="«Умная» папка автоматического наблюдения" FontWeight="Medium"/>
-                                    <TextBlock Text="При включении сканирует папку и добавляет найденные файлы NSP/NSZ/XCI/XCZ в задачи. Можно перетащить папку в поле ниже" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
-                                </StackPanel>
-                                <ToggleSwitch x:Name="WatchFolderToggle" HorizontalAlignment="Right" IsOn="{x:Bind Settings.EnableWatchFolder, Mode=TwoWay}" Toggled="WatchFolderToggle_Toggled" VerticalAlignment="Center"/>
-                            </Grid>
-
-                            <StackPanel Visibility="{x:Bind WatchFolderToggle.IsOn, Mode=OneWay}" Spacing="12" Margin="0,4,0,0">
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <TextBox x:Name="WatchFolderBox" HorizontalAlignment="Stretch" Margin="0,0,12,0" PlaceholderText="Папка не выбрана (можно перетащить)" 
-                                             Text="{x:Bind Settings.WatchFolder, Mode=TwoWay}" IsReadOnly="True" VerticalAlignment="Center"
-                                             AllowDrop="True" DragOver="WatchFolderBox_DragOver" Drop="WatchFolderBox_Drop"/>
-                                    <Button Grid.Column="1" Content="Выбрать папку..." Click="SelectWatchFolder_Click" VerticalAlignment="Center" CornerRadius="6"/>
-                                </Grid>
-
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <StackPanel VerticalAlignment="Center" Spacing="2">
-                                        <TextBlock Text="Выполняемая задача и формат:" FontSize="12" FontWeight="SemiBold"/>
-                                        <TextBlock x:Name="WatchFolderSummaryBadge" Text="⚡ Авто-обработка: Сжатие в NSZ" FontSize="11" Foreground="{ThemeResource SystemAccentColor}" FontWeight="Bold"/>
-                                    </StackPanel>
-
-                                    <ComboBox x:Name="WatchFolderActionCombo" Grid.Column="1" Width="170" Margin="0,0,8,0" SelectionChanged="WatchFolderActionCombo_SelectionChanged" VerticalAlignment="Center">
-                                        <ComboBoxItem Content="Сжатие" Tag="0"/>
-                                        <ComboBoxItem Content="Распаковка" Tag="1"/>
-                                        <ComboBoxItem Content="Упаковка" Tag="2"/>
-                                        <ComboBoxItem Content="Конвертация" Tag="3"/>
-                                        <ComboBoxItem Content="Мульти-контент" Tag="4"/>
-                                        <ComboBoxItem Content="Проверка" Tag="5"/>
-                                    </ComboBox>
-
-                                    <ComboBox x:Name="WatchFolderFormatCombo" Grid.Column="2" Width="100" SelectionChanged="WatchFolderFormatCombo_SelectionChanged" VerticalAlignment="Center">
-                                        <ComboBoxItem Content="NSP" Tag="0"/>
-                                        <ComboBoxItem Content="NSZ" Tag="1"/>
-                                        <ComboBoxItem Content="XCI" Tag="2"/>
-                                        <ComboBoxItem Content="XCZ" Tag="3"/>
-                                    </ComboBox>
-                                </Grid>
-                            </StackPanel>
-                        </StackPanel>
+            <!-- ПЕРЕКЛЮЧАТЕЛЬ РАЗДЕЛОВ ПАРАМЕТРОВ (Общие / Switch / 3DS) -->
+            <StackPanel Orientation="Horizontal" Spacing="10">
+                <Button x:Name="GeneralTabButton" Click="GeneralTabButton_Click" Padding="18,10" CornerRadius="8"
+                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource SystemAccentColor}" BorderThickness="2">
+                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <FontIcon x:Name="GeneralTabIcon" Glyph="&#xE713;" Foreground="{ThemeResource SystemAccentColor}" FontSize="16"/>
+                        <TextBlock x:Name="GeneralTabText" Text="Общие" FontWeight="Bold" FontSize="14"/>
                     </StackPanel>
-                </Border>
+                </Button>
+                <Button x:Name="SwitchTabButton" Click="SwitchTabButton_Click" Padding="18,10" CornerRadius="8"
+                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <FontIcon x:Name="SwitchTabIcon" Glyph="&#xE7FC;" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="16"/>
+                        <TextBlock x:Name="SwitchTabText" Text="Nintendo Switch" FontWeight="Bold" FontSize="14"/>
+                    </StackPanel>
+                </Button>
+                <Button x:Name="ThreeDsTabButton" Click="ThreeDsTabButton_Click" Padding="18,10" CornerRadius="8"
+                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <FontIcon x:Name="ThreeDsTabIcon" Glyph="&#xE7FC;" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="16"/>
+                        <TextBlock x:Name="ThreeDsTabText" Text="Nintendo 3DS" FontWeight="Bold" FontSize="14"/>
+                    </StackPanel>
+                </Button>
             </StackPanel>
 
-            <!-- БЛОК 3: Производительность и сжатие -->
-            <StackPanel Spacing="8">
-                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                    <FontIcon Glyph="&#xE945;" Foreground="{ThemeResource SystemAccentColor}" FontSize="16"/>
-                    <TextBlock Text="Производительность и сжатие" FontWeight="SemiBold" FontSize="15" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
-                </StackPanel>
-                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="20">
-                    <StackPanel Spacing="16">
-                        <!-- Уровень сжатия -->
+            <!-- ========================================== -->
+            <!-- 1. ВКЛАДКА: ОБЩИЕ НАСТРОЙКИ                -->
+            <!-- ========================================== -->
+            <StackPanel x:Name="GeneralSettingsPanel" Spacing="24">
+
+                <!-- БЛОК: Язык интерфейса -->
+                <StackPanel Spacing="8">
+                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <FontIcon Glyph="&#xF2B7;" Foreground="{ThemeResource SystemAccentColor}" FontSize="16"/>
+                        <TextBlock x:Name="LangHeaderTxt" Text="Язык интерфейса" FontWeight="SemiBold" FontSize="15" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                    </StackPanel>
+                    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="20">
                         <Grid>
                             <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
-                                <TextBlock Text="Уровень сжатия Zstandard (NSZ / XCZ)" FontWeight="Medium"/>
-                                <TextBlock Text="Выбор уровня сжатия алгоритма Zstd (от Быстрого 3 до Ультра 22)" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                <TextBlock x:Name="LangTitleTxt" Text="Язык интерфейса" FontWeight="Medium"/>
+                                <TextBlock x:Name="LangDescTxt" Text="Выберите основной язык приложения (применяется мгновенно)" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
                             </StackPanel>
-                            <ComboBox x:Name="CompressionCombo" HorizontalAlignment="Right" Width="220" SelectionChanged="CompressionCombo_Changed" VerticalAlignment="Center">
-                                <ComboBoxItem Content="Быстрое (уровень 3)" Tag="3"/>
-                                <ComboBoxItem Content="Баланс (уровень 10)" Tag="10"/>
-                                <ComboBoxItem Content="Стандарт (уровень 18)" Tag="18"/>
-                                <ComboBoxItem Content="Ультра (уровень 22)" Tag="22"/>
+                            <ComboBox x:Name="LanguageCombo" HorizontalAlignment="Right" Width="220" SelectionChanged="LanguageCombo_SelectionChanged" VerticalAlignment="Center">
+                                <ComboBoxItem Content="Русский" Tag="ru"/>
+                                <ComboBoxItem Content="English" Tag="en"/>
+                                <ComboBoxItem Content="Deutsch" Tag="de"/>
+                                <ComboBoxItem Content="中文" Tag="zh"/>
+                                <ComboBoxItem Content="日本語" Tag="ja"/>
                             </ComboBox>
                         </Grid>
-
-                        <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
-
-                        <!-- Одновременные задачи -->
-                        <Grid>
-                            <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
-                                <TextBlock Text="Максимум одновременных задач" FontWeight="Medium"/>
-                                <TextBlock Text="Количество задач, выполняемых одновременно в фоновой очереди (от 1 до 5)" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
-                            </StackPanel>
-                            <NumberBox HorizontalAlignment="Right" Width="220" Value="{x:Bind Settings.ConcurrentTasks, Mode=TwoWay}" Minimum="1" Maximum="5" SpinButtonPlacementMode="Inline" ValueChanged="Setting_ValueChanged" VerticalAlignment="Center"/>
-                        </Grid>
-
-                        <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
-
-                        <!-- Многопоточность -->
-                        <Grid>
-                            <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
-                                <TextBlock Text="Многопоточность (Используемые ядра)" FontWeight="Medium"/>
-                                <TextBlock Text="Максимальное количество ядер ЦП, выделяемых для ZstdSharp-сжатия" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
-                            </StackPanel>
-                            <NumberBox HorizontalAlignment="Right" Width="220" Value="{x:Bind Settings.UsedCores, Mode=TwoWay}" Minimum="1" Maximum="{x:Bind MaxCores, Mode=OneTime}" SpinButtonPlacementMode="Inline" ValueChanged="Setting_ValueChanged" VerticalAlignment="Center"/>
-                        </Grid>
-                    </StackPanel>
-                </Border>
-            </StackPanel>
-
-            <!-- БЛОК 4: Алгоритмы сборки и патчинга -->
-            <StackPanel Spacing="8">
-                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                    <FontIcon Glyph="&#xE8F1;" Foreground="{ThemeResource SystemAccentColor}" FontSize="16"/>
-                    <TextBlock Text="Алгоритмы сборки и очистки" FontWeight="SemiBold" FontSize="15" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                    </Border>
                 </StackPanel>
-                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="20">
-                    <StackPanel Spacing="16">
 
-                        <!-- KeyGen downgrade -->
-                        <Grid>
-                            <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
-                                <TextBlock Text="Понижение версии ключей (KeyGen)" FontWeight="Medium"/>
-                                <TextBlock Text="Маскирует требования к прошивке (0-30), позволяя запускать новые игры на старых FW" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
-                            </StackPanel>
-                            <NumberBox HorizontalAlignment="Right" Width="220" Value="{x:Bind Settings.KeyGeneration, Mode=TwoWay}" Minimum="0" Maximum="30" SpinButtonPlacementMode="Inline" ValueChanged="Setting_ValueChanged" VerticalAlignment="Center"/>
-                        </Grid>
+                <!-- БЛОК: Оформление и звуковые уведомления -->
+                <StackPanel Spacing="8">
+                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <FontIcon Glyph="&#xE771;" Foreground="{ThemeResource SystemAccentColor}" FontSize="16"/>
+                        <TextBlock x:Name="AppearHeaderTxt" Text="Оформление и звуковые уведомления" FontWeight="SemiBold" FontSize="15" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                    </StackPanel>
+                    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="20">
+                        <StackPanel Spacing="16">
 
-                        <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
-
-                        <!-- RSV Cap Downgrade -->
-                        <Grid>
-                            <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
-                                <TextBlock Text="Понижение системных требований (RSV Cap Downgrade)" FontWeight="Medium"/>
-                                <TextBlock Text="Ограничивает проверку версии системного ПО консоли в метаданных CNMT" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
-                            </StackPanel>
-                            <ComboBox x:Name="RsvCapCombo" HorizontalAlignment="Right" Width="220" SelectionChanged="RsvCapCombo_SelectionChanged" VerticalAlignment="Center">
-                                <ComboBoxItem Content="FW 18.0 (268435656)" Tag="268435656"/>
-                                <ComboBoxItem Content="FW 17.0 (251658240)" Tag="251658240"/>
-                                <ComboBoxItem Content="FW 16.0 (234880824)" Tag="234880824"/>
-                                <ComboBoxItem Content="FW 15.0 (218103408)" Tag="218103408"/>
-                                <ComboBoxItem Content="FW 10.0 (134217728)" Tag="134217728"/>
-                                <ComboBoxItem Content="FW 1.0 (65796 - Отключить)" Tag="65796"/>
-                            </ComboBox>
-                        </Grid>
-
-                        <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
-
-                        <!-- Remove Titlerights -->
-                        <Grid>
-                            <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
-                                <TextBlock Text="Удалить Titlerights (Ticketless NSP)" FontWeight="Medium"/>
-                                <TextBlock Text="Конвертирует ticket-зависимые NSP в стандартный крипто-формат без тикетов (--C_clean_ND)" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
-                            </StackPanel>
-                            <ToggleSwitch HorizontalAlignment="Right" IsOn="{x:Bind Settings.RemoveTitlerights, Mode=TwoWay}" Toggled="Toggle_Changed" 
-                                          ToolTipService.ToolTip="Игры установятся на любом CFW без привязки к тикетам. Работает через NSC_Builder (--C_clean_ND)."/>
-                        </Grid>
-
-                        <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
-
-                        <!-- Remove Delta NCA -->
-                        <Grid>
-                            <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
-                                <TextBlock Text="Удалять Delta NCA из обновлений" FontWeight="Medium"/>
-                                <TextBlock Text="Удаляет избыточные дельта-патчи из Update-файлов для экономии до 30% места (-ND true)" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
-                            </StackPanel>
-                            <ToggleSwitch HorizontalAlignment="Right" IsOn="{x:Bind Settings.RemoveDeltaNca, Mode=TwoWay}" Toggled="Toggle_Changed" 
-                                          ToolTipService.ToolTip="Дельта-патчи не нужны для монолитных пакетов. Включено по умолчанию."/>
-                        </Grid>
-
-                        <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
-
-                        <!-- Split FAT32 -->
-                        <Grid>
-                            <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
-                                <TextBlock Text="Разделять файлы для FAT32 (> 4 GB)" FontWeight="Medium"/>
-                                <TextBlock Text="Автоматически разбивает готовые файлы > 4 ГБ на чанки (.xc0/.xc1 или .00/.01) для FAT32 SD-карт" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
-                            </StackPanel>
-                            <ToggleSwitch HorizontalAlignment="Right" IsOn="{x:Bind Settings.SplitFat32, Mode=TwoWay}" Toggled="Toggle_Changed" 
-                                          ToolTipService.ToolTip="Разбивает выходные файлы >4GB на части для совместимости со старыми FAT32 флешками."/>
-                        </Grid>
-
-                        <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
-
-                        <!-- Force Multi Rebuild -->
-                        <Grid>
-                            <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
-                                <TextBlock Text="Пересборка файлов в Мульти-контенте" FontWeight="Medium"/>
-                                <TextBlock Text="Полная пересборка контейнеров PFS0 через NSC_Builder для устранения ошибок в эмуляторах" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
-                            </StackPanel>
-                            <ToggleSwitch HorizontalAlignment="Right" IsOn="{x:Bind Settings.ForceMultiRebuild, Mode=TwoWay}" Toggled="Toggle_Changed"
-                                          ToolTipService.ToolTip="Гарантирует запуск объединенных пакетов в эмуляторах Eden, Yuzu и Ryujinx."/>
-                        </Grid>
-
-                        <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
-
-                        <!-- Language Trimming -->
-                        <StackPanel Spacing="12">
+                            <!-- Visual Theme -->
                             <Grid>
                                 <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
-                                    <TextBlock Text="Удалять неиспользуемые языки из RomFS" FontWeight="Medium"/>
-                                    <TextBlock Text="Работает при конвертации NSP/NSZ → XCI/XCZ и при HardPatch (пересборка Base+Update)" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                    <TextBlock x:Name="ThemeTitleTxt" Text="Тема оформления интерфейса" FontWeight="Medium"/>
+                                    <TextBlock x:Name="ThemeDescTxt" Text="Выбор общей стилистической темы оформления приложения" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
                                 </StackPanel>
-                                <ToggleSwitch x:Name="TrimXciToggle" HorizontalAlignment="Right" IsOn="{x:Bind Settings.TrimXci, Mode=TwoWay}" Toggled="Toggle_Changed" ToolTipService.ToolTip="Удаляет неиспользуемые языковые данные из RomFS при конвертации или пересборке. Уменьшает размер файла."/>
+                                <ComboBox x:Name="ThemeCombo" HorizontalAlignment="Right" Width="220" SelectionChanged="ThemeCombo_SelectionChanged" VerticalAlignment="Center">
+                                    <ComboBoxItem Content="🌌 STORM MIDNIGHT" Tag="STORM MIDNIGHT"/>
+                                    <ComboBoxItem Content="🖤 STORM NIGHT" Tag="STORM NIGHT"/>
+                                    <ComboBoxItem Content="☀️ STORM DAY" Tag="STORM DAY"/>
+                                    <ComboBoxItem Content="⚡ STORM CYBERPUNK" Tag="STORM CYBERPUNK"/>
+                                </ComboBox>
                             </Grid>
-                            
-                            <!-- Выбор языков -->
-                            <Border x:Name="LanguageSelectionPanel" Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}" CornerRadius="6" Padding="14"
-                                    Visibility="{x:Bind TrimXciToggle.IsOn, Mode=OneWay}">
-                                <StackPanel Spacing="10">
-                                    <TextBlock Text="Выберите языки, которые нужно ОСТАВИТЬ при вырезании:" FontSize="13" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                                    <ItemsControl x:Name="LanguageItemsControl">
-                                        <ItemsControl.ItemsPanel>
-                                            <ItemsPanelTemplate>
-                                                <VariableSizedWrapGrid Orientation="Horizontal" ItemWidth="150" />
-                                            </ItemsPanelTemplate>
-                                        </ItemsControl.ItemsPanel>
-                                    </ItemsControl>
+
+                            <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
+
+                            <!-- Accent Color theme -->
+                            <Grid>
+                                <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock x:Name="AccentTitleTxt" Text="Цветовой акцент интерфейса" FontWeight="Medium"/>
+                                    <TextBlock x:Name="AccentDescTxt" Text="Выбор главного акцентного цвета элементов приложения" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
                                 </StackPanel>
+                                <ComboBox x:Name="AccentColorCombo" HorizontalAlignment="Right" Width="220" SelectionChanged="AccentColorCombo_SelectionChanged" VerticalAlignment="Center">
+                                    <ComboBoxItem Content="Системный (Default)" Tag="Default"/>
+                                    <ComboBoxItem Content="Электрический Синий" Tag="#0078D4"/>
+                                    <ComboBoxItem Content="Изумрудный Зеленый" Tag="#107C41"/>
+                                    <ComboBoxItem Content="Неоновый Фиолетовый" Tag="#8E44AD"/>
+                                    <ComboBoxItem Content="Закат Оранжевый" Tag="#E67E22"/>
+                                    <ComboBoxItem Content="Алый Красный" Tag="#E74C3C"/>
+                                </ComboBox>
+                            </Grid>
+
+                            <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
+
+                            <!-- Sound notifications -->
+                            <Grid>
+                                <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock x:Name="SoundTitleTxt" Text="Звуковые уведомления" FontWeight="Medium"/>
+                                    <TextBlock x:Name="SoundDescTxt" Text="Воспроизводить звуковой сигнал по окончании выполнения очереди задач" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <ToggleSwitch x:Name="SoundToggle" HorizontalAlignment="Right" IsOn="{x:Bind Settings.EnableSoundNotifications, Mode=TwoWay}" Toggled="Toggle_Changed"/>
+                            </Grid>
+
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <!-- БЛОК: Пути и организация файлов -->
+                <StackPanel Spacing="8">
+                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <FontIcon Glyph="&#xE8B7;" Foreground="{ThemeResource SystemAccentColor}" FontSize="16"/>
+                        <TextBlock x:Name="FilesHeaderTxt" Text="Пути и организация файлов" FontWeight="SemiBold" FontSize="15" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                    </StackPanel>
+                    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="20">
+                        <StackPanel Spacing="16">
+                            <!-- Комплексные имена -->
+                            <Grid>
+                                <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock x:Name="ComplexTitleTxt" Text="Комплексное выходное имя файла по папкам" FontWeight="Medium" VerticalAlignment="Center"/>
+                                    <TextBlock x:Name="ComplexDescTxt" Text="Создает удобные вложенные папки формата [Название Игры]/[Формат] с TitleID и версией в названии" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <ToggleSwitch x:Name="ComplexFoldersToggle" HorizontalAlignment="Right" IsOn="{x:Bind Settings.ComplexFolders, Mode=TwoWay}" Toggled="Toggle_Changed"
+                                              ToolTipService.ToolTip="Автоматически раскладывает готовые файлы по папкам и добавляет [TitleID] [vVersion] в имя файла."/>
+                            </Grid>
+
+                            <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
+
+                            <!-- Удалять исходники после успеха -->
+                            <Grid>
+                                <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock x:Name="DeleteSrcTitleTxt" Text="Удалять исходные файлы после успешной обработки" FontWeight="Medium" VerticalAlignment="Center"/>
+                                    <TextBlock x:Name="DeleteSrcDescTxt" Text="Автоматически удаляет оригинальный входной файл после успешной конвертации или сборки" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <ToggleSwitch x:Name="DeleteSourceToggle" HorizontalAlignment="Right" IsOn="{x:Bind Settings.DeleteSourceOnSuccess, Mode=TwoWay}" Toggled="Toggle_Changed"
+                                              ToolTipService.ToolTip="Экономит место на диске, удаляя исходники только после 100% безошибочного завершения."/>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <!-- БЛОК: Производительность и сжатие -->
+                <StackPanel Spacing="8">
+                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <FontIcon Glyph="&#xE945;" Foreground="{ThemeResource SystemAccentColor}" FontSize="16"/>
+                        <TextBlock x:Name="PerfHeaderTxt" Text="Производительность и сжатие" FontWeight="SemiBold" FontSize="15" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                    </StackPanel>
+                    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="20">
+                        <StackPanel Spacing="16">
+                            <!-- Уровень сжатия -->
+                            <Grid>
+                                <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock x:Name="CompTitleTxt" Text="Уровень сжатия Zstandard (NSZ / XCZ)" FontWeight="Medium"/>
+                                    <TextBlock x:Name="CompDescTxt" Text="Выбор уровня сжатия алгоритма Zstd (от Быстрого 3 до Ультра 22)" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <ComboBox x:Name="CompressionCombo" HorizontalAlignment="Right" Width="220" SelectionChanged="CompressionCombo_Changed" VerticalAlignment="Center">
+                                    <ComboBoxItem Content="Быстрое (уровень 3)" Tag="3"/>
+                                    <ComboBoxItem Content="Баланс (уровень 10)" Tag="10"/>
+                                    <ComboBoxItem Content="Стандарт (уровень 18)" Tag="18"/>
+                                    <ComboBoxItem Content="Ультра (уровень 22)" Tag="22"/>
+                                </ComboBox>
+                            </Grid>
+
+                            <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
+
+                            <!-- Одновременные задачи -->
+                            <Grid>
+                                <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock x:Name="TasksTitleTxt" Text="Максимум одновременных задач" FontWeight="Medium"/>
+                                    <TextBlock x:Name="TasksDescTxt" Text="Количество задач, выполняемых одновременно в фоновой очереди (от 1 до 5)" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <NumberBox HorizontalAlignment="Right" Width="220" Value="{x:Bind Settings.ConcurrentTasks, Mode=TwoWay}" Minimum="1" Maximum="5" SpinButtonPlacementMode="Inline" ValueChanged="Setting_ValueChanged" VerticalAlignment="Center"/>
+                            </Grid>
+
+                            <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
+
+                            <!-- Многопоточность -->
+                            <Grid>
+                                <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock x:Name="ThreadsTitleTxt" Text="Многопоточность (Используемые ядра)" FontWeight="Medium"/>
+                                    <TextBlock x:Name="ThreadsDescTxt" Text="Максимальное количество ядер ЦП, выделяемых для ZstdSharp-сжатия" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <NumberBox HorizontalAlignment="Right" Width="220" Value="{x:Bind Settings.UsedCores, Mode=TwoWay}" Minimum="1" Maximum="{x:Bind MaxCores, Mode=OneTime}" SpinButtonPlacementMode="Inline" ValueChanged="Setting_ValueChanged" VerticalAlignment="Center"/>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <!-- БЛОК: О программе -->
+                <StackPanel Spacing="8">
+                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <FontIcon Glyph="&#xE946;" Foreground="{ThemeResource SystemAccentColor}" FontSize="16"/>
+                        <TextBlock x:Name="AboutHeaderTxt" Text="О программе" FontWeight="SemiBold" FontSize="15" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                    </StackPanel>
+                    <Border Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="20">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Border Width="96" Height="96" CornerRadius="12" Background="Transparent" Margin="0,0,24,0" VerticalAlignment="Top">
+                                <Image Source="ms-appx:///Assets/logo.png" Stretch="Uniform" Width="96" Height="96"/>
                             </Border>
-                        </StackPanel>
+                            <StackPanel Grid.Column="1" Spacing="6">
+                                <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                    <TextBlock x:Name="AppTitleVersionTxt" Text="STORM SWITCH BOX 4.6.8" FontWeight="Bold" FontSize="22"/>
+                                    <Border Background="{ThemeResource SystemAccentColor}" CornerRadius="4" Padding="6,2" VerticalAlignment="Center">
+                                        <TextBlock Text="WinUI 3 Native" Foreground="White" FontSize="11" FontWeight="Bold"/>
+                                    </Border>
+                                </StackPanel>
+                                <TextBlock x:Name="AboutDescriptionTxt" Text="Специализированный комбайн для обработки, сжатия и конвертации игр Nintendo Switch и Nintendo 3DS. Нативная интеграция высокопроизводительных алгоритмов для максимальной производительности." 
+                                           TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Margin="0,6,0,0" LineHeight="20" FontSize="13"/>
+                                <StackPanel Orientation="Horizontal" Spacing="16" Margin="0,16,0,0">
+                                    <Button x:Name="CheckUpdatesButton" Content="Проверить обновления" Style="{StaticResource AccentButtonStyle}" Padding="16,8" Click="CheckUpdatesButton_Click" CornerRadius="6"/>
+                                    <ProgressRing x:Name="UpdateProgressRing" IsActive="False" Width="20" Height="20" VerticalAlignment="Center" Visibility="Collapsed"/>
+                                    <Button x:Name="OpenLogsButton" Content="Открыть папку с логами" Padding="16,8" Click="OpenLogsFolder_Click" CornerRadius="6"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                </StackPanel>
 
-                    </StackPanel>
-                </Border>
             </StackPanel>
 
-            <!-- БЛОК 5: Оформление и звуковые уведомления -->
-            <StackPanel Spacing="8">
-                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                    <FontIcon Glyph="&#xE771;" Foreground="{ThemeResource SystemAccentColor}" FontSize="16"/>
-                    <TextBlock Text="Оформление и звуковые уведомления" FontWeight="SemiBold" FontSize="15" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
-                </StackPanel>
-                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="20">
-                    <StackPanel Spacing="16">
-
-                        <!-- Sound notifications -->
-                        <Grid>
-                            <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
-                                <TextBlock Text="Звуковые уведомления" FontWeight="Medium"/>
-                                <TextBlock Text="Воспроизводить звуковой сигнал по окончании выполнения очереди задач" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
-                            </StackPanel>
-                            <ToggleSwitch HorizontalAlignment="Right" IsOn="{x:Bind Settings.EnableSoundNotifications, Mode=TwoWay}" Toggled="Toggle_Changed"/>
-                        </Grid>
-
-                        <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
-
-                        <!-- Visual Theme -->
-                        <Grid>
-                            <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
-                                <TextBlock Text="Тема оформления интерфейса" FontWeight="Medium"/>
-                                <TextBlock Text="Выбор общей стилистической темы (STORM MIDNIGHT, NIGHT OLED, DAY Light, CYBERPUNK 2077)" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
-                            </StackPanel>
-                            <ComboBox x:Name="ThemeCombo" HorizontalAlignment="Right" Width="220" SelectionChanged="ThemeCombo_SelectionChanged" VerticalAlignment="Center">
-                                <ComboBoxItem Content="🌌 STORM MIDNIGHT" Tag="STORM MIDNIGHT"/>
-                                <ComboBoxItem Content="🖤 STORM NIGHT" Tag="STORM NIGHT"/>
-                                <ComboBoxItem Content="☀️ STORM DAY" Tag="STORM DAY"/>
-                                <ComboBoxItem Content="⚡ STORM CYBERPUNK" Tag="STORM CYBERPUNK"/>
-                            </ComboBox>
-                        </Grid>
-
-                        <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
-
-                        <!-- Accent Color theme -->
-                        <Grid>
-                            <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
-                                <TextBlock Text="Цветовой акцент интерфейса" FontWeight="Medium"/>
-                                <TextBlock Text="Выбор главного акцентного цвета элементов приложения (применяется мгновенно)" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
-                            </StackPanel>
-                            <ComboBox x:Name="AccentColorCombo" HorizontalAlignment="Right" Width="220" SelectionChanged="AccentColorCombo_SelectionChanged" VerticalAlignment="Center">
-                                <ComboBoxItem Content="Системный (Default)" Tag="Default"/>
-                                <ComboBoxItem Content="Электрический Синий" Tag="#0078D4"/>
-                                <ComboBoxItem Content="Изумрудный Зеленый" Tag="#107C41"/>
-                                <ComboBoxItem Content="Неоновый Фиолетовый" Tag="#8E44AD"/>
-                                <ComboBoxItem Content="Закат Оранжевый" Tag="#E67E22"/>
-                                <ComboBoxItem Content="Алый Красный" Tag="#E74C3C"/>
-                            </ComboBox>
-                        </Grid>
-
+            <!-- ========================================== -->
+            <!-- 2. ВКЛАДКА: НАСТРОЙКИ NINTENDO SWITCH       -->
+            <!-- ========================================== -->
+            <StackPanel x:Name="SwitchSettingsPanel" Visibility="Collapsed" Spacing="24">
+                <!-- БЛОК 1: Криптографические ключи Switch -->
+                <StackPanel Spacing="8">
+                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <FontIcon Glyph="&#xE8D7;" Foreground="{ThemeResource SystemAccentColor}" FontSize="16"/>
+                        <TextBlock x:Name="SwitchKeysHeaderTxt" Text="Криптографические ключи Nintendo Switch" FontWeight="SemiBold" FontSize="15" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
                     </StackPanel>
-                </Border>
-            </StackPanel>
-
-            <!-- БЛОК 6: О программе -->
-            <StackPanel Spacing="8">
-                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                    <FontIcon Glyph="&#xE946;" Foreground="{ThemeResource SystemAccentColor}" FontSize="16"/>
-                    <TextBlock Text="О программе" FontWeight="SemiBold" FontSize="15" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="20">
+                        <Grid AllowDrop="True" DragOver="KeysFile_DragOver" Drop="KeysFile_Drop" Padding="4" CornerRadius="6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center" Spacing="4" Margin="0,0,16,0">
+                                <TextBlock x:Name="SwitchKeysTitleTxt" Text="Файл криптографических ключей (prod.keys / keys.txt)" FontWeight="Medium" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                <TextBlock x:Name="SwitchKeysDescTxt" Text="Загружать ключи для расшифровки. Можно перетащить файл прямо сюда" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
+                                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" Visibility="{x:Bind KeysSelectedVisibility, Mode=OneTime}">
+                                    <FontIcon Glyph="&#xE73E;" Foreground="LimeGreen" FontSize="14"/>
+                                    <TextBlock x:Name="SwitchKeysLoadedTxt" Text="Файл выбран" Foreground="LimeGreen" FontWeight="SemiBold" VerticalAlignment="Center" FontSize="12"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" ToolTipService.ToolTip="Версия ключей прошивки (6 ячеек)">
+                                    <TextBox x:Name="VerBox1" Width="32" Height="32" CornerRadius="6" MaxLength="1" FontSize="14" FontWeight="Bold" Padding="0,3,0,0" TextAlignment="Center" KeyDown="VerBox_KeyDown" TextChanged="VerBox_TextChanged"/>
+                                    <TextBox x:Name="VerBox2" Width="32" Height="32" CornerRadius="6" MaxLength="1" FontSize="14" FontWeight="Bold" Padding="0,3,0,0" TextAlignment="Center" KeyDown="VerBox_KeyDown" TextChanged="VerBox_TextChanged"/>
+                                    <TextBlock Text="." FontSize="18" FontWeight="Bold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" Margin="1,0,1,0"/>
+                                    <TextBox x:Name="VerBox4" Width="32" Height="32" CornerRadius="6" MaxLength="1" FontSize="14" FontWeight="Bold" Padding="0,3,0,0" TextAlignment="Center" KeyDown="VerBox_KeyDown" TextChanged="VerBox_TextChanged"/>
+                                    <TextBlock Text="." FontSize="18" FontWeight="Bold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" Margin="1,0,1,0"/>
+                                    <TextBox x:Name="VerBox6" Width="32" Height="32" CornerRadius="6" MaxLength="1" FontSize="14" FontWeight="Bold" Padding="0,3,0,0" TextAlignment="Center" KeyDown="VerBox_KeyDown" TextChanged="VerBox_TextChanged"/>
+                                </StackPanel>
+                                <Button x:Name="SelectKeysButton" Content="📂 Выбрать файл" Click="SelectKeysButton_Click" VerticalAlignment="Center" CornerRadius="6"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
                 </StackPanel>
-                <Border Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="20">
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <Border Width="96" Height="96" CornerRadius="12" Background="Transparent" Margin="0,0,24,0" VerticalAlignment="Top">
-                            <Image Source="ms-appx:///Assets/logo.png" Stretch="Uniform" Width="96" Height="96"/>
-                        </Border>
-                        <StackPanel Grid.Column="1" Spacing="6">
-                            <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                                <TextBlock Text="STORM SWITCH BOX 4.4.4" FontWeight="Bold" FontSize="22"/>
-                                <Border Background="{ThemeResource SystemAccentColor}" CornerRadius="4" Padding="6,2" VerticalAlignment="Center">
-                                    <TextBlock Text="WinUI 3 Native" Foreground="White" FontSize="11" FontWeight="Bold"/>
+
+                <!-- БЛОК 4: Алгоритмы сборки и патчинга Switch -->
+                <StackPanel Spacing="8">
+                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <FontIcon Glyph="&#xE8F1;" Foreground="{ThemeResource SystemAccentColor}" FontSize="16"/>
+                        <TextBlock x:Name="SwitchAlgoHeaderTxt" Text="Алгоритмы сборки и очистки Switch" FontWeight="SemiBold" FontSize="15" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                    </StackPanel>
+                    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="20">
+                        <StackPanel Spacing="16">
+
+                            <!-- KeyGen downgrade -->
+                            <Grid>
+                                <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock x:Name="KeyGenTitleTxt" Text="Понижение версии ключей (KeyGen)" FontWeight="Medium"/>
+                                    <TextBlock x:Name="KeyGenDescTxt" Text="Маскирует требования к прошивке (0-30), позволяя запускать новые игры на старых FW" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <NumberBox HorizontalAlignment="Right" Width="220" Value="{x:Bind Settings.KeyGeneration, Mode=TwoWay}" Minimum="0" Maximum="30" SpinButtonPlacementMode="Inline" ValueChanged="Setting_ValueChanged" VerticalAlignment="Center"/>
+                            </Grid>
+
+                            <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
+
+                            <!-- RSV Cap Downgrade -->
+                            <Grid>
+                                <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock x:Name="RsvTitleTxt" Text="Понижение системных требований (RSV Cap Downgrade)" FontWeight="Medium"/>
+                                    <TextBlock x:Name="RsvDescTxt" Text="Ограничивает проверку версии системного ПО консоли в метаданных CNMT" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <ComboBox x:Name="RsvCapCombo" HorizontalAlignment="Right" Width="220" SelectionChanged="RsvCapCombo_SelectionChanged" VerticalAlignment="Center">
+                                    <ComboBoxItem Content="FW 18.0 (268435656)" Tag="268435656"/>
+                                    <ComboBoxItem Content="FW 17.0 (251658240)" Tag="251658240"/>
+                                    <ComboBoxItem Content="FW 16.0 (234880824)" Tag="234880824"/>
+                                    <ComboBoxItem Content="FW 15.0 (218103408)" Tag="218103408"/>
+                                    <ComboBoxItem Content="FW 10.0 (134217728)" Tag="134217728"/>
+                                    <ComboBoxItem Content="FW 1.0 (65796 - Отключить)" Tag="65796"/>
+                                </ComboBox>
+                            </Grid>
+
+                            <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
+
+                            <!-- Remove Titlerights -->
+                            <Grid>
+                                <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock x:Name="TitlerightsTitleTxt" Text="Удалить Titlerights (Ticketless NSP)" FontWeight="Medium"/>
+                                    <TextBlock x:Name="TitlerightsDescTxt" Text="Конвертирует ticket-зависимые NSP в стандартный крипто-формат без тикетов (--C_clean_ND)" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <ToggleSwitch x:Name="RemoveTitlerightsToggle" HorizontalAlignment="Right" IsOn="{x:Bind Settings.RemoveTitlerights, Mode=TwoWay}" Toggled="Toggle_Changed" 
+                                              ToolTipService.ToolTip="Игры установятся на любом CFW без привязки к тикетам. Работает через NSC_Builder (--C_clean_ND)."/>
+                            </Grid>
+
+                            <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
+
+                            <!-- Remove Delta NCA -->
+                            <Grid>
+                                <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock x:Name="DeltaTitleTxt" Text="Удалять Delta NCA из обновлений" FontWeight="Medium"/>
+                                    <TextBlock x:Name="DeltaDescTxt" Text="Удаляет избыточные дельта-патчи из Update-файлов для экономии до 30% места (-ND true)" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <ToggleSwitch x:Name="RemoveDeltaNcaToggle" HorizontalAlignment="Right" IsOn="{x:Bind Settings.RemoveDeltaNca, Mode=TwoWay}" Toggled="Toggle_Changed" 
+                                              ToolTipService.ToolTip="Дельта-патчи не нужны для монолитных пакетов. Включено по умолчанию."/>
+                            </Grid>
+
+                            <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
+
+                            <!-- Split FAT32 -->
+                            <Grid>
+                                <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock x:Name="Fat32TitleTxt" Text="Разделять файлы для FAT32 (> 4 GB)" FontWeight="Medium"/>
+                                    <TextBlock x:Name="Fat32DescTxt" Text="Автоматически разбивает готовые файлы > 4 ГБ на чанки (.xc0/.xc1 или .00/.01) для FAT32 SD-карт" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <ToggleSwitch x:Name="SplitFat32Toggle" HorizontalAlignment="Right" IsOn="{x:Bind Settings.SplitFat32, Mode=TwoWay}" Toggled="Toggle_Changed" 
+                                              ToolTipService.ToolTip="Разбивает выходные файлы >4GB на части для совместимости со старыми FAT32 флешками."/>
+                            </Grid>
+
+                            <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
+
+                            <!-- Force Multi Rebuild -->
+                            <Grid>
+                                <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock x:Name="ForceMultiTitleTxt" Text="Пересборка файлов в Мульти-контенте" FontWeight="Medium"/>
+                                    <TextBlock x:Name="ForceMultiDescTxt" Text="Полная пересборка контейнеров PFS0 через NSC_Builder для устранения ошибок в эмуляторах" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <ToggleSwitch x:Name="ForceMultiRebuildToggle" HorizontalAlignment="Right" IsOn="{x:Bind Settings.ForceMultiRebuild, Mode=TwoWay}" Toggled="Toggle_Changed"
+                                              ToolTipService.ToolTip="Гарантирует запуск объединенных пакетов в эмуляторах Eden, Yuzu и Ryujinx."/>
+                            </Grid>
+
+                            <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
+
+                            <!-- Language Trimming -->
+                            <StackPanel Spacing="12">
+                                <Grid>
+                                    <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                                        <TextBlock x:Name="LangTrimTitleTxt" Text="Удалять неиспользуемые языки из RomFS" FontWeight="Medium"/>
+                                        <TextBlock x:Name="LangTrimDescTxt" Text="Работает при конвертации NSP/NSZ → XCI/XCZ и при HardPatch (пересборка Base+Update)" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                    <ToggleSwitch x:Name="TrimXciToggle" HorizontalAlignment="Right" IsOn="{x:Bind Settings.TrimXci, Mode=TwoWay}" Toggled="Toggle_Changed" ToolTipService.ToolTip="Удаляет неиспользуемые языковые данные из RomFS при конвертации или пересборке. Уменьшает размер файла."/>
+                                </Grid>
+                                
+                                <!-- Выбор языков -->
+                                <Border x:Name="LanguageSelectionPanel" Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}" CornerRadius="6" Padding="14"
+                                        Visibility="{x:Bind TrimXciToggle.IsOn, Mode=OneWay}">
+                                    <StackPanel Spacing="10">
+                                        <TextBlock x:Name="LangTrimSubTxt" Text="Выберите языки, которые нужно ОСТАВИТЬ при вырезании:" FontSize="13" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                        <ItemsControl x:Name="LanguageItemsControl">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <VariableSizedWrapGrid Orientation="Horizontal" ItemWidth="150" />
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                        </ItemsControl>
+                                    </StackPanel>
                                 </Border>
                             </StackPanel>
-                            <TextBlock Text="Специализированный комбайн для обработки, сжатия и конвертации игр Nintendo Switch. Интеграция нативных алгоритмов (LibHac + ZstdSharp) для максимальной производительности." 
-                                       TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Margin="0,6,0,0" LineHeight="20" FontSize="13"/>
-                            <StackPanel Orientation="Horizontal" Spacing="16" Margin="0,16,0,0">
-                                <Button Content="Проверить обновления" Style="{StaticResource AccentButtonStyle}" Padding="16,8" Click="CheckUpdatesButton_Click" x:Name="CheckUpdatesButton" CornerRadius="6"/>
-                                <ProgressRing x:Name="UpdateProgressRing" IsActive="False" Width="20" Height="20" VerticalAlignment="Center" Visibility="Collapsed"/>
-                                <Button Content="Открыть папку с логами" Padding="16,8" Click="OpenLogsFolder_Click" CornerRadius="6"/>
+
+                            <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
+
+                            <!-- Автоматическая «Умная» папка (Switch Watch Folder) -->
+                            <StackPanel Spacing="12">
+                                <Grid>
+                                    <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                                        <TextBlock x:Name="SwitchWatchTitleTxt" Text="«Умная» папка Nintendo Switch" FontWeight="Medium"/>
+                                        <TextBlock x:Name="SwitchWatchDescTxt" Text="Автоматически обнаруживает файлы Switch (.nsp, .nsz, .xci, .xcz, архивы .zip, .rar, .7z) и отправляет в задачи" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                    <ToggleSwitch x:Name="WatchFolderSwitchToggle" HorizontalAlignment="Right" IsOn="{x:Bind Settings.EnableWatchFolderSwitch, Mode=TwoWay}" Toggled="WatchFolderSwitchToggle_Toggled" VerticalAlignment="Center"/>
+                                </Grid>
+
+                                <StackPanel Visibility="{x:Bind WatchFolderSwitchToggle.IsOn, Mode=OneWay}" Spacing="12" Margin="0,4,0,0">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBox x:Name="WatchFolderBoxSwitch" HorizontalAlignment="Stretch" Margin="0,0,12,0" PlaceholderText="Папка не выбрана (можно перетащить)" 
+                                                 Text="{x:Bind Settings.WatchFolderSwitch, Mode=TwoWay}" IsReadOnly="True" VerticalAlignment="Center"
+                                                 AllowDrop="True" DragOver="WatchFolderBoxSwitch_DragOver" Drop="WatchFolderBoxSwitch_Drop"/>
+                                        <Button x:Name="SelectWatchFolderSwitchButton" Grid.Column="1" Content="Выбрать папку..." Click="SelectWatchFolderSwitch_Click" VerticalAlignment="Center" CornerRadius="6"/>
+                                    </Grid>
+
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                                            <TextBlock x:Name="SwitchWatchTaskAndFmtTxt" Text="Выполняемая задача и формат:" FontSize="12" FontWeight="SemiBold"/>
+                                            <TextBlock x:Name="WatchFolderSwitchSummaryBadge" Text="⚡ Switch авто-обработка: Сжатие в NSZ" FontSize="11" Foreground="{ThemeResource SystemAccentColor}" FontWeight="Bold"/>
+                                        </StackPanel>
+
+                                        <ComboBox x:Name="WatchFolderActionComboSwitch" Grid.Column="1" Width="160" Margin="0,0,8,0" SelectionChanged="WatchFolderActionComboSwitch_SelectionChanged" VerticalAlignment="Center">
+                                            <ComboBoxItem Content="Сжатие" Tag="0"/>
+                                            <ComboBoxItem Content="Распаковка" Tag="1"/>
+                                            <ComboBoxItem Content="Упаковка" Tag="2"/>
+                                            <ComboBoxItem Content="Конвертация" Tag="3"/>
+                                            <ComboBoxItem Content="Мульти-контент" Tag="4"/>
+                                            <ComboBoxItem Content="Проверка" Tag="5"/>
+                                        </ComboBox>
+
+                                        <ComboBox x:Name="WatchFolderFormatComboSwitch" Grid.Column="2" Width="90" Margin="0,0,12,0" SelectionChanged="WatchFolderFormatComboSwitch_SelectionChanged" VerticalAlignment="Center">
+                                            <ComboBoxItem Content="NSP" Tag="0"/>
+                                            <ComboBoxItem Content="NSZ" Tag="1"/>
+                                            <ComboBoxItem Content="XCI" Tag="2"/>
+                                            <ComboBoxItem Content="XCZ" Tag="3"/>
+                                        </ComboBox>
+
+                                        <Button x:Name="ToggleWatchFolderSwitchBtn" Grid.Column="3" Content="▶ Запустить отслеживание" Click="ToggleWatchFolderSwitchBtn_Click" 
+                                                Style="{StaticResource AccentButtonStyle}" VerticalAlignment="Center" CornerRadius="6" Padding="12,6"/>
+                                    </Grid>
+                                    <TextBlock x:Name="WatchFolderSwitchStatusTxt" Text="○ Отслеживание остановлено" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                </StackPanel>
                             </StackPanel>
+
+                            <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
+
+                            <!-- Выходная папка по умолчанию Switch -->
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <StackPanel Grid.Row="0" Margin="0,0,0,8" Spacing="2">
+                                    <TextBlock x:Name="SwitchOutFolderTitleTxt" Text="Выходная папка Switch по умолчанию" FontWeight="Medium" VerticalAlignment="Center"/>
+                                    <TextBlock x:Name="SwitchOutFolderDescTxt" Text="Папка для сохранения обработанных файлов Switch (.nsp / .nsz / .xci / .xcz). Можно перетащить папку сюда" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <Grid Grid.Row="1">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox x:Name="OutputFolderBox" HorizontalAlignment="Stretch" Margin="0,0,12,0" PlaceholderText="Не указана (сохранять в папку с исходным файлом)" 
+                                             Text="{x:Bind Settings.OutputFolder, Mode=TwoWay}" IsReadOnly="True" VerticalAlignment="Center"
+                                             AllowDrop="True" DragOver="OutputFolderBox_DragOver" Drop="OutputFolderBox_Drop"/>
+                                    <Button x:Name="SelectOutputFolderButton" Grid.Column="1" Content="Обзор..." Click="SelectOutputFolder_Click" VerticalAlignment="Center" CornerRadius="6"/>
+                                </Grid>
+                            </Grid>
+
                         </StackPanel>
-                    </Grid>
-                </Border>
+                    </Border>
+                </StackPanel>
+            </StackPanel>
+
+            <!-- ========================================== -->
+            <!-- 3. ВКЛАДКА: НАСТРОЙКИ NINTENDO 3DS         -->
+            <!-- ========================================== -->
+            <StackPanel x:Name="ThreeDsSettingsPanel" Visibility="Collapsed" Spacing="24">
+                <!-- БЛОК: Ключи 3DS -->
+                <StackPanel Spacing="8">
+                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <FontIcon Glyph="&#xE8D7;" Foreground="{ThemeResource SystemAccentColor}" FontSize="16"/>
+                        <TextBlock x:Name="ThreeDsKeysHeaderTxt" Text="Криптографические ключи Nintendo 3DS" FontWeight="SemiBold" FontSize="15" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                    </StackPanel>
+                    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="20">
+                        <Grid AllowDrop="True" DragOver="KeysFile3ds_DragOver" Drop="KeysFile3ds_Drop" Padding="4" CornerRadius="6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center" Spacing="4" Margin="0,0,16,0">
+                                <TextBlock x:Name="ThreeDsKeysTitleTxt" Text="Файл ключей 3DS (aes_keys.txt / boot9.bin / encTitleKeys.bin)" FontWeight="Medium" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                <TextBlock x:Name="ThreeDsKeysDescTxt" Text="Используется для дешифровки NCCH, CIA and RomFS при сборке и конвертации. Можно перетащить файл сюда" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
+                                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" Visibility="{x:Bind Keys3dsSelectedVisibility, Mode=OneTime}">
+                                    <FontIcon Glyph="&#xE73E;" Foreground="LimeGreen" FontSize="14"/>
+                                    <TextBlock x:Name="ThreeDsKeysLoadedTxt" Text="Ключи подключены" Foreground="LimeGreen" FontWeight="SemiBold" VerticalAlignment="Center" FontSize="12"/>
+                                </StackPanel>
+                                <Button x:Name="SelectKeys3dsButton" Content="📂 Выбрать файл" Click="SelectKeys3dsButton_Click" VerticalAlignment="Center" CornerRadius="6"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                </StackPanel>
+
+                <!-- БЛОК: Параметры сборки 3DS -->
+                <StackPanel Spacing="8">
+                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <FontIcon Glyph="&#xE8F1;" Foreground="{ThemeResource SystemAccentColor}" FontSize="16"/>
+                        <TextBlock x:Name="ThreeDsAlgoHeaderTxt" Text="Алгоритмы сборки и форматы Nintendo 3DS" FontWeight="SemiBold" FontSize="15" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                    </StackPanel>
+                    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="20">
+                        <StackPanel Spacing="16">
+                            <!-- Выходной формат 3DS по умолчанию -->
+                            <Grid>
+                                <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock x:Name="ThreeDsFormatTitleTxt" Text="Выходной формат 3DS по умолчанию" FontWeight="Medium"/>
+                                    <TextBlock x:Name="ThreeDsFormatDescTxt" Text="Формат по умолчанию для конвертации и сборки (.3ds / .cci для эмуляторов Citra/Lime3DS, .cia для установки)" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <ComboBox x:Name="Format3dsCombo" HorizontalAlignment="Right" Width="300" SelectionChanged="Format3dsCombo_SelectionChanged" VerticalAlignment="Center">
+                                    <ComboBoxItem Content="3DS (CCI - для эмуляторов)" Tag="3DS"/>
+                                    <ComboBoxItem Content="CIA (Установочный пакет)" Tag="CIA"/>
+                                    <ComboBoxItem Content="CXI (Исполняемый NCCH)" Tag="CXI"/>
+                                </ComboBox>
+                            </Grid>
+
+                            <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
+
+                            <!-- HardPatch 3DS -->
+                            <Grid>
+                                <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock x:Name="ThreeDsHardPatchTitleTxt" Text="3DS HardPatch (Вшивание обновлений и модов)" FontWeight="Medium"/>
+                                    <TextBlock x:Name="ThreeDsHardPatchDescTxt" Text="Автоматически распаковывает RomFS/ExeFS, накладывает файлы обновления и модов/переводов и пересобирает единый образ" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <ToggleSwitch x:Name="HardPatch3dsToggle" HorizontalAlignment="Right" IsOn="{x:Bind Settings.HardPatch3ds, Mode=TwoWay}" Toggled="Toggle3ds_Changed"
+                                              ToolTipService.ToolTip="Создает монолитный .3ds или .cia файл со встроенным патчем и переводом."/>
+                            </Grid>
+
+                            <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
+
+                            <!-- Автоматическая «Умная» папка (3DS Watch Folder) -->
+                            <StackPanel Spacing="12">
+                                <Grid>
+                                    <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                                        <TextBlock x:Name="ThreeDsWatchTitleTxt" Text="«Умная» папка Nintendo 3DS" FontWeight="Medium"/>
+                                        <TextBlock x:Name="ThreeDsWatchDescTxt" Text="Автоматически обнаруживает файлы 3DS (.3ds, .cci, .cia, .cxi, архивы .zip, .rar, .7z) и отправляет в задачи" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                    <ToggleSwitch x:Name="WatchFolder3dsToggle" HorizontalAlignment="Right" IsOn="{x:Bind Settings.EnableWatchFolder3ds, Mode=TwoWay}" Toggled="WatchFolder3dsToggle_Toggled" VerticalAlignment="Center"/>
+                                </Grid>
+
+                                <StackPanel Visibility="{x:Bind WatchFolder3dsToggle.IsOn, Mode=OneWay}" Spacing="12" Margin="0,4,0,0">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBox x:Name="WatchFolderBox3ds" HorizontalAlignment="Stretch" Margin="0,0,12,0" PlaceholderText="Папка не выбрана (можно перетащить)" 
+                                                 Text="{x:Bind Settings.WatchFolder3ds, Mode=TwoWay}" IsReadOnly="True" VerticalAlignment="Center"
+                                                 AllowDrop="True" DragOver="WatchFolderBox3ds_DragOver" Drop="WatchFolderBox3ds_Drop"/>
+                                        <Button x:Name="SelectWatchFolder3dsButton" Grid.Column="1" Content="Выбрать папку..." Click="SelectWatchFolder3ds_Click" VerticalAlignment="Center" CornerRadius="6"/>
+                                    </Grid>
+
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                                            <TextBlock x:Name="ThreeDsWatchTaskAndFmtTxt" Text="Выполняемая задача и формат:" FontSize="12" FontWeight="SemiBold"/>
+                                            <TextBlock x:Name="WatchFolder3dsSummaryBadge" Text="⚡ 3DS авто-обработка: Мульти-контент в 3DS" FontSize="11" Foreground="{ThemeResource SystemAccentColor}" FontWeight="Bold"/>
+                                        </StackPanel>
+
+                                        <ComboBox x:Name="WatchFolderActionCombo3ds" Grid.Column="1" Width="160" Margin="0,0,8,0" SelectionChanged="WatchFolderActionCombo3ds_SelectionChanged" VerticalAlignment="Center">
+                                            <ComboBoxItem Content="Конвертация" Tag="0"/>
+                                            <ComboBoxItem Content="Распаковка" Tag="1"/>
+                                            <ComboBoxItem Content="Упаковка" Tag="2"/>
+                                            <ComboBoxItem Content="Мульти-контент" Tag="3"/>
+                                            <ComboBoxItem Content="Проверка" Tag="4"/>
+                                        </ComboBox>
+
+                                        <ComboBox x:Name="WatchFolderFormatCombo3ds" Grid.Column="2" Width="90" Margin="0,0,12,0" SelectionChanged="WatchFolderFormatCombo3ds_SelectionChanged" VerticalAlignment="Center">
+                                            <ComboBoxItem Content="3DS" Tag="0"/>
+                                            <ComboBoxItem Content="CIA" Tag="1"/>
+                                            <ComboBoxItem Content="CXI" Tag="2"/>
+                                        </ComboBox>
+
+                                        <Button x:Name="ToggleWatchFolder3dsBtn" Grid.Column="3" Content="▶ Запустить отслеживание" Click="ToggleWatchFolder3dsBtn_Click" 
+                                                Style="{StaticResource AccentButtonStyle}" VerticalAlignment="Center" CornerRadius="6" Padding="12,6"/>
+                                    </Grid>
+                                    <TextBlock x:Name="WatchFolder3dsStatusTxt" Text="○ Отслеживание остановлено" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                </StackPanel>
+                            </StackPanel>
+
+                            <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
+
+                            <!-- Выходная папка по умолчанию 3DS -->
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <StackPanel Grid.Row="0" Margin="0,0,0,8" Spacing="2">
+                                    <TextBlock x:Name="ThreeDsOutFolderTitleTxt" Text="Выходная папка 3DS по умолчанию" FontWeight="Medium" VerticalAlignment="Center"/>
+                                    <TextBlock x:Name="ThreeDsOutFolderDescTxt" Text="Папка для сохранения обработанных файлов 3DS (.3ds / .cia / .cxi). Можно перетащить папку сюда" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <Grid Grid.Row="1">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox x:Name="OutputFolderBox3ds" HorizontalAlignment="Stretch" Margin="0,0,12,0" PlaceholderText="Не указана (сохранять в папку с исходным файлом)" 
+                                             Text="{x:Bind Settings.OutputFolder3ds, Mode=TwoWay}" IsReadOnly="True" VerticalAlignment="Center"
+                                             AllowDrop="True" DragOver="OutputFolderBox3ds_DragOver" Drop="OutputFolderBox3ds_Drop"/>
+                                    <Button x:Name="SelectOutputFolder3dsButton" Grid.Column="1" Content="Обзор..." Click="SelectOutputFolder3ds_Click" VerticalAlignment="Center" CornerRadius="6"/>
+                                </Grid>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
             </StackPanel>
 
         </StackPanel>

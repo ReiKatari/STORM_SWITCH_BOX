@@ -145,7 +145,18 @@ namespace StormSwitchBox.Core.NSZ
             Initialize();
         }
 
+        public override void Dispose()
+        {
+            CleanupTempSolid();
+            GC.SuppressFinalize(this);
+        }
+
         ~StormNczStorage()
+        {
+            CleanupTempSolid();
+        }
+
+        private void CleanupTempSolid()
         {
             try
             {
@@ -157,6 +168,7 @@ namespace StormSwitchBox.Core.NSZ
                 if (_tempSolidFile != null && System.IO.File.Exists(_tempSolidFile))
                 {
                     System.IO.File.Delete(_tempSolidFile);
+                    _tempSolidFile = null;
                 }
             }
             catch { }
@@ -442,13 +454,18 @@ namespace StormSwitchBox.Core.NSZ
                             
                             int keysetIndex = Math.Max(0, nca.Header.KeyGeneration - 1);
                             int keyAreaKeyIndex = nca.Header.KeyAreaKeyIndex;
-                            int keyOffset = 0x320;
-                            byte[] areaKey = new byte[16];
-                            ((ReadOnlySpan<byte>)_keyset.KeyAreaKeys[keysetIndex][keyAreaKeyIndex]).CopyTo(areaKey);
                             
-                            byte[] encryptedKey = new byte[16];
-                            Array.Copy(decryptedHeader, keyOffset, encryptedKey, 0, 16);
-                            expectedKey = AesEcbDecrypt(encryptedKey, areaKey);
+                            if (keysetIndex >= 0 && keysetIndex < _keyset.KeyAreaKeys.Length &&
+                                keyAreaKeyIndex >= 0 && keyAreaKeyIndex < 3)
+                            {
+                                int keyOffset = 0x320;
+                                byte[] areaKey = new byte[16];
+                                ((ReadOnlySpan<byte>)_keyset.KeyAreaKeys[keysetIndex][keyAreaKeyIndex]).CopyTo(areaKey);
+                                
+                                byte[] encryptedKey = new byte[16];
+                                Array.Copy(decryptedHeader, keyOffset, encryptedKey, 0, 16);
+                                expectedKey = AesEcbDecrypt(encryptedKey, areaKey);
+                            }
                         }
                         catch (Exception ex)
                         {
@@ -475,25 +492,33 @@ namespace StormSwitchBox.Core.NSZ
                         section.SparseBucketEnd = sparseBucketEndArr[targetIdx];
                         section.SparseUpperIv = sparseUpperIvArr[targetIdx];
                         
+                        // CryptoCounter из NCZSECTN (строка 368) уже содержит правильный IV,
+                        // записанный компрессором. Используем IV из NCA-заголовка ТОЛЬКО
+                        // как fallback, если NCZSECTN counter пуст (все нули).
                         if (decryptedHeader != null)
                         {
-                            Console.WriteLine($"[StormNczStorage Debug] Section {targetIdx} header bytes 0x140-0x150: {BitConverter.ToString(decryptedHeader, 0x400 + targetIdx * 0x200 + 0x140, 16)}");
-                            byte[] actualIv = new byte[16];
-                            // NCA FS Header: 0x140 = Generation (uint32 LE), 0x144 = SecureValue (uint32 LE)
-                            // CTR nonce: SecureValue (BE, bytes 0-3) | Generation (BE, bytes 4-7) | offset/16 (bytes 8-15)
-                            int hdrBase = 0x400 + targetIdx * 0x200;
-                            uint generation = BitConverter.ToUInt32(decryptedHeader, hdrBase + 0x140);
-                            uint secureValue = BitConverter.ToUInt32(decryptedHeader, hdrBase + 0x144);
-                            actualIv[0] = (byte)(secureValue >> 24);
-                            actualIv[1] = (byte)(secureValue >> 16);
-                            actualIv[2] = (byte)(secureValue >> 8);
-                            actualIv[3] = (byte)(secureValue & 0xFF);
-                            actualIv[4] = (byte)(generation >> 24);
-                            actualIv[5] = (byte)(generation >> 16);
-                            actualIv[6] = (byte)(generation >> 8);
-                            actualIv[7] = (byte)(generation & 0xFF);
-                            section.CryptoCounter = actualIv;
-                            Console.WriteLine($"[StormNczStorage Debug] Section {section.Offset} (FsIndex={targetIdx}): CTR nonce (SecureValue={secureValue}, Generation={generation}): {BitConverter.ToString(actualIv).Replace("-","")}");
+                            bool isNczCounterZero = true;
+                            for (int ci = 0; ci < 16; ci++)
+                            {
+                                if (section.CryptoCounter[ci] != 0) { isNczCounterZero = false; break; }
+                            }
+                            
+                            if (isNczCounterZero)
+                            {
+                                // Fallback: пересчитать IV из NCA-заголовка
+                                Console.WriteLine($"[StormNczStorage Debug] Section {targetIdx}: NCZSECTN CryptoCounter is zero, reconstructing from NCA header");
+                                int hdrBase = 0x400 + targetIdx * 0x200;
+                                byte[] actualIv = new byte[16];
+                                for (int j = 0; j < 8; j++)
+                                {
+                                    actualIv[j] = decryptedHeader[hdrBase + 0x140 + 7 - j];
+                                }
+                                section.CryptoCounter = actualIv;
+                            }
+                            else
+                            {
+                                Console.WriteLine($"[StormNczStorage Debug] Section {targetIdx}: Using CryptoCounter from NCZSECTN: {BitConverter.ToString(section.CryptoCounter).Replace("-","")}");
+                            }
                         }
                     }
                     
@@ -1061,9 +1086,10 @@ namespace StormSwitchBox.Core.NSZ
             byte[] counter = new byte[16];
             byte[] encryptedCounter = new byte[16];
             
-            long offsetFromSectionStart = globalOffset - originalSectionOffset;
-            long blockIndex = offsetFromSectionStart / 16;
-            int offsetInBlock = (int)(offsetFromSectionStart % 16);
+            // Счётчик AES-CTR вычисляется от абсолютного виртуального смещения в NCA (globalOffset / 16),
+            // а НЕ от начала секции. Должен совпадать с компрессором (StormNczCompressor.AesCtrXorDirect).
+            long blockIndex = globalOffset / 16;
+            int offsetInBlock = (int)(globalOffset % 16);
             
             for (int i = 0; i < length; i++)
             {

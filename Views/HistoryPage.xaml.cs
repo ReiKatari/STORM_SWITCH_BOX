@@ -17,6 +17,16 @@ namespace StormSwitchBox.Views
         {
             this.InitializeComponent();
             this.NavigationCacheMode = Microsoft.UI.Xaml.Navigation.NavigationCacheMode.Required;
+
+            ApplyLocalization();
+            App.Localization.LanguageChanged += () => App.RunOnUI(ApplyLocalization);
+        }
+
+        public void ApplyLocalization()
+        {
+            var loc = App.Localization;
+            if (ClearHistoryTextBlock != null) ClearHistoryTextBlock.Text = loc["History_Clear"];
+            if (HistorySearchBox != null) HistorySearchBox.PlaceholderText = "🔍 " + (loc["Catalog_Search_Placeholder"] ?? "Поиск...");
         }
 
         private async void ClearHistory_Click(object sender, RoutedEventArgs e)

@@ -26,7 +26,7 @@ namespace StormSwitchBox
         public MainWindow()
         {
             this.InitializeComponent();
-            this.Title = "STORM SWITCH BOX v4.4.4";
+            this.Title = "STORM SWITCH BOX 4.6.8";
             this.ExtendsContentIntoTitleBar = true; // Современный заголовок окна
 
             var hWnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
@@ -54,6 +54,10 @@ namespace StormSwitchBox
             // Применяем сохраненную тему и акцентный цвет
             Services.ThemeService.ApplyTheme(App.Settings.Current.AppTheme);
             Services.ThemeService.ApplyAccentColor(App.Settings.Current.AccentColorTheme);
+
+            // Инициализация локализации
+            UpdateLocalization();
+            App.Localization.LanguageChanged += () => App.RunOnUI(UpdateLocalization);
 
             // Загружаем историю обработок
             _ = StormSwitchBox.Services.HistoryService.LoadHistoryAsync();
@@ -142,6 +146,10 @@ namespace StormSwitchBox
                     {
                         ContentFrame.Navigate(typeof(CatalogPage));
                     }
+                    else if (tag == "GameLibrary")
+                    {
+                        ContentFrame.Navigate(typeof(GameLibraryPage));
+                    }
                     else if (tag == "Instruction")
                     {
                         ContentFrame.Navigate(typeof(InstructionPage));
@@ -162,25 +170,56 @@ namespace StormSwitchBox
             {
                 _notifyIcon.Icon = new System.Drawing.Icon(iconPath);
             }
-            _notifyIcon.Text = "STORM_SWITCH_BOX";
+            _notifyIcon.Text = "STORM SWITCH BOX";
             _notifyIcon.Visible = false;
             
             _notifyIcon.DoubleClick += (s, e) => RestoreWindow();
             
             var contextMenu = new WinForms.ContextMenuStrip();
-            var restoreItem = new WinForms.ToolStripMenuItem("Развернуть", null, (s, e) => RestoreWindow());
-            var exitItem = new WinForms.ToolStripMenuItem("Выход", null, (s, e) =>
+            var restoreItem = new WinForms.ToolStripMenuItem(App.Localization["Tray_Restore"], null, (s, e) => RestoreWindow());
+            var exitItem = new WinForms.ToolStripMenuItem(App.Localization["Tray_Exit"], null, (s, e) =>
             {
                 _notifyIcon.Visible = false;
                 _notifyIcon.Dispose();
                 SaveWindowState();
                 Services.JobObjectManager.KillAllToolProcesses();
+                Services.TempCleanupService.PurgeActiveTempDirectories();
                 System.Environment.Exit(0);
             });
             
             contextMenu.Items.Add(restoreItem);
             contextMenu.Items.Add(exitItem);
             _notifyIcon.ContextMenuStrip = contextMenu;
+        }
+
+        public void UpdateLocalization()
+        {
+            this.Title = $"STORM SWITCH BOX v{App.Settings.Current.AppVersion}";
+
+            if (_notifyIcon != null)
+            {
+                _notifyIcon.Text = "STORM SWITCH BOX";
+                if (_notifyIcon.ContextMenuStrip != null && _notifyIcon.ContextMenuStrip.Items.Count >= 2)
+                {
+                    _notifyIcon.ContextMenuStrip.Items[0].Text = App.Localization["Tray_Restore"];
+                    _notifyIcon.ContextMenuStrip.Items[1].Text = App.Localization["Tray_Exit"];
+                }
+            }
+
+            if (NavUpdateItem != null) NavUpdateItem.Content = App.Localization["Nav_Update"];
+            if (NavUnpackItem != null) NavUnpackItem.Content = App.Localization["Nav_Unpack"];
+            if (NavPackItem != null) NavPackItem.Content = App.Localization["Nav_Pack"];
+            if (NavConvertItem != null) NavConvertItem.Content = App.Localization["Nav_Convert"];
+            if (NavMultiItem != null) NavMultiItem.Content = App.Localization["Nav_Multi"];
+            if (NavVerifyItem != null) NavVerifyItem.Content = App.Localization["Nav_Verify"];
+            if (NavInstructionItem != null) NavInstructionItem.Content = App.Localization["Nav_Instruction"];
+            if (NavGameLibraryItem != null) NavGameLibraryItem.Content = App.Localization["Nav_GameLibrary"];
+            if (NavCatalogItem != null) NavCatalogItem.Content = App.Localization["Nav_Catalog"];
+            if (NavHistoryItem != null) NavHistoryItem.Content = App.Localization["Nav_History"];
+            if (MainNavigation != null && MainNavigation.SettingsItem is NavigationViewItem settingsItem)
+            {
+                settingsItem.Content = App.Localization["Nav_Settings"];
+            }
         }
 
         private void AppWindow_Closing(AppWindow sender, AppWindowClosingEventArgs args)
@@ -234,6 +273,7 @@ namespace StormSwitchBox
             
             // Жестко завершаем процесс и все утилиты при закрытии
             Services.JobObjectManager.KillAllToolProcesses();
+            Services.TempCleanupService.PurgeActiveTempDirectories();
             System.Environment.Exit(0);
         }
     }

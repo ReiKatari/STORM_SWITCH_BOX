@@ -6,7 +6,8 @@ namespace StormSwitchBox.Models
     public class AppSettings
     {
         // Окно
-        public string AppVersion { get; set; } = "4.4.4";
+        public string AppVersion { get; set; } = "4.6.8";
+        public string Language { get; set; } = "ru"; // ru, en, de, zh, ja
         public int WindowX { get; set; } = -1;
         public int WindowY { get; set; } = -1;
         public int WindowWidth { get; set; } = 1200;
@@ -30,15 +31,35 @@ namespace StormSwitchBox.Models
         public string KeysVersion { get; set; } = "";
         public string KeysPath { get; set; } = "";
 
+        // Настройки Nintendo 3DS
+        public string KeysPath3ds { get; set; } = "";
+        public string DefaultFormat3ds { get; set; } = "3DS"; // 3DS (CCI), CIA, CXI
+        public bool HardPatch3ds { get; set; } = true;
+        public int SelectedFormatIndex3ds { get; set; } = 0; // 0 = 3DS, 1 = CIA, 2 = CXI
+        public int SelectedPlatformIndex { get; set; } = 0; // 0 = Switch, 1 = 3DS
+        public int SelectedSettingsTab { get; set; } = 0; // 0 = General, 1 = Switch, 2 = 3DS
+
         // Понижение версии прошивки (RSV Cap)
         public int RsvCap { get; set; } = 268435656; // FW 18.0
         public bool EnableRsvCap { get; set; } = true;
 
-        // Папка наблюдения (Watch Folder)
-        public string WatchFolder { get; set; } = "";
-        public bool EnableWatchFolder { get; set; } = false;
-        public int WatchFolderAction { get; set; } = 0; // 0 = Сжатие в NSZ, 1 = Конвертация, 2 = Мульти-контент, 3 = Проверка
-        public int WatchFolderFormat { get; set; } = 0; // 0 = NSP, 1 = NSZ, 2 = XCI, 3 = XCZ
+        // Папка наблюдения Switch (Watch Folder Switch)
+        public string WatchFolderSwitch { get; set; } = "";
+        public bool EnableWatchFolderSwitch { get; set; } = false;
+        public int WatchFolderActionSwitch { get; set; } = 0; // 0 = Сжатие, 1 = Распаковка, 2 = Упаковка, 3 = Конвертация, 4 = Мульти-контент, 5 = Проверка
+        public int WatchFolderFormatSwitch { get; set; } = 0; // 0 = NSP, 1 = NSZ, 2 = XCI, 3 = XCZ
+
+        // Папка наблюдения 3DS (Watch Folder 3DS)
+        public string WatchFolder3ds { get; set; } = "";
+        public bool EnableWatchFolder3ds { get; set; } = false;
+        public int WatchFolderAction3ds { get; set; } = 0; // 0 = Конвертация, 1 = Распаковка, 2 = Упаковка, 3 = Мульти-контент, 4 = Проверка
+        public int WatchFolderFormat3ds { get; set; } = 0; // 0 = 3DS, 1 = CIA, 2 = CXI
+
+        // Совместимость со старыми настройками
+        public string WatchFolder { get => WatchFolderSwitch; set => WatchFolderSwitch = value; }
+        public bool EnableWatchFolder { get => EnableWatchFolderSwitch; set => EnableWatchFolderSwitch = value; }
+        public int WatchFolderAction { get => WatchFolderActionSwitch; set => WatchFolderActionSwitch = value; }
+        public int WatchFolderFormat { get => WatchFolderFormatSwitch; set => WatchFolderFormatSwitch = value; }
 
         // Уведомления и оформление
         public bool EnableSoundNotifications { get; set; } = true;
@@ -54,9 +75,12 @@ namespace StormSwitchBox.Models
         public string LastOutPath_Pack { get; set; } = "";
         public string LastOutPath_Update { get; set; } = "";
         public string LastOutPath_Unpack { get; set; } = "";
+        public string LastOutPath_3ds { get; set; } = "";
         
-        // Общая выходная папка (текущая)
+        // Выходная папка по умолчанию для Switch
         public string OutputFolder { get; set; } = "";
+        // Выходная папка по умолчанию для 3DS
+        public string OutputFolder3ds { get; set; } = "";
         
         // Каталог
         public List<string> CatalogFolders { get; set; } = new();

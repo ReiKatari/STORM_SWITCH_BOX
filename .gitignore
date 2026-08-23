@@ -8,8 +8,13 @@ obj/
 packages/
 TestResults/
 *.log
+*.log.*
+yanu.log*
+covers/
 tools/cache/
 temp/
 *.zip
 publish/
 installer/Output/
+installer/StormInstaller/bin/
+installer/StormInstaller/obj/
