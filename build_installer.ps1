@@ -51,18 +51,20 @@ if (Test-Path "$root\tools\7z.exe") {
 }
 
 Write-Host "==============================================" -ForegroundColor Cyan
-Write-Host "4. Compiling custom StormInstaller (Cyber Dark UI standard)..." -ForegroundColor Cyan
+Write-Host "4. Compiling native Inno Setup installer..." -ForegroundColor Cyan
 Write-Host "==============================================" -ForegroundColor Cyan
 
-dotnet publish "$root\installer\StormInstaller\StormInstaller.csproj" -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true
-
-$installerExe = "$root\installer\StormInstaller\bin\Release\net8.0-windows\win-x64\publish\StormInstaller.exe"
+$isccPath = "C:\Program Files (x86)\Inno Setup\iscc.exe"
 $setupExe = "$outputDir\STORM_SWITCH_BOX_4.7.0_Setup.exe"
 
-if (Test-Path $installerExe) {
-    Copy-Item $installerExe $setupExe -Force
+if (Test-Path $isccPath) {
+    & $isccPath "$root\installer\setup.iss"
 } else {
-    throw "Error: StormInstaller.exe was not created!"
+    throw "Error: Inno Setup compiler ($isccPath) not found!"
+}
+
+if (-not (Test-Path $setupExe)) {
+    throw "Error: STORM_SWITCH_BOX_4.7.0_Setup.exe was not created!"
 }
 
 Write-Host "==============================================" -ForegroundColor Cyan
