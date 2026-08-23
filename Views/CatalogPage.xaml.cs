@@ -88,19 +88,12 @@ namespace StormSwitchBox.Views
 
         private async void AddFolder_Click(object sender, RoutedEventArgs e)
         {
-            var folderPicker = new Windows.Storage.Pickers.FolderPicker();
-            folderPicker.SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.Desktop;
-            folderPicker.FileTypeFilter.Add("*");
-
-            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindow);
-            WinRT.Interop.InitializeWithWindow.Initialize(folderPicker, hwnd);
-
-            var folder = await folderPicker.PickSingleFolderAsync();
-            if (folder != null)
+            string? folderPath = await SystemDialogService.OpenFolderDialogAsync("Выберите папку для сканирования игр");
+            if (!string.IsNullOrWhiteSpace(folderPath) && System.IO.Directory.Exists(folderPath))
             {
-                if (!App.Settings.Current.CatalogFolders.Contains(folder.Path))
+                if (!App.Settings.Current.CatalogFolders.Contains(folderPath))
                 {
-                    App.Settings.Current.CatalogFolders.Add(folder.Path);
+                    App.Settings.Current.CatalogFolders.Add(folderPath);
                     FoldersListView.ItemsSource = null;
                     FoldersListView.ItemsSource = App.Settings.Current.CatalogFolders;
                     _ = App.Settings.SaveAsync();

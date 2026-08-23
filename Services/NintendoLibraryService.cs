@@ -645,7 +645,7 @@ namespace StormSwitchBox.Services
             string? searchQuery = null,
             string? sortBy = "Title")
         {
-            List<NintendoGameEntry> source;
+            IReadOnlyList<NintendoGameEntry> source;
 
             lock (_dbLock)
             {
@@ -653,7 +653,7 @@ namespace StormSwitchBox.Services
                 {
                     if (_bySystem.TryGetValue(systemFullName, out var sysList))
                     {
-                        source = new List<NintendoGameEntry>(sysList);
+                        source = sysList;
                     }
                     else
                     {
@@ -663,7 +663,7 @@ namespace StormSwitchBox.Services
                 }
                 else
                 {
-                    source = new List<NintendoGameEntry>(_database);
+                    source = _database;
                 }
             }
 

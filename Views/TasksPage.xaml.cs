@@ -345,16 +345,10 @@ namespace StormSwitchBox.Views
         {
             try
             {
-                var picker = new Windows.Storage.Pickers.FolderPicker();
-                picker.SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.Desktop;
-                picker.FileTypeFilter.Add("*");
-
-                InitializePicker(picker);
-
-                var folder = await picker.PickSingleFolderAsync();
-                if (folder != null)
+                var folderPath = await SystemDialogService.OpenFolderDialogAsync("Выберите папку для добавления файлов");
+                if (!string.IsNullOrWhiteSpace(folderPath) && Directory.Exists(folderPath))
                 {
-                    await ViewModel.AddDroppedFilesBatchAsync(new List<string> { folder.Path });
+                    await ViewModel.AddDroppedFilesBatchAsync(new List<string> { folderPath });
                 }
             }
             catch (Exception ex)
@@ -770,41 +764,18 @@ namespace StormSwitchBox.Views
 
             try
             {
-                var picker = new Windows.Storage.Pickers.FolderPicker();
-                picker.SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.Desktop;
-                picker.FileTypeFilter.Add("*");
+                var folder = await SystemDialogService.OpenFolderDialogAsync(
+                    "Выберите выходную папку задачи",
+                    !string.IsNullOrEmpty(task?.OutputFolder) ? task.OutputFolder : null);
 
-                InitializePicker(picker);
-
-                var folder = await picker.PickSingleFolderAsync();
-                if (folder != null && task != null)
+                if (!string.IsNullOrWhiteSpace(folder) && Directory.Exists(folder) && task != null)
                 {
-                    task.OutputFolder = folder.Path;
+                    task.OutputFolder = folder;
                 }
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                // Fallback: ручной ввод
-                var dialog = new ContentDialog
-                {
-                    Title = "Укажите выходную папку",
-                    CloseButtonText = "Отмена",
-                    PrimaryButtonText = "OK",
-                    XamlRoot = this.XamlRoot
-                };
-                var textBox = new TextBox
-                {
-                    PlaceholderText = @"Пример: E:\OUT",
-                    Text = task?.OutputFolder ?? "",
-                    Width = 400
-                };
-                dialog.Content = textBox;
-
-                var result = await dialog.ShowAsync();
-                if (result == ContentDialogResult.Primary && task != null && !string.IsNullOrWhiteSpace(textBox.Text))
-                {
-                    task.OutputFolder = textBox.Text.Trim();
-                }
+                App.Logger.Log($"Ошибка при выборе выходной папки: {ex.Message}", LogLevel.Warning);
             }
         }
 

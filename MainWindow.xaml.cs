@@ -30,6 +30,7 @@ namespace StormSwitchBox
             this.ExtendsContentIntoTitleBar = true; // Современный заголовок окна
 
             var hWnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            App.MainWindowHandle = hWnd;
             var windowId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hWnd);
             var appWindow = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(windowId);
             appWindow.SetIcon(System.IO.Path.Combine(System.AppContext.BaseDirectory, "assets", "storm_switch_box.ico"));

@@ -893,7 +893,7 @@ namespace StormSwitchBox.Views
             await App.Settings.SaveAsync();
         }
 
-        // ===== Выбор выходной папки =====
+        // ===== Выбор и очистка выходной папки Switch =====
         private async void SelectOutputFolder_Click(object sender, RoutedEventArgs e)
         {
             string? folder = await SystemDialogService.OpenFolderDialogAsync(
@@ -907,6 +907,14 @@ namespace StormSwitchBox.Views
                 await App.Settings.SaveAsync();
                 App.Logger.Log($"Выходная папка Switch: {folder}", Models.LogLevel.Success);
             }
+        }
+
+        private async void ClearOutputFolder_Click(object sender, RoutedEventArgs e)
+        {
+            App.Settings.Current.OutputFolder = string.Empty;
+            OutputFolderBox.Text = string.Empty;
+            await App.Settings.SaveAsync();
+            App.Logger.Log("[Settings] Выходная папка Switch по умолчанию очищена (сохранение в папку с исходником)", Models.LogLevel.Info);
         }
 
         private async void CompressionCombo_Changed(object sender, SelectionChangedEventArgs e)
@@ -963,7 +971,7 @@ namespace StormSwitchBox.Views
             }
         }
 
-        // ===== Выбор выходной папки 3DS =====
+        // ===== Выбор и очистка выходной папки 3DS =====
         private async void SelectOutputFolder3ds_Click(object sender, RoutedEventArgs e)
         {
             string? folder = await SystemDialogService.OpenFolderDialogAsync(
@@ -977,6 +985,14 @@ namespace StormSwitchBox.Views
                 await App.Settings.SaveAsync();
                 App.Logger.Log($"Выходная папка 3DS: {folder}", Models.LogLevel.Success);
             }
+        }
+
+        private async void ClearOutputFolder3ds_Click(object sender, RoutedEventArgs e)
+        {
+            App.Settings.Current.OutputFolder3ds = string.Empty;
+            OutputFolderBox3ds.Text = string.Empty;
+            await App.Settings.SaveAsync();
+            App.Logger.Log("[Settings] Выходная папка 3DS по умолчанию очищена (сохранение в папку с исходником)", Models.LogLevel.Info);
         }
 
         private void OutputFolderBox3ds_DragOver(object sender, DragEventArgs e)

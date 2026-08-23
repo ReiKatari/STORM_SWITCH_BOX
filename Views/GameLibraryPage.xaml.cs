@@ -41,17 +41,15 @@ namespace StormSwitchBox.Views
 
         private CancellationTokenSource? _filterCts;
 
-        private void GameLibraryPage_Loaded(object sender, RoutedEventArgs e)
+        private async void GameLibraryPage_Loaded(object sender, RoutedEventArgs e)
         {
             if (!_isLoaded)
             {
                 GamesGridView.ItemsSource = _pagedGames;
-
-                InitializeSystemTabsAndDropdown();
-                PopulateFilterDropdowns();
-                ApplyLocalization();
-                
                 _isLoaded = true;
+
+                ApplyLocalization();
+                InitializeSystemTabsAndDropdown();
 
                 App.NintendoLibrary.LibraryUpdated += OnLibraryUpdated;
                 App.TitleDb.DatabaseLoaded += OnTitleDbLoaded;
@@ -59,6 +57,15 @@ namespace StormSwitchBox.Views
                 // Асинхронная загрузка базы Switch в фоне без подвисания UI
                 _ = App.NintendoLibrary.EnsureSwitchGamesLoadedAsync(App.TitleDb);
 
+                await Task.Run(() =>
+                {
+                    // Pre-warm distinct caches off-UI thread
+                    App.NintendoLibrary.GetDistinctGenres(_selectedSystem);
+                    App.NintendoLibrary.GetDistinctDevelopers(_selectedSystem);
+                    App.NintendoLibrary.GetDistinctPublishers(_selectedSystem);
+                });
+
+                PopulateFilterDropdowns();
                 ApplyFilters();
             }
             else

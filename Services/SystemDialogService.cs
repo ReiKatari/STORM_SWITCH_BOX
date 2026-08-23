@@ -12,6 +12,12 @@ namespace StormSwitchBox.Services
     /// </summary>
     public static class SystemDialogService
     {
+        private class WindowWrapper : IWin32Window
+        {
+            public WindowWrapper(IntPtr handle) { Handle = handle; }
+            public IntPtr Handle { get; }
+        }
+
         public static Task<string?> OpenFileDialogAsync(string title, string filter, string? initialDirectory = null)
         {
             var tcs = new TaskCompletionSource<string?>();
@@ -25,7 +31,8 @@ namespace StormSwitchBox.Services
                         Filter = filter,
                         CheckFileExists = true,
                         Multiselect = false,
-                        RestoreDirectory = true
+                        RestoreDirectory = true,
+                        AutoUpgradeEnabled = true
                     };
 
                     if (!string.IsNullOrEmpty(initialDirectory) && Directory.Exists(initialDirectory))
@@ -33,7 +40,8 @@ namespace StormSwitchBox.Services
                         ofd.InitialDirectory = initialDirectory;
                     }
 
-                    var res = ofd.ShowDialog();
+                    IWin32Window? owner = (App.MainWindowHandle != IntPtr.Zero) ? new WindowWrapper(App.MainWindowHandle) : null;
+                    var res = owner != null ? ofd.ShowDialog(owner) : ofd.ShowDialog();
                     if (res == DialogResult.OK && !string.IsNullOrWhiteSpace(ofd.FileName))
                     {
                         tcs.SetResult(ofd.FileName);
@@ -68,7 +76,8 @@ namespace StormSwitchBox.Services
                     {
                         Description = description,
                         UseDescriptionForTitle = true,
-                        ShowNewFolderButton = true
+                        ShowNewFolderButton = true,
+                        AutoUpgradeEnabled = true
                     };
 
                     if (!string.IsNullOrEmpty(initialDirectory) && Directory.Exists(initialDirectory))
@@ -76,7 +85,8 @@ namespace StormSwitchBox.Services
                         fbd.SelectedPath = initialDirectory;
                     }
 
-                    var res = fbd.ShowDialog();
+                    IWin32Window? owner = (App.MainWindowHandle != IntPtr.Zero) ? new WindowWrapper(App.MainWindowHandle) : null;
+                    var res = owner != null ? fbd.ShowDialog(owner) : fbd.ShowDialog();
                     if (res == DialogResult.OK && !string.IsNullOrWhiteSpace(fbd.SelectedPath))
                     {
                         tcs.SetResult(fbd.SelectedPath);
