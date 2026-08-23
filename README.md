@@ -2,7 +2,7 @@
   <br>
   <img src="./logo.png" alt="STORM SWITCH BOX" width="220">
   <br>
-  <b>⚡ STORM SWITCH BOX v4.6.9</b>
+  <b>⚡ STORM SWITCH BOX v4.7.0</b>
   <br>
 </h1>
 
@@ -10,7 +10,7 @@
   <a href="https://microsoft.com"><img src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011%20x64-blue?style=for-the-badge&logo=windows" alt="Platform"></a>
   <a href="https://github.com/microsoft/WindowsAppSDK"><img src="https://img.shields.io/badge/framework-WinUI%203%20%2F%20Windows%20App%20SDK-purple?style=for-the-badge&logo=windows-terminal" alt="Framework"></a>
   <a href="https://dotnet.microsoft.com"><img src="https://img.shields.io/badge/language-C%23%2012%20%2F%20.NET%208%20LTS-green?style=for-the-badge&logo=dotnet" alt="Language"></a>
-  <a href="https://github.com/ReiKatari/STORM_SWITCH_BOX/releases"><img src="https://img.shields.io/badge/version-4.6.9-cyan?style=for-the-badge&logo=git" alt="Version"></a>
+  <a href="https://github.com/ReiKatari/STORM_SWITCH_BOX/releases"><img src="https://img.shields.io/badge/version-4.7.0-cyan?style=for-the-badge&logo=git" alt="Version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-orange?style=for-the-badge" alt="License"></a>
 </div>
 
@@ -160,8 +160,8 @@ dotnet publish "StormSwitchBox.csproj" -c Release -r win-x64
 .\build_installer.bat
 ```
 После завершения работы скрипта в папке `installer\Output\` будут созданы:
-1. Подписанный инсталлятор: **`STORM_SWITCH_BOX_4.6.9_Setup.exe`**
-2. Портативный архив: **`STORM_SWITCH_BOX_4.6.9_win-x64.zip`**
+1. Подписанный инсталлятор: **`STORM_SWITCH_BOX_4.7.0_Setup.exe`**
+2. Портативный архив: **`STORM_SWITCH_BOX_4.7.0_win-x64.zip`**
 
 ---
 

@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using System;
 using System.Threading.Tasks;
+using StormSwitchBox.Services;
 
 namespace StormSwitchBox.Views
 {
@@ -201,24 +202,17 @@ namespace StormSwitchBox.Views
 
         private async void SelectWatchFolderSwitch_Click(object sender, RoutedEventArgs e)
         {
-            try
+            string? folder = await SystemDialogService.OpenFolderDialogAsync(
+                "Выберите «Умную» папку Switch",
+                !string.IsNullOrEmpty(App.Settings.Current.WatchFolderSwitch) ? App.Settings.Current.WatchFolderSwitch : null);
+
+            if (!string.IsNullOrWhiteSpace(folder) && System.IO.Directory.Exists(folder))
             {
-                var folderPicker = new Windows.Storage.Pickers.FolderPicker();
-                folderPicker.SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.ComputerFolder;
-                folderPicker.FileTypeFilter.Add("*");
-
-                var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindow);
-                WinRT.Interop.InitializeWithWindow.Initialize(folderPicker, hwnd);
-
-                var folder = await folderPicker.PickSingleFolderAsync();
-                if (folder != null)
-                {
-                    App.Settings.Current.WatchFolderSwitch = folder.Path;
-                    WatchFolderBoxSwitch.Text = folder.Path;
-                    await App.Settings.SaveAsync();
-                }
+                App.Settings.Current.WatchFolderSwitch = folder;
+                WatchFolderBoxSwitch.Text = folder;
+                await App.Settings.SaveAsync();
+                App.Logger?.Log($"[WatchFolder Switch] Папка выбрана: {folder}", Models.LogLevel.Success);
             }
-            catch { }
         }
 
         private void WatchFolderBoxSwitch_DragOver(object sender, DragEventArgs e)
@@ -375,24 +369,17 @@ namespace StormSwitchBox.Views
 
         private async void SelectWatchFolder3ds_Click(object sender, RoutedEventArgs e)
         {
-            try
+            string? folder = await SystemDialogService.OpenFolderDialogAsync(
+                "Выберите «Умную» папку 3DS",
+                !string.IsNullOrEmpty(App.Settings.Current.WatchFolder3ds) ? App.Settings.Current.WatchFolder3ds : null);
+
+            if (!string.IsNullOrWhiteSpace(folder) && System.IO.Directory.Exists(folder))
             {
-                var folderPicker = new Windows.Storage.Pickers.FolderPicker();
-                folderPicker.SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.ComputerFolder;
-                folderPicker.FileTypeFilter.Add("*");
-
-                var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindow);
-                WinRT.Interop.InitializeWithWindow.Initialize(folderPicker, hwnd);
-
-                var folder = await folderPicker.PickSingleFolderAsync();
-                if (folder != null)
-                {
-                    App.Settings.Current.WatchFolder3ds = folder.Path;
-                    WatchFolderBox3ds.Text = folder.Path;
-                    await App.Settings.SaveAsync();
-                }
+                App.Settings.Current.WatchFolder3ds = folder;
+                WatchFolderBox3ds.Text = folder;
+                await App.Settings.SaveAsync();
+                App.Logger?.Log($"[WatchFolder 3DS] Папка выбрана: {folder}", Models.LogLevel.Success);
             }
-            catch { }
         }
 
         private void WatchFolderBox3ds_DragOver(object sender, DragEventArgs e)
@@ -635,6 +622,7 @@ namespace StormSwitchBox.Views
                     if (ext == ".keys" || ext == ".txt" || ext == ".dat")
                     {
                         App.Settings.Current.KeysPath = file.Path;
+                        TryAutoDetectKeysVersionFromPath(file.Path);
                         await App.Settings.SaveAsync();
                         App.EnsureUserKeysAvailable();
                         App.Logger.Log($"Файл ключей применен (drag-and-drop): {file.Path}", Models.LogLevel.Success);
@@ -650,56 +638,19 @@ namespace StormSwitchBox.Views
 
         private async void SelectKeysButton_Click(object sender, RoutedEventArgs e)
         {
-            try
+            string? filePath = await SystemDialogService.OpenFileDialogAsync(
+                "Выберите файл ключей Nintendo Switch (prod.keys / keys.txt)",
+                "Файлы ключей (*.keys;*.txt;*.dat)|*.keys;*.txt;*.dat|Все файлы (*.*)|*.*",
+                !string.IsNullOrEmpty(App.Settings.Current.KeysPath) ? System.IO.Path.GetDirectoryName(App.Settings.Current.KeysPath) : null);
+
+            if (!string.IsNullOrWhiteSpace(filePath) && System.IO.File.Exists(filePath))
             {
-                var picker = new Windows.Storage.Pickers.FileOpenPicker();
-                picker.ViewMode = Windows.Storage.Pickers.PickerViewMode.List;
-                picker.SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.ComputerFolder;
-                picker.FileTypeFilter.Add(".keys");
-                picker.FileTypeFilter.Add(".txt");
-
-                var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindow);
-                WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
-
-                var file = await picker.PickSingleFileAsync();
-                if (file != null)
-                {
-                    App.Settings.Current.KeysPath = file.Path;
-                    await App.Settings.SaveAsync();
-                    App.EnsureUserKeysAvailable();
-                    App.Logger.Log($"Файл ключей применен и расслан во все модули: {file.Path}", Models.LogLevel.Success);
-                    this.Bindings.Update();
-                }
-            }
-            catch (Exception ex)
-            {
-                App.Logger.Log($"Ошибка выбора файла ключей: {ex.Message}", Models.LogLevel.Warning);
-                
-                var dialog = new ContentDialog
-                {
-                    Title = "Укажите путь к файлу ключей",
-                    CloseButtonText = "Отмена",
-                    PrimaryButtonText = "OK",
-                    XamlRoot = this.XamlRoot
-                };
-                var textBox = new TextBox
-                {
-                    PlaceholderText = @"Например: C:\Switch\prod.keys",
-                    Text = App.Settings.Current.KeysPath ?? "",
-                    Width = 400
-                };
-                dialog.Content = textBox;
-
-                var result = await dialog.ShowAsync();
-                if (result == ContentDialogResult.Primary && !string.IsNullOrWhiteSpace(textBox.Text) && System.IO.File.Exists(textBox.Text.Trim()))
-                {
-                    string filePath = textBox.Text.Trim();
-                    App.Settings.Current.KeysPath = filePath;
-                    await App.Settings.SaveAsync();
-                    App.EnsureUserKeysAvailable();
-                    App.Logger.Log($"Файл ключей применен и расслан во все модули: {filePath}", Models.LogLevel.Success);
-                    this.Bindings.Update();
-                }
+                App.Settings.Current.KeysPath = filePath;
+                TryAutoDetectKeysVersionFromPath(filePath);
+                await App.Settings.SaveAsync();
+                App.EnsureUserKeysAvailable();
+                App.Logger.Log($"Файл ключей применен: {filePath}", Models.LogLevel.Success);
+                this.Bindings.Update();
             }
         }
 
@@ -886,29 +837,17 @@ namespace StormSwitchBox.Views
         // ===== 3DS Ключи и настройки =====
         private async void SelectKeys3dsButton_Click(object sender, RoutedEventArgs e)
         {
-            try
-            {
-                var filePicker = new Windows.Storage.Pickers.FileOpenPicker();
-                filePicker.SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.ComputerFolder;
-                filePicker.FileTypeFilter.Add(".txt");
-                filePicker.FileTypeFilter.Add(".bin");
-                filePicker.FileTypeFilter.Add("*");
+            string? filePath = await SystemDialogService.OpenFileDialogAsync(
+                "Выберите файл ключей Nintendo 3DS (aes_keys.txt / encTitleKeys.bin)",
+                "Ключи Nintendo 3DS (*.txt;*.bin;*.dat)|*.txt;*.bin;*.dat|Все файлы (*.*)|*.*",
+                !string.IsNullOrEmpty(App.Settings.Current.KeysPath3ds) ? System.IO.Path.GetDirectoryName(App.Settings.Current.KeysPath3ds) : null);
 
-                var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindow);
-                WinRT.Interop.InitializeWithWindow.Initialize(filePicker, hwnd);
-
-                var file = await filePicker.PickSingleFileAsync();
-                if (file != null)
-                {
-                    App.Settings.Current.KeysPath3ds = file.Path;
-                    await App.Settings.SaveAsync();
-                    App.Logger.Log($"[3DS Keys] Подключен файл ключей: {file.Path}", Models.LogLevel.Success);
-                    this.Bindings.Update();
-                }
-            }
-            catch (Exception ex)
+            if (!string.IsNullOrWhiteSpace(filePath) && System.IO.File.Exists(filePath))
             {
-                App.Logger.Log($"[3DS Keys] Ошибка выбора ключей: {ex.Message}", Models.LogLevel.Error);
+                App.Settings.Current.KeysPath3ds = filePath;
+                await App.Settings.SaveAsync();
+                App.Logger.Log($"[3DS Keys] Подключен файл ключей: {filePath}", Models.LogLevel.Success);
+                this.Bindings.Update();
             }
         }
 
@@ -957,54 +896,16 @@ namespace StormSwitchBox.Views
         // ===== Выбор выходной папки =====
         private async void SelectOutputFolder_Click(object sender, RoutedEventArgs e)
         {
-            try
+            string? folder = await SystemDialogService.OpenFolderDialogAsync(
+                "Выберите выходную папку Switch по умолчанию",
+                !string.IsNullOrEmpty(App.Settings.Current.OutputFolder) ? App.Settings.Current.OutputFolder : null);
+
+            if (!string.IsNullOrWhiteSpace(folder) && System.IO.Directory.Exists(folder))
             {
-                var picker = new Windows.Storage.Pickers.FolderPicker();
-                picker.SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.Desktop;
-                picker.FileTypeFilter.Add("*");
-
-                var window = App.MainWindow;
-                if (window != null)
-                {
-                    var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(window);
-                    WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
-                }
-
-                var folder = await picker.PickSingleFolderAsync();
-                if (folder != null)
-                {
-                    App.Settings.Current.OutputFolder = folder.Path;
-                    OutputFolderBox.Text = folder.Path;
-                    await App.Settings.SaveAsync();
-                    App.Logger.Log($"Выходная папка: {folder.Path}", Models.LogLevel.Info);
-                }
-            }
-            catch (Exception)
-            {
-                // Fallback: ручной ввод если FolderPicker не работает
-                var dialog = new ContentDialog
-                {
-                    Title = "Укажите выходную папку",
-                    CloseButtonText = "Отмена",
-                    PrimaryButtonText = "OK",
-                    XamlRoot = this.XamlRoot
-                };
-                var textBox = new TextBox
-                {
-                    PlaceholderText = @"Например: E:\OUT",
-                    Text = App.Settings.Current.OutputFolder ?? "",
-                    Width = 400
-                };
-                dialog.Content = textBox;
-
-                var result = await dialog.ShowAsync();
-                if (result == ContentDialogResult.Primary && !string.IsNullOrWhiteSpace(textBox.Text))
-                {
-                    App.Settings.Current.OutputFolder = textBox.Text.Trim();
-                    OutputFolderBox.Text = textBox.Text.Trim();
-                    await App.Settings.SaveAsync();
-                    App.Logger.Log($"Выходная папка (вручную): {textBox.Text.Trim()}", Models.LogLevel.Info);
-                }
+                App.Settings.Current.OutputFolder = folder;
+                OutputFolderBox.Text = folder;
+                await App.Settings.SaveAsync();
+                App.Logger.Log($"Выходная папка Switch: {folder}", Models.LogLevel.Success);
             }
         }
 
@@ -1065,53 +966,16 @@ namespace StormSwitchBox.Views
         // ===== Выбор выходной папки 3DS =====
         private async void SelectOutputFolder3ds_Click(object sender, RoutedEventArgs e)
         {
-            try
+            string? folder = await SystemDialogService.OpenFolderDialogAsync(
+                "Выберите выходную папку 3DS по умолчанию",
+                !string.IsNullOrEmpty(App.Settings.Current.OutputFolder3ds) ? App.Settings.Current.OutputFolder3ds : null);
+
+            if (!string.IsNullOrWhiteSpace(folder) && System.IO.Directory.Exists(folder))
             {
-                var picker = new Windows.Storage.Pickers.FolderPicker();
-                picker.SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.Desktop;
-                picker.FileTypeFilter.Add("*");
-
-                var window = App.MainWindow;
-                if (window != null)
-                {
-                    var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(window);
-                    WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
-                }
-
-                var folder = await picker.PickSingleFolderAsync();
-                if (folder != null)
-                {
-                    App.Settings.Current.OutputFolder3ds = folder.Path;
-                    OutputFolderBox3ds.Text = folder.Path;
-                    await App.Settings.SaveAsync();
-                    App.Logger.Log($"Выходная папка 3DS: {folder.Path}", Models.LogLevel.Info);
-                }
-            }
-            catch (Exception)
-            {
-                var dialog = new ContentDialog
-                {
-                    Title = "Укажите выходную папку 3DS",
-                    CloseButtonText = "Отмена",
-                    PrimaryButtonText = "OK",
-                    XamlRoot = this.XamlRoot
-                };
-                var textBox = new TextBox
-                {
-                    PlaceholderText = @"Например: E:\3DS_OUT",
-                    Text = App.Settings.Current.OutputFolder3ds ?? "",
-                    Width = 400
-                };
-                dialog.Content = textBox;
-
-                var result = await dialog.ShowAsync();
-                if (result == ContentDialogResult.Primary && !string.IsNullOrWhiteSpace(textBox.Text))
-                {
-                    App.Settings.Current.OutputFolder3ds = textBox.Text.Trim();
-                    OutputFolderBox3ds.Text = textBox.Text.Trim();
-                    await App.Settings.SaveAsync();
-                    App.Logger.Log($"Выходная папка 3DS (вручную): {textBox.Text.Trim()}", Models.LogLevel.Info);
-                }
+                App.Settings.Current.OutputFolder3ds = folder;
+                OutputFolderBox3ds.Text = folder;
+                await App.Settings.SaveAsync();
+                App.Logger.Log($"Выходная папка 3DS: {folder}", Models.LogLevel.Success);
             }
         }
 
@@ -1445,6 +1309,52 @@ echo Обновление завершено. >> ""{logPath}""
                 if (System.IO.Directory.Exists(logsDir))
                 {
                     System.Diagnostics.Process.Start("explorer.exe", logsDir);
+                }
+            }
+            catch { }
+        }
+
+        private void TryAutoDetectKeysVersionFromPath(string filePath)
+        {
+            if (string.IsNullOrWhiteSpace(filePath)) return;
+            try
+            {
+                string dirName = System.IO.Path.GetFileName(System.IO.Path.GetDirectoryName(filePath) ?? "");
+                string fileName = System.IO.Path.GetFileNameWithoutExtension(filePath);
+
+                // 1. Поиск 4-значного числа (например: 2250 -> 22.5.0)
+                var match4 = System.Text.RegularExpressions.Regex.Match(dirName, @"\b(\d{4})\b");
+                if (!match4.Success)
+                {
+                    match4 = System.Text.RegularExpressions.Regex.Match(fileName, @"\b(\d{4})\b");
+                }
+                if (match4.Success)
+                {
+                    string d = match4.Groups[1].Value;
+                    PopulateKeysVersion(d);
+                    string v1 = d.Length >= 1 ? d[0].ToString() : "0";
+                    string v2 = d.Length >= 2 ? d[1].ToString() : "0";
+                    string v4 = d.Length >= 3 ? d[2].ToString() : "0";
+                    string v6 = d.Length >= 4 ? d[3].ToString() : "0";
+                    App.Settings.Current.KeysVersion = $"{v1}{v2}.{v4}.{v6}";
+                    return;
+                }
+
+                // 2. Поиск версии вида 22.5.0 или 18.1.0
+                var matchVer = System.Text.RegularExpressions.Regex.Match(dirName, @"\b(\d{1,2})\.(\d)\.(\d)\b");
+                if (!matchVer.Success)
+                {
+                    matchVer = System.Text.RegularExpressions.Regex.Match(fileName, @"\b(\d{1,2})\.(\d)\.(\d)\b");
+                }
+                if (matchVer.Success)
+                {
+                    string major = matchVer.Groups[1].Value.PadLeft(2, '0');
+                    string minor = matchVer.Groups[2].Value;
+                    string patch = matchVer.Groups[3].Value;
+                    string combined = $"{major}{minor}{patch}";
+                    PopulateKeysVersion(combined);
+                    App.Settings.Current.KeysVersion = $"{major}.{minor}.{patch}";
+                    return;
                 }
             }
             catch { }

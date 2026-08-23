@@ -4,20 +4,36 @@ using System.IO;
 using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 
 namespace StormSwitchBox.Services
 {
     /// <summary>
-    /// Высокопроизводительный сервис тихой загрузки и локального дискового кэширования обложек игр
+    /// Высокопроизводительный сервис тихой фоновой загрузки и локального дискового кэширования обложек игр
     /// в структурированную папку программы 'covers/{Полное_наименование_платформы}/'
-    /// с защитой от блокировок User-Agent, таймаутов и автоматическим разрешением зеркал.
+    /// с защитой от блокировок, пулом загрузки через Channel и нулевой нагрузкой на UI поток.
     /// </summary>
     public static class CoverCacheService
     {
         private static readonly HttpClient _httpClient;
         private static readonly string _baseCoversDirectory;
         private static readonly ConcurrentDictionary<string, string> _memoryUrlMap = new(StringComparer.OrdinalIgnoreCase);
+        private static readonly ConcurrentDictionary<string, bool> _queuedUrls = new(StringComparer.OrdinalIgnoreCase);
+
+        private struct DownloadItem
+        {
+            public string Url;
+            public string LocalPath;
+            public string FolderPath;
+            public string OriginalKey;
+        }
+
+        private static readonly Channel<DownloadItem> _downloadChannel = Channel.CreateBounded<DownloadItem>(new BoundedChannelOptions(500)
+        {
+            FullMode = BoundedChannelFullMode.DropOldest
+        });
 
         static CoverCacheService()
         {
@@ -29,12 +45,11 @@ namespace StormSwitchBox.Services
 
             _httpClient = new HttpClient(handler)
             {
-                Timeout = TimeSpan.FromSeconds(12)
+                Timeout = TimeSpan.FromSeconds(10)
             };
 
             _httpClient.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36");
             _httpClient.DefaultRequestHeaders.Add("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8");
-            _httpClient.DefaultRequestHeaders.Add("Accept-Language", "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7");
 
             string targetDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "covers");
             try
@@ -47,7 +62,6 @@ namespace StormSwitchBox.Services
             }
             catch
             {
-                // Fallback в AppData при отсутствии прав записи
                 _baseCoversDirectory = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                     "StormSwitchBox",
@@ -62,6 +76,54 @@ namespace StormSwitchBox.Services
                 }
                 catch { }
             }
+
+            // Start 2 background worker tasks to consume the channel quietly
+            Task.Run(ProcessDownloadQueueAsync);
+            Task.Run(ProcessDownloadQueueAsync);
+        }
+
+        private static async Task ProcessDownloadQueueAsync()
+        {
+            var reader = _downloadChannel.Reader;
+            while (await reader.WaitToReadAsync().ConfigureAwait(false))
+            {
+                while (reader.TryRead(out var item))
+                {
+                    try
+                    {
+                        if (File.Exists(item.LocalPath) && new FileInfo(item.LocalPath).Length > 200)
+                        {
+                            _memoryUrlMap[item.OriginalKey] = item.LocalPath;
+                            continue;
+                        }
+
+                        if (!Directory.Exists(item.FolderPath))
+                        {
+                            Directory.CreateDirectory(item.FolderPath);
+                        }
+
+                        using var req = new HttpRequestMessage(HttpMethod.Get, item.Url);
+                        using var res = await _httpClient.SendAsync(req, HttpCompletionOption.ResponseContentRead).ConfigureAwait(false);
+                        if (res.IsSuccessStatusCode)
+                        {
+                            byte[] bytes = await res.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
+                            if (bytes.Length > 200)
+                            {
+                                await File.WriteAllBytesAsync(item.LocalPath, bytes).ConfigureAwait(false);
+                                _memoryUrlMap[item.OriginalKey] = item.LocalPath;
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        // Silent catch
+                    }
+                    finally
+                    {
+                        await Task.Delay(50).ConfigureAwait(false);
+                    }
+                }
+            }
         }
 
         public static string ResolveCoverUrl(string? rawUrl, string? system = null, string? title = null, string? titleId = null)
@@ -71,7 +133,6 @@ namespace StormSwitchBox.Services
                 return GetFallbackUrl(system, title, titleId);
             }
 
-            // Если уже локальный файл
             if (rawUrl.StartsWith("file://", StringComparison.OrdinalIgnoreCase) ||
                 rawUrl.StartsWith("ms-appx://", StringComparison.OrdinalIgnoreCase) ||
                 File.Exists(rawUrl))
@@ -79,7 +140,6 @@ namespace StormSwitchBox.Services
                 return rawUrl;
             }
 
-            // Проверяем кэш в памяти
             if (_memoryUrlMap.TryGetValue(rawUrl, out var cachedPath) && File.Exists(cachedPath))
             {
                 return cachedPath;
@@ -98,8 +158,16 @@ namespace StormSwitchBox.Services
 
             string normalizedUrl = NormalizeUrl(rawUrl, system, title, titleId);
 
-            // Фоновая тихая загрузка в кэш
-            _ = Task.Run(() => CacheImageToDiskQuietlyAsync(normalizedUrl, localFilePath, platformFolderPath, rawUrl));
+            if (_queuedUrls.TryAdd(normalizedUrl, true))
+            {
+                _downloadChannel.Writer.TryWrite(new DownloadItem
+                {
+                    Url = normalizedUrl,
+                    LocalPath = localFilePath,
+                    FolderPath = platformFolderPath,
+                    OriginalKey = rawUrl
+                });
+            }
 
             return normalizedUrl;
         }
@@ -130,41 +198,30 @@ namespace StormSwitchBox.Services
             }
 
             string normalizedUrl = NormalizeUrl(rawUrl, system, title, titleId);
-            bool success = await CacheImageToDiskQuietlyAsync(normalizedUrl, localFilePath, platformFolderPath, rawUrl).ConfigureAwait(false);
-
-            return success && File.Exists(localFilePath) ? localFilePath : normalizedUrl;
-        }
-
-        private static async Task<bool> CacheImageToDiskQuietlyAsync(string url, string localPath, string folderPath, string originalKey)
-        {
-            if (string.IsNullOrEmpty(url) || !url.StartsWith("http", StringComparison.OrdinalIgnoreCase))
-                return false;
 
             try
             {
-                if (!Directory.Exists(folderPath))
+                if (!Directory.Exists(platformFolderPath))
                 {
-                    Directory.CreateDirectory(folderPath);
+                    Directory.CreateDirectory(platformFolderPath);
                 }
 
-                var response = await _httpClient.GetAsync(url, HttpCompletionOption.ResponseContentRead).ConfigureAwait(false);
-                if (response.IsSuccessStatusCode)
+                using var req = new HttpRequestMessage(HttpMethod.Get, normalizedUrl);
+                using var res = await _httpClient.SendAsync(req, HttpCompletionOption.ResponseContentRead).ConfigureAwait(false);
+                if (res.IsSuccessStatusCode)
                 {
-                    byte[] bytes = await response.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
+                    byte[] bytes = await res.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
                     if (bytes.Length > 200)
                     {
-                        await File.WriteAllBytesAsync(localPath, bytes).ConfigureAwait(false);
-                        _memoryUrlMap[originalKey] = localPath;
-                        return true;
+                        await File.WriteAllBytesAsync(localFilePath, bytes).ConfigureAwait(false);
+                        _memoryUrlMap[rawUrl] = localFilePath;
+                        return localFilePath;
                     }
                 }
             }
-            catch
-            {
-                // Тихо игнорируем сетевые ошибки, UI не блокируется
-            }
+            catch { }
 
-            return false;
+            return normalizedUrl;
         }
 
         public static string GetPlatformDirectoryName(string? system)
