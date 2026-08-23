@@ -20,8 +20,9 @@ namespace StormSwitchBox.Installer
         private Label lblSubtitle = null!;
         private Button btnInstall = null!;
         private Button btnCancel = null!;
-        private const string AppVersion = "4.6.8";
-        private const string AppDisplayName = "STORM SWITCH BOX 4.6.8";
+        private const string AppVersion = "4.6.9";
+        private const string AppDisplayName = "STORM SWITCH BOX 4.6.9";
+        private const string AppFolderName = "STORM SWITCH BOX";
         private const string ExeName = "StormSwitchBox.exe";
         private const string IcoName = "storm_switch_box.ico";
         private Button btnBrowse = null!;
@@ -162,7 +163,7 @@ namespace StormSwitchBox.Installer
 
             txtInstallPath = new TextBox
             {
-                Text = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), AppDisplayName),
+                Text = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), AppFolderName),
                 Location = new Point(5, 108),
                 Size = new Size(440, 26),
                 BackColor = Color.FromArgb(17, 24, 39),
@@ -327,7 +328,7 @@ namespace StormSwitchBox.Installer
             }
             else
             {
-                txtInstallPath.Text = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), AppDisplayName);
+                txtInstallPath.Text = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), AppFolderName);
                 chkDesktop.Checked = true;
                 chkDesktop.Enabled = true;
                 chkStartMenu.Checked = true;
@@ -367,7 +368,7 @@ namespace StormSwitchBox.Installer
                 string targetDir = txtInstallPath.Text.Trim();
                 if (string.IsNullOrEmpty(targetDir))
                 {
-                    targetDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), AppDisplayName);
+                    targetDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), AppFolderName);
                 }
 
                 Directory.CreateDirectory(targetDir);

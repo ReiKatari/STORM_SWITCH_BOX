@@ -39,14 +39,12 @@ namespace StormSwitchBox.Views
             this.Loaded += GameLibraryPage_Loaded;
         }
 
+        private CancellationTokenSource? _filterCts;
+
         private void GameLibraryPage_Loaded(object sender, RoutedEventArgs e)
         {
             if (!_isLoaded)
             {
-                // Загружаем всю базу Switch из TitleDB
-                App.NintendoLibrary.EnsureSwitchGamesLoaded(App.TitleDb);
-                App.TitleDb.DatabaseLoaded += OnTitleDbLoaded;
-
                 GamesGridView.ItemsSource = _pagedGames;
 
                 InitializeSystemTabsAndDropdown();
@@ -54,6 +52,13 @@ namespace StormSwitchBox.Views
                 ApplyLocalization();
                 
                 _isLoaded = true;
+
+                App.NintendoLibrary.LibraryUpdated += OnLibraryUpdated;
+                App.TitleDb.DatabaseLoaded += OnTitleDbLoaded;
+
+                // Асинхронная загрузка базы Switch в фоне без подвисания UI
+                _ = App.NintendoLibrary.EnsureSwitchGamesLoadedAsync(App.TitleDb);
+
                 ApplyFilters();
             }
             else
@@ -64,9 +69,13 @@ namespace StormSwitchBox.Views
 
         private void OnTitleDbLoaded()
         {
+            _ = App.NintendoLibrary.EnsureSwitchGamesLoadedAsync(App.TitleDb);
+        }
+
+        private void OnLibraryUpdated()
+        {
             DispatcherQueue.TryEnqueue(() =>
             {
-                App.NintendoLibrary.EnsureSwitchGamesLoaded(App.TitleDb);
                 InitializeSystemTabsAndDropdown();
                 PopulateFilterDropdowns();
                 ApplyFilters();
@@ -286,10 +295,15 @@ namespace StormSwitchBox.Views
             ApplyFilters();
         }
 
-        private void ApplyFilters()
+        private async void ApplyFilters()
         {
             if (!_isLoaded || GamesGridView == null || TotalGamesCountTextBlock == null) return;
 
+            _filterCts?.Cancel();
+            _filterCts = new CancellationTokenSource();
+            var token = _filterCts.Token;
+
+            string selSys = _selectedSystem;
             string? genre = GenreComboBox?.SelectedItem as string;
             string? dev = DeveloperComboBox?.SelectedItem as string;
             string? pub = PublisherComboBox?.SelectedItem as string;
@@ -301,11 +315,22 @@ namespace StormSwitchBox.Views
                 sortBy = tag;
             }
 
-            _allFilteredGames = App.NintendoLibrary.QueryGames(_selectedSystem, genre, dev, pub, search, sortBy);
-            string formattedCount = NintendoLibraryService.FormatNumber(_allFilteredGames.Count);
-            TotalGamesCountTextBlock.Text = $"Игр: {formattedCount}";
+            try
+            {
+                var filtered = await Task.Run(() =>
+                {
+                    return App.NintendoLibrary.QueryGames(selSys, genre, dev, pub, search, sortBy);
+                }, token);
 
-            UpdatePagination();
+                if (token.IsCancellationRequested) return;
+
+                _allFilteredGames = filtered;
+                string formattedCount = NintendoLibraryService.FormatNumber(_allFilteredGames.Count);
+                TotalGamesCountTextBlock.Text = $"Игр: {formattedCount}";
+
+                UpdatePagination();
+            }
+            catch (TaskCanceledException) { }
         }
 
         #region Pagination Logic
