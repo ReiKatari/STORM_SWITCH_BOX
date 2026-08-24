@@ -167,7 +167,9 @@ namespace StormUniversal.Installer
                 var asm = Assembly.GetExecutingAssembly();
                 foreach (var name in asm.GetManifestResourceNames())
                 {
-                    if (name.EndsWith("logo.png", StringComparison.OrdinalIgnoreCase))
+                    if (name.EndsWith("header_badge.png", StringComparison.OrdinalIgnoreCase) ||
+                        name.EndsWith("badge_logo.png", StringComparison.OrdinalIgnoreCase) ||
+                        name.EndsWith("logo.png", StringComparison.OrdinalIgnoreCase))
                     {
                         using var s = asm.GetManifestResourceStream(name);
                         if (s != null)

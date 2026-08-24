@@ -25,7 +25,7 @@
     <EmbeddedResource Include="..\Output\STORM_SWITCH_BOX_4.7.1_win-x64.zip" Link="Payload\Payload.zip" />
     <EmbeddedResource Include="..\STORM_Certificate.cer" Link="Payload\STORM_Certificate.cer" />
     <EmbeddedResource Include="..\..\storm_switch_box.ico" Link="Payload\storm_switch_box.ico" />
-    <EmbeddedResource Include="..\..\logo.png" Link="Payload\logo.png" />
+    <EmbeddedResource Include="header_badge.png" Link="Payload\header_badge.png" />
   </ItemGroup>
 
 </Project>
