@@ -13,8 +13,11 @@ yanu.log*
 covers/
 tools/cache/
 temp/
+__pycache__/
+*.pyc
 *.zip
 publish/
+Assembling/
 installer/Output/
 installer/StormInstaller/bin/
 installer/StormInstaller/obj/
