@@ -7,7 +7,7 @@ namespace StormSwitchBox.Services
     {
         public static List<NintendoCatalogItem> GetCatalog()
         {
-            var list = new List<NintendoCatalogItem>(151);
+            var list = new List<NintendoCatalogItem>(208);
 
             var games = new (string Title, string Genre, int Year, string Dev, string Pub, string Region, string Desc)[]
             {
@@ -112,6 +112,13 @@ namespace StormSwitchBox.Services
                 ("Yo-kai Watch 3", "Американские приключения в городе Сент-Пинатсбург с сеткой боевого поля 3х3", 2016, "Nintendo", "Nintendo", "WW", "Yo-kai Watch 3 — популярная игра для Nintendo 3DS / 2DS."),
                 ("Yo-kai Watch Blasters: Red Cat Corps / White Dog Squad", "Кооперативный экшен охотников на ёкаев", 2015, "Nintendo", "Nintendo", "WW", "Yo-kai Watch Blasters: Red Cat Corps / White Dog Squad — популярная игра для Nintendo 3DS / 2DS."),
                 ("Yoshi's New Island", "Остров Йоши с гигантскими яйцами Mega Eggdozers", 2014, "Nintendo", "Nintendo", "WW", "Yoshi's New Island — популярная игра для Nintendo 3DS / 2DS."),
+                ("Pokemon X", "JRPG", 2013, "Game Freak", "Nintendo", "WW", "Шестое поколение в регионе Калос: трехмерная графика, Мега-эволюции и феи."),
+                ("Pokemon Y", "JRPG", 2013, "Game Freak", "Nintendo", "WW", "Легендарный Ивельтал и поке-глажение Pokemon-Amie."),
+                ("Pokemon Sun", "JRPG", 2016, "Game Freak", "Nintendo", "WW", "Седьмое поколение на тропических островах Алола с Z-атаками и региональными формами."),
+                ("Pokemon Moon", "JRPG", 2016, "Game Freak", "Nintendo", "WW", "Легендарная Лунала и испытания островов без традиционных гимов."),
+                ("Pokemon Ultra Sun", "JRPG", 2017, "Game Freak", "Nintendo", "WW", "Некрозма, полеты через ультра-червоточины и Команда Радужная Ракета."),
+                ("Pokemon Ultra Moon", "JRPG", 2017, "Game Freak", "Nintendo", "WW", "Ультра-мегалополис и новые Ультра-чудовища."),
+                ("Luigi's Mansion: Dark Moon (2)", "Action-Adventure", 2013, "Next Level Games", "Nintendo", "WW", "Луиджи с Poltergust 5000 и ультрафиолетовым фонарем исследует 5 особняков."),
             };
 
             foreach (var g in games)

@@ -192,91 +192,18 @@ namespace StormSwitchBox.Services
 
                         await App.HardPatch.PatchUpdateAsync(task, hpInput, tempHardPatchedNsp, cancellationToken, isMultiContent: true);
                         
-                        if (System.IO.File.Exists(tempHardPatchedNsp))
+                        if (System.IO.File.Exists(tempHardPatchedNsp) && new FileInfo(tempHardPatchedNsp).Length > 0)
                         {
-                            // Валидация: проверяем, что patched_base не потерял исполняемые под-программы (Program NCA > 100MB).
-                            // Мульти-программные сборники (напр. AC Ezio Collection) содержат несколько Program NCA (>100MB)
-                            // для разных субигр в одном NSP. yanu-cli обрабатывает только основной TitleID и теряет остальные субигры.
-                            int originalProgramNcaCount = 0;
-                            int patchedProgramNcaCount = 0;
-                            try
+                            if (task.IsMultiProgramTitle)
                             {
-                                // Считаем Program NCA в оригинальном base
-                                using (var bs = new FileStream(baseFile, FileMode.Open, FileAccess.Read, FileShare.Read))
-                                using (var bfs = new PartitionFileSystem(bs.AsStorage()))
-                                {
-                                    foreach (var e in bfs.EnumerateEntries())
-                                    {
-                                        if (e.Type == LibHac.Fs.DirectoryEntryType.Directory) continue;
-                                        if (e.Name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase) || 
-                                            e.Name.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase))
-                                        {
-                                            if (e.Name.EndsWith(".cnmt.nca", StringComparison.OrdinalIgnoreCase) || e.Name.EndsWith(".cnmt.ncz", StringComparison.OrdinalIgnoreCase)) continue;
-                                            var f = OpenFileSafe(bfs, "/" + e.Name);
-                                            f.GetSize(out long size);
-                                            
-                                            bool isProgram = false;
-                                            try
-                                            {
-                                                var nca = new LibHac.Tools.FsSystem.NcaUtils.Nca(App.Keys.CurrentKeyset, f.AsStorage());
-                                                isProgram = nca.Header.ContentType == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Program;
-                                            }
-                                            catch
-                                            {
-                                                isProgram = size > 10 * 1024 * 1024; // Fallback для ретро-игр и крупных программ
-                                            }
-                                            f.Dispose();
-                                            if (isProgram)
-                                                originalProgramNcaCount++;
-                                        }
-                                    }
-                                }
-                                // Считаем Program NCA в patched_base
-                                using (var ps = new FileStream(tempHardPatchedNsp, FileMode.Open, FileAccess.Read, FileShare.Read))
-                                using (var pfs = new PartitionFileSystem(ps.AsStorage()))
-                                {
-                                    foreach (var e in pfs.EnumerateEntries())
-                                    {
-                                        if (e.Type == LibHac.Fs.DirectoryEntryType.Directory) continue;
-                                        if (e.Name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase) || 
-                                            e.Name.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase))
-                                        {
-                                            if (e.Name.EndsWith(".cnmt.nca", StringComparison.OrdinalIgnoreCase) || e.Name.EndsWith(".cnmt.ncz", StringComparison.OrdinalIgnoreCase)) continue;
-                                            var f = OpenFileSafe(pfs, "/" + e.Name);
-                                            f.GetSize(out long size);
-                                            
-                                            bool isProgram = false;
-                                            try
-                                            {
-                                                var nca = new LibHac.Tools.FsSystem.NcaUtils.Nca(App.Keys.CurrentKeyset, f.AsStorage());
-                                                isProgram = nca.Header.ContentType == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Program;
-                                            }
-                                            catch
-                                            {
-                                                isProgram = size > 10 * 1024 * 1024;
-                                            }
-                                            f.Dispose();
-                                            if (isProgram)
-                                                patchedProgramNcaCount++;
-                                        }
-                                    }
-                                }
-                            }
-                            catch { }
-
-                            App.Logger.Log($"[HardPatch] Program NCA validation: original={originalProgramNcaCount}, patched={patchedProgramNcaCount}", Models.LogLevel.Info);
-
-                            if (originalProgramNcaCount > 1 && patchedProgramNcaCount < originalProgramNcaCount)
-                            {
-                                // patched_base потерял под-программы (мульти-программный тайтл)
-                                // Отменяем HardPatch и используем оригинальные файлы
-                                App.RunOnUI(() => task.LogDetails += $"\n⚠️ [HardPatch] Мульти-программный тайтл ({originalProgramNcaCount} игр → {patchedProgramNcaCount}). Используем оригинальные файлы.");
-                                App.Logger.Log($"[HardPatch] Multi-program title detected: {originalProgramNcaCount} -> {patchedProgramNcaCount}. Discarding patched_base, using originals.", Models.LogLevel.Warning);
+                                // Мульти-программный сборник (напр. AC Ezio Collection с несколькими независимыми Application TitleID)
+                                App.RunOnUI(() => task.LogDetails += $"\n⚠️ [HardPatch] Мульти-программный сборник. Используем оригинальные разделы для сохранения всех под-игр.");
+                                App.Logger.Log($"[HardPatch] Multi-program title detected. Discarding patched_base, using originals.", Models.LogLevel.Warning);
                                 try { System.IO.File.Delete(tempHardPatchedNsp); } catch { }
                             }
                             else
                             {
-                                // Нормальный тайтл — используем patched_base
+                                // Обычная игра — пересобранная база полностью заменяет базу и обновление, исключая дубликаты
                                 hasPatchedBase = true;
                                 finalInputFilesList.Remove(baseFile);
                                 if (!string.IsNullOrEmpty(updateFile)) finalInputFilesList.Remove(updateFile);
@@ -285,7 +212,7 @@ namespace StormSwitchBox.Services
                                     finalInputFilesList.Remove(mod);
                                 }
                                 finalInputFilesList.Add(tempHardPatchedNsp);
-                                App.RunOnUI(() => task.LogDetails += "\n🔵 [HardPatch] Успешно завершено.");
+                                App.RunOnUI(() => task.LogDetails += "\n🔵 [HardPatch] Физическая пересборка успешно завершена. Ресурсы обновлены, дублирование исключено.");
                             }
                         }
                         else 
@@ -501,7 +428,9 @@ namespace StormSwitchBox.Services
                                     bool isTicketOrCert = lower.EndsWith(".tik") || lower.EndsWith(".cert");
                                     bool isPatchCnmt = lower.EndsWith(".cnmt.nca") || lower.EndsWith(".cnmt.xml");
 
-                                    if (isTicketOrCert || isPatchCnmt)
+                                    bool shouldInclude = isTicketOrCert || (!hasPatchedBase && isPatchCnmt);
+
+                                    if (shouldInclude)
                                     {
                                         if (!mergedEntries.ContainsKey(name))
                                         {

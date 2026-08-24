@@ -26,11 +26,11 @@ $tsUrl = "http://timestamp.digicert.com"
 
 Get-ChildItem "$root\bin\Release\net8.0-windows10.0.19041.0\win-x64\publish" -Recurse | Unblock-File -ErrorAction SilentlyContinue
 
-& $signtool sign /fd SHA256 /tr $tsUrl /td SHA256 /d "STORM SWITCH BOX 4.7.0" /du "https://github.com/ReiKatari/STORM_SWITCH_BOX" /sha1 $certThumb "$root\bin\Release\net8.0-windows10.0.19041.0\win-x64\publish\StormSwitchBox.exe"
-& $signtool sign /fd SHA256 /tr $tsUrl /td SHA256 /d "STORM SWITCH BOX 4.7.0" /du "https://github.com/ReiKatari/STORM_SWITCH_BOX" /sha1 $certThumb "$root\bin\Release\net8.0-windows10.0.19041.0\win-x64\publish\StormSwitchBox.dll"
+& $signtool sign /fd SHA256 /tr $tsUrl /td SHA256 /d "STORM SWITCH BOX 4.7.1" /du "https://github.com/ReiKatari/STORM_SWITCH_BOX" /sha1 $certThumb "$root\bin\Release\net8.0-windows10.0.19041.0\win-x64\publish\StormSwitchBox.exe"
+& $signtool sign /fd SHA256 /tr $tsUrl /td SHA256 /d "STORM SWITCH BOX 4.7.1" /du "https://github.com/ReiKatari/STORM_SWITCH_BOX" /sha1 $certThumb "$root\bin\Release\net8.0-windows10.0.19041.0\win-x64\publish\StormSwitchBox.dll"
 
 Get-ChildItem "$root\bin\Release\net8.0-windows10.0.19041.0\win-x64\publish\tools" -Recurse -Filter *.exe | ForEach-Object {
-    & $signtool sign /fd SHA256 /tr $tsUrl /td SHA256 /d "STORM SWITCH BOX 4.7.0" /du "https://github.com/ReiKatari/STORM_SWITCH_BOX" /sha1 $certThumb $_.FullName
+    & $signtool sign /fd SHA256 /tr $tsUrl /td SHA256 /d "STORM SWITCH BOX 4.7.1" /du "https://github.com/ReiKatari/STORM_SWITCH_BOX" /sha1 $certThumb $_.FullName
 }
 
 Write-Host "==============================================" -ForegroundColor Cyan
@@ -41,7 +41,7 @@ $outputDir = "$root\installer\Output"
 if (-not (Test-Path $outputDir)) { New-Item -ItemType Directory -Path $outputDir | Out-Null }
 if (Test-Path "$root\installer\STORM_Certificate.cer") { Copy-Item "$root\installer\STORM_Certificate.cer" "$root\bin\Release\net8.0-windows10.0.19041.0\win-x64\publish\" -Force }
 
-$portableZip = "$outputDir\STORM_SWITCH_BOX_4.7.0_win-x64.zip"
+$portableZip = "$outputDir\STORM_SWITCH_BOX_4.7.1_win-x64.zip"
 if (Test-Path $portableZip) { Remove-Item $portableZip -Force }
 
 if (Test-Path "$root\tools\7z.exe") {
@@ -57,7 +57,7 @@ Write-Host "==============================================" -ForegroundColor Cya
 dotnet publish "$root\installer\StormInstaller\StormInstaller.csproj" -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=false -p:EnableCompressionInSingleFile=false
 
 $installerExe = "$root\installer\StormInstaller\bin\Release\net8.0-windows\win-x64\publish\StormInstaller.exe"
-$setupExe = "$outputDir\STORM_SWITCH_BOX_4.7.0_Setup.exe"
+$setupExe = "$outputDir\STORM_SWITCH_BOX_4.7.1_Setup.exe"
 
 if (Test-Path $installerExe) {
     Copy-Item $installerExe $setupExe -Force
@@ -66,10 +66,10 @@ if (Test-Path $installerExe) {
 }
 
 Write-Host "==============================================" -ForegroundColor Cyan
-Write-Host "5. Signing STORM_SWITCH_BOX_4.7.0_Setup.exe with RFC 3161 Timestamp..." -ForegroundColor Cyan
+Write-Host "5. Signing STORM_SWITCH_BOX_4.7.1_Setup.exe with RFC 3161 Timestamp..." -ForegroundColor Cyan
 Write-Host "==============================================" -ForegroundColor Cyan
 
-& $signtool sign /fd SHA256 /tr $tsUrl /td SHA256 /d "STORM SWITCH BOX 4.7.0" /du "https://github.com/ReiKatari/STORM_SWITCH_BOX" /sha1 $certThumb $setupExe
+& $signtool sign /fd SHA256 /tr $tsUrl /td SHA256 /d "STORM SWITCH BOX 4.7.1" /du "https://github.com/ReiKatari/STORM_SWITCH_BOX" /sha1 $certThumb $setupExe
 
 Get-ChildItem $outputDir -Recurse | Unblock-File -ErrorAction SilentlyContinue
 
@@ -87,7 +87,7 @@ Write-Host "==============================================" -ForegroundColor Cya
 Write-Host "6. Packaging Smart App Control Setup Bundle..." -ForegroundColor Cyan
 Write-Host "==============================================" -ForegroundColor Cyan
 
-$bundleZip = "$outputDir\STORM_SWITCH_BOX_4.7.0_Setup_Bundle.zip"
+$bundleZip = "$outputDir\STORM_SWITCH_BOX_4.7.1_Setup_Bundle.zip"
 if (Test-Path $bundleZip) { Remove-Item $bundleZip -Force }
 
 if (Test-Path "$root\tools\7z.exe") {

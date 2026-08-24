@@ -7,7 +7,7 @@ namespace StormSwitchBox.Services
     {
         public static List<NintendoCatalogItem> GetCatalog()
         {
-            var list = new List<NintendoCatalogItem>(202);
+            var list = new List<NintendoCatalogItem>(272);
 
             var games = new (string Title, string Genre, int Year, string Dev, string Pub, string Region, string Desc)[]
             {
@@ -154,7 +154,6 @@ namespace StormSwitchBox.Services
                 ("Turok: Evolution", "Экшен Турока", 2002, "Acclaim", "Acclaim", "WW", "Turok: Evolution — популярная игра для Nintendo Game Boy Advance."),
                 ("V-Rally 3", "Выдающийся трехмерный раллийный симулятор с полигональной графикой", 2002, "Atari", "Atari", "WW", "V-Rally 3 — популярная игра для Nintendo Game Boy Advance."),
                 ("Wario Land 4", "Шедевр платформеров: побег Варио из пирамиды с таймером Frog Switch", 2001, "Nintendo", "Nintendo", "WW", "Wario Land 4 — популярная игра для Nintendo Game Boy Advance."),
-                ("WarioWare: Twisted!", "Микро-игры с гироскопом", 2004, "Nintendo", "Nintendo", "WW", "WarioWare: Twisted! — популярная игра для Nintendo Game Boy Advance."),
                 ("Wing Commander: Prophecy", "3D космосимулятор с полигональными кораблями", 2003, "Raylight", "Raylight", "WW", "Wing Commander: Prophecy — популярная игра для Nintendo Game Boy Advance."),
                 ("Worms World Party", "Червячки с сетевым режимом", 2002, "Ubisoft", "Ubisoft", "WW", "Worms World Party — популярная игра для Nintendo Game Boy Advance."),
                 ("Yggdra Union: We'll Never Fight Alone", "Тактическая карточная RPG принцессы Иггдры от Sting", 2006, "Atlus", "Atlus", "WW", "Yggdra Union: We'll Never Fight Alone — популярная игра для Nintendo Game Boy Advance."),
@@ -163,6 +162,27 @@ namespace StormSwitchBox.Services
                 ("Yu-Gi-Oh! Reshef of Destruction", "Вторая часть RPG Yu-Gi-Oh", 2004, "Konami", "Konami", "WW", "Yu-Gi-Oh! Reshef of Destruction — популярная игра для Nintendo Game Boy Advance."),
                 ("Yu-Gi-Oh! Worldwide Edition: Stairway to the Destined Duel", "Турнирные карточные битвы", 2003, "Konami", "Konami", "WW", "Yu-Gi-Oh! Worldwide Edition: Stairway to the Destined Duel — популярная игра для Nintendo Game Boy Advance."),
                 ("Zone of the Enders: The Fist of Mars", "Тактическая RPG боевых роботов орбитальных фреймов Лео Стенбака", 2001, "Konami", "Konami", "WW", "Zone of the Enders: The Fist of Mars — популярная игра для Nintendo Game Boy Advance."),
+                ("Blackthorne", "Кинематографичный платформер", 2003, "Blizzard Entertainment", "Blizzard", "WW", "Порт культовой классики Blizzard с дробовиком за спиной на планете Туул."),
+                ("Bomberman Tournament", "Action-RPG / Головоломка", 2001, "Hudson Soft", "Activision", "WW", "Приключения Бомбермена на планете Фасания с приручением существ Карабан."),
+                ("Broken Sword: The Shadow of the Templars", "Point-and-Click квест", 2002, "Revolution Software", "BAM!", "WW", "Джордж Стоббарт и Николь Коллар расследуют тайны ордена тамплиеров в Париже."),
+                ("Bruce Lee: Return of the Legend", "Beat 'em up", 2003, "Vicarious Visions", "Vivendi", "WW", "Кунг-фу боевик Брюса Ли с плавнейшей акробатической анимацией и нунчаками."),
+                ("Car Battler Joe", "Автомобильная Action-RPG", 2001, "Ancient", "Natsume", "WW", "Боевые заезды на кастомизируемых багги в постапокалиптическом мире от Косиро."),
+                ("Castlevania Double Pack", "Метроидвания", 2006, "Konami", "Konami", "WW", "Сборник двух шедевров: Harmony of Dissonance и Aria of Sorrow на одном картридже."),
+                ("Crash Bandicoot: The Huge Adventure (XS)", "2D Платформер", 2002, "Vicarious Visions", "Universal", "WW", "Крэш Бандикут спасает уменьшенную Нео Кортексом Землю."),
+                ("Crazy Taxi: Catch a Ride", "3D Аркада", 2003, "Graphic State", "Sega", "WW", "Порт трехмерных заездов безумного такси по Сан-Франциско."),
+                ("CT Special Forces", "Run and Gun", 2002, "LSP", "LSP", "WW", "Элитный спецназ против мирового терроризма в стиле Metal Slug со снайперскими миссиями."),
+                ("CT Special Forces 2: Back in the Trenches", "Run and Gun", 2003, "LSP", "Hip Games", "WW", "Вторая часть с парашютными десантами и танковыми боями."),
+                ("Custom Robo GX", "Меха-Action RPG", 2002, "Noise", "Nintendo", "JPN", "Сражения миниатюрных боевых роботов на аренах Holosseum."),
+                ("Danny Phantom: The Ultimate Enemy", "Экшен-платформер", 2005, "Altron", "THQ", "WW", "Дэнни Призрак против своей злой альтернативной версии из будущего Дэнни Фэнтона."),
+                ("Dave Mirra Freestyle BMX 2", "Экстремальный спорт", 2001, "Full Fat", "Acclaim", "WW", "Трюковой велоспорт BMX с реалистичной физикой и саундтреком."),
+                ("Dead to Rights", "Нуарный боевик", 2004, "Torus Games", "Namco", "WW", "Джек Слейт и верный пес Шэдоу в Грант-Сити со слоу-мо Bullet Time стрельбой."),
+                ("Defender", "3D Космический SHMUP", 2002, "Outback", "Midway", "WW", "Защита колонистов от похищения инопланетными кораблями."),
+                ("Densetsu no Stafy", "Платформер", 2002, "TOSE", "Nintendo", "JPN", "Дебют морской звездочки Старфи с вращениями и плаванием."),
+                ("Densetsu no Stafy 2", "Платформер", 2003, "TOSE", "Nintendo", "JPN", "Старфи спасает свою маму от злого угря Огура."),
+                ("Densetsu no Stafy 3", "Платформер", 2004, "TOSE", "Nintendo", "JPN", "Появление сестренки Стами и кроссовер с Варио."),
+                ("Digimon Racing", "Картинг", 2004, "Griptonite Games", "Bandai", "WW", "Гонки дигимонов с эволюциями Digivolve прямо на треке."),
+                ("Dokapon: Monster Hunter", "RPG / Настольная игра", 2001, "Asmik Ace", "Crave", "WW", "Пошаговая ролевая настолка с охотой на монстров и подземельями."),
+                ("Donkey Kong Country 3 (GBA)", "Платформер", 2005, "Rare", "Nintendo", "WW", "Порт с совершенно новым саундтреком от Дэвида Уайза и новым тихоокеанским миром."),
             };
 
             foreach (var g in games)

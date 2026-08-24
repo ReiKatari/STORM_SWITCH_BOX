@@ -6,33 +6,43 @@
   <b>Комплексный менеджер и конвертер игр Nintendo Switch (NSP/XCI/NSZ), управление установкой и резервным копированием.</b>
 </p>
 
-[![Version](https://img.shields.io/badge/version-4.7.0-00D2FF.svg?style=for-the-badge)](https://github.com/ReiKatari/STORM_SWITCH_BOX)
-[![Platform](https://img.shields.io/badge/Platform-Windows%2011%20%7C%2010-0EA5E9.svg?style=for-the-badge)](https://github.com/ReiKatari/STORM_SWITCH_BOX)
-[![Tech](https://img.shields.io/badge/Tech-.NET+10+%2f+WinUI+3-6366F1.svg?style=for-the-badge)](https://github.com/ReiKatari/STORM_SWITCH_BOX)
-[![Publisher](https://img.shields.io/badge/Publisher-STORM%20TEAM-10B981.svg?style=for-the-badge)](https://github.com/ReiKatari)
-[![Developer](https://img.shields.io/badge/Author-ReiKatari-F59E0B.svg?style=for-the-badge)](https://github.com/ReiKatari)
-[![Signed](https://img.shields.io/badge/Security-SHA256%20Signed-10B981.svg?style=for-the-badge)](https://github.com/ReiKatari)
+[![Version](https://img.shields.io/badge/version-4.7.1-00D2FF.svg?style=for-the-badge)](https://github.com/ReiKatari/STORM_SWITCH_BOX)
+[![License](https://img.shields.io/badge/license-MIT-green.svg?style=for-the-badge)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Windows%2010%2B-blue.svg?style=for-the-badge)](https://www.microsoft.com/windows)
+[![.NET](https://img.shields.io/badge/.NET-8.0-purple.svg?style=for-the-badge)](https://dotnet.microsoft.com/download/dotnet/8.0)
+
+<p align="center">
+  <a href="#возможности">Возможности</a> •
+  <a href="#установка">Установка</a> •
+  <a href="#требования">Требования</a> •
+  <a href="#использование">Использование</a> •
+  <a href="#структура-проекта">Структура</a> •
+  <a href="#лицензия">Лицензия</a>
+</p>
 
 </div>
 
 ---
 
-## 🌟 О проекте / Overview
+## 📖 О проекте
 
-**STORM SWITCH BOX** — компонент экосистемы **STORM**, разработанный с упором на максимальную производительность, современный дизайн и надёжность.
+**STORM SWITCH BOX** — это современное, быстрое и многофункциональное приложение для Windows, предназначенное для работы с игровыми файлами **Nintendo Switch** и **Nintendo 3DS**, а также интерактивная энциклопедия всех 19 поколений игровых систем Nintendo (от Color TV-Game до Nintendo Switch 2). 
 
-* **Версия:** $(System.Collections.Hashtable.Ver)
-* **Издатель:** STORM TEAM
-* **Ведущий разработчик:** ReiKatari
-* **Технологический стек:** $(System.Collections.Hashtable.Tech)
+Программа построена на базе **.NET 8** и **Windows App SDK (WinUI 3)** с использованием современных принципов дизайна Windows 11 (Mica, Acrylic, темная и светлая темы) и строгого стандарта **STORM ALL PROJECTS FORMAT**.
 
 ---
 
-## 🚀 Установка / Installation
+## ⚡ Ключевые возможности
 
-Установка производится через единый инсталлятор **STORM INSTALLER**:
+* 🔄 **Мульти-контент**: Сшивание базовой игры, обновлений, дополнений (DLC) и модификаций (RomFS/ExeFS) в один монолитный файл без дублирования данных.
+* 📦 **Поддержка форматов**: NSP, NSZ, XCI, XCZ, 3DS, CIA, CXI.
+* 🚀 **Высокая производительность**: Нативные C# алгоритмы и поддержка многопоточности.
 
-1. Запустите файл STORM_STORM_SWITCH_BOX_4.7.0_Setup.exe.
+---
+
+## 📥 Установка
+
+1. Запустите файл `STORM_SWITCH_BOX_4.7.1_Setup.exe`.
 2. Выберите режим:
    * **Стандартная установка** — установка в C:\Program Files\STORM SWITCH BOX с созданием ярлыков и регистрацией в системе.
    * **Портативная версия** — распаковка в любую выбранную папку без изменения реестра.

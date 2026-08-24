@@ -7,7 +7,7 @@ namespace StormSwitchBox.Services
     {
         public static List<NintendoCatalogItem> GetCatalog()
         {
-            var list = new List<NintendoCatalogItem>(159);
+            var list = new List<NintendoCatalogItem>(215);
 
             var games = new (string Title, string Genre, int Year, string Dev, string Pub, string Region, string Desc)[]
             {
@@ -120,6 +120,12 @@ namespace StormSwitchBox.Services
                 ("Wii Play: Motion", "12 мини-игр для сверхточного датчика MotionPlus", 2011, "Nintendo", "Nintendo", "WW", "Wii Play: Motion — популярная игра для Nintendo Wii."),
                 ("WWE SmackDown vs. Raw 2008", "Рестлинг", 2007, "THQ", "THQ", "WW", "WWE SmackDown vs. Raw 2008 — популярная игра для Nintendo Wii."),
                 ("Zack & Wiki: Quest for Barbaros' Treasure", "Гениальный Point-and-Click квест юного пирата Зака и обезьянки от Capcom", 2007, "Capcom", "Capcom", "WW", "Zack & Wiki: Quest for Barbaros' Treasure — популярная игра для Nintendo Wii."),
+                ("The Legend of Zelda: Twilight Princess (Wii)", "Action-Adventure", 2006, "Nintendo EAD", "Nintendo", "WW", "Управление мечом и луком взмахами контроллера Wii Remote."),
+                ("Metroid: Other M", "Action-слэшер", 2010, "Team Ninja / Nintendo", "Nintendo", "WW", "История Самус Аран и Адама Малковича от Team Ninja с кинематографичными добиваниями."),
+                ("Sin and Punishment: Star Successor", "3D Рельсовый шутер", 2009, "Treasure", "Nintendo", "WW", "Ультимативный безостановочный боевик от Treasure с идеальным управлением Wii Remote."),
+                ("Punch-Out!! (Wii)", "Аркадный бокс", 2009, "Next Level Games", "Nintendo", "WW", "Литтл Мак и тренер Док Луис против колоритных мировых боксеров с поддержкой Balance Board."),
+                ("Kirby's Return to Dream Land", "2D Платформер", 2011, "HAL Laboratory", "Nintendo", "WW", "Кооператив на 4 игроков с супер-способностями Ultra Sword и починкой корабля Лора Старкаттер."),
+                ("Rhythm Heaven Fever (Beat the Beat)", "Ритм-игра", 2011, "Nintendo / TNX", "Nintendo", "WW", "Безумно стильная и смешная ритм-игра под авторством продюсера Цунку (Tsunku)."),
             };
 
             foreach (var g in games)

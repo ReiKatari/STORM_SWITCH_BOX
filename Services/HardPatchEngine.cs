@@ -46,12 +46,12 @@ namespace StormSwitchBox.Services
                     }
                 }
                 
-                string isolatedUserProfile = System.IO.Path.Combine(toolsDir, "keys");
-                string isolatedLocalAppData = System.IO.Path.Combine(toolsDir, "cache");
+                string localAppDataDir = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "StormSwitchBox");
+                string isolatedUserProfile = System.IO.Path.Combine(localAppDataDir, "user_profile");
+                string isolatedLocalAppData = System.IO.Path.Combine(localAppDataDir, "cache");
                 
                 string userProfileSwitch = System.IO.Path.Combine(isolatedUserProfile, ".switch");
                 string userProfileKeys = System.IO.Path.Combine(userProfileSwitch, "prod.keys");
-                string squirrelKeys = System.IO.Path.Combine(toolsDir, "nscb", "ztools", "keys.txt");
                 
                 lock (_keysLock)
                 {

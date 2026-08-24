@@ -137,6 +137,31 @@ namespace StormSwitchBox
             catch { }
         }
 
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+        private static void ActivateRunningProcessWindow()
+        {
+            try
+            {
+                var current = System.Diagnostics.Process.GetCurrentProcess();
+                var processes = System.Diagnostics.Process.GetProcessesByName(current.ProcessName);
+                foreach (var p in processes)
+                {
+                    if (p.Id != current.Id && p.MainWindowHandle != IntPtr.Zero)
+                    {
+                        ShowWindow(p.MainWindowHandle, 9); // SW_RESTORE
+                        SetForegroundWindow(p.MainWindowHandle);
+                        break;
+                    }
+                }
+            }
+            catch { }
+        }
+
         protected override async void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
         {
             JobObjectManager.InitializeJobForCurrentProcess();
@@ -152,28 +177,22 @@ namespace StormSwitchBox
 
             if (!isFirstInstance)
             {
-                // Send arguments to first instance
-                bool pipeSuccess = false;
+                // Отправляем сигнал активному экземпляру для фокусировки окна и показа уведомления
                 try
                 {
                     using var client = new System.IO.Pipes.NamedPipeClientStream(".", PipeName, System.IO.Pipes.PipeDirection.Out);
-                    client.Connect(1000);
+                    client.Connect(800);
                     using var writer = new System.IO.StreamWriter(client, System.Text.Encoding.UTF8);
-                    writer.WriteLine(string.Join("|", Environment.GetCommandLineArgs()));
+                    writer.WriteLine("__ACTIVATE_SINGLE_INSTANCE__|" + string.Join("|", Environment.GetCommandLineArgs()));
                     writer.Flush();
-                    pipeSuccess = true;
                 }
                 catch { }
 
-                if (pipeSuccess)
-                {
-                    Environment.Exit(0);
-                    return;
-                }
-                else
-                {
-                    App.Logger.Log("[Startup] Предыдущий экземпляр не ответил на Pipe. Запуск текущего процесса.", Models.LogLevel.Warning);
-                }
+                // Активируем окно первого экземпляра через Win32 API
+                ActivateRunningProcessWindow();
+
+                Environment.Exit(0);
+                return;
             }
 
             Services.TempCleanupService.PurgeStaleTempDirectories();
@@ -191,8 +210,32 @@ namespace StormSwitchBox
                         string? line = reader.ReadLine();
                         if (!string.IsNullOrWhiteSpace(line))
                         {
-                            string[] incomingArgs = line.Split('|');
-                            RunOnUI(() => ProcessCommandLineArgs(incomingArgs));
+                            if (line.StartsWith("__ACTIVATE_SINGLE_INSTANCE__"))
+                            {
+                                string remaining = line.Substring("__ACTIVATE_SINGLE_INSTANCE__|".Length);
+                                string[] incomingArgs = remaining.Split('|');
+                                RunOnUI(() =>
+                                {
+                                    if (MainWindow is MainWindow mw)
+                                    {
+                                        mw.RestoreWindow();
+                                        mw.ShowSingleInstanceAlert();
+                                    }
+                                    else
+                                    {
+                                        MainWindow?.Activate();
+                                    }
+                                    if (incomingArgs.Length > 1)
+                                    {
+                                        ProcessCommandLineArgs(incomingArgs);
+                                    }
+                                });
+                            }
+                            else
+                            {
+                                string[] incomingArgs = line.Split('|');
+                                RunOnUI(() => ProcessCommandLineArgs(incomingArgs));
+                            }
                         }
                     }
                     catch { }
@@ -454,13 +497,37 @@ namespace StormSwitchBox
 
             try
             {
-                // Резервное создание директорий temp для предотвращения FileNotFoundError утилиты squirrel.exe
-                try { System.IO.Directory.CreateDirectory(@"E:\STORM SWITCH BOX\temp"); } catch { }
+                // Резервное создание директорий temp в LocalAppData для предотвращения ошибок прав
+                string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                string stormAppData = System.IO.Path.Combine(localAppData, "StormSwitchBox");
+                try { System.IO.Directory.CreateDirectory(stormAppData); } catch { }
+                try { System.IO.Directory.CreateDirectory(System.IO.Path.Combine(stormAppData, "temp")); } catch { }
                 try { System.IO.Directory.CreateDirectory(System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory, "temp")); } catch { }
 
                 SwitchFormat.CleanKeysFile(userKeys);
                 Keys.LoadKeys(userKeys);
 
+                // 1. Первоочередная синхронизация в профиль пользователя Windows (.switch) - всегда доступно без прав администратора
+                string userProfileSwitch = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch");
+                try
+                {
+                    if (!System.IO.Directory.Exists(userProfileSwitch)) System.IO.Directory.CreateDirectory(userProfileSwitch);
+                    System.IO.File.Copy(userKeys, System.IO.Path.Combine(userProfileSwitch, "prod.keys"), true);
+                    System.IO.File.Copy(userKeys, System.IO.Path.Combine(userProfileSwitch, "keys.txt"), true);
+                }
+                catch { }
+
+                // 2. Синхронизация в изолированную директорию LocalAppData
+                try
+                {
+                    string localKeysDir = System.IO.Path.Combine(stormAppData, "keys");
+                    if (!System.IO.Directory.Exists(localKeysDir)) System.IO.Directory.CreateDirectory(localKeysDir);
+                    System.IO.File.Copy(userKeys, System.IO.Path.Combine(localKeysDir, "prod.keys"), true);
+                    System.IO.File.Copy(userKeys, System.IO.Path.Combine(localKeysDir, "keys.txt"), true);
+                }
+                catch { }
+
+                // 3. Безопасная синхронизация в каталог tools (если программа запущена в портативном режиме с правами записи)
                 string appDir = System.AppDomain.CurrentDomain.BaseDirectory;
                 string toolsDir = System.IO.Path.Combine(appDir, "tools");
                 if (!System.IO.Directory.Exists(toolsDir))
@@ -471,38 +538,36 @@ namespace StormSwitchBox
 
                 if (System.IO.Directory.Exists(toolsDir))
                 {
-                    string targetToolsKeys = System.IO.Path.Combine(toolsDir, "keys.txt");
-                    string targetToolsProdKeys = System.IO.Path.Combine(toolsDir, "prod.keys");
-                    
-                    string nscbDir = System.IO.Path.Combine(toolsDir, "nscb");
-                    string nscbZtoolsDir = System.IO.Path.Combine(nscbDir, "ztools");
-                    if (!System.IO.Directory.Exists(nscbZtoolsDir)) System.IO.Directory.CreateDirectory(nscbZtoolsDir);
+                    try
+                    {
+                        string targetToolsKeys = System.IO.Path.Combine(toolsDir, "keys.txt");
+                        string targetToolsProdKeys = System.IO.Path.Combine(toolsDir, "prod.keys");
+                        
+                        string nscbDir = System.IO.Path.Combine(toolsDir, "nscb");
+                        string nscbZtoolsDir = System.IO.Path.Combine(nscbDir, "ztools");
+                        if (!System.IO.Directory.Exists(nscbZtoolsDir)) try { System.IO.Directory.CreateDirectory(nscbZtoolsDir); } catch { }
 
-                    string squirrelKeys1 = System.IO.Path.Combine(nscbDir, "keys.txt");
-                    string squirrelKeys2 = System.IO.Path.Combine(nscbZtoolsDir, "keys.txt");
-                    string squirrelProdKeys1 = System.IO.Path.Combine(nscbDir, "prod.keys");
-                    string squirrelProdKeys2 = System.IO.Path.Combine(nscbZtoolsDir, "prod.keys");
+                        string squirrelKeys1 = System.IO.Path.Combine(nscbDir, "keys.txt");
+                        string squirrelKeys2 = System.IO.Path.Combine(nscbZtoolsDir, "keys.txt");
+                        string squirrelProdKeys1 = System.IO.Path.Combine(nscbDir, "prod.keys");
+                        string squirrelProdKeys2 = System.IO.Path.Combine(nscbZtoolsDir, "prod.keys");
 
-                    string nszDir = System.IO.Path.Combine(toolsDir, "nsz");
-                    if (!System.IO.Directory.Exists(nszDir)) System.IO.Directory.CreateDirectory(nszDir);
-                    string nszKeys1 = System.IO.Path.Combine(nszDir, "keys.txt");
-                    string nszKeys2 = System.IO.Path.Combine(nszDir, "prod.keys");
+                        string nszDir = System.IO.Path.Combine(toolsDir, "nsz");
+                        if (!System.IO.Directory.Exists(nszDir)) try { System.IO.Directory.CreateDirectory(nszDir); } catch { }
+                        string nszKeys1 = System.IO.Path.Combine(nszDir, "keys.txt");
+                        string nszKeys2 = System.IO.Path.Combine(nszDir, "prod.keys");
 
-                    System.IO.File.Copy(userKeys, targetToolsKeys, true);
-                    System.IO.File.Copy(userKeys, targetToolsProdKeys, true);
-                    System.IO.File.Copy(userKeys, squirrelKeys1, true);
-                    System.IO.File.Copy(userKeys, squirrelKeys2, true);
-                    System.IO.File.Copy(userKeys, squirrelProdKeys1, true);
-                    System.IO.File.Copy(userKeys, squirrelProdKeys2, true);
-                    System.IO.File.Copy(userKeys, nszKeys1, true);
-                    System.IO.File.Copy(userKeys, nszKeys2, true);
+                        try { System.IO.File.Copy(userKeys, targetToolsKeys, true); } catch { }
+                        try { System.IO.File.Copy(userKeys, targetToolsProdKeys, true); } catch { }
+                        try { System.IO.File.Copy(userKeys, squirrelKeys1, true); } catch { }
+                        try { System.IO.File.Copy(userKeys, squirrelKeys2, true); } catch { }
+                        try { System.IO.File.Copy(userKeys, squirrelProdKeys1, true); } catch { }
+                        try { System.IO.File.Copy(userKeys, squirrelProdKeys2, true); } catch { }
+                        try { System.IO.File.Copy(userKeys, nszKeys1, true); } catch { }
+                        try { System.IO.File.Copy(userKeys, nszKeys2, true); } catch { }
+                    }
+                    catch { }
                 }
-
-                // Синхронизация в профиль пользователя Windows (.switch)
-                string userProfileSwitch = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch");
-                if (!System.IO.Directory.Exists(userProfileSwitch)) System.IO.Directory.CreateDirectory(userProfileSwitch);
-                System.IO.File.Copy(userKeys, System.IO.Path.Combine(userProfileSwitch, "prod.keys"), true);
-                System.IO.File.Copy(userKeys, System.IO.Path.Combine(userProfileSwitch, "keys.txt"), true);
             }
             catch (Exception ex)
             {
