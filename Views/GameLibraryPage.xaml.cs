@@ -19,7 +19,7 @@ namespace StormSwitchBox.Views
 {
     public sealed partial class GameLibraryPage : Page
     {
-        private string _selectedSystem = "Все системы";
+        private readonly HashSet<string> _selectedSystems = new(StringComparer.OrdinalIgnoreCase);
         private CancellationTokenSource? _searchCts;
         private NintendoGameEntry? _selectedGame;
         private readonly List<Button> _systemButtons = new();
@@ -60,9 +60,9 @@ namespace StormSwitchBox.Views
                 await Task.Run(() =>
                 {
                     // Pre-warm distinct caches off-UI thread
-                    App.NintendoLibrary.GetDistinctGenres(_selectedSystem);
-                    App.NintendoLibrary.GetDistinctDevelopers(_selectedSystem);
-                    App.NintendoLibrary.GetDistinctPublishers(_selectedSystem);
+                    App.NintendoLibrary.GetDistinctGenres(null);
+                    App.NintendoLibrary.GetDistinctDevelopers(null);
+                    App.NintendoLibrary.GetDistinctPublishers(null);
                 });
 
                 PopulateFilterDropdowns();
@@ -121,7 +121,7 @@ namespace StormSwitchBox.Views
             // "Все системы" Tab Chip с форматированием пробела в тысячах
             int totalAll = App.NintendoLibrary.GetGameCountForSystem("Все системы");
             string formattedTotal = NintendoLibraryService.FormatNumber(totalAll);
-            var allBtn = CreateSystemButton($"🌟 Все системы ({formattedTotal})", "Все системы", true);
+            var allBtn = CreateSystemButton($"🌟 Все системы ({formattedTotal})", "Все системы", _selectedSystems.Count == 0);
             SystemsStackPanel.Children.Add(allBtn);
             _systemButtons.Add(allBtn);
 
@@ -130,7 +130,8 @@ namespace StormSwitchBox.Views
                 int count = App.NintendoLibrary.GetGameCountForSystem(platform.FullName);
                 string formattedCount = NintendoLibraryService.FormatNumber(count);
                 string chipLabel = $"{platform.FullName} ({formattedCount})";
-                var btn = CreateSystemButton(chipLabel, platform.FullName, false);
+                bool isSel = _selectedSystems.Contains(platform.FullName);
+                var btn = CreateSystemButton(chipLabel, platform.FullName, isSel);
                 SystemsStackPanel.Children.Add(btn);
                 _systemButtons.Add(btn);
 
@@ -168,24 +169,41 @@ namespace StormSwitchBox.Views
         {
             if (sender is Button clickedBtn && clickedBtn.Tag is string sysKey)
             {
-                _selectedSystem = sysKey;
+                if (sysKey == "Все системы")
+                {
+                    _selectedSystems.Clear();
+                }
+                else
+                {
+                    if (_selectedSystems.Contains(sysKey))
+                    {
+                        _selectedSystems.Remove(sysKey);
+                    }
+                    else
+                    {
+                        _selectedSystems.Add(sysKey);
+                    }
+                }
+
                 UpdateSystemButtonsUI();
 
                 if (SystemFilterComboBox != null)
                 {
-                    int idx = 0;
-                    for (int i = 0; i < SystemFilterComboBox.Items.Count; i++)
+                    if (_selectedSystems.Count == 1)
                     {
-                        if ((SystemFilterComboBox.Items[i] as string) == _selectedSystem)
+                        string singleSys = _selectedSystems.First();
+                        for (int i = 0; i < SystemFilterComboBox.Items.Count; i++)
                         {
-                            idx = i;
-                            break;
+                            if ((SystemFilterComboBox.Items[i] as string) == singleSys)
+                            {
+                                SystemFilterComboBox.SelectedIndex = i;
+                                break;
+                            }
                         }
                     }
-                    if (SystemFilterComboBox.SelectedIndex != idx)
+                    else
                     {
-                        SystemFilterComboBox.SelectedIndex = idx;
-                        return; // SelectionChanged вызовет ApplyFilters
+                        SystemFilterComboBox.SelectedIndex = 0;
                     }
                 }
 
@@ -199,7 +217,16 @@ namespace StormSwitchBox.Views
         {
             if (!_isLoaded || SystemFilterComboBox?.SelectedItem is not string selectedSys) return;
 
-            _selectedSystem = selectedSys;
+            if (selectedSys == "Все системы")
+            {
+                _selectedSystems.Clear();
+            }
+            else
+            {
+                _selectedSystems.Clear();
+                _selectedSystems.Add(selectedSys);
+            }
+
             UpdateSystemButtonsUI();
             PopulateFilterDropdowns();
             _currentPage = 1;
@@ -215,7 +242,10 @@ namespace StormSwitchBox.Views
 
             foreach (var btn in _systemButtons)
             {
-                bool isSel = (btn.Tag as string) == _selectedSystem;
+                string tag = (btn.Tag as string) ?? "";
+                bool isSel = (tag == "Все системы" && _selectedSystems.Count == 0) ||
+                             (_selectedSystems.Contains(tag));
+
                 btn.Background = isSel ? accentBg : transparent;
                 btn.Foreground = isSel ? accentFg : secondaryFg;
             }
@@ -228,10 +258,12 @@ namespace StormSwitchBox.Views
 
             try
             {
+                string? singleSys = _selectedSystems.Count == 1 ? _selectedSystems.First() : null;
+
                 // Genres
                 if (GenreComboBox != null)
                 {
-                    var genres = App.NintendoLibrary.GetDistinctGenres(_selectedSystem);
+                    var genres = App.NintendoLibrary.GetDistinctGenres(singleSys);
                     GenreComboBox.ItemsSource = genres;
                     GenreComboBox.SelectedIndex = 0;
                 }
@@ -239,7 +271,7 @@ namespace StormSwitchBox.Views
                 // Developers
                 if (DeveloperComboBox != null)
                 {
-                    var devs = App.NintendoLibrary.GetDistinctDevelopers(_selectedSystem);
+                    var devs = App.NintendoLibrary.GetDistinctDevelopers(singleSys);
                     DeveloperComboBox.ItemsSource = devs;
                     DeveloperComboBox.SelectedIndex = 0;
                 }
@@ -247,7 +279,7 @@ namespace StormSwitchBox.Views
                 // Publishers
                 if (PublisherComboBox != null)
                 {
-                    var pubs = App.NintendoLibrary.GetDistinctPublishers(_selectedSystem);
+                    var pubs = App.NintendoLibrary.GetDistinctPublishers(singleSys);
                     PublisherComboBox.ItemsSource = pubs;
                     PublisherComboBox.SelectedIndex = 0;
                 }
@@ -291,7 +323,7 @@ namespace StormSwitchBox.Views
 
             _isLoaded = false;
             if (SearchBox != null) SearchBox.Text = "";
-            _selectedSystem = "Все системы";
+            _selectedSystems.Clear();
             if (SystemFilterComboBox != null) SystemFilterComboBox.SelectedIndex = 0;
             UpdateSystemButtonsUI();
             PopulateFilterDropdowns();
@@ -310,11 +342,15 @@ namespace StormSwitchBox.Views
             _filterCts = new CancellationTokenSource();
             var token = _filterCts.Token;
 
-            string selSys = _selectedSystem;
+            var systems = _selectedSystems.Count > 0 ? _selectedSystems.ToList() : null;
             string? genre = GenreComboBox?.SelectedItem as string;
             string? dev = DeveloperComboBox?.SelectedItem as string;
             string? pub = PublisherComboBox?.SelectedItem as string;
             string? search = SearchBox?.Text?.Trim();
+
+            var genres = (!string.IsNullOrEmpty(genre) && genre != "Все жанры") ? new[] { genre } : null;
+            var devs = (!string.IsNullOrEmpty(dev) && dev != "Все разработчики") ? new[] { dev } : null;
+            var pubs = (!string.IsNullOrEmpty(pub) && pub != "Все издатели") ? new[] { pub } : null;
 
             string sortBy = "Title";
             if (SortComboBox?.SelectedItem is ComboBoxItem cbi && cbi.Tag is string tag)
@@ -326,7 +362,7 @@ namespace StormSwitchBox.Views
             {
                 var filtered = await Task.Run(() =>
                 {
-                    return App.NintendoLibrary.QueryGames(selSys, genre, dev, pub, search, sortBy);
+                    return App.NintendoLibrary.QueryGames(systems, genres, devs, pubs, search, sortBy);
                 }, token);
 
                 if (token.IsCancellationRequested) return;
