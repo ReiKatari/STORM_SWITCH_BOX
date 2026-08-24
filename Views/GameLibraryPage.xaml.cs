@@ -111,12 +111,10 @@ namespace StormSwitchBox.Views
 
         private void InitializeSystemTabsAndDropdown()
         {
-            if (SystemsStackPanel == null || SystemFilterComboBox == null) return;
+            if (SystemsStackPanel == null) return;
 
             SystemsStackPanel.Children.Clear();
             _systemButtons.Clear();
-
-            var comboItems = new List<string> { "Все системы" };
 
             // "Все системы" Tab Chip с форматированием пробела в тысячах
             int totalAll = App.NintendoLibrary.GetGameCountForSystem("Все системы");
@@ -134,12 +132,7 @@ namespace StormSwitchBox.Views
                 var btn = CreateSystemButton(chipLabel, platform.FullName, isSel);
                 SystemsStackPanel.Children.Add(btn);
                 _systemButtons.Add(btn);
-
-                comboItems.Add(platform.FullName);
             }
-
-            SystemFilterComboBox.ItemsSource = comboItems;
-            SystemFilterComboBox.SelectedIndex = 0;
         }
 
         private Button CreateSystemButton(string label, string systemKey, bool isSelected)
@@ -186,51 +179,10 @@ namespace StormSwitchBox.Views
                 }
 
                 UpdateSystemButtonsUI();
-
-                if (SystemFilterComboBox != null)
-                {
-                    if (_selectedSystems.Count == 1)
-                    {
-                        string singleSys = _selectedSystems.First();
-                        for (int i = 0; i < SystemFilterComboBox.Items.Count; i++)
-                        {
-                            if ((SystemFilterComboBox.Items[i] as string) == singleSys)
-                            {
-                                SystemFilterComboBox.SelectedIndex = i;
-                                break;
-                            }
-                        }
-                    }
-                    else
-                    {
-                        SystemFilterComboBox.SelectedIndex = 0;
-                    }
-                }
-
                 PopulateFilterDropdowns();
                 _currentPage = 1;
                 ApplyFilters();
             }
-        }
-
-        private void SystemFilterComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            if (!_isLoaded || SystemFilterComboBox?.SelectedItem is not string selectedSys) return;
-
-            if (selectedSys == "Все системы")
-            {
-                _selectedSystems.Clear();
-            }
-            else
-            {
-                _selectedSystems.Clear();
-                _selectedSystems.Add(selectedSys);
-            }
-
-            UpdateSystemButtonsUI();
-            PopulateFilterDropdowns();
-            _currentPage = 1;
-            ApplyFilters();
         }
 
         private void UpdateSystemButtonsUI()
@@ -251,6 +203,34 @@ namespace StormSwitchBox.Views
             }
         }
 
+        public class FilterItemViewModel : System.ComponentModel.INotifyPropertyChanged
+        {
+            private bool _isChecked;
+            public string Name { get; set; } = "";
+            public bool IsChecked
+            {
+                get => _isChecked;
+                set
+                {
+                    if (_isChecked != value)
+                    {
+                        _isChecked = value;
+                        PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(IsChecked)));
+                    }
+                }
+            }
+            public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
+        }
+
+        private readonly List<FilterItemViewModel> _allGenreItems = new();
+        private readonly ObservableCollection<FilterItemViewModel> _visibleGenreItems = new();
+
+        private readonly List<FilterItemViewModel> _allDevItems = new();
+        private readonly ObservableCollection<FilterItemViewModel> _visibleDevItems = new();
+
+        private readonly List<FilterItemViewModel> _allPubItems = new();
+        private readonly ObservableCollection<FilterItemViewModel> _visiblePubItems = new();
+
         private void PopulateFilterDropdowns()
         {
             bool previousLoaded = _isLoaded;
@@ -260,34 +240,158 @@ namespace StormSwitchBox.Views
             {
                 string? singleSys = _selectedSystems.Count == 1 ? _selectedSystems.First() : null;
 
-                // Genres
-                if (GenreComboBox != null)
+                // 1. Genres
+                var rawGenres = App.NintendoLibrary.GetDistinctGenres(singleSys).Where(g => g != "Все жанры").ToList();
+                _allGenreItems.Clear();
+                _visibleGenreItems.Clear();
+                foreach (var g in rawGenres)
                 {
-                    var genres = App.NintendoLibrary.GetDistinctGenres(singleSys);
-                    GenreComboBox.ItemsSource = genres;
-                    GenreComboBox.SelectedIndex = 0;
+                    var item = new FilterItemViewModel { Name = g, IsChecked = false };
+                    _allGenreItems.Add(item);
+                    _visibleGenreItems.Add(item);
                 }
+                if (GenreListView != null) GenreListView.ItemsSource = _visibleGenreItems;
+                UpdateGenreButtonLabel();
 
-                // Developers
-                if (DeveloperComboBox != null)
+                // 2. Developers
+                var rawDevs = App.NintendoLibrary.GetDistinctDevelopers(singleSys).Where(d => d != "Все разработчики").ToList();
+                _allDevItems.Clear();
+                _visibleDevItems.Clear();
+                foreach (var d in rawDevs)
                 {
-                    var devs = App.NintendoLibrary.GetDistinctDevelopers(singleSys);
-                    DeveloperComboBox.ItemsSource = devs;
-                    DeveloperComboBox.SelectedIndex = 0;
+                    var item = new FilterItemViewModel { Name = d, IsChecked = false };
+                    _allDevItems.Add(item);
+                    _visibleDevItems.Add(item);
                 }
+                if (DevListView != null) DevListView.ItemsSource = _visibleDevItems;
+                UpdateDevButtonLabel();
 
-                // Publishers
-                if (PublisherComboBox != null)
+                // 3. Publishers
+                var rawPubs = App.NintendoLibrary.GetDistinctPublishers(singleSys).Where(p => p != "Все издатели").ToList();
+                _allPubItems.Clear();
+                _visiblePubItems.Clear();
+                foreach (var p in rawPubs)
                 {
-                    var pubs = App.NintendoLibrary.GetDistinctPublishers(singleSys);
-                    PublisherComboBox.ItemsSource = pubs;
-                    PublisherComboBox.SelectedIndex = 0;
+                    var item = new FilterItemViewModel { Name = p, IsChecked = false };
+                    _allPubItems.Add(item);
+                    _visiblePubItems.Add(item);
                 }
+                if (PubListView != null) PubListView.ItemsSource = _visiblePubItems;
+                UpdatePubButtonLabel();
             }
             finally
             {
                 _isLoaded = previousLoaded;
             }
+        }
+
+        private void UpdateGenreButtonLabel()
+        {
+            int count = _allGenreItems.Count(i => i.IsChecked);
+            if (GenreButtonText != null)
+                GenreButtonText.Text = count > 0 ? $"Жанры ({count})" : "Все жанры";
+        }
+
+        private void UpdateDevButtonLabel()
+        {
+            int count = _allDevItems.Count(i => i.IsChecked);
+            if (DevButtonText != null)
+                DevButtonText.Text = count > 0 ? $"Разработчики ({count})" : "Все разработчики";
+        }
+
+        private void UpdatePubButtonLabel()
+        {
+            int count = _allPubItems.Count(i => i.IsChecked);
+            if (PubButtonText != null)
+                PubButtonText.Text = count > 0 ? $"Издатели ({count})" : "Все издатели";
+        }
+
+        private void FilterItem_CheckedChanged(object sender, RoutedEventArgs e)
+        {
+            if (!_isLoaded) return;
+            UpdateGenreButtonLabel();
+            UpdateDevButtonLabel();
+            UpdatePubButtonLabel();
+            _currentPage = 1;
+            ApplyFilters();
+        }
+
+        private void SelectAllGenres_Click(object sender, RoutedEventArgs e)
+        {
+            foreach (var item in _allGenreItems) item.IsChecked = true;
+            UpdateGenreButtonLabel();
+            _currentPage = 1;
+            ApplyFilters();
+        }
+
+        private void ClearGenres_Click(object sender, RoutedEventArgs e)
+        {
+            foreach (var item in _allGenreItems) item.IsChecked = false;
+            UpdateGenreButtonLabel();
+            _currentPage = 1;
+            ApplyFilters();
+        }
+
+        private void GenreSearchBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            string filter = GenreSearchBox?.Text?.Trim() ?? "";
+            _visibleGenreItems.Clear();
+            var matches = string.IsNullOrEmpty(filter)
+                ? _allGenreItems
+                : _allGenreItems.Where(i => i.Name.Contains(filter, StringComparison.OrdinalIgnoreCase));
+            foreach (var m in matches) _visibleGenreItems.Add(m);
+        }
+
+        private void SelectAllDevs_Click(object sender, RoutedEventArgs e)
+        {
+            foreach (var item in _allDevItems) item.IsChecked = true;
+            UpdateDevButtonLabel();
+            _currentPage = 1;
+            ApplyFilters();
+        }
+
+        private void ClearDevs_Click(object sender, RoutedEventArgs e)
+        {
+            foreach (var item in _allDevItems) item.IsChecked = false;
+            UpdateDevButtonLabel();
+            _currentPage = 1;
+            ApplyFilters();
+        }
+
+        private void DevSearchBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            string filter = DevSearchBox?.Text?.Trim() ?? "";
+            _visibleDevItems.Clear();
+            var matches = string.IsNullOrEmpty(filter)
+                ? _allDevItems
+                : _allDevItems.Where(i => i.Name.Contains(filter, StringComparison.OrdinalIgnoreCase));
+            foreach (var m in matches) _visibleDevItems.Add(m);
+        }
+
+        private void SelectAllPubs_Click(object sender, RoutedEventArgs e)
+        {
+            foreach (var item in _allPubItems) item.IsChecked = true;
+            UpdatePubButtonLabel();
+            _currentPage = 1;
+            ApplyFilters();
+        }
+
+        private void ClearPubs_Click(object sender, RoutedEventArgs e)
+        {
+            foreach (var item in _allPubItems) item.IsChecked = false;
+            UpdatePubButtonLabel();
+            _currentPage = 1;
+            ApplyFilters();
+        }
+
+        private void PubSearchBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            string filter = PubSearchBox?.Text?.Trim() ?? "";
+            _visiblePubItems.Clear();
+            var matches = string.IsNullOrEmpty(filter)
+                ? _allPubItems
+                : _allPubItems.Where(i => i.Name.Contains(filter, StringComparison.OrdinalIgnoreCase));
+            foreach (var m in matches) _visiblePubItems.Add(m);
         }
 
         private void FilterComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -324,9 +428,16 @@ namespace StormSwitchBox.Views
             _isLoaded = false;
             if (SearchBox != null) SearchBox.Text = "";
             _selectedSystems.Clear();
-            if (SystemFilterComboBox != null) SystemFilterComboBox.SelectedIndex = 0;
+
+            foreach (var item in _allGenreItems) item.IsChecked = false;
+            foreach (var item in _allDevItems) item.IsChecked = false;
+            foreach (var item in _allPubItems) item.IsChecked = false;
+
+            UpdateGenreButtonLabel();
+            UpdateDevButtonLabel();
+            UpdatePubButtonLabel();
+
             UpdateSystemButtonsUI();
-            PopulateFilterDropdowns();
             if (SortComboBox != null) SortComboBox.SelectedIndex = 0;
             _currentPage = 1;
             _isLoaded = true;
@@ -343,14 +454,10 @@ namespace StormSwitchBox.Views
             var token = _filterCts.Token;
 
             var systems = _selectedSystems.Count > 0 ? _selectedSystems.ToList() : null;
-            string? genre = GenreComboBox?.SelectedItem as string;
-            string? dev = DeveloperComboBox?.SelectedItem as string;
-            string? pub = PublisherComboBox?.SelectedItem as string;
+            var genres = _allGenreItems.Where(i => i.IsChecked).Select(i => i.Name).ToList();
+            var devs = _allDevItems.Where(i => i.IsChecked).Select(i => i.Name).ToList();
+            var pubs = _allPubItems.Where(i => i.IsChecked).Select(i => i.Name).ToList();
             string? search = SearchBox?.Text?.Trim();
-
-            var genres = (!string.IsNullOrEmpty(genre) && genre != "Все жанры") ? new[] { genre } : null;
-            var devs = (!string.IsNullOrEmpty(dev) && dev != "Все разработчики") ? new[] { dev } : null;
-            var pubs = (!string.IsNullOrEmpty(pub) && pub != "Все издатели") ? new[] { pub } : null;
 
             string sortBy = "Title";
             if (SortComboBox?.SelectedItem is ComboBoxItem cbi && cbi.Tag is string tag)
@@ -362,7 +469,13 @@ namespace StormSwitchBox.Views
             {
                 var filtered = await Task.Run(() =>
                 {
-                    return App.NintendoLibrary.QueryGames(systems, genres, devs, pubs, search, sortBy);
+                    return App.NintendoLibrary.QueryGames(
+                        systems, 
+                        genres.Count > 0 ? genres : null, 
+                        devs.Count > 0 ? devs : null, 
+                        pubs.Count > 0 ? pubs : null, 
+                        search, 
+                        sortBy);
                 }, token);
 
                 if (token.IsCancellationRequested) return;

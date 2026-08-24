@@ -34,23 +34,89 @@
 
             <ScrollViewer Grid.Column="0" HorizontalScrollBarVisibility="Auto" HorizontalScrollMode="Enabled" VerticalScrollBarVisibility="Disabled" VerticalScrollMode="Disabled">
                 <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center" Padding="0,0,0,4">
-                    <!-- Search Box -->
+                    <!-- Search Box с поддержкой мульти-поиска через запятую/точку с запятой -->
                     <Grid VerticalAlignment="Center" Height="38">
-                        <TextBox x:Name="SearchBox" PlaceholderText="Поиск по названию, студии или ID..." Width="240" TextChanged="SearchBox_TextChanged" CornerRadius="8" Padding="34,6,8,6" Height="38"/>
+                        <TextBox x:Name="SearchBox" PlaceholderText="Мульти-поиск (напр. Mario, Zelda)..." Width="250" TextChanged="SearchBox_TextChanged" CornerRadius="8" Padding="34,6,8,6" Height="38"/>
                         <FontIcon Glyph="&#xE721;" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Left" Margin="12,0,0,0" IsHitTestVisible="False"/>
                     </Grid>
 
-                    <!-- System Dropdown Quick Switcher -->
-                    <ComboBox x:Name="SystemFilterComboBox" Width="190" Height="38" CornerRadius="8" SelectionChanged="SystemFilterComboBox_SelectionChanged" ToolTipService.ToolTip="Выбор системы Nintendo"/>
+                    <!-- Multi-Select: Жанры -->
+                    <DropDownButton x:Name="GenreFilterButton" Height="38" CornerRadius="8" ToolTipService.ToolTip="Множественный выбор жанров">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <FontIcon Glyph="&#xE71D;" FontSize="12" Foreground="{ThemeResource SystemAccentColor}"/>
+                            <TextBlock x:Name="GenreButtonText" Text="Все жанры" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <DropDownButton.Flyout>
+                            <Flyout Placement="Bottom">
+                                <StackPanel Width="270" Spacing="8">
+                                    <TextBox x:Name="GenreSearchBox" PlaceholderText="Поиск жанра..." TextChanged="GenreSearchBox_TextChanged" Height="32"/>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <Button Content="Выбрать все" Click="SelectAllGenres_Click" FontSize="11" Padding="8,4" CornerRadius="4"/>
+                                        <Button Content="Сбросить" Click="ClearGenres_Click" FontSize="11" Padding="8,4" CornerRadius="4"/>
+                                    </StackPanel>
+                                    <ListView x:Name="GenreListView" MaxHeight="240" SelectionMode="None">
+                                        <ListView.ItemTemplate>
+                                            <DataTemplate>
+                                                <CheckBox Content="{Binding Name}" IsChecked="{Binding IsChecked, Mode=TwoWay}" Checked="FilterItem_CheckedChanged" Unchecked="FilterItem_CheckedChanged" Margin="0,2"/>
+                                            </DataTemplate>
+                                        </ListView.ItemTemplate>
+                                    </ListView>
+                                </StackPanel>
+                            </Flyout>
+                        </DropDownButton.Flyout>
+                    </DropDownButton>
 
-                    <!-- Genre ComboBox -->
-                    <ComboBox x:Name="GenreComboBox" Width="180" Height="38" CornerRadius="8" SelectionChanged="FilterComboBox_SelectionChanged" ToolTipService.ToolTip="Фильтр по жанру"/>
+                    <!-- Multi-Select: Разработчики -->
+                    <DropDownButton x:Name="DevFilterButton" Height="38" CornerRadius="8" ToolTipService.ToolTip="Множественный выбор разработчиков">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <FontIcon Glyph="&#xE7BE;" FontSize="12" Foreground="{ThemeResource SystemAccentColor}"/>
+                            <TextBlock x:Name="DevButtonText" Text="Все разработчики" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <DropDownButton.Flyout>
+                            <Flyout Placement="Bottom">
+                                <StackPanel Width="270" Spacing="8">
+                                    <TextBox x:Name="DevSearchBox" PlaceholderText="Поиск студии..." TextChanged="DevSearchBox_TextChanged" Height="32"/>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <Button Content="Выбрать все" Click="SelectAllDevs_Click" FontSize="11" Padding="8,4" CornerRadius="4"/>
+                                        <Button Content="Сбросить" Click="ClearDevs_Click" FontSize="11" Padding="8,4" CornerRadius="4"/>
+                                    </StackPanel>
+                                    <ListView x:Name="DevListView" MaxHeight="240" SelectionMode="None">
+                                        <ListView.ItemTemplate>
+                                            <DataTemplate>
+                                                <CheckBox Content="{Binding Name}" IsChecked="{Binding IsChecked, Mode=TwoWay}" Checked="FilterItem_CheckedChanged" Unchecked="FilterItem_CheckedChanged" Margin="0,2"/>
+                                            </DataTemplate>
+                                        </ListView.ItemTemplate>
+                                    </ListView>
+                                </StackPanel>
+                            </Flyout>
+                        </DropDownButton.Flyout>
+                    </DropDownButton>
 
-                    <!-- Developer ComboBox -->
-                    <ComboBox x:Name="DeveloperComboBox" Width="180" Height="38" CornerRadius="8" SelectionChanged="FilterComboBox_SelectionChanged" ToolTipService.ToolTip="Фильтр по разработчику"/>
-
-                    <!-- Publisher ComboBox -->
-                    <ComboBox x:Name="PublisherComboBox" Width="180" Height="38" CornerRadius="8" SelectionChanged="FilterComboBox_SelectionChanged" ToolTipService.ToolTip="Фильтр по издателю"/>
+                    <!-- Multi-Select: Издатели -->
+                    <DropDownButton x:Name="PubFilterButton" Height="38" CornerRadius="8" ToolTipService.ToolTip="Множественный выбор издателей">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <FontIcon Glyph="&#xE748;" FontSize="12" Foreground="{ThemeResource SystemAccentColor}"/>
+                            <TextBlock x:Name="PubButtonText" Text="Все издатели" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <DropDownButton.Flyout>
+                            <Flyout Placement="Bottom">
+                                <StackPanel Width="270" Spacing="8">
+                                    <TextBox x:Name="PubSearchBox" PlaceholderText="Поиск издателя..." TextChanged="PubSearchBox_TextChanged" Height="32"/>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <Button Content="Выбрать все" Click="SelectAllPubs_Click" FontSize="11" Padding="8,4" CornerRadius="4"/>
+                                        <Button Content="Сбросить" Click="ClearPubs_Click" FontSize="11" Padding="8,4" CornerRadius="4"/>
+                                    </StackPanel>
+                                    <ListView x:Name="PubListView" MaxHeight="240" SelectionMode="None">
+                                        <ListView.ItemTemplate>
+                                            <DataTemplate>
+                                                <CheckBox Content="{Binding Name}" IsChecked="{Binding IsChecked, Mode=TwoWay}" Checked="FilterItem_CheckedChanged" Unchecked="FilterItem_CheckedChanged" Margin="0,2"/>
+                                            </DataTemplate>
+                                        </ListView.ItemTemplate>
+                                    </ListView>
+                                </StackPanel>
+                            </Flyout>
+                        </DropDownButton.Flyout>
+                    </DropDownButton>
 
                     <!-- Sort ComboBox -->
                     <ComboBox x:Name="SortComboBox" Width="170" Height="38" CornerRadius="8" SelectionChanged="FilterComboBox_SelectionChanged" SelectedIndex="0" ToolTipService.ToolTip="Сортировка каталога">
