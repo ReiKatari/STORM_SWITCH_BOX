@@ -647,63 +647,91 @@ namespace StormSwitchBox.Services
         }
 
         public List<NintendoGameEntry> QueryGames(
-            string? systemFullName = null,
-            string? genre = null,
-            string? developer = null,
-            string? publisher = null,
+            IEnumerable<string>? systems = null,
+            IEnumerable<string>? genres = null,
+            IEnumerable<string>? developers = null,
+            IEnumerable<string>? publishers = null,
             string? searchQuery = null,
             string? sortBy = "Title")
         {
-            IReadOnlyList<NintendoGameEntry> source;
+            var systemList = systems?.Where(s => !string.IsNullOrWhiteSpace(s) && s != "Все системы").ToList();
+            var genreList = genres?.Where(g => !string.IsNullOrWhiteSpace(g) && g != "Все жанры").ToList();
+            var devList = developers?.Where(d => !string.IsNullOrWhiteSpace(d) && d != "Все разработчики").ToList();
+            var pubList = publishers?.Where(p => !string.IsNullOrWhiteSpace(p) && p != "Все издатели").ToList();
+
+            IEnumerable<NintendoGameEntry> result;
 
             lock (_dbLock)
             {
-                if (!string.IsNullOrEmpty(systemFullName) && systemFullName != "Все системы")
+                if (systemList != null && systemList.Count > 0)
                 {
-                    if (_bySystem.TryGetValue(systemFullName, out var sysList))
+                    var combined = new List<NintendoGameEntry>();
+                    foreach (var sys in systemList)
                     {
-                        source = sysList;
+                        if (_bySystem.TryGetValue(sys, out var sysList))
+                        {
+                            combined.AddRange(sysList);
+                        }
+                        else
+                        {
+                            combined.AddRange(_database.Where(g => g.System.Equals(sys, StringComparison.OrdinalIgnoreCase) ||
+                                                                  g.SystemShort.Equals(sys, StringComparison.OrdinalIgnoreCase)));
+                        }
                     }
-                    else
-                    {
-                        source = _database.Where(g => g.System.Equals(systemFullName, StringComparison.OrdinalIgnoreCase) ||
-                                                      g.SystemShort.Equals(systemFullName, StringComparison.OrdinalIgnoreCase)).ToList();
-                    }
+                    result = combined;
                 }
                 else
                 {
-                    source = _database;
+                    result = _database;
                 }
             }
 
-            IEnumerable<NintendoGameEntry> result = source;
-
-            if (!string.IsNullOrEmpty(genre) && genre != "Все жанры")
+            // Фильтр жанров (OR логика для нескольких выбранных значений)
+            if (genreList != null && genreList.Count > 0)
             {
-                result = result.Where(g => g.Genre.Contains(genre, StringComparison.OrdinalIgnoreCase));
+                result = result.Where(g => genreList.Any(gen => g.Genre.Contains(gen, StringComparison.OrdinalIgnoreCase)));
             }
 
-            if (!string.IsNullOrEmpty(developer) && developer != "Все разработчики")
+            // Фильтр разработчиков (OR логика для нескольких выбранных значений)
+            if (devList != null && devList.Count > 0)
             {
-                result = result.Where(g => g.Developer.Equals(developer, StringComparison.OrdinalIgnoreCase));
+                result = result.Where(g => devList.Any(dev => g.Developer.Equals(dev, StringComparison.OrdinalIgnoreCase)));
             }
 
-            if (!string.IsNullOrEmpty(publisher) && publisher != "Все издатели")
+            // Фильтр издателей (OR логика для нескольких выбранных значений)
+            if (pubList != null && pubList.Count > 0)
             {
-                result = result.Where(g => g.Publisher.Equals(publisher, StringComparison.OrdinalIgnoreCase));
+                result = result.Where(g => pubList.Any(pub => g.Publisher.Equals(pub, StringComparison.OrdinalIgnoreCase)));
             }
 
+            // Поисковый запрос: разделение через запятую, точку с запятой или вертикальную черту (OR логика между терминами)
             if (!string.IsNullOrWhiteSpace(searchQuery))
             {
-                string[] words = searchQuery.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
-                result = result.Where(g =>
-                    words.All(w =>
-                        g.Title.Contains(w, StringComparison.OrdinalIgnoreCase) ||
-                        g.Id.Contains(w, StringComparison.OrdinalIgnoreCase) ||
-                        g.Developer.Contains(w, StringComparison.OrdinalIgnoreCase) ||
-                        g.Publisher.Contains(w, StringComparison.OrdinalIgnoreCase) ||
-                        g.Genre.Contains(w, StringComparison.OrdinalIgnoreCase) ||
-                        g.Description.Contains(w, StringComparison.OrdinalIgnoreCase)));
+                var queryBranches = searchQuery.Split(new[] { ',', ';', '|' }, StringSplitOptions.RemoveEmptyEntries)
+                                               .Select(b => b.Trim())
+                                               .Where(b => !string.IsNullOrWhiteSpace(b))
+                                               .ToList();
+
+                if (queryBranches.Count > 0)
+                {
+                    result = result.Where(g =>
+                    {
+                        foreach (var branch in queryBranches)
+                        {
+                            string[] words = branch.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                            bool branchMatches = words.All(w =>
+                                g.Title.Contains(w, StringComparison.OrdinalIgnoreCase) ||
+                                g.Id.Contains(w, StringComparison.OrdinalIgnoreCase) ||
+                                g.Developer.Contains(w, StringComparison.OrdinalIgnoreCase) ||
+                                g.Publisher.Contains(w, StringComparison.OrdinalIgnoreCase) ||
+                                g.Genre.Contains(w, StringComparison.OrdinalIgnoreCase) ||
+                                g.Description.Contains(w, StringComparison.OrdinalIgnoreCase));
+
+                            if (branchMatches) return true;
+                        }
+                        return false;
+                    });
+                }
             }
 
             result = sortBy switch
@@ -714,6 +742,22 @@ namespace StormSwitchBox.Services
             };
 
             return result.ToList();
+        }
+
+        public List<NintendoGameEntry> QueryGames(
+            string? systemFullName,
+            string? genre = null,
+            string? developer = null,
+            string? publisher = null,
+            string? searchQuery = null,
+            string? sortBy = "Title")
+        {
+            var systems = !string.IsNullOrEmpty(systemFullName) ? new[] { systemFullName } : null;
+            var genres = !string.IsNullOrEmpty(genre) ? new[] { genre } : null;
+            var developers = !string.IsNullOrEmpty(developer) ? new[] { developer } : null;
+            var publishers = !string.IsNullOrEmpty(publisher) ? new[] { publisher } : null;
+
+            return QueryGames(systems, genres, developers, publishers, searchQuery, sortBy);
         }
 
         public List<string> GetDistinctGenres(string? systemFullName = null)
