@@ -385,36 +385,18 @@ namespace StormSwitchBox.Services
             foreach (var item in nesDatabase)
             {
                 string id = $"NES-{idx:D4}";
-                AddGame(id, item.Title, "Nintendo Entertainment System / Famicom", "NES", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, "1.0", "Standard Edition", item.Region, "", item.Desc, "1-2 игрока", "Для всех");
+                AddGame(id, item.Title, "Nintendo Entertainment System / Famicom", "NES", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, item.Version, item.Edition, item.Region, "", item.Desc, "1-2 игрока", "Для всех");
                 idx++;
             }
         }
 
         private void LoadFdsFullLibrary()
         {
-            var fdsList = new (string Title, string Genre, string Year, string Dev, string Pub, string Desc)[]
-            {
-                ("The Legend of Zelda (FDS)", "Приключения", "1986", "Nintendo R&D4", "Nintendo", "Оригинальный дебют Zelda с улучшенным звуковым синтезатором FM FDS."),
-                ("Super Mario Bros. 2 (The Lost Levels)", "Платформер", "1986", "Nintendo R&D4", "Nintendo", "Настоящий хардкорный сиквел Super Mario Bros. с ядовитыми грибами и ветром."),
-                ("Akumajou Dracula (Castlevania FDS)", "Экшен", "1986", "Konami", "Konami", "Первая в мире версия Castlevania с возможностью сохранения прогресса на дискету."),
-                ("Metroid (FDS)", "Метроидвания", "1986", "Nintendo R&D1", "Nintendo", "Дебют Самус Аран с поддержкой сохранений и расширенного звукового канала."),
-                ("Kid Icarus (FDS)", "Платформер", "1986", "Nintendo R&D1", "Nintendo", "Ангел Пит взбирается из подземного царства на Олимп к богине Палютене."),
-                ("Doki Doki Panic", "Платформер", "1987", "Nintendo R&D4", "Fuji Television", "Оригинальная игра с арабской семьей, позже ставшая западной Super Mario Bros. 2."),
-                ("Bio Miracle Bokutte Upa", "Платформер", "1988", "Konami", "Konami", "Приключения младенца Упы с погремушкой в сказочном конфетном королевстве."),
-                ("Falsion", "3D Шутер", "1987", "Konami", "Konami", "Космический 3D-шутер с поддержкой 3D-очков Famicom 3D System."),
-                ("Ai Senshi Nicol", "Экшен / Приключения", "1987", "Konami", "Konami", "Никол исследует чужие планеты с лазерным бластером и энергетическим щитом."),
-                ("Esper Dream", "Action-RPG", "1987", "Konami", "Konami", "Ролевая сказка в мире книг с психокинетическими способностями."),
-                ("Famicom Grand Prix: 3D Hot Rally", "Гонки", "1988", "Nintendo R&D4", "Nintendo", "Ралли от Сигэру Миямото с участием Марио и Луиджи."),
-                ("Famicom Tantei Club: Kieta Koukeisha", "Детектив", "1988", "Nintendo R&D1", "Nintendo", "Культовая детективная текстовая новелла о расследовании убийства в особняке Аясиро."),
-                ("Famicom Tantei Club Part II: Ushiro ni Tatsu Shoujo", "Детектив", "1989", "Nintendo R&D1", "Nintendo", "Мистический детектив о призраке девушки в старшей школе."),
-                ("Nazo no Murasame Jou", "Экшен / Самураи", "1986", "Nintendo R&D4", "Nintendo", "Самурай Такемару штурмует замок Мурасамэ, захваченный инопланетным разумом."),
-                ("Relics: Ankoku Yousai", "Action-RPG", "1987", "Bothtec", "Bothtec", "Дух вселяется в тела павших воинов и чудовищ внутри темной крепости.")
-            };
-
+            var fdsDatabase = FdsCatalogData.GetCatalog();
             int idx = 1;
-            foreach (var g in fdsList)
+            foreach (var item in fdsDatabase)
             {
-                AddGame($"FDS-{idx:D3}", g.Title, "Nintendo Famicom Disk System", "FDS", g.Genre, g.Year, g.Dev, g.Pub, "1.0", "Disk Edition", "JPN", "", g.Desc, "1 игрок", "Для всех");
+                AddGame($"FDS-{idx:D3}", item.Title, "Nintendo Famicom Disk System", "FDS", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, item.Version, item.Edition, item.Region, "", item.Desc, "1 игрок", "Для всех");
                 idx++;
             }
         }
@@ -425,7 +407,7 @@ namespace StormSwitchBox.Services
             int idx = 1;
             foreach (var item in gbCatalog)
             {
-                AddGame($"GB-{idx:D4}", item.Title, "Nintendo Game Boy", "GB", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, "1.0", "Standard Edition", item.Region, "", item.Desc, "1-2 игрока", "Для всех");
+                AddGame($"GB-{idx:D4}", item.Title, "Nintendo Game Boy", "GB", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, item.Version, item.Edition, item.Region, "", item.Desc, "1-2 игрока", "Для всех");
                 idx++;
             }
         }
@@ -436,28 +418,18 @@ namespace StormSwitchBox.Services
             int idx = 1;
             foreach (var item in snesCatalog)
             {
-                AddGame($"SNES-{idx:D4}", item.Title, "Super Nintendo Entertainment System / Super Famicom", "SNES", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, "1.0", "Standard Edition", item.Region, "", item.Desc, "1-2 игрока", "Для всех");
+                AddGame($"SNES-{idx:D4}", item.Title, "Super Nintendo Entertainment System / Super Famicom", "SNES", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, item.Version, item.Edition, item.Region, "", item.Desc, "1-2 игрока", "Для всех");
                 idx++;
             }
         }
 
         private void LoadSatellaviewList()
         {
-            var bsxGames = new (string Title, string Genre, string Year, string Dev, string Pub, string Desc)[]
-            {
-                ("BS The Legend of Zelda", "Приключения", "1995", "Nintendo EAD", "Nintendo / St.GIGA", "Спутниковая 16-битная версия Zelda с живой голосовой озвучкой через радиоканал St.GIGA."),
-                ("BS The Legend of Zelda: Ancient Stone Tablets", "Приключения", "1997", "Nintendo EAD", "Nintendo / St.GIGA", "Специальная 4-недельная глава приключений в Хайруле для подписчиков Satellaview."),
-                ("BS F-Zero Grand Prix", "Гонки", "1996", "Nintendo EAD", "Nintendo / St.GIGA", "Спутниковые турниры на сверхзвуковых антигравитационных болидах."),
-                ("BS F-Zero Grand Prix 2", "Гонки", "1997", "Nintendo EAD", "Nintendo / St.GIGA", "Эксклюзивные спутниковые гоночные трассы и новые болиды League Aces."),
-                ("BS Super Mario USA", "Платформер", "1996", "Nintendo EAD", "Nintendo / St.GIGA", "Трансляционная версия Mario с новыми секретами и статуями богов."),
-                ("BS Shin Onigashima", "Квест / Новелла", "1996", "Nintendo / Pax Softnica", "Nintendo / St.GIGA", "Японская сказка с прекрасной 16-битной анимацией."),
-                ("BS Fire Emblem: Akaneia Senki", "Тактическая RPG", "1997", "Intelligent Systems", "Nintendo / St.GIGA", "Четыре эксклюзивных тактических эпизода предыстории Мароса.")
-            };
-
+            var bsxDatabase = BsxCatalogData.GetCatalog();
             int idx = 1;
-            foreach (var g in bsxGames)
+            foreach (var item in bsxDatabase)
             {
-                AddGame($"BSX-{idx:D3}", g.Title, "Super Famicom Satellaview (BS-X)", "BS-X", g.Genre, g.Year, g.Dev, g.Pub, "1.0", "Broadcast Edition", "JPN", "", g.Desc, "1 игрок", "Для всех");
+                AddGame($"BSX-{idx:D3}", item.Title, "Super Famicom Satellaview (BS-X)", "BS-X", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, item.Version, item.Edition, item.Region, "", item.Desc, "1 игрок", "Для всех");
                 idx++;
             }
         }
@@ -474,7 +446,20 @@ namespace StormSwitchBox.Services
                 ("Red Alarm", "3D Векторный шутер", "1995", "T&E Soft", "Nintendo", "Векторный космосим с полной свободой полета внутри подземных баз."),
                 ("Panic Bomber", "Головоломка", "1995", "Hudson Soft", "Nintendo", "Блок-головоломка с Бомберменом в стереоскопическом трехмерном пространстве."),
                 ("Galactic Pinball", "Пинбол", "1995", "Nintendo R&D1", "Nintendo", "Космический пинбол со столами Самус Аран и летающих тарелок."),
-                ("3D Tetris", "Головоломка", "1996", "T&E Soft", "Nintendo", "Трехмерная укладка тетрамино блоков в прозрачный колодец.")
+                ("3D Tetris", "Головоломка", "1996", "T&E Soft", "Nintendo", "Трехмерная укладка тетрамино блоков в прозрачный колодец."),
+                ("V-Tetris", "Головоломка", "1995", "Bullet-Proof Software", "Nintendo", "Классический тетрис в цилиндрическом трехмерном поле."),
+                ("Waterworld (VB)", "Экшен", "1995", "Ocean of America", "Ocean", "Стереоскопическая битва на гидроциклах за водный атолл."),
+                ("Virtual League Baseball", "Спорт", "1995", "Kemco", "Kemco", "3D-бейсбол со стереоэффектом подач."),
+                ("Vertical Force", "Шутер", "1995", "Hudson Soft", "Nintendo", "Вертикальный скролл-шутер с переключением между высотными эшелонами полета."),
+                ("Nester's Funky Bowling", "Спорт", "1996", "Saffire", "Nintendo", "Боулинг с маскотом журнала Nintendo Power Нестером."),
+                ("Golf (Virtual Boy)", "Спорт", "1995", "T&E Soft", "Nintendo", "Полноценный 3D-гольф на 18 лунок."),
+                ("Innsmouth no Yakata", "Survival Horror", "1995", "Beebus", "I'Max", "3D-хоррор от первого лица по мотивам лавкрафтовского Иннсмута."),
+                ("Space Squash", "Спорт / Аркада", "1995", "Coconuts Japan", "Coconuts Japan", "Футуристический трехмерный сквош роботов в невесомости."),
+                ("Space Invaders: Virtual Collection", "Аркада", "1995", "Taito", "Taito", "Трехмерное переосмысление культовых космических захватчиков."),
+                ("Virtual Bowling", "Спорт", "1995", "Athena", "Athena", "Редкий японский симулятор боулинга с физикой вращения шаров."),
+                ("Virtual Fishing", "Рыбалка", "1995", "Pack-In-Video", "Pack-In-Video", "Стереоскопическая рыбалка на озерах Японии."),
+                ("Virtual Lab", "Головоломка", "1995", "J-Wing", "J-Wing", "Сборка трубопроводных пазлов в открытом космосе."),
+                ("SD Gundam: Dimension War", "Стратегия", "1995", "Bandai", "Bandai", "Тактические пошаговые космические сражения мобильных доспехов Гандам.")
             };
 
             int idx = 1;
@@ -491,7 +476,7 @@ namespace StormSwitchBox.Services
             int idx = 1;
             foreach (var item in n64Catalog)
             {
-                AddGame($"N64-{idx:D4}", item.Title, "Nintendo 64 / Nintendo 64DD", "N64", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, "1.0", "Standard Edition", item.Region, "", item.Desc, "1-4 игрока", "Для всех");
+                AddGame($"N64-{idx:D4}", item.Title, "Nintendo 64 / Nintendo 64DD", "N64", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, item.Version, item.Edition, item.Region, "", item.Desc, "1-4 игрока", "Для всех");
                 idx++;
             }
         }
@@ -502,7 +487,7 @@ namespace StormSwitchBox.Services
             int idx = 1;
             foreach (var item in gbcCatalog)
             {
-                AddGame($"GBC-{idx:D4}", item.Title, "Nintendo Game Boy Color", "GBC", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, "1.0", "Standard Edition", item.Region, "", item.Desc, "1-2 игрока", "Для всех");
+                AddGame($"GBC-{idx:D4}", item.Title, "Nintendo Game Boy Color", "GBC", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, item.Version, item.Edition, item.Region, "", item.Desc, "1-2 игрока", "Для всех");
                 idx++;
             }
         }
@@ -518,7 +503,9 @@ namespace StormSwitchBox.Services
                 ("Pokémon Zany Cards", "Карточная игра", "2002", "Denyusha", "Nintendo", "Четыре карточные игры со ставками и покемонами-соперниками."),
                 ("Pokémon Tetris", "Головоломка", "2002", "Nintendo", "Nintendo", "Тетрис с ловлей карманных монстров при очистке линий."),
                 ("Pokémon Race mini", "Гонки", "2002", "Jupiter", "Nintendo", "Платформенные забеги Пикачу с препятствиями и прыжками."),
-                ("Pichu Bros. mini", "Мини-игры", "2002", "Denyusha", "Nintendo", "Веселые испытания братьев Пичу в большом городе.")
+                ("Pichu Bros. mini", "Мини-игры", "2002", "Denyusha", "Nintendo", "Веселые испытания братьев Пичу в большом городе."),
+                ("Togepi's Great Adventure", "Приключения", "2002", "Jupiter", "Nintendo", "Тогепи исследует лабиринтную башню и избегает ловушек."),
+                ("Snorlax's Lunch Time", "Аркада", "2002", "Jupiter", "Nintendo", "Кормление прожорливого Снорлакса яблоками на скорость.")
             };
 
             int idx = 1;
@@ -535,7 +522,7 @@ namespace StormSwitchBox.Services
             int idx = 1;
             foreach (var item in gbaCatalog)
             {
-                AddGame($"GBA-{idx:D4}", item.Title, "Nintendo Game Boy Advance / Game Boy micro", "GBA", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, "1.0", "Standard Edition", item.Region, "", item.Desc, "1-4 игрока", "Для всех");
+                AddGame($"GBA-{idx:D4}", item.Title, "Nintendo Game Boy Advance / Game Boy micro", "GBA", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, item.Version, item.Edition, item.Region, "", item.Desc, "1-4 игрока", "Для всех");
                 idx++;
             }
         }
@@ -546,7 +533,7 @@ namespace StormSwitchBox.Services
             int idx = 1;
             foreach (var item in gcCatalog)
             {
-                AddGame($"GC-{idx:D4}", item.Title, "Nintendo GameCube", "GC", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, "1.0", "Standard Edition", item.Region, "", item.Desc, "1-4 игрока", "Для всех");
+                AddGame($"GC-{idx:D4}", item.Title, "Nintendo GameCube", "GC", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, item.Version, item.Edition, item.Region, "", item.Desc, "1-4 игрока", "Для всех");
                 idx++;
             }
         }
@@ -557,7 +544,7 @@ namespace StormSwitchBox.Services
             int idx = 1;
             foreach (var item in ndsCatalog)
             {
-                AddGame($"NDS-{idx:D4}", item.Title, "Nintendo DS / Nintendo DS Lite / Nintendo DSi", "NDS", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, "1.0", "Standard Edition", item.Region, "", item.Desc, "1-8 игроков", "Для всех");
+                AddGame($"NDS-{idx:D4}", item.Title, "Nintendo DS / Nintendo DS Lite / Nintendo DSi", "NDS", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, item.Version, item.Edition, item.Region, "", item.Desc, "1-8 игроков", "Для всех");
                 idx++;
             }
         }
@@ -568,7 +555,7 @@ namespace StormSwitchBox.Services
             int idx = 1;
             foreach (var item in wiiCatalog)
             {
-                AddGame($"WII-{idx:D4}", item.Title, "Nintendo Wii", "Wii", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, "1.0", "Standard Edition", item.Region, "", item.Desc, "1-4 игрока", "Для всех");
+                AddGame($"WII-{idx:D4}", item.Title, "Nintendo Wii", "Wii", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, item.Version, item.Edition, item.Region, "", item.Desc, "1-4 игрока", "Для всех");
                 idx++;
             }
         }
@@ -580,7 +567,7 @@ namespace StormSwitchBox.Services
             foreach (var item in tdsCatalog)
             {
                 string id = !string.IsNullOrEmpty(item.TitleId) ? item.TitleId : $"3DS-{idx:D4}";
-                AddGame(id, item.Title, "Nintendo 3DS / New Nintendo 3DS / Nintendo 2DS", "3DS", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, "1.0", "Standard Edition", item.Region, "", item.Desc, "1-8 игроков", "Для всех");
+                AddGame(id, item.Title, "Nintendo 3DS / New Nintendo 3DS / Nintendo 2DS", "3DS", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, item.Version, item.Edition, item.Region, "", item.Desc, "1-8 игроков", "Для всех");
                 idx++;
             }
         }
@@ -591,7 +578,7 @@ namespace StormSwitchBox.Services
             int idx = 1;
             foreach (var item in wiiuCatalog)
             {
-                AddGame($"WIIU-{idx:D4}", item.Title, "Nintendo Wii U", "WiiU", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, "1.0", "Standard Edition", item.Region, "", item.Desc, "1-8 игроков", "Для всех");
+                AddGame($"WIIU-{idx:D4}", item.Title, "Nintendo Wii U", "WiiU", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, item.Version, item.Edition, item.Region, "", item.Desc, "1-8 игроков", "Для всех");
                 idx++;
             }
         }
@@ -608,6 +595,13 @@ namespace StormSwitchBox.Services
             AddGame("0100D870045B6000", "Super Mario Bros. Wonder", "Nintendo Switch / Nintendo Switch Lite / OLED", "Switch", "2D Платформер", "2023-10-20", "Nintendo EPD", "Nintendo", "1.0.1", "Standard Edition", "WW", "", "Чудо-цветы, слоновый Марио и невероятные метаморфозы Цветочного королевства.", "1-4 игрока", "Для всех");
             AddGame("0100E95004038000", "Xenoblade Chronicles 2", "Nintendo Switch / Nintendo Switch Lite / OLED", "Switch", "JRPG", "2017-12-01", "Monolith Soft", "Nintendo", "2.1.0", "Torna - The Golden Country", "WW", "", "Рекс и Пайра ищут легендарный Элизиум на вершине Мирового древа в облачном море Альреста.", "1 игрок", "12+");
             AddGame("010074600E900000", "Xenoblade Chronicles 3", "Nintendo Switch / Nintendo Switch Lite / OLED", "Switch", "JRPG", "2022-07-29", "Monolith Soft", "Nintendo", "2.2.0", "Future Redeemed Edition", "WW", "", "Шесть солдат из враждующих наций Кевис и Агнус объединяются ради разорванного мира Айониос.", "1 игрок", "16+");
+
+            var extraSwitch = SwitchExtraCatalogData.GetCatalog();
+            foreach (var item in extraSwitch)
+            {
+                string id = !string.IsNullOrEmpty(item.TitleId) ? item.TitleId : $"0100E99{_database.Count:09d}";
+                AddGame(id, item.Title, "Nintendo Switch / Nintendo Switch Lite / OLED", "Switch", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, item.Version, item.Edition, item.Region, "", item.Desc, "1-4 игрока", "Для всех");
+            }
         }
 
         private void LoadSwitch2Library()

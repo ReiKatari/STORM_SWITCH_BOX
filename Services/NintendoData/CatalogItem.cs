@@ -10,5 +10,7 @@ namespace StormSwitchBox.Services
         public string Region { get; set; } = "USA";
         public string Desc { get; set; } = "";
         public string? TitleId { get; set; }
+        public string Edition { get; set; } = "Standard Edition";
+        public string Version { get; set; } = "1.0";
     }
 }

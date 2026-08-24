@@ -787,14 +787,12 @@ namespace StormSwitchBox.Views
             e.DragUIOverride.IsCaptionVisible = true;
             e.DragUIOverride.IsContentVisible = true;
             e.DragUIOverride.IsGlyphVisible = true;
-            DropOverlay.Visibility = Visibility.Visible;
             e.Handled = true;
         }
 
         private async void Grid_Drop(object sender, DragEventArgs e)
         {
             e.Handled = true;
-            DropOverlay.Visibility = Visibility.Collapsed;
             var deferral = e.GetDeferral();
             try
             {
