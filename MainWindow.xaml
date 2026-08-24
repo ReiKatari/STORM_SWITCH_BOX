@@ -33,5 +33,19 @@
                 <!-- Содержимое будет загружаться динамически из MainWindow.xaml.cs -->
             </Frame>
         </NavigationView>
+
+        <!-- Single Instance / App Alert Overlay -->
+        <InfoBar x:Name="GlobalAlertInfoBar"
+                 IsOpen="False"
+                 Severity="Informational"
+                 VerticalAlignment="Top"
+                 HorizontalAlignment="Center"
+                 Margin="0,42,0,0"
+                 Canvas.ZIndex="999"
+                 CornerRadius="8"
+                 Background="#1E293B"
+                 BorderBrush="#0EA5E9"
+                 BorderThickness="1"
+                 Foreground="#F8FAFC"/>
     </Grid>
 </Window>

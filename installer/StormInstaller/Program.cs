@@ -20,8 +20,8 @@ namespace StormSwitchBox.Installer
         private Label lblSubtitle = null!;
         private Button btnInstall = null!;
         private Button btnCancel = null!;
-        private const string AppVersion = "4.7.0";
-        private const string AppDisplayName = "STORM SWITCH BOX 4.7.0";
+        private const string AppVersion = "4.7.1";
+        private const string AppDisplayName = "STORM SWITCH BOX 4.7.1";
         private const string AppFolderName = "STORM SWITCH BOX";
         private const string ExeName = "StormSwitchBox.exe";
         private const string IcoName = "storm_switch_box.ico";

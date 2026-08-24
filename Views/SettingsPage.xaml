@@ -215,7 +215,7 @@
                             </Border>
                             <StackPanel Grid.Column="1" Spacing="6">
                                 <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                                    <TextBlock x:Name="AppTitleVersionTxt" Text="STORM SWITCH BOX 4.7.0" FontWeight="Bold" FontSize="22"/>
+                                    <TextBlock x:Name="AppTitleVersionTxt" Text="STORM SWITCH BOX 4.7.1" FontWeight="Bold" FontSize="22"/>
                                     <Border Background="{ThemeResource SystemAccentColor}" CornerRadius="4" Padding="6,2" VerticalAlignment="Center">
                                         <TextBlock Text="WinUI 3 Native" Foreground="White" FontSize="11" FontWeight="Bold"/>
                                     </Border>

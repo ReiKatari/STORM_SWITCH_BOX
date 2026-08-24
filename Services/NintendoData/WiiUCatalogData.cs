@@ -7,7 +7,7 @@ namespace StormSwitchBox.Services
     {
         public static List<NintendoCatalogItem> GetCatalog()
         {
-            var list = new List<NintendoCatalogItem>(122);
+            var list = new List<NintendoCatalogItem>(171);
 
             var games = new (string Title, string Genre, int Year, string Dev, string Pub, string Region, string Desc)[]
             {
@@ -80,9 +80,8 @@ namespace StormSwitchBox.Services
                 ("Trine 2: Director's Cut", "Сказочный кооперативный физический платформер Рыцаря, Воровки и Мага", 2012, "Frozenbyte", "Frozenbyte", "WW", "Trine 2: Director's Cut — популярная игра для Nintendo Wii U."),
                 ("Wii Sports Club", "HD-реинкарнация Wii Sports с онлайн-клубами регионов и точнейшим управлением MotionPlus", 2013, "Nintendo", "Nintendo", "WW", "Wii Sports Club — популярная игра для Nintendo Wii U."),
                 ("Wipeout: Create & Crash", "Полоса препятствий по телешоу", 2013, "Activision", "Activision", "WW", "Wipeout: Create & Crash — популярная игра для Nintendo Wii U."),
-                ("Xenoblade Chronicles X", "Sci-Fi JRPG", 2015, "Nintendo", "Nintendo", "WW", "Xenoblade Chronicles X — популярная игра для Nintendo Wii U."),
-                ("Yoshi's Woolly World", "Шерстяной платформер", 2015, "Nintendo", "Nintendo", "WW", "Yoshi's Woolly World — популярная игра для Nintendo Wii U."),
                 ("ZombiU", "Хардкорный Survival Horror в Лондоне: инвентарь в рюкзаке в реальном времени на GamePad с пермадезом", 2012, "Ubisoft", "Ubisoft", "WW", "ZombiU — популярная игра для Nintendo Wii U."),
+                ("The Legend of Zelda: Breath of the Wild (Wii U)", "Экшен с открытым миром", 2017, "Nintendo EPD", "Nintendo", "WW", "Революция открытых миров: физика, химия стихий, скалолазание и святилища."),
             };
 
             foreach (var g in games)

@@ -7,7 +7,7 @@ namespace StormSwitchBox.Services
     {
         public static List<NintendoCatalogItem> GetCatalog()
         {
-            var list = new List<NintendoCatalogItem>(176);
+            var list = new List<NintendoCatalogItem>(236);
 
             var games = new (string Title, string Genre, int Year, string Dev, string Pub, string Region, string Desc)[]
             {
@@ -106,7 +106,6 @@ namespace StormSwitchBox.Services
                 ("Resident Evil Code: Veronica X", "Клэр Редфилд на острове Рокфорт против Альфреда и Алексии Эшфорд", 2003, "Capcom", "Capcom", "WW", "Resident Evil Code: Veronica X — популярная игра для Nintendo GameCube."),
                 ("Second Sight", "Психологический экшен о телекинезе и пси-способностях от Free Radical", 2004, "Codemasters", "Codemasters", "WW", "Second Sight — популярная игра для Nintendo GameCube."),
                 ("Shadow the Hedgehog", "Спин-офф ежа Шэдоу с огнестрельным оружием и выбором добра/зла", 2005, "Sega", "Sega", "WW", "Shadow the Hedgehog — популярная игра для Nintendo GameCube."),
-                ("Skies of Arcadia Legends", "Культовая JRPG воздушных пиратов", 2002, "Sega", "Sega", "WW", "Skies of Arcadia Legends — популярная игра для Nintendo GameCube."),
                 ("Sonic Adventure DX: Director's Cut", "3D приключения Соника и 6 персонажей с садом Чао", 2003, "Sega", "Sega", "WW", "Sonic Adventure DX: Director's Cut — популярная игра для Nintendo GameCube."),
                 ("Sonic Adventure 2: Battle", "Противостояние Героев и Злодеев, появление ежа Шэдоу и летучей мыши Руж", 2001, "Sega", "Sega", "WW", "Sonic Adventure 2: Battle — популярная игра для Nintendo GameCube."),
                 ("Sonic Heroes", "Командный 3D скоростной экшен за тройки героев (Скорость, Полет, Сила)", 2003, "Sega", "Sega", "WW", "Sonic Heroes — популярная игра для Nintendo GameCube."),
@@ -137,6 +136,17 @@ namespace StormSwitchBox.Services
                 ("WWE Day of Reckoning 2", "Вторая часть рестлинга с сюжетным режимом и механикой выносливости", 2005, "THQ", "THQ", "WW", "WWE Day of Reckoning 2 — популярная игра для Nintendo GameCube."),
                 ("X-Men Legends", "Кооперативная Action-RPG Людей Икс на 4 игроков", 2004, "Activision", "Activision", "WW", "X-Men Legends — популярная игра для Nintendo GameCube."),
                 ("X-Men Legends II: Rise of Apocalypse", "Объединение Людей Икс и Братства Мутантов Магнето против Апокалипсиса", 2005, "Activision", "Activision", "WW", "X-Men Legends II: Rise of Apocalypse — популярная игра для Nintendo GameCube."),
+                ("BloodRayne", "Экшен-слэшер", 2002, "Terminal Reality", "Majesco", "WW", "Полувампирша Рейн кромсает нацистов лезвиями и пьет кровь в слоу-мо."),
+                ("Bomberman Generation", "3D Приключения", 2002, "Hudson Soft", "Majesco", "WW", "Сел-шейдинг приключения Бомбермена с кормлением и выращиванием питомцев Чарабамов."),
+                ("Bomberman Jetters", "3D Приключения", 2003, "Hudson Soft", "Majseco", "WW", "По мотивам аниме Jetters с элементами стихийных бомб."),
+                ("Harvest Moon: A Wonderful Life", "Симулятор жизни / фермы", 2003, "Marvelous", "Natsume", "WW", "Жизнь фермера в долине Незабудок сквозь 6 глав от молодости до старости и воспитания сына."),
+                ("Harvest Moon: Magical Melody", "Симулятор фермы", 2005, "Marvelous", "Natsume", "WW", "Сбор 100 музыкальных нот для пробуждения Богини Урожая с покупкой земли в деревне."),
+                ("Kirby Air Ride", "Гонки", 2003, "HAL Laboratory", "Nintendo", "WW", "Гонки на летающих звездах от Масахиро Сакурая с легендарным режимом исследования City Trial."),
+                ("Pokemon Colosseum", "3D JRPG", 2003, "Genius Sonority", "Nintendo", "WW", "Уэс с мотоциклом спасает темных покемонов Shadow Pokemon в регионе Орре с двойными битвами."),
+                ("Pokemon XD: Gale of Darkness", "3D JRPG", 2005, "Genius Sonority", "Nintendo", "WW", "Майкл и Темная Лугия Shadow Lugia XD001 в пустынном Орре."),
+                ("Resident Evil 0", "Survival Horror", 2002, "Capcom", "Capcom", "WW", "Ребекка Чемберс и Билли Коэн в поезде Эклипс с системой переключения Partner Zapping без сундуков."),
+                ("The Legend of Zelda: Four Swords Adventures", "Кооперативный Action-Adventure", 2004, "Nintendo EAD", "Nintendo", "WW", "4 разноцветных Линка сражаются и решают головоломки на GameCube с экранами GBA."),
+                ("WarioWare, Inc.: Mega Party Games!", "Вечеринка микро-игр", 2003, "Nintendo R&D1", "Nintendo", "WW", "Безумные 5-секундные микро-игры для 4 игроков на одном экране."),
             };
 
             foreach (var g in games)
