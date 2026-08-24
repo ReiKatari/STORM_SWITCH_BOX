@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.IO;
 using System.IO.Compression;
 using System.Reflection;
@@ -10,7 +11,7 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
-namespace StormSwitchBox.Installer
+namespace StormUniversal.Installer
 {
     public class InstallerForm : Form
     {
@@ -20,23 +21,25 @@ namespace StormSwitchBox.Installer
         private Label lblSubtitle = null!;
         private Button btnInstall = null!;
         private Button btnCancel = null!;
+        private PictureBox picHeaderLogo = null!;
+        private Panel headerPanel = null!;
+
         private const string AppVersion = "4.7.1";
-        private const string AppDisplayName = "STORM SWITCH BOX 4.7.1";
+        private const string AppDisplayName = "STORM SWITCH BOX";
         private const string AppFolderName = "STORM SWITCH BOX";
         private const string ExeName = "StormSwitchBox.exe";
         private const string IcoName = "storm_switch_box.ico";
-        private Button btnBrowse = null!;
 
         private RadioButton rbStandard = null!;
         private RadioButton rbPortable = null!;
         private TextBox txtInstallPath = null!;
+        private Button btnBrowse = null!;
 
         private CheckBox chkDesktop = null!;
         private CheckBox chkStartMenu = null!;
         private CheckBox chkRegister = null!;
         private CheckBox chkInstallCert = null!;
         private CheckBox chkRunAfter = null!;
-        private Panel headerPanel = null!;
 
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
@@ -49,7 +52,7 @@ namespace StormSwitchBox.Installer
                 var asm = Assembly.GetExecutingAssembly();
                 foreach (var name in asm.GetManifestResourceNames())
                 {
-                    if (name.EndsWith("storm_switch_box.ico", StringComparison.OrdinalIgnoreCase) || name.EndsWith("AppIcon.ico", StringComparison.OrdinalIgnoreCase))
+                    if (name.EndsWith(IcoName, StringComparison.OrdinalIgnoreCase) || name.EndsWith("app.ico", StringComparison.OrdinalIgnoreCase))
                     {
                         using var s = asm.GetManifestResourceStream(name);
                         if (s != null)
@@ -68,54 +71,138 @@ namespace StormSwitchBox.Installer
             InitializeComponent();
         }
 
+        private static GraphicsPath GetRoundedRectPath(Rectangle rect, int radius)
+        {
+            GraphicsPath path = new GraphicsPath();
+            int diameter = radius * 2;
+            Rectangle arc = new Rectangle(rect.Location, new Size(diameter, diameter));
+
+            // top left
+            path.AddArc(arc, 180, 90);
+            // top right
+            arc.X = rect.Right - diameter;
+            path.AddArc(arc, 270, 90);
+            // bottom right
+            arc.Y = rect.Bottom - diameter;
+            path.AddArc(arc, 0, 90);
+            // bottom left
+            arc.X = rect.Left;
+            path.AddArc(arc, 90, 90);
+            path.CloseFigure();
+            return path;
+        }
+
         private void InitializeComponent()
         {
-            this.Text = $"{AppDisplayName} — Установка";
-            this.Size = new Size(620, 520);
+            this.Text = $"{AppDisplayName} — STORM INSTALLER";
+            this.Size = new Size(640, 540);
             this.StartPosition = FormStartPosition.CenterScreen;
             this.FormBorderStyle = FormBorderStyle.FixedDialog;
             this.MaximizeBox = false;
-            this.BackColor = Color.FromArgb(10, 14, 26);
+            this.BackColor = Color.FromArgb(11, 15, 25);
             this.ForeColor = Color.White;
             this.Font = new Font("Segoe UI", 9.5f, FontStyle.Regular);
 
+            // 1. Dark Stylized Header
             headerPanel = new Panel
             {
                 Dock = DockStyle.Top,
-                Height = 85,
+                Height = 88,
                 BackColor = Color.FromArgb(17, 24, 39),
-                Padding = new Padding(24, 16, 24, 16)
+                Padding = new Padding(22, 14, 22, 14)
+            };
+            headerPanel.Paint += (s, e) =>
+            {
+                // Bottom Cyan Accent Line
+                using var p = new Pen(Color.FromArgb(14, 165, 233), 2f);
+                e.Graphics.DrawLine(p, 0, headerPanel.Height - 1, headerPanel.Width, headerPanel.Height - 1);
             };
 
             lblTitle = new Label
             {
-                Text = $"⚡ {AppDisplayName}",
-                Font = new Font("Segoe UI", 14f, FontStyle.Bold),
+                Text = AppDisplayName,
+                Font = new Font("Segoe UI", 15.5f, FontStyle.Bold),
                 ForeColor = Color.FromArgb(14, 165, 233),
                 AutoSize = true,
-                Location = new Point(20, 16)
+                Location = new Point(22, 16)
             };
 
             lblSubtitle = new Label
             {
-                Text = "Мастер установки с авто-регистрацией цифрового сертификата и защитой от блокировок",
-                Font = new Font("Segoe UI", 9.0f, FontStyle.Regular),
+                Text = $"Мастер установки • Версия {AppVersion} • STORM TEAM",
+                Font = new Font("Segoe UI", 9.2f, FontStyle.Regular),
                 ForeColor = Color.FromArgb(156, 163, 175),
                 AutoSize = true,
-                Location = new Point(22, 48)
+                Location = new Point(24, 49)
             };
+
+            // Top-Right Header Icon Container Badge
+            var logoContainer = new Panel
+            {
+                Location = new Point(546, 12),
+                Size = new Size(62, 62),
+                BackColor = Color.Transparent
+            };
+            logoContainer.Paint += (s, e) =>
+            {
+                e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+                using var path = GetRoundedRectPath(new Rectangle(0, 0, 61, 61), 10);
+                using var brush = new SolidBrush(Color.FromArgb(20, 10, 15));
+                using var pen = new Pen(Color.FromArgb(225, 29, 72), 1.5f); // subtle dark-red / crimson glow border
+                e.Graphics.FillPath(brush, path);
+                e.Graphics.DrawPath(pen, path);
+            };
+
+            picHeaderLogo = new PictureBox
+            {
+                Location = new Point(5, 5),
+                Size = new Size(52, 52),
+                SizeMode = PictureBoxSizeMode.Zoom,
+                BackColor = Color.Transparent
+            };
+
+            Image? logoImg = null;
+            try
+            {
+                var asm = Assembly.GetExecutingAssembly();
+                foreach (var name in asm.GetManifestResourceNames())
+                {
+                    if (name.EndsWith("logo.png", StringComparison.OrdinalIgnoreCase))
+                    {
+                        using var s = asm.GetManifestResourceStream(name);
+                        if (s != null)
+                        {
+                            logoImg = Image.FromStream(s);
+                            break;
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            if (logoImg != null)
+            {
+                picHeaderLogo.Image = logoImg;
+            }
+            else if (this.Icon != null)
+            {
+                picHeaderLogo.Image = this.Icon.ToBitmap();
+            }
+
+            logoContainer.Controls.Add(picHeaderLogo);
 
             headerPanel.Controls.Add(lblTitle);
             headerPanel.Controls.Add(lblSubtitle);
+            headerPanel.Controls.Add(logoContainer);
             this.Controls.Add(headerPanel);
 
+            // 2. Body Panel
             var bodyPanel = new Panel
             {
-                Location = new Point(24, 95),
-                Size = new Size(556, 330)
+                Location = new Point(24, 98),
+                Size = new Size(576, 350)
             };
 
-            // Mode Selection
             var lblMode = new Label
             {
                 Text = "Выберите тип установки программы:",
@@ -130,7 +217,7 @@ namespace StormSwitchBox.Installer
             {
                 Text = "Стандартная установка в Program Files (рекомендуется)",
                 Checked = true,
-                Location = new Point(10, 26),
+                Location = new Point(10, 25),
                 AutoSize = true,
                 Font = new Font("Segoe UI", 9.5f, FontStyle.Regular),
                 ForeColor = Color.White
@@ -142,7 +229,7 @@ namespace StormSwitchBox.Installer
             {
                 Text = "Портативная версия (в выбранную вами папку, без реестра)",
                 Checked = false,
-                Location = new Point(10, 52),
+                Location = new Point(10, 50),
                 AutoSize = true,
                 Font = new Font("Segoe UI", 9.5f, FontStyle.Regular),
                 ForeColor = Color.White
@@ -150,13 +237,12 @@ namespace StormSwitchBox.Installer
             rbPortable.CheckedChanged += Mode_CheckedChanged;
             bodyPanel.Controls.Add(rbPortable);
 
-            // Install Path
             var lblPath = new Label
             {
                 Text = "Папка назначения:",
                 Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
                 ForeColor = Color.FromArgb(226, 232, 240),
-                Location = new Point(0, 85),
+                Location = new Point(0, 82),
                 AutoSize = true
             };
             bodyPanel.Controls.Add(lblPath);
@@ -164,8 +250,8 @@ namespace StormSwitchBox.Installer
             txtInstallPath = new TextBox
             {
                 Text = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), AppFolderName),
-                Location = new Point(5, 108),
-                Size = new Size(440, 26),
+                Location = new Point(5, 105),
+                Size = new Size(460, 26),
                 BackColor = Color.FromArgb(17, 24, 39),
                 ForeColor = Color.White,
                 BorderStyle = BorderStyle.FixedSingle,
@@ -176,7 +262,7 @@ namespace StormSwitchBox.Installer
             btnBrowse = new Button
             {
                 Text = "Обзор...",
-                Location = new Point(455, 107),
+                Location = new Point(475, 104),
                 Size = new Size(95, 28),
                 FlatStyle = FlatStyle.Flat,
                 BackColor = Color.FromArgb(30, 41, 59),
@@ -187,13 +273,12 @@ namespace StormSwitchBox.Installer
             btnBrowse.Click += BtnBrowse_Click;
             bodyPanel.Controls.Add(btnBrowse);
 
-            // Options
             var lblOptions = new Label
             {
-                Text = "Дополнительные параметры безопасности и удобства:",
+                Text = "Дополнительные параметры безопасности и интеграции:",
                 Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
                 ForeColor = Color.FromArgb(226, 232, 240),
-                Location = new Point(0, 145),
+                Location = new Point(0, 142),
                 AutoSize = true
             };
             bodyPanel.Controls.Add(lblOptions);
@@ -202,7 +287,7 @@ namespace StormSwitchBox.Installer
             {
                 Text = "Создать ярлык на Рабочем столе",
                 Checked = true,
-                Location = new Point(10, 170),
+                Location = new Point(10, 166),
                 AutoSize = true,
                 ForeColor = Color.White
             };
@@ -212,7 +297,7 @@ namespace StormSwitchBox.Installer
             {
                 Text = "Создать ярлык в меню «Пуск»",
                 Checked = true,
-                Location = new Point(10, 195),
+                Location = new Point(10, 191),
                 AutoSize = true,
                 ForeColor = Color.White
             };
@@ -220,9 +305,9 @@ namespace StormSwitchBox.Installer
 
             chkInstallCert = new CheckBox
             {
-                Text = "Зарегистрировать сертификат разработчика (Защита от SmartScreen / SAC)",
+                Text = "Зарегистрировать сертификат STORM TEAM (защита от SmartScreen / SAC)",
                 Checked = true,
-                Location = new Point(10, 220),
+                Location = new Point(10, 216),
                 AutoSize = true,
                 ForeColor = Color.FromArgb(52, 211, 153)
             };
@@ -230,9 +315,9 @@ namespace StormSwitchBox.Installer
 
             chkRegister = new CheckBox
             {
-                Text = "Зарегистрировать в списке «Установка и удаление программ» Windows",
+                Text = "Зарегистрировать в списке «Установка и удаление программ»",
                 Checked = true,
-                Location = new Point(10, 245),
+                Location = new Point(10, 241),
                 AutoSize = true,
                 ForeColor = Color.White
             };
@@ -240,19 +325,18 @@ namespace StormSwitchBox.Installer
 
             chkRunAfter = new CheckBox
             {
-                Text = $"Запустить {AppDisplayName} сразу после завершения",
+                Text = $"Запустить {AppDisplayName} сразу после установки",
                 Checked = true,
-                Location = new Point(10, 270),
+                Location = new Point(10, 266),
                 AutoSize = true,
                 ForeColor = Color.FromArgb(14, 165, 233)
             };
             bodyPanel.Controls.Add(chkRunAfter);
 
-            // Progress & Status
             progressBar = new ProgressBar
             {
-                Location = new Point(5, 298),
-                Size = new Size(545, 12),
+                Location = new Point(5, 296),
+                Size = new Size(565, 12),
                 Style = ProgressBarStyle.Continuous,
                 Value = 0,
                 Visible = false
@@ -263,8 +347,8 @@ namespace StormSwitchBox.Installer
             {
                 Text = "",
                 Location = new Point(5, 312),
-                Size = new Size(545, 18),
-                Font = new Font("Segoe UI", 8.5f),
+                Size = new Size(565, 20),
+                Font = new Font("Segoe UI", 8.8f),
                 ForeColor = Color.FromArgb(148, 163, 184),
                 Visible = false
             };
@@ -272,7 +356,7 @@ namespace StormSwitchBox.Installer
 
             this.Controls.Add(bodyPanel);
 
-            // Bottom Buttons Panel
+            // 3. Bottom Panel
             var bottomPanel = new Panel
             {
                 Dock = DockStyle.Bottom,
@@ -284,8 +368,8 @@ namespace StormSwitchBox.Installer
             btnCancel = new Button
             {
                 Text = "Отмена",
-                Size = new Size(110, 34),
-                Location = new Point(360, 13),
+                Size = new Size(110, 36),
+                Location = new Point(365, 12),
                 FlatStyle = FlatStyle.Flat,
                 BackColor = Color.FromArgb(30, 41, 59),
                 ForeColor = Color.FromArgb(226, 232, 240),
@@ -297,13 +381,13 @@ namespace StormSwitchBox.Installer
 
             btnInstall = new Button
             {
-                Text = "Установить ⚡",
-                Size = new Size(120, 34),
-                Location = new Point(480, 13),
+                Text = "📦  Установить",
+                Size = new Size(135, 36),
+                Location = new Point(485, 12),
                 FlatStyle = FlatStyle.Flat,
                 BackColor = Color.FromArgb(14, 165, 233),
                 ForeColor = Color.White,
-                Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
+                Font = new Font("Segoe UI", 9.8f, FontStyle.Bold),
                 Cursor = Cursors.Hand
             };
             btnInstall.FlatAppearance.BorderColor = Color.FromArgb(56, 189, 248);
@@ -317,14 +401,14 @@ namespace StormSwitchBox.Installer
         {
             if (rbPortable.Checked)
             {
-                txtInstallPath.Text = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "STORM_SWITCH_BOX_Portable");
+                txtInstallPath.Text = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, $"{AppFolderName}_Portable");
                 chkDesktop.Checked = false;
                 chkDesktop.Enabled = false;
                 chkStartMenu.Checked = false;
                 chkStartMenu.Enabled = false;
                 chkRegister.Checked = false;
                 chkRegister.Enabled = false;
-                btnInstall.Text = "Распаковать ⚡";
+                btnInstall.Text = "📦  Распаковать";
             }
             else
             {
@@ -335,7 +419,7 @@ namespace StormSwitchBox.Installer
                 chkStartMenu.Enabled = true;
                 chkRegister.Checked = true;
                 chkRegister.Enabled = true;
-                btnInstall.Text = "Установить ⚡";
+                btnInstall.Text = "📦  Установить";
             }
         }
 
@@ -390,6 +474,7 @@ namespace StormSwitchBox.Installer
                 string targetExe = Path.Combine(targetDir, ExeName);
                 string targetCer = Path.Combine(targetDir, "STORM_Certificate.cer");
                 string targetIco = Path.Combine(targetDir, IcoName);
+                string targetLogo = Path.Combine(targetDir, "logo.png");
 
                 if (!Directory.Exists(targetDir))
                 {
@@ -466,6 +551,7 @@ namespace StormSwitchBox.Installer
                 });
 
                 ExtractResource(IcoName, targetIco);
+                ExtractResource("logo.png", targetLogo);
                 ExtractResource("STORM_Certificate.cer", targetCer);
 
                 // Self-healing: Unblock files and remove Mark of the Web
@@ -476,6 +562,7 @@ namespace StormSwitchBox.Installer
                 UnblockFile(targetExe);
                 UnblockFile(targetCer);
                 UnblockFile(targetIco);
+                UnblockFile(targetLogo);
                 UnblockEntireDirectory(targetDir);
 
                 if (rbStandard.Checked)
