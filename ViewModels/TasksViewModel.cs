@@ -350,6 +350,8 @@ public partial class TasksViewModel : ObservableObject
 
 		foreach (var archive in archivesToProcess.Distinct(StringComparer.OrdinalIgnoreCase))
 		{
+			expandedPaths.RemoveAll(p => p.Equals(archive, StringComparison.OrdinalIgnoreCase));
+
 			try
 			{
 				string archiveDir = Path.GetDirectoryName(archive) ?? "";
@@ -787,11 +789,11 @@ public partial class TasksViewModel : ObservableObject
 
 	private string DetermineSourceFormat(List<string> filePaths)
 	{
-		if (filePaths == null || filePaths.Count == 0) return "MULTI CONTENT";
+		if (filePaths == null || filePaths.Count == 0) return "MULTI";
 
 		var validFiles = filePaths.Where(f => !Directory.Exists(f)).ToList();
 		var hasMods = filePaths.Any(f => Directory.Exists(f));
-		if (validFiles.Count == 0 || hasMods) return "MULTI CONTENT";
+		if (validFiles.Count == 0 || hasMods) return "MULTI";
 
 		var exts = validFiles
 			.Select(f =>
@@ -814,7 +816,7 @@ public partial class TasksViewModel : ObservableObject
 			}
 		}
 
-		return "MULTI CONTENT";
+		return "MULTI";
 	}
 
 	private Task AddOrUpdateTask(List<string> files, string groupId, string basePath, byte[]? iconBytes = null)

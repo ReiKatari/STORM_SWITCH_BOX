@@ -134,7 +134,7 @@
         </CommandBar>
 
         <!-- ========== ТАБЛИЦА ЗАДАЧ ========== -->
-        <Grid Grid.Row="1" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource SurfaceStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="4">
+        <Grid Grid.Row="1" AllowDrop="True" DragOver="Grid_DragOver" Drop="Grid_Drop" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource SurfaceStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="4">
             <Grid.Resources>
                 <SolidColorBrush x:Key="DataGridRowSelectedUnfocusedBackgroundBrush" Color="#20FFFFFF"/>
                 <SolidColorBrush x:Key="DataGridRowSelectedHoveredUnfocusedBackgroundBrush" Color="#25FFFFFF"/>
@@ -143,6 +143,7 @@
             </Grid.Resources>
             
             <controls:DataGrid x:Name="TasksGrid" ItemsSource="{x:Bind ViewModel.Tasks}"
+                               AllowDrop="True" DragOver="Grid_DragOver" Drop="Grid_Drop"
                                AutoGenerateColumns="False"
                                GridLinesVisibility="All"
                                HeadersVisibility="Column"
@@ -327,6 +328,7 @@
 
             <!-- ========== ТАБЛИЦА ВЕРИФИКАЦИИ (РАЗДЕЛ ПРОВЕРКА) ========== -->
             <controls:DataGrid x:Name="VerifyGrid"
+                               AllowDrop="True" DragOver="Grid_DragOver" Drop="Grid_Drop"
                                AutoGenerateColumns="False"
                                GridLinesVisibility="All"
                                HeadersVisibility="Column"

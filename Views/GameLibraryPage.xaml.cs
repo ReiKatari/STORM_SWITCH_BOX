@@ -598,19 +598,13 @@ namespace StormSwitchBox.Views
             var deferral = args.GetDeferral();
             try
             {
-                var savePicker = new FileSavePicker();
-                savePicker.SuggestedStartLocation = PickerLocationId.PicturesLibrary;
-                savePicker.FileTypeChoices.Add("PNG Image", new List<string> { ".png" });
-                savePicker.FileTypeChoices.Add("JPEG Image", new List<string> { ".jpg" });
-                
                 string safeName = string.Join("_", _selectedGame.Title.Split(Path.GetInvalidFileNameChars()));
-                savePicker.SuggestedFileName = $"{safeName}_cover";
+                string? targetFile = await SystemDialogService.SaveFileDialogAsync(
+                    "Сохранить обложку игры",
+                    $"{safeName}_cover.jpg",
+                    "JPEG Image (*.jpg)|*.jpg|PNG Image (*.png)|*.png|All Files (*.*)|*.*");
 
-                var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindow);
-                WinRT.Interop.InitializeWithWindow.Initialize(savePicker, hwnd);
-
-                var file = await savePicker.PickSaveFileAsync();
-                if (file != null)
+                if (!string.IsNullOrWhiteSpace(targetFile))
                 {
                     string localOrDownloadUrl = await CoverCacheService.GetOrDownloadCoverAsync(
                         _selectedGame.CoverUrl, _selectedGame.System, _selectedGame.Title, _selectedGame.Id);
@@ -618,15 +612,17 @@ namespace StormSwitchBox.Views
                     if (File.Exists(localOrDownloadUrl))
                     {
                         var bytes = await File.ReadAllBytesAsync(localOrDownloadUrl);
-                        await Windows.Storage.FileIO.WriteBytesAsync(file, bytes);
+                        await File.WriteAllBytesAsync(targetFile, bytes);
                     }
                     else
                     {
                         using var httpClient = new System.Net.Http.HttpClient();
                         httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
                         var bytes = await httpClient.GetByteArrayAsync(localOrDownloadUrl);
-                        await Windows.Storage.FileIO.WriteBytesAsync(file, bytes);
+                        await File.WriteAllBytesAsync(targetFile, bytes);
                     }
+
+                    App.Logger?.Log($"[GameLibrary] Обложка сохранена: {targetFile}", LogLevel.Success);
                 }
             }
             catch (Exception ex)

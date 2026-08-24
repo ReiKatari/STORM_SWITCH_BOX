@@ -447,7 +447,7 @@
                             <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
 
                             <!-- Выходная папка по умолчанию Switch -->
-                            <Grid>
+                            <Grid AllowDrop="True" DragOver="OutputFolderBox_DragOver" Drop="OutputFolderBox_Drop">
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="Auto"/>
@@ -456,7 +456,7 @@
                                     <TextBlock x:Name="SwitchOutFolderTitleTxt" Text="Выходная папка Switch по умолчанию" FontWeight="Medium" VerticalAlignment="Center"/>
                                     <TextBlock x:Name="SwitchOutFolderDescTxt" Text="Папка для сохранения обработанных файлов Switch (.nsp / .nsz / .xci / .xcz). Можно перетащить папку сюда" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
                                 </StackPanel>
-                                <Grid Grid.Row="1">
+                                <Grid Grid.Row="1" AllowDrop="True" DragOver="OutputFolderBox_DragOver" Drop="OutputFolderBox_Drop">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
@@ -599,7 +599,7 @@
                             <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
 
                             <!-- Выходная папка по умолчанию 3DS -->
-                            <Grid>
+                            <Grid AllowDrop="True" DragOver="OutputFolderBox3ds_DragOver" Drop="OutputFolderBox3ds_Drop">
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="Auto"/>
@@ -608,7 +608,7 @@
                                     <TextBlock x:Name="ThreeDsOutFolderTitleTxt" Text="Выходная папка 3DS по умолчанию" FontWeight="Medium" VerticalAlignment="Center"/>
                                     <TextBlock x:Name="ThreeDsOutFolderDescTxt" Text="Папка для сохранения обработанных файлов 3DS (.3ds / .cia / .cxi). Можно перетащить папку сюда" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
                                 </StackPanel>
-                                <Grid Grid.Row="1">
+                                <Grid Grid.Row="1" AllowDrop="True" DragOver="OutputFolderBox3ds_DragOver" Drop="OutputFolderBox3ds_Drop">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
