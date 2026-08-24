@@ -787,6 +787,7 @@ namespace StormSwitchBox.Views
             e.DragUIOverride.IsCaptionVisible = true;
             e.DragUIOverride.IsContentVisible = true;
             e.DragUIOverride.IsGlyphVisible = true;
+            DropOverlay.Visibility = Visibility.Visible;
             e.Handled = true;
         }
 
