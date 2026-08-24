@@ -17,9 +17,9 @@
         </Grid.RowDefinitions>
 
         <!-- Top Platform Systems Scroll Viewer with Modern Chips -->
-        <Grid Grid.Row="0" Margin="0,0,0,14">
+        <Grid Grid.Row="0" Margin="0,0,0,18">
             <ScrollViewer HorizontalScrollBarVisibility="Auto" HorizontalScrollMode="Enabled" VerticalScrollBarVisibility="Disabled" VerticalScrollMode="Disabled">
-                <StackPanel x:Name="SystemsStackPanel" Orientation="Horizontal" Spacing="6" Padding="0,0,0,4">
+                <StackPanel x:Name="SystemsStackPanel" Orientation="Horizontal" Spacing="8" Padding="0,4,0,18">
                     <!-- Dynamic platform chips populated in code behind -->
                 </StackPanel>
             </ScrollViewer>
@@ -207,7 +207,7 @@
             </StackPanel>
         </Grid>
 
-        <!-- Enlarged Cover & Details Dialog (Extended Width & Polished Layout) -->
+        <!-- Enlarged Cover & Details Dialog (2x Width, Polished Layout & Theme Support) -->
         <ContentDialog x:Name="GameDetailsDialog" 
                        Title="Сведения об игре" 
                        PrimaryButtonText="💾 Сохранить обложку" 
@@ -217,90 +217,88 @@
                        SecondaryButtonClick="GameDetailsDialog_CopyDetailsClick"
                        DefaultButton="Close">
             <ContentDialog.Resources>
-                <Style TargetType="ContentDialog">
-                    <Setter Property="MaxWidth" Value="920"/>
-                    <Setter Property="MinWidth" Value="760"/>
-                </Style>
+                <x:Double x:Key="ContentDialogMinWidth">960</x:Double>
+                <x:Double x:Key="ContentDialogMaxWidth">1200</x:Double>
             </ContentDialog.Resources>
-            <Grid Padding="12" MaxWidth="880">
+            <Grid Padding="16" Width="920" MinWidth="850">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="310"/>
+                    <ColumnDefinition Width="380"/>
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
 
                 <!-- Left: Enlarged Cover Art & Web Search -->
-                <StackPanel Grid.Column="0" Spacing="12" Margin="0,0,20,0" VerticalAlignment="Top">
-                    <Border CornerRadius="12" Background="#141414" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" Padding="6">
-                        <Image x:Name="DialogCoverImage" Height="360" Stretch="Uniform" HorizontalAlignment="Center"/>
+                <StackPanel Grid.Column="0" Spacing="14" Margin="0,0,24,0" VerticalAlignment="Top">
+                    <Border CornerRadius="14" Background="#141414" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" Padding="8">
+                        <Image x:Name="DialogCoverImage" Height="440" Stretch="Uniform" HorizontalAlignment="Center"/>
                     </Border>
-                    <Button Click="DialogSearchWeb_Click" HorizontalAlignment="Stretch" Height="38" CornerRadius="8">
+                    <Button Click="DialogSearchWeb_Click" HorizontalAlignment="Stretch" Height="40" CornerRadius="8">
                         <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
-                            <FontIcon Glyph="&#xE721;" FontSize="13"/>
-                            <TextBlock x:Name="DialogSearchWebTextBlock" Text="Найти информацию в сети" FontWeight="SemiBold"/>
+                            <FontIcon Glyph="&#xE721;" FontSize="14"/>
+                            <TextBlock x:Name="DialogSearchWebTextBlock" Text="🔍 Найти информацию в сети" FontWeight="SemiBold" FontSize="13"/>
                         </StackPanel>
                     </Button>
                 </StackPanel>
 
                 <!-- Right: Metadata & Detailed Overview -->
-                <ScrollViewer Grid.Column="1" MaxHeight="520">
-                    <StackPanel Spacing="12">
-                        <TextBlock x:Name="DialogTitleTextBlock" Text="Game Title" FontSize="22" FontWeight="Bold" TextWrapping="Wrap" LineHeight="28"/>
+                <ScrollViewer Grid.Column="1" MaxHeight="540">
+                    <StackPanel Spacing="14">
+                        <TextBlock x:Name="DialogTitleTextBlock" Text="Game Title" FontSize="24" FontWeight="Bold" TextWrapping="Wrap" LineHeight="30"/>
                         
-                        <StackPanel Spacing="8">
+                        <StackPanel Spacing="10">
                             <Grid Margin="0,2">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="130"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                                <TextBlock Text="Система:" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" FontWeight="SemiBold"/>
-                                <TextBlock x:Name="DialogSystemTextBlock" Grid.Column="1" Text="System Name" FontSize="12" FontWeight="Bold"/>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="150"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <TextBlock Text="Система:" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="13" FontWeight="SemiBold"/>
+                                <TextBlock x:Name="DialogSystemTextBlock" Grid.Column="1" Text="System Name" FontSize="13" FontWeight="Bold" TextWrapping="Wrap"/>
                             </Grid>
 
                             <Grid Margin="0,2">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="130"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                                <TextBlock Text="Жанр:" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" FontWeight="SemiBold"/>
-                                <TextBlock x:Name="DialogGenreTextBlock" Grid.Column="1" Text="Action / RPG" FontSize="12"/>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="150"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <TextBlock Text="Жанр:" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="13" FontWeight="SemiBold"/>
+                                <TextBlock x:Name="DialogGenreTextBlock" Grid.Column="1" Text="Action / RPG" FontSize="13" TextWrapping="Wrap"/>
                             </Grid>
 
                             <Grid Margin="0,2">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="130"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                                <TextBlock Text="Дата выхода:" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" FontWeight="SemiBold"/>
-                                <TextBlock x:Name="DialogReleaseDateTextBlock" Grid.Column="1" Text="23.06.1996" FontSize="12"/>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="150"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <TextBlock Text="Дата выхода:" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="13" FontWeight="SemiBold"/>
+                                <TextBlock x:Name="DialogReleaseDateTextBlock" Grid.Column="1" Text="23.06.1996" FontSize="13"/>
                             </Grid>
 
                             <Grid Margin="0,2">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="130"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                                <TextBlock Text="Разработчик:" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" FontWeight="SemiBold"/>
-                                <TextBlock x:Name="DialogDeveloperTextBlock" Grid.Column="1" Text="Nintendo" FontSize="12"/>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="150"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <TextBlock Text="Разработчик:" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="13" FontWeight="SemiBold"/>
+                                <TextBlock x:Name="DialogDeveloperTextBlock" Grid.Column="1" Text="Nintendo" FontSize="13" TextWrapping="Wrap"/>
                             </Grid>
 
                             <Grid Margin="0,2">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="130"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                                <TextBlock Text="Издатель:" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" FontWeight="SemiBold"/>
-                                <TextBlock x:Name="DialogPublisherTextBlock" Grid.Column="1" Text="Nintendo" FontSize="12"/>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="150"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <TextBlock Text="Издатель:" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="13" FontWeight="SemiBold"/>
+                                <TextBlock x:Name="DialogPublisherTextBlock" Grid.Column="1" Text="Nintendo" FontSize="13" TextWrapping="Wrap"/>
                             </Grid>
 
                             <Grid Margin="0,2">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="130"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                                <TextBlock Text="Издание / Версия:" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" FontWeight="SemiBold"/>
-                                <TextBlock x:Name="DialogEditionTextBlock" Grid.Column="1" Text="Standard Edition (1.0)" FontSize="12"/>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="150"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <TextBlock Text="Издание / Версия:" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="13" FontWeight="SemiBold"/>
+                                <TextBlock x:Name="DialogEditionTextBlock" Grid.Column="1" Text="Standard Edition (1.0)" FontSize="13" TextWrapping="Wrap"/>
                             </Grid>
 
                             <Grid Margin="0,2">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="130"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                                <TextBlock Text="Регион / Игроки:" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" FontWeight="SemiBold"/>
-                                <TextBlock x:Name="DialogRegionPlayersTextBlock" Grid.Column="1" Text="WW | 1-2 игрока" FontSize="12"/>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="150"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <TextBlock Text="Регион / Игроки:" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="13" FontWeight="SemiBold"/>
+                                <TextBlock x:Name="DialogRegionPlayersTextBlock" Grid.Column="1" Text="WW | 1-2 игрока" FontSize="13" TextWrapping="Wrap"/>
                             </Grid>
 
                             <Grid Margin="0,2">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="130"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                                <TextBlock Text="Рейтинг / ID:" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" FontWeight="SemiBold"/>
-                                <TextBlock x:Name="DialogRatingIdTextBlock" Grid.Column="1" Text="Для всех | 0100000000010000" FontSize="12"/>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="150"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <TextBlock Text="Рейтинг / ID:" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="13" FontWeight="SemiBold"/>
+                                <TextBlock x:Name="DialogRatingIdTextBlock" Grid.Column="1" Text="Для всех | 0100000000010000" FontSize="13" TextWrapping="Wrap"/>
                             </Grid>
                         </StackPanel>
 
-                        <Border Height="1" Background="{ThemeResource CardStrokeColorDefaultBrush}" Margin="0,4"/>
+                        <Border Height="1" Background="{ThemeResource CardStrokeColorDefaultBrush}" Margin="0,6"/>
 
-                        <StackPanel Spacing="6">
-                            <TextBlock Text="Описание:" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                            <TextBlock x:Name="DialogDescriptionTextBlock" Text="Описание игры..." FontSize="13" TextWrapping="Wrap" LineHeight="20"/>
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="Описание:" FontWeight="SemiBold" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <TextBlock x:Name="DialogDescriptionTextBlock" Text="Описание игры..." FontSize="13" TextWrapping="Wrap" LineHeight="22"/>
                         </StackPanel>
                     </StackPanel>
                 </ScrollViewer>

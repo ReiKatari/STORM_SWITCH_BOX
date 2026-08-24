@@ -18,3 +18,8 @@ publish/
 installer/Output/
 installer/StormInstaller/bin/
 installer/StormInstaller/obj/
+Files/*.exe
+Files/*.zip
+*.exe
+!tools/**/*.exe
+

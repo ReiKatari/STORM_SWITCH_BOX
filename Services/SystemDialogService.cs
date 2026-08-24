@@ -109,5 +109,52 @@ namespace StormSwitchBox.Services
 
             return tcs.Task;
         }
+
+        public static Task<string?> SaveFileDialogAsync(string title, string defaultFileName, string filter, string? initialDirectory = null)
+        {
+            var tcs = new TaskCompletionSource<string?>();
+            var thread = new Thread(() =>
+            {
+                try
+                {
+                    using var sfd = new SaveFileDialog
+                    {
+                        Title = title,
+                        FileName = defaultFileName,
+                        Filter = filter,
+                        OverwritePrompt = true,
+                        RestoreDirectory = true,
+                        AutoUpgradeEnabled = true
+                    };
+
+                    if (!string.IsNullOrEmpty(initialDirectory) && Directory.Exists(initialDirectory))
+                    {
+                        sfd.InitialDirectory = initialDirectory;
+                    }
+
+                    IWin32Window? owner = (App.MainWindowHandle != IntPtr.Zero) ? new WindowWrapper(App.MainWindowHandle) : null;
+                    var res = owner != null ? sfd.ShowDialog(owner) : sfd.ShowDialog();
+                    if (res == DialogResult.OK && !string.IsNullOrWhiteSpace(sfd.FileName))
+                    {
+                        tcs.SetResult(sfd.FileName);
+                    }
+                    else
+                    {
+                        tcs.SetResult(null);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    App.Logger?.Log($"[Dialog] Ошибка открытия SaveFileDialog: {ex.Message}", Models.LogLevel.Warning);
+                    tcs.SetResult(null);
+                }
+            });
+
+            thread.SetApartmentState(ApartmentState.STA);
+            thread.IsBackground = true;
+            thread.Start();
+
+            return tcs.Task;
+        }
     }
 }
