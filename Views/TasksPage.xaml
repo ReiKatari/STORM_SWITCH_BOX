@@ -143,7 +143,6 @@
             </Grid.Resources>
             
             <controls:DataGrid x:Name="TasksGrid" ItemsSource="{x:Bind ViewModel.Tasks}"
-                               AllowDrop="True" DragOver="Grid_DragOver" Drop="Grid_Drop"
                                AutoGenerateColumns="False"
                                GridLinesVisibility="All"
                                HeadersVisibility="Column"
@@ -328,7 +327,6 @@
 
             <!-- ========== ТАБЛИЦА ВЕРИФИКАЦИИ (РАЗДЕЛ ПРОВЕРКА) ========== -->
             <controls:DataGrid x:Name="VerifyGrid"
-                               AllowDrop="True" DragOver="Grid_DragOver" Drop="Grid_Drop"
                                AutoGenerateColumns="False"
                                GridLinesVisibility="All"
                                HeadersVisibility="Column"
