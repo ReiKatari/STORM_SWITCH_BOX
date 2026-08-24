@@ -94,7 +94,8 @@ namespace StormSwitchBox.Views
             InitializeLanguages();
             PopulateKeysVersion(App.Settings.Current.KeysVersion ?? "");
 
-            SelectTab(App.Settings.Current.SelectedSettingsTab);
+            // По умолчанию всегда открывается вкладка "Общие" (индекс 0)
+            SelectTab(0);
 
             ApplyLocalization();
             App.Localization.LanguageChanged += () => App.RunOnUI(ApplyLocalization);

@@ -305,6 +305,51 @@ namespace StormSwitchBox
             }
         }
 
+        private void MainWindow_DragOver(object sender, DragEventArgs e)
+        {
+            if (ContentFrame.Content is Views.TasksPage)
+            {
+                e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
+                e.DragUIOverride.Caption = "Добавить файлы в Задачник";
+                e.DragUIOverride.IsCaptionVisible = true;
+                e.DragUIOverride.IsContentVisible = true;
+                e.DragUIOverride.IsGlyphVisible = true;
+                e.Handled = true;
+            }
+        }
+
+        private async void MainWindow_Drop(object sender, DragEventArgs e)
+        {
+            if (ContentFrame.Content is Views.TasksPage)
+            {
+                e.Handled = true;
+                var deferral = e.GetDeferral();
+                try
+                {
+                    if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+                    {
+                        var items = await e.DataView.GetStorageItemsAsync();
+                        if (items != null && items.Count > 0)
+                        {
+                            var paths = items.Select(item => item.Path).Where(p => !string.IsNullOrWhiteSpace(p)).ToList();
+                            if (paths.Count > 0)
+                            {
+                                await App.TasksVM.AddDroppedFilesBatchAsync(paths);
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    App.Logger.Log($"Ошибка перетаскивания файлов: {ex.Message}", Models.LogLevel.Error);
+                }
+                finally
+                {
+                    deferral.Complete();
+                }
+            }
+        }
+
 
 
         private void Window_Closed(object sender, WindowEventArgs args)
