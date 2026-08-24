@@ -16,6 +16,8 @@ temp/
 __pycache__/
 *.pyc
 *.zip
+*.pfx
+*.key
 publish/
 Assembling/
 installer/Output/

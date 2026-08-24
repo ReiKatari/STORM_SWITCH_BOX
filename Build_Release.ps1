@@ -70,7 +70,7 @@ if (-not $cert) {
 $certThumb = $cert.Thumbprint
 Write-Host "  -> Master Certificate: $($cert.Subject) [$certThumb]" -ForegroundColor Green
 
-# Export CER to root, Files, installer
+# Export CER and copy PFX to root, Files, installer
 $cerRoot = Join-Path $baseDir "STORM_Certificate.cer"
 $cerFiles = Join-Path $filesDir "STORM_Certificate.cer"
 $cerInstaller = Join-Path $baseDir "installer\STORM_Certificate.cer"
@@ -81,6 +81,12 @@ Copy-Item $cerRoot $cerFiles -Force
 Copy-Item $cerRoot $cerInstaller -Force
 Copy-Item $cerRoot $cerOutput -Force
 Copy-Item $cerRoot (Join-Path $publishDir "STORM_Certificate.cer") -Force
+
+$pfxSource = "E:\STORM SYSTEM OPTIMIZER\Files\STORM_CodeSign.pfx"
+if (Test-Path $pfxSource) {
+    Copy-Item $pfxSource (Join-Path $filesDir "STORM_CodeSign.pfx") -Force
+    Copy-Item $pfxSource (Join-Path $baseDir "STORM_CodeSign.pfx") -Force
+}
 
 # Unblock published files
 Get-ChildItem $publishDir -Recurse | Unblock-File -ErrorAction SilentlyContinue
@@ -107,7 +113,7 @@ if (Test-Path "$baseDir\tools\7z.exe") {
 
 # Step 4: Build Custom StormInstaller
 Write-Host "[5/6] Building and Signing StormInstaller (Cyber Dark UI)..." -ForegroundColor Yellow
-dotnet publish "$installerProjDir\StormInstaller.csproj" -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=false -p:EnableCompressionInSingleFile=false
+dotnet publish "$installerProjDir\StormInstaller.csproj" -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true
 
 $publishedInstaller = "$installerProjDir\bin\Release\net8.0-windows\win-x64\publish\StormInstaller.exe"
 if (-not (Test-Path $publishedInstaller)) {
@@ -125,10 +131,7 @@ Copy-Item $publishedInstaller $outputSetupExePath -Force
 # Install certificate locally into TrustedPublisher & Root for seamless local execution
 try {
     certutil.exe -user -addstore -f "TrustedPublisher" $cerRoot | Out-Null
-    certutil.exe -addstore -f "TrustedPublisher" $cerRoot | Out-Null
-    certutil.exe -addstore -f "Root" $cerRoot | Out-Null
-    certutil.exe -addstore -f "AuthRoot" $cerRoot | Out-Null
-    certutil.exe -addstore -f "CA" $cerRoot | Out-Null
+    certutil.exe -user -addstore -f "Root" $cerRoot | Out-Null
 } catch { }
 
 # Step 5: Packaging Smart App Control Setup Bundle
@@ -140,20 +143,10 @@ if (Test-Path "$baseDir\tools\7z.exe") {
     & "$baseDir\tools\7z.exe" a -tzip -mx=7 -mmt=on $bundleZipPath $bundleItems
 }
 
-# Step 6: Unblock everything and add exclusions
+# Step 6: Unblock everything
 Get-ChildItem -Path $baseDir -Recurse -Include *.exe, *.dll, *.bat, *.cmd, *.ps1, *.cer -ErrorAction SilentlyContinue | ForEach-Object {
     Unblock-File -Path $_.FullName -ErrorAction SilentlyContinue
 }
-
-try {
-    Add-MpPreference -ExclusionPath $baseDir -ErrorAction SilentlyContinue
-    Add-MpPreference -ExclusionPath $filesDir -ErrorAction SilentlyContinue
-    Add-MpPreference -ExclusionPath $assemblingDir -ErrorAction SilentlyContinue
-    Add-MpPreference -ExclusionPath "C:\Program Files\STORM SWITCH BOX" -ErrorAction SilentlyContinue
-    Add-MpPreference -ExclusionProcess "StormSwitchBox.exe" -ErrorAction SilentlyContinue
-    Add-MpPreference -ExclusionProcess $setupExeName -ErrorAction SilentlyContinue
-    Add-MpPreference -ExclusionProcess "StormInstaller.exe" -ErrorAction SilentlyContinue
-} catch { }
 
 Write-Host "============================================================" -ForegroundColor Green
 Write-Host "BUILD AND PACKAGING COMPLETED ACCORDING TO STORM STANDARDS!" -ForegroundColor Green
