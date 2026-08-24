@@ -19,8 +19,18 @@ namespace StormSwitchBox
             
             [System.Runtime.InteropServices.DllImport("user32.dll")]
             public static extern bool SetForegroundWindow(System.IntPtr hWnd);
+
+            [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
+            public static extern bool ChangeWindowMessageFilterEx(IntPtr hWnd, uint message, uint action, IntPtr pChangeFilterStruct);
+
+            [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
+            public static extern bool ChangeWindowMessageFilter(uint message, uint action);
             
             public const int SW_RESTORE = 9;
+            public const uint MSGFLT_ALLOW = 1;
+            public const uint WM_DROPFILES = 0x0233;
+            public const uint WM_COPYDATA = 0x004A;
+            public const uint WM_COPYGLOBALDATA = 0x0049;
         }
 
         public MainWindow()
@@ -31,6 +41,19 @@ namespace StormSwitchBox
 
             var hWnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
             App.MainWindowHandle = hWnd;
+            
+            // Разрешаем сообщения Drag-and-Drop между уровнями привилегий (обход UIPI при запуске от имени Администратора)
+            try
+            {
+                Win32.ChangeWindowMessageFilterEx(hWnd, Win32.WM_DROPFILES, Win32.MSGFLT_ALLOW, IntPtr.Zero);
+                Win32.ChangeWindowMessageFilterEx(hWnd, Win32.WM_COPYDATA, Win32.MSGFLT_ALLOW, IntPtr.Zero);
+                Win32.ChangeWindowMessageFilterEx(hWnd, Win32.WM_COPYGLOBALDATA, Win32.MSGFLT_ALLOW, IntPtr.Zero);
+                Win32.ChangeWindowMessageFilter(Win32.WM_DROPFILES, Win32.MSGFLT_ALLOW);
+                Win32.ChangeWindowMessageFilter(Win32.WM_COPYDATA, Win32.MSGFLT_ALLOW);
+                Win32.ChangeWindowMessageFilter(Win32.WM_COPYGLOBALDATA, Win32.MSGFLT_ALLOW);
+            }
+            catch { }
+
             var windowId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hWnd);
             var appWindow = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(windowId);
             appWindow.SetIcon(System.IO.Path.Combine(System.AppContext.BaseDirectory, "assets", "storm_switch_box.ico"));
@@ -279,6 +302,48 @@ namespace StormSwitchBox
                         if (GlobalAlertInfoBar != null) GlobalAlertInfoBar.IsOpen = false;
                     });
                 });
+            }
+        }
+
+        private void MainWindow_DragOver(object sender, DragEventArgs e)
+        {
+            if (ContentFrame.Content is Views.TasksPage)
+            {
+                e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
+                e.DragUIOverride.Caption = "Добавить файлы в Задачник";
+                e.DragUIOverride.IsCaptionVisible = true;
+                e.DragUIOverride.IsContentVisible = true;
+                e.DragUIOverride.IsGlyphVisible = true;
+                e.Handled = true;
+            }
+        }
+
+        private async void MainWindow_Drop(object sender, DragEventArgs e)
+        {
+            if (ContentFrame.Content is Views.TasksPage)
+            {
+                e.Handled = true;
+                var deferral = e.GetDeferral();
+                try
+                {
+                    if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+                    {
+                        var items = await e.DataView.GetStorageItemsAsync();
+                        if (items != null && items.Count > 0)
+                        {
+                            var paths = items.Select(item => item.Path).Where(p => !string.IsNullOrWhiteSpace(p)).ToList();
+                            if (paths.Count > 0)
+                            {
+                                await App.TasksVM.AddDroppedFilesBatchAsync(paths);
+                            }
+                        }
+                    }
+                }
+                catch { }
+                finally
+                {
+                    deferral.Complete();
+                }
             }
         }
 

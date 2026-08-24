@@ -783,16 +783,21 @@ namespace StormSwitchBox.Views
         private void Grid_DragOver(object sender, DragEventArgs e)
         {
             e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
-            DropOverlay.Visibility = Visibility.Visible;
             e.DragUIOverride.Caption = "Добавить файлы в Задачник";
+            e.DragUIOverride.IsCaptionVisible = true;
+            e.DragUIOverride.IsContentVisible = true;
+            e.DragUIOverride.IsGlyphVisible = true;
+            DropOverlay.Visibility = Visibility.Visible;
+            e.Handled = true;
         }
 
         private async void Grid_Drop(object sender, DragEventArgs e)
         {
+            e.Handled = true;
+            DropOverlay.Visibility = Visibility.Collapsed;
             var deferral = e.GetDeferral();
             try
             {
-                DropOverlay.Visibility = Visibility.Collapsed;
                 LoadingOverlay.Visibility = Visibility.Visible;
                 
                 if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
@@ -800,8 +805,11 @@ namespace StormSwitchBox.Views
                     var items = await e.DataView.GetStorageItemsAsync();
                     if (items != null && items.Count > 0)
                     {
-                        var paths = items.Select(item => item.Path).ToList();
-                        await ViewModel.AddDroppedFilesBatchAsync(paths);
+                        var paths = items.Select(item => item.Path).Where(p => !string.IsNullOrWhiteSpace(p)).ToList();
+                        if (paths.Count > 0)
+                        {
+                            await ViewModel.AddDroppedFilesBatchAsync(paths);
+                        }
                     }
                 }
             }
