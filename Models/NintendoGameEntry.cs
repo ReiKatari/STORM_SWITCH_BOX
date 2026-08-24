@@ -32,6 +32,34 @@ namespace StormSwitchBox.Models
         [JsonIgnore]
         public SolidColorBrush SystemBadgeBrush => new SolidColorBrush(GetSystemColor(SystemShort));
 
+        [JsonIgnore]
+        public SolidColorBrush RegionBadgeBrush => new SolidColorBrush(GetRegionColor(Region));
+
+        [JsonIgnore]
+        public SolidColorBrush EditionBadgeBrush => new SolidColorBrush(GetEditionColor(Edition));
+
+        private static Color GetRegionColor(string? reg)
+        {
+            if (string.IsNullOrWhiteSpace(reg)) return Color.FromArgb(255, 142, 36, 170);
+            string r = reg.Trim().ToUpperInvariant();
+            if (r.Contains("USA") || r.Contains("US") || r.Contains("NA")) return Color.FromArgb(255, 30, 136, 229);
+            if (r.Contains("EUR") || r.Contains("EU") || r.Contains("UK") || r.Contains("PAL") || r.Contains("GER") || r.Contains("FRA")) return Color.FromArgb(255, 67, 160, 71);
+            if (r.Contains("JPN") || r.Contains("JP") || r.Contains("JA")) return Color.FromArgb(255, 229, 57, 53);
+            if (r.Contains("ASIA") || r.Contains("KOR") || r.Contains("CHN") || r.Contains("ZH")) return Color.FromArgb(255, 251, 140, 0);
+            return Color.FromArgb(255, 142, 36, 170);
+        }
+
+        private static Color GetEditionColor(string? ed)
+        {
+            if (string.IsNullOrWhiteSpace(ed)) return Color.FromArgb(255, 84, 110, 122);
+            string e = ed.Trim().ToLowerInvariant();
+            if (e.Contains("selects") || e.Contains("choice") || e.Contains("gold")) return Color.FromArgb(255, 245, 158, 11);
+            if (e.Contains("collector") || e.Contains("special") || e.Contains("deluxe") || e.Contains("limited")) return Color.FromArgb(255, 216, 27, 96);
+            if (e.Contains("remaster") || e.Contains("enhanced") || e.Contains("final") || e.Contains("cut")) return Color.FromArgb(255, 0, 150, 136);
+            if (e.Contains("rev") || e.Contains("v1.") || e.Contains("v2.")) return Color.FromArgb(255, 99, 102, 241);
+            return Color.FromArgb(255, 71, 85, 105);
+        }
+
         private static Color GetSystemColor(string sysShort) => sysShort switch
         {
             "NES" => Color.FromArgb(255, 229, 57, 53),

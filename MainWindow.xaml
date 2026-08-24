@@ -8,8 +8,7 @@
     Closed="Window_Closed"
     mc:Ignorable="d">
 
-    <Grid Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
-          AllowDrop="True" DragOver="MainWindow_DragOver" Drop="MainWindow_Drop">
+    <Grid Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
         <NavigationView x:Name="MainNavigation" PaneDisplayMode="Left" OpenPaneLength="220" SelectionChanged="MainNavigation_SelectionChanged">
             <NavigationView.MenuItems>
                 <NavigationViewItem x:Name="NavUpdateItem" Icon="Refresh" Content="Обновление" Tag="Update" />

@@ -737,20 +737,16 @@ public partial class TasksViewModel : ObservableObject
 								{
 									filesInGroup = filesInGroup.Where(m =>
 									{
-										if (Directory.Exists(m.Path))
+										if (Directory.Exists(m.Path)) return false;
+										if (m.TitleId != null && m.TitleId.Length == 16)
 										{
-											return false;
-										}
-										if (m.TitleId == null || m.TitleId.Length != 16)
-										{
-											return false;
-										}
-										bool flag = m.Type == "Application" || m.TitleId.EndsWith("000");
-										bool flag2 = m.Type == "Patch" || (m.TitleId.EndsWith("00") && m.TitleId[13] != '0');
-										if (!flag && !flag2)
-										{
-											App.Logger.Log("Пропущено дополнение: " + Path.GetFileName(m.Path), LogLevel.Warning);
-											return false;
+											bool flag = m.Type == "Application" || m.TitleId.EndsWith("000");
+											bool flag2 = m.Type == "Patch" || (m.TitleId.EndsWith("00") && m.TitleId[13] != '0');
+											if (!flag && !flag2)
+											{
+												App.Logger.Log("Пропущено дополнение: " + Path.GetFileName(m.Path), LogLevel.Warning);
+												return false;
+											}
 										}
 										return true;
 									}).ToList();
@@ -768,17 +764,15 @@ public partial class TasksViewModel : ObservableObject
 					string baseTid = ((fileMeta.TitleId != null && fileMeta.TitleId.Length == 16) ? fileMeta.TitleId.Substring(0, 12) : path);
 					if (_currentPageType == "Update")
 					{
-						if (fileMeta.TitleId == null || fileMeta.TitleId.Length != 16)
+						if (fileMeta.TitleId != null && fileMeta.TitleId.Length == 16)
 						{
-							App.Logger.Log("Пропущен (отсутствует Title ID, не удалось извлечь): " + Path.GetFileName(path), LogLevel.Warning);
-							return;
-						}
-						bool isBase = fileMeta.ContentType == "Application" || fileMeta.TitleId.EndsWith("000");
-						bool isUpdate = fileMeta.ContentType == "Patch" || (fileMeta.TitleId.EndsWith("00") && fileMeta.TitleId[13] != '0');
-						if (!isBase && !isUpdate)
-						{
-							App.Logger.Log("Пропущено дополнение: " + Path.GetFileName(path), LogLevel.Warning);
-							return;
+							bool isBase = fileMeta.ContentType == "Application" || fileMeta.TitleId.EndsWith("000");
+							bool isUpdate = fileMeta.ContentType == "Patch" || (fileMeta.TitleId.EndsWith("00") && fileMeta.TitleId[13] != '0');
+							if (!isBase && !isUpdate)
+							{
+								App.Logger.Log("Пропущено дополнение: " + Path.GetFileName(path), LogLevel.Warning);
+								return;
+							}
 						}
 					}
 					await AddOrUpdateTask(new List<string> { path }, baseTid, (isDirectory ? path : Path.GetDirectoryName(path)) ?? path, fileMeta.IconBytes);
