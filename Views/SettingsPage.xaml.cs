@@ -616,21 +616,25 @@ namespace StormSwitchBox.Views
             if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
             {
                 var items = await e.DataView.GetStorageItemsAsync();
-                if (items.Count > 0 && items[0] is Windows.Storage.StorageFile file)
+                if (items.Count > 0)
                 {
-                    string ext = System.IO.Path.GetExtension(file.Path).ToLower();
-                    if (ext == ".keys" || ext == ".txt" || ext == ".dat")
+                    string filePath = items[0].Path;
+                    if (System.IO.File.Exists(filePath))
                     {
-                        App.Settings.Current.KeysPath = file.Path;
-                        TryAutoDetectKeysVersionFromPath(file.Path);
-                        await App.Settings.SaveAsync();
-                        App.EnsureUserKeysAvailable();
-                        App.Logger.Log($"Файл ключей применен (drag-and-drop): {file.Path}", Models.LogLevel.Success);
-                        this.Bindings.Update();
-                    }
-                    else
-                    {
-                        App.Logger.Log($"Неподдерживаемый формат файла ключей: {ext}", Models.LogLevel.Warning);
+                        string ext = System.IO.Path.GetExtension(filePath).ToLower();
+                        if (ext == ".keys" || ext == ".txt" || ext == ".dat")
+                        {
+                            App.Settings.Current.KeysPath = filePath;
+                            TryAutoDetectKeysVersionFromPath(filePath);
+                            await App.Settings.SaveAsync();
+                            App.EnsureUserKeysAvailable();
+                            App.Logger.Log($"Файл ключей применен (drag-and-drop): {filePath}", Models.LogLevel.Success);
+                            this.Bindings.Update();
+                        }
+                        else
+                        {
+                            App.Logger.Log($"Неподдерживаемый формат файла ключей: {ext}", Models.LogLevel.Warning);
+                        }
                     }
                 }
             }
