@@ -1140,9 +1140,9 @@ namespace StormSwitchBox.Services
                     Directory.CreateDirectory(outMetaDir);
 
                     // 1. Control NCA
-                    await ExternalProcessRunner.RunAsync(hacpackExe, $"-k \"{keysFile}\" --type nca --ncatype control --titleid {modTidHex} --romfsdir \"{romfsControlDir}\" -o \"{outControlDir}\"", toolsDir, task, ct);
+                    await ExternalProcessRunner.RunAsync(hacpackExe, $"-k \"{keysFile}\" --type nca --ncatype control --titleid {modTidHex} --romfsdir \"{romfsControlDir}\" -o \"{outControlDir}\"", modTempDir, task, ct);
                     // 2. PublicData NCA
-                    await ExternalProcessRunner.RunAsync(hacpackExe, $"-k \"{keysFile}\" --type nca --ncatype publicdata --titleid {modTidHex} --romfsdir \"{dataRomfsDir}\" -o \"{outDataDir}\"", toolsDir, task, ct);
+                    await ExternalProcessRunner.RunAsync(hacpackExe, $"-k \"{keysFile}\" --type nca --ncatype publicdata --titleid {modTidHex} --romfsdir \"{dataRomfsDir}\" -o \"{outDataDir}\"", modTempDir, task, ct);
 
                     var controlNcas = Directory.GetFiles(outControlDir, "*.nca");
                     var dataNcas = Directory.GetFiles(outDataDir, "*.nca");
@@ -1153,7 +1153,7 @@ namespace StormSwitchBox.Services
                         string publicDataNca = dataNcas[0];
 
                         // 3. Addon CNMT NCA
-                        await ExternalProcessRunner.RunAsync(hacpackExe, $"-k \"{keysFile}\" --type nca --ncatype meta --titletype addon --titleid {modTidHex} --titleversion 0x0 --publicdatanca \"{publicDataNca}\" --controlnca \"{controlNca}\" -o \"{outMetaDir}\"", toolsDir, task, ct);
+                        await ExternalProcessRunner.RunAsync(hacpackExe, $"-k \"{keysFile}\" --type nca --ncatype meta --titletype addon --titleid {modTidHex} --titleversion 0x0 --publicdatanca \"{publicDataNca}\" --controlnca \"{controlNca}\" -o \"{outMetaDir}\"", modTempDir, task, ct);
                         
                         generatedNcas.Add(controlNca);
                         generatedNcas.Add(publicDataNca);
@@ -1204,9 +1204,9 @@ namespace StormSwitchBox.Services
                     Directory.CreateDirectory(outMetaDir);
 
                     // 1. Control NCA
-                    await ExternalProcessRunner.RunAsync(hacpackExe, $"-k \"{keysFile}\" --type nca --ncatype control --titleid {modTidHex} --romfsdir \"{exefsControlDir}\" -o \"{outControlDir}\"", toolsDir, task, ct);
+                    await ExternalProcessRunner.RunAsync(hacpackExe, $"-k \"{keysFile}\" --type nca --ncatype control --titleid {modTidHex} --romfsdir \"{exefsControlDir}\" -o \"{outControlDir}\"", modTempDir, task, ct);
                     // 2. PublicData NCA
-                    await ExternalProcessRunner.RunAsync(hacpackExe, $"-k \"{keysFile}\" --type nca --ncatype publicdata --titleid {modTidHex} --romfsdir \"{dataRomfsDir}\" -o \"{outDataDir}\"", toolsDir, task, ct);
+                    await ExternalProcessRunner.RunAsync(hacpackExe, $"-k \"{keysFile}\" --type nca --ncatype publicdata --titleid {modTidHex} --romfsdir \"{dataRomfsDir}\" -o \"{outDataDir}\"", modTempDir, task, ct);
 
                     var controlNcas = Directory.GetFiles(outControlDir, "*.nca");
                     var dataNcas = Directory.GetFiles(outDataDir, "*.nca");
@@ -1217,7 +1217,7 @@ namespace StormSwitchBox.Services
                         string publicDataNca = dataNcas[0];
 
                         // 3. Addon CNMT NCA
-                        await ExternalProcessRunner.RunAsync(hacpackExe, $"-k \"{keysFile}\" --type nca --ncatype meta --titletype addon --titleid {modTidHex} --titleversion 0x0 --publicdatanca \"{publicDataNca}\" --controlnca \"{controlNca}\" -o \"{outMetaDir}\"", toolsDir, task, ct);
+                        await ExternalProcessRunner.RunAsync(hacpackExe, $"-k \"{keysFile}\" --type nca --ncatype meta --titletype addon --titleid {modTidHex} --titleversion 0x0 --publicdatanca \"{publicDataNca}\" --controlnca \"{controlNca}\" -o \"{outMetaDir}\"", modTempDir, task, ct);
                         
                         generatedNcas.Add(controlNca);
                         generatedNcas.Add(publicDataNca);
