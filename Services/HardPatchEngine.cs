@@ -293,6 +293,7 @@ namespace StormSwitchBox.Services
                     {
                         FileName = yanuCliPath,
                         Arguments = unpackArgs,
+                        WorkingDirectory = tempUnpack,
                         UseShellExecute = false,
                         RedirectStandardOutput = true,
                         RedirectStandardError = true,
@@ -302,6 +303,9 @@ namespace StormSwitchBox.Services
                     };
                     unpackPsi.EnvironmentVariables["USERPROFILE"] = isolatedUserProfile;
                     unpackPsi.EnvironmentVariables["LOCALAPPDATA"] = isolatedLocalAppData;
+                    unpackPsi.EnvironmentVariables["APPDATA"] = isolatedLocalAppData;
+                    unpackPsi.EnvironmentVariables["TEMP"] = tempDir;
+                    unpackPsi.EnvironmentVariables["TMP"] = tempDir;
                     using var unpackProc = Process.Start(unpackPsi);
                     if (unpackProc == null) throw new Exception("Не удалось запустить yanu-cli unpack");
                     
@@ -360,6 +364,7 @@ namespace StormSwitchBox.Services
                     {
                         FileName = yanuCliPath,
                         Arguments = packArgs,
+                        WorkingDirectory = tempUnpack,
                         UseShellExecute = false,
                         RedirectStandardOutput = true,
                         RedirectStandardError = true,
@@ -369,6 +374,9 @@ namespace StormSwitchBox.Services
                     };
                     packPsi.EnvironmentVariables["USERPROFILE"] = isolatedUserProfile;
                     packPsi.EnvironmentVariables["LOCALAPPDATA"] = isolatedLocalAppData;
+                    packPsi.EnvironmentVariables["APPDATA"] = isolatedLocalAppData;
+                    packPsi.EnvironmentVariables["TEMP"] = tempDir;
+                    packPsi.EnvironmentVariables["TMP"] = tempDir;
                     using var packProc = Process.Start(packPsi);
                     if (packProc == null) throw new Exception("Не удалось запустить yanu-cli pack");
                     
@@ -419,6 +427,9 @@ namespace StormSwitchBox.Services
                         };
                         updatePsi.EnvironmentVariables["USERPROFILE"] = isolatedUserProfile;
                         updatePsi.EnvironmentVariables["LOCALAPPDATA"] = isolatedLocalAppData;
+                        updatePsi.EnvironmentVariables["APPDATA"] = isolatedLocalAppData;
+                        updatePsi.EnvironmentVariables["TEMP"] = tempDir;
+                        updatePsi.EnvironmentVariables["TMP"] = tempDir;
                         
                         using var updateProc = Process.Start(updatePsi);
                         if (updateProc != null)

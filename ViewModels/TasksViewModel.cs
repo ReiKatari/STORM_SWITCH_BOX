@@ -264,16 +264,17 @@ public partial class TasksViewModel : ObservableObject
 
 	private bool IsGameFile(string path)
 	{
+		if (string.IsNullOrWhiteSpace(path)) return false;
 		if (Directory.Exists(path))
 		{
-			return true;
+			try
+			{
+				return Directory.EnumerateFiles(path, "*.*", SearchOption.AllDirectories)
+					.Any(f => GameExtensions.Contains(Path.GetExtension(f)));
+			}
+			catch { return false; }
 		}
-		string extension = Path.GetExtension(path);
-		if (extension.Equals(".zip", StringComparison.OrdinalIgnoreCase) || extension.Equals(".rar", StringComparison.OrdinalIgnoreCase) || extension.Equals(".7z", StringComparison.OrdinalIgnoreCase))
-		{
-			return true;
-		}
-		return GameExtensions.Contains(extension);
+		return GameExtensions.Contains(Path.GetExtension(path));
 	}
 
 	private List<string> SafeGetGameFiles(string path)
@@ -580,203 +581,214 @@ public partial class TasksViewModel : ObservableObject
 	{
 		await Task.Run(async delegate
 		{
-			if (_currentPageType == "Update" && !IsGameFile(path))
+			if (string.IsNullOrWhiteSpace(path)) return;
+
+			bool isDirectory = Directory.Exists(path);
+			if (!isDirectory)
 			{
-				App.Logger.Log("Пропущен (не игровой формат): " + Path.GetFileName(path), LogLevel.Warning);
-			}
-			else
-			{
-				bool isDirectory = Directory.Exists(path);
-				if (!isDirectory)
+				string ext = Path.GetExtension(path).ToLowerInvariant();
+				if (ext == ".zip" || ext == ".rar" || ext == ".7z")
 				{
-					string ext = Path.GetExtension(path).ToLower();
-					if (ext == ".zip" || ext == ".rar" || ext == ".7z")
+					string tempDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "temp", "archives", Guid.NewGuid().ToString("N").Substring(0, 8));
+					Directory.CreateDirectory(tempDir);
+					TempCleanupService.RegisterActiveTempDirectory(tempDir);
+					App.RunOnUI(delegate
 					{
-						string tempDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "temp", "archives", Guid.NewGuid().ToString("N").Substring(0, 8));
-						Directory.CreateDirectory(tempDir);
-						TempCleanupService.RegisterActiveTempDirectory(tempDir);
-						App.RunOnUI(delegate
+						App.Logger.Log("Предварительная распаковка архива " + Path.GetFileName(path) + "...");
+					});
+					bool extracted = false;
+					if (ext == ".zip")
+					{
+						try
 						{
-							App.Logger.Log("Предварительная распаковка архива " + Path.GetFileName(path) + "...");
-						});
-						bool extracted = false;
-						if (ext == ".zip")
+							ZipFile.ExtractToDirectory(path, tempDir, overwriteFiles: true);
+							extracted = true;
+						}
+						catch (Exception ex)
+						{
+							App.Logger.Log("Ошибка распаковки ZIP: " + ex.Message, LogLevel.Error);
+						}
+					}
+					else
+					{
+						string sevenZipPath = GetSevenZipPath();
+						if (File.Exists(sevenZipPath))
 						{
 							try
 							{
-								ZipFile.ExtractToDirectory(path, tempDir, overwriteFiles: true);
-								extracted = true;
+								Process proc = new Process();
+								proc.StartInfo.FileName = sevenZipPath;
+								proc.StartInfo.Arguments = $"x \"{path}\" -o\"{tempDir}\" -y -aoa -mmt=on -bso0 -bsp0";
+								proc.StartInfo.UseShellExecute = false;
+								proc.StartInfo.CreateNoWindow = true;
+								proc.Start();
+								await proc.WaitForExitAsync();
+								if (proc.ExitCode == 0)
+								{
+									extracted = true;
+								}
 							}
 							catch (Exception ex)
 							{
-								Exception ex2 = ex;
-								App.Logger.Log("Ошибка распаковки ZIP: " + ex2.Message, LogLevel.Error);
+								App.Logger.Log("Ошибка распаковки через 7z.exe: " + ex.Message, LogLevel.Error);
 							}
 						}
 						else
 						{
-							string sevenZipPath = GetSevenZipPath();
-							if (File.Exists(sevenZipPath))
-							{
-								try
-								{
-									Process proc = new Process();
-									proc.StartInfo.FileName = sevenZipPath;
-									proc.StartInfo.Arguments = $"x \"{path}\" -o\"{tempDir}\" -y -aoa -mmt=on -bso0 -bsp0";
-									proc.StartInfo.UseShellExecute = false;
-									proc.StartInfo.CreateNoWindow = true;
-									proc.Start();
-									await proc.WaitForExitAsync();
-									if (proc.ExitCode == 0)
-									{
-										extracted = true;
-									}
-								}
-								catch (Exception ex)
-								{
-									Exception ex3 = ex;
-									App.Logger.Log("Ошибка распаковки через 7z.exe: " + ex3.Message, LogLevel.Error);
-								}
-							}
-							else
-							{
-								App.Logger.Log("Для распаковки " + ext + " требуется наличие tools\\7z.exe", LogLevel.Warning);
-							}
+							App.Logger.Log("Для распаковки " + ext + " требуется наличие tools\\7z.exe", LogLevel.Warning);
 						}
-						if (extracted)
-						{
-							App.Logger.Log("Архив " + Path.GetFileName(path) + " успешно распакован во временную папку. Добавление содержимого...", LogLevel.Success);
-							await AddDroppedFileAsync(tempDir);
-						}
+					}
+					if (extracted)
+					{
+						App.Logger.Log("Архив " + Path.GetFileName(path) + " успешно распакован во временную папку. Добавление содержимого...", LogLevel.Success);
+						await AddDroppedFileAsync(tempDir);
+					}
+					// Исключаем добавление самого архива отдельной задачей!
+					return;
+				}
+
+				if (!GameExtensions.Contains(ext))
+				{
+					App.Logger.Log($"Файл «{Path.GetFileName(path)}» пропущен (не является игровым форматом).", LogLevel.Warning);
+					return;
+				}
+			}
+
+			if (_currentPageType == "Verify")
+			{
+				List<string> verifyFiles = new List<string>();
+				if (isDirectory)
+				{
+					List<string> allFiles = (await Task.Run(() => SafeGetGameFiles(path))).Where((string f) => GameExtensions.Contains(Path.GetExtension(f))).ToList();
+					if (allFiles.Count == 0)
+					{
+						App.Logger.Log($"Папка «{Path.GetFileName(path)}» не содержит игровых файлов — задача не создана.", LogLevel.Info);
 						return;
 					}
-				}
-				if (_currentPageType == "Verify")
-				{
-					List<string> verifyFiles = new List<string>();
-					if (isDirectory)
-					{
-						List<string> allFiles = (await Task.Run(() => SafeGetGameFiles(path))).Where((string f) => GameExtensions.Contains(Path.GetExtension(f).ToLower())).ToList();
-						verifyFiles.AddRange(allFiles);
-					}
-					else
-					{
-						verifyFiles.Add(path);
-					}
-					foreach (string file in verifyFiles)
-					{
-						SwitchFormatInfo verifyMeta = await GetInternalTitleInfoAsync(file);
-						await AddOrUpdateTask(new List<string> { file }, file, Path.GetDirectoryName(file) ?? file, verifyMeta.IconBytes);
-					}
+					verifyFiles.AddRange(allFiles);
 				}
 				else
 				{
-					if (isDirectory)
+					verifyFiles.Add(path);
+				}
+				foreach (string file in verifyFiles)
+				{
+					SwitchFormatInfo verifyMeta = await GetInternalTitleInfoAsync(file);
+					await AddOrUpdateTask(new List<string> { file }, file, Path.GetDirectoryName(file) ?? file, verifyMeta.IconBytes);
+				}
+			}
+			else
+			{
+				if (isDirectory)
+				{
+					List<string> gameFiles = (await Task.Run(() => SafeGetGameFiles(path))).Where((string f) => GameExtensions.Contains(Path.GetExtension(f))).ToList();
+					if (gameFiles.Count == 0)
 					{
-						List<string> gameFiles = (await Task.Run(() => SafeGetGameFiles(path))).Where((string f) => GameExtensions.Contains(Path.GetExtension(f).ToLower())).ToList();
-						if (gameFiles.Count > 0)
-						{
-							bool hasRootGameFiles = false;
-							try
-							{
-								hasRootGameFiles = Directory.EnumerateFiles(path).Any(f => 
-									GameExtensions.Contains(Path.GetExtension(f).ToLowerInvariant()));
-							}
-							catch { }
+						App.Logger.Log($"Папка «{Path.GetFileName(path)}» не содержит поддерживаемых игровых файлов (NSP/NSZ/XCI/XCZ/3DS/CIA/CXI) — задача не создана.", LogLevel.Info);
+						return; // НЕ СОЗДАВАТЬ ЗАДАЧУ ИЗ ПАПКИ БЕЗ ИГРОВЫХ ФАЙЛОВ!
+					}
 
-							List<(string Path, string? TitleId, string Type, string TopFolder, byte[]? IconBytes)> filesMeta = new();
-							var metaTasks = gameFiles.Select(async delegate(string f)
+					bool hasRootGameFiles = false;
+					try
+					{
+						hasRootGameFiles = Directory.EnumerateFiles(path).Any(f => 
+							GameExtensions.Contains(Path.GetExtension(f)));
+					}
+					catch { }
+
+					List<(string Path, string? TitleId, string Type, string TopFolder, byte[]? IconBytes)> filesMeta = new();
+					var metaTasks = gameFiles.Select(async delegate(string f)
+					{
+						string relPath = Path.GetRelativePath(path, f);
+						string topFolder;
+						if (hasRootGameFiles)
+						{
+							topFolder = "ROOT";
+						}
+						else
+						{
+							var parts = relPath.Split(Path.DirectorySeparatorChar);
+							topFolder = parts.Length > 0 ? parts[0] : "ROOT";
+						}
+						string? tid = null;
+						string ctype = "";
+						byte[]? iconBytes = null;
+						if (!Directory.Exists(f))
+						{
+							SwitchFormatInfo meta = await GetInternalTitleInfoAsync(f);
+							tid = meta.TitleId;
+							ctype = meta.ContentType;
+							iconBytes = meta.IconBytes;
+						}
+						return (Path: f, TitleId: tid, Type: ctype, TopFolder: topFolder, IconBytes: iconBytes);
+					}).ToList();
+					filesMeta.AddRange(await Task.WhenAll(metaTasks));
+					var topFolderTids = (from m in filesMeta
+						where m.TitleId != null && m.TitleId.Length == 16
+						group m by m.TopFolder).ToDictionary(g => g.Key, g => (from m in g
+						group m by m.TitleId!.Substring(0, 12) into x
+						orderby x.Count() descending
+						select x).First().Key);
+					var groups = filesMeta.GroupBy(m =>
+					{
+						string text = "UNKNOWN";
+						if (m.TitleId != null && m.TitleId.Length == 16)
+						{
+							text = m.TitleId.Substring(0, 12);
+						}
+						else if (topFolderTids.TryGetValue(m.TopFolder, out string? value) && value != null)
+						{
+							text = value;
+						}
+						return text + "_" + m.TopFolder;
+					});
+					foreach (var group in groups)
+					{
+						var filesInGroup = group.ToList();
+						if (_currentPageType == "Update")
+						{
+							filesInGroup = filesInGroup.Where(m =>
 							{
-								string relPath = Path.GetRelativePath(path, f);
-								string topFolder;
-								if (hasRootGameFiles)
-								{
-									topFolder = "ROOT";
-								}
-								else
-								{
-									var parts = relPath.Split(Path.DirectorySeparatorChar);
-									topFolder = parts.Length > 0 ? parts[0] : "ROOT";
-								}
-								string? tid = null;
-								string ctype = "";
-								byte[]? iconBytes = null;
-								if (!Directory.Exists(f))
-								{
-									SwitchFormatInfo meta = await GetInternalTitleInfoAsync(f);
-									tid = meta.TitleId;
-									ctype = meta.ContentType;
-									iconBytes = meta.IconBytes;
-								}
-								return (Path: f, TitleId: tid, Type: ctype, TopFolder: topFolder, IconBytes: iconBytes);
-							}).ToList();
-							filesMeta.AddRange(await Task.WhenAll(metaTasks));
-							var topFolderTids = (from m in filesMeta
-								where m.TitleId != null && m.TitleId.Length == 16
-								group m by m.TopFolder).ToDictionary(g => g.Key, g => (from m in g
-								group m by m.TitleId!.Substring(0, 12) into x
-								orderby x.Count() descending
-								select x).First().Key);
-							var groups = filesMeta.GroupBy(m =>
-							{
-								string text = "UNKNOWN";
+								if (Directory.Exists(m.Path)) return false;
 								if (m.TitleId != null && m.TitleId.Length == 16)
 								{
-									text = m.TitleId.Substring(0, 12);
-								}
-								else if (topFolderTids.TryGetValue(m.TopFolder, out string? value) && value != null)
-								{
-									text = value;
-								}
-								return text + "_" + m.TopFolder;
-							});
-							foreach (var group in groups)
-							{
-								var filesInGroup = group.ToList();
-								if (_currentPageType == "Update")
-								{
-									filesInGroup = filesInGroup.Where(m =>
+									bool flag = m.Type == "Application" || m.TitleId.EndsWith("000");
+									bool flag2 = m.Type == "Patch" || (m.TitleId.EndsWith("00") && m.TitleId[13] != '0');
+									if (!flag && !flag2)
 									{
-										if (Directory.Exists(m.Path)) return false;
-										if (m.TitleId != null && m.TitleId.Length == 16)
-										{
-											bool flag = m.Type == "Application" || m.TitleId.EndsWith("000");
-											bool flag2 = m.Type == "Patch" || (m.TitleId.EndsWith("00") && m.TitleId[13] != '0');
-											if (!flag && !flag2)
-											{
-												App.Logger.Log("Пропущено дополнение: " + Path.GetFileName(m.Path), LogLevel.Warning);
-												return false;
-											}
-										}
-										return true;
-									}).ToList();
+										App.Logger.Log("Пропущено дополнение: " + Path.GetFileName(m.Path), LogLevel.Warning);
+										return false;
+									}
 								}
-								if (filesInGroup.Count > 0)
-								{
-									string taskBasePath = ((group.First().Item4 == "ROOT") ? path : Path.Combine(path, group.First().Item4));
-									await AddOrUpdateTask(filesInGroup.Select(m => m.Path).ToList(), group.Key, taskBasePath, filesInGroup.FirstOrDefault(m => m.IconBytes != null).IconBytes);
-								}
-							}
+								return true;
+							}).ToList();
+						}
+						if (filesInGroup.Count > 0)
+						{
+							string taskBasePath = ((group.First().Item4 == "ROOT") ? path : Path.Combine(path, group.First().Item4));
+							await AddOrUpdateTask(filesInGroup.Select(m => m.Path).ToList(), group.Key, taskBasePath, filesInGroup.FirstOrDefault(m => m.IconBytes != null).IconBytes);
+						}
+					}
+					return;
+				}
+
+				// Standalone game file
+				SwitchFormatInfo fileMeta = await GetInternalTitleInfoAsync(path);
+				string baseTid = ((fileMeta.TitleId != null && fileMeta.TitleId.Length == 16) ? fileMeta.TitleId.Substring(0, 12) : path);
+				if (_currentPageType == "Update")
+				{
+					if (fileMeta.TitleId != null && fileMeta.TitleId.Length == 16)
+					{
+						bool isBase = fileMeta.ContentType == "Application" || fileMeta.TitleId.EndsWith("000");
+						bool isUpdate = fileMeta.ContentType == "Patch" || (fileMeta.TitleId.EndsWith("00") && fileMeta.TitleId[13] != '0');
+						if (!isBase && !isUpdate)
+						{
+							App.Logger.Log("Пропущено дополнение: " + Path.GetFileName(path), LogLevel.Warning);
 							return;
 						}
 					}
-					SwitchFormatInfo fileMeta = await GetInternalTitleInfoAsync(path);
-					string baseTid = ((fileMeta.TitleId != null && fileMeta.TitleId.Length == 16) ? fileMeta.TitleId.Substring(0, 12) : path);
-					if (_currentPageType == "Update")
-					{
-						if (fileMeta.TitleId != null && fileMeta.TitleId.Length == 16)
-						{
-							bool isBase = fileMeta.ContentType == "Application" || fileMeta.TitleId.EndsWith("000");
-							bool isUpdate = fileMeta.ContentType == "Patch" || (fileMeta.TitleId.EndsWith("00") && fileMeta.TitleId[13] != '0');
-							if (!isBase && !isUpdate)
-							{
-								App.Logger.Log("Пропущено дополнение: " + Path.GetFileName(path), LogLevel.Warning);
-								return;
-							}
-						}
-					}
-					await AddOrUpdateTask(new List<string> { path }, baseTid, (isDirectory ? path : Path.GetDirectoryName(path)) ?? path, fileMeta.IconBytes);
 				}
+				await AddOrUpdateTask(new List<string> { path }, baseTid, Path.GetDirectoryName(path) ?? path, fileMeta.IconBytes);
 			}
 		});
 	}

@@ -1037,6 +1037,7 @@ namespace StormSwitchBox.Services
                         {
                             FileName = yanuCliPath,
                             Arguments = packArgs,
+                            WorkingDirectory = tempOut,
                             UseShellExecute = false,
                             RedirectStandardOutput = true,
                             RedirectStandardError = true,
@@ -1044,6 +1045,12 @@ namespace StormSwitchBox.Services
                             StandardOutputEncoding = System.Text.Encoding.UTF8,
                             StandardErrorEncoding = System.Text.Encoding.UTF8
                         };
+                        string localAppDataDir = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "StormSwitchBox");
+                        packPsi.EnvironmentVariables["USERPROFILE"] = System.IO.Path.Combine(localAppDataDir, "user_profile");
+                        packPsi.EnvironmentVariables["LOCALAPPDATA"] = System.IO.Path.Combine(localAppDataDir, "cache");
+                        packPsi.EnvironmentVariables["APPDATA"] = System.IO.Path.Combine(localAppDataDir, "cache");
+                        packPsi.EnvironmentVariables["TEMP"] = tempOut;
+                        packPsi.EnvironmentVariables["TMP"] = tempOut;
                         
                         using var packProcess = System.Diagnostics.Process.Start(packPsi);
                         if (packProcess == null) throw new Exception("Не удалось запустить yanu-cli pack.");
