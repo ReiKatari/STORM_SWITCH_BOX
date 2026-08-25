@@ -63,6 +63,7 @@ namespace StormSwitchBox.Views
                     App.NintendoLibrary.GetDistinctGenres(null);
                     App.NintendoLibrary.GetDistinctDevelopers(null);
                     App.NintendoLibrary.GetDistinctPublishers(null);
+                    App.NintendoLibrary.GetDistinctLanguages(null);
                 });
 
                 PopulateFilterDropdowns();
@@ -231,6 +232,9 @@ namespace StormSwitchBox.Views
         private readonly List<FilterItemViewModel> _allPubItems = new();
         private readonly ObservableCollection<FilterItemViewModel> _visiblePubItems = new();
 
+        private readonly List<FilterItemViewModel> _allLangItems = new();
+        private readonly ObservableCollection<FilterItemViewModel> _visibleLangItems = new();
+
         private void PopulateFilterDropdowns()
         {
             bool previousLoaded = _isLoaded;
@@ -278,6 +282,19 @@ namespace StormSwitchBox.Views
                 }
                 if (PubListView != null) PubListView.ItemsSource = _visiblePubItems;
                 UpdatePubButtonLabel();
+
+                // 4. Languages
+                var rawLangs = App.NintendoLibrary.GetDistinctLanguages(singleSys).Where(l => l != "Все языки").ToList();
+                _allLangItems.Clear();
+                _visibleLangItems.Clear();
+                foreach (var l in rawLangs)
+                {
+                    var item = new FilterItemViewModel { Name = l, IsChecked = false };
+                    _allLangItems.Add(item);
+                    _visibleLangItems.Add(item);
+                }
+                if (LangListView != null) LangListView.ItemsSource = _visibleLangItems;
+                UpdateLangButtonLabel();
             }
             finally
             {
@@ -306,12 +323,20 @@ namespace StormSwitchBox.Views
                 PubButtonText.Text = count > 0 ? $"Издатели ({count})" : "Все издатели";
         }
 
+        private void UpdateLangButtonLabel()
+        {
+            int count = _allLangItems.Count(i => i.IsChecked);
+            if (LangButtonText != null)
+                LangButtonText.Text = count > 0 ? $"Языки ({count})" : "Все языки";
+        }
+
         private void FilterItem_CheckedChanged(object sender, RoutedEventArgs e)
         {
             if (!_isLoaded) return;
             UpdateGenreButtonLabel();
             UpdateDevButtonLabel();
             UpdatePubButtonLabel();
+            UpdateLangButtonLabel();
             _currentPage = 1;
             ApplyFilters();
         }
@@ -394,6 +419,32 @@ namespace StormSwitchBox.Views
             foreach (var m in matches) _visiblePubItems.Add(m);
         }
 
+        private void SelectAllLangs_Click(object sender, RoutedEventArgs e)
+        {
+            foreach (var item in _allLangItems) item.IsChecked = true;
+            UpdateLangButtonLabel();
+            _currentPage = 1;
+            ApplyFilters();
+        }
+
+        private void ClearLangs_Click(object sender, RoutedEventArgs e)
+        {
+            foreach (var item in _allLangItems) item.IsChecked = false;
+            UpdateLangButtonLabel();
+            _currentPage = 1;
+            ApplyFilters();
+        }
+
+        private void LangSearchBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            string filter = LangSearchBox?.Text?.Trim() ?? "";
+            _visibleLangItems.Clear();
+            var matches = string.IsNullOrEmpty(filter)
+                ? _allLangItems
+                : _allLangItems.Where(i => i.Name.Contains(filter, StringComparison.OrdinalIgnoreCase));
+            foreach (var m in matches) _visibleLangItems.Add(m);
+        }
+
         private void FilterComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (!_isLoaded) return;
@@ -432,10 +483,12 @@ namespace StormSwitchBox.Views
             foreach (var item in _allGenreItems) item.IsChecked = false;
             foreach (var item in _allDevItems) item.IsChecked = false;
             foreach (var item in _allPubItems) item.IsChecked = false;
+            foreach (var item in _allLangItems) item.IsChecked = false;
 
             UpdateGenreButtonLabel();
             UpdateDevButtonLabel();
             UpdatePubButtonLabel();
+            UpdateLangButtonLabel();
 
             UpdateSystemButtonsUI();
             if (SortComboBox != null) SortComboBox.SelectedIndex = 0;
@@ -457,6 +510,7 @@ namespace StormSwitchBox.Views
             var genres = _allGenreItems.Where(i => i.IsChecked).Select(i => i.Name).ToList();
             var devs = _allDevItems.Where(i => i.IsChecked).Select(i => i.Name).ToList();
             var pubs = _allPubItems.Where(i => i.IsChecked).Select(i => i.Name).ToList();
+            var langs = _allLangItems.Where(i => i.IsChecked).Select(i => i.Name).ToList();
             string? search = SearchBox?.Text?.Trim();
 
             string sortBy = "Title";
@@ -474,6 +528,7 @@ namespace StormSwitchBox.Views
                         genres.Count > 0 ? genres : null, 
                         devs.Count > 0 ? devs : null, 
                         pubs.Count > 0 ? pubs : null, 
+                        langs.Count > 0 ? langs : null, 
                         search, 
                         sortBy);
                 }, token);
@@ -675,6 +730,43 @@ namespace StormSwitchBox.Views
             {
                 _currentPage = _totalPages;
                 UpdatePagination();
+            }
+        }
+
+        private void GoToPageTextBox_KeyDown(object sender, KeyRoutedEventArgs e)
+        {
+            if (e.Key == Windows.System.VirtualKey.Enter)
+            {
+                JumpToEnteredPage();
+                e.Handled = true;
+            }
+        }
+
+        private void GoToPageButton_Click(object sender, RoutedEventArgs e)
+        {
+            JumpToEnteredPage();
+        }
+
+        private void JumpToEnteredPage()
+        {
+            if (GoToPageTextBox == null) return;
+            if (int.TryParse(GoToPageTextBox.Text.Trim(), out int targetPage))
+            {
+                if (targetPage >= 1 && targetPage <= _totalPages)
+                {
+                    _currentPage = targetPage;
+                    UpdatePagination();
+                }
+                else if (targetPage < 1)
+                {
+                    _currentPage = 1;
+                    UpdatePagination();
+                }
+                else if (targetPage > _totalPages)
+                {
+                    _currentPage = _totalPages;
+                    UpdatePagination();
+                }
             }
         }
 

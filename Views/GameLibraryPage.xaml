@@ -118,6 +118,32 @@
                         </DropDownButton.Flyout>
                     </DropDownButton>
 
+                    <!-- Multi-Select: Поддерживаемые языки -->
+                    <DropDownButton x:Name="LangFilterButton" Height="38" CornerRadius="8" ToolTipService.ToolTip="Множественный выбор языков">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <FontIcon Glyph="&#xE774;" FontSize="12" Foreground="{ThemeResource SystemAccentColor}"/>
+                            <TextBlock x:Name="LangButtonText" Text="Все языки" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <DropDownButton.Flyout>
+                            <Flyout Placement="Bottom">
+                                <StackPanel Width="270" Spacing="8">
+                                    <TextBox x:Name="LangSearchBox" PlaceholderText="Поиск языка..." TextChanged="LangSearchBox_TextChanged" Height="32"/>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <Button Content="Выбрать все" Click="SelectAllLangs_Click" FontSize="11" Padding="8,4" CornerRadius="4"/>
+                                        <Button Content="Сбросить" Click="ClearLangs_Click" FontSize="11" Padding="8,4" CornerRadius="4"/>
+                                    </StackPanel>
+                                    <ListView x:Name="LangListView" MaxHeight="240" SelectionMode="None">
+                                        <ListView.ItemTemplate>
+                                            <DataTemplate>
+                                                <CheckBox Content="{Binding Name}" IsChecked="{Binding IsChecked, Mode=TwoWay}" Checked="FilterItem_CheckedChanged" Unchecked="FilterItem_CheckedChanged" Margin="0,2"/>
+                                            </DataTemplate>
+                                        </ListView.ItemTemplate>
+                                    </ListView>
+                                </StackPanel>
+                            </Flyout>
+                        </DropDownButton.Flyout>
+                    </DropDownButton>
+
                     <!-- Sort ComboBox -->
                     <ComboBox x:Name="SortComboBox" Width="170" Height="38" CornerRadius="8" SelectionChanged="FilterComboBox_SelectionChanged" SelectedIndex="0" ToolTipService.ToolTip="Сортировка каталога">
                         <ComboBoxItem Content="По названию" Tag="Title"/>
@@ -277,9 +303,15 @@
                 </Button>
             </StackPanel>
 
-            <!-- Page Summary Info Text with Formatted Thousands -->
-            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right" VerticalAlignment="Center">
+            <!-- Page Summary Info Text with Formatted Thousands & Direct Page Jump -->
+            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" VerticalAlignment="Center">
                 <TextBlock x:Name="PageInfoTextBlock" Text="Страница 1 из 1" FontSize="12" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
+                <TextBox x:Name="GoToPageTextBox" Width="55" Height="32" CornerRadius="6"
+                         PlaceholderText="№" KeyDown="GoToPageTextBox_KeyDown"
+                         FontSize="12" TextAlignment="Center" ToolTipService.ToolTip="Введите номер страницы и нажмите Enter"/>
+                <Button x:Name="GoToPageButton" Click="GoToPageButton_Click" Height="32" Width="36" Padding="0" CornerRadius="6" ToolTipService.ToolTip="Перейти на страницу">
+                    <FontIcon Glyph="&#xE751;" FontSize="11"/>
+                </Button>
             </StackPanel>
         </Grid>
 

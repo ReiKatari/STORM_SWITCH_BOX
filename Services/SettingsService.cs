@@ -30,9 +30,9 @@ namespace StormSwitchBox.Services
                     if (settings != null)
                     {
                         bool isDirty = false;
-                        if (settings.AppVersion != "4.7.1")
+                        if (settings.AppVersion != "4.7.0")
                         {
-                            settings.AppVersion = "4.7.1";
+                            settings.AppVersion = "4.7.0";
                             isDirty = true;
                         }
                         settings.ComplexFolders = true;

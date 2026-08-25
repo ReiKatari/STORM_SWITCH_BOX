@@ -58,6 +58,7 @@ namespace StormSwitchBox.Services
         private readonly Dictionary<string, List<string>> _cachedGenres = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, List<string>> _cachedDevelopers = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, List<string>> _cachedPublishers = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, List<string>> _cachedLanguages = new(StringComparer.OrdinalIgnoreCase);
 
         private bool _isInitialized = false;
 
@@ -151,6 +152,9 @@ namespace StormSwitchBox.Services
                         string desc = !string.IsNullOrWhiteSpace(entry.Description) ? entry.Description : (!string.IsNullOrWhiteSpace(entry.Intro) ? entry.Intro : "Официальная игра для Nintendo Switch.");
                         string rating = entry.Rating.HasValue ? $"{entry.Rating.Value}+" : "Для всех";
                         string cover = CoverCacheService.ResolveCoverUrl(entry.IconUrl, "Nintendo Switch / Nintendo Switch Lite / OLED", entry.Name, entry.Id);
+                        string langs = (entry.Languages != null && entry.Languages.Count > 0)
+                            ? string.Join(" / ", entry.Languages)
+                            : (!string.IsNullOrWhiteSpace(entry.Regions) ? entry.Regions : "Русский / English");
 
                         var gameEntry = new NintendoGameEntry
                         {
@@ -168,7 +172,8 @@ namespace StormSwitchBox.Services
                             CoverUrl = cover,
                             Description = desc,
                             Players = "1-4 игрока",
-                            Rating = rating
+                            Rating = rating,
+                            Languages = langs
                         };
 
                         _database.Add(gameEntry);
@@ -221,6 +226,7 @@ namespace StormSwitchBox.Services
             _cachedGenres.Clear();
             _cachedDevelopers.Clear();
             _cachedPublishers.Clear();
+            _cachedLanguages.Clear();
         }
 
         private void InitializeDatabase()
@@ -292,7 +298,7 @@ namespace StormSwitchBox.Services
             }
         }
 
-        private void AddGame(string id, string title, string system, string sysShort, string genre, string date, string dev, string pub, string ver, string edition, string region, string cover, string desc, string players, string rating)
+        private void AddGame(string id, string title, string system, string sysShort, string genre, string date, string dev, string pub, string ver, string edition, string region, string cover, string desc, string players, string rating, string languages = "Русский / English")
         {
             string formattedDate = FormatDate(date);
             string formattedVer = FormatVersion(ver);
@@ -314,7 +320,8 @@ namespace StormSwitchBox.Services
                 CoverUrl = resolvedCover,
                 Description = desc,
                 Players = players,
-                Rating = rating
+                Rating = rating,
+                Languages = string.IsNullOrWhiteSpace(languages) ? "Русский / English" : languages
             };
 
             _database.Add(entry);
@@ -385,7 +392,7 @@ namespace StormSwitchBox.Services
             foreach (var item in nesDatabase)
             {
                 string id = $"NES-{idx:D4}";
-                AddGame(id, item.Title, "Nintendo Entertainment System / Famicom", "NES", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, item.Version, item.Edition, item.Region, "", item.Desc, "1-2 игрока", "Для всех");
+                AddGame(id, item.Title, "Nintendo Entertainment System / Famicom", "NES", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, item.Version, item.Edition, item.Region, "", item.Desc, "1-2 игрока", "Для всех", item.Languages);
                 idx++;
             }
         }
@@ -396,7 +403,7 @@ namespace StormSwitchBox.Services
             int idx = 1;
             foreach (var item in fdsDatabase)
             {
-                AddGame($"FDS-{idx:D3}", item.Title, "Nintendo Famicom Disk System", "FDS", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, item.Version, item.Edition, item.Region, "", item.Desc, "1 игрок", "Для всех");
+                AddGame($"FDS-{idx:D3}", item.Title, "Nintendo Famicom Disk System", "FDS", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, item.Version, item.Edition, item.Region, "", item.Desc, "1 игрок", "Для всех", item.Languages);
                 idx++;
             }
         }
@@ -407,7 +414,7 @@ namespace StormSwitchBox.Services
             int idx = 1;
             foreach (var item in gbCatalog)
             {
-                AddGame($"GB-{idx:D4}", item.Title, "Nintendo Game Boy", "GB", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, item.Version, item.Edition, item.Region, "", item.Desc, "1-2 игрока", "Для всех");
+                AddGame($"GB-{idx:D4}", item.Title, "Nintendo Game Boy", "GB", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, item.Version, item.Edition, item.Region, "", item.Desc, "1-2 игрока", "Для всех", item.Languages);
                 idx++;
             }
         }
@@ -418,7 +425,7 @@ namespace StormSwitchBox.Services
             int idx = 1;
             foreach (var item in snesCatalog)
             {
-                AddGame($"SNES-{idx:D4}", item.Title, "Super Nintendo Entertainment System / Super Famicom", "SNES", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, item.Version, item.Edition, item.Region, "", item.Desc, "1-2 игрока", "Для всех");
+                AddGame($"SNES-{idx:D4}", item.Title, "Super Nintendo Entertainment System / Super Famicom", "SNES", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, item.Version, item.Edition, item.Region, "", item.Desc, "1-2 игрока", "Для всех", item.Languages);
                 idx++;
             }
         }
@@ -429,7 +436,7 @@ namespace StormSwitchBox.Services
             int idx = 1;
             foreach (var item in bsxDatabase)
             {
-                AddGame($"BSX-{idx:D3}", item.Title, "Super Famicom Satellaview (BS-X)", "BS-X", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, item.Version, item.Edition, item.Region, "", item.Desc, "1 игрок", "Для всех");
+                AddGame($"BSX-{idx:D3}", item.Title, "Super Famicom Satellaview (BS-X)", "BS-X", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, item.Version, item.Edition, item.Region, "", item.Desc, "1 игрок", "Для всех", item.Languages);
                 idx++;
             }
         }
@@ -476,7 +483,7 @@ namespace StormSwitchBox.Services
             int idx = 1;
             foreach (var item in n64Catalog)
             {
-                AddGame($"N64-{idx:D4}", item.Title, "Nintendo 64 / Nintendo 64DD", "N64", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, item.Version, item.Edition, item.Region, "", item.Desc, "1-4 игрока", "Для всех");
+                AddGame($"N64-{idx:D4}", item.Title, "Nintendo 64 / Nintendo 64DD", "N64", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, item.Version, item.Edition, item.Region, "", item.Desc, "1-4 игрока", "Для всех", item.Languages);
                 idx++;
             }
         }
@@ -487,7 +494,7 @@ namespace StormSwitchBox.Services
             int idx = 1;
             foreach (var item in gbcCatalog)
             {
-                AddGame($"GBC-{idx:D4}", item.Title, "Nintendo Game Boy Color", "GBC", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, item.Version, item.Edition, item.Region, "", item.Desc, "1-2 игрока", "Для всех");
+                AddGame($"GBC-{idx:D4}", item.Title, "Nintendo Game Boy Color", "GBC", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, item.Version, item.Edition, item.Region, "", item.Desc, "1-2 игрока", "Для всех", item.Languages);
                 idx++;
             }
         }
@@ -522,7 +529,7 @@ namespace StormSwitchBox.Services
             int idx = 1;
             foreach (var item in gbaCatalog)
             {
-                AddGame($"GBA-{idx:D4}", item.Title, "Nintendo Game Boy Advance / Game Boy micro", "GBA", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, item.Version, item.Edition, item.Region, "", item.Desc, "1-4 игрока", "Для всех");
+                AddGame($"GBA-{idx:D4}", item.Title, "Nintendo Game Boy Advance / Game Boy micro", "GBA", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, item.Version, item.Edition, item.Region, "", item.Desc, "1-4 игрока", "Для всех", item.Languages);
                 idx++;
             }
         }
@@ -533,7 +540,7 @@ namespace StormSwitchBox.Services
             int idx = 1;
             foreach (var item in gcCatalog)
             {
-                AddGame($"GC-{idx:D4}", item.Title, "Nintendo GameCube", "GC", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, item.Version, item.Edition, item.Region, "", item.Desc, "1-4 игрока", "Для всех");
+                AddGame($"GC-{idx:D4}", item.Title, "Nintendo GameCube", "GC", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, item.Version, item.Edition, item.Region, "", item.Desc, "1-4 игрока", "Для всех", item.Languages);
                 idx++;
             }
         }
@@ -544,7 +551,7 @@ namespace StormSwitchBox.Services
             int idx = 1;
             foreach (var item in ndsCatalog)
             {
-                AddGame($"NDS-{idx:D4}", item.Title, "Nintendo DS / Nintendo DS Lite / Nintendo DSi", "NDS", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, item.Version, item.Edition, item.Region, "", item.Desc, "1-8 игроков", "Для всех");
+                AddGame($"NDS-{idx:D4}", item.Title, "Nintendo DS / Nintendo DS Lite / Nintendo DSi", "NDS", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, item.Version, item.Edition, item.Region, "", item.Desc, "1-8 игроков", "Для всех", item.Languages);
                 idx++;
             }
         }
@@ -555,7 +562,7 @@ namespace StormSwitchBox.Services
             int idx = 1;
             foreach (var item in wiiCatalog)
             {
-                AddGame($"WII-{idx:D4}", item.Title, "Nintendo Wii", "Wii", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, item.Version, item.Edition, item.Region, "", item.Desc, "1-4 игрока", "Для всех");
+                AddGame($"WII-{idx:D4}", item.Title, "Nintendo Wii", "Wii", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, item.Version, item.Edition, item.Region, "", item.Desc, "1-4 игрока", "Для всех", item.Languages);
                 idx++;
             }
         }
@@ -567,7 +574,7 @@ namespace StormSwitchBox.Services
             foreach (var item in tdsCatalog)
             {
                 string id = !string.IsNullOrEmpty(item.TitleId) ? item.TitleId : $"3DS-{idx:D4}";
-                AddGame(id, item.Title, "Nintendo 3DS / New Nintendo 3DS / Nintendo 2DS", "3DS", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, item.Version, item.Edition, item.Region, "", item.Desc, "1-8 игроков", "Для всех");
+                AddGame(id, item.Title, "Nintendo 3DS / New Nintendo 3DS / Nintendo 2DS", "3DS", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, item.Version, item.Edition, item.Region, "", item.Desc, "1-8 игроков", "Для всех", item.Languages);
                 idx++;
             }
         }
@@ -578,7 +585,7 @@ namespace StormSwitchBox.Services
             int idx = 1;
             foreach (var item in wiiuCatalog)
             {
-                AddGame($"WIIU-{idx:D4}", item.Title, "Nintendo Wii U", "WiiU", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, item.Version, item.Edition, item.Region, "", item.Desc, "1-8 игроков", "Для всех");
+                AddGame($"WIIU-{idx:D4}", item.Title, "Nintendo Wii U", "WiiU", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, item.Version, item.Edition, item.Region, "", item.Desc, "1-8 игроков", "Для всех", item.Languages);
                 idx++;
             }
         }
@@ -604,23 +611,15 @@ namespace StormSwitchBox.Services
             }
         }
 
-        private void LoadSwitch2Library()
+                private void LoadSwitch2Library()
         {
-            AddGame("0100999000000001", "Mario Kart Next", "Nintendo Switch 2", "Switch 2", "Гонки", "2025-10-15", "Nintendo EPD", "Nintendo", "1.0.0", "Launch Edition", "WW", "", "Новейшее поколение гоночной саги Mario Kart с поддержкой 4K 60FPS и новыми динамическими треками.", "1-12 игроков", "Для всех");
-            AddGame("0100999000000002", "Metroid Prime 4: Beyond (Switch 2 Edition)", "Nintendo Switch 2", "Switch 2", "Action-Adventure / FPS", "2025-11-20", "Retro Studios", "Nintendo", "1.0.0", "Enhanced Edition", "WW", "", "Грандиозное возвращение Самус Аран и охотника Силукса в сверхвысоком разрешении с трассировкой лучей.", "1 игрок", "12+");
-            AddGame("0100999000000003", "The Legend of Zelda: Tears of the Kingdom (Switch 2 Edition)", "Nintendo Switch 2", "Switch 2", "Action-Adventure / Открытый мир", "2025-06-01", "Nintendo EPD", "Nintendo", "2.0.0", "Next-Gen Edition", "WW", "", "Обновленная версия шедевра с HDR, мгновенными загрузками и поддержкой 60 кадров в секунду.", "1 игрок", "12+");
-            AddGame("0100999000000004", "Super Mario Universe", "Nintendo Switch 2", "Switch 2", "3D Платформер", "2025-12-05", "Nintendo EPD Tokyo", "Nintendo", "1.0.0", "Launch Edition", "WW", "", "Новое грандиозное трехмерное приключение Марио в бесшовных космических мирах.", "1-2 игрока", "Для всех");
-            AddGame("0100999000000005", "Pokemon Legends: Z-A (Switch 2 Edition)", "Nintendo Switch 2", "Switch 2", "Action RPG", "2025-09-10", "Game Freak", "Nintendo", "1.0.0", "Enhanced Edition", "WW", "", "План градостроительного обновления города Люмиос-Сити в регионе Калос в высоком разрешении.", "1-2 игрока", "Для всех");
-            AddGame("0100999000000006", "Xenoblade Chronicles 4", "Nintendo Switch 2", "Switch 2", "JRPG / Открытый мир", "2026-03-20", "Monolith Soft", "Nintendo", "1.0.0", "Standard Edition", "WW", "", "Новая эпоха вселенной Ксеноблейд на некст-ген движке Monolith Soft.", "1 игрок", "12+");
-            AddGame("0100999000000007", "Super Smash Bros. Rebirth", "Nintendo Switch 2", "Switch 2", "Файтинг", "2026-05-15", "Bandai Namco / Sora Ltd.", "Nintendo", "1.0.0", "Deluxe Edition", "WW", "", "Следующая глава легендарного файтинга с поддержкой 120 FPS и обновленным ростером бойцов.", "1-8 игроков", "12+");
-            AddGame("0100999000000008", "Animal Crossing: Island Life Next", "Nintendo Switch 2", "Switch 2", "Симулятор жизни", "2026-04-10", "Nintendo EPD", "Nintendo", "1.0.0", "Paradise Edition", "WW", "", "Бесшовный архипелаг островов, динамическая погода и детальная физика воды.", "1-8 игроков", "Для всех");
-            AddGame("0100999000000009", "Donkey Kong Freedom", "Nintendo Switch 2", "Switch 2", "3D Платформер", "2025-11-05", "Nintendo EPD", "Nintendo", "1.0.0", "Jungle Edition", "WW", "", "Трехмерное открытое приключение Донки Конга в джунглях и древних руинах острова Конгов.", "1-2 игрока", "Для всех");
-            AddGame("0100999000000010", "Bayonetta 4", "Nintendo Switch 2", "Switch 2", "Стильный слэшер", "2026-09-22", "PlatinumGames", "Nintendo", "1.0.0", "Climax Edition", "WW", "", "Новая эра магии ведьм Умбры с невероятной скоростью боев и разрушаемым окружением.", "1 игрок", "18+");
-            AddGame("0100999000000011", "Splatoon 4", "Nintendo Switch 2", "Switch 2", "Командный шутер", "2026-07-18", "Nintendo EPD", "Nintendo", "1.0.0", "Inkopolis Next Edition", "WW", "", "Новые чернильные механики, вертикальные арены и кросс-матчмейкинг нового поколения.", "1-8 игроков", "12+");
-            AddGame("0100999000000012", "Luigi's Mansion 4", "Nintendo Switch 2", "Switch 2", "Приключения / Экшен", "2026-10-31", "Next Level Games", "Nintendo", "1.0.0", "Haunted Edition", "WW", "", "Луиджи исследует таинственный заброшенный парк развлечений с новым пылесосом Poltergust 6000.", "1-4 игрока", "Для всех");
-            AddGame("0100999000000013", "Fire Emblem: Echoes of Jugdral", "Nintendo Switch 2", "Switch 2", "Тактическая JRPG", "2026-02-14", "Intelligent Systems", "Nintendo", "1.0.0", "Genealogy Edition", "WW", "", "Грандиозный ремейк саги о Священной Войне на движке нового поколения с масштабными сражениями армий.", "1 игрок", "16+");
-            AddGame("0100999000000014", "Star Fox Horizons", "Nintendo Switch 2", "Switch 2", "Sci-Fi Космосим", "2026-08-08", "Retro Studios / Nintendo", "Nintendo", "1.0.0", "Flight Edition", "WW", "", "Фокс МакКлауд и команда Star Fox в эпической космической войне звездной системы Лайлат.", "1-4 игрока", "12+");
-            AddGame("0100999000000015", "F-Zero Fusion", "Nintendo Switch 2", "Switch 2", "Футуристические гонки", "2026-11-12", "Nintendo EPD", "Nintendo", "1.0.0", "Velocity Edition", "WW", "", "Сверхзвуковые скорости за пределами 2500 км/ч с 30 пилотами на треке в 4K 60FPS.", "1-12 игроков", "Для всех");
+            var s2Catalog = Switch2CatalogData.GetCatalog();
+            int idx = 1;
+            foreach (var item in s2Catalog)
+            {
+                AddGame($"SW2-{idx:D3}", item.Title, "Nintendo Switch 2", "Switch 2", item.Genre, item.Year.ToString(), item.Developer, item.Publisher, item.Version, item.Edition, item.Region, "", item.Desc, "1-8 игроков", "Для всех", item.Languages);
+                idx++;
+            }
         }
 
         #endregion
@@ -640,11 +639,12 @@ namespace StormSwitchBox.Services
             }
         }
 
-        public List<NintendoGameEntry> QueryGames(
+                public List<NintendoGameEntry> QueryGames(
             IEnumerable<string>? systems = null,
             IEnumerable<string>? genres = null,
             IEnumerable<string>? developers = null,
             IEnumerable<string>? publishers = null,
+            IEnumerable<string>? languages = null,
             string? searchQuery = null,
             string? sortBy = "Title")
         {
@@ -652,6 +652,7 @@ namespace StormSwitchBox.Services
             var genreList = genres?.Where(g => !string.IsNullOrWhiteSpace(g) && g != "Все жанры").ToList();
             var devList = developers?.Where(d => !string.IsNullOrWhiteSpace(d) && d != "Все разработчики").ToList();
             var pubList = publishers?.Where(p => !string.IsNullOrWhiteSpace(p) && p != "Все издатели").ToList();
+            var langList = languages?.Where(l => !string.IsNullOrWhiteSpace(l) && l != "Все языки").ToList();
 
             IEnumerable<NintendoGameEntry> result;
 
@@ -672,11 +673,11 @@ namespace StormSwitchBox.Services
                                                                   g.SystemShort.Equals(sys, StringComparison.OrdinalIgnoreCase)));
                         }
                     }
-                    result = combined;
+                    result = combined.ToList();
                 }
                 else
                 {
-                    result = _database;
+                    result = _database.ToList();
                 }
             }
 
@@ -696,6 +697,12 @@ namespace StormSwitchBox.Services
             if (pubList != null && pubList.Count > 0)
             {
                 result = result.Where(g => pubList.Any(pub => g.Publisher.Equals(pub, StringComparison.OrdinalIgnoreCase)));
+            }
+
+            // Фильтр языков (OR логика для нескольких выбранных значений)
+            if (langList != null && langList.Count > 0)
+            {
+                result = result.Where(g => langList.Any(lang => g.Languages.Contains(lang, StringComparison.OrdinalIgnoreCase)));
             }
 
             // Поисковый запрос: разделение через запятую, точку с запятой или вертикальную черту (OR логика между терминами)
@@ -719,6 +726,7 @@ namespace StormSwitchBox.Services
                                 g.Developer.Contains(w, StringComparison.OrdinalIgnoreCase) ||
                                 g.Publisher.Contains(w, StringComparison.OrdinalIgnoreCase) ||
                                 g.Genre.Contains(w, StringComparison.OrdinalIgnoreCase) ||
+                                g.Languages.Contains(w, StringComparison.OrdinalIgnoreCase) ||
                                 g.Description.Contains(w, StringComparison.OrdinalIgnoreCase));
 
                             if (branchMatches) return true;
@@ -751,7 +759,7 @@ namespace StormSwitchBox.Services
             var developers = !string.IsNullOrEmpty(developer) ? new[] { developer } : null;
             var publishers = !string.IsNullOrEmpty(publisher) ? new[] { publisher } : null;
 
-            return QueryGames(systems, genres, developers, publishers, searchQuery, sortBy);
+            return QueryGames(systems, genres, developers, publishers, null, searchQuery, sortBy);
         }
 
         public List<string> GetDistinctGenres(string? systemFullName = null)
@@ -768,11 +776,11 @@ namespace StormSwitchBox.Services
             {
                 if (!string.IsNullOrEmpty(systemFullName) && systemFullName != "Все системы" && _bySystem.TryGetValue(systemFullName, out var sysList))
                 {
-                    source = sysList;
+                    source = sysList.ToList();
                 }
                 else
                 {
-                    source = _database;
+                    source = _database.ToList();
                 }
             }
 
@@ -810,11 +818,11 @@ namespace StormSwitchBox.Services
             {
                 if (!string.IsNullOrEmpty(systemFullName) && systemFullName != "Все системы" && _bySystem.TryGetValue(systemFullName, out var sysList))
                 {
-                    source = sysList;
+                    source = sysList.ToList();
                 }
                 else
                 {
-                    source = _database;
+                    source = _database.ToList();
                 }
             }
 
@@ -847,11 +855,11 @@ namespace StormSwitchBox.Services
             {
                 if (!string.IsNullOrEmpty(systemFullName) && systemFullName != "Все системы" && _bySystem.TryGetValue(systemFullName, out var sysList))
                 {
-                    source = sysList;
+                    source = sysList.ToList();
                 }
                 else
                 {
-                    source = _database;
+                    source = _database.ToList();
                 }
             }
 
@@ -866,6 +874,48 @@ namespace StormSwitchBox.Services
             lock (_cachedPublishers)
             {
                 _cachedPublishers[key] = res;
+            }
+            return res;
+        }
+
+        public List<string> GetDistinctLanguages(string? systemFullName = null)
+        {
+            string key = systemFullName ?? "Все системы";
+            lock (_cachedLanguages)
+            {
+                if (_cachedLanguages.TryGetValue(key, out var cached))
+                    return cached;
+            }
+
+            List<NintendoGameEntry> source;
+            lock (_dbLock)
+            {
+                if (!string.IsNullOrEmpty(systemFullName) && systemFullName != "Все системы" && _bySystem.TryGetValue(systemFullName, out var sysList))
+                {
+                    source = sysList.ToList();
+                }
+                else
+                {
+                    source = _database.ToList();
+                }
+            }
+
+            var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            set.Add("Все языки");
+            foreach (var g in source)
+            {
+                var parts = g.Languages.Split('/', ',');
+                foreach (var p in parts)
+                {
+                    string trimmed = p.Trim();
+                    if (!string.IsNullOrEmpty(trimmed)) set.Add(trimmed);
+                }
+            }
+
+            var res = set.OrderBy(x => x == "Все языки" ? "" : x).ToList();
+            lock (_cachedLanguages)
+            {
+                _cachedLanguages[key] = res;
             }
             return res;
         }

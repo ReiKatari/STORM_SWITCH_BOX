@@ -36,7 +36,7 @@ namespace StormSwitchBox
         public MainWindow()
         {
             this.InitializeComponent();
-            this.Title = "STORM SWITCH BOX 4.7.1";
+            this.Title = "STORM SWITCH BOX 4.7.0";
             this.ExtendsContentIntoTitleBar = true; // Современный заголовок окна
 
             var hWnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
@@ -289,7 +289,7 @@ namespace StormSwitchBox
             RestoreWindow();
             if (GlobalAlertInfoBar != null)
             {
-                GlobalAlertInfoBar.Title = "STORM SWITCH BOX 4.7.1";
+                GlobalAlertInfoBar.Title = "STORM SWITCH BOX 4.7.0";
                 GlobalAlertInfoBar.Message = "⚡ Приложение уже запущено. Повторный запуск заблокирован.";
                 GlobalAlertInfoBar.Severity = InfoBarSeverity.Informational;
                 GlobalAlertInfoBar.IsOpen = true;
@@ -302,6 +302,50 @@ namespace StormSwitchBox
                         if (GlobalAlertInfoBar != null) GlobalAlertInfoBar.IsOpen = false;
                     });
                 });
+            }
+        }
+
+        private void MainWindow_DragOver(object sender, DragEventArgs e)
+        {
+            e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
+            e.DragUIOverride.Caption = "Добавить файлы в Задачник";
+            e.DragUIOverride.IsCaptionVisible = true;
+            e.DragUIOverride.IsContentVisible = true;
+            e.DragUIOverride.IsGlyphVisible = true;
+            e.Handled = true;
+        }
+
+        private async void MainWindow_Drop(object sender, DragEventArgs e)
+        {
+            e.Handled = true;
+            var deferral = e.GetDeferral();
+            try
+            {
+                if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+                {
+                    var items = await e.DataView.GetStorageItemsAsync();
+                    if (items != null && items.Count > 0)
+                    {
+                        var paths = items.Select(item => item.Path).Where(p => !string.IsNullOrWhiteSpace(p)).ToList();
+                        if (paths.Count > 0)
+                        {
+                            if (!(ContentFrame.Content is Views.TasksPage))
+                            {
+                                MainNavigation.SelectedItem = MainNavigation.MenuItems[0];
+                                ContentFrame.Navigate(typeof(Views.TasksPage), "Update");
+                            }
+                            await App.TasksVM.AddDroppedFilesBatchAsync(paths);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Logger.Log($"Ошибка перетаскивания файлов: {ex.Message}", Models.LogLevel.Error);
+            }
+            finally
+            {
+                deferral.Complete();
             }
         }
 
