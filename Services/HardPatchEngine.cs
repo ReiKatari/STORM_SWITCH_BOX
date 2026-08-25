@@ -278,9 +278,12 @@ namespace StormSwitchBox.Services
                     } catch { }
                 }
                 
-                if (applyMods && (romfsMod != null || exefsMod != null || exefsPatchesMod != null))
+                bool hasModsToApply = (romfsMod != null || exefsMod != null || exefsPatchesMod != null);
+                if (hasModsToApply || !string.IsNullOrEmpty(updateFile) || applyMods)
                 {
-                    App.RunOnUI(() => task.LogDetails += $"\n[1/3] Распаковка файлов для применения модов (yanu-cli unpack)...");
+                    App.RunOnUI(() => task.LogDetails += hasModsToApply 
+                        ? $"\n[1/3] Распаковка файлов для применения обновления и модов (yanu-cli unpack)..."
+                        : $"\n[1/2] Физическая интеграция обновления без дублирования (yanu-cli unpack)...");
                     
                     string tempUnpack = System.IO.Path.Combine(tempDir, "unpack_modded");
                     Directory.CreateDirectory(tempUnpack);
@@ -324,16 +327,20 @@ namespace StormSwitchBox.Services
                     }
                     if (unpackProc.ExitCode != 0) throw new Exception($"Ошибка yanu-cli unpack:\n{unpackStderr}");
                     
-                    App.RunOnUI(() => task.LogDetails += $"\n[2/3] Инъекция модов (romfs/exefs/exefs_patches)...");
-                    
                     string targetRomFs = System.IO.Path.Combine(tempUnpack, "romfs");
                     string targetExeFs = System.IO.Path.Combine(tempUnpack, "exefs");
+
+                    if (hasModsToApply)
+                    {
+                        App.RunOnUI(() => task.LogDetails += $"\n[2/3] Инъекция модов (romfs/exefs/exefs_patches)...");
+                        if (!string.IsNullOrEmpty(romfsMod)) CopyDirectoryContent(romfsMod, targetRomFs);
+                        if (!string.IsNullOrEmpty(exefsMod)) CopyDirectoryContent(exefsMod, targetExeFs);
+                        if (!string.IsNullOrEmpty(exefsPatchesMod)) ApplyExeFsPatches(exefsPatchesMod, targetExeFs, task);
+                    }
                     
-                    if (!string.IsNullOrEmpty(romfsMod)) CopyDirectoryContent(romfsMod, targetRomFs);
-                    if (!string.IsNullOrEmpty(exefsMod)) CopyDirectoryContent(exefsMod, targetExeFs);
-                    if (!string.IsNullOrEmpty(exefsPatchesMod)) ApplyExeFsPatches(exefsPatchesMod, targetExeFs, task);
-                    
-                    App.RunOnUI(() => task.LogDetails += $"\n[3/3] Упаковка (yanu-cli pack)...");
+                    App.RunOnUI(() => task.LogDetails += hasModsToApply
+                        ? $"\n[3/3] Монолитная сборка (yanu-cli pack)..."
+                        : $"\n[2/2] Монолитная сборка без дубликатов (yanu-cli pack)...");
                     
                     string controlNca = "";
                     ulong maxTitleId = 0;
