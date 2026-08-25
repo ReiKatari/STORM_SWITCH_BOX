@@ -298,6 +298,27 @@ namespace StormSwitchBox.Services
             }
         }
 
+        public async Task ReloadAllDatabasesAsync(TitleDbService? titleDb = null)
+        {
+            lock (_dbLock)
+            {
+                _database.Clear();
+                _bySystem.Clear();
+                _loadedIds.Clear();
+                _isInitialized = false;
+                InvalidateFilterCaches();
+                InitializeDatabase();
+            }
+
+            if (titleDb != null)
+            {
+                await titleDb.UpdateDatabaseAsync();
+                await EnsureSwitchGamesLoadedAsync(titleDb);
+            }
+
+            LibraryUpdated?.Invoke();
+        }
+
         private void AddGame(string id, string title, string system, string sysShort, string genre, string date, string dev, string pub, string ver, string edition, string region, string cover, string desc, string players, string rating, string languages = "Русский / English")
         {
             string formattedDate = FormatDate(date);

@@ -10,7 +10,8 @@
 
     <Grid Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
           AllowDrop="True" DragOver="MainWindow_DragOver" Drop="MainWindow_Drop">
-        <NavigationView x:Name="MainNavigation" PaneDisplayMode="Left" OpenPaneLength="220" SelectionChanged="MainNavigation_SelectionChanged">
+        <NavigationView x:Name="MainNavigation" PaneDisplayMode="Left" OpenPaneLength="220" SelectionChanged="MainNavigation_SelectionChanged"
+                        AllowDrop="True" DragOver="MainWindow_DragOver" Drop="MainWindow_Drop">
             <NavigationView.MenuItems>
                 <NavigationViewItem x:Name="NavUpdateItem" Icon="Refresh" Content="Обновление" Tag="Update" />
                 <NavigationViewItem x:Name="NavUnpackItem" Icon="Download" Content="Распаковка" Tag="Unpack" />
@@ -30,7 +31,8 @@
                 <NavigationViewItem x:Name="NavHistoryItem" Icon="Clock" Content="История" Tag="History" />
             </NavigationView.FooterMenuItems>
             
-            <Frame x:Name="ContentFrame" Padding="0,32,0,0">
+            <Frame x:Name="ContentFrame" Padding="0,32,0,0"
+                   AllowDrop="True" DragOver="MainWindow_DragOver" Drop="MainWindow_Drop">
                 <!-- Содержимое будет загружаться динамически из MainWindow.xaml.cs -->
             </Frame>
         </NavigationView>
