@@ -498,6 +498,32 @@ namespace StormSwitchBox.Views
             ApplyFilters();
         }
 
+        private async void RefreshDb_Click(object sender, RoutedEventArgs e)
+        {
+            if (RefreshDbButton != null) RefreshDbButton.IsEnabled = false;
+            try
+            {
+                if (RefreshDbTextBlock != null) RefreshDbTextBlock.Text = "Обновление...";
+                await Task.Run(async () =>
+                {
+                    await App.NintendoLibrary.ReloadAllDatabasesAsync(App.TitleDb);
+                });
+
+                InitializeSystemTabsAndDropdown();
+                PopulateFilterDropdowns();
+                ApplyFilters();
+            }
+            catch (Exception ex)
+            {
+                App.Logger.Log($"Ошибка обновления базы данных: {ex.Message}", Models.LogLevel.Error);
+            }
+            finally
+            {
+                if (RefreshDbTextBlock != null) RefreshDbTextBlock.Text = "Обновить базу";
+                if (RefreshDbButton != null) RefreshDbButton.IsEnabled = true;
+            }
+        }
+
         private async void ApplyFilters()
         {
             if (!_isLoaded || GamesGridView == null || TotalGamesCountTextBlock == null) return;

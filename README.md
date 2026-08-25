@@ -8,7 +8,7 @@
   <b>Комплексный менеджер и конвертер игр Nintendo Switch (NSP/XCI/NSZ), управление установкой и резервным копированием.</b>
 </p>
 
-[![Version](https://img.shields.io/badge/version-4.7.5-00D2FF.svg?style=for-the-badge)](https://github.com/ReiKatari/STORM_SWITCH_BOX)
+[![Version](https://img.shields.io/badge/version-4.7.6-00D2FF.svg?style=for-the-badge)](https://github.com/ReiKatari/STORM_SWITCH_BOX)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2011%20%7C%2010-0EA5E9.svg?style=for-the-badge)](https://github.com/ReiKatari/STORM_SWITCH_BOX)
 [![Publisher](https://img.shields.io/badge/Publisher-STORM%20TEAM-10B981.svg?style=for-the-badge)](https://github.com/ReiKatari)
 [![Developer](https://img.shields.io/badge/Author-ReiKatari-F59E0B.svg?style=for-the-badge)](https://github.com/ReiKatari)
@@ -33,7 +33,7 @@
 
 Установка производится через единый инсталлятор **STORM INSTALLER**:
 
-1. Запустите файл STORM_STORM_SWITCH_BOX_4.7.5_Setup.exe.
+1. Запустите файл STORM_STORM_SWITCH_BOX_4.7.6_Setup.exe.
 2. Выберите режим:
    * **Стандартная установка** — установка в C:\Program Files\STORM SWITCH BOX с созданием ярлыков и регистрацией в системе.
    * **Портативная версия** — распаковка в любую выбранную папку без изменения реестра.

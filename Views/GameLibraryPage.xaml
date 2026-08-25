@@ -158,6 +158,14 @@
                             <TextBlock x:Name="ResetButtonTextBlock" Text="Сброс" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Button>
+
+                    <!-- Refresh Database Button -->
+                    <Button x:Name="RefreshDbButton" Click="RefreshDb_Click" Height="38" CornerRadius="8" ToolTipService.ToolTip="Обновить и синхронизировать базы данных игр">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <FontIcon Glyph="&#xE895;" FontSize="12" Foreground="{ThemeResource SystemAccentColor}"/>
+                            <TextBlock x:Name="RefreshDbTextBlock" Text="Обновить базу" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
                 </StackPanel>
             </ScrollViewer>
 

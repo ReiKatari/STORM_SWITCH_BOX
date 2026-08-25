@@ -24,7 +24,7 @@ namespace StormUniversal.Installer
         private PictureBox picHeaderLogo = null!;
         private Panel headerPanel = null!;
 
-        private const string AppVersion = "4.7.5";
+        private const string AppVersion = "4.7.6";
         private const string AppDisplayName = "STORM SWITCH BOX";
         private const string AppFolderName = "STORM SWITCH BOX";
         private const string ExeName = "StormSwitchBox.exe";
@@ -588,12 +588,26 @@ namespace StormUniversal.Installer
 
                 if (chkRunAfter.Checked && File.Exists(targetExe))
                 {
-                    Process.Start(new ProcessStartInfo
+                    try
                     {
-                        FileName = targetExe,
-                        WorkingDirectory = targetDir,
-                        UseShellExecute = true
-                    });
+                        // Запуск через explorer.exe гарантирует нормальный (неповышенный) уровень привилегий (Medium IL),
+                        // что полностью исключает блокировку Drag-and-Drop механизмом UIPI в Windows
+                        Process.Start(new ProcessStartInfo
+                        {
+                            FileName = "explorer.exe",
+                            Arguments = $"\"{targetExe}\"",
+                            UseShellExecute = true
+                        });
+                    }
+                    catch
+                    {
+                        Process.Start(new ProcessStartInfo
+                        {
+                            FileName = targetExe,
+                            WorkingDirectory = targetDir,
+                            UseShellExecute = true
+                        });
+                    }
                 }
 
                 this.Close();
