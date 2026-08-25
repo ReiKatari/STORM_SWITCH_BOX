@@ -24,6 +24,7 @@ namespace StormSwitchBox.Models
         [ObservableProperty] private string _description = "Описание отсутствует.";
         [ObservableProperty] private string _players = "1 игрок";
         [ObservableProperty] private string _rating = "Все возрасты";
+        [ObservableProperty] private string _languages = "Русский / English";
 
         [ObservableProperty]
         [JsonIgnore]

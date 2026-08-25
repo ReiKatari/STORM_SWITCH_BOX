@@ -12,5 +12,6 @@ namespace StormSwitchBox.Services
         public string? TitleId { get; set; }
         public string Edition { get; set; } = "Standard Edition";
         public string Version { get; set; } = "1.0";
+        public string Languages { get; set; } = "Русский / English";
     }
 }
