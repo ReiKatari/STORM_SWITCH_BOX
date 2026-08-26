@@ -165,7 +165,7 @@ namespace StormSwitchBox.Services
                     if (hasMods)
                     {
                         shouldHardPatch = true;
-                        App.RunOnUI(() => task.LogDetails += "\n🧠 [Умная обработка] Обнаружены папки модификаций (romfs/exefs). Выбрана физическая пересборка HardPatch для интеграции модов.");
+                        App.RunOnUI(() => task.LogDetails += "\n🧠 [Умная обработка] Обнаружены папки модификаций (romfs/exefs). Выбрана физическая интеграция HardPatch для вшивания модов в игру.");
                     }
                     else if (App.Settings.Current.SmartProcessing)
                     {
@@ -515,33 +515,7 @@ namespace StormSwitchBox.Services
                             }
                         }
 
-                        // 3. Если в игру вшивались моды (RomFS / ExeFS), генерируем метаданные AddOnContent для отображения в "Дополнения" эмулятора
-                        if (hasMods && baseTitleId != 0)
-                        {
-                            bool hasRomFsMod = inputFiles.Any(d => Directory.Exists(d) && Path.GetFileName(d).Equals("romfs", StringComparison.OrdinalIgnoreCase));
-                            bool hasExeFsMod = inputFiles.Any(d => Directory.Exists(d) && 
-                                (Path.GetFileName(d).Equals("exefs", StringComparison.OrdinalIgnoreCase) || 
-                                 Path.GetFileName(d).Equals("exefs_patches", StringComparison.OrdinalIgnoreCase)));
-                            
-                            App.RunOnUI(() => task.LogDetails += "\n🏷️ [ModAddon] Интеграция метаданных модификаций в Дополнения...");
-                            var modNcas = await GenerateModAddonEntriesAsync(baseTitleId, tempDecompDir, hasRomFsMod, hasExeFsMod, dlcs.Count, task, cancellationToken);
-                            foreach (var modNcaPath in modNcas)
-                            {
-                                try
-                                {
-                                    var stream = new FileStream(modNcaPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-                                    openedStreams.Add(stream);
-                                    string ncaFileName = Path.GetFileName(modNcaPath);
-                                    if (!mergedEntries.ContainsKey(ncaFileName))
-                                    {
-                                        var sFile = new LibHac.FsSystem.StorageFile(stream.AsStorage(), LibHac.Fs.OpenMode.Read);
-                                        openedFiles.Add(sFile);
-                                        mergedEntries[ncaFileName] = sFile;
-                                    }
-                                }
-                                catch { }
-                            }
-                        }
+
 
                         var orderedEntries = mergedEntries
                             .OrderBy(kvp => GetNcaPriority(kvp.Value, kvp.Key, baseTitleId, baseEntries))
@@ -974,18 +948,8 @@ namespace StormSwitchBox.Services
             if (lower.EndsWith(".cnmt.xml"))
             {
                 if (isFromBase || lower.Contains("000") || lower.Contains("base")) return 0;
-                if (lower.Contains("800") || lower.Contains("update") || lower.Contains("patch")) return 10;
-                return 50;
-            }
-
-            if (lower.EndsWith(".cnmt.nca"))
-            {
-                if (isFromBase) return 0; // Base/Patched Game CNMT is ALWAYS top priority in PFS0
-                if (lower.Contains("000") || lower.Contains("base")) return 0;
-                if (lower.Contains("800") || lower.Contains("update") || lower.Contains("patch")) return 10; // Update Patch CNMT
-                if (baseTitleId != 0 && lower.Contains(baseTitleId.ToString("x16"))) return 0;
-                if (baseTitleId != 0 && lower.Contains((baseTitleId + 0x800).ToString("x16"))) return 10;
-                return 50; // DLC / Mod CNMT
+                if (lower.Contains("800") || lower.Contains("update") || lower.Contains("patch")) return 1;
+                return 10;
             }
 
             try
@@ -1005,52 +969,62 @@ namespace StormSwitchBox.Services
                 ulong tid = nca.Header.TitleId;
 
                 bool isBaseTitle = (baseTitleId != 0 && tid == baseTitleId) || tid.ToString("X16").EndsWith("000");
-                bool isUpdateTitle = tid.ToString("X16").EndsWith("800");
+                bool isUpdateTitle = (baseTitleId != 0 && tid == (baseTitleId | 0x800)) || tid.ToString("X16").EndsWith("800");
 
                 if (type == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Meta) // CNMT
                 {
                     if (isBaseTitle) return 0;
-                    if (isUpdateTitle) return 10;
-                    return 50;
+                    if (isUpdateTitle) return 1;
+                    return 10;
                 }
 
                 if (type == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Control) // Icon artwork & Title strings
                 {
-                    if (isBaseTitle) return 1;
-                    return 51;
+                    if (isBaseTitle) return 2;
+                    if (isUpdateTitle) return 3;
+                    return 11;
                 }
 
                 if (type == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Program) // Executable code
                 {
-                    if (isBaseTitle || isUpdateTitle) return 2;
-                    return 52;
+                    if (isBaseTitle) return 4;
+                    if (isUpdateTitle) return 5;
+                    return 12;
                 }
 
-                if (type == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Manual) return 3;
+                if (type == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Manual || type == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.PublicData)
+                {
+                    if (isBaseTitle || isUpdateTitle) return 6;
+                    return 13;
+                }
             }
             catch
             {
                 if (isFromBase)
                 {
                     if (lower.EndsWith(".cnmt.nca")) return 0;
-                    if (lower.Contains("control")) return 1;
-                    if (lower.Contains("program")) return 2;
+                    if (lower.Contains("control")) return 2;
+                    if (lower.Contains("program")) return 4;
                     
                     try
                     {
                         file.GetSize(out long fSize);
-                        if (fSize > 0 && fSize < 5 * 1024 * 1024) return 1; // Control-sized NCA
+                        if (fSize > 0 && fSize < 5 * 1024 * 1024) return 2; // Control-sized NCA
                     }
                     catch { }
-                    return 2;
+                    return 4;
                 }
 
-                if (lower.EndsWith(".cnmt.nca")) return 50;
-                if (lower.Contains("control")) return 51;
-                if (lower.Contains("program")) return 52;
+                if (lower.EndsWith(".cnmt.nca"))
+                {
+                    if (lower.Contains("800") || lower.Contains("update") || lower.Contains("patch")) return 1;
+                    return 10;
+                }
+                if (lower.Contains("control")) return 11;
+                if (lower.Contains("program")) return 12;
             }
 
-            return isFromBase ? 4 : 53;
+            return isFromBase ? 6 : 13;
         }
 
         private async Task<List<string>> GenerateModAddonEntriesAsync(
