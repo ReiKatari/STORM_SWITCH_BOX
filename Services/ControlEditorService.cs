@@ -248,7 +248,7 @@ namespace StormSwitchBox.Services
                 int exitCode = await ExternalProcessRunner.RunAsync(
                     _hacpackExe,
                     hacpackArgs,
-                    _toolsDir,
+                    tempDir,
                     task,
                     ct
                 );
@@ -340,7 +340,7 @@ namespace StormSwitchBox.Services
                         int metaCode = await ExternalProcessRunner.RunAsync(
                             _hacpackExe,
                             metaArgs,
-                            _toolsDir,
+                            tempDir,
                             task,
                             ct
                         );

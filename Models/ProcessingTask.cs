@@ -39,6 +39,8 @@ namespace StormSwitchBox.Models
         {
             OnPropertyChanged(nameof(IsNotRunning));
             OnPropertyChanged(nameof(CanChangeFormat));
+            OnPropertyChanged(nameof(FormatSelectorVisibility));
+            OnPropertyChanged(nameof(FormatDisplayVisibility));
         }
 
         [ObservableProperty] private bool _is3dsTask;
@@ -67,11 +69,17 @@ namespace StormSwitchBox.Models
             ? Microsoft.UI.Text.FontWeights.Bold 
             : Microsoft.UI.Text.FontWeights.Normal;
 
+        [System.Text.Json.Serialization.JsonIgnore]
+        public Microsoft.UI.Xaml.Visibility FormatSelectorVisibility => CanChangeFormat ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public Microsoft.UI.Xaml.Visibility FormatDisplayVisibility => CanChangeFormat ? Microsoft.UI.Xaml.Visibility.Collapsed : Microsoft.UI.Xaml.Visibility.Visible;
+
         [ObservableProperty] private long _sourceSizeBytes;
         [ObservableProperty] private string _hasRomFs = "-";
         [ObservableProperty] private string _hasExeFs = "-";
-        [ObservableProperty] private string _modNameRomFs = "Модификации: RomFS";
-        [ObservableProperty] private string _modNameExeFs = "Модификации: ExeFS";
+        [ObservableProperty] private string _modNameRomFs = string.Empty;
+        [ObservableProperty] private string _modNameExeFs = string.Empty;
         [ObservableProperty] private string _speed = string.Empty;
         [ObservableProperty] private bool _isExpanded;
 
@@ -203,6 +211,8 @@ namespace StormSwitchBox.Models
             OnPropertyChanged(nameof(StatusColor));
             OnPropertyChanged(nameof(IsCompleted));
             OnPropertyChanged(nameof(CanChangeFormat));
+            OnPropertyChanged(nameof(FormatSelectorVisibility));
+            OnPropertyChanged(nameof(FormatDisplayVisibility));
             OnPropertyChanged(nameof(TargetFormatColor));
             OnPropertyChanged(nameof(TargetFormatWeight));
         }

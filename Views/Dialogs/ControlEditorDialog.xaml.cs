@@ -34,8 +34,8 @@ namespace StormSwitchBox.Views.Dialogs
             TitleRussianBox.Text = _model.TitleNameRussian ?? "";
             PublisherBox.Text = _model.Publisher ?? "";
 
-            ModRomFsBox.Text = string.IsNullOrEmpty(_model.ModNameRomFs) ? "Модификации: RomFS" : _model.ModNameRomFs;
-            ModExeFsBox.Text = string.IsNullOrEmpty(_model.ModNameExeFs) ? "Модификации: ExeFS" : _model.ModNameExeFs;
+            ModRomFsBox.Text = _model.ModNameRomFs ?? "";
+            ModExeFsBox.Text = _model.ModNameExeFs ?? "";
 
             if (!_model.HasRomFs && !_model.HasExeFs)
             {
@@ -143,8 +143,8 @@ namespace StormSwitchBox.Views.Dialogs
             _model.TitleNameEnglish = TitleEnglishBox.Text.Trim();
             _model.TitleNameRussian = TitleRussianBox.Text.Trim();
             _model.Publisher = PublisherBox.Text.Trim();
-            _model.ModNameRomFs = string.IsNullOrWhiteSpace(ModRomFsBox.Text) ? "Модификации: RomFS" : ModRomFsBox.Text.Trim();
-            _model.ModNameExeFs = string.IsNullOrWhiteSpace(ModExeFsBox.Text) ? "Модификации: ExeFS" : ModExeFsBox.Text.Trim();
+            _model.ModNameRomFs = ModRomFsBox.Text.Trim();
+            _model.ModNameExeFs = ModExeFsBox.Text.Trim();
         }
     }
 }

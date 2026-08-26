@@ -90,12 +90,12 @@
 
                 <StackPanel x:Name="RomFsNamePanel" Spacing="4">
                     <TextBlock Text="Название RomFS модификации (патча)" FontSize="12" FontWeight="SemiBold"/>
-                    <TextBox x:Name="ModRomFsBox" PlaceholderText="Например: Модификации: RomFS или Русская озвучка GamesVoice" CornerRadius="4"/>
+                    <TextBox x:Name="ModRomFsBox" CornerRadius="4"/>
                 </StackPanel>
 
                 <StackPanel x:Name="ExeFsNamePanel" Spacing="4">
                     <TextBlock Text="Название ExeFS / IPS модификации (патча)" FontSize="12" FontWeight="SemiBold"/>
-                    <TextBox x:Name="ModExeFsBox" PlaceholderText="Например: Модификации: ExeFS, 60 FPS Patch или IPS Патч" CornerRadius="4"/>
+                    <TextBox x:Name="ModExeFsBox" CornerRadius="4"/>
                 </StackPanel>
             </StackPanel>
         </StackPanel>
