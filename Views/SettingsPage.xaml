@@ -215,7 +215,7 @@
                             </Border>
                             <StackPanel Grid.Column="1" Spacing="6">
                                 <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                                    <TextBlock x:Name="AppTitleVersionTxt" Text="STORM SWITCH BOX 4.7.9" FontWeight="Bold" FontSize="22"/>
+                                    <TextBlock x:Name="AppTitleVersionTxt" Text="STORM SWITCH BOX 4.8.0" FontWeight="Bold" FontSize="22"/>
                                     <Border Background="{ThemeResource SystemAccentColor}" CornerRadius="4" Padding="6,2" VerticalAlignment="Center">
                                         <TextBlock Text="WinUI 3 Native" Foreground="White" FontSize="11" FontWeight="Bold"/>
                                     </Border>
@@ -321,20 +321,6 @@
                                               ToolTipService.ToolTip="Игры установятся на любом CFW без привязки к тикетам. Работает через NSC_Builder (--C_clean_ND)."/>
                             </Grid>
 
-                            <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
-
-                            <!-- Remove Delta NCA -->
-                            <Grid>
-                                <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
-                                    <TextBlock x:Name="DeltaTitleTxt" Text="Удалять Delta NCA из обновлений" FontWeight="Medium"/>
-                                    <TextBlock x:Name="DeltaDescTxt" Text="Удаляет избыточные дельта-патчи из Update-файлов для экономии до 30% места (-ND true)" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
-                                </StackPanel>
-                                <ToggleSwitch x:Name="RemoveDeltaNcaToggle" HorizontalAlignment="Right" IsOn="{x:Bind Settings.RemoveDeltaNca, Mode=TwoWay}" Toggled="Toggle_Changed" 
-                                              ToolTipService.ToolTip="Дельта-патчи не нужны для монолитных пакетов. Включено по умолчанию."/>
-                            </Grid>
-
-                            <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
-
                             <!-- Split FAT32 -->
                             <Grid>
                                 <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
@@ -343,18 +329,6 @@
                                 </StackPanel>
                                 <ToggleSwitch x:Name="SplitFat32Toggle" HorizontalAlignment="Right" IsOn="{x:Bind Settings.SplitFat32, Mode=TwoWay}" Toggled="Toggle_Changed" 
                                               ToolTipService.ToolTip="Разбивает выходные файлы >4GB на части для совместимости со старыми FAT32 флешками."/>
-                            </Grid>
-
-                            <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
-
-                            <!-- Smart Processing (Умная обработка файлов) -->
-                            <Grid>
-                                <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
-                                    <TextBlock x:Name="SmartProcessingTitleTxt" Text="Умная обработка файлов (Smart Processing)" FontWeight="Medium"/>
-                                    <TextBlock x:Name="SmartProcessingDescTxt" Text="Авто-анализ: прямое сшивание для легковесных патчей (минимальный размер), а для модов и массивных апдейтов — пересборка с очисткой устаревших данных." FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
-                                </StackPanel>
-                                <ToggleSwitch x:Name="SmartProcessingToggle" HorizontalAlignment="Right" IsOn="{x:Bind Settings.SmartProcessing, Mode=TwoWay}" Toggled="Toggle_Changed"
-                                              ToolTipService.ToolTip="Автоматически выбирает наилучший метод (сшивание или пересборка) для получения минимального размера и 100% совместимости."/>
                             </Grid>
 
                             <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
@@ -525,18 +499,6 @@
                                     <ComboBoxItem Content="CIA (Установочный пакет)" Tag="CIA"/>
                                     <ComboBoxItem Content="CXI (Исполняемый NCCH)" Tag="CXI"/>
                                 </ComboBox>
-                            </Grid>
-
-                            <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
-
-                            <!-- HardPatch 3DS -->
-                            <Grid>
-                                <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
-                                    <TextBlock x:Name="ThreeDsHardPatchTitleTxt" Text="3DS HardPatch (Вшивание обновлений и модов)" FontWeight="Medium"/>
-                                    <TextBlock x:Name="ThreeDsHardPatchDescTxt" Text="Автоматически распаковывает RomFS/ExeFS, накладывает файлы обновления и модов/переводов и пересобирает единый образ" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
-                                </StackPanel>
-                                <ToggleSwitch x:Name="HardPatch3dsToggle" HorizontalAlignment="Right" IsOn="{x:Bind Settings.HardPatch3ds, Mode=TwoWay}" Toggled="Toggle3ds_Changed"
-                                              ToolTipService.ToolTip="Создает монолитный .3ds или .cia файл со встроенным патчем и переводом."/>
                             </Grid>
 
                             <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
