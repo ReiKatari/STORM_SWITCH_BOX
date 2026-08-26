@@ -350,11 +350,11 @@
                             <!-- Force Multi Rebuild -->
                             <Grid>
                                 <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
-                                    <TextBlock x:Name="ForceMultiTitleTxt" Text="Пересборка файлов в Мульти-контенте" FontWeight="Medium"/>
-                                    <TextBlock x:Name="ForceMultiDescTxt" Text="Полная пересборка контейнеров PFS0 через NSC_Builder для устранения ошибок в эмуляторах" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                    <TextBlock x:Name="ForceMultiTitleTxt" Text="Физическая пересборка файлов (HardPatch)" FontWeight="Medium"/>
+                                    <TextBlock x:Name="ForceMultiDescTxt" Text="Полная распаковка и физическая замена ресурсов при обновлении. Если выключено — выполняется прямое сшивание без раздувания RomFS." FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
                                 </StackPanel>
                                 <ToggleSwitch x:Name="ForceMultiRebuildToggle" HorizontalAlignment="Right" IsOn="{x:Bind Settings.ForceMultiRebuild, Mode=TwoWay}" Toggled="Toggle_Changed"
-                                              ToolTipService.ToolTip="Гарантирует запуск объединенных пакетов в эмуляторах Eden, Yuzu и Ryujinx."/>
+                                              ToolTipService.ToolTip="Включите для физической замены файлов в крупных апдейтах. Выключите для быстрого сшивания без раздувания RomFS."/>
                             </Grid>
 
                             <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>

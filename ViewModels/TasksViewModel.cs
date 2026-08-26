@@ -1574,7 +1574,21 @@ public partial class TasksViewModel : ObservableObject
 			task.IsRunning = true;
 			List<string> inputFiles2 = task.InputFiles;
 			string outPath = Path.Combine(task.OutputFolder, task.OutputFileName + "." + task.TargetFormat.ToLower());
-			await App.HardPatch.PatchUpdateAsync(task, inputFiles2, outPath, cts.Token);
+			
+			// Предварительный анализ файлов
+			await PreAnalyzeFilesAsync(task, inputFiles2);
+
+			bool hasMods = inputFiles2.Any(d => Directory.Exists(d));
+			if (App.Settings.Current.ForceMultiRebuild || hasMods)
+			{
+				// Физическая пересборка HardPatch (yanu-cli unpack + pack) с заменой ресурсов
+				await App.HardPatch.PatchUpdateAsync(task, inputFiles2, outPath, cts.Token);
+			}
+			else
+			{
+				// Нативное LibHac PFS0 сшивание Base + Update без раздувания RomFS
+				await App.MultiContent.BuildMultiContentAsync(task, inputFiles2, outPath, patchFirmware: false, cts.Token);
+			}
 			return;
 		}
 		if (task.Operation == "Multi")
