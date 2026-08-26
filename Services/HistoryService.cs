@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Text.Json;
@@ -9,7 +9,22 @@ namespace StormSwitchBox.Services
 {
     public static class HistoryService
     {
-        private static readonly string HistoryFilePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "history.json");
+        private static string GetHistoryFilePath()
+        {
+            string localAppDataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "StormSwitchBox");
+            Directory.CreateDirectory(localAppDataDir);
+            string appDataPath = Path.Combine(localAppDataDir, "history.json");
+            
+            // Миграция старого history.json из BaseDirectory, если он есть
+            string legacyPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "history.json");
+            if (!File.Exists(appDataPath) && File.Exists(legacyPath))
+            {
+                try { File.Copy(legacyPath, appDataPath, true); } catch { }
+            }
+            return appDataPath;
+        }
+
+        private static readonly string HistoryFilePath = GetHistoryFilePath();
         public static ObservableCollection<ProcessingTask> HistoryTasks { get; set; } = new ObservableCollection<ProcessingTask>();
 
         public static async Task LoadHistoryAsync()
