@@ -121,10 +121,12 @@ namespace StormSwitchBox.Services
                 string? savedUpdateFile = null;
                 bool hasPatchedBase = false;
 
-                // Патчинг прошивки (пересборка base+update через yanu-cli)
-                // Пропускаем для мульти-программных тайтлов (напр. AC Ezio Collection)
+                // HardPatch (физическая распаковка и пересборка RomFS) применяется только при наличии внешних папок модов (romfs/exefs)
+                // либо при явном включении принудительной пересборки в настройках.
+                // Для обычного мультиконтента (Игра + Апдейт + DLC) используется нативное сшивание LibHac PFS0,
+                // сохраняющее оригинальный компактный размер (6.82 ГБ) без раздувания RomFS.
                 bool skipHardPatch = task.IsMultiProgramTitle;
-                bool shouldHardPatch = (patchFirmware || App.Settings.Current.ForceMultiRebuild || hasMods) && !skipHardPatch;
+                bool shouldHardPatch = (hasMods || (patchFirmware && App.Settings.Current.ForceMultiRebuild)) && !skipHardPatch;
                 if (shouldHardPatch)
                 {
                     App.RunOnUI(() =>

@@ -8,8 +8,21 @@ namespace StormSwitchBox.Services
 {
     public class SettingsService
     {
-        // В WinUI 3 лучше использовать LocalFolder, но для совместимости оставим рядом с exe
-        private static readonly string SettingsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ssb_native.settings.json");
+        private static string GetSettingsFilePath()
+        {
+            string localAppDataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "StormSwitchBox");
+            Directory.CreateDirectory(localAppDataDir);
+            string appDataPath = Path.Combine(localAppDataDir, "ssb_native.settings.json");
+            
+            string baseDirPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ssb_native.settings.json");
+            if (File.Exists(baseDirPath) && !File.Exists(appDataPath))
+            {
+                try { File.Copy(baseDirPath, appDataPath, true); } catch { }
+            }
+            return appDataPath;
+        }
+
+        private static readonly string SettingsPath = GetSettingsFilePath();
         private static readonly string LegacySettingsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "ssb.settings");
 
         public AppSettings Current { get; private set; }
@@ -30,13 +43,13 @@ namespace StormSwitchBox.Services
                     if (settings != null)
                     {
                         bool isDirty = false;
-                        if (settings.AppVersion != "4.7.7")
+                        if (settings.AppVersion != "4.7.8")
                         {
-                            settings.AppVersion = "4.7.7";
+                            settings.AppVersion = "4.7.8";
                             isDirty = true;
                         }
                         settings.ComplexFolders = true;
-                        settings.ForceMultiRebuild = true;
+                        settings.ForceMultiRebuild = false;
                         settings.TrimXci = false;
                         settings.RemoveTitlerights = false;
                         

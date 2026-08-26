@@ -831,8 +831,19 @@ namespace StormSwitchBox.Views
 
             foreach (var task in ViewModel.Tasks.Where(t => t.Status == "Ожидание"))
             {
-                string ext = task.TargetFormat.ToLower();
+                // Распаковка и проверка не создают единый выходной файл с расширением TargetFormat
+                if (task.Operation == "Unpack" || task.Operation == "Verify")
+                    continue;
+
+                if (string.IsNullOrWhiteSpace(task.OutputFolder) || string.IsNullOrWhiteSpace(task.OutputFileName))
+                    continue;
+
+                string ext = (task.TargetFormat ?? "nsp").ToLower();
                 string outPath = System.IO.Path.Combine(task.OutputFolder, $"{task.OutputFileName}.{ext}");
+
+                // Если путь совпадает с входным файлом задачи (напр. исходный NSP в папке OUT), это не конфликт выхода
+                if (task.InputFiles.Contains(outPath, StringComparer.OrdinalIgnoreCase))
+                    continue;
 
                 if (System.IO.File.Exists(outPath))
                 {
