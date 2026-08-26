@@ -121,53 +121,78 @@ namespace StormSwitchBox.Services
                 string? savedUpdateFile = null;
                 bool hasPatchedBase = false;
 
-                // HardPatch (физическая распаковка и пересборка RomFS) применяется только при наличии внешних папок модов (romfs/exefs)
-                // либо при явном включении принудительной пересборки в настройках.
-                // Для обычного мультиконтента (Игра + Апдейт + DLC) используется нативное сшивание LibHac PFS0,
-                // сохраняющее оригинальный компактный размер (6.82 ГБ) без раздувания RomFS.
-                bool skipHardPatch = task.IsMultiProgramTitle;
-                bool shouldHardPatch = (hasMods || (patchFirmware && App.Settings.Current.ForceMultiRebuild)) && !skipHardPatch;
-                if (shouldHardPatch)
+                // 4. Поиск Base и Update и умный анализ метода сборки (Smart Processing)
+                string? baseFile = null;
+                string? updateFile = null;
+                
+                foreach (var f in finalInputFilesList)
                 {
-                    App.RunOnUI(() =>
+                    if (Directory.Exists(f)) continue;
+                    string tid = "";
+                    try 
                     {
-                        task.LogDetails += hasMods 
-                            ? "\n🔵 [HardPatch] Обнаружены папки модов (romfs/exefs/exefs_patches). Запуск распаковки и пересборки..." 
-                            : "\n🔵 [HardPatch] Поиск Base и Update...";
-                    });
-                    
-                    string? baseFile = null;
-                    string? updateFile = null;
-                    
-                    foreach (var f in finalInputFilesList)
+                        var info = App.SwitchFormat.ParseNsp(f);
+                        if (info.ContentType == "Application") baseFile = f;
+                        else if (info.ContentType == "Patch") updateFile = f;
+                        tid = (info.TitleId ?? "").Trim().ToUpperInvariant();
+                    }
+                    catch { }
+
+                    if (string.IsNullOrEmpty(tid))
                     {
-                        if (Directory.Exists(f)) continue;
-                        string tid = "";
-                        try 
-                        {
-                            var info = App.SwitchFormat.ParseNsp(f);
-                            if (info.ContentType == "Application") baseFile = f;
-                            else if (info.ContentType == "Patch") updateFile = f;
-                            tid = (info.TitleId ?? "").Trim().ToUpperInvariant();
-                        }
-                        catch { }
+                        var match = System.Text.RegularExpressions.Regex.Match(f, @"\[([0-9A-Fa-f]{16})\]");
+                        if (match.Success) tid = match.Groups[1].Value.ToUpperInvariant();
+                    }
 
-                        if (string.IsNullOrEmpty(tid))
-                        {
-                            var match = System.Text.RegularExpressions.Regex.Match(f, @"\[([0-9A-Fa-f]{16})\]");
-                            if (match.Success) tid = match.Groups[1].Value.ToUpperInvariant();
-                        }
+                    if (!string.IsNullOrEmpty(tid) && tid.Length == 16)
+                    {
+                        if (tid.EndsWith("000") && string.IsNullOrEmpty(baseFile)) baseFile = f;
+                        else if (tid.EndsWith("800") && string.IsNullOrEmpty(updateFile)) updateFile = f;
+                    }
+                }
+                
+                if (string.IsNullOrEmpty(baseFile)) baseFile = finalInputFilesList.FirstOrDefault(f => !Directory.Exists(f) && !f.Contains("DLC", StringComparison.OrdinalIgnoreCase) && (f.Contains("[v0]") || f.Contains("v0"))) ?? finalInputFilesList.FirstOrDefault(f => !Directory.Exists(f) && !f.Contains("DLC", StringComparison.OrdinalIgnoreCase) && !f.Contains("v")) ?? "";
+                if (string.IsNullOrEmpty(updateFile)) updateFile = finalInputFilesList.FirstOrDefault(f => !Directory.Exists(f) && f != baseFile && !f.Contains("DLC", StringComparison.OrdinalIgnoreCase) && (f.Contains("v") && !f.Contains("v0"))) ?? "";
 
-                        if (!string.IsNullOrEmpty(tid) && tid.Length == 16)
+                long baseSize = (!string.IsNullOrEmpty(baseFile) && File.Exists(baseFile)) ? new FileInfo(baseFile).Length : 0;
+                long updateSize = (!string.IsNullOrEmpty(updateFile) && File.Exists(updateFile)) ? new FileInfo(updateFile).Length : 0;
+
+                bool skipHardPatch = task.IsMultiProgramTitle;
+                bool shouldHardPatch = false;
+
+                if (!skipHardPatch)
+                {
+                    if (hasMods)
+                    {
+                        shouldHardPatch = true;
+                        App.RunOnUI(() => task.LogDetails += "\n🧠 [Умная обработка] Обнаружены папки модификаций (romfs/exefs). Выбрана физическая пересборка HardPatch для интеграции модов.");
+                    }
+                    else if (App.Settings.Current.SmartProcessing)
+                    {
+                        // Если обновление массивное (>= 40% от базы и > 500 МБ) — делаем пересборку, чтобы вычистить устаревшие данные базы
+                        if (baseSize > 0 && updateSize > 0 && updateSize >= (long)(baseSize * 0.40) && updateSize > 500L * 1024 * 1024)
                         {
-                            if (tid.EndsWith("000") && string.IsNullOrEmpty(baseFile)) baseFile = f;
-                            else if (tid.EndsWith("800") && string.IsNullOrEmpty(updateFile)) updateFile = f;
+                            shouldHardPatch = true;
+                            string bSizeStr = $"{baseSize / (1024.0 * 1024 * 1024):0.00} ГБ";
+                            string uSizeStr = $"{updateSize / (1024.0 * 1024 * 1024):0.00} ГБ";
+                            App.RunOnUI(() => task.LogDetails += $"\n🧠 [Умная обработка] Массивный патч ({uSizeStr} >= 40% от базы {bSizeStr}). Выбрана пересборка HardPatch для очистки устаревших ресурсов и минимизации размера.");
+                        }
+                        else
+                        {
+                            shouldHardPatch = false;
+                            string bSizeStr = baseSize > 0 ? $"{baseSize / (1024.0 * 1024 * 1024):0.00} ГБ" : "-";
+                            string uSizeStr = updateSize > 0 ? $"{updateSize / (1024.0 * 1024 * 1024):0.00} ГБ" : "-";
+                            App.RunOnUI(() => task.LogDetails += $"\n🧠 [Умная обработка] Легковесный патч ({uSizeStr} < 40% от базы {bSizeStr}). Выбрано нативное сшивание LibHac PFS0 без раздувания RomFS (минимальный размер).");
                         }
                     }
-                    
-                    if (string.IsNullOrEmpty(baseFile)) baseFile = finalInputFilesList.FirstOrDefault(f => !Directory.Exists(f) && !f.Contains("DLC", StringComparison.OrdinalIgnoreCase) && (f.Contains("[v0]") || f.Contains("v0"))) ?? finalInputFilesList.FirstOrDefault(f => !Directory.Exists(f) && !f.Contains("DLC", StringComparison.OrdinalIgnoreCase) && !f.Contains("v")) ?? "";
-                    if (string.IsNullOrEmpty(updateFile)) updateFile = finalInputFilesList.FirstOrDefault(f => !Directory.Exists(f) && f != baseFile && !f.Contains("DLC", StringComparison.OrdinalIgnoreCase) && (f.Contains("v") && !f.Contains("v0"))) ?? "";
-                    
+                    else
+                    {
+                        shouldHardPatch = patchFirmware;
+                    }
+                }
+
+                if (shouldHardPatch)
+                {
                     if (!string.IsNullOrEmpty(baseFile) && (!string.IsNullOrEmpty(updateFile) || hasMods))
                     {
                         savedBaseFile = baseFile;

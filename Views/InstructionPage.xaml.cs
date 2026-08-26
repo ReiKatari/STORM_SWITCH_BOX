@@ -59,12 +59,35 @@ namespace StormSwitchBox.Views
                     Title = "Обзор приложения",
                     Category = "Введение",
                     Icon = "\uE9CE",
-                    DescriptionText = "STORM SWITCH BOX v4.7.1 — это профессиональный высокопроизводительный комбайн для всесторонней обработки образов игр Nintendo Switch и Nintendo 3DS, а также интерактивная энциклопедия всех 19 поколений игровых систем Nintendo (от Color TV-Game до Nintendo Switch 2).\n\nПрограмма позволяет собирать обновления (HardPatch), распаковывать ресурсы, компилировать файлы в NSP/NSZ/3DS/CIA, конвертировать XCI в NSP, объединять игры с обновлениями, дополнениями (DLC) и модификациями в единый монолитный файл (Мульти-контент 4-в-1), автоматически распаковывать архивы, осуществлять независимый мониторинг «Умных папок» Switch и 3DS, а также гарантированно очищать временные файлы мимо корзины.",
+                    DescriptionText = "STORM SWITCH BOX v4.7.9 — это профессиональный высокопроизводительный комбайн для всесторонней обработки образов игр Nintendo Switch и Nintendo 3DS, а также интерактивная энциклопедия всех 19 поколений игровых систем Nintendo (от Color TV-Game до Nintendo Switch 2).\n\nПрограмма оснащена системой «Умная обработка файлов» (Smart Processing), позволяет собирать обновления с оптимальным размером без раздувания RomFS, распаковывать ресурсы, компилировать файлы в NSP/NSZ/3DS/CIA, конвертировать форматы внутри экосистем (Switch: NSP ↔ XCI ↔ NSZ ↔ XCZ; 3DS: 3DS ↔ CIA ↔ CXI), объединять игры с обновлениями, дополнениями (DLC) и модификациями в единый монолитный файл (Мульти-контент 4-в-1), автоматически распаковывать архивы, осуществлять независимый мониторинг «Умных папок» Switch и 3DS, а также мгновенно сохранять историю в LocalAppData.",
                     Tip = "Переключайтесь между платформами Switch и 3DS в один клик через верхний селектор или настраивайте независимое отслеживание папок!",
                     SetupPreview = container =>
                     {
-                        container.Children.Add(new TextBlock { Text = "⚡ STORM SWITCH BOX v4.7.1", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.Bold });
-                        container.Children.Add(new TextBlock { Text = "• Поддержка двух экосистем: Nintendo Switch и Nintendo 3DS\n• Интерактивная «Библиотека игр» всех 19 поколений Nintendo (Color TV-Game → Switch 2)\n• Раздел «Информация» с визуальными плашками платформ на обложках\n• Две независимые службы «Умная папка» (Switch и 3DS)\n• Встроенный сверхбыстрый движок 7-Zip и ZstdSharp (до 22 уровня сжатия)\n• Гарантированное удаление временных файлов STORM_TMP и StormDecomp мимо корзины", Foreground = GetSecondaryBrush() });
+                        container.Children.Add(new TextBlock { Text = "⚡ STORM SWITCH BOX v4.7.9", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.Bold });
+                        container.Children.Add(new TextBlock { Text = "• Умная обработка файлов (Smart Processing): идеальный баланс размера и функционала\n• Поддержка двух экосистем: Nintendo Switch и Nintendo 3DS с изолированными конвертациями\n• Интерактивная «Библиотека игр» всех 19 поколений Nintendo (No-Intro & Redump)\n• Раздел «Информация» с визуальными плашками платформ на обложках\n• Две независимые службы «Умная папка» (Switch и 3DS)\n• Встроенный сверхбыстрый движок 7-Zip и ZstdSharp (до 22 уровня сжатия)", Foreground = GetSecondaryBrush() });
+                    }
+                },
+                new TopicItem
+                {
+                    Title = "Умная обработка файлов (Smart Processing)",
+                    Category = "Алгоритмы",
+                    Icon = "\uE945",
+                    DescriptionText = "Интеллектуальный алгоритм автоматического выбора метода сборки (Smart Processing), внедренный в v4.7.9:\n\n" +
+                                      "Цель алгоритма: получить абсолютно минимальный размер выходного файла при 100% сохранении всего функционала, модов и дополнений.\n\n" +
+                                      "Как работает авто-анализ:\n" +
+                                      "1. Легковесные патчи (напр. Ys X Nordics: патч 60 МБ на игру 6.75 ГБ) — программа применяет нативное сшивание LibHac PFS0. Это сохраняет оригинальный несжатый размер (6.81 ГБ) без раздувания RomFS до 10.4 ГБ!\n" +
+                                      "2. Массивные обновления (напр. The Witcher 3, MK11: патч >= 40% от базы) — программа запускает физический HardPatch, который удаляет старые 10 ГБ устаревших файлов и заменяет их новыми ресурсами из обновления, экономя гигабайты дискового пространства!\n" +
+                                      "3. Наличие папок модификаций (romfs, exefs, exefs_patches) — автоматически включает HardPatch для надежного внедрения перевода и модов прямо в бинарные ресурсы игры.\n\n" +
+                                      "Вся логика решений наглядно отображается в логе задачи с иконкой 🧠.",
+                    Tip = "Опция включена по умолчанию в Параметрах. Вам больше не нужно вручную думать, когда пересобирать, а когда сшивать!",
+                    SetupPreview = container =>
+                    {
+                        var sp = new StackPanel { Spacing = 8 };
+                        sp.Children.Add(new TextBlock { Text = "🧠 Умный анализ файлов (Smart Processing):", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
+                        sp.Children.Add(new TextBlock { Text = "• Легкий патч: [Нативное сшивание] → Минимальный размер (6.81 ГБ вместо 10.4 ГБ)", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "• Тяжелый патч: [HardPatch] → Замена ресурсов и удаление устаревших данных", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "• Папки модов: [HardPatch] → Физическая инъекция русификатора в RomFS", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) });
+                        container.Children.Add(sp);
                     }
                 },
                 new TopicItem
@@ -72,7 +95,7 @@ namespace StormSwitchBox.Views
                     Title = "Симулятор группировки задач",
                     Category = "Интерактив",
                     Icon = "\uE8E5",
-                    DescriptionText = "Интерактивный симулятор алгоритма группировки v4.7.1.\n\nПеретащите реальные файлы/папки в зону ниже или выберите один из готовых сценариев («Dispatch» или «Cadence of Hyrule»), чтобы увидеть, как программа сформирует изолированные комплектные задачи (ИГРА + UPDATE + DLC + ROMFS/EXEFS), определит RomFS для нужных папок и выведет полный сгруппированный результат построчно с нумерацией.",
+                    DescriptionText = "Интерактивный симулятор алгоритма группировки v4.7.9.\n\nПеретащите реальные файлы/папки в зону ниже или выберите один из готовых сценариев («Dispatch» или «Cadence of Hyrule»), чтобы увидеть, как программа сформирует изолированные комплектные задачи (ИГРА + UPDATE + DLC + ROMFS/EXEFS), определит RomFS для нужных папок и выведет полный сгруппированный результат построчно с нумерацией.",
                     Tip = "Перетаскивайте папки с несколькими релизами прямо в симулятор: вы сразу увидите, как файлы разделятся по независимым задачам!",
                     SetupPreview = container => BuildSimulatorPreview(container)
                 },
@@ -148,7 +171,7 @@ namespace StormSwitchBox.Views
                     Category = "Автоматизация",
                     Icon = "\uE812",
                     DescriptionText = "«Умная» папка предназначена для автоматической фоновой обработки игр.\n\n" +
-                                      "Принцип работы в v4.7.1:\n" +
+                                      "Принцип работы в v4.7.9:\n" +
                                       "1. Активация — просто включите переключатель в Параметрах. Сканирование начинается мгновенно!\n" +
                                       "2. Изоляция по папкам — каждая подпапка первого уровня формирует отдельную изолированную задачу.\n" +
                                       "3. Комплектность по TitleID — внутри одной подпапки базовая игра, файлы обновления, DLC и модификации (RomFS/ExeFS/IPS) автоматически объединяются в один комплект.\n" +
@@ -160,7 +183,7 @@ namespace StormSwitchBox.Views
                         var sp = new StackPanel { Spacing = 10 };
                         sp.Children.Add(new CheckBox { Content = "Автоматическое сканирование и обработка", IsChecked = true });
                         sp.Children.Add(new TextBlock { Text = "Папка: P:\\CONSOLES\\Nintendo Switch\\DOWNLOADS", FontSize = 12, Foreground = GetSecondaryBrush() });
-                        sp.Children.Add(new TextBlock { Text = "Режим: Мульти-контент → Формат: NSP", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
+                        sp.Children.Add(new TextBlock { Text = "Режим: Мульти-контент → Формат: NSP (Умная обработка активна)", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
                         sp.Children.Add(new TextBlock { Text = "⚡ Автоматический запуск задач активирован", FontSize = 12, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
                         container.Children.Add(sp);
                     }
@@ -173,7 +196,8 @@ namespace StormSwitchBox.Views
                     DescriptionText = "Наиболее продвинутый режим для сборки монолитных образов NSP или NSZ.\n\n" +
                                       "• Объединение ресурсов: Базовая игра, Файл обновления, Все дополнения (DLC), Модификации RomFS/ExeFS/IPS и Unlocker собираются в единый устанавливаемый файл.\n" +
                                       "• Сохранение UNLOCKER (.tik / .cert): программа надежно защищает и сохраняет тикеты авторизации персонажей и дополнений (например, в Mortal Kombat 1).\n" +
-                                      "• Native LibHac PFS0: сшивание выполняется нативным C# кодом с гарантированным строгим порядком заголовков (Application CNMT → Control NCA → Program NCA → Patch CNMT → DLC CNMTs → Tickets), что исключает ошибки распознавания в эмуляторах.",
+                                      "• Native LibHac PFS0: сшивание выполняется нативным C# кодом с гарантированным строгим порядком заголовков (Application CNMT → Control NCA → Program NCA → Patch CNMT → DLC CNMTs → Tickets), что исключает ошибки распознавания в эмуляторах.\n" +
+                                      "• Интеграция со Smart Processing: гарантирует, что размер итогового файла будет минимально возможным.",
                     Tip = "Сборка Мульти-контента в NSZ позволяет сэкономить гигабайты места при хранении единого файла игры со всеми DLC.",
                     SetupPreview = container =>
                     {
@@ -189,31 +213,38 @@ namespace StormSwitchBox.Views
                 },
                 new TopicItem
                 {
-                    Title = "Обновление (HardPatch)",
+                    Title = "Обновление (HardPatch и Сшивание)",
                     Category = "Патчинг",
                     Icon = "\uE72C",
-                    DescriptionText = "Режим жесткой интеграции (HardPatch) обновления в базовый образ игры.\n\nПрограмма сливает RomFS-структуры и применяет дельта-патчи BKTR. Полученный образ работает без необходимости отдельной установки патча.",
-                    Tip = "Используйте тумблер сжатия в NSZ для получения минимального размера итогового образа.",
+                    DescriptionText = "Режим интеграции обновления в базовый образ игры с поддержкой Умной обработки (Smart Processing).\n\n" +
+                                      "• При легких патчах (до 40% размера базы) — выполняется прямое сшивание без раздувания RomFS.\n" +
+                                      "• При массивных патчах (от 40% размера базы) — выполняется HardPatch с физической заменой устаревших ресурсов и экономией места.\n" +
+                                      "• Полученный образ работает автономно без необходимости отдельной установки патча.",
+                    Tip = "Используйте сжатие в NSZ для получения минимального размера итогового образа.",
                     SetupPreview = container =>
                     {
                         var sp = new StackPanel { Spacing = 10 };
                         sp.Children.Add(new CheckBox { Content = "Сжать итоговый образ в NSZ (Zstandard)", IsChecked = true });
-                        sp.Children.Add(new Slider { Header = "Уровень сжатия (18 - Стандарт)", Minimum = 1, Maximum = 22, Value = 18 });
+                        sp.Children.Add(new Slider { Header = "Уровень сжатия (22 - Максимум)", Minimum = 1, Maximum = 22, Value = 22 });
                         container.Children.Add(sp);
                     }
                 },
                 new TopicItem
                 {
-                    Title = "Конвертация",
+                    Title = "Конвертация форматов (Switch и 3DS)",
                     Category = "Форматы",
                     Icon = "\uE8D4",
-                    DescriptionText = "Быстрая конвертация картриджных образов (.xci) в устанавливаемые файлы (.nsp) и сжатие в (.nsz).\n\nПоддерживается пасс-фру конвертация без пережатия видео/аудио данных, занимающая считанные секунды.",
+                    DescriptionText = "Быстрая потоковая и нативная конвертация форматов внутри соответствующих экосистем:\n\n" +
+                                      "• Экосистема Nintendo Switch: NSP ↔ XCI ↔ NSZ ↔ XCZ. Поддерживается прямое пасс-фру преобразование без потери качества и пересжатия видео/аудио.\n" +
+                                      "• Экосистема Nintendo 3DS: 3DS (CCI) ↔ CIA ↔ CXI. Форматы 3DS изолированы от форматов Switch.\n" +
+                                      "• Автоматическая обрезка пустых байтов (Trimming) для картриджей 3DS.",
                     Tip = "XCI в NSP конвертируется без потери данных и без нагрузки на ЦП.",
                     SetupPreview = container =>
                     {
                         var sp = new StackPanel { Spacing = 8 };
-                        sp.Children.Add(new CheckBox { Content = "Быстрая конвертация без пережатия", IsChecked = true });
-                        sp.Children.Add(new CheckBox { Content = "Игнорировать ошибки заголовков NCA", IsChecked = false });
+                        sp.Children.Add(new TextBlock { Text = "Цепочки конвертации:", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+                        sp.Children.Add(new TextBlock { Text = "• Switch: NSP ↔ XCI ↔ NSZ ↔ XCZ", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) });
+                        sp.Children.Add(new TextBlock { Text = "• 3DS: 3DS (CCI) ↔ CIA ↔ CXI", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.Crimson) });
                         container.Children.Add(sp);
                     }
                 },

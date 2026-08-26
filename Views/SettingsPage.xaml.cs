@@ -775,9 +775,8 @@ namespace StormSwitchBox.Views
             if (DeltaTitleTxt != null) DeltaTitleTxt.Text = loc["Settings_Switch_Delta_Title"];
             if (DeltaDescTxt != null) DeltaDescTxt.Text = loc["Settings_Switch_Delta_Desc"];
             if (Fat32TitleTxt != null) Fat32TitleTxt.Text = loc["Settings_Switch_Fat32_Title"];
-            if (Fat32DescTxt != null) Fat32DescTxt.Text = loc["Settings_Switch_Fat32_Desc"];
-            if (ForceMultiTitleTxt != null) ForceMultiTitleTxt.Text = loc["Settings_Switch_ForceMulti_Title"];
-            if (ForceMultiDescTxt != null) ForceMultiDescTxt.Text = loc["Settings_Switch_ForceMulti_Desc"];
+            if (SmartProcessingTitleTxt != null) SmartProcessingTitleTxt.Text = loc["Settings_Switch_ForceMulti_Title"] ?? "Умная обработка файлов (Smart Processing)";
+            if (SmartProcessingDescTxt != null) SmartProcessingDescTxt.Text = loc["Settings_Switch_ForceMulti_Desc"] ?? "Авто-анализ: прямое сшивание для легковесных патчей (минимальный размер), а для модов и массивных апдейтов — пересборка с очисткой устаревших данных.";
             if (LangTrimTitleTxt != null) LangTrimTitleTxt.Text = loc["Settings_Switch_LangTrim_Title"];
             if (LangTrimDescTxt != null) LangTrimDescTxt.Text = loc["Settings_Switch_LangTrim_Desc"];
             if (LangTrimSubTxt != null) LangTrimSubTxt.Text = loc["Settings_Switch_LangTrim_Sub"];
@@ -827,7 +826,7 @@ namespace StormSwitchBox.Views
             if (RemoveTitlerightsToggle != null) { RemoveTitlerightsToggle.OnContent = onTxt; RemoveTitlerightsToggle.OffContent = offTxt; }
             if (RemoveDeltaNcaToggle != null) { RemoveDeltaNcaToggle.OnContent = onTxt; RemoveDeltaNcaToggle.OffContent = offTxt; }
             if (SplitFat32Toggle != null) { SplitFat32Toggle.OnContent = onTxt; SplitFat32Toggle.OffContent = offTxt; }
-            if (ForceMultiRebuildToggle != null) { ForceMultiRebuildToggle.OnContent = onTxt; ForceMultiRebuildToggle.OffContent = offTxt; }
+            if (SmartProcessingToggle != null) { SmartProcessingToggle.OnContent = onTxt; SmartProcessingToggle.OffContent = offTxt; }
             if (TrimXciToggle != null) { TrimXciToggle.OnContent = onTxt; TrimXciToggle.OffContent = offTxt; }
             if (WatchFolderSwitchToggle != null) { WatchFolderSwitchToggle.OnContent = onTxt; WatchFolderSwitchToggle.OffContent = offTxt; }
             if (HardPatch3dsToggle != null) { HardPatch3dsToggle.OnContent = onTxt; HardPatch3dsToggle.OffContent = offTxt; }

@@ -6,7 +6,7 @@ namespace StormSwitchBox.Models
     public class AppSettings
     {
         // Окно
-        public string AppVersion { get; set; } = "4.7.8";
+        public string AppVersion { get; set; } = "4.7.9";
         public string Language { get; set; } = "ru"; // ru, en, de, zh, ja
         public int WindowX { get; set; } = -1;
         public int WindowY { get; set; } = -1;
@@ -19,7 +19,8 @@ namespace StormSwitchBox.Models
         public int KeyGeneration { get; set; } = 19;
         public bool UnpackStitched { get; set; } = false;
         public bool ComplexFolders { get; set; } = true;   // По умолчанию ВКЛЮЧЕН
-        public bool ForceMultiRebuild { get; set; } = true;  // По умолчанию ВКЛЮЧЕН
+        public bool SmartProcessing { get; set; } = true;  // Умная обработка файлов (По умолчанию ВКЛЮЧЕНА)
+        public bool ForceMultiRebuild { get => SmartProcessing; set => SmartProcessing = value; }  // Для совместимости
         public bool DeleteSourceOnSuccess { get; set; } = false;
         public bool TrimXci { get; set; } = false;         // По умолчанию ВЫКЛЮЧЕН
         public bool RemoveTitlerights { get; set; } = false; // Удалить Titlerights (ticketless NSP)

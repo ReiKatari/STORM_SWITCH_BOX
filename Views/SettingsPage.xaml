@@ -215,7 +215,7 @@
                             </Border>
                             <StackPanel Grid.Column="1" Spacing="6">
                                 <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                                    <TextBlock x:Name="AppTitleVersionTxt" Text="STORM SWITCH BOX 4.7.8" FontWeight="Bold" FontSize="22"/>
+                                    <TextBlock x:Name="AppTitleVersionTxt" Text="STORM SWITCH BOX 4.7.9" FontWeight="Bold" FontSize="22"/>
                                     <Border Background="{ThemeResource SystemAccentColor}" CornerRadius="4" Padding="6,2" VerticalAlignment="Center">
                                         <TextBlock Text="WinUI 3 Native" Foreground="White" FontSize="11" FontWeight="Bold"/>
                                     </Border>
@@ -347,14 +347,14 @@
 
                             <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
 
-                            <!-- Force Multi Rebuild -->
+                            <!-- Smart Processing (Умная обработка файлов) -->
                             <Grid>
                                 <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
-                                    <TextBlock x:Name="ForceMultiTitleTxt" Text="Физическая пересборка файлов (HardPatch)" FontWeight="Medium"/>
-                                    <TextBlock x:Name="ForceMultiDescTxt" Text="Полная распаковка и физическая замена ресурсов при обновлении. Если выключено — выполняется прямое сшивание без раздувания RomFS." FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                    <TextBlock x:Name="SmartProcessingTitleTxt" Text="Умная обработка файлов (Smart Processing)" FontWeight="Medium"/>
+                                    <TextBlock x:Name="SmartProcessingDescTxt" Text="Авто-анализ: прямое сшивание для легковесных патчей (минимальный размер), а для модов и массивных апдейтов — пересборка с очисткой устаревших данных." FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
                                 </StackPanel>
-                                <ToggleSwitch x:Name="ForceMultiRebuildToggle" HorizontalAlignment="Right" IsOn="{x:Bind Settings.ForceMultiRebuild, Mode=TwoWay}" Toggled="Toggle_Changed"
-                                              ToolTipService.ToolTip="Включите для физической замены файлов в крупных апдейтах. Выключите для быстрого сшивания без раздувания RomFS."/>
+                                <ToggleSwitch x:Name="SmartProcessingToggle" HorizontalAlignment="Right" IsOn="{x:Bind Settings.SmartProcessing, Mode=TwoWay}" Toggled="Toggle_Changed"
+                                              ToolTipService.ToolTip="Автоматически выбирает наилучший метод (сшивание или пересборка) для получения минимального размера и 100% совместимости."/>
                             </Grid>
 
                             <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
