@@ -36,7 +36,7 @@ namespace StormSwitchBox
         public MainWindow()
         {
             this.InitializeComponent();
-            this.Title = "STORM SWITCH BOX 4.8.0";
+            this.Title = "STORM SWITCH BOX 4.8.1";
             this.ExtendsContentIntoTitleBar = true; // Современный заголовок окна
 
             var hWnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
@@ -289,7 +289,7 @@ namespace StormSwitchBox
             RestoreWindow();
             if (GlobalAlertInfoBar != null)
             {
-                GlobalAlertInfoBar.Title = "STORM SWITCH BOX 4.8.0";
+                GlobalAlertInfoBar.Title = "STORM SWITCH BOX 4.8.1";
                 GlobalAlertInfoBar.Message = "⚡ Приложение уже запущено. Повторный запуск заблокирован.";
                 GlobalAlertInfoBar.Severity = InfoBarSeverity.Informational;
                 GlobalAlertInfoBar.IsOpen = true;
