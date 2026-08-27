@@ -158,40 +158,8 @@ namespace StormSwitchBox.Services
                 long updateSize = (!string.IsNullOrEmpty(updateFile) && File.Exists(updateFile)) ? new FileInfo(updateFile).Length : 0;
 
                 bool skipHardPatch = task.IsMultiProgramTitle;
-                bool shouldHardPatch = false;
 
                 if (!skipHardPatch)
-                {
-                    if (hasMods)
-                    {
-                        shouldHardPatch = true;
-                        App.RunOnUI(() => task.LogDetails += "\n🧠 [Умная обработка] Обнаружены папки модификаций (romfs/exefs). Выбрана физическая интеграция HardPatch для вшивания модов в игру.");
-                    }
-                    else if (App.Settings.Current.SmartProcessing)
-                    {
-                        // Если обновление массивное (>= 40% от базы и > 500 МБ) — делаем пересборку, чтобы вычистить устаревшие данные базы
-                        if (baseSize > 0 && updateSize > 0 && updateSize >= (long)(baseSize * 0.40) && updateSize > 500L * 1024 * 1024)
-                        {
-                            shouldHardPatch = true;
-                            string bSizeStr = $"{baseSize / (1024.0 * 1024 * 1024):0.00} ГБ";
-                            string uSizeStr = $"{updateSize / (1024.0 * 1024 * 1024):0.00} ГБ";
-                            App.RunOnUI(() => task.LogDetails += $"\n🧠 [Умная обработка] Массивный патч ({uSizeStr} >= 40% от базы {bSizeStr}). Выбрана пересборка HardPatch для очистки устаревших ресурсов и минимизации размера.");
-                        }
-                        else
-                        {
-                            shouldHardPatch = false;
-                            string bSizeStr = baseSize > 0 ? $"{baseSize / (1024.0 * 1024 * 1024):0.00} ГБ" : "-";
-                            string uSizeStr = updateSize > 0 ? $"{updateSize / (1024.0 * 1024 * 1024):0.00} ГБ" : "-";
-                            App.RunOnUI(() => task.LogDetails += $"\n🧠 [Умная обработка] Легковесный патч ({uSizeStr} < 40% от базы {bSizeStr}). Выбрано нативное сшивание LibHac PFS0 без раздувания RomFS (минимальный размер).");
-                        }
-                    }
-                    else
-                    {
-                        shouldHardPatch = patchFirmware;
-                    }
-                }
-
-                if (shouldHardPatch)
                 {
                     if (!string.IsNullOrEmpty(baseFile) && (!string.IsNullOrEmpty(updateFile) || hasMods))
                     {
@@ -455,9 +423,7 @@ namespace StormSwitchBox.Services
                                     bool isTicketOrCert = lower.EndsWith(".tik") || lower.EndsWith(".cert");
                                     bool isPatchCnmt = lower.EndsWith(".cnmt.nca") || lower.EndsWith(".cnmt.xml");
 
-                                    bool shouldInclude = isTicketOrCert || (!hasPatchedBase && isPatchCnmt);
-
-                                    if (shouldInclude)
+                                    if (isTicketOrCert || isPatchCnmt)
                                     {
                                         if (!mergedEntries.ContainsKey(name))
                                         {
@@ -948,8 +914,18 @@ namespace StormSwitchBox.Services
             if (lower.EndsWith(".cnmt.xml"))
             {
                 if (isFromBase || lower.Contains("000") || lower.Contains("base")) return 0;
-                if (lower.Contains("800") || lower.Contains("update") || lower.Contains("patch")) return 1;
-                return 10;
+                if (lower.Contains("800") || lower.Contains("update") || lower.Contains("patch")) return 10;
+                return 50;
+            }
+
+            if (lower.EndsWith(".cnmt.nca"))
+            {
+                if (isFromBase) return 0; // Base/Patched Game CNMT is ALWAYS top priority in PFS0
+                if (lower.Contains("000") || lower.Contains("base")) return 0;
+                if (lower.Contains("800") || lower.Contains("update") || lower.Contains("patch")) return 10; // Update Patch CNMT
+                if (baseTitleId != 0 && lower.Contains(baseTitleId.ToString("x16"))) return 0;
+                if (baseTitleId != 0 && lower.Contains((baseTitleId + 0x800).ToString("x16"))) return 10;
+                return 50; // DLC / Mod CNMT
             }
 
             try
@@ -974,28 +950,26 @@ namespace StormSwitchBox.Services
                 if (type == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Meta) // CNMT
                 {
                     if (isBaseTitle) return 0;
-                    if (isUpdateTitle) return 1;
-                    return 10;
+                    if (isUpdateTitle) return 10;
+                    return 50;
                 }
 
                 if (type == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Control) // Icon artwork & Title strings
                 {
-                    if (isBaseTitle) return 2;
-                    if (isUpdateTitle) return 3;
-                    return 11;
+                    if (isBaseTitle) return 1;
+                    return 51;
                 }
 
                 if (type == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Program) // Executable code
                 {
-                    if (isBaseTitle) return 4;
-                    if (isUpdateTitle) return 5;
-                    return 12;
+                    if (isBaseTitle || isUpdateTitle) return 2;
+                    return 52;
                 }
 
                 if (type == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Manual || type == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.PublicData)
                 {
-                    if (isBaseTitle || isUpdateTitle) return 6;
-                    return 13;
+                    if (isBaseTitle || isUpdateTitle) return 3;
+                    return 53;
                 }
             }
             catch
@@ -1003,28 +977,28 @@ namespace StormSwitchBox.Services
                 if (isFromBase)
                 {
                     if (lower.EndsWith(".cnmt.nca")) return 0;
-                    if (lower.Contains("control")) return 2;
-                    if (lower.Contains("program")) return 4;
+                    if (lower.Contains("control")) return 1;
+                    if (lower.Contains("program")) return 2;
                     
                     try
                     {
                         file.GetSize(out long fSize);
-                        if (fSize > 0 && fSize < 5 * 1024 * 1024) return 2; // Control-sized NCA
+                        if (fSize > 0 && fSize < 5 * 1024 * 1024) return 1; // Control-sized NCA
                     }
                     catch { }
-                    return 4;
+                    return 2;
                 }
 
                 if (lower.EndsWith(".cnmt.nca"))
                 {
-                    if (lower.Contains("800") || lower.Contains("update") || lower.Contains("patch")) return 1;
-                    return 10;
+                    if (lower.Contains("800") || lower.Contains("update") || lower.Contains("patch")) return 10;
+                    return 50;
                 }
-                if (lower.Contains("control")) return 11;
-                if (lower.Contains("program")) return 12;
+                if (lower.Contains("control")) return 51;
+                if (lower.Contains("program")) return 52;
             }
 
-            return isFromBase ? 6 : 13;
+            return isFromBase ? 4 : 53;
         }
 
         private async Task<List<string>> GenerateModAddonEntriesAsync(
