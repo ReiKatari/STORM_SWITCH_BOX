@@ -24,7 +24,7 @@ namespace StormUniversal.Installer
         private PictureBox picHeaderLogo = null!;
         private Panel headerPanel = null!;
 
-        private const string AppVersion = "4.8.1";
+        private const string AppVersion = "4.8.2";
         private const string AppDisplayName = "STORM SWITCH BOX";
         private const string AppFolderName = "STORM SWITCH BOX";
         private const string ExeName = "StormSwitchBox.exe";
