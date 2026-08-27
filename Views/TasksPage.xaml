@@ -202,21 +202,20 @@
                     <controls:DataGridTemplateColumn Header="Кон. формат" Width="150" MinWidth="50">
                         <controls:DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
-                                <Grid VerticalAlignment="Center" HorizontalAlignment="Center">
-                                    <ComboBox ItemsSource="{Binding AvailableTargetFormats}"
-                                              SelectedItem="{Binding TargetFormat, Mode=TwoWay}" 
-                                              Visibility="{Binding FormatSelectorVisibility, Mode=OneWay}"
-                                              Foreground="{Binding TargetFormatColor, Mode=OneWay}"
-                                              FontWeight="{Binding TargetFormatWeight, Mode=OneWay}"
-                                              VerticalAlignment="Center" HorizontalAlignment="Center"
-                                              Padding="6,2" MinWidth="65" MinHeight="26" Height="26" BorderThickness="0" Background="Transparent"/>
-                                    <TextBlock Text="{Binding TargetFormat}"
-                                               Visibility="{Binding FormatDisplayVisibility, Mode=OneWay}"
-                                               Foreground="{Binding TargetFormatColor, Mode=OneWay}"
-                                               FontWeight="{Binding TargetFormatWeight, Mode=OneWay}"
-                                               VerticalAlignment="Center" HorizontalAlignment="Center"
-                                               IsHitTestVisible="False"/>
-                                </Grid>
+                                <ComboBox ItemsSource="{Binding AvailableTargetFormats}"
+                                          SelectedItem="{Binding TargetFormat, Mode=TwoWay}" 
+                                          IsEnabled="{Binding CanChangeFormat, Mode=OneWay}" 
+                                          Foreground="{Binding TargetFormatColor, Mode=OneWay}"
+                                          FontWeight="{Binding TargetFormatWeight, Mode=OneWay}"
+                                          VerticalAlignment="Center" HorizontalAlignment="Center"
+                                          Padding="6,2" MinWidth="65" MinHeight="26" Height="26" BorderThickness="0" Background="Transparent">
+                                    <ComboBox.Resources>
+                                        <SolidColorBrush x:Key="ComboBoxForegroundDisabled" Color="#2ECC71"/>
+                                        <SolidColorBrush x:Key="ComboBoxForegroundFocused" Color="#00E5FF"/>
+                                        <SolidColorBrush x:Key="ComboBoxForegroundPointerOver" Color="#00E5FF"/>
+                                        <SolidColorBrush x:Key="ComboBoxForegroundPressed" Color="#00E5FF"/>
+                                    </ComboBox.Resources>
+                                </ComboBox>
                             </DataTemplate>
                         </controls:DataGridTemplateColumn.CellTemplate>
                     </controls:DataGridTemplateColumn>

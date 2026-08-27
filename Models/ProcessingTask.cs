@@ -39,8 +39,6 @@ namespace StormSwitchBox.Models
         {
             OnPropertyChanged(nameof(IsNotRunning));
             OnPropertyChanged(nameof(CanChangeFormat));
-            OnPropertyChanged(nameof(FormatSelectorVisibility));
-            OnPropertyChanged(nameof(FormatDisplayVisibility));
         }
 
         [ObservableProperty] private bool _is3dsTask;
@@ -59,21 +57,16 @@ namespace StormSwitchBox.Models
         [System.Text.Json.Serialization.JsonIgnore]
         public bool CanChangeFormat => !IsRunning && !IsCompleted;
 
+        private static readonly SolidColorBrush FormatGreenBrush = new(Windows.UI.Color.FromArgb(255, 46, 204, 113));
+        private static readonly SolidColorBrush FormatCyanBrush = new(Windows.UI.Color.FromArgb(255, 0, 229, 255));
+
         [System.Text.Json.Serialization.JsonIgnore]
-        public SolidColorBrush TargetFormatColor => IsCompleted 
-            ? new SolidColorBrush(Windows.UI.Color.FromArgb(255, 46, 204, 113)) 
-            : new SolidColorBrush(Windows.UI.Color.FromArgb(255, 0, 229, 255));
+        public SolidColorBrush TargetFormatColor => IsCompleted ? FormatGreenBrush : FormatCyanBrush;
 
         [System.Text.Json.Serialization.JsonIgnore]
         public Windows.UI.Text.FontWeight TargetFormatWeight => IsCompleted 
             ? Microsoft.UI.Text.FontWeights.Bold 
             : Microsoft.UI.Text.FontWeights.Normal;
-
-        [System.Text.Json.Serialization.JsonIgnore]
-        public Microsoft.UI.Xaml.Visibility FormatSelectorVisibility => CanChangeFormat ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
-
-        [System.Text.Json.Serialization.JsonIgnore]
-        public Microsoft.UI.Xaml.Visibility FormatDisplayVisibility => CanChangeFormat ? Microsoft.UI.Xaml.Visibility.Collapsed : Microsoft.UI.Xaml.Visibility.Visible;
 
         [ObservableProperty] private long _sourceSizeBytes;
         [ObservableProperty] private string _hasRomFs = "-";
@@ -211,8 +204,6 @@ namespace StormSwitchBox.Models
             OnPropertyChanged(nameof(StatusColor));
             OnPropertyChanged(nameof(IsCompleted));
             OnPropertyChanged(nameof(CanChangeFormat));
-            OnPropertyChanged(nameof(FormatSelectorVisibility));
-            OnPropertyChanged(nameof(FormatDisplayVisibility));
             OnPropertyChanged(nameof(TargetFormatColor));
             OnPropertyChanged(nameof(TargetFormatWeight));
         }

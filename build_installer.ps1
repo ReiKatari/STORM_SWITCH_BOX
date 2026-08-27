@@ -1,4 +1,4 @@
-﻿# STORM SWITCH BOX - Automated Production Build & Release Pipeline (STORM ALL PROJECTS FORMAT)
+# STORM SWITCH BOX - Automated Production Build & Release Pipeline (STORM ALL PROJECTS FORMAT)
 $ErrorActionPreference = "Stop"
 
 $baseDir = $PSScriptRoot
@@ -14,7 +14,7 @@ if (-not (Test-Path $assemblingDir)) { New-Item -ItemType Directory -Path $assem
 if (-not (Test-Path $filesDir)) { New-Item -ItemType Directory -Path $filesDir | Out-Null }
 if (-not (Test-Path $outputDir)) { New-Item -ItemType Directory -Path $outputDir | Out-Null }
 
-$appVersion = "4.8.0"
+$appVersion = "4.8.1"
 try {
     [xml]$appProjXml = Get-Content (Join-Path $appProjDir "StormSwitchBox.csproj")
     $verFromProj = $appProjXml.Project.PropertyGroup.Version
@@ -137,9 +137,9 @@ try {
 # Step 5: Packaging Smart App Control Setup Bundle
 Write-Host "[6/6] Packaging Setup Bundle..." -ForegroundColor Yellow
 if (Test-Path "$baseDir\tools\7z.exe") {
-    $unblockPath = Join-Path $filesDir "Разблокировать_И_Установить_Сертификат.bat"
-    $launcherPath = Join-Path $baseDir "installer\Запустить_Установку.cmd"
-    $bundleItems = @($outputSetupExePath, $cerOutput, $unblockPath, $launcherPath)
+    $unblockFiles = Get-ChildItem -Path $filesDir -Filter "*.bat" | Select-Object -ExpandProperty FullName
+    $launcherFiles = Get-ChildItem -Path (Join-Path $baseDir "installer") -Filter "*.cmd" | Select-Object -ExpandProperty FullName
+    $bundleItems = @($outputSetupExePath, $cerOutput) + $unblockFiles + $launcherFiles
     & "$baseDir\tools\7z.exe" a -tzip -mx=7 -mmt=on $bundleZipPath $bundleItems
 }
 
