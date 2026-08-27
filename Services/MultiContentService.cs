@@ -27,11 +27,15 @@ namespace StormSwitchBox.Services
 
         public async Task BuildMultiContentAsync(ProcessingTask task, List<string> inputFiles, string outPath, bool patchFirmware, CancellationToken cancellationToken)
         {
+            if (string.IsNullOrWhiteSpace(task.TargetFormat))
+            {
+                task.TargetFormat = task.Is3dsTask ? "3DS" : "NSP";
+            }
             string intermediatePath = outPath;
-            bool isCompressedFormat = task.TargetFormat.Equals("NSZ", StringComparison.OrdinalIgnoreCase) || task.TargetFormat.Equals("XCZ", StringComparison.OrdinalIgnoreCase);
+            bool isCompressedFormat = string.Equals(task.TargetFormat, "NSZ", StringComparison.OrdinalIgnoreCase) || string.Equals(task.TargetFormat, "XCZ", StringComparison.OrdinalIgnoreCase);
             if (isCompressedFormat)
             {
-                string intermediateExt = task.TargetFormat.Equals("XCZ", StringComparison.OrdinalIgnoreCase) ? ".xci" : ".nsp";
+                string intermediateExt = string.Equals(task.TargetFormat, "XCZ", StringComparison.OrdinalIgnoreCase) ? ".xci" : ".nsp";
                 intermediatePath = System.IO.Path.ChangeExtension(outPath, intermediateExt);
                 if (intermediatePath.Equals(outPath, StringComparison.OrdinalIgnoreCase))
                 {
@@ -229,7 +233,7 @@ namespace StormSwitchBox.Services
                     task.Status = "Сборка...";
                 });
 
-                bool isTargetXci = task.TargetFormat.Equals("XCI", StringComparison.OrdinalIgnoreCase) || task.TargetFormat.Equals("XCZ", StringComparison.OrdinalIgnoreCase);
+                bool isTargetXci = string.Equals(task.TargetFormat, "XCI", StringComparison.OrdinalIgnoreCase) || string.Equals(task.TargetFormat, "XCZ", StringComparison.OrdinalIgnoreCase);
                 
                 string appDir = AppDomain.CurrentDomain.BaseDirectory;
                 string toolsDir = System.IO.Path.Combine(appDir, "tools");
@@ -614,7 +618,7 @@ namespace StormSwitchBox.Services
                     
                     await App.NszCompression.CompressToNszAsync(task, intermediatePath, targetDir, cancellationToken);
                     
-                    string ext = task.TargetFormat.Equals("XCZ", StringComparison.OrdinalIgnoreCase) ? ".xcz" : ".nsz";
+                    string ext = string.Equals(task.TargetFormat, "XCZ", StringComparison.OrdinalIgnoreCase) ? ".xcz" : ".nsz";
                     string expectedNsz = System.IO.Path.ChangeExtension(intermediatePath, ext);
                     string finalCompressedPath = System.IO.Path.ChangeExtension(outPath, ext);
                     

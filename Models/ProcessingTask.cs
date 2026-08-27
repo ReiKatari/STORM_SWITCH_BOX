@@ -15,13 +15,32 @@ namespace StormSwitchBox.Models
         [ObservableProperty] private string _gameName = string.Empty;
         [ObservableProperty] private string _operation = string.Empty;
         [ObservableProperty] private string _sourceFormat = string.Empty;
-        [ObservableProperty] private string _targetFormat = string.Empty;
+        private string _targetFormat = "NSP";
+        public string TargetFormat
+        {
+            get => string.IsNullOrWhiteSpace(_targetFormat) ? (_is3dsTask ? "3DS" : "NSP") : _targetFormat;
+            set
+            {
+                // CRITICAL: Prevent ComboBox virtualization recycling from resetting TargetFormat to null/empty!
+                if (string.IsNullOrWhiteSpace(value))
+                {
+                    return;
+                }
+                if (SetProperty(ref _targetFormat, value))
+                {
+                    OnPropertyChanged(nameof(TargetFormatColor));
+                    OnPropertyChanged(nameof(TargetFormatWeight));
+                }
+            }
+        }
+
         [ObservableProperty] private string _sourceSize = string.Empty;
         [ObservableProperty] private string _targetSize = string.Empty;
         [ObservableProperty] private string _sizeDifference = string.Empty;
         [ObservableProperty] private string _compressionLevel = string.Empty;
         [ObservableProperty] private string _filesCount = string.Empty;
         [ObservableProperty] private string _status = string.Empty;
+
         [ObservableProperty] private double _progress;
         [ObservableProperty] private bool _isRunning;
         [ObservableProperty] private DateTime _finishedAt = DateTime.Now;
@@ -47,6 +66,15 @@ namespace StormSwitchBox.Models
             AvailableTargetFormats = value
                 ? new List<string> { "3DS", "CIA", "CXI" }
                 : new List<string> { "NSP", "NSZ", "XCI", "XCZ" };
+
+            if (_targetFormat == "3DS" || _targetFormat == "CIA" || _targetFormat == "CXI")
+            {
+                if (!value) TargetFormat = "NSP";
+            }
+            else if (_targetFormat == "NSP" || _targetFormat == "NSZ" || _targetFormat == "XCI" || _targetFormat == "XCZ")
+            {
+                if (value) TargetFormat = "3DS";
+            }
         }
 
         [ObservableProperty] private List<string> _availableTargetFormats = new() { "NSP", "NSZ", "XCI", "XCZ" };
@@ -56,6 +84,12 @@ namespace StormSwitchBox.Models
 
         [System.Text.Json.Serialization.JsonIgnore]
         public bool CanChangeFormat => !IsRunning && !IsCompleted;
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public Visibility FormatCompletedVisibility => IsCompleted ? Visibility.Visible : Visibility.Collapsed;
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public Visibility FormatSelectableVisibility => IsCompleted ? Visibility.Collapsed : Visibility.Visible;
 
         private static readonly SolidColorBrush FormatGreenBrush = new(Windows.UI.Color.FromArgb(255, 46, 204, 113));
         private static readonly SolidColorBrush FormatCyanBrush = new(Windows.UI.Color.FromArgb(255, 0, 229, 255));
@@ -206,6 +240,8 @@ namespace StormSwitchBox.Models
             OnPropertyChanged(nameof(CanChangeFormat));
             OnPropertyChanged(nameof(TargetFormatColor));
             OnPropertyChanged(nameof(TargetFormatWeight));
+            OnPropertyChanged(nameof(FormatCompletedVisibility));
+            OnPropertyChanged(nameof(FormatSelectableVisibility));
         }
     }
 }
