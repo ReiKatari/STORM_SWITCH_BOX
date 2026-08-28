@@ -8,7 +8,7 @@
   <b>Высокопроизводительный комплекс для управления, умной обработки, конвертации и верификации игр Nintendo Switch и Nintendo 3DS.</b>
 </p>
 
-[![Version](https://img.shields.io/badge/version-4.8.2-00D2FF.svg?style=for-the-badge)](https://github.com/ReiKatari/STORM_SWITCH_BOX)
+[![Version](https://img.shields.io/badge/version-4.8.7-00D2FF.svg?style=for-the-badge)](https://github.com/ReiKatari/STORM_SWITCH_BOX)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2011%20%7C%2010-0EA5E9.svg?style=for-the-badge)](https://github.com/ReiKatari/STORM_SWITCH_BOX)
 [![Framework](https://img.shields.io/badge/.NET-8.0%20WinUI%203-7C3AED.svg?style=for-the-badge)](https://dotnet.microsoft.com/)
 [![Publisher](https://img.shields.io/badge/Publisher-STORM%20TEAM-10B981.svg?style=for-the-badge)](https://github.com/ReiKatari)
@@ -60,7 +60,7 @@
 
 Установка производится через инсталлятор **STORM INSTALLER**:
 
-1. Скачайте и запустите релизный файл `STORM_SWITCH_BOX_4.8.2_Setup.exe`.
+1. Скачайте и запустите релизный файл `STORM_SWITCH_BOX_4.8.6_Setup.exe`.
 2. Выберите желаемый вариант:
    * **Стандартная установка** — установка в `C:\Program Files\STORM SWITCH BOX` с созданием ярлыков и регистрацией в системе.
    * **Портативная версия** — распаковка в любую выбранную папку без изменения реестра.
@@ -79,7 +79,7 @@
 ## 📁 Структура файлов репозитория / Structure
 
 * `Assembling/` — готовые скомпилированные релизные бинарные файлы и зависимости.
-* `Files/` — инсталлятор `STORM_SWITCH_BOX_4.8.2_Setup.exe`, сертификат `STORM_Certificate.cer` и сервисные скрипты.
+* `Files/` — инсталлятор `STORM_SWITCH_BOX_4.8.6_Setup.exe`, сертификат `STORM_Certificate.cer` и сервисные скрипты.
 * `installer/` — исходный код и ресурсы инсталлятора StormInstaller.
 * `tools/` — утилиты для работы с образами и контейнерами (yanu-cli, hacpack, hactoolnet, nsz, 3dstool, ctrtool, makerom).
 

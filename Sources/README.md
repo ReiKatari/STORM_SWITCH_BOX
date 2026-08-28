@@ -6,7 +6,7 @@
   <b>Комплексный менеджер и конвертер игр Nintendo Switch (NSP/XCI/NSZ), управление установкой и резервным копированием.</b>
 </p>
 
-[![Version](https://img.shields.io/badge/version-4.8.2-00D2FF.svg?style=for-the-badge)](https://github.com/ReiKatari/STORM_SWITCH_BOX)
+[![Version](https://img.shields.io/badge/version-4.8.7-00D2FF.svg?style=for-the-badge)](https://github.com/ReiKatari/STORM_SWITCH_BOX)
 [![License](https://img.shields.io/badge/license-MIT-green.svg?style=for-the-badge)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2B-blue.svg?style=for-the-badge)](https://www.microsoft.com/windows)
 [![.NET](https://img.shields.io/badge/.NET-8.0-purple.svg?style=for-the-badge)](https://dotnet.microsoft.com/download/dotnet/8.0)
@@ -42,7 +42,7 @@
 
 ## 📥 Установка
 
-1. Запустите файл `STORM_SWITCH_BOX_4.8.2_Setup.exe`.
+1. Запустите файл `STORM_SWITCH_BOX_4.8.6_Setup.exe`.
 2. Выберите режим:
    * **Стандартная установка** — установка в C:\Program Files\STORM SWITCH BOX с созданием ярлыков и регистрацией в системе.
    * **Портативная версия** — распаковка в любую выбранную папку без изменения реестра.

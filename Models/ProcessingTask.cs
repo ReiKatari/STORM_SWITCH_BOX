@@ -105,6 +105,9 @@ namespace StormSwitchBox.Models
         [ObservableProperty] private long _sourceSizeBytes;
         [ObservableProperty] private string _hasRomFs = "-";
         [ObservableProperty] private string _hasExeFs = "-";
+        [ObservableProperty] private string _hasSaveData = "-";
+        [ObservableProperty] private string _saveDataFolder = string.Empty;
+        [ObservableProperty] private int _saveFilesCount;
         [ObservableProperty] private string _modNameRomFs = string.Empty;
         [ObservableProperty] private string _modNameExeFs = string.Empty;
         [ObservableProperty] private string _speed = string.Empty;
@@ -156,6 +159,7 @@ namespace StormSwitchBox.Models
             "Pack" => "Упаковка",
             "Convert" => "Конвертация",
             "Multi" => "Мульти-контент",
+            "Homebrew" => "Homebrew",
             "Verify" => "Проверка",
             _ => Operation
         };

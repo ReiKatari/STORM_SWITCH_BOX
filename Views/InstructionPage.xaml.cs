@@ -59,11 +59,11 @@ namespace StormSwitchBox.Views
                     Title = "Обзор приложения",
                     Category = "Введение",
                     Icon = "\uE9CE",
-                    DescriptionText = "STORM SWITCH BOX v4.8.2 — это профессиональный высокопроизводительный комбайн для всесторонней обработки образов игр Nintendo Switch и Nintendo 3DS, а также интерактивная энциклопедия всех 19 поколений игровых систем Nintendo (от Color TV-Game до Nintendo Switch 2).\n\nПрограмма оснащена системой «Умная обработка файлов» (Smart Processing), которая работает всегда и автоматически выбирает оптимальный метод сборки (нативное сшивание без раздувания RomFS для легких патчей или HardPatch для тяжелых обновлений и модов), распаковывает ресурсы, компилирует файлы в NSP/NSZ/3DS/CIA, конвертирует форматы внутри экосистем (Switch: NSP ↔ XCI ↔ NSZ ↔ XCZ; 3DS: 3DS ↔ CIA ↔ CXI), объединяет игры с обновлениями, дополнениями (DLC) и модификациями в единый монолитный файл (Мульти-контент 4-в-1), автоматически распаковывает архивы, осуществляет независимый мониторинг «Умных папок» Switch и 3DS, а также мгновенно сохраняет историю в LocalAppData.",
+                    DescriptionText = "STORM SWITCH BOX v4.8.7 — это профессиональный высокопроизводительный комбайн для всесторонней обработки образов игр Nintendo Switch и Nintendo 3DS, а также интерактивная энциклопедия всех 19 поколений игровых систем Nintendo (от Color TV-Game до Nintendo Switch 2).\n\nПрограмма оснащена системой «Умная обработка файлов» (Smart Processing), которая работает всегда и автоматически выбирает оптимальный метод сборки (нативное сшивание без раздувания RomFS для легких патчей или HardPatch для тяжелых обновлений и модов), распаковывает ресурсы, компилирует файлы в NSP/NSZ/3DS/CIA, конвертирует форматы внутри экосистем (Switch: NSP ↔ XCI ↔ NSZ ↔ XCZ; 3DS: 3DS ↔ CIA ↔ CXI), объединяет игры с обновлениями, дополнениями (DLC) и модификациями в единый монолитный файл (Мульти-контент 4-в-1), автоматически собирает Homebrew порты и игры в один файл, осуществляет независимый мониторинг «Умных папок» Switch и 3DS, а также мгновенно сохраняет историю в LocalAppData.",
                     Tip = "Переключайтесь между платформами Switch и 3DS в один клик через верхний селектор или настраивайте независимое отслеживание папок!",
                     SetupPreview = container =>
                     {
-                        container.Children.Add(new TextBlock { Text = "⚡ STORM SWITCH BOX v4.8.2", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.Bold });
+                        container.Children.Add(new TextBlock { Text = "⚡ STORM SWITCH BOX v4.8.7", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.Bold });
                         container.Children.Add(new TextBlock { Text = "• Умная обработка файлов (Smart Processing): идеальный баланс размера и функционала по умолчанию\n• Поддержка двух экосистем: Nintendo Switch и Nintendo 3DS с изолированными конвертациями\n• Интерактивная «Библиотека игр» всех 19 поколений Nintendo (No-Intro & Redump)\n• Раздел «Информация» с визуальными плашками платформ на обложках\n• Две независимые службы «Умная папка» (Switch и 3DS)\n• Встроенный сверхбыстрый движок 7-Zip и ZstdSharp (до 22 уровня сжатия)", Foreground = GetSecondaryBrush() });
                     }
                 },
@@ -72,7 +72,7 @@ namespace StormSwitchBox.Views
                     Title = "Умная обработка файлов (Smart Processing)",
                     Category = "Алгоритмы",
                     Icon = "\uE945",
-                    DescriptionText = "Интеллектуальный алгоритм автоматического выбора метода сборки (Smart Processing), внедренный в v4.8.2:\n\n" +
+                    DescriptionText = "Интеллектуальный алгоритм автоматического выбора метода сборки (Smart Processing), внедренный в v4.8.7:\n\n" +
                                       "Цель алгоритма: получить абсолютно минимальный размер выходного файла при 100% сохранении всего функционала, модов и дополнений.\n\n" +
                                       "Как работает авто-анализ:\n" +
                                       "1. Легковесные патчи (напр. Ys X Nordics: патч 60 МБ на игру 6.75 ГБ) — программа применяет нативное сшивание LibHac PFS0. Это сохраняет оригинальный несжатый размер (6.81 ГБ) без раздувания RomFS до 10.4 ГБ!\n" +
@@ -208,6 +208,29 @@ namespace StormSwitchBox.Views
                         sp.Children.Add(new TextBlock { Text = "3. [DLC] Все персонажи Kombat Pack (150 МБ)", FontSize = 12, Foreground = GetSecondaryBrush() });
                         sp.Children.Add(new TextBlock { Text = "4. [UNLOCKER] Тикеты прав (.tik / .cert сохранены)", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
                         sp.Children.Add(new TextBlock { Text = "5. [MOD] 60 FPS ExeFS Patch [ExeFS: 1]", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) });
+                        container.Children.Add(sp);
+                    }
+                },
+                new TopicItem
+                {
+                    Title = "Homebrew: Сборка портов и автономных игр",
+                    Category = "Homebrew",
+                    Icon = "\uE7FC",
+                    DescriptionText = "Специализированный раздел «Homebrew» для автоматического распознавания, объединения и сборки любых портов и любительских игр в монолитные автономные файлы (NSP / NSZ / XCI):\n\n" +
+                                      "1. Умное распознавание любых наборов файлов — просто перетащите папку с игрой (например, Diablo I, GTA V, DOOM, Half-Life, Quake) или группу файлов (.nro, .ovl, .nsp форвардеры, архивы .zip/.7z, папки atmosphere/contents/<TitleID>/romfs). Программа мгновенно объединит их в единую готовую задачу.\n" +
+                                      "2. Монолитная сборка RomFS — все внешние ресурсы игры (.mpq, .rpf, .wad, .pk3, .pak, .dat, .bin, .ini, .cfg, шрифты и текстуры) физически вшиваются прямо в Program NCA. Игра больше не требует наличия файлов на MicroSD или в папках LayeredFS.\n" +
+                                      "3. Авто-извлечение ExeFS и NACP — при наличии сопутствующего Forwarder NSP программа автоматически распаковывает и использует оригинальные бинарные модули main/NPDM и метаданные (TitleID, иконку, автора). Если форвардера нет — генерируется универсальный ExeFS.\n" +
+                                      "4. 100% готовность для эмуляторов и консолей — полученный монолитный NSP/NSZ запускается «из коробки» на любых эмуляторах (STORM EDEN, Eden Nightly, Ryujinx, Suyu, Sudachi) и на физических консолях Nintendo Switch без дополнительных настроек.\n" +
+                                      "5. Полное редактирование — через контекстное меню задачи («Редактировать метаданные») вы можете в любой момент изменить название игры (рус/англ), автора, версию и заменить обложку.",
+                    Tip = "Перетащите папку любого Homebrew порта (например, GTA V или Diablo I) в раздел Homebrew — задача создастся с оригинальной иконкой и полным набором данных!",
+                    SetupPreview = container =>
+                    {
+                        var sp = new StackPanel { Spacing = 6 };
+                        sp.Children.Add(new TextBlock { Text = "🕹️ Пакет Homebrew игры (Автономный NSP):", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) });
+                        sp.Children.Add(new TextBlock { Text = "• ExeFS: main (бинарный порт) + main.npdm [NSP Forwarder]", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "• RomFS: Вшитые данные игры (.mpq / .rpf / .wad / .ini / LayeredFS)", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
+                        sp.Children.Add(new TextBlock { Text = "• Control: Название + Автор + Иконка [TitleID: 058E... / 0100...]", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "✓ Запуск: 100% автономно на эмуляторах и консолях в один клик!", FontSize = 12, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
                         container.Children.Add(sp);
                     }
                 },

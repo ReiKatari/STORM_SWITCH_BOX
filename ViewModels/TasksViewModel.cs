@@ -439,15 +439,114 @@ public partial class TasksViewModel : ObservableObject
 		// Автораспаковка любых архивов в путях или подпапках
 		paths = await EnsureArchivesExtractedAsync(paths);
 
-		// 1. Separate mod directories (romfs/exefs/exefs_patches) from other paths
+		// Если текущая вкладка - Homebrew, запускаем умный распознаватель Homebrew
+		if (_currentPageType == "Homebrew")
+		{
+			var hbPackages = await App.Homebrew.IdentifyHomebrewPackagesAsync(paths);
+			if (hbPackages.Count > 0)
+			{
+				foreach (var pkg in hbPackages)
+				{
+					long sizeBytes = pkg.InputFiles.Sum(f => File.Exists(f) ? new FileInfo(f).Length : (Directory.Exists(f) ? CalculateSize(f) : 0));
+					string outFolder = GetOutPathForPage("Homebrew");
+					if (string.IsNullOrEmpty(outFolder))
+					{
+						outFolder = !string.IsNullOrEmpty(pkg.PrimaryNroPath) ? Path.GetDirectoryName(pkg.PrimaryNroPath) ?? "" : App.Settings.Current.OutputFolder;
+					}
+
+					var task = new ProcessingTask
+					{
+						Id = $"T{Tasks.Count + 1:D3}",
+						GroupId = pkg.TitleId,
+						Operation = "Homebrew",
+						SourceFormat = "NRO",
+						Is3dsTask = false,
+						TargetFormat = SelectedFormat,
+						SourceSizeBytes = sizeBytes,
+						SourceSize = ProcessingTask.FormatSize(sizeBytes),
+						TargetSize = "-",
+						SizeDifference = "-",
+						CompressionLevel = App.Settings.Current.CompressionLevel.ToString(),
+						FilesCount = pkg.InputFiles.Count.ToString(),
+						InputFiles = pkg.InputFiles,
+						FilesList = pkg.InputFiles.Select(Path.GetFileName).ToList(),
+						HasRomFs = pkg.RomFsDir != null ? "1" : "-",
+						HasExeFs = pkg.ExeFsDir != null ? "1" : "-",
+						HasSaveData = pkg.SaveFilesCount > 0 ? $"Да ({pkg.SaveFilesCount})" : "-",
+						SaveFilesCount = pkg.SaveFilesCount,
+						SaveDataFolder = pkg.SaveDataDir ?? "",
+						Status = "Ожидание",
+						Progress = 0.0,
+						InputFolders = string.Join("; ", pkg.InputFiles.Select(p => Directory.Exists(p) ? p : (Path.GetDirectoryName(p) ?? "")).Distinct()),
+						OutputFolder = outFolder,
+						OutputFileName = pkg.Name,
+						GameName = pkg.Name,
+						LogDetails = $"[Homebrew] {pkg.Name} v{pkg.Version} by {pkg.Author} (TitleID: {pkg.TitleId})"
+					};
+
+					// Заполняем модель кастомных метаданных для немедленного редактирования
+					task.CustomMetadata = new GameMetadataEditModel
+					{
+						SourceFilePath = pkg.PrimaryNroPath,
+						TitleNameEnglish = pkg.Name,
+						TitleNameRussian = pkg.Name,
+						Publisher = pkg.Author,
+						Version = pkg.Version,
+						OriginalIconBytes = pkg.IconBytes
+					};
+
+					// Загрузка иконки в GameIcon
+					if (pkg.IconBytes != null && pkg.IconBytes.Length > 0)
+					{
+						try
+						{
+							using var ms = new MemoryStream(pkg.IconBytes);
+							var bitmap = new BitmapImage();
+							await bitmap.SetSourceAsync(ms.AsRandomAccessStream());
+							task.GameIcon = bitmap;
+						}
+						catch { }
+					}
+
+					Tasks.Add(task);
+
+					if (pkg.IconBytes != null && pkg.IconBytes.Length > 0)
+					{
+						Task.Run(() =>
+						{
+							try
+							{
+								string iconsDir = HistoryService.GetIconsDirectory();
+								File.WriteAllBytes(Path.Combine(iconsDir, $"{pkg.TitleId}.png"), pkg.IconBytes);
+							}
+							catch { }
+						});
+					}
+
+					App.Logger.Log($"[Homebrew] Создана задача: {pkg.Name} [{pkg.TitleId}] ({pkg.InputFiles.Count} файлов)", LogLevel.Success);
+				}
+				return;
+			}
+		}
+
+		// 1. Separate mod and save directories from other paths
 		var modDirs = paths.Where(p => Directory.Exists(p) && 
 			(Path.GetFileName(p).Equals("romfs", StringComparison.OrdinalIgnoreCase) || 
 			 Path.GetFileName(p).Equals("exefs", StringComparison.OrdinalIgnoreCase) ||
 			 Path.GetFileName(p).Equals("exefs_patches", StringComparison.OrdinalIgnoreCase))).ToList();
 
-		var normalPaths = paths.Except(modDirs).ToList();
+		var saveDirs = paths.Where(p => Directory.Exists(p) &&
+			(Path.GetFileName(p).Equals("save", StringComparison.OrdinalIgnoreCase) ||
+			 Path.GetFileName(p).Equals("saves", StringComparison.OrdinalIgnoreCase) ||
+			 Path.GetFileName(p).Equals("savedata", StringComparison.OrdinalIgnoreCase) ||
+			 Path.GetFileName(p).Equals("save_data", StringComparison.OrdinalIgnoreCase) ||
+			 Path.GetFileName(p).Equals("checkpoint", StringComparison.OrdinalIgnoreCase) ||
+			 Path.GetFileName(p).Equals("jksv", StringComparison.OrdinalIgnoreCase) ||
+			 Path.GetFileName(p).Equals("edizon", StringComparison.OrdinalIgnoreCase))).ToList();
 
-		// Also scan normal paths (if they are directories) to find nested romfs/exefs/exefs_patches folders
+		var normalPaths = paths.Except(modDirs).Except(saveDirs).ToList();
+
+		// Also scan normal paths (if they are directories) to find nested romfs/exefs/saves folders
 		foreach (var normalPath in normalPaths)
 		{
 			if (Directory.Exists(normalPath))
@@ -457,14 +556,19 @@ public partial class TasksViewModel : ObservableObject
 					var subDirs = Directory.GetDirectories(normalPath, "*", SearchOption.AllDirectories);
 					foreach (var subDir in subDirs)
 					{
-						string name = Path.GetFileName(subDir);
-						if (name.Equals("romfs", StringComparison.OrdinalIgnoreCase) || 
-							name.Equals("exefs", StringComparison.OrdinalIgnoreCase) ||
-							name.Equals("exefs_patches", StringComparison.OrdinalIgnoreCase))
+						string name = Path.GetFileName(subDir).ToLowerInvariant();
+						if (name == "romfs" || name == "exefs" || name == "exefs_patches")
 						{
 							if (!modDirs.Contains(subDir, StringComparer.OrdinalIgnoreCase))
 							{
 								modDirs.Add(subDir);
+							}
+						}
+						else if (name == "save" || name == "saves" || name == "savedata" || name == "save_data" || name == "checkpoint" || name == "jksv" || name == "edizon")
+						{
+							if (!saveDirs.Contains(subDir, StringComparer.OrdinalIgnoreCase))
+							{
+								saveDirs.Add(subDir);
 							}
 						}
 					}
@@ -488,8 +592,8 @@ public partial class TasksViewModel : ObservableObject
 			}
 		}
 
-		// 3. Attach mod directories to game tasks
-		if (modDirs.Count > 0)
+		// 3. Attach mod & save directories to game tasks
+		if (modDirs.Count > 0 || saveDirs.Count > 0)
 		{
 			// Find newly created tasks first
 			var newlyCreatedTasks = Tasks.Skip(initialTaskCount).ToList();
@@ -550,6 +654,28 @@ public partial class TasksViewModel : ObservableObject
 							updated = true;
 						}
 					}
+
+					foreach (var saveDir in saveDirs)
+					{
+						if (!string.IsNullOrEmpty(taskBaseDir) && !saveDir.StartsWith(taskBaseDir, StringComparison.OrdinalIgnoreCase))
+						{
+							continue;
+						}
+
+						if (!task.InputFiles.Contains(saveDir, StringComparer.OrdinalIgnoreCase))
+						{
+							task.InputFiles.Add(saveDir);
+							updated = true;
+						}
+
+						task.SaveDataFolder = saveDir;
+						try
+						{
+							task.SaveFilesCount = Directory.GetFiles(saveDir, "*", SearchOption.AllDirectories).Length;
+							task.HasSaveData = task.SaveFilesCount > 0 ? $"Да ({task.SaveFilesCount})" : "-";
+						}
+						catch { }
+					}
 					
 					if (updated)
 					{
@@ -565,13 +691,13 @@ public partial class TasksViewModel : ObservableObject
 						task.HasRomFs = hasRomFs ? "1" : "-";
 						task.HasExeFs = hasExeFs ? "1" : "-";
 						
-						App.Logger.Log($"Папки модов привязаны к задаче {task.Id} ({task.OutputFileName})", LogLevel.Success);
+						App.Logger.Log($"Папки модов/сэйвов привязаны к задаче {task.Id} ({task.OutputFileName})", LogLevel.Success);
 					}
 				}
 			}
 			else
 			{
-				App.Logger.Log("Не найдено активной задачи для привязки папок модов (romfs/exefs). Пожалуйста, перетащите их вместе с игрой.", LogLevel.Warning);
+				App.Logger.Log("Не найдено активной задачи для привязки папок модов/сэйвов. Пожалуйста, перетащите их вместе с игрой.", LogLevel.Warning);
 			}
 		}
 	}
@@ -697,30 +823,39 @@ public partial class TasksViewModel : ObservableObject
 					catch { }
 
 					List<(string Path, string? TitleId, string Type, string TopFolder, byte[]? IconBytes)> filesMeta = new();
+					var semaphore = new SemaphoreSlim(4);
 					var metaTasks = gameFiles.Select(async delegate(string f)
 					{
-						string relPath = Path.GetRelativePath(path, f);
-						string topFolder;
-						if (hasRootGameFiles)
+						await semaphore.WaitAsync();
+						try
 						{
-							topFolder = "ROOT";
+							string relPath = Path.GetRelativePath(path, f);
+							string topFolder;
+							if (hasRootGameFiles)
+							{
+								topFolder = "ROOT";
+							}
+							else
+							{
+								var parts = relPath.Split(Path.DirectorySeparatorChar);
+								topFolder = parts.Length > 0 ? parts[0] : "ROOT";
+							}
+							string? tid = null;
+							string ctype = "";
+							byte[]? iconBytes = null;
+							if (!Directory.Exists(f))
+							{
+								SwitchFormatInfo meta = await GetInternalTitleInfoAsync(f);
+								tid = meta.TitleId;
+								ctype = meta.ContentType;
+								iconBytes = meta.IconBytes;
+							}
+							return (Path: f, TitleId: tid, Type: ctype, TopFolder: topFolder, IconBytes: iconBytes);
 						}
-						else
+						finally
 						{
-							var parts = relPath.Split(Path.DirectorySeparatorChar);
-							topFolder = parts.Length > 0 ? parts[0] : "ROOT";
+							semaphore.Release();
 						}
-						string? tid = null;
-						string ctype = "";
-						byte[]? iconBytes = null;
-						if (!Directory.Exists(f))
-						{
-							SwitchFormatInfo meta = await GetInternalTitleInfoAsync(f);
-							tid = meta.TitleId;
-							ctype = meta.ContentType;
-							iconBytes = meta.IconBytes;
-						}
-						return (Path: f, TitleId: tid, Type: ctype, TopFolder: topFolder, IconBytes: iconBytes);
 					}).ToList();
 					filesMeta.AddRange(await Task.WhenAll(metaTasks));
 					var topFolderTids = (from m in filesMeta
@@ -1050,14 +1185,9 @@ public partial class TasksViewModel : ObservableObject
 					{
 						try
 						{
-							InMemoryRandomAccessStream stream = new InMemoryRandomAccessStream();
-							using (DataWriter writer = new DataWriter(stream.GetOutputStreamAt(0uL)))
-							{
-								writer.WriteBytes(iconBytes);
-								await writer.StoreAsync();
-							}
+							using var ms = new MemoryStream(iconBytes);
 							BitmapImage bitmap = new BitmapImage();
-							await bitmap.SetSourceAsync(stream);
+							await bitmap.SetSourceAsync(ms.AsRandomAccessStream());
 							task.GameIcon = bitmap;
 						}
 						catch
@@ -1087,13 +1217,24 @@ public partial class TasksViewModel : ObservableObject
 		{
 			try
 			{
-				string text = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "icons");
-				if (!Directory.Exists(text))
-				{
-					Directory.CreateDirectory(text);
-				}
+				string text = StormSwitchBox.Services.HistoryService.GetIconsDirectory();
 				string path = Path.Combine(text, safeGroupId + ".png");
 				File.WriteAllBytes(path, iconBytes);
+
+				var match = System.Text.RegularExpressions.Regex.Match(groupId, @"(?i)\b([0-9a-f]{16})\b");
+				if (match.Success)
+				{
+					string tid = match.Groups[1].Value.ToUpperInvariant();
+					File.WriteAllBytes(Path.Combine(text, $"{tid}.png"), iconBytes);
+				}
+				else if (groupId.Length >= 12)
+				{
+					string prefix = groupId.Substring(0, 12).ToUpperInvariant();
+					if (System.Text.RegularExpressions.Regex.IsMatch(prefix, @"^[0-9A-F]{12}$"))
+					{
+						File.WriteAllBytes(Path.Combine(text, $"{prefix}.png"), iconBytes);
+					}
+				}
 			}
 			catch
 			{
@@ -1114,6 +1255,7 @@ public partial class TasksViewModel : ObservableObject
 			"Pack" => App.Settings.Current.LastOutPath_Pack, 
 			"Convert" => App.Settings.Current.LastOutPath_Convert, 
 			"Multi" => App.Settings.Current.LastOutPath_Multi, 
+			"Homebrew" => App.Settings.Current.LastOutPath_Homebrew, 
 			"ThreeDs" => !string.IsNullOrEmpty(App.Settings.Current.OutputFolder3ds) ? App.Settings.Current.OutputFolder3ds : App.Settings.Current.LastOutPath_3ds,
 			_ => "", 
 		};
@@ -1592,6 +1734,12 @@ public partial class TasksViewModel : ObservableObject
 			await PreAnalyzeFilesAsync(task, inputFiles3);
 			
 			await App.MultiContent.BuildMultiContentAsync(task, inputFiles3, outPath2, patchFirmware: App.Settings.Current.ForceMultiRebuild, cts.Token);
+			return;
+		}
+		if (task.Operation == "Homebrew")
+		{
+			task.IsRunning = true;
+			await App.Homebrew.BuildHomebrewAsync(task, cts.Token);
 			return;
 		}
 		if (task.Operation == "Unpack")
