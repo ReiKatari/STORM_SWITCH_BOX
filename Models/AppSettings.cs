@@ -6,7 +6,7 @@ namespace StormSwitchBox.Models
     public class AppSettings
     {
         // Окно
-        public string AppVersion { get; set; } = "4.8.2";
+        public string AppVersion { get; set; } = "4.8.7";
         public string Language { get; set; } = "ru"; // ru, en, de, zh, ja
         public int WindowX { get; set; } = -1;
         public int WindowY { get; set; } = -1;
@@ -73,6 +73,7 @@ namespace StormSwitchBox.Models
         // Пути сохранения (выходная папка для каждого режима)
         public string LastOutPath_Convert { get; set; } = "";
         public string LastOutPath_Multi { get; set; } = "";
+        public string LastOutPath_Homebrew { get; set; } = "";
         public string LastOutPath_Pack { get; set; } = "";
         public string LastOutPath_Update { get; set; } = "";
         public string LastOutPath_Unpack { get; set; } = "";

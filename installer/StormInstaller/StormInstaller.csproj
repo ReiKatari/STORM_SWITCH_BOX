@@ -7,22 +7,21 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationIcon>..\..\storm_switch_box.ico</ApplicationIcon>
-    <Version>4.8.2</Version>
-    <AssemblyVersion>4.8.2.0</AssemblyVersion>
-    <FileVersion>4.8.2.0</FileVersion>
-    <AssemblyTitle>STORM SWITCH BOX 4.8.2</AssemblyTitle>
-    <Product>STORM SWITCH BOX 4.8.2</Product>
-    <Title>STORM SWITCH BOX 4.8.2</Title>
-    <Description>STORM SWITCH BOX 4.8.2</Description>
+    <Version>4.8.7</Version>
+    <AssemblyVersion>4.8.7.0</AssemblyVersion>
+    <FileVersion>4.8.7.0</FileVersion>
+    <AssemblyTitle>STORM SWITCH BOX 4.8.7</AssemblyTitle>
+    <Product>STORM SWITCH BOX 4.8.7</Product>
+    <Title>STORM SWITCH BOX 4.8.7</Title>
+    <Description>STORM SWITCH BOX 4.8.7</Description>
     <Company>STORM TEAM</Company>
-    <Authors>STORM TEAM</Authors>
-    <PublisherName>STORM TEAM</PublisherName>
-    <Copyright>Copyright © 2026 STORM TEAM</Copyright>
+    <Authors>ReiKatari &amp; STORM TEAM</Authors>
+    <Copyright>Copyright © STORM TEAM 2026</Copyright>
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="..\Output\STORM_SWITCH_BOX_4.8.2_win-x64.zip" Link="Payload\Payload.zip" />
+    <EmbeddedResource Include="..\Output\STORM_SWITCH_BOX_4.8.7_win-x64.zip" Link="Payload\Payload.zip" />
     <EmbeddedResource Include="..\STORM_Certificate.cer" Link="Payload\STORM_Certificate.cer" />
     <EmbeddedResource Include="..\..\storm_switch_box.ico" Link="Payload\storm_switch_box.ico" />
     <EmbeddedResource Include="header_badge.png" Link="Payload\header_badge.png" />

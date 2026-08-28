@@ -30,9 +30,10 @@ namespace StormSwitchBox.Services
             public string OriginalKey;
         }
 
-        private static readonly Channel<DownloadItem> _downloadChannel = Channel.CreateBounded<DownloadItem>(new BoundedChannelOptions(500)
+        private static readonly Channel<DownloadItem> _downloadChannel = Channel.CreateUnbounded<DownloadItem>(new UnboundedChannelOptions
         {
-            FullMode = BoundedChannelFullMode.DropOldest
+            SingleReader = false,
+            SingleWriter = false
         });
 
         static CoverCacheService()
@@ -77,9 +78,11 @@ namespace StormSwitchBox.Services
                 catch { }
             }
 
-            // Start 2 background worker tasks to consume the channel quietly
-            Task.Run(ProcessDownloadQueueAsync);
-            Task.Run(ProcessDownloadQueueAsync);
+            // Start 8 background parallel worker tasks to consume the channel rapidly
+            for (int i = 0; i < 8; i++)
+            {
+                Task.Run(ProcessDownloadQueueAsync);
+            }
         }
 
         private static async Task ProcessDownloadQueueAsync()
@@ -120,7 +123,7 @@ namespace StormSwitchBox.Services
                     }
                     finally
                     {
-                        await Task.Delay(50).ConfigureAwait(false);
+                        await Task.Delay(20).ConfigureAwait(false);
                     }
                 }
             }

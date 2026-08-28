@@ -1,11 +1,21 @@
+#define MyAppName "STORM SWITCH BOX"
+#define MyAppVersion "4.8.7"
+#define MyAppPublisher "STORM TEAM"
+#define MyAppURL "https://github.com/ReiKatari/STORM_SWITCH_BOX"
+#define MyAppExeName "StormSwitchBox.exe"
+
 [Setup]
-AppName=STORM SWITCH BOX
-AppVersion=4.8.2
-AppPublisher=STORM CHANNEL & ReiKatari
-AppPublisherURL=https://rutube.ru/channel/42609927/
-DefaultDirName={autopf}\STORM SWITCH BOX
-DefaultGroupName=STORM SWITCH BOX
-OutputBaseFilename=STORM_SWITCH_BOX_4.8.2_Setup
+AppId={{D9A61EDF-EDDE-4A54-BB4A-BB7026E04035}
+AppName={#MyAppName}
+AppVersion={#MyAppVersion}
+AppPublisher={#MyAppPublisher}
+AppPublisherURL={#MyAppURL}
+AppSupportURL={#MyAppURL}
+AppUpdatesURL={#MyAppURL}
+DefaultDirName={autopf}\{#MyAppName}
+DefaultGroupName={#MyAppName}
+AllowNoIcons=yes
+OutputBaseFilename=STORM_SWITCH_BOX_4.8.7_Setup
 OutputDir=Output
 SetupIconFile=..\storm_switch_box.ico
 ArchitecturesAllowed=x64compatible

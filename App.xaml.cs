@@ -17,6 +17,7 @@ namespace StormSwitchBox
         public static NszCompressionService NszCompression { get; } = new NszCompressionService(SwitchFormat);
         public static MultiContentService MultiContent { get; } = new MultiContentService(Keys);
         public static HardPatchEngine HardPatch { get; } = new HardPatchEngine(Keys);
+        public static HomebrewService Homebrew { get; } = new HomebrewService(Keys);
         public static TitleDbService TitleDb { get; } = new TitleDbService();
         public static ControlEditorService ControlEditor { get; } = new ControlEditorService();
         public static TicketHarvesterService TicketHarvester { get; } = new TicketHarvesterService();
@@ -41,7 +42,8 @@ namespace StormSwitchBox
                     }
                     catch (Exception ex)
                     {
-                        Logger?.Log($"[UI Exception Intercepted] {ex.Message}", Models.LogLevel.Warning);
+                        string loc = ex.TargetSite != null ? $" ({ex.TargetSite.DeclaringType?.Name}.{ex.TargetSite.Name})" : "";
+                        Logger?.Log($"[UI Exception Intercepted] {ex.Message}{loc}", Models.LogLevel.Warning);
                     }
                 });
             }
@@ -53,7 +55,8 @@ namespace StormSwitchBox
                 }
                 catch (Exception ex)
                 {
-                    Logger?.Log($"[UI Exception Intercepted] {ex.Message}", Models.LogLevel.Warning);
+                    string loc = ex.TargetSite != null ? $" ({ex.TargetSite.DeclaringType?.Name}.{ex.TargetSite.Name})" : "";
+                    Logger?.Log($"[UI Exception Intercepted] {ex.Message}{loc}", Models.LogLevel.Warning);
                 }
             }
         }
@@ -68,7 +71,7 @@ namespace StormSwitchBox
 
         public App()
         {
-            UnblockApplicationFiles();
+            UnblockApplicationFilesAsync();
             this.InitializeComponent();
             this.UnhandledException += App_UnhandledException;
 
@@ -101,27 +104,44 @@ namespace StormSwitchBox
             };
         }
 
-        private static void UnblockApplicationFiles()
+        private static void UnblockApplicationFilesAsync()
         {
-            try
+            Task.Run(() =>
             {
-                string baseDir = System.AppContext.BaseDirectory;
-                if (System.IO.Directory.Exists(baseDir))
+                try
                 {
-                    var files = System.IO.Directory.GetFiles(baseDir, "*.*", System.IO.SearchOption.AllDirectories);
-                    foreach (var file in files)
+                    string baseDir = System.AppContext.BaseDirectory;
+                    string toolsDir = System.IO.Path.Combine(baseDir, "tools");
+
+                    // 1. Быстро разблокируем основные исполняемые файлы в корне
+                    if (System.IO.Directory.Exists(baseDir))
                     {
-                        if (file.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) || 
-                            file.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ||
-                            file.EndsWith(".sys", StringComparison.OrdinalIgnoreCase) ||
-                            file.EndsWith(".pri", StringComparison.OrdinalIgnoreCase))
+                        foreach (var file in System.IO.Directory.EnumerateFiles(baseDir, "*.*", System.IO.SearchOption.TopDirectoryOnly))
                         {
-                            DeleteZoneStream(file);
+                            if (file.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) || 
+                                file.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ||
+                                file.EndsWith(".pri", StringComparison.OrdinalIgnoreCase))
+                            {
+                                DeleteZoneStream(file);
+                            }
+                        }
+                    }
+
+                    // 2. Разблокируем утилиты в tools/
+                    if (System.IO.Directory.Exists(toolsDir))
+                    {
+                        foreach (var file in System.IO.Directory.EnumerateFiles(toolsDir, "*.*", System.IO.SearchOption.AllDirectories))
+                        {
+                            if (file.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) || 
+                                file.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+                            {
+                                DeleteZoneStream(file);
+                            }
                         }
                     }
                 }
-            }
-            catch { }
+                catch { }
+            });
         }
 
         [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]

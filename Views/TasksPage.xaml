@@ -104,6 +104,7 @@
                             <CheckBox Content="Файлы" IsChecked="True" Checked="ColumnVisibility_Checked" Unchecked="ColumnVisibility_Unchecked" Tag="9"/>
                             <CheckBox Content="RomFS" IsChecked="True" Checked="ColumnVisibility_Checked" Unchecked="ColumnVisibility_Unchecked" Tag="10"/>
                             <CheckBox Content="ExeFS" IsChecked="True" Checked="ColumnVisibility_Checked" Unchecked="ColumnVisibility_Unchecked" Tag="11"/>
+                            <CheckBox Content="Сэйвы" IsChecked="True" Checked="ColumnVisibility_Checked" Unchecked="ColumnVisibility_Unchecked" Tag="12"/>
                         </StackPanel>
                     </Flyout>
                 </AppBarButton.Flyout>
@@ -128,6 +129,7 @@
                     <ComboBoxItem Content="Упаковка" Tag="Pack"/>
                     <ComboBoxItem Content="Конвертация" Tag="Convert"/>
                     <ComboBoxItem Content="Мульти-контент" Tag="Multi"/>
+                    <ComboBoxItem Content="Homebrew" Tag="Homebrew"/>
                     <ComboBoxItem Content="Проверка" Tag="Verify"/>
                 </ComboBox>
             </AppBarElementContainer>
@@ -248,6 +250,7 @@
 
                     <controls:DataGridTextColumn Header="RomFS" Binding="{Binding HasRomFs}" IsReadOnly="True" Width="100" MinWidth="50" ElementStyle="{StaticResource CenterAlignedCell}"/>
                     <controls:DataGridTextColumn Header="ExeFS" Binding="{Binding HasExeFs}" IsReadOnly="True" Width="100" MinWidth="50" ElementStyle="{StaticResource CenterAlignedCell}"/>
+                    <controls:DataGridTextColumn Header="Сэйвы" Binding="{Binding HasSaveData}" IsReadOnly="True" Width="110" MinWidth="50" ElementStyle="{StaticResource CenterAlignedCell}"/>
 
                     <controls:DataGridTemplateColumn Header="Статус" Width="200" MinWidth="50">
                         <controls:DataGridTemplateColumn.CellTemplate>

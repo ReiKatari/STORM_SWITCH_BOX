@@ -36,7 +36,7 @@ namespace StormSwitchBox
         public MainWindow()
         {
             this.InitializeComponent();
-            this.Title = "STORM SWITCH BOX 4.8.2";
+            this.Title = "STORM SWITCH BOX 4.8.7";
             this.ExtendsContentIntoTitleBar = true; // Современный заголовок окна
 
             var hWnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
@@ -125,12 +125,13 @@ namespace StormSwitchBox
             // Map CLI action to XAML navigation Tag and nav item index
             var (tag, index) = action switch
             {
-                "update"  => ("Update",  0),
-                "unpack"  => ("Unpack",  1),
-                "pack"    => ("Pack",    2),
-                "convert" => ("Convert", 3),
-                "multi"   => ("Multi",   4),
-                _         => ("Multi",   4)
+                "update"   => ("Update",   0),
+                "unpack"   => ("Unpack",   1),
+                "pack"     => ("Pack",     2),
+                "convert"  => ("Convert",  3),
+                "multi"    => ("Multi",    4),
+                "homebrew" => ("Homebrew", 5),
+                _          => ("Multi",    4)
             };
             
             // Select the appropriate nav item
@@ -235,6 +236,7 @@ namespace StormSwitchBox
             if (NavPackItem != null) NavPackItem.Content = App.Localization["Nav_Pack"];
             if (NavConvertItem != null) NavConvertItem.Content = App.Localization["Nav_Convert"];
             if (NavMultiItem != null) NavMultiItem.Content = App.Localization["Nav_Multi"];
+            if (NavHomebrewItem != null) NavHomebrewItem.Content = App.Localization["Nav_Homebrew"];
             if (NavVerifyItem != null) NavVerifyItem.Content = App.Localization["Nav_Verify"];
             if (NavInstructionItem != null) NavInstructionItem.Content = App.Localization["Nav_Instruction"];
             if (NavGameLibraryItem != null) NavGameLibraryItem.Content = App.Localization["Nav_GameLibrary"];
@@ -289,7 +291,7 @@ namespace StormSwitchBox
             RestoreWindow();
             if (GlobalAlertInfoBar != null)
             {
-                GlobalAlertInfoBar.Title = "STORM SWITCH BOX 4.8.2";
+                GlobalAlertInfoBar.Title = $"STORM SWITCH BOX {App.Settings.Current.AppVersion}";
                 GlobalAlertInfoBar.Message = "⚡ Приложение уже запущено. Повторный запуск заблокирован.";
                 GlobalAlertInfoBar.Severity = InfoBarSeverity.Informational;
                 GlobalAlertInfoBar.IsOpen = true;

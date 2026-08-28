@@ -106,7 +106,7 @@ namespace StormSwitchBox.Services
         {
             _dbPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "titledb.json");
             _httpClient = new HttpClient();
-            _httpClient.DefaultRequestHeaders.Add("User-Agent", "StormSwitchBox/4.8.2");
+            _httpClient.DefaultRequestHeaders.Add("User-Agent", "StormSwitchBox/4.8.7");
             _eShopService = new NintendoEShopService();
             
             // Асинхронно загружаем базу из локального кэша
@@ -232,6 +232,8 @@ namespace StormSwitchBox.Services
                 return false;
             }
         }
+
+        public bool TryGetEntry(string titleId, out TitleDbEntry? entry) => TryGetTitleInfo(titleId, out entry);
 
         public bool TryGetTitleInfo(string titleId, out TitleDbEntry? entry)
         {

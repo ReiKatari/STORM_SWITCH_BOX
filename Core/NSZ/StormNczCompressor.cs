@@ -504,15 +504,22 @@ namespace StormSwitchBox.Core.NSZ
             int usedCores = 0;
             try
             {
-                string settingsPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ssb_native.settings.json");
-                if (File.Exists(settingsPath))
+                if (App.Settings?.Current != null && App.Settings.Current.UsedCores > 0)
                 {
-                    string json = File.ReadAllText(settingsPath);
-                    using (var doc = System.Text.Json.JsonDocument.Parse(json))
+                    usedCores = App.Settings.Current.UsedCores;
+                }
+                else
+                {
+                    string settingsPath = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "StormSwitchBox", "settings.json");
+                    if (File.Exists(settingsPath))
                     {
-                        if (doc.RootElement.TryGetProperty("UsedCores", out var prop))
+                        string json = File.ReadAllText(settingsPath);
+                        using (var doc = System.Text.Json.JsonDocument.Parse(json))
                         {
-                            usedCores = prop.GetInt32();
+                            if (doc.RootElement.TryGetProperty("UsedCores", out var prop))
+                            {
+                                usedCores = prop.GetInt32();
+                            }
                         }
                     }
                 }
