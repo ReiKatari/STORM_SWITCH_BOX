@@ -278,20 +278,92 @@ namespace StormSwitchBox.Services
                     } catch { }
                 }
                 
-                bool hasModsToApply = (romfsMod != null || exefsMod != null || exefsPatchesMod != null);
-                if (hasModsToApply || !string.IsNullOrEmpty(updateFile) || applyMods)
+                bool hasModsToApply = (romfsMod != null || exefsMod != null || exefsPatchesMod != null || applyMods);
+                bool yanuUpdateSuccess = false;
+
+                // СЦЕНАРИЙ 1: Если модов нет и передан файл обновления — сначала пробуем прямой и быстрый yanu-cli update
+                if (!hasModsToApply && !string.IsNullOrEmpty(updateFile))
                 {
-                    App.RunOnUI(() => task.LogDetails += hasModsToApply 
+                    App.RunOnUI(() => task.LogDetails += $"\n[1/2] Интеграция обновления (yanu-cli update)...");
+
+                    string updateWorkDir = System.IO.Path.Combine(tempDir, "update_work");
+                    Directory.CreateDirectory(updateWorkDir);
+
+                    string updateArgs = $"{keyfileFlag}update --base \"{baseFile}\" --update \"{updateFile}\" -o \"{yanuOutDir}\"";
+                    if (!string.IsNullOrEmpty(keepLangsArg)) updateArgs += $" {keepLangsArg}";
+                    if (!string.IsNullOrEmpty(titleVersionArg)) updateArgs += $" {titleVersionArg}";
+
+                    App.Logger.Log($"[yanu-cli] update: {updateArgs}", Models.LogLevel.Info);
+
+                    var updatePsi = new ProcessStartInfo
+                    {
+                        FileName = yanuCliPath,
+                        Arguments = updateArgs,
+                        UseShellExecute = false,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        CreateNoWindow = true,
+                        WorkingDirectory = updateWorkDir,
+                        StandardOutputEncoding = System.Text.Encoding.UTF8,
+                        StandardErrorEncoding = System.Text.Encoding.UTF8
+                    };
+                    updatePsi.EnvironmentVariables["USERPROFILE"] = isolatedUserProfile;
+                    updatePsi.EnvironmentVariables["LOCALAPPDATA"] = isolatedLocalAppData;
+                    updatePsi.EnvironmentVariables["APPDATA"] = isolatedLocalAppData;
+                    updatePsi.EnvironmentVariables["TEMP"] = tempDir;
+                    updatePsi.EnvironmentVariables["TMP"] = tempDir;
+
+                    using var updateProc = Process.Start(updatePsi);
+                    if (updateProc != null)
+                    {
+                        var updateStderr = new System.Text.StringBuilder();
+                        using (var logBuffer = new ProgressLogBuffer(task))
+                        {
+                            updateProc.OutputDataReceived += (s, e) => { if (e.Data != null) logBuffer.AppendLine(e.Data); };
+                            updateProc.ErrorDataReceived += (s, e) => { if (e.Data != null) updateStderr.AppendLine(e.Data); };
+                            updateProc.BeginOutputReadLine();
+                            updateProc.BeginErrorReadLine();
+                            await updateProc.WaitForExitAsync(cancellationToken);
+                        }
+
+                        if (updateProc.ExitCode == 0)
+                        {
+                            var updateNsps = Directory.GetFiles(yanuOutDir, "*.nsp");
+                            if (updateNsps.Length > 0)
+                            {
+                                yanuUpdateSuccess = true;
+                                App.Logger.Log($"[yanu-cli] update OK. Создан NSP.", Models.LogLevel.Info);
+                                App.RunOnUI(() => task.LogDetails += $"\n  yanu-cli update: успешно!");
+                            }
+                            else
+                            {
+                                App.Logger.Log("[yanu-cli] update exit=0, но NSP не найден. Переключение на unpack/pack.", Models.LogLevel.Warning);
+                            }
+                        }
+                        else
+                        {
+                            App.Logger.Log($"[yanu-cli] update failed (exit={updateProc.ExitCode}): {updateStderr.ToString().Trim()}", Models.LogLevel.Warning);
+                            App.RunOnUI(() => task.LogDetails += $"\n  yanu-cli update: прямой патч не удался. Запуск универсального unpack/pack...");
+                        }
+                    }
+
+                    try { if (Directory.Exists(updateWorkDir)) Directory.Delete(updateWorkDir, true); } catch { }
+                }
+
+                // СЦЕНАРИЙ 2: Если есть моды или прямой update не удался — полный конвейер unpack + dynamic resolve + mod inject + pack
+                if (!yanuUpdateSuccess)
+                {
+                    App.RunOnUI(() => task.LogDetails += hasModsToApply
                         ? $"\n[1/3] Распаковка файлов для применения обновления и модов (yanu-cli unpack)..."
-                        : $"\n[1/2] Физическая интеграция обновления без дублирования (yanu-cli unpack)...");
-                    
+                        : $"\n[1/2] Распаковка для слияния без дубликатов (yanu-cli unpack)...");
+
                     string tempUnpack = System.IO.Path.Combine(tempDir, "unpack_modded");
                     Directory.CreateDirectory(tempUnpack);
-                    
+
                     string unpackArgs = $"{keyfileFlag}unpack --base \"{baseFile}\"";
                     if (!string.IsNullOrEmpty(updateFile)) unpackArgs += $" --update \"{updateFile}\"";
                     unpackArgs += $" -o \"{tempUnpack}\"";
-                    
+
                     var unpackPsi = new ProcessStartInfo
                     {
                         FileName = yanuCliPath,
@@ -311,24 +383,20 @@ namespace StormSwitchBox.Services
                     unpackPsi.EnvironmentVariables["TMP"] = tempDir;
                     using var unpackProc = Process.Start(unpackPsi);
                     if (unpackProc == null) throw new Exception("Не удалось запустить yanu-cli unpack");
-                    
+
                     var unpackStderr = new System.Text.StringBuilder();
                     using (var logBuffer = new ProgressLogBuffer(task))
                     {
-                        unpackProc.OutputDataReceived += (s, e) => {
-                            if (e.Data != null) logBuffer.AppendLine(e.Data);
-                        };
-                        unpackProc.ErrorDataReceived += (s, e) => {
-                            if (e.Data != null) unpackStderr.AppendLine(e.Data);
-                        };
+                        unpackProc.OutputDataReceived += (s, e) => { if (e.Data != null) logBuffer.AppendLine(e.Data); };
+                        unpackProc.ErrorDataReceived += (s, e) => { if (e.Data != null) unpackStderr.AppendLine(e.Data); };
                         unpackProc.BeginOutputReadLine();
                         unpackProc.BeginErrorReadLine();
                         await unpackProc.WaitForExitAsync(cancellationToken);
                     }
                     if (unpackProc.ExitCode != 0) throw new Exception($"Ошибка yanu-cli unpack:\n{unpackStderr}");
-                    
-                    string targetRomFs = System.IO.Path.Combine(tempUnpack, "romfs");
-                    string targetExeFs = System.IO.Path.Combine(tempUnpack, "exefs");
+
+                    // Динамический поиск реальных путей ExeFS (с main.npdm), RomFS и Control NCA внутри tempUnpack
+                    var (targetExeFs, targetRomFs, controlNca, resolvedTitleId) = ResolveUnpackedStructure(tempUnpack, baseFile, updateFile, keysPath, _keysService, titleId);
 
                     if (hasModsToApply)
                     {
@@ -337,35 +405,12 @@ namespace StormSwitchBox.Services
                         if (!string.IsNullOrEmpty(exefsMod)) CopyDirectoryContent(exefsMod, targetExeFs);
                         if (!string.IsNullOrEmpty(exefsPatchesMod)) ApplyExeFsPatches(exefsPatchesMod, targetExeFs, task);
                     }
-                    
+
                     App.RunOnUI(() => task.LogDetails += hasModsToApply
                         ? $"\n[3/3] Монолитная сборка (yanu-cli pack)..."
                         : $"\n[2/2] Монолитная сборка без дубликатов (yanu-cli pack)...");
-                    
-                    string controlNca = "";
-                    ulong maxTitleId = 0;
-                    var ncaFiles = Directory.GetFiles(tempUnpack, "*.nca", SearchOption.AllDirectories).OrderByDescending(f => f.Contains("patchdata", StringComparison.OrdinalIgnoreCase) ? 1 : 0).ToList();
-                    foreach (var ncaFile in ncaFiles)
-                    {
-                        try 
-                        {
-                            using var fs = new FileStream(ncaFile, FileMode.Open, FileAccess.Read, FileShare.Read);
-                            var nca = new LibHac.Tools.FsSystem.NcaUtils.Nca(_keysService.CurrentKeyset, fs.AsStorage());
-                            if (nca.Header.ContentType == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Control) {
-                                if (nca.Header.TitleId >= maxTitleId) {
-                                    maxTitleId = nca.Header.TitleId;
-                                    controlNca = ncaFile;
-                                }
-                            }
-                        } catch { }
-                    }
-                    if (string.IsNullOrEmpty(controlNca))
-                        controlNca = ncaFiles.FirstOrDefault(f => f.EndsWith(".nca", StringComparison.OrdinalIgnoreCase)) ?? "";
 
-                    if (!Directory.Exists(targetRomFs)) Directory.CreateDirectory(targetRomFs);
-                    if (!Directory.Exists(targetExeFs)) Directory.CreateDirectory(targetExeFs);
-
-                    string titleIdStr = maxTitleId > 0 ? maxTitleId.ToString("X16") : titleId;
+                    string titleIdStr = !string.IsNullOrEmpty(resolvedTitleId) ? resolvedTitleId : titleId;
                     string packArgs = $"{keyfileFlag}pack --titleid {titleIdStr} --controlnca \"{controlNca}\" --romfsdir \"{targetRomFs}\" --exefsdir \"{targetExeFs}\" -o \"{yanuOutDir}\" {keepLangsArg} {titleVersionArg}".TrimEnd();
                     var packPsi = new ProcessStartInfo
                     {
@@ -386,121 +431,18 @@ namespace StormSwitchBox.Services
                     packPsi.EnvironmentVariables["TMP"] = tempDir;
                     using var packProc = Process.Start(packPsi);
                     if (packProc == null) throw new Exception("Не удалось запустить yanu-cli pack");
-                    
+
                     var packStderr = new System.Text.StringBuilder();
                     using (var logBuffer = new ProgressLogBuffer(task))
                     {
-                        packProc.OutputDataReceived += (s, e) => {
-                            if (e.Data != null) logBuffer.AppendLine(e.Data);
-                        };
-                        packProc.ErrorDataReceived += (s, e) => {
-                            if (e.Data != null) packStderr.AppendLine(e.Data);
-                        };
+                        packProc.OutputDataReceived += (s, e) => { if (e.Data != null) logBuffer.AppendLine(e.Data); };
+                        packProc.ErrorDataReceived += (s, e) => { if (e.Data != null) packStderr.AppendLine(e.Data); };
                         packProc.BeginOutputReadLine();
                         packProc.BeginErrorReadLine();
                         await packProc.WaitForExitAsync(cancellationToken);
                     }
                     if (packProc.ExitCode != 0) throw new Exception($"Ошибка yanu-cli pack:\n{packStderr}");
                 }
-                else
-                {
-                    bool yanuUpdateSuccess = false;
-                    
-                    if (!string.IsNullOrEmpty(updateFile))
-                    {
-                        App.RunOnUI(() => task.LogDetails += $"\n[1/2] Попытка пересборки (yanu-cli update)...");
-                        
-                        // yanu-cli update создаёт temp в WorkingDirectory, используем чистую папку
-                        string updateWorkDir = System.IO.Path.Combine(tempDir, "update_work");
-                        Directory.CreateDirectory(updateWorkDir);
-                        
-                        string updateArgs = $"{keyfileFlag}update --base \"{baseFile}\" --update \"{updateFile}\" -o \"{yanuOutDir}\"";
-                        if (!string.IsNullOrEmpty(keepLangsArg)) updateArgs += $" {keepLangsArg}";
-                        if (!string.IsNullOrEmpty(titleVersionArg)) updateArgs += $" {titleVersionArg}";
-                        
-                        App.Logger.Log($"[yanu-cli] update: {updateArgs}", Models.LogLevel.Info);
-                        
-                        var updatePsi = new ProcessStartInfo
-                        {
-                            FileName = yanuCliPath,
-                            Arguments = updateArgs,
-                            UseShellExecute = false,
-                            RedirectStandardOutput = true,
-                            RedirectStandardError = true,
-                            CreateNoWindow = true,
-                            WorkingDirectory = updateWorkDir,
-                            StandardOutputEncoding = System.Text.Encoding.UTF8,
-                            StandardErrorEncoding = System.Text.Encoding.UTF8
-                        };
-                        updatePsi.EnvironmentVariables["USERPROFILE"] = isolatedUserProfile;
-                        updatePsi.EnvironmentVariables["LOCALAPPDATA"] = isolatedLocalAppData;
-                        updatePsi.EnvironmentVariables["APPDATA"] = isolatedLocalAppData;
-                        updatePsi.EnvironmentVariables["TEMP"] = tempDir;
-                        updatePsi.EnvironmentVariables["TMP"] = tempDir;
-                        
-                        using var updateProc = Process.Start(updatePsi);
-                        if (updateProc != null)
-                        {
-                            var updateStderr = new System.Text.StringBuilder();
-                            using (var logBuffer = new ProgressLogBuffer(task))
-                            {
-                                updateProc.OutputDataReceived += (s, e) => {
-                                    if (e.Data != null) logBuffer.AppendLine(e.Data);
-                                };
-                                updateProc.ErrorDataReceived += (s, e) => {
-                                    if (e.Data != null) updateStderr.AppendLine(e.Data);
-                                };
-                                updateProc.BeginOutputReadLine();
-                                updateProc.BeginErrorReadLine();
-                                await updateProc.WaitForExitAsync(cancellationToken);
-                            }
-                            
-                            if (updateProc.ExitCode == 0)
-                            {
-                                // Проверяем, что NSP файл действительно создан
-                                var updateNsps = Directory.GetFiles(yanuOutDir, "*.nsp");
-                                if (updateNsps.Length > 0)
-                                {
-                                    yanuUpdateSuccess = true;
-                                    App.Logger.Log($"[yanu-cli] update OK. Создан NSP.", Models.LogLevel.Info);
-                                    App.RunOnUI(() => task.LogDetails += $"\n  yanu-cli update: успешно!");
-                                }
-                                else
-                                {
-                                    App.Logger.Log("[yanu-cli] update exit=0, но NSP не найден. Переключение на fallback.", Models.LogLevel.Warning);
-                                }
-                            }
-                            else
-                            {
-                                App.Logger.Log($"[yanu-cli] update failed (exit={updateProc.ExitCode}): {updateStderr.ToString().Trim()}", Models.LogLevel.Warning);
-                                App.RunOnUI(() => task.LogDetails += $"\n  yanu-cli update: не удалось (BKTR). Fallback...");
-                            }
-                        }
-                        
-                        // Очистка рабочей директории update
-                        try { if (Directory.Exists(updateWorkDir)) Directory.Delete(updateWorkDir, true); } catch { }
-                    }
-                    
-                    // === СТРАТЕГИЯ 2: LibHac PFS0 Merge (надёжный fallback для BKTR) ===
-                    // Читаем NSP напрямую через LibHac, объединяем все записи в один PFS0
-                    // Не используем yanu-cli unpack — он создаёт .cnmt.xml артефакты
-                    if (!yanuUpdateSuccess)
-                    {
-                        if (string.IsNullOrEmpty(updateFile))
-                        {
-                            // Нет апдейта — просто копируем базовый файл для конвейера
-                            string outputNspPath = System.IO.Path.Combine(yanuOutDir, $"{titleId}.nsp");
-                            System.IO.File.Copy(baseFile, outputNspPath, true);
-                            App.RunOnUI(() => task.LogDetails += $"\n[1/1] Оригинальный файл скопирован (патч не применялся).");
-                        }
-                        else
-                        {
-                            throw new Exception("Не удалось применить Hard Patch (Update). yanu-cli вернул ошибку.");
-                        }
-                    }
-
-                }
-
 
                 // Поиск сгенерированного NSP
                 var generatedFiles = Directory.GetFiles(yanuOutDir, "*.nsp");
@@ -1025,7 +967,207 @@ namespace StormSwitchBox.Services
                 }
             }
         }
-    }
+    
+
+        /// <summary>
+        /// Динамически разрешает пути распакованной структуры (ExeFS с main.npdm, RomFS, Control NCA и TitleID)
+        /// с автоматическим fallback-извлечением через LibHac, если yanu unpack распаковал в подпапку или не извлек ExeFS.
+        /// </summary>
+        private static (string targetExeFs, string targetRomFs, string controlNca, string resolvedTitleId) ResolveUnpackedStructure(
+            string tempUnpack,
+            string baseFile,
+            string? updateFile,
+            string keysPath,
+            KeysService keysService,
+            string fallbackTitleId)
+        {
+            // 1. Поиск ExeFS папки (где расположен main.npdm)
+            string targetExeFs = "";
+            var mainNpdmFiles = Directory.GetFiles(tempUnpack, "main.npdm", SearchOption.AllDirectories);
+            if (mainNpdmFiles.Length > 0)
+            {
+                targetExeFs = System.IO.Path.GetDirectoryName(mainNpdmFiles[0])!;
+            }
+            else
+            {
+                var exefsDirs = Directory.GetDirectories(tempUnpack, "exefs", SearchOption.AllDirectories)
+                    .Where(d => Directory.GetFileSystemEntries(d).Length > 0)
+                    .ToArray();
+                if (exefsDirs.Length > 0)
+                {
+                    targetExeFs = exefsDirs[0];
+                }
+                else
+                {
+                    targetExeFs = System.IO.Path.Combine(tempUnpack, "exefs");
+                }
+            }
+
+            if (!Directory.Exists(targetExeFs)) Directory.CreateDirectory(targetExeFs);
+
+            // Если main.npdm все еще отсутствует в targetExeFs — гарантированно извлекаем ExeFS напрямую через LibHac
+            if (!File.Exists(System.IO.Path.Combine(targetExeFs, "main.npdm")))
+            {
+                ExtractExeFsFromNspWithLibHac(baseFile, updateFile, targetExeFs, keysService);
+            }
+
+            // 2. Поиск RomFS папки
+            string targetRomFs = "";
+            var romfsDirs = Directory.GetDirectories(tempUnpack, "romfs", SearchOption.AllDirectories);
+            if (romfsDirs.Length > 0)
+            {
+                targetRomFs = romfsDirs[0];
+            }
+            else
+            {
+                targetRomFs = System.IO.Path.Combine(tempUnpack, "romfs");
+            }
+            if (!Directory.Exists(targetRomFs)) Directory.CreateDirectory(targetRomFs);
+
+            // 3. Поиск Control NCA и TitleID
+            string controlNca = "";
+            ulong maxTitleId = 0;
+
+            var controlCandidates = Directory.GetFiles(tempUnpack, "control.nca", SearchOption.AllDirectories)
+                .OrderByDescending(f => f.Contains("patchdata", StringComparison.OrdinalIgnoreCase) ? 2 : (f.Contains("basedata", StringComparison.OrdinalIgnoreCase) ? 1 : 0))
+                .ToArray();
+
+            if (controlCandidates.Length > 0)
+            {
+                controlNca = controlCandidates[0];
+            }
+
+            var ncaFiles = Directory.GetFiles(tempUnpack, "*.nca", SearchOption.AllDirectories)
+                .OrderByDescending(f => f.Contains("patchdata", StringComparison.OrdinalIgnoreCase) ? 1 : 0)
+                .ToList();
+
+            foreach (var ncaFile in ncaFiles)
+            {
+                try
+                {
+                    if (keysService.IsLoaded)
+                    {
+                        using var fs = new FileStream(ncaFile, FileMode.Open, FileAccess.Read, FileShare.Read);
+                        var nca = new LibHac.Tools.FsSystem.NcaUtils.Nca(keysService.CurrentKeyset, fs.AsStorage());
+                        if (nca.Header.ContentType == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Control)
+                        {
+                            if (nca.Header.TitleId >= maxTitleId)
+                            {
+                                maxTitleId = nca.Header.TitleId;
+                                if (string.IsNullOrEmpty(controlNca) || ncaFile.Contains("patchdata", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    controlNca = ncaFile;
+                                }
+                            }
+                        }
+                    }
+                }
+                catch { }
+            }
+
+            if (string.IsNullOrEmpty(controlNca))
+            {
+                controlNca = ncaFiles.FirstOrDefault(f => f.EndsWith(".nca", StringComparison.OrdinalIgnoreCase)) ?? "";
+            }
+
+            string resolvedTitleId = maxTitleId > 0 ? maxTitleId.ToString("X16") : fallbackTitleId;
+
+            return (targetExeFs, targetRomFs, controlNca, resolvedTitleId);
+        }
+
+        /// <summary>
+        /// Извлекает файлы ExeFS (включая main.npdm, main, sdk) напрямую из базового или обновленного NSP через LibHac
+        /// </summary>
+        private static void ExtractExeFsFromNspWithLibHac(string baseFile, string? updateFile, string targetExeFs, KeysService keysService)
+        {
+            if (!keysService.IsLoaded) return;
+
+            string[] sourceFiles = string.IsNullOrEmpty(updateFile) 
+                ? new[] { baseFile } 
+                : new[] { updateFile, baseFile };
+
+            foreach (var file in sourceFiles)
+            {
+                try
+                {
+                    if (!File.Exists(file)) continue;
+
+                    using var fileStream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    IStorage storage = fileStream.AsStorage();
+                    var pfs = new PartitionFileSystem(storage);
+
+                    foreach (var entry in pfs.EnumerateEntries().Where(e => e.Name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        using var ncaFileRef = new UniqueRef<IFile>();
+                        using var ncaPath = new LibHac.Fs.Path();
+                        ncaPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(entry.FullPath))).ThrowIfFailure();
+                        if (pfs.OpenFile(ref ncaFileRef.Ref, in ncaPath, OpenMode.Read).IsSuccess())
+                        {
+                            try
+                            {
+                                IFile ncaFile = ncaFileRef.Release();
+                                var nca = new LibHac.Tools.FsSystem.NcaUtils.Nca(keysService.CurrentKeyset, ncaFile.AsStorage());
+                                if (nca.Header.ContentType == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Program)
+                                {
+                                    if (nca.CanOpenSection(0))
+                                    {
+                                        var exefs = nca.OpenFileSystem(0, IntegrityCheckLevel.None);
+                                        Directory.CreateDirectory(targetExeFs);
+
+                                        foreach (var exefsEntry in exefs.EnumerateEntries())
+                                        {
+                                            string destFile = System.IO.Path.Combine(targetExeFs, exefsEntry.Name.TrimStart('/'));
+                                            using var srcFileRef = new UniqueRef<IFile>();
+                                            using var srcPath = new LibHac.Fs.Path();
+                                            srcPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(exefsEntry.FullPath))).ThrowIfFailure();
+                                            if (exefs.OpenFile(ref srcFileRef.Ref, in srcPath, OpenMode.Read).IsSuccess())
+                                            {
+                                                using var srcFile = srcFileRef.Release();
+                                                using var outStream = new FileStream(destFile, FileMode.Create, FileAccess.Write);
+                                                srcFile.AsStream().CopyTo(outStream);
+                                            }
+                                        }
+
+                                        if (File.Exists(System.IO.Path.Combine(targetExeFs, "main.npdm")))
+                                        {
+                                            App.Logger.Log($"[HardPatchEngine] Успешно извлечен ExeFS (main.npdm) из {System.IO.Path.GetFileName(file)} через LibHac.", Models.LogLevel.Info);
+                                            return;
+                                        }
+                                    }
+                                }
+                            }
+                            catch { }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    App.Logger.Log($"[HardPatchEngine] Warning extracting ExeFS from {System.IO.Path.GetFileName(file)}: {ex.Message}", Models.LogLevel.Warning);
+                }
+            }
+        }
+
+        private static string? FindHactoolnet()
+        {
+            string appDir = AppDomain.CurrentDomain.BaseDirectory;
+            string[] searchPaths = new[]
+            {
+                System.IO.Path.Combine(appDir, "tools", "com.github.nozwock.yanu", "hactoolnet.exe"),
+                System.IO.Path.Combine(appDir, "tools", "hactoolnet.exe"),
+                System.IO.Path.Combine(appDir, "..", "..", "..", "tools", "com.github.nozwock.yanu", "hactoolnet.exe"),
+                System.IO.Path.Combine(appDir, "..", "..", "..", "..", "tools", "com.github.nozwock.yanu", "hactoolnet.exe"),
+                System.IO.Path.Combine(appDir, "..", "..", "..", "..", "..", "tools", "com.github.nozwock.yanu", "hactoolnet.exe"),
+            };
+
+            foreach (var p in searchPaths)
+            {
+                string full = System.IO.Path.GetFullPath(p);
+                if (File.Exists(full)) return full;
+            }
+
+            return null;
+        }
+}
 
     public class ProgressLogBuffer : IDisposable
     {
