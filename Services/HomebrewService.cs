@@ -1099,16 +1099,8 @@ namespace StormSwitchBox.Services
                         }
                     }
 
-                    // Авто-деплой в обнаруженные папки SDMC локальных эмуляторов (STORM EDEN, Yuzu, Ryujinx и др.)
-                    var localEmuSdmcList = new List<string>
-                    {
-                        @"E:\STORM EDEN 3\Assembling\user\sdmc",
-                        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "yuzu", "sdmc"),
-                        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Ryujinx", "sdmc"),
-                        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "suyu", "sdmc"),
-                        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "sudachi", "sdmc"),
-                        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "yuzu", "sdmc")
-                    };
+                    // Авто-деплой в обнаруженные папки SDMC локальных эмуляторов на ВСЕХ дисках (C:, D:, E:, L: и др.)
+                    var localEmuSdmcList = FindAllEmulatorSdmcDirectories();
 
                     foreach (var emuSdmc in localEmuSdmcList)
                     {
@@ -1302,5 +1294,164 @@ namespace StormSwitchBox.Services
                 CopyDirectory(subDir, Path.Combine(targetDir, Path.GetFileName(subDir)));
             }
         }
+
+        /// <summary>
+        /// Выполняет всесторонний поиск папок SDMC эмуляторов на всех подключенных накопителях (C:, D:, E:, L: и др.),
+        /// в запущенных процессах и системных профилях Roaming / LocalAppData.
+        /// </summary>
+        public static List<string> FindAllEmulatorSdmcDirectories()
+        {
+            var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            // 1. Стандартные системные профили AppData и LocalAppData
+            string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+
+            string[] standardProfileSubpaths = new[]
+            {
+                Path.Combine(appData, "yuzu", "sdmc"),
+                Path.Combine(appData, "Ryujinx", "sdmc"),
+                Path.Combine(appData, "suyu", "sdmc"),
+                Path.Combine(appData, "sudachi", "sdmc"),
+                Path.Combine(appData, "eden", "sdmc"),
+                Path.Combine(localAppData, "yuzu", "sdmc"),
+                Path.Combine(localAppData, "suyu", "sdmc"),
+                Path.Combine(localAppData, "sudachi", "sdmc"),
+                Path.Combine(localAppData, "Ryujinx", "sdmc")
+            };
+
+            foreach (var p in standardProfileSubpaths)
+            {
+                if (Directory.Exists(p)) result.Add(p);
+            }
+
+            // 2. Чтение конфигурационных файлов эмуляторов (где прописан реальный путь к SDMC)
+            try
+            {
+                string[] configFiles = new[]
+                {
+                    Path.Combine(appData, "yuzu", "config", "qt-config.ini"),
+                    Path.Combine(appData, "eden", "config", "qt-config.ini"),
+                    Path.Combine(appData, "suyu", "config", "qt-config.ini"),
+                    Path.Combine(appData, "sudachi", "config", "qt-config.ini")
+                };
+
+                foreach (var cfg in configFiles)
+                {
+                    if (File.Exists(cfg))
+                    {
+                        foreach (var line in File.ReadLines(cfg))
+                        {
+                            if (line.StartsWith("sdmc_directory", StringComparison.OrdinalIgnoreCase))
+                            {
+                                int eq = line.IndexOf('=');
+                                if (eq > 0)
+                                {
+                                    string customSdmc = line.Substring(eq + 1).Trim().Trim('"');
+                                    if (Directory.Exists(customSdmc))
+                                    {
+                                        result.Add(customSdmc);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            // 3. Сканирование всех доступных дисков (C:, D:, E:, L: и т.д.)
+            try
+            {
+                foreach (var drive in DriveInfo.GetDrives())
+                {
+                    if (!drive.IsReady) continue;
+                    string root = drive.RootDirectory.FullName;
+
+                    string[] directCandidates = new[]
+                    {
+                        Path.Combine(root, "STORM EDEN 3", "Assembling", "user", "sdmc"),
+                        Path.Combine(root, "STORM EDEN 3", "user", "sdmc"),
+                        Path.Combine(root, "STORM EDEN", "user", "sdmc"),
+                        Path.Combine(root, "Eden", "user", "sdmc"),
+                        Path.Combine(root, "Eden", "sdmc"),
+                        Path.Combine(root, "yuzu", "user", "sdmc"),
+                        Path.Combine(root, "yuzu", "sdmc"),
+                        Path.Combine(root, "Ryujinx", "user", "sdmc"),
+                        Path.Combine(root, "Ryujinx", "sdmc"),
+                        Path.Combine(root, "suyu", "user", "sdmc"),
+                        Path.Combine(root, "sudachi", "user", "sdmc"),
+                        Path.Combine(root, "Emulators", "STORM EDEN 3", "user", "sdmc"),
+                        Path.Combine(root, "Emulators", "yuzu", "user", "sdmc"),
+                        Path.Combine(root, "Emulators", "Ryujinx", "user", "sdmc"),
+                        Path.Combine(root, "Games", "Emulators", "STORM EDEN 3", "user", "sdmc")
+                    };
+
+                    foreach (var cand in directCandidates)
+                    {
+                        if (Directory.Exists(cand))
+                        {
+                            result.Add(cand);
+                        }
+                    }
+
+                    // Поиск в корневых папках диска (1 уровень вложенности)
+                    try
+                    {
+                        foreach (var topDir in Directory.GetDirectories(root))
+                        {
+                            string topName = Path.GetFileName(topDir).ToLowerInvariant();
+                            if (topName.Contains("eden") || topName.Contains("yuzu") || topName.Contains("ryujinx") ||
+                                topName.Contains("suyu") || topName.Contains("sudachi") || topName.Contains("emulator"))
+                            {
+                                string userSdmc = Path.Combine(topDir, "user", "sdmc");
+                                if (Directory.Exists(userSdmc)) result.Add(userSdmc);
+
+                                string directSdmc = Path.Combine(topDir, "sdmc");
+                                if (Directory.Exists(directSdmc)) result.Add(directSdmc);
+
+                                string assemblingUserSdmc = Path.Combine(topDir, "Assembling", "user", "sdmc");
+                                if (Directory.Exists(assemblingUserSdmc)) result.Add(assemblingUserSdmc);
+                            }
+                        }
+                    }
+                    catch { }
+                }
+            }
+            catch { }
+
+            // 4. Поиск в запущенных процессах эмуляторов
+            try
+            {
+                string[] processNames = new[] { "eden", "stormeden", "yuzu", "ryujinx", "suyu", "sudachi", "torzu", "citron" };
+                foreach (var pName in processNames)
+                {
+                    foreach (var proc in System.Diagnostics.Process.GetProcessesByName(pName))
+                    {
+                        try
+                        {
+                            string? procPath = proc.MainModule?.FileName;
+                            if (!string.IsNullOrEmpty(procPath))
+                            {
+                                string? procDir = Path.GetDirectoryName(procPath);
+                                if (!string.IsNullOrEmpty(procDir))
+                                {
+                                    string sdmc1 = Path.Combine(procDir, "user", "sdmc");
+                                    if (Directory.Exists(sdmc1)) result.Add(sdmc1);
+
+                                    string sdmc2 = Path.Combine(procDir, "sdmc");
+                                    if (Directory.Exists(sdmc2)) result.Add(sdmc2);
+                                }
+                            }
+                        }
+                        catch { }
+                    }
+                }
+            }
+            catch { }
+
+            return result.ToList();
+        }
     }
 }
+
