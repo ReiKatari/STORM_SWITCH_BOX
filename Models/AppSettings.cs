@@ -6,13 +6,16 @@ namespace StormSwitchBox.Models
     public class AppSettings
     {
         // Окно
-        public string AppVersion { get; set; } = "4.8.9";
+        public string AppVersion { get; set; } = "4.9.0";
         public string Language { get; set; } = "ru"; // ru, en, de, zh, ja
         public int WindowX { get; set; } = -1;
         public int WindowY { get; set; } = -1;
         public int WindowWidth { get; set; } = 1200;
         public int WindowHeight { get; set; } = 800;
         public string WindowState { get; set; } = "Normal";
+        
+        // Папки эмуляторов (STORM EDEN, Yuzu, Ryujinx, Suyu и др.)
+        public List<string> EmulatorDirectories { get; set; } = new();
         
         // Рабочие параметры алгоритмов
         public int CompressionLevel { get; set; } = 22;
