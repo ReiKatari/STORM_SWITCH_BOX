@@ -9,7 +9,7 @@
 
     <Grid>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="390" />
+            <ColumnDefinition Width="490" />
             <ColumnDefinition Width="Auto" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
@@ -29,10 +29,14 @@
             <ListView x:Name="TopicList" Grid.Row="1" SelectionChanged="TopicList_SelectionChanged" Padding="8,0,8,16">
                 <ListView.ItemTemplate>
                     <DataTemplate>
-                        <StackPanel Orientation="Horizontal" Spacing="12" Padding="8,6">
-                            <FontIcon Glyph="{Binding Icon}" FontSize="16" Foreground="{ThemeResource SystemAccentColor}" Width="20"/>
-                            <TextBlock Text="{Binding Title}" VerticalAlignment="Center" FontWeight="SemiBold"/>
-                        </StackPanel>
+                        <Grid Padding="8,6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <FontIcon Glyph="{Binding Icon}" FontSize="16" Foreground="{ThemeResource SystemAccentColor}" Width="24" Margin="0,0,10,0" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="1" Text="{Binding Title}" VerticalAlignment="Center" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                        </Grid>
                     </DataTemplate>
                 </ListView.ItemTemplate>
             </ListView>

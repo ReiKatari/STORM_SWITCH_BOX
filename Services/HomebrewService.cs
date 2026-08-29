@@ -796,97 +796,105 @@ namespace StormSwitchBox.Services
                 }
 
                 // 2. Формируем RomFS со ВСЕМИ файлами данных игры (.mpq, .wad, .pk3, .pak, .ini, .ttf, etc.)
-                foreach (var file in task.InputFiles)
-                {
-                    if (File.Exists(file))
-                    {
-                        string ext = Path.GetExtension(file).ToLowerInvariant();
-                        if (ext != ".nsp" && ext != ".nsz" && ext != ".xci" && ext != ".xcz")
-                        {
-                            string dest = Path.Combine(romfsDir, Path.GetFileName(file));
-                            if (!File.Exists(dest))
-                            {
-                                File.Copy(file, dest, true);
-                            }
-                        }
-                    }
-                    else if (Directory.Exists(file))
-                    {
-                        string dirName = Path.GetFileName(file).ToLowerInvariant();
-                        if (dirName == "exefs") continue;
+                string? existingRomFsDir = task.InputFiles.FirstOrDefault(f => Directory.Exists(f) && (Path.GetFileName(f).Equals("romfs", StringComparison.OrdinalIgnoreCase) || f.EndsWith(@"\romfs", StringComparison.OrdinalIgnoreCase) || f.EndsWith("/romfs", StringComparison.OrdinalIgnoreCase)));
 
-                        if (dirName == "romfs")
+                if (existingRomFsDir == null)
+                {
+                    foreach (var dir in task.InputFiles.Where(f => Directory.Exists(f)))
+                    {
+                        try
                         {
-                            CopyDirectory(file, romfsDir);
-                        }
-                        else
-                        {
-                            var nestedRomfs = Directory.GetDirectories(file, "romfs", SearchOption.AllDirectories);
-                            if (nestedRomfs.Length > 0)
+                            var nested = Directory.GetDirectories(dir, "romfs", SearchOption.AllDirectories);
+                            if (nested.Length > 0)
                             {
-                                foreach (var r in nestedRomfs)
-                                {
-                                    CopyDirectory(r, romfsDir);
-                                }
-                            }
-                            else
-                            {
-                                CopyDirectory(file, romfsDir);
+                                existingRomFsDir = nested[0];
+                                break;
                             }
                         }
+                        catch { }
                     }
                 }
 
-                // Копируем сам NRO в romfs и создаем nextArgv / nextNroPath
+                var looseDataFiles = task.InputFiles.Where(f => File.Exists(f) && 
+                    !f.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) && 
+                    !f.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) && 
+                    !f.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) && 
+                    !f.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase)).ToList();
+
                 string? nroFile = task.InputFiles.FirstOrDefault(f => File.Exists(f) && Path.GetExtension(f).Equals(".nro", StringComparison.OrdinalIgnoreCase));
-                if (nroFile != null)
+                string effectiveRomfsDir = romfsDir;
+
+                if (existingRomFsDir != null && looseDataFiles.Count == 0 && nroFile == null)
                 {
-                    string nroName = Path.GetFileName(nroFile);
-                    string appFolder = Path.GetFileNameWithoutExtension(nroFile);
-                    if (task.InputFiles.Any(f => f.Contains("devilutionx", StringComparison.OrdinalIgnoreCase)))
+                    // Zero-Copy режим: Используем готовый каталог RomFS без гигабайтных промежуточных копирований
+                    effectiveRomfsDir = existingRomFsDir;
+                    App.RunOnUI(() =>
                     {
-                        appFolder = "devilutionx-switch";
+                        task.LogDetails += $"[RomFS] Zero-Copy: Использование существующего RomFS каталога ({existingRomFsDir})\n";
+                    });
+                }
+                else
+                {
+                    if (existingRomFsDir != null)
+                    {
+                        App.RunOnUI(() =>
+                        {
+                            task.LogDetails += $"[RomFS] Подготовка RomFS каталога ({existingRomFsDir})...\n";
+                        });
+                        CopyDirectory(existingRomFsDir, romfsDir);
                     }
 
-                    // Копируем NRO во все стандартные точки поиска
-                    string[] nroDestinations = new[]
+                    foreach (var file in looseDataFiles)
                     {
-                        Path.Combine(romfsDir, "app.nro"),
-                        Path.Combine(romfsDir, "main.nro"),
-                        Path.Combine(romfsDir, nroName),
-                        Path.Combine(romfsDir, appFolder, nroName),
-                        Path.Combine(romfsDir, "switch", nroName)
-                    };
-
-                    foreach (var dest in nroDestinations)
-                    {
-                        string? parent = Path.GetDirectoryName(dest);
-                        if (!string.IsNullOrEmpty(parent) && !Directory.Exists(parent))
-                        {
-                            Directory.CreateDirectory(parent);
-                        }
+                        string dest = Path.Combine(romfsDir, Path.GetFileName(file));
                         if (!File.Exists(dest))
                         {
-                            File.Copy(nroFile, dest, true);
+                            File.Copy(file, dest, true);
+                            App.RunOnUI(() =>
+                            {
+                                task.LogDetails += $"[RomFS] Добавлен ресурс: {Path.GetFileName(file)}\n";
+                            });
                         }
                     }
 
-                    // Определение целевого пути NRO для forwarder hbl loader
-                    string? existingNextNro = task.InputFiles.FirstOrDefault(f => Path.GetFileName(f).Equals("nextNroPath", StringComparison.OrdinalIgnoreCase) && File.Exists(f));
-                    string nextPath;
-                    if (existingNextNro != null)
+                    if (nroFile != null)
                     {
-                        nextPath = File.ReadAllText(existingNextNro).Trim();
-                    }
-                    else
-                    {
-                        nextPath = $"sdmc:/{appFolder}/{nroName}";
-                    }
+                        string nroName = Path.GetFileName(nroFile);
+                        string appFolder = Path.GetFileNameWithoutExtension(nroFile);
+                        if (task.InputFiles.Any(f => f.Contains("devilutionx", StringComparison.OrdinalIgnoreCase)))
+                        {
+                            appFolder = "devilutionx-switch";
+                        }
 
-                    string nextArgvContent = $"{nextPath}\0{nextPath}\0";
+                        string[] nroDestinations = new[]
+                        {
+                            Path.Combine(romfsDir, "app.nro"),
+                            Path.Combine(romfsDir, "main.nro"),
+                            Path.Combine(romfsDir, nroName),
+                            Path.Combine(romfsDir, appFolder, nroName),
+                            Path.Combine(romfsDir, "switch", nroName)
+                        };
 
-                    File.WriteAllText(Path.Combine(romfsDir, "nextNroPath"), nextPath);
-                    File.WriteAllBytes(Path.Combine(romfsDir, "nextArgv"), Encoding.UTF8.GetBytes(nextArgvContent));
+                        foreach (var dest in nroDestinations)
+                        {
+                            string? parent = Path.GetDirectoryName(dest);
+                            if (!string.IsNullOrEmpty(parent) && !Directory.Exists(parent))
+                            {
+                                Directory.CreateDirectory(parent);
+                            }
+                            if (!File.Exists(dest))
+                            {
+                                File.Copy(nroFile, dest, true);
+                            }
+                        }
+
+                        string? existingNextNro = task.InputFiles.FirstOrDefault(f => Path.GetFileName(f).Equals("nextNroPath", StringComparison.OrdinalIgnoreCase) && File.Exists(f));
+                        string nextPath = existingNextNro != null ? File.ReadAllText(existingNextNro).Trim() : $"sdmc:/{appFolder}/{nroName}";
+                        string nextArgvContent = $"{nextPath}\0{nextPath}\0";
+
+                        File.WriteAllText(Path.Combine(romfsDir, "nextNroPath"), nextPath);
+                        File.WriteAllBytes(Path.Combine(romfsDir, "nextArgv"), Encoding.UTF8.GetBytes(nextArgvContent));
+                    }
                 }
 
                 // 3. Формируем Control RomFS (control.nacp + icon)
@@ -900,7 +908,6 @@ namespace StormSwitchBox.Services
                 byte[]? iconBytes = task.CustomMetadata?.CustomIconBytes ?? task.CustomMetadata?.OriginalIconBytes;
                 if (iconBytes == null || iconBytes.Length == 0)
                 {
-                    // Проверяем кэш иконок
                     try
                     {
                         string cachedIcon = Path.Combine(HistoryService.GetIconsDirectory(), $"{titleId}.png");
@@ -925,7 +932,7 @@ namespace StormSwitchBox.Services
                 });
 
                 // 4. Сборка Program NCA через hacpack
-                string progArgs = $"-k \"{keysFile}\" --type nca --ncatype program --titleid {titleId} --exefsdir \"{exefsDir}\" --romfsdir \"{romfsDir}\" -o \"{outProgramDir}\"";
+                string progArgs = $"-k \"{keysFile}\" --type nca --ncatype program --titleid {titleId} --exefsdir \"{exefsDir}\" --romfsdir \"{effectiveRomfsDir}\" -o \"{outProgramDir}\"";
                 await ExternalProcessRunner.RunAsync(_hacpackExe, progArgs, tempDir, task, ct);
 
                 var progNcas = Directory.GetFiles(outProgramDir, "*.nca");

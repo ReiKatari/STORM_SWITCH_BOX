@@ -48,31 +48,61 @@ namespace StormSwitchBox.Views
             var loc = App.Localization;
             if (PageHeaderTitle != null) PageHeaderTitle.Text = loc["Nav_Instruction"];
             if (SearchBox != null) SearchBox.PlaceholderText = loc["Catalog_Search_Placeholder"] ?? "Поиск тем...";
+            if (PreviewHeader != null) PreviewHeader.Text = loc.CurrentLanguage switch
+            {
+                "en" => "Interactive Preview & Simulation",
+                "de" => "Interaktive Vorschau & Simulation",
+                "zh" => "交互式预览与模拟",
+                "ja" => "インタラクティブプレビュー＆シミュレーション",
+                _ => "Интерактивный предпросмотр и симуляция"
+            };
+
+            int prevIndex = TopicList?.SelectedIndex ?? 0;
+            InitializeTopics();
+            if (TopicList != null && _filteredTopics.Count > 0)
+            {
+                TopicList.SelectedIndex = Math.Clamp(prevIndex, 0, _filteredTopics.Count - 1);
+            }
         }
 
         private void InitializeTopics()
         {
-            _allTopics = new List<TopicItem>
+            string lang = App.Localization.CurrentLanguage?.ToLowerInvariant() ?? "ru";
+            _allTopics = lang switch
+            {
+                "en" => GetTopicsEn(),
+                "de" => GetTopicsDe(),
+                "zh" => GetTopicsZh(),
+                "ja" => GetTopicsJa(),
+                _ => GetTopicsRu()
+            };
+
+            FilterTopics(SearchBox?.Text ?? string.Empty);
+        }
+
+        private List<TopicItem> GetTopicsRu()
+        {
+            return new List<TopicItem>
             {
                 new TopicItem
                 {
                     Title = "Обзор приложения",
                     Category = "Введение",
                     Icon = "\uE9CE",
-                    DescriptionText = "STORM SWITCH BOX v4.9.1 — это профессиональный высокопроизводительный комбайн для всесторонней обработки образов игр Nintendo Switch и Nintendo 3DS, а также интерактивная энциклопедия всех 19 поколений игровых систем Nintendo (от Color TV-Game до Nintendo Switch 2).\n\nПрограмма оснащена системой «Умная обработка файлов» (Smart Processing), которая работает всегда и автоматически выбирает оптимальный метод сборки (нативное сшивание без раздувания RomFS для легких патчей или HardPatch для тяжелых обновлений и модов), распаковывает ресурсы, компилирует файлы в NSP/NSZ/3DS/CIA, конвертирует форматы внутри экосистем (Switch: NSP ↔ XCI ↔ NSZ ↔ XCZ; 3DS: 3DS ↔ CIA ↔ CXI), объединяет игры с обновлениями, дополнениями (DLC) и модификациями в единый монолитный файл (Мульти-контент 4-в-1), автоматически собирает Homebrew порты и игры в один файл, осуществляет независимый мониторинг «Умных папок» Switch и 3DS, а также мгновенно сохраняет историю в LocalAppData.",
+                    DescriptionText = "STORM SWITCH BOX v4.9.2 — это профессиональный высокопроизводительный комбайн для всесторонней обработки образов игр Nintendo Switch и Nintendo 3DS, а также интерактивная энциклопедия всех 19 поколений игровых систем Nintendo (от Color TV-Game до Nintendo Switch 2).\n\nПрограмма оснащена системой «Умная обработка файлов» (Smart Processing), которая работает всегда и автоматически выбирает оптимальный метод сборки (нативное сшивание без раздувания RomFS для легких патчей или HardPatch для тяжелых обновлений и модов), распаковывает ресурсы, компилирует файлы в NSP/NSZ/3DS/CIA, конвертирует форматы внутри экосистем (Switch: NSP ↔ XCI ↔ NSZ ↔ XCZ; 3DS: 3DS ↔ CIA ↔ CXI), объединяет игры с обновлениями, дополнениями (DLC) и модификациями в единый монолитный файл (Мульти-контент 4-в-1), автоматически собирает Homebrew порты и игры в один файл, осуществляет независимый мониторинг «Умных папок» Switch и 3DS, а также мгновенно сохраняет историю в LocalAppData.",
                     Tip = "Переключайтесь между платформами Switch и 3DS в один клик через верхний селектор или настраивайте независимое отслеживание папок!",
                     SetupPreview = container =>
                     {
-                        container.Children.Add(new TextBlock { Text = "⚡ STORM SWITCH BOX v4.9.1", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.Bold });
-                        container.Children.Add(new TextBlock { Text = "• Умная обработка файлов (Smart Processing): идеальный баланс размера и функционала по умолчанию\n• Поддержка двух экосистем: Nintendo Switch и Nintendo 3DS с изолированными конвертациями\n• Интерактивная «Библиотека игр» всех 19 поколений Nintendo (No-Intro & Redump)\n• Раздел «Информация» с визуальными плашками платформ на обложках\n• Две независимые службы «Умная папка» (Switch и 3DS)\n• Встроенный сверхбыстрый движок 7-Zip и ZstdSharp (до 22 уровня сжатия)", Foreground = GetSecondaryBrush() });
+                        container.Children.Add(new TextBlock { Text = "⚡ STORM SWITCH BOX v4.9.2", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.Bold });
+                        container.Children.Add(new TextBlock { Text = "• Умная обработка файлов: идеальный баланс размера и функционала по умолчанию\n• Поддержка двух экосистем: Nintendo Switch и Nintendo 3DS с изолированными конвертациями\n• Интерактивная «Библиотека игр» всех 19 поколений Nintendo (No-Intro & Redump)\n• Раздел «Информация» с визуальными плашками платформ на обложках\n• Две независимые службы «Умная папка» (Switch и 3DS)\n• Встроенный сверхбыстрый движок 7-Zip и ZstdSharp (до 22 уровня сжатия)", Foreground = GetSecondaryBrush() });
                     }
                 },
                 new TopicItem
                 {
-                    Title = "Умная обработка файлов (Smart Processing)",
+                    Title = "Умная обработка файлов",
                     Category = "Алгоритмы",
                     Icon = "\uE945",
-                    DescriptionText = "Интеллектуальный алгоритм автоматического выбора метода сборки (Smart Processing), внедренный в v4.9.1:\n\n" +
+                    DescriptionText = "Интеллектуальный алгоритм автоматического выбора метода сборки (Smart Processing), внедренный в v4.9.2:\n\n" +
                                       "Цель алгоритма: получить абсолютно минимальный размер выходного файла при 100% сохранении всего функционала, модов и дополнений.\n\n" +
                                       "Как работает авто-анализ:\n" +
                                       "1. Легковесные патчи (напр. Ys X Nordics: патч 60 МБ на игру 6.75 ГБ) — программа применяет нативное сшивание LibHac PFS0. Это сохраняет оригинальный несжатый размер (6.81 ГБ) без раздувания RomFS до 10.4 ГБ!\n" +
@@ -95,7 +125,7 @@ namespace StormSwitchBox.Views
                     Title = "Симулятор группировки задач",
                     Category = "Интерактив",
                     Icon = "\uE8E5",
-                    DescriptionText = "Интерактивный симулятор алгоритма группировки v4.7.9.\n\nПеретащите реальные файлы/папки в зону ниже или выберите один из готовых сценариев («Dispatch» или «Cadence of Hyrule»), чтобы увидеть, как программа сформирует изолированные комплектные задачи (ИГРА + UPDATE + DLC + ROMFS/EXEFS), определит RomFS для нужных папок и выведет полный сгруппированный результат построчно с нумерацией.",
+                    DescriptionText = "Интерактивный симулятор алгоритма группировки задач.\n\nПеретащите реальные файлы/папки в зону ниже или выберите один из готовых сценариев («Dispatch» или «Cadence of Hyrule»), чтобы увидеть, как программа сформирует изолированные комплектные задачи (ИГРА + UPDATE + DLC + ROMFS/EXEFS), определит RomFS для нужных папок и выведет полный сгруппированный результат построчно с нумерацией.",
                     Tip = "Перетаскивайте папки с несколькими релизами прямо в симулятор: вы сразу увидите, как файлы разделятся по независимым задачам!",
                     SetupPreview = container => BuildSimulatorPreview(container)
                 },
@@ -171,7 +201,7 @@ namespace StormSwitchBox.Views
                     Category = "Автоматизация",
                     Icon = "\uE812",
                     DescriptionText = "«Умная» папка предназначена для автоматической фоновой обработки игр.\n\n" +
-                                      "Принцип работы в v4.7.9:\n" +
+                                      "Принцип работы:\n" +
                                       "1. Активация — просто включите переключатель в Параметрах. Сканирование начинается мгновенно!\n" +
                                       "2. Изоляция по папкам — каждая подпапка первого уровня формирует отдельную изолированную задачу.\n" +
                                       "3. Комплектность по TitleID — внутри одной подпапки базовая игра, файлы обновления, DLC и модификации (RomFS/ExeFS/IPS) автоматически объединяются в один комплект.\n" +
@@ -216,7 +246,7 @@ namespace StormSwitchBox.Views
                     Title = "Интеграция с эмуляторами и синхронизация SDMC",
                     Category = "Эмуляторы",
                     Icon = "\uE7FC",
-                    DescriptionText = "STORM SWITCH BOX v4.9.1 предоставляет полную свободу в интеграции с локальными эмуляторами Nintendo Switch (STORM EDEN, Yuzu, Ryujinx, Suyu, Sudachi, Torzu, Citron и др.):\n\n" +
+                    DescriptionText = "STORM SWITCH BOX v4.9.2 предоставляет полную свободу в интеграции с локальными эмуляторами Nintendo Switch (STORM EDEN, Yuzu, Ryujinx, Suyu, Sudachi, Torzu, Citron и др.):\n\n" +
                                       "1. Пользовательский выбор папок эмуляторов — в разделе «Параметры» доступен специальный блок «Интеграция с эмуляторами (Путь к папке эмулятора)». Вы можете перетащить (Drag & Drop) или выбрать через проводник одну или несколько директорий ваших эмуляторов (например, E:\\STORM EDEN 3\\Assembling, L:\\Emulators\\Ryujinx и др.).\n\n" +
                                       "2. Чистота выходной библиотеки — при сборке Homebrew-игр и портов программа больше НЕ создает лишних папок [SDMC] в вашей основной папке с играми (например, P:\\CONSOLES\\...\\GAMES). Все файлы NRO, данные и конфигурации доставляются строго в виртуальные SD-карты указанных эмуляторов (user/sdmc/switch/<game>/), а рядом с игрой сохраняется только чистый итоговый файл (.nsp / .nsz / .xci).\n\n" +
                                       "3. Эксклюзивная фильтрация — если в настройках указаны конкретные папки эмуляторов, синхронизация данных происходит ИСКЛЮЧИТЕЛЬНО в них, полностью исключая фоновые диски и системные профили. Если список пуст — включается умный авто-поиск по всем подключенным дискам (C:, D:, E:, L: и др.).",
@@ -502,8 +532,597 @@ namespace StormSwitchBox.Views
                     }
                 }
             };
+        }
 
-            FilterTopics(string.Empty);
+        private List<TopicItem> GetTopicsEn()
+        {
+            return new List<TopicItem>
+            {
+                new TopicItem
+                {
+                    Title = "Application Overview",
+                    Category = "Introduction",
+                    Icon = "\uE9CE",
+                    DescriptionText = "STORM SWITCH BOX v4.9.2 is a professional, high-performance toolkit for processing Nintendo Switch and Nintendo 3DS games, as well as an interactive encyclopedia of all 19 Nintendo console generations (from Color TV-Game to Nintendo Switch 2).\n\nEquipped with Smart File Processing, the program automatically selects the optimal build method (native PFS0 splicing without RomFS inflation for lightweight patches, or physical HardPatch for heavy updates and mods), unpacks resources, compiles NSP/NSZ/3DS/CIA, converts formats across ecosystems (Switch: NSP ↔ XCI ↔ NSZ ↔ XCZ; 3DS: 3DS ↔ CIA ↔ CXI), bundles games with updates and DLCs into monolithic 4-in-1 packages, builds Homebrew ports, monitors dual Smart Folders, and saves instant history.",
+                    Tip = "Switch between Nintendo Switch and 3DS in one click via the top header bar!",
+                    SetupPreview = container =>
+                    {
+                        container.Children.Add(new TextBlock { Text = "⚡ STORM SWITCH BOX v4.9.2", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.Bold });
+                        container.Children.Add(new TextBlock { Text = "• Smart File Processing: Optimal file size and 100% mod compatibility by default\n• Dual Ecosystems: Nintendo Switch & Nintendo 3DS support\n• Interactive Game Library: All 19 Nintendo generations (No-Intro & Redump)\n• Information Catalog: High-res artwork with platform badges\n• Dual Independent Smart Folders (Switch & 3DS)\n• Embedded 7-Zip & Zstandard compression engines (up to level 22)", Foreground = GetSecondaryBrush() });
+                    }
+                },
+                new TopicItem
+                {
+                    Title = "Smart File Processing",
+                    Category = "Algorithms",
+                    Icon = "\uE945",
+                    DescriptionText = "Intelligent automatic build method selection algorithm (Smart Processing) in v4.9.2:\n\n" +
+                                      "Algorithm Objective: Produce the absolute smallest output file size while preserving 100% of game functionality, DLCs, and mods.\n\n" +
+                                      "How it works:\n" +
+                                      "1. Lightweight patches (e.g. Ys X Nordics: 60 MB patch on 6.75 GB base) — native LibHac PFS0 splicing is used. Preserves the exact 6.81 GB size without RomFS ballooning to 10.4 GB!\n" +
+                                      "2. Massive updates (e.g. The Witcher 3, MK11: patch >= 40% base size) — physical HardPatch replaces outdated assets with new update resources, saving gigabytes of storage!\n" +
+                                      "3. Mod folders (romfs, exefs, exefs_patches) — triggers HardPatch to inject translations and mods directly into game binaries.\n\n" +
+                                      "All decision logs are displayed clearly with the 🧠 icon.",
+                    Tip = "Smart Processing is always enabled by default — no need to guess between rebuilding and splicing!",
+                    SetupPreview = container =>
+                    {
+                        var sp = new StackPanel { Spacing = 8 };
+                        sp.Children.Add(new TextBlock { Text = "🧠 Smart File Processing Analysis:", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
+                        sp.Children.Add(new TextBlock { Text = "• Light Patch: [Native Splicing] → Smallest size (6.81 GB instead of 10.4 GB)", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "• Heavy Patch: [HardPatch] → Asset replacement and outdated data cleanup", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "• Mod Folders: [HardPatch] → Direct physical injection of mods into RomFS", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) });
+                        container.Children.Add(sp);
+                    }
+                },
+                new TopicItem
+                {
+                    Title = "Task Grouping Simulator",
+                    Category = "Interactive",
+                    Icon = "\uE8E5",
+                    DescriptionText = "Interactive task grouping simulator.\n\nDrag and drop real game folders or select preset scenarios («Dispatch» or «Cadence of Hyrule») to simulate how the engine creates isolated complete packages (BASE + UPDATE + DLC + ROMFS/EXEFS) and routes RomFS directories.",
+                    Tip = "Drag multi-release folders directly into the simulator to visualize task separation!",
+                    SetupPreview = container => BuildSimulatorPreview(container)
+                },
+                new TopicItem
+                {
+                    Title = "Built-in 7-Zip & Auto-Extraction",
+                    Category = "Archives",
+                    Icon = "\uE8F1",
+                    DescriptionText = "STORM SWITCH BOX embeds a high-performance 7-Zip engine with zero external dependencies:\n\n" +
+                                      "1. Auto-extraction on Drop — drop archives (.zip, .rar, .7z) or folders to extract automatically.\n" +
+                                      "2. Smart Extraction Skip — if an uncompressed folder already exists next to the archive, extraction is skipped.\n" +
+                                      "3. Multi-threaded Acceleration — 7-Zip uses all CPU cores (-mmt=on) for blazing-fast decompression.\n" +
+                                      "4. Instant Indexing — extracted games, updates, DLCs, and mods are immediately grouped into tasks.",
+                    Tip = "Simply drag a zip archive with mods or translations into the application window!",
+                    SetupPreview = container =>
+                    {
+                        var sp = new StackPanel { Spacing = 8 };
+                        sp.Children.Add(new TextBlock { Text = "📦 Built-in 7-Zip Engine (Active)", Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+                        sp.Children.Add(new TextBlock { Text = "✓ Automatic extraction of .zip, .rar, .7z", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "✓ Automatic skipping of pre-extracted folders", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "✓ Multi-threaded decompression (All CPU cores)", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        container.Children.Add(sp);
+                    }
+                },
+                new TopicItem
+                {
+                    Title = "Modifications (RomFS, ExeFS & IPS)",
+                    Category = "Modding",
+                    Icon = "\uE7B5",
+                    DescriptionText = "Complete support for all types of Nintendo Switch mods:\n\n" +
+                                      "1. RomFS — custom textures, translations, voiceovers, and models.\n" +
+                                      "2. ExeFS — modified NSO binary modules (main, subsdk0).\n" +
+                                      "3. ExeFS_Patches (IPS) — 60 FPS patches, graphics tweaks, no-blur, and cheats applied to main.\n" +
+                                      "4. Emulator Compatibility — embedded mods are recognized as DLC and can be toggled on/off in emulator game properties (STORM EDEN, Yuzu, Ryujinx).",
+                    Tip = "Give your mod a custom title (e.g. «60 FPS Mod») in the Metadata Editor!",
+                    SetupPreview = container =>
+                    {
+                        var sp = new StackPanel { Spacing = 6 };
+                        sp.Children.Add(new TextBlock { Text = "🎮 Modification Injection:", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+                        sp.Children.Add(new TextBlock { Text = "• RomFS: Custom Textures & Audio [RomFS: 1]", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
+                        sp.Children.Add(new TextBlock { Text = "• ExeFS_Patches: 60 FPS IPS Patch [ExeFS: 1]", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) });
+                        sp.Children.Add(new TextBlock { Text = "• Emulator Add-on: [☑] Modification: RomFS (v1)", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        container.Children.Add(sp);
+                    }
+                },
+                new TopicItem
+                {
+                    Title = "Metadata & Icon Editor",
+                    Category = "Customization",
+                    Icon = "\uE70F",
+                    DescriptionText = "Integrated Control NCA (NACP + Icon) editor:\n\n" +
+                                      "• Right-click any task in the queue → «Edit Metadata & Icon».\n" +
+                                      "• Edit game titles in multiple languages and publisher info.\n" +
+                                      "• Assign unique names to RomFS and ExeFS modifications.\n" +
+                                      "• Fast icon replacement with automatic 256×256 scaling.\n" +
+                                      "• Instant injection without rebuilding heavy game packages.",
+                    Tip = "Custom icons and names are automatically included when assembling Multi-Content packages.",
+                    SetupPreview = container =>
+                    {
+                        var sp = new StackPanel { Spacing = 8 };
+                        sp.Children.Add(new TextBlock { Text = "🏷️ Game Metadata Editor:", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+                        sp.Children.Add(new TextBlock { Text = "• Title (ENG): Cadence of Hyrule", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "• RomFS Mod: Custom HD Texture Pack", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
+                        sp.Children.Add(new TextBlock { Text = "• ExeFS Mod: 60 FPS Patch", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) });
+                        container.Children.Add(sp);
+                    }
+                },
+                new TopicItem
+                {
+                    Title = "Smart Folder",
+                    Category = "Automation",
+                    Icon = "\uE812",
+                    DescriptionText = "Smart Folder provides automatic background processing of incoming games:\n\n" +
+                                      "1. Instant Activation — toggle the switch in Settings to start monitoring.\n" +
+                                      "2. Folder Isolation — each first-level folder creates an independent task.\n" +
+                                      "3. TitleID Grouping — base games, updates, DLCs, and mods are merged cleanly.\n" +
+                                      "4. Accurate RomFS Scoping — mod folders are scoped strictly to their parent game.\n" +
+                                      "5. Auto-execution — new files trigger conversion, multi-content packaging, or compression automatically.",
+                    Tip = "Drag and drop folders directly into the Smart Folder path box in Settings!",
+                    SetupPreview = container =>
+                    {
+                        var sp = new StackPanel { Spacing = 10 };
+                        sp.Children.Add(new CheckBox { Content = "Automatic Folder Scanning & Processing", IsChecked = true });
+                        sp.Children.Add(new TextBlock { Text = "Path: P:\\CONSOLES\\Nintendo Switch\\DOWNLOADS", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "Mode: Multi-Content → Format: NSP (Smart Processing active)", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
+                        sp.Children.Add(new TextBlock { Text = "⚡ Automated execution active", FontSize = 12, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+                        container.Children.Add(sp);
+                    }
+                },
+                new TopicItem
+                {
+                    Title = "Multi-Content & Unlocker",
+                    Category = "Packaging",
+                    Icon = "\uE7BE",
+                    DescriptionText = "Advanced monolithic builder for NSP and NSZ formats:\n\n" +
+                                      "• Full Resource Fusion: Base game, Update, all DLCs, RomFS/ExeFS mods, and Unlockers bundled into one installable file.\n" +
+                                      "• Unlocker Preservation (.tik / .cert): Rights tickets for characters and DLCs are preserved intact.\n" +
+                                      "• Native LibHac PFS0: Built with strict NCA header ordering to guarantee emulator recognition.\n" +
+                                      "• Smart Processing integration ensures the smallest possible file size.",
+                    Tip = "Packaging Multi-Content as NSZ saves massive disk space while keeping all DLCs in a single file.",
+                    SetupPreview = container =>
+                    {
+                        var sp = new StackPanel { Spacing = 6 };
+                        sp.Children.Add(new TextBlock { Text = "Multi-Content Package Structure:", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+                        sp.Children.Add(new TextBlock { Text = "1. [BASE] Mortal Kombat 1 (30.0 GB)", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "2. [UPDATE] Update v1.18.0 (5.2 GB)", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "3. [DLC] Kombat Pack Characters (150 MB)", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "4. [UNLOCKER] Rights Tickets (.tik / .cert preserved)", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
+                        sp.Children.Add(new TextBlock { Text = "5. [MOD] 60 FPS ExeFS Patch [ExeFS: 1]", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) });
+                        container.Children.Add(sp);
+                    }
+                },
+                new TopicItem
+                {
+                    Title = "Emulator Integration & SDMC Sync",
+                    Category = "Emulators",
+                    Icon = "\uE7FC",
+                    DescriptionText = "Seamless integration with Nintendo Switch emulators (STORM EDEN, Yuzu, Ryujinx, Suyu, Sudachi, Torzu, Citron):\n\n" +
+                                      "1. Custom Emulator Directories — In Settings, specify one or more emulator paths via Drag & Drop or folder picker.\n" +
+                                      "2. Clean Game Library — Building Homebrew ports delivers NRO data directly into emulator SDMC (user/sdmc/switch/<game>/) without creating redundant [SDMC] folders in your main game library.\n" +
+                                      "3. Strict Filtering — Data synchronizes strictly to specified emulator paths.",
+                    Tip = "Specify your emulator path once in Settings for instant launch of Homebrew ports!",
+                    SetupPreview = container =>
+                    {
+                        var sp = new StackPanel { Spacing = 8 };
+                        sp.Children.Add(new TextBlock { Text = "🎮 Targeted Emulator Sync (Active):", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
+                        sp.Children.Add(new TextBlock { Text = "• Emulator Folder: E:\\STORM EDEN 3\\Assembling (user/sdmc/)", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "• Clean Library: [SDMC] folders never pollute game directories", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) });
+                        sp.Children.Add(new TextBlock { Text = "• Drag & Drop: Multiple emulator path support", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        container.Children.Add(sp);
+                    }
+                },
+                new TopicItem
+                {
+                    Title = "Homebrew: Engine Ports & Standalone Games",
+                    Category = "Homebrew",
+                    Icon = "\uE7FC",
+                    DescriptionText = "Dedicated Homebrew builder for engine ports and standalone titles (NSP / NSZ / XCI):\n\n" +
+                                      "1. Smart File Detection — Drop game folders (e.g. Diablo I, GTA V, GTA Vice City / San Andreas, DOOM, Half-Life, Quake, S.T.A.L.K.E.R., Morrowind) or files (.nro, .ovl, .nsp forwarders, atmosphere/contents/<TitleID>/romfs).\n" +
+                                      "2. Zero-Copy RomFS & Direct Packaging — Embeds all game assets into Program NCA with zero redundant copying, delivering data straight to emulator SDMC.\n" +
+                                      "3. Forwarder Decompilation — Re-uses verified forwarder binaries, TitleIDs, and icons automatically.",
+                    Tip = "Specify your emulator directory in Settings for automatic SDMC asset deployment!",
+                    SetupPreview = container =>
+                    {
+                        var sp = new StackPanel { Spacing = 6 };
+                        sp.Children.Add(new TextBlock { Text = "🕹️ Homebrew Package (Standalone NSP + Direct Sync):", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) });
+                        sp.Children.Add(new TextBlock { Text = "• ExeFS: main binary + main.npdm [NSP Forwarder]", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "• RomFS: Embedded game data (.mpq / .rpf / .wad / LayeredFS)", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
+                        sp.Children.Add(new TextBlock { Text = "• SDMC: Automatic deployment to user/sdmc/switch/<game>/", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
+                        container.Children.Add(sp);
+                    }
+                },
+                new TopicItem
+                {
+                    Title = "Game Updates (HardPatch & Splicing)",
+                    Category = "Patching",
+                    Icon = "\uE72C",
+                    DescriptionText = "Seamless game update integration with Smart Processing:\n\n" +
+                                      "• Light updates (under 40% base size) — Native splicing without RomFS inflation.\n" +
+                                      "• Heavy updates (over 40% base size) — HardPatch physical replacement to maximize storage savings.\n" +
+                                      "• The resulting package runs standalone with no need to install update files separately.",
+                    Tip = "Combine with NSZ compression for the smallest possible package size.",
+                    SetupPreview = container =>
+                    {
+                        var sp = new StackPanel { Spacing = 10 };
+                        sp.Children.Add(new CheckBox { Content = "Compress output image to NSZ (Zstandard)", IsChecked = true });
+                        sp.Children.Add(new Slider { Header = "Compression Level (22 - Maximum)", Minimum = 1, Maximum = 22, Value = 22 });
+                        container.Children.Add(sp);
+                    }
+                },
+                new TopicItem
+                {
+                    Title = "Format Conversion (Switch & 3DS)",
+                    Category = "Formats",
+                    Icon = "\uE8D4",
+                    DescriptionText = "Fast native and stream-based format conversion:\n\n" +
+                                      "• Nintendo Switch: NSP ↔ XCI ↔ NSZ ↔ XCZ with lossless pass-through.\n" +
+                                      "• Nintendo 3DS: 3DS (CCI) ↔ CIA ↔ CXI.\n" +
+                                      "• Automatic cartridge byte trimming for 3DS images.",
+                    Tip = "XCI to NSP converts losslessly without heavy CPU overhead.",
+                    SetupPreview = container =>
+                    {
+                        var sp = new StackPanel { Spacing = 8 };
+                        sp.Children.Add(new TextBlock { Text = "Conversion Pipelines:", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+                        sp.Children.Add(new TextBlock { Text = "• Switch: NSP ↔ XCI ↔ NSZ ↔ XCZ", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) });
+                        sp.Children.Add(new TextBlock { Text = "• 3DS: 3DS (CCI) ↔ CIA ↔ CXI", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.Crimson) });
+                        container.Children.Add(sp);
+                    }
+                },
+                new TopicItem
+                {
+                    Title = "Extraction & Packaging",
+                    Category = "Modding",
+                    Icon = "\uE896",
+                    DescriptionText = "Extract RomFS (game resources, textures, scripts) and ExeFS (NSO code), or repack modified directories back into installable NSP/NSZ packages.",
+                    Tip = "Place extracted RomFS folders next to base games to auto-include them in Multi-Content builds.",
+                    SetupPreview = container =>
+                    {
+                        var sp = new StackPanel { Spacing = 8 };
+                        sp.Children.Add(new RadioButton { Content = "Extract RomFS (Game Assets)", IsChecked = true });
+                        sp.Children.Add(new RadioButton { Content = "Extract ExeFS (NSO Code)" });
+                        container.Children.Add(sp);
+                    }
+                },
+                new TopicItem
+                {
+                    Title = "Settings & Keys",
+                    Category = "Configuration",
+                    Icon = "\uE713",
+                    DescriptionText = "Full suite of settings and encryption tools:\n\n" +
+                                      "• Drag & Drop keys file (prod.keys / keys.txt) with visual highlights.\n" +
+                                      "• Ticketless NSP creation (--C_clean_ND) for CFW compatibility.\n" +
+                                      "• Delta NCA stripping (-ND true) for compact updates.\n" +
+                                      "• FAT32 split mode for cards requiring < 4 GB files.\n" +
+                                      "• Unused RomFS language trimming.",
+                    Tip = "Hover over any option in Settings to view comprehensive tooltips.",
+                    SetupPreview = container =>
+                    {
+                        var sp = new StackPanel { Spacing = 8 };
+                        sp.Children.Add(new TextBlock { Text = "🔑 Encryption Keys: prod.keys (Active)", Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+                        sp.Children.Add(new CheckBox { Content = "🔓 Remove Titlerights (Ticketless NSP)", IsChecked = false });
+                        sp.Children.Add(new CheckBox { Content = "🗑️ Strip Delta NCAs from Updates", IsChecked = true });
+                        sp.Children.Add(new CheckBox { Content = "💾 Split files for FAT32 (> 4 GB)", IsChecked = false });
+                        container.Children.Add(sp);
+                    }
+                },
+                new TopicItem
+                {
+                    Title = "Integrity Verification",
+                    Category = "Validation",
+                    Icon = "\uE8FB",
+                    DescriptionText = "Comprehensive file integrity validator (.nsp, .nsz, .xci) checking NCA headers, RSA signatures, and block hash digests.",
+                    Tip = "Verify downloaded ROMs to prevent corrupted dumps from causing crashes.",
+                    SetupPreview = container =>
+                    {
+                        var progress = new ProgressBar { Value = 100, Minimum = 0, Maximum = 100, Height = 8 };
+                        var label = new TextBlock { Text = "Verification Complete: 100% (No errors detected)", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) };
+                        container.Children.Add(progress);
+                        container.Children.Add(label);
+                    }
+                },
+                new TopicItem
+                {
+                    Title = "Nintendo 3DS: Architecture & Multi-Content",
+                    Category = "Nintendo 3DS",
+                    Icon = "\uE7FC",
+                    DescriptionText = "Complete Nintendo 3DS ecosystem support (CTR/CCI/CIA/CXI):\n\n" +
+                                      "1. 3DS Multi-Content — Combines Base game (.3ds/.cci/.cia), Update (.cia), DLCs (.cia), and translation mods (romfs folder) into one trimmed .3ds file.\n" +
+                                      "2. LayeredFS Splicing — Unpacks via ctrtool, overlays update patches, injects DLC content, replaces modified RomFS files, and repacks with 3dstool and makerom.\n" +
+                                      "3. Native Compatibility — Works out of the box in Citra, Lime3DS, and Azahar emulators.",
+                    Tip = "Drop the base game, CIA update, DLCs, and RomFS mod folder together into Multi-Content!",
+                    SetupPreview = container =>
+                    {
+                        var sp = new StackPanel { Spacing = 8 };
+                        sp.Children.Add(new TextBlock { Text = "🕹️ Nintendo 3DS Multi-Content Package:", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) });
+                        sp.Children.Add(new TextBlock { Text = "1. [BASE] The Legend of Zelda (.3ds / 2.0 GB)", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "2. [PATCH] Update v1.2 (.cia / 120 MB)", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "3. [DLC] Add-on Content (.cia / 65 MB)", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "4. [MOD] RomFS Translation Folder", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
+                        sp.Children.Add(new TextBlock { Text = "✓ Output: Monolithic .3ds file (CCI, Trimming applied)", FontSize = 12, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
+                        container.Children.Add(sp);
+                    }
+                },
+                new TopicItem
+                {
+                    Title = "Nintendo 3DS: Formats & Compression",
+                    Category = "Nintendo 3DS",
+                    Icon = "\uE8D4",
+                    DescriptionText = "Overview of Nintendo 3DS formats and size optimizations:\n\n" +
+                                      "• 3DS / CCI (CTR Cartridge Image) — Standard cartridge dump for emulators (Citra, Lime3DS, Azahar).\n" +
+                                      "• CIA (CTR Importable Archive) — Installable package for real 3DS hardware (FBI / Custom Firmware).\n" +
+                                      "• CXI (CTR Executable Image) — Executable NCCH container for debugging.\n" +
+                                      "• Trimming vs Compression — 3DS emulators do not use Zstandard/NSZ. Instead, Trimming removes 0xFF padding, reducing file size by 2-4x without losing compatibility!",
+                    Tip = "Select .3ds (CCI) for emulators, and .cia for 3DS hardware installation.",
+                    SetupPreview = container =>
+                    {
+                        var sp = new StackPanel { Spacing = 6 };
+                        sp.Children.Add(new TextBlock { Text = "3DS Format Comparison:", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+                        sp.Children.Add(new TextBlock { Text = "• 3DS / CCI: Direct launch in Citra / Lime3DS (Trimming active)", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
+                        sp.Children.Add(new TextBlock { Text = "• CIA: Installation on 3DS console (Luma3DS / FBI)", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) });
+                        sp.Children.Add(new TextBlock { Text = "• CXI: NCCH container for debugging and modding", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        container.Children.Add(sp);
+                    }
+                },
+                new TopicItem
+                {
+                    Title = "Nintendo Game Library (19 Systems)",
+                    Category = "Encyclopedia",
+                    Icon = "\uE7FC",
+                    DescriptionText = "Interactive encyclopedia spanning all 19 Nintendo console generations:\n\n" +
+                                      "Color TV-Game (1977) → Game & Watch → NES / Famicom → FDS → Game Boy → SNES → Satellaview → Virtual Boy → N64 → GBC → Pokémon Mini → GBA → GameCube → DS → Wii → 3DS → Wii U → Switch → Switch 2 (2025).\n\n" +
+                                      "Features:\n" +
+                                      "• Fast platform tabs and global search across the database.\n" +
+                                      "• Genre, developer, and publisher filters.\n" +
+                                      "• High-resolution cover viewer with direct disk save («💾 Save Cover»), metadata copy, and web search.",
+                    Tip = "Click on any game card to open high-resolution artwork and save it!",
+                    SetupPreview = container =>
+                    {
+                        var sp = new StackPanel { Spacing = 8 };
+                        sp.Children.Add(new TextBlock { Text = "📚 Interactive Nintendo Game Library:", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) });
+                        sp.Children.Add(new TextBlock { Text = "• All 19 Systems: Color TV-Game → NES → SNES → N64 → GBA → 3DS → Switch → Switch 2", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "• Game Cards: Artwork, Publisher, Developer, Year, Genre, Edition", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "• Artwork Dialog: High-Res Zoom + Save PNG/JPG", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
+                        container.Children.Add(sp);
+                    }
+                },
+                new TopicItem
+                {
+                    Title = "Information: Switch & 3DS Database",
+                    Category = "Catalog",
+                    Icon = "\uE8B9",
+                    DescriptionText = "Scan local game folders and cross-reference with global TitleDB & 3DS databases:\n\n" +
+                                      "• Platform Badges: Clear visual badges in the bottom corner of every cover (Blue «🎮 Nintendo Switch» or Red «🕹️ Nintendo 3DS»).\n" +
+                                      "• Global Search: Instant lookup across TitleID, names, and studios.\n" +
+                                      "• Quick Action: Click any local game to jump straight into conversion or compression.",
+                    Tip = "Use the filter pills at the top to toggle between All Games, Switch, and 3DS.",
+                    SetupPreview = container =>
+                    {
+                        var sp = new StackPanel { Spacing = 8 };
+                        sp.Children.Add(new TextBlock { Text = "🔍 Game Catalog & Identification:", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+                        sp.Children.Add(new TextBlock { Text = "• Switch Badge: [🎮 Nintendo Switch] (Blue badge on cover)", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) });
+                        sp.Children.Add(new TextBlock { Text = "• 3DS Badge: [🕹️ Nintendo 3DS] (Red badge on cover)", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.Crimson) });
+                        sp.Children.Add(new TextBlock { Text = "• Instant search by TitleID, title, and publisher", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        container.Children.Add(sp);
+                    }
+                },
+                new TopicItem
+                {
+                    Title = "Dual Smart Folder Services",
+                    Category = "Automation",
+                    Icon = "\uE812",
+                    DescriptionText = "Independent monitoring services for both consoles:\n\n" +
+                                      "1. Nintendo Switch Smart Folder — Configured in Switch Settings. Supports NSZ compression, unpack, repack, XCI conversion, Multi-Content, and integrity verification.\n" +
+                                      "2. Nintendo 3DS Smart Folder — Configured in 3DS Settings. Supports 3DS conversion, Multi-Content, unpacking, repacking, and trimming.\n" +
+                                      "3. Controlled Execution — Start and stop monitoring explicitly via dedicated buttons.",
+                    Tip = "You can monitor separate directories for Switch and 3DS concurrently!",
+                    SetupPreview = container =>
+                    {
+                        var sp = new StackPanel { Spacing = 8 };
+                        sp.Children.Add(new TextBlock { Text = "📁 Independent Monitoring Services:", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+                        sp.Children.Add(new TextBlock { Text = "• Switch Watch Folder: Auto Multi-Content → NSP/NSZ (Active)", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) });
+                        sp.Children.Add(new TextBlock { Text = "• 3DS Watch Folder: Auto-trimming & build → .3DS/.CIA (Active)", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.Crimson) });
+                        container.Children.Add(sp);
+                    }
+                },
+                new TopicItem
+                {
+                    Title = "Guaranteed Temporary File Cleanup",
+                    Category = "Safety",
+                    Icon = "\uE74D",
+                    DescriptionText = "Dedicated cleanup engine guarantees 100% clean disk space:\n\n" +
+                                      "• Direct deletion bypassing Recycle Bin: Resets file attributes to Normal and performs physical removal.\n" +
+                                      "• Active Temp Folder Registry: Real-time tracking of STORM_TMP_*, StormDecomp_*, and Storm3DS_* directories.\n" +
+                                      "• Startup and Shutdown Clean: All disk roots and %TEMP% locations are verified on app launch, task cancellation, and window close.",
+                    Tip = "Your drives are always protected from accumulating orphaned temporary files!",
+                    SetupPreview = container =>
+                    {
+                        var sp = new StackPanel { Spacing = 8 };
+                        sp.Children.Add(new TextBlock { Text = "🛡️ Automatic Disk Cleanup (Active):", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
+                        sp.Children.Add(new TextBlock { Text = "✓ Drive root cleanup (C:\\, D:\\, E:\\... STORM_TMP_*)", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "✓ Output folder cleanup (StormDecomp_*)", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "✓ Direct physical removal bypassing Recycle Bin", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
+                        container.Children.Add(sp);
+                    }
+                }
+            };
+        }
+
+        private List<TopicItem> GetTopicsDe()
+        {
+            var enList = GetTopicsEn();
+            return enList.Select(t => new TopicItem
+            {
+                Title = t.Title switch
+                {
+                    "Application Overview" => "App-Übersicht",
+                    "Smart File Processing" => "Intelligente Dateiverarbeitung",
+                    "Task Grouping Simulator" => "Aufgaben-Gruppierungs-Simulator",
+                    "Built-in 7-Zip & Auto-Extraction" => "Integriertes 7-Zip & Auto-Entpacken",
+                    "Modifications (RomFS, ExeFS & IPS)" => "Modifikationen (RomFS, ExeFS & IPS)",
+                    "Metadata & Icon Editor" => "Metadaten- & Icon-Editor",
+                    "Smart Folder" => "Smarter Ordner",
+                    "Multi-Content & Unlocker" => "Multi-Content & Unlocker",
+                    "Emulator Integration & SDMC Sync" => "Emulator-Integration & SDMC-Synchronisation",
+                    "Homebrew: Engine Ports & Standalone Games" => "Homebrew: Portierungen & Standalone-Spiele",
+                    "Game Updates (HardPatch & Splicing)" => "Spiel-Updates (HardPatch & Zusammenführung)",
+                    "Format Conversion (Switch & 3DS)" => "Formatkonvertierung (Switch & 3DS)",
+                    "Extraction & Packaging" => "Entpacken & Packen",
+                    "Settings & Keys" => "Einstellungen & Schlüssel",
+                    "Integrity Verification" => "Integritätsprüfung",
+                    "Nintendo 3DS: Architecture & Multi-Content" => "Nintendo 3DS: Architektur & Multi-Content",
+                    "Nintendo 3DS: Formats & Compression" => "Nintendo 3DS: Formate & Kompression",
+                    "Nintendo Game Library (19 Systems)" => "Nintendo Spiele-Bibliothek (19 Systeme)",
+                    "Information: Switch & 3DS Database" => "Informationen: Switch & 3DS Datenbank",
+                    "Dual Smart Folder Services" => "Getrennte Smart-Ordner-Dienste",
+                    "Guaranteed Temporary File Cleanup" => "Garantierte Bereinigung temporärer Dateien",
+                    _ => t.Title
+                },
+                Category = t.Category switch
+                {
+                    "Introduction" => "Einführung",
+                    "Algorithms" => "Algorithmen",
+                    "Interactive" => "Interaktiv",
+                    "Archives" => "Archive",
+                    "Modding" => "Modding",
+                    "Customization" => "Anpassung",
+                    "Automation" => "Automatisierung",
+                    "Packaging" => "Paketierung",
+                    "Emulators" => "Emulatoren",
+                    "Homebrew" => "Homebrew",
+                    "Patching" => "Patchen",
+                    "Formats" => "Formate",
+                    "Configuration" => "Konfiguration",
+                    "Validation" => "Validierung",
+                    "Nintendo 3DS" => "Nintendo 3DS",
+                    "Encyclopedia" => "Enzyklopädie",
+                    "Catalog" => "Katalog",
+                    "Safety" => "Sicherheit",
+                    _ => t.Category
+                },
+                Icon = t.Icon,
+                DescriptionText = t.DescriptionText,
+                Tip = t.Tip,
+                SetupPreview = t.SetupPreview
+            }).ToList();
+        }
+
+        private List<TopicItem> GetTopicsZh()
+        {
+            var enList = GetTopicsEn();
+            return enList.Select(t => new TopicItem
+            {
+                Title = t.Title switch
+                {
+                    "Application Overview" => "应用程序概览",
+                    "Smart File Processing" => "智能文件处理",
+                    "Task Grouping Simulator" => "任务分组模拟器",
+                    "Built-in 7-Zip & Auto-Extraction" => "内置7-Zip与自动解压",
+                    "Modifications (RomFS, ExeFS & IPS)" => "Mod修改 (RomFS, ExeFS 与 IPS)",
+                    "Metadata & Icon Editor" => "元数据与图标编辑器",
+                    "Smart Folder" => "智能文件夹",
+                    "Multi-Content & Unlocker" => "多合一内容与解锁器",
+                    "Emulator Integration & SDMC Sync" => "模拟器集成与SDMC同步",
+                    "Homebrew: Engine Ports & Standalone Games" => "自制程序：引擎移植与独立游戏",
+                    "Game Updates (HardPatch & Splicing)" => "游戏更新 (HardPatch与无缝合并)",
+                    "Format Conversion (Switch & 3DS)" => "格式转换 (Switch与3DS)",
+                    "Extraction & Packaging" => "解包与打包",
+                    "Settings & Keys" => "设置与密钥",
+                    "Integrity Verification" => "完整性校验",
+                    "Nintendo 3DS: Architecture & Multi-Content" => "Nintendo 3DS: 架构与多合一内容",
+                    "Nintendo 3DS: Formats & Compression" => "Nintendo 3DS: 格式与压缩",
+                    "Nintendo Game Library (19 Systems)" => "任天堂游戏库 (19代系统)",
+                    "Information: Switch & 3DS Database" => "信息：Switch与3DS数据库",
+                    "Dual Smart Folder Services" => "独立的智能文件夹服务",
+                    "Guaranteed Temporary File Cleanup" => "可靠的临时文件清理机制",
+                    _ => t.Title
+                },
+                Category = t.Category switch
+                {
+                    "Introduction" => "引言",
+                    "Algorithms" => "算法",
+                    "Interactive" => "交互模拟",
+                    "Archives" => "压缩包",
+                    "Modding" => "Mod制作",
+                    "Customization" => "个性化",
+                    "Automation" => "自动化",
+                    "Packaging" => "打包模式",
+                    "Emulators" => "模拟器",
+                    "Homebrew" => "自制软件",
+                    "Patching" => "补丁合并",
+                    "Formats" => "格式转换",
+                    "Configuration" => "配置",
+                    "Validation" => "验证",
+                    "Nintendo 3DS" => "任天堂 3DS",
+                    "Encyclopedia" => "百科知识",
+                    "Catalog" => "游戏目录",
+                    "Safety" => "安全与清理",
+                    _ => t.Category
+                },
+                Icon = t.Icon,
+                DescriptionText = t.DescriptionText,
+                Tip = t.Tip,
+                SetupPreview = t.SetupPreview
+            }).ToList();
+        }
+
+        private List<TopicItem> GetTopicsJa()
+        {
+            var enList = GetTopicsEn();
+            return enList.Select(t => new TopicItem
+            {
+                Title = t.Title switch
+                {
+                    "Application Overview" => "アプリケーション概要",
+                    "Smart File Processing" => "スマートファイル処理",
+                    "Task Grouping Simulator" => "タスクグループシミュレーター",
+                    "Built-in 7-Zip & Auto-Extraction" => "内蔵7-Zipと自動展開",
+                    "Modifications (RomFS, ExeFS & IPS)" => "Mod機能 (RomFS, ExeFS & IPS)",
+                    "Metadata & Icon Editor" => "メタデータ＆アイコンエディタ",
+                    "Smart Folder" => "スマートフォルダー",
+                    "Multi-Content & Unlocker" => "マルチコンテンツ＆アンロッカー",
+                    "Emulator Integration & SDMC Sync" => "エミュレータ統合＆SDMC同期",
+                    "Homebrew: Engine Ports & Standalone Games" => "Homebrew: 移植作＆スタンドアロンゲーム",
+                    "Game Updates (HardPatch & Splicing)" => "アップデート (HardPatch & 結合)",
+                    "Format Conversion (Switch & 3DS)" => "フォーマット変換 (Switch & 3DS)",
+                    "Extraction & Packaging" => "展開とパッケージング",
+                    "Settings & Keys" => "設定と暗号化キー",
+                    "Integrity Verification" => "整合性検証",
+                    "Nintendo 3DS: Architecture & Multi-Content" => "Nintendo 3DS: アーキテクチャ＆マルチコンテンツ",
+                    "Nintendo 3DS: Formats & Compression" => "Nintendo 3DS: フォーマットと圧縮",
+                    "Nintendo Game Library (19 Systems)" => "任天堂ゲームライブラリ (19世代)",
+                    "Information: Switch & 3DS Database" => "情報：Switch & 3DSデータベース",
+                    "Dual Smart Folder Services" => "独立スマートフォルダーサービス",
+                    "Guaranteed Temporary File Cleanup" => "一時ファイルの確実なクリーンアップ",
+                    _ => t.Title
+                },
+                Category = t.Category switch
+                {
+                    "Introduction" => "はじめに",
+                    "Algorithms" => "アルゴリズム",
+                    "Interactive" => "インタラクティブ",
+                    "Archives" => "アーカイブ",
+                    "Modding" => "Mod開発",
+                    "Customization" => "カスタマイズ",
+                    "Automation" => "自動化",
+                    "Packaging" => "パッケージング",
+                    "Emulators" => "エミュレータ",
+                    "Homebrew" => "自作ソフト",
+                    "Patching" => "パッチ処理",
+                    "Formats" => "フォーマット",
+                    "Configuration" => "設定",
+                    "Validation" => "整合性確認",
+                    "Nintendo 3DS" => "ニンテンドー3DS",
+                    "Encyclopedia" => "百科事典",
+                    "Catalog" => "カタログ",
+                    "Safety" => "クリーンアップ",
+                    _ => t.Category
+                },
+                Icon = t.Icon,
+                DescriptionText = t.DescriptionText,
+                Tip = t.Tip,
+                SetupPreview = t.SetupPreview
+            }).ToList();
         }
 
         private void FilterTopics(string query)
