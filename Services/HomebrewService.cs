@@ -1303,6 +1303,48 @@ namespace StormSwitchBox.Services
         {
             var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+            // 0. Если пользователь явно указал папки эмуляторов в Настройках — проверяем и используем ТОЛЬКО ИХ, остальные игнорируем!
+            try
+            {
+                var customDirs = App.Settings?.Current?.EmulatorDirectories ?? SettingsService.Instance?.Current?.EmulatorDirectories;
+                if (customDirs != null && customDirs.Count > 0)
+                {
+                    foreach (var rawDir in customDirs)
+                    {
+                        if (string.IsNullOrWhiteSpace(rawDir)) continue;
+                        string dir = rawDir.Trim();
+                        if (!Directory.Exists(dir)) continue;
+
+                        string sdmcDirect = Path.Combine(dir, "sdmc");
+                        string userSdmc = Path.Combine(dir, "user", "sdmc");
+                        string assemblingUserSdmc = Path.Combine(dir, "Assembling", "user", "sdmc");
+
+                        if (Directory.Exists(sdmcDirect))
+                        {
+                            result.Add(sdmcDirect);
+                        }
+                        else if (Directory.Exists(userSdmc))
+                        {
+                            result.Add(userSdmc);
+                        }
+                        else if (Directory.Exists(assemblingUserSdmc))
+                        {
+                            result.Add(assemblingUserSdmc);
+                        }
+                        else
+                        {
+                            result.Add(dir);
+                        }
+                    }
+
+                    if (result.Count > 0)
+                    {
+                        return result.ToList();
+                    }
+                }
+            }
+            catch { }
+
             // 1. Стандартные системные профили AppData и LocalAppData
             string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
             string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
