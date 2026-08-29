@@ -1071,7 +1071,7 @@ namespace StormSwitchBox.Services
                     }
                 }
 
-                // Экспорт готовой структуры SDMC для реальной консоли и авто-синхронизация с эмуляторами
+                // Авто-синхронизация с эмуляторами (без создания лишней папки в выходном каталоге игр)
                 try
                 {
                     string nroAppFolder = "switch";
@@ -1085,21 +1085,22 @@ namespace StormSwitchBox.Services
                         }
                     }
 
-                    string sdmcTargetDir = Path.Combine(outFolder, $"{task.OutputFileName}_[SDMC]", nroAppFolder);
-                    Directory.CreateDirectory(sdmcTargetDir);
+                    // Временная папка подготовки данных SDMC
+                    string tempSdmcStaging = Path.Combine(tempDir, "sdmc_staging", nroAppFolder);
+                    Directory.CreateDirectory(tempSdmcStaging);
                     foreach (var f in task.InputFiles)
                     {
                         if (File.Exists(f) && !Path.GetExtension(f).Equals(".nsp", StringComparison.OrdinalIgnoreCase))
                         {
-                            File.Copy(f, Path.Combine(sdmcTargetDir, Path.GetFileName(f)), true);
+                            File.Copy(f, Path.Combine(tempSdmcStaging, Path.GetFileName(f)), true);
                         }
                         else if (Directory.Exists(f))
                         {
-                            CopyDirectory(f, sdmcTargetDir);
+                            CopyDirectory(f, tempSdmcStaging);
                         }
                     }
 
-                    // Авто-деплой в обнаруженные папки SDMC локальных эмуляторов на ВСЕХ дисках (C:, D:, E:, L: и др.)
+                    // Авто-деплой в целевые папки SDMC эмуляторов
                     var localEmuSdmcList = FindAllEmulatorSdmcDirectories();
 
                     foreach (var emuSdmc in localEmuSdmcList)
@@ -1108,8 +1109,24 @@ namespace StormSwitchBox.Services
                         {
                             string destEmuFolder = Path.Combine(emuSdmc, nroAppFolder);
                             Directory.CreateDirectory(destEmuFolder);
-                            CopyDirectory(sdmcTargetDir, destEmuFolder);
+                            CopyDirectory(tempSdmcStaging, destEmuFolder);
+
+                            // Обеспечиваем также путь внутри подпапки switch/ для максимальной совместимости
+                            string destSwitchFolder = Path.Combine(emuSdmc, "switch", nroAppFolder);
+                            if (destSwitchFolder != destEmuFolder)
+                            {
+                                Directory.CreateDirectory(destSwitchFolder);
+                                CopyDirectory(tempSdmcStaging, destSwitchFolder);
+                            }
                         }
+                    }
+
+                    // Если эмуляторы вообще не указаны и не найдены нигде в системе - создаем пакет рядом с игрой как fallback
+                    if (localEmuSdmcList.Count == 0)
+                    {
+                        string sdmcTargetDir = Path.Combine(outFolder, $"{task.OutputFileName}_[SDMC]", nroAppFolder);
+                        Directory.CreateDirectory(sdmcTargetDir);
+                        CopyDirectory(tempSdmcStaging, sdmcTargetDir);
                     }
                 }
                 catch { }

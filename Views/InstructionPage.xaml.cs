@@ -213,42 +213,58 @@ namespace StormSwitchBox.Views
                 },
                 new TopicItem
                 {
+                    Title = "Интеграция с эмуляторами и синхронизация SDMC",
+                    Category = "Эмуляторы",
+                    Icon = "\uE7FC",
+                    DescriptionText = "STORM SWITCH BOX v4.9.0 предоставляет полную свободу в интеграции с локальными эмуляторами Nintendo Switch (STORM EDEN, Yuzu, Ryujinx, Suyu, Sudachi, Torzu, Citron и др.):\n\n" +
+                                      "1. Пользовательский выбор папок эмуляторов — в разделе «Параметры» доступен специальный блок «Интеграция с эмуляторами (Путь к папке эмулятора)». Вы можете перетащить (Drag & Drop) или выбрать через проводник одну или несколько директорий ваших эмуляторов (например, E:\\STORM EDEN 3\\Assembling, L:\\Emulators\\Ryujinx и др.).\n\n" +
+                                      "2. Чистота выходной библиотеки — при сборке Homebrew-игр и портов программа больше НЕ создает лишних папок [SDMC] в вашей основной папке с играми (например, P:\\CONSOLES\\...\\GAMES). Все файлы NRO, данные и конфигурации доставляются строго в виртуальные SD-карты указанных эмуляторов (user/sdmc/switch/<game>/), а рядом с игрой сохраняется только чистый итоговый файл (.nsp / .nsz / .xci).\n\n" +
+                                      "3. Эксклюзивная фильтрация — если в настройках указаны конкретные папки эмуляторов, синхронизация данных происходит ИСКЛЮЧИТЕЛЬНО в них, полностью исключая фоновые диски и системные профили. Если список пуст — включается умный авто-поиск по всем подключенным дискам (C:, D:, E:, L: и др.).",
+                    Tip = "Задайте папку вашего эмулятора один раз в Параметрах, и Homebrew-порты будут запускаться моментально без единого ручного действия!",
+                    SetupPreview = container =>
+                    {
+                        var sp = new StackPanel { Spacing = 8 };
+                        sp.Children.Add(new TextBlock { Text = "🎮 Целевая синхронизация эмуляторов (Active):", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
+                        sp.Children.Add(new TextBlock { Text = "• Папка эмулятора: E:\\STORM EDEN 3\\Assembling (user/sdmc/)", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "• Чистая библиотека: Папки [SDMC] не засоряют каталог игр", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) });
+                        sp.Children.Add(new TextBlock { Text = "• Drag & Drop: Поддержка перетаскивания нескольких эмуляторов", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        container.Children.Add(sp);
+                    }
+                },
+                new TopicItem
+                {
                     Title = "Homebrew: Сборка портов и автономных игр",
                     Category = "Homebrew",
                     Icon = "\uE7FC",
                     DescriptionText = "Специализированный раздел «Homebrew» для автоматического распознавания, объединения и сборки любых портов и любительских игр в монолитные автономные файлы (NSP / NSZ / XCI):\n\n" +
                                       "1. Умное распознавание любых наборов файлов — просто перетащите папку с игрой (например, Diablo I, GTA V, GTA Vice City / San Andreas, DOOM, Half-Life, Quake, S.T.A.L.K.E.R., Morrowind) или группу файлов (.nro, .ovl, .nsp форвардеры, архивы .zip/.7z, папки atmosphere/contents/<TitleID>/romfs). Программа мгновенно объединит их в готовую задачу.\n" +
-                                      "2. Монолитная сборка RomFS и авто-деплой SDMC — все внешние ресурсы игры (.mpq, .rpf, .wad, .pk3, .pak, .dat, .bin, .ini, .cfg, шрифты и текстуры) вшиваются в Program NCA, а также автоматически синхронизируются в локальные папки SDMC эмуляторов (STORM EDEN, Yuzu, Ryujinx, Suyu, Sudachi).\n" +
+                                      "2. Монолитная сборка RomFS и авто-деплой SDMC — все внешние ресурсы игры (.mpq, .rpf, .wad, .pk3, .pak, .dat, .bin, .ini, .cfg, шрифты и текстуры) вшиваются в Program NCA, а также автоматически синхронизируются в целевые папки SDMC эмуляторов (STORM EDEN, Yuzu, Ryujinx, Suyu, Sudachi) без засорения выходной библиотеки.\n" +
                                       "3. Авто-извлечение ExeFS и NACP — при наличии сопутствующего Forwarder NSP программа автоматически распаковывает и использует оригинальные бинарные модули main/NPDM и метаданные (TitleID, иконку, автора).\n\n" +
                                       "⚡ Как правильно запускать Homebrew-игры и порты движков:\n\n" +
                                       "► Вариант А: Прямой запуск .nro (Самый надежный способ)\n" +
                                       "Поместите файл игры с расширением .nro (например: devilutionx.nro, sm64.nro, xash3d.nro, openmw.nro и т.д.) в папку с вашими играми. В эмуляторе нажмите «Загрузить файл» (или добавьте папку в библиотеку эмулятора — STORM EDEN автоматически сканирует расширения .nro, .nsp, .xci). Игра запустится напрямую без участия форвардеров.\n\n" +
                                       "► Вариант Б: Использование Форвардеров (.nsp)\n" +
-                                      "Если вы запускаете игру через установленный NSP-форвардер:\n" +
-                                      "1. Откройте папку виртуальной SD-карты эмулятора:\n" +
-                                      "   • Windows: E:\\STORM EDEN 3\\Assembling\\user\\sdmc\\switch\\ (или %APPDATA%\\yuzu\\sdmc\\switch\\)\n" +
-                                      "   • Android: Android/data/dev.eden.eden_emulator/files/sdmc/switch/\n" +
-                                      "2. Положите туда соответствующую папку игры с файлом .nro и ресурсами:\n" +
-                                      "   • Diablo I: sdmc/switch/devilutionx/devilutionx.nro + diabdat.mpq\n" +
-                                      "   • GTA San Andreas: sdmc/switch/re3-sa/ + re3-sa.nro + models/, data/, audio/\n" +
-                                      "   • Half-Life 1: sdmc/switch/xash3d/ + xash3d.nro + valve/ (с valve.wad, halflife.wad)\n" +
-                                      "   • DOOM 1/2: sdmc/switch/gzdoom/ + gzdoom.nro + doom.wad / doom2.wad\n" +
-                                      "   • DOOM 3: sdmc/switch/dhewm3/ + dhewm3.nro + base/pak000.pk4...\n" +
-                                      "   • S.T.A.L.K.E.R.: sdmc/switch/openxray/ + openxray.nro + gamedata/\n" +
-                                      "   • Morrowind: sdmc/switch/openmw/ + openmw.nro + Morrowind.esm\n" +
-                                      "   • AM2R / Cave Story: sdmc/switch/am2r/ + AM2R.nro + data.win\n" +
-                                      "   • Super Mario 64: sdmc/switch/sm64/ + sm64.nro + sm64.us.z64\n" +
-                                      "   • Zelda OoT / MM: sdmc/switch/soh/ + soh.nro + oot.otr\n" +
-                                      "После размещения файлов форвардер найдет NRO и моментально запустит игру!",
-                    Tip = "STORM SWITCH BOX автоматически экспортирует готовую SDMC-папку рядом с NSP и синхронизирует её с эмуляторами!",
+                                      "STORM SWITCH BOX при сборке автоматически разложит необходимые исполняемые файлы и ресурсы в виртуальную карту вашего эмулятора:\n" +
+                                      "   • Diablo I: sdmc/devilutionx-switch/ (devilutionx.nro + diabdat.mpq)\n" +
+                                      "   • GTA San Andreas: sdmc/switch/re3-sa/ (re3-sa.nro + models/, data/, audio/)\n" +
+                                      "   • Half-Life 1: sdmc/switch/xash3d/ (xash3d.nro + valve/ с valve.wad, halflife.wad)\n" +
+                                      "   • DOOM 1/2: sdmc/switch/gzdoom/ (gzdoom.nro + doom.wad / doom2.wad)\n" +
+                                      "   • DOOM 3: sdmc/switch/dhewm3/ (dhewm3.nro + base/pak000.pk4...)\n" +
+                                      "   • S.T.A.L.K.E.R.: sdmc/switch/openxray/ (openxray.nro + gamedata/)\n" +
+                                      "   • Morrowind: sdmc/switch/openmw/ (openmw.nro + Morrowind.esm)\n" +
+                                      "   • AM2R / Cave Story: sdmc/switch/am2r/ (AM2R.nro + data.win)\n" +
+                                      "   • Super Mario 64: sdmc/switch/sm64/ (sm64.nro + sm64.us.z64)\n" +
+                                      "   • Zelda OoT / MM: sdmc/switch/soh/ (soh.nro + oot.otr)\n" +
+                                      "Форвардер NSP моментально подхватывает данные и игра работает идеально!",
+                    Tip = "Укажите путь к вашему эмулятору в Параметрах для автоматической синхронизации данных Homebrew!",
                     SetupPreview = container =>
                     {
                         var sp = new StackPanel { Spacing = 6 };
-                        sp.Children.Add(new TextBlock { Text = "🕹️ Пакет Homebrew игры (Автономный NSP + SDMC Export):", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) });
+                        sp.Children.Add(new TextBlock { Text = "🕹️ Пакет Homebrew игры (Автономный NSP + Прямая синхронизация):", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) });
                         sp.Children.Add(new TextBlock { Text = "• ExeFS: main (бинарный порт) + main.npdm [NSP Forwarder]", FontSize = 12, Foreground = GetSecondaryBrush() });
                         sp.Children.Add(new TextBlock { Text = "• RomFS: Вшитые данные игры (.mpq / .rpf / .wad / .ini / LayeredFS)", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
                         sp.Children.Add(new TextBlock { Text = "• SDMC: Автоматический деплой в user/sdmc/switch/<game>/", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
-                        sp.Children.Add(new TextBlock { Text = "✓ Запуск: 100% готовность для эмуляторов и физических консолей!", FontSize = 12, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
+                        sp.Children.Add(new TextBlock { Text = "✓ Чистота библиотеки: Папка [SDMC] не создается рядом с игрой", FontSize = 12, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
                         container.Children.Add(sp);
                     }
                 },
