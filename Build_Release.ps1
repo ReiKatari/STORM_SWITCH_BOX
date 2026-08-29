@@ -14,7 +14,7 @@ if (-not (Test-Path $assemblingDir)) { New-Item -ItemType Directory -Path $assem
 if (-not (Test-Path $filesDir)) { New-Item -ItemType Directory -Path $filesDir | Out-Null }
 if (-not (Test-Path $outputDir)) { New-Item -ItemType Directory -Path $outputDir | Out-Null }
 
-$appVersion = "4.9.0"
+$appVersion = "4.9.1"
 try {
     [xml]$appProjXml = Get-Content (Join-Path $appProjDir "StormSwitchBox.csproj")
     $verFromProj = $appProjXml.Project.PropertyGroup.Version
@@ -128,10 +128,9 @@ Copy-Item $publishedInstaller $outputSetupExePath -Force
 & $signtool sign /fd SHA256 /tr $tsUrl /td SHA256 /d "STORM SWITCH BOX $appVersion" /du "https://github.com/ReiKatari/STORM_SWITCH_BOX" /sha1 $certThumb $setupExePath
 & $signtool sign /fd SHA256 /tr $tsUrl /td SHA256 /d "STORM SWITCH BOX $appVersion" /du "https://github.com/ReiKatari/STORM_SWITCH_BOX" /sha1 $certThumb $outputSetupExePath
 
-# Install certificate locally into TrustedPublisher & Root for seamless local execution
+# Install certificate locally into TrustedPublisher for seamless local execution
 try {
-    certutil.exe -user -addstore -f "TrustedPublisher" $cerRoot | Out-Null
-    certutil.exe -user -addstore -f "Root" $cerRoot | Out-Null
+    Import-Certificate -FilePath $cerRoot -CertStoreLocation "Cert:\CurrentUser\TrustedPublisher" -ErrorAction SilentlyContinue | Out-Null
 } catch { }
 
 # Step 5: Packaging Smart App Control Setup Bundle

@@ -200,36 +200,14 @@ namespace StormSwitchBox.Services
             // Добавляем основной исполняемый файл
             pkg.InputFiles.Add(primaryNro);
 
-            // 1. Поиск и сбор ВСЕХ файлов данных игры (.rpf, .mpq, .wad, .pk3, .pak, .bin, .dat, .ini, .cfg, .json, .ttf, .otf, .txt, .xml, audio, etc.)
-            var dataExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-            {
-                ".rpf", ".mpq", ".wad", ".pk3", ".pak", ".dat", ".bin", ".ini", ".cfg", ".json", 
-                ".ttf", ".otf", ".txt", ".xml", ".rom", ".iso", ".cue", ".chd", ".zip", ".7z",
-                ".mp3", ".ogg", ".flac", ".wav", ".mid", ".def", ".tbl", ".pal", ".raw", ".grp"
-            };
-
-            try
-            {
-                var allFiles = Directory.GetFiles(rootDir, "*.*", SearchOption.AllDirectories);
-                foreach (var f in allFiles)
-                {
-                    if (f.Equals(primaryNro, StringComparison.OrdinalIgnoreCase)) continue;
-                    
-                    string ext = Path.GetExtension(f).ToLowerInvariant();
-                    if (dataExtensions.Contains(ext) || ext == ".nsp")
-                    {
-                        if (!pkg.InputFiles.Contains(f, StringComparer.OrdinalIgnoreCase))
-                        {
-                            pkg.InputFiles.Add(f);
-                        }
-                    }
-                }
-            }
-            catch { }
-
-            // 2. Проверяем папки romfs, exefs, save
+            // 1. Проверяем папки romfs, exefs, save
             string romfsPath = Path.Combine(nroDir, "romfs");
             if (!Directory.Exists(romfsPath)) romfsPath = Path.Combine(rootDir, "romfs");
+            if (!Directory.Exists(romfsPath))
+            {
+                var atmoRomfs = Directory.GetDirectories(rootDir, "romfs", SearchOption.AllDirectories);
+                if (atmoRomfs.Length > 0) romfsPath = atmoRomfs[0];
+            }
             if (Directory.Exists(romfsPath))
             {
                 pkg.RomFsDir = romfsPath;
@@ -239,6 +217,11 @@ namespace StormSwitchBox.Services
 
             string exefsPath = Path.Combine(nroDir, "exefs");
             if (!Directory.Exists(exefsPath)) exefsPath = Path.Combine(rootDir, "exefs");
+            if (!Directory.Exists(exefsPath))
+            {
+                var atmoExefs = Directory.GetDirectories(rootDir, "exefs", SearchOption.AllDirectories);
+                if (atmoExefs.Length > 0) exefsPath = atmoExefs[0];
+            }
             if (Directory.Exists(exefsPath))
             {
                 pkg.ExeFsDir = exefsPath;
@@ -260,6 +243,36 @@ namespace StormSwitchBox.Services
                     break;
                 }
             }
+
+            // 2. Поиск и сбор loose файлов данных игры (.rpf, .mpq, .wad, .pk3, .pak, .bin, .dat, .ini, .cfg, .json, .ttf, .otf, .txt, .xml, audio, etc.) ТОЛЬКО вне romfs/exefs/save
+            var dataExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ".rpf", ".mpq", ".wad", ".pk3", ".pak", ".dat", ".bin", ".ini", ".cfg", ".json", 
+                ".ttf", ".otf", ".txt", ".xml", ".rom", ".iso", ".cue", ".chd", ".zip", ".7z",
+                ".mp3", ".ogg", ".flac", ".wav", ".mid", ".def", ".tbl", ".pal", ".raw", ".grp"
+            };
+
+            try
+            {
+                var allFiles = Directory.GetFiles(rootDir, "*.*", SearchOption.AllDirectories);
+                foreach (var f in allFiles)
+                {
+                    if (f.Equals(primaryNro, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (pkg.RomFsDir != null && f.StartsWith(pkg.RomFsDir, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (pkg.ExeFsDir != null && f.StartsWith(pkg.ExeFsDir, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (pkg.SaveDataDir != null && f.StartsWith(pkg.SaveDataDir, StringComparison.OrdinalIgnoreCase)) continue;
+                    
+                    string ext = Path.GetExtension(f).ToLowerInvariant();
+                    if (dataExtensions.Contains(ext) || ext == ".nsp")
+                    {
+                        if (!pkg.InputFiles.Contains(f, StringComparer.OrdinalIgnoreCase))
+                        {
+                            pkg.InputFiles.Add(f);
+                        }
+                    }
+                }
+            }
+            catch { }
 
             // 3. Извлечение метаданных из сопутствующего NSP форвардера (если есть)
             string? companionNsp = companionNsps?.FirstOrDefault(f => File.Exists(f));
@@ -360,16 +373,27 @@ namespace StormSwitchBox.Services
             {
                 // Ищем любые папки romfs (включая atmosphere/contents/.../romfs)
                 var romfsDirs = Directory.GetDirectories(dirToScan, "romfs", SearchOption.AllDirectories);
-                foreach (var r in romfsDirs)
+                if (romfsDirs.Length > 0)
                 {
-                    if (!pkg.InputFiles.Contains(r, StringComparer.OrdinalIgnoreCase))
+                    pkg.RomFsDir = romfsDirs[0];
+                    if (!pkg.InputFiles.Contains(pkg.RomFsDir, StringComparer.OrdinalIgnoreCase))
                     {
-                        pkg.RomFsDir = r;
-                        pkg.InputFiles.Add(r);
+                        pkg.InputFiles.Add(pkg.RomFsDir);
                     }
                 }
 
-                // Ищем сопутствующие файлы данных (.rpf, .mpq, .wad, .pak, .bin, .dat, .ini, etc.)
+                // Ищем exefs
+                var exefsDirs = Directory.GetDirectories(dirToScan, "exefs", SearchOption.AllDirectories);
+                if (exefsDirs.Length > 0)
+                {
+                    pkg.ExeFsDir = exefsDirs[0];
+                    if (!pkg.InputFiles.Contains(pkg.ExeFsDir, StringComparer.OrdinalIgnoreCase))
+                    {
+                        pkg.InputFiles.Add(pkg.ExeFsDir);
+                    }
+                }
+
+                // Ищем сопутствующие loose файлы данных (.rpf, .mpq, .wad, .pak, .bin, .dat, .ini, etc.) ТОЛЬКО вне romfs и exefs!
                 var dataExts = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                 {
                     ".rpf", ".mpq", ".wad", ".pk3", ".pak", ".dat", ".bin", ".ini", ".cfg", ".json", 
@@ -382,6 +406,9 @@ namespace StormSwitchBox.Services
                     foreach (var f in allDataFiles)
                     {
                         if (f.Equals(nspPath, StringComparison.OrdinalIgnoreCase)) continue;
+                        if (pkg.RomFsDir != null && f.StartsWith(pkg.RomFsDir, StringComparison.OrdinalIgnoreCase)) continue;
+                        if (pkg.ExeFsDir != null && f.StartsWith(pkg.ExeFsDir, StringComparison.OrdinalIgnoreCase)) continue;
+
                         string ext = Path.GetExtension(f).ToLowerInvariant();
                         if (dataExts.Contains(ext))
                         {
@@ -1071,62 +1098,61 @@ namespace StormSwitchBox.Services
                     }
                 }
 
-                // Авто-синхронизация с эмуляторами (без создания лишней папки в выходном каталоге игр)
+                // Авто-синхронизация с эмуляторами для игр на базе NRO (без создания лишней папки в выходном каталоге игр)
                 try
                 {
-                    string nroAppFolder = "switch";
                     string? mainNro = task.InputFiles.FirstOrDefault(f => File.Exists(f) && Path.GetExtension(f).Equals(".nro", StringComparison.OrdinalIgnoreCase));
                     if (mainNro != null)
                     {
-                        nroAppFolder = Path.GetFileNameWithoutExtension(mainNro);
+                        string nroAppFolder = Path.GetFileNameWithoutExtension(mainNro);
                         if (task.InputFiles.Any(f => f.Contains("devilutionx", StringComparison.OrdinalIgnoreCase)))
                         {
                             nroAppFolder = "devilutionx-switch";
                         }
-                    }
 
-                    // Временная папка подготовки данных SDMC
-                    string tempSdmcStaging = Path.Combine(tempDir, "sdmc_staging", nroAppFolder);
-                    Directory.CreateDirectory(tempSdmcStaging);
-                    foreach (var f in task.InputFiles)
-                    {
-                        if (File.Exists(f) && !Path.GetExtension(f).Equals(".nsp", StringComparison.OrdinalIgnoreCase))
+                        // Временная папка подготовки данных SDMC
+                        string tempSdmcStaging = Path.Combine(tempDir, "sdmc_staging", nroAppFolder);
+                        Directory.CreateDirectory(tempSdmcStaging);
+                        foreach (var f in task.InputFiles)
                         {
-                            File.Copy(f, Path.Combine(tempSdmcStaging, Path.GetFileName(f)), true);
-                        }
-                        else if (Directory.Exists(f))
-                        {
-                            CopyDirectory(f, tempSdmcStaging);
-                        }
-                    }
-
-                    // Авто-деплой в целевые папки SDMC эмуляторов
-                    var localEmuSdmcList = FindAllEmulatorSdmcDirectories();
-
-                    foreach (var emuSdmc in localEmuSdmcList)
-                    {
-                        if (Directory.Exists(emuSdmc))
-                        {
-                            string destEmuFolder = Path.Combine(emuSdmc, nroAppFolder);
-                            Directory.CreateDirectory(destEmuFolder);
-                            CopyDirectory(tempSdmcStaging, destEmuFolder);
-
-                            // Обеспечиваем также путь внутри подпапки switch/ для максимальной совместимости
-                            string destSwitchFolder = Path.Combine(emuSdmc, "switch", nroAppFolder);
-                            if (destSwitchFolder != destEmuFolder)
+                            if (File.Exists(f) && !Path.GetExtension(f).Equals(".nsp", StringComparison.OrdinalIgnoreCase) && !Path.GetExtension(f).Equals(".nsz", StringComparison.OrdinalIgnoreCase))
                             {
-                                Directory.CreateDirectory(destSwitchFolder);
-                                CopyDirectory(tempSdmcStaging, destSwitchFolder);
+                                File.Copy(f, Path.Combine(tempSdmcStaging, Path.GetFileName(f)), true);
+                            }
+                            else if (Directory.Exists(f))
+                            {
+                                CopyDirectory(f, tempSdmcStaging);
                             }
                         }
-                    }
 
-                    // Если эмуляторы вообще не указаны и не найдены нигде в системе - создаем пакет рядом с игрой как fallback
-                    if (localEmuSdmcList.Count == 0)
-                    {
-                        string sdmcTargetDir = Path.Combine(outFolder, $"{task.OutputFileName}_[SDMC]", nroAppFolder);
-                        Directory.CreateDirectory(sdmcTargetDir);
-                        CopyDirectory(tempSdmcStaging, sdmcTargetDir);
+                        // Авто-деплой в целевые папки SDMC эмуляторов
+                        var localEmuSdmcList = FindAllEmulatorSdmcDirectories();
+
+                        foreach (var emuSdmc in localEmuSdmcList)
+                        {
+                            if (Directory.Exists(emuSdmc))
+                            {
+                                string destEmuFolder = Path.Combine(emuSdmc, nroAppFolder);
+                                Directory.CreateDirectory(destEmuFolder);
+                                CopyDirectory(tempSdmcStaging, destEmuFolder);
+
+                                // Обеспечиваем также путь внутри подпапки switch/ для максимальной совместимости
+                                string destSwitchFolder = Path.Combine(emuSdmc, "switch", nroAppFolder);
+                                if (destSwitchFolder != destEmuFolder)
+                                {
+                                    Directory.CreateDirectory(destSwitchFolder);
+                                    CopyDirectory(tempSdmcStaging, destSwitchFolder);
+                                }
+                            }
+                        }
+
+                        // Если эмуляторы вообще не указаны и не найдены нигде в системе - создаем пакет рядом с игрой как fallback
+                        if (localEmuSdmcList.Count == 0)
+                        {
+                            string sdmcTargetDir = Path.Combine(outFolder, $"{task.OutputFileName}_[SDMC]", nroAppFolder);
+                            Directory.CreateDirectory(sdmcTargetDir);
+                            CopyDirectory(tempSdmcStaging, sdmcTargetDir);
+                        }
                     }
                 }
                 catch { }

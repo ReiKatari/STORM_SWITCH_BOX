@@ -608,7 +608,11 @@ namespace StormSwitchBox.Views
         {
             if (sender is Button btn && btn.Tag is ProcessingTask task)
             {
-                if (task.FilesList == null || task.FilesList.Count == 0) return;
+                var displayItems = (task.InputFiles != null && task.InputFiles.Count > 0)
+                    ? task.InputFiles
+                    : task.FilesList;
+
+                if (displayItems == null || displayItems.Count == 0) return;
 
                 var stackPanel = new StackPanel
                 {
@@ -616,10 +620,34 @@ namespace StormSwitchBox.Views
                     Margin = new Thickness(0, 4, 16, 16)
                 };
 
-                foreach (var file in task.FilesList)
+                foreach (var itemPath in displayItems)
                 {
-                    string fileName = System.IO.Path.GetFileName(file);
-                    var (label, bgBrushHex, fgBrushHex) = ClassifyFileForUi(fileName, file);
+                    string fileName = System.IO.Path.GetFileName(itemPath);
+                    var (label, bgBrushHex, fgBrushHex) = ClassifyFileForUi(fileName, itemPath);
+
+                    string displayText;
+                    if (System.IO.Directory.Exists(itemPath))
+                    {
+                        long folderSize = CalculateFolderSize(itemPath);
+                        int fileCount = 0;
+                        try { fileCount = System.IO.Directory.GetFiles(itemPath, "*", System.IO.SearchOption.AllDirectories).Length; } catch { }
+                        
+                        string normPath = itemPath.Replace('/', '\\');
+                        int atmoIdx = normPath.IndexOf(@"atmosphere\contents", StringComparison.OrdinalIgnoreCase);
+                        string dirLabel = atmoIdx >= 0 ? normPath.Substring(atmoIdx) : fileName;
+                        
+                        displayText = $"{dirLabel}  •  {ProcessingTask.FormatSize(folderSize)} ({fileCount} файлов)";
+                    }
+                    else if (System.IO.File.Exists(itemPath))
+                    {
+                        long fSize = 0;
+                        try { fSize = new System.IO.FileInfo(itemPath).Length; } catch { }
+                        displayText = $"{fileName}  •  {ProcessingTask.FormatSize(fSize)}";
+                    }
+                    else
+                    {
+                        displayText = fileName;
+                    }
 
                     var rowGrid = new Grid
                     {
@@ -652,7 +680,7 @@ namespace StormSwitchBox.Views
 
                     var fileNameText = new TextBlock
                     {
-                        Text = fileName,
+                        Text = displayText,
                         FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas"),
                         FontSize = 13,
                         VerticalAlignment = VerticalAlignment.Center,
@@ -678,7 +706,7 @@ namespace StormSwitchBox.Views
 
                 var dialog = new ContentDialog
                 {
-                    Title = $"Список файлов ({task.FilesList.Count})",
+                    Title = $"Список файлов ({displayItems.Count})",
                     CloseButtonText = "Закрыть",
                     XamlRoot = this.XamlRoot,
                     MinWidth = 1425,
@@ -690,18 +718,58 @@ namespace StormSwitchBox.Views
             }
         }
 
+        private static long CalculateFolderSize(string folderPath)
+        {
+            try
+            {
+                return System.IO.Directory.GetFiles(folderPath, "*", System.IO.SearchOption.AllDirectories).Sum(f => new System.IO.FileInfo(f).Length);
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+
         private static (string Label, string BgHex, string FgHex) ClassifyFileForUi(string fileName, string fullPath)
         {
+            if (System.IO.Directory.Exists(fullPath))
+            {
+                string dirName = System.IO.Path.GetFileName(fullPath).ToLowerInvariant();
+                if (dirName == "romfs" || fullPath.Contains("romfs", StringComparison.OrdinalIgnoreCase))
+                    return ("RomFS", "#16A085", "#FFFFFF");
+                if (dirName == "exefs" || fullPath.Contains("exefs", StringComparison.OrdinalIgnoreCase))
+                    return ("ExeFS", "#2C3E50", "#FFFFFF");
+                if (dirName == "save" || dirName == "saves" || dirName == "savedata" || dirName == "save_data" || dirName == "checkpoint" || dirName == "jksv" || dirName == "edizon")
+                    return ("СОХРАНЕНИЯ", "#E67E22", "#FFFFFF");
+                return ("ПАПКА ДАННЫХ", "#8E44AD", "#FFFFFF");
+            }
+
             long sizeBytes = 0;
             try { if (System.IO.File.Exists(fullPath)) sizeBytes = new System.IO.FileInfo(fullPath).Length; } catch { }
 
+            string ext = System.IO.Path.GetExtension(fullPath).ToLowerInvariant();
+
+            if (ext == ".nro" || ext == ".ovl" || ext == ".elf")
+            {
+                return ("HOMEBREW", "#9B59B6", "#FFFFFF");
+            }
+            if (ext == ".ini" || ext == ".cfg" || ext == ".json" || ext == ".txt" || ext == ".xml")
+            {
+                return ("КОНФИГ", "#7F8C8D", "#FFFFFF");
+            }
+            if (ext == ".rpf" || ext == ".mpq" || ext == ".wad" || ext == ".pk3" || ext == ".pak" || ext == ".dat" || ext == ".bin" || ext == ".rom" || ext == ".iso" || ext == ".chd")
+            {
+                return ("РЕСУРСЫ", "#16A085", "#FFFFFF");
+            }
+
+            // Пакетные игровые форматы (Switch / 3DS)
             string tid = "";
             var match = System.Text.RegularExpressions.Regex.Match(fileName, @"\[([0-9A-Fa-f]{16})\]");
             if (match.Success) tid = match.Groups[1].Value.ToUpperInvariant();
 
             bool isDlc = (!string.IsNullOrEmpty(tid) && tid.Length == 16 && !tid.EndsWith("000") && !tid.EndsWith("800")) ||
-                         fileName.Contains("DLC", StringComparison.OrdinalIgnoreCase) ||
-                         fileName.Contains("AddOn", StringComparison.OrdinalIgnoreCase);
+                         ((ext == ".nsp" || ext == ".nsz" || ext == ".xci" || ext == ".xcz" || ext == ".cia" || ext == ".3ds") &&
+                          (fileName.Contains("DLC", StringComparison.OrdinalIgnoreCase) || fileName.Contains("AddOn", StringComparison.OrdinalIgnoreCase)));
 
             if (isDlc)
             {
