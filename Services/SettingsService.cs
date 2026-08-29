@@ -46,14 +46,15 @@ namespace StormSwitchBox.Services
                     if (settings != null)
                     {
                         bool isDirty = false;
-                        if (settings.AppVersion != "4.9.0")
+                        if (settings.AppVersion != "4.9.1")
                         {
-                            settings.AppVersion = "4.9.0";
-                            _ = SaveAsync();
+                            settings.AppVersion = "4.9.1";
+                            isDirty = true;
                         }
                         if (settings.EmulatorDirectories == null)
                         {
                             settings.EmulatorDirectories = new List<string>();
+                            isDirty = true;
                         }
                         settings.ComplexFolders = true;
                         settings.SmartProcessing = true;
