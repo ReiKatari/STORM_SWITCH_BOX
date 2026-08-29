@@ -18,13 +18,13 @@ namespace StormSwitchBox.Services
             string fileName,
             string arguments,
             string workingDirectory,
-            ProcessingTask task,
+            ProcessingTask? task,
             CancellationToken cancellationToken,
             string? isolatedUserProfile = null,
             string? isolatedLocalAppData = null,
             bool forceUtf8Console = false)
         {
-            var batcher = new LogBatcher(task);
+            var batcher = task != null ? new LogBatcher(task) : null;
 
             var psi = new ProcessStartInfo
             {
@@ -66,11 +66,11 @@ namespace StormSwitchBox.Services
 
             DataReceivedEventHandler handler = (s, e) =>
             {
-                if (e.Data != null)
+                if (e.Data != null && batcher != null)
                 {
                     string line = e.Data.TrimEnd('\r', '\n');
-                    // Подавляем спам прогресс-баров (tqdm)
-                    if (line.Contains("[tqdm]") || line.Contains("100%|██████████")) return;
+                    // Подавляем спам прогресс-баров (tqdm) и некритичных предупреждений о неиспользуемых ключах hacpack
+                    if (line.Contains("[tqdm]") || line.Contains("100%|██████████") || line.StartsWith("[WARN]: Failed to match key")) return;
                     batcher.AppendLine(line);
                 }
             };
@@ -84,17 +84,15 @@ namespace StormSwitchBox.Services
             process.BeginOutputReadLine();
             process.BeginErrorReadLine();
 
-            using var registration = cancellationToken.Register(() =>
+            using (cancellationToken.Register(() =>
             {
-                try
-                {
-                    if (!process.HasExited) process.Kill(true);
-                }
-                catch { }
-            });
+                try { if (!process.HasExited) process.Kill(true); } catch { }
+            }))
+            {
+                await process.WaitForExitAsync(cancellationToken);
+            }
 
-            await process.WaitForExitAsync(cancellationToken);
-            batcher.Complete();
+            batcher?.Complete();
 
             return process.ExitCode;
         }

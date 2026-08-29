@@ -8,7 +8,7 @@
   <b>Высокопроизводительный комплекс для управления, умной обработки, конвертации и верификации игр Nintendo Switch и Nintendo 3DS.</b>
 </p>
 
-[![Version](https://img.shields.io/badge/version-4.8.7-00D2FF.svg?style=for-the-badge)](https://github.com/ReiKatari/STORM_SWITCH_BOX)
+[![Version](https://img.shields.io/badge/version-4.8.9-00D2FF.svg?style=for-the-badge)](https://github.com/ReiKatari/STORM_SWITCH_BOX)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2011%20%7C%2010-0EA5E9.svg?style=for-the-badge)](https://github.com/ReiKatari/STORM_SWITCH_BOX)
 [![Framework](https://img.shields.io/badge/.NET-8.0%20WinUI%203-7C3AED.svg?style=for-the-badge)](https://dotnet.microsoft.com/)
 [![Publisher](https://img.shields.io/badge/Publisher-STORM%20TEAM-10B981.svg?style=for-the-badge)](https://github.com/ReiKatari)

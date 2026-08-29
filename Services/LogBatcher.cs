@@ -34,6 +34,8 @@ namespace StormSwitchBox.Services
 
         public void Flush()
         {
+            if (_task == null) return;
+
             string chunk;
             lock (_lock)
             {
@@ -44,11 +46,12 @@ namespace StormSwitchBox.Services
 
             App.RunOnUI(() =>
             {
+                if (_task == null) return;
                 if (_task.LogDetails != null && _task.LogDetails.Length > 150_000)
                 {
                     _task.LogDetails = "..." + _task.LogDetails.Substring(_task.LogDetails.Length - 80_000);
                 }
-                _task.LogDetails += chunk;
+                _task.LogDetails = (_task.LogDetails ?? "") + chunk;
             });
         }
 
