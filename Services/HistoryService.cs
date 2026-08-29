@@ -297,6 +297,18 @@ namespace StormSwitchBox.Services
         {
             App.RunOnUI(async () =>
             {
+                // Проверка на дублирование (если запись для этой задачи уже была добавлена недавно)
+                var existing = HistoryTasks.FirstOrDefault(t => t.Id == task.Id && Math.Abs((DateTime.Now - t.FinishedAt).TotalSeconds) < 15);
+                if (existing != null)
+                {
+                    existing.Status = task.Status;
+                    existing.TargetSize = task.TargetSize;
+                    existing.SizeDifference = task.SizeDifference;
+                    existing.LogDetails = task.LogDetails;
+                    await SaveHistoryAsync();
+                    return;
+                }
+
                 // Клонируем задачу для истории
                 var copy = new ProcessingTask
                 {

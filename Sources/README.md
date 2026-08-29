@@ -6,7 +6,7 @@
   <b>Комплексный менеджер и конвертер игр Nintendo Switch (NSP/XCI/NSZ), управление установкой и резервным копированием.</b>
 </p>
 
-[![Version](https://img.shields.io/badge/version-4.8.7-00D2FF.svg?style=for-the-badge)](https://github.com/ReiKatari/STORM_SWITCH_BOX)
+[![Version](https://img.shields.io/badge/version-4.8.9-00D2FF.svg?style=for-the-badge)](https://github.com/ReiKatari/STORM_SWITCH_BOX)
 [![License](https://img.shields.io/badge/license-MIT-green.svg?style=for-the-badge)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2B-blue.svg?style=for-the-badge)](https://www.microsoft.com/windows)
 [![.NET](https://img.shields.io/badge/.NET-8.0-purple.svg?style=for-the-badge)](https://dotnet.microsoft.com/download/dotnet/8.0)

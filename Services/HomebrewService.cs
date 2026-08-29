@@ -844,9 +844,19 @@ namespace StormSwitchBox.Services
                         }
                     }
 
-                    // Стандартный путь в RomFS для автономного запуска на эмуляторах и консолях
-                    string nextPath = "romfs:/app.nro";
-                    string nextArgvContent = "romfs:/app.nro\0romfs:/app.nro\0";
+                    // Определение целевого пути NRO для forwarder hbl loader
+                    string? existingNextNro = task.InputFiles.FirstOrDefault(f => Path.GetFileName(f).Equals("nextNroPath", StringComparison.OrdinalIgnoreCase) && File.Exists(f));
+                    string nextPath;
+                    if (existingNextNro != null)
+                    {
+                        nextPath = File.ReadAllText(existingNextNro).Trim();
+                    }
+                    else
+                    {
+                        nextPath = $"sdmc:/{appFolder}/{nroName}";
+                    }
+
+                    string nextArgvContent = $"{nextPath}\0{nextPath}\0";
 
                     File.WriteAllText(Path.Combine(romfsDir, "nextNroPath"), nextPath);
                     File.WriteAllBytes(Path.Combine(romfsDir, "nextArgv"), Encoding.UTF8.GetBytes(nextArgvContent));
@@ -1061,6 +1071,57 @@ namespace StormSwitchBox.Services
                     }
                 }
 
+                // Экспорт готовой структуры SDMC для реальной консоли и авто-синхронизация с эмуляторами
+                try
+                {
+                    string nroAppFolder = "switch";
+                    string? mainNro = task.InputFiles.FirstOrDefault(f => File.Exists(f) && Path.GetExtension(f).Equals(".nro", StringComparison.OrdinalIgnoreCase));
+                    if (mainNro != null)
+                    {
+                        nroAppFolder = Path.GetFileNameWithoutExtension(mainNro);
+                        if (task.InputFiles.Any(f => f.Contains("devilutionx", StringComparison.OrdinalIgnoreCase)))
+                        {
+                            nroAppFolder = "devilutionx-switch";
+                        }
+                    }
+
+                    string sdmcTargetDir = Path.Combine(outFolder, $"{task.OutputFileName}_[SDMC]", nroAppFolder);
+                    Directory.CreateDirectory(sdmcTargetDir);
+                    foreach (var f in task.InputFiles)
+                    {
+                        if (File.Exists(f) && !Path.GetExtension(f).Equals(".nsp", StringComparison.OrdinalIgnoreCase))
+                        {
+                            File.Copy(f, Path.Combine(sdmcTargetDir, Path.GetFileName(f)), true);
+                        }
+                        else if (Directory.Exists(f))
+                        {
+                            CopyDirectory(f, sdmcTargetDir);
+                        }
+                    }
+
+                    // Авто-деплой в обнаруженные папки SDMC локальных эмуляторов (STORM EDEN, Yuzu, Ryujinx и др.)
+                    var localEmuSdmcList = new List<string>
+                    {
+                        @"E:\STORM EDEN 3\Assembling\user\sdmc",
+                        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "yuzu", "sdmc"),
+                        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Ryujinx", "sdmc"),
+                        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "suyu", "sdmc"),
+                        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "sudachi", "sdmc"),
+                        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "yuzu", "sdmc")
+                    };
+
+                    foreach (var emuSdmc in localEmuSdmcList)
+                    {
+                        if (Directory.Exists(emuSdmc))
+                        {
+                            string destEmuFolder = Path.Combine(emuSdmc, nroAppFolder);
+                            Directory.CreateDirectory(destEmuFolder);
+                            CopyDirectory(sdmcTargetDir, destEmuFolder);
+                        }
+                    }
+                }
+                catch { }
+
                 App.RunOnUI(() =>
                 {
                     if (File.Exists(finalPath))
@@ -1079,7 +1140,6 @@ namespace StormSwitchBox.Services
                     task.Status = "Успешно";
                     task.IsRunning = false;
                     task.LogDetails += $"✅ Сборка Homebrew успешно завершена: {Path.GetFileName(finalPath)} ({task.TargetSize})\n";
-                    HistoryService.AddToHistory(task);
                 });
             }
             catch (Exception ex)
