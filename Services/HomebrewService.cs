@@ -311,6 +311,8 @@ namespace StormSwitchBox.Services
             }
 
             // 6. Формирование читаемого названия игры
+            // Предустановленные профили популярных портов и Homebrew проектов
+            // 1. FPS & Retro Shooters
             if (nroBaseName.Equals("devilutionx", StringComparison.OrdinalIgnoreCase))
             {
                 bool hasHellfire = pkg.InputFiles.Any(f => f.Contains("hellfire", StringComparison.OrdinalIgnoreCase) || f.Contains("hf", StringComparison.OrdinalIgnoreCase));
@@ -324,6 +326,597 @@ namespace StormSwitchBox.Services
                     pkg.Name = "Diablo I (DevilutionX + Rus)";
                 else
                     pkg.Name = "Diablo I (DevilutionX)";
+                pkg.RelativeSdPath = $"switch/devilutionx/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("d2x", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("d2x-switch", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Diablo II (D2X Switch Port)";
+                pkg.RelativeSdPath = $"switch/d2x/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("re3", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("gta3", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Grand Theft Auto III (re3 Port)";
+                pkg.RelativeSdPath = $"switch/re3/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("reVC", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("gtavc", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Grand Theft Auto: Vice City (reVC Port)";
+                pkg.RelativeSdPath = $"switch/reVC/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("gtasa", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Grand Theft Auto: San Andreas (Switch Port)";
+                pkg.RelativeSdPath = $"switch/gtasa/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("gtav", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("gta5", StringComparison.OrdinalIgnoreCase) || rootDirName.Contains("GTA V", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Grand Theft Auto V (Homebrew Port)";
+                pkg.RelativeSdPath = $"switch/gtav/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("hl2", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("portal", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("switch-source", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("stratasource", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = nroBaseName.Equals("portal", StringComparison.OrdinalIgnoreCase) ? "Portal (Source Engine Port)" : "Half-Life 2 (Source Engine Port)";
+                pkg.RelativeSdPath = $"switch/source/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("cs16client", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("cstrike", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Counter-Strike 1.6 (CS16Client Engine)";
+                pkg.RelativeSdPath = $"switch/xash3d/cstrike/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("dod", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Day of Defeat (Xash3D Engine)";
+                pkg.RelativeSdPath = $"switch/xash3d/dod/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("tfc", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Team Fortress Classic (Xash3D Engine)";
+                pkg.RelativeSdPath = $"switch/xash3d/tfc/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("gunman", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Gunman Chronicles (Xash3D Engine)";
+                pkg.RelativeSdPath = $"switch/xash3d/gunman/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("theforceengine", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("theforce", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("darkforces", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Star Wars: Dark Forces (The Force Engine)";
+                pkg.RelativeSdPath = $"switch/tfe/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("alephone", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("marathon", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("marathon2", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("infinity", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Marathon Trilogy (Aleph One Engine)";
+                pkg.RelativeSdPath = $"switch/alephone/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("avp", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("avp-switch", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Aliens versus Predator Classic 2000";
+                pkg.RelativeSdPath = $"switch/avp/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("uhexen2", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("hammerofthyrion", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Hexen II (Hammer of Thyrion Engine)";
+                pkg.RelativeSdPath = $"switch/hexen2/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("crispy-heretic", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("crispy-hexen", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Heretic / Hexen Classic (Crispy Engine)";
+                pkg.RelativeSdPath = $"switch/crispy/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("dxx-rebirth", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("d1x", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("d2x-rebirth", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Descent 1 & 2 (DXX-Rebirth Engine)";
+                pkg.RelativeSdPath = $"switch/dxx-rebirth/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("rott", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("winrott", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Rise of the Triad (RotT Engine)";
+                pkg.RelativeSdPath = $"switch/rott/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("chocolate-strife", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("strife", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Strife: Quest for the Sigil";
+                pkg.RelativeSdPath = $"switch/strife/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("openfodder", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Cannon Fodder 1 & 2 (OpenFodder Engine)";
+                pkg.RelativeSdPath = $"switch/openfodder/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("maxpayne", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("maxpayne-switch", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Max Payne (Switch Port)";
+                pkg.RelativeSdPath = $"switch/maxpayne/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("xash3d", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("xash3d-switch", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("hl", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Half-Life (Xash3D FWGS Engine)";
+                pkg.RelativeSdPath = $"switch/xash3d/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("ioquake3", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("quake3", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Quake III Arena (ioquake3)";
+                pkg.RelativeSdPath = $"switch/ioquake3/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("dhewm3", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("doom3", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Doom 3 (dhewm3 Engine)";
+                pkg.RelativeSdPath = $"switch/dhewm3/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("serioussam", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("ssam", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Serious Sam Classic (Switch Port)";
+                pkg.RelativeSdPath = $"switch/serioussam/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("nblood", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("blood", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Blood (NBlood Port)";
+                pkg.RelativeSdPath = $"switch/nblood/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("voidsw", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("shadowwarrior", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Shadow Warrior (VoidSW Port)";
+                pkg.RelativeSdPath = $"switch/voidsw/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("pcexhumed", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("powerslave", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "PowerSlave / Exhumed (PCExhumed)";
+                pkg.RelativeSdPath = $"switch/pcexhumed/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("iortcw", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Return to Castle Wolfenstein (iortcw)";
+                pkg.RelativeSdPath = $"switch/iortcw/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("ecwolf", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Wolfenstein 3D (ECWolf)";
+                pkg.RelativeSdPath = $"switch/ecwolf/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("eduke32", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("rednukem", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Duke Nukem 3D (EDuke32/Rednukem)";
+                pkg.RelativeSdPath = $"switch/{nroBaseName}/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("gzswitch", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("gzdoom", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("prboom-plus", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Doom / GZDoom (Switch Port)";
+                pkg.RelativeSdPath = $"switch/{nroBaseName}/{nroFileName}";
+            }
+
+            // 2. RPG & RTS / Strategy
+            else if (nroBaseName.Equals("daggerfallunity", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("daggerfall", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "The Elder Scrolls II: Daggerfall (Unity Port)";
+                pkg.RelativeSdPath = $"switch/daggerfall/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("opentesarena", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("arena", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "The Elder Scrolls I: Arena (OpenTESArena)";
+                pkg.RelativeSdPath = $"switch/opentesarena/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("openmw", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("morrowind", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "The Elder Scrolls III: Morrowind (OpenMW Engine)";
+                pkg.RelativeSdPath = $"switch/openmw/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("opengothic", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("gothic", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Gothic (OpenGothic Engine)";
+                pkg.RelativeSdPath = $"switch/opengothic/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("gemrb", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("bg", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("iwd", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Baldur's Gate / Icewind Dale (GemRB Engine)";
+                pkg.RelativeSdPath = $"switch/gemrb/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("fallout-ce", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("fallout", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Fallout: Community Edition (Port)";
+                pkg.RelativeSdPath = $"switch/fallout-ce/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("fallout2-ce", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("fallout2", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Fallout 2: Community Edition (Port)";
+                pkg.RelativeSdPath = $"switch/fallout2-ce/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("fallouttactics", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("ftactics", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Fallout Tactics: Brotherhood of Steel";
+                pkg.RelativeSdPath = $"switch/ftactics/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("wargus", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("stratagus", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("warcraft", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("warcraft2", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Warcraft: Orcs & Humans / Warcraft II (Stratagus)";
+                pkg.RelativeSdPath = $"switch/wargus/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("stargus", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("starcraft", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "StarCraft & Brood War (Stargus Engine)";
+                pkg.RelativeSdPath = $"switch/stargus/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("openra", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("chronodivide", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("cnc", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("redalert", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Command & Conquer / Red Alert (OpenRA Engine)";
+                pkg.RelativeSdPath = $"switch/openra/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("openage", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("aoe2", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Age of Empires II (OpenAge Engine)";
+                pkg.RelativeSdPath = $"switch/openage/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("dunelegacy", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("opendune", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("dune2", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Dune II / Dune Legacy Engine";
+                pkg.RelativeSdPath = $"switch/dunelegacy/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("openxcom", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("xcom", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "X-COM: UFO Defense / Terror from the Deep (OpenXcom)";
+                pkg.RelativeSdPath = $"switch/openxcom/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("freeciv", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "FreeCiv (Civilization Strategy Engine)";
+                pkg.RelativeSdPath = $"switch/freeciv/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("openalbion", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("albion", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Albion Classic RPG (OpenAlbion Engine)";
+                pkg.RelativeSdPath = $"switch/openalbion/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("fheroes2", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Heroes of Might and Magic II (fheroes2 Engine)";
+                pkg.RelativeSdPath = $"switch/fheroes2/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("vcmi", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Heroes of Might and Magic III (VCMI Engine)";
+                pkg.RelativeSdPath = $"switch/vcmi/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("corsixth", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("themehospital", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Theme Hospital (CorsixTH Engine)";
+                pkg.RelativeSdPath = $"switch/corsixth/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("openttd", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("ttd", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Transport Tycoon Deluxe (OpenTTD)";
+                pkg.RelativeSdPath = $"switch/openttd/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("julius", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("augustus", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("caesar3", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Caesar III (Julius / Augustus Engine)";
+                pkg.RelativeSdPath = $"switch/julius/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("openrct2", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("rct2", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "RollerCoaster Tycoon 2 (OpenRCT2 Engine)";
+                pkg.RelativeSdPath = $"switch/openrct2/{nroFileName}";
+            }
+
+            // 3. Action, Platformer & Adventure
+            else if (nroBaseName.Equals("sonic3air", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Sonic 3 A.I.R. (Angel Island Revisited)";
+                pkg.RelativeSdPath = $"switch/sonic3air/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("srb2kart", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("ringracers", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("srb2", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Sonic Robo Blast 2 / Ring Racers";
+                pkg.RelativeSdPath = $"switch/srb2/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("rayman2", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Rayman 2: The Great Escape (Native Port)";
+                pkg.RelativeSdPath = $"switch/rayman2/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("openjazz", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("jazz2", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Jazz Jackrabbit 1 & 2 (Native Engine)";
+                pkg.RelativeSdPath = $"switch/jazz2/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("perfectdark", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Perfect Dark (Native 60FPS PC Port)";
+                pkg.RelativeSdPath = $"switch/perfectdark/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("classicube", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "ClassiCube (Minecraft Classic Native Port)";
+                pkg.RelativeSdPath = $"switch/classicube/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("minetest", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("luanti", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Minetest / Luanti (Open-Source Voxel World)";
+                pkg.RelativeSdPath = $"switch/minetest/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("supertux", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("supertuxkart", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "SuperTux / SuperTuxKart";
+                pkg.RelativeSdPath = $"switch/supertux/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("celeste64", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Celeste 64: Fragments of the Mountain";
+                pkg.RelativeSdPath = $"switch/celeste64/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("sdlpop", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("pop", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Prince of Persia Classic (SDLPoP)";
+                pkg.RelativeSdPath = $"switch/sdlpop/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("reminiscence", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Flashback (REminiscence Engine)";
+                pkg.RelativeSdPath = $"switch/reminiscence/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("raw", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("anotherworld", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Another World / Out of This World (RAW Engine)";
+                pkg.RelativeSdPath = $"switch/raw/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("hode", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Heart of Darkness (Hode Engine)";
+                pkg.RelativeSdPath = $"switch/hode/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("twine", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("lba", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Little Big Adventure 1 & 2 (Twin-E Engine)";
+                pkg.RelativeSdPath = $"switch/twine/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("malditacastilla", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Maldita Castilla (Cursed Castilla)";
+                pkg.RelativeSdPath = $"switch/malditacastilla/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("hcl", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("hydracastle", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Hydra Castle Labyrinth";
+                pkg.RelativeSdPath = $"switch/hcl/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("sm64", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("sm64ex", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("sm64nx", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Super Mario 64 (Native Port)";
+                pkg.RelativeSdPath = $"switch/sm64/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("zelda3", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "The Legend of Zelda: A Link to the Past (Native Port)";
+                pkg.RelativeSdPath = $"switch/zelda3/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("soh", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Ship of Harkinian (Zelda: Ocarina of Time)";
+                pkg.RelativeSdPath = $"switch/soh/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("2ship", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "2 Ship 2 Harkinian (Zelda: Majora's Mask)";
+                pkg.RelativeSdPath = $"switch/2ship/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("am2r", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("am2r-switch", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Another Metroid 2 Remake (AM2R Native Port)";
+                pkg.RelativeSdPath = $"switch/am2r/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("celeste", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("celestec", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Celeste Classic (C Native Port)";
+                pkg.RelativeSdPath = $"switch/celeste/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("openjk", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("jedioutcast", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("jediia", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Star Wars: Jedi Knight (OpenJK Engine)";
+                pkg.RelativeSdPath = $"switch/openjk/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("nxengine", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("cavestory", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Cave Story (NXEngine-evo)";
+                pkg.RelativeSdPath = $"switch/nxengine/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("cgenius", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("keen", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Commander Keen (Commander Genius)";
+                pkg.RelativeSdPath = $"switch/cgenius/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("opentyrian", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("tyrian", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Tyrian (OpenTyrian)";
+                pkg.RelativeSdPath = $"switch/opentyrian/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("openlara", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("openlara-switch", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Tomb Raider I (OpenLara Classic Engine)";
+                pkg.RelativeSdPath = $"switch/openlara/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("spelunky", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Spelunky Classic HD (Switch Port)";
+                pkg.RelativeSdPath = $"switch/spelunky/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("vvvvvv", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "VVVVVV (Native Port)";
+                pkg.RelativeSdPath = $"switch/vvvvvv/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("soniccd", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("sonic1", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("sonic2", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("sonicmania", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = $"Sonic ({nroBaseName.ToUpperInvariant()} Engine Port)";
+                pkg.RelativeSdPath = $"switch/{nroBaseName}/{nroFileName}";
+            }
+
+            // 4. Visual Novels & Narrative Engines
+            else if (nroBaseName.Equals("renpy", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("ddlc", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Ren'Py Visual Novel Engine";
+                pkg.RelativeSdPath = $"switch/renpy/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("onscripter", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("ponscripter", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("tsukihime", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("higurashi", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("umineko", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "ONScripter (Visual Novel Engine)";
+                pkg.RelativeSdPath = $"switch/onscripter/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("vnds", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "VNDS (Visual Novel Dual Screen Engine)";
+                pkg.RelativeSdPath = $"switch/vnds/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("frotz", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("glulxe", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("zork", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Frotz / Glulxe (Interactive Fiction Z-Machine)";
+                pkg.RelativeSdPath = $"switch/frotz/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("residualvm", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "ResidualVM 3D Adventures Engine";
+                pkg.RelativeSdPath = $"switch/residualvm/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("scummvm", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "ScummVM (Classic Adventure Engine)";
+                pkg.RelativeSdPath = $"switch/scummvm/{nroFileName}";
+            }
+
+            // 5. Standalone Emulators
+            else if (nroBaseName.Equals("dosbox", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("dosbox-staging", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("dosbox-pure", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "DOSBox-Staging (MS-DOS Emulator)";
+                pkg.RelativeSdPath = $"switch/dosbox/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("duckstation", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("pcsx-rearmed", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("psx", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "DuckStation / PCSX (PlayStation 1 Emulator)";
+                pkg.RelativeSdPath = $"switch/duckstation/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("mupen64plus", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("mupen64plus-next", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("n64", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "mupen64plus-next (Nintendo 64 Emulator)";
+                pkg.RelativeSdPath = $"switch/mupen64/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("kronos", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("yabause", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("saturn", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Kronos / Yabause (Sega Saturn Emulator)";
+                pkg.RelativeSdPath = $"switch/kronos/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("fake-08", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("pico8", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Fake-08 (PICO-8 Fantasy Console)";
+                pkg.RelativeSdPath = $"switch/fake-08/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("tic80", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "TIC-80 (Tiny Computer Engine)";
+                pkg.RelativeSdPath = $"switch/tic80/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("fuse", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("zxspectrum", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Fuse (ZX Spectrum Emulator)";
+                pkg.RelativeSdPath = $"switch/fuse/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("vice", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("puae", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("c64", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("amiga", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Vice / PUAE (Commodore 64 & Amiga Emulator)";
+                pkg.RelativeSdPath = $"switch/vice/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("snes9x", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Snes9x (Super Nintendo Emulator)";
+                pkg.RelativeSdPath = $"switch/snes9x/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("mesen", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("fceumm", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("nes", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Mesen (NES / Famicom Emulator)";
+                pkg.RelativeSdPath = $"switch/mesen/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("genesis_plus_gx", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("picodrive", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("megadrive", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Genesis Plus GX (Sega Mega Drive / 32X / CD)";
+                pkg.RelativeSdPath = $"switch/genesis/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("fbneo", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("fba", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("neogeo", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "FinalBurn Neo (Arcade & Neo-Geo Emulator)";
+                pkg.RelativeSdPath = $"switch/fbneo/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("ppsspp", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("ppsspp_standalone", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "PPSSPP (Sony PlayStation Portable Emulator)";
+                pkg.RelativeSdPath = $"switch/ppsspp/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("mgba", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "mGBA (Game Boy Advance Emulator)";
+                pkg.RelativeSdPath = $"switch/mgba/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("melonds", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "melonDS (Nintendo DS Emulator)";
+                pkg.RelativeSdPath = $"switch/melonds/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("flycast", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Flycast (Sega Dreamcast Emulator)";
+                pkg.RelativeSdPath = $"switch/flycast/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("retroarch", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("retroarch_switch", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "RetroArch (Multi-System Emulator Frontend)";
+                pkg.RelativeSdPath = $"retroarch/{nroFileName}";
+            }
+
+            // 6. System Tools, Overlays & Media
+            else if (nroBaseName.Equals("dbi", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "DBI (Database Installer / MTP / USB Backend)";
+                pkg.RelativeSdPath = $"switch/dbi/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("tinfoil", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("tinwoo", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("awoo", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Tinfoil / TinWoo / Awoo-Installer";
+                pkg.RelativeSdPath = $"switch/tinfoil/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("goldleaf", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Goldleaf (NSP Installer & File Manager)";
+                pkg.RelativeSdPath = $"switch/goldleaf/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("daybreak", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Daybreak (System Firmware Updater)";
+                pkg.RelativeSdPath = $"switch/daybreak/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("nx-shell", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "NX-Shell (Advanced File Explorer)";
+                pkg.RelativeSdPath = $"switch/nx-shell/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("jksv", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("checkpoint", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "JKSV & Checkpoint (Save Data Managers)";
+                pkg.RelativeSdPath = $"switch/JKSV/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("edizon", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("edizon-se", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("breeze", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "EdiZon-SE / Breeze (Memory & Cheat Engine)";
+                pkg.RelativeSdPath = $"switch/EdiZon/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("nxmp", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("pplay", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "NXMP (Hardware Accelerated Media Player)";
+                pkg.RelativeSdPath = $"switch/nxmp/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("moonlight", StringComparison.OrdinalIgnoreCase) || nroBaseName.Equals("moonlight-switch", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Moonlight (PC Game Streaming Client)";
+                pkg.RelativeSdPath = $"switch/moonlight/{nroFileName}";
+            }
+            else if (nroBaseName.Equals("chiaki", StringComparison.OrdinalIgnoreCase))
+            {
+                pkg.Name = "Chiaki (PlayStation Remote Play Client)";
+                pkg.RelativeSdPath = $"switch/chiaki/{nroFileName}";
             }
             else if (rootDirName.Length > 2 && !rootDirName.Equals("switch", StringComparison.OrdinalIgnoreCase) && !rootDirName.Equals("Homebrew", StringComparison.OrdinalIgnoreCase))
             {
@@ -746,6 +1339,18 @@ namespace StormSwitchBox.Services
                 Directory.CreateDirectory(outMetaDir);
                 Directory.CreateDirectory(allNcasDir);
 
+                // Проверка свободного места на целевом диске
+                long requiredSpace = (long)(task.SourceSizeBytes * 2.5);
+                string checkPath = !string.IsNullOrEmpty(task.OutputFolder) ? task.OutputFolder : tempDir;
+                if (CheckDiskSpace(checkPath, requiredSpace, out long availSpace) && availSpace > 0 && availSpace < requiredSpace)
+                {
+                    App.RunOnUI(() =>
+                    {
+                        task.LogDetails += $"[Предупреждение] На диске осталось {availSpace / (1024.0 * 1024 * 1024):F1} ГБ. Рекомендуется не менее {requiredSpace / (1024.0 * 1024 * 1024):F1} ГБ для гарантированной сборки.\n";
+                    });
+                }
+
+
                 // 1. Формируем ExeFS
                 // Если в задаче есть сопутствующий NSP форвардер, извлекаем из него оригинальный проверенный ExeFS
                 string? companionNsp = task.InputFiles.FirstOrDefault(f => File.Exists(f) && (f.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase)));
@@ -849,7 +1454,7 @@ namespace StormSwitchBox.Services
                         string dest = Path.Combine(romfsDir, Path.GetFileName(file));
                         if (!File.Exists(dest))
                         {
-                            File.Copy(file, dest, true);
+                            CopyFileWithRetry(file, dest, true);
                             App.RunOnUI(() =>
                             {
                                 task.LogDetails += $"[RomFS] Добавлен ресурс: {Path.GetFileName(file)}\n";
@@ -884,7 +1489,7 @@ namespace StormSwitchBox.Services
                             }
                             if (!File.Exists(dest))
                             {
-                                File.Copy(nroFile, dest, true);
+                                CopyFileWithRetry(nroFile, dest, true);
                             }
                         }
 
@@ -1332,12 +1937,46 @@ namespace StormSwitchBox.Services
             return nacp;
         }
 
+        public static void CopyFileWithRetry(string source, string destination, bool overwrite = true, int maxRetries = 3, int delayMs = 200)
+        {
+            for (int i = 0; i < maxRetries; i++)
+            {
+                try
+                {
+                    string? dir = Path.GetDirectoryName(destination);
+                    if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                    File.Copy(source, destination, overwrite);
+                    return;
+                }
+                catch (IOException) when (i < maxRetries - 1)
+                {
+                    Thread.Sleep(delayMs);
+                }
+            }
+        }
+
+        public static bool CheckDiskSpace(string targetPath, long requiredBytes, out long availableBytes)
+        {
+            try
+            {
+                string root = Path.GetPathRoot(Path.GetFullPath(targetPath)) ?? "C:\\";
+                var drive = new DriveInfo(root);
+                availableBytes = drive.AvailableFreeSpace;
+                return availableBytes >= requiredBytes;
+            }
+            catch
+            {
+                availableBytes = -1;
+                return true;
+            }
+        }
+
         private void CopyDirectory(string sourceDir, string targetDir)
         {
             Directory.CreateDirectory(targetDir);
             foreach (var file in Directory.GetFiles(sourceDir))
             {
-                File.Copy(file, Path.Combine(targetDir, Path.GetFileName(file)), true);
+                CopyFileWithRetry(file, Path.Combine(targetDir, Path.GetFileName(file)), true);
             }
             foreach (var subDir in Directory.GetDirectories(sourceDir))
             {

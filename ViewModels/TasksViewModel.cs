@@ -715,7 +715,7 @@ public partial class TasksViewModel : ObservableObject
 				string ext = Path.GetExtension(path).ToLowerInvariant();
 				if (ext == ".zip" || ext == ".rar" || ext == ".7z")
 				{
-					string tempDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "temp", "archives", Guid.NewGuid().ToString("N").Substring(0, 8));
+					string tempDir = Path.Combine(Path.GetTempPath(), "StormArchives_" + Guid.NewGuid().ToString("N").Substring(0, 8));
 					Directory.CreateDirectory(tempDir);
 					TempCleanupService.RegisterActiveTempDirectory(tempDir);
 					App.RunOnUI(delegate
