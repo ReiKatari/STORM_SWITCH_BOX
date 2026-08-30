@@ -105,8 +105,9 @@ public partial class TasksViewModel : ObservableObject
 	public ObservableCollection<ProcessingTask> Tasks { get; } = new ObservableCollection<ProcessingTask>();
 
 	public ObservableCollection<ProcessingTask> VerifyTasks { get; } = new ObservableCollection<ProcessingTask>();
+	public ObservableCollection<ProcessingTask> HomebrewTasks { get; } = new ObservableCollection<ProcessingTask>();
 
-	public bool IsAnyTaskRunning => Tasks.Any((ProcessingTask t) => t.IsRunning) || VerifyTasks.Any((ProcessingTask t) => t.IsRunning);
+	public bool IsAnyTaskRunning => Tasks.Any((ProcessingTask t) => t.IsRunning) || VerifyTasks.Any((ProcessingTask t) => t.IsRunning) || HomebrewTasks.Any((ProcessingTask t) => t.IsRunning);
 
 	[GeneratedCode("CommunityToolkit.Mvvm.SourceGenerators.ObservablePropertyGenerator", "8.2.0.0")]
 	[ExcludeFromCodeCoverage]
@@ -1155,7 +1156,7 @@ public partial class TasksViewModel : ObservableObject
 						? FormatNames3ds[Math.Clamp(SelectedFormatIndex3ds, 0, FormatNames3ds.Length - 1)] 
 						: SelectedFormat;
 
-					ObservableCollection<ProcessingTask> targetList = ((_currentPageType == "Verify") ? VerifyTasks : Tasks);
+					ObservableCollection<ProcessingTask> targetList = _currentPageType switch { "Verify" => VerifyTasks, "Homebrew" => HomebrewTasks, _ => Tasks };
 					ProcessingTask task = new ProcessingTask
 					{
 						Id = $"T{targetList.Count + 1:D3}",
@@ -1276,7 +1277,7 @@ public partial class TasksViewModel : ObservableObject
 		{
 			return;
 		}
-		ObservableCollection<ProcessingTask> targetList = ((task.Operation == "Verify") ? VerifyTasks : Tasks);
+		ObservableCollection<ProcessingTask> targetList = task.Operation switch { "Verify" => VerifyTasks, "Homebrew" => HomebrewTasks, _ => Tasks };
 		if (!targetList.Contains(task))
 		{
 			return;
@@ -1332,6 +1333,7 @@ public partial class TasksViewModel : ObservableObject
 		if (_currentPageType == "Verify")
 		{
 			VerifyTasks.Clear();
+			HomebrewTasks.Clear();
 			App.Logger.Log("Список проверок очищен");
 		}
 		else
@@ -1344,7 +1346,7 @@ public partial class TasksViewModel : ObservableObject
 	private void StopAllTasks()
 	{
 		App.Logger.Log("Остановка всех запущенных задач...", LogLevel.Warning);
-		List<ProcessingTask> list = Tasks.Concat(VerifyTasks).ToList();
+		List<ProcessingTask> list = Tasks.Concat(VerifyTasks).Concat(HomebrewTasks).ToList();
 		foreach (ProcessingTask item in list)
 		{
 			if (item.IsRunning && item.Cts != null)

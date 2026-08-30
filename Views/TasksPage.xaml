@@ -347,6 +347,183 @@
                 </controls:DataGrid.ContextFlyout>
             </controls:DataGrid>
 
+            
+            <!-- ========== ТАБЛИЦА HOMEBREW (НЕЗАВИСИМЫЙ РАЗДЕЛ HOMEBREW) ========== -->
+            <controls:DataGrid x:Name="HomebrewGrid"
+                               AutoGenerateColumns="False"
+                               GridLinesVisibility="All"
+                               HeadersVisibility="Column"
+                               RowDetailsVisibilityMode="Collapsed"
+                               SelectionMode="Single"
+                               Background="Transparent"
+                               CanUserSortColumns="False"
+                               CanUserReorderColumns="False"
+                               AllowDrop="True" DragOver="Grid_DragOver" Drop="Grid_Drop"
+                               RowHeight="88"
+                               HorizontalScrollBarVisibility="Auto"
+                               Tapped="DataGrid_Tapped"
+                               PointerPressed="TasksGrid_PointerPressed"
+                               SelectionChanged="TasksGrid_SelectionChanged"
+                               Visibility="Collapsed">
+
+                <controls:DataGrid.ColumnHeaderStyle>
+                    <Style TargetType="primitives:DataGridColumnHeader">
+                        <Setter Property="Background" Value="#1E293B"/>
+                        <Setter Property="Foreground" Value="White"/>
+                        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+                        <Setter Property="Padding" Value="8,10"/>
+                        <Setter Property="MinHeight" Value="40"/>
+                        <Setter Property="BorderBrush" Value="#334155"/>
+                        <Setter Property="BorderThickness" Value="0,0,1,1"/>
+                        <Setter Property="ContentTemplate">
+                            <Setter.Value>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding}" TextAlignment="Center" HorizontalAlignment="Center" VerticalAlignment="Center" 
+                                               Foreground="White" FontWeight="Bold" FontSize="11" CharacterSpacing="80"
+                                               TextTrimming="None" TextWrapping="NoWrap"/>
+                                </DataTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+                </controls:DataGrid.ColumnHeaderStyle>
+
+                <controls:DataGrid.Columns>
+                    <controls:DataGridTemplateColumn Header="Иконка" Width="150" MinWidth="80" IsReadOnly="True">
+                        <controls:DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate x:DataType="models:ProcessingTask">
+                                <Image Source="{x:Bind GameIcon, Mode=OneWay}" Width="76" Height="76" Stretch="Uniform" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="0,2"/>
+                            </DataTemplate>
+                        </controls:DataGridTemplateColumn.CellTemplate>
+                    </controls:DataGridTemplateColumn>
+
+                    <controls:DataGridTemplateColumn Header="Проект / Порт" Width="380" MinWidth="150" IsReadOnly="True">
+                        <controls:DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding OutputFileName}" TextWrapping="Wrap" VerticalAlignment="Center" Margin="12,0,12,0"/>
+                            </DataTemplate>
+                        </controls:DataGridTemplateColumn.CellTemplate>
+                    </controls:DataGridTemplateColumn>
+
+                    <controls:DataGridTemplateColumn Header="Кон. формат" Width="150" MinWidth="50">
+                        <controls:DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <Grid HorizontalAlignment="Center" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding TargetFormat}"
+                                               Foreground="#2ECC71" FontWeight="Bold" FontSize="12"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               Visibility="{Binding FormatCompletedVisibility}"/>
+                                    <ComboBox ItemsSource="{Binding AvailableTargetFormats}"
+                                              SelectedItem="{Binding TargetFormat, Mode=TwoWay}" 
+                                              IsEnabled="{Binding CanChangeFormat}" 
+                                              Foreground="#00E5FF" FontWeight="Normal"
+                                              Visibility="{Binding FormatSelectableVisibility}"
+                                              VerticalAlignment="Center" HorizontalAlignment="Center"
+                                              Padding="6,2" MinWidth="65" MinHeight="26" Height="26" BorderThickness="0" Background="Transparent">
+                                    </ComboBox>
+                                </Grid>
+                            </DataTemplate>
+                        </controls:DataGridTemplateColumn.CellTemplate>
+                    </controls:DataGridTemplateColumn>
+
+                    <controls:DataGridTextColumn Header="Нач. размер" Binding="{Binding SourceSize}" IsReadOnly="True" Width="150" MinWidth="50" ElementStyle="{StaticResource CenterAlignedCell}"/>
+                    <controls:DataGridTextColumn Header="Кон. размер" Binding="{Binding TargetSize}" IsReadOnly="True" Width="150" MinWidth="50" ElementStyle="{StaticResource CenterAlignedCell}"/>
+                    
+                    <controls:DataGridTextColumn Header="RomFS" Binding="{Binding HasRomFs}" IsReadOnly="True" Width="100" MinWidth="40" ElementStyle="{StaticResource CenterAlignedCell}"/>
+                    <controls:DataGridTextColumn Header="ExeFS" Binding="{Binding HasExeFs}" IsReadOnly="True" Width="100" MinWidth="40" ElementStyle="{StaticResource CenterAlignedCell}"/>
+                    <controls:DataGridTextColumn Header="Сейвы" Binding="{Binding HasSaveData}" IsReadOnly="True" Width="100" MinWidth="40" ElementStyle="{StaticResource CenterAlignedCell}"/>
+
+                    <controls:DataGridTemplateColumn Header="Файлы" Width="100" MinWidth="50">
+                        <controls:DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <Button Click="FilesCount_Click" Tag="{Binding}" 
+                                        VerticalAlignment="Center" HorizontalAlignment="Center"
+                                        Padding="10,4" MinHeight="28" MinWidth="36"
+                                        Background="#2A3A5C" BorderBrush="#4A6FA5" BorderThickness="1" CornerRadius="6"
+                                        ToolTipService.ToolTip="Показать состав пакета Homebrew">
+                                    <TextBlock Text="{Binding FilesCount}" FontWeight="Bold" FontSize="14" Foreground="#82B1FF"/>
+                                </Button>
+                            </DataTemplate>
+                        </controls:DataGridTemplateColumn.CellTemplate>
+                    </controls:DataGridTemplateColumn>
+
+                    <controls:DataGridTemplateColumn Header="Статус" Width="200" MinWidth="50">
+                        <controls:DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="6" VerticalAlignment="Center" Margin="4,0">
+                                    <ProgressRing IsActive="{Binding IsRunning}" Width="14" Height="14" VerticalAlignment="Center"/>
+                                    <Border Background="{Binding StatusColor}" CornerRadius="6" Padding="12,4">
+                                        <TextBlock Text="{Binding Status}" VerticalAlignment="Center" Foreground="White" FontWeight="Bold" FontSize="13" HorizontalAlignment="Center"/>
+                                    </Border>
+                                </StackPanel>
+                            </DataTemplate>
+                        </controls:DataGridTemplateColumn.CellTemplate>
+                    </controls:DataGridTemplateColumn>
+
+                    <controls:DataGridTemplateColumn Header="Выполнение" Width="200" MinWidth="50">
+                        <controls:DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <Grid Margin="8,0" VerticalAlignment="Center">
+                                    <ProgressBar Value="{Binding Progress}" Minimum="0" Maximum="100" VerticalAlignment="Center" Foreground="{Binding StatusColor}" Height="6" CornerRadius="3"/>
+                                </Grid>
+                            </DataTemplate>
+                        </controls:DataGridTemplateColumn.CellTemplate>
+                    </controls:DataGridTemplateColumn>
+
+                    <controls:DataGridTemplateColumn Width="45" MinWidth="40">
+                        <controls:DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <Button Click="DeleteTask_Click" Tag="{Binding}" VerticalAlignment="Center" HorizontalAlignment="Center"
+                                        Padding="4,2" MinHeight="0" MinWidth="0" Background="Transparent" BorderThickness="0" ToolTipService.ToolTip="Удалить задачу">
+                                    <FontIcon Glyph="&#xE74D;" FontSize="12" Foreground="IndianRed"/>
+                                </Button>
+                            </DataTemplate>
+                        </controls:DataGridTemplateColumn.CellTemplate>
+                    </controls:DataGridTemplateColumn>
+                </controls:DataGrid.Columns>
+
+                <controls:DataGrid.ContextFlyout>
+                    <MenuFlyout>
+                        <MenuFlyout.MenuFlyoutPresenterStyle>
+                            <Style TargetType="MenuFlyoutPresenter">
+                                <Setter Property="MinWidth" Value="320"/>
+                            </Style>
+                        </MenuFlyout.MenuFlyoutPresenterStyle>
+                        <MenuFlyoutSubItem Text="Режим сборки (HardPatch / Multi-Content)..." MinWidth="300">
+                            <MenuFlyoutItem Text="Умный режим (Авто)" Click="SetBuildMode_Smart_Click"/>
+                            <MenuFlyoutItem Text="Принудительный HardPatch (Монолитный RomFS)" Click="SetBuildMode_HardPatch_Click"/>
+                            <MenuFlyoutItem Text="Прямой Multi-Content (Сшивание 1G+1U)" Click="SetBuildMode_MultiContent_Click"/>
+                        </MenuFlyoutSubItem>
+                        <MenuFlyoutSeparator/>
+                        <MenuFlyoutItem Text="Редактировать иконку и название..." Click="EditMetadata_Click" MinWidth="300">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE70F;"/>
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem Text="Отменить выполнение задачи" Click="CancelTask_Click" MinWidth="300">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE711;"/>
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem Text="Удалить задачу из списка" Click="DeleteTask_Click" MinWidth="300">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE74D;"/>
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutSeparator/>
+                        <MenuFlyoutItem Text="Открыть выходную папку" Click="OpenOutputFolder_Click" MinWidth="300">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE8DA;"/>
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem Text="Копировать журнал (лог)" Click="CopyLog_Click" MinWidth="300">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE8C8;"/>
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                    </MenuFlyout>
+                </controls:DataGrid.ContextFlyout>
+            </controls:DataGrid>
+
             <!-- ========== ТАБЛИЦА ВЕРИФИКАЦИИ (РАЗДЕЛ ПРОВЕРКА) ========== -->
             <controls:DataGrid x:Name="VerifyGrid"
                                AutoGenerateColumns="False"

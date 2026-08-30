@@ -245,6 +245,7 @@ namespace StormSwitchBox.Views
                 if (elem.DataContext is ProcessingTask dcTask) return dcTask;
             }
             if (TasksGrid?.SelectedItem is ProcessingTask selTask) return selTask;
+            if (HomebrewGrid?.SelectedItem is ProcessingTask selHbTask) return selHbTask;
             if (VerifyGrid?.SelectedItem is ProcessingTask selVerTask) return selVerTask;
             if (_activeDetailTask != null) return _activeDetailTask;
             return null;
@@ -404,6 +405,7 @@ namespace StormSwitchBox.Views
             _activeDetailTask = null;
             UpdateDetailsVisibility();
             if (TasksGrid != null) TasksGrid.SelectedItem = null;
+            if (HomebrewGrid != null) HomebrewGrid.SelectedItem = null;
             if (VerifyGrid != null) VerifyGrid.SelectedItem = null;
         }
 
