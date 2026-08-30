@@ -1451,14 +1451,23 @@ namespace StormSwitchBox.Services
 
                     foreach (var file in looseDataFiles)
                     {
-                        string dest = Path.Combine(romfsDir, Path.GetFileName(file));
+                        string fileName = Path.GetFileName(file);
+                        string dest = Path.Combine(romfsDir, fileName);
                         if (!File.Exists(dest))
                         {
                             CopyFileWithRetry(file, dest, true);
                             App.RunOnUI(() =>
                             {
-                                task.LogDetails += $"[RomFS] Добавлен ресурс: {Path.GetFileName(file)}\n";
+                                task.LogDetails += $"[RomFS] Добавлен ресурс: {fileName}\n";
                             });
+                        }
+
+                        // Дополнительно дублируем в подпапки для портов (devilutionx, switch, etc.)
+                        string[] extraSubDirs = new[] { "devilutionx", "devilutionx-switch", "switch/devilutionx", "switch/devilutionx-switch", "data" };
+                        foreach (var sub in extraSubDirs)
+                        {
+                            string subDest = Path.Combine(romfsDir, sub, fileName);
+                            CopyFileWithRetry(file, subDest, true);
                         }
                     }
 
@@ -1744,16 +1753,18 @@ namespace StormSwitchBox.Services
                         {
                             if (Directory.Exists(emuSdmc))
                             {
-                                string destEmuFolder = Path.Combine(emuSdmc, nroAppFolder);
-                                Directory.CreateDirectory(destEmuFolder);
-                                CopyDirectory(tempSdmcStaging, destEmuFolder);
-
-                                // Обеспечиваем также путь внутри подпапки switch/ для максимальной совместимости
-                                string destSwitchFolder = Path.Combine(emuSdmc, "switch", nroAppFolder);
-                                if (destSwitchFolder != destEmuFolder)
+                                string[] targetEmuFolders = new[]
                                 {
-                                    Directory.CreateDirectory(destSwitchFolder);
-                                    CopyDirectory(tempSdmcStaging, destSwitchFolder);
+                                    Path.Combine(emuSdmc, "switch", nroAppFolder),
+                                    Path.Combine(emuSdmc, "switch", nroAppFolder.Replace("-switch", "")),
+                                    Path.Combine(emuSdmc, nroAppFolder),
+                                    Path.Combine(emuSdmc, nroAppFolder.Replace("-switch", ""))
+                                };
+
+                                foreach (var folder in targetEmuFolders.Distinct(StringComparer.OrdinalIgnoreCase))
+                                {
+                                    Directory.CreateDirectory(folder);
+                                    CopyDirectory(tempSdmcStaging, folder);
                                 }
                             }
                         }

@@ -36,7 +36,7 @@ namespace StormSwitchBox
         public MainWindow()
         {
             this.InitializeComponent();
-            this.Title = "STORM SWITCH BOX 4.9.5";
+            this.Title = "STORM SWITCH BOX 4.9.6";
             this.ExtendsContentIntoTitleBar = true; // Современный заголовок окна
 
             var hWnd = WinRT.Interop.WindowNative.GetWindowHandle(this);

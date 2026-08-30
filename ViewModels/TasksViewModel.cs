@@ -1163,6 +1163,7 @@ public partial class TasksViewModel : ObservableObject
 						Operation = _currentPageType,
 						SourceFormat = ext,
 						Is3dsTask = is3ds,
+						BuildMode = App.Settings.Current.MultiContentBuildMode,
 						TargetFormat = targetFmt,
 						SourceSizeBytes = sizeBytes,
 						TargetSize = "-",

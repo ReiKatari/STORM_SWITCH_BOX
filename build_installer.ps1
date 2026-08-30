@@ -14,7 +14,7 @@ if (-not (Test-Path $assemblingDir)) { New-Item -ItemType Directory -Path $assem
 if (-not (Test-Path $filesDir)) { New-Item -ItemType Directory -Path $filesDir | Out-Null }
 if (-not (Test-Path $outputDir)) { New-Item -ItemType Directory -Path $outputDir | Out-Null }
 
-$appVersion = "4.9.5"
+$appVersion = "4.9.6"
 try {
     [xml]$appProjXml = Get-Content (Join-Path $appProjDir "StormSwitchBox.csproj")
     $verFromProj = $appProjXml.Project.PropertyGroup.Version

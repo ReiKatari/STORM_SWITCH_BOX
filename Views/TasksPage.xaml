@@ -311,6 +311,12 @@
                                 <Setter Property="MinWidth" Value="320"/>
                             </Style>
                         </MenuFlyout.MenuFlyoutPresenterStyle>
+                        <MenuFlyoutSubItem Text="Режим сборки (HardPatch / Multi-Content)..." MinWidth="300">
+                            <MenuFlyoutItem Text="Умный режим (Авто)" Click="SetBuildMode_Smart_Click"/>
+                            <MenuFlyoutItem Text="Принудительный HardPatch (Монолитный RomFS)" Click="SetBuildMode_HardPatch_Click"/>
+                            <MenuFlyoutItem Text="Прямой Multi-Content (Сшивание 1G+1U)" Click="SetBuildMode_MultiContent_Click"/>
+                        </MenuFlyoutSubItem>
+                        <MenuFlyoutSeparator/>
                         <MenuFlyoutItem Text="Редактировать иконку и название..." Click="EditMetadata_Click" MinWidth="300">
                             <MenuFlyoutItem.Icon>
                                 <FontIcon Glyph="&#xE70F;" Foreground="#82B1FF"/>

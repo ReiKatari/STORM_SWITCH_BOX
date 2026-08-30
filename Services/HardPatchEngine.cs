@@ -1107,31 +1107,40 @@ namespace StormSwitchBox.Services
                             {
                                 IFile ncaFile = ncaFileRef.Release();
                                 var nca = new LibHac.Tools.FsSystem.NcaUtils.Nca(keysService.CurrentKeyset, ncaFile.AsStorage());
-                                if (nca.Header.ContentType == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Program)
+                                if (nca.Header.ContentType == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Program || (byte)nca.Header.ContentType == 3)
                                 {
-                                    if (nca.CanOpenSection(0))
+                                    for (int section = 0; section < 4; section++)
                                     {
-                                        var exefs = nca.OpenFileSystem(0, IntegrityCheckLevel.None);
-                                        Directory.CreateDirectory(targetExeFs);
-
-                                        foreach (var exefsEntry in exefs.EnumerateEntries())
+                                        if (nca.CanOpenSection(section))
                                         {
-                                            string destFile = System.IO.Path.Combine(targetExeFs, exefsEntry.Name.TrimStart('/'));
-                                            using var srcFileRef = new UniqueRef<IFile>();
-                                            using var srcPath = new LibHac.Fs.Path();
-                                            srcPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(exefsEntry.FullPath))).ThrowIfFailure();
-                                            if (exefs.OpenFile(ref srcFileRef.Ref, in srcPath, OpenMode.Read).IsSuccess())
+                                            try
                                             {
-                                                using var srcFile = srcFileRef.Release();
-                                                using var outStream = new FileStream(destFile, FileMode.Create, FileAccess.Write);
-                                                srcFile.AsStream().CopyTo(outStream);
-                                            }
-                                        }
+                                                var exefs = nca.OpenFileSystem(section, IntegrityCheckLevel.None);
+                                                if (exefs.FileExists("/main.npdm") || exefs.FileExists("/main"))
+                                                {
+                                                    Directory.CreateDirectory(targetExeFs);
+                                                    foreach (var exefsEntry in exefs.EnumerateEntries())
+                                                    {
+                                                        string destFile = System.IO.Path.Combine(targetExeFs, exefsEntry.Name.TrimStart('/'));
+                                                        using var srcFileRef = new UniqueRef<IFile>();
+                                                        using var srcPath = new LibHac.Fs.Path();
+                                                        srcPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(exefsEntry.FullPath))).ThrowIfFailure();
+                                                        if (exefs.OpenFile(ref srcFileRef.Ref, in srcPath, OpenMode.Read).IsSuccess())
+                                                        {
+                                                            using var srcFile = srcFileRef.Release();
+                                                            using var outStream = new FileStream(destFile, FileMode.Create, FileAccess.Write);
+                                                            srcFile.AsStream().CopyTo(outStream);
+                                                        }
+                                                    }
 
-                                        if (File.Exists(System.IO.Path.Combine(targetExeFs, "main.npdm")))
-                                        {
-                                            App.Logger.Log($"[HardPatchEngine] Успешно извлечен ExeFS (main.npdm) из {System.IO.Path.GetFileName(file)} через LibHac.", Models.LogLevel.Info);
-                                            return;
+                                                    if (File.Exists(System.IO.Path.Combine(targetExeFs, "main.npdm")))
+                                                    {
+                                                        App.Logger.Log($"[HardPatchEngine] Успешно извлечен ExeFS (main.npdm) из {System.IO.Path.GetFileName(file)} section {section} через LibHac.", Models.LogLevel.Info);
+                                                        return;
+                                                    }
+                                                }
+                                            }
+                                            catch { }
                                         }
                                     }
                                 }

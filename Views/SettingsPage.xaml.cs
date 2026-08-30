@@ -32,6 +32,13 @@ namespace StormSwitchBox.Views
             else if (level <= 18) CompressionCombo.SelectedIndex = 2;
             else CompressionCombo.SelectedIndex = 3;
 
+            // BuildStrategy combo initialization
+            if (BuildStrategyCombo != null)
+            {
+                int bMode = App.Settings.Current.MultiContentBuildMode;
+                BuildStrategyCombo.SelectedIndex = Math.Clamp(bMode, 0, 2);
+            }
+
             // RsvCap combo initialization
             int rsvVal = App.Settings.Current.RsvCap;
             if (rsvVal == 251658240) RsvCapCombo.SelectedIndex = 1;
@@ -164,6 +171,15 @@ namespace StormSwitchBox.Views
                 WatchFolder3dsStatusTxt.Foreground = is3dsRunning 
                     ? new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.LimeGreen)
                     : (Application.Current.Resources["TextFillColorSecondaryBrush"] as Microsoft.UI.Xaml.Media.Brush ?? new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Gray));
+            }
+        }
+
+        private async void BuildStrategyCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (BuildStrategyCombo.SelectedItem is ComboBoxItem item && int.TryParse(item.Tag?.ToString(), out int mode))
+            {
+                App.Settings.Current.MultiContentBuildMode = mode;
+                await SettingsService.Instance.SaveAsync();
             }
         }
 
@@ -775,6 +791,8 @@ namespace StormSwitchBox.Views
             if (SwitchAlgoHeaderTxt != null) SwitchAlgoHeaderTxt.Text = loc["Settings_Switch_Algorithms_Header"];
             if (KeyGenTitleTxt != null) KeyGenTitleTxt.Text = loc["Settings_Switch_KeyGen_Title"];
             if (KeyGenDescTxt != null) KeyGenDescTxt.Text = loc["Settings_Switch_KeyGen_Desc"];
+            if (BuildStrategyTitleTxt != null) BuildStrategyTitleTxt.Text = loc["Settings_Switch_BuildStrategy_Title"];
+            if (BuildStrategyDescTxt != null) BuildStrategyDescTxt.Text = loc["Settings_Switch_BuildStrategy_Desc"];
             if (RsvTitleTxt != null) RsvTitleTxt.Text = loc["Settings_Switch_Rsv_Title"];
             if (RsvDescTxt != null) RsvDescTxt.Text = loc["Settings_Switch_Rsv_Desc"];
             if (TitlerightsTitleTxt != null) TitlerightsTitleTxt.Text = loc["Settings_Switch_Titlerights_Title"];
