@@ -28,3 +28,21 @@ Files/*.zip
 *.exe
 !tools/**/*.exe
 
+dist/
+build/
+out/
+target/
+scratch/
+*.apk
+*.aab
+*.cer
+*.msi
+*.7z
+*.rar
+*.tar.gz
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
+*.tmp
+node_modules/
