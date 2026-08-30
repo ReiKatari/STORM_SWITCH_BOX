@@ -45,3 +45,8 @@ node_modules/
 installer/Output/
 *.tmp*
 
+
+# Additional ignores
+installer/Output/
+*.tmp*
+Assembling/

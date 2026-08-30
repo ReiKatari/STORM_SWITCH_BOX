@@ -1,0 +1,206 @@
+Thu, 27 Aug 2026 14:24:19 INFO [crates\yanu-cli\src\main.rs:77]: Launching yanu-cli [3mversion[0m[2m=[0m"0.10.1" [3march[0m[2m=[0m"x86_64" [3mos[0m[2m=[0m"windows"
+Thu, 27 Aug 2026 14:24:19 INFO [crates\yanu-cli\src\main.rs:98]: Parsing args, exit on error
+Thu, 27 Aug 2026 14:24:22 INFO [crates\yanu-cli\src\main.rs:77]: Launching yanu-cli [3mversion[0m[2m=[0m"0.10.1" [3march[0m[2m=[0m"x86_64" [3mos[0m[2m=[0m"windows"
+Thu, 27 Aug 2026 14:24:22 INFO [crates\yanu-cli\src\main.rs:98]: Parsing args, exit on error
+Thu, 27 Aug 2026 14:30:23 INFO [crates\yanu-cli\src\main.rs:77]: Launching yanu-cli [3mversion[0m[2m=[0m"0.10.1" [3march[0m[2m=[0m"x86_64" [3mos[0m[2m=[0m"windows"
+Thu, 27 Aug 2026 14:30:23 INFO [crates\yanu-cli\src\main.rs:98]: Parsing args, exit on error
+Thu, 27 Aug 2026 14:30:23 DEBUG [crates\yanu-cli\src\main.rs:101]: [3mconfig[0m[2m=[0mConfig { schema_version: 2, nsp_extractor: Hactoolnet, nca_extractor: Hac2l, yanu_dir: None, temp_dir: "." }
+Thu, 27 Aug 2026 14:30:23 INFO [crates\yanu-cli\src\main.rs:107]: Selected keyfile [3mkeyfile[0m[2m=[0m"C:\\Users\\ReiKatari\\.switch\\prod.keys"
+Thu, 27 Aug 2026 14:30:23 ERROR [crates\yanu-cli\src\main.rs:91]: [3merr[0m[2m=[0m
+   0: [91mfailed to copy file from C:\Users\ReiKatari\.switch\prod.keys to C:\Users\ReiKatari\.switch\prod.keys[0m
+   1: [91mПроцесс не может получить доступ к файлу, так как этот файл занят другим процессом. (os error 32)[0m
+
+Location:
+   [35mcrates\yanu-cli\src\main.rs[0m:[35m115[0m
+Thu, 27 Aug 2026 14:30:31 INFO [crates\yanu-cli\src\main.rs:77]: Launching yanu-cli [3mversion[0m[2m=[0m"0.10.1" [3march[0m[2m=[0m"x86_64" [3mos[0m[2m=[0m"windows"
+Thu, 27 Aug 2026 14:30:31 INFO [crates\yanu-cli\src\main.rs:98]: Parsing args, exit on error
+Thu, 27 Aug 2026 14:30:31 DEBUG [crates\yanu-cli\src\main.rs:101]: [3mconfig[0m[2m=[0mConfig { schema_version: 2, nsp_extractor: Hactoolnet, nca_extractor: Hactoolnet, yanu_dir: None, temp_dir: "." }
+Thu, 27 Aug 2026 14:30:31 INFO [crates\yanu-cli\src\main.rs:107]: Selected keyfile [3mkeyfile[0m[2m=[0m"C:\\Users\\ReiKatari\\.switch\\prod.keys"
+Thu, 27 Aug 2026 14:30:31 ERROR [crates\yanu-cli\src\main.rs:91]: [3merr[0m[2m=[0m
+   0: [91mfailed to copy file from C:\Users\ReiKatari\.switch\prod.keys to C:\Users\ReiKatari\.switch\prod.keys[0m
+   1: [91mПроцесс не может получить доступ к файлу, так как этот файл занят другим процессом. (os error 32)[0m
+
+Location:
+   [35mcrates\yanu-cli\src\main.rs[0m:[35m115[0m
+Thu, 27 Aug 2026 14:30:36 INFO [crates\yanu-cli\src\main.rs:77]: Launching yanu-cli [3mversion[0m[2m=[0m"0.10.1" [3march[0m[2m=[0m"x86_64" [3mos[0m[2m=[0m"windows"
+Thu, 27 Aug 2026 14:30:36 INFO [crates\yanu-cli\src\main.rs:98]: Parsing args, exit on error
+Thu, 27 Aug 2026 14:30:36 DEBUG [crates\yanu-cli\src\main.rs:101]: [3mconfig[0m[2m=[0mConfig { schema_version: 2, nsp_extractor: Hactoolnet, nca_extractor: Hac2l, yanu_dir: None, temp_dir: "." }
+Thu, 27 Aug 2026 14:30:36 INFO [crates\yanu-cli\src\main.rs:138]: Started patching!
+Thu, 27 Aug 2026 14:30:36 INFO [crates\hac\src\vfs\nsp.rs:35]: Unpacking NSP [3mnsp[0m[2m=[0mC:\Users\ReiKatari\AppData\Local\Temp\test_yanu\base_dir\Ys X Nordics [0100BAC01E57E000][v0] (6.75 GB).nsp
+Thu, 27 Aug 2026 14:31:43 INFO [crates\hac\src\vfs\nsp.rs:60]: Unpacked NSP [3mnsp[0m[2m=[0mC:\Users\ReiKatari\AppData\Local\Temp\test_yanu\base_dir\Ys X Nordics [0100BAC01E57E000][v0] (6.75 GB).nsp [3mto[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpCSUJdM
+Thu, 27 Aug 2026 14:31:44 INFO [crates\hac\src\vfs\nsp.rs:35]: Unpacking NSP [3mnsp[0m[2m=[0mC:\Users\ReiKatari\AppData\Local\Temp\test_yanu\update_dir\Ys X Nordics [0100BAC01E57E800][v196608] (0.06 GB).nsp
+Thu, 27 Aug 2026 14:31:44 INFO [crates\hac\src\vfs\nsp.rs:60]: Unpacked NSP [3mnsp[0m[2m=[0mC:\Users\ReiKatari\AppData\Local\Temp\test_yanu\update_dir\Ys X Nordics [0100BAC01E57E800][v196608] (0.06 GB).nsp [3mto[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpD9UL5M
+Thu, 27 Aug 2026 14:31:44 INFO [crates\hac\src\vfs\nsp.rs:113]: Deriving TitleKey [3mnsp[0m[2m=[0mC:\Users\ReiKatari\AppData\Local\Temp\test_yanu\base_dir\Ys X Nordics [0100BAC01E57E000][v0] (6.75 GB).nsp
+Thu, 27 Aug 2026 14:31:44 WARN [crates\hac\src\utils\update.rs:67]: [3merr[0m[2m=[0m
+   0: [91mCouldn't find a Ticket file in 'C:\Users\ReiKatari\AppData\Local\Temp\test_yanu\base_dir\Ys X Nordics [0100BAC01E57E000][v0] (6.75 GB).nsp'[0m
+
+Location:
+   [35mcrates\hac\src\vfs\nsp.rs[0m:[35m125[0m
+Thu, 27 Aug 2026 14:31:44 INFO [crates\hac\src\vfs\nsp.rs:113]: Deriving TitleKey [3mnsp[0m[2m=[0mC:\Users\ReiKatari\AppData\Local\Temp\test_yanu\update_dir\Ys X Nordics [0100BAC01E57E800][v196608] (0.06 GB).nsp
+Thu, 27 Aug 2026 14:31:44 INFO [crates\hac\src\vfs\ticket.rs:40]: Reading ticket [3mtik[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpD9UL5M\0100bac01e57e8000000000000000012.tik
+Thu, 27 Aug 2026 14:31:44 DEBUG [crates\hac\src\vfs\ticket.rs:47]: [3mtitle_key[0m[2m=[0m"0100bac01e57e8000000000000000012=515722099c9be83a2eb0c304ff1b94e9"
+Thu, 27 Aug 2026 14:31:44 INFO [crates\hac\src\vfs\nsp.rs:127]: Derived TitleKey
+Thu, 27 Aug 2026 14:31:44 INFO [crates\hac\src\utils\mod.rs:35]: Storing TitleKeys [3mkeyfile[0m[2m=[0mLazy { cell: OnceCell("C:\\Users\\ReiKatari\\.switch"), init: ".." }
+Thu, 27 Aug 2026 14:31:44 INFO [crates\hac\src\utils\update.rs:83]: Using Hactoolnet as reader
+Thu, 27 Aug 2026 14:31:44 INFO [crates\hac\src\vfs\nca.rs:65]: Identifying TitleID and ContentType [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpCSUJdM\2f4cb3a3b14478a95961b3bd9a1ab718.nca [3msize[0m[2m=[0m7.2 GB
+Thu, 27 Aug 2026 14:31:45 DEBUG [crates\hac\src\vfs\nca.rs:108]: [3mprogram_id[0m[2m=[0m"0100bac01e57e000"
+Thu, 27 Aug 2026 14:31:45 DEBUG [crates\hac\src\vfs\nca.rs:133]: [3mcontent_type[0m[2m=[0mProgram
+Thu, 27 Aug 2026 14:31:45 INFO [crates\hac\src\vfs\nca.rs:65]: Identifying TitleID and ContentType [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpCSUJdM\ba492568e4ca1aed53b46d1859830a99.nca [3msize[0m[2m=[0m468.5 KB
+Thu, 27 Aug 2026 14:31:46 DEBUG [crates\hac\src\vfs\nca.rs:108]: [3mprogram_id[0m[2m=[0m"0100bac01e57e000"
+Thu, 27 Aug 2026 14:31:46 DEBUG [crates\hac\src\vfs\nca.rs:133]: [3mcontent_type[0m[2m=[0mControl
+Thu, 27 Aug 2026 14:31:46 INFO [crates\hac\src\vfs\nca.rs:65]: Identifying TitleID and ContentType [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpCSUJdM\0b73b4d93eb5b3395dd3ec0c4cd7d022.nca [3msize[0m[2m=[0m145.9 KB
+Thu, 27 Aug 2026 14:31:46 DEBUG [crates\hac\src\vfs\nca.rs:108]: [3mprogram_id[0m[2m=[0m"0100bac01e57e000"
+Thu, 27 Aug 2026 14:31:46 DEBUG [crates\hac\src\vfs\nca.rs:133]: [3mcontent_type[0m[2m=[0mManual
+Thu, 27 Aug 2026 14:31:46 INFO [crates\hac\src\vfs\nca.rs:65]: Identifying TitleID and ContentType [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpCSUJdM\2d386e4d2d253330dee9444452e343c4.cnmt.nca [3msize[0m[2m=[0m3.6 KB
+Thu, 27 Aug 2026 14:31:47 DEBUG [crates\hac\src\vfs\nca.rs:108]: [3mprogram_id[0m[2m=[0m"0100bac01e57e000"
+Thu, 27 Aug 2026 14:31:47 DEBUG [crates\hac\src\vfs\nca.rs:133]: [3mcontent_type[0m[2m=[0mMeta
+Thu, 27 Aug 2026 14:31:47 DEBUG [crates\hac\src\utils\update.rs:89]: [3mbase_nca[0m[2m=[0mNca { path: "E:\\STORM SWITCH BOX\\.\\.tmpCSUJdM\\2f4cb3a3b14478a95961b3bd9a1ab718.nca", program_id: "0100bac01e57e000", content_type: Program }
+Thu, 27 Aug 2026 14:31:47 INFO [crates\hac\src\utils\update.rs:95]: Using Hactoolnet as reader
+Thu, 27 Aug 2026 14:31:47 INFO [crates\hac\src\vfs\nca.rs:65]: Identifying TitleID and ContentType [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpD9UL5M\8002fd1e50ce614a718adcdb71b73762.nca [3msize[0m[2m=[0m66.7 MB
+Thu, 27 Aug 2026 14:31:48 DEBUG [crates\hac\src\vfs\nca.rs:108]: [3mprogram_id[0m[2m=[0m"0100bac01e57e000"
+Thu, 27 Aug 2026 14:31:48 DEBUG [crates\hac\src\vfs\nca.rs:133]: [3mcontent_type[0m[2m=[0mProgram
+Thu, 27 Aug 2026 14:31:48 INFO [crates\hac\src\vfs\nca.rs:65]: Identifying TitleID and ContentType [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpD9UL5M\5163abad5c314bef299efc6b8cb3fd3f.nca [3msize[0m[2m=[0m468.5 KB
+Thu, 27 Aug 2026 14:31:48 DEBUG [crates\hac\src\vfs\nca.rs:108]: [3mprogram_id[0m[2m=[0m"0100bac01e57e000"
+Thu, 27 Aug 2026 14:31:48 DEBUG [crates\hac\src\vfs\nca.rs:133]: [3mcontent_type[0m[2m=[0mControl
+Thu, 27 Aug 2026 14:31:48 INFO [crates\hac\src\vfs\nca.rs:65]: Identifying TitleID and ContentType [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpD9UL5M\7d8b175a717aa558586b1aa1ce582069.nca [3msize[0m[2m=[0m145.9 KB
+Thu, 27 Aug 2026 14:31:48 DEBUG [crates\hac\src\vfs\nca.rs:108]: [3mprogram_id[0m[2m=[0m"0100bac01e57e000"
+Thu, 27 Aug 2026 14:31:48 DEBUG [crates\hac\src\vfs\nca.rs:133]: [3mcontent_type[0m[2m=[0mManual
+Thu, 27 Aug 2026 14:31:48 INFO [crates\hac\src\vfs\nca.rs:65]: Identifying TitleID and ContentType [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpD9UL5M\b5a2c591e91a1da5e339ea2ab04f65c1.cnmt.nca [3msize[0m[2m=[0m5.1 KB
+Thu, 27 Aug 2026 14:31:49 DEBUG [crates\hac\src\vfs\nca.rs:108]: [3mprogram_id[0m[2m=[0m"0100bac01e57e800"
+Thu, 27 Aug 2026 14:31:49 DEBUG [crates\hac\src\vfs\nca.rs:133]: [3mcontent_type[0m[2m=[0mMeta
+Thu, 27 Aug 2026 14:31:49 DEBUG [crates\hac\src\utils\update.rs:117]: [3mupdate_nca[0m[2m=[0mNca { path: "E:\\STORM SWITCH BOX\\.\\.tmpD9UL5M\\8002fd1e50ce614a718adcdb71b73762.nca", program_id: "0100bac01e57e000", content_type: Program }
+Thu, 27 Aug 2026 14:31:49 DEBUG [crates\hac\src\utils\update.rs:118]: [3mcontrol_nca[0m[2m=[0mNca { path: "E:\\STORM SWITCH BOX\\.\\.tmpD9UL5M\\5163abad5c314bef299efc6b8cb3fd3f.nca", program_id: "0100bac01e57e000", content_type: Control }
+Thu, 27 Aug 2026 14:31:49 INFO [crates\hac\src\vfs\nca.rs:65]: Identifying TitleID and ContentType [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpD9UL5M\8002fd1e50ce614a718adcdb71b73762.nca [3msize[0m[2m=[0m66.7 MB
+Thu, 27 Aug 2026 14:31:50 DEBUG [crates\hac\src\vfs\nca.rs:108]: [3mprogram_id[0m[2m=[0m"0100bac01e57e000"
+Thu, 27 Aug 2026 14:31:50 DEBUG [crates\hac\src\vfs\nca.rs:133]: [3mcontent_type[0m[2m=[0mProgram
+Thu, 27 Aug 2026 14:31:50 INFO [crates\hac\src\vfs\nca.rs:65]: Identifying TitleID and ContentType [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpD9UL5M\5163abad5c314bef299efc6b8cb3fd3f.nca [3msize[0m[2m=[0m468.5 KB
+Thu, 27 Aug 2026 14:31:50 DEBUG [crates\hac\src\vfs\nca.rs:108]: [3mprogram_id[0m[2m=[0m"0100bac01e57e000"
+Thu, 27 Aug 2026 14:31:50 DEBUG [crates\hac\src\vfs\nca.rs:133]: [3mcontent_type[0m[2m=[0mControl
+Thu, 27 Aug 2026 14:31:50 INFO [crates\hac\src\vfs\nca.rs:65]: Identifying TitleID and ContentType [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpD9UL5M\7d8b175a717aa558586b1aa1ce582069.nca [3msize[0m[2m=[0m145.9 KB
+Thu, 27 Aug 2026 14:31:51 DEBUG [crates\hac\src\vfs\nca.rs:108]: [3mprogram_id[0m[2m=[0m"0100bac01e57e000"
+Thu, 27 Aug 2026 14:31:51 DEBUG [crates\hac\src\vfs\nca.rs:133]: [3mcontent_type[0m[2m=[0mManual
+Thu, 27 Aug 2026 14:31:51 INFO [crates\hac\src\vfs\nca.rs:65]: Identifying TitleID and ContentType [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpD9UL5M\b5a2c591e91a1da5e339ea2ab04f65c1.cnmt.nca [3msize[0m[2m=[0m5.1 KB
+Thu, 27 Aug 2026 14:31:52 DEBUG [crates\hac\src\vfs\nca.rs:108]: [3mprogram_id[0m[2m=[0m"0100bac01e57e800"
+Thu, 27 Aug 2026 14:31:52 DEBUG [crates\hac\src\vfs\nca.rs:133]: [3mcontent_type[0m[2m=[0mMeta
+Thu, 27 Aug 2026 14:31:52 INFO [crates\hac\src\vfs\nca.rs:65]: Identifying TitleID and ContentType [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpCSUJdM\2f4cb3a3b14478a95961b3bd9a1ab718.nca [3msize[0m[2m=[0m7.2 GB
+Thu, 27 Aug 2026 14:31:53 DEBUG [crates\hac\src\vfs\nca.rs:108]: [3mprogram_id[0m[2m=[0m"0100bac01e57e000"
+Thu, 27 Aug 2026 14:31:53 DEBUG [crates\hac\src\vfs\nca.rs:133]: [3mcontent_type[0m[2m=[0mProgram
+Thu, 27 Aug 2026 14:31:53 INFO [crates\hac\src\vfs\nca.rs:65]: Identifying TitleID and ContentType [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpCSUJdM\ba492568e4ca1aed53b46d1859830a99.nca [3msize[0m[2m=[0m468.5 KB
+Thu, 27 Aug 2026 14:31:53 DEBUG [crates\hac\src\vfs\nca.rs:108]: [3mprogram_id[0m[2m=[0m"0100bac01e57e000"
+Thu, 27 Aug 2026 14:31:53 DEBUG [crates\hac\src\vfs\nca.rs:133]: [3mcontent_type[0m[2m=[0mControl
+Thu, 27 Aug 2026 14:31:53 INFO [crates\hac\src\vfs\nca.rs:65]: Identifying TitleID and ContentType [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpCSUJdM\0b73b4d93eb5b3395dd3ec0c4cd7d022.nca [3msize[0m[2m=[0m145.9 KB
+Thu, 27 Aug 2026 14:31:54 DEBUG [crates\hac\src\vfs\nca.rs:108]: [3mprogram_id[0m[2m=[0m"0100bac01e57e000"
+Thu, 27 Aug 2026 14:31:54 DEBUG [crates\hac\src\vfs\nca.rs:133]: [3mcontent_type[0m[2m=[0mManual
+Thu, 27 Aug 2026 14:31:54 INFO [crates\hac\src\vfs\nca.rs:65]: Identifying TitleID and ContentType [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpCSUJdM\2d386e4d2d253330dee9444452e343c4.cnmt.nca [3msize[0m[2m=[0m3.6 KB
+Thu, 27 Aug 2026 14:31:54 DEBUG [crates\hac\src\vfs\nca.rs:108]: [3mprogram_id[0m[2m=[0m"0100bac01e57e000"
+Thu, 27 Aug 2026 14:31:54 DEBUG [crates\hac\src\vfs\nca.rs:133]: [3mcontent_type[0m[2m=[0mMeta
+Thu, 27 Aug 2026 14:31:54 INFO [crates\hac\src\vfs\nca.rs:65]: Identifying TitleID and ContentType [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpD9UL5M\8002fd1e50ce614a718adcdb71b73762.nca [3msize[0m[2m=[0m66.7 MB
+Thu, 27 Aug 2026 14:31:55 DEBUG [crates\hac\src\vfs\nca.rs:108]: [3mprogram_id[0m[2m=[0m"0100bac01e57e000"
+Thu, 27 Aug 2026 14:31:55 DEBUG [crates\hac\src\vfs\nca.rs:133]: [3mcontent_type[0m[2m=[0mProgram
+Thu, 27 Aug 2026 14:31:55 INFO [crates\hac\src\vfs\nca.rs:65]: Identifying TitleID and ContentType [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpD9UL5M\5163abad5c314bef299efc6b8cb3fd3f.nca [3msize[0m[2m=[0m468.5 KB
+Thu, 27 Aug 2026 14:31:55 DEBUG [crates\hac\src\vfs\nca.rs:108]: [3mprogram_id[0m[2m=[0m"0100bac01e57e000"
+Thu, 27 Aug 2026 14:31:55 DEBUG [crates\hac\src\vfs\nca.rs:133]: [3mcontent_type[0m[2m=[0mControl
+Thu, 27 Aug 2026 14:31:55 INFO [crates\hac\src\vfs\nca.rs:65]: Identifying TitleID and ContentType [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpD9UL5M\7d8b175a717aa558586b1aa1ce582069.nca [3msize[0m[2m=[0m145.9 KB
+Thu, 27 Aug 2026 14:31:55 DEBUG [crates\hac\src\vfs\nca.rs:108]: [3mprogram_id[0m[2m=[0m"0100bac01e57e000"
+Thu, 27 Aug 2026 14:31:55 DEBUG [crates\hac\src\vfs\nca.rs:133]: [3mcontent_type[0m[2m=[0mManual
+Thu, 27 Aug 2026 14:31:55 INFO [crates\hac\src\vfs\nca.rs:65]: Identifying TitleID and ContentType [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpD9UL5M\b5a2c591e91a1da5e339ea2ab04f65c1.cnmt.nca [3msize[0m[2m=[0m5.1 KB
+Thu, 27 Aug 2026 14:31:55 DEBUG [crates\hac\src\vfs\nca.rs:108]: [3mprogram_id[0m[2m=[0m"0100bac01e57e800"
+Thu, 27 Aug 2026 14:31:55 DEBUG [crates\hac\src\vfs\nca.rs:133]: [3mcontent_type[0m[2m=[0mMeta
+Thu, 27 Aug 2026 14:31:55 INFO [crates\hac\src\vfs\nca.rs:65]: Identifying TitleID and ContentType [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpCSUJdM\2f4cb3a3b14478a95961b3bd9a1ab718.nca [3msize[0m[2m=[0m7.2 GB
+Thu, 27 Aug 2026 14:31:55 DEBUG [crates\hac\src\vfs\nca.rs:108]: [3mprogram_id[0m[2m=[0m"0100bac01e57e000"
+Thu, 27 Aug 2026 14:31:55 DEBUG [crates\hac\src\vfs\nca.rs:133]: [3mcontent_type[0m[2m=[0mProgram
+Thu, 27 Aug 2026 14:31:55 INFO [crates\hac\src\vfs\nca.rs:65]: Identifying TitleID and ContentType [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpCSUJdM\ba492568e4ca1aed53b46d1859830a99.nca [3msize[0m[2m=[0m468.5 KB
+Thu, 27 Aug 2026 14:31:56 DEBUG [crates\hac\src\vfs\nca.rs:108]: [3mprogram_id[0m[2m=[0m"0100bac01e57e000"
+Thu, 27 Aug 2026 14:31:56 DEBUG [crates\hac\src\vfs\nca.rs:133]: [3mcontent_type[0m[2m=[0mControl
+Thu, 27 Aug 2026 14:31:56 INFO [crates\hac\src\vfs\nca.rs:65]: Identifying TitleID and ContentType [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpCSUJdM\0b73b4d93eb5b3395dd3ec0c4cd7d022.nca [3msize[0m[2m=[0m145.9 KB
+Thu, 27 Aug 2026 14:31:56 DEBUG [crates\hac\src\vfs\nca.rs:108]: [3mprogram_id[0m[2m=[0m"0100bac01e57e000"
+Thu, 27 Aug 2026 14:31:56 DEBUG [crates\hac\src\vfs\nca.rs:133]: [3mcontent_type[0m[2m=[0mManual
+Thu, 27 Aug 2026 14:31:56 INFO [crates\hac\src\vfs\nca.rs:65]: Identifying TitleID and ContentType [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpCSUJdM\2d386e4d2d253330dee9444452e343c4.cnmt.nca [3msize[0m[2m=[0m3.6 KB
+Thu, 27 Aug 2026 14:31:56 DEBUG [crates\hac\src\vfs\nca.rs:108]: [3mprogram_id[0m[2m=[0m"0100bac01e57e000"
+Thu, 27 Aug 2026 14:31:56 DEBUG [crates\hac\src\vfs\nca.rs:133]: [3mcontent_type[0m[2m=[0mMeta
+Thu, 27 Aug 2026 14:31:56 INFO [crates\hac\src\vfs\nca.rs:65]: Identifying TitleID and ContentType [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpD9UL5M\8002fd1e50ce614a718adcdb71b73762.nca [3msize[0m[2m=[0m66.7 MB
+Thu, 27 Aug 2026 14:31:57 DEBUG [crates\hac\src\vfs\nca.rs:108]: [3mprogram_id[0m[2m=[0m"0100bac01e57e000"
+Thu, 27 Aug 2026 14:31:57 DEBUG [crates\hac\src\vfs\nca.rs:133]: [3mcontent_type[0m[2m=[0mProgram
+Thu, 27 Aug 2026 14:31:57 INFO [crates\hac\src\vfs\nca.rs:65]: Identifying TitleID and ContentType [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpD9UL5M\5163abad5c314bef299efc6b8cb3fd3f.nca [3msize[0m[2m=[0m468.5 KB
+Thu, 27 Aug 2026 14:31:57 DEBUG [crates\hac\src\vfs\nca.rs:108]: [3mprogram_id[0m[2m=[0m"0100bac01e57e000"
+Thu, 27 Aug 2026 14:31:57 DEBUG [crates\hac\src\vfs\nca.rs:133]: [3mcontent_type[0m[2m=[0mControl
+Thu, 27 Aug 2026 14:31:57 INFO [crates\hac\src\vfs\nca.rs:65]: Identifying TitleID and ContentType [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpD9UL5M\7d8b175a717aa558586b1aa1ce582069.nca [3msize[0m[2m=[0m145.9 KB
+Thu, 27 Aug 2026 14:31:57 DEBUG [crates\hac\src\vfs\nca.rs:108]: [3mprogram_id[0m[2m=[0m"0100bac01e57e000"
+Thu, 27 Aug 2026 14:31:57 DEBUG [crates\hac\src\vfs\nca.rs:133]: [3mcontent_type[0m[2m=[0mManual
+Thu, 27 Aug 2026 14:31:57 INFO [crates\hac\src\vfs\nca.rs:65]: Identifying TitleID and ContentType [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpD9UL5M\b5a2c591e91a1da5e339ea2ab04f65c1.cnmt.nca [3msize[0m[2m=[0m5.1 KB
+Thu, 27 Aug 2026 14:31:58 DEBUG [crates\hac\src\vfs\nca.rs:108]: [3mprogram_id[0m[2m=[0m"0100bac01e57e800"
+Thu, 27 Aug 2026 14:31:58 DEBUG [crates\hac\src\vfs\nca.rs:133]: [3mcontent_type[0m[2m=[0mMeta
+Thu, 27 Aug 2026 14:31:58 INFO [crates\hac\src\vfs\nca.rs:65]: Identifying TitleID and ContentType [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpD9UL5M\8002fd1e50ce614a718adcdb71b73762.nca [3msize[0m[2m=[0m66.7 MB
+Thu, 27 Aug 2026 14:31:59 DEBUG [crates\hac\src\vfs\nca.rs:108]: [3mprogram_id[0m[2m=[0m"0100bac01e57e000"
+Thu, 27 Aug 2026 14:31:59 DEBUG [crates\hac\src\vfs\nca.rs:133]: [3mcontent_type[0m[2m=[0mProgram
+Thu, 27 Aug 2026 14:31:59 INFO [crates\hac\src\vfs\nca.rs:65]: Identifying TitleID and ContentType [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpD9UL5M\5163abad5c314bef299efc6b8cb3fd3f.nca [3msize[0m[2m=[0m468.5 KB
+Thu, 27 Aug 2026 14:31:59 DEBUG [crates\hac\src\vfs\nca.rs:108]: [3mprogram_id[0m[2m=[0m"0100bac01e57e000"
+Thu, 27 Aug 2026 14:31:59 DEBUG [crates\hac\src\vfs\nca.rs:133]: [3mcontent_type[0m[2m=[0mControl
+Thu, 27 Aug 2026 14:31:59 INFO [crates\hac\src\vfs\nca.rs:65]: Identifying TitleID and ContentType [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpD9UL5M\7d8b175a717aa558586b1aa1ce582069.nca [3msize[0m[2m=[0m145.9 KB
+Thu, 27 Aug 2026 14:32:00 DEBUG [crates\hac\src\vfs\nca.rs:108]: [3mprogram_id[0m[2m=[0m"0100bac01e57e000"
+Thu, 27 Aug 2026 14:32:00 DEBUG [crates\hac\src\vfs\nca.rs:133]: [3mcontent_type[0m[2m=[0mManual
+Thu, 27 Aug 2026 14:32:00 INFO [crates\hac\src\vfs\nca.rs:65]: Identifying TitleID and ContentType [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpD9UL5M\b5a2c591e91a1da5e339ea2ab04f65c1.cnmt.nca [3msize[0m[2m=[0m5.1 KB
+Thu, 27 Aug 2026 14:32:01 DEBUG [crates\hac\src\vfs\nca.rs:108]: [3mprogram_id[0m[2m=[0m"0100bac01e57e800"
+Thu, 27 Aug 2026 14:32:01 DEBUG [crates\hac\src\vfs\nca.rs:133]: [3mcontent_type[0m[2m=[0mMeta
+Thu, 27 Aug 2026 14:32:01 INFO [crates\hac\src\vfs\nca.rs:65]: Identifying TitleID and ContentType [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpCSUJdM\2f4cb3a3b14478a95961b3bd9a1ab718.nca [3msize[0m[2m=[0m7.2 GB
+Thu, 27 Aug 2026 14:32:01 DEBUG [crates\hac\src\vfs\nca.rs:108]: [3mprogram_id[0m[2m=[0m"0100bac01e57e000"
+Thu, 27 Aug 2026 14:32:01 DEBUG [crates\hac\src\vfs\nca.rs:133]: [3mcontent_type[0m[2m=[0mProgram
+Thu, 27 Aug 2026 14:32:01 INFO [crates\hac\src\vfs\nca.rs:65]: Identifying TitleID and ContentType [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpCSUJdM\ba492568e4ca1aed53b46d1859830a99.nca [3msize[0m[2m=[0m468.5 KB
+Thu, 27 Aug 2026 14:32:01 DEBUG [crates\hac\src\vfs\nca.rs:108]: [3mprogram_id[0m[2m=[0m"0100bac01e57e000"
+Thu, 27 Aug 2026 14:32:01 DEBUG [crates\hac\src\vfs\nca.rs:133]: [3mcontent_type[0m[2m=[0mControl
+Thu, 27 Aug 2026 14:32:01 INFO [crates\hac\src\vfs\nca.rs:65]: Identifying TitleID and ContentType [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpCSUJdM\0b73b4d93eb5b3395dd3ec0c4cd7d022.nca [3msize[0m[2m=[0m145.9 KB
+Thu, 27 Aug 2026 14:32:01 DEBUG [crates\hac\src\vfs\nca.rs:108]: [3mprogram_id[0m[2m=[0m"0100bac01e57e000"
+Thu, 27 Aug 2026 14:32:01 DEBUG [crates\hac\src\vfs\nca.rs:133]: [3mcontent_type[0m[2m=[0mManual
+Thu, 27 Aug 2026 14:32:01 INFO [crates\hac\src\vfs\nca.rs:65]: Identifying TitleID and ContentType [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpCSUJdM\2d386e4d2d253330dee9444452e343c4.cnmt.nca [3msize[0m[2m=[0m3.6 KB
+Thu, 27 Aug 2026 14:32:02 DEBUG [crates\hac\src\vfs\nca.rs:108]: [3mprogram_id[0m[2m=[0m"0100bac01e57e000"
+Thu, 27 Aug 2026 14:32:02 DEBUG [crates\hac\src\vfs\nca.rs:133]: [3mcontent_type[0m[2m=[0mMeta
+Thu, 27 Aug 2026 14:32:02 INFO [crates\hac\src\vfs\nca.rs:65]: Identifying TitleID and ContentType [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpD9UL5M\8002fd1e50ce614a718adcdb71b73762.nca [3msize[0m[2m=[0m66.7 MB
+Thu, 27 Aug 2026 14:32:03 DEBUG [crates\hac\src\vfs\nca.rs:108]: [3mprogram_id[0m[2m=[0m"0100bac01e57e000"
+Thu, 27 Aug 2026 14:32:03 DEBUG [crates\hac\src\vfs\nca.rs:133]: [3mcontent_type[0m[2m=[0mProgram
+Thu, 27 Aug 2026 14:32:03 INFO [crates\hac\src\vfs\nca.rs:65]: Identifying TitleID and ContentType [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpD9UL5M\5163abad5c314bef299efc6b8cb3fd3f.nca [3msize[0m[2m=[0m468.5 KB
+Thu, 27 Aug 2026 14:32:03 DEBUG [crates\hac\src\vfs\nca.rs:108]: [3mprogram_id[0m[2m=[0m"0100bac01e57e000"
+Thu, 27 Aug 2026 14:32:03 DEBUG [crates\hac\src\vfs\nca.rs:133]: [3mcontent_type[0m[2m=[0mControl
+Thu, 27 Aug 2026 14:32:03 INFO [crates\hac\src\vfs\nca.rs:65]: Identifying TitleID and ContentType [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpD9UL5M\7d8b175a717aa558586b1aa1ce582069.nca [3msize[0m[2m=[0m145.9 KB
+Thu, 27 Aug 2026 14:32:03 DEBUG [crates\hac\src\vfs\nca.rs:108]: [3mprogram_id[0m[2m=[0m"0100bac01e57e000"
+Thu, 27 Aug 2026 14:32:03 DEBUG [crates\hac\src\vfs\nca.rs:133]: [3mcontent_type[0m[2m=[0mManual
+Thu, 27 Aug 2026 14:32:03 INFO [crates\hac\src\vfs\nca.rs:65]: Identifying TitleID and ContentType [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpD9UL5M\b5a2c591e91a1da5e339ea2ab04f65c1.cnmt.nca [3msize[0m[2m=[0m5.1 KB
+Thu, 27 Aug 2026 14:32:03 DEBUG [crates\hac\src\vfs\nca.rs:108]: [3mprogram_id[0m[2m=[0m"0100bac01e57e800"
+Thu, 27 Aug 2026 14:32:03 DEBUG [crates\hac\src\vfs\nca.rs:133]: [3mcontent_type[0m[2m=[0mMeta
+Thu, 27 Aug 2026 14:32:03 INFO [crates\hac\src\vfs\nca.rs:65]: Identifying TitleID and ContentType [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpCSUJdM\2f4cb3a3b14478a95961b3bd9a1ab718.nca [3msize[0m[2m=[0m7.2 GB
+Thu, 27 Aug 2026 14:32:03 DEBUG [crates\hac\src\vfs\nca.rs:108]: [3mprogram_id[0m[2m=[0m"0100bac01e57e000"
+Thu, 27 Aug 2026 14:32:03 DEBUG [crates\hac\src\vfs\nca.rs:133]: [3mcontent_type[0m[2m=[0mProgram
+Thu, 27 Aug 2026 14:32:03 INFO [crates\hac\src\vfs\nca.rs:65]: Identifying TitleID and ContentType [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpCSUJdM\ba492568e4ca1aed53b46d1859830a99.nca [3msize[0m[2m=[0m468.5 KB
+Thu, 27 Aug 2026 14:32:03 DEBUG [crates\hac\src\vfs\nca.rs:108]: [3mprogram_id[0m[2m=[0m"0100bac01e57e000"
+Thu, 27 Aug 2026 14:32:03 DEBUG [crates\hac\src\vfs\nca.rs:133]: [3mcontent_type[0m[2m=[0mControl
+Thu, 27 Aug 2026 14:32:03 INFO [crates\hac\src\vfs\nca.rs:65]: Identifying TitleID and ContentType [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpCSUJdM\0b73b4d93eb5b3395dd3ec0c4cd7d022.nca [3msize[0m[2m=[0m145.9 KB
+Thu, 27 Aug 2026 14:32:04 DEBUG [crates\hac\src\vfs\nca.rs:108]: [3mprogram_id[0m[2m=[0m"0100bac01e57e000"
+Thu, 27 Aug 2026 14:32:04 DEBUG [crates\hac\src\vfs\nca.rs:133]: [3mcontent_type[0m[2m=[0mManual
+Thu, 27 Aug 2026 14:32:04 INFO [crates\hac\src\vfs\nca.rs:65]: Identifying TitleID and ContentType [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpCSUJdM\2d386e4d2d253330dee9444452e343c4.cnmt.nca [3msize[0m[2m=[0m3.6 KB
+Thu, 27 Aug 2026 14:32:04 DEBUG [crates\hac\src\vfs\nca.rs:108]: [3mprogram_id[0m[2m=[0m"0100bac01e57e000"
+Thu, 27 Aug 2026 14:32:04 DEBUG [crates\hac\src\vfs\nca.rs:133]: [3mcontent_type[0m[2m=[0mMeta
+Thu, 27 Aug 2026 14:32:04 DEBUG [crates\hac\src\utils\update.rs:141]: [3mlogo_nca[0m[2m=[0mNone [3mmanual_nca[0m[2m=[0mSome(Nca { path: "E:\\STORM SWITCH BOX\\.\\.tmpD9UL5M\\7d8b175a717aa558586b1aa1ce582069.nca", program_id: "0100bac01e57e000", content_type: Manual }) [3mdata_nca[0m[2m=[0mNone
+Thu, 27 Aug 2026 14:32:04 INFO [crates\hac\src\vfs\nca.rs:145]: Unpacking RomFS from NCA [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpD9UL5M\5163abad5c314bef299efc6b8cb3fd3f.nca
+Thu, 27 Aug 2026 14:32:04 INFO [crates\hac\src\vfs\nca.rs:167]: Unpacked RomFS from NCA [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpD9UL5M\5163abad5c314bef299efc6b8cb3fd3f.nca [3mromfs[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpfgjNR5
+Thu, 27 Aug 2026 14:32:04 INFO [crates\hac\src\vfs\nacp.rs:46]: Reading NACP data
+Thu, 27 Aug 2026 14:32:04 INFO [crates\hac\src\vfs\nacp.rs:60]: Successfully read NACP data
+Thu, 27 Aug 2026 14:32:04 INFO [crates\hac\src\vfs\nca.rs:182]: Unpacking RomFS/ExeFS from NCAs [3mbasenca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpCSUJdM\2f4cb3a3b14478a95961b3bd9a1ab718.nca [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpD9UL5M\8002fd1e50ce614a718adcdb71b73762.nca
+Thu, 27 Aug 2026 14:38:19 INFO [crates\hac\src\vfs\nca.rs:207]: Unpacked RomFS/ExeFS from NCAs [3mbasenca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpCSUJdM\2f4cb3a3b14478a95961b3bd9a1ab718.nca [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpD9UL5M\8002fd1e50ce614a718adcdb71b73762.nca [3mromfs[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpOQRiyM\romfs [3mexefs[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmpOQRiyM\exefs
+Thu, 27 Aug 2026 14:38:19 DEBUG [crates\hac\src\utils\update.rs:167]: Selected TitleID for packing [3mprogram_id[0m[2m=[0m"0100bac01e57e000"
+Thu, 27 Aug 2026 14:38:20 INFO [crates\hac\src\vfs\nca.rs:232]: Packing [3mromfs[0m[2m=[0m"E:\\STORM SWITCH BOX\\.\\.tmpOQRiyM\\romfs" [3mexefs[0m[2m=[0m"E:\\STORM SWITCH BOX\\.\\.tmpOQRiyM\\exefs" [3mto[0m[2m=[0m"E:\\STORM SWITCH BOX\\.\\.tmp6GtJIo"
+Thu, 27 Aug 2026 14:54:38 INFO [crates\hac\src\vfs\nca.rs:271]: Using Hactoolnet as reader
+Thu, 27 Aug 2026 14:54:38 INFO [crates\hac\src\vfs\nca.rs:65]: Identifying TitleID and ContentType [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmp6GtJIo\2a2c92ec72f7629ff0a0416c9b32adb3.nca [3msize[0m[2m=[0m11.2 GB
+Thu, 27 Aug 2026 14:54:38 DEBUG [crates\hac\src\vfs\nca.rs:108]: [3mprogram_id[0m[2m=[0m"0100bac01e57e000"
+Thu, 27 Aug 2026 14:54:38 DEBUG [crates\hac\src\vfs\nca.rs:133]: [3mcontent_type[0m[2m=[0mProgram
+Thu, 27 Aug 2026 14:54:38 INFO [crates\hac\src\vfs\nca.rs:65]: Identifying TitleID and ContentType [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmp6GtJIo\5163abad5c314bef299efc6b8cb3fd3f.nca [3msize[0m[2m=[0m468.5 KB
+Thu, 27 Aug 2026 14:54:38 DEBUG [crates\hac\src\vfs\nca.rs:108]: [3mprogram_id[0m[2m=[0m"0100bac01e57e000"
+Thu, 27 Aug 2026 14:54:38 DEBUG [crates\hac\src\vfs\nca.rs:133]: [3mcontent_type[0m[2m=[0mControl
+Thu, 27 Aug 2026 14:54:38 INFO [crates\hac\src\vfs\nca.rs:65]: Identifying TitleID and ContentType [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmp6GtJIo\7d8b175a717aa558586b1aa1ce582069.nca [3msize[0m[2m=[0m145.9 KB
+Thu, 27 Aug 2026 14:54:38 DEBUG [crates\hac\src\vfs\nca.rs:108]: [3mprogram_id[0m[2m=[0m"0100bac01e57e000"
+Thu, 27 Aug 2026 14:54:38 DEBUG [crates\hac\src\vfs\nca.rs:133]: [3mcontent_type[0m[2m=[0mManual
+Thu, 27 Aug 2026 14:54:38 INFO [crates\hac\src\vfs\nca.rs:277]: Packing done! Should be Program Type NCA [3mnca[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmp6GtJIo\2a2c92ec72f7629ff0a0416c9b32adb3.nca [3moutdir[0m[2m=[0mE:\STORM SWITCH BOX\.\.tmp6GtJIo
+Thu, 27 Aug 2026 14:54:42 INFO [crates\hac\src\vfs\nca.rs:303]: Generating Meta NCA [3mprogram.path[0m[2m=[0m"E:\\STORM SWITCH BOX\\.\\.tmp6GtJIo\\2a2c92ec72f7629ff0a0416c9b32adb3.nca" [3mcontrol.path[0m[2m=[0m"E:\\STORM SWITCH BOX\\.\\.tmp6GtJIo\\5163abad5c314bef299efc6b8cb3fd3f.nca"
+Thu, 27 Aug 2026 14:55:20 INFO [crates\hac\src\vfs\nca.rs:368]: Generated Meta NCA [3moutdir[0m[2m=[0m"E:\\STORM SWITCH BOX\\.\\.tmp6GtJIo"
+Thu, 27 Aug 2026 14:55:20 INFO [crates\hac\src\vfs\nsp.rs:75]: Packing NCAs to NSP [3mnca_dir[0m[2m=[0m"E:\\STORM SWITCH BOX\\.\\.tmp6GtJIo"
+Thu, 27 Aug 2026 14:55:29 INFO [crates\hac\src\vfs\nsp.rs:104]: Packed NCAs to NSP [3moutdir[0m[2m=[0mC:\Users\ReiKatari\AppData\Local\Temp\test_yanu\yanu_out [3msize[0m[2m=[0m11.2 GB
+Thu, 27 Aug 2026 14:55:30 INFO [crates\hac\src\utils\mod.rs:119]: Moving [3mfrom[0m[2m=[0mC:\Users\ReiKatari\AppData\Local\Temp\test_yanu\yanu_out\0100bac01e57e000.nsp [3mto[0m[2m=[0mC:\Users\ReiKatari\AppData\Local\Temp\test_yanu\yanu_out\Ys X Nordics [0100bac01e57e000][v1.0.3][yanu-0.10.1-patched].nsp
+Thu, 27 Aug 2026 14:55:30 INFO [crates\yanu-cli\src\main.rs:87]: Done
