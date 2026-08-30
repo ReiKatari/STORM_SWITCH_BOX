@@ -153,6 +153,8 @@ namespace StormSwitchBox.Services
                 ["Settings_Switch_Algorithms_Header"] = "Алгоритмы сборки и очистки Switch",
                 ["Settings_Switch_KeyGen_Title"] = "Понижение версии ключей (KeyGen)",
                 ["Settings_Switch_KeyGen_Desc"] = "Маскирует требования к прошивке (0-30), позволяя запускать новые игры на старых FW",
+                ["Settings_Switch_BuildStrategy_Title"] = "Стратегия сборки обновлений и мульти-контента (HardPatch)",
+                ["Settings_Switch_BuildStrategy_Desc"] = "HardPatch физически распаковывает дельту и запекает чистый RomFS в единый Program NCA для гарантированной работы на любых эмуляторах (включая старые версии) и консолях",
                 ["Settings_Switch_Rsv_Title"] = "Понижение системных требований (RSV Cap Downgrade)",
                 ["Settings_Switch_Rsv_Desc"] = "Ограничивает проверку версии системного ПО консоли в метаданных CNMT",
                 ["Settings_Switch_Titlerights_Title"] = "Удалить Titlerights (Ticketless NSP)",

@@ -161,7 +161,9 @@ namespace StormSwitchBox.Services
                 long baseSize = (!string.IsNullOrEmpty(baseFile) && File.Exists(baseFile)) ? new FileInfo(baseFile).Length : 0;
                 long updateSize = (!string.IsNullOrEmpty(updateFile) && File.Exists(updateFile)) ? new FileInfo(updateFile).Length : 0;
 
-                bool skipHardPatch = task.IsMultiProgramTitle;
+                int effectiveBuildMode = task.BuildMode != 0 ? task.BuildMode : App.Settings.Current.MultiContentBuildMode;
+                bool forceHardPatch = (effectiveBuildMode == 1);
+                bool skipHardPatch = (effectiveBuildMode == 2) || task.IsMultiProgramTitle;
 
                 if (!skipHardPatch)
                 {
@@ -170,7 +172,9 @@ namespace StormSwitchBox.Services
                         savedBaseFile = baseFile;
                         savedUpdateFile = updateFile;
 
-                        App.RunOnUI(() => task.LogDetails += "\n🔵 [HardPatch] Физическая пересборка...");
+                        App.RunOnUI(() => task.LogDetails += forceHardPatch 
+                            ? "\n🔵 [HardPatch] Принудительная монолитная пересборка RomFS (обход ограничений эмуляторов)..." 
+                            : "\n🔵 [HardPatch] Физическая пересборка...");
                         string titleIdStr = "";
                         try {
                             titleIdStr = App.SwitchFormat.ParseNsp(baseFile).TitleId;

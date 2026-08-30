@@ -485,6 +485,39 @@ namespace StormSwitchBox.Views
         }
 
         // ===== Редактирование иконки и названия игры =====
+        private void SetBuildMode_Smart_Click(object sender, RoutedEventArgs e)
+        {
+            var task = GetTargetTask(sender);
+            if (task != null)
+            {
+                task.BuildMode = 0;
+                App.Logger.Log($"[Task] {task.GameName}: режим сборки изменен на 'Умный режим (Авто)'");
+                App.RunOnUI(() => task.LogDetails += "\n⚙️ [Режим сборки] Установлен 'Умный режим (Авто)'");
+            }
+        }
+
+        private void SetBuildMode_HardPatch_Click(object sender, RoutedEventArgs e)
+        {
+            var task = GetTargetTask(sender);
+            if (task != null)
+            {
+                task.BuildMode = 1;
+                App.Logger.Log($"[Task] {task.GameName}: режим сборки изменен на 'Принудительный HardPatch (Монолит)'");
+                App.RunOnUI(() => task.LogDetails += "\n⚙️ [Режим сборки] Установлен 'Принудительный HardPatch (Монолитный RomFS)'");
+            }
+        }
+
+        private void SetBuildMode_MultiContent_Click(object sender, RoutedEventArgs e)
+        {
+            var task = GetTargetTask(sender);
+            if (task != null)
+            {
+                task.BuildMode = 2;
+                App.Logger.Log($"[Task] {task.GameName}: режим сборки изменен на 'Прямой Multi-Content (Сшивание 1G+1U)'");
+                App.RunOnUI(() => task.LogDetails += "\n⚙️ [Режим сборки] Установлен 'Прямой Multi-Content (Сшивание 1G+1U)'");
+            }
+        }
+
         private async void EditMetadata_Click(object sender, RoutedEventArgs e)
         {
             var task = GetTargetTask(sender);

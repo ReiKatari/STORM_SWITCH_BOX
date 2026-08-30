@@ -60,6 +60,7 @@ namespace StormSwitchBox.Models
             OnPropertyChanged(nameof(CanChangeFormat));
         }
 
+        [ObservableProperty] private int _buildMode = 0;
         [ObservableProperty] private bool _is3dsTask;
         partial void OnIs3dsTaskChanged(bool value)
         {
