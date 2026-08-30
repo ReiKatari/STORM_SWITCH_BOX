@@ -18,6 +18,9 @@
                 <NavigationViewItem x:Name="NavPackItem" Icon="Save" Content="Упаковка" Tag="Pack" />
                 <NavigationViewItem x:Name="NavConvertItem" Icon="Switch" Content="Конвертация" Tag="Convert" />
                 <NavigationViewItem x:Name="NavMultiItem" Icon="Library" Content="Мульти-контент" Tag="Multi" />
+                
+                <NavigationViewItemSeparator />
+                
                 <NavigationViewItem x:Name="NavHomebrewItem" Icon="Folder" Content="Homebrew" Tag="Homebrew" />
                 
                 <NavigationViewItemSeparator />

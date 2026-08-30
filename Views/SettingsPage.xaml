@@ -282,7 +282,7 @@
                             </Border>
                             <StackPanel Grid.Column="1" Spacing="6">
                                 <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                                    <TextBlock x:Name="AppTitleVersionTxt" Text="STORM SWITCH BOX 4.9.6" FontWeight="Bold" FontSize="22"/>
+                                    <TextBlock x:Name="AppTitleVersionTxt" Text="STORM SWITCH BOX 4.9.7" FontWeight="Bold" FontSize="22"/>
                                     <Border Background="{ThemeResource SystemAccentColor}" CornerRadius="4" Padding="6,2" VerticalAlignment="Center">
                                         <TextBlock Text="WinUI 3 Native" Foreground="White" FontSize="11" FontWeight="Bold"/>
                                     </Border>
@@ -361,12 +361,12 @@
                             <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
 
                             <!-- Multi-Content / HardPatch Build Strategy -->
-                            <Grid>
-                                <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center" Margin="0,0,24,0">
                                     <TextBlock x:Name="BuildStrategyTitleTxt" Text="Стратегия сборки обновлений и мульти-контента (HardPatch)" FontWeight="Medium"/>
                                     <TextBlock x:Name="BuildStrategyDescTxt" Text="HardPatch физически распаковывает дельту и запекает чистый RomFS в единый Program NCA для гарантированной работы на любых эмуляторах (включая старые версии) и консолях" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
                                 </StackPanel>
-                                <ComboBox x:Name="BuildStrategyCombo" HorizontalAlignment="Right" Width="260" SelectionChanged="BuildStrategyCombo_SelectionChanged" VerticalAlignment="Center">
+                                <ComboBox Grid.Column="1" x:Name="BuildStrategyCombo" HorizontalAlignment="Right" Width="260" SelectionChanged="BuildStrategyCombo_SelectionChanged" VerticalAlignment="Center">
                                     <ComboBoxItem Content="Умный режим (Авто)" Tag="0" ToolTipService.ToolTip="Умная пересборка HardPatch с авто-откатом на Multi-Content"/>
                                     <ComboBoxItem Content="Принудительный HardPatch (Монолит)" Tag="1" ToolTipService.ToolTip="Всегда физически пересобирает монолитный RomFS, запекая дельты (для 100% совместимости со всеми эмуляторами)"/>
                                     <ComboBoxItem Content="Прямой Multi-Content (Сшивание 1G+1U)" Tag="2" ToolTipService.ToolTip="Быстрое сшивание базового NCA и обновления без пересборки RomFS"/>
