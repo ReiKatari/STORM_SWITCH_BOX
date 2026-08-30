@@ -520,6 +520,7 @@ namespace StormSwitchBox.Views
             }
         }
 
+        // ===== Редактирование иконки и названия игры =====
         private async void EditMetadata_Click(object sender, RoutedEventArgs e)
         {
             var task = GetTargetTask(sender);
@@ -602,7 +603,10 @@ namespace StormSwitchBox.Views
                 if (!string.IsNullOrEmpty(newTitle))
                 {
                     task.GameName = newTitle;
-                    task.OutputFileName = newTitle;
+                    if (string.IsNullOrEmpty(task.OutputFileName))
+                    {
+                        task.OutputFileName = newTitle;
+                    }
                 }
 
                 if (model.CustomIconBytes != null && model.CustomIconBytes.Length > 0)
