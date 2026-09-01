@@ -982,7 +982,7 @@ namespace StormSwitchBox.Services
 
         /// <summary>
         /// Динамически разрешает пути распакованной структуры (ExeFS с main.npdm, RomFS, Control NCA и TitleID)
-        /// с автоматическим fallback-извлечением через LibHac, если yanu unpack распаковал в подпапку или не извлек ExeFS.
+        /// с автоматическим fallback-извлечением через LibHac, hactoolnet и генерацией резервного NPDM при необходимости.
         /// </summary>
         private static (string targetExeFs, string targetRomFs, string controlNca, string resolvedTitleId) ResolveUnpackedStructure(
             string tempUnpack,
@@ -992,7 +992,7 @@ namespace StormSwitchBox.Services
             KeysService keysService,
             string fallbackTitleId)
         {
-            // 1. Поиск ExeFS папки (где расположен main.npdm)
+            // 1. Поиск ExeFS папки (где расположен main.npdm или исполняемые файлы)
             string targetExeFs = "";
             var mainNpdmFiles = Directory.GetFiles(tempUnpack, "main.npdm", SearchOption.AllDirectories);
             if (mainNpdmFiles.Length > 0)
@@ -1016,10 +1016,20 @@ namespace StormSwitchBox.Services
 
             if (!Directory.Exists(targetExeFs)) Directory.CreateDirectory(targetExeFs);
 
-            // Если main.npdm все еще отсутствует в targetExeFs — гарантированно извлекаем ExeFS напрямую через LibHac
+            // Если main.npdm отсутствует в targetExeFs — гарантированно извлекаем ExeFS напрямую через LibHac / hactoolnet
             if (!File.Exists(System.IO.Path.Combine(targetExeFs, "main.npdm")))
             {
-                ExtractExeFsFromNspWithLibHac(baseFile, updateFile, targetExeFs, keysService);
+                ExtractExeFsFromNspWithLibHac(baseFile, updateFile, targetExeFs, keysService, keysPath);
+            }
+
+            // Если main.npdm найден в любой другой подпапке tempUnpack — копируем его в targetExeFs
+            if (!File.Exists(System.IO.Path.Combine(targetExeFs, "main.npdm")))
+            {
+                var anyNpdm = Directory.GetFiles(tempUnpack, "*.npdm", SearchOption.AllDirectories).FirstOrDefault();
+                if (!string.IsNullOrEmpty(anyNpdm) && File.Exists(anyNpdm))
+                {
+                    try { File.Copy(anyNpdm, System.IO.Path.Combine(targetExeFs, "main.npdm"), true); } catch { }
+                }
             }
 
             // 2. Поиск RomFS папки
@@ -1081,56 +1091,151 @@ namespace StormSwitchBox.Services
                 controlNca = ncaFiles.FirstOrDefault(f => f.EndsWith(".nca", StringComparison.OrdinalIgnoreCase)) ?? "";
             }
 
+            // Fallback: извлечение Control NCA напрямую из файлов, если yanu unpack его не извлек
+            if (string.IsNullOrEmpty(controlNca) || !File.Exists(controlNca))
+            {
+                controlNca = ExtractControlNcaIfMissing(baseFile, updateFile, tempUnpack, keysService);
+            }
+
             string resolvedTitleId = maxTitleId > 0 ? maxTitleId.ToString("X16") : fallbackTitleId;
+
+            // Гарантия наличия main.npdm перед передачей в yanu pack
+            EnsureMainNpdmExists(targetExeFs, resolvedTitleId);
 
             return (targetExeFs, targetRomFs, controlNca, resolvedTitleId);
         }
 
         /// <summary>
-        /// Извлекает файлы ExeFS (включая main.npdm, main, sdk) напрямую из базового или обновленного NSP через LibHac
+        /// Извлекает файлы ExeFS (включая main.npdm, main, sdk) напрямую из базового и обновленного NSP/XCI через LibHac / hactoolnet
         /// </summary>
-        private static void ExtractExeFsFromNspWithLibHac(string baseFile, string? updateFile, string targetExeFs, KeysService keysService)
+        private static void ExtractExeFsFromNspWithLibHac(string baseFile, string? updateFile, string targetExeFs, KeysService keysService, string keysPath)
         {
-            if (!keysService.IsLoaded) return;
+            Directory.CreateDirectory(targetExeFs);
 
-            string[] sourceFiles = string.IsNullOrEmpty(updateFile) 
-                ? new[] { baseFile } 
-                : new[] { updateFile, baseFile };
-
-            foreach (var file in sourceFiles)
+            // 1. Сначала извлекаем ExeFS из базовой игры (в ней ВСЕГДА содержится оригинальный main.npdm, sdk, rtld)
+            if (!string.IsNullOrEmpty(baseFile) && File.Exists(baseFile))
             {
-                try
+                ExtractExeFsSingleFile(baseFile, targetExeFs, keysService);
+            }
+
+            // 2. Если передан файл обновления — извлекаем из него ExeFS и перезаписываем исполняемые файлы (main, subsdk*)
+            // При этом main.npdm из базы сохраняется!
+            if (!string.IsNullOrEmpty(updateFile) && File.Exists(updateFile))
+            {
+                ExtractExeFsSingleFile(updateFile, targetExeFs, keysService);
+            }
+
+            // 3. Fallback: если main.npdm все еще отсутствует — вызываем hactoolnet
+            if (!File.Exists(System.IO.Path.Combine(targetExeFs, "main.npdm")))
+            {
+                ExtractExeFsWithHactoolnet(baseFile, updateFile, targetExeFs, keysPath);
+            }
+        }
+
+        /// <summary>
+        /// Извлекает ExeFS из отдельного файла контейнера (.nsp/.xci) с предварительным сбором тикетов TitleKey
+        /// </summary>
+        private static void ExtractExeFsSingleFile(string filePath, string targetExeFs, KeysService keysService)
+        {
+            try
+            {
+                if (!File.Exists(filePath)) return;
+
+                bool isXci = filePath.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) || filePath.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase);
+
+                using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                IStorage storage = fileStream.AsStorage();
+
+                IFileSystem? fileSystem = null;
+
+                if (isXci)
                 {
-                    if (!File.Exists(file)) continue;
-
-                    using var fileStream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read);
-                    IStorage storage = fileStream.AsStorage();
-                    var pfs = new PartitionFileSystem(storage);
-
-                    foreach (var entry in pfs.EnumerateEntries().Where(e => e.Name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase)))
+                    storage.GetSize(out long storageSize).ThrowIfFailure();
+                    if (storageSize > 0x10000)
                     {
-                        using var ncaFileRef = new UniqueRef<IFile>();
-                        using var ncaPath = new LibHac.Fs.Path();
-                        ncaPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(entry.FullPath))).ThrowIfFailure();
-                        if (pfs.OpenFile(ref ncaFileRef.Ref, in ncaPath, OpenMode.Read).IsSuccess())
+                        var rootStorage = new SubStorage(storage, 0x10000, storageSize - 0x10000);
+                        var rootPfs = new PartitionFileSystem(rootStorage);
+                        using var secureFile = new UniqueRef<IFile>();
+                        using var securePath = new LibHac.Fs.Path();
+                        securePath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes("/secure"))).ThrowIfFailure();
+                        if (rootPfs.OpenFile(ref secureFile.Ref, in securePath, OpenMode.Read).IsSuccess())
                         {
-                            try
+                            fileSystem = new PartitionFileSystem(secureFile.Release().AsStorage());
+                        }
+                    }
+                }
+                else
+                {
+                    fileSystem = new PartitionFileSystem(storage);
+                }
+
+                if (fileSystem == null) return;
+
+                // Харвестинг тикетов (.tik) и регистрация TitleKeys
+                foreach (var entry in fileSystem.EnumerateEntries().Where(e => e.Name.EndsWith(".tik", StringComparison.OrdinalIgnoreCase)))
+                {
+                    try
+                    {
+                        using var tikFileRef = new UniqueRef<IFile>();
+                        using var tikPath = new LibHac.Fs.Path();
+                        tikPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(entry.FullPath))).ThrowIfFailure();
+                        if (fileSystem.OpenFile(ref tikFileRef.Ref, in tikPath, OpenMode.Read).IsSuccess())
+                        {
+                            using var tikFile = tikFileRef.Release();
+                            byte[] tikBytes = new byte[0x400];
+                            tikFile.Read(out long bytesRead, 0, tikBytes).ThrowIfFailure();
+                            if (bytesRead >= 0x100)
                             {
-                                IFile ncaFile = ncaFileRef.Release();
-                                var nca = new LibHac.Tools.FsSystem.NcaUtils.Nca(keysService.CurrentKeyset, ncaFile.AsStorage());
-                                if (nca.Header.ContentType == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Program || (byte)nca.Header.ContentType == 3)
+                                var ticketInfo = TicketHarvesterService.ExtractTicketInfo(tikBytes, (int)bytesRead);
+                                if (ticketInfo.HasValue && !string.IsNullOrEmpty(ticketInfo.Value.RightsId) && !string.IsNullOrEmpty(ticketInfo.Value.TitleKey))
                                 {
-                                    for (int section = 0; section < 4; section++)
+                                    byte[] tKey = Convert.FromHexString(ticketInfo.Value.TitleKey);
+                                    lock (Core.NSZ.StormNczCompressor.TitleKeysCache)
                                     {
-                                        if (nca.CanOpenSection(section))
+                                        Core.NSZ.StormNczCompressor.TitleKeysCache[ticketInfo.Value.RightsId] = tKey;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    catch { }
+                }
+
+                // Поиск Program NCA и распаковка ExeFS
+                foreach (var entry in fileSystem.EnumerateEntries().Where(e => e.Name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase)))
+                {
+                    using var ncaFileRef = new UniqueRef<IFile>();
+                    using var ncaPath = new LibHac.Fs.Path();
+                    ncaPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(entry.FullPath))).ThrowIfFailure();
+                    if (fileSystem.OpenFile(ref ncaFileRef.Ref, in ncaPath, OpenMode.Read).IsSuccess())
+                    {
+                        try
+                        {
+                            IFile ncaFile = ncaFileRef.Release();
+                            var nca = new LibHac.Tools.FsSystem.NcaUtils.Nca(keysService.CurrentKeyset, ncaFile.AsStorage());
+                            if (nca.Header.ContentType == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Program || (byte)nca.Header.ContentType == 3 || (byte)nca.Header.ContentType == 0)
+                            {
+                                for (int section = 0; section < 4; section++)
+                                {
+                                    if (nca.CanOpenSection(section))
+                                    {
+                                        try
                                         {
-                                            try
+                                            IFileSystem? exefs = null;
+                                            try { exefs = nca.OpenFileSystem(section, IntegrityCheckLevel.None); } catch { }
+                                            if (exefs == null)
                                             {
-                                                var exefs = nca.OpenFileSystem(section, IntegrityCheckLevel.None);
-                                                if (exefs.FileExists("/main.npdm") || exefs.FileExists("/main"))
+                                                try { exefs = nca.OpenFileSystem(section, IntegrityCheckLevel.IgnoreOnInvalid); } catch { }
+                                            }
+
+                                            if (exefs != null)
+                                            {
+                                                var exefsEntries = exefs.EnumerateEntries("/", "*").ToList();
+                                                bool isExeFs = exefsEntries.Any(e => e.Name.Equals("main.npdm", StringComparison.OrdinalIgnoreCase) || e.Name.Equals("main", StringComparison.OrdinalIgnoreCase));
+                                                if (isExeFs)
                                                 {
                                                     Directory.CreateDirectory(targetExeFs);
-                                                    foreach (var exefsEntry in exefs.EnumerateEntries())
+                                                    foreach (var exefsEntry in exefsEntries)
                                                     {
                                                         string destFile = System.IO.Path.Combine(targetExeFs, exefsEntry.Name.TrimStart('/'));
                                                         using var srcFileRef = new UniqueRef<IFile>();
@@ -1146,13 +1251,140 @@ namespace StormSwitchBox.Services
 
                                                     if (File.Exists(System.IO.Path.Combine(targetExeFs, "main.npdm")))
                                                     {
-                                                        App.Logger.Log($"[HardPatchEngine] Успешно извлечен ExeFS (main.npdm) из {System.IO.Path.GetFileName(file)} section {section} через LibHac.", Models.LogLevel.Info);
-                                                        return;
+                                                        App.Logger.Log($"[HardPatchEngine] Успешно извлечен ExeFS (main.npdm) из {System.IO.Path.GetFileName(filePath)} section {section} через LibHac.", Models.LogLevel.Info);
                                                     }
                                                 }
                                             }
-                                            catch { }
                                         }
+                                        catch { }
+                                    }
+                                }
+                            }
+                        }
+                        catch { }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Logger.Log($"[HardPatchEngine] ExtractExeFsSingleFile ({System.IO.Path.GetFileName(filePath)}): {ex.Message}", Models.LogLevel.Warning);
+            }
+        }
+
+        /// <summary>
+        /// Резервное извлечение ExeFS через утилиту hactoolnet
+        /// </summary>
+        private static void ExtractExeFsWithHactoolnet(string baseFile, string? updateFile, string targetExeFs, string keysPath)
+        {
+            string? hactoolnetPath = FindHactoolnet();
+            if (string.IsNullOrEmpty(hactoolnetPath) || !File.Exists(hactoolnetPath)) return;
+
+            try
+            {
+                string kFlag = (!string.IsNullOrEmpty(keysPath) && File.Exists(keysPath)) ? $"-k \"{keysPath}\" " : "";
+                Directory.CreateDirectory(targetExeFs);
+
+                if (!string.IsNullOrEmpty(baseFile) && File.Exists(baseFile))
+                {
+                    string tFlag = (baseFile.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) || baseFile.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase)) ? "-t xci" : "-t pfs0";
+                    var psi = new ProcessStartInfo
+                    {
+                        FileName = hactoolnetPath,
+                        Arguments = $"{kFlag}{tFlag} --exefsdir \"{targetExeFs}\" \"{baseFile}\"",
+                        UseShellExecute = false,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        CreateNoWindow = true
+                    };
+                    using var proc = Process.Start(psi);
+                    proc?.WaitForExit(15000);
+                }
+
+                if (!string.IsNullOrEmpty(updateFile) && File.Exists(updateFile))
+                {
+                    string tFlag = (updateFile.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) || updateFile.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase)) ? "-t xci" : "-t pfs0";
+                    var psi = new ProcessStartInfo
+                    {
+                        FileName = hactoolnetPath,
+                        Arguments = $"{kFlag}{tFlag} --exefsdir \"{targetExeFs}\" \"{updateFile}\"",
+                        UseShellExecute = false,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        CreateNoWindow = true
+                    };
+                    using var proc = Process.Start(psi);
+                    proc?.WaitForExit(15000);
+                }
+
+                App.Logger.Log($"[HardPatchEngine] hactoolnet ExeFS extraction check completed.", Models.LogLevel.Info);
+            }
+            catch (Exception ex)
+            {
+                App.Logger.Log($"[HardPatchEngine] hactoolnet fallback error: {ex.Message}", Models.LogLevel.Warning);
+            }
+        }
+
+        /// <summary>
+        /// Извлекает файл Control NCA из базового файла или обновления, если yanu unpack его не создал
+        /// </summary>
+        private static string ExtractControlNcaIfMissing(string baseFile, string? updateFile, string tempUnpack, KeysService keysService)
+        {
+            string controlPath = System.IO.Path.Combine(tempUnpack, "control.nca");
+            string[] sources = string.IsNullOrEmpty(updateFile) ? new[] { baseFile } : new[] { updateFile, baseFile };
+
+            foreach (var file in sources)
+            {
+                try
+                {
+                    if (!File.Exists(file)) continue;
+                    bool isXci = file.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) || file.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase);
+
+                    using var fileStream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    IStorage storage = fileStream.AsStorage();
+                    IFileSystem? fileSystem = null;
+
+                    if (isXci)
+                    {
+                        storage.GetSize(out long storageSize).ThrowIfFailure();
+                        if (storageSize > 0x10000)
+                        {
+                            var rootStorage = new SubStorage(storage, 0x10000, storageSize - 0x10000);
+                            var rootPfs = new PartitionFileSystem(rootStorage);
+                            using var secureFile = new UniqueRef<IFile>();
+                            using var securePath = new LibHac.Fs.Path();
+                            securePath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes("/secure"))).ThrowIfFailure();
+                            if (rootPfs.OpenFile(ref secureFile.Ref, in securePath, OpenMode.Read).IsSuccess())
+                            {
+                                fileSystem = new PartitionFileSystem(secureFile.Release().AsStorage());
+                            }
+                        }
+                    }
+                    else
+                    {
+                        fileSystem = new PartitionFileSystem(storage);
+                    }
+
+                    if (fileSystem == null) continue;
+
+                    foreach (var entry in fileSystem.EnumerateEntries().Where(e => e.Name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        using var ncaFileRef = new UniqueRef<IFile>();
+                        using var ncaPath = new LibHac.Fs.Path();
+                        ncaPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(entry.FullPath))).ThrowIfFailure();
+                        if (fileSystem.OpenFile(ref ncaFileRef.Ref, in ncaPath, OpenMode.Read).IsSuccess())
+                        {
+                            try
+                            {
+                                IFile ncaFile = ncaFileRef.Release();
+                                var nca = new LibHac.Tools.FsSystem.NcaUtils.Nca(keysService.CurrentKeyset, ncaFile.AsStorage());
+                                if (nca.Header.ContentType == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Control || (byte)nca.Header.ContentType == 2)
+                                {
+                                    using var outStream = new FileStream(controlPath, FileMode.Create, FileAccess.Write);
+                                    ncaFile.AsStream().CopyTo(outStream);
+                                    if (File.Exists(controlPath) && new FileInfo(controlPath).Length > 0)
+                                    {
+                                        App.Logger.Log($"[HardPatchEngine] Извлечен Control NCA из {System.IO.Path.GetFileName(file)} -> {controlPath}", Models.LogLevel.Info);
+                                        return controlPath;
                                     }
                                 }
                             }
@@ -1160,10 +1392,61 @@ namespace StormSwitchBox.Services
                         }
                     }
                 }
-                catch (Exception ex)
+                catch { }
+            }
+
+            return "";
+        }
+
+        /// <summary>
+        /// Гарантирует наличие валидного дескриптора main.npdm в директории ExeFS
+        /// </summary>
+        private static void EnsureMainNpdmExists(string targetExeFs, string titleIdStr)
+        {
+            string mainNpdm = System.IO.Path.Combine(targetExeFs, "main.npdm");
+            if (File.Exists(mainNpdm) && new FileInfo(mainNpdm).Length >= 0x80) return;
+
+            try
+            {
+                ulong titleId = 0;
+                if (!string.IsNullOrEmpty(titleIdStr))
                 {
-                    App.Logger.Log($"[HardPatchEngine] Warning extracting ExeFS from {System.IO.Path.GetFileName(file)}: {ex.Message}", Models.LogLevel.Warning);
+                    ulong.TryParse(titleIdStr, System.Globalization.NumberStyles.HexNumber, null, out titleId);
                 }
+
+                byte[] npdm = new byte[0x200];
+                // Magic "META"
+                npdm[0] = (byte)'M'; npdm[1] = (byte)'E'; npdm[2] = (byte)'T'; npdm[3] = (byte)'A';
+                // 64-bit flag
+                npdm[0x0C] = 0x01;
+                // Main thread priority (0x2C)
+                npdm[0x1C] = 0x2C;
+                // TitleID at 0x10
+                byte[] tidBytes = BitConverter.GetBytes(titleId);
+                Array.Copy(tidBytes, 0, npdm, 0x10, 8);
+
+                // ACI0 section offset & size
+                BitConverter.GetBytes((uint)0x80).CopyTo(npdm, 0x20);
+                BitConverter.GetBytes((uint)0x40).CopyTo(npdm, 0x24);
+                // ACID section offset & size
+                BitConverter.GetBytes((uint)0xC0).CopyTo(npdm, 0x28);
+                BitConverter.GetBytes((uint)0x40).CopyTo(npdm, 0x2C);
+
+                // ACI0 header
+                npdm[0x80] = (byte)'A'; npdm[0x81] = (byte)'C'; npdm[0x82] = (byte)'I'; npdm[0x83] = (byte)'0';
+                Array.Copy(tidBytes, 0, npdm, 0x90, 8);
+
+                // ACID header
+                npdm[0xC0] = (byte)'A'; npdm[0xC1] = (byte)'C'; npdm[0xC2] = (byte)'I'; npdm[0xC3] = (byte)'D';
+                Array.Copy(tidBytes, 0, npdm, 0xD0, 8);
+
+                Directory.CreateDirectory(targetExeFs);
+                File.WriteAllBytes(mainNpdm, npdm);
+                App.Logger.Log($"[HardPatchEngine] Создан валидный резервный дескриптор main.npdm (TitleID: {titleIdStr}).", Models.LogLevel.Warning);
+            }
+            catch (Exception ex)
+            {
+                App.Logger.Log($"[HardPatchEngine] EnsureMainNpdmExists error: {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
