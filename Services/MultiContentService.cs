@@ -216,6 +216,20 @@ namespace StormSwitchBox.Services
                                 }
                                 finalInputFilesList.Add(tempHardPatchedNsp);
                                 App.RunOnUI(() => task.LogDetails += "\n🔵 [HardPatch] Физическая пересборка успешно завершена. Ресурсы обновлены, дублирование исключено.");
+
+                                bool isTargetXciLocal = string.Equals(task.TargetFormat, "XCI", StringComparison.OrdinalIgnoreCase) || string.Equals(task.TargetFormat, "XCZ", StringComparison.OrdinalIgnoreCase);
+                                if (finalInputFilesList.Count == 1 && !isTargetXciLocal && !isCompressedFormat)
+                                {
+                                    if (File.Exists(outPath)) File.Delete(outPath);
+                                    File.Move(tempHardPatchedNsp, outPath);
+                                    App.RunOnUI(() =>
+                                    {
+                                        task.Status = "Успешно";
+                                        task.Progress = 100;
+                                        task.LogDetails += "\n✅ [Успех] Монолитный образ игры (Base + Update + ExeFS) успешно собран и готов к запуску!";
+                                    });
+                                    return;
+                                }
                             }
                         }
                         else 
@@ -407,10 +421,12 @@ namespace StormSwitchBox.Services
                             }
                         }
 
-                        // 2. Сохраняем тикеты (.tik), сертификаты (.cert) и Update CNMT из оригинального Update NSP и Base NSP
+                        // 2. Сохраняем тикеты (.tik) и сертификаты (.cert) из оригинальных файлов.
+                        // Если была выполнена пересборка HardPatch (hasPatchedBase == true), то Patch CNMT НЕ внедряется,
+                        // так как обновление уже физически вшито в единый Program NCA пересобранной базы.
                         var extraSources = new List<string>();
-                        if (!string.IsNullOrEmpty(savedUpdateFile) && File.Exists(savedUpdateFile)) extraSources.Add(savedUpdateFile);
-                        if (!string.IsNullOrEmpty(savedBaseFile) && File.Exists(savedBaseFile)) extraSources.Add(savedBaseFile);
+                        if (!hasPatchedBase && !string.IsNullOrEmpty(savedUpdateFile) && File.Exists(savedUpdateFile)) extraSources.Add(savedUpdateFile);
+                        if (!hasPatchedBase && !string.IsNullOrEmpty(savedBaseFile) && File.Exists(savedBaseFile)) extraSources.Add(savedBaseFile);
 
                         foreach (var extraPath in extraSources)
                         {
@@ -429,7 +445,7 @@ namespace StormSwitchBox.Services
 
                                     // Извлекаем тикеты (.tik), сертификаты (.cert) и Patch CNMT (.cnmt.nca)
                                     bool isTicketOrCert = lower.EndsWith(".tik") || lower.EndsWith(".cert");
-                                    bool isPatchCnmt = lower.EndsWith(".cnmt.nca") || lower.EndsWith(".cnmt.xml");
+                                    bool isPatchCnmt = !hasPatchedBase && (lower.EndsWith(".cnmt.nca") || lower.EndsWith(".cnmt.xml"));
 
                                     if (isTicketOrCert || isPatchCnmt)
                                     {
