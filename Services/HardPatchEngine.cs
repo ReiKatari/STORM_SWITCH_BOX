@@ -1018,31 +1018,27 @@ namespace StormSwitchBox.Services
             string isolatedUserProfile,
             string isolatedLocalAppData)
         {
-            // 1. Поиск ExeFS папки (где расположен main.npdm или исполняемые файлы)
-            string targetExeFs = "";
-            var mainNpdmFiles = Directory.GetFiles(tempUnpack, "main.npdm", SearchOption.AllDirectories);
-            if (mainNpdmFiles.Length > 0)
+            // 1. Поиск и сборка единой директории ExeFS (с подлинным main.npdm, библиотеками и обновленным main)
+            string targetExeFs = System.IO.Path.Combine(tempUnpack, "final_exefs");
+            Directory.CreateDirectory(targetExeFs);
+
+            // 1.1 Копируем файлы из всех найденных папок exefs / basedata / patchdata
+            // Сначала basedata (чтобы получить base main.npdm, sdk, rtld, subsdk*), затем patchdata (чтобы перезаписать main свежей версией из патча)
+            var allExeDirs = Directory.GetDirectories(tempUnpack, "*exefs*", SearchOption.AllDirectories)
+                .Where(d => !d.Equals(targetExeFs, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(d => d.Contains("patchdata", StringComparison.OrdinalIgnoreCase) ? 1 : 0)
+                .ToArray();
+
+            foreach (var exefsDir in allExeDirs)
             {
-                targetExeFs = System.IO.Path.GetDirectoryName(mainNpdmFiles[0])!;
-            }
-            else
-            {
-                var exefsDirs = Directory.GetDirectories(tempUnpack, "exefs", SearchOption.AllDirectories)
-                    .Where(d => Directory.GetFileSystemEntries(d).Length > 0)
-                    .ToArray();
-                if (exefsDirs.Length > 0)
+                foreach (var file in Directory.GetFiles(exefsDir))
                 {
-                    targetExeFs = exefsDirs[0];
-                }
-                else
-                {
-                    targetExeFs = System.IO.Path.Combine(tempUnpack, "exefs");
+                    string dest = System.IO.Path.Combine(targetExeFs, System.IO.Path.GetFileName(file));
+                    File.Copy(file, dest, true);
                 }
             }
 
-            if (!Directory.Exists(targetExeFs)) Directory.CreateDirectory(targetExeFs);
-
-            // Если main.npdm отсутствует в targetExeFs — гарантированно извлекаем подлинный ExeFS и main.npdm
+            // 1.2 Если main.npdm все еще отсутствует в targetExeFs — гарантированно извлекаем оригинальный ExeFS и main.npdm
             if (!File.Exists(System.IO.Path.Combine(targetExeFs, "main.npdm")))
             {
                 ExtractExeFsFromNspWithLibHac(
@@ -1245,6 +1241,8 @@ namespace StormSwitchBox.Services
                 using var proc = Process.Start(psi);
                 if (proc != null)
                 {
+                    proc.BeginOutputReadLine();
+                    proc.BeginErrorReadLine();
                     proc.WaitForExit(60000);
                     var npdmFiles = Directory.GetFiles(tempBaseUnpack, "main.npdm", SearchOption.AllDirectories);
                     if (npdmFiles.Length > 0)
