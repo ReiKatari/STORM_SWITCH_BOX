@@ -224,10 +224,24 @@ namespace StormSwitchBox.Services
                                     File.Move(tempHardPatchedNsp, outPath);
                                     App.RunOnUI(() =>
                                     {
-                                        task.Status = "Успешно";
+                                        if (System.IO.File.Exists(outPath))
+                                        {
+                                            long outSize = new System.IO.FileInfo(outPath).Length;
+                                            task.TargetSize = Models.ProcessingTask.FormatSize(outSize);
+                                            if (task.SourceSizeBytes > 0)
+                                            {
+                                                long diff = task.SourceSizeBytes - outSize;
+                                                double percent = (double)diff / task.SourceSizeBytes * 100.0;
+                                                task.SizeDifference = $"{(diff > 0 ? "-" : "+")}{Models.ProcessingTask.FormatSize(Math.Abs(diff))} ({Math.Abs(percent):F1}%)";
+                                            }
+                                        }
                                         task.Progress = 100;
+                                        task.Status = "Успешно";
+                                        task.IsRunning = false;
                                         task.LogDetails += "\n✅ [Успех] Монолитный образ игры (Base + Update + ExeFS) успешно собран и готов к запуску!";
+                                        StormSwitchBox.Services.HistoryService.AddToHistory(task);
                                     });
+                                    App.Logger.Log($"Мульти-контент успешно создан: {System.IO.Path.GetFileName(outPath)}", LogLevel.Success);
                                     return;
                                 }
                             }
