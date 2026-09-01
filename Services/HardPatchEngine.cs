@@ -675,8 +675,19 @@ namespace StormSwitchBox.Services
             string nszExe = FindNszExe();
             App.Logger.Log($"[nsz.exe] Decompressing: {System.IO.Path.GetFileName(inputFile)}", Models.LogLevel.Info);
             
-            // nsz.exe -D <input> -o <output_dir> --overwrite -t 0
-            string args = $"-D \"{inputFile}\" -o \"{outputDir}\" --overwrite -t 0";
+            string keysFile = System.IO.Path.Combine(isolatedUserProfile, ".switch", "prod.keys");
+            string keysParam = "";
+            if (File.Exists(keysFile))
+            {
+                keysParam = $"--keys \"{keysFile}\"";
+            }
+            else if (!string.IsNullOrEmpty(App.Settings.Current.KeysPath) && File.Exists(App.Settings.Current.KeysPath))
+            {
+                keysParam = $"--keys \"{App.Settings.Current.KeysPath}\"";
+            }
+
+            // nsz.exe -D <input> -o <output_dir> --overwrite --minimal-output --keys <keys> -t 0
+            string args = $"-D \"{inputFile}\" -o \"{outputDir}\" --overwrite --minimal-output {keysParam} -t 0".Trim();
             
             var psi = new ProcessStartInfo
             {

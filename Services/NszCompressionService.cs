@@ -434,7 +434,13 @@ namespace StormSwitchBox.Services
                     string targetInputForNsz = linkCreated ? tempSafeInputPath : inputPath;
                     string expectedTempNsp = System.IO.Path.Combine(outDir, System.IO.Path.GetFileNameWithoutExtension(safeInputName) + expectedExt);
 
-                    string nszArgs = $"-D -w -o \"{outDir}\" \"{targetInputForNsz}\"";
+                    string keysParam = "";
+                    if (!string.IsNullOrEmpty(App.Settings.Current.KeysPath) && File.Exists(App.Settings.Current.KeysPath))
+                    {
+                        keysParam = $"--keys \"{App.Settings.Current.KeysPath}\"";
+                    }
+
+                    string nszArgs = $"-D -w --minimal-output {keysParam} -o \"{outDir}\" \"{targetInputForNsz}\"".Trim();
                     int exitCode = await ExternalProcessRunner.RunAsync(
                         nszExe,
                         nszArgs,
