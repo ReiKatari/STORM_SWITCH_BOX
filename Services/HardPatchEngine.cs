@@ -188,6 +188,7 @@ namespace StormSwitchBox.Services
                 if (baseFile.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) || baseFile.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase))
                 {
                     App.RunOnUI(() => task.LogDetails += $"\nРаспаковка {System.IO.Path.GetExtension(baseFile)} -> .nsp (nsz.exe)...");
+
                     string? decompResult = await DecompressWithNszExeAsync(task, baseFile, tempDir, isolatedUserProfile, cancellationToken);
                     if (!string.IsNullOrEmpty(decompResult) && System.IO.File.Exists(decompResult))
                     {
@@ -256,12 +257,14 @@ namespace StormSwitchBox.Services
                 string yanuOutDir = System.IO.Path.Combine(tempDir, "yanu_output");
                 Directory.CreateDirectory(yanuOutDir);
 
-                // Check if we need to apply mods for Multi-content
                 bool applyMods = isMultiContent;
                 
-                var keepLangs = App.Settings.Current.KeepLanguages ?? new List<string> { "ru", "ru-RU", "en-US", "en-GB", "en" };
-                string keepLangsStr = string.Join(",", keepLangs);
-                string keepLangsArg = string.IsNullOrEmpty(keepLangsStr) ? "" : $"--keep-langs \"{keepLangsStr}\"";
+                string keepLangsArg = "";
+                if (App.Settings.Current.TrimXci && App.Settings.Current.KeepLanguages != null && App.Settings.Current.KeepLanguages.Count > 0)
+                {
+                    string keepLangsStr = string.Join(",", App.Settings.Current.KeepLanguages);
+                    keepLangsArg = string.IsNullOrEmpty(keepLangsStr) ? "" : $"--keep-langs \"{keepLangsStr}\"";
+                }
 
                 string? romfsMod = inputFiles.FirstOrDefault(d => System.IO.Directory.Exists(d) && System.IO.Path.GetFileName(d).Equals("romfs", StringComparison.OrdinalIgnoreCase));
                 string? exefsMod = inputFiles.FirstOrDefault(d => System.IO.Directory.Exists(d) && System.IO.Path.GetFileName(d).Equals("exefs", StringComparison.OrdinalIgnoreCase));
@@ -273,7 +276,16 @@ namespace StormSwitchBox.Services
                     try {
                         var uInfo = App.SwitchFormat.ParseNsp(updateFile);
                         if (!string.IsNullOrEmpty(uInfo.Version) && uint.TryParse(uInfo.Version, out uint uv)) {
-                            titleVersionArg = $"--titleversion {uv:X8}";
+                            titleVersionArg = $"--titleversion {uv}";
+                        }
+                    } catch { }
+                }
+                else if (!string.IsNullOrEmpty(baseFile))
+                {
+                    try {
+                        var bInfo = App.SwitchFormat.ParseNsp(baseFile);
+                        if (!string.IsNullOrEmpty(bInfo.Version) && uint.TryParse(bInfo.Version, out uint bv)) {
+                            titleVersionArg = $"--titleversion {bv}";
                         }
                     } catch { }
                 }
