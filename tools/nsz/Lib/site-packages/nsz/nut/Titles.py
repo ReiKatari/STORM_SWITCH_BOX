@@ -1,24 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-import os
-import re
-import time
-import json
-from nsz import nut
-import operator
-from nsz.nut import Print
 
 
 global titles
 titles = None
 
+
 class Title:
-	def __init__(self):
-		self.key = None
-		self.id = None
-		
-	def setId(self, id):
-		self.id = id.upper()
+    def __init__(self):
+        self.key = None
+        self.id = None
+
+    def setId(self, id):
+        self.id = id.upper()
+
 
 global nsuIdMap
 nsuIdMap = {}
@@ -26,53 +21,57 @@ nsuIdMap = {}
 global regionTitles
 regionTitles = {}
 
-def data(region = None, language = None):
-	global regionTitles
-	global titles
 
-	if region:
-		if not region in regionTitles:
-			regionTitles[region] = {}
+def data(region=None, language=None):
+    global regionTitles
+    global titles
 
-		if not language in regionTitles[region]:
-			regionTitles[region][language] = {}
+    if region:
+        if region not in regionTitles:
+            regionTitles[region] = {}
 
-		return regionTitles[region][language]
+        if language not in regionTitles[region]:
+            regionTitles[region][language] = {}
 
-	if titles == None:
-		titles = {}
-	return titles
+        return regionTitles[region][language]
 
-def items(region = None, language = None):
-	if region:
-		return regionTitles[region][language].items()
+    if titles is None:
+        titles = {}
+    return titles
 
-	return titles.items()
 
-def get(key, region = None, language = None):
-	key = key.upper()
+def items(region=None, language=None):
+    if region:
+        return regionTitles[region][language].items()
 
-	if not key in data(region, language):
-		t = Title()
-		t.setId(key)
-		data(region, language)[key] = t
-	return data(region, language)[key]
-	
-def contains(key, region = None):
-	return key in titles
+    return data().items()
+
+
+def get(key, region=None, language=None):
+    key = key.upper()
+
+    if key not in data(region, language):
+        t = Title()
+        t.setId(key)
+        data(region, language)[key] = t
+    return data(region, language)[key]
+
+
+def contains(key, region=None):
+    return key in data(region)
+
 
 def erase(id):
-	id = id.upper()
-	del titles[id]
-	
+    id = id.upper()
+    del data()[id]
+
+
 def set(key, value):
-	titles[key] = value
-	
-	
-def keys(region = None, language = None):
-	if region:
-		return regionTitles[region][language].keys()
-
-	return titles.keys() if titles != None else {}
+    data()[key] = value
 
 
+def keys(region=None, language=None):
+    if region:
+        return regionTitles[region][language].keys()
+
+    return titles.keys() if titles is not None else {}
