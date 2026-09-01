@@ -395,8 +395,18 @@ namespace StormSwitchBox.Services
                     }
                     if (unpackProc.ExitCode != 0) throw new Exception($"Ошибка yanu-cli unpack:\n{unpackStderr}");
 
-                    // Динамический поиск реальных путей ExeFS (с main.npdm), RomFS и Control NCA внутри tempUnpack
-                    var (targetExeFs, targetRomFs, controlNca, resolvedTitleId) = ResolveUnpackedStructure(tempUnpack, baseFile, updateFile, keysPath, _keysService, titleId);
+                    // Динамический поиск реальных путей ExeFS (с подлинным main.npdm), RomFS и Control NCA внутри tempUnpack
+                    var (targetExeFs, targetRomFs, controlNca, resolvedTitleId) = ResolveUnpackedStructure(
+                        tempUnpack,
+                        baseFile,
+                        updateFile,
+                        keysPath,
+                        _keysService,
+                        titleId,
+                        yanuCliPath,
+                        tempDir,
+                        isolatedUserProfile,
+                        isolatedLocalAppData);
 
                     if (hasModsToApply)
                     {
@@ -981,8 +991,8 @@ namespace StormSwitchBox.Services
     
 
         /// <summary>
-        /// Динамически разрешает пути распакованной структуры (ExeFS с main.npdm, RomFS, Control NCA и TitleID)
-        /// с автоматическим fallback-извлечением через LibHac, hactoolnet и генерацией резервного NPDM при необходимости.
+        /// Динамически разрешает пути распакованной структуры (ExeFS с подлинным main.npdm, RomFS, Control NCA и TitleID)
+        /// с гарантированным извлечением аутентичного main.npdm и всех бинарников из базовой игры.
         /// </summary>
         private static (string targetExeFs, string targetRomFs, string controlNca, string resolvedTitleId) ResolveUnpackedStructure(
             string tempUnpack,
@@ -990,7 +1000,11 @@ namespace StormSwitchBox.Services
             string? updateFile,
             string keysPath,
             KeysService keysService,
-            string fallbackTitleId)
+            string fallbackTitleId,
+            string yanuCliPath,
+            string tempDir,
+            string isolatedUserProfile,
+            string isolatedLocalAppData)
         {
             // 1. Поиск ExeFS папки (где расположен main.npdm или исполняемые файлы)
             string targetExeFs = "";
@@ -1016,10 +1030,19 @@ namespace StormSwitchBox.Services
 
             if (!Directory.Exists(targetExeFs)) Directory.CreateDirectory(targetExeFs);
 
-            // Если main.npdm отсутствует в targetExeFs — гарантированно извлекаем ExeFS напрямую через LibHac / hactoolnet
+            // Если main.npdm отсутствует в targetExeFs — гарантированно извлекаем подлинный ExeFS и main.npdm
             if (!File.Exists(System.IO.Path.Combine(targetExeFs, "main.npdm")))
             {
-                ExtractExeFsFromNspWithLibHac(baseFile, updateFile, targetExeFs, keysService, keysPath);
+                ExtractExeFsFromNspWithLibHac(
+                    baseFile,
+                    updateFile,
+                    targetExeFs,
+                    keysService,
+                    keysPath,
+                    yanuCliPath,
+                    tempDir,
+                    isolatedUserProfile,
+                    isolatedLocalAppData);
             }
 
             // Если main.npdm найден в любой другой подпапке tempUnpack — копируем его в targetExeFs
@@ -1030,6 +1053,11 @@ namespace StormSwitchBox.Services
                 {
                     try { File.Copy(anyNpdm, System.IO.Path.Combine(targetExeFs, "main.npdm"), true); } catch { }
                 }
+            }
+
+            if (!File.Exists(System.IO.Path.Combine(targetExeFs, "main.npdm")))
+            {
+                throw new Exception("Не удалось извлечь оригинальный дескриптор main.npdm из базовой игры. Убедитесь, что ключи prod.keys и title.keys настроены корректно.");
             }
 
             // 2. Поиск RomFS папки
@@ -1099,33 +1127,52 @@ namespace StormSwitchBox.Services
 
             string resolvedTitleId = maxTitleId > 0 ? maxTitleId.ToString("X16") : fallbackTitleId;
 
-            // Гарантия наличия main.npdm перед передачей в yanu pack
-            EnsureMainNpdmExists(targetExeFs, resolvedTitleId);
-
             return (targetExeFs, targetRomFs, controlNca, resolvedTitleId);
         }
 
         /// <summary>
-        /// Извлекает файлы ExeFS (включая main.npdm, main, sdk) напрямую из базового и обновленного NSP/XCI через LibHac / hactoolnet
+        /// Извлекает файлы ExeFS (включая оригинальный main.npdm) напрямую из базового и обновленного NSP/XCI через yanu-cli / LibHac / hactoolnet
         /// </summary>
-        private static void ExtractExeFsFromNspWithLibHac(string baseFile, string? updateFile, string targetExeFs, KeysService keysService, string keysPath)
+        private static void ExtractExeFsFromNspWithLibHac(
+            string baseFile,
+            string? updateFile,
+            string targetExeFs,
+            KeysService keysService,
+            string keysPath,
+            string yanuCliPath,
+            string tempDir,
+            string isolatedUserProfile,
+            string isolatedLocalAppData)
         {
             Directory.CreateDirectory(targetExeFs);
 
-            // 1. Сначала извлекаем ExeFS из базовой игры (в ней ВСЕГДА содержится оригинальный main.npdm, sdk, rtld)
-            if (!string.IsNullOrEmpty(baseFile) && File.Exists(baseFile))
+            // 1. Метод 1: Прямое извлечение оригинального ExeFS / main.npdm из базовой игры через yanu-cli unpack --base
+            if (!File.Exists(System.IO.Path.Combine(targetExeFs, "main.npdm")) && !string.IsNullOrEmpty(baseFile) && File.Exists(baseFile))
             {
-                ExtractExeFsSingleFile(baseFile, targetExeFs, keysService);
+                ExtractExeFsWithYanuBaseUnpack(
+                    baseFile,
+                    targetExeFs,
+                    keysPath,
+                    yanuCliPath,
+                    tempDir,
+                    isolatedUserProfile,
+                    isolatedLocalAppData);
             }
 
-            // 2. Если передан файл обновления — извлекаем из него ExeFS и перезаписываем исполняемые файлы (main, subsdk*)
-            // При этом main.npdm из базы сохраняется!
-            if (!string.IsNullOrEmpty(updateFile) && File.Exists(updateFile))
+            // 2. Метод 2: Извлечение ExeFS через LibHac (NSP/XCI)
+            if (!File.Exists(System.IO.Path.Combine(targetExeFs, "main.npdm")))
             {
-                ExtractExeFsSingleFile(updateFile, targetExeFs, keysService);
+                if (!string.IsNullOrEmpty(baseFile) && File.Exists(baseFile))
+                {
+                    ExtractExeFsSingleFile(baseFile, targetExeFs, keysService, keysPath);
+                }
+                if (!string.IsNullOrEmpty(updateFile) && File.Exists(updateFile))
+                {
+                    ExtractExeFsSingleFile(updateFile, targetExeFs, keysService, keysPath);
+                }
             }
 
-            // 3. Fallback: если main.npdm все еще отсутствует — вызываем hactoolnet
+            // 3. Метод 3: Fallback-извлечение через hactoolnet
             if (!File.Exists(System.IO.Path.Combine(targetExeFs, "main.npdm")))
             {
                 ExtractExeFsWithHactoolnet(baseFile, updateFile, targetExeFs, keysPath);
@@ -1133,9 +1180,92 @@ namespace StormSwitchBox.Services
         }
 
         /// <summary>
+        /// Извлекает файлы ExeFS (включая оригинальный main.npdm) напрямую через базовую распаковку yanu-cli
+        /// </summary>
+        private static void ExtractExeFsWithYanuBaseUnpack(
+            string baseFile,
+            string targetExeFs,
+            string keysPath,
+            string yanuCliPath,
+            string tempDir,
+            string isolatedUserProfile,
+            string isolatedLocalAppData)
+        {
+            if (string.IsNullOrEmpty(yanuCliPath) || !File.Exists(yanuCliPath) || string.IsNullOrEmpty(baseFile) || !File.Exists(baseFile)) return;
+
+            string tempBaseUnpack = System.IO.Path.Combine(tempDir, "base_npdm_unpack");
+            try
+            {
+                Directory.CreateDirectory(tempBaseUnpack);
+
+                string defaultKeysPath = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "prod.keys");
+                bool isDefaultLocation = false;
+                try
+                {
+                    if (!string.IsNullOrEmpty(keysPath) && File.Exists(keysPath) && File.Exists(defaultKeysPath))
+                    {
+                        isDefaultLocation = System.IO.Path.GetFullPath(keysPath).Equals(System.IO.Path.GetFullPath(defaultKeysPath), StringComparison.OrdinalIgnoreCase);
+                    }
+                }
+                catch { }
+
+                string keyfileFlag = (!string.IsNullOrEmpty(keysPath) && File.Exists(keysPath) && !isDefaultLocation) ? $"-k \"{keysPath}\" " : "";
+                string unpackArgs = $"{keyfileFlag}unpack --base \"{baseFile}\" -o \"{tempBaseUnpack}\"";
+
+                var psi = new ProcessStartInfo
+                {
+                    FileName = yanuCliPath,
+                    Arguments = unpackArgs,
+                    WorkingDirectory = tempBaseUnpack,
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true,
+                    StandardOutputEncoding = System.Text.Encoding.UTF8,
+                    StandardErrorEncoding = System.Text.Encoding.UTF8
+                };
+                psi.EnvironmentVariables["USERPROFILE"] = isolatedUserProfile;
+                psi.EnvironmentVariables["LOCALAPPDATA"] = isolatedLocalAppData;
+                psi.EnvironmentVariables["APPDATA"] = isolatedLocalAppData;
+                psi.EnvironmentVariables["TEMP"] = tempDir;
+                psi.EnvironmentVariables["TMP"] = tempDir;
+
+                using var proc = Process.Start(psi);
+                if (proc != null)
+                {
+                    proc.WaitForExit(60000);
+                    var npdmFiles = Directory.GetFiles(tempBaseUnpack, "main.npdm", SearchOption.AllDirectories);
+                    if (npdmFiles.Length > 0)
+                    {
+                        string baseExeFsDir = System.IO.Path.GetDirectoryName(npdmFiles[0])!;
+                        foreach (var file in Directory.GetFiles(baseExeFsDir))
+                        {
+                            string fileName = System.IO.Path.GetFileName(file);
+                            string dest = System.IO.Path.Combine(targetExeFs, fileName);
+                            // main.npdm, sdk, rtld и subsdk копируем всегда; main не перезаписываем, если в targetExeFs уже есть обновленный main
+                            if (fileName.Equals("main.npdm", StringComparison.OrdinalIgnoreCase) || !File.Exists(dest))
+                            {
+                                File.Copy(file, dest, true);
+                            }
+                        }
+                        App.Logger.Log($"[HardPatchEngine] Успешно извлечен оригинальный main.npdm через yanu-cli unpack.", Models.LogLevel.Info);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Logger.Log($"[HardPatchEngine] ExtractExeFsWithYanuBaseUnpack warning: {ex.Message}", Models.LogLevel.Warning);
+            }
+            finally
+            {
+                try { if (Directory.Exists(tempBaseUnpack)) Directory.Delete(tempBaseUnpack, true); } catch { }
+            }
+        }
+
+        /// <summary>
         /// Извлекает ExeFS из отдельного файла контейнера (.nsp/.xci) с предварительным сбором тикетов TitleKey
         /// </summary>
-        private static void ExtractExeFsSingleFile(string filePath, string targetExeFs, KeysService keysService)
+        private static void ExtractExeFsSingleFile(string filePath, string targetExeFs, KeysService keysService, string keysPath)
         {
             try
             {
@@ -1172,6 +1302,7 @@ namespace StormSwitchBox.Services
                 if (fileSystem == null) return;
 
                 // Харвестинг тикетов (.tik) и регистрация TitleKeys
+                var keysToAdd = new List<string>();
                 foreach (var entry in fileSystem.EnumerateEntries().Where(e => e.Name.EndsWith(".tik", StringComparison.OrdinalIgnoreCase)))
                 {
                     try
@@ -1194,9 +1325,31 @@ namespace StormSwitchBox.Services
                                     {
                                         Core.NSZ.StormNczCompressor.TitleKeysCache[ticketInfo.Value.RightsId] = tKey;
                                     }
+                                    keysToAdd.Add($"{ticketInfo.Value.RightsId} = {ticketInfo.Value.TitleKey}");
                                 }
                             }
                         }
+                    }
+                    catch { }
+                }
+
+                if (keysToAdd.Count > 0)
+                {
+                    try
+                    {
+                        string titleKeysPath = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "title.keys");
+                        Directory.CreateDirectory(System.IO.Path.GetDirectoryName(titleKeysPath)!);
+                        var existingLines = File.Exists(titleKeysPath) ? File.ReadAllLines(titleKeysPath).ToList() : new List<string>();
+                        foreach (var k in keysToAdd)
+                        {
+                            string rId = k.Split('=')[0].Trim();
+                            if (!existingLines.Any(l => l.StartsWith(rId, StringComparison.OrdinalIgnoreCase)))
+                            {
+                                existingLines.Add(k);
+                            }
+                        }
+                        File.WriteAllLines(titleKeysPath, existingLines);
+                        keysService.LoadKeys(keysService.KeysFilePath ?? keysPath);
                     }
                     catch { }
                 }
@@ -1238,14 +1391,18 @@ namespace StormSwitchBox.Services
                                                     foreach (var exefsEntry in exefsEntries)
                                                     {
                                                         string destFile = System.IO.Path.Combine(targetExeFs, exefsEntry.Name.TrimStart('/'));
-                                                        using var srcFileRef = new UniqueRef<IFile>();
-                                                        using var srcPath = new LibHac.Fs.Path();
-                                                        srcPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(exefsEntry.FullPath))).ThrowIfFailure();
-                                                        if (exefs.OpenFile(ref srcFileRef.Ref, in srcPath, OpenMode.Read).IsSuccess())
+                                                        // main.npdm, sdk, rtld копируем всегда; main не перезаписываем, если уже есть обновленный main
+                                                        if (exefsEntry.Name.TrimStart('/').Equals("main.npdm", StringComparison.OrdinalIgnoreCase) || !File.Exists(destFile))
                                                         {
-                                                            using var srcFile = srcFileRef.Release();
-                                                            using var outStream = new FileStream(destFile, FileMode.Create, FileAccess.Write);
-                                                            srcFile.AsStream().CopyTo(outStream);
+                                                            using var srcFileRef = new UniqueRef<IFile>();
+                                                            using var srcPath = new LibHac.Fs.Path();
+                                                            srcPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(exefsEntry.FullPath))).ThrowIfFailure();
+                                                            if (exefs.OpenFile(ref srcFileRef.Ref, in srcPath, OpenMode.Read).IsSuccess())
+                                                            {
+                                                                using var srcFile = srcFileRef.Release();
+                                                                using var outStream = new FileStream(destFile, FileMode.Create, FileAccess.Write);
+                                                                srcFile.AsStream().CopyTo(outStream);
+                                                            }
                                                         }
                                                     }
 
@@ -1281,6 +1438,8 @@ namespace StormSwitchBox.Services
 
             try
             {
+                string titleKeysPath = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "title.keys");
+                string tkFlag = File.Exists(titleKeysPath) ? $"--titlekeys \"{titleKeysPath}\" " : "";
                 string kFlag = (!string.IsNullOrEmpty(keysPath) && File.Exists(keysPath)) ? $"-k \"{keysPath}\" " : "";
                 Directory.CreateDirectory(targetExeFs);
 
@@ -1290,14 +1449,14 @@ namespace StormSwitchBox.Services
                     var psi = new ProcessStartInfo
                     {
                         FileName = hactoolnetPath,
-                        Arguments = $"{kFlag}{tFlag} --exefsdir \"{targetExeFs}\" \"{baseFile}\"",
+                        Arguments = $"{kFlag}{tkFlag}{tFlag} --exefsdir \"{targetExeFs}\" \"{baseFile}\"",
                         UseShellExecute = false,
                         RedirectStandardOutput = true,
                         RedirectStandardError = true,
                         CreateNoWindow = true
                     };
                     using var proc = Process.Start(psi);
-                    proc?.WaitForExit(15000);
+                    proc?.WaitForExit(30000);
                 }
 
                 if (!string.IsNullOrEmpty(updateFile) && File.Exists(updateFile))
@@ -1306,14 +1465,14 @@ namespace StormSwitchBox.Services
                     var psi = new ProcessStartInfo
                     {
                         FileName = hactoolnetPath,
-                        Arguments = $"{kFlag}{tFlag} --exefsdir \"{targetExeFs}\" \"{updateFile}\"",
+                        Arguments = $"{kFlag}{tkFlag}{tFlag} --exefsdir \"{targetExeFs}\" \"{updateFile}\"",
                         UseShellExecute = false,
                         RedirectStandardOutput = true,
                         RedirectStandardError = true,
                         CreateNoWindow = true
                     };
                     using var proc = Process.Start(psi);
-                    proc?.WaitForExit(15000);
+                    proc?.WaitForExit(30000);
                 }
 
                 App.Logger.Log($"[HardPatchEngine] hactoolnet ExeFS extraction check completed.", Models.LogLevel.Info);
@@ -1396,58 +1555,6 @@ namespace StormSwitchBox.Services
             }
 
             return "";
-        }
-
-        /// <summary>
-        /// Гарантирует наличие валидного дескриптора main.npdm в директории ExeFS
-        /// </summary>
-        private static void EnsureMainNpdmExists(string targetExeFs, string titleIdStr)
-        {
-            string mainNpdm = System.IO.Path.Combine(targetExeFs, "main.npdm");
-            if (File.Exists(mainNpdm) && new FileInfo(mainNpdm).Length >= 0x80) return;
-
-            try
-            {
-                ulong titleId = 0;
-                if (!string.IsNullOrEmpty(titleIdStr))
-                {
-                    ulong.TryParse(titleIdStr, System.Globalization.NumberStyles.HexNumber, null, out titleId);
-                }
-
-                byte[] npdm = new byte[0x200];
-                // Magic "META"
-                npdm[0] = (byte)'M'; npdm[1] = (byte)'E'; npdm[2] = (byte)'T'; npdm[3] = (byte)'A';
-                // 64-bit flag
-                npdm[0x0C] = 0x01;
-                // Main thread priority (0x2C)
-                npdm[0x1C] = 0x2C;
-                // TitleID at 0x10
-                byte[] tidBytes = BitConverter.GetBytes(titleId);
-                Array.Copy(tidBytes, 0, npdm, 0x10, 8);
-
-                // ACI0 section offset & size
-                BitConverter.GetBytes((uint)0x80).CopyTo(npdm, 0x20);
-                BitConverter.GetBytes((uint)0x40).CopyTo(npdm, 0x24);
-                // ACID section offset & size
-                BitConverter.GetBytes((uint)0xC0).CopyTo(npdm, 0x28);
-                BitConverter.GetBytes((uint)0x40).CopyTo(npdm, 0x2C);
-
-                // ACI0 header
-                npdm[0x80] = (byte)'A'; npdm[0x81] = (byte)'C'; npdm[0x82] = (byte)'I'; npdm[0x83] = (byte)'0';
-                Array.Copy(tidBytes, 0, npdm, 0x90, 8);
-
-                // ACID header
-                npdm[0xC0] = (byte)'A'; npdm[0xC1] = (byte)'C'; npdm[0xC2] = (byte)'I'; npdm[0xC3] = (byte)'D';
-                Array.Copy(tidBytes, 0, npdm, 0xD0, 8);
-
-                Directory.CreateDirectory(targetExeFs);
-                File.WriteAllBytes(mainNpdm, npdm);
-                App.Logger.Log($"[HardPatchEngine] Создан валидный резервный дескриптор main.npdm (TitleID: {titleIdStr}).", Models.LogLevel.Warning);
-            }
-            catch (Exception ex)
-            {
-                App.Logger.Log($"[HardPatchEngine] EnsureMainNpdmExists error: {ex.Message}", Models.LogLevel.Warning);
-            }
         }
 
         private static string? FindHactoolnet()
