@@ -1479,7 +1479,7 @@ echo Обновление завершено. >> ""{logPath}""
         private async void AddEmulatorDir_Click(object sender, RoutedEventArgs e)
         {
             string? folder = await SystemDialogService.OpenFolderDialogAsync(
-                "Выберите папку эмулятора (STORM EDEN, Yuzu, Ryujinx, Suyu, Sudachi и др.)", null);
+                "Выберите папку эмулятора (STORM SWITCH, Yuzu, Ryujinx, Suyu, Sudachi и др.)", null);
 
             if (!string.IsNullOrWhiteSpace(folder) && System.IO.Directory.Exists(folder))
             {

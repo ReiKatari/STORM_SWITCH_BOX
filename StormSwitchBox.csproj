@@ -13,13 +13,14 @@
     <SelfContained>true</SelfContained>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <PublishReadyToRun>true</PublishReadyToRun>
+    <PublishReadyToRun>false</PublishReadyToRun>
     <TieredCompilation>true</TieredCompilation>
     <SuppressNETCoreSdkPreviewMessage>true</SuppressNETCoreSdkPreviewMessage>
-    <Version>5.0.0</Version>
-    <AssemblyVersion>5.0.0.0</AssemblyVersion>
-    <FileVersion>5.0.0.0</FileVersion>
+    <Version>5.0.2</Version>
+    <AssemblyVersion>5.0.2.0</AssemblyVersion>
+    <FileVersion>5.0.2.0</FileVersion>
     <ApplicationIcon>storm_switch_box.ico</ApplicationIcon>
+    <DefaultItemExcludes>$(DefaultItemExcludes);obj\**;bin\**;installer\**</DefaultItemExcludes>
   </PropertyGroup>
 
   <ItemGroup>
@@ -41,6 +42,9 @@
     <Compile Remove="installer\**" />
     <None Remove="installer\**" />
     <Content Remove="installer\**" />
+    <Compile Remove="temp\**" />
+    <None Remove="temp\**" />
+    <Content Remove="temp\**" />
     <Compile Remove="test_*.cs" />
     <Compile Remove="scratch_*.cs" />
     <Compile Remove="test_xts_app\**" />

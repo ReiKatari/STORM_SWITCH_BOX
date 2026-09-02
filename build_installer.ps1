@@ -14,7 +14,7 @@ if (-not (Test-Path $assemblingDir)) { New-Item -ItemType Directory -Path $assem
 if (-not (Test-Path $filesDir)) { New-Item -ItemType Directory -Path $filesDir | Out-Null }
 if (-not (Test-Path $outputDir)) { New-Item -ItemType Directory -Path $outputDir | Out-Null }
 
-$appVersion = "5.0.0"
+$appVersion = "5.0.2"
 try {
     [xml]$appProjXml = Get-Content (Join-Path $appProjDir "StormSwitchBox.csproj")
     $verFromProj = $appProjXml.Project.PropertyGroup.Version
@@ -40,18 +40,18 @@ Start-Sleep -Seconds 1
 
 # Step 1: Clean build outputs
 Write-Host "[1/6] Cleaning build directories..." -ForegroundColor Yellow
-if (Test-Path "$appProjDir\bin\Release") { Remove-Item "$appProjDir\bin\Release" -Recurse -Force -ErrorAction SilentlyContinue }
-if (Test-Path "$appProjDir\obj\Release") { Remove-Item "$appProjDir\obj\Release" -Recurse -Force -ErrorAction SilentlyContinue }
+if (Test-Path "$appProjDir\bin") { Remove-Item "$appProjDir\bin" -Recurse -Force -ErrorAction SilentlyContinue }
+if (Test-Path "$appProjDir\obj") { Remove-Item "$appProjDir\obj" -Recurse -Force -ErrorAction SilentlyContinue }
 if (Test-Path "$installerProjDir\bin") { Remove-Item "$installerProjDir\bin" -Recurse -Force -ErrorAction SilentlyContinue }
 if (Test-Path "$installerProjDir\obj") { Remove-Item "$installerProjDir\obj" -Recurse -Force -ErrorAction SilentlyContinue }
 
-# Step 2: Publish App to Assembling & Publish folder
-Write-Host "[2/6] Publishing StormSwitchBox (.NET 8 WinUI 3 win-x64)..." -ForegroundColor Yellow
-$publishDir = Join-Path $appProjDir "bin\Release\net8.0-windows10.0.19041.0\win-x64\publish"
-dotnet publish "$appProjDir\StormSwitchBox.csproj" -c Release -r win-x64 -p:UseSharedCompilation=false -p:NodeReuse=false
+# Step 2: Build App to Assembling & Publish folder
+Write-Host "[2/6] Building StormSwitchBox (.NET 8 WinUI 3 win-x64)..." -ForegroundColor Yellow
+$publishDir = Join-Path $appProjDir "bin\Release\net8.0-windows10.0.19041.0\win-x64"
+dotnet build "$appProjDir\StormSwitchBox.csproj" -c Release
 
-if (-not (Test-Path $publishDir)) {
-    throw "Error: Publish directory $publishDir was not created!"
+if (-not (Test-Path "$publishDir\StormSwitchBox.exe")) {
+    throw "Error: Build failed - StormSwitchBox.exe was not created in $publishDir!"
 }
 
 # Step 3: Digital Signature with STORM TEAM Master Certificate & RFC 3161 Timestamp
@@ -138,13 +138,14 @@ try {
 Write-Host "[6/6] Packaging Setup Bundle..." -ForegroundColor Yellow
 if (Test-Path "$baseDir\tools\7z.exe") {
     $unblockFiles = Get-ChildItem -Path $filesDir -Filter "*.bat" | Select-Object -ExpandProperty FullName
-    $launcherFiles = Get-ChildItem -Path (Join-Path $baseDir "installer") -Filter "*.cmd" | Select-Object -ExpandProperty FullName
-    $bundleItems = @($outputSetupExePath, $cerOutput) + $unblockFiles + $launcherFiles
-    & "$baseDir\tools\7z.exe" a -tzip -mx=7 -mmt=on $bundleZipPath $bundleItems
+    $bundleItems = @($outputSetupExePath, $cerOutput)
+    if ($unblockFiles) { $bundleItems += $unblockFiles }
+    & "$baseDir\tools\7z.exe" a -tzip -mx=7 -mmt=on $bundleZipPath @bundleItems
+    Copy-Item $bundleZipPath $filesDir -Force
 }
 
-# Step 6: Unblock everything
-Get-ChildItem -Path $baseDir -Recurse -Include *.exe, *.dll, *.bat, *.cmd, *.ps1, *.cer -ErrorAction SilentlyContinue | ForEach-Object {
+# Step 6: Unblock output files
+Get-ChildItem -Path $outputDir, $filesDir -Recurse -Include *.exe, *.dll, *.bat, *.cmd, *.ps1, *.cer -ErrorAction SilentlyContinue | ForEach-Object {
     Unblock-File -Path $_.FullName -ErrorAction SilentlyContinue
 }
 
@@ -154,5 +155,5 @@ Write-Host "1. Installer (Files):     $setupExePath" -ForegroundColor Green
 Write-Host "2. Installer (Output):    $outputSetupExePath" -ForegroundColor Green
 Write-Host "3. Setup Bundle:          $bundleZipPath" -ForegroundColor Green
 Write-Host "4. Portable Archive:      $portableZipPath" -ForegroundColor Green
-Write-Host "5. Unblocker Script:      $filesDir" -ForegroundColor Green
+Write-Host "5. Certificate:           $cerOutput" -ForegroundColor Green
 Write-Host "============================================================" -ForegroundColor Green

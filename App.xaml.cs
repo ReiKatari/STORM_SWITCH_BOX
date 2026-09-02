@@ -193,7 +193,7 @@ namespace StormSwitchBox
 
             // Single Instance Check
             bool isFirstInstance = false;
-            _singleInstanceMutex = new System.Threading.Mutex(true, "StormSwitchBox_SingleInstanceMutex", out isFirstInstance);
+            _singleInstanceMutex = new System.Threading.Mutex(true, @"Global\STORM_SWITCH_BOX_SingleInstanceMutex", out isFirstInstance);
 
             if (!isFirstInstance)
             {

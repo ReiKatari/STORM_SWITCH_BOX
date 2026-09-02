@@ -183,15 +183,24 @@ namespace StormSwitchBox.Services
                             var match = System.Text.RegularExpressions.Regex.Match(baseFile, @"\[([0-9A-Fa-f]{16})\]");
                             if (match.Success) titleIdStr = match.Groups[1].Value;
                         }
+
+                        // Извлечение токенов разблокировки из Unlocker DLC для прямой интеграции в RomFS игры
+                        var unlockerRomfsDirs = ExtractUnlockerRomFsDirectories(finalInputFilesList, tempDecompDir, titleIdStr, task, cancellationToken);
+                        if (unlockerRomfsDirs.Count > 0)
+                        {
+                            hasMods = true;
+                        }
+
                         string suffix = string.IsNullOrEmpty(titleIdStr) ? "" : $"_[{titleIdStr}][v0]";
                         string tempHardPatchedNsp = System.IO.Path.Combine(tempDecompDir, $"patched_base{suffix}.nsp");
                         
                         var hpInput = new List<string> { baseFile };
                         if (!string.IsNullOrEmpty(updateFile)) hpInput.Add(updateFile);
                         
-                        // Add mod directories (romfs/exefs) to be processed
+                        // Add mod directories (romfs/exefs) and extracted unlocker directories to be processed
                         var modDirs = finalInputFilesList.Where(d => Directory.Exists(d)).ToList();
                         hpInput.AddRange(modDirs);
+                        hpInput.AddRange(unlockerRomfsDirs);
 
                         await App.HardPatch.PatchUpdateAsync(task, hpInput, tempHardPatchedNsp, cancellationToken, isMultiContent: true);
                         
@@ -439,8 +448,8 @@ namespace StormSwitchBox.Services
                         // Если была выполнена пересборка HardPatch (hasPatchedBase == true), то Patch CNMT НЕ внедряется,
                         // так как обновление уже физически вшито в единый Program NCA пересобранной базы.
                         var extraSources = new List<string>();
-                        if (!hasPatchedBase && !string.IsNullOrEmpty(savedUpdateFile) && File.Exists(savedUpdateFile)) extraSources.Add(savedUpdateFile);
-                        if (!hasPatchedBase && !string.IsNullOrEmpty(savedBaseFile) && File.Exists(savedBaseFile)) extraSources.Add(savedBaseFile);
+                        if (!string.IsNullOrEmpty(savedUpdateFile) && File.Exists(savedUpdateFile)) extraSources.Add(savedUpdateFile);
+                        if (!string.IsNullOrEmpty(savedBaseFile) && File.Exists(savedBaseFile)) extraSources.Add(savedBaseFile);
 
                         foreach (var extraPath in extraSources)
                         {
@@ -944,26 +953,26 @@ namespace StormSwitchBox.Services
         {
             string lower = fileName.ToLowerInvariant();
 
-            if (lower.EndsWith(".tik")) return 90;
-            if (lower.EndsWith(".cert")) return 91;
+            if (lower.EndsWith(".tik")) return 0;
+            if (lower.EndsWith(".cert")) return 1;
 
             bool isFromBase = baseEntries != null && baseEntries.Contains(fileName);
 
             if (lower.EndsWith(".cnmt.xml"))
             {
-                if (isFromBase || lower.Contains("000") || lower.Contains("base")) return 0;
+                if (isFromBase || lower.Contains("000") || lower.Contains("base")) return 2;
                 if (lower.Contains("800") || lower.Contains("update") || lower.Contains("patch")) return 10;
-                return 50;
+                return 20;
             }
 
             if (lower.EndsWith(".cnmt.nca"))
             {
-                if (isFromBase) return 0; // Base/Patched Game CNMT is ALWAYS top priority in PFS0
-                if (lower.Contains("000") || lower.Contains("base")) return 0;
-                if (lower.Contains("800") || lower.Contains("update") || lower.Contains("patch")) return 10; // Update Patch CNMT
-                if (baseTitleId != 0 && lower.Contains(baseTitleId.ToString("x16"))) return 0;
-                if (baseTitleId != 0 && lower.Contains((baseTitleId + 0x800).ToString("x16"))) return 10;
-                return 50; // DLC / Mod CNMT
+                if (isFromBase) return 3; // Base/Patched Game CNMT is top priority among NCAs
+                if (lower.Contains("000") || lower.Contains("base")) return 3;
+                if (lower.Contains("800") || lower.Contains("update") || lower.Contains("patch")) return 11; // Update Patch CNMT
+                if (baseTitleId != 0 && lower.Contains(baseTitleId.ToString("x16"))) return 3;
+                if (baseTitleId != 0 && lower.Contains((baseTitleId + 0x800).ToString("x16"))) return 11;
+                return 21; // DLC / Mod CNMT
             }
 
             try
@@ -987,56 +996,298 @@ namespace StormSwitchBox.Services
 
                 if (type == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Meta) // CNMT
                 {
-                    if (isBaseTitle) return 0;
-                    if (isUpdateTitle) return 10;
-                    return 50;
+                    if (isBaseTitle) return 3;
+                    if (isUpdateTitle) return 11;
+                    return 21;
                 }
 
                 if (type == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Control) // Icon artwork & Title strings
                 {
-                    if (isBaseTitle) return 1;
-                    return 51;
+                    if (isBaseTitle) return 4;
+                    if (isUpdateTitle) return 12;
+                    return 22;
                 }
 
                 if (type == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Program) // Executable code
                 {
-                    if (isBaseTitle || isUpdateTitle) return 2;
-                    return 52;
+                    if (isBaseTitle) return 5;
+                    if (isUpdateTitle) return 13;
+                    return 23;
                 }
 
-                if (type == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Manual || type == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.PublicData)
+                if (type == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Manual || type == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.PublicData || type == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Data)
                 {
-                    if (isBaseTitle || isUpdateTitle) return 3;
-                    return 53;
+                    if (isBaseTitle) return 6;
+                    if (isUpdateTitle) return 14;
+                    return 24;
                 }
             }
             catch
             {
                 if (isFromBase)
                 {
-                    if (lower.EndsWith(".cnmt.nca")) return 0;
-                    if (lower.Contains("control")) return 1;
-                    if (lower.Contains("program")) return 2;
+                    if (lower.EndsWith(".cnmt.nca")) return 3;
+                    if (lower.Contains("control")) return 4;
+                    if (lower.Contains("program")) return 5;
                     
                     try
                     {
                         file.GetSize(out long fSize);
-                        if (fSize > 0 && fSize < 5 * 1024 * 1024) return 1; // Control-sized NCA
+                        if (fSize > 0 && fSize < 5 * 1024 * 1024) return 4; // Control-sized NCA
                     }
                     catch { }
-                    return 2;
+                    return 5;
                 }
 
                 if (lower.EndsWith(".cnmt.nca"))
                 {
-                    if (lower.Contains("800") || lower.Contains("update") || lower.Contains("patch")) return 10;
-                    return 50;
+                    if (lower.Contains("800") || lower.Contains("update") || lower.Contains("patch")) return 11;
+                    return 21;
                 }
-                if (lower.Contains("control")) return 51;
-                if (lower.Contains("program")) return 52;
+                if (lower.Contains("control")) return 22;
+                if (lower.Contains("program")) return 23;
             }
 
-            return isFromBase ? 4 : 53;
+            return isFromBase ? 7 : 25;
+        }
+
+        private List<string> ExtractUnlockerRomFsDirectories(List<string> inputFiles, string tempDir, string? baseTitleIdStr, Models.ProcessingTask task, CancellationToken ct)
+        {
+            var extractedDirs = new List<string>();
+            int unlockerIndex = 0;
+
+            foreach (var file in inputFiles)
+            {
+                if (Directory.Exists(file)) continue;
+                string fname = System.IO.Path.GetFileName(file);
+                
+                // Проверяем, является ли файл Unlocker-патчем/DLC
+                bool isUnlockerName = fname.Contains("Unlocker", StringComparison.OrdinalIgnoreCase) ||
+                                     fname.Contains("Unlock", StringComparison.OrdinalIgnoreCase) ||
+                                     fname.Contains("Custom Unlock", StringComparison.OrdinalIgnoreCase);
+
+                bool isSmallDlc = false;
+                try
+                {
+                    var info = App.SwitchFormat.ParseNsp(file);
+                    if (info.ContentType == "AddOnContent" && new FileInfo(file).Length < 100 * 1024 * 1024)
+                    {
+                        isSmallDlc = true;
+                    }
+                }
+                catch { }
+
+                if (!isUnlockerName && !isSmallDlc) continue;
+
+                string targetRomfs = System.IO.Path.Combine(tempDir, $"unlocker_romfs_{unlockerIndex}");
+                Directory.CreateDirectory(targetRomfs);
+
+                bool extracted = false;
+                try
+                {
+                    using var fileStream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    var pfs = new PartitionFileSystem(fileStream.AsStorage());
+                    foreach (var entry in pfs.EnumerateEntries())
+                    {
+                        if (entry.Type == LibHac.Fs.DirectoryEntryType.Directory) continue;
+                        string ename = entry.Name.ToLowerInvariant();
+                        if (ename.EndsWith(".nca") && !ename.EndsWith(".cnmt.nca"))
+                        {
+                            using var ncaFile = new UniqueRef<IFile>();
+                            using var entryPath = new LibHac.Fs.Path();
+                            entryPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(entry.FullPath))).ThrowIfFailure();
+                            pfs.OpenFile(ref ncaFile.Ref, in entryPath, OpenMode.Read).ThrowIfFailure();
+                            
+                            var nca = new LibHac.Tools.FsSystem.NcaUtils.Nca(_keysService.CurrentKeyset, ncaFile.Release().AsStorage());
+                            if (nca.Header.ContentType == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.PublicData || 
+                                nca.Header.ContentType == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Data ||
+                                nca.Header.ContentType == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Program)
+                            {
+                                try
+                                {
+                                    var storage = nca.OpenStorage(0, IntegrityCheckLevel.None);
+                                    var wrapped = new UnalignedStorageWrapper(storage);
+                                    var romfsFs = new LibHac.Tools.FsSystem.RomFs.RomFsFileSystem(wrapped);
+                                    ExtractDirectoryRecursively(romfsFs, "/", targetRomfs, ct);
+                                    extracted = Directory.GetFiles(targetRomfs, "*", SearchOption.AllDirectories).Length > 0;
+                                }
+                                catch { }
+                            }
+                        }
+                    }
+                }
+                catch { }
+
+                // Fallback через hactoolnet если LibHac не извлек
+                if (!extracted)
+                {
+                    try
+                    {
+                        string appDir = AppDomain.CurrentDomain.BaseDirectory;
+                        string hactoolPath = System.IO.Path.Combine(appDir, "tools", "com.github.nozwock.yanu", "hactoolnet.exe");
+                        if (!File.Exists(hactoolPath))
+                            hactoolPath = System.IO.Path.Combine(appDir, "..", "tools", "com.github.nozwock.yanu", "hactoolnet.exe");
+                        if (!File.Exists(hactoolPath))
+                            hactoolPath = System.IO.Path.Combine(appDir, "tools", "hactoolnet.exe");
+
+                        if (File.Exists(hactoolPath))
+                        {
+                            string keysPath = App.Settings.Current.KeysPath;
+                            if (string.IsNullOrEmpty(keysPath) || !File.Exists(keysPath))
+                                keysPath = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "prod.keys");
+
+                            string keyArg = File.Exists(keysPath) ? $"-k \"{keysPath}\"" : "";
+                            string tempExtractDir = System.IO.Path.Combine(tempDir, $"hactool_extract_{unlockerIndex}");
+                            Directory.CreateDirectory(tempExtractDir);
+
+                            var psi = new System.Diagnostics.ProcessStartInfo
+                            {
+                                FileName = hactoolPath,
+                                Arguments = $"{keyArg} -t pfs0 --outdir \"{tempExtractDir}\" \"{file}\"",
+                                UseShellExecute = false,
+                                CreateNoWindow = true
+                            };
+                            using (var proc = System.Diagnostics.Process.Start(psi))
+                            {
+                                proc?.WaitForExit(15000);
+                            }
+
+                            var extractedNcas = Directory.GetFiles(tempExtractDir, "*.nca");
+                            foreach (var ncaPath in extractedNcas)
+                            {
+                                if (ncaPath.EndsWith(".cnmt.nca", StringComparison.OrdinalIgnoreCase)) continue;
+                                var romfsPsi = new System.Diagnostics.ProcessStartInfo
+                                {
+                                    FileName = hactoolPath,
+                                    Arguments = $"{keyArg} --romfsdir \"{targetRomfs}\" \"{ncaPath}\"",
+                                    UseShellExecute = false,
+                                    CreateNoWindow = true
+                                };
+                                using (var rproc = System.Diagnostics.Process.Start(romfsPsi))
+                                {
+                                    rproc?.WaitForExit(15000);
+                                }
+                            }
+                            try { Directory.Delete(tempExtractDir, true); } catch { }
+                            extracted = Directory.GetFiles(targetRomfs, "*", SearchOption.AllDirectories).Length > 0;
+                        }
+                    }
+                    catch { }
+                }
+
+                if (extracted)
+                {
+                    int fileCount = Directory.GetFiles(targetRomfs, "*", SearchOption.AllDirectories).Length;
+                    App.Logger.Log($"[Unlocker] Успешно извлечено {fileCount} файлов разблокировки из {fname} для RomFS-инъекции.", Models.LogLevel.Success);
+                    App.RunOnUI(() => task.LogDetails += $"\n🔓 [Unlocker] Извлечено {fileCount} токенов разблокировки из {fname} (прямое вшивание в RomFS игры)");
+                    extractedDirs.Add(targetRomfs);
+
+                    // Синхронизация с эмулятором (LayeredFS)
+                    SyncUnlockerToEmulators(targetRomfs, baseTitleIdStr, task);
+                    unlockerIndex++;
+                }
+                else
+                {
+                    try { Directory.Delete(targetRomfs, true); } catch { }
+                }
+            }
+
+            return extractedDirs;
+        }
+
+        private static void ExtractDirectoryRecursively(LibHac.Fs.Fsa.IFileSystem fs, string fsDir, string targetDir, CancellationToken ct)
+        {
+            using var dirPath = new LibHac.Fs.Path();
+            dirPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(fsDir))).ThrowIfFailure();
+            using var dirRef = new UniqueRef<IDirectory>();
+            fs.OpenDirectory(ref dirRef.Ref, in dirPath, OpenDirectoryMode.All).ThrowIfFailure();
+            var dir = dirRef.Release();
+
+            var entries = new LibHac.Fs.DirectoryEntry[128];
+            while (true)
+            {
+                ct.ThrowIfCancellationRequested();
+                dir.Read(out long count, entries).ThrowIfFailure();
+                if (count == 0) break;
+
+                for (int i = 0; i < count; i++)
+                {
+                    var entry = entries[i];
+                    string name = entry.Name.ToString();
+                    string subFsPath = fsDir.EndsWith("/") ? fsDir + name : fsDir + "/" + name;
+                    string subLocalPath = System.IO.Path.Combine(targetDir, name);
+
+                    if (entry.Type == LibHac.Fs.DirectoryEntryType.Directory)
+                    {
+                        Directory.CreateDirectory(subLocalPath);
+                        ExtractDirectoryRecursively(fs, subFsPath, subLocalPath, ct);
+                    }
+                    else
+                    {
+                        Directory.CreateDirectory(System.IO.Path.GetDirectoryName(subLocalPath) ?? targetDir);
+                        using var fileRef = new UniqueRef<IFile>();
+                        using var filePath = new LibHac.Fs.Path();
+                        filePath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(subFsPath))).ThrowIfFailure();
+                        fs.OpenFile(ref fileRef.Ref, in filePath, OpenMode.Read).ThrowIfFailure();
+                        var f = fileRef.Release();
+                        using var outFs = new FileStream(subLocalPath, FileMode.Create, FileAccess.Write, FileShare.None);
+                        f.GetSize(out long fSize).ThrowIfFailure();
+                        byte[] buf = new byte[64 * 1024];
+                        long off = 0;
+                        while (off < fSize)
+                        {
+                            int toRead = (int)Math.Min(buf.Length, fSize - off);
+                            f.Read(out long r, off, buf.AsSpan(0, toRead)).ThrowIfFailure();
+                            outFs.Write(buf, 0, (int)r);
+                            off += r;
+                        }
+                    }
+                }
+            }
+        }
+
+        private void SyncUnlockerToEmulators(string unlockerRomfsDir, string? baseTitleIdStr, Models.ProcessingTask task)
+        {
+            if (string.IsNullOrEmpty(baseTitleIdStr)) return;
+            string cleanTid = baseTitleIdStr.Trim().ToUpperInvariant();
+            if (cleanTid.Length != 16) return;
+
+            try
+            {
+                var emulatorPaths = HomebrewService.FindAllEmulatorSdmcDirectories();
+                foreach (var sdmcPath in emulatorPaths)
+                {
+                    string userDir = System.IO.Path.GetDirectoryName(sdmcPath) ?? "";
+                    if (!Directory.Exists(userDir)) continue;
+
+                    // 1. user/load/<TitleID>/romfs/
+                    string loadRomfs = System.IO.Path.Combine(userDir, "load", cleanTid, "romfs");
+                    Directory.CreateDirectory(loadRomfs);
+                    CopyDirectoryContentSafe(unlockerRomfsDir, loadRomfs);
+
+                    // 2. user/sdmc/atmosphere/contents/<TitleID>/romfs/
+                    string atmoRomfs = System.IO.Path.Combine(sdmcPath, "atmosphere", "contents", cleanTid, "romfs");
+                    Directory.CreateDirectory(atmoRomfs);
+                    CopyDirectoryContentSafe(unlockerRomfsDir, atmoRomfs);
+
+                    App.Logger.Log($"[Unlocker] Синхронизированы LayeredFS файлы разблокировки для {cleanTid} в эмулятор: {userDir}", Models.LogLevel.Success);
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Logger.Log($"[Unlocker] Ошибка синхронизации с эмуляторами: {ex.Message}", Models.LogLevel.Warning);
+            }
+        }
+
+        private static void CopyDirectoryContentSafe(string sourceDir, string targetDir)
+        {
+            foreach (var file in Directory.GetFiles(sourceDir, "*", SearchOption.AllDirectories))
+            {
+                string rel = System.IO.Path.GetRelativePath(sourceDir, file);
+                string dest = System.IO.Path.Combine(targetDir, rel);
+                Directory.CreateDirectory(System.IO.Path.GetDirectoryName(dest)!);
+                File.Copy(file, dest, true);
+            }
         }
 
         private async Task<List<string>> GenerateModAddonEntriesAsync(
