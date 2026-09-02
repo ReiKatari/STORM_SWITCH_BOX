@@ -1461,14 +1461,6 @@ namespace StormSwitchBox.Services
                                 task.LogDetails += $"[RomFS] Добавлен ресурс: {fileName}\n";
                             });
                         }
-
-                        // Дополнительно дублируем в подпапки для портов (devilutionx, switch, etc.)
-                        string[] extraSubDirs = new[] { "devilutionx", "devilutionx-switch", "switch/devilutionx", "switch/devilutionx-switch", "data" };
-                        foreach (var sub in extraSubDirs)
-                        {
-                            string subDest = Path.Combine(romfsDir, sub, fileName);
-                            CopyFileWithRetry(file, subDest, true);
-                        }
                     }
 
                     if (nroFile != null)
@@ -1477,33 +1469,19 @@ namespace StormSwitchBox.Services
                         string appFolder = Path.GetFileNameWithoutExtension(nroFile);
                         if (task.InputFiles.Any(f => f.Contains("devilutionx", StringComparison.OrdinalIgnoreCase)))
                         {
-                            appFolder = "devilutionx-switch";
+                            appFolder = "devilutionx";
+                        }
+                        else
+                        {
+                            appFolder = appFolder.Replace("-switch", "", StringComparison.OrdinalIgnoreCase).Trim();
                         }
 
-                        string[] nroDestinations = new[]
-                        {
-                            Path.Combine(romfsDir, "app.nro"),
-                            Path.Combine(romfsDir, "main.nro"),
-                            Path.Combine(romfsDir, nroName),
-                            Path.Combine(romfsDir, appFolder, nroName),
-                            Path.Combine(romfsDir, "switch", nroName)
-                        };
-
-                        foreach (var dest in nroDestinations)
-                        {
-                            string? parent = Path.GetDirectoryName(dest);
-                            if (!string.IsNullOrEmpty(parent) && !Directory.Exists(parent))
-                            {
-                                Directory.CreateDirectory(parent);
-                            }
-                            if (!File.Exists(dest))
-                            {
-                                CopyFileWithRetry(nroFile, dest, true);
-                            }
-                        }
+                        // В RomFS копируем NRO ровно один раз без дублирования
+                        string destAppNro = Path.Combine(romfsDir, "app.nro");
+                        CopyFileWithRetry(nroFile, destAppNro, true);
 
                         string? existingNextNro = task.InputFiles.FirstOrDefault(f => Path.GetFileName(f).Equals("nextNroPath", StringComparison.OrdinalIgnoreCase) && File.Exists(f));
-                        string nextPath = existingNextNro != null ? File.ReadAllText(existingNextNro).Trim() : $"sdmc:/{appFolder}/{nroName}";
+                        string nextPath = existingNextNro != null ? File.ReadAllText(existingNextNro).Trim() : $"sdmc:/switch/{appFolder}/{nroName}";
                         string nextArgvContent = $"{nextPath}\0{nextPath}\0";
 
                         File.WriteAllText(Path.Combine(romfsDir, "nextNroPath"), nextPath);
@@ -1728,7 +1706,11 @@ namespace StormSwitchBox.Services
                         string nroAppFolder = Path.GetFileNameWithoutExtension(mainNro);
                         if (task.InputFiles.Any(f => f.Contains("devilutionx", StringComparison.OrdinalIgnoreCase)))
                         {
-                            nroAppFolder = "devilutionx-switch";
+                            nroAppFolder = "devilutionx";
+                        }
+                        else
+                        {
+                            nroAppFolder = nroAppFolder.Replace("-switch", "", StringComparison.OrdinalIgnoreCase).Trim();
                         }
 
                         // Временная папка подготовки данных SDMC
@@ -1746,33 +1728,39 @@ namespace StormSwitchBox.Services
                             }
                         }
 
-                        // Авто-деплой в целевые папки SDMC эмуляторов
+                        // Авто-деплой в целевые папки SDMC эмуляторов - строго в ОДНУ правильную папку
                         var localEmuSdmcList = FindAllEmulatorSdmcDirectories();
 
                         foreach (var emuSdmc in localEmuSdmcList)
                         {
                             if (Directory.Exists(emuSdmc))
                             {
-                                string[] targetEmuFolders = new[]
+                                // Очистка устаревших ошибочных папок-дубликатов
+                                string[] obsoleteFolders = new[]
                                 {
-                                    Path.Combine(emuSdmc, "switch", nroAppFolder),
-                                    Path.Combine(emuSdmc, "switch", nroAppFolder.Replace("-switch", "")),
                                     Path.Combine(emuSdmc, nroAppFolder),
-                                    Path.Combine(emuSdmc, nroAppFolder.Replace("-switch", ""))
+                                    Path.Combine(emuSdmc, nroAppFolder + "-switch"),
+                                    Path.Combine(emuSdmc, "switch", nroAppFolder + "-switch")
                                 };
-
-                                foreach (var folder in targetEmuFolders.Distinct(StringComparer.OrdinalIgnoreCase))
+                                foreach (var obs in obsoleteFolders)
                                 {
-                                    Directory.CreateDirectory(folder);
-                                    CopyDirectory(tempSdmcStaging, folder);
+                                    if (Directory.Exists(obs))
+                                    {
+                                        try { Directory.Delete(obs, true); } catch { }
+                                    }
                                 }
+
+                                // Развертывание строго в одну правильную целевую папку sdmc/switch/<app>
+                                string singleTargetFolder = Path.Combine(emuSdmc, "switch", nroAppFolder);
+                                Directory.CreateDirectory(singleTargetFolder);
+                                CopyDirectory(tempSdmcStaging, singleTargetFolder);
                             }
                         }
 
                         // Если эмуляторы вообще не указаны и не найдены нигде в системе - создаем пакет рядом с игрой как fallback
                         if (localEmuSdmcList.Count == 0)
                         {
-                            string sdmcTargetDir = Path.Combine(outFolder, $"{task.OutputFileName}_[SDMC]", nroAppFolder);
+                            string sdmcTargetDir = Path.Combine(outFolder, $"{task.OutputFileName}_[SDMC]", "switch", nroAppFolder);
                             Directory.CreateDirectory(sdmcTargetDir);
                             CopyDirectory(tempSdmcStaging, sdmcTargetDir);
                         }
@@ -2112,6 +2100,9 @@ namespace StormSwitchBox.Services
 
                     string[] directCandidates = new[]
                     {
+                        Path.Combine(root, "STORM SWITCH", "Assembling", "user", "sdmc"),
+                        Path.Combine(root, "STORM SWITCH", "user", "sdmc"),
+                        Path.Combine(root, "STORM SWITCH", "sdmc"),
                         Path.Combine(root, "STORM EDEN 3", "Assembling", "user", "sdmc"),
                         Path.Combine(root, "STORM EDEN 3", "user", "sdmc"),
                         Path.Combine(root, "STORM EDEN", "user", "sdmc"),
@@ -2123,9 +2114,11 @@ namespace StormSwitchBox.Services
                         Path.Combine(root, "Ryujinx", "sdmc"),
                         Path.Combine(root, "suyu", "user", "sdmc"),
                         Path.Combine(root, "sudachi", "user", "sdmc"),
+                        Path.Combine(root, "Emulators", "STORM SWITCH", "user", "sdmc"),
                         Path.Combine(root, "Emulators", "STORM EDEN 3", "user", "sdmc"),
                         Path.Combine(root, "Emulators", "yuzu", "user", "sdmc"),
                         Path.Combine(root, "Emulators", "Ryujinx", "user", "sdmc"),
+                        Path.Combine(root, "Games", "Emulators", "STORM SWITCH", "user", "sdmc"),
                         Path.Combine(root, "Games", "Emulators", "STORM EDEN 3", "user", "sdmc")
                     };
 

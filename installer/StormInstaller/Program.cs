@@ -24,7 +24,7 @@ namespace StormUniversal.Installer
         private PictureBox picHeaderLogo = null!;
         private Panel headerPanel = null!;
 
-        private const string AppVersion = "5.0.0";
+        private const string AppVersion = "5.0.2";
         private const string AppDisplayName = "STORM SWITCH BOX";
         private const string AppFolderName = "STORM SWITCH BOX";
         private const string ExeName = "StormSwitchBox.exe";
@@ -136,27 +136,37 @@ namespace StormUniversal.Installer
                 Location = new Point(24, 49)
             };
 
-            // Top-Right Header Icon Container Badge
-            var logoContainer = new Panel
-            {
-                Location = new Point(546, 12),
-                Size = new Size(62, 62),
-                BackColor = Color.Transparent
-            };
-            logoContainer.Paint += (s, e) =>
-            {
-                e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-                using var path = GetRoundedRectPath(new Rectangle(0, 0, 61, 61), 10);
-                using var brush = new SolidBrush(Color.FromArgb(20, 10, 15));
-                using var pen = new Pen(Color.FromArgb(225, 29, 72), 1.5f); // subtle dark-red / crimson glow border
-                e.Graphics.FillPath(brush, path);
-                e.Graphics.DrawPath(pen, path);
-            };
-
+            // Top-Right Header Icon (Clean Program Icon, without frames or borders)
             picHeaderLogo = new PictureBox
             {
-                Location = new Point(5, 5),
-                Size = new Size(52, 52),
+                Location = new Point(548, 16),
+                Size = new Size(54, 54),
+                SizeMode = PictureBoxSizeMode.Zoom,
+                BackColor = Color.Transparent
+            };
+
+            if (this.Icon != null)
+            {
+                picHeaderLogo.Image = this.Icon.ToBitmap();
+            }
+
+            headerPanel.Controls.Add(lblTitle);
+            headerPanel.Controls.Add(lblSubtitle);
+            headerPanel.Controls.Add(picHeaderLogo);
+            this.Controls.Add(headerPanel);
+
+            // 2. Body Panel
+            var bodyPanel = new Panel
+            {
+                Location = new Point(24, 98),
+                Size = new Size(576, 350)
+            };
+
+            // Red-Black Signature Logo in Body (Clean, without frames/borders, directly below header icon)
+            var picBodyLogo = new PictureBox
+            {
+                Location = new Point(524, 10),
+                Size = new Size(54, 54),
                 SizeMode = PictureBoxSizeMode.Zoom,
                 BackColor = Color.Transparent
             };
@@ -184,26 +194,9 @@ namespace StormUniversal.Installer
 
             if (logoImg != null)
             {
-                picHeaderLogo.Image = logoImg;
+                picBodyLogo.Image = logoImg;
+                bodyPanel.Controls.Add(picBodyLogo);
             }
-            else if (this.Icon != null)
-            {
-                picHeaderLogo.Image = this.Icon.ToBitmap();
-            }
-
-            logoContainer.Controls.Add(picHeaderLogo);
-
-            headerPanel.Controls.Add(lblTitle);
-            headerPanel.Controls.Add(lblSubtitle);
-            headerPanel.Controls.Add(logoContainer);
-            this.Controls.Add(headerPanel);
-
-            // 2. Body Panel
-            var bodyPanel = new Panel
-            {
-                Location = new Point(24, 98),
-                Size = new Size(576, 350)
-            };
 
             var lblMode = new Label
             {
@@ -446,8 +439,16 @@ namespace StormUniversal.Installer
         private async Task StartInstallationAsync()
         {
             btnInstall.Enabled = false;
-            btnCancel.Enabled = false;
+            btnCancel.Enabled = true;
             btnBrowse.Enabled = false;
+            rbStandard.Enabled = false;
+            rbPortable.Enabled = false;
+            txtInstallPath.Enabled = false;
+            chkDesktop.Enabled = false;
+            chkStartMenu.Enabled = false;
+            chkInstallCert.Enabled = false;
+            chkRegister.Enabled = false;
+            chkRunAfter.Enabled = false;
 
             try
             {
@@ -584,6 +585,8 @@ namespace StormUniversal.Installer
                 progressBar.Value = 100;
                 lblStatus.Text = rbPortable.Checked ? "Портативная версия успешно распакована и разблокирована!" : "Установка успешно завершена! Система полностью готова.";
                 lblStatus.ForeColor = Color.FromArgb(16, 185, 129);
+                btnInstall.Enabled = false;
+                btnCancel.Enabled = false;
                 await Task.Delay(500);
 
                 if (chkRunAfter.Checked && File.Exists(targetExe))

@@ -89,12 +89,12 @@ namespace StormSwitchBox.Views
                     Title = "Обзор приложения",
                     Category = "Введение",
                     Icon = "\uE9CE",
-                    DescriptionText = "STORM SWITCH BOX v5.0.0 — это профессиональный высокопроизводительный комбайн для всесторонней обработки образов игр Nintendo Switch и Nintendo 3DS, а также интерактивная энциклопедия всех 19 поколений игровых систем Nintendo (от Color TV-Game до Nintendo Switch 2).\n\nПрограмма оснащена системой «Умная обработка файлов» (Smart Processing), которая работает всегда и автоматически выбирает оптимальный метод сборки (нативное сшивание без раздувания RomFS для легких патчей или HardPatch для тяжелых обновлений и модов), распаковывает ресурсы, компилирует файлы в NSP/NSZ/3DS/CIA, конвертирует форматы внутри экосистем (Switch: NSP ↔ XCI ↔ NSZ ↔ XCZ; 3DS: 3DS ↔ CIA ↔ CXI), объединяет игры с обновлениями, дополнениями (DLC) и модификациями в единый монолитный файл (Мульти-контент 4-в-1), автоматически собирает Homebrew порты и игры в один файл, осуществляет независимый мониторинг «Умных папок» Switch и 3DS, а также мгновенно сохраняет историю в LocalAppData.",
+                    DescriptionText = "STORM SWITCH BOX v5.0.2 — это профессиональный высокопроизводительный комбайн для всесторонней обработки образов игр Nintendo Switch и Nintendo 3DS, а также интерактивная энциклопедия всех 19 поколений игровых систем Nintendo (от Color TV-Game до Nintendo Switch 2).\n\nПрограмма оснащена системой «Умная обработка файлов» (Smart Processing), которая работает всегда и автоматически выбирает оптимальный метод сборки (нативное сшивание без раздувания RomFS для легких патчей или HardPatch для тяжелых обновлений и модов), распаковывает ресурсы, компилирует файлы в NSP/NSZ/3DS/CIA, конвертирует форматы внутри экосистем (Switch: NSP ↔ XCI ↔ NSZ ↔ XCZ; 3DS: 3DS ↔ CIA ↔ CXI), объединяет игры с обновлениями, дополнениями (DLC) и модификациями в единый монолитный файл (Мульти-контент 4-в-1), автоматически собирает Homebrew порты и игры в один файл, осуществляет независимый мониторинг «Умных папок» Switch и 3DS, а также мгновенно сохраняет историю в LocalAppData.",
                     Tip = "Переключайтесь между платформами Switch и 3DS в один клик через верхний селектор или настраивайте независимое отслеживание папок!",
                     SetupPreview = container =>
                     {
-                        container.Children.Add(new TextBlock { Text = "⚡ STORM SWITCH BOX v5.0.0", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.Bold });
-                        container.Children.Add(new TextBlock { Text = "• Умная обработка файлов: идеальный баланс размера и функционала по умолчанию\n• Поддержка двух экосистем: Nintendo Switch и Nintendo 3DS с изолированными конвертациями\n• Интерактивная «Библиотека игр» всех 19 поколений Nintendo (No-Intro & Redump)\n• Раздел «Информация» с визуальными плашками платформ на обложках\n• Две независимые службы «Умная папка» (Switch и 3DS)\n• Встроенный сверхбыстрый движок 7-Zip и ZstdSharp (до 22 уровня сжатия)", Foreground = GetSecondaryBrush() });
+                        container.Children.Add(new TextBlock { Text = "⚡ STORM SWITCH BOX v5.0.2", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.Bold });
+                        container.Children.Add(new TextBlock { Text = "• Умная обработка файлов: идеальный баланс размера и функционала по умолчанию\n• Поддержка двух экосистем: Nintendo Switch и Nintendo 3DS с изолированными конвертациями\n• Интерактивная «Библиотека игр» всех 19 поколений Nintendo (No-Intro и Redump)\n• Раздел «Информация» с визуальными плашками платформ на обложках\n• Две независимые службы «Умная папка» (Switch и 3DS)\n• Встроенный сверхбыстрый движок 7-Zip и ZstdSharp (до 22 уровня сжатия)", Foreground = GetSecondaryBrush() });
                     }
                 },
                 new TopicItem
@@ -102,7 +102,7 @@ namespace StormSwitchBox.Views
                     Title = "Умная обработка файлов",
                     Category = "Алгоритмы",
                     Icon = "\uE945",
-                    DescriptionText = "Интеллектуальный алгоритм автоматического выбора метода сборки (Smart Processing), внедренный в v5.0.0:\n\n" +
+                    DescriptionText = "Интеллектуальный алгоритм автоматического выбора метода сборки (Smart Processing), внедренный в v5.0.2:\n\n" +
                                       "Цель алгоритма: получить абсолютно минимальный размер выходного файла при 100% сохранении всего функционала, модов и дополнений.\n\n" +
                                       "Как работает авто-анализ:\n" +
                                       "1. Легковесные патчи (напр. Ys X Nordics: патч 60 МБ на игру 6.75 ГБ) — программа применяет нативное сшивание LibHac PFS0. Это сохраняет оригинальный несжатый размер (6.81 ГБ) без раздувания RomFS до 10.4 ГБ!\n" +
@@ -110,15 +110,7 @@ namespace StormSwitchBox.Views
                                       "3. Наличие папок модификаций (romfs, exefs, exefs_patches) — автоматически включает HardPatch для надежного внедрения перевода и модов прямо в бинарные ресурсы игры.\n\n" +
                                       "Вся логика решений наглядно отображается в логе задачи с иконкой 🧠.",
                     Tip = "Умная обработка активна всегда и по умолчанию — вам больше не нужно вручную думать, когда пересобирать, а когда сшивать!",
-                    SetupPreview = container =>
-                    {
-                        var sp = new StackPanel { Spacing = 8 };
-                        sp.Children.Add(new TextBlock { Text = "🧠 Умный анализ файлов (Smart Processing):", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
-                        sp.Children.Add(new TextBlock { Text = "• Легкий патч: [Нативное сшивание] → Минимальный размер (6.81 ГБ вместо 10.4 ГБ)", FontSize = 12, Foreground = GetSecondaryBrush() });
-                        sp.Children.Add(new TextBlock { Text = "• Тяжелый патч: [HardPatch] → Замена ресурсов и удаление устаревших данных", FontSize = 12, Foreground = GetSecondaryBrush() });
-                        sp.Children.Add(new TextBlock { Text = "• Папки модов: [HardPatch] → Физическая инъекция русификатора в RomFS", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) });
-                        container.Children.Add(sp);
-                    }
+                    SetupPreview = container => BuildSmartProcessingInteractivePreview(container)
                 },
                 new TopicItem
                 {
@@ -131,46 +123,16 @@ namespace StormSwitchBox.Views
                 },
                 new TopicItem
                 {
-                    Title = "Встроенный 7-Zip и Автораспаковка",
-                    Category = "Архивы",
-                    Icon = "\uE8F1",
-                    DescriptionText = "STORM SWITCH BOX содержит встроенный движок 7-Zip и не требует отдельной установки архиваторов в системе.\n\n" +
-                                      "Особенности работы:\n" +
-                                      "1. Автораспаковка при добавлении — перетащите архив (.zip, .rar, .7z) или папку с архивами в программу, и содержимое будет автоматически извлечено.\n" +
-                                      "2. Умный пропуск повторного извлечения — если рядом с архивом уже есть папка с ранее распакованным содержимым, программа не тратит время на повторную распаковку, а сразу использует готовые файлы.\n" +
-                                      "3. Многопоточное ускорение — 7-Zip задействует все ядра ЦП (-mmt=on) для максимальной скорости распаковки многогигабайтных архивов.\n" +
-                                      "4. Мгновенная индексация — извлеченные игры, патчи, DLC и папки модов автоматически группируются в задачи.",
-                    Tip = "Вы можете просто закинуть архив с русификатором или 60 FPS модом прямо в окно программы!",
-                    SetupPreview = container =>
-                    {
-                        var sp = new StackPanel { Spacing = 8 };
-                        sp.Children.Add(new TextBlock { Text = "📦 Встроенный движок 7-Zip (Active)", Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-                        sp.Children.Add(new TextBlock { Text = "✓ Автоматическое извлечение .zip, .rar, .7z", FontSize = 12, Foreground = GetSecondaryBrush() });
-                        sp.Children.Add(new TextBlock { Text = "✓ Пропуск уже распакованных папок", FontSize = 12, Foreground = GetSecondaryBrush() });
-                        sp.Children.Add(new TextBlock { Text = "✓ Многопоточная декомпрессия (Multi-threading)", FontSize = 12, Foreground = GetSecondaryBrush() });
-                        container.Children.Add(sp);
-                    }
-                },
-                new TopicItem
-                {
                     Title = "Модификации (RomFS, ExeFS и IPS)",
-                    Category = "Моддинг",
+                    Category = "Моды",
                     Icon = "\uE7B5",
                     DescriptionText = "Комплексная поддержка любых видов модификаций Nintendo Switch:\n\n" +
                                       "1. RomFS — перевод текста, русская озвучка, HD-текстуры и замена моделей. Положите папку romfs рядом с игрой.\n" +
                                       "2. ExeFS — модифицированные бинарные модули NSO (main, subsdk0).\n" +
                                       "3. ExeFS_Patches (IPS) — папки с .ips патчами (60 FPS, твики графики, отключение размытия, читы). Программа автоматически накладывает IPS-патчи на исполняемый код main при сборке.\n" +
-                                      "4. Отображение в эмуляторах — вшитые модификации регистрируются как AddOnContent (DLC) и отображаются в свойствах игры в эмуляторах (Eden Nightly, STORM EDEN, Yuzu, Ryujinx) с возможностью их включения/выключения.",
+                                      "4. Отображение в эмуляторах — вшитые модификации регистрируются как AddOnContent (DLC) и отображаются в свойствах игры в эмуляторах (STORM SWITCH, Eden Nightly, Yuzu, Ryujinx) с возможностью их включения/выключения.",
                     Tip = "Задайте красивое имя для мода (например, «Русская озвучка GamesVoice») через Редактор метаданных!",
-                    SetupPreview = container =>
-                    {
-                        var sp = new StackPanel { Spacing = 6 };
-                        sp.Children.Add(new TextBlock { Text = "🎮 Вшивание модификаций:", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-                        sp.Children.Add(new TextBlock { Text = "• RomFS: Текстуры и озвучка [RomFS: 1]", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
-                        sp.Children.Add(new TextBlock { Text = "• ExeFS_Patches: 60 FPS IPS Patch [ExeFS: 1]", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) });
-                        sp.Children.Add(new TextBlock { Text = "• Дополнения в эмуляторе: [☑] Модификации: RomFS (версия 1)", FontSize = 12, Foreground = GetSecondaryBrush() });
-                        container.Children.Add(sp);
-                    }
+                    SetupPreview = container => BuildModsInteractivePreview(container)
                 },
                 new TopicItem
                 {
@@ -181,85 +143,48 @@ namespace StormSwitchBox.Views
                                       "• Вызов: кликните правой кнопкой мыши по задаче в таблице → «Редактировать метаданные и иконку».\n" +
                                       "• Изменение названий игры: возможность задать основное английское и русское название игры, а также автора/издателя.\n" +
                                       "• Кастомные названия модов: индивидуальные имена для RomFS и ExeFS/IPS модификаций (например, «Русификатор текста», «60 FPS Patch»).\n" +
-                                      "• Быстрая замена иконки: выбор любого изображения (PNG/JPEG), автоматическая обрезка и масштабирование до стандарта 256×256.\n" +
-                                      "• Без медленной пересборки: изменения вносятся точечно и быстро.",
-                    Tip = "При сборке Мульти-контента обновленная иконка и названия автоматически внедряются в финальный образ.",
-                    SetupPreview = container =>
-                    {
-                        var sp = new StackPanel { Spacing = 8 };
-                        sp.Children.Add(new TextBlock { Text = "🏷️ Метаданные игры:", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-                        sp.Children.Add(new TextBlock { Text = "• Имя (ENG): Cadence of Hyrule", FontSize = 12, Foreground = GetSecondaryBrush() });
-                        sp.Children.Add(new TextBlock { Text = "• Имя (RUS): Cadence of Hyrule [RUS]", FontSize = 12, Foreground = GetSecondaryBrush() });
-                        sp.Children.Add(new TextBlock { Text = "• RomFS мод: Русская озвучка GamesVoice", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
-                        sp.Children.Add(new TextBlock { Text = "• ExeFS мод: 60 FPS Patch", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) });
-                        container.Children.Add(sp);
-                    }
+                                      "• Замена иконки: поддержка загрузки любого изображения .jpg, .png (авто-масштабирование в 256x256 JPEG с сохранением пропорций).\n" +
+                                      "• Редактирование версий: исправление номеров версий и отображаемой строки обновления.",
+                    Tip = "Вы можете менять название и иконку даже для уже упакованных игр без полной пересборки!",
+                    SetupPreview = container => BuildMetadataInteractivePreview(container)
                 },
                 new TopicItem
                 {
                     Title = "«Умная» папка",
                     Category = "Автоматизация",
-                    Icon = "\uE812",
-                    DescriptionText = "«Умная» папка предназначена для автоматической фоновой обработки игр.\n\n" +
-                                      "Принцип работы:\n" +
-                                      "1. Активация — просто включите переключатель в Параметрах. Сканирование начинается мгновенно!\n" +
-                                      "2. Изоляция по папкам — каждая подпапка первого уровня формирует отдельную изолированную задачу.\n" +
-                                      "3. Комплектность по TitleID — внутри одной подпапки базовая игра, файлы обновления, DLC и модификации (RomFS/ExeFS/IPS) автоматически объединяются в один комплект.\n" +
-                                      "4. Точечная привязка RomFS — папки модификаций привязываются только к той задаче, из чьей директории они происходят.\n" +
-                                      "5. Автозапуск — после сканирования или появления новых файлов задачи автоматически запускаются в обработку по заданным параметрам.",
-                    Tip = "Используйте поддержку Drag-and-Drop в Параметрах, чтобы легко задать «Умную» папку перетаскиванием.",
-                    SetupPreview = container =>
-                    {
-                        var sp = new StackPanel { Spacing = 10 };
-                        sp.Children.Add(new CheckBox { Content = "Автоматическое сканирование и обработка", IsChecked = true });
-                        sp.Children.Add(new TextBlock { Text = "Папка: P:\\CONSOLES\\Nintendo Switch\\DOWNLOADS", FontSize = 12, Foreground = GetSecondaryBrush() });
-                        sp.Children.Add(new TextBlock { Text = "Режим: Мульти-контент → Формат: NSP (Умная обработка активна)", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
-                        sp.Children.Add(new TextBlock { Text = "⚡ Автоматический запуск задач активирован", FontSize = 12, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-                        container.Children.Add(sp);
-                    }
+                    Icon = "\uE8B7",
+                    DescriptionText = "Полностью автономный конвейер потоковой обработки игр для Nintendo Switch и Nintendo 3DS с раздельным мониторингом:\n\n" +
+                                      "1. Две независимые папки мониторинга — вы можете настроить отдельный каталог для игр Switch (напр. D:\\Games\\Switch_Incoming) и отдельный каталог для 3DS (напр. D:\\Games\\3DS_Incoming). Каждая служба работает независимо со своими параметрами сжатия и целевого формата!\n" +
+                                      "2. Положили файл — получили готовый результат: программа автоматически подхватывает новые файлы, объединяет обновления/DLC, пересобирает/конвертирует по выбранным настройкам и перемещает результат в указанную выходную папку.\n" +
+                                      "3. Защита от недокачанных файлов — утилита ожидает полного завершения копирования файла перед началом его обработки, предотвращая повреждение данных.\n" +
+                                      "4. Уведомления и история — при завершении фоновой обработки отправляется нативное уведомление Windows, а результат заносится в Историю.",
+                    Tip = "Настройте входящую папку для загрузок вашего торрент-клиента или браузера, и игры будут оптимизироваться и конвертироваться автоматически сразу после загрузки!",
+                    SetupPreview = container => BuildSmartFolderInteractivePreview(container)
                 },
                 new TopicItem
                 {
                     Title = "Мульти-контент и Unlocker",
-                    Category = "Компоновка",
-                    Icon = "\uE7BE",
-                    DescriptionText = "Наиболее продвинутый режим для сборки монолитных образов NSP или NSZ.\n\n" +
-                                      "• Объединение ресурсов: Базовая игра, Файл обновления, Все дополнения (DLC), Модификации RomFS/ExeFS/IPS и Unlocker собираются в единый устанавливаемый файл.\n" +
-                                      "• Сохранение UNLOCKER (.tik / .cert): программа надежно защищает и сохраняет тикеты авторизации персонажей и дополнений (например, в Mortal Kombat 1).\n" +
-                                      "• Native LibHac PFS0: сшивание выполняется нативным C# кодом с гарантированным строгим порядком заголовков (Application CNMT → Control NCA → Program NCA → Patch CNMT → DLC CNMTs → Tickets), что исключает ошибки распознавания в эмуляторах.\n" +
-                                      "• Интеграция со Smart Processing: гарантирует, что размер итогового файла будет минимально возможным.",
-                    Tip = "Сборка Мульти-контента в NSZ позволяет сэкономить гигабайты места при хранении единого файла игры со всеми DLC.",
-                    SetupPreview = container =>
-                    {
-                        var sp = new StackPanel { Spacing = 6 };
-                        sp.Children.Add(new TextBlock { Text = "Комплект Мульти-контента:", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-                        sp.Children.Add(new TextBlock { Text = "1. [ИГРА] Mortal Kombat 1 (30.0 ГБ)", FontSize = 12, Foreground = GetSecondaryBrush() });
-                        sp.Children.Add(new TextBlock { Text = "2. [ОБНОВЛЕНИЕ] Update v1.18.0 (5.2 ГБ)", FontSize = 12, Foreground = GetSecondaryBrush() });
-                        sp.Children.Add(new TextBlock { Text = "3. [DLC] Все персонажи Kombat Pack (150 МБ)", FontSize = 12, Foreground = GetSecondaryBrush() });
-                        sp.Children.Add(new TextBlock { Text = "4. [UNLOCKER] Тикеты прав (.tik / .cert сохранены)", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
-                        sp.Children.Add(new TextBlock { Text = "5. [MOD] 60 FPS ExeFS Patch [ExeFS: 1]", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) });
-                        container.Children.Add(sp);
-                    }
+                    Category = "Сборка",
+                    Icon = "\uE74C",
+                    DescriptionText = "Революционный режим объединения игры, всех дополнений и обновлений в один файл (Монолитный образ):\n\n" +
+                                      "• 1G + 1U + ALL DLC в одном NSP или XCI: забудьте об установке десятков отдельных файлов дополнений.\n" +
+                                      "• DLC Unlocker: программа может сгенерировать билеты и заглушки для всех доступных DLC по TitleDB базе данных.\n" +
+                                      "• Умная замена старых версий патчей: если в папке лежит патч v1.0.1 и патч v1.0.5, программа автоматически выберет самый свежий, исключив конфликты.\n" +
+                                      "• Экономия места: устранение дублирующихся дельт и неиспользуемых файлов.",
+                    Tip = "Используйте режим Multi-Content для создания идеальных архивных копий ваших любимых игр со всеми дополнениями!",
+                    SetupPreview = container => BuildMultiContentInteractivePreview(container)
                 },
                 new TopicItem
                 {
                     Title = "Интеграция с эмуляторами и синхронизация SDMC",
                     Category = "Эмуляторы",
                     Icon = "\uE7FC",
-                    DescriptionText = "STORM SWITCH BOX v5.0.0 предоставляет полную свободу в интеграции с локальными эмуляторами Nintendo Switch (STORM EDEN, Yuzu, Ryujinx, Suyu, Sudachi, Torzu, Citron и др.):\n\n" +
-                                      "1. Пользовательский выбор папок эмуляторов — в разделе «Параметры» доступен специальный блок «Интеграция с эмуляторами (Путь к папке эмулятора)». Вы можете перетащить (Drag & Drop) или выбрать через проводник одну или несколько директорий ваших эмуляторов (например, E:\\STORM EDEN 3\\Assembling, L:\\Emulators\\Ryujinx и др.).\n\n" +
-                                      "2. Чистота выходной библиотеки — при сборке Homebrew-игр и портов программа больше НЕ создает лишних папок [SDMC] в вашей основной папке с играми (например, P:\\CONSOLES\\...\\GAMES). Все файлы NRO, данные и конфигурации доставляются строго в виртуальные SD-карты указанных эмуляторов (user/sdmc/switch/<game>/), а рядом с игрой сохраняется только чистый итоговый файл (.nsp / .nsz / .xci).\n\n" +
-                                      "3. Эксклюзивная фильтрация — если в настройках указаны конкретные папки эмуляторов, синхронизация данных происходит ИСКЛЮЧИТЕЛЬНО в них, полностью исключая фоновые диски и системные профили. Если список пуст — включается умный авто-поиск по всем подключенным дискам (C:, D:, E:, L: и др.).",
+                    DescriptionText = "STORM SWITCH BOX v5.0.2 предоставляет полную свободу в интеграции с локальными эмуляторами Nintendo Switch (STORM SWITCH, Yuzu, Ryujinx, Suyu, Sudachi, Torzu, Citron и др.):\n\n" +
+                                      "1. Пользовательский выбор папок эмуляторов — в разделе «Параметры» доступен специальный блок «Интеграция с эмуляторами (Путь к папке эмулятора)». Вы можете перетащить (Drag and Drop) или выбрать через проводник одну или несколько директорий ваших эмуляторов (например, E:\\STORM SWITCH\\Assembling, L:\\Emulators\\Ryujinx и др.).\n\n" +
+                                      "2. Чистота выходной библиотеки — при сборке Homebrew-игр и портов программа больше НЕ создает лишних папок [SDMC] в вашей основной папке с играми. Все файлы NRO, данные и конфигурации доставляются строго в виртуальные SD-карты указанных эмуляторов (user/sdmc/switch/<game>/), а рядом с игрой сохраняется только чистый итоговый файл (.nsp / .nsz / .xci).\n\n" +
+                                      "3. Строгая эксклюзивная доставка — данные синхронизируются строго в одну правильную целевую папку эмулятора user/sdmc/switch/<game>/, а любые устаревшие папки-дубликаты автоматически удаляются, исключая раздувание дискового пространства.",
                     Tip = "Задайте папку вашего эмулятора один раз в Параметрах, и Homebrew-порты будут запускаться моментально без единого ручного действия!",
-                    SetupPreview = container =>
-                    {
-                        var sp = new StackPanel { Spacing = 8 };
-                        sp.Children.Add(new TextBlock { Text = "🎮 Целевая синхронизация эмуляторов (Active):", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
-                        sp.Children.Add(new TextBlock { Text = "• Папка эмулятора: E:\\STORM EDEN 3\\Assembling (user/sdmc/)", FontSize = 12, Foreground = GetSecondaryBrush() });
-                        sp.Children.Add(new TextBlock { Text = "• Чистая библиотека: Папки [SDMC] не засоряют каталог игр", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) });
-                        sp.Children.Add(new TextBlock { Text = "• Drag & Drop: Поддержка перетаскивания нескольких эмуляторов", FontSize = 12, Foreground = GetSecondaryBrush() });
-                        container.Children.Add(sp);
-                    }
+                    SetupPreview = container => BuildEmulatorSyncInteractivePreview(container)
                 },
                 new TopicItem
                 {
@@ -267,15 +192,18 @@ namespace StormSwitchBox.Views
                     Category = "Homebrew",
                     Icon = "\uE7FC",
                     DescriptionText = "Специализированный раздел «Homebrew» для автоматического распознавания, объединения и сборки любых портов и любительских игр в монолитные автономные файлы (NSP / NSZ / XCI):\n\n" +
-                                      "1. Умное распознавание любых наборов файлов — просто перетащите папку с игрой (например, Diablo I, GTA V, GTA Vice City / San Andreas, DOOM, Half-Life, Quake, S.T.A.L.K.E.R., Morrowind) или группу файлов (.nro, .ovl, .nsp форвардеры, архивы .zip/.7z, папки atmosphere/contents/<TitleID>/romfs). Программа мгновенно объединит их в готовую задачу.\n" +
-                                      "2. Монолитная сборка RomFS и авто-деплой SDMC — все внешние ресурсы игры (.mpq, .rpf, .wad, .pk3, .pak, .dat, .bin, .ini, .cfg, шрифты и текстуры) вшиваются в Program NCA, а также автоматически синхронизируются в целевые папки SDMC эмуляторов (STORM EDEN, Yuzu, Ryujinx, Suyu, Sudachi) без засорения выходной библиотеки.\n" +
-                                      "3. Авто-извлечение ExeFS и NACP — при наличии сопутствующего Forwarder NSP программа автоматически распаковывает и использует оригинальные бинарные модули main/NPDM и метаданные (TitleID, иконку, автора).\n\n" +
+                                      "1. Умное распознавание любых наборов файлов — просто перетащите папку с игрой (например, Diablo I, GTA San Andreas / Vice City, DOOM, Half-Life, Quake, S.T.A.L.K.E.R., Morrowind) или группу файлов (.nro, .ovl, .nsp форвардеры, архивы .zip/.7z, папки atmosphere/contents/<TitleID>/romfs). Программа мгновенно объединит их в готовую задачу.\n" +
+                                      "2. Стандартизация v5.0.2 (Без раздувания и без ошибки 0x75B):\n" +
+                                      "   • Ресурсы RomFS вшиваются ровно в 1 экземпляре (Diablo I весит 718.01 МБ вместо раздутых 4.27 ГБ!).\n" +
+                                      "   • В SDMC эмулятора создается ровно одна правильная папка user/sdmc/switch/<game>/.\n" +
+                                      "   • Форвардер нацелен строго на sdmc:/switch/<game>/<game>.nro, что предотвращает ошибку вылета 0x75B (Userspace PANIC!).\n" +
+                                      "3. Авто-деплой SDMC — все внешние ресурсы игры (.mpq, .rpf, .wad, .pk3, .pak, .dat, .bin, .ini, .cfg, шрифты и текстуры) автоматически синхронизируются в целевые папки SDMC эмуляторов (STORM SWITCH, Yuzu, Ryujinx, Suyu, Sudachi) без засорения выходной библиотеки.\n\n" +
                                       "⚡ Как правильно запускать Homebrew-игры и порты движков:\n\n" +
                                       "► Вариант А: Прямой запуск .nro (Самый надежный способ)\n" +
-                                      "Поместите файл игры с расширением .nro (например: devilutionx.nro, sm64.nro, xash3d.nro, openmw.nro и т.д.) в папку с вашими играми. В эмуляторе нажмите «Загрузить файл» (или добавьте папку в библиотеку эмулятора — STORM EDEN автоматически сканирует расширения .nro, .nsp, .xci). Игра запустится напрямую без участия форвардеров.\n\n" +
+                                      "Поместите файл игры с расширением .nro (например: devilutionx.nro, sm64.nro, xash3d.nro, openmw.nro и т.д.) в папку с вашими играми. В эмуляторе нажмите «Загрузить файл» (или добавьте папку в библиотеку эмулятора — STORM SWITCH автоматически сканирует расширения .nro, .nsp, .xci). Игра запустится напрямую без участия форвардеров.\n\n" +
                                       "► Вариант Б: Использование Форвардеров (.nsp)\n" +
                                       "STORM SWITCH BOX при сборке автоматически разложит необходимые исполняемые файлы и ресурсы в виртуальную карту вашего эмулятора:\n" +
-                                      "   • Diablo I: sdmc/devilutionx-switch/ (devilutionx.nro + diabdat.mpq)\n" +
+                                      "   • Diablo I: user/sdmc/switch/devilutionx/ (devilutionx.nro + diabdat.mpq)\n" +
                                       "   • GTA San Andreas: sdmc/switch/re3-sa/ (re3-sa.nro + models/, data/, audio/)\n" +
                                       "   • Half-Life 1: sdmc/switch/xash3d/ (xash3d.nro + valve/ с valve.wad, halflife.wad)\n" +
                                       "   • DOOM 1/2: sdmc/switch/gzdoom/ (gzdoom.nro + doom.wad / doom2.wad)\n" +
@@ -287,16 +215,7 @@ namespace StormSwitchBox.Views
                                       "   • Zelda OoT / MM: sdmc/switch/soh/ (soh.nro + oot.otr)\n" +
                                       "Форвардер NSP моментально подхватывает данные и игра работает идеально!",
                     Tip = "Укажите путь к вашему эмулятору в Параметрах для автоматической синхронизации данных Homebrew!",
-                    SetupPreview = container =>
-                    {
-                        var sp = new StackPanel { Spacing = 6 };
-                        sp.Children.Add(new TextBlock { Text = "🕹️ Пакет Homebrew игры (Автономный NSP + Прямая синхронизация):", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) });
-                        sp.Children.Add(new TextBlock { Text = "• ExeFS: main (бинарный порт) + main.npdm [NSP Forwarder]", FontSize = 12, Foreground = GetSecondaryBrush() });
-                        sp.Children.Add(new TextBlock { Text = "• RomFS: Вшитые данные игры (.mpq / .rpf / .wad / .ini / LayeredFS)", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
-                        sp.Children.Add(new TextBlock { Text = "• SDMC: Автоматический деплой в user/sdmc/switch/<game>/", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
-                        sp.Children.Add(new TextBlock { Text = "✓ Чистота библиотеки: Папка [SDMC] не создается рядом с игрой", FontSize = 12, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
-                        container.Children.Add(sp);
-                    }
+                    SetupPreview = container => BuildHomebrewInteractivePreview(container)
                 },
                 new TopicItem
                 {
@@ -326,14 +245,7 @@ namespace StormSwitchBox.Views
                                       "• Экосистема Nintendo 3DS: 3DS (CCI) ↔ CIA ↔ CXI. Форматы 3DS изолированы от форматов Switch.\n" +
                                       "• Автоматическая обрезка пустых байтов (Trimming) для картриджей 3DS.",
                     Tip = "XCI в NSP конвертируется без потери данных и без нагрузки на ЦП.",
-                    SetupPreview = container =>
-                    {
-                        var sp = new StackPanel { Spacing = 8 };
-                        sp.Children.Add(new TextBlock { Text = "Цепочки конвертации:", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-                        sp.Children.Add(new TextBlock { Text = "• Switch: NSP ↔ XCI ↔ NSZ ↔ XCZ", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) });
-                        sp.Children.Add(new TextBlock { Text = "• 3DS: 3DS (CCI) ↔ CIA ↔ CXI", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.Crimson) });
-                        container.Children.Add(sp);
-                    }
+                    SetupPreview = container => BuildFormatConverterInteractivePreview(container)
                 },
                 new TopicItem
                 {
@@ -613,7 +525,7 @@ namespace StormSwitchBox.Views
                                       "1. RomFS — custom textures, translations, voiceovers, and models.\n" +
                                       "2. ExeFS — modified NSO binary modules (main, subsdk0).\n" +
                                       "3. ExeFS_Patches (IPS) — 60 FPS patches, graphics tweaks, no-blur, and cheats applied to main.\n" +
-                                      "4. Emulator Compatibility — embedded mods are recognized as DLC and can be toggled on/off in emulator game properties (STORM EDEN, Yuzu, Ryujinx).",
+                                      "4. Emulator Compatibility — embedded mods are recognized as DLC and can be toggled on/off in emulator game properties (STORM SWITCH, Eden Nightly, Yuzu, Ryujinx).",
                     Tip = "Give your mod a custom title (e.g. «60 FPS Mod») in the Metadata Editor!",
                     SetupPreview = container =>
                     {
@@ -697,8 +609,8 @@ namespace StormSwitchBox.Views
                     Title = "Emulator Integration & SDMC Sync",
                     Category = "Emulators",
                     Icon = "\uE7FC",
-                    DescriptionText = "Seamless integration with Nintendo Switch emulators (STORM EDEN, Yuzu, Ryujinx, Suyu, Sudachi, Torzu, Citron):\n\n" +
-                                      "1. Custom Emulator Directories — In Settings, specify one or more emulator paths via Drag & Drop or folder picker.\n" +
+                    DescriptionText = "Seamless integration with Nintendo Switch emulators (STORM SWITCH, Yuzu, Ryujinx, Suyu, Sudachi, Torzu, Citron):\n\n" +
+                                      "1. Custom Emulator Directories — In Settings, specify one or more emulator paths via Drag and Drop or folder picker.\n" +
                                       "2. Clean Game Library — Building Homebrew ports delivers NRO data directly into emulator SDMC (user/sdmc/switch/<game>/) without creating redundant [SDMC] folders in your main game library.\n" +
                                       "3. Strict Filtering — Data synchronizes strictly to specified emulator paths.",
                     Tip = "Specify your emulator path once in Settings for instant launch of Homebrew ports!",
@@ -706,9 +618,9 @@ namespace StormSwitchBox.Views
                     {
                         var sp = new StackPanel { Spacing = 8 };
                         sp.Children.Add(new TextBlock { Text = "🎮 Targeted Emulator Sync (Active):", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
-                        sp.Children.Add(new TextBlock { Text = "• Emulator Folder: E:\\STORM EDEN 3\\Assembling (user/sdmc/)", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "• Emulator Folder: E:\\STORM SWITCH\\Assembling (user/sdmc/)", FontSize = 12, Foreground = GetSecondaryBrush() });
                         sp.Children.Add(new TextBlock { Text = "• Clean Library: [SDMC] folders never pollute game directories", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) });
-                        sp.Children.Add(new TextBlock { Text = "• Drag & Drop: Multiple emulator path support", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "• Drag and Drop: Multiple emulator path support", FontSize = 12, Foreground = GetSecondaryBrush() });
                         container.Children.Add(sp);
                     }
                 },
@@ -1656,6 +1568,717 @@ namespace StormSwitchBox.Views
 
             cardBorder.Child = mainSp;
             _simulatorResultsPanel.Children.Add(cardBorder);
+        }
+
+        #endregion
+
+        #region New Interactive Previews (v5.0.2)
+
+        private void BuildModsInteractivePreview(StackPanel container)
+        {
+            var sp = new StackPanel { Spacing = 10 };
+            sp.Children.Add(new TextBlock { Text = "🎮 Интерактивный конфигуратор модов (RomFS и ExeFS):", FontWeight = Microsoft.UI.Text.FontWeights.Bold, FontSize = 14, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) });
+
+            var rbRomFs = new RadioButton { Content = "RomFS: Русификатор текста и звука (GamesVoice)", IsChecked = true };
+            var rbExeFs = new RadioButton { Content = "ExeFS_Patches: Патч разблокировки 60 FPS (IPS)" };
+            var rbBoth = new RadioButton { Content = "Комплексный релиз: RomFS [Озвучка] + ExeFS [60 FPS]" };
+
+            var card = new Border
+            {
+                Background = (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"],
+                BorderBrush = (Brush)Application.Current.Resources["CardStrokeColorDefaultBrush"],
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(12)
+            };
+            var resultTxt = new TextBlock { FontSize = 12, TextWrapping = TextWrapping.Wrap };
+            card.Child = resultTxt;
+
+            void UpdateModStatus()
+            {
+                if (rbBoth.IsChecked == true)
+                {
+                    resultTxt.Text = "✓ DLC 1: [Включено] Русская озвучка GamesVoice (RomFS: 1)\n✓ ExeFS: main пропатчен 60 FPS IPS твиком\n✓ Статус в STORM SWITCH: Отображается в свойствах игры с возможностью отключения.";
+                    resultTxt.Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen);
+                }
+                else if (rbExeFs.IsChecked == true)
+                {
+                    resultTxt.Text = "✓ ExeFS: Бинарный патч 60 FPS применен к исполняемому модулю.\n✓ Статус в STORM SWITCH: Стабильные 60 кадров/сек без задержек.";
+                    resultTxt.Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue);
+                }
+                else
+                {
+                    resultTxt.Text = "✓ RomFS: Все игровые шрифты, текст и русская озвучка упакованы в виртуальный DLC тайтл.\n✓ Статус в STORM SWITCH: Полный русский язык без перезаписи оригинальной игры.";
+                    resultTxt.Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen);
+                }
+            }
+
+            rbRomFs.Checked += (s, e) => UpdateModStatus();
+            rbExeFs.Checked += (s, e) => UpdateModStatus();
+            rbBoth.Checked += (s, e) => UpdateModStatus();
+            UpdateModStatus();
+
+            sp.Children.Add(rbRomFs);
+            sp.Children.Add(rbExeFs);
+            sp.Children.Add(rbBoth);
+            sp.Children.Add(card);
+            container.Children.Add(sp);
+        }
+
+        private void BuildMetadataInteractivePreview(StackPanel container)
+        {
+            var sp = new StackPanel { Spacing = 10 };
+            sp.Children.Add(new TextBlock { Text = "✏️ Интерактивный редактор метаданных (NACP):", FontWeight = Microsoft.UI.Text.FontWeights.Bold, FontSize = 14, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) });
+
+            var txtName = new TextBox { Header = "Название игры (Русский / Английский):", Text = "The Legend of Zelda: Tears of the Kingdom [RUS]" };
+            var txtPub = new TextBox { Header = "Издатель:", Text = "Nintendo / STORM SOFT" };
+
+            var card = new Border
+            {
+                Background = (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"],
+                BorderBrush = (Brush)Application.Current.Resources["CardStrokeColorDefaultBrush"],
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(12)
+            };
+
+            var previewSp = new StackPanel { Spacing = 4 };
+            var lblTitle = new TextBlock { FontWeight = Microsoft.UI.Text.FontWeights.Bold, FontSize = 13 };
+            var lblPub = new TextBlock { FontSize = 12, Foreground = GetSecondaryBrush() };
+            var lblBadge = new TextBlock { Text = "✓ Control NCA NACP: Иконка 256x256 JPEG внедрена, метаданные обновлены без полной пересборки", FontSize = 11, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) };
+
+            previewSp.Children.Add(lblTitle);
+            previewSp.Children.Add(lblPub);
+            previewSp.Children.Add(lblBadge);
+            card.Child = previewSp;
+
+            void UpdateMeta()
+            {
+                lblTitle.Text = $"🎮 {txtName.Text}";
+                lblPub.Text = $"🏢 Издатель: {txtPub.Text} | Версия: 1.2.1 [v393216]";
+            }
+            txtName.TextChanged += (s, e) => UpdateMeta();
+            txtPub.TextChanged += (s, e) => UpdateMeta();
+            UpdateMeta();
+
+            sp.Children.Add(txtName);
+            sp.Children.Add(txtPub);
+            sp.Children.Add(card);
+            container.Children.Add(sp);
+        }
+
+        private void BuildSmartFolderInteractivePreview(StackPanel container)
+        {
+            var sp = new StackPanel { Spacing = 8 };
+            sp.Children.Add(new TextBlock { Text = "👁️ Интерактивный диспетчер Умных папок:", FontWeight = Microsoft.UI.Text.FontWeights.Bold, FontSize = 14, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
+
+            var cbSwitch = new CheckBox { Content = "Фоновый мониторинг Switch: D:\\Games\\Switch_Incoming (➔ NSZ Ultra-22)", IsChecked = true };
+            var cb3ds = new CheckBox { Content = "Фоновый мониторинг 3DS: D:\\Games\\3DS_Incoming (➔ CIA / Trimming)", IsChecked = true };
+
+            var card = new Border
+            {
+                Background = (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"],
+                BorderBrush = (Brush)Application.Current.Resources["CardStrokeColorDefaultBrush"],
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(12)
+            };
+            var statusTxt = new TextBlock { FontSize = 12, TextWrapping = TextWrapping.Wrap };
+            card.Child = statusTxt;
+
+            void UpdateFolderStatus()
+            {
+                bool sOn = cbSwitch.IsChecked == true;
+                bool tOn = cb3ds.IsChecked == true;
+                if (sOn && tOn)
+                {
+                    statusTxt.Text = "⚡ Активны обе независимые службы: Switch конвертируется в NSZ, 3DS обрабатывается в CIA. Конфликты форматов исключены.";
+                    statusTxt.Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen);
+                }
+                else if (sOn)
+                {
+                    statusTxt.Text = "✓ Активна служба Nintendo Switch: автоматическое сжатие и монолитная сборка входящих дампов.";
+                    statusTxt.Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue);
+                }
+                else if (tOn)
+                {
+                    statusTxt.Text = "✓ Активна служба Nintendo 3DS: конвертация образов и тримминг картриджей.";
+                    statusTxt.Foreground = new SolidColorBrush(Microsoft.UI.Colors.Crimson);
+                }
+                else
+                {
+                    statusTxt.Text = "⚠️ Все службы умных папок приостановлены.";
+                    statusTxt.Foreground = new SolidColorBrush(Microsoft.UI.Colors.Orange);
+                }
+            }
+
+            cbSwitch.Checked += (s, e) => UpdateFolderStatus();
+            cbSwitch.Unchecked += (s, e) => UpdateFolderStatus();
+            cb3ds.Checked += (s, e) => UpdateFolderStatus();
+            cb3ds.Unchecked += (s, e) => UpdateFolderStatus();
+            UpdateFolderStatus();
+
+            sp.Children.Add(cbSwitch);
+            sp.Children.Add(cb3ds);
+            sp.Children.Add(card);
+            container.Children.Add(sp);
+        }
+
+        private void BuildMultiContentInteractivePreview(StackPanel container)
+        {
+            var sp = new StackPanel { Spacing = 8 };
+            sp.Children.Add(new TextBlock { Text = "📦 Интерактивный компоновщик Мульти-контента:", FontWeight = Microsoft.UI.Text.FontWeights.Bold, FontSize = 14, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) });
+
+            var cbGame = new CheckBox { Content = "Базовая игра (1G - Mortal Kombat 1) [30.0 ГБ]", IsChecked = true, IsEnabled = false };
+            var cbUpd = new CheckBox { Content = "Обновление игры (1U - Update v1.18.0) [5.2 ГБ]", IsChecked = true };
+            var cbDlc = new CheckBox { Content = "Набор DLC (Kombat Pack 1 and 2, Jean-Claude Van Damme) [6 тайтлов]", IsChecked = true };
+            var cbTik = new CheckBox { Content = "Unlocker: Сохранение тикетов прав (.tik / .cert)", IsChecked = true };
+
+            var card = new Border
+            {
+                Background = (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"],
+                BorderBrush = (Brush)Application.Current.Resources["CardStrokeColorDefaultBrush"],
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(12)
+            };
+            var resultTxt = new TextBlock { FontSize = 12, TextWrapping = TextWrapping.Wrap };
+            card.Child = resultTxt;
+
+            void UpdateMultiContentStatus()
+            {
+                int titles = 1;
+                if (cbUpd.IsChecked == true) titles += 1;
+                if (cbDlc.IsChecked == true) titles += 6;
+                string tikStatus = cbTik.IsChecked == true ? "✓ Тикеты прав защищены (100% разблокировка персонажей)" : "⚠️ Без билетов прав";
+
+                resultTxt.Text = $"⚡ Конфигурация: 1G + {(cbUpd.IsChecked == true ? "1U" : "0U")} + {(cbDlc.IsChecked == true ? "6D" : "0D")}\n" +
+                                 $"📊 Всего тайтлов в монолитном NSP/XCI: {titles}\n" +
+                                 $"🛡️ Статус Unlocker: {tikStatus}\n" +
+                                 $"✓ Совместимость: LibHac PFS0 гарантирует строгий порядок CNMT и отсутствие конфликтов в STORM SWITCH.";
+                resultTxt.Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen);
+            }
+
+            cbUpd.Checked += (s, e) => UpdateMultiContentStatus();
+            cbUpd.Unchecked += (s, e) => UpdateMultiContentStatus();
+            cbDlc.Checked += (s, e) => UpdateMultiContentStatus();
+            cbDlc.Unchecked += (s, e) => UpdateMultiContentStatus();
+            cbTik.Checked += (s, e) => UpdateMultiContentStatus();
+            cbTik.Unchecked += (s, e) => UpdateMultiContentStatus();
+            UpdateMultiContentStatus();
+
+            sp.Children.Add(cbGame);
+            sp.Children.Add(cbUpd);
+            sp.Children.Add(cbDlc);
+            sp.Children.Add(cbTik);
+            sp.Children.Add(card);
+            container.Children.Add(sp);
+        }
+
+        private void BuildEmulatorSyncInteractivePreview(StackPanel container)
+        {
+            var sp = new StackPanel { Spacing = 8 };
+            sp.Children.Add(new TextBlock { Text = "🎮 Синхронизация с виртуальной картой эмулятора (SDMC v5.0.2):", FontWeight = Microsoft.UI.Text.FontWeights.Bold, FontSize = 14, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
+
+            var card = new Border
+            {
+                Background = (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"],
+                BorderBrush = (Brush)Application.Current.Resources["CardStrokeColorDefaultBrush"],
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(12)
+            };
+            var treeSp = new StackPanel { Spacing = 4 };
+            treeSp.Children.Add(new TextBlock { Text = "📁 Папка эмулятора: E:\\STORM SWITCH\\Assembling (user/sdmc/)", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, FontSize = 13 });
+            treeSp.Children.Add(new TextBlock { Text = "   └── switch/", FontFamily = new FontFamily("Consolas"), FontSize = 12, Foreground = GetSecondaryBrush() });
+            treeSp.Children.Add(new TextBlock { Text = "       └── devilutionx/  (Строго 1 целевая папка!)", FontFamily = new FontFamily("Consolas"), FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen), FontWeight = Microsoft.UI.Text.FontWeights.Bold });
+            treeSp.Children.Add(new TextBlock { Text = "           ├── devilutionx.nro", FontFamily = new FontFamily("Consolas"), FontSize = 12, Foreground = GetSecondaryBrush() });
+            treeSp.Children.Add(new TextBlock { Text = "           └── diabdat.mpq (718.01 МБ, без дубликатов)", FontFamily = new FontFamily("Consolas"), FontSize = 12, Foreground = GetSecondaryBrush() });
+            treeSp.Children.Add(new TextBlock { Text = "✓ Чистота диска: Устаревшие папки devilutionx-switch автоматически удалены.", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen), Margin = new Thickness(0, 4, 0, 0) });
+            treeSp.Children.Add(new TextBlock { Text = "✓ Выходной каталог: Папки [SDMC] больше не засоряют основную библиотеку игр.", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) });
+            card.Child = treeSp;
+
+            sp.Children.Add(card);
+            container.Children.Add(sp);
+        }
+
+        private void BuildHomebrewInteractivePreview(StackPanel container)
+        {
+            var mainSp = new StackPanel { Spacing = 14 };
+
+            var headerSp = new StackPanel { Spacing = 4 };
+            headerSp.Children.Add(new TextBlock 
+            { 
+                Text = "🕹️ Интерактивный инспектор портов Homebrew (v5.0.2)", 
+                FontWeight = Microsoft.UI.Text.FontWeights.Bold, 
+                FontSize = 15, 
+                Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) 
+            });
+            headerSp.Children.Add(new TextBlock 
+            { 
+                Text = "Выберите порт для проверки путей SDMC, структуры данных и итогового размера:", 
+                FontSize = 12, 
+                Foreground = GetSecondaryBrush() 
+            });
+            mainSp.Children.Add(headerSp);
+
+            var combo = new ComboBox 
+            { 
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                CornerRadius = new CornerRadius(6)
+            };
+
+            var gameData = new List<(string Name, string Folder, string Nro, string DataFiles, string Size, string Status)>
+            {
+                (
+                    "Diablo I (DevilutionX + Hellfire + Rus)",
+                    "switch/devilutionx",
+                    "devilutionx.nro",
+                    "diabdat.mpq, hellfire.mpq, devilutionx.mpq, diablo.ini",
+                    "718.01 МБ (1 экземпляр, БЕЗ раздувания до 4.27 ГБ)",
+                    "✓ 100% готов к запуску в STORM SWITCH (ошибка 0x75B устранена)"
+                ),
+                (
+                    "Grand Theft Auto: San Andreas (re3-sa)",
+                    "switch/re3-sa",
+                    "re3-sa.nro",
+                    "models/, data/, audio/, text/, gta-sa.set",
+                    "2.10 ГБ (структура проверена)",
+                    "✓ Готов к запуску в STORM SWITCH"
+                ),
+                (
+                    "Half-Life 1 (Xash3D-FWGS)",
+                    "switch/xash3d",
+                    "xash3d.nro",
+                    "valve/ (valve.wad, halflife.wad, pak0.pak)",
+                    "450 МБ (нативные ресурсы)",
+                    "✓ Готов к запуску в STORM SWITCH"
+                ),
+                (
+                    "DOOM 1 and 2 (GZDoom Switch)",
+                    "switch/gzdoom",
+                    "gzdoom.nro",
+                    "doom.wad, doom2.wad, gzdoom.ini",
+                    "35 МБ (оптимизировано)",
+                    "✓ Готов к запуску в STORM SWITCH"
+                ),
+                (
+                    "DOOM 3 (dhewm3)",
+                    "switch/dhewm3",
+                    "dhewm3.nro",
+                    "base/ (pak000.pk4 ... pak004.pk4)",
+                    "1.60 ГБ (чистая распаковка)",
+                    "✓ Готов к запуску в STORM SWITCH"
+                ),
+                (
+                    "S.T.A.L.K.E.R.: Shadow of Chernobyl (OpenXRay)",
+                    "switch/openxray",
+                    "openxray.nro",
+                    "gamedata/ (configs, scripts, textures, sounds)",
+                    "3.80 ГБ (ресурсы сопоставлены)",
+                    "✓ Готов к запуску в STORM SWITCH"
+                ),
+                (
+                    "The Elder Scrolls III: Morrowind (OpenMW)",
+                    "switch/openmw",
+                    "openmw.nro",
+                    "Data Files/ (Morrowind.esm, Morrowind.bsa)",
+                    "1.10 ГБ (проверено)",
+                    "✓ Готов к запуску в STORM SWITCH"
+                ),
+                (
+                    "Another Metroid 2 Remake (AM2R)",
+                    "switch/am2r",
+                    "AM2R.nro",
+                    "game.droid / data.win, music/, sound/",
+                    "280 МБ (чистый порт)",
+                    "✓ Готов к запуску в STORM SWITCH"
+                ),
+                (
+                    "Super Mario 64 (SM64 Port)",
+                    "switch/sm64",
+                    "sm64.nro",
+                    "sm64.us.z64 (встроенные текстуры 60 FPS)",
+                    "25 МБ (автономный)",
+                    "✓ Готов к запуску в STORM SWITCH"
+                ),
+                (
+                    "The Legend of Zelda: Ocarina of Time (Ship of Harkinian)",
+                    "switch/soh",
+                    "soh.nro",
+                    "oot.otr, soh.otr",
+                    "85 МБ (сгенерированный OTR)",
+                    "✓ Готов к запуску в STORM SWITCH"
+                )
+            };
+
+            foreach (var g in gameData)
+            {
+                combo.Items.Add(new ComboBoxItem { Content = g.Name });
+            }
+            combo.SelectedIndex = 0;
+
+            var resultCard = new Border
+            {
+                Background = (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"],
+                BorderBrush = (Brush)Application.Current.Resources["CardStrokeColorDefaultBrush"],
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(14)
+            };
+
+            var detailSp = new StackPanel { Spacing = 8 };
+
+            void UpdateHomebrewDetails(int idx)
+            {
+                if (idx < 0 || idx >= gameData.Count) return;
+                var item = gameData[idx];
+                detailSp.Children.Clear();
+
+                detailSp.Children.Add(new TextBlock 
+                { 
+                    Text = $"📁 Целевая папка в SDMC: user/sdmc/{item.Folder}/", 
+                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, 
+                    Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen),
+                    FontSize = 13
+                });
+
+                detailSp.Children.Add(new TextBlock 
+                { 
+                    Text = $"⚡ Путь запуска форвардера: sdmc:/{item.Folder}/{item.Nro}", 
+                    FontFamily = new FontFamily("Consolas"),
+                    FontSize = 12, 
+                    Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) 
+                });
+
+                detailSp.Children.Add(new TextBlock 
+                { 
+                    Text = $"📦 Требуемые ресурсы: {item.DataFiles}", 
+                    FontSize = 12, 
+                    Foreground = GetSecondaryBrush() 
+                });
+
+                detailSp.Children.Add(new TextBlock 
+                { 
+                    Text = $"⚖️ Итоговый вес игры: {item.Size}", 
+                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                    FontSize = 12, 
+                    Foreground = (Brush)Application.Current.Resources["TextFillColorPrimaryBrush"]
+                });
+
+                detailSp.Children.Add(new TextBlock 
+                { 
+                    Text = item.Status, 
+                    FontSize = 12, 
+                    FontWeight = Microsoft.UI.Text.FontWeights.Bold,
+                    Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) 
+                });
+            }
+
+            combo.SelectionChanged += (s, e) => UpdateHomebrewDetails(combo.SelectedIndex);
+            UpdateHomebrewDetails(0);
+
+            resultCard.Child = detailSp;
+            mainSp.Children.Add(combo);
+            mainSp.Children.Add(resultCard);
+
+            var checkBtn = new Button
+            {
+                Content = "Проверить корректность структуры папок и путей",
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                CornerRadius = new CornerRadius(6)
+            };
+            var checkStatus = new TextBlock
+            {
+                Text = "",
+                FontSize = 12,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen),
+                Visibility = Visibility.Collapsed
+            };
+
+            checkBtn.Click += (s, e) =>
+            {
+                checkStatus.Visibility = Visibility.Visible;
+                checkStatus.Text = "✓ Структура идеальна: создается ровно 1 папка в SDMC, дубликаты устранены, RomFS сжат без раздувания.";
+            };
+
+            mainSp.Children.Add(checkBtn);
+            mainSp.Children.Add(checkStatus);
+
+            container.Children.Add(mainSp);
+        }
+
+        private void BuildSmartProcessingInteractivePreview(StackPanel container)
+        {
+            var mainSp = new StackPanel { Spacing = 12 };
+
+            mainSp.Children.Add(new TextBlock 
+            { 
+                Text = "🧠 Интерактивный калькулятор Умной обработки (Smart Processing v5.0.2)", 
+                FontWeight = Microsoft.UI.Text.FontWeights.Bold, 
+                FontSize = 15, 
+                Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) 
+            });
+
+            var baseSlider = new Slider 
+            { 
+                Header = "Размер базовой игры: 10.0 ГБ", 
+                Minimum = 1, 
+                Maximum = 30, 
+                Value = 10,
+                StepFrequency = 0.5
+            };
+
+            var patchSlider = new Slider 
+            { 
+                Header = "Размер обновления: 1.5 ГБ", 
+                Minimum = 0.1, 
+                Maximum = 15, 
+                Value = 1.5,
+                StepFrequency = 0.1
+            };
+
+            var modCheck = new CheckBox 
+            { 
+                Content = "Присутствуют папки модификаций (romfs / exefs / ips)" 
+            };
+
+            var card = new Border
+            {
+                Background = (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"],
+                BorderBrush = (Brush)Application.Current.Resources["CardStrokeColorDefaultBrush"],
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(14)
+            };
+
+            var resultSp = new StackPanel { Spacing = 6 };
+            card.Child = resultSp;
+
+            void RecalculateSmartDecision()
+            {
+                double baseGb = baseSlider.Value;
+                double patchGb = patchSlider.Value;
+                baseSlider.Header = $"Размер базовой игры: {baseGb:F1} ГБ";
+                patchSlider.Header = $"Размер обновления: {patchGb:F1} ГБ";
+
+                double ratio = (patchGb / baseGb) * 100.0;
+                bool hasMods = modCheck.IsChecked == true;
+                bool isHardPatch = hasMods || ratio >= 40.0;
+
+                resultSp.Children.Clear();
+
+                resultSp.Children.Add(new TextBlock 
+                { 
+                    Text = $"Соотношение обновления к базе: {ratio:F1}% (порог: 40.0%)", 
+                    FontSize = 12, 
+                    Foreground = GetSecondaryBrush() 
+                });
+
+                if (isHardPatch)
+                {
+                    string reason = hasMods ? "Обнаружены папки модификаций (RomFS/ExeFS)" : $"Массивный патч ({ratio:F1}% >= 40%)";
+                    resultSp.Children.Add(new TextBlock 
+                    { 
+                        Text = $"Решение алгоритма: 🔨 [HardPatch] — {reason}", 
+                        FontSize = 13, 
+                        FontWeight = Microsoft.UI.Text.FontWeights.Bold, 
+                        Foreground = new SolidColorBrush(Microsoft.UI.Colors.Orange) 
+                    });
+                    resultSp.Children.Add(new TextBlock 
+                    { 
+                        Text = "✓ Действие: Удаление устаревших ресурсов базы, физическая замена файлов и прямая инъекция мода.", 
+                        FontSize = 12, 
+                        Foreground = GetSecondaryBrush() 
+                    });
+                    double estSize = Math.Max(baseGb, patchGb * 1.1);
+                    resultSp.Children.Add(new TextBlock 
+                    { 
+                        Text = $"💾 Итоговый размер файла: ~{estSize:F1} ГБ (экономия до {Math.Min(baseGb, patchGb):F1} ГБ устаревших данных!)", 
+                        FontSize = 12, 
+                        FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, 
+                        Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) 
+                    });
+                }
+                else
+                {
+                    resultSp.Children.Add(new TextBlock 
+                    { 
+                        Text = $"Решение алгоритма: ⚡ [Нативное сшивание LibHac PFS0] — Легковесный патч ({ratio:F1}% < 40%)", 
+                        FontSize = 13, 
+                        FontWeight = Microsoft.UI.Text.FontWeights.Bold, 
+                        Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) 
+                    });
+                    resultSp.Children.Add(new TextBlock 
+                    { 
+                        Text = "✓ Действие: Потоковое объединение NCA блоков в единый PFS0 контейнер без физической распаковки RomFS.", 
+                        FontSize = 12, 
+                        Foreground = GetSecondaryBrush() 
+                    });
+                    double estSize = baseGb + patchGb;
+                    resultSp.Children.Add(new TextBlock 
+                    { 
+                        Text = $"💾 Итоговый размер файла: {estSize:F1} ГБ (0% раздувания, скорость сборки ~15-30 секунд)", 
+                        FontSize = 12, 
+                        FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, 
+                        Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) 
+                    });
+                }
+            }
+
+            baseSlider.ValueChanged += (s, e) => RecalculateSmartDecision();
+            patchSlider.ValueChanged += (s, e) => RecalculateSmartDecision();
+            modCheck.Checked += (s, e) => RecalculateSmartDecision();
+            modCheck.Unchecked += (s, e) => RecalculateSmartDecision();
+
+            RecalculateSmartDecision();
+
+            mainSp.Children.Add(baseSlider);
+            mainSp.Children.Add(patchSlider);
+            mainSp.Children.Add(modCheck);
+            mainSp.Children.Add(card);
+
+            container.Children.Add(mainSp);
+        }
+
+        private void BuildFormatConverterInteractivePreview(StackPanel container)
+        {
+            var mainSp = new StackPanel { Spacing = 12 };
+
+            mainSp.Children.Add(new TextBlock 
+            { 
+                Text = "🔄 Интерактивный конфигуратор конвертации форматов (v5.0.2)", 
+                FontWeight = Microsoft.UI.Text.FontWeights.Bold, 
+                FontSize = 15, 
+                Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) 
+            });
+
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(30) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            var comboFrom = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, CornerRadius = new CornerRadius(6) };
+            var comboTo = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, CornerRadius = new CornerRadius(6) };
+
+            string[] formats = new[] { "NSP", "NSZ", "XCI", "XCZ", "3DS (CCI)", "CIA" };
+            foreach (var f in formats)
+            {
+                comboFrom.Items.Add(new ComboBoxItem { Content = f });
+                comboTo.Items.Add(new ComboBoxItem { Content = f });
+            }
+            comboFrom.SelectedIndex = 2; // XCI
+            comboTo.SelectedIndex = 1;   // NSZ
+
+            var arrowTxt = new TextBlock 
+            { 
+                Text = "➔", 
+                FontSize = 16, 
+                FontWeight = Microsoft.UI.Text.FontWeights.Bold, 
+                HorizontalAlignment = HorizontalAlignment.Center, 
+                VerticalAlignment = VerticalAlignment.Center 
+            };
+
+            Grid.SetColumn(comboFrom, 0);
+            Grid.SetColumn(arrowTxt, 1);
+            Grid.SetColumn(comboTo, 2);
+            grid.Children.Add(comboFrom);
+            grid.Children.Add(arrowTxt);
+            grid.Children.Add(comboTo);
+            mainSp.Children.Add(grid);
+
+            var card = new Border
+            {
+                Background = (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"],
+                BorderBrush = (Brush)Application.Current.Resources["CardStrokeColorDefaultBrush"],
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(14)
+            };
+
+            var detailSp = new StackPanel { Spacing = 6 };
+            card.Child = detailSp;
+
+            void UpdateConvertRoute()
+            {
+                detailSp.Children.Clear();
+                string fromFmt = formats[Math.Clamp(comboFrom.SelectedIndex, 0, formats.Length - 1)];
+                string toFmt = formats[Math.Clamp(comboTo.SelectedIndex, 0, formats.Length - 1)];
+
+                if (fromFmt == toFmt)
+                {
+                    detailSp.Children.Add(new TextBlock { Text = "⚠️ Исходный и целевой форматы совпадают.", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.Orange) });
+                    return;
+                }
+
+                bool is3dsFrom = fromFmt.Contains("3DS") || fromFmt == "CIA";
+                bool is3dsTo = toFmt.Contains("3DS") || toFmt == "CIA";
+
+                if (is3dsFrom != is3dsTo)
+                {
+                    detailSp.Children.Add(new TextBlock 
+                    { 
+                        Text = "🚫 Несовместимые экосистемы: форматы Nintendo Switch и Nintendo 3DS изолированы друг от друга.", 
+                        FontSize = 12, 
+                        Foreground = new SolidColorBrush(Microsoft.UI.Colors.Crimson),
+                        FontWeight = Microsoft.UI.Text.FontWeights.SemiBold 
+                    });
+                    return;
+                }
+
+                if (!is3dsFrom)
+                {
+                    detailSp.Children.Add(new TextBlock 
+                    { 
+                        Text = $"⚡ Экосистема: Nintendo Switch | Маршрут: {fromFmt} ➔ {toFmt}", 
+                        FontWeight = Microsoft.UI.Text.FontWeights.Bold, 
+                        FontSize = 13, 
+                        Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) 
+                    });
+                    detailSp.Children.Add(new TextBlock 
+                    { 
+                        Text = "• Сохранение метаданных: 100% Bit-exact (CNMT, NACP, Иконки и подписи сохраняются)", 
+                        FontSize = 12, 
+                        Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) 
+                    });
+                    detailSp.Children.Add(new TextBlock 
+                    { 
+                        Text = toFmt.EndsWith("Z") ? "• Сжатие: Zstandard Ultra Block Compression (уровень до 22)" : "• Сжатие: Несжатый образ (максимальная скорость сборки)", 
+                        FontSize = 12, 
+                        Foreground = GetSecondaryBrush() 
+                    });
+                }
+                else
+                {
+                    detailSp.Children.Add(new TextBlock 
+                    { 
+                        Text = $"🕹️ Экосистема: Nintendo 3DS | Маршрут: {fromFmt} ➔ {toFmt}", 
+                        FontWeight = Microsoft.UI.Text.FontWeights.Bold, 
+                        FontSize = 13, 
+                        Foreground = new SolidColorBrush(Microsoft.UI.Colors.Crimson) 
+                    });
+                    detailSp.Children.Add(new TextBlock 
+                    { 
+                        Text = "• Движок: ctrtool + makerom + 3dstool с авто-обрезкой пустых байтов (Trimming)", 
+                        FontSize = 12, 
+                        Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) 
+                    });
+                    detailSp.Children.Add(new TextBlock 
+                    { 
+                        Text = toFmt == "CIA" ? "• Цель: Установка на реальную 3DS (FBI) или Citra" : "• Цель: Прямой запуск в эмуляторах (Citra, Lime3DS, Azahar)", 
+                        FontSize = 12, 
+                        Foreground = GetSecondaryBrush() 
+                    });
+                }
+            }
+
+            comboFrom.SelectionChanged += (s, e) => UpdateConvertRoute();
+            comboTo.SelectionChanged += (s, e) => UpdateConvertRoute();
+            UpdateConvertRoute();
+
+            mainSp.Children.Add(card);
+            container.Children.Add(mainSp);
         }
 
         #endregion

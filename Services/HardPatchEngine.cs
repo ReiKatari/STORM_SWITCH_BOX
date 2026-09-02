@@ -266,7 +266,10 @@ namespace StormSwitchBox.Services
                     keepLangsArg = string.IsNullOrEmpty(keepLangsStr) ? "" : $"--keep-langs \"{keepLangsStr}\"";
                 }
 
-                string? romfsMod = inputFiles.FirstOrDefault(d => System.IO.Directory.Exists(d) && System.IO.Path.GetFileName(d).Equals("romfs", StringComparison.OrdinalIgnoreCase));
+                var romfsMods = inputFiles.Where(d => System.IO.Directory.Exists(d) && 
+                    (System.IO.Path.GetFileName(d).Equals("romfs", StringComparison.OrdinalIgnoreCase) || 
+                     System.IO.Path.GetFileName(d).StartsWith("unlocker_romfs", StringComparison.OrdinalIgnoreCase))).ToList();
+                string? romfsMod = romfsMods.FirstOrDefault();
                 string? exefsMod = inputFiles.FirstOrDefault(d => System.IO.Directory.Exists(d) && System.IO.Path.GetFileName(d).Equals("exefs", StringComparison.OrdinalIgnoreCase));
                 string? exefsPatchesMod = inputFiles.FirstOrDefault(d => System.IO.Directory.Exists(d) && System.IO.Path.GetFileName(d).Equals("exefs_patches", StringComparison.OrdinalIgnoreCase));
                 
@@ -423,7 +426,10 @@ namespace StormSwitchBox.Services
                     if (hasModsToApply)
                     {
                         App.RunOnUI(() => task.LogDetails += $"\n[2/3] Инъекция модов (romfs/exefs/exefs_patches)...");
-                        if (!string.IsNullOrEmpty(romfsMod)) CopyDirectoryContent(romfsMod, targetRomFs);
+                        foreach (var rMod in romfsMods)
+                        {
+                            CopyDirectoryContent(rMod, targetRomFs);
+                        }
                         if (!string.IsNullOrEmpty(exefsMod)) CopyDirectoryContent(exefsMod, targetExeFs);
                         if (!string.IsNullOrEmpty(exefsPatchesMod)) ApplyExeFsPatches(exefsPatchesMod, targetExeFs, task);
                     }
