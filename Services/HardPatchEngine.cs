@@ -171,15 +171,7 @@ namespace StormSwitchBox.Services
                 string targetDrive = System.IO.Path.GetPathRoot(targetDir) ?? "C:\\";
                 string appDrive = System.IO.Path.GetPathRoot(AppDomain.CurrentDomain.BaseDirectory) ?? "C:\\";
                 
-                if (targetDrive.Equals(appDrive, StringComparison.OrdinalIgnoreCase))
-                {
-                    string appDirTemp = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "temp");
-                    tempDir = System.IO.Path.Combine(appDirTemp, $"STORM_TMP_{Guid.NewGuid().ToString("N").Substring(0, 6)}");
-                }
-                else
-                {
-                    tempDir = System.IO.Path.Combine(targetDrive, $"STORM_TMP_{Guid.NewGuid().ToString("N").Substring(0, 6)}");
-                }
+                tempDir = System.IO.Path.Combine(targetDrive, $"STORM_TMP_{Guid.NewGuid().ToString("N").Substring(0, 6)}");
                 Directory.CreateDirectory(tempDir);
                 TempCleanupService.RegisterActiveTempDirectory(tempDir);
 
