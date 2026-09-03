@@ -76,16 +76,8 @@ namespace StormSwitchBox.Services
                 
                 var finalInputFiles = new System.Collections.Concurrent.ConcurrentBag<string>();
                 string targetDrive = System.IO.Path.GetPathRoot(targetDir) ?? "C:\\";
-                string appDrive = System.IO.Path.GetPathRoot(AppDomain.CurrentDomain.BaseDirectory) ?? "C:\\";
-                if (targetDrive.Equals(appDrive, StringComparison.OrdinalIgnoreCase))
-                {
-                    string appDirTemp = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "temp");
-                    tempDecompDir = System.IO.Path.Combine(appDirTemp, "StormDecomp_" + Guid.NewGuid().ToString("N").Substring(0, 8));
-                }
-                else
-                {
-                    tempDecompDir = System.IO.Path.Combine(string.IsNullOrEmpty(targetDir) ? System.IO.Path.GetTempPath() : targetDir, "StormDecomp_" + Guid.NewGuid().ToString("N").Substring(0, 8));
-                }
+                // Всегда размещаем временный каталог близко к корню целевого диска для гарантированной защиты от лимита MAX_PATH (260 символов)
+                tempDecompDir = System.IO.Path.Combine(targetDrive, "STORM_TMP", "SD_" + Guid.NewGuid().ToString("N").Substring(0, 6));
                 Directory.CreateDirectory(tempDecompDir);
                 TempCleanupService.RegisterActiveTempDirectory(tempDecompDir);
 
@@ -629,7 +621,6 @@ namespace StormSwitchBox.Services
                     .OrderByDescending(f => new System.IO.FileInfo(f).Length)
                     .FirstOrDefault();
 
-            FinalizeAssembly:
                 string formattedPath = FormatOutputFileName(outPath, inputFiles);
                 if (!string.IsNullOrEmpty(formattedPath) && !formattedPath.Equals(outPath, StringComparison.OrdinalIgnoreCase))
                 {
@@ -751,8 +742,24 @@ namespace StormSwitchBox.Services
         {
             if (Directory.Exists(sourcePath)) return sourcePath;
 
+            // Если это уже NSP файл и его путь безопасный (< 240 символов) — используем его напрямую без копирования
+            if (sourcePath.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) && sourcePath.Length < 240 && File.Exists(sourcePath))
+            {
+                return sourcePath;
+            }
+
             string origName = System.IO.Path.GetFileName(sourcePath);
             string safeName = NszCompressionService.SanitizeFileName(origName);
+
+            // Защита от слишком длинных имен файлов (> 80 символов)
+            if (safeName.Length > 80)
+            {
+                string ext = System.IO.Path.GetExtension(safeName);
+                var matchTid = System.Text.RegularExpressions.Regex.Match(safeName, @"\[[0-9A-Fa-f]{16}\]");
+                string tidPart = matchTid.Success ? "_" + matchTid.Value : "";
+                string prefix = safeName.Substring(0, Math.Min(30, safeName.Length));
+                safeName = $"{prefix}{tidPart}_{Guid.NewGuid().ToString("N").Substring(0, 4)}{ext}";
+            }
 
             string destPath = System.IO.Path.Combine(tempDir, safeName);
             if (sourcePath.Equals(destPath, StringComparison.OrdinalIgnoreCase)) return sourcePath;
@@ -761,7 +768,22 @@ namespace StormSwitchBox.Services
             {
                 try
                 {
-                    File.Copy(sourcePath, destPath, true);
+                    // Пробуем создать быстрый хардлинк
+                    if (CreateHardLink(destPath, sourcePath, IntPtr.Zero))
+                    {
+                        return destPath;
+                    }
+
+                    // Если файл небольшой (< 300 МБ) — копируем в быстрый STORM_TMP
+                    var fi = new FileInfo(sourcePath);
+                    if (fi.Length < 300L * 1024 * 1024)
+                    {
+                        File.Copy(sourcePath, destPath, true);
+                    }
+                    else
+                    {
+                        return sourcePath;
+                    }
                 }
                 catch
                 {
@@ -1061,16 +1083,22 @@ namespace StormSwitchBox.Services
                 if (Directory.Exists(file)) continue;
                 string fname = System.IO.Path.GetFileName(file);
                 
-                // Проверяем, является ли файл Unlocker-патчем/DLC
+                // Проверяем, является ли файл Unlocker-патчем/DLC (с учетом русских и английских названий)
                 bool isUnlockerName = fname.Contains("Unlocker", StringComparison.OrdinalIgnoreCase) ||
                                      fname.Contains("Unlock", StringComparison.OrdinalIgnoreCase) ||
-                                     fname.Contains("Custom Unlock", StringComparison.OrdinalIgnoreCase);
+                                     fname.Contains("Custom Unlock", StringComparison.OrdinalIgnoreCase) ||
+                                     fname.Contains("Анлокер", StringComparison.OrdinalIgnoreCase) ||
+                                     fname.Contains("Разблокировщик", StringComparison.OrdinalIgnoreCase) ||
+                                     fname.Contains("Разблокировка", StringComparison.OrdinalIgnoreCase) ||
+                                     fname.Contains("Анлок", StringComparison.OrdinalIgnoreCase) ||
+                                     fname.Contains("Все персонажи", StringComparison.OrdinalIgnoreCase) ||
+                                     fname.Contains("Персонажи", StringComparison.OrdinalIgnoreCase);
 
                 bool isSmallDlc = false;
                 try
                 {
                     var info = App.SwitchFormat.ParseNsp(file);
-                    if (info.ContentType == "AddOnContent" && new FileInfo(file).Length < 100 * 1024 * 1024)
+                    if (info.ContentType == "AddOnContent" && new FileInfo(file).Length < 250 * 1024 * 1024)
                     {
                         isSmallDlc = true;
                     }
@@ -1099,24 +1127,35 @@ namespace StormSwitchBox.Services
                             pfs.OpenFile(ref ncaFile.Ref, in entryPath, OpenMode.Read).ThrowIfFailure();
                             
                             var nca = new LibHac.Tools.FsSystem.NcaUtils.Nca(_keysService.CurrentKeyset, ncaFile.Release().AsStorage());
-                            if (nca.Header.ContentType == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.PublicData || 
-                                nca.Header.ContentType == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Data ||
-                                nca.Header.ContentType == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Program)
+                            
+                            for (int sec = 0; sec < 2; sec++)
                             {
-                                try
+                                if (nca.SectionExists(sec) && nca.CanOpenSection(sec))
                                 {
-                                    var storage = nca.OpenStorage(0, IntegrityCheckLevel.None);
-                                    var wrapped = new UnalignedStorageWrapper(storage);
-                                    var romfsFs = new LibHac.Tools.FsSystem.RomFs.RomFsFileSystem(wrapped);
-                                    ExtractDirectoryRecursively(romfsFs, "/", targetRomfs, ct);
-                                    extracted = Directory.GetFiles(targetRomfs, "*", SearchOption.AllDirectories).Length > 0;
+                                    try
+                                    {
+                                        var romfsFs = nca.OpenFileSystem(sec, IntegrityCheckLevel.None);
+                                        ExtractAllEntriesFromRomFs(romfsFs, targetRomfs, ct);
+                                        if (Directory.GetFiles(targetRomfs, "*", SearchOption.AllDirectories).Length > 0)
+                                        {
+                                            extracted = true;
+                                            break;
+                                        }
+                                    }
+                                    catch (Exception exLib)
+                                    {
+                                        App.Logger.Log($"[Unlocker] LibHac section {sec} extract note: {exLib.Message}", Models.LogLevel.Info);
+                                    }
                                 }
-                                catch { }
                             }
+                            if (extracted) break;
                         }
                     }
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    App.Logger.Log($"[Unlocker] LibHac extraction warning: {ex.Message}", Models.LogLevel.Warning);
+                }
 
                 // Fallback через hactoolnet если LibHac не извлек
                 if (!extracted)
@@ -1177,9 +1216,12 @@ namespace StormSwitchBox.Services
 
                 if (extracted)
                 {
-                    int fileCount = Directory.GetFiles(targetRomfs, "*", SearchOption.AllDirectories).Length;
+                    var allExtracted = Directory.GetFiles(targetRomfs, "*", SearchOption.AllDirectories);
+                    int fileCount = allExtracted.Length;
                     App.Logger.Log($"[Unlocker] Успешно извлечено {fileCount} файлов разблокировки из {fname} для RomFS-инъекции.", Models.LogLevel.Success);
-                    App.RunOnUI(() => task.LogDetails += $"\n🔓 [Unlocker] Извлечено {fileCount} токенов разблокировки из {fname} (прямое вшивание в RomFS игры)");
+                    string sampleNames = string.Join(", ", allExtracted.Take(4).Select(System.IO.Path.GetFileName));
+                    if (fileCount > 4) sampleNames += "...";
+                    App.RunOnUI(() => task.LogDetails += $"\n🔓 [Unlocker] Извлечено {fileCount} токенов разблокировки из {fname} ({sampleNames})");
                     extractedDirs.Add(targetRomfs);
 
                     // Синхронизация с эмулятором (LayeredFS)
@@ -1195,53 +1237,37 @@ namespace StormSwitchBox.Services
             return extractedDirs;
         }
 
-        private static void ExtractDirectoryRecursively(LibHac.Fs.Fsa.IFileSystem fs, string fsDir, string targetDir, CancellationToken ct)
+        private static void ExtractAllEntriesFromRomFs(LibHac.Fs.Fsa.IFileSystem fs, string targetDir, CancellationToken ct)
         {
-            using var dirPath = new LibHac.Fs.Path();
-            dirPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(fsDir))).ThrowIfFailure();
-            using var dirRef = new UniqueRef<IDirectory>();
-            fs.OpenDirectory(ref dirRef.Ref, in dirPath, OpenDirectoryMode.All).ThrowIfFailure();
-            var dir = dirRef.Release();
-
-            var entries = new LibHac.Fs.DirectoryEntry[128];
-            while (true)
+            foreach (var rentry in fs.EnumerateEntries("/", "*"))
             {
                 ct.ThrowIfCancellationRequested();
-                dir.Read(out long count, entries).ThrowIfFailure();
-                if (count == 0) break;
+                if (rentry.Type == LibHac.Fs.DirectoryEntryType.Directory) continue;
 
-                for (int i = 0; i < count; i++)
+                string relPath = rentry.FullPath.TrimStart('/');
+                string localPath = System.IO.Path.Combine(targetDir, relPath);
+                string? localDir = System.IO.Path.GetDirectoryName(localPath);
+                if (!string.IsNullOrEmpty(localDir) && !Directory.Exists(localDir))
                 {
-                    var entry = entries[i];
-                    string name = entry.Name.ToString();
-                    string subFsPath = fsDir.EndsWith("/") ? fsDir + name : fsDir + "/" + name;
-                    string subLocalPath = System.IO.Path.Combine(targetDir, name);
+                    Directory.CreateDirectory(localDir);
+                }
 
-                    if (entry.Type == LibHac.Fs.DirectoryEntryType.Directory)
-                    {
-                        Directory.CreateDirectory(subLocalPath);
-                        ExtractDirectoryRecursively(fs, subFsPath, subLocalPath, ct);
-                    }
-                    else
-                    {
-                        Directory.CreateDirectory(System.IO.Path.GetDirectoryName(subLocalPath) ?? targetDir);
-                        using var fileRef = new UniqueRef<IFile>();
-                        using var filePath = new LibHac.Fs.Path();
-                        filePath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(subFsPath))).ThrowIfFailure();
-                        fs.OpenFile(ref fileRef.Ref, in filePath, OpenMode.Read).ThrowIfFailure();
-                        var f = fileRef.Release();
-                        using var outFs = new FileStream(subLocalPath, FileMode.Create, FileAccess.Write, FileShare.None);
-                        f.GetSize(out long fSize).ThrowIfFailure();
-                        byte[] buf = new byte[64 * 1024];
-                        long off = 0;
-                        while (off < fSize)
-                        {
-                            int toRead = (int)Math.Min(buf.Length, fSize - off);
-                            f.Read(out long r, off, buf.AsSpan(0, toRead)).ThrowIfFailure();
-                            outFs.Write(buf, 0, (int)r);
-                            off += r;
-                        }
-                    }
+                using var fileRef = new UniqueRef<IFile>();
+                using var filePath = new LibHac.Fs.Path();
+                filePath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(rentry.FullPath))).ThrowIfFailure();
+                fs.OpenFile(ref fileRef.Ref, in filePath, OpenMode.Read).ThrowIfFailure();
+                var f = fileRef.Release();
+
+                f.GetSize(out long fSize).ThrowIfFailure();
+                using var outFs = new FileStream(localPath, FileMode.Create, FileAccess.Write, FileShare.None);
+                byte[] buf = new byte[64 * 1024];
+                long off = 0;
+                while (off < fSize)
+                {
+                    int toRead = (int)Math.Min(buf.Length, fSize - off);
+                    f.Read(out long r, off, buf.AsSpan(0, toRead)).ThrowIfFailure();
+                    outFs.Write(buf, 0, (int)r);
+                    off += r;
                 }
             }
         }
