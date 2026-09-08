@@ -484,7 +484,7 @@ namespace StormSwitchBox.Services
                                     // а сейчас читается БАЗА (000), мы не должны откатывать версию назад.
                                     // Простой хак: если текущая NACP - обновление, мы ВСЕГДА перезаписываем версию.
                                     // Если текущая NACP - база, мы перезаписываем только если версия еще дефолтная.
-                                    if (!isCurrentUpdate && item.Version != "v0" && item.Version != "0")
+                                    if (!isCurrentUpdate && item.Version != "v0" && item.Version != "0" && !IsBaseVersion(item.Version))
                                     {
                                         // База не может перезаписывать уже извлеченную версию обновления
                                         // Но TitleId и Имя можно обновить, если они еще пустые
@@ -495,7 +495,11 @@ namespace StormSwitchBox.Services
 
                                     item.TitleName = string.IsNullOrWhiteSpace(title) ? "Unknown" : title;
                                     item.Publisher = string.IsNullOrWhiteSpace(pub) ? "Unknown" : pub;
-                                    item.Version = nacp.DisplayVersionString.ToString();
+                                    string nacpVer = nacp.DisplayVersionString.ToString();
+                                    if (!IsBaseVersion(nacpVer) || IsBaseVersion(item.Version))
+                                    {
+                                        item.Version = CleanVersion(nacpVer);
+                                    }
                                     item.TitleId = normalizedTitleId;
 
                                     item.SupportedLanguages = string.IsNullOrEmpty(supportedLangs) ? "Неизвестно" : supportedLangs;
@@ -628,19 +632,23 @@ namespace StormSwitchBox.Services
                                     }
                                     catch { }
                                     
+                                    uint fixedVersion = FixHexPackedVersionCode(version);
+
                                     App.RunOnUI(() => 
                                     {
                                         uint currentVer = 0;
                                         uint.TryParse(item.VersionCode, out currentVer);
+                                        currentVer = FixHexPackedVersionCode(currentVer);
                                         
                                         var match = System.Text.RegularExpressions.Regex.Match(item.FileName ?? "", @"\[v(\d+)\]");
                                         if (match.Success && uint.TryParse(match.Groups[1].Value, out uint nameVer))
                                         {
+                                            nameVer = FixHexPackedVersionCode(nameVer);
                                             if (nameVer > currentVer) currentVer = nameVer;
                                         }
                                         
-                                        if (version > currentVer)
-                                            item.VersionCode = version.ToString();
+                                        if (fixedVersion > currentVer)
+                                            item.VersionCode = fixedVersion.ToString();
                                         else if (currentVer > 0)
                                             item.VersionCode = currentVer.ToString();
                                     });
@@ -684,6 +692,17 @@ namespace StormSwitchBox.Services
                 }
             }
 
+            // Применяем эталонный алгоритм разрешения версий из E:\STORM EDEN 3
+            string dispVer = item.Version;
+            string vCode = item.VersionCode;
+            ResolveVersionFromPath(filePath, ref dispVer, ref vCode);
+
+            App.RunOnUI(() =>
+            {
+                item.Version = dispVer;
+                item.VersionCode = vCode;
+            });
+
             // Обогащаем данными из онлайн базы TitleDB в фоне и завершаем загрузку
             App.TitleDb.EnrichCatalogItem(item);
             App.RunOnUI(() => 
@@ -702,5 +721,183 @@ namespace StormSwitchBox.Services
             }
             return false;
         }
+
+        #region Version Resolution (Ported from E:\STORM EDEN 3)
+
+        private static readonly System.Text.RegularExpressions.Regex FnPairVerRegex =
+            new System.Text.RegularExpressions.Regex(@"\(([0-9]+\.[0-9]+(?:\.[0-9]+)*)\s*-\s*([0-9]+)", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+        private static readonly System.Text.RegularExpressions.Regex FnVerRegex =
+            new System.Text.RegularExpressions.Regex(@"(?:[\(\[\s_]v?|\b)([0-9]+\.[0-9]+(?:\.[0-9]+)*)(?!\s*(?:GB|MB|KB|TB|ГБ|МБ|КБ|Б|B)\b)", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+        private static readonly System.Text.RegularExpressions.Regex FnVnumRegex =
+            new System.Text.RegularExpressions.Regex(@"\[v([0-9]+)\]", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+        private static readonly System.Text.RegularExpressions.Regex VerRegex =
+            new System.Text.RegularExpressions.Regex(@"[\[\(_]v(\d+)[\]\)]|[-_\s](\d{5,8})[-_\s\)]", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
+
+        public static bool IsBaseVersion(string? ver)
+        {
+            if (string.IsNullOrWhiteSpace(ver)) return true;
+            string v = ver.Trim();
+            while (v.StartsWith("v", StringComparison.OrdinalIgnoreCase))
+            {
+                v = v.Substring(1);
+            }
+            v = v.Trim();
+            return string.IsNullOrEmpty(v) || v == "0" || v == "1.0" || v == "1.0.0" || v == "1.0.0.0" || v.Equals("PACKED", StringComparison.OrdinalIgnoreCase);
+        }
+
+        public static string CleanVersion(string? ver)
+        {
+            if (string.IsNullOrWhiteSpace(ver)) return "1.0.0";
+            string v = ver.Trim();
+            while (v.StartsWith("v", StringComparison.OrdinalIgnoreCase))
+            {
+                v = v.Substring(1);
+            }
+            v = v.Trim();
+            if (string.IsNullOrEmpty(v) || v == "0" || v.Equals("PACKED", StringComparison.OrdinalIgnoreCase))
+            {
+                return "1.0.0";
+            }
+            return v;
+        }
+
+        public static uint FixHexPackedVersionCode(uint rawCode)
+        {
+            if (rawCode == 0) return 0;
+            if (rawCode % 65536 == 0) return rawCode;
+
+            // Если версия упакована как шестнадцатеричный BCD код (например, 26215748 = 0x01900544 => "1900544")
+            string hex = rawCode.ToString("X");
+            if (hex.Length >= 5 && hex.Length <= 8 && uint.TryParse(hex, out uint parsedDec))
+            {
+                if (parsedDec % 65536 == 0 || (parsedDec < rawCode && parsedDec > 0))
+                {
+                    return parsedDec;
+                }
+            }
+            return rawCode;
+        }
+
+        public static void ResolveVersionFromPath(string filePath, ref string displayVersion, ref string versionCode)
+        {
+            string fileName = System.IO.Path.GetFileName(filePath);
+            string parentDirName = System.IO.Path.GetFileName(System.IO.Path.GetDirectoryName(filePath) ?? "");
+            string[] candidates = { fileName, parentDirName, filePath };
+
+            // 1. Поиск парной версии из имени файла (например: "(1.29.0 - 1900544 - ...)")
+            // Точно как в E:\STORM EDEN 3 (main_window.cpp lines 8810-8815): при наличии пары в имени файла,
+            // она имеет высший приоритет над NACP базы и артефактами CNMT.
+            foreach (var text in candidates)
+            {
+                if (string.IsNullOrWhiteSpace(text)) continue;
+
+                var fm = FnPairVerRegex.Match(text);
+                if (fm.Success && !string.IsNullOrEmpty(fm.Groups[1].Value))
+                {
+                    displayVersion = CleanVersion(fm.Groups[1].Value);
+                    if (!string.IsNullOrEmpty(fm.Groups[2].Value))
+                    {
+                        versionCode = fm.Groups[2].Value;
+                    }
+                    return;
+                }
+            }
+
+            // 2. Если парной версии в имени файла нет, проверяем одиночные regex
+            string? foundDisplayVer = null;
+            string? foundVersionCode = null;
+
+            foreach (var text in candidates)
+            {
+                if (string.IsNullOrWhiteSpace(text)) continue;
+
+                // Поиск общей версии (например: "(1.29.0)" или "[v1.29.0]")
+                if (string.IsNullOrEmpty(foundDisplayVer))
+                {
+                    var m = FnVerRegex.Match(text);
+                    if (m.Success && !string.IsNullOrEmpty(m.Groups[1].Value))
+                    {
+                        string candidate = m.Groups[1].Value;
+                        if (!IsBaseVersion(candidate))
+                        {
+                            foundDisplayVer = candidate;
+                        }
+                    }
+                }
+
+                // Поиск кода версии ([v12345] или 5-8 цифр)
+                if (string.IsNullOrEmpty(foundVersionCode))
+                {
+                    var vm = FnVnumRegex.Match(text);
+                    if (vm.Success && !string.IsNullOrEmpty(vm.Groups[1].Value))
+                    {
+                        foundVersionCode = vm.Groups[1].Value;
+                    }
+                    else
+                    {
+                        var match = VerRegex.Match(text);
+                        if (match.Success)
+                        {
+                            for (int i = 1; i < match.Groups.Count; i++)
+                            {
+                                var cap = match.Groups[i].Value;
+                                if (!string.IsNullOrEmpty(cap) && uint.TryParse(cap, out uint parsed) && parsed > 0)
+                                {
+                                    foundVersionCode = cap;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Применяем найденную версию, если текущая является базовой
+            if (IsBaseVersion(displayVersion))
+            {
+                if (!string.IsNullOrEmpty(foundDisplayVer) && !IsBaseVersion(foundDisplayVer))
+                {
+                    displayVersion = foundDisplayVer;
+                }
+            }
+
+            displayVersion = CleanVersion(displayVersion);
+
+            // Коррекция и назначение кода версии
+            uint currentCode = 0;
+            uint.TryParse(versionCode, out currentCode);
+            currentCode = FixHexPackedVersionCode(currentCode);
+
+            if (!string.IsNullOrEmpty(foundVersionCode) && uint.TryParse(foundVersionCode, out uint foundCodeVal))
+            {
+                foundCodeVal = FixHexPackedVersionCode(foundCodeVal);
+                if (foundCodeVal > currentCode || currentCode == 0)
+                {
+                    currentCode = foundCodeVal;
+                }
+            }
+
+            // Запасной расчет кода версии из display version (по формуле Nintendo Switch из E:\STORM EDEN 3)
+            if (currentCode == 0 && !IsBaseVersion(displayVersion))
+            {
+                var parts = displayVersion.Split('.');
+                if (parts.Length >= 2 && int.TryParse(parts[0], out int major) && int.TryParse(parts[1], out int minor))
+                {
+                    int patch = 0;
+                    if (parts.Length >= 3) int.TryParse(parts[2], out patch);
+                    if (major >= 1)
+                    {
+                        currentCode = (uint)((major - 1) * 655360 + minor * 65536 + (patch * 65536) / 10);
+                    }
+                }
+            }
+
+            versionCode = currentCode.ToString();
+        }
+
+        #endregion
     }
 }

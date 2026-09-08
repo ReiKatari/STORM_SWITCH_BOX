@@ -106,7 +106,7 @@ namespace StormSwitchBox.Services
         {
             _dbPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "titledb.json");
             _httpClient = new HttpClient();
-            _httpClient.DefaultRequestHeaders.Add("User-Agent", "StormSwitchBox/5.0.3");
+            _httpClient.DefaultRequestHeaders.Add("User-Agent", "StormSwitchBox/5.0.4");
             _eShopService = new NintendoEShopService();
             
             // Асинхронно загружаем базу из локального кэша
@@ -442,6 +442,28 @@ namespace StormSwitchBox.Services
                     {
                         currentVersionCode = manualVer;
                         App.RunOnUI(() => item.VersionCode = manualVer);
+                    }
+
+                    // Если отображаемая версия базовая, а код версии известен (из CNMT или файла), проверяем базу TitleDB
+                    if (CatalogScannerService.IsBaseVersion(item.Version) && dictToUse != null)
+                    {
+                        if (dictToUse.TryGetValue(currentVersionCode, out string? dbDisplayVer) && !CatalogScannerService.IsBaseVersion(dbDisplayVer))
+                        {
+                            App.RunOnUI(() => item.Version = CatalogScannerService.CleanVersion(dbDisplayVer));
+                        }
+                        else if (uint.TryParse(currentVersionCode, out uint numC))
+                        {
+                            string hexC = numC.ToString("X");
+                            if (dictToUse.TryGetValue(hexC, out string? hexDbVer) && !CatalogScannerService.IsBaseVersion(hexDbVer))
+                            {
+                                App.RunOnUI(() =>
+                                {
+                                    item.Version = CatalogScannerService.CleanVersion(hexDbVer);
+                                    item.VersionCode = hexC;
+                                });
+                                currentVersionCode = hexC;
+                            }
+                        }
                     }
 
                     if (currentVersionCode == "0" && dictToUse != null && !string.IsNullOrEmpty(item.Version))

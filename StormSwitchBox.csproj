@@ -16,9 +16,9 @@
     <PublishReadyToRun>false</PublishReadyToRun>
     <TieredCompilation>true</TieredCompilation>
     <SuppressNETCoreSdkPreviewMessage>true</SuppressNETCoreSdkPreviewMessage>
-    <Version>5.0.3</Version>
-    <AssemblyVersion>5.0.3.0</AssemblyVersion>
-    <FileVersion>5.0.3.0</FileVersion>
+    <Version>5.0.4</Version>
+    <AssemblyVersion>5.0.4.0</AssemblyVersion>
+    <FileVersion>5.0.4.0</FileVersion>
     <ApplicationIcon>storm_switch_box.ico</ApplicationIcon>
     <DefaultItemExcludes>$(DefaultItemExcludes);obj\**;bin\**;installer\**</DefaultItemExcludes>
   </PropertyGroup>
