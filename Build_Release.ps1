@@ -14,7 +14,7 @@ if (-not (Test-Path $assemblingDir)) { New-Item -ItemType Directory -Path $assem
 if (-not (Test-Path $filesDir)) { New-Item -ItemType Directory -Path $filesDir | Out-Null }
 if (-not (Test-Path $outputDir)) { New-Item -ItemType Directory -Path $outputDir | Out-Null }
 
-$appVersion = "5.0.4"
+$appVersion = "5.0.5"
 try {
     [xml]$appProjXml = Get-Content (Join-Path $appProjDir "StormSwitchBox.csproj")
     $verFromProj = $appProjXml.Project.PropertyGroup.Version
@@ -110,6 +110,9 @@ if (Test-Path "$baseDir\tools\7z.exe") {
 } else {
     Compress-Archive -Path "$publishDir\*" -DestinationPath $portableZipPath -Force
 }
+Copy-Item $portableZipPath $filesDir -Force
+Copy-Item $portableZipPath (Join-Path $outputDir "STORM_SWITCH_BOX_${appVersion}.zip") -Force
+Copy-Item $portableZipPath (Join-Path $filesDir "STORM_SWITCH_BOX_${appVersion}.zip") -Force
 
 # Step 4: Build Custom StormInstaller
 Write-Host "[5/6] Building and Signing StormInstaller (Cyber Dark UI)..." -ForegroundColor Yellow
