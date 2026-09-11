@@ -5,6 +5,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
+using System.Security.Cryptography;
 using LibHac.Common;
 using LibHac.Fs;
 using LibHac.Fs.Fsa;
@@ -269,17 +270,19 @@ namespace StormSwitchBox.Services
                 string newControlNca = producedNcas[0];
                 string newControlNcaName = Path.GetFileName(newControlNca);
 
-                // 4. Поиск Program NCA и пересборка Meta NCA (CNMT) чтобы метаданные ссылались на новый Control NCA
+                // 4. Поиск оригинального CNMT и Control NCA для TitleID и безопасная пересборка Meta NCA
                 string? newMetaNca = null;
                 string? newMetaNcaName = null;
+                string? oldMetaNcaEntryName = null;
+                string? oldControlNcaEntryName = null;
 
                 if (File.Exists(targetNspPath))
                 {
-                    string extractedProgNca = Path.Combine(tempDir, "extracted_prog.nca");
-                    string extractedLegalNca = Path.Combine(tempDir, "extracted_legal.nca");
-                    string extractedManualNca = Path.Combine(tempDir, "extracted_manual.nca");
+                    byte[]? oldCnmtBytes = null;
                     string? progPath = null;
                     string? manualPath = null;
+                    string extractedProgNca = Path.Combine(tempDir, "extracted_prog.nca");
+                    string extractedManualNca = Path.Combine(tempDir, "extracted_manual.nca");
                     string titleVersionHex = "0x0";
                     try
                     {
@@ -291,7 +294,7 @@ namespace StormSwitchBox.Services
                     }
                     catch { }
 
-                    // Извлекаем Program NCA и другие мета-зависимости из целевого NSP
+                    // Сканируем целевой NSP для поиска оригинального CNMT и Control NCA для данного TitleId
                     using (var srcStream = new FileStream(targetNspPath, FileMode.Open, FileAccess.Read, FileShare.Read))
                     {
                         IStorage srcStorage = srcStream.AsStorage();
@@ -307,28 +310,118 @@ namespace StormSwitchBox.Services
                             {
                                 using var ef = OpenFileSafe(srcPfs, "/" + name);
                                 var nca = new Nca(App.Keys.CurrentKeyset, ef.AsStorage());
-                                
-                                if (nca.Header.ContentType == NcaContentType.Program && progPath == null)
+                                string ncaTid = nca.Header.TitleId.ToString("X16");
+
+                                if (nca.Header.ContentType == NcaContentType.Meta && ncaTid.Equals(titleId, StringComparison.OrdinalIgnoreCase))
                                 {
+                                    oldMetaNcaEntryName = name;
+                                    try
+                                    {
+                                        var romfs = nca.OpenFileSystem(NcaSectionType.Data, IntegrityCheckLevel.None);
+                                        foreach (var f in romfs.EnumerateEntries())
+                                        {
+                                            if (f.Name.EndsWith(".cnmt", StringComparison.OrdinalIgnoreCase))
+                                            {
+                                                using var cf = OpenFileSafe(romfs, f.FullPath);
+                                                using var ms = new MemoryStream();
+                                                cf.AsStream().CopyTo(ms);
+                                                oldCnmtBytes = ms.ToArray();
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    catch { }
+                                }
+                                else if (nca.Header.ContentType == NcaContentType.Control && ncaTid.Equals(titleId, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    oldControlNcaEntryName = name;
+                                }
+                                else if (nca.Header.ContentType == NcaContentType.Program && progPath == null)
+                                {
+                                    // Сохраняем ссылку на Program NCA для резервного (fallback) пути
                                     using var ps = ef.AsStream();
                                     using var fs = new FileStream(extractedProgNca, FileMode.Create, FileAccess.Write);
                                     ps.CopyTo(fs);
                                     progPath = extractedProgNca;
-                                }
-                                else if (nca.Header.ContentType == NcaContentType.Manual && manualPath == null)
-                                {
-                                    using var ms = ef.AsStream();
-                                    using var fs = new FileStream(extractedManualNca, FileMode.Create, FileAccess.Write);
-                                    ms.CopyTo(fs);
-                                    manualPath = extractedManualNca;
                                 }
                             }
                             catch { }
                         }
                     }
 
-                    // Если Program NCA найден, собираем обновленный Meta NCA через hacpack
-                    if (progPath != null && File.Exists(progPath))
+                    // 4.1 Быстрое и безопасное обновление CNMT с сохранением всех под-программ, DLC и разделов
+                    if (oldCnmtBytes != null)
+                    {
+                        try
+                        {
+                            using var ms = new MemoryStream(oldCnmtBytes);
+                            var cnmt = new LibHac.Tools.Ncm.Cnmt(ms);
+                            int contentOffset = 0x20 + cnmt.TableOffset;
+
+                            byte[] newControlSha256 = SHA256.HashData(File.ReadAllBytes(newControlNca));
+                            byte[] newControlNcaId = newControlSha256.Take(16).ToArray();
+                            long newControlSize = new FileInfo(newControlNca).Length;
+
+                            string? oldControlNcaIdHex = oldControlNcaEntryName != null && oldControlNcaEntryName.Length >= 32
+                                ? oldControlNcaEntryName.Substring(0, 32)
+                                : null;
+
+                            bool entryPatched = false;
+                            for (int i = 0; i < cnmt.ContentEntries.Length; i++)
+                            {
+                                var ce = cnmt.ContentEntries[i];
+                                if (ce.Type == LibHac.Ncm.ContentType.Control)
+                                {
+                                    string ceNcaIdHex = Convert.ToHexString(ce.NcaId);
+                                    if (oldControlNcaIdHex == null || ceNcaIdHex.Equals(oldControlNcaIdHex, StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        int entryOffset = contentOffset + i * 0x38;
+                                        // Hash (32 bytes)
+                                        Array.Copy(newControlSha256, 0, oldCnmtBytes, entryOffset, 32);
+                                        // NcaId (16 bytes)
+                                        Array.Copy(newControlNcaId, 0, oldCnmtBytes, entryOffset + 32, 16);
+                                        // Size (6 bytes)
+                                        byte[] sizeBytes = BitConverter.GetBytes(newControlSize);
+                                        Array.Copy(sizeBytes, 0, oldCnmtBytes, entryOffset + 48, 6);
+                                        entryPatched = true;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if (entryPatched)
+                            {
+                                string updatedCnmtPath = Path.Combine(tempDir, "updated.cnmt");
+                                File.WriteAllBytes(updatedCnmtPath, oldCnmtBytes);
+
+                                string metaArgs = $"-k \"{keysFile}\" --type nca --ncatype meta --titleid {titleId} --cnmt \"{updatedCnmtPath}\" -o \"{outNcaDir}\"";
+                                int metaCode = await ExternalProcessRunner.RunAsync(
+                                    _hacpackExe,
+                                    metaArgs,
+                                    tempDir,
+                                    task,
+                                    ct
+                                );
+
+                                if (metaCode == 0)
+                                {
+                                    var metaNcas = Directory.GetFiles(outNcaDir, "*.cnmt.nca");
+                                    if (metaNcas.Length > 0)
+                                    {
+                                        newMetaNca = metaNcas[0];
+                                        newMetaNcaName = Path.GetFileName(newMetaNca);
+                                    }
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            App.Logger.Log($"[ControlEditor] Ошибка прямого обновления CNMT: {ex.Message}", LogLevel.Warning);
+                        }
+                    }
+
+                    // Резервный (fallback) путь через hacpack --programnca (если прямой CNMT не был найден)
+                    if (newMetaNca == null && progPath != null && File.Exists(progPath))
                     {
                         string metaArgs = $"-k \"{keysFile}\" --type nca --ncatype meta --titleid {titleId} --titletype application --titleversion {titleVersionHex} --programnca \"{progPath}\" --controlnca \"{newControlNca}\"";
                         if (manualPath != null && File.Exists(manualPath))
@@ -353,73 +446,65 @@ namespace StormSwitchBox.Services
                                 newMetaNca = metaNcas[0];
                                 newMetaNcaName = Path.GetFileName(newMetaNca);
                             }
-                        }
                     }
+                }
 
-                    // 5. Замена Control NCA и Meta NCA в targetNspPath с помощью LibHac PartitionFileSystemBuilder
-                    await Task.Run(() =>
+                // 5. Замена Control NCA и Meta NCA в targetNspPath с помощью LibHac PartitionFileSystemBuilder
+                await Task.Run(() =>
+                {
+                    string tempPatchedNsp = Path.Combine(tempDir, "patched_target.nsp");
+                    var pfsBuilder = new PartitionFileSystemBuilder();
+
+                    using (var srcStream = new FileStream(targetNspPath, FileMode.Open, FileAccess.Read, FileShare.Read))
                     {
-                        string tempPatchedNsp = Path.Combine(tempDir, "patched_target.nsp");
-                        var pfsBuilder = new PartitionFileSystemBuilder();
+                        IStorage srcStorage = srcStream.AsStorage();
+                        var srcPfs = new PartitionFileSystem(srcStorage);
+                        var openedFiles = new List<IFile>();
+                        var openedStreams = new List<FileStream>();
+                        var entryDict = new Dictionary<string, IStorage>(StringComparer.OrdinalIgnoreCase);
 
-                        using (var srcStream = new FileStream(targetNspPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                        try
                         {
-                            IStorage srcStorage = srcStream.AsStorage();
-                            var srcPfs = new PartitionFileSystem(srcStorage);
-                            var openedFiles = new List<IFile>();
-                            var openedStreams = new List<FileStream>();
-                            var entryDict = new Dictionary<string, IStorage>(StringComparer.OrdinalIgnoreCase);
-
-                            try
+                            foreach (var entry in srcPfs.EnumerateEntries())
                             {
-                                foreach (var entry in srcPfs.EnumerateEntries())
+                                if (entry.Type == DirectoryEntryType.Directory) continue;
+                                string name = entry.Name;
+
+                                // Исключаем СТРОГО Control NCA и Meta NCA для редактируемого TitleId.
+                                // ВСЕ DLC, обновления и Control NCA других под-программ СОХРАНЯЮТСЯ в целости!
+                                bool isOldControl = false;
+                                bool isOldMeta = false;
+
+                                if (oldControlNcaEntryName != null && name.Equals(oldControlNcaEntryName, StringComparison.OrdinalIgnoreCase))
                                 {
-                                    if (entry.Type == DirectoryEntryType.Directory) continue;
-                                    string name = entry.Name;
-
-                                    // Пропускаем старый Control NCA
-                                    bool isOldControl = false;
-                                    bool isOldMeta = false;
-
-                                    if (name.EndsWith(".cnmt.nca", StringComparison.OrdinalIgnoreCase) || name.EndsWith(".cnmt.xml", StringComparison.OrdinalIgnoreCase))
-                                    {
-                                        if (newMetaNca != null) isOldMeta = true; // Заменим новым Meta NCA
-                                    }
-                                    else if (name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase))
-                                    {
-                                        try
-                                        {
-                                            using var ef = OpenFileSafe(srcPfs, "/" + name);
-                                            var nca = new Nca(App.Keys.CurrentKeyset, ef.AsStorage());
-                                            if (nca.Header.ContentType == NcaContentType.Control)
-                                            {
-                                                isOldControl = true;
-                                            }
-                                            else if (nca.Header.ContentType == NcaContentType.Meta && newMetaNca != null)
-                                            {
-                                                isOldMeta = true;
-                                            }
-                                        }
-                                        catch { }
-                                    }
-
-                                    if (isOldControl || isOldMeta) continue;
-
-                                    var oldFile = OpenFileSafe(srcPfs, "/" + name);
-                                    openedFiles.Add(oldFile);
-                                    entryDict[name] = oldFile.AsStorage();
+                                    isOldControl = true;
+                                }
+                                else if (oldMetaNcaEntryName != null && name.Equals(oldMetaNcaEntryName, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    if (newMetaNca != null) isOldMeta = true;
+                                }
+                                else if (name.EndsWith(".cnmt.xml", StringComparison.OrdinalIgnoreCase) && name.Contains(titleId, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    isOldMeta = true;
                                 }
 
-                                if (newMetaNca != null && newMetaNcaName != null)
-                                {
-                                    var metaStream = new FileStream(newMetaNca, FileMode.Open, FileAccess.Read, FileShare.Read);
-                                    openedStreams.Add(metaStream);
-                                    entryDict[newMetaNcaName] = metaStream.AsStorage();
-                                }
+                                if (isOldControl || isOldMeta) continue;
 
-                                var controlStream = new FileStream(newControlNca, FileMode.Open, FileAccess.Read, FileShare.Read);
-                                openedStreams.Add(controlStream);
-                                entryDict[newControlNcaName] = controlStream.AsStorage();
+                                var oldFile = OpenFileSafe(srcPfs, "/" + name);
+                                openedFiles.Add(oldFile);
+                                entryDict[name] = oldFile.AsStorage();
+                            }
+
+                            if (newMetaNca != null && newMetaNcaName != null)
+                            {
+                                var metaStream = new FileStream(newMetaNca, FileMode.Open, FileAccess.Read, FileShare.Read);
+                                openedStreams.Add(metaStream);
+                                entryDict[newMetaNcaName] = metaStream.AsStorage();
+                            }
+
+                            var controlStream = new FileStream(newControlNca, FileMode.Open, FileAccess.Read, FileShare.Read);
+                            openedStreams.Add(controlStream);
+                            entryDict[newControlNcaName] = controlStream.AsStorage();
 
                                 // Сортируем файлы в строгом порядке Nintendo Switch PFS0:
                                 // 0: Meta (CNMT) -> 1: Control -> 2: Program -> 3: Manual -> 50: DLC -> 90: Tickets/Certs

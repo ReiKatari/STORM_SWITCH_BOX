@@ -1,5 +1,5 @@
 #define MyAppName "STORM SWITCH BOX"
-#define MyAppVersion "5.0.4"
+#define MyAppVersion "5.0.5"
 #define MyAppPublisher "STORM TEAM"
 #define MyAppURL "https://github.com/ReiKatari/STORM_SWITCH_BOX"
 #define MyAppExeName "StormSwitchBox.exe"
@@ -15,7 +15,7 @@ AppUpdatesURL={#MyAppURL}
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
-OutputBaseFilename=STORM_SWITCH_BOX_5.0.4_Setup
+OutputBaseFilename=STORM_SWITCH_BOX_5.0.5_Setup
 OutputDir=Output
 SetupIconFile=..\storm_switch_box.ico
 ArchitecturesAllowed=x64compatible
