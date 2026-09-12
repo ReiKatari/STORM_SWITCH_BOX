@@ -280,6 +280,7 @@ namespace StormSwitchBox.Services
                 {
                     byte[]? oldCnmtBytes = null;
                     string? progPath = null;
+                    string? progNcaEntryName = null;
                     string? manualPath = null;
                     string extractedProgNca = Path.Combine(tempDir, "extracted_prog.nca");
                     string extractedManualNca = Path.Combine(tempDir, "extracted_manual.nca");
@@ -317,16 +318,25 @@ namespace StormSwitchBox.Services
                                     oldMetaNcaEntryName = name;
                                     try
                                     {
-                                        var romfs = nca.OpenFileSystem(NcaSectionType.Data, IntegrityCheckLevel.None);
-                                        foreach (var f in romfs.EnumerateEntries())
+                                        IFileSystem? romfs = null;
+                                        try { romfs = nca.OpenFileSystem(0, IntegrityCheckLevel.None); } catch { }
+                                        if (romfs == null)
                                         {
-                                            if (f.Name.EndsWith(".cnmt", StringComparison.OrdinalIgnoreCase))
+                                            try { romfs = nca.OpenFileSystem(NcaSectionType.Data, IntegrityCheckLevel.None); } catch { }
+                                        }
+
+                                        if (romfs != null)
+                                        {
+                                            foreach (var f in romfs.EnumerateEntries())
                                             {
-                                                using var cf = OpenFileSafe(romfs, f.FullPath);
-                                                using var ms = new MemoryStream();
-                                                cf.AsStream().CopyTo(ms);
-                                                oldCnmtBytes = ms.ToArray();
-                                                break;
+                                                if (f.Name.EndsWith(".cnmt", StringComparison.OrdinalIgnoreCase))
+                                                {
+                                                    using var cf = OpenFileSafe(romfs, f.FullPath);
+                                                    using var ms = new MemoryStream();
+                                                    cf.AsStream().CopyTo(ms);
+                                                    oldCnmtBytes = ms.ToArray();
+                                                    break;
+                                                }
                                             }
                                         }
                                     }
@@ -336,13 +346,10 @@ namespace StormSwitchBox.Services
                                 {
                                     oldControlNcaEntryName = name;
                                 }
-                                else if (nca.Header.ContentType == NcaContentType.Program && progPath == null)
+                                else if (nca.Header.ContentType == NcaContentType.Program && progNcaEntryName == null)
                                 {
-                                    // Сохраняем ссылку на Program NCA для резервного (fallback) пути
-                                    using var ps = ef.AsStream();
-                                    using var fs = new FileStream(extractedProgNca, FileMode.Create, FileAccess.Write);
-                                    ps.CopyTo(fs);
-                                    progPath = extractedProgNca;
+                                    // Сохраняем имя записи Program NCA для ленивого извлечения только в случае необходимости
+                                    progNcaEntryName = name;
                                 }
                             }
                             catch { }
@@ -394,7 +401,12 @@ namespace StormSwitchBox.Services
                                 string updatedCnmtPath = Path.Combine(tempDir, "updated.cnmt");
                                 File.WriteAllBytes(updatedCnmtPath, oldCnmtBytes);
 
-                                string metaArgs = $"-k \"{keysFile}\" --type nca --ncatype meta --titleid {titleId} --cnmt \"{updatedCnmtPath}\" -o \"{outNcaDir}\"";
+                                string titleTypeStr = "application";
+                                if (cnmt.Type == LibHac.Ncm.ContentMetaType.AddOnContent) titleTypeStr = "addon";
+                                else if (cnmt.Type == LibHac.Ncm.ContentMetaType.SystemProgram) titleTypeStr = "systemprogram";
+                                else if (cnmt.Type == LibHac.Ncm.ContentMetaType.SystemData) titleTypeStr = "systemdata";
+
+                                string metaArgs = $"-k \"{keysFile}\" --type nca --ncatype meta --titleid {titleId} --titletype {titleTypeStr} --titleversion 0x{cnmt.TitleVersion.Version:x} --cnmt \"{updatedCnmtPath}\" -o \"{outNcaDir}\"";
                                 int metaCode = await ExternalProcessRunner.RunAsync(
                                     _hacpackExe,
                                     metaArgs,
@@ -408,8 +420,31 @@ namespace StormSwitchBox.Services
                                     var metaNcas = Directory.GetFiles(outNcaDir, "*.cnmt.nca");
                                     if (metaNcas.Length > 0)
                                     {
-                                        newMetaNca = metaNcas[0];
-                                        newMetaNcaName = Path.GetFileName(newMetaNca);
+                                        bool isValid = false;
+                                        try
+                                        {
+                                            using var checkFs = new FileStream(metaNcas[0], FileMode.Open, FileAccess.Read, FileShare.Read);
+                                            var checkNca = new Nca(App.Keys.CurrentKeyset, checkFs.AsStorage());
+                                            if (checkNca.CanOpenSection(0))
+                                            {
+                                                var checkSection0 = checkNca.OpenFileSystem(0, IntegrityCheckLevel.None);
+                                                if (checkSection0.EnumerateEntries("/", "*").Any())
+                                                {
+                                                    isValid = true;
+                                                }
+                                            }
+                                        }
+                                        catch { }
+
+                                        if (isValid)
+                                        {
+                                            newMetaNca = metaNcas[0];
+                                            newMetaNcaName = Path.GetFileName(newMetaNca);
+                                        }
+                                        else
+                                        {
+                                            App.Logger.Log($"[ControlEditor] Предупреждение: сгенерированный Meta NCA пуст! Откат к оригинальному Meta NCA.", LogLevel.Warning);
+                                        }
                                     }
                                 }
                             }
@@ -421,6 +456,21 @@ namespace StormSwitchBox.Services
                     }
 
                     // Резервный (fallback) путь через hacpack --programnca (если прямой CNMT не был найден)
+                    if (newMetaNca == null && progNcaEntryName != null)
+                    {
+                        try
+                        {
+                            using var fsSrc = new FileStream(targetNspPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                            var pfsSrc = new PartitionFileSystem(fsSrc.AsStorage());
+                            using var ef = OpenFileSafe(pfsSrc, "/" + progNcaEntryName);
+                            using var ps = ef.AsStream();
+                            using var fs = new FileStream(extractedProgNca, FileMode.Create, FileAccess.Write);
+                            ps.CopyTo(fs);
+                            progPath = extractedProgNca;
+                        }
+                        catch { }
+                    }
+
                     if (newMetaNca == null && progPath != null && File.Exists(progPath))
                     {
                         string metaArgs = $"-k \"{keysFile}\" --type nca --ncatype meta --titleid {titleId} --titletype application --titleversion {titleVersionHex} --programnca \"{progPath}\" --controlnca \"{newControlNca}\"";
@@ -443,11 +493,30 @@ namespace StormSwitchBox.Services
                             var metaNcas = Directory.GetFiles(outNcaDir, "*.cnmt.nca");
                             if (metaNcas.Length > 0)
                             {
-                                newMetaNca = metaNcas[0];
-                                newMetaNcaName = Path.GetFileName(newMetaNca);
+                                bool isValid = false;
+                                try
+                                {
+                                    using var checkFs = new FileStream(metaNcas[0], FileMode.Open, FileAccess.Read, FileShare.Read);
+                                    var checkNca = new Nca(App.Keys.CurrentKeyset, checkFs.AsStorage());
+                                    if (checkNca.CanOpenSection(0))
+                                    {
+                                        var checkSection0 = checkNca.OpenFileSystem(0, IntegrityCheckLevel.None);
+                                        if (checkSection0.EnumerateEntries("/", "*").Any())
+                                        {
+                                            isValid = true;
+                                        }
+                                    }
+                                }
+                                catch { }
+
+                                if (isValid)
+                                {
+                                    newMetaNca = metaNcas[0];
+                                    newMetaNcaName = Path.GetFileName(newMetaNca);
+                                }
                             }
+                        }
                     }
-                }
 
                 // 5. Замена Control NCA и Meta NCA в targetNspPath с помощью LibHac PartitionFileSystemBuilder
                 await Task.Run(() =>
