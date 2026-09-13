@@ -303,42 +303,8 @@ namespace StormSwitchBox
                 Logger.Log("Файл криптографических ключей не найден. Пожалуйста, укажите его в параметрах.", Models.LogLevel.Warning);
             }
 
-            // AUTOMATED TEST BYPASS
-            string[] cmdArgs = Environment.GetCommandLineArgs();
-            if (cmdArgs.Length > 1 && cmdArgs[1] == "--run-test")
-            {
-                try
-                {
-                    string outDir = @"P:\CONSOLES\Nintendo Switch\GAMES";
-                    string outFileName = "Devil Jam [WW] [RUS] (1.0.1 - 65536 - 0100C6A0235D4000) (1G+1U)";
-                    string outPath = System.IO.Path.Combine(outDir, outFileName + ".nsz");
-                    
-                    var task = new Models.ProcessingTask
-                    {
-                        Operation = "Multi",
-                        TargetFormat = "NSZ",
-                        OutputFolder = outDir,
-                        OutputFileName = outFileName,
-                    };
-                    
-                    var inputFiles = new List<string>
-                    {
-                        @"P:\CONSOLES\Nintendo Switch\DOWNLOADS\Devil Jam\[WW] [RUS] (1.0.1 - 65536 - 0100C6A0235D4000) (1G+1U)\Devil Jam [0100C6A0235D4000][v0] (0.45 GB).nsz",
-                        @"P:\CONSOLES\Nintendo Switch\DOWNLOADS\Devil Jam\[WW] [RUS] (1.0.1 - 65536 - 0100C6A0235D4000) (1G+1U)\Devil Jam [0100C6A0235D4800][v65536] (0.19 GB).nsz"
-                    };
-                    
-                    await MultiContent.BuildMultiContentAsync(task, inputFiles, outPath, patchFirmware: true, CancellationToken.None);
-                    System.IO.File.WriteAllText(System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory, "test_result.txt"), "SUCCESS\n" + task.LogDetails);
-                }
-                catch (Exception ex)
-                {
-                    System.IO.File.WriteAllText(System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory, "test_result.txt"), "FAILED: " + ex.ToString());
-                }
-                Environment.Exit(0);
-                return;
-            }
-
             // Handle current process args
+            string[] cmdArgs = Environment.GetCommandLineArgs();
             if (!ProcessCommandLineArgs(cmdArgs))
             {
                 MainWindow = new MainWindow();
