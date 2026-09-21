@@ -249,7 +249,14 @@ namespace StormSwitchBox.Services
                 string yanuOutDir = System.IO.Path.Combine(tempDir, "yanu_output");
                 Directory.CreateDirectory(yanuOutDir);
 
-                bool applyMods = isMultiContent;
+                var romfsMods = inputFiles.Where(d => System.IO.Directory.Exists(d) && 
+                    (System.IO.Path.GetFileName(d).Equals("romfs", StringComparison.OrdinalIgnoreCase) || 
+                     System.IO.Path.GetFileName(d).StartsWith("unlocker_romfs", StringComparison.OrdinalIgnoreCase))).ToList();
+                string? romfsMod = romfsMods.FirstOrDefault();
+                string? exefsMod = inputFiles.FirstOrDefault(d => System.IO.Directory.Exists(d) && System.IO.Path.GetFileName(d).Equals("exefs", StringComparison.OrdinalIgnoreCase));
+                string? exefsPatchesMod = inputFiles.FirstOrDefault(d => System.IO.Directory.Exists(d) && System.IO.Path.GetFileName(d).Equals("exefs_patches", StringComparison.OrdinalIgnoreCase));
+
+                bool applyMods = (romfsMods.Count > 0 || exefsMod != null || exefsPatchesMod != null);
                 
                 string keepLangsArg = "";
                 if (App.Settings.Current.TrimXci && App.Settings.Current.KeepLanguages != null && App.Settings.Current.KeepLanguages.Count > 0)
@@ -257,13 +264,6 @@ namespace StormSwitchBox.Services
                     string keepLangsStr = string.Join(",", App.Settings.Current.KeepLanguages);
                     keepLangsArg = string.IsNullOrEmpty(keepLangsStr) ? "" : $"--keep-langs \"{keepLangsStr}\"";
                 }
-
-                var romfsMods = inputFiles.Where(d => System.IO.Directory.Exists(d) && 
-                    (System.IO.Path.GetFileName(d).Equals("romfs", StringComparison.OrdinalIgnoreCase) || 
-                     System.IO.Path.GetFileName(d).StartsWith("unlocker_romfs", StringComparison.OrdinalIgnoreCase))).ToList();
-                string? romfsMod = romfsMods.FirstOrDefault();
-                string? exefsMod = inputFiles.FirstOrDefault(d => System.IO.Directory.Exists(d) && System.IO.Path.GetFileName(d).Equals("exefs", StringComparison.OrdinalIgnoreCase));
-                string? exefsPatchesMod = inputFiles.FirstOrDefault(d => System.IO.Directory.Exists(d) && System.IO.Path.GetFileName(d).Equals("exefs_patches", StringComparison.OrdinalIgnoreCase));
                 
                 string titleVersionArg = "";
                 if (!string.IsNullOrEmpty(updateFile))
@@ -1077,6 +1077,17 @@ namespace StormSwitchBox.Services
             {
                 targetRomFs = System.IO.Path.Combine(tempUnpack, "romfs");
             }
+
+            // Валидация наличия RomFS: если игра имела размер > 50 МБ, пустой RomFS означает сбой распаковки!
+            long baseFileSize = (!string.IsNullOrEmpty(baseFile) && File.Exists(baseFile)) ? new FileInfo(baseFile).Length : 0;
+            bool isRomFsExpected = baseFileSize > 50 * 1024 * 1024;
+            bool hasRomFsEntries = Directory.Exists(targetRomFs) && Directory.EnumerateFileSystemEntries(targetRomFs).Any();
+
+            if (isRomFsExpected && !hasRomFsEntries)
+            {
+                throw new InvalidOperationException($"Не удалось извлечь RomFS из базовой игры/обновления. Каталог ресурсов пуст. Монолитная сборка невозможна для данного набора файлов.");
+            }
+
             if (!Directory.Exists(targetRomFs)) Directory.CreateDirectory(targetRomFs);
 
             // 3. Поиск Control NCA и TitleID

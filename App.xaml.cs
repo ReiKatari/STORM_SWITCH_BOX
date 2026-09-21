@@ -193,7 +193,20 @@ namespace StormSwitchBox
 
             // Single Instance Check
             bool isFirstInstance = false;
-            _singleInstanceMutex = new System.Threading.Mutex(true, @"Global\STORM_SWITCH_BOX_SingleInstanceMutex", out isFirstInstance);
+            try
+            {
+                _singleInstanceMutex = new System.Threading.Mutex(true, @"Global\STORM_SWITCH_BOX_SingleInstanceMutex", out isFirstInstance);
+            }
+            catch (System.Threading.AbandonedMutexException)
+            {
+                // Предыдущий экземпляр аварийно завершился, мы перехватываем владение мьютексом
+                isFirstInstance = true;
+            }
+            catch (Exception ex)
+            {
+                Logger?.Log($"[Mutex] Предупреждение инициализации мьютекса: {ex.Message}", Models.LogLevel.Warning);
+                isFirstInstance = true;
+            }
 
             if (!isFirstInstance)
             {
@@ -385,13 +398,14 @@ namespace StormSwitchBox
             
             string tag = action switch
             {
-                "update"  => "Update",
-                "unpack"  => "Unpack",
-                "pack"    => "Pack",
-                "convert" => "Convert",
-                "multi"   => "Multi",
-                "verify"  => "Verify",
-                _         => "Multi"
+                "update"   => "Update",
+                "unpack"   => "Unpack",
+                "pack"     => "Pack",
+                "convert"  => "Convert",
+                "multi"    => "Multi",
+                "homebrew" => "Homebrew",
+                "verify"   => "Verify",
+                _          => "Multi"
             };
 
             // Setup TasksViewModel

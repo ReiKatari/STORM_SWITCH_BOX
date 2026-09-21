@@ -335,7 +335,7 @@ public partial class TasksViewModel : ObservableObject
 				if (ext == ".zip" || ext == ".rar" || ext == ".7z")
 					archivesToProcess.Add(p);
 			}
-			else if (Directory.Exists(p))
+			else if (Directory.Exists(p) && _currentPageType != "Homebrew")
 			{
 				try
 				{
@@ -452,8 +452,10 @@ public partial class TasksViewModel : ObservableObject
 					string outFolder = GetOutPathForPage("Homebrew");
 					if (string.IsNullOrEmpty(outFolder))
 					{
-						outFolder = !string.IsNullOrEmpty(pkg.PrimaryNroPath) ? Path.GetDirectoryName(pkg.PrimaryNroPath) ?? "" : App.Settings.Current.OutputFolder;
+						outFolder = !string.IsNullOrEmpty(App.Settings.Current.OutputFolder) ? App.Settings.Current.OutputFolder : (!string.IsNullOrEmpty(pkg.PrimaryNroPath) ? Path.GetDirectoryName(pkg.PrimaryNroPath) ?? "" : "");
 					}
+
+					string outFileName = !string.IsNullOrWhiteSpace(pkg.OutputFileName) ? pkg.OutputFileName : pkg.Name;
 
 					var task = new ProcessingTask
 					{
@@ -480,9 +482,9 @@ public partial class TasksViewModel : ObservableObject
 						Progress = 0.0,
 						InputFolders = string.Join("; ", pkg.InputFiles.Select(p => Directory.Exists(p) ? p : (Path.GetDirectoryName(p) ?? "")).Distinct()),
 						OutputFolder = outFolder,
-						OutputFileName = pkg.Name,
+						OutputFileName = outFileName,
 						GameName = pkg.Name,
-						LogDetails = $"[Homebrew] {pkg.Name} v{pkg.Version} by {pkg.Author} (TitleID: {pkg.TitleId})"
+						LogDetails = $"[Homebrew] {outFileName} v{pkg.Version} by {pkg.Author} (TitleID: {pkg.TitleId})"
 					};
 
 					// Заполняем модель кастомных метаданных для немедленного редактирования
@@ -524,7 +526,7 @@ public partial class TasksViewModel : ObservableObject
 						});
 					}
 
-					App.Logger.Log($"[Homebrew] Создана задача: {pkg.Name} [{pkg.TitleId}] ({pkg.InputFiles.Count} файлов)", LogLevel.Success);
+					App.Logger.Log($"[Homebrew] Создана задача: {outFileName} [{pkg.TitleId}] ({pkg.InputFiles.Count} файлов)", LogLevel.Success);
 				}
 				return;
 			}
@@ -1156,7 +1158,7 @@ public partial class TasksViewModel : ObservableObject
 						? FormatNames3ds[Math.Clamp(SelectedFormatIndex3ds, 0, FormatNames3ds.Length - 1)] 
 						: SelectedFormat;
 
-					ObservableCollection<ProcessingTask> targetList = _currentPageType switch { "Verify" => VerifyTasks, "Homebrew" => HomebrewTasks, _ => Tasks };
+					ObservableCollection<ProcessingTask> targetList = _currentPageType == "Verify" ? VerifyTasks : Tasks;
 					ProcessingTask task = new ProcessingTask
 					{
 						Id = $"T{targetList.Count + 1:D3}",
@@ -1277,7 +1279,7 @@ public partial class TasksViewModel : ObservableObject
 		{
 			return;
 		}
-		ObservableCollection<ProcessingTask> targetList = task.Operation switch { "Verify" => VerifyTasks, "Homebrew" => HomebrewTasks, _ => Tasks };
+		ObservableCollection<ProcessingTask> targetList = task.Operation == "Verify" ? VerifyTasks : Tasks;
 		if (!targetList.Contains(task))
 		{
 			return;
@@ -1742,7 +1744,17 @@ public partial class TasksViewModel : ObservableObject
 		if (task.Operation == "Homebrew")
 		{
 			task.IsRunning = true;
-			await App.Homebrew.BuildHomebrewAsync(task, cts.Token);
+			try
+			{
+				await App.Homebrew.BuildHomebrewAsync(task, cts.Token);
+			}
+			catch (Exception ex)
+			{
+				task.IsRunning = false;
+				task.Status = "Ошибка";
+				task.LogDetails += $"\n[Ошибка] Сборка Homebrew прервана: {ex.Message}\n";
+				App.Logger.Log($"[TasksViewModel] Сбой сборки задачи {task.Id} ({task.OutputFileName}): {ex}", LogLevel.Error);
+			}
 			return;
 		}
 		if (task.Operation == "Unpack")

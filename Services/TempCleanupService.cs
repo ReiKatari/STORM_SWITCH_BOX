@@ -169,7 +169,9 @@ namespace StormSwitchBox.Services
                         "StormControl_*",
                         "StormCompress_*",
                         "StormHactool_*",
-                        "StormPack_*"
+                        "StormPack_*",
+                        "StormHB*",
+                        "StormHomebrew_*"
                     };
 
                     string[] tempFilePatterns = new[]

@@ -194,9 +194,35 @@ namespace StormSwitchBox.Services
                         hpInput.AddRange(modDirs);
                         hpInput.AddRange(unlockerRomfsDirs);
 
-                        await App.HardPatch.PatchUpdateAsync(task, hpInput, tempHardPatchedNsp, cancellationToken, isMultiContent: true);
-                        
-                        if (System.IO.File.Exists(tempHardPatchedNsp) && new FileInfo(tempHardPatchedNsp).Length > 0)
+                        bool hardPatchSuccess = false;
+                        try
+                        {
+                            await App.HardPatch.PatchUpdateAsync(task, hpInput, tempHardPatchedNsp, cancellationToken, isMultiContent: true);
+                            
+                            if (System.IO.File.Exists(tempHardPatchedNsp))
+                            {
+                                long patchedSize = new FileInfo(tempHardPatchedNsp).Length;
+                                // Валидация: если исходная база > 50 МБ, а результат хардпатча меньше 50% базы — это поврежденный огрызок без RomFS!
+                                if (baseSize > 50 * 1024 * 1024 && patchedSize < baseSize * 0.5)
+                                {
+                                    App.Logger.Log($"[HardPatch] Размер пересобранного файла ({patchedSize} байт) аномально мал относительно базы ({baseSize} байт). Откат к нативной сборке.", Models.LogLevel.Warning);
+                                    App.RunOnUI(() => task.LogDetails += $"\n⚠️ [HardPatch] Размер пересобранного файла ({Models.ProcessingTask.FormatSize(patchedSize)}) аномально мал относительно базы ({Models.ProcessingTask.FormatSize(baseSize)}). Откат к нативному сшиванию мультиконтента...");
+                                    try { System.IO.File.Delete(tempHardPatchedNsp); } catch { }
+                                }
+                                else if (patchedSize > 0)
+                                {
+                                    hardPatchSuccess = true;
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            App.Logger.Log($"[HardPatch] Исключение монолитного слияния: {ex.Message}. Откат к нативному сшиванию мультиконтента.", Models.LogLevel.Warning);
+                            App.RunOnUI(() => task.LogDetails += $"\n⚠️ [HardPatch] Монолитное слияние невозможно ({ex.Message}). Выполняется откат к прямому сшиванию оригинальных разделов...");
+                            try { if (System.IO.File.Exists(tempHardPatchedNsp)) System.IO.File.Delete(tempHardPatchedNsp); } catch { }
+                        }
+
+                        if (hardPatchSuccess && System.IO.File.Exists(tempHardPatchedNsp))
                         {
                             if (task.IsMultiProgramTitle)
                             {

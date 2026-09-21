@@ -38,13 +38,11 @@ gar_data/
 *.user
 Thumbs.db
 Desktop.ini
-*.log
+*.log*
+yanu.log*
 *.tmp
-node_modules/
-
-installer/Output/
 *.tmp*
-
+node_modules/
 
 # Additional ignores
 installer/Output/
