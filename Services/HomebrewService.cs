@@ -1803,117 +1803,20 @@ namespace StormSwitchBox.Services
                     !f.EndsWith(".rar", StringComparison.OrdinalIgnoreCase)).ToList();
 
                 string? nroFile = task.InputFiles.FirstOrDefault(f => File.Exists(f) && Path.GetExtension(f).Equals(".nro", StringComparison.OrdinalIgnoreCase));
+                bool isForwarder = (nroFile != null) || File.Exists(Path.Combine(romfsDir, "nextNroPath"));
                 string effectiveRomfsDir = romfsDir;
 
-                // Если есть ровно один готовый каталог RomFS без модов, loose файлов и nro - Zero-Copy
-                if (allRomfsDirs.Count == 1 && looseDataFiles.Count == 0 && nroFile == null)
+                if (isForwarder)
                 {
-                    effectiveRomfsDir = allRomfsDirs[0];
-                    App.RunOnUI(() =>
-                    {
-                        task.LogDetails += $"[RomFS] Zero-Copy: Использование существующего RomFS каталога ({allRomfsDirs[0]})\n";
-                    });
-                }
-                else
-                {
-                    // Копируем базовый RomFS, а затем накатываем RomFS модов/дополнений поверх
-                    foreach (var rDir in allRomfsDirs)
-                    {
-                        App.RunOnUI(() =>
-                        {
-                            task.LogDetails += $"[RomFS] Применение каталога RomFS ({Path.GetFileName(Path.GetDirectoryName(rDir)) ?? rDir})...\n";
-                        });
-                        CopyDirectory(rDir, romfsDir);
-                    }
-
-                    // Копируем подкаталоги данных игры (assets, save, android_root, TheXTech, devilutionx-switch, etc.)
-                    var gameSubDirs = task.InputFiles.Where(f => Directory.Exists(f) && 
-                        !Path.GetFileName(f).Equals("romfs", StringComparison.OrdinalIgnoreCase) && 
-                        !Path.GetFileName(f).Equals("exefs", StringComparison.OrdinalIgnoreCase) && 
-                        !Path.GetFileName(f).Equals("exefs_patches", StringComparison.OrdinalIgnoreCase) &&
-                        !Path.GetFileName(f).Equals("atmosphere", StringComparison.OrdinalIgnoreCase) &&
-                        !Path.GetFileName(f).Equals("Add-ons", StringComparison.OrdinalIgnoreCase)).ToList();
-
-                    foreach (var gDir in gameSubDirs)
-                    {
-                        string dirName = Path.GetFileName(gDir);
-                        string destSubDir = Path.Combine(romfsDir, dirName);
-                        CopyDirectory(gDir, destSubDir);
-
-                        // Если папка содержит прямые ресурсы (devilutionx-switch, switch/<app>, TheXTech, etc.), дублируем файлы в корень RomFS для мгновенного нахождения игрой
-                        try
-                        {
-                            foreach (var subFile in Directory.GetFiles(gDir, "*.*", SearchOption.AllDirectories))
-                            {
-                                string ext = Path.GetExtension(subFile);
-                                if (ext.Equals(".mpq", StringComparison.OrdinalIgnoreCase) ||
-                                    ext.Equals(".ini", StringComparison.OrdinalIgnoreCase) ||
-                                    ext.Equals(".ttf", StringComparison.OrdinalIgnoreCase) ||
-                                    ext.Equals(".o2r", StringComparison.OrdinalIgnoreCase) ||
-                                    ext.Equals(".pck", StringComparison.OrdinalIgnoreCase) ||
-                                    ext.Equals(".so", StringComparison.OrdinalIgnoreCase))
-                                {
-                                    string rootDest = Path.Combine(romfsDir, Path.GetFileName(subFile));
-                                    if (!File.Exists(rootDest))
-                                    {
-                                        CopyFileWithRetry(subFile, rootDest, false);
-                                    }
-                                }
-                            }
-                        }
-                        catch { }
-
-                        // Для подпапок assets, save, android_root дублируем в корень RomFS
-                        try
-                        {
-                            foreach (var sAssets in Directory.GetDirectories(gDir, "assets", SearchOption.AllDirectories))
-                            {
-                                string rootAssets = Path.Combine(romfsDir, "assets");
-                                CopyDirectory(sAssets, rootAssets);
-                            }
-                            foreach (var sSave in Directory.GetDirectories(gDir, "save", SearchOption.AllDirectories))
-                            {
-                                string rootSave = Path.Combine(romfsDir, "save");
-                                CopyDirectory(sSave, rootSave);
-                            }
-                            foreach (var sAndroid in Directory.GetDirectories(gDir, "android_root", SearchOption.AllDirectories))
-                            {
-                                string rootAndroid = Path.Combine(romfsDir, "android_root");
-                                CopyDirectory(sAndroid, rootAndroid);
-                            }
-                        }
-                        catch { }
-                    }
-
-                    // Копируем все loose файлы данных в RomFS
-                    int looseCopied = 0;
-                    foreach (var file in looseDataFiles)
-                    {
-                        if (nroFile != null && file.Equals(nroFile, StringComparison.OrdinalIgnoreCase)) continue;
-                        string fileName = Path.GetFileName(file);
-                        string dest = Path.Combine(romfsDir, fileName);
-                        if (!File.Exists(dest))
-                        {
-                            CopyFileWithRetry(file, dest, true);
-                            looseCopied++;
-                        }
-                    }
-                    if (looseCopied > 0)
-                    {
-                        App.RunOnUI(() =>
-                        {
-                            task.LogDetails += $"[RomFS] Вшито файлов ресурсов: {looseCopied}\n";
-                        });
-                    }
+                    // Для HBL Forwarder NSP раздел RomFS должен быть ультра-легковесным (~1 КБ)
+                    // и содержать исключительно маршруты запуска (nextNroPath, nextArgv).
+                    // Все ресурсы игры, ассеты и loose-файлы деплоятся исключительно на SDMC (sdmc:/...)
+                    // чтобы RomFS не переполнял память загрузчика HBL (Userspace PANIC 0x75B).
 
                     if (nroFile != null)
                     {
                         string nroName = Path.GetFileName(nroFile);
                         string nroBaseName = Path.GetFileNameWithoutExtension(nroFile);
-
-                        // В RomFS копируем NRO как app.nro
-                        string destAppNro = Path.Combine(romfsDir, "app.nro");
-                        CopyFileWithRetry(nroFile, destAppNro, true);
 
                         // Определяем точный целевой путь форвардера sdmc:/...
                         string nextPath = "";
@@ -1947,7 +1850,7 @@ namespace StormSwitchBox.Services
                             }
                             else if (task.InputFiles.Any(f => f.Contains("thextech", StringComparison.OrdinalIgnoreCase)))
                             {
-                                nextPath = $"sdmc:/switch/thextech/{nroName}";
+                                nextPath = $"sdmc:/switch/{nroName}";
                             }
                             else
                             {
@@ -1959,6 +1862,115 @@ namespace StormSwitchBox.Services
                         string nextArgvContent = $"{nextPath}\0{nextPath}\0";
                         File.WriteAllText(Path.Combine(romfsDir, "nextNroPath"), nextPath);
                         File.WriteAllBytes(Path.Combine(romfsDir, "nextArgv"), Encoding.UTF8.GetBytes(nextArgvContent));
+
+                        App.RunOnUI(() =>
+                        {
+                            task.LogDetails += $"[RomFS] HBL Forwarder: сконфигурирован целевой NRO путь {nextPath}\n";
+                        });
+                    }
+                }
+                else
+                {
+                    // Нативный Switch порт / монолит (например, Grand Theft Auto V)
+                    // Если есть ровно один готовый каталог RomFS без модов и loose файлов - Zero-Copy
+                    if (allRomfsDirs.Count == 1 && looseDataFiles.Count == 0)
+                    {
+                        effectiveRomfsDir = allRomfsDirs[0];
+                        App.RunOnUI(() =>
+                        {
+                            task.LogDetails += $"[RomFS] Zero-Copy: Использование существующего RomFS каталога ({allRomfsDirs[0]})\n";
+                        });
+                    }
+                    else
+                    {
+                        // Копируем базовый RomFS, а затем накатываем RomFS модов/дополнений поверх
+                        foreach (var rDir in allRomfsDirs)
+                        {
+                            App.RunOnUI(() =>
+                            {
+                                task.LogDetails += $"[RomFS] Применение каталога RomFS ({Path.GetFileName(Path.GetDirectoryName(rDir)) ?? rDir})...\n";
+                            });
+                            CopyDirectory(rDir, romfsDir);
+                        }
+
+                        // Копируем подкаталоги данных игры (assets, save, android_root, TheXTech, devilutionx-switch, etc.)
+                        var gameSubDirs = task.InputFiles.Where(f => Directory.Exists(f) && 
+                            !Path.GetFileName(f).Equals("romfs", StringComparison.OrdinalIgnoreCase) && 
+                            !Path.GetFileName(f).Equals("exefs", StringComparison.OrdinalIgnoreCase) && 
+                            !Path.GetFileName(f).Equals("exefs_patches", StringComparison.OrdinalIgnoreCase) &&
+                            !Path.GetFileName(f).Equals("atmosphere", StringComparison.OrdinalIgnoreCase) &&
+                            !Path.GetFileName(f).Equals("Add-ons", StringComparison.OrdinalIgnoreCase)).ToList();
+
+                        foreach (var gDir in gameSubDirs)
+                        {
+                            string dirName = Path.GetFileName(gDir);
+                            string destSubDir = Path.Combine(romfsDir, dirName);
+                            CopyDirectory(gDir, destSubDir);
+
+                            // Если папка содержит прямые ресурсы (devilutionx-switch, switch/<app>, TheXTech, etc.), дублируем файлы в корень RomFS для мгновенного нахождения игрой
+                            try
+                            {
+                                foreach (var subFile in Directory.GetFiles(gDir, "*.*", SearchOption.AllDirectories))
+                                {
+                                    string ext = Path.GetExtension(subFile);
+                                    if (ext.Equals(".mpq", StringComparison.OrdinalIgnoreCase) ||
+                                        ext.Equals(".ini", StringComparison.OrdinalIgnoreCase) ||
+                                        ext.Equals(".ttf", StringComparison.OrdinalIgnoreCase) ||
+                                        ext.Equals(".o2r", StringComparison.OrdinalIgnoreCase) ||
+                                        ext.Equals(".pck", StringComparison.OrdinalIgnoreCase) ||
+                                        ext.Equals(".so", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        string rootDest = Path.Combine(romfsDir, Path.GetFileName(subFile));
+                                        if (!File.Exists(rootDest))
+                                        {
+                                            CopyFileWithRetry(subFile, rootDest, false);
+                                        }
+                                    }
+                                }
+                            }
+                            catch { }
+
+                            // Для подпапок assets, save, android_root дублируем в корень RomFS
+                            try
+                            {
+                                foreach (var sAssets in Directory.GetDirectories(gDir, "assets", SearchOption.AllDirectories))
+                                {
+                                    string rootAssets = Path.Combine(romfsDir, "assets");
+                                    CopyDirectory(sAssets, rootAssets);
+                                }
+                                foreach (var sSave in Directory.GetDirectories(gDir, "save", SearchOption.AllDirectories))
+                                {
+                                    string rootSave = Path.Combine(romfsDir, "save");
+                                    CopyDirectory(sSave, rootSave);
+                                }
+                                foreach (var sAndroid in Directory.GetDirectories(gDir, "android_root", SearchOption.AllDirectories))
+                                {
+                                    string rootAndroid = Path.Combine(romfsDir, "android_root");
+                                    CopyDirectory(sAndroid, rootAndroid);
+                                }
+                            }
+                            catch { }
+                        }
+
+                        // Копируем все loose файлы данных в RomFS
+                        int looseCopied = 0;
+                        foreach (var file in looseDataFiles)
+                        {
+                            string fileName = Path.GetFileName(file);
+                            string dest = Path.Combine(romfsDir, fileName);
+                            if (!File.Exists(dest))
+                            {
+                                CopyFileWithRetry(file, dest, true);
+                                looseCopied++;
+                            }
+                        }
+                        if (looseCopied > 0)
+                        {
+                            App.RunOnUI(() =>
+                            {
+                                task.LogDetails += $"[RomFS] Вшито файлов ресурсов: {looseCopied}\n";
+                            });
+                        }
                     }
                 }
 
