@@ -878,18 +878,27 @@ namespace StormSwitchBox.Services
                 var matchTid = System.Text.RegularExpressions.Regex.Match(fname, @"\[([0-9A-Fa-f]{16})\]");
                 if (matchTid.Success) tid = matchTid.Groups[1].Value.ToUpperInvariant();
 
+                bool isModFile = fname.Contains("MOD", StringComparison.OrdinalIgnoreCase) ||
+                                 fname.Contains("РУС", StringComparison.OrdinalIgnoreCase) ||
+                                 fname.Contains("RUS", StringComparison.OrdinalIgnoreCase);
+
                 bool isDlc = (!string.IsNullOrEmpty(tid) && tid.Length == 16 && !tid.EndsWith("000") && !tid.EndsWith("800")) ||
                              fname.Contains("DLC", StringComparison.OrdinalIgnoreCase) ||
                              fname.Contains("AddOn", StringComparison.OrdinalIgnoreCase);
 
-                bool isPatch = (!string.IsNullOrEmpty(tid) && tid.Length == 16 && tid.EndsWith("800")) ||
-                               (fname.Contains("[v") && !fname.Contains("[v0]")) ||
+                bool isPatch = !isModFile && ((!string.IsNullOrEmpty(tid) && tid.Length == 16 && tid.EndsWith("800")) ||
                                fname.Contains("Update", StringComparison.OrdinalIgnoreCase) ||
-                               fname.Contains("Patch", StringComparison.OrdinalIgnoreCase);
+                               fname.Contains("Patch", StringComparison.OrdinalIgnoreCase) ||
+                               (fname.Contains("[v") && !fname.Contains("[v0]")));
 
                 bool isBase = (!string.IsNullOrEmpty(tid) && tid.Length == 16 && tid.EndsWith("000")) ||
                               fname.Contains("[v0]") || fname.EndsWith("v0.nsp", StringComparison.OrdinalIgnoreCase) ||
                               fname.Contains("patched_base");
+
+                if (isModFile)
+                {
+                    modCount = 1;
+                }
 
                 if (isDlc)
                 {
