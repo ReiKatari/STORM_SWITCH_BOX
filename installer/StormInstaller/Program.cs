@@ -24,7 +24,7 @@ namespace StormUniversal.Installer
         private PictureBox picHeaderLogo = null!;
         private Panel headerPanel = null!;
 
-        private const string AppVersion = "5.0.6";
+        private const string AppVersion = "5.0.7";
         private const string AppDisplayName = "STORM SWITCH BOX";
         private const string AppFolderName = "STORM SWITCH BOX";
         private const string ExeName = "StormSwitchBox.exe";
@@ -40,6 +40,7 @@ namespace StormUniversal.Installer
         private CheckBox chkRegister = null!;
         private CheckBox chkInstallCert = null!;
         private CheckBox chkRunAfter = null!;
+        private bool isInstalling = false;
 
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
@@ -394,32 +395,52 @@ namespace StormUniversal.Installer
 
         private void Mode_CheckedChanged(object? sender, EventArgs e)
         {
+            if (isInstalling) return;
             if (rbPortable.Checked)
             {
                 txtInstallPath.Text = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, $"{AppFolderName}_Portable");
                 chkDesktop.Checked = false;
-                chkDesktop.Enabled = false;
+                chkDesktop.AutoCheck = false;
+                chkDesktop.ForeColor = Color.FromArgb(100, 116, 139);
+                chkDesktop.Cursor = Cursors.Default;
+
                 chkStartMenu.Checked = false;
-                chkStartMenu.Enabled = false;
+                chkStartMenu.AutoCheck = false;
+                chkStartMenu.ForeColor = Color.FromArgb(100, 116, 139);
+                chkStartMenu.Cursor = Cursors.Default;
+
                 chkRegister.Checked = false;
-                chkRegister.Enabled = false;
+                chkRegister.AutoCheck = false;
+                chkRegister.ForeColor = Color.FromArgb(100, 116, 139);
+                chkRegister.Cursor = Cursors.Default;
+
                 btnInstall.Text = "📦  Распаковать";
             }
             else
             {
                 txtInstallPath.Text = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), AppFolderName);
                 chkDesktop.Checked = true;
-                chkDesktop.Enabled = true;
+                chkDesktop.AutoCheck = true;
+                chkDesktop.ForeColor = Color.White;
+                chkDesktop.Cursor = Cursors.Hand;
+
                 chkStartMenu.Checked = true;
-                chkStartMenu.Enabled = true;
+                chkStartMenu.AutoCheck = true;
+                chkStartMenu.ForeColor = Color.White;
+                chkStartMenu.Cursor = Cursors.Hand;
+
                 chkRegister.Checked = true;
-                chkRegister.Enabled = true;
+                chkRegister.AutoCheck = true;
+                chkRegister.ForeColor = Color.White;
+                chkRegister.Cursor = Cursors.Hand;
+
                 btnInstall.Text = "📦  Установить";
             }
         }
 
         private void BtnBrowse_Click(object? sender, EventArgs e)
         {
+            if (isInstalling) return;
             using var fbd = new FolderBrowserDialog();
             fbd.Description = $"Выберите папку для установки {AppDisplayName}:";
             fbd.UseDescriptionForTitle = true;
@@ -431,6 +452,7 @@ namespace StormUniversal.Installer
 
         private async void BtnInstall_Click(object? sender, EventArgs e)
         {
+            if (isInstalling) return;
             progressBar.Visible = true;
             lblStatus.Visible = true;
             await StartInstallationAsync();
@@ -438,17 +460,30 @@ namespace StormUniversal.Installer
 
         private async Task StartInstallationAsync()
         {
+            isInstalling = true;
+
             btnInstall.Enabled = false;
+            btnInstall.BackColor = Color.FromArgb(30, 41, 59);
+            btnInstall.ForeColor = Color.FromArgb(100, 116, 139);
+            btnInstall.FlatAppearance.BorderColor = Color.FromArgb(51, 65, 85);
+            btnInstall.Cursor = Cursors.Default;
+
             btnCancel.Enabled = true;
-            btnBrowse.Enabled = false;
-            rbStandard.Enabled = false;
-            rbPortable.Enabled = false;
-            txtInstallPath.Enabled = false;
-            chkDesktop.Enabled = false;
-            chkStartMenu.Enabled = false;
-            chkInstallCert.Enabled = false;
-            chkRegister.Enabled = false;
-            chkRunAfter.Enabled = false;
+
+            btnBrowse.Cursor = Cursors.Default;
+            btnBrowse.ForeColor = Color.FromArgb(100, 116, 139);
+            btnBrowse.BackColor = Color.FromArgb(20, 28, 40);
+            btnBrowse.FlatAppearance.BorderColor = Color.FromArgb(51, 65, 85);
+
+            rbStandard.AutoCheck = false;
+            rbPortable.AutoCheck = false;
+            txtInstallPath.ReadOnly = true;
+
+            chkDesktop.AutoCheck = false;
+            chkStartMenu.AutoCheck = false;
+            chkInstallCert.AutoCheck = false;
+            chkRegister.AutoCheck = false;
+            chkRunAfter.AutoCheck = false;
 
             try
             {
@@ -486,7 +521,7 @@ namespace StormUniversal.Installer
 
                 if (chkInstallCert.Checked)
                 {
-                    lblStatus.Text = "Регистрация доверенного сертификата (Root & Publisher)...";
+                    lblStatus.Text = "Регистрация доверенного сертификата (Root и Publisher)...";
                     progressBar.Value = 25;
                     await Task.Delay(150);
 
@@ -497,7 +532,7 @@ namespace StormUniversal.Installer
                     }
                 }
 
-                lblStatus.Text = $"Распаковка пакета {AppDisplayName} (v{AppVersion})...";
+                lblStatus.Text = $"Распаковка пакета {AppDisplayName} ({AppVersion})...";
                 progressBar.Value = 35;
                 await Task.Delay(100);
 
@@ -586,7 +621,12 @@ namespace StormUniversal.Installer
                 lblStatus.Text = rbPortable.Checked ? "Портативная версия успешно распакована и разблокирована!" : "Установка успешно завершена! Система полностью готова.";
                 lblStatus.ForeColor = Color.FromArgb(16, 185, 129);
                 btnInstall.Enabled = false;
+                btnInstall.BackColor = Color.FromArgb(20, 28, 40);
+                btnInstall.ForeColor = Color.FromArgb(80, 95, 115);
                 btnCancel.Enabled = false;
+                btnCancel.BackColor = Color.FromArgb(20, 28, 40);
+                btnCancel.ForeColor = Color.FromArgb(80, 95, 115);
+                btnCancel.Cursor = Cursors.Default;
                 await Task.Delay(500);
 
                 if (chkRunAfter.Checked && File.Exists(targetExe))
@@ -618,9 +658,33 @@ namespace StormUniversal.Installer
             catch (Exception ex)
             {
                 MessageBox.Show($"Ошибка во время установки:\n{ex.Message}", "Ошибка установки", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                isInstalling = false;
+
                 btnInstall.Enabled = true;
+                btnInstall.BackColor = Color.FromArgb(14, 165, 233);
+                btnInstall.ForeColor = Color.White;
+                btnInstall.FlatAppearance.BorderColor = Color.FromArgb(56, 189, 248);
+                btnInstall.Cursor = Cursors.Hand;
+
                 btnCancel.Enabled = true;
-                btnBrowse.Enabled = true;
+
+                btnBrowse.Cursor = Cursors.Hand;
+                btnBrowse.ForeColor = Color.FromArgb(14, 165, 233);
+                btnBrowse.BackColor = Color.FromArgb(30, 41, 59);
+                btnBrowse.FlatAppearance.BorderColor = Color.FromArgb(14, 165, 233);
+
+                rbStandard.AutoCheck = true;
+                rbPortable.AutoCheck = true;
+                txtInstallPath.ReadOnly = false;
+
+                if (rbStandard.Checked)
+                {
+                    chkDesktop.AutoCheck = true;
+                    chkStartMenu.AutoCheck = true;
+                    chkRegister.AutoCheck = true;
+                }
+                chkInstallCert.AutoCheck = true;
+                chkRunAfter.AutoCheck = true;
             }
         }
 

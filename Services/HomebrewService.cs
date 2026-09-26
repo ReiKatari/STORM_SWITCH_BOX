@@ -372,7 +372,7 @@ namespace StormSwitchBox.Services
             // 2. Поиск и сбор ВСЕХ файлов и ресурсов игры (.rpf, .mpq, .wad, .pck, .o2r, .nes, .so, .dll, etc.)
             var excludedExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
-                ".nsp", ".nsz", ".xci", ".xcz", ".7z", ".zip", ".rar", ".tar", ".gz",
+                ".nsp", ".nsz", ".xci", ".xcz", ".tar", ".gz",
                 ".tmp", ".bak", ".ds_store"
             };
 
@@ -1186,7 +1186,7 @@ namespace StormSwitchBox.Services
                 // Ищем сопутствующие файлы данных (.rpf, .mpq, .wad, .pck, .o2r, etc.)
                 var excludedExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                 {
-                    ".nsp", ".nsz", ".xci", ".xcz", ".7z", ".zip", ".rar", ".tar", ".gz",
+                    ".nsp", ".nsz", ".xci", ".xcz", ".tar", ".gz",
                     ".tmp", ".bak", ".ds_store"
                 };
 
@@ -1720,6 +1720,127 @@ namespace StormSwitchBox.Services
                 Directory.CreateDirectory(outMetaDir);
                 Directory.CreateDirectory(allNcasDir);
 
+                // 0. Автоматическая распаковка сопутствующих архивов (.7z, .zip, .rar)
+                string archivesUnpackDir = Path.Combine(tempDir, "unpacked_archives");
+                var extractedArchiveDirs = new List<string>();
+                var extractedArchiveFiles = new List<string>();
+
+                var archivesToExtract = new List<string>();
+                foreach (var f in task.InputFiles)
+                {
+                    if (File.Exists(f))
+                    {
+                        string ext = Path.GetExtension(f);
+                        if (ext.Equals(".7z", StringComparison.OrdinalIgnoreCase) ||
+                            ext.Equals(".zip", StringComparison.OrdinalIgnoreCase) ||
+                            ext.Equals(".rar", StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (!archivesToExtract.Contains(f, StringComparer.OrdinalIgnoreCase))
+                                archivesToExtract.Add(f);
+                        }
+                    }
+                    else if (Directory.Exists(f))
+                    {
+                        try
+                        {
+                            foreach (var arch in Directory.GetFiles(f, "*.*", SearchOption.AllDirectories)
+                                .Where(x => x.EndsWith(".7z", StringComparison.OrdinalIgnoreCase) ||
+                                            x.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) ||
+                                            x.EndsWith(".rar", StringComparison.OrdinalIgnoreCase)))
+                            {
+                                if (!archivesToExtract.Contains(arch, StringComparer.OrdinalIgnoreCase))
+                                    archivesToExtract.Add(arch);
+                            }
+                        }
+                        catch { }
+                    }
+                }
+
+                foreach (var f in task.InputFiles.ToList())
+                {
+                    try
+                    {
+                        string? scanDir = Directory.Exists(f) ? f : Path.GetDirectoryName(f);
+                        if (!string.IsNullOrEmpty(scanDir) && Directory.Exists(scanDir))
+                        {
+                            foreach (var arch in Directory.GetFiles(scanDir, "*.*", SearchOption.TopDirectoryOnly))
+                            {
+                                string ext = Path.GetExtension(arch);
+                                if (ext.Equals(".7z", StringComparison.OrdinalIgnoreCase) ||
+                                    ext.Equals(".zip", StringComparison.OrdinalIgnoreCase) ||
+                                    ext.Equals(".rar", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    if (!archivesToExtract.Contains(arch, StringComparer.OrdinalIgnoreCase))
+                                        archivesToExtract.Add(arch);
+                                }
+                            }
+                        }
+                    }
+                    catch { }
+                }
+
+                string sevenZipExe = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tools", "7z.exe");
+                if (!File.Exists(sevenZipExe))
+                {
+                    sevenZipExe = Path.Combine(Directory.GetCurrentDirectory(), "tools", "7z.exe");
+                }
+
+                if (archivesToExtract.Count > 0 && File.Exists(sevenZipExe))
+                {
+                    Directory.CreateDirectory(archivesUnpackDir);
+                    foreach (var arch in archivesToExtract)
+                    {
+                        ct.ThrowIfCancellationRequested();
+                        string archName = Path.GetFileName(arch);
+                        string archTargetDir = Path.Combine(archivesUnpackDir, Path.GetFileNameWithoutExtension(arch));
+                        Directory.CreateDirectory(archTargetDir);
+
+                        App.RunOnUI(() =>
+                        {
+                            task.LogDetails += $"[Архивы] Распаковка сопутствующего архива: {archName}...\n";
+                        });
+
+                        int exitCode = await ExternalProcessRunner.RunAsync(sevenZipExe, $"x \"{arch}\" -o\"{archTargetDir}\" -y", tempDir, task, ct);
+                        if (exitCode == 0 && Directory.Exists(archTargetDir))
+                        {
+                            extractedArchiveDirs.Add(archTargetDir);
+                            foreach (var subDir in Directory.GetDirectories(archTargetDir, "*", SearchOption.AllDirectories))
+                            {
+                                extractedArchiveDirs.Add(subDir);
+                            }
+                            foreach (var subFile in Directory.GetFiles(archTargetDir, "*", SearchOption.AllDirectories))
+                            {
+                                extractedArchiveFiles.Add(subFile);
+                            }
+
+                            var foundNros = Directory.GetFiles(archTargetDir, "*.nro", SearchOption.AllDirectories);
+                            foreach (var fn in foundNros)
+                            {
+                                if (!task.InputFiles.Contains(fn, StringComparer.OrdinalIgnoreCase))
+                                {
+                                    task.InputFiles.Add(fn);
+                                    App.RunOnUI(() =>
+                                    {
+                                        task.LogDetails += $"[Архивы] Обнаружен исполняемый файл: {Path.GetFileName(fn)}\n";
+                                    });
+                                }
+                            }
+
+                            App.RunOnUI(() =>
+                            {
+                                task.LogDetails += $"✅ Архив {archName} успешно распакован ({extractedArchiveFiles.Count} файлов ресурсов).\n";
+                            });
+                        }
+                        else
+                        {
+                            App.RunOnUI(() =>
+                            {
+                                task.LogDetails += $"⚠️ Предупреждение: распаковка {archName} завершилась с кодом {exitCode}.\n";
+                            });
+                        }
+                    }
+                }
+
                 // Проверка свободного места на целевом диске
                 long requiredSpace = (long)(task.SourceSizeBytes * 2.5);
                 string checkPath = !string.IsNullOrEmpty(task.OutputFolder) ? task.OutputFolder : tempDir;
@@ -1793,16 +1914,16 @@ namespace StormSwitchBox.Services
                     allRomfsDirs = allRomfsDirs.OrderBy(f => f.Contains("Add-on", StringComparison.OrdinalIgnoreCase) || f.Contains("Mod", StringComparison.OrdinalIgnoreCase) || f.Contains("Russian", StringComparison.OrdinalIgnoreCase) ? 1 : 0).ToList();
                 }
 
-                var looseDataFiles = task.InputFiles.Where(f => File.Exists(f) && 
+                var looseDataFiles = task.InputFiles.Concat(extractedArchiveFiles).Where(f => File.Exists(f) && 
                     !f.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) && 
                     !f.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) && 
                     !f.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) && 
                     !f.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase) &&
                     !f.EndsWith(".7z", StringComparison.OrdinalIgnoreCase) &&
                     !f.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) &&
-                    !f.EndsWith(".rar", StringComparison.OrdinalIgnoreCase)).ToList();
+                    !f.EndsWith(".rar", StringComparison.OrdinalIgnoreCase)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
-                string? nroFile = task.InputFiles.FirstOrDefault(f => File.Exists(f) && Path.GetExtension(f).Equals(".nro", StringComparison.OrdinalIgnoreCase));
+                string? nroFile = task.InputFiles.Concat(extractedArchiveFiles).FirstOrDefault(f => File.Exists(f) && Path.GetExtension(f).Equals(".nro", StringComparison.OrdinalIgnoreCase));
                 bool isForwarder = (nroFile != null) || File.Exists(Path.Combine(romfsDir, "nextNroPath"));
                 string effectiveRomfsDir = romfsDir;
 
@@ -2194,30 +2315,52 @@ namespace StormSwitchBox.Services
                     }
                 }
 
-                // Авто-синхронизация с эмуляторами для игр на базе NRO (без создания лишней папки в выходном каталоге игр)
+                // Автономное формирование SDMC пакета и синхронизация с локальными эмуляторами
                 try
                 {
-                    string? mainNro = task.InputFiles.FirstOrDefault(f => File.Exists(f) && Path.GetExtension(f).Equals(".nro", StringComparison.OrdinalIgnoreCase));
-                    if (mainNro != null)
+                    string? mainNro = task.InputFiles.Concat(extractedArchiveFiles).FirstOrDefault(f => File.Exists(f) && Path.GetExtension(f).Equals(".nro", StringComparison.OrdinalIgnoreCase));
+                    string nextPath = "";
+                    string fwdNextNro = Path.Combine(romfsDir, "nextNroPath");
+                    if (File.Exists(fwdNextNro))
                     {
-                        string nroName = Path.GetFileName(mainNro);
-                        string nroAppFolder = Path.GetFileNameWithoutExtension(mainNro).Replace("-switch", "", StringComparison.OrdinalIgnoreCase).Trim();
+                        nextPath = File.ReadAllText(fwdNextNro).Trim();
+                    }
 
-                        string nextPath = "";
-                        string fwdNextNro = Path.Combine(romfsDir, "nextNroPath");
-                        if (File.Exists(fwdNextNro))
+                    bool hasSdmcTarget = (mainNro != null) || !string.IsNullOrWhiteSpace(nextPath);
+
+                    if (hasSdmcTarget)
+                    {
+                        string nroName = mainNro != null ? Path.GetFileName(mainNro) : "main.nro";
+                        string nroAppFolder = mainNro != null 
+                            ? Path.GetFileNameWithoutExtension(mainNro).Replace("-switch", "", StringComparison.OrdinalIgnoreCase).Trim() 
+                            : "";
+
+                        if (string.IsNullOrWhiteSpace(nextPath))
                         {
-                            nextPath = File.ReadAllText(fwdNextNro).Trim();
+                            if (task.InputFiles.Any(f => f.Contains("devilutionx", StringComparison.OrdinalIgnoreCase)))
+                                nextPath = $"sdmc:/devilutionx-switch/{nroName}";
+                            else if (task.InputFiles.Any(f => f.Contains("drmariomania", StringComparison.OrdinalIgnoreCase)))
+                                nextPath = $"sdmc:/switch/drmariomania_nx/{nroName}";
+                            else if (task.InputFiles.Any(f => f.Contains("gizmoduck", StringComparison.OrdinalIgnoreCase)))
+                                nextPath = $"sdmc:/switch/gizmoduck/{nroName}";
+                            else if (task.InputFiles.Any(f => f.Contains("mk64", StringComparison.OrdinalIgnoreCase) || f.Contains("spaghetti", StringComparison.OrdinalIgnoreCase)))
+                                nextPath = $"sdmc:/switch/mk64_spaghetti/{nroName}";
+                            else if (task.InputFiles.Any(f => f.Contains("smbr", StringComparison.OrdinalIgnoreCase)))
+                                nextPath = $"sdmc:/switch/smbr_nx/{nroName}";
+                            else if (task.InputFiles.Any(f => f.Contains("thextech", StringComparison.OrdinalIgnoreCase)))
+                                nextPath = $"sdmc:/switch/{nroName}";
+                            else
+                            {
+                                string folder = !string.IsNullOrEmpty(nroAppFolder) ? nroAppFolder : "app";
+                                nextPath = $"sdmc:/switch/{folder}/{nroName}";
+                            }
                         }
 
-                        string relativeTarget = !string.IsNullOrWhiteSpace(nextPath)
-                            ? nextPath.Replace("sdmc:/", "").TrimStart('/')
-                            : $"switch/{nroAppFolder}/{nroName}";
-
+                        string relativeTarget = nextPath.Replace("sdmc:/", "").TrimStart('/');
                         string targetSubfolder = Path.GetDirectoryName(relativeTarget) ?? ("switch/" + nroAppFolder);
                         if (string.IsNullOrWhiteSpace(targetSubfolder))
                         {
-                            targetSubfolder = "switch/" + nroAppFolder;
+                            targetSubfolder = "switch/" + (string.IsNullOrEmpty(nroAppFolder) ? "app" : nroAppFolder);
                         }
 
                         // Временная папка подготовки данных SDMC
@@ -2225,25 +2368,28 @@ namespace StormSwitchBox.Services
                         Directory.CreateDirectory(tempSdmcStaging);
 
                         // 1. Копируем все подкаталоги ресурсов (assets, save, android_root, TheXTech, etc.)
-                        foreach (var d in task.InputFiles.Where(dir => Directory.Exists(dir) && 
+                        var allInputDirs = task.InputFiles.Concat(extractedArchiveDirs).Where(dir => Directory.Exists(dir) && 
                             !Path.GetFileName(dir).Equals("exefs", StringComparison.OrdinalIgnoreCase) && 
                             !Path.GetFileName(dir).Equals("romfs", StringComparison.OrdinalIgnoreCase) && 
                             !Path.GetFileName(dir).Equals("exefs_patches", StringComparison.OrdinalIgnoreCase) &&
                             !Path.GetFileName(dir).Equals("atmosphere", StringComparison.OrdinalIgnoreCase) &&
-                            !Path.GetFileName(dir).Equals("Add-ons", StringComparison.OrdinalIgnoreCase)))
+                            !Path.GetFileName(dir).Equals("Add-ons", StringComparison.OrdinalIgnoreCase) &&
+                            !Path.GetFileName(dir).Equals("unpacked_archives", StringComparison.OrdinalIgnoreCase)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+                        string targetSubBaseName = Path.GetFileName(targetSubfolder);
+
+                        foreach (var d in allInputDirs)
                         {
                             string dName = Path.GetFileName(d);
-                            // Если внутри папка уже соответствует названию игры или switch/<app>
                             if (dName.Equals("devilutionx-switch", StringComparison.OrdinalIgnoreCase) || 
-                                dName.Equals(nroAppFolder, StringComparison.OrdinalIgnoreCase) ||
-                                dName.Equals(Path.GetFileName(targetSubfolder), StringComparison.OrdinalIgnoreCase))
+                                (!string.IsNullOrEmpty(nroAppFolder) && dName.Equals(nroAppFolder, StringComparison.OrdinalIgnoreCase)) ||
+                                dName.Equals(targetSubBaseName, StringComparison.OrdinalIgnoreCase))
                             {
                                 CopyDirectory(d, tempSdmcStaging);
                             }
                             else if (dName.Equals("switch", StringComparison.OrdinalIgnoreCase))
                             {
-                                // Если внутри switch лежит вложенная структура
-                                string nestedApp = Path.Combine(d, Path.GetFileName(targetSubfolder));
+                                string nestedApp = Path.Combine(d, targetSubBaseName);
                                 if (Directory.Exists(nestedApp))
                                 {
                                     CopyDirectory(nestedApp, tempSdmcStaging);
@@ -2267,31 +2413,84 @@ namespace StormSwitchBox.Services
                                     CopyDirectory(subDev, tempSdmcStaging);
                                 }
                             }
-                            else
+                            else if (dName.Equals("assets", StringComparison.OrdinalIgnoreCase) ||
+                                     dName.Equals("save", StringComparison.OrdinalIgnoreCase) ||
+                                     dName.Equals("android_root", StringComparison.OrdinalIgnoreCase))
                             {
                                 CopyDirectory(d, Path.Combine(tempSdmcStaging, dName));
                             }
                         }
 
-                        // 2. Копируем все loose файлы данных
-                        foreach (var f in task.InputFiles.Where(file => File.Exists(file) && 
+                        // 2. Копируем все loose файлы данных (включая распакованные архивы)
+                        var allLooseFiles = task.InputFiles.Concat(extractedArchiveFiles).Where(file => File.Exists(file) && 
                             !file.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) && 
                             !file.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) && 
                             !file.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) && 
                             !file.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase) && 
                             !file.EndsWith(".7z", StringComparison.OrdinalIgnoreCase) && 
                             !file.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) && 
-                            !file.EndsWith(".rar", StringComparison.OrdinalIgnoreCase)))
+                            !file.EndsWith(".rar", StringComparison.OrdinalIgnoreCase)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+                        foreach (var f in allLooseFiles)
                         {
-                            CopyFileWithRetry(f, Path.Combine(tempSdmcStaging, Path.GetFileName(f)), true);
+                            string fExt = Path.GetExtension(f);
+                            if (fExt.Equals(".pck", StringComparison.OrdinalIgnoreCase) ||
+                                fExt.Equals(".so", StringComparison.OrdinalIgnoreCase) ||
+                                fExt.Equals(".otf", StringComparison.OrdinalIgnoreCase) ||
+                                fExt.Equals(".ttf", StringComparison.OrdinalIgnoreCase) ||
+                                fExt.Equals(".nes", StringComparison.OrdinalIgnoreCase) ||
+                                fExt.Equals(".mpq", StringComparison.OrdinalIgnoreCase) ||
+                                fExt.Equals(".o2r", StringComparison.OrdinalIgnoreCase) ||
+                                fExt.Equals(".wad", StringComparison.OrdinalIgnoreCase) ||
+                                fExt.Equals(".rpf", StringComparison.OrdinalIgnoreCase) ||
+                                fExt.Equals(".xml", StringComparison.OrdinalIgnoreCase) ||
+                                fExt.Equals(".ini", StringComparison.OrdinalIgnoreCase) ||
+                                fExt.Equals(".json", StringComparison.OrdinalIgnoreCase))
+                            {
+                                CopyFileWithRetry(f, Path.Combine(tempSdmcStaging, Path.GetFileName(f)), true);
+                            }
                         }
 
                         // 3. Копируем основной NRO
-                        CopyFileWithRetry(mainNro, Path.Combine(tempSdmcStaging, nroName), true);
+                        if (mainNro != null && File.Exists(mainNro))
+                        {
+                            CopyFileWithRetry(mainNro, Path.Combine(tempSdmcStaging, Path.GetFileName(mainNro)), true);
+                        }
 
-                        // Авто-деплой в целевые папки SDMC эмуляторов
+                        // 4. ВСЕГДА формируем автономный пакет SDMC карты памяти рядом с собранным файлом
+                        string sdmcRoot = Path.Combine(outFolder, $"{task.OutputFileName}_[SDMC]");
+                        string sdmcTargetDir = Path.Combine(sdmcRoot, targetSubfolder);
+                        Directory.CreateDirectory(sdmcTargetDir);
+                        CopyDirectory(tempSdmcStaging, sdmcTargetDir);
+
+                        // Для TheXTech: дублируем в sdmc/TheXTech
+                        string xtechSrc = Path.Combine(tempDir, "sdmc_staging", "TheXTech");
+                        if (Directory.Exists(xtechSrc))
+                        {
+                            string sdmcXtech = Path.Combine(sdmcRoot, "TheXTech");
+                            Directory.CreateDirectory(sdmcXtech);
+                            CopyDirectory(xtechSrc, sdmcXtech);
+                        }
+
+                        // Для Diablo: дублируем в devilutionx-switch и switch/devilutionx
+                        if (task.InputFiles.Any(f => f.Contains("devilutionx", StringComparison.OrdinalIgnoreCase)) ||
+                            targetSubfolder.Contains("devilutionx", StringComparison.OrdinalIgnoreCase))
+                        {
+                            string devTarget1 = Path.Combine(sdmcRoot, "devilutionx-switch");
+                            string devTarget2 = Path.Combine(sdmcRoot, "switch", "devilutionx");
+                            Directory.CreateDirectory(devTarget1);
+                            Directory.CreateDirectory(devTarget2);
+                            CopyDirectory(tempSdmcStaging, devTarget1);
+                            CopyDirectory(tempSdmcStaging, devTarget2);
+                        }
+
+                        App.RunOnUI(() =>
+                        {
+                            task.LogDetails += $"[SDMC] Создана автономная структура карты памяти: {sdmcRoot}\n";
+                        });
+
+                        // 5. Авто-деплой в целевые папки SDMC локальных эмуляторов
                         var localEmuSdmcList = FindAllEmulatorSdmcDirectories();
-
                         foreach (var emuSdmc in localEmuSdmcList)
                         {
                             if (Directory.Exists(emuSdmc))
@@ -2300,8 +2499,6 @@ namespace StormSwitchBox.Services
                                 Directory.CreateDirectory(singleTargetFolder);
                                 CopyDirectory(tempSdmcStaging, singleTargetFolder);
 
-                                // Для TheXTech: копируем также напрямую в sdmc/TheXTech
-                                string xtechSrc = Path.Combine(tempDir, "sdmc_staging", "TheXTech");
                                 if (Directory.Exists(xtechSrc))
                                 {
                                     string emuXtech = Path.Combine(emuSdmc, "TheXTech");
@@ -2309,8 +2506,8 @@ namespace StormSwitchBox.Services
                                     CopyDirectory(xtechSrc, emuXtech);
                                 }
 
-                                // Для Diablo: дублируем в devilutionx-switch и switch/devilutionx
-                                if (task.InputFiles.Any(f => f.Contains("devilutionx", StringComparison.OrdinalIgnoreCase)))
+                                if (task.InputFiles.Any(f => f.Contains("devilutionx", StringComparison.OrdinalIgnoreCase)) ||
+                                    targetSubfolder.Contains("devilutionx", StringComparison.OrdinalIgnoreCase))
                                 {
                                     string devTarget1 = Path.Combine(emuSdmc, "devilutionx-switch");
                                     string devTarget2 = Path.Combine(emuSdmc, "switch", "devilutionx");
@@ -2325,14 +2522,6 @@ namespace StormSwitchBox.Services
                                     task.LogDetails += $"[SDMC] Синхронизированы ресурсы игры в эмулятор: {singleTargetFolder}\n";
                                 });
                             }
-                        }
-
-                        // Если эмуляторы не найдены в системе - создаем пакет рядом с игрой как fallback
-                        if (localEmuSdmcList.Count == 0)
-                        {
-                            string sdmcTargetDir = Path.Combine(outFolder, $"{task.OutputFileName}_[SDMC]", targetSubfolder);
-                            Directory.CreateDirectory(sdmcTargetDir);
-                            CopyDirectory(tempSdmcStaging, sdmcTargetDir);
                         }
                     }
                 }
@@ -2672,9 +2861,13 @@ namespace StormSwitchBox.Services
 
                     string[] directCandidates = new[]
                     {
+                        Path.Combine(root, "CONSOLES", "Nintendo Switch", "STORM SWITCH 4", "user", "sdmc"),
                         Path.Combine(root, "CONSOLES", "Nintendo Switch", "STORM SWITCH", "user", "sdmc"),
                         Path.Combine(root, "CONSOLES", "Nintendo Switch", "STORM EDEN", "user", "sdmc"),
                         Path.Combine(root, "CONSOLES", "Nintendo Switch", "Eden", "user", "sdmc"),
+                        Path.Combine(root, "STORM SWITCH 4", "Assembling", "user", "sdmc"),
+                        Path.Combine(root, "STORM SWITCH 4", "user", "sdmc"),
+                        Path.Combine(root, "STORM SWITCH 4", "sdmc"),
                         Path.Combine(root, "STORM SWITCH", "Assembling", "user", "sdmc"),
                         Path.Combine(root, "STORM SWITCH", "user", "sdmc"),
                         Path.Combine(root, "STORM SWITCH", "sdmc"),
@@ -2689,10 +2882,12 @@ namespace StormSwitchBox.Services
                         Path.Combine(root, "Ryujinx", "sdmc"),
                         Path.Combine(root, "suyu", "user", "sdmc"),
                         Path.Combine(root, "sudachi", "user", "sdmc"),
+                        Path.Combine(root, "Emulators", "STORM SWITCH 4", "user", "sdmc"),
                         Path.Combine(root, "Emulators", "STORM SWITCH", "user", "sdmc"),
                         Path.Combine(root, "Emulators", "STORM EDEN 3", "user", "sdmc"),
                         Path.Combine(root, "Emulators", "yuzu", "user", "sdmc"),
                         Path.Combine(root, "Emulators", "Ryujinx", "user", "sdmc"),
+                        Path.Combine(root, "Games", "Emulators", "STORM SWITCH 4", "user", "sdmc"),
                         Path.Combine(root, "Games", "Emulators", "STORM SWITCH", "user", "sdmc"),
                         Path.Combine(root, "Games", "Emulators", "STORM EDEN 3", "user", "sdmc")
                     };
@@ -2712,7 +2907,8 @@ namespace StormSwitchBox.Services
                         {
                             string topName = Path.GetFileName(topDir).ToLowerInvariant();
                             if (topName.Contains("eden") || topName.Contains("yuzu") || topName.Contains("ryujinx") ||
-                                topName.Contains("suyu") || topName.Contains("sudachi") || topName.Contains("emulator"))
+                                topName.Contains("suyu") || topName.Contains("sudachi") || topName.Contains("emulator") ||
+                                topName.Contains("storm switch") || (topName.StartsWith("switch") && !topName.Contains("box")))
                             {
                                 string userSdmc = Path.Combine(topDir, "user", "sdmc");
                                 if (Directory.Exists(userSdmc)) result.Add(userSdmc);

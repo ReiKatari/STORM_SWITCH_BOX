@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -97,8 +97,13 @@ namespace StormSwitchBox.Services
         ///  .nca     .ncz,    as-is.
         ///    PFS0-   .nsz.
         /// </summary>
-        public async Task CompressToNszAsync(ProcessingTask task, string inputPath, string outDir, CancellationToken cancellationToken)
+                public async Task CompressToNszAsync(ProcessingTask task, string inputPath, string outDir, CancellationToken cancellationToken)
         {
+            if (App.Settings.Current.SolidCompression)
+            {
+                await CompressSolidViaNszAsync(task, inputPath, outDir, cancellationToken);
+                return;
+            }
             FileStream? fileStream = null;
             var tempStreams = new List<FileStream>();
             var openedFiles = new List<IFile>();
@@ -752,6 +757,129 @@ namespace StormSwitchBox.Services
             path.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(pth))).ThrowIfFailure();
             fsToOpen.OpenFile(ref fRef.Ref, in path, LibHac.Fs.OpenMode.Read).ThrowIfFailure();
             return fRef.Release();
+        }
+
+        public async Task CompressSolidViaNszAsync(ProcessingTask task, string inputPath, string outDir, CancellationToken cancellationToken)
+        {
+            string toolsDir = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tools");
+            string nszExe = System.IO.Path.Combine(toolsDir, "nsz", "nsz.exe");
+            if (!System.IO.File.Exists(nszExe))
+            {
+                nszExe = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "tools", "nsz", "nsz.exe");
+            }
+
+            long totalBytes = new FileInfo(inputPath).Length;
+            string fileName = System.IO.Path.GetFileNameWithoutExtension(inputPath);
+            bool isXci = inputPath.EndsWith(".xci", StringComparison.OrdinalIgnoreCase);
+            string expectedExt = isXci ? ".xcz" : ".nsz";
+            string outNszPath = System.IO.Path.Combine(outDir, fileName + expectedExt);
+
+            App.RunOnUI(() =>
+            {
+                if (task.SourceSizeBytes <= 0) task.SourceSizeBytes = totalBytes;
+                task.Status = "Сжатие Solid NSZ...";
+                task.IsRunning = true;
+                task.Progress = 0;
+                task.LogDetails = $"Загрузка: {System.IO.Path.GetFileName(inputPath)}\nРазмер: {Models.ProcessingTask.FormatSize(totalBytes)}\nЗапуск сверхплотного монолитного сжатия (--solid, Zstandard)...";
+            });
+
+            if (!System.IO.File.Exists(nszExe))
+            {
+                App.Logger.Log("[NSZ Engine] nsz.exe не найден для Solid сжатия.", LogLevel.Warning);
+                App.RunOnUI(() => task.LogDetails += "\n⚠️ nsz.exe не найден. Переключение на стандартное блочное сжатие...");
+                return;
+            }
+
+            string keysParam = "";
+            string keysPath = App.Settings.Current.KeysPath;
+            if (!string.IsNullOrEmpty(keysPath) && System.IO.File.Exists(keysPath))
+            {
+                keysParam = $"--keys \"{keysPath}\"";
+            }
+            else
+            {
+                string defaultKeys = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "prod.keys");
+                if (System.IO.File.Exists(defaultKeys))
+                {
+                    keysParam = $"--keys \"{defaultKeys}\"";
+                }
+            }
+
+            int level = Math.Clamp(App.Settings.Current.CompressionLevel, 1, 22);
+            string args = $"-C -S -l {level} -t 0 --overwrite {keysParam} -o \"{outDir}\" \"{inputPath}\"".Trim();
+
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = nszExe,
+                Arguments = args,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+                StandardOutputEncoding = System.Text.Encoding.UTF8,
+                StandardErrorEncoding = System.Text.Encoding.UTF8
+            };
+
+            var proc = new System.Diagnostics.Process { StartInfo = psi };
+            proc.OutputDataReceived += (s, e) =>
+            {
+                if (!string.IsNullOrWhiteSpace(e.Data))
+                {
+                    string line = e.Data.Trim();
+                    var m = System.Text.RegularExpressions.Regex.Match(line, @"(\d{1,3})%");
+                    if (m.Success && double.TryParse(m.Groups[1].Value, out double pct))
+                    {
+                        App.RunOnUI(() =>
+                        {
+                            task.Progress = Math.Clamp(pct, 0, 99.5);
+                            task.Status = $"Solid сжатие: {pct:F0}%";
+                        });
+                    }
+                }
+            };
+
+            proc.Start();
+            proc.BeginOutputReadLine();
+            proc.BeginErrorReadLine();
+
+            using (cancellationToken.Register(() => { try { proc.Kill(true); } catch { } }))
+            {
+                await proc.WaitForExitAsync(cancellationToken);
+            }
+
+            if (proc.ExitCode != 0)
+            {
+                throw new Exception($"Ошибка Solid сжатия nsz.exe (код завершения {proc.ExitCode})");
+            }
+
+            if (!File.Exists(outNszPath))
+            {
+                var candidates = Directory.GetFiles(outDir, "*" + expectedExt)
+                    .OrderByDescending(f => File.GetLastWriteTimeUtc(f))
+                    .ToList();
+                if (candidates.Count > 0) outNszPath = candidates[0];
+            }
+
+            if (File.Exists(outNszPath))
+            {
+                long finalSize = new FileInfo(outNszPath).Length;
+                double ratio = (double)finalSize / totalBytes * 100.0;
+                long diff = totalBytes - finalSize;
+                double percent = (double)diff / totalBytes * 100.0;
+
+                App.RunOnUI(() =>
+                {
+                    task.Progress = 100;
+                    task.Status = "Успешно";
+                    task.IsRunning = false;
+                    task.LogDetails += $"\n⚡ [Solid NSZ] Сверхплотное сжатие завершено!\nИтог: {Models.ProcessingTask.FormatSize(finalSize)} ({ratio:F1}% от оригинала, экономия {Math.Abs(percent):F1}%)";
+                    task.TargetSize = Models.ProcessingTask.FormatSize(finalSize);
+                    task.SizeDifference = $"{(diff > 0 ? "-" : "+")}{Models.ProcessingTask.FormatSize(Math.Abs(diff))} ({Math.Abs(percent):F1}%)";
+                    HistoryService.AddToHistory(task);
+                });
+
+                App.Logger.Log($"[NSZ Engine] Сверхплотное Solid сжатие успешно: {fileName}. Экономия: {100 - ratio:F1}%", LogLevel.Success);
+            }
         }
     }
 

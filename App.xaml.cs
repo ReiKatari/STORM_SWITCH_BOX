@@ -24,6 +24,8 @@ namespace StormSwitchBox
         public static WatchFolderService WatchFolderService { get; } = new WatchFolderService();
         public static Nintendo3dsService Nintendo3ds { get; } = new Nintendo3dsService();
         public static NintendoLibraryService NintendoLibrary { get; } = new NintendoLibraryService();
+        public static DbiInstallService DbiInstall { get; } = new DbiInstallService();
+        public static GraphicsPatchService GraphicsPatch { get; } = new GraphicsPatchService();
         public static LocalizationService Localization => LocalizationService.Instance;
         private static StormSwitchBox.ViewModels.TasksViewModel? _tasksVM;
         public static StormSwitchBox.ViewModels.TasksViewModel TasksVM => _tasksVM ??= new StormSwitchBox.ViewModels.TasksViewModel();

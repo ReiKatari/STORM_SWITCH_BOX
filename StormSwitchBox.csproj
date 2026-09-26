@@ -16,11 +16,11 @@
     <PublishReadyToRun>false</PublishReadyToRun>
     <TieredCompilation>true</TieredCompilation>
     <SuppressNETCoreSdkPreviewMessage>true</SuppressNETCoreSdkPreviewMessage>
-    <Version>5.0.6</Version>
-    <AssemblyVersion>5.0.6.0</AssemblyVersion>
-    <FileVersion>5.0.6.0</FileVersion>
+    <Version>5.0.7</Version>
+    <AssemblyVersion>5.0.7.0</AssemblyVersion>
+    <FileVersion>5.0.7.0</FileVersion>
     <ApplicationIcon>storm_switch_box.ico</ApplicationIcon>
-    <DefaultItemExcludes>$(DefaultItemExcludes);obj\**;bin\**;installer\**</DefaultItemExcludes>
+    <DefaultItemExcludes>$(DefaultItemExcludes);obj\**;bin\**;installer\**;Assembling\**;Files\**;publish\**;temp\**;*.bmp;*.zip;*.cer;*.pfx;*.log</DefaultItemExcludes>
   </PropertyGroup>
 
   <ItemGroup>
@@ -39,12 +39,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Remove="installer\**" />
-    <None Remove="installer\**" />
-    <Content Remove="installer\**" />
-    <Compile Remove="temp\**" />
-    <None Remove="temp\**" />
-    <Content Remove="temp\**" />
+    <Compile Remove="installer\**;Assembling\**;Files\**;publish\**;temp\**;*.bmp;*.zip;*.cer;*.pfx;*.log" />
+    <None Remove="installer\**;Assembling\**;Files\**;publish\**;temp\**;*.bmp;*.zip;*.cer;*.pfx;*.log" />
+    <Content Remove="installer\**;Assembling\**;Files\**;publish\**;temp\**;*.bmp;*.zip;*.cer;*.pfx;*.log" />
     <Compile Remove="test_*.cs" />
     <Compile Remove="scratch_*.cs" />
     <Compile Remove="test_xts_app\**" />

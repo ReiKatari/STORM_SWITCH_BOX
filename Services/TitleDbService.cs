@@ -276,9 +276,59 @@ namespace StormSwitchBox.Services
             return dlcs.OrderBy(d => d.Id).ToList();
         }
 
-        public int GetDlcCount(string titleId)
+                public int GetDlcCount(string titleId)
         {
             return GetDlcs(titleId).Count;
+        }
+
+        public class DlcCompletenessReport
+        {
+            public string BaseTitleId { get; set; } = "";
+            public int TotalAvailableInDb { get; set; }
+            public int FoundInPackage { get; set; }
+            public double Percentage => TotalAvailableInDb > 0 ? Math.Min(100.0, (double)FoundInPackage / TotalAvailableInDb * 100.0) : 100.0;
+            public List<TitleDbEntry> MissingDlcs { get; set; } = new();
+            public List<TitleDbEntry> PresentDlcs { get; set; } = new();
+            public bool IsComplete => TotalAvailableInDb > 0 && MissingDlcs.Count == 0;
+            public string SummaryText { get; set; } = "";
+        }
+
+        public DlcCompletenessReport CheckDlcCompleteness(string baseTitleId, IEnumerable<string> presentDlcIds)
+        {
+            var report = new DlcCompletenessReport { BaseTitleId = baseTitleId };
+            var availableDlcs = GetDlcs(baseTitleId);
+            report.TotalAvailableInDb = availableDlcs.Count;
+
+            var presentSet = new HashSet<string>(presentDlcIds.Select(id => id.Trim().ToUpperInvariant()), StringComparer.OrdinalIgnoreCase);
+            report.FoundInPackage = presentSet.Count;
+
+            foreach (var dlc in availableDlcs)
+            {
+                string dlcTid = (dlc.Id ?? "").Trim().ToUpperInvariant().PadLeft(16, '0');
+                if (presentSet.Contains(dlcTid))
+                {
+                    report.PresentDlcs.Add(dlc);
+                }
+                else
+                {
+                    report.MissingDlcs.Add(dlc);
+                }
+            }
+
+            if (report.TotalAvailableInDb == 0)
+            {
+                report.SummaryText = "В базе TitleDB нет сведений о дополнительных DLC.";
+            }
+            else if (report.IsComplete)
+            {
+                report.SummaryText = $"Комплект DLC полон на 100%! В образе присутствуют все {report.TotalAvailableInDb} доступных DLC.";
+            }
+            else
+            {
+                report.SummaryText = $"Собрано {report.FoundInPackage} из {report.TotalAvailableInDb} DLC ({report.Percentage:F1}%). Отсутствует {report.MissingDlcs.Count} DLC.";
+            }
+
+            return report;
         }
 
         public void EnrichCatalogItem(CatalogItem item)

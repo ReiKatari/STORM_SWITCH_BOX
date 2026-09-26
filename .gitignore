@@ -74,3 +74,6 @@ publish/
 *keys.txt
 title.keys
 prod.keys
+
+__pycache__/
+*.pyc

@@ -52,6 +52,7 @@ namespace StormSwitchBox.Services
                 
                 string userProfileSwitch = System.IO.Path.Combine(isolatedUserProfile, ".switch");
                 string userProfileKeys = System.IO.Path.Combine(userProfileSwitch, "prod.keys");
+                string userProfileTitleKeys = System.IO.Path.Combine(userProfileSwitch, "title.keys");
                 
                 lock (_keysLock)
                 {
@@ -66,8 +67,29 @@ namespace StormSwitchBox.Services
                             File.Copy(App.Settings.Current.KeysPath, userProfileKeys, true);
                         }
                         App.SwitchFormat.CleanKeysFile(userProfileKeys);
+
+                        // Гарантированная синхронизация title.keys в изолированный профиль
+                        string mainTitleKeys = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "title.keys");
+                        if (!File.Exists(mainTitleKeys) && !string.IsNullOrEmpty(App.Settings.Current.KeysPath))
+                        {
+                            string candidate = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(App.Settings.Current.KeysPath) ?? "", "title.keys");
+                            if (File.Exists(candidate)) mainTitleKeys = candidate;
+                        }
+
+                        if (File.Exists(mainTitleKeys))
+                        {
+                            File.Copy(mainTitleKeys, userProfileTitleKeys, true);
+                            App.Logger.Log($"[HardPatchEngine] title.keys успешно синхронизирован в изолированный профиль ({mainTitleKeys})", Models.LogLevel.Info);
+                        }
+                        else
+                        {
+                            App.Logger.Log($"[HardPatchEngine] Внимание: файл title.keys не найден по основному пути ({mainTitleKeys})", Models.LogLevel.Warning);
+                        }
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        App.Logger.Log($"[HardPatchEngine] Ошибка синхронизации ключей в изолированный профиль: {ex.Message}", Models.LogLevel.Warning);
+                    }
                 }
 
                 if (inputFiles.Count < 1)
@@ -210,6 +232,17 @@ namespace StormSwitchBox.Services
 
                 try
                 {
+                    App.TicketHarvester.HarvestTicketsBackground(new[] { baseFile, updateFile }.Where(f => !string.IsNullOrEmpty(f) && File.Exists(f)));
+                    string mainTitleKeys = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "title.keys");
+                    if (File.Exists(mainTitleKeys))
+                    {
+                        File.Copy(mainTitleKeys, userProfileTitleKeys, true);
+                    }
+                }
+                catch { }
+
+                try
+                {
                     App.RunOnUI(() => task.LogDetails += $"\nЧтение метаданных (TitleID) из базы...");
                     var info = App.SwitchFormat.ParseNsp(baseFile);
                     if (!string.IsNullOrEmpty(info.TitleId))
@@ -249,13 +282,42 @@ namespace StormSwitchBox.Services
                 string yanuOutDir = System.IO.Path.Combine(tempDir, "yanu_output");
                 Directory.CreateDirectory(yanuOutDir);
 
-                var romfsMods = inputFiles.Where(d => System.IO.Directory.Exists(d) && 
-                    (System.IO.Path.GetFileName(d).Equals("romfs", StringComparison.OrdinalIgnoreCase) || 
-                     System.IO.Path.GetFileName(d).StartsWith("unlocker_romfs", StringComparison.OrdinalIgnoreCase))).ToList();
-                string? romfsMod = romfsMods.FirstOrDefault();
-                string? exefsMod = inputFiles.FirstOrDefault(d => System.IO.Directory.Exists(d) && System.IO.Path.GetFileName(d).Equals("exefs", StringComparison.OrdinalIgnoreCase));
-                string? exefsPatchesMod = inputFiles.FirstOrDefault(d => System.IO.Directory.Exists(d) && System.IO.Path.GetFileName(d).Equals("exefs_patches", StringComparison.OrdinalIgnoreCase));
+                var romfsMods = new List<string>();
+                string? exefsMod = null;
+                string? exefsPatchesMod = null;
 
+                foreach (var d in inputFiles.Where(Directory.Exists))
+                {
+                    string dName = System.IO.Path.GetFileName(d);
+                    if (dName.Equals("romfs", StringComparison.OrdinalIgnoreCase) || dName.StartsWith("unlocker_romfs", StringComparison.OrdinalIgnoreCase))
+                    {
+                        romfsMods.Add(d);
+                    }
+                    else if (dName.Equals("exefs", StringComparison.OrdinalIgnoreCase))
+                    {
+                        exefsMod ??= d;
+                    }
+                    else if (dName.Equals("exefs_patches", StringComparison.OrdinalIgnoreCase))
+                    {
+                        exefsPatchesMod ??= d;
+                    }
+                    else
+                    {
+                        try
+                        {
+                            var nestedRomfs = Directory.GetDirectories(d, "romfs", SearchOption.AllDirectories);
+                            romfsMods.AddRange(nestedRomfs);
+
+                            var nestedExefs = Directory.GetDirectories(d, "exefs", SearchOption.AllDirectories).FirstOrDefault();
+                            if (nestedExefs != null) exefsMod ??= nestedExefs;
+
+                            var nestedPatches = Directory.GetDirectories(d, "exefs_patches", SearchOption.AllDirectories).FirstOrDefault();
+                            if (nestedPatches != null) exefsPatchesMod ??= nestedPatches;
+                        }
+                        catch { }
+                    }
+                }
+                string? romfsMod = romfsMods.FirstOrDefault();
                 bool applyMods = (romfsMods.Count > 0 || exefsMod != null || exefsPatchesMod != null);
                 
                 string keepLangsArg = "";
@@ -287,6 +349,7 @@ namespace StormSwitchBox.Services
                 
                 bool hasModsToApply = (romfsMod != null || exefsMod != null || exefsPatchesMod != null || applyMods);
                 bool yanuUpdateSuccess = false;
+                long baseSize = (!string.IsNullOrEmpty(baseFile) && File.Exists(baseFile)) ? new FileInfo(baseFile).Length : 0;
 
                 // СЦЕНАРИЙ 1: Если модов нет и передан файл обновления — сначала пробуем прямой и быстрый yanu-cli update
                 if (!hasModsToApply && !string.IsNullOrEmpty(updateFile))
@@ -336,15 +399,24 @@ namespace StormSwitchBox.Services
                         if (updateProc.ExitCode == 0)
                         {
                             var updateNsps = Directory.GetFiles(yanuOutDir, "*.nsp");
-                            if (updateNsps.Length > 0)
+                            long minAcceptableSize = (long)(baseSize * 0.5);
+                            if (updateNsps.Length > 0 && (baseSize <= 50 * 1024 * 1024 || new FileInfo(updateNsps[0]).Length >= minAcceptableSize))
                             {
                                 yanuUpdateSuccess = true;
-                                App.Logger.Log($"[yanu-cli] update OK. Создан NSP.", Models.LogLevel.Info);
+                                App.Logger.Log($"[yanu-cli] update OK. Создан NSP ({new FileInfo(updateNsps[0]).Length} байт).", Models.LogLevel.Info);
                                 App.RunOnUI(() => task.LogDetails += $"\n  yanu-cli update: успешно!");
                             }
                             else
                             {
-                                App.Logger.Log("[yanu-cli] update exit=0, но NSP не найден. Переключение на unpack/pack.", Models.LogLevel.Warning);
+                                if (updateNsps.Length > 0)
+                                {
+                                    App.Logger.Log($"[yanu-cli] update exit=0, но размер NSP ({new FileInfo(updateNsps[0]).Length} байт) меньше 50% базы ({baseSize} байт). Удаляем поврежденный файл и переключаемся на unpack/pack.", Models.LogLevel.Warning);
+                                    foreach (var f in updateNsps) try { File.Delete(f); } catch { }
+                                }
+                                else
+                                {
+                                    App.Logger.Log("[yanu-cli] update exit=0, но NSP не найден. Переключение на unpack/pack.", Models.LogLevel.Warning);
+                                }
                             }
                         }
                         else
@@ -360,6 +432,7 @@ namespace StormSwitchBox.Services
                 // СЦЕНАРИЙ 2: Если есть моды или прямой update не удался — полный конвейер unpack + dynamic resolve + mod inject + pack
                 if (!yanuUpdateSuccess)
                 {
+
                     App.RunOnUI(() => task.LogDetails += hasModsToApply
                         ? $"\n[1/3] Распаковка файлов для применения обновления и модов (yanu-cli unpack)..."
                         : $"\n[1/2] Распаковка для слияния без дубликатов (yanu-cli unpack)...");
@@ -426,6 +499,11 @@ namespace StormSwitchBox.Services
                         if (!string.IsNullOrEmpty(exefsPatchesMod)) ApplyExeFsPatches(exefsPatchesMod, targetExeFs, task);
                     }
 
+                    if (App.Settings.Current.AutoInject60FpsPatches)
+                    {
+                        App.GraphicsPatch.TryInjectGraphicsPatches(titleId, targetExeFs, task);
+                    }
+
                     App.RunOnUI(() => task.LogDetails += hasModsToApply
                         ? $"\n[3/3] Монолитная сборка (yanu-cli pack)..."
                         : $"\n[2/2] Монолитная сборка без дубликатов (yanu-cli pack)...");
@@ -476,6 +554,11 @@ namespace StormSwitchBox.Services
                 if (generatedFiles.Length > 0)
                 {
                     string genFile = generatedFiles.OrderByDescending(f => new FileInfo(f).CreationTime).First();
+                    long genFileSize = new FileInfo(genFile).Length;
+                    if (baseSize > 50 * 1024 * 1024 && genFileSize < baseSize * 0.5)
+                    {
+                        throw new InvalidOperationException($"Размер сгенерированного файла ({genFileSize} байт) аномально мал относительно базы ({baseSize} байт). RomFS отсутствует.");
+                    }
                     
                     // Применяем кастомные метаданные / иконку при необходимости
                     if (task.CustomMetadata != null && File.Exists(genFile))
@@ -554,6 +637,12 @@ namespace StormSwitchBox.Services
             catch (Exception ex)
             {
                 TempCleanupService.ForceDeleteDirectory(tempDir);
+
+                if (isMultiContent)
+                {
+                    App.Logger.Log($"[HardPatch] Ошибка при пересборке (isMultiContent=true): {ex.Message}", Models.LogLevel.Warning);
+                    throw;
+                }
 
                 App.RunOnUI(() =>
                 {
@@ -943,7 +1032,7 @@ namespace StormSwitchBox.Services
         /// <summary>
         /// Применяет стандартный IPS/IPSwitch патч к бинарному исполняемому файлу
         /// </summary>
-        private static void ApplyIpsPatchToFile(string ipsFilePath, string targetBinaryPath)
+        public static void ApplyIpsPatchToFile(string ipsFilePath, string targetBinaryPath)
         {
             if (!File.Exists(ipsFilePath) || !File.Exists(targetBinaryPath)) return;
 
@@ -1082,6 +1171,20 @@ namespace StormSwitchBox.Services
             long baseFileSize = (!string.IsNullOrEmpty(baseFile) && File.Exists(baseFile)) ? new FileInfo(baseFile).Length : 0;
             bool isRomFsExpected = baseFileSize > 50 * 1024 * 1024;
             bool hasRomFsEntries = Directory.Exists(targetRomFs) && Directory.EnumerateFileSystemEntries(targetRomFs).Any();
+
+            if (isRomFsExpected && !hasRomFsEntries)
+            {
+                try
+                {
+                    App.Logger.Log("[HardPatchEngine] RomFS пуст после yanu-cli unpack. Попытка резервного извлечения через hactoolnet...", Models.LogLevel.Warning);
+                    ExtractRomFsWithHactoolnet(baseFile, updateFile, targetRomFs, keysPath, isolatedUserProfile);
+                    hasRomFsEntries = Directory.Exists(targetRomFs) && Directory.EnumerateFileSystemEntries(targetRomFs).Any();
+                }
+                catch (Exception ex)
+                {
+                    App.Logger.Log($"[HardPatchEngine] Ошибка резервного извлечения RomFS: {ex.Message}", Models.LogLevel.Warning);
+                }
+            }
 
             if (isRomFsExpected && !hasRomFsEntries)
             {
@@ -1368,6 +1471,13 @@ namespace StormSwitchBox.Services
                             }
                         }
                         File.WriteAllLines(titleKeysPath, existingLines);
+                        try
+                        {
+                            string isoTitleKeys = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "StormSwitchBox", "user_profile", ".switch", "title.keys");
+                            Directory.CreateDirectory(System.IO.Path.GetDirectoryName(isoTitleKeys)!);
+                            File.WriteAllLines(isoTitleKeys, existingLines);
+                        }
+                        catch { }
                         keysService.LoadKeys(keysService.KeysFilePath ?? keysPath);
                     }
                     catch { }
@@ -1499,6 +1609,66 @@ namespace StormSwitchBox.Services
             catch (Exception ex)
             {
                 App.Logger.Log($"[HardPatchEngine] hactoolnet fallback error: {ex.Message}", Models.LogLevel.Warning);
+            }
+        }
+
+        /// <summary>
+        /// Резервное извлечение RomFS через утилиту hactoolnet
+        /// </summary>
+        private static void ExtractRomFsWithHactoolnet(string baseFile, string? updateFile, string targetRomFs, string keysPath, string isolatedUserProfile)
+        {
+            string? hactoolnetPath = FindHactoolnet();
+            if (string.IsNullOrEmpty(hactoolnetPath) || !File.Exists(hactoolnetPath)) return;
+
+            try
+            {
+                string titleKeysPath = System.IO.Path.Combine(isolatedUserProfile, ".switch", "title.keys");
+                if (!File.Exists(titleKeysPath))
+                    titleKeysPath = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "title.keys");
+
+                string tkFlag = File.Exists(titleKeysPath) ? $"--titlekeys \"{titleKeysPath}\" " : "";
+                string kFlag = (!string.IsNullOrEmpty(keysPath) && File.Exists(keysPath)) ? $"-k \"{keysPath}\" " : "";
+                Directory.CreateDirectory(targetRomFs);
+
+                if (!string.IsNullOrEmpty(baseFile) && File.Exists(baseFile))
+                {
+                    string tFlag = (baseFile.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) || baseFile.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase)) ? "-t xci" : "-t pfs0";
+                    var psi = new ProcessStartInfo
+                    {
+                        FileName = hactoolnetPath,
+                        Arguments = $"{kFlag}{tkFlag}{tFlag} --romfsdir \"{targetRomFs}\" \"{baseFile}\"",
+                        UseShellExecute = false,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        CreateNoWindow = true
+                    };
+                    psi.EnvironmentVariables["USERPROFILE"] = isolatedUserProfile;
+                    using var proc = Process.Start(psi);
+                    proc?.WaitForExit(120000);
+                }
+
+                if (!string.IsNullOrEmpty(updateFile) && File.Exists(updateFile))
+                {
+                    string tFlag = (updateFile.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) || updateFile.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase)) ? "-t xci" : "-t pfs0";
+                    var psi = new ProcessStartInfo
+                    {
+                        FileName = hactoolnetPath,
+                        Arguments = $"{kFlag}{tkFlag}{tFlag} --romfsdir \"{targetRomFs}\" \"{updateFile}\"",
+                        UseShellExecute = false,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        CreateNoWindow = true
+                    };
+                    psi.EnvironmentVariables["USERPROFILE"] = isolatedUserProfile;
+                    using var proc = Process.Start(psi);
+                    proc?.WaitForExit(120000);
+                }
+
+                App.Logger.Log($"[HardPatchEngine] hactoolnet RomFS extraction check completed.", Models.LogLevel.Info);
+            }
+            catch (Exception ex)
+            {
+                App.Logger.Log($"[HardPatchEngine] hactoolnet RomFS fallback error: {ex.Message}", Models.LogLevel.Warning);
             }
         }
 

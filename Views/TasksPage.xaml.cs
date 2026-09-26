@@ -1,4 +1,4 @@
-using Microsoft.UI.Xaml;
+﻿using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Navigation;
@@ -260,6 +260,106 @@ namespace StormSwitchBox.Views
                 dp.SetText(task.LogDetails);
                 Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(dp);
                 App.Logger.Log("Журнал задачи скопирован в буфер обмена.", LogLevel.Info);
+            }
+        }
+
+                private async void InstallViaDbi_Click(object sender, RoutedEventArgs e)
+        {
+            var task = GetTargetTask(sender);
+            if (task == null) return;
+
+            string targetFile = "";
+            string outDir = string.IsNullOrEmpty(task.OutputFolder) ? App.Settings.Current.OutputFolder : task.OutputFolder;
+            if (System.IO.Directory.Exists(outDir))
+            {
+                var files = System.IO.Directory.GetFiles(outDir, "*.*")
+                    .Where(f => f.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) ||
+                                f.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) ||
+                                f.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) ||
+                                f.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase))
+                    .OrderByDescending(f => System.IO.File.GetLastWriteTimeUtc(f))
+                    .ToList();
+                targetFile = files.FirstOrDefault() ?? "";
+            }
+
+            if (string.IsNullOrEmpty(targetFile) || !System.IO.File.Exists(targetFile))
+            {
+                targetFile = task.InputFiles?.FirstOrDefault(f => System.IO.File.Exists(f)) ?? "";
+            }
+
+            if (string.IsNullOrEmpty(targetFile) || !System.IO.File.Exists(targetFile))
+            {
+                var noFileDlg = new ContentDialog
+                {
+                    Title = "Файл не найден",
+                    Content = "Не удалось найти скомпилированный файл игры для установки. Убедитесь, что задача завершена успешно.",
+                    CloseButtonText = "ОК",
+                    XamlRoot = this.XamlRoot
+                };
+                await noFileDlg.ShowAsync();
+                return;
+            }
+
+            if (App.DbiInstall.DetectDbiMtp(out dynamic? mtpFolder, out string statusMsg))
+            {
+                var confirmDlg = new ContentDialog
+                {
+                    Title = "Установка по USB (DBI MTP)",
+                    Content = $"Обнаружена консоль Nintendo Switch!\n\nФайл: {System.IO.Path.GetFileName(targetFile)}\n\nНачать передачу и установку на карту памяти через DBI?",
+                    PrimaryButtonText = "Установить",
+                    CloseButtonText = "Отмена",
+                    DefaultButton = ContentDialogButton.Primary,
+                    XamlRoot = this.XamlRoot
+                };
+
+                var res = await confirmDlg.ShowAsync();
+                if (res == ContentDialogResult.Primary)
+                {
+                    try
+                    {
+                        await App.DbiInstall.InstallViaMtpAsync(targetFile, task, System.Threading.CancellationToken.None);
+                    }
+                    catch (Exception ex)
+                    {
+                        var errDlg = new ContentDialog
+                        {
+                            Title = "Ошибка установки",
+                            Content = ex.Message,
+                            CloseButtonText = "Закрыть",
+                            XamlRoot = this.XamlRoot
+                        };
+                        await errDlg.ShowAsync();
+                    }
+                }
+            }
+            else
+            {
+                string ip = App.DbiInstall.GetLocalIpAddress();
+                string folder = System.IO.Path.GetDirectoryName(targetFile) ?? outDir;
+                App.DbiInstall.StartHttpServer(folder, 8080);
+
+                var networkDlg = new ContentDialog
+                {
+                    Title = "Установка на Switch (DBI)",
+                    Content = $"Режим DBI MTP Responder не обнаружен на USB.\n\nЗапущен локальный сетевой сервер для установки по Wi-Fi:\n• URL: http://{ip}:8080/\n• Каталог: {folder}\n\nИнструкция для Switch:\n1. В DBI выберите: «Install title from Web / HTTP».\n2. Введите адрес: http://{ip}:8080/\n3. Выберите игру из списка для установки.",
+                    PrimaryButtonText = "Открыть в браузере",
+                    CloseButtonText = "Готово",
+                    XamlRoot = this.XamlRoot
+                };
+
+                var res = await networkDlg.ShowAsync();
+                if (res == ContentDialogResult.Primary)
+                {
+                    try
+                    {
+                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                        {
+                            FileName = "http://localhost:8080/",
+                            UseShellExecute = true
+                        });
+                    }
+                    catch { }
+                }
             }
         }
 

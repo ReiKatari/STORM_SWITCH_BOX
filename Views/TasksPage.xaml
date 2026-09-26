@@ -1,4 +1,4 @@
-<Page
+﻿<Page
     x:Class="StormSwitchBox.Views.TasksPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -348,6 +348,11 @@
                             </MenuFlyoutItem.Icon>
                         </MenuFlyoutItem>
                         <MenuFlyoutSeparator/>
+                        <MenuFlyoutItem Text="Установить на консоль по USB (DBI)..." Click="InstallViaDbi_Click" MinWidth="300">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE88E;" Foreground="#00E676"/>
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
                         <MenuFlyoutItem Text="Открыть выходную папку" Click="OpenOutputFolder_Click" MinWidth="300">
                             <MenuFlyoutItem.Icon>
                                 <FontIcon Glyph="&#xED25;"/>
@@ -540,6 +545,11 @@
                             </MenuFlyoutItem.Icon>
                         </MenuFlyoutItem>
                         <MenuFlyoutSeparator/>
+                        <MenuFlyoutItem Text="Установить на консоль по USB (DBI)..." Click="InstallViaDbi_Click" MinWidth="300">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE88E;" Foreground="#00E676"/>
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
                         <MenuFlyoutItem Text="Открыть выходную папку" Click="OpenOutputFolder_Click" MinWidth="300">
                             <MenuFlyoutItem.Icon>
                                 <FontIcon Glyph="&#xE8DA;"/>

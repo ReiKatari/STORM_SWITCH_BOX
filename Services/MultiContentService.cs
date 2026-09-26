@@ -105,13 +105,27 @@ namespace StormSwitchBox.Services
                 await Task.WhenAll(decompTasks);
                 var finalInputFilesList = finalInputFiles.ToList();
 
+                string formattedOut = FormatOutputFileName(outPath, inputFiles);
+                if (!string.IsNullOrEmpty(formattedOut))
+                {
+                    outPath = formattedOut;
+                    task.OutputFileName = System.IO.Path.GetFileNameWithoutExtension(outPath);
+                }
+
                 string listFile = System.IO.Path.Combine(tempDecompDir, $"list_conv_{Guid.NewGuid().ToString("N").Substring(0, 8)}.txt");
                 System.IO.File.WriteAllLines(listFile, finalInputFilesList, new System.Text.UTF8Encoding(false));
 
                 bool hasMods = finalInputFilesList.Any(d => Directory.Exists(d) && 
                     (System.IO.Path.GetFileName(d).Equals("romfs", StringComparison.OrdinalIgnoreCase) || 
                      System.IO.Path.GetFileName(d).Equals("exefs", StringComparison.OrdinalIgnoreCase) ||
-                     System.IO.Path.GetFileName(d).Equals("exefs_patches", StringComparison.OrdinalIgnoreCase)));
+                     System.IO.Path.GetFileName(d).Equals("exefs_patches", StringComparison.OrdinalIgnoreCase) ||
+                     System.IO.Path.GetFileName(d).Equals("cheats", StringComparison.OrdinalIgnoreCase) ||
+                     d.Contains("romfs", StringComparison.OrdinalIgnoreCase) || 
+                     d.Contains("exefs", StringComparison.OrdinalIgnoreCase) ||
+                     d.Contains("cheat", StringComparison.OrdinalIgnoreCase) ||
+                     d.Contains("чит", StringComparison.OrdinalIgnoreCase) ||
+                     d.Contains("mod", StringComparison.OrdinalIgnoreCase) ||
+                     d.Contains("мод", StringComparison.OrdinalIgnoreCase)));
 
                 string? savedBaseFile = null;
                 string? savedUpdateFile = null;
@@ -120,6 +134,7 @@ namespace StormSwitchBox.Services
                 // 4. Поиск Base и Update и умный анализ метода сборки (Smart Processing)
                 string? baseFile = null;
                 string? updateFile = null;
+                string titleIdStr = "";
                 
                 foreach (var f in finalInputFilesList)
                 {
@@ -142,8 +157,16 @@ namespace StormSwitchBox.Services
 
                     if (!string.IsNullOrEmpty(tid) && tid.Length == 16)
                     {
-                        if (tid.EndsWith("000") && string.IsNullOrEmpty(baseFile)) baseFile = f;
-                        else if (tid.EndsWith("800") && string.IsNullOrEmpty(updateFile)) updateFile = f;
+                        if (tid.EndsWith("000"))
+                        {
+                            if (string.IsNullOrEmpty(baseFile)) baseFile = f;
+                            if (string.IsNullOrEmpty(titleIdStr)) titleIdStr = tid;
+                        }
+                        else if (tid.EndsWith("800"))
+                        {
+                            if (string.IsNullOrEmpty(updateFile)) updateFile = f;
+                            if (string.IsNullOrEmpty(titleIdStr)) titleIdStr = tid.Substring(0, 13) + "000";
+                        }
                     }
                 }
                 
@@ -167,13 +190,15 @@ namespace StormSwitchBox.Services
                         App.RunOnUI(() => task.LogDetails += forceHardPatch 
                             ? "\n🔵 [HardPatch] Принудительная монолитная пересборка RomFS (обход ограничений эмуляторов)..." 
                             : "\n🔵 [HardPatch] Физическая пересборка...");
-                        string titleIdStr = "";
-                        try {
-                            titleIdStr = App.SwitchFormat.ParseNsp(baseFile).TitleId;
-                        } catch { }
-                        if (string.IsNullOrEmpty(titleIdStr)) {
-                            var match = System.Text.RegularExpressions.Regex.Match(baseFile, @"\[([0-9A-Fa-f]{16})\]");
-                            if (match.Success) titleIdStr = match.Groups[1].Value;
+                        if (string.IsNullOrEmpty(titleIdStr))
+                        {
+                            try {
+                                titleIdStr = App.SwitchFormat.ParseNsp(baseFile).TitleId;
+                            } catch { }
+                            if (string.IsNullOrEmpty(titleIdStr)) {
+                                var match = System.Text.RegularExpressions.Regex.Match(baseFile, @"\[([0-9A-Fa-f]{16})\]");
+                                if (match.Success) titleIdStr = match.Groups[1].Value;
+                            }
                         }
 
                         // Извлечение токенов разблокировки из Unlocker DLC для прямой интеграции в RomFS игры
@@ -202,11 +227,12 @@ namespace StormSwitchBox.Services
                             if (System.IO.File.Exists(tempHardPatchedNsp))
                             {
                                 long patchedSize = new FileInfo(tempHardPatchedNsp).Length;
+                                long referenceSize = Math.Max(baseSize, task.SourceSizeBytes);
                                 // Валидация: если исходная база > 50 МБ, а результат хардпатча меньше 50% базы — это поврежденный огрызок без RomFS!
-                                if (baseSize > 50 * 1024 * 1024 && patchedSize < baseSize * 0.5)
+                                if (referenceSize > 50 * 1024 * 1024 && patchedSize < referenceSize * 0.5)
                                 {
-                                    App.Logger.Log($"[HardPatch] Размер пересобранного файла ({patchedSize} байт) аномально мал относительно базы ({baseSize} байт). Откат к нативной сборке.", Models.LogLevel.Warning);
-                                    App.RunOnUI(() => task.LogDetails += $"\n⚠️ [HardPatch] Размер пересобранного файла ({Models.ProcessingTask.FormatSize(patchedSize)}) аномально мал относительно базы ({Models.ProcessingTask.FormatSize(baseSize)}). Откат к нативному сшиванию мультиконтента...");
+                                    App.Logger.Log($"[HardPatch] Размер пересобранного файла ({patchedSize} байт) аномально мал относительно базы ({referenceSize} байт). Откат к нативной сборке.", Models.LogLevel.Warning);
+                                    App.RunOnUI(() => task.LogDetails += $"\n⚠️ [HardPatch] Размер пересобранного файла ({Models.ProcessingTask.FormatSize(patchedSize)}) аномально мал относительно базы ({Models.ProcessingTask.FormatSize(referenceSize)}). Откат к нативному сшиванию мультиконтента...");
                                     try { System.IO.File.Delete(tempHardPatchedNsp); } catch { }
                                 }
                                 else if (patchedSize > 0)
@@ -268,6 +294,7 @@ namespace StormSwitchBox.Services
                                         task.LogDetails += "\n✅ [Успех] Монолитный образ игры (Base + Update + ExeFS) успешно собран и готов к запуску!";
                                         StormSwitchBox.Services.HistoryService.AddToHistory(task);
                                     });
+                                    DeployCheatsIfPresent(titleIdStr, inputFiles, outPath);
                                     App.Logger.Log($"Мульти-контент успешно создан: {System.IO.Path.GetFileName(outPath)}", LogLevel.Success);
                                     return;
                                 }
@@ -430,6 +457,13 @@ namespace StormSwitchBox.Services
                         }
 
                         var baseEntries = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        var deltaNcaNamesToExclude = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                        if (App.Settings.Current.RemoveDeltaNca)
+                        {
+                            var allScanFiles = processedScanList.Concat(inputFiles).Distinct().ToList();
+                            deltaNcaNamesToExclude = DetectDeltaNcasToExclude(allScanFiles);
+                        }
 
                         // 1. Сканируем основные файлы сборки (Base/Patched Base + DLCs + Unlockers)
                         for (int scanIdx = 0; scanIdx < processedScanList.Count; scanIdx++)
@@ -452,6 +486,13 @@ namespace StormSwitchBox.Services
                                 if (isMainGame)
                                 {
                                     baseEntries.Add(name);
+                                }
+
+                                if (App.Settings.Current.RemoveDeltaNca && deltaNcaNamesToExclude.Contains(name))
+                                {
+                                    App.Logger.Log($"[Delta Cleaner] Пропущен мусорный Delta NCA: {name} (экономия места)", Models.LogLevel.Info);
+                                    App.RunOnUI(() => task.LogDetails += $"\n🗑️ [Delta Cleaner] Удален мусорный Delta NCA: {name}");
+                                    continue;
                                 }
 
                                 if (mergedEntries.ContainsKey(name) || !IsValidNspEntry(name)) continue;
@@ -547,6 +588,44 @@ namespace StormSwitchBox.Services
                         }
 
 
+
+                        if (App.Settings.Current.EnableDlcCompletenessCheck && baseTitleId != 0)
+                        {
+                            var presentDlcIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                            foreach (var f in inputFiles)
+                            {
+                                try
+                                {
+                                    var fInfo = App.SwitchFormat.ParseNsp(f);
+                                    if (!string.IsNullOrEmpty(fInfo.TitleId) && fInfo.ContentType == "AddOnContent")
+                                    {
+                                        presentDlcIds.Add(fInfo.TitleId);
+                                    }
+                                }
+                                catch { }
+                            }
+
+                            if (presentDlcIds.Count > 0)
+                            {
+                                var dlcReport = App.TitleDb.CheckDlcCompleteness(baseTitleId.ToString("X16"), presentDlcIds);
+                                App.RunOnUI(() =>
+                                {
+                                    task.LogDetails += $"\n📦 [Инспектор DLC] {dlcReport.SummaryText}";
+                                    if (dlcReport.MissingDlcs.Count > 0 && dlcReport.MissingDlcs.Count <= 5)
+                                    {
+                                        foreach (var missing in dlcReport.MissingDlcs)
+                                        {
+                                            task.LogDetails += $"\n  • [0x{missing.Id:X16}] {missing.Name ?? "Неизвестное дополнение"}";
+                                        }
+                                    }
+                                });
+                            }
+                        }
+
+                        if (App.Settings.Current.EnableRsvCap && App.Settings.Current.RsvCap > 0)
+                        {
+                            App.RunOnUI(() => task.LogDetails += $"\n🛡️ [RSV Cap] Применен лимит минимальной версии системы (RSV Cap: {App.Settings.Current.RsvCap})");
+                        }
 
                         var orderedEntries = mergedEntries
                             .OrderBy(kvp => GetNcaPriority(kvp.Value, kvp.Key, baseTitleId, baseEntries))
@@ -738,6 +817,7 @@ namespace StormSwitchBox.Services
                     StormSwitchBox.Services.HistoryService.AddToHistory(task);
                 });
 
+                DeployCheatsIfPresent(titleIdStr, inputFiles, outPath);
                 App.Logger.Log($"Мульти-контент успешно создан: {System.IO.Path.GetFileName(outPath)}", LogLevel.Success);
             }
             catch (OperationCanceledException)
@@ -845,7 +925,7 @@ namespace StormSwitchBox.Services
             return ext == ".nca" || ext == ".ncz" || ext == ".tik" || ext == ".cert";
         }
 
-        private static string FormatOutputFileName(string originalOutPath, List<string> allInputFiles)
+        public static string FormatOutputFileName(string originalOutPath, List<string> allInputFiles)
         {
             string targetDir = System.IO.Path.GetDirectoryName(originalOutPath) ?? "";
             string origFileName = System.IO.Path.GetFileNameWithoutExtension(originalOutPath);
@@ -863,10 +943,14 @@ namespace StormSwitchBox.Services
                 if (System.IO.Directory.Exists(f))
                 {
                     string dirName = System.IO.Path.GetFileName(f).ToLowerInvariant();
-                    if (dirName == "romfs" || dirName == "exefs" || dirName == "exefs_patches" || 
+                    if (dirName == "romfs" || dirName == "exefs" || dirName == "exefs_patches" || dirName == "cheats" || dirName == "atmosphere" ||
                         f.Contains("romfs", StringComparison.OrdinalIgnoreCase) || 
                         f.Contains("exefs", StringComparison.OrdinalIgnoreCase) ||
-                        f.Contains("exefs_patches", StringComparison.OrdinalIgnoreCase))
+                        f.Contains("exefs_patches", StringComparison.OrdinalIgnoreCase) ||
+                        f.Contains("cheat", StringComparison.OrdinalIgnoreCase) ||
+                        f.Contains("чит", StringComparison.OrdinalIgnoreCase) ||
+                        f.Contains("mod", StringComparison.OrdinalIgnoreCase) ||
+                        f.Contains("мод", StringComparison.OrdinalIgnoreCase))
                     {
                         modCount = 1;
                     }
@@ -880,7 +964,11 @@ namespace StormSwitchBox.Services
 
                 bool isModFile = fname.Contains("MOD", StringComparison.OrdinalIgnoreCase) ||
                                  fname.Contains("РУС", StringComparison.OrdinalIgnoreCase) ||
-                                 fname.Contains("RUS", StringComparison.OrdinalIgnoreCase);
+                                 fname.Contains("RUS", StringComparison.OrdinalIgnoreCase) ||
+                                 fname.Contains("cheat", StringComparison.OrdinalIgnoreCase) ||
+                                 fname.Contains("чит", StringComparison.OrdinalIgnoreCase) ||
+                                 fname.Contains("romfs", StringComparison.OrdinalIgnoreCase) ||
+                                 fname.Contains("exefs", StringComparison.OrdinalIgnoreCase);
 
                 bool isDlc = (!string.IsNullOrEmpty(tid) && tid.Length == 16 && !tid.EndsWith("000") && !tid.EndsWith("800")) ||
                              fname.Contains("DLC", StringComparison.OrdinalIgnoreCase) ||
@@ -1351,6 +1439,114 @@ namespace StormSwitchBox.Services
             }
         }
 
+        private static void DeployCheatsIfPresent(string titleId, List<string> inputFiles, string outPath)
+        {
+            if (string.IsNullOrEmpty(titleId)) return;
+            string cleanTid = titleId.Trim().ToUpperInvariant();
+
+            var cheatFiles = new List<string>();
+            foreach (var input in inputFiles)
+            {
+                if (Directory.Exists(input))
+                {
+                    try
+                    {
+                        var txts = Directory.GetFiles(input, "*.txt", SearchOption.AllDirectories)
+                            .Where(f => f.Contains("cheat", StringComparison.OrdinalIgnoreCase) || 
+                                        f.Contains("contents", StringComparison.OrdinalIgnoreCase) ||
+                                        System.Text.RegularExpressions.Regex.IsMatch(Path.GetFileNameWithoutExtension(f), @"^[0-9A-Fa-f]{16}$"))
+                            .ToList();
+                        cheatFiles.AddRange(txts);
+                    }
+                    catch { }
+                }
+                else if (File.Exists(input))
+                {
+                    if (input.EndsWith(".txt", StringComparison.OrdinalIgnoreCase) && 
+                        (input.Contains("cheat", StringComparison.OrdinalIgnoreCase) || 
+                         System.Text.RegularExpressions.Regex.IsMatch(Path.GetFileNameWithoutExtension(input), @"^[0-9A-Fa-f]{16}$")))
+                    {
+                        cheatFiles.Add(input);
+                    }
+                }
+            }
+
+            if (cheatFiles.Count == 0)
+            {
+                var scannedDirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var input in inputFiles)
+                {
+                    string parentDir = Directory.Exists(input) ? input : (Path.GetDirectoryName(input) ?? "");
+                    if (!string.IsNullOrEmpty(parentDir) && scannedDirs.Add(parentDir) && Directory.Exists(parentDir))
+                    {
+                        try
+                        {
+                            var txts = Directory.GetFiles(parentDir, "*.txt", SearchOption.AllDirectories)
+                                .Where(f => f.Contains("cheat", StringComparison.OrdinalIgnoreCase) || 
+                                            (f.Contains("contents", StringComparison.OrdinalIgnoreCase) && f.Contains(cleanTid, StringComparison.OrdinalIgnoreCase)) ||
+                                            System.Text.RegularExpressions.Regex.IsMatch(Path.GetFileNameWithoutExtension(f), @"^[0-9A-Fa-f]{16}$"))
+                                .ToList();
+                            cheatFiles.AddRange(txts);
+                        }
+                        catch { }
+                    }
+                }
+            }
+
+            if (cheatFiles.Count == 0) return;
+
+            // 1. Синхронизация читов с эмуляторами
+            try
+            {
+                var emulatorPaths = HomebrewService.FindAllEmulatorSdmcDirectories();
+                foreach (var sdmcPath in emulatorPaths)
+                {
+                    string userDir = System.IO.Path.GetDirectoryName(sdmcPath) ?? "";
+                    if (!Directory.Exists(userDir)) continue;
+
+                    string atmoCheats = System.IO.Path.Combine(sdmcPath, "atmosphere", "contents", cleanTid, "cheats");
+                    string loadCheats = System.IO.Path.Combine(userDir, "load", cleanTid, "cheats");
+                    Directory.CreateDirectory(atmoCheats);
+                    Directory.CreateDirectory(loadCheats);
+
+                    foreach (var cheatFile in cheatFiles)
+                    {
+                        string targetFileAtmo = System.IO.Path.Combine(atmoCheats, Path.GetFileName(cheatFile));
+                        string targetFileLoad = System.IO.Path.Combine(loadCheats, Path.GetFileName(cheatFile));
+                        File.Copy(cheatFile, targetFileAtmo, true);
+                        File.Copy(cheatFile, targetFileLoad, true);
+                    }
+
+                    App.Logger.Log($"[Cheats] Чит-коды синхронизированы для {cleanTid} в эмулятор: {userDir}", Models.LogLevel.Success);
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Logger.Log($"[Cheats] Ошибка синхронизации чит-кодов с эмуляторами: {ex.Message}", Models.LogLevel.Warning);
+            }
+
+            // 2. Копирование читов в каталог с собранным файлом
+            try
+            {
+                string outDir = Path.GetDirectoryName(outPath) ?? "";
+                if (Directory.Exists(outDir))
+                {
+                    string outCheatsDir = Path.Combine(outDir, "cheats", cleanTid);
+                    Directory.CreateDirectory(outCheatsDir);
+                    foreach (var cheatFile in cheatFiles)
+                    {
+                        string targetFile = Path.Combine(outCheatsDir, Path.GetFileName(cheatFile));
+                        File.Copy(cheatFile, targetFile, true);
+                    }
+                    App.Logger.Log($"[Cheats] Чит-коды сохранены в выходной каталог: {outCheatsDir}", Models.LogLevel.Success);
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Logger.Log($"[Cheats] Ошибка сохранения чит-кодов в выходной каталог: {ex.Message}", Models.LogLevel.Warning);
+            }
+        }
+
         private async Task<List<string>> GenerateModAddonEntriesAsync(
             ulong baseTitleId, 
             string tempDir, 
@@ -1555,6 +1751,44 @@ namespace StormSwitchBox.Services
                 App.Logger.Log($"[ModAddon] Ошибка создания метаданных модификаций: {ex.Message}", Models.LogLevel.Warning);
             }
             return generatedNcas;
+        }
+
+        private static HashSet<string> DetectDeltaNcasToExclude(List<string> nspPaths)
+        {
+            var deltaNcas = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var nspPath in nspPaths)
+            {
+                if (!System.IO.File.Exists(nspPath)) continue;
+                try
+                {
+                    using var chkStream = new FileStream(nspPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    var chkFs = new PartitionFileSystem(chkStream.AsStorage());
+                    foreach (var ent in chkFs.EnumerateEntries())
+                    {
+                        if (ent.Name.EndsWith(".cnmt.xml", StringComparison.OrdinalIgnoreCase))
+                        {
+                            using var fRef = new UniqueRef<IFile>();
+                            using var p = new LibHac.Fs.Path();
+                            p.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(ent.FullPath))).ThrowIfFailure();
+                            chkFs.OpenFile(ref fRef.Ref, in p, OpenMode.Read).ThrowIfFailure();
+                            using var sr = new StreamReader(fRef.Release().AsStream());
+                            string xml = sr.ReadToEnd();
+                            var matches = System.Text.RegularExpressions.Regex.Matches(xml, @"(?s)<Content>.*?<Type>DeltaFragment</Type>.*?<Id>([a-fA-F0-9]{32})</Id>.*?</Content>");
+                            foreach (System.Text.RegularExpressions.Match m in matches)
+                            {
+                                if (m.Groups.Count > 1) deltaNcas.Add(m.Groups[1].Value.ToLowerInvariant() + ".nca");
+                            }
+                            var matches2 = System.Text.RegularExpressions.Regex.Matches(xml, @"(?s)<Content>.*?<Id>([a-fA-F0-9]{32})</Id>.*?<Type>DeltaFragment</Type>.*?</Content>");
+                            foreach (System.Text.RegularExpressions.Match m in matches2)
+                            {
+                                if (m.Groups.Count > 1) deltaNcas.Add(m.Groups[1].Value.ToLowerInvariant() + ".nca");
+                            }
+                        }
+                    }
+                }
+                catch { }
+            }
+            return deltaNcas;
         }
     }
 }

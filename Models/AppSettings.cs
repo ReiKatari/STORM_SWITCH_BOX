@@ -6,7 +6,7 @@ namespace StormSwitchBox.Models
     public class AppSettings
     {
         // Окно
-        public string AppVersion { get; set; } = "5.0.6";
+        public string AppVersion { get; set; } = "5.0.7";
         public string Language { get; set; } = "ru"; // ru, en, de, zh, ja
         public int WindowX { get; set; } = -1;
         public int WindowY { get; set; } = -1;
@@ -30,6 +30,9 @@ namespace StormSwitchBox.Models
         public bool RemoveTitlerights { get; set; } = false; // Удалить Titlerights (ticketless NSP)
         public bool RemoveDeltaNca { get; set; } = true;     // Удалить Delta NCA из обновлений
         public bool SplitFat32 { get; set; } = false;        // Разделить >4GB для FAT32
+        public bool SolidCompression { get; set; } = false;  // Сверхплотное монолитное сжатие (Solid NSZ)
+        public bool AutoInject60FpsPatches { get; set; } = false; // Авто-инъекция патчей 60 FPS и твиков графики
+        public bool EnableDlcCompletenessCheck { get; set; } = true; // Инспектор полноты дополнений (DLC Completeness)
         public List<string> KeepLanguages { get; set; } = new List<string> { "ru", "ru-RU", "en-US", "en-GB", "en" };
         public int UsedCores { get; set; } = 16;
         public int ConcurrentTasks { get; set; } = 3;

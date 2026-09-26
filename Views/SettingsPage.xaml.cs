@@ -846,6 +846,9 @@ namespace StormSwitchBox.Views
             if (RemoveTitlerightsToggle != null) { RemoveTitlerightsToggle.OnContent = onTxt; RemoveTitlerightsToggle.OffContent = offTxt; }
             if (SplitFat32Toggle != null) { SplitFat32Toggle.OnContent = onTxt; SplitFat32Toggle.OffContent = offTxt; }
             if (TrimXciToggle != null) { TrimXciToggle.OnContent = onTxt; TrimXciToggle.OffContent = offTxt; }
+            if (SolidCompressToggle != null) { SolidCompressToggle.OnContent = onTxt; SolidCompressToggle.OffContent = offTxt; }
+            if (Patches60FpsToggle != null) { Patches60FpsToggle.OnContent = onTxt; Patches60FpsToggle.OffContent = offTxt; }
+            if (DlcCheckerToggle != null) { DlcCheckerToggle.OnContent = onTxt; DlcCheckerToggle.OffContent = offTxt; }
             if (WatchFolderSwitchToggle != null) { WatchFolderSwitchToggle.OnContent = onTxt; WatchFolderSwitchToggle.OffContent = offTxt; }
             if (WatchFolder3dsToggle != null) { WatchFolder3dsToggle.OnContent = onTxt; WatchFolder3dsToggle.OffContent = offTxt; }
 
@@ -1065,7 +1068,7 @@ namespace StormSwitchBox.Views
                     var dialog = new ContentDialog
                     {
                         Title = "Обновления не найдены",
-                        Content = new TextBlock { Text = $"У вас установлена актуальная версия STORM SWITCH BOX v{App.Settings.Current.AppVersion}." },
+                        Content = new TextBlock { Text = $"У вас установлена актуальная версия STORM SWITCH BOX {App.Settings.Current.AppVersion}." },
                         CloseButtonText = "OK",
                         XamlRoot = this.XamlRoot
                     };
@@ -1124,7 +1127,7 @@ namespace StormSwitchBox.Views
                             Spacing = 12,
                             Children =
                             {
-                                new TextBlock { Text = $"Доступна версия: v{cleanTag} (Текущая: v{currentVerStr})", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold },
+                                new TextBlock { Text = $"Доступна версия: {cleanTag} (Текущая: {currentVerStr})", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold },
                                 new TextBlock { Text = "Список изменений:", FontSize = 12, Foreground = Application.Current.Resources.TryGetValue("TextFillColorSecondaryBrush", out var resBrush) && resBrush is Microsoft.UI.Xaml.Media.Brush b ? b : new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Gray) },
                                 new ScrollViewer
                                 {
@@ -1146,7 +1149,7 @@ namespace StormSwitchBox.Views
                     var dialog = new ContentDialog
                     {
                         Title = "Обновления не найдены",
-                        Content = new TextBlock { Text = $"У вас установлена актуальная версия STORM SWITCH BOX v{currentVerStr}." },
+                        Content = new TextBlock { Text = $"У вас установлена актуальная версия STORM SWITCH BOX {currentVerStr}." },
                         CloseButtonText = "OK",
                         XamlRoot = this.XamlRoot
                     };

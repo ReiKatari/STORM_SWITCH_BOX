@@ -1,4 +1,4 @@
-# STORM SWITCH BOX - Automated Production Build & Release Pipeline (STORM ALL PROJECTS FORMAT)
+# STORM SWITCH BOX - Automated Production Build and Release Pipeline (STORM ALL PROJECTS FORMAT)
 $ErrorActionPreference = "Stop"
 
 $baseDir = $PSScriptRoot
@@ -14,7 +14,7 @@ if (-not (Test-Path $assemblingDir)) { New-Item -ItemType Directory -Path $assem
 if (-not (Test-Path $filesDir)) { New-Item -ItemType Directory -Path $filesDir | Out-Null }
 if (-not (Test-Path $outputDir)) { New-Item -ItemType Directory -Path $outputDir | Out-Null }
 
-$appVersion = "5.0.6"
+$appVersion = "5.0.7"
 try {
     [xml]$appProjXml = Get-Content (Join-Path $appProjDir "StormSwitchBox.csproj")
     $verFromProj = $appProjXml.Project.PropertyGroup.Version
@@ -22,7 +22,7 @@ try {
 } catch { }
 
 Write-Host "============================================================" -ForegroundColor Cyan
-Write-Host "   STORM SWITCH BOX v$appVersion - STORM ALL PROJECTS FORMAT" -ForegroundColor Cyan
+Write-Host "   STORM SWITCH BOX $appVersion - STORM ALL PROJECTS FORMAT" -ForegroundColor Cyan
 Write-Host "============================================================" -ForegroundColor Cyan
 
 $setupExeName = "STORM_SWITCH_BOX_${appVersion}_Setup.exe"
@@ -44,8 +44,12 @@ if (Test-Path "$appProjDir\bin") { Remove-Item "$appProjDir\bin" -Recurse -Force
 if (Test-Path "$appProjDir\obj") { Remove-Item "$appProjDir\obj" -Recurse -Force -ErrorAction SilentlyContinue }
 if (Test-Path "$installerProjDir\bin") { Remove-Item "$installerProjDir\bin" -Recurse -Force -ErrorAction SilentlyContinue }
 if (Test-Path "$installerProjDir\obj") { Remove-Item "$installerProjDir\obj" -Recurse -Force -ErrorAction SilentlyContinue }
+if (Test-Path $assemblingDir) { Remove-Item $assemblingDir -Recurse -Force -ErrorAction SilentlyContinue }
+if (Test-Path $portableZipPath) { Remove-Item $portableZipPath -Force -ErrorAction SilentlyContinue }
+if (Test-Path $bundleZipPath) { Remove-Item $bundleZipPath -Force -ErrorAction SilentlyContinue }
+if (Test-Path $outputSetupExePath) { Remove-Item $outputSetupExePath -Force -ErrorAction SilentlyContinue }
 
-# Step 2: Build App to Assembling & Publish folder
+# Step 2: Build App to Assembling and Publish folder
 Write-Host "[2/6] Building StormSwitchBox (.NET 8 WinUI 3 win-x64)..." -ForegroundColor Yellow
 $publishDir = Join-Path $appProjDir "bin\Release\net8.0-windows10.0.19041.0\win-x64"
 dotnet build "$appProjDir\StormSwitchBox.csproj" -c Release
@@ -54,17 +58,20 @@ if (-not (Test-Path "$publishDir\StormSwitchBox.exe")) {
     throw "Error: Build failed - StormSwitchBox.exe was not created in $publishDir!"
 }
 
-# Step 3: Digital Signature with STORM TEAM Master Certificate & RFC 3161 Timestamp
+# Step 3: Digital Signature with STORM TEAM Master Certificate and RFC 3161 Timestamp
 Write-Host "[3/6] Applying digital signature (STORM TEAM Authenticode SHA-256 + RFC 3161)..." -ForegroundColor Yellow
 $signtool = "C:\Program Files (x86)\Windows Kits\10\bin\10.0.28000.0\x64\signtool.exe"
 $tsUrl = "http://timestamp.digicert.com"
 
-$cert = Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert | Where-Object { $_.Subject -like "*STORM TEAM*" } | Select-Object -First 1
+$cert = Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.HasPrivateKey -and $_.Subject -like "*STORM TEAM*" } | Select-Object -First 1
 if (-not $cert) {
-    $cert = Get-ChildItem Cert:\LocalMachine\Root -CodeSigningCert | Where-Object { $_.Subject -like "*STORM TEAM*" } | Select-Object -First 1
+    $cert = Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.HasPrivateKey -and $_.Subject -like "*CN=StormSwitchBox*" -and $_.Subject -notlike "*Dev*" } | Select-Object -First 1
 }
 if (-not $cert) {
-    $cert = Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert | Select-Object -First 1
+    $cert = Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.HasPrivateKey -and ($_.Subject -like "*STORM Software*" -or $_.Subject -like "*STORM*") } | Select-Object -First 1
+}
+if (-not $cert) {
+    $cert = Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.HasPrivateKey } | Select-Object -First 1
 }
 
 $certThumb = $cert.Thumbprint
@@ -101,12 +108,14 @@ Get-ChildItem "$publishDir\tools" -Recurse -Filter *.exe | ForEach-Object {
 
 # Copy to Assembling
 Write-Host "[4/6] Synchronizing Assembling directory..." -ForegroundColor Yellow
+if (-not (Test-Path $assemblingDir)) { New-Item -ItemType Directory -Path $assemblingDir | Out-Null }
 Copy-Item "$publishDir\*" $assemblingDir -Recurse -Force
 
 # Package portable zip
 Write-Host "  -> Packaging Portable ZIP..." -ForegroundColor Yellow
+if (Test-Path $portableZipPath) { Remove-Item $portableZipPath -Force -ErrorAction SilentlyContinue }
 if (Test-Path "$baseDir\tools\7z.exe") {
-    & "$baseDir\tools\7z.exe" a -tzip -mx=7 -mmt=on $portableZipPath "$publishDir\."
+    & "$baseDir\tools\7z.exe" a -tzip -mx=7 -mmt=on $portableZipPath "$publishDir\*"
 } else {
     Compress-Archive -Path "$publishDir\*" -DestinationPath $portableZipPath -Force
 }
@@ -138,6 +147,7 @@ try {
 
 # Step 5: Packaging Smart App Control Setup Bundle
 Write-Host "[6/6] Packaging Setup Bundle..." -ForegroundColor Yellow
+if (Test-Path $bundleZipPath) { Remove-Item $bundleZipPath -Force -ErrorAction SilentlyContinue }
 if (Test-Path "$baseDir\tools\7z.exe") {
     $unblockFiles = Get-ChildItem -Path $filesDir -Filter "*.bat" | Select-Object -ExpandProperty FullName
     $bundleItems = @($outputSetupExePath, $cerOutput)

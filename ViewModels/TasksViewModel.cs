@@ -433,6 +433,35 @@ public partial class TasksViewModel : ObservableObject
 		return expandedPaths;
 	}
 
+	public static bool IsModOrCheatDirectory(string dirPath)
+	{
+		if (!Directory.Exists(dirPath)) return false;
+		string name = Path.GetFileName(dirPath).ToLowerInvariant();
+		if (name == "romfs" || name == "exefs" || name == "exefs_patches" || name == "cheats" || name == "atmosphere" || name == "contents")
+			return true;
+		if (name.Contains("cheat") || name.Contains("чит") || name.Contains("mod") || name.Contains("мод"))
+			return true;
+		try
+		{
+			var subs = Directory.GetDirectories(dirPath, "*", SearchOption.AllDirectories);
+			foreach (var sub in subs)
+			{
+				string subName = Path.GetFileName(sub).ToLowerInvariant();
+				if (subName == "romfs" || subName == "exefs" || subName == "exefs_patches" || subName == "cheats" || subName == "atmosphere" || subName == "contents")
+					return true;
+			}
+			var files = Directory.GetFiles(dirPath, "*", SearchOption.AllDirectories);
+			if (files.Any(f => f.EndsWith(".ips", StringComparison.OrdinalIgnoreCase) || 
+			                   f.EndsWith(".pchtxt", StringComparison.OrdinalIgnoreCase) ||
+			                   (f.EndsWith(".txt", StringComparison.OrdinalIgnoreCase) && (f.Contains("cheat", StringComparison.OrdinalIgnoreCase) || f.Contains("atmosphere", StringComparison.OrdinalIgnoreCase)))))
+			{
+				return true;
+			}
+		}
+		catch { }
+		return false;
+	}
+
 	public async Task AddDroppedFilesBatchAsync(List<string> paths)
 	{
 		if (paths == null || paths.Count == 0) return;
@@ -533,10 +562,10 @@ public partial class TasksViewModel : ObservableObject
 		}
 
 		// 1. Separate mod and save directories from other paths
-		var modDirs = paths.Where(p => Directory.Exists(p) && 
-			(Path.GetFileName(p).Equals("romfs", StringComparison.OrdinalIgnoreCase) || 
-			 Path.GetFileName(p).Equals("exefs", StringComparison.OrdinalIgnoreCase) ||
-			 Path.GetFileName(p).Equals("exefs_patches", StringComparison.OrdinalIgnoreCase))).ToList();
+		var modDirs = paths.Where(p => Directory.Exists(p) && IsModOrCheatDirectory(p)).ToList();
+
+
+
 
 		var saveDirs = paths.Where(p => Directory.Exists(p) &&
 			(Path.GetFileName(p).Equals("save", StringComparison.OrdinalIgnoreCase) ||
@@ -556,11 +585,28 @@ public partial class TasksViewModel : ObservableObject
 			{
 				try
 				{
+					var childDirs = Directory.GetDirectories(normalPath);
+					foreach (var child in childDirs)
+					{
+						if (IsModOrCheatDirectory(child))
+						{
+							bool hasGames = false;
+							try {
+								hasGames = Directory.GetFiles(child, "*", SearchOption.AllDirectories)
+									.Any(f => GameExtensions.Contains(Path.GetExtension(f)));
+							} catch { }
+
+							if (!hasGames && !modDirs.Contains(child, StringComparer.OrdinalIgnoreCase))
+							{
+								modDirs.Add(child);
+							}
+						}
+					}
 					var subDirs = Directory.GetDirectories(normalPath, "*", SearchOption.AllDirectories);
 					foreach (var subDir in subDirs)
 					{
 						string name = Path.GetFileName(subDir).ToLowerInvariant();
-						if (name == "romfs" || name == "exefs" || name == "exefs_patches")
+						if (name == "romfs" || name == "exefs" || name == "exefs_patches" || name == "cheats")
 						{
 							if (!modDirs.Contains(subDir, StringComparer.OrdinalIgnoreCase))
 							{
@@ -692,9 +738,18 @@ public partial class TasksViewModel : ObservableObject
 							 Path.GetFileName(p).Equals("exefs_patches", StringComparison.OrdinalIgnoreCase)));
 						
 						task.HasRomFs = hasRomFs ? "1" : "-";
-						task.HasExeFs = hasExeFs ? "1" : "-";
+						bool hasCheats = task.InputFiles.Any(p => Directory.Exists(p) && 
+							(Path.GetFileName(p).Equals("cheats", StringComparison.OrdinalIgnoreCase) || 
+							 p.Contains("cheat", StringComparison.OrdinalIgnoreCase) ||
+							 Directory.GetDirectories(p, "*cheat*", SearchOption.AllDirectories).Any()));
+						task.HasExeFs = hasExeFs ? "1" : (hasCheats ? "1" : "-");
+
+						string formattedName = MultiContentService.FormatOutputFileName(
+							Path.Combine(task.OutputFolder, task.OutputFileName + "." + task.TargetFormat.ToLower()), 
+							task.InputFiles);
+						task.OutputFileName = Path.GetFileNameWithoutExtension(formattedName);
 						
-						App.Logger.Log($"Папки модов/сэйвов привязаны к задаче {task.Id} ({task.OutputFileName})", LogLevel.Success);
+						App.Logger.Log($"Папки модов/читов/сэйвов привязаны к задаче {task.Id} ({task.OutputFileName})", LogLevel.Success);
 					}
 				}
 			}

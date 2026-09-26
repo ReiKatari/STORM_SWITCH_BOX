@@ -282,7 +282,7 @@
                             </Border>
                             <StackPanel Grid.Column="1" Spacing="6">
                                 <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                                    <TextBlock x:Name="AppTitleVersionTxt" Text="STORM SWITCH BOX 5.0.6" FontWeight="Bold" FontSize="22"/>
+                                    <TextBlock x:Name="AppTitleVersionTxt" Text="STORM SWITCH BOX 5.0.7" FontWeight="Bold" FontSize="22"/>
                                     <Border Background="{ThemeResource SystemAccentColor}" CornerRadius="4" Padding="6,2" VerticalAlignment="Center">
                                         <TextBlock Text="WinUI 3 Native" Foreground="White" FontSize="11" FontWeight="Bold"/>
                                     </Border>
@@ -411,6 +411,42 @@
                                 </StackPanel>
                                 <ToggleSwitch x:Name="SplitFat32Toggle" HorizontalAlignment="Right" IsOn="{x:Bind Settings.SplitFat32, Mode=TwoWay}" Toggled="Toggle_Changed" 
                                               ToolTipService.ToolTip="Разбивает выходные файлы >4GB на части для совместимости со старыми FAT32 флешками."/>
+                            </Grid>
+
+                            <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
+
+                            <!-- Solid NSZ Compression -->
+                            <Grid>
+                                <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock x:Name="SolidCompressTitleTxt" Text="Сверхплотное монолитное сжатие (Solid NSZ)" FontWeight="Medium"/>
+                                    <TextBlock x:Name="SolidCompressDescTxt" Text="Сжимает образ в монолитный блок Zstandard (--solid), экономя 10–20% места для архивного хранения" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <ToggleSwitch x:Name="SolidCompressToggle" HorizontalAlignment="Right" IsOn="{x:Bind Settings.SolidCompression, Mode=TwoWay}" Toggled="Toggle_Changed" 
+                                              ToolTipService.ToolTip="Максимальное сжатие для долгосрочного хранения. Для прямого запуска в эмуляторах требуется стандартное блочное сжатие."/>
+                            </Grid>
+
+                            <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
+
+                            <!-- Auto-Inject 60 FPS Patches -->
+                            <Grid>
+                                <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock x:Name="Patches60FpsTitleTxt" Text="Авто-инъекция патчей 60 FPS и твиков графики" FontWeight="Medium"/>
+                                    <TextBlock x:Name="Patches60FpsDescTxt" Text="Автоматически внедряет актуальные IPS патчи 60 кадров/сек и исправления графики при пересборке" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <ToggleSwitch x:Name="Patches60FpsToggle" HorizontalAlignment="Right" IsOn="{x:Bind Settings.AutoInject60FpsPatches, Mode=TwoWay}" Toggled="Toggle_Changed" 
+                                              ToolTipService.ToolTip="Вшивает проверенные сообществом твики графики и 60 FPS прямо в модуль ExeFS main."/>
+                            </Grid>
+
+                            <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
+
+                            <!-- DLC Completeness Check -->
+                            <Grid>
+                                <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock x:Name="DlcCheckerTitleTxt" Text="Инспектор полноты дополнений (DLC Completeness)" FontWeight="Medium"/>
+                                    <TextBlock x:Name="DlcCheckerDescTxt" Text="Сверяет состав дополнений с глобальной базой TitleDB и сообщает о недостающих DLC в логе задачи" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <ToggleSwitch x:Name="DlcCheckerToggle" HorizontalAlignment="Right" IsOn="{x:Bind Settings.EnableDlcCompletenessCheck, Mode=TwoWay}" Toggled="Toggle_Changed" 
+                                              ToolTipService.ToolTip="Анализирует собранные дополнения и выводит список недостающих DLC из базы TitleDB."/>
                             </Grid>
 
                             <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
