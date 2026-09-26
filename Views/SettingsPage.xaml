@@ -562,6 +562,32 @@
                                 </Grid>
                             </Grid>
 
+                            <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
+
+                            <!-- Каталог для архивов SDMC -->
+                            <Grid AllowDrop="True" DragOver="SdmcArchiveFolderBox_DragOver" Drop="SdmcArchiveFolderBox_Drop">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <StackPanel Grid.Row="0" Margin="0,0,0,8" Spacing="2">
+                                    <TextBlock x:Name="SdmcArchiveFolderTitleTxt" Text="Каталог для архивов SDMC" FontWeight="Medium" VerticalAlignment="Center"/>
+                                    <TextBlock x:Name="SdmcArchiveFolderDescTxt" Text="Папка для упаковки готовых SDMC-пакетов в автономные ZIP-архивы (.zip) для реальной консоли Switch. Если путь не указан — архивы не создаются, а выходная папка с играми остается идеально чистой" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <Grid Grid.Row="1" AllowDrop="True" DragOver="SdmcArchiveFolderBox_DragOver" Drop="SdmcArchiveFolderBox_Drop">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox x:Name="SdmcArchiveFolderBox" HorizontalAlignment="Stretch" Margin="0,0,12,0" PlaceholderText="Не указан (автономные ZIP-архивы не создаются)" 
+                                             Text="{x:Bind Settings.SdmcArchiveFolder, Mode=TwoWay}" IsReadOnly="True" VerticalAlignment="Center"
+                                             AllowDrop="True" DragOver="SdmcArchiveFolderBox_DragOver" Drop="SdmcArchiveFolderBox_Drop"/>
+                                    <Button x:Name="SelectSdmcArchiveFolderButton" Grid.Column="1" Content="Обзор..." Click="SelectSdmcArchiveFolder_Click" VerticalAlignment="Center" CornerRadius="6" Margin="0,0,8,0"/>
+                                    <Button x:Name="ClearSdmcArchiveFolderButton" Grid.Column="2" Content="✕ Очистить" Click="ClearSdmcArchiveFolder_Click" VerticalAlignment="Center" CornerRadius="6" ToolTipService.ToolTip="Очистить каталог для архивов SDMC"/>
+                                </Grid>
+                            </Grid>
+
                         </StackPanel>
                     </Border>
                 </StackPanel>

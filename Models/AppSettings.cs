@@ -88,6 +88,8 @@ namespace StormSwitchBox.Models
         
         // Выходная папка по умолчанию для Switch
         public string OutputFolder { get; set; } = "";
+        // Каталог для архивов SDMC
+        public string SdmcArchiveFolder { get; set; } = "";
         // Выходная папка по умолчанию для 3DS
         public string OutputFolder3ds { get; set; } = "";
         

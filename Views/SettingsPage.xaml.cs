@@ -812,6 +812,10 @@ namespace StormSwitchBox.Views
             if (SwitchOutFolderDescTxt != null) SwitchOutFolderDescTxt.Text = loc["Settings_Switch_OutFolder_Desc"];
             if (OutputFolderBox != null) OutputFolderBox.PlaceholderText = loc["Settings_Switch_OutFolder_Placeholder"];
             if (SelectOutputFolderButton != null) SelectOutputFolderButton.Content = loc["Settings_Switch_OutFolder_Browse"];
+            if (SdmcArchiveFolderTitleTxt != null) SdmcArchiveFolderTitleTxt.Text = loc["Settings_Switch_SdmcArchive_Title"];
+            if (SdmcArchiveFolderDescTxt != null) SdmcArchiveFolderDescTxt.Text = loc["Settings_Switch_SdmcArchive_Desc"];
+            if (SdmcArchiveFolderBox != null) SdmcArchiveFolderBox.PlaceholderText = loc["Settings_Switch_SdmcArchive_Placeholder"];
+            if (SelectSdmcArchiveFolderButton != null) SelectSdmcArchiveFolderButton.Content = loc["Settings_Switch_OutFolder_Browse"];
 
             // 3DS Panel
             if (ThreeDsKeysHeaderTxt != null) ThreeDsKeysHeaderTxt.Text = loc["Settings_3ds_Keys_Header"];
@@ -990,6 +994,62 @@ namespace StormSwitchBox.Views
                         OutputFolderBox.Text = path;
                         await App.Settings.SaveAsync();
                         App.Logger.Log($"Выходная папка Switch установлена перетягиванием: {path}", Models.LogLevel.Success);
+                    }
+                }
+            }
+        }
+
+        // ===== Выбор и очистка каталога для архивов SDMC =====
+        private async void SelectSdmcArchiveFolder_Click(object sender, RoutedEventArgs e)
+        {
+            string? folder = await SystemDialogService.OpenFolderDialogAsync(
+                "Выберите каталог для архивов SDMC",
+                !string.IsNullOrEmpty(App.Settings.Current.SdmcArchiveFolder) ? App.Settings.Current.SdmcArchiveFolder : null);
+
+            if (!string.IsNullOrWhiteSpace(folder) && System.IO.Directory.Exists(folder))
+            {
+                App.Settings.Current.SdmcArchiveFolder = folder;
+                SdmcArchiveFolderBox.Text = folder;
+                await App.Settings.SaveAsync();
+                App.Logger.Log($"Каталог для архивов SDMC: {folder}", Models.LogLevel.Success);
+            }
+        }
+
+        private async void ClearSdmcArchiveFolder_Click(object sender, RoutedEventArgs e)
+        {
+            App.Settings.Current.SdmcArchiveFolder = string.Empty;
+            SdmcArchiveFolderBox.Text = string.Empty;
+            await App.Settings.SaveAsync();
+            App.Logger.Log("[Settings] Каталог для архивов SDMC очищен (автономные ZIP-архивы отключены)", Models.LogLevel.Info);
+        }
+
+        private void SdmcArchiveFolderBox_DragOver(object sender, DragEventArgs e)
+        {
+            e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
+            e.DragUIOverride.Caption = "Выбрать как каталог для архивов SDMC";
+            e.DragUIOverride.IsCaptionVisible = true;
+            e.DragUIOverride.IsContentVisible = true;
+        }
+
+        private async void SdmcArchiveFolderBox_Drop(object sender, DragEventArgs e)
+        {
+            if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+            {
+                var items = await e.DataView.GetStorageItemsAsync();
+                if (items.Count > 0)
+                {
+                    var item = items[0];
+                    string path = item.Path;
+                    if (System.IO.File.Exists(path))
+                    {
+                        path = System.IO.Path.GetDirectoryName(path) ?? path;
+                    }
+                    if (System.IO.Directory.Exists(path))
+                    {
+                        App.Settings.Current.SdmcArchiveFolder = path;
+                        SdmcArchiveFolderBox.Text = path;
+                        await App.Settings.SaveAsync();
+                        App.Logger.Log($"Каталог для архивов SDMC установлен перетягиванием: {path}", Models.LogLevel.Success);
                     }
                 }
             }

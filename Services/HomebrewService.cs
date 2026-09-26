@@ -2457,37 +2457,71 @@ namespace StormSwitchBox.Services
                             CopyFileWithRetry(mainNro, Path.Combine(tempSdmcStaging, Path.GetFileName(mainNro)), true);
                         }
 
-                        // 4. ВСЕГДА формируем автономный пакет SDMC карты памяти рядом с собранным файлом
-                        string sdmcRoot = Path.Combine(outFolder, $"{task.OutputFileName}_[SDMC]");
-                        string sdmcTargetDir = Path.Combine(sdmcRoot, targetSubfolder);
-                        Directory.CreateDirectory(sdmcTargetDir);
-                        CopyDirectory(tempSdmcStaging, sdmcTargetDir);
-
-                        // Для TheXTech: дублируем в sdmc/TheXTech
+                        // 4. Опционально формируем автономный ZIP-архив SDMC карты памяти, если задан каталог в настройках
                         string xtechSrc = Path.Combine(tempDir, "sdmc_staging", "TheXTech");
-                        if (Directory.Exists(xtechSrc))
+                        string sdmcArchiveDir = App.Settings.Current.SdmcArchiveFolder?.Trim() ?? string.Empty;
+                        if (!string.IsNullOrWhiteSpace(sdmcArchiveDir))
                         {
-                            string sdmcXtech = Path.Combine(sdmcRoot, "TheXTech");
-                            Directory.CreateDirectory(sdmcXtech);
-                            CopyDirectory(xtechSrc, sdmcXtech);
-                        }
+                            try
+                            {
+                                Directory.CreateDirectory(sdmcArchiveDir);
+                                string sdmcZipRoot = Path.Combine(tempDir, "sdmc_zip_staging");
+                                if (Directory.Exists(sdmcZipRoot))
+                                {
+                                    Directory.Delete(sdmcZipRoot, true);
+                                }
+                                Directory.CreateDirectory(sdmcZipRoot);
 
-                        // Для Diablo: дублируем в devilutionx-switch и switch/devilutionx
-                        if (task.InputFiles.Any(f => f.Contains("devilutionx", StringComparison.OrdinalIgnoreCase)) ||
-                            targetSubfolder.Contains("devilutionx", StringComparison.OrdinalIgnoreCase))
-                        {
-                            string devTarget1 = Path.Combine(sdmcRoot, "devilutionx-switch");
-                            string devTarget2 = Path.Combine(sdmcRoot, "switch", "devilutionx");
-                            Directory.CreateDirectory(devTarget1);
-                            Directory.CreateDirectory(devTarget2);
-                            CopyDirectory(tempSdmcStaging, devTarget1);
-                            CopyDirectory(tempSdmcStaging, devTarget2);
-                        }
+                                string zipTargetDir = Path.Combine(sdmcZipRoot, targetSubfolder);
+                                Directory.CreateDirectory(zipTargetDir);
+                                CopyDirectory(tempSdmcStaging, zipTargetDir);
 
-                        App.RunOnUI(() =>
-                        {
-                            task.LogDetails += $"[SDMC] Создана автономная структура карты памяти: {sdmcRoot}\n";
-                        });
+                                // Для TheXTech: дублируем в sdmc/TheXTech
+                                if (Directory.Exists(xtechSrc))
+                                {
+                                    string zipXtech = Path.Combine(sdmcZipRoot, "TheXTech");
+                                    Directory.CreateDirectory(zipXtech);
+                                    CopyDirectory(xtechSrc, zipXtech);
+                                }
+
+                                // Для Diablo: дублируем в devilutionx-switch и switch/devilutionx
+                                if (task.InputFiles.Any(f => f.Contains("devilutionx", StringComparison.OrdinalIgnoreCase)) ||
+                                    targetSubfolder.Contains("devilutionx", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    string devTarget1 = Path.Combine(sdmcZipRoot, "devilutionx-switch");
+                                    string devTarget2 = Path.Combine(sdmcZipRoot, "switch", "devilutionx");
+                                    Directory.CreateDirectory(devTarget1);
+                                    Directory.CreateDirectory(devTarget2);
+                                    CopyDirectory(tempSdmcStaging, devTarget1);
+                                    CopyDirectory(tempSdmcStaging, devTarget2);
+                                }
+
+                                string zipFileName = $"{task.OutputFileName}_[SDMC].zip";
+                                string zipFullPath = Path.Combine(sdmcArchiveDir, zipFileName);
+                                if (File.Exists(zipFullPath))
+                                {
+                                    File.Delete(zipFullPath);
+                                }
+
+                                System.IO.Compression.ZipFile.CreateFromDirectory(
+                                    sdmcZipRoot,
+                                    zipFullPath,
+                                    System.IO.Compression.CompressionLevel.Optimal,
+                                    includeBaseDirectory: false);
+
+                                App.RunOnUI(() =>
+                                {
+                                    task.LogDetails += $"[SDMC] Создан автономный ZIP-архив карты памяти: {zipFullPath}\n";
+                                });
+                            }
+                            catch (Exception zipEx)
+                            {
+                                App.RunOnUI(() =>
+                                {
+                                    task.LogDetails += $"[SDMC] Предупреждение создания архива: {zipEx.Message}\n";
+                                });
+                            }
+                        }
 
                         // 5. Авто-деплой в целевые папки SDMC локальных эмуляторов
                         var localEmuSdmcList = FindAllEmulatorSdmcDirectories();

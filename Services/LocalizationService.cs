@@ -181,6 +181,9 @@ namespace StormSwitchBox.Services
                 ["Settings_Switch_OutFolder_Desc"] = "Папка для сохранения обработанных файлов Switch (.nsp / .nsz / .xci / .xcz). Можно перетащить папку сюда",
                 ["Settings_Switch_OutFolder_Placeholder"] = "Не указана (сохранять в папку с исходным файлом)",
                 ["Settings_Switch_OutFolder_Browse"] = "Обзор...",
+                ["Settings_Switch_SdmcArchive_Title"] = "Каталог для архивов SDMC",
+                ["Settings_Switch_SdmcArchive_Desc"] = "Папка для упаковки готовых SDMC-пакетов в автономные ZIP-архивы (.zip) для реальной консоли Switch. Если путь не указан — архивы не создаются, а выходная папка с играми остается идеально чистой",
+                ["Settings_Switch_SdmcArchive_Placeholder"] = "Не указан (автономные ZIP-архивы не создаются)",
 
                 // Settings 3DS
                 ["Settings_3ds_Keys_Header"] = "Криптографические ключи Nintendo 3DS",
@@ -406,6 +409,9 @@ namespace StormSwitchBox.Services
                 ["Settings_Switch_OutFolder_Desc"] = "Folder for processed Switch files (.nsp / .nsz / .xci / .xcz). Drag folder here",
                 ["Settings_Switch_OutFolder_Placeholder"] = "Not set (save to source file folder)",
                 ["Settings_Switch_OutFolder_Browse"] = "Browse...",
+                ["Settings_Switch_SdmcArchive_Title"] = "SDMC Archive Directory",
+                ["Settings_Switch_SdmcArchive_Desc"] = "Directory for packaging compiled SDMC data into standalone ZIP archives (.zip) for physical Switch console. If empty — archives are not created, keeping the main game folder completely clean",
+                ["Settings_Switch_SdmcArchive_Placeholder"] = "Not set (standalone ZIP archives disabled)",
 
                 // Settings 3DS
                 ["Settings_3ds_Keys_Header"] = "Nintendo 3DS Cryptographic Keys",
@@ -625,6 +631,9 @@ namespace StormSwitchBox.Services
                 ["Settings_Switch_OutFolder_Desc"] = "Ordner für verarbeitete Switch-Dateien (.nsp / .nsz / .xci / .xcz). Ordner hierher ziehen",
                 ["Settings_Switch_OutFolder_Placeholder"] = "Nicht festgelegt (im Quellordner speichern)",
                 ["Settings_Switch_OutFolder_Browse"] = "Durchsuchen...",
+                ["Settings_Switch_SdmcArchive_Title"] = "SDMC-Archivverzeichnis",
+                ["Settings_Switch_SdmcArchive_Desc"] = "Verzeichnis zum Packen von SDMC-Daten in eigenständige ZIP-Archive (.zip) für physische Switch-Konsolen. Wenn leer, werden keine Archive erstellt und der Spielordner bleibt sauber",
+                ["Settings_Switch_SdmcArchive_Placeholder"] = "Nicht festgelegt (eigenständige ZIP-Archive deaktiviert)",
 
                 // Settings 3DS
                 ["Settings_3ds_Keys_Header"] = "Nintendo 3DS Kryptoschlüssel",
@@ -847,6 +856,9 @@ namespace StormSwitchBox.Services
                 ["Settings_Switch_OutFolder_Desc"] = "保存处理后的Switch文件（.nsp / .nsz / .xci / .xcz）。支持拖放文件夹",
                 ["Settings_Switch_OutFolder_Placeholder"] = "未指定（默认保存至源文件所在目录）",
                 ["Settings_Switch_OutFolder_Browse"] = "浏览...",
+                ["Settings_Switch_SdmcArchive_Title"] = "SDMC 归档目录",
+                ["Settings_Switch_SdmcArchive_Desc"] = "用于将 SDMC 数据打包为独立 ZIP 压缩包 (.zip) 的目录，方便物理 Switch 主机使用。若未指定，则不生成压缩包，游戏输出目录保持完全纯净",
+                ["Settings_Switch_SdmcArchive_Placeholder"] = "未指定（不创建独立 ZIP 归档）",
 
                 // Settings 3DS
                 ["Settings_3ds_Keys_Header"] = "Nintendo 3DS 密钥",
@@ -1066,6 +1078,9 @@ namespace StormSwitchBox.Services
                 ["Settings_Switch_OutFolder_Desc"] = "処理済みSwitchファイル（.nsp / .nsz / .xci / .xcz）の保存先。フォルダをドラッグ可能",
                 ["Settings_Switch_OutFolder_Placeholder"] = "未設定（元のファイルと同じフォルダに保存）",
                 ["Settings_Switch_OutFolder_Browse"] = "参照...",
+                ["Settings_Switch_SdmcArchive_Title"] = "SDMC アーカイブディレクトリ",
+                ["Settings_Switch_SdmcArchive_Desc"] = "実機 Switch 用に SDMC データをスタンドアロン ZIP アーカイブ (.zip) に圧縮保存するフォルダ。未設定の場合、アーカイブは作成されず、ゲーム出力先は常にクリーンな状態に保たれます",
+                ["Settings_Switch_SdmcArchive_Placeholder"] = "未指定（スタンドアロン ZIP アーカイブは作成されません）",
 
                 // Settings 3DS
                 ["Settings_3ds_Keys_Header"] = "Nintendo 3DS 暗号化キー",

@@ -182,7 +182,8 @@ namespace StormSwitchBox.Views
                     DescriptionText = "STORM SWITCH BOX 5.0.7 предоставляет полную свободу в интеграции с локальными эмуляторами Nintendo Switch (STORM SWITCH, Yuzu, Ryujinx, Suyu, Sudachi, Torzu, Citron и др.):\n\n" +
                                       "1. Пользовательский выбор папок эмуляторов — в разделе «Параметры» доступен специальный блок «Интеграция с эмуляторами (Путь к папке эмулятора)». Вы можете перетащить (Drag and Drop) или выбрать через проводник одну или несколько директорий ваших эмуляторов (например, E:\\STORM SWITCH\\Assembling, L:\\Emulators\\Ryujinx и др.).\n\n" +
                                       "2. Чистота выходной библиотеки — при сборке Homebrew-игр и портов программа больше НЕ создает лишних папок [SDMC] в вашей основной папке с играми. Все файлы NRO, данные и конфигурации доставляются строго в виртуальные SD-карты указанных эмуляторов (user/sdmc/switch/<game>/), а рядом с игрой сохраняется только чистый итоговый файл (.nsp / .nsz / .xci).\n\n" +
-                                      "3. Строгая эксклюзивная доставка — данные синхронизируются строго в одну правильную целевую папку эмулятора user/sdmc/switch/<game>/, а любые устаревшие папки-дубликаты автоматически удаляются, исключая раздувание дискового пространства.",
+                                      "3. Автономные ZIP-архивы для реальной консоли Switch — если вам требуются готовые данные SDMC для физической консоли, укажите «Каталог для архивов SDMC» в Параметрах. Программа автоматически упакует структуру карты памяти в полноценный zip-архив вида «Имя_Игры_[SDMC].zip» в указанную папку, оставив библиотеку игр чистой.\n\n" +
+                                      "4. Строгая эксклюзивная доставка — данные синхронизируются строго в одну правильную целевую папку эмулятора user/sdmc/switch/<game>/, а любые устаревшие папки-дубликаты автоматически удаляются, исключая раздувание дискового пространства.",
                     Tip = "Задайте папку вашего эмулятора один раз в Параметрах, и Homebrew-порты будут запускаться моментально без единого ручного действия!",
                     SetupPreview = container => BuildEmulatorSyncInteractivePreview(container)
                 },
@@ -623,13 +624,14 @@ namespace StormSwitchBox.Views
                 },
                 new TopicItem
                 {
-                    Title = "Emulator Integration & SDMC Sync",
+                    Title = "Emulator Integration and SDMC Sync",
                     Category = "Emulators",
                     Icon = "\uE7FC",
                     DescriptionText = "Seamless integration with Nintendo Switch emulators (STORM SWITCH, Yuzu, Ryujinx, Suyu, Sudachi, Torzu, Citron):\n\n" +
                                       "1. Custom Emulator Directories — In Settings, specify one or more emulator paths via Drag and Drop or folder picker.\n" +
                                       "2. Clean Game Library — Building Homebrew ports delivers NRO data directly into emulator SDMC (user/sdmc/switch/<game>/) without creating redundant [SDMC] folders in your main game library.\n" +
-                                      "3. Strict Filtering — Data synchronizes strictly to specified emulator paths.",
+                                      "3. Standalone SDMC ZIP Archives — If you need SDMC data for physical Switch console, specify «SDMC Archive Directory» in Settings. The app will pack it into a clean .zip archive while keeping game library spotless.\n" +
+                                      "4. Strict Filtering — Data synchronizes strictly to specified emulator paths.",
                     Tip = "Specify your emulator path once in Settings for instant launch of Homebrew ports!",
                     SetupPreview = container =>
                     {
@@ -892,7 +894,7 @@ namespace StormSwitchBox.Views
                     "Metadata & Icon Editor" => "Metadaten- & Icon-Editor",
                     "Smart Folder" => "Smarter Ordner",
                     "Multi-Content & Unlocker" => "Multi-Content & Unlocker",
-                    "Emulator Integration & SDMC Sync" => "Emulator-Integration & SDMC-Synchronisation",
+                    "Emulator Integration and SDMC Sync" => "Emulator-Integration und SDMC-Synchronisation",
                     "Homebrew: Engine Ports & Standalone Games" => "Homebrew: Portierungen & Standalone-Spiele",
                     "Game Updates (HardPatch & Splicing)" => "Spiel-Updates (HardPatch & Zusammenführung)",
                     "Format Conversion (Switch & 3DS)" => "Formatkonvertierung (Switch & 3DS)",
@@ -951,7 +953,7 @@ namespace StormSwitchBox.Views
                     "Metadata & Icon Editor" => "元数据与图标编辑器",
                     "Smart Folder" => "智能文件夹",
                     "Multi-Content & Unlocker" => "多合一内容与解锁器",
-                    "Emulator Integration & SDMC Sync" => "模拟器集成与SDMC同步",
+                    "Emulator Integration and SDMC Sync" => "模拟器集成与SDMC同步",
                     "Homebrew: Engine Ports & Standalone Games" => "自制程序：引擎移植与独立游戏",
                     "Game Updates (HardPatch & Splicing)" => "游戏更新 (HardPatch与无缝合并)",
                     "Format Conversion (Switch & 3DS)" => "格式转换 (Switch与3DS)",
@@ -1010,7 +1012,7 @@ namespace StormSwitchBox.Views
                     "Metadata & Icon Editor" => "メタデータ＆アイコンエディタ",
                     "Smart Folder" => "スマートフォルダー",
                     "Multi-Content & Unlocker" => "マルチコンテンツ＆アンロッカー",
-                    "Emulator Integration & SDMC Sync" => "エミュレータ統合＆SDMC同期",
+                    "Emulator Integration and SDMC Sync" => "エミュレータ統合とSDMC同期",
                     "Homebrew: Engine Ports & Standalone Games" => "Homebrew: 移植作＆スタンドアロンゲーム",
                     "Game Updates (HardPatch & Splicing)" => "アップデート (HardPatch & 結合)",
                     "Format Conversion (Switch & 3DS)" => "フォーマット変換 (Switch & 3DS)",
