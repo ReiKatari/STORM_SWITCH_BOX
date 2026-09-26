@@ -64,3 +64,13 @@ installer/Output/
 *.tmp*
 *.wal
 
+
+# Build output & AI index
+publish/
+.repowise/
+
+# Console encryption keys & proprietary data
+*.keys
+*keys.txt
+title.keys
+prod.keys
