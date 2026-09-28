@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -777,15 +777,15 @@ namespace StormSwitchBox.Services
             App.RunOnUI(() =>
             {
                 if (task.SourceSizeBytes <= 0) task.SourceSizeBytes = totalBytes;
-                task.Status = "Сжатие Solid NSZ...";
+                task.Status = "Сжатие Block NSZ (1 МБ)...";
                 task.IsRunning = true;
                 task.Progress = 0;
-                task.LogDetails = $"Загрузка: {System.IO.Path.GetFileName(inputPath)}\nРазмер: {Models.ProcessingTask.FormatSize(totalBytes)}\nЗапуск сверхплотного монолитного сжатия (--solid, Zstandard)...";
+                task.LogDetails = $"Загрузка: {System.IO.Path.GetFileName(inputPath)}\nРазмер: {Models.ProcessingTask.FormatSize(totalBytes)}\nЗапуск блочного сжатия (--block, 1 МБ, Zstandard)...";
             });
 
             if (!System.IO.File.Exists(nszExe))
             {
-                App.Logger.Log("[NSZ Engine] nsz.exe не найден для Solid сжатия.", LogLevel.Warning);
+                App.Logger.Log("[NSZ Engine] nsz.exe не найден для сжатия.", LogLevel.Warning);
                 App.RunOnUI(() => task.LogDetails += "\n⚠️ nsz.exe не найден. Переключение на стандартное блочное сжатие...");
                 return;
             }
@@ -806,7 +806,7 @@ namespace StormSwitchBox.Services
             }
 
             int level = Math.Clamp(App.Settings.Current.CompressionLevel, 1, 22);
-            string args = $"-C -S -l {level} -t 0 --overwrite {keysParam} -o \"{outDir}\" \"{inputPath}\"".Trim();
+            string args = $"-C -B -s 20 -l {level} -t 0 --overwrite {keysParam} -o \"{outDir}\" \"{inputPath}\"".Trim();
 
             var psi = new System.Diagnostics.ProcessStartInfo
             {
@@ -832,7 +832,7 @@ namespace StormSwitchBox.Services
                         App.RunOnUI(() =>
                         {
                             task.Progress = Math.Clamp(pct, 0, 99.5);
-                            task.Status = $"Solid сжатие: {pct:F0}%";
+                            task.Status = $"Block сжатие: {pct:F0}%";
                         });
                     }
                 }
@@ -849,7 +849,7 @@ namespace StormSwitchBox.Services
 
             if (proc.ExitCode != 0)
             {
-                throw new Exception($"Ошибка Solid сжатия nsz.exe (код завершения {proc.ExitCode})");
+                throw new Exception($"Ошибка сжатия nsz.exe (код завершения {proc.ExitCode})");
             }
 
             if (!File.Exists(outNszPath))
@@ -872,13 +872,13 @@ namespace StormSwitchBox.Services
                     task.Progress = 100;
                     task.Status = "Успешно";
                     task.IsRunning = false;
-                    task.LogDetails += $"\n⚡ [Solid NSZ] Сверхплотное сжатие завершено!\nИтог: {Models.ProcessingTask.FormatSize(finalSize)} ({ratio:F1}% от оригинала, экономия {Math.Abs(percent):F1}%)";
+                    task.LogDetails += $"\n⚡ [Block NSZ] Блочное сжатие (1 МБ) завершено!\nИтог: {Models.ProcessingTask.FormatSize(finalSize)} ({ratio:F1}% от оригинала, экономия {Math.Abs(percent):F1}%)";
                     task.TargetSize = Models.ProcessingTask.FormatSize(finalSize);
                     task.SizeDifference = $"{(diff > 0 ? "-" : "+")}{Models.ProcessingTask.FormatSize(Math.Abs(diff))} ({Math.Abs(percent):F1}%)";
                     HistoryService.AddToHistory(task);
                 });
 
-                App.Logger.Log($"[NSZ Engine] Сверхплотное Solid сжатие успешно: {fileName}. Экономия: {100 - ratio:F1}%", LogLevel.Success);
+                App.Logger.Log($"[NSZ Engine] Блочное сжатие Block NSZ (1 МБ) успешно: {fileName}. Экономия: {100 - ratio:F1}%", LogLevel.Success);
             }
         }
     }

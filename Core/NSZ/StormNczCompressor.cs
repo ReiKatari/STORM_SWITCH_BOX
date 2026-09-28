@@ -27,7 +27,7 @@ namespace StormSwitchBox.Core.NSZ
         public static readonly Dictionary<string, byte[]> TitleKeysCache = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
 
         private const long NCA_HEADER_SIZE = 0x4000;
-        private const int BLOCK_SIZE_EXPONENT = 18; // 2^18 = 256 KB standard NSZ block size (100% emulator compatibility)
+        private const int BLOCK_SIZE_EXPONENT = 20; // 2^20 = 1048576 (1 MB standard NSZ block size for random read access directly in RAM)
         private const int BLOCK_SIZE = 1 << BLOCK_SIZE_EXPONENT;
 
         public static void CompressNcaToNcz(

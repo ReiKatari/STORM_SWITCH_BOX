@@ -415,14 +415,14 @@
 
                             <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
 
-                            <!-- Solid NSZ Compression -->
+                            <!-- Block NSZ Compression -->
                             <Grid>
                                 <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
-                                    <TextBlock x:Name="SolidCompressTitleTxt" Text="Сверхплотное монолитное сжатие (Solid NSZ)" FontWeight="Medium"/>
-                                    <TextBlock x:Name="SolidCompressDescTxt" Text="Сжимает образ в монолитный блок Zstandard (--solid), экономя 10–20% места для архивного хранения" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                    <TextBlock x:Name="SolidCompressTitleTxt" Text="Сжатие через внешний движок nsz.exe (--block, 1 МБ)" FontWeight="Medium"/>
+                                    <TextBlock x:Name="SolidCompressDescTxt" Text="Использовать официальный компрессор nsz.exe с независимыми блоками по 1 МБ (NCZBLOCK) вместо встроенного движка" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
                                 </StackPanel>
                                 <ToggleSwitch x:Name="SolidCompressToggle" HorizontalAlignment="Right" IsOn="{x:Bind Settings.SolidCompression, Mode=TwoWay}" Toggled="Toggle_Changed" 
-                                              ToolTipService.ToolTip="Максимальное сжатие для долгосрочного хранения. Для прямого запуска в эмуляторах требуется стандартное блочное сжатие."/>
+                                              ToolTipService.ToolTip="Оба компрессора (встроенный и внешний) всегда сжимают методом Block с блоками 1 МБ для прямого запуска в эмуляторах без распаковки на диск."/>
                             </Grid>
 
                             <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
