@@ -799,6 +799,10 @@ namespace StormSwitchBox.Views
             if (TitlerightsDescTxt != null) TitlerightsDescTxt.Text = loc["Settings_Switch_Titlerights_Desc"];
             if (Fat32TitleTxt != null) Fat32TitleTxt.Text = loc["Settings_Switch_Fat32_Title"];
             if (Fat32DescTxt != null) Fat32DescTxt.Text = loc["Settings_Switch_Fat32_Desc"];
+            if (DeltaTitleTxt != null) DeltaTitleTxt.Text = loc["Settings_Switch_Delta_Title"];
+            if (DeltaDescTxt != null) DeltaDescTxt.Text = loc["Settings_Switch_Delta_Desc"];
+            if (ModOptimizerTitleTxt != null) ModOptimizerTitleTxt.Text = loc["Settings_Switch_ModOptimizer_Title"];
+            if (ModOptimizerDescTxt != null) ModOptimizerDescTxt.Text = loc["Settings_Switch_ModOptimizer_Desc"];
             if (LangTrimTitleTxt != null) LangTrimTitleTxt.Text = loc["Settings_Switch_LangTrim_Title"];
             if (LangTrimDescTxt != null) LangTrimDescTxt.Text = loc["Settings_Switch_LangTrim_Desc"];
             if (LangTrimSubTxt != null) LangTrimSubTxt.Text = loc["Settings_Switch_LangTrim_Sub"];

@@ -282,7 +282,7 @@
                             </Border>
                             <StackPanel Grid.Column="1" Spacing="6">
                                 <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                                    <TextBlock x:Name="AppTitleVersionTxt" Text="STORM SWITCH BOX 5.0.7" FontWeight="Bold" FontSize="22"/>
+                                    <TextBlock x:Name="AppTitleVersionTxt" Text="STORM SWITCH BOX 5.0.8" FontWeight="Bold" FontSize="22"/>
                                     <Border Background="{ThemeResource SystemAccentColor}" CornerRadius="4" Padding="6,2" VerticalAlignment="Center">
                                         <TextBlock Text="WinUI 3 Native" Foreground="White" FontSize="11" FontWeight="Bold"/>
                                     </Border>
@@ -368,7 +368,6 @@
                                 </StackPanel>
                                 <ComboBox Grid.Column="1" x:Name="BuildStrategyCombo" HorizontalAlignment="Right" Width="260" SelectionChanged="BuildStrategyCombo_SelectionChanged" VerticalAlignment="Center">
                                     <ComboBoxItem Content="Умный режим (Авто)" Tag="0" ToolTipService.ToolTip="Умная пересборка HardPatch с авто-откатом на Multi-Content"/>
-                                    <ComboBoxItem Content="Принудительный HardPatch (Монолит)" Tag="1" ToolTipService.ToolTip="Всегда физически пересобирает монолитный RomFS, запекая дельты (для 100% совместимости со всеми эмуляторами)"/>
                                     <ComboBoxItem Content="Прямой Multi-Content (Сшивание 1G+1U)" Tag="2" ToolTipService.ToolTip="Быстрое сшивание базового NCA и обновления без пересборки RomFS"/>
                                 </ComboBox>
                             </Grid>
@@ -411,6 +410,30 @@
                                 </StackPanel>
                                 <ToggleSwitch x:Name="SplitFat32Toggle" HorizontalAlignment="Right" IsOn="{x:Bind Settings.SplitFat32, Mode=TwoWay}" Toggled="Toggle_Changed" 
                                               ToolTipService.ToolTip="Разбивает выходные файлы >4GB на части для совместимости со старыми FAT32 флешками."/>
+                            </Grid>
+
+                            <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
+
+                            <!-- Удаление мусорных Delta NCA (Delta Cleaner) -->
+                            <Grid>
+                                <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock x:Name="DeltaTitleTxt" Text="Удалять Delta NCA из обновлений" FontWeight="Medium"/>
+                                    <TextBlock x:Name="DeltaDescTxt" Text="Удаляет избыточные дельта-патчи из Update-файлов для экономии до 30% места (-ND true)" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <ToggleSwitch x:Name="RemoveDeltaNcaToggle" HorizontalAlignment="Right" IsOn="{x:Bind Settings.RemoveDeltaNca, Mode=TwoWay}" Toggled="Toggle_Changed" 
+                                              ToolTipService.ToolTip="Удаляет мусорные Delta NCA из файлов обновлений, кардинально снижая вес без потери данных."/>
+                            </Grid>
+
+                            <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
+
+                            <!-- Оптимизация ассетов модов (Oxipng и очистка мусора) -->
+                            <Grid>
+                                <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock x:Name="ModOptimizerTitleTxt" Text="Оптимизация ассетов модов (Oxipng и очистка мусора)" FontWeight="Medium"/>
+                                    <TextBlock x:Name="ModOptimizerDescTxt" Text="Удаляет временные и системные файлы (.bak, .tmp, Thumbs.db, .DS_Store) и сжимает PNG без потерь через Oxipng (экономия 20–40% веса)" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <ToggleSwitch x:Name="OptimizeModAssetsToggle" HorizontalAlignment="Right" IsOn="{x:Bind Settings.OptimizeModAssets, Mode=TwoWay}" Toggled="Toggle_Changed" 
+                                              ToolTipService.ToolTip="Автоматическая очистка мусора из модов и сжатие текстур PNG без потери качества."/>
                             </Grid>
 
                             <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>

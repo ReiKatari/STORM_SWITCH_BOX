@@ -231,6 +231,10 @@ namespace StormSwitchBox.Services
                     catch { }
                 }
 
+                var deltaNcas = App.Settings.Current.RemoveDeltaNca
+                    ? MultiContentService.DetectDeltaNcasToExclude(new List<string> { inputPath })
+                    : new HashSet<string>();
+
                 foreach (var entry in entries)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
@@ -239,6 +243,13 @@ namespace StormSwitchBox.Services
                     if (entry.Type == DirectoryEntryType.Directory) continue;
 
                     string entryName = entry.Name;
+                    if (App.Settings.Current.RemoveDeltaNca && deltaNcas.Contains(entryName))
+                    {
+                        App.Logger?.Log($"[Delta Cleaner] Пропущен мусорный Delta NCA: {entryName} (экономия места)", LogLevel.Info);
+                        App.RunOnUI(() => task.LogDetails += $"\n🗑️ [Delta Cleaner] Пропущен мусорный Delta NCA: {entryName}");
+                        continue;
+                    }
+
                     bool isNca = entryName.EndsWith(".nca", StringComparison.OrdinalIgnoreCase) &&
                                  !entryName.EndsWith(".cnmt.nca", StringComparison.OrdinalIgnoreCase) &&
                                  !entryName.EndsWith(".cnmt.xml", StringComparison.OrdinalIgnoreCase);

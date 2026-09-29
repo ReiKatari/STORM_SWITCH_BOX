@@ -490,6 +490,19 @@ namespace StormSwitchBox.Services
 
                     if (hasModsToApply)
                     {
+                        if (App.Settings.Current.OptimizeModAssets)
+                        {
+                            App.RunOnUI(() => task.LogDetails += "\n🧹 [Mod Optimizer] Очистка мусора и сжатие текстур модов без потерь (Oxipng)...");
+                            foreach (var rMod in romfsMods)
+                            {
+                                await ModOptimizerService.OptimizeModDirectoryAsync(rMod, task, cancellationToken);
+                            }
+                            if (!string.IsNullOrEmpty(exefsMod))
+                            {
+                                await ModOptimizerService.OptimizeModDirectoryAsync(exefsMod, task, cancellationToken);
+                            }
+                        }
+
                         App.RunOnUI(() => task.LogDetails += $"\n[2/3] Инъекция модов (romfs/exefs/exefs_patches)...");
                         foreach (var rMod in romfsMods)
                         {
@@ -890,13 +903,17 @@ namespace StormSwitchBox.Services
 
             foreach (var file in Directory.GetFiles(sourceDir))
             {
+                if (ModOptimizerService.IsJunkFile(file)) continue;
                 string dest = System.IO.Path.Combine(destinationDir, System.IO.Path.GetFileName(file));
                 File.Copy(file, dest, true);
             }
 
             foreach (var dir in Directory.GetDirectories(sourceDir))
             {
-                string dest = System.IO.Path.Combine(destinationDir, System.IO.Path.GetFileName(dir));
+                string dirName = System.IO.Path.GetFileName(dir);
+                if (dirName.Equals(".git", StringComparison.OrdinalIgnoreCase) || 
+                    dirName.Equals(".svn", StringComparison.OrdinalIgnoreCase)) continue;
+                string dest = System.IO.Path.Combine(destinationDir, dirName);
                 CopyDirectoryContent(dir, dest);
             }
         }

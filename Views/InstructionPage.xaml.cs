@@ -89,11 +89,11 @@ namespace StormSwitchBox.Views
                     Title = "Обзор приложения",
                     Category = "Введение",
                     Icon = "\uE9CE",
-                    DescriptionText = "STORM SWITCH BOX 5.0.7 — это профессиональный высокопроизводительный комбайн для всесторонней обработки образов игр Nintendo Switch и Nintendo 3DS, а также интерактивная энциклопедия всех 19 поколений игровых систем Nintendo (от Color TV-Game до Nintendo Switch 2).\n\nПрограмма оснащена системой «Умная обработка файлов» (Smart Processing), которая работает всегда и автоматически выбирает оптимальный метод сборки (нативное сшивание без раздувания RomFS для легких патчей или HardPatch для тяжелых обновлений и модов), распаковывает ресурсы, компилирует файлы в NSP/NSZ/3DS/CIA, конвертирует форматы внутри экосистем (Switch: NSP ↔ XCI ↔ NSZ ↔ XCZ; 3DS: 3DS ↔ CIA ↔ CXI), объединяет игры с обновлениями, дополнениями (DLC) и модификациями в единый монолитный файл (Мульти-контент 4-в-1), автоматически собирает Homebrew порты и игры в один файл, осуществляет независимый мониторинг «Умных папок» Switch и 3DS, а также мгновенно сохраняет историю в LocalAppData.",
+                    DescriptionText = "STORM SWITCH BOX 5.0.8 — это профессиональный высокопроизводительный комбайн для всесторонней обработки образов игр Nintendo Switch и Nintendo 3DS, а также интерактивная энциклопедия всех 19 поколений игровых систем Nintendo (от Color TV-Game до Nintendo Switch 2).\n\nПрограмма оснащена системой «Умная обработка файлов» (Smart Processing), которая работает всегда и автоматически выбирает оптимальный метод сборки (нативное сшивание без раздувания RomFS для легких патчей или HardPatch для тяжелых обновлений и модов), распаковывает ресурсы, компилирует файлы в NSP/NSZ/3DS/CIA, конвертирует форматы внутри экосистем (Switch: NSP ↔ XCI ↔ NSZ ↔ XCZ; 3DS: 3DS ↔ CIA ↔ CXI), объединяет игры с обновлениями, дополнениями (DLC) и модификациями в единый монолитный файл (Мульти-контент 4-в-1), автоматически собирает Homebrew порты и игры в один файл, осуществляет независимый мониторинг «Умных папок» Switch и 3DS, а также мгновенно сохраняет историю в LocalAppData.",
                     Tip = "Переключайтесь между платформами Switch и 3DS в один клик через верхний селектор или настраивайте независимое отслеживание папок!",
                     SetupPreview = container =>
                     {
-                        container.Children.Add(new TextBlock { Text = "⚡ STORM SWITCH BOX 5.0.7", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.Bold });
+                        container.Children.Add(new TextBlock { Text = "⚡ STORM SWITCH BOX 5.0.8", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.Bold });
                         container.Children.Add(new TextBlock { Text = "• Умная обработка файлов: идеальный баланс размера и функционала по умолчанию\n• Поддержка двух экосистем: Nintendo Switch и Nintendo 3DS с изолированными конвертациями\n• Интерактивная «Библиотека игр» всех 19 поколений Nintendo (No-Intro и Redump)\n• Раздел «Информация» с визуальными плашками платформ на обложках\n• Две независимые службы «Умная папка» (Switch и 3DS)\n• Встроенный сверхбыстрый движок 7-Zip и ZstdSharp (до 22 уровня сжатия)", Foreground = GetSecondaryBrush() });
                     }
                 },
@@ -102,7 +102,7 @@ namespace StormSwitchBox.Views
                     Title = "Умная обработка файлов",
                     Category = "Алгоритмы",
                     Icon = "\uE945",
-                    DescriptionText = "Интеллектуальный алгоритм автоматического выбора метода сборки (Smart Processing), внедренный в 5.0.7:\n\n" +
+                    DescriptionText = "Интеллектуальный алгоритм автоматического выбора метода сборки (Smart Processing), внедренный в 5.0.8:\n\n" +
                                       "Цель алгоритма: получить абсолютно минимальный размер выходного файла при 100% сохранении всего функционала, модов и дополнений.\n\n" +
                                       "Как работает авто-анализ:\n" +
                                       "1. Легковесные патчи (напр. Ys X Nordics: патч 60 МБ на игру 6.75 ГБ) — программа применяет нативное сшивание LibHac PFS0. Это сохраняет оригинальный несжатый размер (6.81 ГБ) без раздувания RomFS до 10.4 ГБ!\n" +
@@ -179,7 +179,7 @@ namespace StormSwitchBox.Views
                     Title = "Интеграция с эмуляторами и синхронизация SDMC",
                     Category = "Эмуляторы",
                     Icon = "\uE7FC",
-                    DescriptionText = "STORM SWITCH BOX 5.0.7 предоставляет полную свободу в интеграции с локальными эмуляторами Nintendo Switch (STORM SWITCH, Yuzu, Ryujinx, Suyu, Sudachi, Torzu, Citron и др.):\n\n" +
+                    DescriptionText = "STORM SWITCH BOX 5.0.8 предоставляет полную свободу в интеграции с локальными эмуляторами Nintendo Switch (STORM SWITCH, Yuzu, Ryujinx, Suyu, Sudachi, Torzu, Citron и др.):\n\n" +
                                       "1. Пользовательский выбор папок эмуляторов — в разделе «Параметры» доступен специальный блок «Интеграция с эмуляторами (Путь к папке эмулятора)». Вы можете перетащить (Drag and Drop) или выбрать через проводник одну или несколько директорий ваших эмуляторов (например, E:\\STORM SWITCH\\Assembling, L:\\Emulators\\Ryujinx и др.).\n\n" +
                                       "2. Чистота выходной библиотеки — при сборке Homebrew-игр и портов программа больше НЕ создает лишних папок [SDMC] в вашей основной папке с играми. Все файлы NRO, данные и конфигурации доставляются строго в виртуальные SD-карты указанных эмуляторов (user/sdmc/switch/<game>/), а рядом с игрой сохраняется только чистый итоговый файл (.nsp / .nsz / .xci).\n\n" +
                                       "3. Автономные ZIP-архивы для реальной консоли Switch — если вам требуются готовые данные SDMC для физической консоли, укажите «Каталог для архивов SDMC» в Параметрах. Программа автоматически упакует структуру карты памяти в полноценный zip-архив вида «Имя_Игры_[SDMC].zip» в указанную папку, оставив библиотеку игр чистой.\n\n" +
@@ -194,7 +194,7 @@ namespace StormSwitchBox.Views
                     Icon = "\uE7FC",
                     DescriptionText = "Специализированный раздел «Homebrew» для автоматического распознавания, объединения и сборки любых портов и любительских игр в монолитные автономные файлы (NSP / NSZ / XCI):\n\n" +
                                       "1. Умное распознавание любых наборов файлов — просто перетащите папку с игрой (например, Diablo I, GTA San Andreas / Vice City, DOOM, Half-Life, Quake, S.T.A.L.K.E.R., Morrowind) или группу файлов (.nro, .ovl, .nsp форвардеры, архивы .zip/.7z, папки atmosphere/contents/<TitleID>/romfs). Программа мгновенно объединит их в готовую задачу.\n" +
-                                      "2. Стандартизация 5.0.7 (Без раздувания и без ошибки 0x75B):\n" +
+                                      "2. Стандартизация 5.0.8 (Без раздувания и без ошибки 0x75B):\n" +
                                       "   • Ресурсы RomFS вшиваются ровно в 1 экземпляре (Diablo I весит 718.01 МБ вместо раздутых 4.27 ГБ!).\n" +
                                       "   • В SDMC эмулятора создается ровно одна правильная папка user/sdmc/switch/<game>/.\n" +
                                       "   • Форвардер нацелен строго на sdmc:/switch/<game>/<game>.nro, что предотвращает ошибку вылета 0x75B (Userspace PANIC!).\n" +
@@ -473,11 +473,11 @@ namespace StormSwitchBox.Views
                     Title = "Application Overview",
                     Category = "Introduction",
                     Icon = "\uE9CE",
-                    DescriptionText = "STORM SWITCH BOX 5.0.7 is a professional, high-performance toolkit for processing Nintendo Switch and Nintendo 3DS games, as well as an interactive encyclopedia of all 19 Nintendo console generations (from Color TV-Game to Nintendo Switch 2).\n\nEquipped with Smart File Processing, the program automatically selects the optimal build method (native PFS0 splicing without RomFS inflation for lightweight patches, or physical HardPatch for heavy updates and mods), unpacks resources, compiles NSP/NSZ/3DS/CIA, converts formats across ecosystems (Switch: NSP ↔ XCI ↔ NSZ ↔ XCZ; 3DS: 3DS ↔ CIA ↔ CXI), bundles games with updates and DLCs into monolithic 4-in-1 packages, builds Homebrew ports, monitors dual Smart Folders, and saves instant history.",
+                    DescriptionText = "STORM SWITCH BOX 5.0.8 is a professional, high-performance toolkit for processing Nintendo Switch and Nintendo 3DS games, as well as an interactive encyclopedia of all 19 Nintendo console generations (from Color TV-Game to Nintendo Switch 2).\n\nEquipped with Smart File Processing, the program automatically selects the optimal build method (native PFS0 splicing without RomFS inflation for lightweight patches, or physical HardPatch for heavy updates and mods), unpacks resources, compiles NSP/NSZ/3DS/CIA, converts formats across ecosystems (Switch: NSP ↔ XCI ↔ NSZ ↔ XCZ; 3DS: 3DS ↔ CIA ↔ CXI), bundles games with updates and DLCs into monolithic 4-in-1 packages, builds Homebrew ports, monitors dual Smart Folders, and saves instant history.",
                     Tip = "Switch between Nintendo Switch and 3DS in one click via the top header bar!",
                     SetupPreview = container =>
                     {
-                        container.Children.Add(new TextBlock { Text = "⚡ STORM SWITCH BOX 5.0.7", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.Bold });
+                        container.Children.Add(new TextBlock { Text = "⚡ STORM SWITCH BOX 5.0.8", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.Bold });
                         container.Children.Add(new TextBlock { Text = "• Smart File Processing: Optimal file size and 100% mod compatibility by default\n• Dual Ecosystems: Nintendo Switch and Nintendo 3DS support\n• Interactive Game Library: All 19 Nintendo generations (No-Intro and Redump)\n• Information Catalog: High-res artwork with platform badges\n• Dual Independent Smart Folders (Switch and 3DS)\n• Embedded 7-Zip and Zstandard compression engines (up to level 22)", Foreground = GetSecondaryBrush() });
                     }
                 },
@@ -486,7 +486,7 @@ namespace StormSwitchBox.Views
                     Title = "Smart File Processing",
                     Category = "Algorithms",
                     Icon = "\uE945",
-                    DescriptionText = "Intelligent automatic build method selection algorithm (Smart Processing) in 5.0.7:\n\n" +
+                    DescriptionText = "Intelligent automatic build method selection algorithm (Smart Processing) in 5.0.8:\n\n" +
                                       "Algorithm Objective: Produce the absolute smallest output file size while preserving 100% of game functionality, DLCs, and mods.\n\n" +
                                       "How it works:\n" +
                                       "1. Lightweight patches (e.g. Ys X Nordics: 60 MB patch on 6.75 GB base) — native LibHac PFS0 splicing is used. Preserves the exact 6.81 GB size without RomFS ballooning to 10.4 GB!\n" +
@@ -1591,7 +1591,7 @@ namespace StormSwitchBox.Views
 
         #endregion
 
-        #region New Interactive Previews (5.0.7)
+        #region New Interactive Previews (5.0.8)
 
         private void BuildModsInteractivePreview(StackPanel container)
         {
@@ -1797,7 +1797,7 @@ namespace StormSwitchBox.Views
         private void BuildEmulatorSyncInteractivePreview(StackPanel container)
         {
             var sp = new StackPanel { Spacing = 8 };
-            sp.Children.Add(new TextBlock { Text = "🎮 Синхронизация с виртуальной картой эмулятора (SDMC 5.0.7):", FontWeight = Microsoft.UI.Text.FontWeights.Bold, FontSize = 14, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
+            sp.Children.Add(new TextBlock { Text = "🎮 Синхронизация с виртуальной картой эмулятора (SDMC 5.0.8):", FontWeight = Microsoft.UI.Text.FontWeights.Bold, FontSize = 14, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
 
             var card = new Border
             {
@@ -1828,7 +1828,7 @@ namespace StormSwitchBox.Views
             var headerSp = new StackPanel { Spacing = 4 };
             headerSp.Children.Add(new TextBlock 
             { 
-                Text = "🕹️ Интерактивный инспектор портов Homebrew (5.0.7)", 
+                Text = "🕹️ Интерактивный инспектор портов Homebrew (5.0.8)", 
                 FontWeight = Microsoft.UI.Text.FontWeights.Bold, 
                 FontSize = 15, 
                 Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) 
@@ -2034,7 +2034,7 @@ namespace StormSwitchBox.Views
 
             mainSp.Children.Add(new TextBlock 
             { 
-                Text = "🧠 Интерактивный калькулятор Умной обработки (Smart Processing 5.0.7)", 
+                Text = "🧠 Интерактивный калькулятор Умной обработки (Smart Processing 5.0.8)", 
                 FontWeight = Microsoft.UI.Text.FontWeights.Bold, 
                 FontSize = 15, 
                 Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) 
@@ -2167,7 +2167,7 @@ namespace StormSwitchBox.Views
 
             mainSp.Children.Add(new TextBlock 
             { 
-                Text = "🔄 Интерактивный конфигуратор конвертации форматов (5.0.7)", 
+                Text = "🔄 Интерактивный конфигуратор конвертации форматов (5.0.8)", 
                 FontWeight = Microsoft.UI.Text.FontWeights.Bold, 
                 FontSize = 15, 
                 Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) 

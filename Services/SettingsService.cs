@@ -46,9 +46,9 @@ namespace StormSwitchBox.Services
                     if (settings != null)
                     {
                         bool isDirty = false;
-                        if (settings.AppVersion != "5.0.7")
+                        if (settings.AppVersion != "5.0.8")
                         {
-                            settings.AppVersion = "5.0.7";
+                            settings.AppVersion = "5.0.8";
                             isDirty = true;
                         }
                         if (settings.EmulatorDirectories == null)
@@ -60,6 +60,8 @@ namespace StormSwitchBox.Services
                         settings.SmartProcessing = true;
                         settings.TrimXci = false;
                         settings.RemoveTitlerights = false;
+                        settings.RemoveDeltaNca = true;
+                        settings.OptimizeModAssets = true;
                         
                         Current = settings;
                         if (isDirty) await SaveAsync();

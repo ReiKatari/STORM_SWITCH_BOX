@@ -703,7 +703,7 @@ public partial class TasksViewModel : ObservableObject
 					foreach (var modDir in modDirs)
 					{
 						// Привязываем modDir только если он из того же дерева директорий, что и задача
-						if (!string.IsNullOrEmpty(taskBaseDir) && !modDir.StartsWith(taskBaseDir, StringComparison.OrdinalIgnoreCase))
+						if (newlyCreatedTasks.Count > 1 && !string.IsNullOrEmpty(taskBaseDir) && !modDir.StartsWith(taskBaseDir, StringComparison.OrdinalIgnoreCase))
 						{
 							continue; // modDir из другой папки — пропускаем
 						}
@@ -717,7 +717,7 @@ public partial class TasksViewModel : ObservableObject
 
 					foreach (var saveDir in saveDirs)
 					{
-						if (!string.IsNullOrEmpty(taskBaseDir) && !saveDir.StartsWith(taskBaseDir, StringComparison.OrdinalIgnoreCase))
+						if (newlyCreatedTasks.Count > 1 && !string.IsNullOrEmpty(taskBaseDir) && !saveDir.StartsWith(taskBaseDir, StringComparison.OrdinalIgnoreCase))
 						{
 							continue;
 						}
@@ -743,10 +743,13 @@ public partial class TasksViewModel : ObservableObject
 						task.SourceSizeBytes = task.InputFiles.Sum(p => CalculateSize(p));
 						task.FilesCount = task.InputFiles.Count(p => File.Exists(p)).ToString();
 						
-						bool hasRomFs = task.InputFiles.Any(p => Directory.Exists(p) && Path.GetFileName(p).Equals("romfs", StringComparison.OrdinalIgnoreCase));
+						bool hasRomFs = task.InputFiles.Any(p => Directory.Exists(p) && 
+							(Path.GetFileName(p).Equals("romfs", StringComparison.OrdinalIgnoreCase) || 
+							 Directory.GetDirectories(p, "romfs", SearchOption.AllDirectories).Any()));
 						bool hasExeFs = task.InputFiles.Any(p => Directory.Exists(p) && 
 							(Path.GetFileName(p).Equals("exefs", StringComparison.OrdinalIgnoreCase) || 
-							 Path.GetFileName(p).Equals("exefs_patches", StringComparison.OrdinalIgnoreCase)));
+							 Path.GetFileName(p).Equals("exefs_patches", StringComparison.OrdinalIgnoreCase) ||
+							 Directory.GetDirectories(p, "exefs*", SearchOption.AllDirectories).Any()));
 						
 						task.HasRomFs = hasRomFs ? "1" : "-";
 						bool hasCheats = task.InputFiles.Any(p => Directory.Exists(p) && 

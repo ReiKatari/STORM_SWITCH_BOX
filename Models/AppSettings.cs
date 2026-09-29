@@ -6,7 +6,7 @@ namespace StormSwitchBox.Models
     public class AppSettings
     {
         // Окно
-        public string AppVersion { get; set; } = "5.0.7";
+        public string AppVersion { get; set; } = "5.0.8";
         public string Language { get; set; } = "ru"; // ru, en, de, zh, ja
         public int WindowX { get; set; } = -1;
         public int WindowY { get; set; } = -1;
@@ -29,6 +29,7 @@ namespace StormSwitchBox.Models
         public bool TrimXci { get; set; } = false;         // По умолчанию ВЫКЛЮЧЕН
         public bool RemoveTitlerights { get; set; } = false; // Удалить Titlerights (ticketless NSP)
         public bool RemoveDeltaNca { get; set; } = true;     // Удалить Delta NCA из обновлений
+        public bool OptimizeModAssets { get; set; } = true;  // Оптимизация ассетов модов (Oxipng и очистка мусора)
         public bool SplitFat32 { get; set; } = false;        // Разделить >4GB для FAT32
         public bool SolidCompression { get; set; } = false;  // Использовать внешний nsz.exe для Block NSZ сжатия (иначе нативный движок)
         public bool AutoInject60FpsPatches { get; set; } = false; // Авто-инъекция патчей 60 FPS и твиков графики

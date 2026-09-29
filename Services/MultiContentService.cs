@@ -188,9 +188,7 @@ namespace StormSwitchBox.Services
                         savedBaseFile = baseFile;
                         savedUpdateFile = updateFile;
 
-                        App.RunOnUI(() => task.LogDetails += forceHardPatch 
-                            ? "\n🔵 [HardPatch] Принудительная монолитная пересборка RomFS (обход ограничений эмуляторов)..." 
-                            : "\n🔵 [HardPatch] Физическая пересборка...");
+                        App.RunOnUI(() => task.LogDetails += "\n🔵 [HardPatch] Умная монолитная пересборка RomFS (объединение базы, обновлений и модов)...");
                         if (string.IsNullOrEmpty(titleIdStr))
                         {
                             try {
@@ -1761,7 +1759,7 @@ namespace StormSwitchBox.Services
             return generatedNcas;
         }
 
-        private static HashSet<string> DetectDeltaNcasToExclude(List<string> nspPaths)
+        public static HashSet<string> DetectDeltaNcasToExclude(List<string> nspPaths)
         {
             var deltaNcas = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var nspPath in nspPaths)
@@ -1773,24 +1771,84 @@ namespace StormSwitchBox.Services
                     var chkFs = new PartitionFileSystem(chkStream.AsStorage());
                     foreach (var ent in chkFs.EnumerateEntries())
                     {
+                        // 1. Проверка .cnmt.xml
                         if (ent.Name.EndsWith(".cnmt.xml", StringComparison.OrdinalIgnoreCase))
                         {
-                            using var fRef = new UniqueRef<IFile>();
-                            using var p = new LibHac.Fs.Path();
-                            p.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(ent.FullPath))).ThrowIfFailure();
-                            chkFs.OpenFile(ref fRef.Ref, in p, OpenMode.Read).ThrowIfFailure();
-                            using var sr = new StreamReader(fRef.Release().AsStream());
-                            string xml = sr.ReadToEnd();
-                            var matches = System.Text.RegularExpressions.Regex.Matches(xml, @"(?s)<Content>.*?<Type>DeltaFragment</Type>.*?<Id>([a-fA-F0-9]{32})</Id>.*?</Content>");
-                            foreach (System.Text.RegularExpressions.Match m in matches)
+                            try
                             {
-                                if (m.Groups.Count > 1) deltaNcas.Add(m.Groups[1].Value.ToLowerInvariant() + ".nca");
+                                using var fRef = new UniqueRef<IFile>();
+                                using var p = new LibHac.Fs.Path();
+                                p.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(ent.FullPath))).ThrowIfFailure();
+                                chkFs.OpenFile(ref fRef.Ref, in p, OpenMode.Read).ThrowIfFailure();
+                                using var sr = new StreamReader(fRef.Release().AsStream());
+                                string xml = sr.ReadToEnd();
+                                var matches = System.Text.RegularExpressions.Regex.Matches(xml, @"(?s)<Content>.*?<Type>DeltaFragment</Type>.*?<Id>([a-fA-F0-9]{32})</Id>.*?</Content>");
+                                foreach (System.Text.RegularExpressions.Match m in matches)
+                                {
+                                    if (m.Groups.Count > 1) deltaNcas.Add(m.Groups[1].Value.ToLowerInvariant() + ".nca");
+                                }
+                                var matches2 = System.Text.RegularExpressions.Regex.Matches(xml, @"(?s)<Content>.*?<Id>([a-fA-F0-9]{32})</Id>.*?<Type>DeltaFragment</Type>.*?</Content>");
+                                foreach (System.Text.RegularExpressions.Match m in matches2)
+                                {
+                                    if (m.Groups.Count > 1) deltaNcas.Add(m.Groups[1].Value.ToLowerInvariant() + ".nca");
+                                }
                             }
-                            var matches2 = System.Text.RegularExpressions.Regex.Matches(xml, @"(?s)<Content>.*?<Id>([a-fA-F0-9]{32})</Id>.*?<Type>DeltaFragment</Type>.*?</Content>");
-                            foreach (System.Text.RegularExpressions.Match m in matches2)
+                            catch { }
+                        }
+                        // 2. Проверка бинарного CNMT внутри .cnmt.nca
+                        else if (ent.Name.EndsWith(".cnmt.nca", StringComparison.OrdinalIgnoreCase) || 
+                                 (ent.Name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase) && ent.Name.Length >= 36))
+                        {
+                            try
                             {
-                                if (m.Groups.Count > 1) deltaNcas.Add(m.Groups[1].Value.ToLowerInvariant() + ".nca");
+                                using var fRef = new UniqueRef<IFile>();
+                                using var p = new LibHac.Fs.Path();
+                                p.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(ent.FullPath))).ThrowIfFailure();
+                                if (chkFs.OpenFile(ref fRef.Ref, in p, OpenMode.Read).IsSuccess())
+                                {
+                                    var ncaStorage = fRef.Release().AsStorage();
+                                    var nca = new Nca(App.Keys.CurrentKeyset, ncaStorage);
+                                    if (nca.Header.ContentType == NcaContentType.Meta)
+                                    {
+                                        IFileSystem? romfs = null;
+                                        try { romfs = nca.OpenFileSystem(0, IntegrityCheckLevel.None); } catch { }
+                                        if (romfs == null)
+                                        {
+                                            try { romfs = nca.OpenFileSystem(NcaSectionType.Data, IntegrityCheckLevel.None); } catch { }
+                                        }
+
+                                        if (romfs != null)
+                                        {
+                                            foreach (var f in romfs.EnumerateEntries())
+                                            {
+                                                if (f.Name.EndsWith(".cnmt", StringComparison.OrdinalIgnoreCase))
+                                                {
+                                                    using var cfRef = new UniqueRef<IFile>();
+                                                    using var cp = new LibHac.Fs.Path();
+                                                    cp.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(f.FullPath))).ThrowIfFailure();
+                                                    if (romfs.OpenFile(ref cfRef.Ref, in cp, OpenMode.Read).IsSuccess())
+                                                    {
+                                                        using var ms = new MemoryStream();
+                                                        cfRef.Release().AsStream().CopyTo(ms);
+                                                        ms.Position = 0;
+                                                        var cnmt = new LibHac.Tools.Ncm.Cnmt(ms);
+                                                        foreach (var cEntry in cnmt.ContentEntries)
+                                                        {
+                                                            if (cEntry.Type == LibHac.Ncm.ContentType.DeltaFragment && cEntry.NcaId != null)
+                                                            {
+                                                                string hex = Convert.ToHexString(cEntry.NcaId).ToLowerInvariant();
+                                                                deltaNcas.Add(hex + ".nca");
+                                                            }
+                                                        }
+                                                    }
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                             }
+                            catch { }
                         }
                     }
                 }
