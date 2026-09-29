@@ -436,6 +436,17 @@ public partial class TasksViewModel : ObservableObject
 	public static bool IsModOrCheatDirectory(string dirPath)
 	{
 		if (!Directory.Exists(dirPath)) return false;
+
+		// Если папка содержит игровые файлы (.nsp/.xci/.nsz/.xcz/3ds/cia и т.д.),
+		// то это полноценная папка с игрой (возможно, с модами внутри), а не отдельная папка мода
+		try
+		{
+			bool hasGames = Directory.EnumerateFiles(dirPath, "*", SearchOption.AllDirectories)
+				.Any(f => GameExtensions.Contains(Path.GetExtension(f)));
+			if (hasGames) return false;
+		}
+		catch { }
+
 		string name = Path.GetFileName(dirPath).ToLowerInvariant();
 		if (name == "romfs" || name == "exefs" || name == "exefs_patches" || name == "cheats" || name == "atmosphere" || name == "contents")
 			return true;
