@@ -32,6 +32,7 @@ namespace StormSwitchBox.Services
                 task.TargetFormat = task.Is3dsTask ? "3DS" : "NSP";
             }
             string intermediatePath = outPath;
+            bool compressionSuccess = false;
             bool isCompressedFormat = string.Equals(task.TargetFormat, "NSZ", StringComparison.OrdinalIgnoreCase) || string.Equals(task.TargetFormat, "XCZ", StringComparison.OrdinalIgnoreCase);
             if (isCompressedFormat)
             {
@@ -768,7 +769,7 @@ namespace StormSwitchBox.Services
                         if (System.IO.File.Exists(altNsz)) expectedNsz = altNsz;
                     }
                     
-                    bool compressionSuccess = false;
+                    compressionSuccess = false;
                     if (System.IO.File.Exists(expectedNsz) && new FileInfo(expectedNsz).Length > 0)
                     {
                         if (ext == ".xcz" || ext == ".nsz")
@@ -784,7 +785,7 @@ namespace StormSwitchBox.Services
                     
                     if (compressionSuccess)
                     {
-                        try { if (System.IO.File.Exists(intermediatePath)) System.IO.File.Delete(intermediatePath); } catch { }
+                        // Сохраняем оба файла: и несжатый образ (NSP/XCI), и сжатый (NSZ/XCZ)
                         outPath = finalCompressedPath;
                     }
                     else
@@ -813,7 +814,14 @@ namespace StormSwitchBox.Services
                     task.Progress = 100;
                     task.Status = "Успешно";
                     task.IsRunning = false;
-                    task.LogDetails += $"\n✅ [Готово] Сохранен: {System.IO.Path.GetFileName(outPath)}";
+                    if (isCompressedFormat && compressionSuccess && System.IO.File.Exists(intermediatePath))
+                    {
+                        task.LogDetails += $"\n📦 [Форматы] Сохранены оба файла:\n  • {System.IO.Path.GetFileName(intermediatePath)}\n  • {System.IO.Path.GetFileName(outPath)}";
+                    }
+                    else
+                    {
+                        task.LogDetails += $"\n✅ [Готово] Сохранен: {System.IO.Path.GetFileName(outPath)}";
+                    }
                     StormSwitchBox.Services.HistoryService.AddToHistory(task);
                 });
 
@@ -834,8 +842,8 @@ namespace StormSwitchBox.Services
             {
                 TempCleanupService.ForceDeleteDirectory(tempDecompDir);
                 
-                // Ensure intermediatePath is removed if it wasn't the final output
-                if (intermediatePath != outPath && !string.IsNullOrEmpty(intermediatePath) && System.IO.File.Exists(intermediatePath))
+                // Не удаляем intermediatePath, если сжатие прошло успешно (сохраняем оба файла: и NSP/XCI, и NSZ/XCZ)
+                if (!(isCompressedFormat && compressionSuccess) && intermediatePath != outPath && !string.IsNullOrEmpty(intermediatePath) && System.IO.File.Exists(intermediatePath))
                 {
                     TempCleanupService.ForceDeleteFile(intermediatePath);
                 }

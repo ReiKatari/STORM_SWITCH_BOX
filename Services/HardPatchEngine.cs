@@ -588,7 +588,12 @@ namespace StormSwitchBox.Services
                             {
                                 File.Move(expectedNsz, outPath);
                             }
-                            try { File.Delete(expectedXci); } catch { }
+                            // Сохраняем исходный XCI тоже рядом с XCZ
+                            string finalXci = System.IO.Path.ChangeExtension(outPath, ".xci");
+                            if (!expectedXci.Equals(finalXci, StringComparison.OrdinalIgnoreCase) && File.Exists(expectedXci))
+                            {
+                                try { File.Move(expectedXci, finalXci, true); } catch { }
+                            }
                         }
                         else if (File.Exists(expectedXci))
                         {
@@ -605,6 +610,15 @@ namespace StormSwitchBox.Services
                         if (File.Exists(expectedNsz))
                         {
                             File.Move(expectedNsz, outPath);
+                            // Если это отдельная задача (не мультиконтент), также сохраняем NSP рядом
+                            if (!isMultiContent)
+                            {
+                                string nspFinal = System.IO.Path.ChangeExtension(outPath, ".nsp");
+                                if (!File.Exists(nspFinal) && File.Exists(genFile))
+                                {
+                                    try { File.Copy(genFile, nspFinal, true); } catch { }
+                                }
+                            }
                         }
                     }
                 }
