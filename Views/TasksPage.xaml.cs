@@ -432,8 +432,14 @@ namespace StormSwitchBox.Views
                 var files = await picker.PickMultipleFilesAsync();
                 if (files != null && files.Count > 0)
                 {
+                    int initialCount = ViewModel.Tasks.Count;
                     var paths = files.Select(file => file.Path).ToList();
                     await ViewModel.AddDroppedFilesBatchAsync(paths);
+                    var newTasks = ViewModel.Tasks.Skip(initialCount).ToList();
+                    if (newTasks.Count > 0)
+                    {
+                        await CheckExistingFilesAsync(newTasks);
+                    }
                 }
             }
             catch (Exception ex)
@@ -449,7 +455,13 @@ namespace StormSwitchBox.Views
                 var folderPath = await SystemDialogService.OpenFolderDialogAsync("Выберите папку для добавления файлов");
                 if (!string.IsNullOrWhiteSpace(folderPath) && Directory.Exists(folderPath))
                 {
+                    int initialCount = ViewModel.Tasks.Count;
                     await ViewModel.AddDroppedFilesBatchAsync(new List<string> { folderPath });
+                    var newTasks = ViewModel.Tasks.Skip(initialCount).ToList();
+                    if (newTasks.Count > 0)
+                    {
+                        await CheckExistingFilesAsync(newTasks);
+                    }
                 }
             }
             catch (Exception ex)
@@ -557,6 +569,14 @@ namespace StormSwitchBox.Views
                 ViewModel.SelectedFormatIndex = cb.SelectedIndex;
                 App.Settings.Current.SelectedFormatIndex = cb.SelectedIndex;
                 _ = App.Settings.SaveAsync();
+
+                foreach (var task in ViewModel.Tasks)
+                {
+                    if (!task.Is3dsTask && task.Status == "Ожидание" && task.CanChangeFormat)
+                    {
+                        task.TargetFormat = format;
+                    }
+                }
             }
         }
 
@@ -570,6 +590,14 @@ namespace StormSwitchBox.Views
                 App.Settings.Current.SelectedFormatIndex3ds = cb.SelectedIndex;
                 App.Settings.Current.DefaultFormat3ds = format;
                 _ = App.Settings.SaveAsync();
+
+                foreach (var task in ViewModel.Tasks)
+                {
+                    if (task.Is3dsTask && task.Status == "Ожидание" && task.CanChangeFormat)
+                    {
+                        task.TargetFormat = format;
+                    }
+                }
             }
         }
 
@@ -1017,9 +1045,11 @@ namespace StormSwitchBox.Views
         {
             e.Handled = true;
             var deferral = e.GetDeferral();
+            var newTasks = new List<ProcessingTask>();
             try
             {
                 LoadingOverlay.Visibility = Visibility.Visible;
+                int initialCount = ViewModel.Tasks.Count;
                 
                 if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
                 {
@@ -1030,6 +1060,7 @@ namespace StormSwitchBox.Views
                         if (paths.Count > 0)
                         {
                             await ViewModel.AddDroppedFilesBatchAsync(paths);
+                            newTasks = ViewModel.Tasks.Skip(initialCount).ToList();
                         }
                     }
                 }
@@ -1044,16 +1075,23 @@ namespace StormSwitchBox.Views
                 deferral.Complete();
             }
 
-            // Проверка существующих файлов в выходной папке
-            await CheckExistingFilesAsync();
+            // Проверка существующих файлов только для новых задач
+            if (newTasks.Count > 0)
+            {
+                await CheckExistingFilesAsync(newTasks);
+            }
         }
 
-        private async System.Threading.Tasks.Task CheckExistingFilesAsync()
+        private async System.Threading.Tasks.Task CheckExistingFilesAsync(IEnumerable<ProcessingTask>? tasksToCheck = null)
         {
             var tasksToRemove = new List<ProcessingTask>();
+            var candidates = tasksToCheck ?? ViewModel.Tasks.Where(t => t.Status == "Ожидание");
 
-            foreach (var task in ViewModel.Tasks.Where(t => t.Status == "Ожидание"))
+            foreach (var task in candidates)
             {
+                if (task.Status != "Ожидание" || task.OverwriteConfirmed)
+                    continue;
+
                 // Распаковка и проверка не создают единый выходной файл с расширением TargetFormat
                 if (task.Operation == "Unpack" || task.Operation == "Verify")
                     continue;
@@ -1061,7 +1099,7 @@ namespace StormSwitchBox.Views
                 if (string.IsNullOrWhiteSpace(task.OutputFolder) || string.IsNullOrWhiteSpace(task.OutputFileName))
                     continue;
 
-                string ext = (task.TargetFormat ?? "nsp").ToLower();
+                string ext = (task.TargetFormat ?? (task.Is3dsTask ? "3ds" : "nsp")).ToLowerInvariant();
                 string outPath = System.IO.Path.Combine(task.OutputFolder, $"{task.OutputFileName}.{ext}");
 
                 // Если путь совпадает с входным файлом задачи (напр. исходный NSP в папке OUT), это не конфликт выхода
@@ -1081,7 +1119,11 @@ namespace StormSwitchBox.Views
                     };
 
                     var result = await dialog.ShowAsync();
-                    if (result == ContentDialogResult.Secondary)
+                    if (result == ContentDialogResult.Primary)
+                    {
+                        task.OverwriteConfirmed = true;
+                    }
+                    else if (result == ContentDialogResult.Secondary)
                     {
                         tasksToRemove.Add(task);
                     }

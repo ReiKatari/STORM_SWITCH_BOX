@@ -30,9 +30,12 @@ namespace StormSwitchBox.Models
                 {
                     OnPropertyChanged(nameof(TargetFormatColor));
                     OnPropertyChanged(nameof(TargetFormatWeight));
+                    OverwriteConfirmed = false;
                 }
             }
         }
+
+        [ObservableProperty] private bool _overwriteConfirmed;
 
         [ObservableProperty] private string _sourceSize = string.Empty;
         [ObservableProperty] private string _targetSize = string.Empty;

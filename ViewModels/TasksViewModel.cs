@@ -52,6 +52,15 @@ public partial class TasksViewModel : ObservableObject
 					App.Settings.Current.SelectedFormatIndex3ds = value;
 					App.Settings.Current.DefaultFormat3ds = FormatNames3ds[value];
 					_ = App.Settings.SaveAsync();
+
+					string fmt3ds = FormatNames3ds[value];
+					foreach (var task in Tasks)
+					{
+						if (task.Is3dsTask && task.Status == "Ожидание" && task.CanChangeFormat)
+						{
+							task.TargetFormat = fmt3ds;
+						}
+					}
 				}
 			}
 		}
@@ -114,13 +123,48 @@ public partial class TasksViewModel : ObservableObject
 	public string SelectedFormat
 	{
 		get => _selectedFormat;
-		set => SetProperty(ref _selectedFormat, value);
+		set
+		{
+			if (SetProperty(ref _selectedFormat, value))
+			{
+				if (!string.IsNullOrEmpty(value))
+				{
+					int idx = Array.IndexOf(FormatNames, value.ToUpperInvariant());
+					if (idx >= 0 && _selectedFormatIndex != idx)
+					{
+						_selectedFormatIndex = idx;
+						OnPropertyChanged(nameof(SelectedFormatIndex));
+						App.Settings.Current.SelectedFormatIndex = idx;
+						_ = App.Settings.SaveAsync();
+					}
+
+					foreach (var task in Tasks)
+					{
+						if (!task.Is3dsTask && task.Status == "Ожидание" && task.CanChangeFormat)
+						{
+							task.TargetFormat = value;
+						}
+					}
+				}
+			}
+		}
 	}
 
 	public int SelectedFormatIndex
 	{
 		get => _selectedFormatIndex;
-		set => SetProperty(ref _selectedFormatIndex, value);
+		set
+		{
+			if (SetProperty(ref _selectedFormatIndex, value))
+			{
+				if (value >= 0 && value < FormatNames.Length)
+				{
+					App.Settings.Current.SelectedFormatIndex = value;
+					_ = App.Settings.SaveAsync();
+					SelectedFormat = FormatNames[value];
+				}
+			}
+		}
 	}
 
 	[GeneratedCode("CommunityToolkit.Mvvm.SourceGenerators.RelayCommandGenerator", "8.2.0.0")]
@@ -1043,6 +1087,11 @@ public partial class TasksViewModel : ObservableObject
 		{
 			try
 			{
+				bool is3ds = files.Any(f => Nintendo3dsService.Is3dsExtension(Path.GetExtension(f)));
+				string targetFmt = is3ds 
+					? FormatNames3ds[Math.Clamp(SelectedFormatIndex3ds, 0, FormatNames3ds.Length - 1)] 
+					: SelectedFormat;
+
 				ProcessingTask? existingTask = null;
 				string? groupBase = (groupId != null && groupId.Length >= 12) ? groupId.Substring(0, 12) : null;
 				if ((_currentPageType == "Update" || _currentPageType == "Multi") && groupBase != null)
@@ -1051,8 +1100,16 @@ public partial class TasksViewModel : ObservableObject
 					// Не объединять задачи из разных папок: одинаковый TitleID, но разные источники = разные задачи
 					if (existingTask != null && existingTask.InputFiles.Count > 0 && !string.IsNullOrEmpty(basePath))
 					{
-						string existingDir = Path.GetDirectoryName(existingTask.InputFiles[0]) ?? "";
-						if (!string.Equals(existingDir, basePath, StringComparison.OrdinalIgnoreCase))
+						string firstInput = existingTask.InputFiles[0];
+						string existingDir = Directory.Exists(firstInput) ? firstInput : (Path.GetDirectoryName(firstInput) ?? "");
+						string normalizedBase = Directory.Exists(basePath) ? basePath : (Path.GetDirectoryName(basePath) ?? basePath);
+
+						bool isSameSource = string.Equals(existingDir.TrimEnd('\\', '/'), normalizedBase.TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase)
+							|| existingTask.InputFiles.Any(f => files.Contains(f, StringComparer.OrdinalIgnoreCase))
+							|| existingDir.StartsWith(normalizedBase, StringComparison.OrdinalIgnoreCase)
+							|| normalizedBase.StartsWith(existingDir, StringComparison.OrdinalIgnoreCase);
+
+						if (!isSameSource)
 						{
 							existingTask = null;
 						}
@@ -1060,6 +1117,10 @@ public partial class TasksViewModel : ObservableObject
 				}
 				if (existingTask != null)
 				{
+					if (existingTask.CanChangeFormat)
+					{
+						existingTask.TargetFormat = targetFmt;
+					}
 					int added = 0;
 					foreach (string f in files)
 					{
@@ -1100,6 +1161,10 @@ public partial class TasksViewModel : ObservableObject
 						existingTask.HasRomFs = (romFs ? "1" : "-");
 						existingTask.HasExeFs = (exeFs ? "1" : "-");
 						App.Logger.Log($"К задаче {existingTask.Id} добавлены новые файлы ({added} шт.)");
+					}
+					else
+					{
+						App.Logger.Log($"Задача {existingTask.OutputFileName} уже в списке (целевой формат: {existingTask.TargetFormat}).");
 					}
 				}
 				else
@@ -1209,7 +1274,6 @@ public partial class TasksViewModel : ObservableObject
 							}
 						}
 					}
-					bool is3ds = files.Any(f => Nintendo3dsService.Is3dsExtension(Path.GetExtension(f)));
 					string outFolder = is3ds 
 						? (!string.IsNullOrEmpty(App.Settings.Current.OutputFolder3ds) ? App.Settings.Current.OutputFolder3ds : (!string.IsNullOrEmpty(App.Settings.Current.LastOutPath_3ds) ? App.Settings.Current.LastOutPath_3ds : App.Settings.Current.OutputFolder))
 						: App.Settings.Current.OutputFolder;
@@ -1222,10 +1286,6 @@ public partial class TasksViewModel : ObservableObject
 					{
 						outFolder = Path.GetDirectoryName(inputFiles[0]) ?? "";
 					}
-
-					string targetFmt = is3ds 
-						? FormatNames3ds[Math.Clamp(SelectedFormatIndex3ds, 0, FormatNames3ds.Length - 1)] 
-						: SelectedFormat;
 
 					ObservableCollection<ProcessingTask> targetList = _currentPageType == "Verify" ? VerifyTasks : Tasks;
 					ProcessingTask task = new ProcessingTask
