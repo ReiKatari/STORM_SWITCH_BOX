@@ -1091,12 +1091,23 @@ public partial class TasksViewModel : ObservableObject
 				string targetFmt = is3ds 
 					? FormatNames3ds[Math.Clamp(SelectedFormatIndex3ds, 0, FormatNames3ds.Length - 1)] 
 					: SelectedFormat;
+				if (string.IsNullOrEmpty(targetFmt))
+				{
+					targetFmt = is3ds ? "3DS" : "NSP";
+				}
 
 				ProcessingTask? existingTask = null;
 				string? groupBase = (groupId != null && groupId.Length >= 12) ? groupId.Substring(0, 12) : null;
 				if ((_currentPageType == "Update" || _currentPageType == "Multi") && groupBase != null)
 				{
-					existingTask = Tasks.FirstOrDefault((ProcessingTask t) => t.GroupId != null && t.GroupId.Length >= 12 && t.GroupId.Substring(0, 12) == groupBase && t.Operation == _currentPageType && t.Status == "Ожидание");
+					existingTask = Tasks.FirstOrDefault((ProcessingTask t) => 
+						t.GroupId != null && 
+						t.GroupId.Length >= 12 && 
+						t.GroupId.Substring(0, 12) == groupBase && 
+						t.Operation == _currentPageType && 
+						string.Equals(t.TargetFormat, targetFmt, StringComparison.OrdinalIgnoreCase) && 
+						t.Status == "Ожидание");
+
 					// Не объединять задачи из разных папок: одинаковый TitleID, но разные источники = разные задачи
 					if (existingTask != null && existingTask.InputFiles.Count > 0 && !string.IsNullOrEmpty(basePath))
 					{
@@ -1115,12 +1126,19 @@ public partial class TasksViewModel : ObservableObject
 						}
 					}
 				}
+				else if (_currentPageType != "Verify")
+				{
+					// Для одиночных операций (Конвертация, Упаковка и др.): ищем идентичную задачу с тем же форматом и входными файлами
+					existingTask = Tasks.FirstOrDefault((ProcessingTask t) =>
+						t.Operation == _currentPageType &&
+						string.Equals(t.TargetFormat, targetFmt, StringComparison.OrdinalIgnoreCase) &&
+						t.Status == "Ожидание" &&
+						t.InputFiles.Count == files.Count &&
+						files.All(f => t.InputFiles.Contains(f, StringComparer.OrdinalIgnoreCase)));
+				}
+
 				if (existingTask != null)
 				{
-					if (existingTask.CanChangeFormat)
-					{
-						existingTask.TargetFormat = targetFmt;
-					}
 					int added = 0;
 					foreach (string f in files)
 					{
@@ -1605,8 +1623,22 @@ public partial class TasksViewModel : ObservableObject
 						{
 							if (System.IO.File.Exists(file))
 							{
-								System.IO.File.Delete(file);
-								App.Logger.Log($"[Очистка] Исходный файл удален: {System.IO.Path.GetFileName(file)}", LogLevel.Info);
+								// Проверяем: используется ли этот же файл другими ожидающими или выполняющимися задачами
+								bool isNeededByOtherTasks = Tasks.Any(otherTask =>
+									otherTask != task &&
+									(otherTask.Status == "Ожидание" || otherTask.IsRunning) &&
+									otherTask.InputFiles != null &&
+									otherTask.InputFiles.Contains(file, StringComparer.OrdinalIgnoreCase));
+
+								if (!isNeededByOtherTasks)
+								{
+									System.IO.File.Delete(file);
+									App.Logger.Log($"[Очистка] Исходный файл удален: {System.IO.Path.GetFileName(file)}", LogLevel.Info);
+								}
+								else
+								{
+									App.Logger.Log($"[Очистка] Исходный файл {System.IO.Path.GetFileName(file)} пока сохранен (используется другими задачами в очереди).", LogLevel.Debug);
+								}
 							}
 						}
 						catch (Exception delEx)

@@ -1,4 +1,4 @@
-﻿using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Navigation;
@@ -569,14 +569,6 @@ namespace StormSwitchBox.Views
                 ViewModel.SelectedFormatIndex = cb.SelectedIndex;
                 App.Settings.Current.SelectedFormatIndex = cb.SelectedIndex;
                 _ = App.Settings.SaveAsync();
-
-                foreach (var task in ViewModel.Tasks)
-                {
-                    if (!task.Is3dsTask && task.Status == "Ожидание" && task.CanChangeFormat)
-                    {
-                        task.TargetFormat = format;
-                    }
-                }
             }
         }
 
@@ -590,14 +582,6 @@ namespace StormSwitchBox.Views
                 App.Settings.Current.SelectedFormatIndex3ds = cb.SelectedIndex;
                 App.Settings.Current.DefaultFormat3ds = format;
                 _ = App.Settings.SaveAsync();
-
-                foreach (var task in ViewModel.Tasks)
-                {
-                    if (task.Is3dsTask && task.Status == "Ожидание" && task.CanChangeFormat)
-                    {
-                        task.TargetFormat = format;
-                    }
-                }
             }
         }
 
