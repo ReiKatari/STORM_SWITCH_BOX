@@ -285,26 +285,81 @@ namespace StormSwitchBox.Views
                     Title = "Параметры и Ключи",
                     Category = "Конфигурация",
                     Icon = "\uE713",
-                    DescriptionText = "Полный спектр настроек и инструментов:\n\n" +
-                                      "• Drag-and-Drop файла ключей (prod.keys / keys.txt) с visual-подсветкой.\n" +
-                                      "• 6-ячеечный ввод версии прошивки с автоматической навигацией.\n" +
-                                      "• Drag-and-Drop выходной папки и «Умной» папки.\n" +
-                                      "• Ticketless NSP (--C_clean_ND) для гарантированной работы на любом CFW.\n" +
-                                      "• Очистка Delta NCA (-ND true) для экономии места в обновлениях.\n" +
-                                      "• Разделение файлов крупнее 4 ГБ для FAT32 SD-карт (.xc0/.xc1).\n" +
-                                      "• Очистка неиспользуемых языковых локализаций из RomFS.",
-                    Tip = "Каждая опция в Параметрах оснащена подробными всплывающими подсказками (Tooltip).",
+                    DescriptionText = "Полный спектр настроек и инструментов для точного управления обработкой образов:\n\n" +
+                                      "• Drag and Drop файла ключей (prod.keys / keys.txt) с подсветкой и автоматическим определением версии.\n" +
+                                      "• 6-ячеечный ввод версии прошивки с автоматической навигацией курсора.\n" +
+                                      "• Drag and Drop выходной папки и папок мониторинга «Умная папка».\n" +
+                                      "• Очистка Delta NCA (Delta Cleaner): автоматическое удаление избыточных дельта-патчей из обновлений для экономии до 30–50% места.\n" +
+                                      "• Оптимизация ассетов модов: автоматическое сжатие текстур PNG без потерь через Oxipng и удаление мусорных файлов (.bak, .tmp, Thumbs.db, .DS_Store).\n" +
+                                      "• Умная обработка файлов: автоматический выбор между легким сшиванием и монолитным HardPatch RomFS.\n" +
+                                      "• Ticketless NSP (--C_clean_ND) для гарантированной работы на любых CFW.\n" +
+                                      "• Понижение требований к прошивке (RSV Cap Downgrade: FW 18.0, 17.0, 16.0, 15.0, 10.0).\n" +
+                                      "• Разделение файлов крупнее 4 ГБ для FAT32 SD-карт (.xc0/.xc1 или .00/.01).\n" +
+                                      "• Очистка неиспользуемых языковых локализаций из RomFS.\n" +
+                                      "• Полная изоляция экосистем Nintendo Switch и Nintendo 3DS с собственными ключами и форматами.",
+                    Tip = "Каждая опция в Параметрах оснащена подробными подсказками и сохраняется автоматически!",
                     SetupPreview = container =>
                     {
                         var sp = new StackPanel { Spacing = 8 };
                         sp.Children.Add(new TextBlock { Text = "🔑 Файл ключей: prod.keys (Активен)", Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+                        sp.Children.Add(new CheckBox { Content = "🗑️ Удалять Delta NCA из обновлений (Delta Cleaner)", IsChecked = true });
+                        sp.Children.Add(new CheckBox { Content = "🎨 Оптимизация ассетов модов (Oxipng и очистка мусора)", IsChecked = true });
                         sp.Children.Add(new CheckBox { Content = "🔓 Удалить Titlerights (Ticketless NSP)", IsChecked = false });
-                        sp.Children.Add(new CheckBox { Content = "🗑️ Удалять Delta NCA из обновлений", IsChecked = true });
                         sp.Children.Add(new CheckBox { Content = "💾 Разделять файлы для FAT32 (> 4 GB)", IsChecked = false });
                         container.Children.Add(sp);
                     }
                 },
                 new TopicItem
+                {
+                    Title = "Параметры и задачи: матрица совместимости",
+                    Category = "Конфигурация",
+                    Icon = "\uE802",
+                    DescriptionText = "Исчерпывающий анализ всех параметров программы и их реальной привязки к типам задач:\n\n" +
+                                      "1. Удаление Delta NCA из обновлений (Delta Cleaner):\n" +
+                                      "   • Активен: «Мульти-контент», «Обновление», «Сжатие в NSZ/XCZ» (Конвертация), «Умная папка Switch».\n" +
+                                      "   • Принцип: Парсит бинарный CNMT и вырезает мусорные DeltaFragment NCA, уменьшая вес обновлений на 30–50%.\n\n" +
+                                      "2. Оптимизация ассетов модов (Oxipng и очистка мусора):\n" +
+                                      "   • Активен: «Мульти-контент» и «Обновление» (при наличии пользовательских папок romfs/exefs).\n" +
+                                      "   • Принцип: Удаляет мусорные файлы (.bak, .tmp, Thumbs.db, .DS_Store) и сжимает текстуры PNG без потерь через Oxipng (экономия 20–40% веса текстур).\n\n" +
+                                      "3. Уровень сжатия Zstandard (NSZ / XCZ):\n" +
+                                      "   • Активен: Любые задачи с целевым форматом NSZ или XCZ («Конвертация», «Мульти-контент», «Обновление», «Упаковка», «Умная папка Switch»).\n" +
+                                      "   • Принцип: Передаёт уровень сжатия (3, 10, 18, 22) в блочный компрессор NCZBLOCK (1 МБ). Для NSP, XCI и 3DS игнорируется.\n\n" +
+                                      "4. Комплексное выходное имя файла по папкам:\n" +
+                                      "   • Активен: «Мульти-контент», «Обновление», «Конвертация», «Упаковка», «Homebrew», «Умная папка».\n" +
+                                      "   • Принцип: Создает структуру [Название Игры]/[Формат] и формирует имя «Имя [TitleID] [vВерсия]».\n\n" +
+                                      "5. Удалять исходные файлы после успешной обработки:\n" +
+                                      "   • Активен: ВСЕ задачи («Конвертация», «Мульти-контент», «Обновление», «Упаковка», «Homebrew», «3DS задачи»).\n" +
+                                      "   • Принцип: Физически удаляет файлы только при 100% успехе (статус «Успешно» или «Готово»). Для «Проверки» (Verify) файлы не удаляются никогда.\n\n" +
+                                      "6. Криптографические ключи Switch (prod.keys / keys.txt):\n" +
+                                      "   • Активен: «Мульти-контент», «Обновление», «Распаковка», «Конвертация», «Проверка», «Homebrew».\n" +
+                                      "   • Принцип: Необходим для дешифровки заголовков NCA, распаковки PFS0/RomFS и проверки хешей.\n\n" +
+                                      "7. Стратегия сборки мульти-контента (Умный режим):\n" +
+                                      "   • Активен: «Мульти-контент» и «Обновление».\n" +
+                                      "   • Принцип: Умный режим выбирает нативное сшивание LibHac PFS0 для легких патчей (без раздувания RomFS) либо монолитный HardPatch RomFS при тяжелых патчах и модах.\n\n" +
+                                      "8. Интеграция с эмуляторами (Папки эмуляторов SDMC):\n" +
+                                      "   • Активен: «Homebrew» (Сборка портов движков и любительских игр).\n" +
+                                      "   • Принцип: Доставляет данные игры прямо в user/sdmc/switch/<game>/ эмуляторов, оставляя выходную библиотеку игр чистой.\n\n" +
+                                      "9. Понижение системных требований (RSV Cap Downgrade):\n" +
+                                      "   • Активен: «Мульти-контент», «Обновление», «Упаковка».\n" +
+                                      "   • Принцип: Патчит RequiredSystemVersion в CNMT для запуска новых игр на старых прошивках.\n\n" +
+                                      "10. Авто-инъекция патчей 60 FPS и твиков графики:\n" +
+                                      "   • Активен: «Мульти-контент» и «Обновление» (в режиме HardPatch).\n" +
+                                      "   • Принцип: Внедряет IPS-патчи 60 кадров/сек и исправления графики в main.\n\n" +
+                                      "11. Инспектор полноты дополнений (DLC Completeness):\n" +
+                                      "   • Активен: «Мульти-контент», «Обновление» и раздел «Информация».\n" +
+                                      "   • Принцип: Сверяет список DLC с базой TitleDB и сообщает в логе о недостающих дополнениях.\n\n" +
+                                      "12. Удаление неиспользуемых языков из RomFS:\n" +
+                                      "   • Активен: «Мульти-контент» (HardPatch), «Обновление» (HardPatch), «Конвертация» в XCI/XCZ.\n" +
+                                      "   • Принцип: Удаляет папки локализаций из RomFS, не входящие в список KeepLanguages.\n\n" +
+                                      "13. Настройки Nintendo 3DS (Ключи, формат по умолчанию, умная папка 3DS):\n" +
+                                      "   • Активен: Исключительно для всех задач Nintendo 3DS («Конвертация 3DS», «Мульти-контент 3DS», «Распаковка 3DS», «Упаковка 3DS», «Проверка 3DS»).\n\n" +
+                                      "14. Многопоточность и максимум задач (UsedCores, ConcurrentTasks):\n" +
+                                      "   • Активен: Для всех параллельных и фоновых операций в Задачнике.",
+                    Tip = "Используйте интерактивный инспектор ниже для мгновенной проверки совместимости каждого параметра!",
+                    SetupPreview = container => BuildSettingsMatrixInteractivePreview(container)
+                },
+                
+new TopicItem
                 {
                     Title = "Проверка целостности",
                     Category = "Валидация",
@@ -717,27 +772,84 @@ namespace StormSwitchBox.Views
                 },
                 new TopicItem
                 {
-                    Title = "Settings & Keys",
+                    Title = "Settings and Keys",
                     Category = "Configuration",
                     Icon = "\uE713",
-                    DescriptionText = "Full suite of settings and encryption tools:\n\n" +
-                                      "• Drag & Drop keys file (prod.keys / keys.txt) with visual highlights.\n" +
-                                      "• Ticketless NSP creation (--C_clean_ND) for CFW compatibility.\n" +
-                                      "• Delta NCA stripping (-ND true) for compact updates.\n" +
-                                      "• FAT32 split mode for cards requiring < 4 GB files.\n" +
-                                      "• Unused RomFS language trimming.",
-                    Tip = "Hover over any option in Settings to view comprehensive tooltips.",
+                    DescriptionText = "Full suite of settings and encryption tools for precise image processing:\n\n" +
+                                      "• Drag and Drop keys file (prod.keys / keys.txt) with visual highlights and version auto-detection.\n" +
+                                      "• 6-cell firmware version input with smooth cursor navigation.\n" +
+                                      "• Drag and Drop output folders and Smart Folder monitoring paths.\n" +
+                                      "• Delta NCA stripping (Delta Cleaner): strips redundant delta fragments to save up to 30–50% storage.\n" +
+                                      "• Mod asset optimization: lossless PNG texture compression via Oxipng and removal of junk files (.bak, .tmp, Thumbs.db, .DS_Store).\n" +
+                                      "• Smart File Processing: automatic intelligent selection between native splicing and monolithic HardPatch.\n" +
+                                      "• Ticketless NSP creation (--C_clean_ND) for universal CFW compatibility.\n" +
+                                      "• Firmware requirement downgrade (RSV Cap Downgrade: FW 18.0, 17.0, 16.0, 15.0, 10.0).\n" +
+                                      "• FAT32 split mode for cards requiring < 4 GB files (.xc0/.xc1 or .00/.01).\n" +
+                                      "• Unused RomFS language trimming.\n" +
+                                      "• Complete isolation between Nintendo Switch and Nintendo 3DS ecosystems.",
+                    Tip = "Hover over any option in Settings to view comprehensive tooltips. Settings save automatically!",
                     SetupPreview = container =>
                     {
                         var sp = new StackPanel { Spacing = 8 };
                         sp.Children.Add(new TextBlock { Text = "🔑 Encryption Keys: prod.keys (Active)", Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+                        sp.Children.Add(new CheckBox { Content = "🗑️ Strip Delta NCAs from Updates (Delta Cleaner)", IsChecked = true });
+                        sp.Children.Add(new CheckBox { Content = "🎨 Mod Asset Optimization (Oxipng and Junk Cleaner)", IsChecked = true });
                         sp.Children.Add(new CheckBox { Content = "🔓 Remove Titlerights (Ticketless NSP)", IsChecked = false });
-                        sp.Children.Add(new CheckBox { Content = "🗑️ Strip Delta NCAs from Updates", IsChecked = true });
                         sp.Children.Add(new CheckBox { Content = "💾 Split files for FAT32 (> 4 GB)", IsChecked = false });
                         container.Children.Add(sp);
                     }
                 },
                 new TopicItem
+                {
+                    Title = "Settings and Tasks: Compatibility Matrix",
+                    Category = "Configuration",
+                    Icon = "\uE802",
+                    DescriptionText = "Comprehensive analysis of all application settings and their actual operational scope across task types:\n\n" +
+                                      "1. Strip Delta NCAs from Updates (Delta Cleaner):\n" +
+                                      "   • Active for: «Multi-Content», «Update», «NSZ/XCZ Compression» (Convert), «Switch Smart Folder».\n" +
+                                      "   • Action: Parses binary CNMT to strip redundant DeltaFragment NCAs, cutting update package sizes by 30–50% without loss of data.\n\n" +
+                                      "2. Mod Asset Optimization (Oxipng and Junk Cleaner):\n" +
+                                      "   • Active for: «Multi-Content» and «Update» (when custom romfs/exefs folders are attached).\n" +
+                                      "   • Action: Removes temp/system junk (.bak, .tmp, Thumbs.db, .DS_Store) and applies lossless PNG compression via Oxipng (20–40% texture size reduction).\n\n" +
+                                      "3. Zstandard Compression Level (NSZ / XCZ):\n" +
+                                      "   • Active for: Any task outputting NSZ or XCZ («Convert», «Multi-Content», «Update», «Pack», «Switch Smart Folder»).\n" +
+                                      "   • Action: Sets Zstd compression level (3, 10, 18, 22) for 1 MB block streaming (NCZBLOCK). Ignored for NSP, XCI, and 3DS formats.\n\n" +
+                                      "4. Complex Output File Name by Folders:\n" +
+                                      "   • Active for: «Multi-Content», «Update», «Convert», «Pack», «Homebrew», «Smart Folder».\n" +
+                                      "   • Action: Generates [Game Title]/[Format] folders and formats filenames as Title [TitleID] [vVersion].[ext].\n\n" +
+                                      "5. Delete Source Files After Successful Processing:\n" +
+                                      "   • Active for: ALL tasks («Convert», «Multi-Content», «Update», «Pack», «Homebrew», «3DS Tasks»).\n" +
+                                      "   • Action: Deletes source files strictly upon 100% successful execution (status «Success» or «Done»). Never deletes files during «Verify».\n\n" +
+                                      "6. Switch Cryptographic Keys (prod.keys / keys.txt):\n" +
+                                      "   • Active for: «Multi-Content», «Update», «Unpack», «Convert», «Verify», «Homebrew».\n" +
+                                      "   • Action: Required for NCA header decryption, PFS0 parsing, NCZ decompression, and hash verification.\n\n" +
+                                      "7. Multi-Content Build Strategy (Smart Processing):\n" +
+                                      "   • Active for: «Multi-Content» and «Update».\n" +
+                                      "   • Action: Smart Processing automatically chooses native PFS0 splicing for lightweight patches (preventing RomFS inflation) or monolithic HardPatch for heavy updates and mods.\n\n" +
+                                      "8. Emulator Integration (SDMC Folders):\n" +
+                                      "   • Active for: «Homebrew» (engine ports and standalone homebrew games).\n" +
+                                      "   • Action: Deploys SDMC data directly into emulator user/sdmc/switch/<game>/ directories, keeping your game library clean.\n\n" +
+                                      "9. System Firmware Requirement Downgrade (RSV Cap):\n" +
+                                      "   • Active for: «Multi-Content», «Update», «Pack».\n" +
+                                      "   • Action: Caps RequiredSystemVersion in CNMT to allow running modern titles on older console firmware.\n\n" +
+                                      "10. Auto-Inject 60 FPS Patches and Graphics Tweaks:\n" +
+                                      "    • Active for: «Multi-Content» and «Update» (in HardPatch mode).\n" +
+                                      "    • Action: Injects verified IPS 60 FPS and visual improvement patches directly into main ExeFS.\n\n" +
+                                      "11. DLC Completeness Inspector:\n" +
+                                      "    • Active for: «Multi-Content», «Update», and the «Information» catalog.\n" +
+                                      "    • Action: Verifies attached DLCs against TitleDB and logs missing content in the task log.\n\n" +
+                                      "12. Trim Unused RomFS Languages:\n" +
+                                      "    • Active for: «Multi-Content» (HardPatch), «Update» (HardPatch), «Convert» to XCI/XCZ.\n" +
+                                      "    • Action: Strips RomFS localization directories not listed in KeepLanguages.\n\n" +
+                                      "13. Nintendo 3DS Settings (Keys, Default Format, 3DS Smart Folder):\n" +
+                                      "    • Active for: Exclusively all Nintendo 3DS tasks («3DS Convert», «3DS Multi-Content», «3DS Unpack», «3DS Pack», «3DS Verify»).\n\n" +
+                                      "14. Multithreading and Task Concurrency (UsedCores, ConcurrentTasks):\n" +
+                                      "    • Active for: All parallel execution in the task queue.",
+                    Tip = "Use the interactive matrix inspector below to test which settings apply to each task type!",
+                    SetupPreview = container => BuildSettingsMatrixInteractivePreview(container)
+                },
+                
+new TopicItem
                 {
                     Title = "Integrity Verification",
                     Category = "Validation",
@@ -900,6 +1012,8 @@ namespace StormSwitchBox.Views
                     "Format Conversion (Switch & 3DS)" => "Formatkonvertierung (Switch & 3DS)",
                     "Extraction & Packaging" => "Entpacken & Packen",
                     "Settings & Keys" => "Einstellungen & Schlüssel",
+                    "Settings and Keys" => "Einstellungen und Schlüssel",
+                    "Settings and Tasks: Compatibility Matrix" => "Einstellungen und Aufgaben: Kompatibilitätsmatrix",
                     "Integrity Verification" => "Integritätsprüfung",
                     "Nintendo 3DS: Architecture & Multi-Content" => "Nintendo 3DS: Architektur & Multi-Content",
                     "Nintendo 3DS: Formats & Compression" => "Nintendo 3DS: Formate & Kompression",
@@ -959,6 +1073,8 @@ namespace StormSwitchBox.Views
                     "Format Conversion (Switch & 3DS)" => "格式转换 (Switch与3DS)",
                     "Extraction & Packaging" => "解包与打包",
                     "Settings & Keys" => "设置与密钥",
+                    "Settings and Keys" => "设置与密钥",
+                    "Settings and Tasks: Compatibility Matrix" => "参数与任务：兼容性矩阵",
                     "Integrity Verification" => "完整性校验",
                     "Nintendo 3DS: Architecture & Multi-Content" => "Nintendo 3DS: 架构与多合一内容",
                     "Nintendo 3DS: Formats & Compression" => "Nintendo 3DS: 格式与压缩",
@@ -1018,6 +1134,8 @@ namespace StormSwitchBox.Views
                     "Format Conversion (Switch & 3DS)" => "フォーマット変換 (Switch & 3DS)",
                     "Extraction & Packaging" => "展開とパッケージング",
                     "Settings & Keys" => "設定と暗号化キー",
+                    "Settings and Keys" => "設定と暗号化キー",
+                    "Settings and Tasks: Compatibility Matrix" => "設定とタスク：互換性マトリックス",
                     "Integrity Verification" => "整合性検証",
                     "Nintendo 3DS: Architecture & Multi-Content" => "Nintendo 3DS: アーキテクチャ＆マルチコンテンツ",
                     "Nintendo 3DS: Formats & Compression" => "Nintendo 3DS: フォーマットと圧縮",
@@ -2299,6 +2417,284 @@ namespace StormSwitchBox.Views
             mainSp.Children.Add(card);
             container.Children.Add(mainSp);
         }
+
+        private void BuildSettingsMatrixInteractivePreview(StackPanel container)
+        {
+            var mainSp = new StackPanel { Spacing = 12 };
+
+            mainSp.Children.Add(new TextBlock 
+            { 
+                Text = "⚙️ Интерактивная матрица совместимости параметров", 
+                FontWeight = Microsoft.UI.Text.FontWeights.Bold, 
+                FontSize = 15, 
+                Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) 
+            });
+
+            mainSp.Children.Add(new TextBlock
+            {
+                Text = "Выберите параметр из списка, чтобы увидеть, для каких операций он реально активен в кодовой базе:",
+                FontSize = 12,
+                Foreground = GetSecondaryBrush(),
+                TextWrapping = TextWrapping.Wrap
+            });
+
+            var paramCombo = new ComboBox
+            {
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                SelectedIndex = 0
+            };
+
+            var items = new (string Name, string Tab, bool Multi, bool Update, bool Convert, bool Unpack, bool Pack, bool Homebrew, bool Verify, bool ThreeDs, bool Watch, string Code, string Desc)[]
+            {
+                (
+                    "Удаление Delta NCA из обновлений (Delta Cleaner)",
+                    "Nintendo Switch",
+                    true, true, true, false, false, false, false, false, true,
+                    "MultiContentService.cs, NszCompressionService.cs",
+                    "Находит и исключает избыточные DeltaFragment NCA из файлов обновлений через бинарный парсинг CNMT, снижая размер пакета до 30–50% без потери данных."
+                ),
+                (
+                    "Оптимизация ассетов модов (Oxipng и очистка мусора)",
+                    "Nintendo Switch",
+                    true, true, false, false, false, false, false, false, false,
+                    "HardPatchEngine.cs, ModOptimizerService.cs",
+                    "Сжимает PNG-текстуры модов без потерь через Oxipng (экономия 20–40% веса) и очищает временные системные файлы (.bak, .tmp, Thumbs.db, .DS_Store) перед сборкой."
+                ),
+                (
+                    "Уровень сжатия Zstandard (NSZ / XCZ)",
+                    "Общие",
+                    true, true, true, false, true, false, false, false, true,
+                    "NszCompressionService.cs, StormNczCompressor.cs",
+                    "Задаёт уровень сжатия Zstd (от 3 до 22) при формировании контейнеров NSZ и XCZ блоками по 1 МБ (NCZBLOCK). Игнорируется для несжатых NSP/XCI и 3DS."
+                ),
+                (
+                    "Комплексное выходное имя файла по папкам",
+                    "Общие",
+                    true, true, true, false, true, true, false, true, true,
+                    "TasksViewModel.cs, WatchFolderService.cs",
+                    "Создаёт структурированные подпапки вида [Название Игры]/[Формат] и формирует стандартизированное имя: Имя [TitleID] [vВерсия].[расширение]."
+                ),
+                (
+                    "Удалять исходные файлы после успешной обработки",
+                    "Общие",
+                    true, true, true, false, true, true, false, true, true,
+                    "TasksViewModel.cs (ExecuteTaskSafelyAsync)",
+                    "Физически удаляет исходные входные файлы только после 100% безошибочного завершения задачи (статус «Успешно» или «Готово»). Для проверки Verify исходники никогда не удаляются."
+                ),
+                (
+                    "Криптографические ключи Switch (prod.keys / keys.txt)",
+                    "Nintendo Switch",
+                    true, true, true, true, true, true, true, false, true,
+                    "SwitchFormatService.cs, MultiContentService.cs, HardPatchEngine.cs",
+                    "Необходимы для расшифровки NCA заголовков, чтения PFS0, декомпрессии NCZ, сборки мультиконтента и верификации хешей всех образов Switch."
+                ),
+                (
+                    "Стратегия сборки мульти-контента (Умный режим)",
+                    "Nintendo Switch",
+                    true, true, false, false, false, false, false, false, true,
+                    "MultiContentService.cs, HardPatchEngine.cs",
+                    "Автоматически выбирает нативное сшивание LibHac PFS0 для легковесных патчей (до 40% базы) без раздувания RomFS, либо HardPatch для тяжелых обновлений и модов с заменой устаревших ресурсов."
+                ),
+                (
+                    "Интеграция с эмуляторами (Папки эмуляторов SDMC)",
+                    "Общие",
+                    false, false, false, false, false, true, false, false, false,
+                    "HomebrewService.cs",
+                    "Автоматически доставляет структуру SDMC (NRO, игровые файлы .mpq, .wad, config) прямо в виртуальные SD-карты указанных эмуляторов (user/sdmc/switch/<game>/), сохраняя выходную папку чистой."
+                ),
+                (
+                    "Понижение системных требований (RSV Cap Downgrade)",
+                    "Nintendo Switch",
+                    true, true, false, false, true, false, false, false, true,
+                    "MultiContentService.cs",
+                    "Ограничивает проверку требуемой версии прошивки в CNMT метаданных (FW 18.0, 17.0, 16.0, 15.0, 10.0), предотвращая требования обновления консоли для запуска новых игр."
+                ),
+                (
+                    "Авто-инъекция патчей 60 FPS и твиков графики",
+                    "Nintendo Switch",
+                    true, true, false, false, false, false, false, false, false,
+                    "HardPatchEngine.cs",
+                    "Внедряет проверенные IPS-патчи 60 кадров/сек и исправления графики в исполняемый файл main в процессе монолитной пересборки ExeFS."
+                ),
+                (
+                    "Инспектор полноты дополнений (DLC Completeness)",
+                    "Nintendo Switch",
+                    true, true, false, false, false, false, false, false, false,
+                    "MultiContentService.cs, TitleDbService.cs",
+                    "Сверяет список прикреплённых DLC с официальной глобальной базой TitleDB и выводит в логе задачи статус полноты набора и список отсутствующих DLC."
+                ),
+                (
+                    "Удаление неиспользуемых языков из RomFS (Trim Languages)",
+                    "Nintendo Switch",
+                    true, true, true, false, false, false, false, false, false,
+                    "HardPatchEngine.cs, SwitchFormatService.cs",
+                    "Находит каталоги локализаций (Message, Voice, Sound, Loc, Text) в RomFS и удаляет языки, не входящие в список разрешенных KeepLanguages при пересборке."
+                ),
+                (
+                    "Сжатие через внешний движок nsz.exe",
+                    "Nintendo Switch",
+                    true, true, true, false, true, false, false, false, true,
+                    "NszCompressionService.cs",
+                    "Переключает сжатие Block NSZ (NCZBLOCK 1 МБ) со встроенного нативного движка ZstdSharp на официальный внешний nsz.exe."
+                ),
+                (
+                    "Криптографические ключи Nintendo 3DS (aes_keys.txt)",
+                    "Nintendo 3DS",
+                    false, false, false, false, false, false, false, true, true,
+                    "Nintendo3dsService.cs",
+                    "Ключи AES для дешифровки NCCH, распаковки RomFS/ExeFS (ctrtool) и сборки CIA/CCI образов (makerom) для всех задач 3DS."
+                ),
+                (
+                    "Выходной формат 3DS по умолчанию",
+                    "Nintendo 3DS",
+                    false, false, false, false, false, false, false, true, true,
+                    "Nintendo3dsService.cs, TasksViewModel.cs",
+                    "Задаёт расширение целевого файла по умолчанию (.3ds / .cia / .cxi) для задач конвертации, упаковки и мультиконтента 3DS."
+                ),
+                (
+                    "«Умная» папка Switch и «Умная» папка 3DS",
+                    "Nintendo Switch / 3DS",
+                    true, true, true, true, true, false, true, true, true,
+                    "WatchFolderService.cs",
+                    "Полностью автономный конвейер: при помещении новых файлов в отслеживаемые каталоги автоматически создаёт задачи выбранного типа и формата."
+                ),
+                (
+                    "Выходная папка по умолчанию (Switch и 3DS)",
+                    "Nintendo Switch / 3DS",
+                    true, true, true, true, true, true, false, true, true,
+                    "TasksViewModel.cs, TasksPage.xaml.cs",
+                    "Задаёт корневую выходную директорию для сохранения готовых файлов Switch или 3DS (если не указана — сохраняется в папку с исходным файлом)."
+                ),
+                (
+                    "Каталог для архивов SDMC",
+                    "Nintendo Switch",
+                    false, false, false, false, false, true, false, false, false,
+                    "HomebrewService.cs",
+                    "Папка для упаковки внешних SDMC данных Homebrew в автономные zip-архивы для физических консолей без засорения папки с играми."
+                ),
+                (
+                    "Многопоточность (Используемые ядра ЦП)",
+                    "Общие",
+                    true, true, true, true, true, true, false, false, true,
+                    "StormNczCompressor.cs, ModOptimizerService.cs, SwitchFormatService.cs",
+                    "Число потоков процессора, выделяемых для Zstandard сжатия, работы 7-Zip и параллельной оптимизации текстур Oxipng."
+                ),
+                (
+                    "Максимум одновременных задач (1–5)",
+                    "Общие",
+                    true, true, true, true, true, true, true, true, true,
+                    "TasksViewModel.cs (StartAllTasksAsync)",
+                    "Определяет параллелизм выполнения фоновой очереди задач (от 1 до 5 задач одновременно)."
+                )
+            };
+
+            foreach (var it in items)
+            {
+                paramCombo.Items.Add(new ComboBoxItem { Content = it.Name });
+            }
+
+            var card = new Border
+            {
+                Background = (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"],
+                BorderBrush = (Brush)Application.Current.Resources["CardStrokeColorDefaultBrush"],
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(14)
+            };
+
+            var detailSp = new StackPanel { Spacing = 10 };
+            card.Child = detailSp;
+
+            void UpdateMatrixView()
+            {
+                detailSp.Children.Clear();
+                int idx = Math.Clamp(paramCombo.SelectedIndex, 0, items.Length - 1);
+                var sel = items[idx];
+
+                detailSp.Children.Add(new TextBlock
+                {
+                    Text = $"📌 Вкладка в Параметрах: «{sel.Tab}»",
+                    FontSize = 12,
+                    Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue),
+                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+                });
+
+                detailSp.Children.Add(new TextBlock
+                {
+                    Text = "Совместимость с типами задач:",
+                    FontSize = 13,
+                    FontWeight = Microsoft.UI.Text.FontWeights.Bold
+                });
+
+                var row1 = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+                var row2 = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+
+                Border MakeBadge(string label, bool active)
+                {
+                    return new Border
+                    {
+                        CornerRadius = new CornerRadius(4),
+                        Padding = new Thickness(6, 3, 6, 3),
+                        Background = active 
+                            ? new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(40, 76, 175, 80)) 
+                            : new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(20, 128, 128, 128)),
+                        BorderBrush = active 
+                            ? new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) 
+                            : new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(60, 128, 128, 128)),
+                        BorderThickness = new Thickness(1),
+                        Child = new TextBlock
+                        {
+                            Text = $"{(active ? "✓" : "✕")} {label}",
+                            FontSize = 11,
+                            FontWeight = active ? Microsoft.UI.Text.FontWeights.Bold : Microsoft.UI.Text.FontWeights.Normal,
+                            Foreground = active 
+                                ? new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) 
+                                : new SolidColorBrush(Microsoft.UI.Colors.Gray)
+                        }
+                    };
+                }
+
+                row1.Children.Add(MakeBadge("Мульти-контент", sel.Multi));
+                row1.Children.Add(MakeBadge("Обновление", sel.Update));
+                row1.Children.Add(MakeBadge("Конвертация", sel.Convert));
+                row1.Children.Add(MakeBadge("Распаковка", sel.Unpack));
+                row1.Children.Add(MakeBadge("Упаковка", sel.Pack));
+
+                row2.Children.Add(MakeBadge("Homebrew", sel.Homebrew));
+                row2.Children.Add(MakeBadge("Проверка", sel.Verify));
+                row2.Children.Add(MakeBadge("Nintendo 3DS", sel.ThreeDs));
+                row2.Children.Add(MakeBadge("Умная папка", sel.Watch));
+
+                detailSp.Children.Add(row1);
+                detailSp.Children.Add(row2);
+
+                detailSp.Children.Add(new Border { Background = (Brush)Application.Current.Resources["CardStrokeColorDefaultBrush"], Height = 1, Margin = new Thickness(0, 4, 0, 4) });
+
+                detailSp.Children.Add(new TextBlock
+                {
+                    Text = $"⚡ Где работает в коде: {sel.Code}",
+                    FontSize = 11,
+                    Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue)
+                });
+
+                detailSp.Children.Add(new TextBlock
+                {
+                    Text = $"📝 Принцип действия: {sel.Desc}",
+                    FontSize = 12,
+                    Foreground = GetSecondaryBrush(),
+                    TextWrapping = TextWrapping.Wrap,
+                    LineHeight = 18
+                });
+            }
+
+            paramCombo.SelectionChanged += (s, e) => UpdateMatrixView();
+            UpdateMatrixView();
+
+            mainSp.Children.Add(paramCombo);
+            mainSp.Children.Add(card);
+            container.Children.Add(mainSp);
+        }
+
 
         #endregion
 
