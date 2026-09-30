@@ -52,15 +52,6 @@ public partial class TasksViewModel : ObservableObject
 					App.Settings.Current.SelectedFormatIndex3ds = value;
 					App.Settings.Current.DefaultFormat3ds = FormatNames3ds[value];
 					_ = App.Settings.SaveAsync();
-
-					string fmt3ds = FormatNames3ds[value];
-					foreach (var task in Tasks)
-					{
-						if (task.Is3dsTask && task.Status == "Ожидание" && task.CanChangeFormat)
-						{
-							task.TargetFormat = fmt3ds;
-						}
-					}
 				}
 			}
 		}
@@ -136,14 +127,6 @@ public partial class TasksViewModel : ObservableObject
 						OnPropertyChanged(nameof(SelectedFormatIndex));
 						App.Settings.Current.SelectedFormatIndex = idx;
 						_ = App.Settings.SaveAsync();
-					}
-
-					foreach (var task in Tasks)
-					{
-						if (!task.Is3dsTask && task.Status == "Ожидание" && task.CanChangeFormat)
-						{
-							task.TargetFormat = value;
-						}
 					}
 				}
 			}

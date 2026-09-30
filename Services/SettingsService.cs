@@ -46,9 +46,9 @@ namespace StormSwitchBox.Services
                     if (settings != null)
                     {
                         bool isDirty = false;
-                        if (settings.AppVersion != "5.0.9")
+                        if (settings.AppVersion != "5.0.10")
                         {
-                            settings.AppVersion = "5.0.9";
+                            settings.AppVersion = "5.0.10";
                             isDirty = true;
                         }
                         if (settings.EmulatorDirectories == null)
