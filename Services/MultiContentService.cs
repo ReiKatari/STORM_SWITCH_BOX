@@ -31,18 +31,27 @@ namespace StormSwitchBox.Services
             {
                 task.TargetFormat = task.Is3dsTask ? "3DS" : "NSP";
             }
+
+            bool isTargetXci = string.Equals(task.TargetFormat, "XCI", StringComparison.OrdinalIgnoreCase) || 
+                               string.Equals(task.TargetFormat, "XCZ", StringComparison.OrdinalIgnoreCase) ||
+                               string.Equals(task.TargetFormat, "XCI + XCZ", StringComparison.OrdinalIgnoreCase);
+
+            bool isDualFormat = string.Equals(task.TargetFormat, "NSP + NSZ", StringComparison.OrdinalIgnoreCase) || 
+                                string.Equals(task.TargetFormat, "XCI + XCZ", StringComparison.OrdinalIgnoreCase);
+
+            bool isCompressedFormat = string.Equals(task.TargetFormat, "NSZ", StringComparison.OrdinalIgnoreCase) || 
+                                      string.Equals(task.TargetFormat, "XCZ", StringComparison.OrdinalIgnoreCase) || 
+                                      isDualFormat;
+
+            bool keepUncompressed = isDualFormat || (!string.Equals(task.TargetFormat, "NSZ", StringComparison.OrdinalIgnoreCase) && 
+                                                     !string.Equals(task.TargetFormat, "XCZ", StringComparison.OrdinalIgnoreCase));
+
+            string uncompressedExt = isTargetXci ? ".xci" : ".nsp";
+            string compressedExt = isTargetXci ? ".xcz" : ".nsz";
             string intermediatePath = outPath;
+            string finalUncompressedPath = string.Empty;
+            string finalCompressedPath = string.Empty;
             bool compressionSuccess = false;
-            bool isCompressedFormat = string.Equals(task.TargetFormat, "NSZ", StringComparison.OrdinalIgnoreCase) || string.Equals(task.TargetFormat, "XCZ", StringComparison.OrdinalIgnoreCase);
-            if (isCompressedFormat)
-            {
-                string intermediateExt = string.Equals(task.TargetFormat, "XCZ", StringComparison.OrdinalIgnoreCase) ? ".xci" : ".nsp";
-                intermediatePath = System.IO.Path.ChangeExtension(outPath, intermediateExt);
-                if (intermediatePath.Equals(outPath, StringComparison.OrdinalIgnoreCase))
-                {
-                    intermediatePath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(outPath) ?? string.Empty, System.IO.Path.GetFileNameWithoutExtension(outPath) + "_temp" + intermediateExt);
-                }
-            }
             
             string tempDecompDir = string.Empty;
 
@@ -111,6 +120,20 @@ namespace StormSwitchBox.Services
                 {
                     outPath = formattedOut;
                     task.OutputFileName = System.IO.Path.GetFileNameWithoutExtension(outPath);
+                }
+
+                string baseNameClean = System.IO.Path.GetFileNameWithoutExtension(outPath);
+                finalUncompressedPath = System.IO.Path.Combine(targetDir, baseNameClean + uncompressedExt);
+                finalCompressedPath = System.IO.Path.Combine(targetDir, baseNameClean + compressedExt);
+
+                if (keepUncompressed)
+                {
+                    intermediatePath = finalUncompressedPath;
+                }
+                else
+                {
+                    // Для чистого сжатого формата (NSZ/XCZ) несжатый файл формируется исключительно во временном каталоге
+                    intermediatePath = System.IO.Path.Combine(tempDecompDir, "inter_" + Guid.NewGuid().ToString("N").Substring(0, 6) + uncompressedExt);
                 }
 
                 string listFile = System.IO.Path.Combine(tempDecompDir, $"list_conv_{Guid.NewGuid().ToString("N").Substring(0, 8)}.txt");
@@ -269,15 +292,60 @@ namespace StormSwitchBox.Services
                                 finalInputFilesList.Add(tempHardPatchedNsp);
                                 App.RunOnUI(() => task.LogDetails += "\n🔵 [HardPatch] Физическая пересборка успешно завершена. Ресурсы обновлены, дублирование исключено.");
 
-                                bool isTargetXciLocal = string.Equals(task.TargetFormat, "XCI", StringComparison.OrdinalIgnoreCase) || string.Equals(task.TargetFormat, "XCZ", StringComparison.OrdinalIgnoreCase);
-                                if (finalInputFilesList.Count == 1 && !isTargetXciLocal && !isCompressedFormat)
+                                if (finalInputFilesList.Count == 1 && !isTargetXci)
                                 {
-                                    outPath = await SafeFileOperations.SafeMoveOrReplaceFileAsync(tempHardPatchedNsp, outPath, task, cancellationToken);
+                                    intermediatePath = await SafeFileOperations.SafeMoveOrReplaceFileAsync(tempHardPatchedNsp, intermediatePath, task, cancellationToken);
+
+                                    if (task.CustomMetadata != null && System.IO.File.Exists(intermediatePath))
+                                    {
+                                        await App.ControlEditor.ApplyCustomMetadataAsync(task.CustomMetadata, intermediatePath, task, cancellationToken);
+                                    }
+
+                                    if (isCompressedFormat)
+                                    {
+                                        App.RunOnUI(() =>
+                                        {
+                                            task.LogDetails += $"\n🟡 [Сжатие] Zstandard в формат {(isDualFormat ? "NSZ" : task.TargetFormat)}...";
+                                            task.Status = "Сжатие...";
+                                        });
+
+                                        await App.NszCompression.CompressToNszAsync(task, intermediatePath, targetDir, cancellationToken);
+
+                                        string expectedNsz = System.IO.Path.ChangeExtension(intermediatePath, compressedExt);
+                                        if (!System.IO.File.Exists(expectedNsz))
+                                        {
+                                            string altNsz = System.IO.Path.Combine(targetDir, System.IO.Path.GetFileNameWithoutExtension(intermediatePath) + compressedExt);
+                                            if (System.IO.File.Exists(altNsz)) expectedNsz = altNsz;
+                                        }
+
+                                        if (System.IO.File.Exists(expectedNsz))
+                                        {
+                                            if (!expectedNsz.Equals(finalCompressedPath, StringComparison.OrdinalIgnoreCase))
+                                            {
+                                                finalCompressedPath = await SafeFileOperations.SafeMoveOrReplaceFileAsync(expectedNsz, finalCompressedPath, task, cancellationToken);
+                                            }
+                                            compressionSuccess = true;
+                                        }
+
+                                        if (!keepUncompressed)
+                                        {
+                                            SafeFileOperations.SafeDeleteFile(intermediatePath);
+                                        }
+                                    }
+
+                                    string mainResultPath = keepUncompressed ? intermediatePath : finalCompressedPath;
                                     App.RunOnUI(() =>
                                     {
-                                        if (System.IO.File.Exists(outPath))
+                                        if (isDualFormat && compressionSuccess && System.IO.File.Exists(intermediatePath) && System.IO.File.Exists(finalCompressedPath))
                                         {
-                                            long outSize = new System.IO.FileInfo(outPath).Length;
+                                            long nspSize = new FileInfo(intermediatePath).Length;
+                                            long nszSize = new FileInfo(finalCompressedPath).Length;
+                                            task.TargetSize = $"{Models.ProcessingTask.FormatSize(nspSize)} / {Models.ProcessingTask.FormatSize(nszSize)}";
+                                            task.LogDetails += $"\n📦 [Форматы] Успешно созданы оба файла:\n  • {System.IO.Path.GetFileName(intermediatePath)} ({Models.ProcessingTask.FormatSize(nspSize)})\n  • {System.IO.Path.GetFileName(finalCompressedPath)} ({Models.ProcessingTask.FormatSize(nszSize)})";
+                                        }
+                                        else if (System.IO.File.Exists(mainResultPath))
+                                        {
+                                            long outSize = new System.IO.FileInfo(mainResultPath).Length;
                                             task.TargetSize = Models.ProcessingTask.FormatSize(outSize);
                                             if (task.SourceSizeBytes > 0)
                                             {
@@ -292,8 +360,8 @@ namespace StormSwitchBox.Services
                                         task.LogDetails += "\n✅ [Успех] Монолитный образ игры (Base + Update + ExeFS) успешно собран и готов к запуску!";
                                         StormSwitchBox.Services.HistoryService.AddToHistory(task);
                                     });
-                                    DeployCheatsIfPresent(titleIdStr, inputFiles, outPath);
-                                    App.Logger.Log($"Мульти-контент успешно создан: {System.IO.Path.GetFileName(outPath)}", LogLevel.Success);
+                                    DeployCheatsIfPresent(titleIdStr, inputFiles, mainResultPath);
+                                    App.Logger.Log($"Мульти-контент успешно создан: {System.IO.Path.GetFileName(mainResultPath)}", LogLevel.Success);
                                     return;
                                 }
                             }
@@ -317,7 +385,7 @@ namespace StormSwitchBox.Services
                     task.Status = "Сборка...";
                 });
 
-                bool isTargetXci = string.Equals(task.TargetFormat, "XCI", StringComparison.OrdinalIgnoreCase) || string.Equals(task.TargetFormat, "XCZ", StringComparison.OrdinalIgnoreCase);
+                // isTargetXci declared at method start
                 
                 string appDir = AppDomain.CurrentDomain.BaseDirectory;
                 string toolsDir = System.IO.Path.Combine(appDir, "tools");
@@ -751,55 +819,56 @@ namespace StormSwitchBox.Services
                 {
                     App.RunOnUI(() =>
                     {
-                        task.LogDetails += $"\n🟡 [Сжатие] Zstandard в формат {task.TargetFormat}...";
+                        task.LogDetails += $"\n🟡 [Сжатие] Zstandard в формат {(isDualFormat ? (isTargetXci ? "XCZ" : "NSZ") : task.TargetFormat)}...";
                         task.Status = "Сжатие...";
                     });
                     
                     await App.NszCompression.CompressToNszAsync(task, intermediatePath, targetDir, cancellationToken);
                     
-                    string ext = string.Equals(task.TargetFormat, "XCZ", StringComparison.OrdinalIgnoreCase) ? ".xcz" : ".nsz";
-                    string expectedNsz = System.IO.Path.ChangeExtension(intermediatePath, ext);
-                    string finalCompressedPath = System.IO.Path.ChangeExtension(outPath, ext);
-                    
-                    // Also check for NSZ/XCZ in targetDir with same filename
+                    string expectedNsz = System.IO.Path.ChangeExtension(intermediatePath, compressedExt);
                     if (!System.IO.File.Exists(expectedNsz))
                     {
-                        string altNsz = System.IO.Path.Combine(targetDir, System.IO.Path.GetFileNameWithoutExtension(intermediatePath) + ext);
+                        string altNsz = System.IO.Path.Combine(targetDir, System.IO.Path.GetFileNameWithoutExtension(intermediatePath) + compressedExt);
                         if (System.IO.File.Exists(altNsz)) expectedNsz = altNsz;
                     }
                     
                     compressionSuccess = false;
                     if (System.IO.File.Exists(expectedNsz) && new FileInfo(expectedNsz).Length > 0)
                     {
-                        if (ext == ".xcz" || ext == ".nsz")
+                        if (!expectedNsz.Equals(finalCompressedPath, StringComparison.OrdinalIgnoreCase))
                         {
-                            if (!expectedNsz.Equals(finalCompressedPath, StringComparison.OrdinalIgnoreCase))
-                            {
-                                finalCompressedPath = await SafeFileOperations.SafeMoveOrReplaceFileAsync(expectedNsz, finalCompressedPath, task, cancellationToken);
-                            }
-                            compressionSuccess = true;
+                            finalCompressedPath = await SafeFileOperations.SafeMoveOrReplaceFileAsync(expectedNsz, finalCompressedPath, task, cancellationToken);
                         }
+                        compressionSuccess = true;
                     }
                     
                     if (compressionSuccess)
                     {
-                        // Сохраняем оба файла: и несжатый образ (NSP/XCI), и сжатый (NSZ/XCZ)
-                        outPath = finalCompressedPath;
+                        if (!keepUncompressed)
+                        {
+                            SafeFileOperations.SafeDeleteFile(intermediatePath);
+                        }
                     }
                     else
                     {
-                        // Compression failed — keep intermediate NSP/XCI as output
-                        App.RunOnUI(() => task.LogDetails += "\n⚠️ [Внимание] Сжатие не удалось. Сохранен NSP.");
-                        outPath = intermediatePath;
+                        App.RunOnUI(() => task.LogDetails += "\n⚠️ [Внимание] Сжатие не удалось. Сохранен исходный образ.");
                     }
                 }
 
+                string finalMainPath = keepUncompressed ? intermediatePath : (compressionSuccess ? finalCompressedPath : intermediatePath);
 
                 App.RunOnUI(() =>
                 {
-                    if (System.IO.File.Exists(outPath))
+                    if (isDualFormat && compressionSuccess && System.IO.File.Exists(intermediatePath) && System.IO.File.Exists(finalCompressedPath))
                     {
-                        long outSize = new System.IO.FileInfo(outPath).Length;
+                        long uncompSize = new FileInfo(intermediatePath).Length;
+                        long compSize = new FileInfo(finalCompressedPath).Length;
+                        task.TargetSize = $"{Models.ProcessingTask.FormatSize(uncompSize)} / {Models.ProcessingTask.FormatSize(compSize)}";
+                        task.LogDetails += $"\n📦 [Форматы] Успешно созданы оба файла:\n  • {System.IO.Path.GetFileName(intermediatePath)} ({Models.ProcessingTask.FormatSize(uncompSize)})\n  • {System.IO.Path.GetFileName(finalCompressedPath)} ({Models.ProcessingTask.FormatSize(compSize)})";
+                    }
+                    else if (System.IO.File.Exists(finalMainPath))
+                    {
+                        long outSize = new System.IO.FileInfo(finalMainPath).Length;
                         task.TargetSize = Models.ProcessingTask.FormatSize(outSize);
                         if (task.SourceSizeBytes > 0)
                         {
@@ -807,24 +876,17 @@ namespace StormSwitchBox.Services
                             double percent = (double)diff / task.SourceSizeBytes * 100.0;
                             task.SizeDifference = $"{(diff > 0 ? "-" : "+")}{Models.ProcessingTask.FormatSize(Math.Abs(diff))} ({Math.Abs(percent):F1}%)";
                         }
+                        task.LogDetails += $"\n✅ [Готово] Сохранен: {System.IO.Path.GetFileName(finalMainPath)}";
                     }
 
                     task.Progress = 100;
                     task.Status = "Успешно";
                     task.IsRunning = false;
-                    if (isCompressedFormat && compressionSuccess && System.IO.File.Exists(intermediatePath))
-                    {
-                        task.LogDetails += $"\n📦 [Форматы] Сохранены оба файла:\n  • {System.IO.Path.GetFileName(intermediatePath)}\n  • {System.IO.Path.GetFileName(outPath)}";
-                    }
-                    else
-                    {
-                        task.LogDetails += $"\n✅ [Готово] Сохранен: {System.IO.Path.GetFileName(outPath)}";
-                    }
                     StormSwitchBox.Services.HistoryService.AddToHistory(task);
                 });
 
-                DeployCheatsIfPresent(titleIdStr, inputFiles, outPath);
-                App.Logger.Log($"Мульти-контент успешно создан: {System.IO.Path.GetFileName(outPath)}", LogLevel.Success);
+                DeployCheatsIfPresent(titleIdStr, inputFiles, finalMainPath);
+                App.Logger.Log($"Мульти-контент успешно создан: {System.IO.Path.GetFileName(finalMainPath)}", LogLevel.Success);
             }
             catch (OperationCanceledException)
             {

@@ -238,8 +238,9 @@ namespace StormSwitchBox.Services
                     if (modDirs.Count > 0) task.LogDetails += $"\n  📁 Модификации: {modDirs.Count} папок";
                 });
 
+                bool isDual3ds = string.Equals(targetFormat, "3DS + CIA", StringComparison.OrdinalIgnoreCase);
                 string outExt = targetFormat.ToLowerInvariant().Replace(" (cci)", "").Trim();
-                if (outExt == "3ds" || outExt == "cci") outExt = "3ds";
+                if (outExt == "3ds" || outExt == "cci" || isDual3ds) outExt = "3ds";
                 else if (outExt == "cia") outExt = "cia";
                 else outExt = "cxi";
 
@@ -388,14 +389,36 @@ namespace StormSwitchBox.Services
 
                 if (File.Exists(targetOutFile))
                 {
+                    string targetCiaFile = Path.ChangeExtension(targetOutFile, ".cia");
+                    if (isDual3ds)
+                    {
+                        App.RunOnUI(() =>
+                        {
+                            task.Progress = 85;
+                            task.Status = "Конвертация в CIA...";
+                            task.LogDetails += "\n🔄 [3DS Convert] Дополнительная генерация формата CIA...";
+                        });
+                        await RunProcessAsync(makerom, $"-ccitocia \"{targetOutFile}\" \"{targetCiaFile}\"", tempDir, cancellationToken);
+                    }
+
                     long finalSize = new FileInfo(targetOutFile).Length;
+                    long finalCiaSize = (isDual3ds && File.Exists(targetCiaFile)) ? new FileInfo(targetCiaFile).Length : 0;
+
                     App.RunOnUI(() =>
                     {
                         task.Progress = 100;
                         task.Status = "Успешно";
                         task.IsRunning = false;
-                        task.TargetSize = ProcessingTask.FormatSize(finalSize);
-                        task.LogDetails += $"\n✅ [Готово] Успешно собран: {Path.GetFileName(targetOutFile)} ({task.TargetSize})";
+                        if (isDual3ds && File.Exists(targetCiaFile))
+                        {
+                            task.TargetSize = $"{ProcessingTask.FormatSize(finalSize)} / {ProcessingTask.FormatSize(finalCiaSize)}";
+                            task.LogDetails += $"\n📦 [Форматы 3DS] Сохранены оба файла:\n  • {Path.GetFileName(targetOutFile)} ({ProcessingTask.FormatSize(finalSize)})\n  • {Path.GetFileName(targetCiaFile)} ({ProcessingTask.FormatSize(finalCiaSize)})";
+                        }
+                        else
+                        {
+                            task.TargetSize = ProcessingTask.FormatSize(finalSize);
+                            task.LogDetails += $"\n✅ [Готово] Успешно собран: {Path.GetFileName(targetOutFile)} ({task.TargetSize})";
+                        }
                     });
                 }
                 else
@@ -419,9 +442,10 @@ namespace StormSwitchBox.Services
             string makerom = GetMakeromPath();
             if (!File.Exists(makerom)) throw new FileNotFoundException($"makerom не найден: {makerom}");
 
+            bool isDual3ds = string.Equals(targetFormat, "3DS + CIA", StringComparison.OrdinalIgnoreCase);
             string inExt = Path.GetExtension(inputPath).ToLowerInvariant().TrimStart('.');
             string outExt = targetFormat.ToLowerInvariant().Replace(" (cci)", "").Trim();
-            if (outExt == "3ds" || outExt == "cci") outExt = "3ds";
+            if (outExt == "3ds" || outExt == "cci" || isDual3ds) outExt = "3ds";
             else if (outExt == "cia") outExt = "cia";
             else outExt = "cxi";
 
@@ -434,9 +458,44 @@ namespace StormSwitchBox.Services
             {
                 task.IsRunning = true;
                 task.Progress = 30;
-                task.Status = $"Конвертация {inExt.ToUpper()} -> {outExt.ToUpper()}...";
-                task.LogDetails += $"\n🔄 [3DS Convert] Конвертация {Path.GetFileName(inputPath)} -> {outFileName}...";
+                task.Status = $"Конвертация {inExt.ToUpper()} -> {targetFormat}...";
+                task.LogDetails += $"\n🔄 [3DS Convert] Конвертация {Path.GetFileName(inputPath)} -> {targetFormat}...";
             });
+
+            if (isDual3ds)
+            {
+                string target3ds = Path.Combine(outputFolder, Path.GetFileNameWithoutExtension(inputPath) + ".3ds");
+                string targetCia = Path.Combine(outputFolder, Path.GetFileNameWithoutExtension(inputPath) + ".cia");
+
+                if (inExt == "3ds" || inExt == "cci")
+                {
+                    if (!string.Equals(inputPath, target3ds, StringComparison.OrdinalIgnoreCase))
+                    {
+                        File.Copy(inputPath, target3ds, overwrite: true);
+                    }
+                    await RunProcessAsync(makerom, $"-ccitocia \"{target3ds}\" \"{targetCia}\"", outputFolder, cancellationToken);
+                }
+                else if (inExt == "cia")
+                {
+                    if (!string.Equals(inputPath, targetCia, StringComparison.OrdinalIgnoreCase))
+                    {
+                        File.Copy(inputPath, targetCia, overwrite: true);
+                    }
+                    await RunProcessAsync(makerom, $"-ciatocci \"{targetCia}\" \"{target3ds}\"", outputFolder, cancellationToken);
+                }
+
+                App.RunOnUI(() =>
+                {
+                    task.Progress = 100;
+                    task.Status = "Успешно";
+                    task.IsRunning = false;
+                    long s3ds = File.Exists(target3ds) ? new FileInfo(target3ds).Length : 0;
+                    long scia = File.Exists(targetCia) ? new FileInfo(targetCia).Length : 0;
+                    task.TargetSize = $"{ProcessingTask.FormatSize(s3ds)} / {ProcessingTask.FormatSize(scia)}";
+                    task.LogDetails += $"\n📦 [Форматы 3DS] Сохранены оба файла:\n  • {Path.GetFileName(target3ds)} ({ProcessingTask.FormatSize(s3ds)})\n  • {Path.GetFileName(targetCia)} ({ProcessingTask.FormatSize(scia)})";
+                });
+                return;
+            }
 
             if ((inExt == "3ds" || inExt == "cci") && outExt == "cia")
             {

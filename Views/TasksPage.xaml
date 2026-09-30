@@ -51,7 +51,7 @@
                             <TextBlock Text="{x:Bind ViewModel.CurrentPlatformLabel, Mode=OneWay}" FontWeight="SemiBold" FontSize="12"/>
                         </StackPanel>
                     </Button>
-                    <ComboBox x:Name="FormatComboBox" SelectedIndex="{x:Bind ViewModel.SelectedFormatIndex, Mode=TwoWay}" Width="90" 
+                    <ComboBox x:Name="FormatComboBox" SelectedIndex="{x:Bind ViewModel.SelectedFormatIndex, Mode=TwoWay}" Width="118" 
                               SelectionChanged="FormatComboBox_SelectionChanged"
                               ToolTipService.ToolTip="Выходной формат для Switch"
                               Visibility="{x:Bind ViewModel.IsSwitchPlatformVisible, Mode=OneWay}">
@@ -59,14 +59,17 @@
                         <ComboBoxItem Content="NSZ"/>
                         <ComboBoxItem Content="XCI"/>
                         <ComboBoxItem Content="XCZ"/>
+                        <ComboBoxItem Content="NSP + NSZ"/>
+                        <ComboBoxItem Content="XCI + XCZ"/>
                     </ComboBox>
-                    <ComboBox x:Name="FormatComboBox3ds" SelectedIndex="{x:Bind ViewModel.SelectedFormatIndex3ds, Mode=TwoWay}" Width="95" 
+                    <ComboBox x:Name="FormatComboBox3ds" SelectedIndex="{x:Bind ViewModel.SelectedFormatIndex3ds, Mode=TwoWay}" Width="108" 
                               SelectionChanged="FormatComboBox3ds_SelectionChanged"
                               ToolTipService.ToolTip="Выходной формат для 3DS"
                               Visibility="{x:Bind ViewModel.Is3dsPlatformVisible, Mode=OneWay}">
                         <ComboBoxItem Content="3DS"/>
                         <ComboBoxItem Content="CIA"/>
                         <ComboBoxItem Content="CXI"/>
+                        <ComboBoxItem Content="3DS + CIA"/>
                     </ComboBox>
                 </StackPanel>
             </AppBarElementContainer>
@@ -215,7 +218,7 @@
                                               Foreground="#00E5FF" FontWeight="Normal"
                                               Visibility="{Binding FormatSelectableVisibility}"
                                               VerticalAlignment="Center" HorizontalAlignment="Center"
-                                              Padding="6,2" MinWidth="65" MinHeight="26" Height="26" BorderThickness="0" Background="Transparent">
+                                              Padding="6,2" MinWidth="88" MinHeight="26" Height="26" BorderThickness="0" Background="Transparent">
                                         <ComboBox.Resources>
                                             <SolidColorBrush x:Key="ComboBoxForeground" Color="#00E5FF"/>
                                             <SolidColorBrush x:Key="ComboBoxForegroundFocused" Color="#00E5FF"/>
@@ -438,7 +441,7 @@
                                               Foreground="#00E5FF" FontWeight="Normal"
                                               Visibility="{Binding FormatSelectableVisibility}"
                                               VerticalAlignment="Center" HorizontalAlignment="Center"
-                                              Padding="6,2" MinWidth="65" MinHeight="26" Height="26" BorderThickness="0" Background="Transparent">
+                                              Padding="6,2" MinWidth="88" MinHeight="26" Height="26" BorderThickness="0" Background="Transparent">
                                     </ComboBox>
                                 </Grid>
                             </DataTemplate>

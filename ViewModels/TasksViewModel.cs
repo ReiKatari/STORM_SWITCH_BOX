@@ -27,8 +27,8 @@ namespace StormSwitchBox.ViewModels;
 
 public partial class TasksViewModel : ObservableObject
 {
-	public static readonly string[] FormatNames = new string[4] { "NSP", "NSZ", "XCI", "XCZ" };
-	public static readonly string[] FormatNames3ds = new string[3] { "3DS", "CIA", "CXI" };
+	public static readonly string[] FormatNames = new string[] { "NSP", "NSZ", "XCI", "XCZ", "NSP + NSZ", "XCI + XCZ" };
+	public static readonly string[] FormatNames3ds = new string[] { "3DS", "CIA", "CXI", "3DS + CIA" };
 
 	private static readonly HashSet<string> GameExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) 
 	{ 
@@ -1531,7 +1531,11 @@ public partial class TasksViewModel : ObservableObject
 					hasWaitTasks = targetList.Any((ProcessingTask t) => t.Status == "Ожидание");
 					if (runningCount < maxConcurrent)
 					{
-						nextTask = targetList.FirstOrDefault((ProcessingTask t) => t.Status == "Ожидание");
+						var runningTasks = targetList.Where((ProcessingTask t) => t.IsRunning).ToList();
+						nextTask = targetList.FirstOrDefault((ProcessingTask t) => 
+							t.Status == "Ожидание" && 
+							!runningTasks.Any(r => HasResourceConflict(t, r)));
+
 						if (nextTask != null)
 						{
 							nextTask.Status = "Подготовка...";
@@ -1579,6 +1583,41 @@ public partial class TasksViewModel : ObservableObject
 		{
 			_isProcessingQueue = false;
 		}
+	}
+
+	private static bool HasResourceConflict(ProcessingTask a, ProcessingTask b)
+	{
+		if (a == null || b == null) return false;
+
+		// 1. Проверка совпадения базового TitleID (GroupId)
+		if (!string.IsNullOrEmpty(a.GroupId) && !string.IsNullOrEmpty(b.GroupId) &&
+			a.GroupId.Length >= 12 && b.GroupId.Length >= 12 &&
+			string.Equals(a.GroupId.Substring(0, 12), b.GroupId.Substring(0, 12), StringComparison.OrdinalIgnoreCase))
+		{
+			return true;
+		}
+
+		// 2. Проверка пересечения входных файлов
+		if (a.InputFiles != null && b.InputFiles != null && a.InputFiles.Count > 0 && b.InputFiles.Count > 0)
+		{
+			if (a.InputFiles.Any(fa => b.InputFiles.Contains(fa, StringComparer.OrdinalIgnoreCase)))
+			{
+				return true;
+			}
+		}
+
+		// 3. Проверка совпадения папки и базового имени выходного файла
+		if (!string.IsNullOrEmpty(a.OutputFolder) && !string.IsNullOrEmpty(b.OutputFolder) &&
+			string.Equals(a.OutputFolder, b.OutputFolder, StringComparison.OrdinalIgnoreCase))
+		{
+			if (!string.IsNullOrEmpty(a.OutputFileName) && !string.IsNullOrEmpty(b.OutputFileName) &&
+				string.Equals(a.OutputFileName, b.OutputFileName, StringComparison.OrdinalIgnoreCase))
+			{
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	private async Task ExecuteTaskSafelyAsync(ProcessingTask task)
@@ -1961,11 +2000,18 @@ public partial class TasksViewModel : ObservableObject
 					expectedOutPath += ".nsp";
 				}
 				await App.SwitchFormat.PackContainerAsync(task, inputFolder ?? "", outBaseFolder2, task.OutputFileName, cts.Token);
-				if (task.TargetFormat.Equals("XCI", StringComparison.OrdinalIgnoreCase) || task.TargetFormat.Equals("XCZ", StringComparison.OrdinalIgnoreCase))
+				bool isPackTargetXci = task.TargetFormat.Equals("XCI", StringComparison.OrdinalIgnoreCase) || 
+				                       task.TargetFormat.Equals("XCZ", StringComparison.OrdinalIgnoreCase) ||
+				                       task.TargetFormat.Equals("XCI + XCZ", StringComparison.OrdinalIgnoreCase);
+
+				bool isPackDual = task.TargetFormat.Equals("NSP + NSZ", StringComparison.OrdinalIgnoreCase) || 
+				                  task.TargetFormat.Equals("XCI + XCZ", StringComparison.OrdinalIgnoreCase);
+
+				if (isPackTargetXci)
 				{
 					await App.SwitchFormat.ConvertContainerAsync(task, expectedOutPath, outBaseFolder2, "XCI", cts.Token);
 					string expectedXci = Path.ChangeExtension(expectedOutPath, ".xci");
-					if (task.TargetFormat.Equals("XCZ", StringComparison.OrdinalIgnoreCase) && File.Exists(expectedXci))
+					if ((task.TargetFormat.Equals("XCZ", StringComparison.OrdinalIgnoreCase) || task.TargetFormat.Equals("XCI + XCZ", StringComparison.OrdinalIgnoreCase)) && File.Exists(expectedXci))
 					{
 						await App.NszCompression.CompressToNszAsync(task, expectedXci, outBaseFolder2, cts.Token);
 						string finalXcz = Path.ChangeExtension(expectedXci, ".xcz");
@@ -1974,18 +2020,23 @@ public partial class TasksViewModel : ObservableObject
 						{
 							finalXcz = await StormSwitchBox.Services.SafeFileOperations.SafeMoveOrReplaceFileAsync(generatedNsz, finalXcz, task, cts.Token);
 						}
-						try
+						if (!isPackDual)
 						{
-							File.Delete(expectedXci);
-						}
-						catch
-						{
+							try { File.Delete(expectedXci); } catch { }
 						}
 					}
+					if (!task.TargetFormat.Equals("NSP + NSZ", StringComparison.OrdinalIgnoreCase) && !task.TargetFormat.Equals("NSP", StringComparison.OrdinalIgnoreCase))
+					{
+						try { File.Delete(expectedOutPath); } catch { }
+					}
 				}
-				else if (task.TargetFormat.Equals("NSZ", StringComparison.OrdinalIgnoreCase))
+				else if (task.TargetFormat.Equals("NSZ", StringComparison.OrdinalIgnoreCase) || task.TargetFormat.Equals("NSP + NSZ", StringComparison.OrdinalIgnoreCase))
 				{
 					await App.NszCompression.CompressToNszAsync(task, expectedOutPath, outBaseFolder2, cts.Token);
+					if (task.TargetFormat.Equals("NSZ", StringComparison.OrdinalIgnoreCase))
+					{
+						try { File.Delete(expectedOutPath); } catch { }
+					}
 				}
 				App.RunOnUI(delegate
 				{
@@ -2033,10 +2084,17 @@ public partial class TasksViewModel : ObservableObject
 					workingInput = decompResult;
 				}
 			}
-			if (task.TargetFormat.Equals("XCI", StringComparison.OrdinalIgnoreCase) || task.TargetFormat.Equals("XCZ", StringComparison.OrdinalIgnoreCase))
+			bool isConvertTargetXci = task.TargetFormat.Equals("XCI", StringComparison.OrdinalIgnoreCase) || 
+			                          task.TargetFormat.Equals("XCZ", StringComparison.OrdinalIgnoreCase) ||
+			                          task.TargetFormat.Equals("XCI + XCZ", StringComparison.OrdinalIgnoreCase);
+
+			bool isConvertDual = task.TargetFormat.Equals("NSP + NSZ", StringComparison.OrdinalIgnoreCase) || 
+			                     task.TargetFormat.Equals("XCI + XCZ", StringComparison.OrdinalIgnoreCase);
+
+			if (isConvertTargetXci)
 			{
 				await App.SwitchFormat.ConvertContainerAsync(task, workingInput, task.OutputFolder, "XCI", cts.Token);
-				if (!task.TargetFormat.Equals("XCZ", StringComparison.OrdinalIgnoreCase))
+				if (!task.TargetFormat.Equals("XCZ", StringComparison.OrdinalIgnoreCase) && !task.TargetFormat.Equals("XCI + XCZ", StringComparison.OrdinalIgnoreCase))
 				{
 					return;
 				}
@@ -2052,18 +2110,41 @@ public partial class TasksViewModel : ObservableObject
 				{
 					finalXcz2 = await StormSwitchBox.Services.SafeFileOperations.SafeMoveOrReplaceFileAsync(generatedNsz2, finalXcz2, task, cts.Token);
 				}
-				try
+				if (!isConvertDual)
 				{
-					File.Delete(expectedXci2);
-				}
-				catch
-				{
+					try { File.Delete(expectedXci2); } catch { }
 				}
 				return;
 			}
-			if (task.TargetFormat.Equals("NSZ", StringComparison.OrdinalIgnoreCase))
+			if (task.TargetFormat.Equals("NSZ", StringComparison.OrdinalIgnoreCase) || task.TargetFormat.Equals("NSP + NSZ", StringComparison.OrdinalIgnoreCase))
 			{
-				await App.NszCompression.CompressToNszAsync(task, workingInput, task.OutputFolder, cts.Token);
+				string intermediateNsp = workingInput;
+				if (!workingInput.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase))
+				{
+					await App.SwitchFormat.ConvertContainerAsync(task, workingInput, task.OutputFolder, "NSP", cts.Token);
+					intermediateNsp = Path.ChangeExtension(Path.Combine(task.OutputFolder, Path.GetFileName(workingInput)), ".nsp");
+				}
+				else
+				{
+					string destNsp = Path.Combine(task.OutputFolder, Path.GetFileName(workingInput));
+					if (workingInput != destNsp)
+					{
+						File.Copy(workingInput, destNsp, overwrite: true);
+						intermediateNsp = destNsp;
+					}
+				}
+				await App.NszCompression.CompressToNszAsync(task, intermediateNsp, task.OutputFolder, cts.Token);
+				if (task.TargetFormat.Equals("NSZ", StringComparison.OrdinalIgnoreCase))
+				{
+					try { File.Delete(intermediateNsp); } catch { }
+				}
+				App.RunOnUI(delegate
+				{
+					task.Status = "Успешно";
+					task.IsRunning = false;
+					task.Progress = 100.0;
+				});
+				return;
 			}
 			else
 			{

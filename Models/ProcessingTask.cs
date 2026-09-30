@@ -68,20 +68,20 @@ namespace StormSwitchBox.Models
         partial void OnIs3dsTaskChanged(bool value)
         {
             AvailableTargetFormats = value
-                ? new List<string> { "3DS", "CIA", "CXI" }
-                : new List<string> { "NSP", "NSZ", "XCI", "XCZ" };
+                ? new List<string> { "3DS", "CIA", "CXI", "3DS + CIA" }
+                : new List<string> { "NSP", "NSZ", "XCI", "XCZ", "NSP + NSZ", "XCI + XCZ" };
 
-            if (_targetFormat == "3DS" || _targetFormat == "CIA" || _targetFormat == "CXI")
+            if (_targetFormat == "3DS" || _targetFormat == "CIA" || _targetFormat == "CXI" || _targetFormat == "3DS + CIA")
             {
                 if (!value) TargetFormat = "NSP";
             }
-            else if (_targetFormat == "NSP" || _targetFormat == "NSZ" || _targetFormat == "XCI" || _targetFormat == "XCZ")
+            else if (_targetFormat == "NSP" || _targetFormat == "NSZ" || _targetFormat == "XCI" || _targetFormat == "XCZ" || _targetFormat == "NSP + NSZ" || _targetFormat == "XCI + XCZ")
             {
                 if (value) TargetFormat = "3DS";
             }
         }
 
-        [ObservableProperty] private List<string> _availableTargetFormats = new() { "NSP", "NSZ", "XCI", "XCZ" };
+        [ObservableProperty] private List<string> _availableTargetFormats = new() { "NSP", "NSZ", "XCI", "XCZ", "NSP + NSZ", "XCI + XCZ" };
 
         [System.Text.Json.Serialization.JsonIgnore]
         public bool IsCompleted => Status == "Успешно" || Status == "Готово" || Status == "Корректна" || Status == "Ок" || Status == "Да" || Status == "Да (Гибрид)";

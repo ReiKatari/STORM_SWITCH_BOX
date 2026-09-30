@@ -14,7 +14,7 @@ if (-not (Test-Path $assemblingDir)) { New-Item -ItemType Directory -Path $assem
 if (-not (Test-Path $filesDir)) { New-Item -ItemType Directory -Path $filesDir | Out-Null }
 if (-not (Test-Path $outputDir)) { New-Item -ItemType Directory -Path $outputDir | Out-Null }
 
-$appVersion = "5.0.11"
+$appVersion = "5.0.12"
 try {
     [xml]$appProjXml = Get-Content (Join-Path $appProjDir "StormSwitchBox.csproj")
     $verFromProj = $appProjXml.Project.PropertyGroup.Version
@@ -63,15 +63,26 @@ Write-Host "[3/6] Applying digital signature (STORM TEAM Authenticode SHA-256 + 
 $signtool = "C:\Program Files (x86)\Windows Kits\10\bin\10.0.28000.0\x64\signtool.exe"
 $tsUrl = "http://timestamp.digicert.com"
 
-$cert = Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.HasPrivateKey -and $_.Subject -like "*STORM TEAM*" } | Select-Object -First 1
+# Strictly enforce STORM TEAM Master Certificate (Publisher displayed in UAC: STORM TEAM)
+$cert = $null
+try {
+    $store = [System.Security.Cryptography.X509Certificates.X509Store]::new('My', 'CurrentUser')
+    $store.Open('ReadOnly')
+    $cert = $store.Certificates | Where-Object { $_.HasPrivateKey -and $_.Subject -like "*CN=STORM TEAM*" } | Select-Object -First 1
+    $store.Close()
+} catch { }
+
 if (-not $cert) {
-    $cert = Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.HasPrivateKey -and $_.Subject -like "*CN=StormSwitchBox*" -and $_.Subject -notlike "*Dev*" } | Select-Object -First 1
+    try {
+        $store = [System.Security.Cryptography.X509Certificates.X509Store]::new('My', 'LocalMachine')
+        $store.Open('ReadOnly')
+        $cert = $store.Certificates | Where-Object { $_.HasPrivateKey -and $_.Subject -like "*CN=STORM TEAM*" } | Select-Object -First 1
+        $store.Close()
+    } catch { }
 }
+
 if (-not $cert) {
-    $cert = Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.HasPrivateKey -and ($_.Subject -like "*STORM Software*" -or $_.Subject -like "*STORM*") } | Select-Object -First 1
-}
-if (-not $cert) {
-    $cert = Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.HasPrivateKey } | Select-Object -First 1
+    throw "CRITICAL ERROR: STORM TEAM Master Certificate (CN=STORM TEAM) not found in certificate store! UAC Publisher requires STORM TEAM."
 }
 
 $certThumb = $cert.Thumbprint
@@ -143,6 +154,7 @@ Copy-Item $publishedInstaller $outputSetupExePath -Force
 # Install certificate locally into TrustedPublisher for seamless local execution
 try {
     Import-Certificate -FilePath $cerRoot -CertStoreLocation "Cert:\CurrentUser\TrustedPublisher" -ErrorAction SilentlyContinue | Out-Null
+    Import-Certificate -FilePath $cerRoot -CertStoreLocation "Cert:\CurrentUser\Root" -ErrorAction SilentlyContinue | Out-Null
 } catch { }
 
 # Step 5: Packaging Smart App Control Setup Bundle

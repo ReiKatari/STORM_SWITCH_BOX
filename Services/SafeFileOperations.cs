@@ -10,7 +10,7 @@ namespace StormSwitchBox.Services
     {
         /// <summary>
         /// Безопасное перемещение или замена файла с защитой от блокировок другими процессами (антивирус, проводник, эмуляторы).
-        /// Поддерживает повторные попытки (retry backoff), переименование заблокированного целевого файла и сохранение под резервным именем при жесткой блокировке.
+        /// Поддерживает сброс атрибутов ReadOnly, повторные попытки (retry backoff), переименование заблокированного целевого файла и сохранение под резервным именем при жесткой блокировке.
         /// </summary>
         public static async Task<string> SafeMoveOrReplaceFileAsync(string sourcePath, string destinationPath, ProcessingTask? task = null, CancellationToken cancellationToken = default)
         {
@@ -30,6 +30,13 @@ namespace StormSwitchBox.Services
                 Directory.CreateDirectory(destDir);
             }
 
+            // Сбрасываем атрибуты ReadOnly и Hidden у исходного и целевого файлов
+            ResetFileAttributesSafe(sourcePath);
+            if (File.Exists(destinationPath))
+            {
+                ResetFileAttributesSafe(destinationPath);
+            }
+
             // 1. Быстрая попытка атомарного перемещения/замены
             for (int attempt = 1; attempt <= 12; attempt++)
             {
@@ -38,6 +45,7 @@ namespace StormSwitchBox.Services
                 {
                     if (File.Exists(destinationPath))
                     {
+                        ResetFileAttributesSafe(destinationPath);
                         File.Move(sourcePath, destinationPath, overwrite: true);
                     }
                     else
@@ -58,6 +66,12 @@ namespace StormSwitchBox.Services
                 }
                 catch (UnauthorizedAccessException) when (attempt < 12)
                 {
+                    ResetFileAttributesSafe(destinationPath);
+                    if (attempt % 3 == 0)
+                    {
+                        GC.Collect();
+                        GC.WaitForPendingFinalizers();
+                    }
                     await Task.Delay(300, cancellationToken);
                 }
             }
@@ -65,6 +79,7 @@ namespace StormSwitchBox.Services
             // 2. Если целевой файл заблокирован на перезапись, пробуем убрать его во временное имя
             if (File.Exists(destinationPath))
             {
+                ResetFileAttributesSafe(destinationPath);
                 string tempBackup = destinationPath + ".old_" + Guid.NewGuid().ToString("N").Substring(0, 6);
                 bool backupMoved = false;
                 try
@@ -79,15 +94,31 @@ namespace StormSwitchBox.Services
 
                 if (backupMoved)
                 {
+                    for (int mAttempt = 1; mAttempt <= 4; mAttempt++)
+                    {
+                        try
+                        {
+                            File.Move(sourcePath, destinationPath);
+                            SafeDeleteFile(tempBackup);
+                            return destinationPath;
+                        }
+                        catch (Exception) when (mAttempt < 4)
+                        {
+                            await Task.Delay(200, cancellationToken);
+                        }
+                    }
+
+                    // Если перемещение нового файла не удалось, пробуем скопировать
                     try
                     {
-                        File.Move(sourcePath, destinationPath);
+                        File.Copy(sourcePath, destinationPath, overwrite: true);
+                        SafeDeleteFile(sourcePath);
                         SafeDeleteFile(tempBackup);
                         return destinationPath;
                     }
                     catch
                     {
-                        // Если перемещение нового файла не удалось, восстанавливаем бэкап
+                        // Восстанавливаем бэкап при неудаче
                         try { if (!File.Exists(destinationPath)) File.Move(tempBackup, destinationPath); } catch { }
                     }
                 }
@@ -105,7 +136,15 @@ namespace StormSwitchBox.Services
                 counter++;
             } while (File.Exists(altPath));
 
-            File.Move(sourcePath, altPath);
+            try
+            {
+                File.Move(sourcePath, altPath);
+            }
+            catch
+            {
+                File.Copy(sourcePath, altPath, overwrite: true);
+                SafeDeleteFile(sourcePath);
+            }
 
             string warnMsg = $"\n⚠️ [Внимание] Файл {Path.GetFileName(destinationPath)} заблокирован другим процессом (например, эмулятором или проводником).\n     Результат успешно сохранен рядом как: {Path.GetFileName(altPath)}";
             App.Logger?.Log(warnMsg, LogLevel.Warning);
@@ -122,11 +161,12 @@ namespace StormSwitchBox.Services
         }
 
         /// <summary>
-        /// Безопасное удаление файла с повторными попытками.
+        /// Безопасное удаление файла с повторными попытками и сбросом атрибутов ReadOnly.
         /// </summary>
         public static void SafeDeleteFile(string path)
         {
             if (!File.Exists(path)) return;
+            ResetFileAttributesSafe(path);
             for (int i = 0; i < 5; i++)
             {
                 try
@@ -138,11 +178,35 @@ namespace StormSwitchBox.Services
                 {
                     Thread.Sleep(100);
                 }
+                catch (UnauthorizedAccessException)
+                {
+                    ResetFileAttributesSafe(path);
+                    Thread.Sleep(100);
+                }
                 catch
                 {
                     break;
                 }
             }
+        }
+
+        /// <summary>
+        /// Сброс защитных атрибутов файла (ReadOnly, Hidden) для беспрепятственной перезаписи и удаления.
+        /// </summary>
+        public static void ResetFileAttributesSafe(string path)
+        {
+            try
+            {
+                if (File.Exists(path))
+                {
+                    var attr = File.GetAttributes(path);
+                    if ((attr & (FileAttributes.ReadOnly | FileAttributes.Hidden)) != 0)
+                    {
+                        File.SetAttributes(path, FileAttributes.Normal);
+                    }
+                }
+            }
+            catch { }
         }
     }
 }
