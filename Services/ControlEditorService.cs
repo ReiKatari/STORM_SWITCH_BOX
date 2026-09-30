@@ -296,7 +296,7 @@ namespace StormSwitchBox.Services
                     catch { }
 
                     // Сканируем целевой NSP для поиска оригинального CNMT и Control NCA для данного TitleId
-                    using (var srcStream = new FileStream(targetNspPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                    using (var srcStream = new FileStream(targetNspPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
                     {
                         IStorage srcStorage = srcStream.AsStorage();
                         var srcPfs = new PartitionFileSystem(srcStorage);
@@ -460,7 +460,7 @@ namespace StormSwitchBox.Services
                     {
                         try
                         {
-                            using var fsSrc = new FileStream(targetNspPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                            using var fsSrc = new FileStream(targetNspPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
                             var pfsSrc = new PartitionFileSystem(fsSrc.AsStorage());
                             using var ef = OpenFileSafe(pfsSrc, "/" + progNcaEntryName);
                             using var ps = ef.AsStream();
@@ -524,7 +524,7 @@ namespace StormSwitchBox.Services
                     string tempPatchedNsp = Path.Combine(tempDir, "patched_target.nsp");
                     var pfsBuilder = new PartitionFileSystemBuilder();
 
-                    using (var srcStream = new FileStream(targetNspPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                    using (var srcStream = new FileStream(targetNspPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
                     {
                         IStorage srcStorage = srcStream.AsStorage();
                         var srcPfs = new PartitionFileSystem(srcStorage);
@@ -566,61 +566,69 @@ namespace StormSwitchBox.Services
 
                             if (newMetaNca != null && newMetaNcaName != null)
                             {
-                                var metaStream = new FileStream(newMetaNca, FileMode.Open, FileAccess.Read, FileShare.Read);
+                                var metaStream = new FileStream(newMetaNca, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
                                 openedStreams.Add(metaStream);
                                 entryDict[newMetaNcaName] = metaStream.AsStorage();
                             }
 
-                            var controlStream = new FileStream(newControlNca, FileMode.Open, FileAccess.Read, FileShare.Read);
+                            var controlStream = new FileStream(newControlNca, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
                             openedStreams.Add(controlStream);
                             entryDict[newControlNcaName] = controlStream.AsStorage();
 
-                                // Сортируем файлы в строгом порядке Nintendo Switch PFS0:
-                                // 0: Meta (CNMT) -> 1: Control -> 2: Program -> 3: Manual -> 50: DLC -> 90: Tickets/Certs
-                                var ordered = entryDict.OrderBy(kvp =>
-                                {
-                                    string lower = kvp.Key.ToLowerInvariant();
-                                    if (lower.EndsWith(".tik")) return 90;
-                                    if (lower.EndsWith(".cert")) return 91;
-                                    if (lower.EndsWith(".cnmt.nca") || lower.EndsWith(".cnmt.xml")) return 0;
-                                    if (lower.Equals(newControlNcaName, StringComparison.OrdinalIgnoreCase) || lower.Contains("control")) return 1;
-                                    if (lower.Contains("program")) return 2;
-                                    if (lower.Contains("manual")) return 3;
-                                    return 5;
-                                }).ThenBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase);
+                            // Сортируем файлы в строгом порядке Nintendo Switch PFS0:
+                            // 0: Meta (CNMT) -> 1: Control -> 2: Program -> 3: Manual -> 50: DLC -> 90: Tickets/Certs
+                            var ordered = entryDict.OrderBy(kvp =>
+                            {
+                                string lower = kvp.Key.ToLowerInvariant();
+                                if (lower.EndsWith(".tik")) return 90;
+                                if (lower.EndsWith(".cert")) return 91;
+                                if (lower.EndsWith(".cnmt.nca") || lower.EndsWith(".cnmt.xml")) return 0;
+                                if (lower.Equals(newControlNcaName, StringComparison.OrdinalIgnoreCase) || lower.Contains("control")) return 1;
+                                if (lower.Contains("program")) return 2;
+                                if (lower.Contains("manual")) return 3;
+                                return 5;
+                            }).ThenBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase);
 
-                                foreach (var kvp in ordered)
-                                {
-                                    pfsBuilder.AddFile(kvp.Key, new StorageFile(new SafeStorageWrapper(kvp.Value), OpenMode.Read));
-                                }
+                            foreach (var kvp in ordered)
+                            {
+                                pfsBuilder.AddFile(kvp.Key, new StorageFile(new SafeStorageWrapper(kvp.Value), OpenMode.Read));
+                            }
 
-                                using var builtPfs = pfsBuilder.Build(PartitionFileSystemType.Standard);
+                            using (var builtPfs = pfsBuilder.Build(PartitionFileSystemType.Standard))
+                            {
                                 builtPfs.GetSize(out long totalSize).ThrowIfFailure();
 
-                                using var destStream = new FileStream(tempPatchedNsp, FileMode.Create, FileAccess.Write, FileShare.None, 32 * 1024 * 1024, FileOptions.SequentialScan);
-                                long remaining = totalSize;
-                                long offset = 0;
-                                byte[] buffer = new byte[32 * 1024 * 1024];
-
-                                while (remaining > 0)
+                                using (var destStream = new FileStream(tempPatchedNsp, FileMode.Create, FileAccess.Write, FileShare.None, 32 * 1024 * 1024, FileOptions.SequentialScan))
                                 {
-                                    ct.ThrowIfCancellationRequested();
-                                    int toRead = (int)Math.Min(buffer.Length, remaining);
-                                    builtPfs.Read(offset, buffer.AsSpan(0, toRead)).ThrowIfFailure();
-                                    destStream.Write(buffer, 0, toRead);
-                                    offset += toRead;
-                                    remaining -= toRead;
+                                    long remaining = totalSize;
+                                    long offset = 0;
+                                    byte[] buffer = new byte[32 * 1024 * 1024];
+
+                                    while (remaining > 0)
+                                    {
+                                        ct.ThrowIfCancellationRequested();
+                                        int toRead = (int)Math.Min(buffer.Length, remaining);
+                                        builtPfs.Read(offset, buffer.AsSpan(0, toRead)).ThrowIfFailure();
+                                        destStream.Write(buffer, 0, toRead);
+                                        offset += toRead;
+                                        remaining -= toRead;
+                                    }
                                 }
                             }
-                            finally
-                            {
-                                foreach (var f in openedFiles) try { f.Dispose(); } catch { }
-                                foreach (var s in openedStreams) try { s.Dispose(); } catch { }
-                            }
                         }
+                        finally
+                        {
+                            foreach (var f in openedFiles) try { f.Dispose(); } catch { }
+                            foreach (var s in openedStreams) try { s.Dispose(); } catch { }
+                        }
+                    }
 
-                        await SafeFileOperations.SafeMoveOrReplaceFileAsync(tempPatchedNsp, targetNspPath, task, ct);
-                    }, ct);
+                    // Очищаем дескрипторы перед заменой целевого файла
+                    GC.Collect();
+                    GC.WaitForPendingFinalizers();
+
+                    await SafeFileOperations.SafeMoveOrReplaceFileAsync(tempPatchedNsp, targetNspPath, task, ct);
+                }, ct);
                 }
 
                 App.RunOnUI(() => task.LogDetails += "\n✅ [ControlEditor] Кастомные метаданные и иконка успешно интегрированы!");

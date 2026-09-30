@@ -283,12 +283,11 @@ namespace StormSwitchBox.Services
                             {
                                 // Обычная игра — пересобранная база полностью заменяет базу и обновление, исключая дубликаты
                                 hasPatchedBase = true;
-                                finalInputFilesList.Remove(baseFile);
-                                if (!string.IsNullOrEmpty(updateFile)) finalInputFilesList.Remove(updateFile);
-                                foreach (var mod in modDirs)
-                                {
-                                    finalInputFilesList.Remove(mod);
-                                }
+                                finalInputFilesList.RemoveAll(f =>
+                                    (!string.IsNullOrEmpty(baseFile) && string.Equals(f, baseFile, StringComparison.OrdinalIgnoreCase)) ||
+                                    (!string.IsNullOrEmpty(updateFile) && string.Equals(f, updateFile, StringComparison.OrdinalIgnoreCase)) ||
+                                    modDirs.Any(m => string.Equals(f, m, StringComparison.OrdinalIgnoreCase)) ||
+                                    unlockerRomfsDirs.Any(u => string.Equals(f, u, StringComparison.OrdinalIgnoreCase)));
                                 finalInputFilesList.Add(tempHardPatchedNsp);
                                 App.RunOnUI(() => task.LogDetails += "\n🔵 [HardPatch] Физическая пересборка успешно завершена. Ресурсы обновлены, дублирование исключено.");
 
@@ -296,7 +295,7 @@ namespace StormSwitchBox.Services
                                 {
                                     intermediatePath = await SafeFileOperations.SafeMoveOrReplaceFileAsync(tempHardPatchedNsp, intermediatePath, task, cancellationToken);
 
-                                    if (task.CustomMetadata != null && System.IO.File.Exists(intermediatePath))
+                                    if (task.CustomMetadata != null && !hasPatchedBase && System.IO.File.Exists(intermediatePath))
                                     {
                                         await App.ControlEditor.ApplyCustomMetadataAsync(task.CustomMetadata, intermediatePath, task, cancellationToken);
                                     }
@@ -376,6 +375,103 @@ namespace StormSwitchBox.Services
                 {
                     App.RunOnUI(() => task.LogDetails += "\n⚠️ [HardPatch] Мульти-программный тайтл — пропуск yanu-cli, используем оригинальные файлы.");
                     App.Logger.Log("[HardPatch] Skipped: multi-program title detected by pre-analysis", LogLevel.Info);
+                }
+
+                // 4.3 Быстрый путь для одиночного файла (Single-File Fast Path):
+                // Если входной файл ровно один (базовая игра) и нет обновлений/DLC/модов, напрямую перемещаем/сжимаем без LibHac
+                if (finalInputFilesList.Count == 1 && !hasPatchedBase && !isTargetXci)
+                {
+                    string singleFile = finalInputFilesList[0];
+                    bool isDecompressedTemp = !string.IsNullOrEmpty(tempDecompDir) && singleFile.StartsWith(tempDecompDir, StringComparison.OrdinalIgnoreCase);
+                    bool isSamePath = string.Equals(System.IO.Path.GetFullPath(singleFile), System.IO.Path.GetFullPath(intermediatePath), StringComparison.OrdinalIgnoreCase);
+
+                    if (!isSamePath)
+                    {
+                        if (isDecompressedTemp)
+                        {
+                            intermediatePath = await SafeFileOperations.SafeMoveOrReplaceFileAsync(singleFile, intermediatePath, task, cancellationToken);
+                        }
+                        else
+                        {
+                            SafeFileOperations.ResetFileAttributesSafe(singleFile);
+                            if (System.IO.File.Exists(intermediatePath))
+                            {
+                                SafeFileOperations.ResetFileAttributesSafe(intermediatePath);
+                            }
+                            System.IO.File.Copy(singleFile, intermediatePath, overwrite: true);
+                        }
+                    }
+
+                    if (task.CustomMetadata != null && System.IO.File.Exists(intermediatePath))
+                    {
+                        await App.ControlEditor.ApplyCustomMetadataAsync(task.CustomMetadata, intermediatePath, task, cancellationToken);
+                    }
+
+                    if (isCompressedFormat)
+                    {
+                        App.RunOnUI(() =>
+                        {
+                            task.LogDetails += $"\n🟡 [Сжатие] Zstandard в формат {(isDualFormat ? "NSZ" : task.TargetFormat)}...";
+                            task.Status = "Сжатие...";
+                        });
+
+                        await App.NszCompression.CompressToNszAsync(task, intermediatePath, targetDir, cancellationToken);
+
+                        string expectedNsz = System.IO.Path.ChangeExtension(intermediatePath, compressedExt);
+                        if (!System.IO.File.Exists(expectedNsz))
+                        {
+                            string altNsz = System.IO.Path.Combine(targetDir, System.IO.Path.GetFileNameWithoutExtension(intermediatePath) + compressedExt);
+                            if (System.IO.File.Exists(altNsz)) expectedNsz = altNsz;
+                        }
+
+                        if (System.IO.File.Exists(expectedNsz))
+                        {
+                            if (!expectedNsz.Equals(finalCompressedPath, StringComparison.OrdinalIgnoreCase))
+                            {
+                                finalCompressedPath = await SafeFileOperations.SafeMoveOrReplaceFileAsync(expectedNsz, finalCompressedPath, task, cancellationToken);
+                            }
+                            compressionSuccess = true;
+                        }
+
+                        if (!keepUncompressed)
+                        {
+                            if (!isSamePath || isDecompressedTemp)
+                            {
+                                SafeFileOperations.SafeDeleteFile(intermediatePath);
+                            }
+                        }
+                    }
+
+                    string mainResultPath = keepUncompressed ? intermediatePath : finalCompressedPath;
+                    App.RunOnUI(() =>
+                    {
+                        if (isDualFormat && compressionSuccess && System.IO.File.Exists(intermediatePath) && System.IO.File.Exists(finalCompressedPath))
+                        {
+                            long nspSize = new FileInfo(intermediatePath).Length;
+                            long nszSize = new FileInfo(finalCompressedPath).Length;
+                            task.TargetSize = $"{Models.ProcessingTask.FormatSize(nspSize)} / {Models.ProcessingTask.FormatSize(nszSize)}";
+                            task.LogDetails += $"\n📦 [Форматы] Успешно созданы оба файла:\n  • {System.IO.Path.GetFileName(intermediatePath)} ({Models.ProcessingTask.FormatSize(nspSize)})\n  • {System.IO.Path.GetFileName(finalCompressedPath)} ({Models.ProcessingTask.FormatSize(nszSize)})";
+                        }
+                        else if (System.IO.File.Exists(mainResultPath))
+                        {
+                            long outSize = new System.IO.FileInfo(mainResultPath).Length;
+                            task.TargetSize = Models.ProcessingTask.FormatSize(outSize);
+                            if (task.SourceSizeBytes > 0)
+                            {
+                                long diff = task.SourceSizeBytes - outSize;
+                                double percent = (double)diff / task.SourceSizeBytes * 100.0;
+                                task.SizeDifference = $"{(diff > 0 ? "-" : "+")}{Models.ProcessingTask.FormatSize(Math.Abs(diff))} ({Math.Abs(percent):F1}%)";
+                            }
+                        }
+                        task.Progress = 100;
+                        task.Status = "Успешно";
+                        task.IsRunning = false;
+                        task.LogDetails += "\n✅ [Успех] Обработка файла успешно завершена!";
+                        StormSwitchBox.Services.HistoryService.AddToHistory(task);
+                    });
+                    DeployCheatsIfPresent(titleIdStr, inputFiles, mainResultPath);
+                    App.Logger.Log($"Файл успешно обработан: {System.IO.Path.GetFileName(mainResultPath)}", LogLevel.Success);
+                    return;
                 }
 
                 // 4.5 Сшивание мультиконтента через нативный движок LibHac PFS0
@@ -536,7 +632,7 @@ namespace StormSwitchBox.Services
                             string nspPath = processedScanList[scanIdx];
                             if (!System.IO.File.Exists(nspPath)) continue;
                             
-                            var stream = new FileStream(nspPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                            var stream = new FileStream(nspPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
                             openedStreams.Add(stream);
                             var fs = new PartitionFileSystem(stream.AsStorage());
                             openedFs.Add(fs);
@@ -579,7 +675,7 @@ namespace StormSwitchBox.Services
                         {
                             try
                             {
-                                var stream = new FileStream(extraPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                                var stream = new FileStream(extraPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
                                 openedStreams.Add(stream);
                                 var fs = new PartitionFileSystem(stream.AsStorage());
                                 openedFs.Add(fs);
@@ -772,6 +868,8 @@ namespace StormSwitchBox.Services
                     {
                         foreach (var f in openedFiles) { try { f.Dispose(); } catch { } }
                         foreach (var s in openedStreams) { try { s.Dispose(); } catch { } }
+                        GC.Collect();
+                        GC.WaitForPendingFinalizers();
                     }
                 }
                 catch (Exception ex)
@@ -997,7 +1095,17 @@ namespace StormSwitchBox.Services
         {
             string targetDir = System.IO.Path.GetDirectoryName(originalOutPath) ?? "";
             string origFileName = System.IO.Path.GetFileNameWithoutExtension(originalOutPath);
-            string ext = System.IO.Path.GetExtension(originalOutPath);
+            string rawExt = System.IO.Path.GetExtension(originalOutPath).ToLowerInvariant().Trim();
+            string ext = ".nsp";
+            if (rawExt.Contains("xcz")) ext = ".xcz";
+            else if (rawExt.Contains("xci")) ext = ".xci";
+            else if (rawExt.Contains("nsz")) ext = ".nsz";
+            else if (rawExt.Contains("cia")) ext = ".cia";
+            else if (rawExt.Contains("3ds")) ext = ".3ds";
+            else if (rawExt.Contains("nsp")) ext = ".nsp";
+            else if (!string.IsNullOrEmpty(rawExt)) ext = rawExt;
+
+            origFileName = System.Text.RegularExpressions.Regex.Replace(origFileName, @"\s*\+\s*(?:nsz|nsp|xcz|xci|cia|3ds)$", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim();
 
             string titleId = "";
             string patchVer = "";

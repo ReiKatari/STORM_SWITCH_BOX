@@ -786,7 +786,7 @@ public partial class TasksViewModel : ObservableObject
 						task.HasExeFs = hasExeFs ? "1" : (hasCheats ? "1" : "-");
 
 						string formattedName = MultiContentService.FormatOutputFileName(
-							Path.Combine(task.OutputFolder, task.OutputFileName + "." + task.TargetFormat.ToLower()), 
+							Path.Combine(task.OutputFolder, task.OutputFileName + task.GetPrimaryExtension()), 
 							task.InputFiles);
 						task.OutputFileName = Path.GetFileNameWithoutExtension(formattedName);
 						
@@ -1752,14 +1752,25 @@ public partial class TasksViewModel : ObservableObject
 		}
 		else if (!string.IsNullOrEmpty(task.OutputFolder))
 		{
-			string targetExt = string.IsNullOrEmpty(task.TargetFormat) ? "nsp" : task.TargetFormat.ToLower();
+			string primaryExt = task.GetPrimaryExtension();
 			string outName = string.IsNullOrEmpty(task.OutputFileName) ? "Packed" : task.OutputFileName;
-			if (!outName.EndsWith("." + targetExt, StringComparison.OrdinalIgnoreCase))
+			if (!outName.EndsWith(primaryExt, StringComparison.OrdinalIgnoreCase))
 			{
-				outName += "." + targetExt;
+				outName += primaryExt;
 			}
 			string outPath = System.IO.Path.Combine(task.OutputFolder, outName);
-			sb.AppendLine($"  ▶ Выходной файл: {outPath}");
+			if (task.IsDualFormat)
+			{
+				string secExt = task.GetSecondaryExtension();
+				string secPath = System.IO.Path.Combine(task.OutputFolder, System.IO.Path.GetFileNameWithoutExtension(outName) + secExt);
+				sb.AppendLine("  ▶ Выходные файлы:");
+				sb.AppendLine($"     • {outPath}");
+				sb.AppendLine($"     • {secPath}");
+			}
+			else
+			{
+				sb.AppendLine($"  ▶ Выходной файл: {outPath}");
+			}
 		}
 		
 		sb.AppendLine("  ▶ Подробности:");
@@ -1903,7 +1914,7 @@ public partial class TasksViewModel : ObservableObject
 		{
 			task.IsRunning = true;
 			List<string> inputFiles2 = task.InputFiles;
-			string outPath = Path.Combine(task.OutputFolder, task.OutputFileName + "." + task.TargetFormat.ToLower());
+			string outPath = Path.Combine(task.OutputFolder, task.OutputFileName + task.GetPrimaryExtension());
 			
 			// Предварительный анализ файлов
 			await PreAnalyzeFilesAsync(task, inputFiles2);
@@ -1916,7 +1927,7 @@ public partial class TasksViewModel : ObservableObject
 		{
 			task.IsRunning = true;
 			List<string> inputFiles3 = task.InputFiles;
-			string outPath2 = Path.Combine(task.OutputFolder, task.OutputFileName + "." + task.TargetFormat.ToLower());
+			string outPath2 = Path.Combine(task.OutputFolder, task.OutputFileName + task.GetPrimaryExtension());
 			
 			// Предварительный анализ файлов
 			await PreAnalyzeFilesAsync(task, inputFiles3);
@@ -2272,7 +2283,7 @@ public partial class TasksViewModel : ObservableObject
 						
 						try
 						{
-							using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+							using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
 							using var pfs = new PartitionFileSystem(fs.AsStorage());
 							foreach (var entry in pfs.EnumerateEntries())
 							{

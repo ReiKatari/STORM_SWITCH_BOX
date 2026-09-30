@@ -77,7 +77,7 @@ namespace StormSwitchBox.Services
 
                 bool isXci = filePath.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) || filePath.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase);
 
-                using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
                 IStorage storage = fileStream.AsStorage();
                 
                 IFileSystem? fileSystem = null;
@@ -218,7 +218,7 @@ namespace StormSwitchBox.Services
             {
                 bool isXci = filePath.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) || filePath.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase);
 
-                using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
                 IStorage storage = fileStream.AsStorage();
                 
                 IFileSystem? fileSystem = null;
@@ -410,7 +410,7 @@ namespace StormSwitchBox.Services
 
                 try
                 {
-                    using var fs = new FileStream(inputPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    using var fs = new FileStream(inputPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
                     IStorage storage = fs.AsStorage();
 
                     storage.GetSize(out long storageSize).ThrowIfFailure();
@@ -985,7 +985,7 @@ namespace StormSwitchBox.Services
                     {
                         try
                         {
-                            using (var fs = new FileStream(ncaPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                            using (var fs = new FileStream(ncaPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
                             {
                                 var nca = new Nca(_keysService.CurrentKeyset, fs.AsStorage());
                                 if (nca.Header.ContentType == NcaContentType.Control && string.IsNullOrEmpty(controlNca))
@@ -1091,7 +1091,7 @@ namespace StormSwitchBox.Services
                                 string ext = System.IO.Path.GetExtension(file).ToLower();
                                 if (ext == ".nca" || ext == ".tik" || ext == ".cert")
                                 {
-                                    var fs = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read);
+                                    var fs = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
                                     openedStreams.Add(fs);
                                     pfsBuilder.AddFile(System.IO.Path.GetFileName(file), new StorageFile(fs.AsStorage(), OpenMode.Read));
                                 }
@@ -1129,7 +1129,7 @@ namespace StormSwitchBox.Services
         {
             try
             {
-                using (var fs = new FileStream(ncaPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                using (var fs = new FileStream(ncaPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
                 {
                     var nca = new Nca(_keysService.CurrentKeyset, fs.AsStorage());
                     return nca.Header.TitleId.ToString("X16").ToLower();
@@ -1169,7 +1169,7 @@ namespace StormSwitchBox.Services
 
                 await Task.Run(() =>
                 {
-                    using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
                     IStorage storage = fileStream.AsStorage();
                     var pfs = new PartitionFileSystem(storage);
                     

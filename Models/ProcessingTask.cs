@@ -84,6 +84,41 @@ namespace StormSwitchBox.Models
         [ObservableProperty] private List<string> _availableTargetFormats = new() { "NSP", "NSZ", "XCI", "XCZ", "NSP + NSZ", "XCI + XCZ" };
 
         [System.Text.Json.Serialization.JsonIgnore]
+        public bool IsDualFormat =>
+            string.Equals(TargetFormat, "NSP + NSZ", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(TargetFormat, "XCI + XCZ", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(TargetFormat, "3DS + CIA", StringComparison.OrdinalIgnoreCase);
+
+        public string GetPrimaryExtension()
+        {
+            return TargetFormat switch
+            {
+                "NSP + NSZ" => ".nsp",
+                "XCI + XCZ" => ".xci",
+                "3DS + CIA" => ".3ds",
+                "NSP" => ".nsp",
+                "NSZ" => ".nsz",
+                "XCI" => ".xci",
+                "XCZ" => ".xcz",
+                "3DS" => ".3ds",
+                "CIA" => ".cia",
+                "CXI" => ".cxi",
+                _ => "." + (string.IsNullOrWhiteSpace(TargetFormat) ? "nsp" : TargetFormat.Trim().ToLowerInvariant())
+            };
+        }
+
+        public string GetSecondaryExtension()
+        {
+            return TargetFormat switch
+            {
+                "NSP + NSZ" => ".nsz",
+                "XCI + XCZ" => ".xcz",
+                "3DS + CIA" => ".cia",
+                _ => string.Empty
+            };
+        }
+
+        [System.Text.Json.Serialization.JsonIgnore]
         public bool IsCompleted => Status == "Успешно" || Status == "Готово" || Status == "Корректна" || Status == "Ок" || Status == "Да" || Status == "Да (Гибрид)";
 
         [System.Text.Json.Serialization.JsonIgnore]

@@ -37,46 +37,82 @@ namespace StormSwitchBox.Services
                 ResetFileAttributesSafe(destinationPath);
             }
 
-            // 1. Быстрая попытка атомарного перемещения/замены
+            string srcRoot = Path.GetPathRoot(sourcePath) ?? "";
+            string destRoot = Path.GetPathRoot(destinationPath) ?? "";
+            bool isCrossVolume = !string.IsNullOrEmpty(srcRoot) && !string.IsNullOrEmpty(destRoot) && 
+                                 !string.Equals(srcRoot, destRoot, StringComparison.OrdinalIgnoreCase);
+
+            // 1. Попытка перемещения или замены (для разных дисков — надёжное копирование с заменой)
             for (int attempt = 1; attempt <= 12; attempt++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 try
                 {
-                    if (File.Exists(destinationPath))
+                    if (isCrossVolume)
                     {
+                        if (File.Exists(destinationPath))
+                        {
+                            ResetFileAttributesSafe(destinationPath);
+                            try { File.Delete(destinationPath); } catch { }
+                        }
+                        File.Copy(sourcePath, destinationPath, overwrite: true);
                         ResetFileAttributesSafe(destinationPath);
-                        File.Move(sourcePath, destinationPath, overwrite: true);
+                        SafeDeleteFile(sourcePath);
+                        return destinationPath;
                     }
                     else
                     {
-                        File.Move(sourcePath, destinationPath);
+                        if (File.Exists(destinationPath))
+                        {
+                            ResetFileAttributesSafe(destinationPath);
+                            File.Move(sourcePath, destinationPath, overwrite: true);
+                        }
+                        else
+                        {
+                            File.Move(sourcePath, destinationPath);
+                        }
+                        return destinationPath;
                     }
-                    return destinationPath;
                 }
-                catch (IOException) when (attempt < 12)
+                catch (IOException)
                 {
-                    // Освобождаем зависшие дескрипторы в текущем процессе
-                    if (attempt % 3 == 0)
+                    if (attempt < 12)
                     {
-                        GC.Collect();
-                        GC.WaitForPendingFinalizers();
+                        if (attempt % 3 == 0)
+                        {
+                            GC.Collect();
+                            GC.WaitForPendingFinalizers();
+                        }
+                        await Task.Delay(250, cancellationToken);
                     }
-                    await Task.Delay(250, cancellationToken);
                 }
-                catch (UnauthorizedAccessException) when (attempt < 12)
+                catch (UnauthorizedAccessException)
                 {
                     ResetFileAttributesSafe(destinationPath);
-                    if (attempt % 3 == 0)
+                    if (File.Exists(destinationPath))
                     {
-                        GC.Collect();
-                        GC.WaitForPendingFinalizers();
+                        try { File.Delete(destinationPath); } catch { }
                     }
-                    await Task.Delay(300, cancellationToken);
+                    if (attempt < 12)
+                    {
+                        if (attempt % 3 == 0)
+                        {
+                            GC.Collect();
+                            GC.WaitForPendingFinalizers();
+                        }
+                        await Task.Delay(300, cancellationToken);
+                    }
+                }
+                catch (Exception)
+                {
+                    if (attempt < 12)
+                    {
+                        await Task.Delay(300, cancellationToken);
+                    }
                 }
             }
 
-            // 2. Если целевой файл заблокирован на перезапись, пробуем убрать его во временное имя
+            // 2. Если целевой файл заблокирован на прямую перезапись, пробуем убрать его во временное имя
             if (File.Exists(destinationPath))
             {
                 ResetFileAttributesSafe(destinationPath);
@@ -98,13 +134,24 @@ namespace StormSwitchBox.Services
                     {
                         try
                         {
-                            File.Move(sourcePath, destinationPath);
+                            if (isCrossVolume)
+                            {
+                                File.Copy(sourcePath, destinationPath, overwrite: true);
+                                SafeDeleteFile(sourcePath);
+                            }
+                            else
+                            {
+                                File.Move(sourcePath, destinationPath);
+                            }
                             SafeDeleteFile(tempBackup);
                             return destinationPath;
                         }
-                        catch (Exception) when (mAttempt < 4)
+                        catch (Exception)
                         {
-                            await Task.Delay(200, cancellationToken);
+                            if (mAttempt < 4)
+                            {
+                                await Task.Delay(250, cancellationToken);
+                            }
                         }
                     }
 
@@ -124,7 +171,7 @@ namespace StormSwitchBox.Services
                 }
             }
 
-            // 3. Крайний случай: целевой файл жестко захвачен (например, запущен эмулятор, играющий эту игру).
+            // 3. Крайний случай: целевой файл жестко захвачен внешним процессом (проводником, эмулятором, антивирусом).
             // Не уничтожаем результат работы, а сохраняем рядом под уникальным именем!
             string baseName = Path.GetFileNameWithoutExtension(destinationPath);
             string ext = Path.GetExtension(destinationPath);
@@ -138,7 +185,15 @@ namespace StormSwitchBox.Services
 
             try
             {
-                File.Move(sourcePath, altPath);
+                if (isCrossVolume)
+                {
+                    File.Copy(sourcePath, altPath, overwrite: true);
+                    SafeDeleteFile(sourcePath);
+                }
+                else
+                {
+                    File.Move(sourcePath, altPath);
+                }
             }
             catch
             {
