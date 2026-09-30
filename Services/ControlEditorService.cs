@@ -519,7 +519,7 @@ namespace StormSwitchBox.Services
                     }
 
                 // 5. Замена Control NCA и Meta NCA в targetNspPath с помощью LibHac PartitionFileSystemBuilder
-                await Task.Run(() =>
+                await Task.Run(async () =>
                 {
                     string tempPatchedNsp = Path.Combine(tempDir, "patched_target.nsp");
                     var pfsBuilder = new PartitionFileSystemBuilder();
@@ -619,8 +619,7 @@ namespace StormSwitchBox.Services
                             }
                         }
 
-                        File.Delete(targetNspPath);
-                        File.Move(tempPatchedNsp, targetNspPath);
+                        await SafeFileOperations.SafeMoveOrReplaceFileAsync(tempPatchedNsp, targetNspPath, task, ct);
                     }, ct);
                 }
 

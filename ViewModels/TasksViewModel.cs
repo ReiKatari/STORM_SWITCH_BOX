@@ -1972,11 +1972,7 @@ public partial class TasksViewModel : ObservableObject
 						string generatedNsz = Path.ChangeExtension(expectedXci, ".nsz");
 						if (File.Exists(generatedNsz))
 						{
-							if (File.Exists(finalXcz))
-							{
-								File.Delete(finalXcz);
-							}
-							File.Move(generatedNsz, finalXcz);
+							finalXcz = await StormSwitchBox.Services.SafeFileOperations.SafeMoveOrReplaceFileAsync(generatedNsz, finalXcz, task, cts.Token);
 						}
 						try
 						{
@@ -2054,11 +2050,7 @@ public partial class TasksViewModel : ObservableObject
 				string generatedNsz2 = Path.ChangeExtension(expectedXci2, ".nsz");
 				if (File.Exists(generatedNsz2))
 				{
-					if (File.Exists(finalXcz2))
-					{
-						File.Delete(finalXcz2);
-					}
-					File.Move(generatedNsz2, finalXcz2);
+					finalXcz2 = await StormSwitchBox.Services.SafeFileOperations.SafeMoveOrReplaceFileAsync(generatedNsz2, finalXcz2, task, cts.Token);
 				}
 				try
 				{

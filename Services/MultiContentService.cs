@@ -226,12 +226,12 @@ namespace StormSwitchBox.Services
                             if (System.IO.File.Exists(tempHardPatchedNsp))
                             {
                                 long patchedSize = new FileInfo(tempHardPatchedNsp).Length;
-                                long referenceSize = Math.Max(baseSize, task.SourceSizeBytes);
-                                // Валидация: если исходная база > 50 МБ, а результат хардпатча меньше 50% базы — это поврежденный огрызок без RomFS!
-                                if (referenceSize > 50 * 1024 * 1024 && patchedSize < referenceSize * 0.5)
+                                long minValidSize = Math.Min(25L * 1024 * 1024, (long)(baseSize * 0.2));
+                                // Валидация: если исходная база > 50 МБ, а результат хардпатча меньше минимального порога (20% базы или < 25 МБ) — это поврежденный огрызок без RomFS!
+                                if (baseSize > 50 * 1024 * 1024 && patchedSize < minValidSize)
                                 {
-                                    App.Logger.Log($"[HardPatch] Размер пересобранного файла ({patchedSize} байт) аномально мал относительно базы ({referenceSize} байт). Откат к нативной сборке.", Models.LogLevel.Warning);
-                                    App.RunOnUI(() => task.LogDetails += $"\n⚠️ [HardPatch] Размер пересобранного файла ({Models.ProcessingTask.FormatSize(patchedSize)}) аномально мал относительно базы ({Models.ProcessingTask.FormatSize(referenceSize)}). Откат к нативному сшиванию мультиконтента...");
+                                    App.Logger.Log($"[HardPatch] Размер пересобранного файла ({patchedSize} байт) аномально мал относительно базы ({baseSize} байт). Откат к нативной сборке.", Models.LogLevel.Warning);
+                                    App.RunOnUI(() => task.LogDetails += $"\n⚠️ [HardPatch] Размер пересобранного файла ({Models.ProcessingTask.FormatSize(patchedSize)}) аномально мал относительно базы ({Models.ProcessingTask.FormatSize(baseSize)}). Откат к нативному сшиванию мультиконтента...");
                                     try { System.IO.File.Delete(tempHardPatchedNsp); } catch { }
                                 }
                                 else if (patchedSize > 0)
@@ -272,8 +272,7 @@ namespace StormSwitchBox.Services
                                 bool isTargetXciLocal = string.Equals(task.TargetFormat, "XCI", StringComparison.OrdinalIgnoreCase) || string.Equals(task.TargetFormat, "XCZ", StringComparison.OrdinalIgnoreCase);
                                 if (finalInputFilesList.Count == 1 && !isTargetXciLocal && !isCompressedFormat)
                                 {
-                                    if (File.Exists(outPath)) File.Delete(outPath);
-                                    File.Move(tempHardPatchedNsp, outPath);
+                                    outPath = await SafeFileOperations.SafeMoveOrReplaceFileAsync(tempHardPatchedNsp, outPath, task, cancellationToken);
                                     App.RunOnUI(() =>
                                     {
                                         if (System.IO.File.Exists(outPath))
@@ -442,8 +441,7 @@ namespace StormSwitchBox.Services
 
                                     if (producedNsp != null)
                                     {
-                                        if (File.Exists(targetNspPath)) try { File.Delete(targetNspPath); } catch { }
-                                        File.Move(producedNsp.FullName, targetNspPath);
+                                        targetNspPath = await SafeFileOperations.SafeMoveOrReplaceFileAsync(producedNsp.FullName, targetNspPath, task, cancellationToken);
                                         try { Directory.Delete(itemDecompDir, true); } catch { }
                                         processedScanList.Add(targetNspPath);
                                         continue;
@@ -735,8 +733,11 @@ namespace StormSwitchBox.Services
 
                 if (System.IO.File.Exists(generatedFile) && !generatedFile.Equals(intermediatePath, StringComparison.OrdinalIgnoreCase))
                 {
-                    if (System.IO.File.Exists(intermediatePath)) System.IO.File.Delete(intermediatePath);
-                    System.IO.File.Move(generatedFile, intermediatePath);
+                    intermediatePath = await SafeFileOperations.SafeMoveOrReplaceFileAsync(generatedFile, intermediatePath, task, cancellationToken);
+                    if (!isCompressedFormat)
+                    {
+                        outPath = intermediatePath;
+                    }
                 }
 
                 // Применяем кастомные метаданные / иконку, если они заданы пользователем (и еще не применены в HardPatch)
@@ -774,8 +775,7 @@ namespace StormSwitchBox.Services
                         {
                             if (!expectedNsz.Equals(finalCompressedPath, StringComparison.OrdinalIgnoreCase))
                             {
-                                if (System.IO.File.Exists(finalCompressedPath)) System.IO.File.Delete(finalCompressedPath);
-                                System.IO.File.Move(expectedNsz, finalCompressedPath);
+                                finalCompressedPath = await SafeFileOperations.SafeMoveOrReplaceFileAsync(expectedNsz, finalCompressedPath, task, cancellationToken);
                             }
                             compressionSuccess = true;
                         }

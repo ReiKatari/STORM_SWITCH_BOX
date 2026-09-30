@@ -399,7 +399,7 @@ namespace StormSwitchBox.Services
                         if (updateProc.ExitCode == 0)
                         {
                             var updateNsps = Directory.GetFiles(yanuOutDir, "*.nsp");
-                            long minAcceptableSize = (long)(baseSize * 0.5);
+                            long minAcceptableSize = Math.Min(25L * 1024 * 1024, (long)(baseSize * 0.2));
                             if (updateNsps.Length > 0 && (baseSize <= 50 * 1024 * 1024 || new FileInfo(updateNsps[0]).Length >= minAcceptableSize))
                             {
                                 yanuUpdateSuccess = true;
@@ -410,7 +410,7 @@ namespace StormSwitchBox.Services
                             {
                                 if (updateNsps.Length > 0)
                                 {
-                                    App.Logger.Log($"[yanu-cli] update exit=0, но размер NSP ({new FileInfo(updateNsps[0]).Length} байт) меньше 50% базы ({baseSize} байт). Удаляем поврежденный файл и переключаемся на unpack/pack.", Models.LogLevel.Warning);
+                                    App.Logger.Log($"[yanu-cli] update exit=0, но размер NSP ({new FileInfo(updateNsps[0]).Length} байт) меньше порога ({minAcceptableSize} байт). Удаляем поврежденный файл и переключаемся на unpack/pack.", Models.LogLevel.Warning);
                                     foreach (var f in updateNsps) try { File.Delete(f); } catch { }
                                 }
                                 else
@@ -568,7 +568,8 @@ namespace StormSwitchBox.Services
                 {
                     string genFile = generatedFiles.OrderByDescending(f => new FileInfo(f).CreationTime).First();
                     long genFileSize = new FileInfo(genFile).Length;
-                    if (baseSize > 50 * 1024 * 1024 && genFileSize < baseSize * 0.5)
+                    long minGenSize = Math.Min(25L * 1024 * 1024, (long)(baseSize * 0.2));
+                    if (baseSize > 50 * 1024 * 1024 && genFileSize < minGenSize)
                     {
                         throw new InvalidOperationException($"Размер сгенерированного файла ({genFileSize} байт) аномально мал относительно базы ({baseSize} байт). RomFS отсутствует.");
                     }
@@ -582,7 +583,7 @@ namespace StormSwitchBox.Services
                     string targetExt = System.IO.Path.GetExtension(outPath).ToLower();
                     if (targetExt == ".nsp")
                     {
-                        File.Move(genFile, outPath);
+                        await SafeFileOperations.SafeMoveOrReplaceFileAsync(genFile, outPath, task, cancellationToken);
                     }
                     else if (targetExt == ".xci" || targetExt == ".xcz")
                     {
@@ -599,7 +600,7 @@ namespace StormSwitchBox.Services
                             string expectedNsz = System.IO.Path.ChangeExtension(expectedXci, ".nsz");
                             if (File.Exists(expectedNsz))
                             {
-                                File.Move(expectedNsz, outPath);
+                                await SafeFileOperations.SafeMoveOrReplaceFileAsync(expectedNsz, outPath, task, cancellationToken);
                             }
                             // Сохраняем исходный XCI тоже рядом с XCZ
                             string finalXci = System.IO.Path.ChangeExtension(outPath, ".xci");
@@ -610,7 +611,7 @@ namespace StormSwitchBox.Services
                         }
                         else if (File.Exists(expectedXci))
                         {
-                            File.Move(expectedXci, outPath);
+                            await SafeFileOperations.SafeMoveOrReplaceFileAsync(expectedXci, outPath, task, cancellationToken);
                         }
                     }
                     else if (targetExt == ".nsz")
@@ -622,7 +623,7 @@ namespace StormSwitchBox.Services
                         string expectedNsz = System.IO.Path.ChangeExtension(System.IO.Path.Combine(outDirF, System.IO.Path.GetFileName(genFile)), ".nsz");
                         if (File.Exists(expectedNsz))
                         {
-                            File.Move(expectedNsz, outPath);
+                            await SafeFileOperations.SafeMoveOrReplaceFileAsync(expectedNsz, outPath, task, cancellationToken);
                             // Если это отдельная задача (не мультиконтент), также сохраняем NSP рядом
                             if (!isMultiContent)
                             {

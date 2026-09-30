@@ -1063,8 +1063,7 @@ namespace StormSwitchBox.Services
                         var genFiles = System.IO.Directory.GetFiles(tempOut, "*.nsp");
                         if (genFiles.Length > 0)
                         {
-                            if (System.IO.File.Exists(outPath)) System.IO.File.Delete(outPath);
-                            System.IO.File.Move(genFiles[0], outPath);
+                            outPath = await SafeFileOperations.SafeMoveOrReplaceFileAsync(genFiles[0], outPath, task, cancellationToken);
                         }
                         else
                         {

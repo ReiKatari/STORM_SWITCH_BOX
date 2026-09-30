@@ -145,6 +145,11 @@ namespace StormSwitchBox.Services
                             continue;
                         }
 
+                        if (IsFileLockedByActiveTask(filePath))
+                        {
+                            continue;
+                        }
+
                         long currentSize = GetFileSizeSafe(filePath);
                         if (currentSize <= 0) continue;
 
@@ -302,6 +307,11 @@ namespace StormSwitchBox.Services
                             continue;
                         }
 
+                        if (IsFileLockedByActiveTask(filePath))
+                        {
+                            continue;
+                        }
+
                         long currentSize = GetFileSizeSafe(filePath);
                         if (currentSize <= 0) continue;
 
@@ -373,6 +383,54 @@ namespace StormSwitchBox.Services
                 }
             }
             catch { return false; }
+        }
+
+        private static bool IsFileLockedByActiveTask(string filePath)
+        {
+            try
+            {
+                if (App.TasksVM?.Tasks == null) return false;
+                var runningTasks = App.TasksVM.Tasks.Where(t => t.IsRunning).ToList();
+                if (runningTasks.Count == 0) return false;
+
+                string normalizedTarget = Path.GetFullPath(filePath);
+
+                foreach (var task in runningTasks)
+                {
+
+                    if (!string.IsNullOrEmpty(task.OutputFolder))
+                    {
+                        string targetDir = Path.GetFullPath(task.OutputFolder);
+                        string fileDir = Path.GetDirectoryName(normalizedTarget) ?? "";
+
+                        if (string.Equals(targetDir, fileDir, StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (!string.IsNullOrEmpty(task.OutputFileName))
+                            {
+                                string fileNameNoExt = Path.GetFileNameWithoutExtension(normalizedTarget);
+                                if (string.Equals(task.OutputFileName, fileNameNoExt, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+
+                    if (task.InputFiles != null)
+                    {
+                        foreach (var input in task.InputFiles)
+                        {
+                            if (!string.IsNullOrEmpty(input) &&
+                                string.Equals(Path.GetFullPath(input), normalizedTarget, StringComparison.OrdinalIgnoreCase))
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+            return false;
         }
 
         #endregion
