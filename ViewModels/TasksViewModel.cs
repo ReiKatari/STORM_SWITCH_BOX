@@ -1699,7 +1699,12 @@ public partial class TasksViewModel : ObservableObject
 				task.Status = "Ошибка";
 				task.IsRunning = false;
 				ProcessingTask processingTask = task;
-				processingTask.LogDetails = processingTask.LogDetails + "\nКритическая ошибка: " + ex3.Message;
+				string errMsg = !string.IsNullOrWhiteSpace(ex3.Message) ? ex3.Message : ex3.GetType().Name;
+				if (ex3.InnerException != null && !string.IsNullOrWhiteSpace(ex3.InnerException.Message))
+				{
+					errMsg += $" ({ex3.InnerException.Message})";
+				}
+				processingTask.LogDetails = processingTask.LogDetails + "\nКритическая ошибка: " + errMsg;
 				AppendStyledSummary(task, task.Status);
 				HistoryService.AddToHistory(task);
 			});

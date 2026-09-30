@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Threading.Channels;
@@ -25,10 +25,18 @@ namespace StormSwitchBox.Services
                 _dispatcherQueue = null;
             }
             
-            var logsDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "logs");
-            if (!Directory.Exists(logsDir))
+            string logsDir;
+            try
             {
-                Directory.CreateDirectory(logsDir);
+                logsDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "StormSwitchBox", "logs");
+                if (!Directory.Exists(logsDir))
+                {
+                    Directory.CreateDirectory(logsDir);
+                }
+            }
+            catch
+            {
+                logsDir = Path.GetTempPath();
             }
             
             _logFilePath = Path.Combine(logsDir, $"session_{DateTime.Now:yyyyMMdd_HHmmss}.log");

@@ -992,7 +992,12 @@ namespace StormSwitchBox.Services
             }
             catch (Exception ex)
             {
-                App.RunOnUI(() => { task.Status = "Ошибка"; task.IsRunning = false; task.LogDetails += $"\n🔴 [Ошибка] {ex.Message}"; StormSwitchBox.Services.HistoryService.AddToHistory(task); });
+                string errText = !string.IsNullOrWhiteSpace(ex.Message) ? ex.Message : ex.GetType().Name;
+                if (ex.InnerException != null && !string.IsNullOrWhiteSpace(ex.InnerException.Message))
+                {
+                    errText += $" ({ex.InnerException.Message})";
+                }
+                App.RunOnUI(() => { task.Status = "Ошибка"; task.IsRunning = false; task.LogDetails += $"\n🔴 [Ошибка] {errText}"; StormSwitchBox.Services.HistoryService.AddToHistory(task); });
                 string operationName = task.Operation == "Update" ? "обновления" : "сборки мульти-контента";
                 App.Logger.Log($"Ошибка {operationName}: {ex.ToString()}", LogLevel.Error);
             }

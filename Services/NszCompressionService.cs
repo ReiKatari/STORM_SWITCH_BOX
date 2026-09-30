@@ -131,7 +131,7 @@ namespace StormSwitchBox.Services
                 {
                     // Update log details without overwriting initial SourceSizeBytes
                     if (task.SourceSizeBytes <= 0) task.SourceSizeBytes = totalBytes;
-                    task.LogDetails = $"Загрузка: {System.IO.Path.GetFileName(inputPath)}\nРазмер: {Models.ProcessingTask.FormatSize(totalBytes)}\nЗапуск Zstd...";
+                    task.LogDetails += $"\n🟡 [Сжатие NSZ] Загрузка: {System.IO.Path.GetFileName(inputPath)} ({Models.ProcessingTask.FormatSize(totalBytes)})\n     Запуск Zstd сжатия...";
                     task.Status = "Сжатие NSZ...";
                 });
 
@@ -791,7 +791,7 @@ namespace StormSwitchBox.Services
                 task.Status = "Сжатие Block NSZ (1 МБ)...";
                 task.IsRunning = true;
                 task.Progress = 0;
-                task.LogDetails = $"Загрузка: {System.IO.Path.GetFileName(inputPath)}\nРазмер: {Models.ProcessingTask.FormatSize(totalBytes)}\nЗапуск блочного сжатия (--block, 1 МБ, Zstandard)...";
+                task.LogDetails += $"\n⚡ [Block NSZ] Загрузка: {System.IO.Path.GetFileName(inputPath)} ({Models.ProcessingTask.FormatSize(totalBytes)})\n     Запуск блочного сжатия (--block, 1 МБ, Zstandard)...";
             });
 
             if (!System.IO.File.Exists(nszExe))
@@ -817,79 +817,76 @@ namespace StormSwitchBox.Services
             }
 
             int level = Math.Clamp(App.Settings.Current.CompressionLevel, 1, 22);
-            string args = $"-C -B -s 20 -l {level} -t 0 --overwrite {keysParam} -o \"{outDir}\" \"{inputPath}\"".Trim();
 
-            var psi = new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = nszExe,
-                Arguments = args,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true,
-                StandardOutputEncoding = System.Text.Encoding.UTF8,
-                StandardErrorEncoding = System.Text.Encoding.UTF8
-            };
+            // Создаем изолированный чистый временный каталог для сжатия на том же диске,
+            // чтобы nsz.exe не сканировал существующие файлы в целевой библиотеке (GAMES)
+            string targetDrive = System.IO.Path.GetPathRoot(System.IO.Path.GetFullPath(outDir)) ?? "";
+            string tempCompressDir = !string.IsNullOrEmpty(targetDrive) && System.IO.Directory.Exists(targetDrive)
+                ? System.IO.Path.Combine(targetDrive, "STORM_TMP", "SC_" + Guid.NewGuid().ToString("N").Substring(0, 8))
+                : System.IO.Path.Combine(System.IO.Path.GetTempPath(), "StormCompress_" + Guid.NewGuid().ToString("N").Substring(0, 8));
 
-            var proc = new System.Diagnostics.Process { StartInfo = psi };
-            proc.OutputDataReceived += (s, e) =>
+            System.IO.Directory.CreateDirectory(tempCompressDir);
+            TempCleanupService.RegisterActiveTempDirectory(tempCompressDir);
+
+            try
             {
-                if (!string.IsNullOrWhiteSpace(e.Data))
+                string args = $"-C -B -s 20 -l {level} -t 0 --overwrite {keysParam} -o \"{tempCompressDir}\" \"{inputPath}\"".Trim();
+
+                int exitCode = await ExternalProcessRunner.RunAsync(
+                    nszExe,
+                    args,
+                    workingDirectory: System.IO.Path.GetDirectoryName(nszExe) ?? "",
+                    task: task,
+                    cancellationToken: cancellationToken
+                );
+
+                if (exitCode != 0)
                 {
-                    string line = e.Data.Trim();
-                    var m = System.Text.RegularExpressions.Regex.Match(line, @"(\d{1,3})%");
-                    if (m.Success && double.TryParse(m.Groups[1].Value, out double pct))
-                    {
-                        App.RunOnUI(() =>
-                        {
-                            task.Progress = Math.Clamp(pct, 0, 99.5);
-                            task.Status = $"Block сжатие: {pct:F0}%";
-                        });
-                    }
+                    throw new Exception($"Ошибка сжатия nsz.exe (код завершения {exitCode})");
                 }
-            };
 
-            proc.Start();
-            proc.BeginOutputReadLine();
-            proc.BeginErrorReadLine();
-
-            using (cancellationToken.Register(() => { try { proc.Kill(true); } catch { } }))
-            {
-                await proc.WaitForExitAsync(cancellationToken);
-            }
-
-            if (proc.ExitCode != 0)
-            {
-                throw new Exception($"Ошибка сжатия nsz.exe (код завершения {proc.ExitCode})");
-            }
-
-            if (!File.Exists(outNszPath))
-            {
-                var candidates = Directory.GetFiles(outDir, "*" + expectedExt)
-                    .OrderByDescending(f => File.GetLastWriteTimeUtc(f))
+                // Ищем результат в изолированном временном каталоге
+                string? generatedNsz = null;
+                var candidates = System.IO.Directory.GetFiles(tempCompressDir, "*" + expectedExt)
+                    .OrderByDescending(f => new FileInfo(f).Length)
                     .ToList();
-                if (candidates.Count > 0) outNszPath = candidates[0];
-            }
-
-            if (File.Exists(outNszPath))
-            {
-                long finalSize = new FileInfo(outNszPath).Length;
-                double ratio = (double)finalSize / totalBytes * 100.0;
-                long diff = totalBytes - finalSize;
-                double percent = (double)diff / totalBytes * 100.0;
-
-                App.RunOnUI(() =>
+                if (candidates.Count > 0)
                 {
-                    task.Progress = 100;
-                    task.Status = "Успешно";
-                    task.IsRunning = false;
-                    task.LogDetails += $"\n⚡ [Block NSZ] Блочное сжатие (1 МБ) завершено!\nИтог: {Models.ProcessingTask.FormatSize(finalSize)} ({ratio:F1}% от оригинала, экономия {Math.Abs(percent):F1}%)";
-                    task.TargetSize = Models.ProcessingTask.FormatSize(finalSize);
-                    task.SizeDifference = $"{(diff > 0 ? "-" : "+")}{Models.ProcessingTask.FormatSize(Math.Abs(diff))} ({Math.Abs(percent):F1}%)";
-                    HistoryService.AddToHistory(task);
-                });
+                    generatedNsz = candidates[0];
+                }
 
-                App.Logger.Log($"[NSZ Engine] Блочное сжатие Block NSZ (1 МБ) успешно: {fileName}. Экономия: {100 - ratio:F1}%", LogLevel.Success);
+                if (string.IsNullOrEmpty(generatedNsz) || !System.IO.File.Exists(generatedNsz))
+                {
+                    throw new FileNotFoundException($"Сжатый файл {expectedExt} не найден после работы nsz.exe в {tempCompressDir}");
+                }
+
+                // Перемещаем готовый сжатый файл в целевой каталог с гарантией защиты от блокировок
+                outNszPath = await SafeFileOperations.SafeMoveOrReplaceFileAsync(generatedNsz, outNszPath, task, cancellationToken);
+
+                if (System.IO.File.Exists(outNszPath))
+                {
+                    long finalSize = new FileInfo(outNszPath).Length;
+                    double ratio = (double)finalSize / totalBytes * 100.0;
+                    long diff = totalBytes - finalSize;
+                    double percent = (double)diff / totalBytes * 100.0;
+
+                    App.RunOnUI(() =>
+                    {
+                        task.Progress = 100;
+                        task.Status = "Успешно";
+                        task.IsRunning = false;
+                        task.LogDetails += $"\n⚡ [Block NSZ] Блочное сжатие (1 МБ) завершено!\n     Итог: {Models.ProcessingTask.FormatSize(finalSize)} ({ratio:F1}% от оригинала, экономия {Math.Abs(percent):F1}%)";
+                        task.TargetSize = Models.ProcessingTask.FormatSize(finalSize);
+                        task.SizeDifference = $"{(diff > 0 ? "-" : "+")}{Models.ProcessingTask.FormatSize(Math.Abs(diff))} ({Math.Abs(percent):F1}%)";
+                        HistoryService.AddToHistory(task);
+                    });
+
+                    App.Logger.Log($"[NSZ Engine] Блочное сжатие Block NSZ (1 МБ) успешно: {fileName}. Экономия: {100 - ratio:F1}%", LogLevel.Success);
+                }
+            }
+            finally
+            {
+                TempCleanupService.ForceDeleteDirectory(tempCompressDir);
             }
         }
     }
