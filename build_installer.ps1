@@ -157,16 +157,7 @@ try {
     Import-Certificate -FilePath $cerRoot -CertStoreLocation "Cert:\CurrentUser\Root" -ErrorAction SilentlyContinue | Out-Null
 } catch { }
 
-# Step 5: Packaging Smart App Control Setup Bundle
-Write-Host "[6/6] Packaging Setup Bundle..." -ForegroundColor Yellow
-if (Test-Path $bundleZipPath) { Remove-Item $bundleZipPath -Force -ErrorAction SilentlyContinue }
-if (Test-Path "$baseDir\tools\7z.exe") {
-    $unblockFiles = Get-ChildItem -Path $filesDir -Filter "*.bat" | Select-Object -ExpandProperty FullName
-    $bundleItems = @($outputSetupExePath, $cerOutput)
-    if ($unblockFiles) { $bundleItems += $unblockFiles }
-    & "$baseDir\tools\7z.exe" a -tzip -mx=7 -mmt=on $bundleZipPath @bundleItems
-    Copy-Item $bundleZipPath $filesDir -Force
-}
+# Removed Setup Bundle generation as per user request.
 
 # Step 6: Unblock output files
 Get-ChildItem -Path $outputDir, $filesDir -Recurse -Include *.exe, *.dll, *.bat, *.cmd, *.ps1, *.cer -ErrorAction SilentlyContinue | ForEach-Object {
@@ -177,8 +168,8 @@ Write-Host "============================================================" -Foreg
 Write-Host "BUILD AND PACKAGING COMPLETED ACCORDING TO STORM STANDARDS!" -ForegroundColor Green
 Write-Host "1. Installer (Files):     $setupExePath" -ForegroundColor Green
 Write-Host "2. Installer (Output):    $outputSetupExePath" -ForegroundColor Green
-Write-Host "3. Setup Bundle:          $bundleZipPath" -ForegroundColor Green
 Write-Host "4. Portable Archive:      $portableZipPath" -ForegroundColor Green
 Write-Host "5. Certificate:           $cerOutput" -ForegroundColor Green
 Write-Host "============================================================" -ForegroundColor Green
+
 
