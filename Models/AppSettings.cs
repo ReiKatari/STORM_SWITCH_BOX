@@ -6,7 +6,7 @@ namespace StormSwitchBox.Models
     public class AppSettings
     {
         // Окно
-        public string AppVersion { get; set; } = "5.0.14";
+        public string AppVersion { get; set; } = "5.0.15";
         public string Language { get; set; } = "ru"; // ru, en, de, zh, ja
         public int WindowX { get; set; } = -1;
         public int WindowY { get; set; } = -1;
@@ -105,3 +105,4 @@ namespace StormSwitchBox.Models
         public Dictionary<string, int> ColumnWidths { get; set; } = new();
     }
 }
+

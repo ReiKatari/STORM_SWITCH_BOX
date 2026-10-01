@@ -16,9 +16,9 @@
     <PublishReadyToRun>false</PublishReadyToRun>
     <TieredCompilation>true</TieredCompilation>
     <SuppressNETCoreSdkPreviewMessage>true</SuppressNETCoreSdkPreviewMessage>
-    <Version>5.0.14</Version>
-    <AssemblyVersion>5.0.14.0</AssemblyVersion>
-    <FileVersion>5.0.14.0</FileVersion>
+    <Version>5.0.15</Version>
+    <AssemblyVersion>5.0.15.0</AssemblyVersion>
+    <FileVersion>5.0.15.0</FileVersion>
     <ApplicationIcon>storm_switch_box.ico</ApplicationIcon>
     <DefaultItemExcludes>$(DefaultItemExcludes);obj\**;bin\**;installer\**;Assembling\**;Files\**;publish\**;temp\**;*.bmp;*.zip;*.cer;*.pfx;*.log</DefaultItemExcludes>
   </PropertyGroup>
@@ -75,3 +75,4 @@
     <Exec Command="powershell -ExecutionPolicy Bypass -Command &quot;$store = New-Object System.Security.Cryptography.X509Certificates.X509Store('My', 'CurrentUser'); $store.Open('ReadOnly'); $cert = $store.Certificates | Where-Object { $_.Subject -like '*CN=StormSwitchBox*' -and $_.Subject -notlike '*Dev*' } | Select-Object -First 1; $store.Close(); if ($cert) { &amp; 'C:\Program Files (x86)\Windows Kits\10\bin\10.0.28000.0\x64\signtool.exe' sign /fd SHA256 /a /sha1 $cert.Thumbprint '$(PublishDir)$(TargetName).exe' }&quot;" ContinueOnError="true" />
   </Target>
 </Project>
+
