@@ -280,8 +280,11 @@ namespace StormSwitchBox.Services
             });
         }
 
+        private static readonly SemaphoreSlim _saveLock = new SemaphoreSlim(1, 1);
+
         public static async Task SaveHistoryAsync()
         {
+            await _saveLock.WaitAsync();
             try
             {
                 var json = JsonSerializer.Serialize(HistoryTasks, new JsonSerializerOptions { WriteIndented = true });
@@ -290,6 +293,10 @@ namespace StormSwitchBox.Services
             catch (Exception ex)
             {
                 App.Logger.Log($"Ошибка сохранения истории: {ex.Message}", LogLevel.Error);
+            }
+            finally
+            {
+                _saveLock.Release();
             }
         }
 
