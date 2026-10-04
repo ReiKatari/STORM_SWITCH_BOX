@@ -59,34 +59,34 @@ namespace StormSwitchBox.Services
             {
                 App.RunOnUI(() =>
                 {
-                    App.RunOnUI(() => { task.Status = "РђРЅР°Р»РёР· С„Р°Р№Р»РѕРІ..."; });
+                    App.RunOnUI(() => { task.Status = "Анализ файлов..."; });
                     App.RunOnUI(() => { task.IsRunning = true; });
                     App.RunOnUI(() => { task.Progress = 0; });
-                    task.LogDetails += $"\nрџ“‹ [РќР°СЃС‚СЂРѕР№РєРё] Р¤Р°Р№Р»РѕРІ: {inputFiles.Count} | HardPatch: {(patchFirmware ? "Р”Р°" : "РќРµС‚")}";
+                    task.LogDetails += $"\n📋 [Настройки] Файлов: {inputFiles.Count} | HardPatch: {(patchFirmware ? "Да" : "Нет")}";
                 });
 
-                if (!_keysService.IsLoaded) throw new Exception("РћС‚СЃСѓС‚СЃС‚РІСѓСЋС‚ РєСЂРёРїС‚РѕРіСЂР°С„РёС‡РµСЃРєРёРµ РєР»СЋС‡Рё (prod.keys). РџРѕР¶Р°Р»СѓР№СЃС‚Р°, РІС‹Р±РµСЂРёС‚Рµ РёС… РІ РїР°СЂР°РјРµС‚СЂР°С….");
+                if (!_keysService.IsLoaded) throw new Exception("Отсутствуют криптографические ключи (prod.keys). Пожалуйста, выберите их в параметрах.");
 
 
-                // РђРЅР°Р»РёР· С„Р°Р№Р»РѕРІ
+                // Анализ файлов
                 foreach (var f in inputFiles)
                 {
                     // var info = App.SwitchFormat.ParseNsp(f);
                 }
 
-                // Р•СЃР»Рё СЌС‚Рѕ СЃР±РѕСЂРєР° 1G+1U РёР»Рё 1G+1U+1M, РјС‹ РґРµР»РµРіРёСЂСѓРµРј СЃР±РѕСЂРєСѓ РЅР°РїСЂСЏРјСѓСЋ РІ NSC_Builder.
-                // Р”Р»СЏ 1G+1U+1M СЃСЋРґР° РїСЂРёС…РѕРґРёС‚ С‚РѕР»СЊРєРѕ РѕРґРёРЅ С„Р°Р№Р»: prepatch.nsp (РєРѕС‚РѕСЂС‹Р№ СѓР¶Рµ СЃРѕРґРµСЂР¶РёС‚ СЃР»РёС‚С‹Рµ РґР°РЅРЅС‹Рµ Р±Р°Р·С‹, РїР°С‚С‡Р° Рё РјРѕРґР°).
-                // Р­С‚Рѕ РёР·Р±РµРіР°РµС‚ СЃРѕР·РґР°РЅРёСЏ РєСЂРёРІРѕРіРѕ "СЃС‹СЂРѕРіРѕ" PFS0 Рё РїРѕР·РІРѕР»СЏРµС‚ squirrel.exe РїСЂР°РІРёР»СЊРЅРѕ СЃР»РёС‚СЊ CNMT РёР»Рё РїСЂРѕРїР°С‚С‡РёС‚СЊ РІРµСЂСЃРёСЋ.
+                // Если это сборка 1G+1U или 1G+1U+1M, мы делегируем сборку напрямую в NSC_Builder.
+                // Для 1G+1U+1M сюда приходит только один файл: prepatch.nsp (который уже содержит слитые данные базы, патча и мода).
+                // Это избегает создания кривого "сырого" PFS0 и позволяет squirrel.exe правильно слить CNMT или пропатчить версию.
                 string targetDir = System.IO.Path.GetDirectoryName(outPath) ?? string.Empty;
                 if (!string.IsNullOrEmpty(targetDir) && !System.IO.Directory.Exists(targetDir))
                     System.IO.Directory.CreateDirectory(targetDir);
 
-                // РџР°СЂР°Р»Р»РµР»СЊРЅР°СЏ РґРµРєРѕРјРїСЂРµСЃСЃРёСЏ NSZ/XCZ (Pipeline Parallelism)
-                App.RunOnUI(() => task.LogDetails += "\nрџџЈ [Р”РµРєРѕРјРїСЂРµСЃСЃРёСЏ] Р Р°СЃРїР°РєРѕРІРєР° NSZ/XCZ...");
+                // Параллельная декомпрессия NSZ/XCZ (Pipeline Parallelism)
+                App.RunOnUI(() => task.LogDetails += "\n🟣 [Декомпрессия] Распаковка NSZ/XCZ...");
                 
                 var finalInputFiles = new System.Collections.Concurrent.ConcurrentBag<string>();
                 string targetDrive = System.IO.Path.GetPathRoot(targetDir) ?? "C:\\";
-                // Р’СЃРµРіРґР° СЂР°Р·РјРµС‰Р°РµРј РІСЂРµРјРµРЅРЅС‹Р№ РєР°С‚Р°Р»РѕРі Р±Р»РёР·РєРѕ Рє РєРѕСЂРЅСЋ С†РµР»РµРІРѕРіРѕ РґРёСЃРєР° РґР»СЏ РіР°СЂР°РЅС‚РёСЂРѕРІР°РЅРЅРѕР№ Р·Р°С‰РёС‚С‹ РѕС‚ Р»РёРјРёС‚Р° MAX_PATH (260 СЃРёРјРІРѕР»РѕРІ)
+                // Всегда размещаем временный каталог близко к корню целевого диска для гарантированной защиты от лимита MAX_PATH (260 символов)
                 tempDecompDir = System.IO.Path.Combine(targetDrive, "STORM_TMP", "SD_" + Guid.NewGuid().ToString("N").Substring(0, 6));
                 Directory.CreateDirectory(tempDecompDir);
                 TempCleanupService.RegisterActiveTempDirectory(tempDecompDir);
@@ -103,7 +103,7 @@ namespace StormSwitchBox.Services
                         }
                         else
                         {
-                            throw new Exception($"РќР°С‚РёРІРЅР°СЏ РґРµРєРѕРјРїСЂРµСЃСЃРёСЏ С„Р°Р№Р»Р° {System.IO.Path.GetFileName(f)} Р·Р°РІРµСЂС€РёР»Р°СЃСЊ СЃ РѕС€РёР±РєРѕР№.");
+                            throw new Exception($"Нативная декомпрессия файла {System.IO.Path.GetFileName(f)} завершилась с ошибкой.");
                         }
                     }
                     else
@@ -132,7 +132,7 @@ namespace StormSwitchBox.Services
                 }
                 else
                 {
-                    // Р”Р»СЏ С‡РёСЃС‚РѕРіРѕ СЃР¶Р°С‚РѕРіРѕ С„РѕСЂРјР°С‚Р° (NSZ/XCZ) РЅРµСЃР¶Р°С‚С‹Р№ С„Р°Р№Р» С„РѕСЂРјРёСЂСѓРµС‚СЃСЏ РёСЃРєР»СЋС‡РёС‚РµР»СЊРЅРѕ РІРѕ РІСЂРµРјРµРЅРЅРѕРј РєР°С‚Р°Р»РѕРіРµ
+                    // Для чистого сжатого формата (NSZ/XCZ) несжатый файл формируется исключительно во временном каталоге
                     intermediatePath = System.IO.Path.Combine(tempDecompDir, "inter_" + Guid.NewGuid().ToString("N").Substring(0, 6) + uncompressedExt);
                 }
 
@@ -147,15 +147,15 @@ namespace StormSwitchBox.Services
                      d.Contains("romfs", StringComparison.OrdinalIgnoreCase) || 
                      d.Contains("exefs", StringComparison.OrdinalIgnoreCase) ||
                      d.Contains("cheat", StringComparison.OrdinalIgnoreCase) ||
-                     d.Contains("С‡РёС‚", StringComparison.OrdinalIgnoreCase) ||
+                     d.Contains("чит", StringComparison.OrdinalIgnoreCase) ||
                      d.Contains("mod", StringComparison.OrdinalIgnoreCase) ||
-                     d.Contains("РјРѕРґ", StringComparison.OrdinalIgnoreCase)));
+                     d.Contains("мод", StringComparison.OrdinalIgnoreCase)));
 
                 string? savedBaseFile = null;
                 string? savedUpdateFile = null;
                 bool hasPatchedBase = false;
 
-                // 4. РџРѕРёСЃРє Base Рё Update Рё СѓРјРЅС‹Р№ Р°РЅР°Р»РёР· РјРµС‚РѕРґР° СЃР±РѕСЂРєРё (Smart Processing)
+                // 4. Поиск Base и Update и умный анализ метода сборки (Smart Processing)
                 string? baseFile = null;
                 string? updateFile = null;
                 string titleIdStr = "";
@@ -211,7 +211,7 @@ namespace StormSwitchBox.Services
                         savedBaseFile = baseFile;
                         savedUpdateFile = updateFile;
 
-                        App.RunOnUI(() => task.LogDetails += "\nрџ”µ [HardPatch] РЈРјРЅР°СЏ РјРѕРЅРѕР»РёС‚РЅР°СЏ РїРµСЂРµСЃР±РѕСЂРєР° RomFS (РѕР±СЉРµРґРёРЅРµРЅРёРµ Р±Р°Р·С‹, РѕР±РЅРѕРІР»РµРЅРёР№ Рё РјРѕРґРѕРІ)...");
+                        App.RunOnUI(() => task.LogDetails += "\n🔵 [HardPatch] Умная монолитная пересборка RomFS (объединение базы, обновлений и модов)...");
                         if (string.IsNullOrEmpty(titleIdStr))
                         {
                             try {
@@ -223,7 +223,7 @@ namespace StormSwitchBox.Services
                             }
                         }
 
-                        // РР·РІР»РµС‡РµРЅРёРµ С‚РѕРєРµРЅРѕРІ СЂР°Р·Р±Р»РѕРєРёСЂРѕРІРєРё РёР· Unlocker DLC РґР»СЏ РїСЂСЏРјРѕР№ РёРЅС‚РµРіСЂР°С†РёРё РІ RomFS РёРіСЂС‹
+                        // Извлечение токенов разблокировки из Unlocker DLC для прямой интеграции в RomFS игры
                         var unlockerRomfsDirs = ExtractUnlockerRomFsDirectories(finalInputFilesList, tempDecompDir, titleIdStr, task, cancellationToken);
                         if (unlockerRomfsDirs.Count > 0)
                         {
@@ -250,11 +250,11 @@ namespace StormSwitchBox.Services
                             {
                                 long patchedSize = new FileInfo(tempHardPatchedNsp).Length;
                                 long minValidSize = Math.Min(25L * 1024 * 1024, (long)(baseSize * 0.2));
-                                // Р’Р°Р»РёРґР°С†РёСЏ: РµСЃР»Рё РёСЃС…РѕРґРЅР°СЏ Р±Р°Р·Р° > 50 РњР‘, Р° СЂРµР·СѓР»СЊС‚Р°С‚ С…Р°СЂРґРїР°С‚С‡Р° РјРµРЅСЊС€Рµ РјРёРЅРёРјР°Р»СЊРЅРѕРіРѕ РїРѕСЂРѕРіР° (20% Р±Р°Р·С‹ РёР»Рё < 25 РњР‘) вЂ” СЌС‚Рѕ РїРѕРІСЂРµР¶РґРµРЅРЅС‹Р№ РѕРіСЂС‹Р·РѕРє Р±РµР· RomFS!
+                                // Валидация: если исходная база > 50 МБ, а результат хардпатча меньше минимального порога (20% базы или < 25 МБ) — это поврежденный огрызок без RomFS!
                                 if (baseSize > 50 * 1024 * 1024 && patchedSize < minValidSize)
                                 {
-                                    App.Logger.Log($"[HardPatch] Р Р°Р·РјРµСЂ РїРµСЂРµСЃРѕР±СЂР°РЅРЅРѕРіРѕ С„Р°Р№Р»Р° ({patchedSize} Р±Р°Р№С‚) Р°РЅРѕРјР°Р»СЊРЅРѕ РјР°Р» РѕС‚РЅРѕСЃРёС‚РµР»СЊРЅРѕ Р±Р°Р·С‹ ({baseSize} Р±Р°Р№С‚). РћС‚РєР°С‚ Рє РЅР°С‚РёРІРЅРѕР№ СЃР±РѕСЂРєРµ.", Models.LogLevel.Warning);
-                                    App.RunOnUI(() => task.LogDetails += $"\nвљ пёЏ [HardPatch] Р Р°Р·РјРµСЂ РїРµСЂРµСЃРѕР±СЂР°РЅРЅРѕРіРѕ С„Р°Р№Р»Р° ({Models.ProcessingTask.FormatSize(patchedSize)}) Р°РЅРѕРјР°Р»СЊРЅРѕ РјР°Р» РѕС‚РЅРѕСЃРёС‚РµР»СЊРЅРѕ Р±Р°Р·С‹ ({Models.ProcessingTask.FormatSize(baseSize)}). РћС‚РєР°С‚ Рє РЅР°С‚РёРІРЅРѕРјСѓ СЃС€РёРІР°РЅРёСЋ РјСѓР»СЊС‚РёРєРѕРЅС‚РµРЅС‚Р°...");
+                                    App.Logger.Log($"[HardPatch] Размер пересобранного файла ({patchedSize} байт) аномально мал относительно базы ({baseSize} байт). Откат к нативной сборке.", Models.LogLevel.Warning);
+                                    App.RunOnUI(() => task.LogDetails += $"\n⚠️ [HardPatch] Размер пересобранного файла ({Models.ProcessingTask.FormatSize(patchedSize)}) аномально мал относительно базы ({Models.ProcessingTask.FormatSize(baseSize)}). Откат к нативному сшиванию мультиконтента...");
                                     try { System.IO.File.Delete(tempHardPatchedNsp); } catch { }
                                 }
                                 else if (patchedSize > 0)
@@ -265,8 +265,8 @@ namespace StormSwitchBox.Services
                         }
                         catch (Exception ex)
                         {
-                            App.Logger.Log($"[HardPatch] РСЃРєР»СЋС‡РµРЅРёРµ РјРѕРЅРѕР»РёС‚РЅРѕРіРѕ СЃР»РёСЏРЅРёСЏ: {ex.Message}. РћС‚РєР°С‚ Рє РЅР°С‚РёРІРЅРѕРјСѓ СЃС€РёРІР°РЅРёСЋ РјСѓР»СЊС‚РёРєРѕРЅС‚РµРЅС‚Р°.", Models.LogLevel.Warning);
-                            App.RunOnUI(() => task.LogDetails += $"\nвљ пёЏ [HardPatch] РњРѕРЅРѕР»РёС‚РЅРѕРµ СЃР»РёСЏРЅРёРµ РЅРµРІРѕР·РјРѕР¶РЅРѕ ({ex.Message}). Р’С‹РїРѕР»РЅСЏРµС‚СЃСЏ РѕС‚РєР°С‚ Рє РїСЂСЏРјРѕРјСѓ СЃС€РёРІР°РЅРёСЋ РѕСЂРёРіРёРЅР°Р»СЊРЅС‹С… СЂР°Р·РґРµР»РѕРІ...");
+                            App.Logger.Log($"[HardPatch] Исключение монолитного слияния: {ex.Message}. Откат к нативному сшиванию мультиконтента.", Models.LogLevel.Warning);
+                            App.RunOnUI(() => task.LogDetails += $"\n⚠️ [HardPatch] Монолитное слияние невозможно ({ex.Message}). Выполняется откат к прямому сшиванию оригинальных разделов...");
                             try { if (System.IO.File.Exists(tempHardPatchedNsp)) System.IO.File.Delete(tempHardPatchedNsp); } catch { }
                         }
 
@@ -274,14 +274,14 @@ namespace StormSwitchBox.Services
                         {
                             if (task.IsMultiProgramTitle)
                             {
-                                // РњСѓР»СЊС‚Рё-РїСЂРѕРіСЂР°РјРјРЅС‹Р№ СЃР±РѕСЂРЅРёРє (РЅР°РїСЂ. AC Ezio Collection СЃ РЅРµСЃРєРѕР»СЊРєРёРјРё РЅРµР·Р°РІРёСЃРёРјС‹РјРё Application TitleID)
-                                App.RunOnUI(() => task.LogDetails += $"\nвљ пёЏ [HardPatch] РњСѓР»СЊС‚Рё-РїСЂРѕРіСЂР°РјРјРЅС‹Р№ СЃР±РѕСЂРЅРёРє. РСЃРїРѕР»СЊР·СѓРµРј РѕСЂРёРіРёРЅР°Р»СЊРЅС‹Рµ СЂР°Р·РґРµР»С‹ РґР»СЏ СЃРѕС…СЂР°РЅРµРЅРёСЏ РІСЃРµС… РїРѕРґ-РёРіСЂ.");
+                                // Мульти-программный сборник (напр. AC Ezio Collection с несколькими независимыми Application TitleID)
+                                App.RunOnUI(() => task.LogDetails += $"\n⚠️ [HardPatch] Мульти-программный сборник. Используем оригинальные разделы для сохранения всех под-игр.");
                                 App.Logger.Log($"[HardPatch] Multi-program title detected. Discarding patched_base, using originals.", Models.LogLevel.Warning);
                                 try { System.IO.File.Delete(tempHardPatchedNsp); } catch { }
                             }
                             else
                             {
-                                // РћР±С‹С‡РЅР°СЏ РёРіСЂР° вЂ” РїРµСЂРµСЃРѕР±СЂР°РЅРЅР°СЏ Р±Р°Р·Р° РїРѕР»РЅРѕСЃС‚СЊСЋ Р·Р°РјРµРЅСЏРµС‚ Р±Р°Р·Сѓ Рё РѕР±РЅРѕРІР»РµРЅРёРµ, РёСЃРєР»СЋС‡Р°СЏ РґСѓР±Р»РёРєР°С‚С‹
+                                // Обычная игра — пересобранная база полностью заменяет базу и обновление, исключая дубликаты
                                 hasPatchedBase = true;
                                 finalInputFilesList.RemoveAll(f =>
                                     (!string.IsNullOrEmpty(baseFile) && string.Equals(f, baseFile, StringComparison.OrdinalIgnoreCase)) ||
@@ -289,7 +289,7 @@ namespace StormSwitchBox.Services
                                     modDirs.Any(m => string.Equals(f, m, StringComparison.OrdinalIgnoreCase)) ||
                                     unlockerRomfsDirs.Any(u => string.Equals(f, u, StringComparison.OrdinalIgnoreCase)));
                                 finalInputFilesList.Add(tempHardPatchedNsp);
-                                App.RunOnUI(() => task.LogDetails += "\nрџ”µ [HardPatch] Р¤РёР·РёС‡РµСЃРєР°СЏ РїРµСЂРµСЃР±РѕСЂРєР° СѓСЃРїРµС€РЅРѕ Р·Р°РІРµСЂС€РµРЅР°. Р РµСЃСѓСЂСЃС‹ РѕР±РЅРѕРІР»РµРЅС‹, РґСѓР±Р»РёСЂРѕРІР°РЅРёРµ РёСЃРєР»СЋС‡РµРЅРѕ.");
+                                App.RunOnUI(() => task.LogDetails += "\n🔵 [HardPatch] Физическая пересборка успешно завершена. Ресурсы обновлены, дублирование исключено.");
 
                                 if (finalInputFilesList.Count == 1 && !isTargetXci)
                                 {
@@ -304,8 +304,8 @@ namespace StormSwitchBox.Services
                                     {
                                         App.RunOnUI(() =>
                                         {
-                                            task.LogDetails += $"\nрџџЎ [РЎР¶Р°С‚РёРµ] Zstandard РІ С„РѕСЂРјР°С‚ {(isDualFormat ? "NSZ" : task.TargetFormat)}...";
-                                            App.RunOnUI(() => { task.Status = "РЎР¶Р°С‚РёРµ..."; });
+                                            task.LogDetails += $"\n🟡 [Сжатие] Zstandard в формат {(isDualFormat ? "NSZ" : task.TargetFormat)}...";
+                                            App.RunOnUI(() => { task.Status = "Сжатие..."; });
                                         });
 
                                         await App.NszCompression.CompressToNszAsync(task, intermediatePath, targetDir, cancellationToken);
@@ -340,7 +340,7 @@ namespace StormSwitchBox.Services
                                             long nspSize = new FileInfo(intermediatePath).Length;
                                             long nszSize = new FileInfo(finalCompressedPath).Length;
                                             task.TargetSize = $"{Models.ProcessingTask.FormatSize(nspSize)} / {Models.ProcessingTask.FormatSize(nszSize)}";
-                                            task.LogDetails += $"\nрџ“¦ [Р¤РѕСЂРјР°С‚С‹] РЈСЃРїРµС€РЅРѕ СЃРѕР·РґР°РЅС‹ РѕР±Р° С„Р°Р№Р»Р°:\n  вЂў {System.IO.Path.GetFileName(intermediatePath)} ({Models.ProcessingTask.FormatSize(nspSize)})\n  вЂў {System.IO.Path.GetFileName(finalCompressedPath)} ({Models.ProcessingTask.FormatSize(nszSize)})";
+                                            task.LogDetails += $"\n📦 [Форматы] Успешно созданы оба файла:\n  • {System.IO.Path.GetFileName(intermediatePath)} ({Models.ProcessingTask.FormatSize(nspSize)})\n  • {System.IO.Path.GetFileName(finalCompressedPath)} ({Models.ProcessingTask.FormatSize(nszSize)})";
                                         }
                                         else if (System.IO.File.Exists(mainResultPath))
                                         {
@@ -354,31 +354,31 @@ namespace StormSwitchBox.Services
                                             }
                                         }
                                         App.RunOnUI(() => { task.Progress = 100; });
-                                        App.RunOnUI(() => { task.Status = "РЈСЃРїРµС€РЅРѕ"; });
+                                        App.RunOnUI(() => { task.Status = "Успешно"; });
                                         App.RunOnUI(() => { task.IsRunning = false; });
-                                        task.LogDetails += "\nвњ… [РЈСЃРїРµС…] РњРѕРЅРѕР»РёС‚РЅС‹Р№ РѕР±СЂР°Р· РёРіСЂС‹ (Base + Update + ExeFS) СѓСЃРїРµС€РЅРѕ СЃРѕР±СЂР°РЅ Рё РіРѕС‚РѕРІ Рє Р·Р°РїСѓСЃРєСѓ!";
+                                        task.LogDetails += "\n✅ [Успех] Монолитный образ игры (Base + Update + ExeFS) успешно собран и готов к запуску!";
                                         StormSwitchBox.Services.HistoryService.AddToHistory(task);
                                     });
                                     DeployCheatsIfPresent(titleIdStr, inputFiles, mainResultPath);
-                                    App.Logger.Log($"РњСѓР»СЊС‚Рё-РєРѕРЅС‚РµРЅС‚ СѓСЃРїРµС€РЅРѕ СЃРѕР·РґР°РЅ: {System.IO.Path.GetFileName(mainResultPath)}", LogLevel.Success);
+                                    App.Logger.Log($"Мульти-контент успешно создан: {System.IO.Path.GetFileName(mainResultPath)}", LogLevel.Success);
                                     return;
                                 }
                             }
                         }
                         else 
                         {
-                            App.RunOnUI(() => task.LogDetails += "\nв„№пёЏ РџРµСЂРµСЃР±РѕСЂРєР° HardPatch РїСЂРѕРїСѓС‰РµРЅР°. РџРµСЂРµС…РѕРґРёРј Рє СЃС€РёРІР°РЅРёСЋ РјСѓР»СЊС‚РёРєРѕРЅС‚РµРЅС‚Р°...");
+                            App.RunOnUI(() => task.LogDetails += "\nℹ️ Пересборка HardPatch пропущена. Переходим к сшиванию мультиконтента...");
                         }
                     }
                 }
                 else if (skipHardPatch)
                 {
-                    App.RunOnUI(() => task.LogDetails += "\nвљ пёЏ [HardPatch] РњСѓР»СЊС‚Рё-РїСЂРѕРіСЂР°РјРјРЅС‹Р№ С‚Р°Р№С‚Р» вЂ” РїСЂРѕРїСѓСЃРє yanu-cli, РёСЃРїРѕР»СЊР·СѓРµРј РѕСЂРёРіРёРЅР°Р»СЊРЅС‹Рµ С„Р°Р№Р»С‹.");
+                    App.RunOnUI(() => task.LogDetails += "\n⚠️ [HardPatch] Мульти-программный тайтл — пропуск yanu-cli, используем оригинальные файлы.");
                     App.Logger.Log("[HardPatch] Skipped: multi-program title detected by pre-analysis", LogLevel.Info);
                 }
 
-                // 4.3 Р‘С‹СЃС‚СЂС‹Р№ РїСѓС‚СЊ РґР»СЏ РѕРґРёРЅРѕС‡РЅРѕРіРѕ С„Р°Р№Р»Р° (Single-File Fast Path):
-                // Р•СЃР»Рё РІС…РѕРґРЅРѕР№ С„Р°Р№Р» СЂРѕРІРЅРѕ РѕРґРёРЅ (Р±Р°Р·РѕРІР°СЏ РёРіСЂР°) Рё РЅРµС‚ РѕР±РЅРѕРІР»РµРЅРёР№/DLC/РјРѕРґРѕРІ, РЅР°РїСЂСЏРјСѓСЋ РїРµСЂРµРјРµС‰Р°РµРј/СЃР¶РёРјР°РµРј Р±РµР· LibHac
+                // 4.3 Быстрый путь для одиночного файла (Single-File Fast Path):
+                // Если входной файл ровно один (базовая игра) и нет обновлений/DLC/модов, напрямую перемещаем/сжимаем без LibHac
                 if (finalInputFilesList.Count == 1 && !hasPatchedBase && !isTargetXci)
                 {
                     string singleFile = finalInputFilesList[0];
@@ -411,8 +411,8 @@ namespace StormSwitchBox.Services
                     {
                         App.RunOnUI(() =>
                         {
-                            task.LogDetails += $"\nрџџЎ [РЎР¶Р°С‚РёРµ] Zstandard РІ С„РѕСЂРјР°С‚ {(isDualFormat ? "NSZ" : task.TargetFormat)}...";
-                            App.RunOnUI(() => { task.Status = "РЎР¶Р°С‚РёРµ..."; });
+                            task.LogDetails += $"\n🟡 [Сжатие] Zstandard в формат {(isDualFormat ? "NSZ" : task.TargetFormat)}...";
+                            App.RunOnUI(() => { task.Status = "Сжатие..."; });
                         });
 
                         await App.NszCompression.CompressToNszAsync(task, intermediatePath, targetDir, cancellationToken);
@@ -450,7 +450,7 @@ namespace StormSwitchBox.Services
                             long nspSize = new FileInfo(intermediatePath).Length;
                             long nszSize = new FileInfo(finalCompressedPath).Length;
                             task.TargetSize = $"{Models.ProcessingTask.FormatSize(nspSize)} / {Models.ProcessingTask.FormatSize(nszSize)}";
-                            task.LogDetails += $"\nрџ“¦ [Р¤РѕСЂРјР°С‚С‹] РЈСЃРїРµС€РЅРѕ СЃРѕР·РґР°РЅС‹ РѕР±Р° С„Р°Р№Р»Р°:\n  вЂў {System.IO.Path.GetFileName(intermediatePath)} ({Models.ProcessingTask.FormatSize(nspSize)})\n  вЂў {System.IO.Path.GetFileName(finalCompressedPath)} ({Models.ProcessingTask.FormatSize(nszSize)})";
+                            task.LogDetails += $"\n📦 [Форматы] Успешно созданы оба файла:\n  • {System.IO.Path.GetFileName(intermediatePath)} ({Models.ProcessingTask.FormatSize(nspSize)})\n  • {System.IO.Path.GetFileName(finalCompressedPath)} ({Models.ProcessingTask.FormatSize(nszSize)})";
                         }
                         else if (System.IO.File.Exists(mainResultPath))
                         {
@@ -464,21 +464,21 @@ namespace StormSwitchBox.Services
                             }
                         }
                         App.RunOnUI(() => { task.Progress = 100; });
-                        App.RunOnUI(() => { task.Status = "РЈСЃРїРµС€РЅРѕ"; });
+                        App.RunOnUI(() => { task.Status = "Успешно"; });
                         App.RunOnUI(() => { task.IsRunning = false; });
-                        task.LogDetails += "\nвњ… [РЈСЃРїРµС…] РћР±СЂР°Р±РѕС‚РєР° С„Р°Р№Р»Р° СѓСЃРїРµС€РЅРѕ Р·Р°РІРµСЂС€РµРЅР°!";
+                        task.LogDetails += "\n✅ [Успех] Обработка файла успешно завершена!";
                         StormSwitchBox.Services.HistoryService.AddToHistory(task);
                     });
                     DeployCheatsIfPresent(titleIdStr, inputFiles, mainResultPath);
-                    App.Logger.Log($"Р¤Р°Р№Р» СѓСЃРїРµС€РЅРѕ РѕР±СЂР°Р±РѕС‚Р°РЅ: {System.IO.Path.GetFileName(mainResultPath)}", LogLevel.Success);
+                    App.Logger.Log($"Файл успешно обработан: {System.IO.Path.GetFileName(mainResultPath)}", LogLevel.Success);
                     return;
                 }
 
-                // 4.5 РЎС€РёРІР°РЅРёРµ РјСѓР»СЊС‚РёРєРѕРЅС‚РµРЅС‚Р° С‡РµСЂРµР· РЅР°С‚РёРІРЅС‹Р№ РґРІРёР¶РѕРє LibHac PFS0
+                // 4.5 Сшивание мультиконтента через нативный движок LibHac PFS0
                 App.RunOnUI(() =>
                 {
-                    task.LogDetails += "\nрџ“¦ [NSC_Builder] РЎС€РёРІР°РЅРёРµ РјСѓР»СЊС‚РёРєРѕРЅС‚РµРЅС‚Р°...";
-                    App.RunOnUI(() => { task.Status = "РЎР±РѕСЂРєР°..."; });
+                    task.LogDetails += "\n📦 [NSC_Builder] Сшивание мультиконтента...";
+                    App.RunOnUI(() => { task.Status = "Сборка..."; });
                 });
 
                 // isTargetXci declared at method start
@@ -555,7 +555,7 @@ namespace StormSwitchBox.Services
 
                 bool buildDone = false;
                 
-                App.RunOnUI(() => task.LogDetails += "\nрџ“¦ [LibHac] РќР°С‚РёРІРЅР°СЏ СЃР±РѕСЂРєР° Multi-NSP (PFS0)...");
+                App.RunOnUI(() => task.LogDetails += "\n📦 [LibHac] Нативная сборка Multi-NSP (PFS0)...");
 
                 try
                 {
@@ -580,7 +580,7 @@ namespace StormSwitchBox.Services
                                 scanList.Add(f);
                         }
 
-                        // Р•СЃР»Рё С†РµР»РµРІРѕР№ С„РѕСЂРјР°С‚ РЅРµСЃР¶Р°С‚С‹Р№ NSP/XCI, Р° С‡Р°СЃС‚СЊ С„Р°Р№Р»РѕРІ вЂ” NSZ/XCZ/XCI, РїСЂРµРґРІР°СЂРёС‚РµР»СЊРЅРѕ СЂР°СЃРїР°РєРѕРІС‹РІР°РµРј РёС…
+                        // Если целевой формат несжатый NSP/XCI, а часть файлов — NSZ/XCZ/XCI, предварительно распаковываем их
                         var processedScanList = new List<string>();
                         for (int i = 0; i < scanList.Count; i++)
                         {
@@ -594,7 +594,7 @@ namespace StormSwitchBox.Services
                                 string itemDecompDir = System.IO.Path.Combine(tempDecompDir, $"decomp_{i}");
                                 Directory.CreateDirectory(itemDecompDir);
 
-                                App.RunOnUI(() => task.LogDetails += $"\nрџ“¦ [LibHac] Р Р°СЃРїР°РєРѕРІРєР° {System.IO.Path.GetFileName(fPath)} -> {nspName}...");
+                                App.RunOnUI(() => task.LogDetails += $"\n📦 [LibHac] Распаковка {System.IO.Path.GetFileName(fPath)} -> {nspName}...");
 
                                 string? decompResult = await App.NszCompression.DecompressNszAsync(task, fPath, itemDecompDir, cancellationToken);
                                 if (decompResult != null)
@@ -626,7 +626,7 @@ namespace StormSwitchBox.Services
                             deltaNcaNamesToExclude = DetectDeltaNcasToExclude(allScanFiles);
                         }
 
-                        // 1. РЎРєР°РЅРёСЂСѓРµРј РѕСЃРЅРѕРІРЅС‹Рµ С„Р°Р№Р»С‹ СЃР±РѕСЂРєРё (Base/Patched Base + DLCs + Unlockers)
+                        // 1. Сканируем основные файлы сборки (Base/Patched Base + DLCs + Unlockers)
                         for (int scanIdx = 0; scanIdx < processedScanList.Count; scanIdx++)
                         {
                             string nspPath = processedScanList[scanIdx];
@@ -651,8 +651,8 @@ namespace StormSwitchBox.Services
 
                                 if (App.Settings.Current.RemoveDeltaNca && deltaNcaNamesToExclude.Contains(name))
                                 {
-                                    App.Logger.Log($"[Delta Cleaner] РџСЂРѕРїСѓС‰РµРЅ РјСѓСЃРѕСЂРЅС‹Р№ Delta NCA: {name} (СЌРєРѕРЅРѕРјРёСЏ РјРµСЃС‚Р°)", Models.LogLevel.Info);
-                                    App.RunOnUI(() => task.LogDetails += $"\nрџ—‘пёЏ [Delta Cleaner] РЈРґР°Р»РµРЅ РјСѓСЃРѕСЂРЅС‹Р№ Delta NCA: {name}");
+                                    App.Logger.Log($"[Delta Cleaner] Пропущен мусорный Delta NCA: {name} (экономия места)", Models.LogLevel.Info);
+                                    App.RunOnUI(() => task.LogDetails += $"\n🗑️ [Delta Cleaner] Удален мусорный Delta NCA: {name}");
                                     continue;
                                 }
 
@@ -664,9 +664,9 @@ namespace StormSwitchBox.Services
                             }
                         }
 
-                        // 2. РЎРѕС…СЂР°РЅСЏРµРј С‚РёРєРµС‚С‹ (.tik) Рё СЃРµСЂС‚РёС„РёРєР°С‚С‹ (.cert) РёР· РѕСЂРёРіРёРЅР°Р»СЊРЅС‹С… С„Р°Р№Р»РѕРІ.
-                        // Р•СЃР»Рё Р±С‹Р»Р° РІС‹РїРѕР»РЅРµРЅР° РїРµСЂРµСЃР±РѕСЂРєР° HardPatch (hasPatchedBase == true), С‚Рѕ Patch CNMT РќР• РІРЅРµРґСЂСЏРµС‚СЃСЏ,
-                        // С‚Р°Рє РєР°Рє РѕР±РЅРѕРІР»РµРЅРёРµ СѓР¶Рµ С„РёР·РёС‡РµСЃРєРё РІС€РёС‚Рѕ РІ РµРґРёРЅС‹Р№ Program NCA РїРµСЂРµСЃРѕР±СЂР°РЅРЅРѕР№ Р±Р°Р·С‹.
+                        // 2. Сохраняем тикеты (.tik) и сертификаты (.cert) из оригинальных файлов.
+                        // Если была выполнена пересборка HardPatch (hasPatchedBase == true), то Patch CNMT НЕ внедряется,
+                        // так как обновление уже физически вшито в единый Program NCA пересобранной базы.
                         var extraSources = new List<string>();
                         if (!string.IsNullOrEmpty(savedUpdateFile) && File.Exists(savedUpdateFile)) extraSources.Add(savedUpdateFile);
                         if (!string.IsNullOrEmpty(savedBaseFile) && File.Exists(savedBaseFile)) extraSources.Add(savedBaseFile);
@@ -686,7 +686,7 @@ namespace StormSwitchBox.Services
                                     string name = entry.Name;
                                     string lower = name.ToLowerInvariant();
 
-                                    // РР·РІР»РµРєР°РµРј С‚РёРєРµС‚С‹ (.tik), СЃРµСЂС‚РёС„РёРєР°С‚С‹ (.cert) Рё Patch CNMT (.cnmt.nca)
+                                    // Извлекаем тикеты (.tik), сертификаты (.cert) и Patch CNMT (.cnmt.nca)
                                     bool isTicketOrCert = lower.EndsWith(".tik") || lower.EndsWith(".cert");
                                     bool isPatchCnmt = !hasPatchedBase && (lower.EndsWith(".cnmt.nca") || lower.EndsWith(".cnmt.xml"));
 
@@ -699,11 +699,11 @@ namespace StormSwitchBox.Services
                                             mergedEntries[name] = file;
                                             if (isTicketOrCert)
                                             {
-                                                App.Logger.Log($"[LibHac] Р’С€РёС‚ С‚РёРєРµС‚/СЃРµСЂС‚РёС„РёРєР°С‚ Unlocker: {name}", Models.LogLevel.Info);
+                                                App.Logger.Log($"[LibHac] Вшит тикет/сертификат Unlocker: {name}", Models.LogLevel.Info);
                                             }
                                             else if (isPatchCnmt)
                                             {
-                                                App.Logger.Log($"[LibHac] Р’С€РёС‚ Update Patch CNMT: {name}", Models.LogLevel.Info);
+                                                App.Logger.Log($"[LibHac] Вшит Update Patch CNMT: {name}", Models.LogLevel.Info);
                                             }
                                         }
                                     }
@@ -771,12 +771,12 @@ namespace StormSwitchBox.Services
                                 var dlcReport = App.TitleDb.CheckDlcCompleteness(baseTitleId.ToString("X16"), presentDlcIds);
                                 App.RunOnUI(() =>
                                 {
-                                    task.LogDetails += $"\nрџ“¦ [РРЅСЃРїРµРєС‚РѕСЂ DLC] {dlcReport.SummaryText}";
+                                    task.LogDetails += $"\n📦 [Инспектор DLC] {dlcReport.SummaryText}";
                                     if (dlcReport.MissingDlcs.Count > 0 && dlcReport.MissingDlcs.Count <= 5)
                                     {
                                         foreach (var missing in dlcReport.MissingDlcs)
                                         {
-                                            task.LogDetails += $"\n  вЂў [0x{missing.Id:X16}] {missing.Name ?? "РќРµРёР·РІРµСЃС‚РЅРѕРµ РґРѕРїРѕР»РЅРµРЅРёРµ"}";
+                                            task.LogDetails += $"\n  • [0x{missing.Id:X16}] {missing.Name ?? "Неизвестное дополнение"}";
                                         }
                                     }
                                 });
@@ -785,7 +785,7 @@ namespace StormSwitchBox.Services
 
                         if (App.Settings.Current.EnableRsvCap && App.Settings.Current.RsvCap > 0)
                         {
-                            App.RunOnUI(() => task.LogDetails += $"\nрџ›ЎпёЏ [RSV Cap] РџСЂРёРјРµРЅРµРЅ Р»РёРјРёС‚ РјРёРЅРёРјР°Р»СЊРЅРѕР№ РІРµСЂСЃРёРё СЃРёСЃС‚РµРјС‹ (RSV Cap: {App.Settings.Current.RsvCap})");
+                            App.RunOnUI(() => task.LogDetails += $"\n🛡️ [RSV Cap] Применен лимит минимальной версии системы (RSV Cap: {App.Settings.Current.RsvCap})");
                         }
 
                         var orderedEntries = mergedEntries
@@ -857,7 +857,7 @@ namespace StormSwitchBox.Services
 
                         if (isTargetXci)
                         {
-                            App.RunOnUI(() => task.LogDetails += "\nрџ”„ [РљРѕРЅРІРµСЂС‚Р°С†РёСЏ] РЎР±РѕСЂРєР° XCI РёР· Multi-NSP (4nxci)...");
+                            App.RunOnUI(() => task.LogDetails += "\n🔄 [Конвертация] Сборка XCI из Multi-NSP (4nxci)...");
                             await App.SwitchFormat.ConvertContainerAsync(task, outputNspPath, outFolder, "XCI", cancellationToken);
                             try { if (File.Exists(outputNspPath)) File.Delete(outputNspPath); } catch { }
                         }
@@ -874,12 +874,12 @@ namespace StormSwitchBox.Services
                 }
                 catch (Exception ex)
                 {
-                    throw new Exception($"РќРµ СѓРґР°Р»РѕСЃСЊ СЃРѕР±СЂР°С‚СЊ РјСѓР»СЊС‚РёРєРѕРЅС‚РµРЅС‚: {ex.Message}");
+                    throw new Exception($"Не удалось собрать мультиконтент: {ex.Message}");
                 }
 
                 if (!buildDone)
                 {
-                    throw new Exception("РќРµ СѓРґР°Р»РѕСЃСЊ СЃРѕР·РґР°С‚СЊ РјСѓР»СЊС‚РёРєРѕРЅС‚РµРЅС‚ вЂ” СЃС€РёРІР°РЅРёРµ Р·Р°РІРµСЂС€РёР»РѕСЃСЊ Р±РµР· СЂРµР·СѓР»СЊС‚Р°С‚Р°.");
+                    throw new Exception("Не удалось создать мультиконтент — сшивание завершилось без результата.");
                 }
 
                 // Search for the actual content file (.nsp/.xci), skipping metadata like .cnmt.xml
@@ -906,19 +906,19 @@ namespace StormSwitchBox.Services
                     }
                 }
 
-                // РџСЂРёРјРµРЅСЏРµРј РєР°СЃС‚РѕРјРЅС‹Рµ РјРµС‚Р°РґР°РЅРЅС‹Рµ / РёРєРѕРЅРєСѓ, РµСЃР»Рё РѕРЅРё Р·Р°РґР°РЅС‹ РїРѕР»СЊР·РѕРІР°С‚РµР»РµРј (Рё РµС‰Рµ РЅРµ РїСЂРёРјРµРЅРµРЅС‹ РІ HardPatch)
+                // Применяем кастомные метаданные / иконку, если они заданы пользователем (и еще не применены в HardPatch)
                 if (task.CustomMetadata != null && !hasPatchedBase && System.IO.File.Exists(intermediatePath) && intermediatePath.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase))
                 {
                     await App.ControlEditor.ApplyCustomMetadataAsync(task.CustomMetadata, intermediatePath, task, cancellationToken);
                 }
 
-                // 5. Zstandard РЎР¶Р°С‚РёРµ (NSZ/XCZ), РµСЃР»Рё РЅРµРѕР±С…РѕРґРёРјРѕ
+                // 5. Zstandard Сжатие (NSZ/XCZ), если необходимо
                 if (isCompressedFormat)
                 {
                     App.RunOnUI(() =>
                     {
-                        task.LogDetails += $"\nрџџЎ [РЎР¶Р°С‚РёРµ] Zstandard РІ С„РѕСЂРјР°С‚ {(isDualFormat ? (isTargetXci ? "XCZ" : "NSZ") : task.TargetFormat)}...";
-                        App.RunOnUI(() => { task.Status = "РЎР¶Р°С‚РёРµ..."; });
+                        task.LogDetails += $"\n🟡 [Сжатие] Zstandard в формат {(isDualFormat ? (isTargetXci ? "XCZ" : "NSZ") : task.TargetFormat)}...";
+                        App.RunOnUI(() => { task.Status = "Сжатие..."; });
                     });
                     
                     await App.NszCompression.CompressToNszAsync(task, intermediatePath, targetDir, cancellationToken);
@@ -949,7 +949,7 @@ namespace StormSwitchBox.Services
                     }
                     else
                     {
-                        App.RunOnUI(() => task.LogDetails += "\nвљ пёЏ [Р’РЅРёРјР°РЅРёРµ] РЎР¶Р°С‚РёРµ РЅРµ СѓРґР°Р»РѕСЃСЊ. РЎРѕС…СЂР°РЅРµРЅ РёСЃС…РѕРґРЅС‹Р№ РѕР±СЂР°Р·.");
+                        App.RunOnUI(() => task.LogDetails += "\n⚠️ [Внимание] Сжатие не удалось. Сохранен исходный образ.");
                     }
                 }
 
@@ -962,7 +962,7 @@ namespace StormSwitchBox.Services
                         long uncompSize = new FileInfo(intermediatePath).Length;
                         long compSize = new FileInfo(finalCompressedPath).Length;
                         task.TargetSize = $"{Models.ProcessingTask.FormatSize(uncompSize)} / {Models.ProcessingTask.FormatSize(compSize)}";
-                        task.LogDetails += $"\nрџ“¦ [Р¤РѕСЂРјР°С‚С‹] РЈСЃРїРµС€РЅРѕ СЃРѕР·РґР°РЅС‹ РѕР±Р° С„Р°Р№Р»Р°:\n  вЂў {System.IO.Path.GetFileName(intermediatePath)} ({Models.ProcessingTask.FormatSize(uncompSize)})\n  вЂў {System.IO.Path.GetFileName(finalCompressedPath)} ({Models.ProcessingTask.FormatSize(compSize)})";
+                        task.LogDetails += $"\n📦 [Форматы] Успешно созданы оба файла:\n  • {System.IO.Path.GetFileName(intermediatePath)} ({Models.ProcessingTask.FormatSize(uncompSize)})\n  • {System.IO.Path.GetFileName(finalCompressedPath)} ({Models.ProcessingTask.FormatSize(compSize)})";
                     }
                     else if (System.IO.File.Exists(finalMainPath))
                     {
@@ -974,21 +974,21 @@ namespace StormSwitchBox.Services
                             double percent = (double)diff / task.SourceSizeBytes * 100.0;
                             App.RunOnUI(() => { task.SizeDifference = $"{(diff > 0 ? "-" : "+")}{Models.ProcessingTask.FormatSize(Math.Abs(diff))} ({Math.Abs(percent):F1}%)"; });
                         }
-                        task.LogDetails += $"\nвњ… [Р“РѕС‚РѕРІРѕ] РЎРѕС…СЂР°РЅРµРЅ: {System.IO.Path.GetFileName(finalMainPath)}";
+                        task.LogDetails += $"\n✅ [Готово] Сохранен: {System.IO.Path.GetFileName(finalMainPath)}";
                     }
 
                     App.RunOnUI(() => { task.Progress = 100; });
-                    App.RunOnUI(() => { task.Status = "РЈСЃРїРµС€РЅРѕ"; });
+                    App.RunOnUI(() => { task.Status = "Успешно"; });
                     App.RunOnUI(() => { task.IsRunning = false; });
                     StormSwitchBox.Services.HistoryService.AddToHistory(task);
                 });
 
                 DeployCheatsIfPresent(titleIdStr, inputFiles, finalMainPath);
-                App.Logger.Log($"РњСѓР»СЊС‚Рё-РєРѕРЅС‚РµРЅС‚ СѓСЃРїРµС€РЅРѕ СЃРѕР·РґР°РЅ: {System.IO.Path.GetFileName(finalMainPath)}", LogLevel.Success);
+                App.Logger.Log($"Мульти-контент успешно создан: {System.IO.Path.GetFileName(finalMainPath)}", LogLevel.Success);
             }
             catch (OperationCanceledException)
             {
-                App.RunOnUI(() => { task.Status = "РћС‚РјРµРЅРµРЅ"; task.IsRunning = false; StormSwitchBox.Services.HistoryService.AddToHistory(task); });
+                App.RunOnUI(() => { task.Status = "Отменен"; task.IsRunning = false; StormSwitchBox.Services.HistoryService.AddToHistory(task); });
             }
             catch (Exception ex)
             {
@@ -997,15 +997,15 @@ namespace StormSwitchBox.Services
                 {
                     errText += $" ({ex.InnerException.Message})";
                 }
-                App.RunOnUI(() => { task.Status = "РћС€РёР±РєР°"; task.IsRunning = false; task.LogDetails += $"\nрџ”ґ [РћС€РёР±РєР°] {errText}"; StormSwitchBox.Services.HistoryService.AddToHistory(task); });
-                string operationName = task.Operation == "Update" ? "РѕР±РЅРѕРІР»РµРЅРёСЏ" : "СЃР±РѕСЂРєРё РјСѓР»СЊС‚Рё-РєРѕРЅС‚РµРЅС‚Р°";
-                App.Logger.Log($"РћС€РёР±РєР° {operationName}: {ex.ToString()}", LogLevel.Error);
+                App.RunOnUI(() => { task.Status = "Ошибка"; task.IsRunning = false; task.LogDetails += $"\n🔴 [Ошибка] {errText}"; StormSwitchBox.Services.HistoryService.AddToHistory(task); });
+                string operationName = task.Operation == "Update" ? "обновления" : "сборки мульти-контента";
+                App.Logger.Log($"Ошибка {operationName}: {ex.ToString()}", LogLevel.Error);
             }
             finally
             {
                 TempCleanupService.ForceDeleteDirectory(tempDecompDir);
                 
-                // РќРµ СѓРґР°Р»СЏРµРј intermediatePath, РµСЃР»Рё СЃР¶Р°С‚РёРµ РїСЂРѕС€Р»Рѕ СѓСЃРїРµС€РЅРѕ (СЃРѕС…СЂР°РЅСЏРµРј РѕР±Р° С„Р°Р№Р»Р°: Рё NSP/XCI, Рё NSZ/XCZ)
+                // Не удаляем intermediatePath, если сжатие прошло успешно (сохраняем оба файла: и NSP/XCI, и NSZ/XCZ)
                 if (!(isCompressedFormat && compressionSuccess) && intermediatePath != outPath && !string.IsNullOrEmpty(intermediatePath) && System.IO.File.Exists(intermediatePath))
                 {
                     TempCleanupService.ForceDeleteFile(intermediatePath);
@@ -1019,7 +1019,7 @@ namespace StormSwitchBox.Services
         {
             if (Directory.Exists(sourcePath)) return sourcePath;
 
-            // Р•СЃР»Рё СЌС‚Рѕ СѓР¶Рµ NSP С„Р°Р№Р» Рё РµРіРѕ РїСѓС‚СЊ Р±РµР·РѕРїР°СЃРЅС‹Р№ (< 240 СЃРёРјРІРѕР»РѕРІ) вЂ” РёСЃРїРѕР»СЊР·СѓРµРј РµРіРѕ РЅР°РїСЂСЏРјСѓСЋ Р±РµР· РєРѕРїРёСЂРѕРІР°РЅРёСЏ
+            // Если это уже NSP файл и его путь безопасный (< 240 символов) — используем его напрямую без копирования
             if (sourcePath.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) && sourcePath.Length < 240 && File.Exists(sourcePath))
             {
                 return sourcePath;
@@ -1028,7 +1028,7 @@ namespace StormSwitchBox.Services
             string origName = System.IO.Path.GetFileName(sourcePath);
             string safeName = NszCompressionService.SanitizeFileName(origName);
 
-            // Р—Р°С‰РёС‚Р° РѕС‚ СЃР»РёС€РєРѕРј РґР»РёРЅРЅС‹С… РёРјРµРЅ С„Р°Р№Р»РѕРІ (> 80 СЃРёРјРІРѕР»РѕРІ)
+            // Защита от слишком длинных имен файлов (> 80 символов)
             if (safeName.Length > 80)
             {
                 string ext = System.IO.Path.GetExtension(safeName);
@@ -1045,13 +1045,13 @@ namespace StormSwitchBox.Services
             {
                 try
                 {
-                    // РџСЂРѕР±СѓРµРј СЃРѕР·РґР°С‚СЊ Р±С‹СЃС‚СЂС‹Р№ С…Р°СЂРґР»РёРЅРє
+                    // Пробуем создать быстрый хардлинк
                     if (CreateHardLink(destPath, sourcePath, IntPtr.Zero))
                     {
                         return destPath;
                     }
 
-                    // Р•СЃР»Рё С„Р°Р№Р» РЅРµР±РѕР»СЊС€РѕР№ (< 300 РњР‘) вЂ” РєРѕРїРёСЂСѓРµРј РІ Р±С‹СЃС‚СЂС‹Р№ STORM_TMP
+                    // Если файл небольшой (< 300 МБ) — копируем в быстрый STORM_TMP
                     var fi = new FileInfo(sourcePath);
                     if (fi.Length < 300L * 1024 * 1024)
                     {
@@ -1129,9 +1129,9 @@ namespace StormSwitchBox.Services
                         f.Contains("exefs", StringComparison.OrdinalIgnoreCase) ||
                         f.Contains("exefs_patches", StringComparison.OrdinalIgnoreCase) ||
                         f.Contains("cheat", StringComparison.OrdinalIgnoreCase) ||
-                        f.Contains("С‡РёС‚", StringComparison.OrdinalIgnoreCase) ||
+                        f.Contains("чит", StringComparison.OrdinalIgnoreCase) ||
                         f.Contains("mod", StringComparison.OrdinalIgnoreCase) ||
-                        f.Contains("РјРѕРґ", StringComparison.OrdinalIgnoreCase))
+                        f.Contains("мод", StringComparison.OrdinalIgnoreCase))
                     {
                         modCount = 1;
                     }
@@ -1144,10 +1144,10 @@ namespace StormSwitchBox.Services
                 if (matchTid.Success) tid = matchTid.Groups[1].Value.ToUpperInvariant();
 
                 bool isModFile = fname.Contains("MOD", StringComparison.OrdinalIgnoreCase) ||
-                                 fname.Contains("Р РЈРЎ", StringComparison.OrdinalIgnoreCase) ||
+                                 fname.Contains("РУС", StringComparison.OrdinalIgnoreCase) ||
                                  fname.Contains("RUS", StringComparison.OrdinalIgnoreCase) ||
                                  fname.Contains("cheat", StringComparison.OrdinalIgnoreCase) ||
-                                 fname.Contains("С‡РёС‚", StringComparison.OrdinalIgnoreCase) ||
+                                 fname.Contains("чит", StringComparison.OrdinalIgnoreCase) ||
                                  fname.Contains("romfs", StringComparison.OrdinalIgnoreCase) ||
                                  fname.Contains("exefs", StringComparison.OrdinalIgnoreCase);
 
@@ -1210,20 +1210,20 @@ namespace StormSwitchBox.Services
 
             string baseGameTitle = origFileName;
 
-            // РџСЂРѕРІРµСЂСЏРµРј, СЃРѕРґРµСЂР¶РёС‚ Р»Рё РѕСЂРёРіРёРЅР°Р»СЊРЅРѕРµ РёРјСЏ С„Р°Р№Р»Р° СѓР¶Рµ TitleID Рё/РёР»Рё РІРµСЂСЃРёСЋ
-            // Р•СЃР»Рё РїРѕР»СЊР·РѕРІР°С‚РµР»СЊ СѓРєР°Р·Р°Р» РёС… РІ СЃРІРѕС‘Рј С„РѕСЂРјР°С‚Рµ (РЅР°РїСЂРёРјРµСЂ, РІ РєСЂСѓРіР»С‹С… СЃРєРѕР±РєР°С…),
-            // РЅРµ РЅСѓР¶РЅРѕ СѓРґР°Р»СЏС‚СЊ Рё РґРѕР±Р°РІР»СЏС‚СЊ Р·Р°РЅРѕРІРѕ РІ РєРІР°РґСЂР°С‚РЅС‹С… СЃРєРѕР±РєР°С…
+            // Проверяем, содержит ли оригинальное имя файла уже TitleID и/или версию
+            // Если пользователь указал их в своём формате (например, в круглых скобках),
+            // не нужно удалять и добавлять заново в квадратных скобках
             bool origHasTitleId = !string.IsNullOrEmpty(titleId) &&
                 origFileName.Contains(titleId, StringComparison.OrdinalIgnoreCase);
             bool origHasPatchVer = !string.IsNullOrEmpty(patchVer) &&
                 (origFileName.Contains($"v{patchVer}", StringComparison.OrdinalIgnoreCase) ||
                  origFileName.Contains(patchVer, StringComparison.OrdinalIgnoreCase));
 
-            // РЈРґР°Р»СЏРµРј Р»СЋР±РѕР№ СЃСѓС‰РµСЃС‚РІСѓСЋС‰РёР№ С‚РµРі СЃРѕРґРµСЂР¶РёРјРѕРіРѕ (1G+1U+4D), (1G+1U+4D+1M), (1G+1U+1M), (1G+5D) Рё С‚.Рґ. вЂ” РѕРЅ РІСЃРµРіРґР° РїРµСЂРµСЃС‡РёС‚С‹РІР°РµС‚СЃСЏ Р·Р°РЅРѕРІРѕ
+            // Удаляем любой существующий тег содержимого (1G+1U+4D), (1G+1U+4D+1M), (1G+1U+1M), (1G+5D) и т.д. — он всегда пересчитывается заново
             baseGameTitle = System.Text.RegularExpressions.Regex.Replace(baseGameTitle, @"\s*\(\d+[A-Za-z](?:\+\d+[A-Za-z])*\)", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
-            // РЈРґР°Р»СЏРµРј РєРІР°РґСЂР°С‚РЅС‹Рµ С‚РµРіРё [TitleID] Рё [vXXX] РўРћР›Р¬РљРћ РµСЃР»Рё РёС… РЅРµС‚ РІ РѕСЂРёРіРёРЅР°Р»Рµ
-            // (С‚.Рµ. РѕРЅРё Р±С‹Р»Рё РґРѕР±Р°РІР»РµРЅС‹ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРё СЂР°РЅРµРµ, Р° РЅРµ РїРѕР»СЊР·РѕРІР°С‚РµР»РµРј)
+            // Удаляем квадратные теги [TitleID] и [vXXX] ТОЛЬКО если их нет в оригинале
+            // (т.е. они были добавлены автоматически ранее, а не пользователем)
             if (!origHasTitleId)
             {
                 baseGameTitle = System.Text.RegularExpressions.Regex.Replace(baseGameTitle, @"\s*\[[0-9A-Fa-f]{16}\]", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
@@ -1233,8 +1233,8 @@ namespace StormSwitchBox.Services
                 baseGameTitle = System.Text.RegularExpressions.Regex.Replace(baseGameTitle, @"\s*\[v\d+\]", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
             }
 
-            // РќРµ СѓРґР°Р»СЏРµРј РїРѕР»СЊР·РѕРІР°С‚РµР»СЊСЃРєРёРµ РєСЂСѓРіР»С‹Рµ СЃРєРѕР±РєРё СЃ РёРЅС„РѕСЂРјР°С†РёРµР№ Рѕ РІРµСЂСЃРёРё (1.0.9 - 458752 - TitleID)
-            // РЈРґР°Р»СЏРµРј С‚РѕР»СЊРєРѕ РµСЃР»Рё TitleID РќР• Р±С‹Р» РІ РѕСЂРёРіРёРЅР°Р»Рµ (Р·РЅР°С‡РёС‚ СЌС‚Рѕ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРёР№ С‚РµРі)
+            // Не удаляем пользовательские круглые скобки с информацией о версии (1.0.9 - 458752 - TitleID)
+            // Удаляем только если TitleID НЕ был в оригинале (значит это автоматический тег)
             if (!origHasTitleId)
             {
                 baseGameTitle = System.Text.RegularExpressions.Regex.Replace(baseGameTitle, @"\s*\([^)]*\d{16}[^)]*\)", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
@@ -1248,7 +1248,7 @@ namespace StormSwitchBox.Services
             var sb = new System.Text.StringBuilder();
             sb.Append(baseGameTitle.Trim());
 
-            // Р”РѕР±Р°РІР»СЏРµРј TitleID Рё РІРµСЂСЃРёСЋ РўРћР›Р¬РљРћ РµСЃР»Рё РёС… РЅРµС‚ РІ РѕСЂРёРіРёРЅР°Р»СЊРЅРѕРј РёРјРµРЅРё
+            // Добавляем TitleID и версию ТОЛЬКО если их нет в оригинальном имени
             if (!origHasTitleId && !string.IsNullOrEmpty(titleId))
             {
                 sb.Append($" [{titleId}]");
@@ -1387,16 +1387,16 @@ namespace StormSwitchBox.Services
                 if (Directory.Exists(file)) continue;
                 string fname = System.IO.Path.GetFileName(file);
                 
-                // РџСЂРѕРІРµСЂСЏРµРј, СЏРІР»СЏРµС‚СЃСЏ Р»Рё С„Р°Р№Р» Unlocker-РїР°С‚С‡РµРј/DLC (СЃ СѓС‡РµС‚РѕРј СЂСѓСЃСЃРєРёС… Рё Р°РЅРіР»РёР№СЃРєРёС… РЅР°Р·РІР°РЅРёР№)
+                // Проверяем, является ли файл Unlocker-патчем/DLC (с учетом русских и английских названий)
                 bool isUnlockerName = fname.Contains("Unlocker", StringComparison.OrdinalIgnoreCase) ||
                                      fname.Contains("Unlock", StringComparison.OrdinalIgnoreCase) ||
                                      fname.Contains("Custom Unlock", StringComparison.OrdinalIgnoreCase) ||
-                                     fname.Contains("РђРЅР»РѕРєРµСЂ", StringComparison.OrdinalIgnoreCase) ||
-                                     fname.Contains("Р Р°Р·Р±Р»РѕРєРёСЂРѕРІС‰РёРє", StringComparison.OrdinalIgnoreCase) ||
-                                     fname.Contains("Р Р°Р·Р±Р»РѕРєРёСЂРѕРІРєР°", StringComparison.OrdinalIgnoreCase) ||
-                                     fname.Contains("РђРЅР»РѕРє", StringComparison.OrdinalIgnoreCase) ||
-                                     fname.Contains("Р’СЃРµ РїРµСЂСЃРѕРЅР°Р¶Рё", StringComparison.OrdinalIgnoreCase) ||
-                                     fname.Contains("РџРµСЂСЃРѕРЅР°Р¶Рё", StringComparison.OrdinalIgnoreCase);
+                                     fname.Contains("Анлокер", StringComparison.OrdinalIgnoreCase) ||
+                                     fname.Contains("Разблокировщик", StringComparison.OrdinalIgnoreCase) ||
+                                     fname.Contains("Разблокировка", StringComparison.OrdinalIgnoreCase) ||
+                                     fname.Contains("Анлок", StringComparison.OrdinalIgnoreCase) ||
+                                     fname.Contains("Все персонажи", StringComparison.OrdinalIgnoreCase) ||
+                                     fname.Contains("Персонажи", StringComparison.OrdinalIgnoreCase);
 
                 bool isSmallDlc = false;
                 try
@@ -1461,7 +1461,7 @@ namespace StormSwitchBox.Services
                     App.Logger.Log($"[Unlocker] LibHac extraction warning: {ex.Message}", Models.LogLevel.Warning);
                 }
 
-                // Fallback С‡РµСЂРµР· hactoolnet РµСЃР»Рё LibHac РЅРµ РёР·РІР»РµРє
+                // Fallback через hactoolnet если LibHac не извлек
                 if (!extracted)
                 {
                     try
@@ -1522,13 +1522,13 @@ namespace StormSwitchBox.Services
                 {
                     var allExtracted = Directory.GetFiles(targetRomfs, "*", SearchOption.AllDirectories);
                     int fileCount = allExtracted.Length;
-                    App.Logger.Log($"[Unlocker] РЈСЃРїРµС€РЅРѕ РёР·РІР»РµС‡РµРЅРѕ {fileCount} С„Р°Р№Р»РѕРІ СЂР°Р·Р±Р»РѕРєРёСЂРѕРІРєРё РёР· {fname} РґР»СЏ RomFS-РёРЅСЉРµРєС†РёРё.", Models.LogLevel.Success);
+                    App.Logger.Log($"[Unlocker] Успешно извлечено {fileCount} файлов разблокировки из {fname} для RomFS-инъекции.", Models.LogLevel.Success);
                     string sampleNames = string.Join(", ", allExtracted.Take(4).Select(System.IO.Path.GetFileName));
                     if (fileCount > 4) sampleNames += "...";
-                    App.RunOnUI(() => task.LogDetails += $"\nрџ”“ [Unlocker] РР·РІР»РµС‡РµРЅРѕ {fileCount} С‚РѕРєРµРЅРѕРІ СЂР°Р·Р±Р»РѕРєРёСЂРѕРІРєРё РёР· {fname} ({sampleNames})");
+                    App.RunOnUI(() => task.LogDetails += $"\n🔓 [Unlocker] Извлечено {fileCount} токенов разблокировки из {fname} ({sampleNames})");
                     extractedDirs.Add(targetRomfs);
 
-                    // РЎРёРЅС…СЂРѕРЅРёР·Р°С†РёСЏ СЃ СЌРјСѓР»СЏС‚РѕСЂРѕРј (LayeredFS)
+                    // Синхронизация с эмулятором (LayeredFS)
                     SyncUnlockerToEmulators(targetRomfs, baseTitleIdStr, task);
                     unlockerIndex++;
                 }
@@ -1600,12 +1600,12 @@ namespace StormSwitchBox.Services
                     Directory.CreateDirectory(atmoRomfs);
                     CopyDirectoryContentSafe(unlockerRomfsDir, atmoRomfs);
 
-                    App.Logger.Log($"[Unlocker] РЎРёРЅС…СЂРѕРЅРёР·РёСЂРѕРІР°РЅС‹ LayeredFS С„Р°Р№Р»С‹ СЂР°Р·Р±Р»РѕРєРёСЂРѕРІРєРё РґР»СЏ {cleanTid} РІ СЌРјСѓР»СЏС‚РѕСЂ: {userDir}", Models.LogLevel.Success);
+                    App.Logger.Log($"[Unlocker] Синхронизированы LayeredFS файлы разблокировки для {cleanTid} в эмулятор: {userDir}", Models.LogLevel.Success);
                 }
             }
             catch (Exception ex)
             {
-                App.Logger.Log($"[Unlocker] РћС€РёР±РєР° СЃРёРЅС…СЂРѕРЅРёР·Р°С†РёРё СЃ СЌРјСѓР»СЏС‚РѕСЂР°РјРё: {ex.Message}", Models.LogLevel.Warning);
+                App.Logger.Log($"[Unlocker] Ошибка синхронизации с эмуляторами: {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
@@ -1676,7 +1676,7 @@ namespace StormSwitchBox.Services
 
             if (cheatFiles.Count == 0) return;
 
-            // 1. РЎРёРЅС…СЂРѕРЅРёР·Р°С†РёСЏ С‡РёС‚РѕРІ СЃ СЌРјСѓР»СЏС‚РѕСЂР°РјРё
+            // 1. Синхронизация читов с эмуляторами
             try
             {
                 var emulatorPaths = HomebrewService.FindAllEmulatorSdmcDirectories();
@@ -1698,15 +1698,15 @@ namespace StormSwitchBox.Services
                         File.Copy(cheatFile, targetFileLoad, true);
                     }
 
-                    App.Logger.Log($"[Cheats] Р§РёС‚-РєРѕРґС‹ СЃРёРЅС…СЂРѕРЅРёР·РёСЂРѕРІР°РЅС‹ РґР»СЏ {cleanTid} РІ СЌРјСѓР»СЏС‚РѕСЂ: {userDir}", Models.LogLevel.Success);
+                    App.Logger.Log($"[Cheats] Чит-коды синхронизированы для {cleanTid} в эмулятор: {userDir}", Models.LogLevel.Success);
                 }
             }
             catch (Exception ex)
             {
-                App.Logger.Log($"[Cheats] РћС€РёР±РєР° СЃРёРЅС…СЂРѕРЅРёР·Р°С†РёРё С‡РёС‚-РєРѕРґРѕРІ СЃ СЌРјСѓР»СЏС‚РѕСЂР°РјРё: {ex.Message}", Models.LogLevel.Warning);
+                App.Logger.Log($"[Cheats] Ошибка синхронизации чит-кодов с эмуляторами: {ex.Message}", Models.LogLevel.Warning);
             }
 
-            // 2. РљРѕРїРёСЂРѕРІР°РЅРёРµ С‡РёС‚РѕРІ РІ РєР°С‚Р°Р»РѕРі СЃ СЃРѕР±СЂР°РЅРЅС‹Рј С„Р°Р№Р»РѕРј
+            // 2. Копирование читов в каталог с собранным файлом
             try
             {
                 string outDir = Path.GetDirectoryName(outPath) ?? "";
@@ -1719,12 +1719,12 @@ namespace StormSwitchBox.Services
                         string targetFile = Path.Combine(outCheatsDir, Path.GetFileName(cheatFile));
                         File.Copy(cheatFile, targetFile, true);
                     }
-                    App.Logger.Log($"[Cheats] Р§РёС‚-РєРѕРґС‹ СЃРѕС…СЂР°РЅРµРЅС‹ РІ РІС‹С…РѕРґРЅРѕР№ РєР°С‚Р°Р»РѕРі: {outCheatsDir}", Models.LogLevel.Success);
+                    App.Logger.Log($"[Cheats] Чит-коды сохранены в выходной каталог: {outCheatsDir}", Models.LogLevel.Success);
                 }
             }
             catch (Exception ex)
             {
-                App.Logger.Log($"[Cheats] РћС€РёР±РєР° СЃРѕС…СЂР°РЅРµРЅРёСЏ С‡РёС‚-РєРѕРґРѕРІ РІ РІС‹С…РѕРґРЅРѕР№ РєР°С‚Р°Р»РѕРі: {ex.Message}", Models.LogLevel.Warning);
+                App.Logger.Log($"[Cheats] Ошибка сохранения чит-кодов в выходной каталог: {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
@@ -1769,14 +1769,14 @@ namespace StormSwitchBox.Services
 
                 if (string.IsNullOrEmpty(keysFile) || !File.Exists(keysFile))
                 {
-                    App.Logger.Log("[ModAddon] Р¤Р°Р№Р» РєР»СЋС‡РµР№ РЅРµ РЅР°Р№РґРµРЅ. РџСЂРѕРїСѓСЃРє СЃРѕР·РґР°РЅРёСЏ РјРµС‚Р°РґР°РЅРЅС‹С… РґРѕРїРѕР»РЅРµРЅРёР№.", LogLevel.Warning);
+                    App.Logger.Log("[ModAddon] Файл ключей не найден. Пропуск создания метаданных дополнений.", LogLevel.Warning);
                     return generatedNcas;
                 }
 
                 string modTempDir = Path.Combine(tempDir, "mod_addon_gen");
                 Directory.CreateDirectory(modTempDir);
 
-                // РР·РІР»РµРєР°РµРј РёР»Рё РіРµРЅРµСЂРёСЂСѓРµРј РёРєРѕРЅРєСѓ РґР»СЏ Control NCA (256x256 JPEG)
+                // Извлекаем или генерируем иконку для Control NCA (256x256 JPEG)
                 byte[]? iconBytes = task.CustomMetadata?.CustomIconBytes ?? task.CustomMetadata?.OriginalIconBytes;
                 if (iconBytes == null || iconBytes.Length == 0)
                 {
@@ -1808,13 +1808,13 @@ namespace StormSwitchBox.Services
                     string romfsControlDir = Path.Combine(modTempDir, "romfs_mod_control");
                     Directory.CreateDirectory(romfsControlDir);
 
-                    string romFsTitle = !string.IsNullOrWhiteSpace(task.ModNameRomFs) ? task.ModNameRomFs : "РњРѕРґРёС„РёРєР°С†РёРё: RomFS";
+                    string romFsTitle = !string.IsNullOrWhiteSpace(task.ModNameRomFs) ? task.ModNameRomFs : "Модификации: RomFS";
 
                     byte[] nacp = new byte[0x4000];
                     byte[] nameBytes = System.Text.Encoding.UTF8.GetBytes(romFsTitle);
                     byte[] devBytes = System.Text.Encoding.UTF8.GetBytes("STORM MODS");
 
-                    // Р—Р°РїРёСЃС‹РІР°РµРј РёРјСЏ Рё СЂР°Р·СЂР°Р±РѕС‚С‡РёРєР° РІРѕ РІСЃРµ СЏР·С‹РєРѕРІС‹Рµ СЃР»РѕС‚С‹ NACP (16 СЏР·С‹РєРѕРІ РїРѕ 0x300 Р±Р°Р№С‚)
+                    // Записываем имя и разработчика во все языковые слоты NACP (16 языков по 0x300 байт)
                     for (int l = 0; l < 16; l++)
                     {
                         int titleOffset = l * 0x300;
@@ -1873,7 +1873,7 @@ namespace StormSwitchBox.Services
                     string exefsControlDir = Path.Combine(modTempDir, "exefs_mod_control");
                     Directory.CreateDirectory(exefsControlDir);
 
-                    string exeFsTitle = !string.IsNullOrWhiteSpace(task.ModNameExeFs) ? task.ModNameExeFs : "РњРѕРґРёС„РёРєР°С†РёРё: ExeFS";
+                    string exeFsTitle = !string.IsNullOrWhiteSpace(task.ModNameExeFs) ? task.ModNameExeFs : "Модификации: ExeFS";
 
                     byte[] nacp = new byte[0x4000];
                     byte[] nameBytes = System.Text.Encoding.UTF8.GetBytes(exeFsTitle);
@@ -1929,7 +1929,7 @@ namespace StormSwitchBox.Services
             }
             catch (Exception ex)
             {
-                App.Logger.Log($"[ModAddon] РћС€РёР±РєР° СЃРѕР·РґР°РЅРёСЏ РјРµС‚Р°РґР°РЅРЅС‹С… РјРѕРґРёС„РёРєР°С†РёР№: {ex.Message}", Models.LogLevel.Warning);
+                App.Logger.Log($"[ModAddon] Ошибка создания метаданных модификаций: {ex.Message}", Models.LogLevel.Warning);
             }
             return generatedNcas;
         }
@@ -1946,7 +1946,7 @@ namespace StormSwitchBox.Services
                     var chkFs = new PartitionFileSystem(chkStream.AsStorage());
                     foreach (var ent in chkFs.EnumerateEntries())
                     {
-                        // 1. РџСЂРѕРІРµСЂРєР° .cnmt.xml
+                        // 1. Проверка .cnmt.xml
                         if (ent.Name.EndsWith(".cnmt.xml", StringComparison.OrdinalIgnoreCase))
                         {
                             try
@@ -1970,7 +1970,7 @@ namespace StormSwitchBox.Services
                             }
                             catch { }
                         }
-                        // 2. РџСЂРѕРІРµСЂРєР° Р±РёРЅР°СЂРЅРѕРіРѕ CNMT РІРЅСѓС‚СЂРё .cnmt.nca
+                        // 2. Проверка бинарного CNMT внутри .cnmt.nca
                         else if (ent.Name.EndsWith(".cnmt.nca", StringComparison.OrdinalIgnoreCase) || 
                                  (ent.Name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase) && ent.Name.Length >= 36))
                         {
@@ -2033,4 +2033,5 @@ namespace StormSwitchBox.Services
         }
     }
 }
+
 

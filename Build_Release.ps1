@@ -14,7 +14,7 @@ if (-not (Test-Path $assemblingDir)) { New-Item -ItemType Directory -Path $assem
 if (-not (Test-Path $filesDir)) { New-Item -ItemType Directory -Path $filesDir | Out-Null }
 if (-not (Test-Path $outputDir)) { New-Item -ItemType Directory -Path $outputDir | Out-Null }
 
-$appVersion = "5.0.15"
+$appVersion = "5.0.16"
 try {
     [xml]$appProjXml = Get-Content (Join-Path $appProjDir "StormSwitchBox.csproj")
     $verFromProj = $appProjXml.Project.PropertyGroup.Version
@@ -181,4 +181,5 @@ Write-Host "3. Setup Bundle:          $bundleZipPath" -ForegroundColor Green
 Write-Host "4. Portable Archive:      $portableZipPath" -ForegroundColor Green
 Write-Host "5. Certificate:           $cerOutput" -ForegroundColor Green
 Write-Host "============================================================" -ForegroundColor Green
+
 
