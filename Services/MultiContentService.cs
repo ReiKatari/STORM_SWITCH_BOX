@@ -664,6 +664,12 @@ namespace StormSwitchBox.Services
                             }
                         }
 
+                        if (!hasMods && baseEntries.Count > 0)
+                        {
+                            App.Logger.Log("[Smart Delta] Активирован режим Smart Delta Patching (быстрое слияние без физической пересборки тяжелых NCA)", Models.LogLevel.Success);
+                            App.RunOnUI(() => task.LogDetails += "\n⚡ [Smart Delta Patching] Скоростное прямое слияние без пересборки тяжелых данных.");
+                        }
+
                         // 2. Сохраняем тикеты (.tik) и сертификаты (.cert) из оригинальных файлов.
                         // Если была выполнена пересборка HardPatch (hasPatchedBase == true), то Patch CNMT НЕ внедряется,
                         // так как обновление уже физически вшито в единый Program NCA пересобранной базы.
@@ -1411,8 +1417,9 @@ namespace StormSwitchBox.Services
 
                 if (!isUnlockerName && !isSmallDlc) continue;
 
-                string targetRomfs = System.IO.Path.Combine(tempDir, $"unlocker_romfs_{unlockerIndex}");
-                Directory.CreateDirectory(targetRomfs);
+                // Активируем ультрабыстрый RAM-кэш для RomFS/Unlocker
+                string targetRomfs = VirtualRamDriveService.Instance.CreateRamBackedWorkspace($"unlocker_romfs_{unlockerIndex}_");
+                App.RunOnUI(() => task.LogDetails += $"\n🧠 [RAM Cache] Активирован виртуальный RAM-кэш для RomFS токенов ({fname})");
 
                 bool extracted = false;
                 try

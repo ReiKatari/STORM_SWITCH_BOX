@@ -1,4 +1,4 @@
-using Microsoft.UI.Xaml;
+﻿using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Windowing;
@@ -36,7 +36,7 @@ namespace StormSwitchBox
         public MainWindow()
         {
             this.InitializeComponent();
-            this.Title = "STORM SWITCH BOX 5.0.16";
+            this.Title = "STORM SWITCH BOX 5.0.17";
             this.ExtendsContentIntoTitleBar = true; // Современный заголовок окна
 
             var hWnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
@@ -255,12 +255,32 @@ namespace StormSwitchBox
             MinimizeToTray();
         }
 
-        private void MinimizeToTray()
+        public void MinimizeToTray()
         {
             this.AppWindow.Hide();
             if (_notifyIcon != null)
             {
                 _notifyIcon.Visible = true;
+                _notifyIcon.ShowBalloonTip(2000, "STORM SWITCH BOX 5.0.17", "Приложение работает в фоновом режиме в системном трее.", WinForms.ToolTipIcon.Info);
+            }
+        }
+
+        public void NotifyTaskBatchCompleted(string summaryMessage)
+        {
+            if (_notifyIcon != null)
+            {
+                _notifyIcon.Visible = true;
+                _notifyIcon.ShowBalloonTip(4000, "STORM SWITCH BOX 5.0.17", summaryMessage, WinForms.ToolTipIcon.Info);
+            }
+        }
+
+        public void UpdateTrayTooltip(string status)
+        {
+            if (_notifyIcon != null)
+            {
+                string text = $"STORM SWITCH BOX 5.0.17\n{status}";
+                if (text.Length > 63) text = text.Substring(0, 63);
+                _notifyIcon.Text = text;
             }
         }
 

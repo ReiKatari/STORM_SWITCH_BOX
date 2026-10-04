@@ -185,8 +185,22 @@
                   IsItemClickEnabled="True"
                   ItemClick="GamesGridView_ItemClick"
                   Padding="0,0,0,8"
-                  ShowsScrollingPlaceholders="True"
+                  ShowsScrollingPlaceholders="False"
+                  ScrollViewer.IsDeferredScrollingEnabled="False"
+                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                  ScrollViewer.VerticalScrollBarVisibility="Auto"
+                  ScrollViewer.HorizontalScrollMode="Disabled"
+                  ScrollViewer.VerticalScrollMode="Enabled"
                   ItemContainerTransitions="{x:Null}">
+            <GridView.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <ItemsWrapGrid Orientation="Horizontal" 
+                                   MaximumRowsOrColumns="-1" 
+                                   ItemWidth="236" 
+                                   ItemHeight="360" 
+                                   CacheLength="3.0"/>
+                </ItemsPanelTemplate>
+            </GridView.ItemsPanel>
             <GridView.ItemContainerStyle>
                 <Style TargetType="GridViewItem">
                     <Setter Property="Margin" Value="6"/>

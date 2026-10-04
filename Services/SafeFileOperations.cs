@@ -55,7 +55,7 @@ namespace StormSwitchBox.Services
                             ResetFileAttributesSafe(destinationPath);
                             try { File.Delete(destinationPath); } catch { }
                         }
-                        File.Copy(sourcePath, destinationPath, overwrite: true);
+                        await CopyFileAsync(sourcePath, destinationPath, bufferSize: 4 * 1024 * 1024, cancellationToken: cancellationToken);
                         ResetFileAttributesSafe(destinationPath);
                         SafeDeleteFile(sourcePath);
                         return destinationPath;
@@ -197,7 +197,7 @@ namespace StormSwitchBox.Services
             }
             catch
             {
-                File.Copy(sourcePath, altPath, overwrite: true);
+                CopyFileAsync(sourcePath, altPath, bufferSize: 4 * 1024 * 1024).GetAwaiter().GetResult();
                 SafeDeleteFile(sourcePath);
             }
 
@@ -262,6 +262,50 @@ namespace StormSwitchBox.Services
                 }
             }
             catch { }
+        }
+
+        /// <summary>
+        /// Высокопроизводительное асинхронное копирование больших файлов с FileOptions.Asynchronous
+        /// и оптимизированным 4 МБ буфером для максимальной утилизации скорости NVMe / SSD.
+        /// </summary>
+        public static async Task CopyFileAsync(string sourcePath, string destinationPath, int bufferSize = 4 * 1024 * 1024, IProgress<double>? progress = null, CancellationToken cancellationToken = default)
+        {
+            var fileOptions = FileOptions.Asynchronous | FileOptions.SequentialScan;
+            var sourceOptions = new FileStreamOptions
+            {
+                Mode = FileMode.Open,
+                Access = FileAccess.Read,
+                Share = FileShare.Read,
+                Options = fileOptions,
+                BufferSize = bufferSize
+            };
+
+            var destOptions = new FileStreamOptions
+            {
+                Mode = FileMode.Create,
+                Access = FileAccess.Write,
+                Share = FileShare.None,
+                Options = fileOptions,
+                BufferSize = bufferSize
+            };
+
+            using var sourceStream = new FileStream(sourcePath, sourceOptions);
+            using var destStream = new FileStream(destinationPath, destOptions);
+
+            long totalBytes = sourceStream.Length;
+            long totalRead = 0;
+            byte[] buffer = new byte[bufferSize];
+
+            int bytesRead;
+            while ((bytesRead = await sourceStream.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken).ConfigureAwait(false)) > 0)
+            {
+                await destStream.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken).ConfigureAwait(false);
+                totalRead += bytesRead;
+                if (totalBytes > 0 && progress != null)
+                {
+                    progress.Report((double)totalRead / totalBytes * 100.0);
+                }
+            }
         }
     }
 }

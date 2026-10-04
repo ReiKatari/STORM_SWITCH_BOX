@@ -830,7 +830,20 @@ namespace StormSwitchBox.Services
 
             try
             {
-                string args = $"-C -B -s 20 -l {level} -t 0 --overwrite {keysParam} -o \"{tempCompressDir}\" \"{inputPath}\"".Trim();
+                int totalCores = Math.Max(1, Environment.ProcessorCount);
+                int concurrentWorkers = Math.Max(1, App.Settings.Current.ConcurrentTasks);
+                int threadsPerWorker = Math.Max(1, totalCores / concurrentWorkers);
+
+                var gpuService = GpuAccelerationService.Instance;
+                string gpuDesc = gpuService.GetAccelerationStatusDescription();
+
+                App.RunOnUI(() =>
+                {
+                    task.LogDetails += $"\n{gpuDesc}";
+                    task.LogDetails += $"\n⚙️ [Worker Pool] Многопоточный пул: выделено {threadsPerWorker} потоков на задачу (Всего ядер: {totalCores})";
+                });
+
+                string args = $"-C -B -s 20 -l {level} -t {threadsPerWorker} --overwrite {keysParam} -o \"{tempCompressDir}\" \"{inputPath}\"".Trim();
 
                 int exitCode = await ExternalProcessRunner.RunAsync(
                     nszExe,

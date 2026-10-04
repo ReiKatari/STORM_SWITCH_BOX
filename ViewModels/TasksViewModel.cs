@@ -1565,14 +1565,19 @@ public partial class TasksViewModel : ObservableObject
 			if (executedCount > 0)
 			{
 				int failed = targetList.Count(t => t.Status == "Ошибка");
-				if (failed > 0)
+				string notifyMsg = (failed > 0)
+					? $"Обработка завершена. Успешно: {executedCount - failed}, Ошибок: {failed}"
+					: $"Обработка успешно завершена ({executedCount} задач)!";
+
+				App.ShowToastNotification("STORM SWITCH BOX 5.0.17", notifyMsg);
+				App.RunOnUI(() =>
 				{
-					App.ShowToastNotification("STORM SWITCH BOX", $"Обработка завершена. Успешно: {executedCount - failed}, Ошибок: {failed}");
-				}
-				else
-				{
-					App.ShowToastNotification("STORM SWITCH BOX", "Обработка успешно завершена!");
-				}
+					if (App.MainWindow is MainWindow mw)
+					{
+						mw.NotifyTaskBatchCompleted(notifyMsg);
+						mw.UpdateTrayTooltip("Все задачи выполнены");
+					}
+				});
 			}
 		}
 		catch (Exception ex)

@@ -6,8 +6,9 @@ namespace StormSwitchBox.Models
     public class AppSettings
     {
         // Окно
-        public string AppVersion { get; set; } = "5.0.15";
+        public string AppVersion { get; set; } = "5.0.17";
         public string Language { get; set; } = "ru"; // ru, en, de, zh, ja
+        public bool EnableGpuAcceleration { get; set; } = true;
         public int WindowX { get; set; } = -1;
         public int WindowY { get; set; } = -1;
         public int WindowWidth { get; set; } = 1200;

@@ -518,6 +518,106 @@ namespace StormSwitchBox.Views
             CopyToClipboard(DetailTitleId.Text);
         }
 
+        private async void DownloadUpdatesDlcButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_selectedCatalogItem == null || string.IsNullOrEmpty(_selectedCatalogItem.TitleId)) return;
+
+            DownloadUpdatesDlcButton.IsEnabled = false;
+            try
+            {
+                var downloads = await TinfoilDownloaderService.Instance.GetAvailableDownloadsAsync(_selectedCatalogItem.TitleId, _selectedCatalogItem.TitleName ?? "");
+                if (downloads.Count == 0)
+                {
+                    var noItemsDialog = new ContentDialog
+                    {
+                        Title = "TitleDB / Tinfoil Загрузчик",
+                        Content = $"Для игры «{_selectedCatalogItem.TitleName}» [{_selectedCatalogItem.TitleId}] в публичном индексе нет доступных дополнений.",
+                        CloseButtonText = "OK",
+                        XamlRoot = this.XamlRoot
+                    };
+                    await noItemsDialog.ShowAsync();
+                    return;
+                }
+
+                var sp = new StackPanel { Spacing = 10, MaxWidth = 480 };
+                sp.Children.Add(new TextBlock 
+                { 
+                    Text = $"Доступно для загрузки ({downloads.Count} шт.):", 
+                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold 
+                });
+
+                var listView = new ListView 
+                { 
+                    ItemsSource = downloads, 
+                    MaxHeight = 240,
+                    SelectionMode = ListViewSelectionMode.Multiple
+                };
+                listView.SelectAll();
+                sp.Children.Add(listView);
+
+                var targetDir = !string.IsNullOrEmpty(App.Settings.Current.OutputFolder) 
+                    ? App.Settings.Current.OutputFolder 
+                    : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+
+                sp.Children.Add(new TextBlock 
+                { 
+                    Text = $"Каталог сохранения: {targetDir}", 
+                    FontSize = 12, 
+                    Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorSecondaryBrush"] 
+                });
+
+                var dialog = new ContentDialog
+                {
+                    Title = "📥 Загрузка обновлений и DLC (TitleDB / Tinfoil)",
+                    Content = sp,
+                    PrimaryButtonText = "Загрузить выбранное",
+                    CloseButtonText = "Отмена",
+                    XamlRoot = this.XamlRoot
+                };
+
+                var res = await dialog.ShowAsync();
+                if (res == ContentDialogResult.Primary)
+                {
+                    var selected = listView.SelectedItems.Cast<AvailableDownloadItem>().ToList();
+                    App.Logger.Log($"[Downloader] Запуск фоновой загрузки {selected.Count} элементов для {_selectedCatalogItem.TitleName}...", LogLevel.Info);
+                    App.ShowToastNotification("TitleDB / Tinfoil Загрузчик", $"Запущена загрузка {selected.Count} файлов в фоне.");
+
+                    _ = Task.Run(async () =>
+                    {
+                        var downloadedPaths = new List<string>();
+                        foreach (var item in selected)
+                        {
+                            string fileName = $"{_selectedCatalogItem.TitleName} [{item.TitleId}][{item.Version}].nsp";
+                            foreach (char c in Path.GetInvalidFileNameChars()) fileName = fileName.Replace(c, '_');
+
+                            string? dl = await TinfoilDownloaderService.Instance.DownloadFileAsync(item.DownloadUrl, targetDir, fileName);
+                            if (!string.IsNullOrEmpty(dl) && File.Exists(dl))
+                            {
+                                downloadedPaths.Add(dl);
+                            }
+                        }
+
+                        if (downloadedPaths.Count > 0)
+                        {
+                            App.RunOnUI(async () =>
+                            {
+                                await App.TasksVM.AddDroppedFilesBatchAsync(downloadedPaths);
+                                App.ShowToastNotification("TitleDB / Tinfoil", $"Загрузка завершена! Добавлено в Задачник: {downloadedPaths.Count} файлов.");
+                            });
+                        }
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Logger.Log($"[Downloader] Ошибка: {ex.Message}", LogLevel.Error);
+            }
+            finally
+            {
+                DownloadUpdatesDlcButton.IsEnabled = true;
+            }
+        }
+
         private void CardCopyVersion_Click(object sender, RoutedEventArgs e)
         {
             if ((sender as FrameworkElement)?.DataContext is CatalogItem item)

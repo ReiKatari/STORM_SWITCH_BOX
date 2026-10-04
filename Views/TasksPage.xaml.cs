@@ -521,6 +521,14 @@ namespace StormSwitchBox.Views
             if (VerifyGrid != null) VerifyGrid.SelectedItem = null;
         }
 
+        private void TrayBackgroundButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (App.MainWindow is MainWindow mw)
+            {
+                mw.MinimizeToTray();
+            }
+        }
+
         // ===== Фильтрация таблицы =====
         private void TaskSearchBox_TextChanged(object sender, TextChangedEventArgs e) => ApplyTaskFilters();
         private void TaskOpFilter_Changed(object sender, SelectionChangedEventArgs e) => ApplyTaskFilters();

@@ -88,6 +88,11 @@
                     <FontIcon Glyph="&#xE8A0;" Foreground="#B388FF"/>
                 </AppBarButton.Icon>
             </AppBarButton>
+            <AppBarButton x:Name="TrayBackgroundButton" Label="В трей" Click="TrayBackgroundButton_Click" ToolTipService.ToolTip="Свернуть в системный трей (Zero-UI Background Worker)">
+                <AppBarButton.Icon>
+                    <FontIcon Glyph="&#xE718;" Foreground="#00E676"/>
+                </AppBarButton.Icon>
+            </AppBarButton>
             <AppBarSeparator/>
             <AppBarButton x:Name="ColumnsButton" Label="Столбцы">
                 <AppBarButton.Icon>

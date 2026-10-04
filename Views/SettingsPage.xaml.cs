@@ -1,4 +1,4 @@
-using Microsoft.UI.Xaml;
+﻿using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using System;
 using System.Threading.Tasks;
@@ -18,6 +18,7 @@ namespace StormSwitchBox.Views
         {
             this.InitializeComponent();
             this.NavigationCacheMode = Microsoft.UI.Xaml.Navigation.NavigationCacheMode.Required;
+            if (AppTitleVersionTxt != null) AppTitleVersionTxt.Text = $"STORM SWITCH BOX {App.Settings.Current.AppVersion}";
 
             _emulatorDirs = new System.Collections.ObjectModel.ObservableCollection<string>(App.Settings.Current.EmulatorDirectories ?? new System.Collections.Generic.List<string>());
             if (EmulatorDirsListView != null)

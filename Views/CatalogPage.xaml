@@ -359,6 +359,13 @@
                                     <TextBlock Text="Размер файла:" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                                     <TextBlock x:Name="DetailSize" Text="0 MB" FontSize="15" FontWeight="SemiBold"/>
                                 </StackPanel>
+
+                                <Button x:Name="DownloadUpdatesDlcButton" Style="{StaticResource AccentButtonStyle}" Margin="0,12,0,0" HorizontalAlignment="Stretch" Click="DownloadUpdatesDlcButton_Click" CornerRadius="8" Height="38">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <FontIcon Glyph="&#xE896;" FontSize="14"/>
+                                        <TextBlock Text="Загрузка из TitleDB / Tinfoil" FontWeight="SemiBold"/>
+                                    </StackPanel>
+                                </Button>
                             </StackPanel>
                             
                             <!-- Right: Extended Info & Media -->

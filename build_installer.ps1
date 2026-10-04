@@ -1,4 +1,4 @@
-# STORM SWITCH BOX - Automated Production Build and Release Pipeline (STORM ALL PROJECTS FORMAT)
+﻿# STORM SWITCH BOX - Automated Production Build and Release Pipeline (STORM ALL PROJECTS FORMAT)
 $ErrorActionPreference = "Stop"
 
 $baseDir = $PSScriptRoot
@@ -14,7 +14,7 @@ if (-not (Test-Path $assemblingDir)) { New-Item -ItemType Directory -Path $assem
 if (-not (Test-Path $filesDir)) { New-Item -ItemType Directory -Path $filesDir | Out-Null }
 if (-not (Test-Path $outputDir)) { New-Item -ItemType Directory -Path $outputDir | Out-Null }
 
-$appVersion = "5.0.16"
+$appVersion = "5.0.17"
 try {
     [xml]$appProjXml = Get-Content (Join-Path $appProjDir "StormSwitchBox.csproj")
     $verFromProj = $appProjXml.Project.PropertyGroup.Version

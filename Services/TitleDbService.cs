@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
@@ -233,6 +233,7 @@ namespace StormSwitchBox.Services
             }
         }
 
+        public TitleDbEntry? GetEntry(string titleId) => TryGetEntry(titleId, out var entry) ? entry : null;
         public bool TryGetEntry(string titleId, out TitleDbEntry? entry) => TryGetTitleInfo(titleId, out entry);
 
         public bool TryGetTitleInfo(string titleId, out TitleDbEntry? entry)
