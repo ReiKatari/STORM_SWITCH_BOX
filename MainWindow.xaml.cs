@@ -1,4 +1,4 @@
-﻿using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Windowing;
@@ -36,7 +36,7 @@ namespace StormSwitchBox
         public MainWindow()
         {
             this.InitializeComponent();
-            this.Title = "STORM SWITCH BOX 5.0.17";
+            this.Title = "STORM SWITCH BOX 5.0.18";
             this.ExtendsContentIntoTitleBar = true; // Современный заголовок окна
 
             var hWnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
@@ -261,7 +261,7 @@ namespace StormSwitchBox
             if (_notifyIcon != null)
             {
                 _notifyIcon.Visible = true;
-                _notifyIcon.ShowBalloonTip(2000, "STORM SWITCH BOX 5.0.17", "Приложение работает в фоновом режиме в системном трее.", WinForms.ToolTipIcon.Info);
+                _notifyIcon.ShowBalloonTip(2000, "STORM SWITCH BOX 5.0.18", "Приложение работает в фоновом режиме в системном трее.", WinForms.ToolTipIcon.Info);
             }
         }
 
@@ -270,7 +270,7 @@ namespace StormSwitchBox
             if (_notifyIcon != null)
             {
                 _notifyIcon.Visible = true;
-                _notifyIcon.ShowBalloonTip(4000, "STORM SWITCH BOX 5.0.17", summaryMessage, WinForms.ToolTipIcon.Info);
+                _notifyIcon.ShowBalloonTip(4000, "STORM SWITCH BOX 5.0.18", summaryMessage, WinForms.ToolTipIcon.Info);
             }
         }
 
@@ -278,7 +278,7 @@ namespace StormSwitchBox
         {
             if (_notifyIcon != null)
             {
-                string text = $"STORM SWITCH BOX 5.0.17\n{status}";
+                string text = $"STORM SWITCH BOX 5.0.18\n{status}";
                 if (text.Length > 63) text = text.Substring(0, 63);
                 _notifyIcon.Text = text;
             }
@@ -329,6 +329,11 @@ namespace StormSwitchBox
 
         private void MainWindow_DragOver(object sender, DragEventArgs e)
         {
+            if (ContentFrame.Content is Views.SettingsPage)
+            {
+                return;
+            }
+
             e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
             e.DragUIOverride.Caption = "Добавить файлы в Задачник";
             e.DragUIOverride.IsCaptionVisible = true;
@@ -339,6 +344,11 @@ namespace StormSwitchBox
 
         private async void MainWindow_Drop(object sender, DragEventArgs e)
         {
+            if (ContentFrame.Content is Views.SettingsPage)
+            {
+                return;
+            }
+
             e.Handled = true;
             var deferral = e.GetDeferral();
             try

@@ -375,6 +375,26 @@ namespace StormSwitchBox.Services
                         IStorage entryStorage = fileRef.AsStorage();
                         IDisposable? toDispose = null;
 
+                        Nca nca;
+                        try
+                        {
+                            // Быстрая проверка заголовка NCA (первые 0x4000 байт не сжаты даже в NCZ)
+                            nca = new Nca(_keysService.CurrentKeyset, entryStorage);
+                        }
+                        catch
+                        {
+                            continue;
+                        }
+
+                        // Оптимизация: сканеру каталога нужны ТОЛЬКО Control (иконка/название/языки), Manual (скриншоты) и Meta (CNMT версия).
+                        // Пропускаем тяжелые Program и Data NCAs (многогигабайтные образы) без их распаковки на диск!
+                        if (nca.Header.ContentType != NcaContentType.Control && 
+                            nca.Header.ContentType != NcaContentType.Manual && 
+                            nca.Header.ContentType != NcaContentType.Meta)
+                        {
+                            continue;
+                        }
+
                         if (isNcz)
                         {
                             try
@@ -382,18 +402,17 @@ namespace StormSwitchBox.Services
                                 var nczStorage = new Core.NSZ.StormNczStorage(entryStorage, titleKeyMap, globalSolidStorage, App.Keys.CurrentKeyset);
                                 entryStorage = nczStorage;
                                 toDispose = nczStorage;
+                                nca = new Nca(_keysService.CurrentKeyset, entryStorage);
                             }
                             catch (Exception ex)
                             {
-                                App.Logger.Log($"[CatalogScanner] Error opening StormNczStorage for {entryName}: {ex.Message}", LogLevel.Error);
+                                App.Logger.Log($"[CatalogScanner] [INFO] Пропущен NCZ {entryName}: {ex.Message}", LogLevel.Info);
                                 continue;
                             }
                         }
 
                         try
                         {
-                            var nca = new Nca(_keysService.CurrentKeyset, entryStorage);
-                        
                         if (nca.Header.ContentType == NcaContentType.Control)
                         {
                             var romfs = nca.OpenFileSystem(NcaSectionType.Data, IntegrityCheckLevel.ErrorOnInvalid);

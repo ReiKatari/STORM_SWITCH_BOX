@@ -1,4 +1,4 @@
-﻿using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using System;
 using System.Threading.Tasks;
@@ -246,10 +246,12 @@ namespace StormSwitchBox.Views
             e.DragUIOverride.Caption = "Выбрать как «Умную» папку Switch";
             e.DragUIOverride.IsCaptionVisible = true;
             e.DragUIOverride.IsContentVisible = true;
+            e.Handled = true;
         }
 
         private async void WatchFolderBoxSwitch_Drop(object sender, DragEventArgs e)
         {
+            e.Handled = true;
             if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
             {
                 var items = await e.DataView.GetStorageItemsAsync();
@@ -413,10 +415,12 @@ namespace StormSwitchBox.Views
             e.DragUIOverride.Caption = "Выбрать как «Умную» папку 3DS";
             e.DragUIOverride.IsCaptionVisible = true;
             e.DragUIOverride.IsContentVisible = true;
+            e.Handled = true;
         }
 
         private async void WatchFolderBox3ds_Drop(object sender, DragEventArgs e)
         {
+            e.Handled = true;
             if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
             {
                 var items = await e.DataView.GetStorageItemsAsync();
@@ -978,10 +982,12 @@ namespace StormSwitchBox.Views
             e.DragUIOverride.Caption = "Выбрать как выходную папку";
             e.DragUIOverride.IsCaptionVisible = true;
             e.DragUIOverride.IsContentVisible = true;
+            e.Handled = true;
         }
 
         private async void OutputFolderBox_Drop(object sender, DragEventArgs e)
         {
+            e.Handled = true;
             if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
             {
                 var items = await e.DataView.GetStorageItemsAsync();
@@ -1034,10 +1040,12 @@ namespace StormSwitchBox.Views
             e.DragUIOverride.Caption = "Выбрать как каталог для архивов SDMC";
             e.DragUIOverride.IsCaptionVisible = true;
             e.DragUIOverride.IsContentVisible = true;
+            e.Handled = true;
         }
 
         private async void SdmcArchiveFolderBox_Drop(object sender, DragEventArgs e)
         {
+            e.Handled = true;
             if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
             {
                 var items = await e.DataView.GetStorageItemsAsync();
@@ -1090,10 +1098,12 @@ namespace StormSwitchBox.Views
             e.DragUIOverride.Caption = "Выбрать как выходную папку 3DS";
             e.DragUIOverride.IsCaptionVisible = true;
             e.DragUIOverride.IsContentVisible = true;
+            e.Handled = true;
         }
 
         private async void OutputFolderBox3ds_Drop(object sender, DragEventArgs e)
         {
+            e.Handled = true;
             if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
             {
                 var items = await e.DataView.GetStorageItemsAsync();
@@ -1577,10 +1587,12 @@ echo Обновление завершено. >> ""{logPath}""
         private void EmulatorDropZone_DragOver(object sender, DragEventArgs e)
         {
             e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
+            e.Handled = true;
         }
 
         private async void EmulatorDropZone_Drop(object sender, DragEventArgs e)
         {
+            e.Handled = true;
             if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
             {
                 var items = await e.DataView.GetStorageItemsAsync();

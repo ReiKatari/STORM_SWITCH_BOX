@@ -610,8 +610,7 @@ namespace StormSwitchBox.Core.NSZ
                 }
                 else
                 {
-                    _isSolid = true; // No NCZBLOCK found, assume pure Solid Zstd stream
-                    byte[] zstdMagic = new byte[] { 0x28, 0xB5, 0x2F, 0xFD }; // Little Endian
+                    byte[] zstdMagic = new byte[] { 0x28, 0xB5, 0x2F, 0xFD }; // Little Endian (0xFD2FB528)
                     int zstdMagicOffset = -1;
                     for (int i = 0; i < searchBuffer.Length - 4; i++)
                     {
@@ -625,7 +624,16 @@ namespace StormSwitchBox.Core.NSZ
                     
                     if (zstdMagicOffset != -1)
                     {
+                        _isSolid = true;
                         currentOffset += zstdMagicOffset;
+                    }
+                    else if (_solidStorage != null)
+                    {
+                        _isSolid = true;
+                    }
+                    else
+                    {
+                        _isSolid = false;
                     }
                 }
             }
@@ -677,30 +685,60 @@ namespace StormSwitchBox.Core.NSZ
 
             if (_isSolid)
             {
-                // Solid архив: распаковываем целиком во временный файл
+                // Solid архив: распаковываем во временный файл
                 _tempSolidFile = System.IO.Path.GetTempFileName();
                 
                 IStorage sourceStorage = _solidStorage ?? _baseStorage;
                 sourceStorage.GetSize(out long sourceSize).ThrowIfFailure();
                 
                 long decompressOffset = _solidStorage != null ? 0 : _zstdStreamOffset;
-                long decompressSize = sourceSize - decompressOffset;
+                long decompressSize = Math.Max(0, sourceSize - decompressOffset);
                 
                 PhysicalSize = sourceSize; // In solid compression, the entire file is used
 
-                using (var storageStream = new StorageStream(sourceStorage, decompressOffset, decompressSize))
-                using (var zstdStream = new ZstdSharp.DecompressionStream(storageStream))
-                using (var fs = new FileStream(_tempSolidFile, FileMode.Create, FileAccess.Write, FileShare.None))
+                if (decompressSize > 0)
                 {
-                    try
+                    // Проверяем наличие валидного Zstd-магика перед запуском DecompressionStream
+                    byte[] checkHeader = new byte[Math.Min(4, (int)decompressSize)];
+                    sourceStorage.Read(decompressOffset, checkHeader);
+                    bool hasZstdMagic = false;
+                    if (checkHeader.Length >= 4)
                     {
-                        zstdStream.CopyTo(fs);
+                        uint mVal = BitConverter.ToUInt32(checkHeader, 0);
+                        hasZstdMagic = (mVal == 0xFD2FB528) || ((mVal & 0xFFFFFFF0) == 0x184D2A50);
                     }
-                    catch (Exception ex)
+
+                    if (hasZstdMagic)
                     {
-                        string errMsg = $"ZstdSharp failed to decompress solid stream. Offset: {decompressOffset}. Error: {ex.Message}";
-                        throw new InvalidDataException(errMsg, ex);
+                        using (var storageStream = new StorageStream(sourceStorage, decompressOffset, decompressSize))
+                        using (var zstdStream = new ZstdSharp.DecompressionStream(storageStream))
+                        using (var fs = new FileStream(_tempSolidFile, FileMode.Create, FileAccess.Write, FileShare.None))
+                        {
+                            try
+                            {
+                                zstdStream.CopyTo(fs);
+                            }
+                            catch (Exception ex)
+                            {
+                                string errMsg = $"ZstdSharp failed to decompress solid stream. Offset: {decompressOffset}. Error: {ex.Message}";
+                                throw new InvalidDataException(errMsg, ex);
+                            }
+                        }
                     }
+                    else
+                    {
+                        // Не является сжатым Zstd потоком — сохраняем напрямую во временный файл
+                        using (var storageStream = new StorageStream(sourceStorage, decompressOffset, decompressSize))
+                        using (var fs = new FileStream(_tempSolidFile, FileMode.Create, FileAccess.Write, FileShare.None))
+                        {
+                            storageStream.CopyTo(fs);
+                        }
+                    }
+                }
+                else
+                {
+                    // Пустой поток/заглушка заголовка
+                    using (var fs = new FileStream(_tempSolidFile, FileMode.Create, FileAccess.Write, FileShare.None)) { }
                 }
                 
                 _tempSolidStream = new FileStream(_tempSolidFile, FileMode.Open, FileAccess.Read, FileShare.Read);
