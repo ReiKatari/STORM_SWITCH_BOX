@@ -24,6 +24,7 @@ gar_data/
 # Keep tools in STORM SWITCH BOX if needed
 !tools/**/*.exe
 !tools/**/*.dll
+!tools/forwarder/**
 
 # Keep branding icons
 !Files/*.ico

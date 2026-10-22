@@ -130,6 +130,7 @@ namespace StormSwitchBox.Services
                 Path.Combine(appDir, "..", "..", "..", "tools"),
                 Path.Combine(appDir, "..", "..", "..", "..", "tools"),
                 Path.Combine(appDir, "..", "..", "..", "..", "..", "tools"),
+                @"F:\STORM SWITCH BOX\tools",
                 @"E:\STORM SWITCH BOX\tools"
             };
 
@@ -142,8 +143,8 @@ namespace StormSwitchBox.Services
                     if (string.IsNullOrEmpty(foundTools)) foundTools = sDir;
                     string c1 = Path.Combine(sDir, "com.github.nozwock.yanu", "hacpack.exe");
                     string c2 = Path.Combine(sDir, "hacpack.exe");
-                    if (File.Exists(c1)) { foundHacpack = c1; break; }
-                    if (File.Exists(c2)) { foundHacpack = c2; break; }
+                    if (File.Exists(c1)) { foundTools = sDir; foundHacpack = c1; break; }
+                    if (File.Exists(c2)) { foundTools = sDir; foundHacpack = c2; break; }
                 }
             }
 
@@ -2041,7 +2042,13 @@ namespace StormSwitchBox.Services
 
                 if (!exefsExtracted)
                 {
-                    GenerateUniversalForwarderExeFs(exefsDir, titleId);
+                    bool usedForwarderTemplate = GenerateUniversalForwarderExeFs(exefsDir, titleId);
+                    App.RunOnUI(() =>
+                    {
+                        task.LogDetails += usedForwarderTemplate
+                            ? "[ExeFS] Применён эталонный загрузчик из tools/forwarder/ (nx-hbloader / NSP-Auto-Installer-Maker 2.9)\n"
+                            : "[ExeFS] Сгенерирован базовый универсальный стаб ExeFS\n";
+                    });
                 }
 
                 // 2. Формируем RomFS со ВСЕМИ файлами данных игры (.rpf, .mpq, .wad, .pck, .o2r, .nes, etc.)
@@ -2134,7 +2141,7 @@ namespace StormSwitchBox.Services
                             }
                         }
 
-                        string nextArgvContent = $"{nextPath}\0{nextPath}\0";
+                        string nextArgvContent = nextPath;
 
                         // Поддержка RetroArch Core + ROM Forwarder (стандарт CNX17 NSP-Auto-Installer-Maker 2.9):
                         // Если NRO является ядром Libretro (*_libretro_libnx.nro) и в файлах есть ROM — прописываем прямой запуск ядра с аргументом ROM
@@ -2154,13 +2161,25 @@ namespace StormSwitchBox.Services
                             }
                         }
 
-                        File.WriteAllText(Path.Combine(romfsDir, "nextNroPath"), nextPath);
-                        File.WriteAllBytes(Path.Combine(romfsDir, "nextArgv"), Encoding.UTF8.GetBytes(nextArgvContent));
+                        var utf8NoBom = new UTF8Encoding(false);
+                        File.WriteAllText(Path.Combine(romfsDir, "nextNroPath"), nextPath, utf8NoBom);
+                        File.WriteAllText(Path.Combine(romfsDir, "nextArgv"), nextArgvContent, utf8NoBom);
 
                         App.RunOnUI(() =>
                         {
                             task.LogDetails += $"[RomFS] HBL Forwarder: сконфигурирован целевой NRO путь {nextPath}\n";
                         });
+                    }
+                    else
+                    {
+                        string fwdNextNro = Path.Combine(romfsDir, "nextNroPath");
+                        string fwdNextArgv = Path.Combine(romfsDir, "nextArgv");
+                        if (File.Exists(fwdNextNro) && !File.Exists(fwdNextArgv))
+                        {
+                            string legacyArgvPath = Path.Combine(romfsDir, "nextArgvPath");
+                            string argvVal = File.Exists(legacyArgvPath) ? File.ReadAllText(legacyArgvPath).Trim() : File.ReadAllText(fwdNextNro).Trim();
+                            File.WriteAllText(fwdNextArgv, argvVal, new UTF8Encoding(false));
+                        }
                     }
                 }
                 else
@@ -2308,8 +2327,19 @@ namespace StormSwitchBox.Services
                 });
 
                 // 4. Сборка Program NCA через hacpack
-                string progArgs = $"-k \"{keysFile}\" --type nca --ncatype program --titleid {titleId} --exefsdir \"{exefsDir}\" --romfsdir \"{effectiveRomfsDir}\" -o \"{outProgramDir}\"";
+                string logoDir = Path.Combine(_toolsDir, "forwarder", "logo");
+                string logoArg = (Directory.Exists(logoDir) && File.Exists(Path.Combine(logoDir, "NintendoLogo.png")) && File.Exists(Path.Combine(logoDir, "StartupMovie.gif")))
+                    ? $" --logodir \"{logoDir}\""
+                    : "";
+                string progArgs = $"-k \"{keysFile}\" --type nca --ncatype program --titleid {titleId} --exefsdir \"{exefsDir}\" --romfsdir \"{effectiveRomfsDir}\"{logoArg} -o \"{outProgramDir}\"";
                 int progCode = await ExternalProcessRunner.RunAsync(_hacpackExe, progArgs, tempDir, task, ct);
+
+                // Если сборка с --logodir не удалась (например, в старой ревизии hacpack), повторяем без --logodir
+                if (progCode != 0 && !string.IsNullOrEmpty(logoArg))
+                {
+                    progArgs = $"-k \"{keysFile}\" --type nca --ncatype program --titleid {titleId} --exefsdir \"{exefsDir}\" --romfsdir \"{effectiveRomfsDir}\" -o \"{outProgramDir}\"";
+                    progCode = await ExternalProcessRunner.RunAsync(_hacpackExe, progArgs, tempDir, task, ct);
+                }
                 if (progCode != 0)
                 {
                     throw new Exception($"hacpack завершился с ошибкой (код {progCode}) при сборке Program NCA.");
@@ -2783,83 +2813,90 @@ namespace StormSwitchBox.Services
 
         /// <summary>
         /// Генерация стандартной универсальной структуры ExeFS (main.npdm + forwarder NSO)
-        /// Поддерживает 64-bit 42-bit Address Space (0x07) и автоматический патч шаблонного ExeFS при наличии в tools/forwarder/
+        /// Автоматически подхватывает скомпилированные файлы main и main.npdm из tools/forwarder/ (nx-hbloader / NSP-Auto-Installer-Maker 2.9)
         /// </summary>
-        private void GenerateUniversalForwarderExeFs(string exefsDir, string titleIdStr)
+        private bool GenerateUniversalForwarderExeFs(string exefsDir, string titleIdStr)
         {
             ulong titleId = ulong.Parse(titleIdStr, System.Globalization.NumberStyles.HexNumber);
 
-            // Проверяем наличие эталонного шаблона ExeFS форвардера в tools/forwarder/
-            string templateExefsDir = Path.Combine(_toolsDir, "forwarder");
-            string templateMain = Path.Combine(templateExefsDir, "main");
-            string templateNpdm = Path.Combine(templateExefsDir, "main.npdm");
-            if (File.Exists(templateMain) && File.Exists(templateNpdm))
+            // Проверяем наличие эталонного шаблона ExeFS форвардера в tools/forwarder/ (или tools/forwarder/cnx29/)
+            string[] candidateDirs =
             {
-                try
+                Path.Combine(_toolsDir, "forwarder"),
+                Path.Combine(_toolsDir, "forwarder", "cnx29"),
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tools", "forwarder"),
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tools", "forwarder", "cnx29")
+            };
+
+            foreach (var templateExefsDir in candidateDirs)
+            {
+                string templateMain = Path.Combine(templateExefsDir, "main");
+                string templateNpdm = Path.Combine(templateExefsDir, "main.npdm");
+                if (File.Exists(templateMain) && File.Exists(templateNpdm))
                 {
-                    File.Copy(templateMain, Path.Combine(exefsDir, "main"), true);
-                    byte[] tplNpdm = File.ReadAllBytes(templateNpdm);
-                    // Обновляем флаги адресного пространства (64-bit + 42-bit AddressSpace = 0x07) и TitleID в ACI0
-                    if (tplNpdm.Length >= 0x80)
+                    try
                     {
-                        tplNpdm[0x04] = (byte)((tplNpdm[0x04] & ~0x0E) | (0x03 << 1) | 0x01);
-                        uint aci0Off = BitConverter.ToUInt32(tplNpdm, 0x40);
-                        if (aci0Off > 0 && aci0Off + 0x18 <= tplNpdm.Length)
+                        File.Copy(templateMain, Path.Combine(exefsDir, "main"), true);
+                        byte[] tplNpdm = File.ReadAllBytes(templateNpdm);
+                        // Патчим TitleID в секциях ACI0 (смещение указателя 0x70) и ACID (смещение указателя 0x78) по спецификации Switch NPDM
+                        if (tplNpdm.Length >= 0x80 &&
+                            tplNpdm[0] == (byte)'M' && tplNpdm[1] == (byte)'E' && tplNpdm[2] == (byte)'T' && tplNpdm[3] == (byte)'A')
                         {
-                            BitConverter.GetBytes(titleId).CopyTo(tplNpdm, (int)aci0Off + 0x10);
+                            uint aci0Off = BitConverter.ToUInt32(tplNpdm, 0x70);
+                            if (aci0Off >= 0x80 && aci0Off + 0x18 <= tplNpdm.Length &&
+                                tplNpdm[aci0Off] == (byte)'A' && tplNpdm[aci0Off + 1] == (byte)'C' && tplNpdm[aci0Off + 2] == (byte)'I' && tplNpdm[aci0Off + 3] == (byte)'0')
+                            {
+                                BitConverter.GetBytes(titleId).CopyTo(tplNpdm, (int)aci0Off + 0x10);
+                            }
+
+                            uint acidOff = BitConverter.ToUInt32(tplNpdm, 0x78);
+                            if (acidOff >= 0x80 && acidOff + 0x220 <= tplNpdm.Length &&
+                                tplNpdm[acidOff + 0x200] == (byte)'A' && tplNpdm[acidOff + 0x201] == (byte)'C' && tplNpdm[acidOff + 0x202] == (byte)'I' && tplNpdm[acidOff + 0x203] == (byte)'D')
+                            {
+                                BitConverter.GetBytes(titleId).CopyTo(tplNpdm, (int)acidOff + 0x210);
+                                BitConverter.GetBytes(titleId).CopyTo(tplNpdm, (int)acidOff + 0x218);
+                            }
                         }
-                        uint acidOff = BitConverter.ToUInt32(tplNpdm, 0x48);
-                        if (acidOff > 0 && acidOff + 0x220 <= tplNpdm.Length)
-                        {
-                            BitConverter.GetBytes(titleId).CopyTo(tplNpdm, (int)acidOff + 0x210);
-                            BitConverter.GetBytes(titleId).CopyTo(tplNpdm, (int)acidOff + 0x218);
-                        }
+                        File.WriteAllBytes(Path.Combine(exefsDir, "main.npdm"), tplNpdm);
+                        return true;
                     }
-                    File.WriteAllBytes(Path.Combine(exefsDir, "main.npdm"), tplNpdm);
-                    return;
+                    catch { }
                 }
-                catch { }
             }
 
-            // 1. Генерация main.npdm (0x1000 байт с правильным TitleID, 42-bit Address Space и правами доступа)
-            byte[] npdm = new byte[0x1000];
+            // 1. Генерация резервного main.npdm по спецификации Switch META/ACI0/ACID
+            byte[] npdm = new byte[0x500];
 
-            // META Header
+            // META Header (0x00..0x80)
             Encoding.ASCII.GetBytes("META").CopyTo(npdm, 0x00);
-            // Bit 0 = Is64BitInstruction (1), Bits 1..3 = AddressSpaceType (3 = 64-bit 42-bit address space) -> 0x07
-            BitConverter.GetBytes(0x00000007U).CopyTo(npdm, 0x04); // Flags (64-bit + 42-bit Address Space)
-            BitConverter.GetBytes(0x00000000U).CopyTo(npdm, 0x08); // Reserved
-            BitConverter.GetBytes(0x0000002CU).CopyTo(npdm, 0x0C); // Main thread priority (44)
-            BitConverter.GetBytes(0x00000000U).CopyTo(npdm, 0x10); // Main thread core
-            BitConverter.GetBytes(0x00100000U).CopyTo(npdm, 0x14); // Main thread stack size (1 MB)
-            Encoding.ASCII.GetBytes("Application").CopyTo(npdm, 0x18); // Process name
+            npdm[0x0C] = 0x03; // Flags: Is64BitInstruction (bit 0) + AddressSpace64Bit (bits 1..3)
+            npdm[0x0E] = 44;   // MainThreadPriority (0x2C)
+            npdm[0x0F] = 0;    // DefaultCpuId
+            BitConverter.GetBytes(0x00100000U).CopyTo(npdm, 0x14); // SystemResourceSize / Stack
+            BitConverter.GetBytes(0x00100000U).CopyTo(npdm, 0x1C); // MainThreadStackSize (1 MB)
+            Encoding.ASCII.GetBytes("Application").CopyTo(npdm, 0x20); // TitleName
 
-            BitConverter.GetBytes(0x00000200U).CopyTo(npdm, 0x40); // ACI0 offset
-            BitConverter.GetBytes(0x00000200U).CopyTo(npdm, 0x44); // ACI0 size
-            BitConverter.GetBytes(0x00000400U).CopyTo(npdm, 0x48); // ACID offset
-            BitConverter.GetBytes(0x00000400U).CopyTo(npdm, 0x4C); // ACID size
+            BitConverter.GetBytes(0x00000340U).CopyTo(npdm, 0x70); // ACI0 offset
+            BitConverter.GetBytes(0x00000100U).CopyTo(npdm, 0x74); // ACI0 size
+            BitConverter.GetBytes(0x00000080U).CopyTo(npdm, 0x78); // ACID offset
+            BitConverter.GetBytes(0x000002C0U).CopyTo(npdm, 0x7C); // ACID size
 
-            // ACI0 Section (0x200)
-            Encoding.ASCII.GetBytes("ACI0").CopyTo(npdm, 0x200);
-            BitConverter.GetBytes(titleId).CopyTo(npdm, 0x210); // Title ID
-            BitConverter.GetBytes(0x1FE00000UL).CopyTo(npdm, 0x218); // System resource size (510 MB for modern ports)
+            // ACID Section (0x80: 0x200 RSA sig + public key, 0x280: "ACID")
+            Encoding.ASCII.GetBytes("ACID").CopyTo(npdm, 0x280);
+            BitConverter.GetBytes(0x00000001U).CopyTo(npdm, 0x284); // Flags (production)
+            BitConverter.GetBytes(titleId).CopyTo(npdm, 0x290); // ProgramIdMin
+            BitConverter.GetBytes(titleId).CopyTo(npdm, 0x298); // ProgramIdMax
 
-            // FAC (Filesystem Access Control) - полные права
-            BitConverter.GetBytes(0x00000001U).CopyTo(npdm, 0x220); // Version
-            BitConverter.GetBytes(0xFFFFFFFFFFFFFFFFUL).CopyTo(npdm, 0x228); // Permissions bitmask
-
-            // ACID Section (0x400)
-            Encoding.ASCII.GetBytes("ACID").CopyTo(npdm, 0x400);
-            BitConverter.GetBytes(0x00000001U).CopyTo(npdm, 0x404); // Flags (production)
-            BitConverter.GetBytes(titleId).CopyTo(npdm, 0x410); // Min TitleID
-            BitConverter.GetBytes(titleId).CopyTo(npdm, 0x418); // Max TitleID
-            BitConverter.GetBytes(0xFFFFFFFFFFFFFFFFUL).CopyTo(npdm, 0x420); // FAC mask
+            // ACI0 Section (0x340)
+            Encoding.ASCII.GetBytes("ACI0").CopyTo(npdm, 0x340);
+            BitConverter.GetBytes(titleId).CopyTo(npdm, 0x350); // ProgramId
 
             File.WriteAllBytes(Path.Combine(exefsDir, "main.npdm"), npdm);
 
             // 2. Генерация NSO forwarder binary (main)
             byte[] nso = GenerateForwarderNso(titleId);
             File.WriteAllBytes(Path.Combine(exefsDir, "main"), nso);
+            return false;
         }
 
         /// <summary>
