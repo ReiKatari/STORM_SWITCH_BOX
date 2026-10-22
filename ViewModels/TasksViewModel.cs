@@ -460,6 +460,49 @@ public partial class TasksViewModel : ObservableObject
 		return expandedPaths;
 	}
 
+	public static string GetTitleGroupPrefix(string? titleId)
+	{
+		if (string.IsNullOrEmpty(titleId) || titleId.Length < 12)
+			return titleId ?? string.Empty;
+		if (titleId.Length == 16 && titleId.StartsWith("0004", StringComparison.OrdinalIgnoreCase))
+			return "0004" + titleId.Substring(8, 8).ToUpperInvariant();
+		return titleId.Substring(0, 12).ToUpperInvariant();
+	}
+
+	public static (bool hasRomFs, bool hasExeFs) InspectModDirectoryCapabilities(string dirPath)
+	{
+		if (!Directory.Exists(dirPath)) return (false, false);
+		bool romFs = false;
+		bool exeFs = false;
+		try
+		{
+			string rootName = Path.GetFileName(dirPath).ToLowerInvariant();
+			if (rootName == "romfs") romFs = true;
+			if (rootName == "exefs" || rootName == "exefs_patches" || rootName == "cheats") exeFs = true;
+
+			foreach (var sub in Directory.EnumerateDirectories(dirPath, "*", SearchOption.AllDirectories))
+			{
+				string subName = Path.GetFileName(sub).ToLowerInvariant();
+				if (subName == "romfs") romFs = true;
+				if (subName == "exefs" || subName == "exefs_patches" || subName == "cheats") exeFs = true;
+			}
+			foreach (var file in Directory.EnumerateFiles(dirPath, "*", SearchOption.AllDirectories))
+			{
+				string fn = Path.GetFileName(file).ToLowerInvariant();
+				if (fn == "romfs.bin") romFs = true;
+				if (fn == "code.bin" || fn == ".code" || fn.EndsWith(".ips") || fn.EndsWith(".bps") || fn.EndsWith(".pchtxt"))
+					exeFs = true;
+			}
+			if (!romFs && !exeFs)
+			{
+				// Loose asset folder treated as RomFS mod
+				romFs = true;
+			}
+		}
+		catch { }
+		return (romFs, exeFs);
+	}
+
 	public static bool IsModOrCheatDirectory(string dirPath)
 	{
 		if (!Directory.Exists(dirPath)) return false;
@@ -475,9 +518,11 @@ public partial class TasksViewModel : ObservableObject
 		catch { }
 
 		string name = Path.GetFileName(dirPath).ToLowerInvariant();
-		if (name == "romfs" || name == "exefs" || name == "exefs_patches" || name == "cheats" || name == "atmosphere" || name == "contents")
+		if (name == "romfs" || name == "exefs" || name == "exefs_patches" || name == "cheats" ||
+		    name == "atmosphere" || name == "contents" || name == "luma" || name == "titles" || name == "load" || name == "mods")
 			return true;
-		if (name.Contains("cheat") || name.Contains("чит") || name.Contains("mod") || name.Contains("мод"))
+		if (name.Contains("cheat") || name.Contains("чит") || name.Contains("mod") || name.Contains("мод") ||
+		    name.Contains("рус") || name.Contains("rus") || name.Contains("patch") || name.Contains("патч") || name.Contains("translation"))
 			return true;
 		try
 		{
@@ -485,12 +530,17 @@ public partial class TasksViewModel : ObservableObject
 			foreach (var sub in subs)
 			{
 				string subName = Path.GetFileName(sub).ToLowerInvariant();
-				if (subName == "romfs" || subName == "exefs" || subName == "exefs_patches" || subName == "cheats" || subName == "atmosphere" || subName == "contents")
+				if (subName == "romfs" || subName == "exefs" || subName == "exefs_patches" || subName == "cheats" ||
+				    subName == "atmosphere" || subName == "contents" || subName == "luma" || subName == "titles")
 					return true;
 			}
 			var files = Directory.GetFiles(dirPath, "*", SearchOption.AllDirectories);
 			if (files.Any(f => f.EndsWith(".ips", StringComparison.OrdinalIgnoreCase) || 
+			                   f.EndsWith(".bps", StringComparison.OrdinalIgnoreCase) ||
 			                   f.EndsWith(".pchtxt", StringComparison.OrdinalIgnoreCase) ||
+			                   Path.GetFileName(f).Equals("romfs.bin", StringComparison.OrdinalIgnoreCase) ||
+			                   Path.GetFileName(f).Equals("code.bin", StringComparison.OrdinalIgnoreCase) ||
+			                   Path.GetFileName(f).Equals("exheader.bin", StringComparison.OrdinalIgnoreCase) ||
 			                   (f.EndsWith(".txt", StringComparison.OrdinalIgnoreCase) && (f.Contains("cheat", StringComparison.OrdinalIgnoreCase) || f.Contains("atmosphere", StringComparison.OrdinalIgnoreCase)))))
 			{
 				return true;
@@ -646,7 +696,10 @@ public partial class TasksViewModel : ObservableObject
 						string name = Path.GetFileName(subDir).ToLowerInvariant();
 						if (name == "romfs" || name == "exefs" || name == "exefs_patches" || name == "cheats")
 						{
-							if (!modDirs.Contains(subDir, StringComparer.OrdinalIgnoreCase))
+							bool alreadyCoveredByParent = modDirs.Any(m =>
+								subDir.StartsWith(m + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) ||
+								subDir.Equals(m, StringComparison.OrdinalIgnoreCase));
+							if (!alreadyCoveredByParent)
 							{
 								modDirs.Add(subDir);
 							}
@@ -770,20 +823,20 @@ public partial class TasksViewModel : ObservableObject
 						task.SourceSizeBytes = task.InputFiles.Sum(p => CalculateSize(p));
 						task.FilesCount = task.InputFiles.Count(p => File.Exists(p)).ToString();
 						
-						bool hasRomFs = task.InputFiles.Any(p => Directory.Exists(p) && 
-							(Path.GetFileName(p).Equals("romfs", StringComparison.OrdinalIgnoreCase) || 
-							 Directory.GetDirectories(p, "romfs", SearchOption.AllDirectories).Any()));
-						bool hasExeFs = task.InputFiles.Any(p => Directory.Exists(p) && 
-							(Path.GetFileName(p).Equals("exefs", StringComparison.OrdinalIgnoreCase) || 
-							 Path.GetFileName(p).Equals("exefs_patches", StringComparison.OrdinalIgnoreCase) ||
-							 Directory.GetDirectories(p, "exefs*", SearchOption.AllDirectories).Any()));
+						bool hasRomFs = false;
+						bool hasExeFs = false;
+						foreach (var p in task.InputFiles)
+						{
+							if (Directory.Exists(p))
+							{
+								var (r, e) = InspectModDirectoryCapabilities(p);
+								if (r) hasRomFs = true;
+								if (e) hasExeFs = true;
+							}
+						}
 						
 						task.HasRomFs = hasRomFs ? "1" : "-";
-						bool hasCheats = task.InputFiles.Any(p => Directory.Exists(p) && 
-							(Path.GetFileName(p).Equals("cheats", StringComparison.OrdinalIgnoreCase) || 
-							 p.Contains("cheat", StringComparison.OrdinalIgnoreCase) ||
-							 Directory.GetDirectories(p, "*cheat*", SearchOption.AllDirectories).Any()));
-						task.HasExeFs = hasExeFs ? "1" : (hasCheats ? "1" : "-");
+						task.HasExeFs = hasExeFs ? "1" : "-";
 
 						string formattedName = MultiContentService.FormatOutputFileName(
 							Path.Combine(task.OutputFolder, task.OutputFileName + task.GetPrimaryExtension()), 
@@ -960,7 +1013,7 @@ public partial class TasksViewModel : ObservableObject
 					var topFolderTids = (from m in filesMeta
 						where m.TitleId != null && m.TitleId.Length == 16
 						group m by m.TopFolder).ToDictionary(g => g.Key, g => (from m in g
-						group m by m.TitleId!.Substring(0, 12) into x
+						group m by GetTitleGroupPrefix(m.TitleId) into x
 						orderby x.Count() descending
 						select x).First().Key);
 					var groups = filesMeta.GroupBy(m =>
@@ -968,7 +1021,7 @@ public partial class TasksViewModel : ObservableObject
 						string text = "UNKNOWN";
 						if (m.TitleId != null && m.TitleId.Length == 16)
 						{
-							text = m.TitleId.Substring(0, 12);
+							text = GetTitleGroupPrefix(m.TitleId);
 						}
 						else if (topFolderTids.TryGetValue(m.TopFolder, out string? value) && value != null)
 						{
@@ -986,8 +1039,9 @@ public partial class TasksViewModel : ObservableObject
 								if (Directory.Exists(m.Path)) return false;
 								if (m.TitleId != null && m.TitleId.Length == 16)
 								{
-									bool flag = m.Type == "Application" || m.TitleId.EndsWith("000");
-									bool flag2 = m.Type == "Patch" || (m.TitleId.EndsWith("00") && m.TitleId[13] != '0');
+									bool is3dsTid = m.TitleId.StartsWith("0004", StringComparison.OrdinalIgnoreCase);
+									bool flag = m.Type == "Application" || (is3dsTid ? m.TitleId.StartsWith("00040000", StringComparison.OrdinalIgnoreCase) : m.TitleId.EndsWith("000"));
+									bool flag2 = m.Type == "Patch" || (is3dsTid ? m.TitleId.StartsWith("0004000E", StringComparison.OrdinalIgnoreCase) : (m.TitleId.EndsWith("00") && m.TitleId[13] != '0'));
 									if (!flag && !flag2)
 									{
 										App.Logger.Log("Пропущено дополнение: " + Path.GetFileName(m.Path), LogLevel.Warning);
@@ -1008,13 +1062,14 @@ public partial class TasksViewModel : ObservableObject
 
 				// Standalone game file
 				SwitchFormatInfo fileMeta = await GetInternalTitleInfoAsync(path);
-				string baseTid = ((fileMeta.TitleId != null && fileMeta.TitleId.Length == 16) ? fileMeta.TitleId.Substring(0, 12) : path);
+				string baseTid = ((fileMeta.TitleId != null && fileMeta.TitleId.Length == 16) ? GetTitleGroupPrefix(fileMeta.TitleId) : path);
 				if (_currentPageType == "Update")
 				{
 					if (fileMeta.TitleId != null && fileMeta.TitleId.Length == 16)
 					{
-						bool isBase = fileMeta.ContentType == "Application" || fileMeta.TitleId.EndsWith("000");
-						bool isUpdate = fileMeta.ContentType == "Patch" || (fileMeta.TitleId.EndsWith("00") && fileMeta.TitleId[13] != '0');
+						bool is3dsTid = fileMeta.TitleId.StartsWith("0004", StringComparison.OrdinalIgnoreCase);
+						bool isBase = fileMeta.ContentType == "Application" || (is3dsTid ? fileMeta.TitleId.StartsWith("00040000", StringComparison.OrdinalIgnoreCase) : fileMeta.TitleId.EndsWith("000"));
+						bool isUpdate = fileMeta.ContentType == "Patch" || (is3dsTid ? fileMeta.TitleId.StartsWith("0004000E", StringComparison.OrdinalIgnoreCase) : (fileMeta.TitleId.EndsWith("00") && fileMeta.TitleId[13] != '0'));
 						if (!isBase && !isUpdate)
 						{
 							App.Logger.Log("Пропущено дополнение: " + Path.GetFileName(path), LogLevel.Warning);
@@ -1080,13 +1135,13 @@ public partial class TasksViewModel : ObservableObject
 				}
 
 				ProcessingTask? existingTask = null;
-				string? groupBase = (groupId != null && groupId.Length >= 12) ? groupId.Substring(0, 12) : null;
+				string? groupBase = (groupId != null && groupId.Length >= 12) ? GetTitleGroupPrefix(groupId) : null;
 				if ((_currentPageType == "Update" || _currentPageType == "Multi") && groupBase != null)
 				{
 					existingTask = Tasks.FirstOrDefault((ProcessingTask t) => 
 						t.GroupId != null && 
 						t.GroupId.Length >= 12 && 
-						t.GroupId.Substring(0, 12) == groupBase && 
+						GetTitleGroupPrefix(t.GroupId) == groupBase && 
 						t.Operation == _currentPageType && 
 						string.Equals(t.TargetFormat, targetFmt, StringComparison.OrdinalIgnoreCase) && 
 						t.Status == "Ожидание");
@@ -1148,15 +1203,9 @@ public partial class TasksViewModel : ObservableObject
 						{
 							if (Directory.Exists(f2))
 							{
-								string dirName = Path.GetFileName(f2).ToLower();
-								if (dirName == "romfs")
-								{
-									romFs = true;
-								}
-								if (dirName == "exefs" || dirName == "exefs_patches")
-								{
-									exeFs = true;
-								}
+								var (r, e) = InspectModDirectoryCapabilities(f2);
+								if (r) romFs = true;
+								if (e) exeFs = true;
 							}
 						}
 						existingTask.HasRomFs = (romFs ? "1" : "-");
@@ -1180,6 +1229,11 @@ public partial class TasksViewModel : ObservableObject
 						{
 							try
 							{
+								if (Nintendo3dsService.Is3dsExtension(Path.GetExtension(filePath)))
+								{
+									var n3ds = App.Nintendo3ds.Parse3dsFile(filePath);
+									return n3ds.ContentType == "Application" || (!string.IsNullOrEmpty(n3ds.TitleId) && n3ds.TitleId.StartsWith("00040000", StringComparison.OrdinalIgnoreCase));
+								}
 								SwitchFormatInfo switchFormatInfo = App.SwitchFormat.ParseNsp(filePath);
 								return switchFormatInfo.ContentType == "Application" || (switchFormatInfo.TitleId != null && switchFormatInfo.TitleId.EndsWith("000"));
 							}
@@ -1222,7 +1276,7 @@ public partial class TasksViewModel : ObservableObject
 						}
 					}
 					string dbLogInfo = "";
-					if (groupId != null && groupId.Length >= 12 && Regex.IsMatch(groupId.Substring(0, 12), "^[0-9a-fA-F]{12}$"))
+					if (!is3ds && groupId != null && groupId.Length >= 12 && Regex.IsMatch(groupId.Substring(0, 12), "^[0-9a-fA-F]{12}$"))
 					{
 						string tid16 = groupId.Substring(0, 12).ToUpper() + "000";
 						if (App.TitleDb.TryGetTitleInfo(tid16, out var entry) && entry != null)
@@ -1264,15 +1318,9 @@ public partial class TasksViewModel : ObservableObject
 					{
 						if (Directory.Exists(f3))
 						{
-							string dirName3 = Path.GetFileName(f3).ToLower();
-							if (dirName3 == "romfs")
-							{
-								rFs = true;
-							}
-							if (dirName3 == "exefs" || dirName3 == "exefs_patches")
-							{
-								eFs = true;
-							}
+							var (r, e) = InspectModDirectoryCapabilities(f3);
+							if (r) rFs = true;
+							if (e) eFs = true;
 						}
 					}
 					string outFolder = is3ds 
@@ -1861,10 +1909,11 @@ public partial class TasksViewModel : ObservableObject
 				if (task.Operation == "Update" || task.Operation == "Multi")
 				{
 					string outExt = (task.TargetFormat ?? "3DS").ToLowerInvariant().Replace(" (cci)", "").Trim();
-					if (outExt == "3ds" || outExt == "cci") outExt = "3ds";
+					if (outExt == "3ds" || outExt == "cci" || outExt == "3ds + cia") outExt = "3ds";
 					else if (outExt == "cia") outExt = "cia";
 					else outExt = "cxi";
 					string outPath = Path.Combine(task.OutputFolder, task.OutputFileName + "." + outExt);
+					await PreAnalyzeFilesAsync(task, task.InputFiles);
 					await App.Nintendo3ds.Build3dsMultiContentAsync(task, task.InputFiles, outPath, task.TargetFormat ?? "3DS", cts.Token);
 					return;
 				}
@@ -2258,7 +2307,29 @@ public partial class TasksViewModel : ObservableObject
 					if (!File.Exists(filePath)) continue;
 					
 					string ext = Path.GetExtension(filePath).ToLower();
-					if (ext != ".nsp" && ext != ".nsz") continue;
+					if (Nintendo3dsService.Is3dsExtension(ext))
+					{
+						totalNspFiles++;
+						string fileName3ds = Path.GetFileName(filePath);
+						var info3ds = App.Nintendo3ds.Parse3dsFile(filePath);
+						string type3ds = info3ds.ContentType ?? "Application";
+						string tid3ds = (info3ds.TitleId ?? "").Trim().ToUpperInvariant();
+						string ver3ds = info3ds.Version ?? "v0";
+						string typeLabel3ds = type3ds switch
+						{
+							"Application" => "🎮 ИГРА 3DS",
+							"Patch" => "🔄 ОБНОВЛЕНИЕ 3DS",
+							"AddOnContent" => "📦 DLC 3DS",
+							_ => $"❓ {type3ds}"
+						};
+						sb.AppendLine($"\n{typeLabel3ds}  {fileName3ds}");
+						sb.AppendLine($"  ├ TitleID:     {tid3ds}");
+						sb.AppendLine($"  ├ ProductCode: {info3ds.ProductCode}");
+						sb.AppendLine($"  └ Версия:      {ver3ds}  Размер: {ProcessingTask.FormatSize(new FileInfo(filePath).Length)}");
+						if (!string.IsNullOrEmpty(tid3ds)) allTitleIds.Add(tid3ds);
+						continue;
+					}
+					if (ext != ".nsp" && ext != ".nsz" && ext != ".xci" && ext != ".xcz") continue;
 					
 					totalNspFiles++;
 					string fileName = Path.GetFileName(filePath);

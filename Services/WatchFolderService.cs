@@ -184,14 +184,20 @@ namespace StormSwitchBox.Services
             {
                 var settings = App.Settings.Current;
                 string[] actions = new string[] { "Сжатие", "Распаковка", "Упаковка", "Конвертация", "Мульти-контент", "Проверка" };
+                string[] pageTypes = new string[] { "Convert", "Unpack", "Pack", "Convert", "Multi", "Verify" };
                 string[] formats = new string[] { "NSP", "NSZ", "XCI", "XCZ" };
                 
-                string actionStr = settings.WatchFolderActionSwitch >= 0 && settings.WatchFolderActionSwitch < actions.Length ? actions[settings.WatchFolderActionSwitch] : "Мульти-контент";
-                string formatStr = settings.WatchFolderFormatSwitch >= 0 && settings.WatchFolderFormatSwitch < formats.Length ? formats[settings.WatchFolderFormatSwitch] : "NSP";
+                int actIdx = Math.Clamp(settings.WatchFolderActionSwitch, 0, actions.Length - 1);
+                int fmtIdx = Math.Clamp(settings.WatchFolderFormatSwitch, 0, formats.Length - 1);
+                string actionStr = actions[actIdx];
+                string pageType = pageTypes[actIdx];
+                string formatStr = (actIdx == 0 && fmtIdx == 0) ? "NSZ" : formats[fmtIdx];
 
                 App.Logger?.Log($"[WatchFolder Switch] Авто-обработка «{Path.GetFileName(filePath)}»: {actionStr} в {formatStr}", Models.LogLevel.Success);
                 
                 App.TasksVM.SelectedPlatform = 0;
+                App.TasksVM.SetPageType(pageType);
+                App.TasksVM.SelectedFormat = formatStr;
                 await App.TasksVM.AddDroppedFilesBatchAsync(new System.Collections.Generic.List<string> { filePath });
                 await App.TasksVM.StartAllTasksAsync();
             });
@@ -346,14 +352,20 @@ namespace StormSwitchBox.Services
             {
                 var settings = App.Settings.Current;
                 string[] actions = new string[] { "Конвертация", "Распаковка", "Упаковка", "Мульти-контент", "Проверка" };
+                string[] pageTypes = new string[] { "Convert", "Unpack", "Pack", "Multi", "Verify" };
                 string[] formats = new string[] { "3DS", "CIA", "CXI" };
                 
-                string actionStr = settings.WatchFolderAction3ds >= 0 && settings.WatchFolderAction3ds < actions.Length ? actions[settings.WatchFolderAction3ds] : "Мульти-контент";
-                string formatStr = settings.WatchFolderFormat3ds >= 0 && settings.WatchFolderFormat3ds < formats.Length ? formats[settings.WatchFolderFormat3ds] : "3DS";
+                int actIdx = Math.Clamp(settings.WatchFolderAction3ds, 0, actions.Length - 1);
+                int fmtIdx = Math.Clamp(settings.WatchFolderFormat3ds, 0, formats.Length - 1);
+                string actionStr = actions[actIdx];
+                string pageType = pageTypes[actIdx];
+                string formatStr = formats[fmtIdx];
 
                 App.Logger?.Log($"[WatchFolder 3DS] Авто-обработка «{Path.GetFileName(filePath)}»: {actionStr} в {formatStr}", Models.LogLevel.Success);
                 
                 App.TasksVM.SelectedPlatform = 1;
+                App.TasksVM.SetPageType(pageType);
+                App.TasksVM.SelectedFormatIndex3ds = fmtIdx;
                 await App.TasksVM.AddDroppedFilesBatchAsync(new System.Collections.Generic.List<string> { filePath });
                 await App.TasksVM.StartAllTasksAsync();
             });

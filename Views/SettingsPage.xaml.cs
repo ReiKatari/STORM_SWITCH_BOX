@@ -333,9 +333,18 @@ namespace StormSwitchBox.Views
                     }
                 }
 
+                string[] pageTypes = { "Convert", "Unpack", "Pack", "Convert", "Multi", "Verify" };
+                string[] formats = { "NSP", "NSZ", "XCI", "XCZ" };
+                int actIdx = Math.Clamp(settings.WatchFolderActionSwitch, 0, pageTypes.Length - 1);
+                int fmtIdx = Math.Clamp(settings.WatchFolderFormatSwitch, 0, formats.Length - 1);
+                string pageType = pageTypes[actIdx];
+                string formatStr = (actIdx == 0 && fmtIdx == 0) ? "NSZ" : formats[fmtIdx];
+
                 if (rootFiles.Count > 0)
                 {
                     App.TasksVM.SelectedPlatform = 0;
+                    App.TasksVM.SetPageType(pageType);
+                    App.TasksVM.SelectedFormat = formatStr;
                     await App.TasksVM.AddDroppedFilesBatchAsync(rootFiles);
                     totalTasks++;
                 }
@@ -361,6 +370,8 @@ namespace StormSwitchBox.Views
                     if (hasGameFiles)
                     {
                         App.TasksVM.SelectedPlatform = 0;
+                        App.TasksVM.SetPageType(pageType);
+                        App.TasksVM.SelectedFormat = formatStr;
                         await App.TasksVM.AddDroppedFilesBatchAsync(new System.Collections.Generic.List<string> { subDir });
                         totalTasks++;
                     }
@@ -502,9 +513,16 @@ namespace StormSwitchBox.Views
                     }
                 }
 
+                string[] pageTypes3ds = { "Convert", "Unpack", "Pack", "Multi", "Verify" };
+                int actIdx3ds = Math.Clamp(settings.WatchFolderAction3ds, 0, pageTypes3ds.Length - 1);
+                int fmtIdx3ds = Math.Clamp(settings.WatchFolderFormat3ds, 0, 2);
+                string pageType3ds = pageTypes3ds[actIdx3ds];
+
                 if (rootFiles.Count > 0)
                 {
                     App.TasksVM.SelectedPlatform = 1;
+                    App.TasksVM.SetPageType(pageType3ds);
+                    App.TasksVM.SelectedFormatIndex3ds = fmtIdx3ds;
                     await App.TasksVM.AddDroppedFilesBatchAsync(rootFiles);
                     totalTasks++;
                 }
@@ -530,6 +548,8 @@ namespace StormSwitchBox.Views
                     if (hasGameFiles)
                     {
                         App.TasksVM.SelectedPlatform = 1;
+                        App.TasksVM.SetPageType(pageType3ds);
+                        App.TasksVM.SelectedFormatIndex3ds = fmtIdx3ds;
                         await App.TasksVM.AddDroppedFilesBatchAsync(new System.Collections.Generic.List<string> { subDir });
                         totalTasks++;
                     }
@@ -938,6 +958,10 @@ namespace StormSwitchBox.Views
             {
                 App.Settings.Current.DefaultFormat3ds = tagStr;
                 App.Settings.Current.SelectedFormatIndex3ds = Format3dsCombo.SelectedIndex;
+                if (App.TasksVM != null)
+                {
+                    App.TasksVM.SelectedFormatIndex3ds = Format3dsCombo.SelectedIndex;
+                }
                 await App.Settings.SaveAsync();
             }
         }
