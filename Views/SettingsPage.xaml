@@ -55,6 +55,7 @@
                                 <ComboBoxItem Content="Русский" Tag="ru"/>
                                 <ComboBoxItem Content="English" Tag="en"/>
                                 <ComboBoxItem Content="Deutsch" Tag="de"/>
+                                <ComboBoxItem Content="Français" Tag="fr"/>
                                 <ComboBoxItem Content="中文" Tag="zh"/>
                                 <ComboBoxItem Content="日本語" Tag="ja"/>
                             </ComboBox>
@@ -79,9 +80,13 @@
                                 </StackPanel>
                                 <ComboBox x:Name="ThemeCombo" HorizontalAlignment="Right" Width="220" SelectionChanged="ThemeCombo_SelectionChanged" VerticalAlignment="Center">
                                     <ComboBoxItem Content="🌌 STORM MIDNIGHT" Tag="STORM MIDNIGHT"/>
+                                    <ComboBoxItem Content="🔷 STORM DARK" Tag="STORM DARK"/>
                                     <ComboBoxItem Content="🖤 STORM NIGHT" Tag="STORM NIGHT"/>
                                     <ComboBoxItem Content="☀️ STORM DAY" Tag="STORM DAY"/>
+                                    <ComboBoxItem Content="🟢 STORM MATRIX" Tag="STORM MATRIX"/>
                                     <ComboBoxItem Content="⚡ STORM CYBERPUNK" Tag="STORM CYBERPUNK"/>
+                                    <ComboBoxItem Content="👑 STORM FANTASY" Tag="STORM FANTASY"/>
+                                    <ComboBoxItem Content="⚜️ STORM WARHAMMER 40K" Tag="STORM WARHAMMER 40K"/>
                                 </ComboBox>
                             </Grid>
 
@@ -210,7 +215,7 @@
                                                 <TextBlock Text="Очистить все" VerticalAlignment="Center" FontSize="12"/>
                                             </StackPanel>
                                         </Button>
-                                        <TextBlock Text="💡 Или перетащите папки эмуляторов прямо сюда (Drag &amp; Drop)" VerticalAlignment="Center" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}" Margin="8,0,0,0"/>
+                                        <TextBlock Text="💡 Или перетащите папки эмуляторов прямо сюда" VerticalAlignment="Center" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}" Margin="8,0,0,0"/>
                                     </StackPanel>
                                 </StackPanel>
                             </Border>
@@ -282,7 +287,7 @@
                             </Border>
                             <StackPanel Grid.Column="1" Spacing="6">
                                 <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                                    <TextBlock x:Name="AppTitleVersionTxt" Text="STORM SWITCH BOX 5.0.18" FontWeight="Bold" FontSize="22"/>
+                                    <TextBlock x:Name="AppTitleVersionTxt" Text="STORM SWITCH BOX 5.1.0" FontWeight="Bold" FontSize="22"/>
                                     <Border Background="{ThemeResource SystemAccentColor}" CornerRadius="4" Padding="6,2" VerticalAlignment="Center">
                                         <TextBlock Text="WinUI 3 Native" Foreground="White" FontSize="11" FontWeight="Bold"/>
                                     </Border>
@@ -381,6 +386,11 @@
                                     <TextBlock x:Name="RsvDescTxt" Text="Ограничивает проверку версии системного ПО консоли в метаданных CNMT" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
                                 </StackPanel>
                                 <ComboBox x:Name="RsvCapCombo" HorizontalAlignment="Right" Width="220" SelectionChanged="RsvCapCombo_SelectionChanged" VerticalAlignment="Center">
+                                    <ComboBoxItem Content="FW 23.0 (1509949440)" Tag="1509949440"/>
+                                    <ComboBoxItem Content="FW 22.0 (1442840576)" Tag="1442840576"/>
+                                    <ComboBoxItem Content="FW 21.0 (1375731712)" Tag="1375731712"/>
+                                    <ComboBoxItem Content="FW 20.0 (1308622848)" Tag="1308622848"/>
+                                    <ComboBoxItem Content="FW 19.0 (1241513984)" Tag="1241513984"/>
                                     <ComboBoxItem Content="FW 18.0 (268435656)" Tag="268435656"/>
                                     <ComboBoxItem Content="FW 17.0 (251658240)" Tag="251658240"/>
                                     <ComboBoxItem Content="FW 16.0 (234880824)" Tag="234880824"/>
@@ -634,7 +644,7 @@
                             </Grid.ColumnDefinitions>
                             <StackPanel VerticalAlignment="Center" Spacing="4" Margin="0,0,16,0">
                                 <TextBlock x:Name="ThreeDsKeysTitleTxt" Text="Файл ключей 3DS (aes_keys.txt / boot9.bin / encTitleKeys.bin)" FontWeight="Medium" VerticalAlignment="Center" TextWrapping="Wrap"/>
-                                <TextBlock x:Name="ThreeDsKeysDescTxt" Text="Используется для дешифровки NCCH, CIA and RomFS при сборке и конвертации. Можно перетащить файл сюда" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                <TextBlock x:Name="ThreeDsKeysDescTxt" Text="Используется для дешифровки NCCH, CIA и RomFS при сборке и конвертации. Можно перетащить файл сюда" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
                             </StackPanel>
                             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
                                 <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" Visibility="{x:Bind Keys3dsSelectedVisibility, Mode=OneTime}">

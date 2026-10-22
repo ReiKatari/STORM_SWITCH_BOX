@@ -42,12 +42,21 @@ namespace StormSwitchBox.Views
 
             // RsvCap combo initialization
             int rsvVal = App.Settings.Current.RsvCap;
-            if (rsvVal == 251658240) RsvCapCombo.SelectedIndex = 1;
-            else if (rsvVal == 234880824) RsvCapCombo.SelectedIndex = 2;
-            else if (rsvVal == 218103408) RsvCapCombo.SelectedIndex = 3;
-            else if (rsvVal == 134217728) RsvCapCombo.SelectedIndex = 4;
-            else if (rsvVal == 65796) RsvCapCombo.SelectedIndex = 5;
-            else RsvCapCombo.SelectedIndex = 0;
+            RsvCapCombo.SelectedIndex = rsvVal switch
+            {
+                1509949440 => 0,
+                1442840576 => 1,
+                1375731712 => 2,
+                1308622848 => 3,
+                1241513984 => 4,
+                268435656 => 5,
+                251658240 => 6,
+                234880824 => 7,
+                218103408 => 8,
+                134217728 => 9,
+                65796 => 10,
+                _ => 5 // Default to FW 18.0
+            };
 
             // 3DS Format combo initialization
             string f3ds = App.Settings.Current.DefaultFormat3ds ?? "3DS";
@@ -66,10 +75,17 @@ namespace StormSwitchBox.Views
 
             // Visual Theme combo initialization
             string th = App.Settings.Current.AppTheme ?? "STORM MIDNIGHT";
-            if (th == "STORM NIGHT") ThemeCombo.SelectedIndex = 1;
-            else if (th == "STORM DAY") ThemeCombo.SelectedIndex = 2;
-            else if (th == "STORM CYBERPUNK") ThemeCombo.SelectedIndex = 3;
-            else ThemeCombo.SelectedIndex = 0;
+            ThemeCombo.SelectedIndex = th switch
+            {
+                "STORM DARK" => 1,
+                "STORM NIGHT" => 2,
+                "STORM DAY" => 3,
+                "STORM MATRIX" => 4,
+                "STORM CYBERPUNK" => 5,
+                "STORM FANTASY" => 6,
+                "STORM WARHAMMER 40K" => 7,
+                _ => 0
+            };
 
             // Switch Watch Folder combos initialization
             int wfActionSwitch = App.Settings.Current.WatchFolderActionSwitch;
@@ -95,8 +111,9 @@ namespace StormSwitchBox.Views
             {
                 "en" => 1,
                 "de" => 2,
-                "zh" => 3,
-                "ja" => 4,
+                "fr" => 3,
+                "zh" => 4,
+                "ja" => 5,
                 _ => 0
             };
 

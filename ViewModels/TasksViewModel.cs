@@ -1569,7 +1569,7 @@ public partial class TasksViewModel : ObservableObject
 					? $"Обработка завершена. Успешно: {executedCount - failed}, Ошибок: {failed}"
 					: $"Обработка успешно завершена ({executedCount} задач)!";
 
-				App.ShowToastNotification("STORM SWITCH BOX 5.0.18", notifyMsg);
+				App.ShowToastNotification("STORM SWITCH BOX 5.1.0", notifyMsg);
 				App.RunOnUI(() =>
 				{
 					if (App.MainWindow is MainWindow mw)
@@ -1979,8 +1979,7 @@ public partial class TasksViewModel : ObservableObject
 			{
 				if (!File.Exists(inputPath))
 				{
-					Directory.CreateDirectory(Path.GetDirectoryName(inputPath)!);
-					File.WriteAllBytes(inputPath, new byte[1024]);
+					throw new FileNotFoundException($"Исходный файл для распаковки не найден: {inputPath}");
 				}
 				await App.SwitchFormat.UnpackContainerAsync(task, inputPath, outBaseFolder, cts.Token);
 				App.RunOnUI(delegate
@@ -2081,10 +2080,16 @@ public partial class TasksViewModel : ObservableObject
 			return;
 		}
 		task.IsRunning = true;
-		string inputPath2 = task.InputFiles.FirstOrDefault() ?? Path.Combine(Path.GetTempPath(), task.OutputFileName);
-		if (!File.Exists(inputPath2))
+		string inputPath2 = task.InputFiles.FirstOrDefault() ?? "";
+		if (string.IsNullOrEmpty(inputPath2) || !File.Exists(inputPath2))
 		{
-			File.WriteAllBytes(inputPath2, new byte[52428800]);
+			App.RunOnUI(delegate
+			{
+				task.IsRunning = false;
+				task.Status = "Ошибка";
+				task.LogDetails += $"\n🔴 [Ошибка] Исходный файл не найден: {inputPath2}";
+			});
+			return;
 		}
 		string tempDecompDirConvert = "";
 		try

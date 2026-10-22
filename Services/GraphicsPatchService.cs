@@ -120,61 +120,88 @@ namespace StormSwitchBox.Services
             string cleanTid = titleId.Trim().ToUpperInvariant();
             string toolsDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tools", "patches", cleanTid);
 
-            // 1. Поиск внешних IPS-патчей в папке tools/patches/{TitleId}/
+            string mainPath = Path.Combine(targetExeFsDir, "main");
+            if (!File.Exists(mainPath))
+            {
+                mainPath = Directory.GetFiles(targetExeFsDir).FirstOrDefault(f => Path.GetFileName(f).StartsWith("main", StringComparison.OrdinalIgnoreCase) && !f.EndsWith(".npdm", StringComparison.OrdinalIgnoreCase)) ?? "";
+            }
+            if (!File.Exists(mainPath)) return false;
+
+            string? currentBuildId = ExtractBuildId(mainPath);
+
+            // 1. Поиск внешних IPS и PCHTXT патчей в папке tools/patches/{TitleId}/
             if (Directory.Exists(toolsDir))
             {
+                bool appliedAny = false;
                 var externalIps = Directory.GetFiles(toolsDir, "*.ips", SearchOption.AllDirectories);
-                if (externalIps.Length > 0)
+                foreach (var ips in externalIps)
                 {
-                    string mainPath = Path.Combine(targetExeFsDir, "main");
-                    if (!File.Exists(mainPath))
+                    string patchBaseName = Path.GetFileNameWithoutExtension(ips);
+                    // Если имя файла патча является hex-идентификатором BuildID (16..64 hex-символа), проверяем точное совпадение с BuildID бинарника main
+                    bool isBuildIdNamed = patchBaseName.Length >= 16 && patchBaseName.All(Uri.IsHexDigit);
+                    if (isBuildIdNamed && (string.IsNullOrEmpty(currentBuildId) || !currentBuildId.StartsWith(patchBaseName, StringComparison.OrdinalIgnoreCase)))
                     {
-                        mainPath = Directory.GetFiles(targetExeFsDir).FirstOrDefault(f => Path.GetFileName(f).StartsWith("main", StringComparison.OrdinalIgnoreCase)) ?? "";
+                        continue;
                     }
 
-                    if (File.Exists(mainPath))
+                    try
                     {
-                        foreach (var ips in externalIps)
+                        HardPatchEngine.ApplyIpsPatchToFile(ips, mainPath);
+                        appliedAny = true;
+                        App.RunOnUI(() =>
                         {
-                            try
-                            {
-                                HardPatchEngine.ApplyIpsPatchToFile(ips, mainPath);
-                                App.RunOnUI(() =>
-                                {
-                                    if (task != null)
-                                        task.LogDetails += $"\n⚡ [60 FPS & Graphics] Успешно применен внешний патч: {Path.GetFileName(ips)}";
-                                });
-                            }
-                            catch (Exception ex)
-                            {
-                                App.Logger.Log($"[GraphicsPatch] Ошибка применения патча {ips}: {ex.Message}", LogLevel.Warning);
-                            }
-                        }
-                        return true;
+                            if (task != null)
+                                task.LogDetails += $"\n⚡ [60 FPS и графика] Применен внешний IPS-патч: {Path.GetFileName(ips)}";
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        App.Logger.Log($"[GraphicsPatch] Ошибка применения патча {ips}: {ex.Message}", LogLevel.Warning);
                     }
                 }
+
+                var externalPchtxt = Directory.GetFiles(toolsDir, "*.pchtxt", SearchOption.AllDirectories);
+                foreach (var pchtxt in externalPchtxt)
+                {
+                    try
+                    {
+                        if (TryApplyPchtxtPatch(pchtxt, mainPath, currentBuildId))
+                        {
+                            appliedAny = true;
+                            App.RunOnUI(() =>
+                            {
+                                if (task != null)
+                                    task.LogDetails += $"\n⚡ [60 FPS и графика] Применен IPSwitch-патч: {Path.GetFileName(pchtxt)}";
+                            });
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        App.Logger.Log($"[GraphicsPatch] Ошибка применения pchtxt {pchtxt}: {ex.Message}", LogLevel.Warning);
+                    }
+                }
+
+                if (appliedAny) return true;
             }
 
-            // 2. Проверка базы встроенных патчей
-            if (_knownPatches.TryGetValue(cleanTid, out var patches) && patches.Count > 0)
+            // 2. Проверка базы встроенных патчей (строго при совпадении TargetBuildId, чтобы не повредить другие версии игры)
+            if (_knownPatches.TryGetValue(cleanTid, out var patches) && patches.Count > 0 && !string.IsNullOrEmpty(currentBuildId))
             {
-                string mainPath = Path.Combine(targetExeFsDir, "main");
-                if (!File.Exists(mainPath))
-                {
-                    mainPath = Directory.GetFiles(targetExeFsDir).FirstOrDefault(f => Path.GetFileName(f).StartsWith("main", StringComparison.OrdinalIgnoreCase)) ?? "";
-                }
+                var matchingPatch = patches.FirstOrDefault(p =>
+                    !string.IsNullOrEmpty(p.TargetBuildId) &&
+                    currentBuildId.StartsWith(p.TargetBuildId, StringComparison.OrdinalIgnoreCase));
 
-                if (File.Exists(mainPath))
+                if (matchingPatch != null)
                 {
                     string tempPatch = Path.Combine(Path.GetTempPath(), $"patch_{cleanTid}.ips");
                     try
                     {
-                        File.WriteAllBytes(tempPatch, patches[0].IpsData);
+                        File.WriteAllBytes(tempPatch, matchingPatch.IpsData);
                         HardPatchEngine.ApplyIpsPatchToFile(tempPatch, mainPath);
                         App.RunOnUI(() =>
                         {
                             if (task != null)
-                                task.LogDetails += $"\n⚡ [60 FPS & Graphics] Внедрен оптимизированный патч 60 FPS: {patches[0].Description}";
+                                task.LogDetails += $"\n⚡ [60 FPS и графика] Внедрен проверенный патч 60 FPS ({matchingPatch.Description}, BuildID: {matchingPatch.TargetBuildId})";
                         });
                         return true;
                     }
@@ -190,6 +217,84 @@ namespace StormSwitchBox.Services
             }
 
             return false;
+        }
+
+        private static bool TryApplyPchtxtPatch(string pchtxtPath, string mainBinaryPath, string? currentBuildId)
+        {
+            if (!File.Exists(pchtxtPath) || !File.Exists(mainBinaryPath)) return false;
+
+            string[] lines = File.ReadAllLines(pchtxtPath);
+            foreach (var raw in lines)
+            {
+                string line = raw.Trim();
+                if (line.StartsWith("@nsobid-", StringComparison.OrdinalIgnoreCase))
+                {
+                    string targetBid = line.Substring(8).Trim();
+                    if (!string.IsNullOrEmpty(targetBid) && (string.IsNullOrEmpty(currentBuildId) || !currentBuildId.StartsWith(targetBid, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            bool enabledBlock = false;
+            int appliedCount = 0;
+            uint nsoHeaderShift = 0x100; // NSO0 header offset
+
+            using var fs = new FileStream(mainBinaryPath, FileMode.Open, FileAccess.ReadWrite, FileShare.Read);
+            foreach (var raw in lines)
+            {
+                string line = raw.Trim();
+                if (string.IsNullOrEmpty(line) || line.StartsWith("//") || line.StartsWith("#")) continue;
+
+                if (line.StartsWith("@flag", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (line.Contains("offset_shift", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var parts = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                        if (parts.Length >= 3)
+                        {
+                            string valStr = parts[2].Replace("0x", "", StringComparison.OrdinalIgnoreCase);
+                            if (uint.TryParse(valStr, System.Globalization.NumberStyles.HexNumber, null, out uint parsedShift))
+                                nsoHeaderShift = parsedShift;
+                        }
+                    }
+                    continue;
+                }
+                if (line.Equals("@enabled", StringComparison.OrdinalIgnoreCase))
+                {
+                    enabledBlock = true;
+                    continue;
+                }
+                if (line.Equals("@disabled", StringComparison.OrdinalIgnoreCase) || line.Equals("@stop", StringComparison.OrdinalIgnoreCase))
+                {
+                    enabledBlock = false;
+                    if (line.Equals("@stop", StringComparison.OrdinalIgnoreCase)) break;
+                    continue;
+                }
+
+                if (!enabledBlock) continue;
+
+                var tokens = line.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                if (tokens.Length >= 2 &&
+                    uint.TryParse(tokens[0], System.Globalization.NumberStyles.HexNumber, null, out uint relOffset))
+                {
+                    string hexPayload = tokens[1];
+                    if (hexPayload.Length % 2 == 0 && hexPayload.All(Uri.IsHexDigit))
+                    {
+                        byte[] patchBytes = Convert.FromHexString(hexPayload);
+                        long fileOffset = (long)relOffset + nsoHeaderShift;
+                        if (fileOffset + patchBytes.Length <= fs.Length)
+                        {
+                            fs.Seek(fileOffset, SeekOrigin.Begin);
+                            fs.Write(patchBytes, 0, patchBytes.Length);
+                            appliedCount++;
+                        }
+                    }
+                }
+            }
+
+            return appliedCount > 0;
         }
     }
 }

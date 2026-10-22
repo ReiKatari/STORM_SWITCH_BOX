@@ -1466,57 +1466,211 @@ namespace StormSwitchBox.Services
         }
 
         /// <summary>
-        /// Извлечение метаданных ASET из NRO файла (NACP, Icon, RomFS)
+        /// Извлечение метаданных ASET из NRO файла (NACP, Icon, RomFS) с поддержкой LZ4-сжатых NRO (Atmosphere 1.12.0+)
         /// </summary>
         private void ParseNroAset(HomebrewPackageInfo pkg, string nroPath)
         {
-            using var fs = new FileStream(nroPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-            using var br = new BinaryReader(fs);
+            using var fileStream = new FileStream(nroPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            if (fileStream.Length < 0x18) return;
 
-            if (fs.Length < 0x80) return;
+            Stream activeStream = fileStream;
+            MemoryStream? decompressedLz4Stream = null;
 
-            // Проверяем заголовок NRO0 (смещение 0x10)
-            fs.Seek(0x10, SeekOrigin.Begin);
-            uint magic = br.ReadUInt32();
-            if (magic != 0x304F524E) // 'NRO0'
-                return;
-
-            fs.Seek(0x18, SeekOrigin.Begin);
-            uint nroSize = br.ReadUInt32();
-
-            if (nroSize >= fs.Length || nroSize == 0) return;
-
-            // Читаем ASET chunk в конце NRO
-            fs.Seek(nroSize, SeekOrigin.Begin);
-            if (fs.Length - nroSize < 0x38) return;
-
-            uint asetMagic = br.ReadUInt32();
-            if (asetMagic != 0x54455341) // 'ASET'
-                return;
-
-            uint asetVersion = br.ReadUInt32();
-            long iconOffset = br.ReadInt64();
-            long iconSize = br.ReadInt64();
-            long nacpOffset = br.ReadInt64();
-            long nacpSize = br.ReadInt64();
-            long romfsOffset = br.ReadInt64();
-            long romfsSize = br.ReadInt64();
-
-            long asetBase = nroSize;
-
-            // Чтение NACP
-            if (nacpSize > 0 && nacpOffset > 0 && (asetBase + nacpOffset + nacpSize) <= fs.Length)
+            try
             {
-                fs.Seek(asetBase + nacpOffset, SeekOrigin.Begin);
-                byte[] nacpData = br.ReadBytes((int)nacpSize);
-                ParseNacpData(pkg, nacpData);
+                using var initBr = new BinaryReader(fileStream, Encoding.UTF8, leaveOpen: true);
+                uint firstMagic = initBr.ReadUInt32();
+                // Atmosphere 1.12.0+ поддерживает LZ4-сжатые NRO (LZ4 Frame Magic = 0x184D2204)
+                if (firstMagic == 0x184D2204U)
+                {
+                    fileStream.Seek(0, SeekOrigin.Begin);
+                    decompressedLz4Stream = TryDecompressLz4FrameStream(fileStream);
+                    if (decompressedLz4Stream != null && decompressedLz4Stream.Length >= 0x80)
+                    {
+                        activeStream = decompressedLz4Stream;
+                    }
+                    else
+                    {
+                        return;
+                    }
+                }
+
+                if (activeStream.Length < 0x80) return;
+                using var br = new BinaryReader(activeStream, Encoding.UTF8, leaveOpen: true);
+
+                // Проверяем заголовок NRO0 (смещение 0x10)
+                activeStream.Seek(0x10, SeekOrigin.Begin);
+                uint magic = br.ReadUInt32();
+                if (magic != 0x304F524E) // 'NRO0'
+                    return;
+
+                activeStream.Seek(0x18, SeekOrigin.Begin);
+                uint nroSize = br.ReadUInt32();
+
+                if (nroSize >= activeStream.Length || nroSize == 0) return;
+
+                // Читаем ASET chunk в конце NRO
+                activeStream.Seek(nroSize, SeekOrigin.Begin);
+                if (activeStream.Length - nroSize < 0x38) return;
+
+                uint asetMagic = br.ReadUInt32();
+                if (asetMagic != 0x54455341) // 'ASET'
+                    return;
+
+                uint asetVersion = br.ReadUInt32();
+                long iconOffset = br.ReadInt64();
+                long iconSize = br.ReadInt64();
+                long nacpOffset = br.ReadInt64();
+                long nacpSize = br.ReadInt64();
+                long romfsOffset = br.ReadInt64();
+                long romfsSize = br.ReadInt64();
+
+                long asetBase = nroSize;
+
+                // Чтение NACP
+                if (nacpSize > 0 && nacpOffset > 0 && (asetBase + nacpOffset + nacpSize) <= activeStream.Length)
+                {
+                    activeStream.Seek(asetBase + nacpOffset, SeekOrigin.Begin);
+                    byte[] nacpData = br.ReadBytes((int)nacpSize);
+                    ParseNacpData(pkg, nacpData);
+                }
+
+                // Чтение Иконки (JPEG / PNG)
+                if (iconSize > 0 && iconOffset > 0 && (asetBase + iconOffset + iconSize) <= activeStream.Length)
+                {
+                    activeStream.Seek(asetBase + iconOffset, SeekOrigin.Begin);
+                    pkg.IconBytes = SmartShrinkService.OptimizeSwitchIconJpeg(br.ReadBytes((int)iconSize));
+                }
             }
-
-            // Чтение Иконки (JPEG / PNG)
-            if (iconSize > 0 && iconOffset > 0 && (asetBase + iconOffset + iconSize) <= fs.Length)
+            finally
             {
-                fs.Seek(asetBase + iconOffset, SeekOrigin.Begin);
-                pkg.IconBytes = br.ReadBytes((int)iconSize);
+                decompressedLz4Stream?.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// Декомпрессор LZ4 Frame (0x184D2204) для чтения заголовков и иконок сжатых NRO (Atmosphere 1.12.0+)
+        /// </summary>
+        private static MemoryStream? TryDecompressLz4FrameStream(Stream input)
+        {
+            try
+            {
+                using var br = new BinaryReader(input, Encoding.UTF8, leaveOpen: true);
+                uint magic = br.ReadUInt32();
+                if (magic != 0x184D2204U) return null;
+
+                byte flg = br.ReadByte();
+                byte bd = br.ReadByte();
+
+                bool blockIndep = (flg & 0x20) != 0;
+                bool blockChecksum = (flg & 0x10) != 0;
+                bool contentSizePresent = (flg & 0x08) != 0;
+                bool dictIdPresent = (flg & 0x01) != 0;
+
+                if (contentSizePresent) br.ReadUInt64();
+                if (dictIdPresent) br.ReadUInt32();
+                br.ReadByte(); // Header checksum (HC)
+
+                var output = new MemoryStream();
+                byte[] window = new byte[64 * 1024];
+                int winPos = 0;
+
+                while (input.Position + 4 <= input.Length)
+                {
+                    uint blockSizeField = br.ReadUInt32();
+                    if (blockSizeField == 0) break; // EndMark
+
+                    bool isUncompressed = (blockSizeField & 0x80000000U) != 0;
+                    int blockSize = (int)(blockSizeField & 0x7FFFFFFFU);
+                    if (blockSize <= 0 || input.Position + blockSize > input.Length) break;
+
+                    byte[] blockData = br.ReadBytes(blockSize);
+                    if (blockChecksum && input.Position + 4 <= input.Length)
+                    {
+                        br.ReadUInt32();
+                    }
+
+                    if (isUncompressed)
+                    {
+                        output.Write(blockData, 0, blockData.Length);
+                        if (!blockIndep)
+                        {
+                            for (int i = 0; i < blockData.Length; i++)
+                            {
+                                window[winPos] = blockData[i];
+                                winPos = (winPos + 1) & 0xFFFF;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        int srcIdx = 0;
+                        while (srcIdx < blockData.Length)
+                        {
+                            byte token = blockData[srcIdx++];
+                            int literalLen = token >> 4;
+                            if (literalLen == 15)
+                            {
+                                byte s;
+                                do
+                                {
+                                    if (srcIdx >= blockData.Length) break;
+                                    s = blockData[srcIdx++];
+                                    literalLen += s;
+                                } while (s == 255);
+                            }
+
+                            if (literalLen > 0)
+                            {
+                                if (srcIdx + literalLen > blockData.Length) literalLen = blockData.Length - srcIdx;
+                                output.Write(blockData, srcIdx, literalLen);
+                                for (int i = 0; i < literalLen; i++)
+                                {
+                                    window[winPos] = blockData[srcIdx + i];
+                                    winPos = (winPos + 1) & 0xFFFF;
+                                }
+                                srcIdx += literalLen;
+                            }
+
+                            if (srcIdx >= blockData.Length) break;
+                            if (srcIdx + 2 > blockData.Length) break;
+
+                            int offset = blockData[srcIdx] | (blockData[srcIdx + 1] << 8);
+                            srcIdx += 2;
+                            if (offset == 0) break;
+
+                            int matchLen = (token & 0x0F) + 4;
+                            if ((token & 0x0F) == 15)
+                            {
+                                byte s;
+                                do
+                                {
+                                    if (srcIdx >= blockData.Length) break;
+                                    s = blockData[srcIdx++];
+                                    matchLen += s;
+                                } while (s == 255);
+                            }
+
+                            for (int i = 0; i < matchLen; i++)
+                            {
+                                byte b = window[(winPos - offset) & 0xFFFF];
+                                output.WriteByte(b);
+                                window[winPos] = b;
+                                winPos = (winPos + 1) & 0xFFFF;
+                            }
+                        }
+                    }
+
+                    // Ограничение в 128 МБ для защиты от поврежденных фреймов
+                    if (output.Length > 128 * 1024 * 1024) break;
+                }
+
+                output.Position = 0;
+                return output;
+            }
+            catch
+            {
+                return null;
             }
         }
 
@@ -1981,6 +2135,25 @@ namespace StormSwitchBox.Services
                         }
 
                         string nextArgvContent = $"{nextPath}\0{nextPath}\0";
+
+                        // Поддержка RetroArch Core + ROM Forwarder (стандарт CNX17 NSP-Auto-Installer-Maker 2.9):
+                        // Если NRO является ядром Libretro (*_libretro_libnx.nro) и в файлах есть ROM — прописываем прямой запуск ядра с аргументом ROM
+                        if (nroName.Contains("libretro", StringComparison.OrdinalIgnoreCase))
+                        {
+                            string[] romExts = { ".nes", ".sfc", ".smc", ".z64", ".n64", ".v64", ".gb", ".gbc", ".gba", ".md", ".gen", ".sms", ".gg", ".pce", ".nds", ".iso", ".cue", ".chd", ".pbp", ".cdi", ".gdi" };
+                            string? romCandidate = looseDataFiles.FirstOrDefault(rf => romExts.Contains(Path.GetExtension(rf).ToLowerInvariant()));
+                            if (!string.IsNullOrEmpty(romCandidate))
+                            {
+                                nextPath = $"sdmc:/retroarch/cores/{nroName}";
+                                string romSdmcPath = $"sdmc:/roms/{Path.GetFileName(romCandidate)}";
+                                nextArgvContent = $"{nextPath} \"{romSdmcPath}\"";
+                                App.RunOnUI(() =>
+                                {
+                                    task.LogDetails += $"[RetroArch Forwarder] Сконфигурирован прямой запуск ядра {nroName} с образом {romSdmcPath}\n";
+                                });
+                            }
+                        }
+
                         File.WriteAllText(Path.Combine(romfsDir, "nextNroPath"), nextPath);
                         File.WriteAllBytes(Path.Combine(romfsDir, "nextArgv"), Encoding.UTF8.GetBytes(nextArgvContent));
 
@@ -2118,9 +2291,14 @@ namespace StormSwitchBox.Services
                 {
                     iconBytes = GenerateDefaultHomebrewIcon(appTitle);
                 }
+                iconBytes = SmartShrinkService.OptimizeSwitchIconJpeg(iconBytes);
 
                 File.WriteAllBytes(Path.Combine(controlRomfsDir, "icon_AmericanEnglish.dat"), iconBytes);
                 File.WriteAllBytes(Path.Combine(controlRomfsDir, "icon_Russian.dat"), iconBytes);
+
+                // Очистка мусорных файлов ОС и бэкапов из RomFS перед упаковкой для минимизации размера
+                ModOptimizerService.CleanJunkFiles(effectiveRomfsDir, task);
+                ModOptimizerService.CleanJunkFiles(controlRomfsDir, task);
 
                 App.RunOnUI(() =>
                 {
@@ -2605,22 +2783,56 @@ namespace StormSwitchBox.Services
 
         /// <summary>
         /// Генерация стандартной универсальной структуры ExeFS (main.npdm + forwarder NSO)
+        /// Поддерживает 64-bit 42-bit Address Space (0x07) и автоматический патч шаблонного ExeFS при наличии в tools/forwarder/
         /// </summary>
         private void GenerateUniversalForwarderExeFs(string exefsDir, string titleIdStr)
         {
             ulong titleId = ulong.Parse(titleIdStr, System.Globalization.NumberStyles.HexNumber);
 
-            // 1. Генерация main.npdm (0x1000 байт с правильным TitleID и правами доступа)
+            // Проверяем наличие эталонного шаблона ExeFS форвардера в tools/forwarder/
+            string templateExefsDir = Path.Combine(_toolsDir, "forwarder");
+            string templateMain = Path.Combine(templateExefsDir, "main");
+            string templateNpdm = Path.Combine(templateExefsDir, "main.npdm");
+            if (File.Exists(templateMain) && File.Exists(templateNpdm))
+            {
+                try
+                {
+                    File.Copy(templateMain, Path.Combine(exefsDir, "main"), true);
+                    byte[] tplNpdm = File.ReadAllBytes(templateNpdm);
+                    // Обновляем флаги адресного пространства (64-bit + 42-bit AddressSpace = 0x07) и TitleID в ACI0
+                    if (tplNpdm.Length >= 0x80)
+                    {
+                        tplNpdm[0x04] = (byte)((tplNpdm[0x04] & ~0x0E) | (0x03 << 1) | 0x01);
+                        uint aci0Off = BitConverter.ToUInt32(tplNpdm, 0x40);
+                        if (aci0Off > 0 && aci0Off + 0x18 <= tplNpdm.Length)
+                        {
+                            BitConverter.GetBytes(titleId).CopyTo(tplNpdm, (int)aci0Off + 0x10);
+                        }
+                        uint acidOff = BitConverter.ToUInt32(tplNpdm, 0x48);
+                        if (acidOff > 0 && acidOff + 0x220 <= tplNpdm.Length)
+                        {
+                            BitConverter.GetBytes(titleId).CopyTo(tplNpdm, (int)acidOff + 0x210);
+                            BitConverter.GetBytes(titleId).CopyTo(tplNpdm, (int)acidOff + 0x218);
+                        }
+                    }
+                    File.WriteAllBytes(Path.Combine(exefsDir, "main.npdm"), tplNpdm);
+                    return;
+                }
+                catch { }
+            }
+
+            // 1. Генерация main.npdm (0x1000 байт с правильным TitleID, 42-bit Address Space и правами доступа)
             byte[] npdm = new byte[0x1000];
 
             // META Header
             Encoding.ASCII.GetBytes("META").CopyTo(npdm, 0x00);
-            BitConverter.GetBytes(0x00000000U).CopyTo(npdm, 0x04); // Flags
+            // Bit 0 = Is64BitInstruction (1), Bits 1..3 = AddressSpaceType (3 = 64-bit 42-bit address space) -> 0x07
+            BitConverter.GetBytes(0x00000007U).CopyTo(npdm, 0x04); // Flags (64-bit + 42-bit Address Space)
             BitConverter.GetBytes(0x00000000U).CopyTo(npdm, 0x08); // Reserved
-            BitConverter.GetBytes(0x00000000U).CopyTo(npdm, 0x0C); // Main thread priority
+            BitConverter.GetBytes(0x0000002CU).CopyTo(npdm, 0x0C); // Main thread priority (44)
             BitConverter.GetBytes(0x00000000U).CopyTo(npdm, 0x10); // Main thread core
-            BitConverter.GetBytes(0x00100000U).CopyTo(npdm, 0x14); // Main thread stack size
-            Encoding.ASCII.GetBytes("STORM-HB-FWD").CopyTo(npdm, 0x18); // Process name
+            BitConverter.GetBytes(0x00100000U).CopyTo(npdm, 0x14); // Main thread stack size (1 MB)
+            Encoding.ASCII.GetBytes("Application").CopyTo(npdm, 0x18); // Process name
 
             BitConverter.GetBytes(0x00000200U).CopyTo(npdm, 0x40); // ACI0 offset
             BitConverter.GetBytes(0x00000200U).CopyTo(npdm, 0x44); // ACI0 size
@@ -2630,7 +2842,7 @@ namespace StormSwitchBox.Services
             // ACI0 Section (0x200)
             Encoding.ASCII.GetBytes("ACI0").CopyTo(npdm, 0x200);
             BitConverter.GetBytes(titleId).CopyTo(npdm, 0x210); // Title ID
-            BitConverter.GetBytes(0x10000000UL).CopyTo(npdm, 0x218); // System resource size
+            BitConverter.GetBytes(0x1FE00000UL).CopyTo(npdm, 0x218); // System resource size (510 MB for modern ports)
 
             // FAC (Filesystem Access Control) - полные права
             BitConverter.GetBytes(0x00000001U).CopyTo(npdm, 0x220); // Version
@@ -2639,8 +2851,8 @@ namespace StormSwitchBox.Services
             // ACID Section (0x400)
             Encoding.ASCII.GetBytes("ACID").CopyTo(npdm, 0x400);
             BitConverter.GetBytes(0x00000001U).CopyTo(npdm, 0x404); // Flags (production)
-            BitConverter.GetBytes(0UL).CopyTo(npdm, 0x410); // Min TitleID
-            BitConverter.GetBytes(0xFFFFFFFFFFFFFFFFUL).CopyTo(npdm, 0x418); // Max TitleID
+            BitConverter.GetBytes(titleId).CopyTo(npdm, 0x410); // Min TitleID
+            BitConverter.GetBytes(titleId).CopyTo(npdm, 0x418); // Max TitleID
             BitConverter.GetBytes(0xFFFFFFFFFFFFFFFFUL).CopyTo(npdm, 0x420); // FAC mask
 
             File.WriteAllBytes(Path.Combine(exefsDir, "main.npdm"), npdm);

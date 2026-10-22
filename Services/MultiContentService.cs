@@ -156,19 +156,28 @@ namespace StormSwitchBox.Services
                 bool hasPatchedBase = false;
 
                 // 4. Поиск Base и Update и умный анализ метода сборки (Smart Processing)
+                // Также отсеиваем устаревшие обновления (если в список попало сразу несколько патчей одной игры, оставляем только самый свежий)
                 string? baseFile = null;
                 string? updateFile = null;
                 string titleIdStr = "";
+                var patchCandidates = new List<(string Path, string BaseTid, uint Version)>();
                 
                 foreach (var f in finalInputFilesList)
                 {
                     if (Directory.Exists(f)) continue;
                     string tid = "";
+                    uint verNum = 0;
+                    string contentType = "";
                     try 
                     {
                         var info = App.SwitchFormat.ParseNsp(f);
-                        if (info.ContentType == "Application") baseFile = f;
-                        else if (info.ContentType == "Patch") updateFile = f;
+                        contentType = info.ContentType ?? "";
+                        if (!string.IsNullOrEmpty(info.Version))
+                        {
+                            uint.TryParse(info.Version.TrimStart('v', 'V'), out verNum);
+                        }
+                        if (contentType == "Application") baseFile = f;
+                        else if (contentType == "Patch") updateFile = f;
                         tid = (info.TitleId ?? "").Trim().ToUpperInvariant();
                     }
                     catch { }
@@ -178,6 +187,11 @@ namespace StormSwitchBox.Services
                         var match = System.Text.RegularExpressions.Regex.Match(f, @"\[([0-9A-Fa-f]{16})\]");
                         if (match.Success) tid = match.Groups[1].Value.ToUpperInvariant();
                     }
+                    if (verNum == 0)
+                    {
+                        var vMatch = System.Text.RegularExpressions.Regex.Match(f, @"\[v(\d+)\]", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                        if (vMatch.Success) uint.TryParse(vMatch.Groups[1].Value, out verNum);
+                    }
 
                     if (!string.IsNullOrEmpty(tid) && tid.Length == 16)
                     {
@@ -186,10 +200,34 @@ namespace StormSwitchBox.Services
                             if (string.IsNullOrEmpty(baseFile)) baseFile = f;
                             if (string.IsNullOrEmpty(titleIdStr)) titleIdStr = tid;
                         }
-                        else if (tid.EndsWith("800"))
+                        else if (tid.EndsWith("800") || contentType == "Patch")
                         {
-                            if (string.IsNullOrEmpty(updateFile)) updateFile = f;
-                            if (string.IsNullOrEmpty(titleIdStr)) titleIdStr = tid.Substring(0, 13) + "000";
+                            string baseTidKey = tid.Substring(0, 13) + "000";
+                            patchCandidates.Add((f, baseTidKey, verNum));
+                            if (string.IsNullOrEmpty(titleIdStr)) titleIdStr = baseTidKey;
+                        }
+                    }
+                }
+
+                // Если обнаружено несколько обновлений для одной базовой игры — оставляем только самое свежее (максимальный TitleVersion)
+                if (patchCandidates.Count > 0)
+                {
+                    foreach (var grp in patchCandidates.GroupBy(p => p.BaseTid, StringComparer.OrdinalIgnoreCase))
+                    {
+                        var ordered = grp.OrderByDescending(p => p.Version).ToList();
+                        var newest = ordered[0];
+                        if (string.IsNullOrEmpty(updateFile) || grp.Any(x => string.Equals(x.Path, updateFile, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            updateFile = newest.Path;
+                        }
+                        if (ordered.Count > 1)
+                        {
+                            foreach (var older in ordered.Skip(1))
+                            {
+                                finalInputFilesList.RemoveAll(x => string.Equals(x, older.Path, StringComparison.OrdinalIgnoreCase));
+                                App.Logger.Log($"[SmartShrink] Исключен устаревший патч {Path.GetFileName(older.Path)} (v{older.Version}) в пользу более нового {Path.GetFileName(newest.Path)} (v{newest.Version})", LogLevel.Info);
+                                App.RunOnUI(() => task.LogDetails += $"\n🧹 [SmartShrink] Пропущен устаревший патч: {Path.GetFileName(older.Path)} (оставлен свежий v{newest.Version})");
+                            }
                         }
                     }
                 }
@@ -378,8 +416,28 @@ namespace StormSwitchBox.Services
                 }
 
                 // 4.3 Быстрый путь для одиночного файла (Single-File Fast Path):
-                // Если входной файл ровно один (базовая игра) и нет обновлений/DLC/модов, напрямую перемещаем/сжимаем без LibHac
+                // Если входной файл ровно один (базовая игра), не содержит избыточных DeltaFragment или .xml-мусора, и нет обновлений/DLC/модов — напрямую перемещаем/сжимаем
+                bool singleFileNeedsCleanRebuild = false;
                 if (finalInputFilesList.Count == 1 && !hasPatchedBase && !isTargetXci)
+                {
+                    try
+                    {
+                        var singleDeltas = DetectDeltaNcasToExclude(finalInputFilesList);
+                        if (singleDeltas.Count > 0) singleFileNeedsCleanRebuild = true;
+                        else
+                        {
+                            using var sChk = new FileStream(finalInputFilesList[0], FileMode.Open, FileAccess.Read, FileShare.Read);
+                            var pfsChk = new PartitionFileSystem(sChk.AsStorage());
+                            if (pfsChk.EnumerateEntries().Any(e => !IsValidNspEntry(e.Name)))
+                            {
+                                singleFileNeedsCleanRebuild = true;
+                            }
+                        }
+                    }
+                    catch { }
+                }
+
+                if (finalInputFilesList.Count == 1 && !hasPatchedBase && !isTargetXci && !singleFileNeedsCleanRebuild)
                 {
                     string singleFile = finalInputFilesList[0];
                     bool isDecompressedTemp = !string.IsNullOrEmpty(tempDecompDir) && singleFile.StartsWith(tempDecompDir, StringComparison.OrdinalIgnoreCase);
@@ -694,7 +752,7 @@ namespace StormSwitchBox.Services
 
                                     // Извлекаем тикеты (.tik), сертификаты (.cert) и Patch CNMT (.cnmt.nca)
                                     bool isTicketOrCert = lower.EndsWith(".tik") || lower.EndsWith(".cert");
-                                    bool isPatchCnmt = !hasPatchedBase && (lower.EndsWith(".cnmt.nca") || lower.EndsWith(".cnmt.xml"));
+                                    bool isPatchCnmt = !hasPatchedBase && lower.EndsWith(".cnmt.nca");
 
                                     if (isTicketOrCert || isPatchCnmt)
                                     {
@@ -1803,6 +1861,10 @@ namespace StormSwitchBox.Services
                     }
                     catch { }
                 }
+                if (iconBytes != null && iconBytes.Length > 0)
+                {
+                    iconBytes = SmartShrinkService.OptimizeSwitchIconJpeg(iconBytes);
+                }
 
                 ulong baseTitleIdClean = baseTitleId & ~0xFFFUL;
                 int currentDlcIdx = existingDlcCount + 1;
@@ -1951,6 +2013,11 @@ namespace StormSwitchBox.Services
                 {
                     using var chkStream = new FileStream(nspPath, FileMode.Open, FileAccess.Read, FileShare.Read);
                     var chkFs = new PartitionFileSystem(chkStream.AsStorage());
+
+                    SmartShrinkService.HarvestTicketsFromFileSystem(chkFs, App.Keys.CurrentKeyset);
+                    var redundantEntries = SmartShrinkService.AnalyzeRedundantEntriesInFileSystem(chkFs, App.Keys.CurrentKeyset, true, out _, out _);
+                    foreach (var r in redundantEntries) deltaNcas.Add(r);
+
                     foreach (var ent in chkFs.EnumerateEntries())
                     {
                         // 1. Проверка .cnmt.xml
@@ -1967,66 +2034,21 @@ namespace StormSwitchBox.Services
                                 var matches = System.Text.RegularExpressions.Regex.Matches(xml, @"(?s)<Content>.*?<Type>DeltaFragment</Type>.*?<Id>([a-fA-F0-9]{32})</Id>.*?</Content>");
                                 foreach (System.Text.RegularExpressions.Match m in matches)
                                 {
-                                    if (m.Groups.Count > 1) deltaNcas.Add(m.Groups[1].Value.ToLowerInvariant() + ".nca");
+                                    if (m.Groups.Count > 1)
+                                    {
+                                        string hex = m.Groups[1].Value.ToLowerInvariant();
+                                        deltaNcas.Add(hex + ".nca");
+                                        deltaNcas.Add(hex + ".ncz");
+                                    }
                                 }
                                 var matches2 = System.Text.RegularExpressions.Regex.Matches(xml, @"(?s)<Content>.*?<Id>([a-fA-F0-9]{32})</Id>.*?<Type>DeltaFragment</Type>.*?</Content>");
                                 foreach (System.Text.RegularExpressions.Match m in matches2)
                                 {
-                                    if (m.Groups.Count > 1) deltaNcas.Add(m.Groups[1].Value.ToLowerInvariant() + ".nca");
-                                }
-                            }
-                            catch { }
-                        }
-                        // 2. Проверка бинарного CNMT внутри .cnmt.nca
-                        else if (ent.Name.EndsWith(".cnmt.nca", StringComparison.OrdinalIgnoreCase) || 
-                                 (ent.Name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase) && ent.Name.Length >= 36))
-                        {
-                            try
-                            {
-                                using var fRef = new UniqueRef<IFile>();
-                                using var p = new LibHac.Fs.Path();
-                                p.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(ent.FullPath))).ThrowIfFailure();
-                                if (chkFs.OpenFile(ref fRef.Ref, in p, OpenMode.Read).IsSuccess())
-                                {
-                                    var ncaStorage = fRef.Release().AsStorage();
-                                    var nca = new Nca(App.Keys.CurrentKeyset, ncaStorage);
-                                    if (nca.Header.ContentType == NcaContentType.Meta)
+                                    if (m.Groups.Count > 1)
                                     {
-                                        IFileSystem? romfs = null;
-                                        try { romfs = nca.OpenFileSystem(0, IntegrityCheckLevel.None); } catch { }
-                                        if (romfs == null)
-                                        {
-                                            try { romfs = nca.OpenFileSystem(NcaSectionType.Data, IntegrityCheckLevel.None); } catch { }
-                                        }
-
-                                        if (romfs != null)
-                                        {
-                                            foreach (var f in romfs.EnumerateEntries())
-                                            {
-                                                if (f.Name.EndsWith(".cnmt", StringComparison.OrdinalIgnoreCase))
-                                                {
-                                                    using var cfRef = new UniqueRef<IFile>();
-                                                    using var cp = new LibHac.Fs.Path();
-                                                    cp.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(f.FullPath))).ThrowIfFailure();
-                                                    if (romfs.OpenFile(ref cfRef.Ref, in cp, OpenMode.Read).IsSuccess())
-                                                    {
-                                                        using var ms = new MemoryStream();
-                                                        cfRef.Release().AsStream().CopyTo(ms);
-                                                        ms.Position = 0;
-                                                        var cnmt = new LibHac.Tools.Ncm.Cnmt(ms);
-                                                        foreach (var cEntry in cnmt.ContentEntries)
-                                                        {
-                                                            if (cEntry.Type == LibHac.Ncm.ContentType.DeltaFragment && cEntry.NcaId != null)
-                                                            {
-                                                                string hex = Convert.ToHexString(cEntry.NcaId).ToLowerInvariant();
-                                                                deltaNcas.Add(hex + ".nca");
-                                                            }
-                                                        }
-                                                    }
-                                                    break;
-                                                }
-                                            }
-                                        }
+                                        string hex = m.Groups[1].Value.ToLowerInvariant();
+                                        deltaNcas.Add(hex + ".nca");
+                                        deltaNcas.Add(hex + ".ncz");
                                     }
                                 }
                             }

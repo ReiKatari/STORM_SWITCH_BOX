@@ -423,6 +423,11 @@ namespace StormSwitchBox.Views
                 picker.FileTypeFilter.Add(".nsz");
                 picker.FileTypeFilter.Add(".xci");
                 picker.FileTypeFilter.Add(".xcz");
+                picker.FileTypeFilter.Add(".nro");
+                picker.FileTypeFilter.Add(".3ds");
+                picker.FileTypeFilter.Add(".cci");
+                picker.FileTypeFilter.Add(".cia");
+                picker.FileTypeFilter.Add(".cxi");
                 picker.FileTypeFilter.Add(".zip");
                 picker.FileTypeFilter.Add(".rar");
                 picker.FileTypeFilter.Add(".7z");

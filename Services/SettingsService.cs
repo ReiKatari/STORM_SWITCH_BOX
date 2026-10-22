@@ -46,9 +46,12 @@ namespace StormSwitchBox.Services
                     if (settings != null)
                     {
                         bool isDirty = false;
-                        if (settings.AppVersion != "5.0.18")
+                        if (settings.AppVersion != "5.1.0")
                         {
-                            settings.AppVersion = "5.0.18";
+                            settings.AppVersion = "5.1.0";
+                            settings.SmartProcessing = true;
+                            settings.RemoveDeltaNca = true;
+                            settings.OptimizeModAssets = true;
                             isDirty = true;
                         }
                         if (settings.EmulatorDirectories == null)
@@ -56,12 +59,11 @@ namespace StormSwitchBox.Services
                             settings.EmulatorDirectories = new List<string>();
                             isDirty = true;
                         }
-                        settings.ComplexFolders = true;
-                        settings.SmartProcessing = true;
-                        settings.TrimXci = false;
-                        settings.RemoveTitlerights = false;
-                        settings.RemoveDeltaNca = true;
-                        settings.OptimizeModAssets = true;
+                        if (string.IsNullOrWhiteSpace(settings.Language))
+                        {
+                            settings.Language = new AppSettings().Language;
+                            isDirty = true;
+                        }
                         
                         Current = settings;
                         if (isDirty) await SaveAsync();

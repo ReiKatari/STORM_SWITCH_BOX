@@ -346,6 +346,11 @@ namespace StormSwitchBox.Services
                 string romfsDir = Path.Combine(extractedBaseDir, "romfs");
                 if (Directory.Exists(romfsDir) && Directory.EnumerateFileSystemEntries(romfsDir).Any())
                 {
+                    ModOptimizerService.CleanJunkFiles(romfsDir, task);
+                    if (App.Settings.Current.OptimizeModAssets)
+                    {
+                        await ModOptimizerService.OptimizeTexturesAsync(romfsDir, task, cancellationToken);
+                    }
                     string threedstool = Get3dstoolPath();
                     if (File.Exists(threedstool))
                     {
@@ -359,6 +364,7 @@ namespace StormSwitchBox.Services
                 // Build with makerom
                 string formatFlag = outExt == "3ds" ? "cci" : (outExt == "cia" ? "cia" : "cxi");
                 string targetType = outExt == "3ds" ? "p" : (outExt == "cia" ? "t" : "d");
+                string trimFlag = formatFlag == "cci" ? "-t " : "";
 
                 string exHeaderPath = Path.Combine(extractedBaseDir, "exheader.bin");
                 string exefsCode = Path.Combine(extractedBaseDir, "exefs", "code.bin");
@@ -367,7 +373,7 @@ namespace StormSwitchBox.Services
                 string logoPath = Path.Combine(extractedBaseDir, "logo.bin");
                 string plainRgnPath = Path.Combine(extractedBaseDir, "plainrgn.bin");
 
-                string makeromArgs = $"-f {formatFlag} -target {targetType} -o \"{targetOutFile}\" ";
+                string makeromArgs = $"-f {formatFlag} -target {targetType} {trimFlag}-o \"{targetOutFile}\" ";
                 if (File.Exists(exHeaderPath)) makeromArgs += $"-exheader \"{exHeaderPath}\" ";
                 if (File.Exists(exefsCode)) makeromArgs += $"-code \"{exefsCode}\" ";
                 if (File.Exists(exefsIcon)) makeromArgs += $"-icon \"{exefsIcon}\" ";
@@ -389,6 +395,10 @@ namespace StormSwitchBox.Services
 
                 if (File.Exists(targetOutFile))
                 {
+                    if (outExt == "3ds")
+                    {
+                        SmartShrinkService.Trim3dsCardImage(targetOutFile, task);
+                    }
                     string targetCiaFile = Path.ChangeExtension(targetOutFile, ".cia");
                     if (isDual3ds)
                     {
@@ -484,6 +494,11 @@ namespace StormSwitchBox.Services
                     await RunProcessAsync(makerom, $"-ciatocci \"{targetCia}\" \"{target3ds}\"", outputFolder, cancellationToken);
                 }
 
+                if (File.Exists(target3ds))
+                {
+                    SmartShrinkService.Trim3dsCardImage(target3ds, task);
+                }
+
                 App.RunOnUI(() =>
                 {
                     task.Progress = 100;
@@ -514,6 +529,10 @@ namespace StormSwitchBox.Services
 
             if (File.Exists(outPath))
             {
+                if (outExt == "3ds" || outExt == "cci")
+                {
+                    SmartShrinkService.Trim3dsCardImage(outPath, task);
+                }
                 long finalSize = new FileInfo(outPath).Length;
                 App.RunOnUI(() =>
                 {
@@ -618,11 +637,17 @@ namespace StormSwitchBox.Services
                 string romfsDir = Path.Combine(inputFolder, "romfs");
                 if (Directory.Exists(romfsDir) && Directory.EnumerateFileSystemEntries(romfsDir).Any() && File.Exists(threedstool))
                 {
+                    ModOptimizerService.CleanJunkFiles(romfsDir, task);
+                    if (App.Settings.Current.OptimizeModAssets)
+                    {
+                        await ModOptimizerService.OptimizeTexturesAsync(romfsDir, task, cancellationToken);
+                    }
                     await RunProcessAsync(threedstool, $"-ctf romfs \"{romfsBin}\" --romfs-dir \"{romfsDir}\"", tempDir, cancellationToken);
                 }
 
                 string formatFlag = outExt == "3ds" ? "cci" : (outExt == "cia" ? "cia" : "cxi");
                 string targetType = outExt == "3ds" ? "p" : (outExt == "cia" ? "t" : "d");
+                string trimFlag = formatFlag == "cci" ? "-t " : "";
 
                 string exHeaderPath = Path.Combine(inputFolder, "exheader.bin");
                 string exefsCode = Path.Combine(inputFolder, "exefs", "code.bin");
@@ -631,7 +656,7 @@ namespace StormSwitchBox.Services
                 string logoPath = Path.Combine(inputFolder, "logo.bin");
                 string plainRgnPath = Path.Combine(inputFolder, "plainrgn.bin");
 
-                string makeromArgs = $"-f {formatFlag} -target {targetType} -o \"{outPath}\" ";
+                string makeromArgs = $"-f {formatFlag} -target {targetType} {trimFlag}-o \"{outPath}\" ";
                 if (File.Exists(exHeaderPath)) makeromArgs += $"-exheader \"{exHeaderPath}\" ";
                 if (File.Exists(exefsCode)) makeromArgs += $"-code \"{exefsCode}\" ";
                 if (File.Exists(exefsIcon)) makeromArgs += $"-icon \"{exefsIcon}\" ";
@@ -644,6 +669,10 @@ namespace StormSwitchBox.Services
 
                 if (File.Exists(outPath))
                 {
+                    if (outExt == "3ds" || outExt == "cci")
+                    {
+                        SmartShrinkService.Trim3dsCardImage(outPath, task);
+                    }
                     long finalSize = new FileInfo(outPath).Length;
                     App.RunOnUI(() =>
                     {

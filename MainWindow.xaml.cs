@@ -36,7 +36,7 @@ namespace StormSwitchBox
         public MainWindow()
         {
             this.InitializeComponent();
-            this.Title = "STORM SWITCH BOX 5.0.18";
+            this.Title = "STORM SWITCH BOX 5.1.0";
             this.ExtendsContentIntoTitleBar = true; // Современный заголовок окна
 
             var hWnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
@@ -187,6 +187,23 @@ namespace StormSwitchBox
             }
         }
 
+        private sealed class StormTrayColorTable : WinForms.ProfessionalColorTable
+        {
+            public override System.Drawing.Color ToolStripDropDownBackground => System.Drawing.Color.FromArgb(0x14, 0x10, 0x26);
+            public override System.Drawing.Color MenuBorder => System.Drawing.Color.FromArgb(0x8B, 0x5C, 0xF6);
+            public override System.Drawing.Color MenuItemBorder => System.Drawing.Color.FromArgb(0x8B, 0x5C, 0xF6);
+            public override System.Drawing.Color MenuItemSelected => System.Drawing.Color.FromArgb(0x2E, 0x26, 0x52);
+            public override System.Drawing.Color MenuItemSelectedGradientBegin => System.Drawing.Color.FromArgb(0x2E, 0x26, 0x52);
+            public override System.Drawing.Color MenuItemSelectedGradientEnd => System.Drawing.Color.FromArgb(0x2E, 0x26, 0x52);
+            public override System.Drawing.Color MenuItemPressedGradientBegin => System.Drawing.Color.FromArgb(0x2E, 0x26, 0x52);
+            public override System.Drawing.Color MenuItemPressedGradientEnd => System.Drawing.Color.FromArgb(0x2E, 0x26, 0x52);
+            public override System.Drawing.Color SeparatorDark => System.Drawing.Color.FromArgb(0x3D, 0x30, 0x5C);
+            public override System.Drawing.Color SeparatorLight => System.Drawing.Color.FromArgb(0x3D, 0x30, 0x5C);
+            public override System.Drawing.Color ImageMarginGradientBegin => System.Drawing.Color.FromArgb(0x14, 0x10, 0x26);
+            public override System.Drawing.Color ImageMarginGradientMiddle => System.Drawing.Color.FromArgb(0x14, 0x10, 0x26);
+            public override System.Drawing.Color ImageMarginGradientEnd => System.Drawing.Color.FromArgb(0x14, 0x10, 0x26);
+        }
+
         private void InitializeTrayIcon()
         {
             _notifyIcon = new WinForms.NotifyIcon();
@@ -199,9 +216,41 @@ namespace StormSwitchBox
             _notifyIcon.Visible = false;
             
             _notifyIcon.DoubleClick += (s, e) => RestoreWindow();
+            _notifyIcon.MouseClick += (s, e) =>
+            {
+                if (e.Button == WinForms.MouseButtons.Left)
+                {
+                    RestoreWindow();
+                }
+            };
             
-            var contextMenu = new WinForms.ContextMenuStrip();
-            var restoreItem = new WinForms.ToolStripMenuItem(App.Localization["Tray_Restore"], null, (s, e) => RestoreWindow());
+            var baseFont = System.Drawing.SystemFonts.MenuFont ?? new System.Drawing.Font("Segoe UI", 9f, System.Drawing.FontStyle.Regular);
+            var boldFont = new System.Drawing.Font(baseFont.FontFamily, baseFont.Size, System.Drawing.FontStyle.Bold);
+
+            var contextMenu = new WinForms.ContextMenuStrip
+            {
+                ShowImageMargin = false,
+                BackColor = System.Drawing.Color.FromArgb(0x14, 0x10, 0x26),
+                ForeColor = System.Drawing.Color.White,
+                Font = baseFont,
+                Renderer = new WinForms.ToolStripProfessionalRenderer(new StormTrayColorTable())
+            };
+
+            var restoreItem = new WinForms.ToolStripMenuItem(App.Localization["Tray_Restore"], null, (s, e) => RestoreWindow())
+            {
+                Font = boldFont,
+                ForeColor = System.Drawing.Color.White
+            };
+            var aboutItem = new WinForms.ToolStripMenuItem(App.Localization["Tray_About"], null, (s, e) =>
+            {
+                RestoreWindow();
+                MainNavigation.SelectedItem = MainNavigation.SettingsItem;
+                ContentFrame.Navigate(typeof(SettingsPage));
+            })
+            {
+                ForeColor = System.Drawing.Color.White
+            };
+            var separator = new WinForms.ToolStripSeparator();
             var exitItem = new WinForms.ToolStripMenuItem(App.Localization["Tray_Exit"], null, (s, e) =>
             {
                 _notifyIcon.Visible = false;
@@ -210,9 +259,14 @@ namespace StormSwitchBox
                 Services.JobObjectManager.KillAllToolProcesses();
                 Services.TempCleanupService.PurgeActiveTempDirectories();
                 System.Environment.Exit(0);
-            });
+            })
+            {
+                ForeColor = System.Drawing.Color.White
+            };
             
             contextMenu.Items.Add(restoreItem);
+            contextMenu.Items.Add(aboutItem);
+            contextMenu.Items.Add(separator);
             contextMenu.Items.Add(exitItem);
             _notifyIcon.ContextMenuStrip = contextMenu;
         }
@@ -224,10 +278,11 @@ namespace StormSwitchBox
             if (_notifyIcon != null)
             {
                 _notifyIcon.Text = "STORM SWITCH BOX";
-                if (_notifyIcon.ContextMenuStrip != null && _notifyIcon.ContextMenuStrip.Items.Count >= 2)
+                if (_notifyIcon.ContextMenuStrip != null && _notifyIcon.ContextMenuStrip.Items.Count >= 4)
                 {
                     _notifyIcon.ContextMenuStrip.Items[0].Text = App.Localization["Tray_Restore"];
-                    _notifyIcon.ContextMenuStrip.Items[1].Text = App.Localization["Tray_Exit"];
+                    _notifyIcon.ContextMenuStrip.Items[1].Text = App.Localization["Tray_About"];
+                    _notifyIcon.ContextMenuStrip.Items[3].Text = App.Localization["Tray_Exit"];
                 }
             }
 
@@ -261,7 +316,7 @@ namespace StormSwitchBox
             if (_notifyIcon != null)
             {
                 _notifyIcon.Visible = true;
-                _notifyIcon.ShowBalloonTip(2000, "STORM SWITCH BOX 5.0.18", "Приложение работает в фоновом режиме в системном трее.", WinForms.ToolTipIcon.Info);
+                _notifyIcon.ShowBalloonTip(2000, "STORM SWITCH BOX 5.1.0", "Приложение работает в фоновом режиме в системном трее.", WinForms.ToolTipIcon.Info);
             }
         }
 
@@ -270,7 +325,7 @@ namespace StormSwitchBox
             if (_notifyIcon != null)
             {
                 _notifyIcon.Visible = true;
-                _notifyIcon.ShowBalloonTip(4000, "STORM SWITCH BOX 5.0.18", summaryMessage, WinForms.ToolTipIcon.Info);
+                _notifyIcon.ShowBalloonTip(4000, "STORM SWITCH BOX 5.1.0", summaryMessage, WinForms.ToolTipIcon.Info);
             }
         }
 
@@ -278,7 +333,7 @@ namespace StormSwitchBox
         {
             if (_notifyIcon != null)
             {
-                string text = $"STORM SWITCH BOX 5.0.18\n{status}";
+                string text = $"STORM SWITCH BOX 5.1.0\n{status}";
                 if (text.Length > 63) text = text.Substring(0, 63);
                 _notifyIcon.Text = text;
             }

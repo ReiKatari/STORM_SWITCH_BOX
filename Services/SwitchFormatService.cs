@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -56,12 +57,12 @@ namespace StormSwitchBox.Services
                 if (modified)
                 {
                     System.IO.File.WriteAllLines(keysPath, lines);
-                    App.Logger.Log($"[SwitchFormatService] Automatically fixed invalid 34-char keys in {System.IO.Path.GetFileName(keysPath)}", Models.LogLevel.Info);
+                    App.Logger.Log($"[SwitchFormatService] Автоматически исправлены 34-символьные ключи в {System.IO.Path.GetFileName(keysPath)}", Models.LogLevel.Info);
                 }
             }
             catch (Exception ex)
             {
-                App.Logger.Log($"[SwitchFormatService] Error cleaning keys file {System.IO.Path.GetFileName(keysPath)}: {ex.Message}", Models.LogLevel.Warning);
+                App.Logger.Log($"[SwitchFormatService] Ошибка очистки файла ключей {System.IO.Path.GetFileName(keysPath)}: {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
@@ -73,8 +74,6 @@ namespace StormSwitchBox.Services
 
             try
             {
-                bool isCompressed = filePath.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) || filePath.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase);
-
                 bool isXci = filePath.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) || filePath.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase);
 
                 using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
@@ -89,24 +88,21 @@ namespace StormSwitchBox.Services
                     var rootStorage = new SubStorage(storage, 0x10000, storageSize - 0x10000);
                     var rootPfs = new PartitionFileSystem(rootStorage);
                     
-                    
                     using var secureFile = new UniqueRef<IFile>();
                     using var securePath = new LibHac.Fs.Path();
                     securePath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes("/secure"))).ThrowIfFailure();
                     rootPfs.OpenFile(ref secureFile.Ref, in securePath, OpenMode.Read).ThrowIfFailure();
                     
                     pfs = new PartitionFileSystem(secureFile.Release().AsStorage());
-                    
                     fileSystem = pfs;
                 }
                 else
                 {
                     pfs = new PartitionFileSystem(storage);
-                    
                     fileSystem = pfs;
                 }
 
-
+                SmartShrinkService.HarvestTicketsFromFileSystem(fileSystem, _keysService.CurrentKeyset);
 
                 foreach (var entry in fileSystem.EnumerateEntries().Where(e => e.Name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase)))
                 {
@@ -131,34 +127,34 @@ namespace StormSwitchBox.Services
 
                         if (fs != null)
                         {
-                        foreach (var cnmtEntry in fs.EnumerateEntries("/", "*.cnmt"))
-                        {
-                            using var cnmtFileRef = new UniqueRef<IFile>();
-                            using var cnmtPath = new LibHac.Fs.Path();
-                            cnmtPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(cnmtEntry.FullPath))).ThrowIfFailure();
-                            fs.OpenFile(ref cnmtFileRef.Ref, in cnmtPath, OpenMode.Read).ThrowIfFailure();
-                            
-                            IFile cnmtFile = cnmtFileRef.Release();
-                            
-                            using var cnmtStream = new MemoryStream();
-                            cnmtFile.AsStream().CopyTo(cnmtStream);
-                            byte[] cnmtBytes = cnmtStream.ToArray();
+                            foreach (var cnmtEntry in fs.EnumerateEntries("/", "*.cnmt"))
+                            {
+                                using var cnmtFileRef = new UniqueRef<IFile>();
+                                using var cnmtPath = new LibHac.Fs.Path();
+                                cnmtPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(cnmtEntry.FullPath))).ThrowIfFailure();
+                                fs.OpenFile(ref cnmtFileRef.Ref, in cnmtPath, OpenMode.Read).ThrowIfFailure();
+                                
+                                IFile cnmtFile = cnmtFileRef.Release();
+                                
+                                using var cnmtStream = new MemoryStream();
+                                cnmtFile.AsStream().CopyTo(cnmtStream);
+                                byte[] cnmtBytes = cnmtStream.ToArray();
 
-                            ulong titleId = BitConverter.ToUInt64(cnmtBytes, 0x00);
-                            uint version = BitConverter.ToUInt32(cnmtBytes, 0x08);
-                            byte typeByte = cnmtBytes[0x0C];
+                                ulong titleId = BitConverter.ToUInt64(cnmtBytes, 0x00);
+                                uint version = BitConverter.ToUInt32(cnmtBytes, 0x08);
+                                byte typeByte = cnmtBytes[0x0C];
 
-                            info.TitleId = titleId.ToString("X16");
-                            info.Version = version.ToString();
-                            
-                            if (typeByte == 0x80) info.ContentType = "Application";
-                            else if (typeByte == 0x81) info.ContentType = "Patch";
-                            else if (typeByte == 0x82) info.ContentType = "AddOnContent";
-                            else info.ContentType = "Unknown";
-                            
-                            App.Logger.Log($"[LibHac]  : {info.TitleId} | : {info.ContentType} | v{info.Version}", Models.LogLevel.Debug);
-                            //   info ,    Control NCA
-                        }
+                                info.TitleId = titleId.ToString("X16");
+                                info.Version = version.ToString();
+                                
+                                if (typeByte == 0x80) info.ContentType = "Application";
+                                else if (typeByte == 0x81) info.ContentType = "Patch";
+                                else if (typeByte == 0x82) info.ContentType = "AddOnContent";
+                                else info.ContentType = "Unknown";
+                                
+                                App.Logger.Log($"[LibHac] Распознан контент: {info.TitleId} | Тип: {info.ContentType} | v{info.Version}", Models.LogLevel.Debug);
+                                // Не возвращаем info сразу, чтобы дождаться парсинга Control NCA
+                            }
                         }
                     }
                     else if (nca.Header.ContentType == NcaContentType.Control)
@@ -187,7 +183,7 @@ namespace StormSwitchBox.Services
             }
             catch (Exception ex)
             {
-                App.Logger.Log($"  {System.IO.Path.GetFileName(filePath)}: {ex.Message}", Models.LogLevel.Warning);
+                App.Logger.Log($"Ошибка парсинга {System.IO.Path.GetFileName(filePath)}: {ex.Message}", Models.LogLevel.Warning);
             }
 
             return info;
@@ -195,13 +191,13 @@ namespace StormSwitchBox.Services
 
         public async System.Threading.Tasks.Task UnpackContainerAsync(Models.ProcessingTask task, string filePath, string baseOutFolder, System.Threading.CancellationToken token)
         {
-            if (!_keysService.IsLoaded) throw new Exception("  .");
+            if (!_keysService.IsLoaded) throw new Exception("Криптографические ключи не загружены.");
 
-            App.RunOnUI(() => { task.Status = "..."; });
+            App.RunOnUI(() => { task.Status = "Распаковка..."; });
             
-                App.RunOnUI(() => { 
-                    task.LogDetails += $"\n    LibHac (Zero-Disk-IO)..."; 
-                });
+            App.RunOnUI(() => { 
+                task.LogDetails += $"\nРаспаковка контейнера с помощью LibHac (Zero-Disk-IO)..."; 
+            });
 
             var info = ParseNsp(filePath);
             
@@ -211,7 +207,7 @@ namespace StormSwitchBox.Services
 
             string finalOutPath = System.IO.Path.Combine(baseOutFolder, subFolder);
 
-            App.Logger.Log($"   : {finalOutPath}", Models.LogLevel.Info);
+            App.Logger.Log($"Целевая папка для распаковки: {finalOutPath}", Models.LogLevel.Info);
             System.IO.Directory.CreateDirectory(finalOutPath);
 
             await System.Threading.Tasks.Task.Run(() =>
@@ -230,22 +226,21 @@ namespace StormSwitchBox.Services
                     var rootStorage = new SubStorage(storage, 0x10000, storageSize - 0x10000);
                     var rootPfs = new PartitionFileSystem(rootStorage);
                     
-                    
                     using var secureFile = new UniqueRef<IFile>();
                     using var securePath2 = new LibHac.Fs.Path();
                     securePath2.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes("/secure"))).ThrowIfFailure();
                     rootPfs.OpenFile(ref secureFile.Ref, in securePath2, OpenMode.Read).ThrowIfFailure();
                     
                     pfs = new PartitionFileSystem(secureFile.Release().AsStorage());
-                    
                     fileSystem = pfs;
                 }
                 else
                 {
                     pfs = new PartitionFileSystem(storage);
-                    
                     fileSystem = pfs;
                 }
+
+                SmartShrinkService.HarvestTicketsFromFileSystem(fileSystem, _keysService.CurrentKeyset);
 
                 var titleKeyMap = new System.Collections.Generic.Dictionary<string, byte[]>();
                 foreach (var entry in fileSystem.EnumerateEntries().Where(e => e.Name.EndsWith(".tik", StringComparison.OrdinalIgnoreCase)))
@@ -286,7 +281,7 @@ namespace StormSwitchBox.Services
                     {
                         App.RunOnUI(() => 
                         {
-                            task.LogDetails = $": {entryName}";
+                            task.LogDetails = $"Извлечение: {entryName}";
                             task.Progress = (currentFile / (double)totalFiles) * 100.0;
                         });
                         stopwatch.Restart();
@@ -330,8 +325,6 @@ namespace StormSwitchBox.Services
                     }
                 }
             }, token);
-
-
         }
 
         public async Task ConvertContainerAsync(ProcessingTask task, string inputPath, string outDir, string targetFormat, CancellationToken cancellationToken)
@@ -341,67 +334,91 @@ namespace StormSwitchBox.Services
             
             App.RunOnUI(() =>
             {
-                task.LogDetails += $"\n    {targetExt.ToUpper()}...";
-                task.Status = $" {targetExt.ToUpper()}...";
+                task.LogDetails += $"\nНачало конвертации контейнера в {targetExt.ToUpper()}...";
+                task.Status = $"Конвертация в {targetExt.ToUpper()}...";
             });
 
             string expectedNsp = System.IO.Path.ChangeExtension(System.IO.Path.Combine(outDir, System.IO.Path.GetFileName(inputPath)), ".nsp");
 
-            // If input is XCI and target is XCI — just copy
-            if (isInputXci && targetExt == ".xci")
-            {
-                App.RunOnUI(() => task.LogDetails += "\n XCI: копирование...");
-                string expectedXci = System.IO.Path.ChangeExtension(expectedNsp, ".xci");
-                if (!inputPath.Equals(expectedXci, StringComparison.OrdinalIgnoreCase))
-                {
-                    System.IO.File.Copy(inputPath, expectedXci, true);
-                }
-                expectedNsp = expectedXci;
-                
-                App.RunOnUI(() =>
-                {
-                    task.LogDetails += $"\n : {expectedNsp}";
-                    task.Progress = 100;
-                    task.Status = "Успешно";
-                });
-                return;
-            }
-
-            // If input is NSP and target is XCI — build XCI directly without re-parsing
+            // If input is NSP and target is XCI — build Trimmed XCI directly with SmartShrink filtering
             if (!isInputXci && targetExt == ".xci")
             {
-                App.RunOnUI(() => task.LogDetails += "\n  NSP → XCI (HFS0)...");
+                App.RunOnUI(() => task.LogDetails += "\nКонвертация NSP → XCI (HFS0 Trimmed)...");
                 string expectedXci = System.IO.Path.ChangeExtension(expectedNsp, ".xci");
                 Core.NCA.StormXciBuilder.BuildXciFromPfs0(inputPath, expectedXci, _keysService.CurrentKeyset);
                 expectedNsp = expectedXci;
                 
                 App.RunOnUI(() =>
                 {
-                    task.LogDetails += $"\n : {expectedNsp}";
+                    task.LogDetails += $"\nСохранен: {expectedNsp}";
                     task.Progress = 100;
                     task.Status = "Успешно";
                 });
                 return;
             }
             
-            // If input is NSP and target is NSP — just copy
+            // If input is NSP and target is NSP — rebuild with SmartShrink if Delta/junk exist, else copy
             if (!isInputXci && targetExt == ".nsp")
             {
-                App.RunOnUI(() => task.LogDetails += "\n NSP: копирование...");
-                if (!inputPath.Equals(expectedNsp, StringComparison.OrdinalIgnoreCase))
+                bool rebuiltShrunk = false;
+                try
                 {
-                    System.IO.File.Copy(inputPath, expectedNsp, true);
+                    using var srcFs = new FileStream(inputPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                    var srcPfs = new PartitionFileSystem(srcFs.AsStorage());
+                    bool removeDelta = App.Settings?.Current?.RemoveDeltaNca ?? true;
+                    var redundantSet = SmartShrinkService.AnalyzeRedundantEntriesInFileSystem(
+                        srcPfs, _keysService.CurrentKeyset, removeDelta, out int dCount, out int sCount);
+                    bool hasNonContainerJunk = srcPfs.EnumerateEntries("/", "*")
+                        .Any(e => !SmartShrinkService.IsValidSwitchContainerEntry(e.Name, allowNcz: true));
+
+                    if ((redundantSet.Count > 0 || hasNonContainerJunk) && !inputPath.Equals(expectedNsp, StringComparison.OrdinalIgnoreCase))
+                    {
+                        App.RunOnUI(() => task.LogDetails += $"\n[SmartShrink] Оптимизация NSP (удалено Delta={dCount}, устаревших={sCount})...");
+                        var pfsBuilder = new PartitionFileSystemBuilder();
+                        var openedFiles = new List<IFile>();
+                        try
+                        {
+                            var addedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                            foreach (var entry in srcPfs.EnumerateEntries("/", "*"))
+                            {
+                                if (!SmartShrinkService.IsValidSwitchContainerEntry(entry.Name, allowNcz: true)) continue;
+                                if (redundantSet.Contains(entry.Name)) continue;
+                                if (!addedNames.Add(entry.Name)) continue;
+                                IFile f = OpenFileSafe(srcPfs, entry.FullPath);
+                                openedFiles.Add(f);
+                                pfsBuilder.AddFile(entry.Name, new StorageFile(new SafeStorageWrapper(f.AsStorage()), OpenMode.Read));
+                            }
+                            using var built = pfsBuilder.Build(PartitionFileSystemType.Standard);
+                            using var outStream = new FileStream(expectedNsp, FileMode.Create, FileAccess.Write, FileShare.None, 16 * 1024 * 1024);
+                            built.AsStream().CopyTo(outStream);
+                            rebuiltShrunk = true;
+                        }
+                        finally
+                        {
+                            foreach (var f in openedFiles) { try { f.Dispose(); } catch { } }
+                        }
+                    }
+                }
+                catch { }
+
+                if (!rebuiltShrunk)
+                {
+                    App.RunOnUI(() => task.LogDetails += "\nКонтейнер NSP: копирование...");
+                    if (!inputPath.Equals(expectedNsp, StringComparison.OrdinalIgnoreCase))
+                    {
+                        System.IO.File.Copy(inputPath, expectedNsp, true);
+                    }
                 }
                 App.RunOnUI(() =>
                 {
-                    task.LogDetails += $"\n : {expectedNsp}";
+                    task.LogDetails += $"\nСохранен: {expectedNsp}";
                     task.Progress = 100;
                     task.Status = "Успешно";
                 });
                 return;
             }
 
-            // XCI → NSP conversion: parse HFS0 structure
+            // XCI → NSP (or XCI → Trimmed XCI) conversion: parse HFS0 structure with Lossless Shrink filtering
             await Task.Run(() =>
             {
                 var openedFileSystems = new List<IFileSystem>();
@@ -427,10 +444,27 @@ namespace StormSwitchBox.Services
                     var securePfs = new PartitionFileSystem(secureStorage);
                     openedFileSystems.Add(securePfs);
 
+                    bool removeDelta = App.Settings?.Current?.RemoveDeltaNca ?? true;
+                    var redundantSet = SmartShrinkService.AnalyzeRedundantEntriesInFileSystem(
+                        securePfs, _keysService.CurrentKeyset, removeDelta, out int deltaRemoved, out int supRemoved);
+
+                    if (deltaRemoved > 0 || supRemoved > 0)
+                    {
+                        App.RunOnUI(() => task.LogDetails += $"\n[SmartShrink] Исключено избыточных NCA: Delta={deltaRemoved}, устаревших патчей={supRemoved}");
+                    }
+
                     var pfsBuilder = new PartitionFileSystemBuilder();
+                    var addedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                     foreach (var entry in securePfs.EnumerateEntries())
                     {
                         cancellationToken.ThrowIfCancellationRequested();
+                        if (!SmartShrinkService.IsValidSwitchContainerEntry(entry.Name, allowNcz: true))
+                            continue;
+                        if (redundantSet.Contains(entry.Name))
+                            continue;
+                        if (!addedNames.Add(entry.Name))
+                            continue;
+
                         IFile entryFile = OpenFileSafe(securePfs, entry.FullPath);
                         openedFiles.Add(entryFile);
                         IStorage entryStorage = entryFile.AsStorage();
@@ -438,7 +472,7 @@ namespace StormSwitchBox.Services
                         pfsBuilder.AddFile(entry.Name, new StorageFile(new StormSwitchBox.Services.SafeStorageWrapper(entryStorage), OpenMode.Read));
                     }
 
-                    App.RunOnUI(() => task.LogDetails += "\n NSP  ...");
+                    App.RunOnUI(() => task.LogDetails += "\nСборка NSP контейнера...");
                     using var builtPfs = pfsBuilder.Build(PartitionFileSystemType.Standard);
                     using var destStream = new FileStream(expectedNsp, FileMode.Create, FileAccess.Write, FileShare.None, 16 * 1024 * 1024);
                     
@@ -484,7 +518,7 @@ namespace StormSwitchBox.Services
 
             if (targetExt == ".xci")
             {
-                App.RunOnUI(() => task.LogDetails += "\n  HFS0 (XCI)...");
+                App.RunOnUI(() => task.LogDetails += "\nСборка HFS0 (XCI Trimmed)...");
                 string expectedXci = System.IO.Path.ChangeExtension(expectedNsp, ".xci");
                 Core.NCA.StormXciBuilder.BuildXciFromPfs0(expectedNsp, expectedXci, _keysService.CurrentKeyset);
                 try { System.IO.File.Delete(expectedNsp); } catch { }
@@ -493,12 +527,11 @@ namespace StormSwitchBox.Services
 
             App.RunOnUI(() =>
             {
-                task.LogDetails += $"\n : {expectedNsp}";
+                task.LogDetails += $"\nСохранен: {expectedNsp}";
                 task.Progress = 100;
                 task.Status = "Успешно";
             });
         }
-
 
         public void ExtractNcaSection(Nca nca, NcaSectionType sectionType, string outDir, System.Threading.CancellationToken token, string? ncaFilePath = null)
         {
@@ -641,10 +674,6 @@ namespace StormSwitchBox.Services
             }
         }
 
-        /// <summary>
-        /// Fallback extraction using hactoolnet.exe when LibHac C# API fails.
-        /// Uses multi-step approach to work around LibHac 0.18.0 alignment bugs.
-        /// </summary>
         private void ExtractNcaSectionViaHactool(string ncaPath, string? baseNcaPath, NcaSectionType sectionType, string outDir, System.Threading.CancellationToken token)
         {
             string hactoolPath = FindHactoolnet();
@@ -671,8 +700,6 @@ namespace StormSwitchBox.Services
             catch { }
 
             // === Attempt 2: Two-step extraction (dump raw section → parse separately) ===
-            // Step 2a: Dump the raw decrypted section to a temp file
-            // ExeFS is typically section 0 (PFS0), RomFS is section 1 (RomFS)
             App.Logger.Log("[hactoolnet] Попытка 2 (двухэтапный дамп)...", Models.LogLevel.Info);
 
             string tempDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "StormHactool_" + Guid.NewGuid().ToString("N").Substring(0, 8));
@@ -680,17 +707,15 @@ namespace StormSwitchBox.Services
 
             try
             {
-                // Try each section index (0, 1, 2) because we don't always know which one is Code/Data
                 int[] sectionIndicesToTry = sectionType == NcaSectionType.Code
-                    ? new[] { 0, 1 }  // ExeFS is usually section 0
-                    : new[] { 1, 0 };  // RomFS is usually section 1
+                    ? new[] { 0, 1 }
+                    : new[] { 1, 0 };
 
                 foreach (int sectionIdx in sectionIndicesToTry)
                 {
                     token.ThrowIfCancellationRequested();
                     string tempSectionFile = System.IO.Path.Combine(tempDir, $"section{sectionIdx}.bin");
 
-                    // Step 2a: Dump raw section
                     string dumpArgs = $"-t nca -k \"{keysPath}\" {baseArg} --section{sectionIdx} \"{tempSectionFile}\" --disablekeywarns \"{ncaPath}\"";
                     App.Logger.Log($"[hactoolnet] Дамп секции {sectionIdx}: {dumpArgs}", Models.LogLevel.Info);
 
@@ -701,7 +726,6 @@ namespace StormSwitchBox.Services
                         continue;
                     }
 
-                    // Step 2b: Parse the dumped section
                     string parseType = sectionType == NcaSectionType.Code ? "pfs0" : "romfs";
                     string parseOutArg = sectionType == NcaSectionType.Code
                         ? $"--outdir \"{outDir}\""
@@ -710,14 +734,13 @@ namespace StormSwitchBox.Services
                     string parseArgs = $"-t {parseType} {parseOutArg} \"{tempSectionFile}\"";
                     App.Logger.Log($"[hactoolnet] Парсинг секции как {parseType}: {parseArgs}", Models.LogLevel.Info);
 
-                    int parseExit = RunHactool(hactoolPath, parseArgs, token);
+                    RunHactool(hactoolPath, parseArgs, token);
                     if (System.IO.Directory.EnumerateFileSystemEntries(outDir).Any())
                     {
                         App.Logger.Log($"[hactoolnet] Попытка 2 успешна (секция {sectionIdx} как {parseType}).", Models.LogLevel.Info);
                         return;
                     }
 
-                    // If parsing as romfs failed, try as pfs0 and vice versa
                     string altType = parseType == "romfs" ? "pfs0" : "romfs";
                     string altOutArg = altType == "pfs0" ? $"--outdir \"{outDir}\"" : $"--romfsdir \"{outDir}\"";
                     string altArgs = $"-t {altType} {altOutArg} \"{tempSectionFile}\"";
@@ -739,9 +762,6 @@ namespace StormSwitchBox.Services
             }
         }
 
-        /// <summary>
-        /// Finds hactoolnet.exe in known locations.
-        /// </summary>
         private string FindHactoolnet()
         {
             string baseDir = AppDomain.CurrentDomain.BaseDirectory;
@@ -750,8 +770,7 @@ namespace StormSwitchBox.Services
                 System.IO.Path.Combine(baseDir, "tools", "com.github.nozwock.yanu", "hactoolnet.exe"),
                 System.IO.Path.Combine(baseDir, "..", "tools", "com.github.nozwock.yanu", "hactoolnet.exe"),
                 System.IO.Path.Combine(baseDir, "..", "..", "..", "..", "tools", "com.github.nozwock.yanu", "hactoolnet.exe"),
-                System.IO.Path.Combine(baseDir, "..", "..", "tools", "com.github.nozwock.yanu", "hactoolnet.exe"),
-                @"E:\STORM SWITCH BOX\tools\com.github.nozwock.yanu\hactoolnet.exe",
+                System.IO.Path.Combine(baseDir, "..", "..", "tools", "com.github.nozwock.yanu", "hactoolnet.exe")
             };
             foreach (var candidate in candidatePaths)
             {
@@ -761,9 +780,6 @@ namespace StormSwitchBox.Services
             throw new Exception($"hactoolnet.exe не найден. Проверены пути: {string.Join(", ", candidatePaths.Select(p => System.IO.Path.GetFullPath(p)))}");
         }
 
-        /// <summary>
-        /// Runs hactoolnet.exe and returns exit code.
-        /// </summary>
         private int RunHactool(string hactoolPath, string arguments, System.Threading.CancellationToken token)
         {
             var psi = new System.Diagnostics.ProcessStartInfo
@@ -788,21 +804,37 @@ namespace StormSwitchBox.Services
 
             if (process.ExitCode != 0 && !string.IsNullOrWhiteSpace(stderr))
             {
-                // Не выводим желтый текст (Warning), так как hactoolnet часто падает как фоллбэк
                 App.Logger.Log($"[hactoolnet] exit={process.ExitCode} stderr: {stderr.Trim()}", Models.LogLevel.Debug);
             }
 
             return process.ExitCode;
         }
 
-
         public void TrimLanguages(string romfsDir)
         {
             try
             {
                 var keepLangs = App.Settings.Current.KeepLanguages ?? new List<string> { "ru", "ru-RU", "en-US", "en-GB", "en" };
-                
-                //     
+                var keepSet = new HashSet<string>(keepLangs, StringComparer.OrdinalIgnoreCase);
+
+                bool ShouldKeepLanguageFolder(string folderName)
+                {
+                    if (keepSet.Contains(folderName)) return true;
+                    string lower = folderName.ToLowerInvariant();
+                    if ((lower == "russian" || lower.StartsWith("ru-")) && (keepSet.Contains("ru") || keepSet.Contains("ru-RU"))) return true;
+                    if ((lower == "english" || lower.StartsWith("en-")) && (keepSet.Contains("en") || keepSet.Contains("en-US") || keepSet.Contains("en-GB"))) return true;
+                    if ((lower == "japanese" || lower.StartsWith("ja-")) && (keepSet.Contains("ja") || keepSet.Contains("ja-JP"))) return true;
+                    if ((lower == "spanish" || lower.StartsWith("es-")) && (keepSet.Contains("es") || keepSet.Contains("es-ES") || keepSet.Contains("es-MX"))) return true;
+                    if ((lower == "french" || lower.StartsWith("fr-")) && (keepSet.Contains("fr") || keepSet.Contains("fr-FR") || keepSet.Contains("fr-CA"))) return true;
+                    if ((lower == "german" || lower.StartsWith("de-")) && (keepSet.Contains("de") || keepSet.Contains("de-DE"))) return true;
+                    if ((lower == "italian" || lower.StartsWith("it-")) && (keepSet.Contains("it") || keepSet.Contains("it-IT"))) return true;
+                    if ((lower == "dutch" || lower.StartsWith("nl-")) && (keepSet.Contains("nl") || keepSet.Contains("nl-NL"))) return true;
+                    if ((lower == "portuguese" || lower.StartsWith("pt-")) && (keepSet.Contains("pt") || keepSet.Contains("pt-BR") || keepSet.Contains("pt-PT"))) return true;
+                    if ((lower == "korean" || lower.StartsWith("ko-")) && (keepSet.Contains("ko") || keepSet.Contains("ko-KR"))) return true;
+                    if ((lower == "chinese" || lower.StartsWith("zh-")) && (keepSet.Contains("zh") || keepSet.Contains("zh-CN") || keepSet.Contains("zh-TW") || keepSet.Contains("zh-Hans") || keepSet.Contains("zh-Hant"))) return true;
+                    return false;
+                }
+
                 var possibleLangDirs = new[] { "Message", "Voice", "Sound", "Localized", "Loc", "Text", "ui" };
                 
                 foreach (var dir in possibleLangDirs)
@@ -814,15 +846,13 @@ namespace StormSwitchBox.Services
                         foreach (var subDir in subDirs)
                         {
                             string dirName = System.IO.Path.GetFileName(subDir);
-                            //        (, es-ES, ja-JP, fr-FR)
                             if (dirName.Contains("-") && dirName.Length >= 4 && dirName.Length <= 5)
                             {
-                                if (!keepLangs.Contains(dirName, StringComparer.OrdinalIgnoreCase))
+                                if (!ShouldKeepLanguageFolder(dirName))
                                 {
                                     SafeDeleteDirectory(subDir);
                                 }
                             }
-                            //        (, Japanese, Spanish)
                             else if (dirName.Equals("Japanese", StringComparison.OrdinalIgnoreCase) || 
                                      dirName.Equals("Spanish", StringComparison.OrdinalIgnoreCase) || 
                                      dirName.Equals("French", StringComparison.OrdinalIgnoreCase) || 
@@ -848,7 +878,10 @@ namespace StormSwitchBox.Services
                                      dirName.Equals("zh-Hant", StringComparison.OrdinalIgnoreCase) ||
                                      dirName.Equals("zh-Hans", StringComparison.OrdinalIgnoreCase))
                             {
-                                SafeDeleteDirectory(subDir);
+                                if (!ShouldKeepLanguageFolder(dirName))
+                                {
+                                    SafeDeleteDirectory(subDir);
+                                }
                             }
                         }
                     }
@@ -889,11 +922,10 @@ namespace StormSwitchBox.Services
                 token.ThrowIfCancellationRequested();
                 string entryFullPath = entry.FullPath;
                 
-                // Replace invalid Windows path characters just in case
                 string safeName = entryFullPath.TrimStart('/');
                 foreach (char c in System.IO.Path.GetInvalidFileNameChars())
                 {
-                    if (c != '/' && c != '\\') // keep directory separators
+                    if (c != '/' && c != '\\')
                         safeName = safeName.Replace(c, '_');
                 }
                 
@@ -924,7 +956,7 @@ namespace StormSwitchBox.Services
                 }
                 catch (Exception ex)
                 {
-                    App.Logger.Log($"   {entryFullPath}: {ex.Message}", Models.LogLevel.Warning);
+                    App.Logger.Log($"Пропуск файла при извлечении {entryFullPath}: {ex.Message}", Models.LogLevel.Warning);
                 }
             }
         }
@@ -938,7 +970,7 @@ namespace StormSwitchBox.Services
             }
             catch (Exception ex)
             {
-                App.Logger.Log($"  {System.IO.Path.GetFileName(path)}: {ex.Message}", Models.LogLevel.Warning);
+                App.Logger.Log($"Ошибка сохранения {System.IO.Path.GetFileName(path)}: {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
@@ -948,8 +980,8 @@ namespace StormSwitchBox.Services
             {
                 App.RunOnUI(() =>
                 {
-                    task.LogDetails = $" : {inputFolder}";
-                    task.Status = "...";
+                    task.LogDetails = $"Упаковка папки: {inputFolder}";
+                    task.Status = "Упаковка...";
                 });
 
                 System.IO.Directory.CreateDirectory(outFolder);
@@ -959,7 +991,6 @@ namespace StormSwitchBox.Services
                 string romfsDir = System.IO.Path.Combine(inputFolder, "romfs");
                 string exefsDir = System.IO.Path.Combine(inputFolder, "exefs");
                 
-                //  romfs/exefs ,     
                 if (!System.IO.Directory.Exists(romfsDir))
                 {
                     var rDirs = System.IO.Directory.GetDirectories(inputFolder, "romfs", System.IO.SearchOption.AllDirectories);
@@ -975,8 +1006,18 @@ namespace StormSwitchBox.Services
 
                 if (hasMods)
                 {
-                    App.RunOnUI(() => task.LogDetails = "  romfs/exefs.    NSP...");
-                    
+                    App.RunOnUI(() => task.LogDetails = "Обнаружены папки romfs/exefs. Запуск перепаковки в NSP...");
+
+                    // Lossless Shrink Engine: очистка временного мусора и оптимизация PNG перед упаковкой RomFS
+                    if (System.IO.Directory.Exists(romfsDir))
+                    {
+                        ModOptimizerService.CleanJunkFiles(romfsDir, task);
+                        if (App.Settings?.Current?.OptimizeModAssets ?? true)
+                        {
+                            await ModOptimizerService.OptimizeTexturesAsync(romfsDir, task, cancellationToken);
+                        }
+                    }
+
                     string controlNca = "";
                     string baseProgramNca = "";
                     string titleId = "";
@@ -1004,13 +1045,13 @@ namespace StormSwitchBox.Services
 
                     if (string.IsNullOrEmpty(controlNca))
                     {
-                        throw new Exception("  control.nca.  romfs/exefs .");
+                        throw new Exception("Не найден control.nca. Перепаковка romfs/exefs невозможна.");
                     }
                     if (string.IsNullOrEmpty(baseProgramNca))
                     {
-                        throw new Exception("   Program NCA.  romfs/exefs .");
+                        throw new Exception("Не найден базовый Program NCA. Перепаковка romfs/exefs невозможна.");
                     }
-                    if (string.IsNullOrEmpty(titleId)) titleId = "0100000000000000"; // Fallback
+                    if (string.IsNullOrEmpty(titleId)) titleId = "0100000000000000";
 
                     string yanuCliPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tools", "yanu-cli.exe");
                     if (!System.IO.File.Exists(yanuCliPath))
@@ -1077,7 +1118,7 @@ namespace StormSwitchBox.Services
                 }
                 else
                 {
-                    App.RunOnUI(() => task.LogDetails = $" PFS0   NCA ...");
+                    App.RunOnUI(() => task.LogDetails = "Сборка PFS0 контейнера из NCA файлов (SmartShrink)...");
                     var pfsBuilder = new PartitionFileSystemBuilder();
 
                     await System.Threading.Tasks.Task.Run(() => 
@@ -1085,16 +1126,32 @@ namespace StormSwitchBox.Services
                         var openedStreams = new List<FileStream>();
                         try
                         {
+                            bool removeDelta = App.Settings?.Current?.RemoveDeltaNca ?? true;
+                            var redundantSet = SmartShrinkService.AnalyzeRedundantEntriesInDirectory(
+                                inputFolder, _keysService.CurrentKeyset, removeDelta, out int dCount, out int sCount);
+
+                            if (dCount > 0 || sCount > 0)
+                            {
+                                App.RunOnUI(() => task.LogDetails += $"\n[SmartShrink] Исключено избыточных NCA: Delta={dCount}, устаревших={sCount}");
+                            }
+
+                            var addedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                             var existingFiles = System.IO.Directory.GetFiles(inputFolder, "*.*", System.IO.SearchOption.AllDirectories);
                             foreach (var file in existingFiles)
                             {
-                                string ext = System.IO.Path.GetExtension(file).ToLower();
-                                if (ext == ".nca" || ext == ".tik" || ext == ".cert")
-                                {
-                                    var fs = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-                                    openedStreams.Add(fs);
-                                    pfsBuilder.AddFile(System.IO.Path.GetFileName(file), new StorageFile(fs.AsStorage(), OpenMode.Read));
-                                }
+                                string fName = System.IO.Path.GetFileName(file);
+                                if (!SmartShrinkService.IsValidSwitchContainerEntry(fName, allowNcz: false)) continue;
+                                if (redundantSet.Contains(fName)) continue;
+                                if (!addedNames.Add(fName)) continue;
+
+                                var fs = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                                openedStreams.Add(fs);
+                                pfsBuilder.AddFile(fName, new StorageFile(fs.AsStorage(), OpenMode.Read));
+                            }
+
+                            if (openedStreams.Count == 0)
+                            {
+                                throw new Exception("В выбранной папке нет валидных NCA файлов для упаковки.");
                             }
 
                             using var outStream = new FileStream(outPath, FileMode.Create, FileAccess.ReadWrite);
@@ -1114,17 +1171,20 @@ namespace StormSwitchBox.Services
                 App.RunOnUI(() =>
                 {
                     task.Progress = 100;
-                    task.LogDetails += $"\n !\n: {outPath}";
+                    task.Status = "Успешно";
+                    task.LogDetails += $"\nУспешно упаковано!\nФайл: {outPath}";
                 });
 
-                App.Logger.Log($"  : {System.IO.Path.GetFileName(outPath)}", Models.LogLevel.Success);
+                App.Logger.Log($"Упаковка успешно завершена: {System.IO.Path.GetFileName(outPath)}", Models.LogLevel.Success);
             }
             catch (Exception ex)
             {
-                App.Logger.Log($"  : {ex.Message}", Models.LogLevel.Error);
+                App.RunOnUI(() => task.Status = "Ошибка");
+                App.Logger.Log($"Ошибка при упаковке: {ex.Message}", Models.LogLevel.Error);
                 throw;
             }
         }
+
         private string ExtractTitleIdFromControlNca(string ncaPath)
         {
             try
@@ -1138,18 +1198,19 @@ namespace StormSwitchBox.Services
             catch { }
             return "";
         }
+
         public async Task VerifyNspAsync(ProcessingTask task, string filePath, CancellationToken cancellationToken)
         {
             try
             {
                 App.RunOnUI(() =>
                 {
-                    task.Status = "...";
-                    task.LogDetails = $"  : {System.IO.Path.GetFileName(filePath)}";
+                    task.Status = "Проверка целостности...";
+                    task.LogDetails = $"Запуск глубокой проверки файла: {System.IO.Path.GetFileName(filePath)}";
                 });
 
                 if (!_keysService.IsLoaded)
-                    throw new Exception("    .");
+                    throw new Exception("Криптографические ключи не загружены.");
 
                 string verifyType = "";
                 string structureStatus = "";
@@ -1163,206 +1224,236 @@ namespace StormSwitchBox.Services
                 bool hasDlc = false;
                 bool hasCode = false;
                 bool hasData = false;
+                bool hasReadErrors = false;
 
                 var sbDetails = new StringBuilder();
-                sbDetails.AppendLine($"[] {System.IO.Path.GetFileName(filePath)}");
+                sbDetails.AppendLine($"[Инспектор] {System.IO.Path.GetFileName(filePath)}");
 
                 await Task.Run(() =>
                 {
+                    bool isXci = filePath.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) || filePath.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase);
                     using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
                     IStorage storage = fileStream.AsStorage();
-                    var pfs = new PartitionFileSystem(storage);
-                    
 
-                    //     Title Keys   (.tik)
-                    var titleKeyMap = new System.Collections.Generic.Dictionary<string, byte[]>();
-                    foreach (var entry in pfs.EnumerateEntries().Where(e => e.Name.EndsWith(".tik", StringComparison.OrdinalIgnoreCase)))
+                    PartitionFileSystem pfs;
+                    UniqueRef<IFile> secureFileRef = default;
+                    PartitionFileSystem? rootPfs = null;
+
+                    if (isXci)
                     {
-                        try
-                        {
-                            using var tikFileRef = new UniqueRef<IFile>();
-                            using var tikPath = new LibHac.Fs.Path();
-                            tikPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(entry.FullPath))).ThrowIfFailure();
-                            pfs.OpenFile(ref tikFileRef.Ref, in tikPath, OpenMode.Read).ThrowIfFailure();
-                            
-                            IFile tikFile = tikFileRef.Release();
-                            using var tikStream = new MemoryStream();
-                            tikFile.AsStream().CopyTo(tikStream);
-                            tikStream.Position = 0;
-                            
-                            var ticket = new LibHac.Tools.Es.Ticket(tikStream);
-                            byte[] tKey = ticket.GetTitleKey(_keysService.CurrentKeyset);
-                            string rightsIdStr = BitConverter.ToString(ticket.RightsId).Replace("-", "").ToLowerInvariant();
-                            titleKeyMap[rightsIdStr] = tKey;
-                        }
-                        catch { }
+                        storage.GetSize(out long storageSize).ThrowIfFailure();
+                        var rootStorage = new SubStorage(storage, 0x10000, storageSize - 0x10000);
+                        rootPfs = new PartitionFileSystem(rootStorage);
+                        using var securePath = new LibHac.Fs.Path();
+                        securePath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes("/secure"))).ThrowIfFailure();
+                        rootPfs.OpenFile(ref secureFileRef.Ref, in securePath, OpenMode.Read).ThrowIfFailure();
+                        pfs = new PartitionFileSystem(secureFileRef.Get.AsStorage());
+                    }
+                    else
+                    {
+                        pfs = new PartitionFileSystem(storage);
                     }
 
-                    var entries = pfs.EnumerateEntries().ToList();
-                    long totalSize = entries.Sum(e => e.Size);
-                    long processedSize = 0;
-
-                    sbDetails.AppendLine($"[PFS0]    : {entries.Count}");
-
-                    foreach (var entry in entries)
+                    using (secureFileRef)
                     {
-                        cancellationToken.ThrowIfCancellationRequested();
-                        string entryName = entry.Name;
+                        SmartShrinkService.HarvestTicketsFromFileSystem(pfs, _keysService.CurrentKeyset);
 
-                        if (entryName.EndsWith(".nca", StringComparison.OrdinalIgnoreCase) || 
-                            entryName.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase))
+                        // Сбор Title Keys из билетов (.tik)
+                        var titleKeyMap = new System.Collections.Generic.Dictionary<string, byte[]>();
+                        foreach (var entry in pfs.EnumerateEntries().Where(e => e.Name.EndsWith(".tik", StringComparison.OrdinalIgnoreCase)))
                         {
-                            App.RunOnUI(() => task.LogDetails = $"[{processedSize * 100 / totalSize}%]  : {entryName}");
-
-                            using var fileRefOut = new UniqueRef<IFile>();
-                            using var entryPath = new LibHac.Fs.Path();
-                            entryPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(entry.FullPath))).ThrowIfFailure();
-                            pfs.OpenFile(ref fileRefOut.Ref, in entryPath, OpenMode.Read).ThrowIfFailure();
-                            IStorage ncaStorage = fileRefOut.Release().AsStorage();
-                            
-                            bool isNcz = entryName.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase);
-                            if (isNcz)
+                            try
                             {
-                                ncaStorage = new Core.NSZ.StormNczStorage(ncaStorage, titleKeyMap, null, _keysService.CurrentKeyset);
+                                using var tikFileRef = new UniqueRef<IFile>();
+                                using var tikPath = new LibHac.Fs.Path();
+                                tikPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(entry.FullPath))).ThrowIfFailure();
+                                pfs.OpenFile(ref tikFileRef.Ref, in tikPath, OpenMode.Read).ThrowIfFailure();
+                                
+                                IFile tikFile = tikFileRef.Release();
+                                using var tikStream = new MemoryStream();
+                                tikFile.AsStream().CopyTo(tikStream);
+                                tikStream.Position = 0;
+                                
+                                var ticket = new LibHac.Tools.Es.Ticket(tikStream);
+                                byte[] tKey = ticket.GetTitleKey(_keysService.CurrentKeyset);
+                                string rightsIdStr = BitConverter.ToString(ticket.RightsId).Replace("-", "").ToLowerInvariant();
+                                titleKeyMap[rightsIdStr] = tKey;
                             }
+                            catch { }
+                        }
 
-                            try 
+                        var entries = pfs.EnumerateEntries().ToList();
+                        long totalSize = Math.Max(1, entries.Sum(e => e.Size));
+                        long processedSize = 0;
+
+                        sbDetails.AppendLine($"[Контейнер] Всего объектов внутри архива: {entries.Count}");
+
+                        foreach (var entry in entries)
+                        {
+                            cancellationToken.ThrowIfCancellationRequested();
+                            string entryName = entry.Name;
+
+                            if (entryName.EndsWith(".nca", StringComparison.OrdinalIgnoreCase) || 
+                                entryName.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase))
                             {
-                                var nca = new Nca(_keysService.CurrentKeyset, ncaStorage);
-                                string ncaTid = nca.Header.TitleId.ToString("X16").ToUpper();
-                                titleId = ncaTid;
+                                App.RunOnUI(() => task.LogDetails = $"[{processedSize * 100 / totalSize}%] Проверка секций: {entryName}");
 
-                                string typeName = nca.Header.ContentType.ToString();
-                                sbDetails.AppendLine($"  - : {entryName} | : {typeName} | Title ID: {ncaTid}");
-
-                                if (nca.Header.ContentType == NcaContentType.Program)
+                                using var fileRefOut = new UniqueRef<IFile>();
+                                using var entryPath = new LibHac.Fs.Path();
+                                entryPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(entry.FullPath))).ThrowIfFailure();
+                                pfs.OpenFile(ref fileRefOut.Ref, in entryPath, OpenMode.Read).ThrowIfFailure();
+                                IStorage ncaStorage = fileRefOut.Release().AsStorage();
+                                
+                                bool isNcz = entryName.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase);
+                                if (isNcz)
                                 {
-                                    bool cCode = nca.CanOpenSection(NcaSectionType.Code);
-                                    bool cData = nca.CanOpenSection(NcaSectionType.Data);
-                                    
-                                    if (cCode) hasCode = true;
-                                    if (cData) hasData = true;
-
-                                    sbDetails.AppendLine($"    *  Code (ExeFS): {(cCode ? "" : "")}");
-                                    sbDetails.AppendLine($"    *  Data (RomFS): {(cData ? "" : "")}");
-
-                                    if (ncaTid.EndsWith("000"))
-                                    {
-                                        hasBaseProgram = true;
-                                    }
-                                    else
-                                    {
-                                        hasUpdateProgram = true;
-                                    }
+                                    ncaStorage = new Core.NSZ.StormNczStorage(ncaStorage, titleKeyMap, null, _keysService.CurrentKeyset);
                                 }
-                                else if (nca.Header.ContentType == NcaContentType.Control)
+
+                                try 
                                 {
-                                    hasControl = true;
-                                    
-                                    //    control.nacp
-                                    try 
+                                    var nca = new Nca(_keysService.CurrentKeyset, ncaStorage);
+                                    string ncaTid = nca.Header.TitleId.ToString("X16").ToUpper();
+                                    titleId = ncaTid;
+
+                                    string typeName = nca.Header.ContentType.ToString();
+                                    sbDetails.AppendLine($"  - Архив: {entryName} | Тип: {typeName} | Title ID: {ncaTid}");
+
+                                    if (nca.Header.ContentType == NcaContentType.Program)
                                     {
-                                        var controlFs = nca.OpenFileSystem(NcaSectionType.Data, IntegrityCheckLevel.None);
-                                        using var controlFile = new UniqueRef<IFile>();
-                                        using var controlPath = new LibHac.Fs.Path();
-                                        controlPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes("/control.nacp"))).ThrowIfFailure();
-                                        if (controlFs.OpenFile(ref controlFile.Ref, in controlPath, OpenMode.Read).IsSuccess())
+                                        bool cCode = nca.CanOpenSection(NcaSectionType.Code);
+                                        bool cData = nca.CanOpenSection(NcaSectionType.Data);
+                                        
+                                        if (cCode) hasCode = true;
+                                        if (cData) hasData = true;
+
+                                        sbDetails.AppendLine($"    * Раздел Code (ExeFS): {(cCode ? "Присутствует" : "Отсутствует")}");
+                                        sbDetails.AppendLine($"    * Раздел Data (RomFS): {(cData ? "Присутствует" : "Отсутствует")}");
+
+                                        if (ncaTid.EndsWith("000"))
                                         {
-                                            byte[] nacpBytes = new byte[0x4000];
-                                            controlFile.Release().AsStorage().Read(0, nacpBytes).ThrowIfFailure();
-                                            string verStr = System.Text.Encoding.UTF8.GetString(nacpBytes, 0x3060, 16).Trim('\0', ' ', '\r', '\n');
-                                            if (!string.IsNullOrEmpty(verStr)) version = verStr;
+                                            hasBaseProgram = true;
+                                        }
+                                        else
+                                        {
+                                            hasUpdateProgram = true;
                                         }
                                     }
-                                    catch {}
+                                    else if (nca.Header.ContentType == NcaContentType.Control)
+                                    {
+                                        hasControl = true;
+                                        
+                                        try 
+                                        {
+                                            var controlFs = nca.OpenFileSystem(NcaSectionType.Data, IntegrityCheckLevel.None);
+                                            using var controlFile = new UniqueRef<IFile>();
+                                            using var controlPath = new LibHac.Fs.Path();
+                                            controlPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes("/control.nacp"))).ThrowIfFailure();
+                                            if (controlFs.OpenFile(ref controlFile.Ref, in controlPath, OpenMode.Read).IsSuccess())
+                                            {
+                                                byte[] nacpBytes = new byte[0x4000];
+                                                controlFile.Release().AsStorage().Read(0, nacpBytes).ThrowIfFailure();
+                                                string verStr = System.Text.Encoding.UTF8.GetString(nacpBytes, 0x3060, 16).Trim('\0', ' ', '\r', '\n');
+                                                if (!string.IsNullOrEmpty(verStr)) version = verStr;
+                                            }
+                                        }
+                                        catch { }
+                                    }
+                                    else if (nca.Header.ContentType == NcaContentType.PublicData || nca.Header.ContentType == NcaContentType.Data)
+                                    {
+                                        if (!ncaTid.EndsWith("000") && !ncaTid.EndsWith("800"))
+                                        {
+                                            hasDlc = true;
+                                        }
+                                    }
                                 }
-                                else if (nca.Header.ContentType == NcaContentType.PublicData)
+                                catch (Exception ex)
                                 {
-                                    hasDlc = true;
+                                    hasReadErrors = true;
+                                    sbDetails.AppendLine($"  - [ОШИБКА ЧТЕНИЯ NCA] Файл: {entryName}. Не удалось расшифровать: {ex.Message}");
                                 }
+
+                                processedSize += entry.Size;
                             }
-                            catch (Exception ex)
+                            else
                             {
-                                sbDetails.AppendLine($"  - [  NCA] : {entryName}.   : {ex.Message}");
+                                sbDetails.AppendLine($"  - Метаданные: {entryName} ({ProcessingTask.FormatSize(entry.Size)})");
+                                processedSize += entry.Size;
                             }
+                        }
 
-                            //         
-                            processedSize += entry.Size;
+                        if (hasBaseProgram)
+                        {
+                            if (hasUpdateProgram) verifyType = "Мульти-контент";
+                            else verifyType = "Базовая игра";
+                        }
+                        else if (hasUpdateProgram)
+                        {
+                            verifyType = "Обновление";
+                        }
+                        else if (hasDlc)
+                        {
+                            verifyType = "DLC";
                         }
                         else
                         {
-                            sbDetails.AppendLine($"  - : {entryName} ({ProcessingTask.FormatSize(entry.Size)})");
-                            processedSize += entry.Size;
+                            verifyType = "Неизвестно";
                         }
-                    }
 
-                    //    
-                    if (hasBaseProgram)
-                    {
-                        if (hasUpdateProgram) verifyType = " ";
-                        else verifyType = " ";
-                    }
-                    else if (hasUpdateProgram)
-                    {
-                        verifyType = "";
-                    }
-                    else if (hasDlc)
-                    {
-                        verifyType = "DLC";
-                    }
-                    else
-                    {
-                        verifyType = "";
-                    }
-
-                    sbDetails.AppendLine();
-                    sbDetails.AppendLine("===     ===");
-                    sbDetails.AppendLine($" : {verifyType}");
-                    sbDetails.AppendLine($" : {version}");
-                    sbDetails.AppendLine($"   ExeFS: {(hasCode ? " ()" : "")}");
-                    sbDetails.AppendLine($"  RomFS: {(hasData ? " ()" : "")}");
-                    sbDetails.AppendLine($"  Control: {(hasControl ? " ()" : "")}");
-
-                    if (verifyType == "")
-                    {
-                        structureStatus = "  ( )";
-                        mergedStatus = " ( )";
                         sbDetails.AppendLine();
-                        sbDetails.AppendLine("? :       (Update)      (ExeFS)  .");
-                        sbDetails.AppendLine("??    0007-001A (ErrorNoExeFS)      .");
-                        sbDetails.AppendLine("??    ()        ''  '-'.");
-                    }
-                    else if (verifyType == " " || verifyType == " ")
-                    {
-                        if (hasCode && hasData && hasControl)
+                        sbDetails.AppendLine("=== ИТОГОВОЕ ЗАКЛЮЧЕНИЕ ИНСПЕКТОРА ===");
+                        sbDetails.AppendLine($"Тип контента: {verifyType}");
+                        sbDetails.AppendLine($"Версия релиза: {version}");
+                        sbDetails.AppendLine($"Исполняемый код ExeFS: {(hasCode ? "Присутствует (ОК)" : "Отсутствует")}");
+                        sbDetails.AppendLine($"Игровые ресурсы RomFS: {(hasData ? "Присутствует (ОК)" : "Отсутствует")}");
+                        sbDetails.AppendLine($"Паспорт игры Control: {(hasControl ? "Присутствует (ОК)" : "Отсутствует")}");
+
+                        if (hasReadErrors)
                         {
-                            structureStatus = "";
-                            mergedStatus = verifyType == " " ? " ()" : "";
+                            structureStatus = "ОШИБКА ЧТЕНИЯ (Поврежден)";
+                            mergedStatus = "Ошибка расшифровки NCA";
                             sbDetails.AppendLine();
-                            sbDetails.AppendLine("? :        yuzu/Ryujinx/!  NCA ,      .");
+                            sbDetails.AppendLine("❌ КРИТИЧЕСКАЯ ОШИБКА: Один или несколько NCA архивов повреждены или требуют более новых ключей prod.keys.");
+                        }
+                        else if (verifyType == "Обновление")
+                        {
+                            structureStatus = "Целостен (Патч обновления)";
+                            mergedStatus = "Требуется базовая игра";
+                            sbDetails.AppendLine();
+                            sbDetails.AppendLine("ℹ️ ИНФОРМАЦИЯ: Этот файл содержит только патч обновления (Update) и требует наличия базовой игры (Base Game).");
+                            sbDetails.AppendLine("💡 Для создания единого автономного файла объедините базовую игру и этот патч в режиме «Мульти-контент».");
+                        }
+                        else if (verifyType == "Базовая игра" || verifyType == "Мульти-контент")
+                        {
+                            if (hasCode && hasData && hasControl)
+                            {
+                                structureStatus = "Целостен";
+                                mergedStatus = verifyType == "Мульти-контент" ? "Объединен (Монолит)" : "Оригинал";
+                                sbDetails.AppendLine();
+                                sbDetails.AppendLine("✅ ВЕРДИКТ: Контейнер полностью исправен и готов к запуску на эмуляторах и консоли! Все секции NCA читаются без ошибок.");
+                            }
+                            else
+                            {
+                                structureStatus = "Неполный (Ошибка структуры)";
+                                mergedStatus = "Поврежден (Нет ExeFS/RomFS)";
+                                sbDetails.AppendLine();
+                                sbDetails.AppendLine("❌ ВЕРДИКТ: Нарушена структура игры! Отсутствует исполняемый код (ExeFS), паспорт (Control) или RomFS.");
+                            }
+                        }
+                        else if (verifyType == "DLC")
+                        {
+                            structureStatus = "Целостен";
+                            mergedStatus = "Дополнение (DLC)";
+                            sbDetails.AppendLine();
+                            sbDetails.AppendLine("✅ ВЕРДИКТ: Это пакет дополнительного контента (DLC). Архив полностью исправен.");
                         }
                         else
                         {
-                            structureStatus = " ";
-                            mergedStatus = " ( ExeFS)";
+                            structureStatus = "ОШИБКА СТРУКТУРЫ";
+                            mergedStatus = "Неизвестный формат";
                             sbDetails.AppendLine();
-                            sbDetails.AppendLine("? :   !    (ExeFS),  (Control)  RomFS.");
-                            sbDetails.AppendLine("?? ,      .");
+                            sbDetails.AppendLine("⚠️ ВЕРДИКТ: Внутри архива не обнаружено валидных разделов Nintendo Switch NCA.");
                         }
-                    }
-                    else if (verifyType == "DLC")
-                    {
-                        structureStatus = "";
-                        mergedStatus = " ";
-                        sbDetails.AppendLine();
-                        sbDetails.AppendLine("?? :   DLC ().         .");
-                    }
-                    else
-                    {
-                        structureStatus = "";
-                        mergedStatus = " ";
-                        sbDetails.AppendLine();
-                        sbDetails.AppendLine("?? :      Nintendo Switch NCA  .");
                     }
                 }, cancellationToken);
 
@@ -1373,7 +1464,8 @@ namespace StormSwitchBox.Services
                     task.VerifyTitleId = titleId;
                     task.VerifyVersion = version;
                     task.VerifyMergedStatus = mergedStatus;
-                    task.Status = (structureStatus.Contains("") || structureStatus.Contains("") || structureStatus.Contains("")) ? "" : "";
+                    bool isBad = structureStatus.Contains("ОШИБКА") || structureStatus.Contains("Неполный") || structureStatus.Contains("Поврежден");
+                    task.Status = isBad ? "Поврежден" : "Целостен";
                     task.Progress = 100;
                     task.LogDetails = sbDetails.ToString();
                 });
@@ -1382,13 +1474,14 @@ namespace StormSwitchBox.Services
             {
                 App.RunOnUI(() =>
                 {
-                    task.Status = "";
+                    task.Status = "Ошибка";
                     task.IsRunning = false;
-                    task.LogDetails += $"\n[]  : {ex.Message}";
+                    task.LogDetails += $"\n[СБОЙ] Ошибка проверки: {ex.Message}";
                 });
                 throw;
             }
         }
+
         private static IFile OpenFileSafe(IFileSystem fsToOpen, string pth)
         {
             using var fRef = new UniqueRef<IFile>();
@@ -1399,11 +1492,10 @@ namespace StormSwitchBox.Services
         }
     }
 
-
     /// <summary>
-    ///   IStorage     LibHac (Aes128CtrStorage) 
-    ///  16-     RomFS. 
-    ///     16,       .
+    /// Обертка над IStorage для обхода бага в LibHac (Aes128CtrStorage) 
+    /// с 16-байтным выравниванием при чтении внутри RomFS. 
+    /// Выравнивает запросы до кратности 16, используя буфер из пула.
     /// </summary>
     public class UnalignedStorageWrapper : IStorage
     {

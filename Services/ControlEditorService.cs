@@ -29,6 +29,10 @@ namespace StormSwitchBox.Services
         {
             _toolsDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tools");
             _hacpackExe = Path.Combine(_toolsDir, "com.github.nozwock.yanu", "hacpack.exe");
+            if (!File.Exists(_hacpackExe))
+            {
+                _hacpackExe = Path.Combine(_toolsDir, "hacpack.exe");
+            }
             _keysPath = Path.Combine(_toolsDir, "prod.keys");
             if (!File.Exists(_keysPath))
             {
@@ -219,10 +223,11 @@ namespace StormSwitchBox.Services
 
                 File.WriteAllBytes(Path.Combine(romfsDir, "control.nacp"), nacpData);
 
-                // 2. Подготовка иконки (512x512 JPEG)
+                // 2. Подготовка иконки (256x256 JPEG со сжатием без метаданных EXIF)
                 byte[]? iconBytes = model.CustomIconBytes ?? model.OriginalIconBytes;
                 if (iconBytes != null && iconBytes.Length > 0)
                 {
+                    iconBytes = SmartShrinkService.OptimizeSwitchIconJpeg(iconBytes);
                     // Пишем для всех распространенных языков
                     string[] iconNames = { 
                         "icon_AmericanEnglish.dat", "icon_Russian.dat", "icon_BritishEnglish.dat",

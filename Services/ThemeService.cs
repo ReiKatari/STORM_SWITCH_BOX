@@ -19,11 +19,21 @@ namespace StormSwitchBox.Services
 
             switch (themeName)
             {
+                case "STORM DARK": // Тёмный кибер (сланцевые тона, акцент Cyan #00D2FF)
+                    bg = ParseHexColor("#0F172A");
+                    cardBg = ParseHexColor("#1E293B");
+                    cardSecBg = ParseHexColor("#334155");
+                    cardBorder = ParseHexColor("#475569");
+                    textPrimary = ParseHexColor("#F8FAFC");
+                    textSecondary = ParseHexColor("#94A3B8");
+                    textTertiary = ParseHexColor("#64748B");
+                    break;
+
                 case "STORM NIGHT": // Чистая OLED Чёрная тема
-                    bg = ParseHexColor("#000000");
-                    cardBg = ParseHexColor("#0D0D10");
-                    cardSecBg = ParseHexColor("#16161C");
-                    cardBorder = ParseHexColor("#252530");
+                    bg = ParseHexColor("#0A0B10");
+                    cardBg = ParseHexColor("#12131A");
+                    cardSecBg = ParseHexColor("#1A1C26");
+                    cardBorder = ParseHexColor("#252836");
                     textPrimary = ParseHexColor("#FFFFFF");
                     textSecondary = ParseHexColor("#A5A5B5");
                     textTertiary = ParseHexColor("#757585");
@@ -39,24 +49,54 @@ namespace StormSwitchBox.Services
                     textTertiary = ParseHexColor("#6B7280");
                     break;
 
-                case "STORM CYBERPUNK": // Киберпанк 2077
+                case "STORM MATRIX": // Матричный зелёный (#00FF66 на тёмно-изумрудном фоне)
+                    bg = ParseHexColor("#061009");
+                    cardBg = ParseHexColor("#0B1D11");
+                    cardSecBg = ParseHexColor("#122B1A");
+                    cardBorder = ParseHexColor("#1E462B");
+                    textPrimary = ParseHexColor("#E2FCEB");
+                    textSecondary = ParseHexColor("#4ADE80");
+                    textTertiary = ParseHexColor("#22C55E");
+                    break;
+
+                case "STORM CYBERPUNK": // Неон Найт-Сити
                     bg = ParseHexColor("#08090E");
                     cardBg = ParseHexColor("#10121D");
                     cardSecBg = ParseHexColor("#191C2E");
-                    cardBorder = ParseHexColor("#00F0FF"); // Неоновый циан
-                    textPrimary = ParseHexColor("#FCEE09"); // Неоновый жёлтый
-                    textSecondary = ParseHexColor("#00F0FF"); // Неоновый циан
+                    cardBorder = ParseHexColor("#FF007F");
+                    textPrimary = ParseHexColor("#FCEE09");
+                    textSecondary = ParseHexColor("#00F0FF");
                     textTertiary = ParseHexColor("#8A95C0");
                     break;
 
+                case "STORM FANTASY": // Королевское золото (#F59E0B на глубоком ночном фоне)
+                    bg = ParseHexColor("#120E0A");
+                    cardBg = ParseHexColor("#1C1610");
+                    cardSecBg = ParseHexColor("#292017");
+                    cardBorder = ParseHexColor("#4A3723");
+                    textPrimary = ParseHexColor("#FEF3C7");
+                    textSecondary = ParseHexColor("#FBBF24");
+                    textTertiary = ParseHexColor("#B45309");
+                    break;
+
+                case "STORM WARHAMMER 40K": // Имперская готика (#D4AF37 на тёмно-титановом фоне)
+                    bg = ParseHexColor("#100D0D");
+                    cardBg = ParseHexColor("#1A1414");
+                    cardSecBg = ParseHexColor("#261C1C");
+                    cardBorder = ParseHexColor("#523A28");
+                    textPrimary = ParseHexColor("#F5F0E6");
+                    textSecondary = ParseHexColor("#D4AF37");
+                    textTertiary = ParseHexColor("#9A7B3E");
+                    break;
+
                 case "STORM MIDNIGHT":
-                default: // Переработанный Фиолетовый Полночный стиль!
+                default: // Аметистовая ночь (тёмно-фиолетовый фон, фиолетовый акцент)
                     bg = ParseHexColor("#120F1D");
                     cardBg = ParseHexColor("#1C172E");
                     cardSecBg = ParseHexColor("#26203D");
                     cardBorder = ParseHexColor("#3D305C");
                     textPrimary = ParseHexColor("#FFFFFF");
-                    textSecondary = ParseHexColor("#C4B5FD"); // Фиолетово-лавандовый оттенок
+                    textSecondary = ParseHexColor("#C4B5FD");
                     textTertiary = ParseHexColor("#8B7AA8");
                     break;
             }
@@ -102,12 +142,17 @@ namespace StormSwitchBox.Services
             Color accentColor;
             if (string.IsNullOrEmpty(colorHex) || colorHex == "Default")
             {
-                if (App.Settings.Current.AppTheme == "STORM MIDNIGHT")
-                    accentColor = ParseHexColor("#8E44AD"); // Нативный фиолетовый акцент для MIDNIGHT
-                else if (App.Settings.Current.AppTheme == "STORM CYBERPUNK")
-                    accentColor = ParseHexColor("#FCEE09"); // Неоновый жёлтый для CYBERPUNK
-                else
-                    accentColor = ParseHexColor("#0078D4");
+                accentColor = App.Settings.Current.AppTheme switch
+                {
+                    "STORM DARK" => ParseHexColor("#00D2FF"),
+                    "STORM NIGHT" => ParseHexColor("#00F0FF"),
+                    "STORM DAY" => ParseHexColor("#0284C7"),
+                    "STORM MATRIX" => ParseHexColor("#00FF66"),
+                    "STORM CYBERPUNK" => ParseHexColor("#FF007F"),
+                    "STORM FANTASY" => ParseHexColor("#F59E0B"),
+                    "STORM WARHAMMER 40K" => ParseHexColor("#D4AF37"),
+                    _ => ParseHexColor("#8E44AD") // STORM MIDNIGHT
+                };
             }
             else
             {

@@ -14,7 +14,7 @@ if (-not (Test-Path $assemblingDir)) { New-Item -ItemType Directory -Path $assem
 if (-not (Test-Path $filesDir)) { New-Item -ItemType Directory -Path $filesDir | Out-Null }
 if (-not (Test-Path $outputDir)) { New-Item -ItemType Directory -Path $outputDir | Out-Null }
 
-$appVersion = "5.0.18"
+$appVersion = "5.1.0"
 try {
     [xml]$appProjXml = Get-Content (Join-Path $appProjDir "StormSwitchBox.csproj")
     $verFromProj = $appProjXml.Project.PropertyGroup.Version
@@ -109,12 +109,12 @@ if (Test-Path $pfxSource) {
 # Unblock published files
 Get-ChildItem $publishDir -Recurse | Unblock-File -ErrorAction SilentlyContinue
 
-# Sign binaries
-& $signtool sign /fd SHA256 /tr $tsUrl /td SHA256 /d "STORM SWITCH BOX $appVersion" /du "https://github.com/ReiKatari/STORM_SWITCH_BOX" /sha1 $certThumb "$publishDir\StormSwitchBox.exe"
-& $signtool sign /fd SHA256 /tr $tsUrl /td SHA256 /d "STORM SWITCH BOX $appVersion" /du "https://github.com/ReiKatari/STORM_SWITCH_BOX" /sha1 $certThumb "$publishDir\StormSwitchBox.dll"
+# Sign binaries (strictly without version in /d for UAC compliance)
+& $signtool sign /fd SHA256 /tr $tsUrl /td SHA256 /d "STORM SWITCH BOX" /du "https://github.com/ReiKatari/STORM_SWITCH_BOX" /sha1 $certThumb "$publishDir\StormSwitchBox.exe"
+& $signtool sign /fd SHA256 /tr $tsUrl /td SHA256 /d "STORM SWITCH BOX" /du "https://github.com/ReiKatari/STORM_SWITCH_BOX" /sha1 $certThumb "$publishDir\StormSwitchBox.dll"
 
 Get-ChildItem "$publishDir\tools" -Recurse -Filter *.exe | ForEach-Object {
-    & $signtool sign /fd SHA256 /tr $tsUrl /td SHA256 /d "STORM SWITCH BOX $appVersion" /du "https://github.com/ReiKatari/STORM_SWITCH_BOX" /sha1 $certThumb $_.FullName
+    & $signtool sign /fd SHA256 /tr $tsUrl /td SHA256 /d "STORM SWITCH BOX" /du "https://github.com/ReiKatari/STORM_SWITCH_BOX" /sha1 $certThumb $_.FullName
 }
 
 # Copy to Assembling
@@ -147,9 +147,9 @@ if (-not (Test-Path $publishedInstaller)) {
 Copy-Item $publishedInstaller $setupExePath -Force
 Copy-Item $publishedInstaller $outputSetupExePath -Force
 
-# Sign Installers
-& $signtool sign /fd SHA256 /tr $tsUrl /td SHA256 /d "STORM SWITCH BOX $appVersion" /du "https://github.com/ReiKatari/STORM_SWITCH_BOX" /sha1 $certThumb $setupExePath
-& $signtool sign /fd SHA256 /tr $tsUrl /td SHA256 /d "STORM SWITCH BOX $appVersion" /du "https://github.com/ReiKatari/STORM_SWITCH_BOX" /sha1 $certThumb $outputSetupExePath
+# Sign Installers (strictly without version in /d for UAC compliance)
+& $signtool sign /fd SHA256 /tr $tsUrl /td SHA256 /d "STORM SWITCH BOX" /du "https://github.com/ReiKatari/STORM_SWITCH_BOX" /sha1 $certThumb $setupExePath
+& $signtool sign /fd SHA256 /tr $tsUrl /td SHA256 /d "STORM SWITCH BOX" /du "https://github.com/ReiKatari/STORM_SWITCH_BOX" /sha1 $certThumb $outputSetupExePath
 
 # Install certificate locally into TrustedPublisher for seamless local execution
 try {
@@ -159,7 +159,9 @@ try {
 
 # Removed Setup Bundle generation as per user request.
 
-# Step 6: Unblock output files
+# Step 6: Unblock output files and clean root directory
+if (Test-Path $cerRoot) { Remove-Item $cerRoot -Force -ErrorAction SilentlyContinue }
+if (Test-Path (Join-Path $baseDir "STORM_CodeSign.pfx")) { Remove-Item (Join-Path $baseDir "STORM_CodeSign.pfx") -Force -ErrorAction SilentlyContinue }
 Get-ChildItem -Path $outputDir, $filesDir -Recurse -Include *.exe, *.dll, *.bat, *.cmd, *.ps1, *.cer -ErrorAction SilentlyContinue | ForEach-Object {
     Unblock-File -Path $_.FullName -ErrorAction SilentlyContinue
 }

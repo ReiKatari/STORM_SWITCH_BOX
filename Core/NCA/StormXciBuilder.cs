@@ -18,10 +18,22 @@ namespace StormSwitchBox.Core.NCA
             using var fs = new FileStream(nspPath, FileMode.Open, FileAccess.Read, FileShare.Read);
             IFileSystem pfs = new PartitionFileSystem(fs.AsStorage());
 
-            // Build Secure HFS0
+            bool removeDelta = StormSwitchBox.App.Settings?.Current?.RemoveDeltaNca ?? true;
+            var redundantSet = StormSwitchBox.Services.SmartShrinkService.AnalyzeRedundantEntriesInFileSystem(
+                pfs, keySet, removeDelta, out _, out _);
+
+            // Build Secure HFS0 (Trimmed XCI: without DeltaFragment, without XML/junk, without duplicated .cnmt.nca)
             var secureBuilder = new PartitionFileSystemBuilder();
+            var addedNames = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var entry in pfs.EnumerateEntries("/", "*"))
             {
+                if (!StormSwitchBox.Services.SmartShrinkService.IsValidSwitchContainerEntry(entry.Name, allowNcz: true))
+                    continue;
+                if (redundantSet.Contains(entry.Name))
+                    continue;
+                if (!addedNames.Add(entry.Name))
+                    continue;
+
                 using var fRef = new UniqueRef<IFile>();
                 using var pth = new LibHac.Fs.Path();
                 pth.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(entry.FullPath))).ThrowIfFailure();

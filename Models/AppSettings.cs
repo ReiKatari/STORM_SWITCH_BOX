@@ -5,9 +5,31 @@ namespace StormSwitchBox.Models
 {
     public class AppSettings
     {
+        private static string GetDefaultOsLanguage()
+        {
+            try
+            {
+                string iso = System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName.ToLowerInvariant();
+                return iso switch
+                {
+                    "ru" => "ru",
+                    "en" => "en",
+                    "de" => "de",
+                    "fr" => "fr",
+                    "zh" => "zh",
+                    "ja" => "ja",
+                    _ => "ru"
+                };
+            }
+            catch
+            {
+                return "ru";
+            }
+        }
+
         // Окно
-        public string AppVersion { get; set; } = "5.0.18";
-        public string Language { get; set; } = "ru"; // ru, en, de, zh, ja
+        public string AppVersion { get; set; } = "5.1.0";
+        public string Language { get; set; } = GetDefaultOsLanguage(); // ru, en, de, fr, zh, ja
         public bool EnableGpuAcceleration { get; set; } = true;
         public int WindowX { get; set; } = -1;
         public int WindowY { get; set; } = -1;

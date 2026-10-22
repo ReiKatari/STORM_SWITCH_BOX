@@ -517,6 +517,10 @@ namespace StormSwitchBox.Services
                         App.GraphicsPatch.TryInjectGraphicsPatches(titleId, targetExeFs, task);
                     }
 
+                    // Всегда очищаем мусорные артефакты ОС и бэкапы из RomFS и ExeFS перед упаковкой для минимизации размера
+                    ModOptimizerService.CleanJunkFiles(targetRomFs, task);
+                    ModOptimizerService.CleanJunkFiles(targetExeFs, task);
+
                     App.RunOnUI(() => task.LogDetails += hasModsToApply
                         ? $"\n[3/3] Монолитная сборка (yanu-cli pack)..."
                         : $"\n[2/2] Монолитная сборка без дубликатов (yanu-cli pack)...");
@@ -744,7 +748,9 @@ namespace StormSwitchBox.Services
             string[] searchPaths = new[]
             {
                 System.IO.Path.Combine(appDir, "tools", "yanu-cli.exe"),
+                System.IO.Path.Combine(appDir, "tools", "com.github.nozwock.yanu", "yanu-cli.exe"),
                 System.IO.Path.Combine(appDir, "..", "..", "..", "tools", "yanu-cli.exe"),
+                System.IO.Path.Combine(appDir, "..", "..", "..", "tools", "com.github.nozwock.yanu", "yanu-cli.exe"),
                 System.IO.Path.Combine(appDir, "..", "..", "..", "..", "tools", "yanu-cli.exe"),
                 System.IO.Path.Combine(appDir, "..", "..", "..", "..", "..", "tools", "yanu-cli.exe"),
             };
@@ -760,6 +766,8 @@ namespace StormSwitchBox.Services
             {
                 string candidate = System.IO.Path.Combine(projectRoot, "tools", "yanu-cli.exe");
                 if (File.Exists(candidate)) return candidate;
+                string candidateSub = System.IO.Path.Combine(projectRoot, "tools", "com.github.nozwock.yanu", "yanu-cli.exe");
+                if (File.Exists(candidateSub)) return candidateSub;
                 projectRoot = System.IO.Path.GetDirectoryName(projectRoot);
             }
             
