@@ -104,12 +104,13 @@ namespace StormSwitchBox.Views
                     Title = "Умная обработка файлов",
                     Category = "Алгоритмы",
                     Icon = "\uE945",
-                    DescriptionText = "Интеллектуальный алгоритм автоматического выбора метода сборки (Smart Processing), внедренный в 5.1.0:\n\n" +
+                    DescriptionText = "Интеллектуальный алгоритм автоматического выбора метода сборки и минимизации размера без потерь (Smart Processing & Lossless Shrink Engine 5.1.0):\n\n" +
                                       "Цель алгоритма: получить абсолютно минимальный размер выходного файла при 100% сохранении всего функционала, модов и дополнений.\n\n" +
-                                      "Как работает авто-анализ:\n" +
+                                      "Как работает авто-анализ и сжатие без потерь:\n" +
                                       "1. Легковесные патчи (напр. Ys X Nordics: патч 60 МБ на игру 6.75 ГБ) — программа применяет нативное сшивание LibHac PFS0. Это сохраняет оригинальный несжатый размер (6.81 ГБ) без раздувания RomFS до 10.4 ГБ!\n" +
                                       "2. Массивные обновления (напр. The Witcher 3, MK11: патч >= 40% от базы) — программа запускает физический HardPatch, который удаляет старые 10 ГБ устаревших файлов и заменяет их новыми ресурсами из обновления, экономя гигабайты дискового пространства!\n" +
-                                      "3. Наличие папок модификаций (romfs, exefs, exefs_patches) — автоматически включает HardPatch для надежного внедрения перевода и модов прямо в бинарные ресурсы игры.\n\n" +
+                                      "3. Наличие папок модификаций (romfs, exefs, exefs_patches, .pchtxt) — автоматически включает HardPatch для надежного внедрения перевода и модов прямо в бинарные ресурсы игры.\n" +
+                                      "4. Lossless Shrink Engine — вырезает мусорные фрагменты DeltaFragment NCA, дедуплицирует старые версии обновлений (оставляя только наивысшую версию патча), удаляет сервисные .xml и дамперские манифесты из PFS0/HFS0, оптимизирует JPEG-иконки 256x256 и защищает от раздувания малых NCA при сжатии в NCZ (SmartSize Guard).\n\n" +
                                       "Вся логика решений наглядно отображается в логе задачи с иконкой 🧠.",
                     Tip = "Умная обработка активна всегда и по умолчанию — вам больше не нужно вручную думать, когда пересобирать, а когда сшивать!",
                     SetupPreview = container => BuildSmartProcessingInteractivePreview(container)
@@ -128,11 +129,11 @@ namespace StormSwitchBox.Views
                     Title = "Модификации (RomFS, ExeFS и IPS)",
                     Category = "Моды",
                     Icon = "\uE7B5",
-                    DescriptionText = "Комплексная поддержка любых видов модификаций Nintendo Switch:\n\n" +
-                                      "1. RomFS — перевод текста, русская озвучка, HD-текстуры и замена моделей. Положите папку romfs рядом с игрой.\n" +
-                                      "2. ExeFS — модифицированные бинарные модули NSO (main, subsdk0).\n" +
-                                      "3. ExeFS_Patches (IPS) — папки с .ips патчами (60 FPS, твики графики, отключение размытия, читы). Программа автоматически накладывает IPS-патчи на исполняемый код main при сборке.\n" +
-                                      "4. Отображение в эмуляторах — вшитые модификации регистрируются как AddOnContent (DLC) и отображаются в свойствах игры в эмуляторах (STORM SWITCH, Eden Nightly, Yuzu, Ryujinx) с возможностью их включения/выключения.",
+                    DescriptionText = "Комплексная поддержка любых видов модификаций Nintendo Switch и Nintendo 3DS:\n\n" +
+                                      "1. RomFS — перевод текста, русская озвучка, HD-текстуры и замена моделей. Поддерживаются как папки romfs / atmosphere/contents/<TID>/romfs, так и 3DS структуры luma/titles/<TID>/romfs и образы romfs.bin / .romfs.\n" +
+                                      "2. ExeFS — модифицированные бинарные модули NSO (main, subsdk0) для Switch и code.bin для 3DS.\n" +
+                                      "3. ExeFS_Patches (IPS / IPS32 / PCHTXT / BPS) — папки с .ips и .pchtxt (IPSwitch) патчами для Switch (60 FPS, твики графики, отключение размытия) с автоматической верификацией BuildID модуля main, а также code.ips и .bps патчи для 3DS.\n" +
+                                      "4. Отображение в эмуляторах — вшитые модификации регистрируются и отображаются в свойствах игры в эмуляторах (STORM SWITCH, Eden Nightly, Yuzu, Ryujinx, Citra, Lime3DS, Azahar).",
                     Tip = "Задайте красивое имя для мода (например, «Русская озвучка GamesVoice») через Редактор метаданных!",
                     SetupPreview = container => BuildModsInteractivePreview(container)
                 },
@@ -195,8 +196,9 @@ namespace StormSwitchBox.Views
                     Category = "Homebrew",
                     Icon = "\uE7FC",
                     DescriptionText = "Специализированный раздел «Homebrew» для автоматического распознавания, объединения и сборки любых портов и любительских игр в монолитные автономные файлы (NSP / NSZ / XCI):\n\n" +
-                                      "1. Умное распознавание любых наборов файлов — просто перетащите папку с игрой (например, Diablo I, GTA San Andreas / Vice City, DOOM, Half-Life, Quake, S.T.A.L.K.E.R., Morrowind) или группу файлов (.nro, .ovl, .nsp форвардеры, архивы .zip/.7z, папки atmosphere/contents/<TitleID>/romfs). Программа мгновенно объединит их в готовую задачу.\n" +
-                                      "2. Стандартизация 5.1.0 (Без раздувания и без ошибки 0x75B):\n" +
+                                      "1. Умное распознавание любых наборов файлов — просто перетащите папку с игрой (например, Diablo I, GTA San Andreas / Vice City, DOOM, Half-Life, Quake, S.T.A.L.K.E.R., Morrowind) или группу файлов (.nro, включая LZ4-сжатые NRO для Atmosphere, .ovl, .nsp форвардеры, архивы .zip/.7z, папки atmosphere/contents/<TitleID>/romfs). Программа мгновенно объединит их в готовую задачу.\n" +
+                                      "2. Стандартизация 5.1.0 (Без раздувания, без ошибки 0x75B и с загрузчиком nx-hbloader):\n" +
+                                      "   • В каталог tools/forwarder/ встроены модули main и main.npdm от nx-hbloader с поддержкой 42-битного адресного пространства (0x07), а также поддерживаются форвардеры ядер RetroArch.\n" +
                                       "   • Ресурсы RomFS вшиваются ровно в 1 экземпляре (Diablo I весит 718.01 МБ вместо раздутых 4.27 ГБ!).\n" +
                                       "   • В SDMC эмулятора создается ровно одна правильная папка user/sdmc/switch/<game>/.\n" +
                                       "   • Форвардер нацелен строго на sdmc:/switch/<game>/<game>.nro, что предотвращает ошибку вылета 0x75B (Userspace PANIC!).\n" +
@@ -381,20 +383,21 @@ new TopicItem
                     Title = "Nintendo 3DS: Архитектура и Мульти-контент",
                     Category = "Nintendo 3DS",
                     Icon = "\uE7FC",
-                    DescriptionText = "Полная поддержка экосистемы Nintendo 3DS (CTR/CCI/CIA/CXI):\n\n" +
-                                      "1. Сборка Мульти-контента для 3DS — объединяет Базовую игру (.3ds/.cci/.cia), Файл обновления (Патч .cia), Дополнения (DLC .cia) и Модификации/Русификаторы (папку romfs) в единый монолитный файл.\n" +
-                                      "2. Бесшовное слияние файловых систем (LayeredFS) — программа распаковывает образы через ctrtool, накладывает файлы патча, внедряет DLC-контент, перезаписывает измененные файлы перевода (RomFS) и пересобирает проект с помощью 3dstool и makerom.\n" +
-                                      "3. Нативная совместимость — полученный файл (.3ds / .cci) моментально открывается в эмуляторах Citra, Lime3DS, Azahar со всеми вшитыми дополнениями, актуальной версией и переводом.",
-                    Tip = "Для сборки достаточно перетащить в Мульти-контент базовую игру, патч, файлы DLC и папку мода!",
+                    DescriptionText = "Полная поддержка экосистемы Nintendo 3DS (CTR/CCI/CIA/CXI) и иконок SMDH в 5.1.0:\n\n" +
+                                      "1. Сборка Мульти-контента для 3DS (Игра + Обновление + DLC + Русификатор/Мод → 1 файл) — объединяет Базовую игру (.3ds/.cci/.cia/.cxi, TitleID High 00040000), Файл обновления (Патч .cia, 0004000e), все Дополнения (DLC .cia, 0004008c — с извлечением всех контейнеров 0..N) и Модификации/Русификаторы в единый монолитный файл.\n" +
+                                      "2. Поддержка всех форматов русификаторов и модов 3DS — программа автоматически распознает и вшивает папки Luma3DS (luma/titles/<TID>/romfs и exefs), готовые образы romfs.bin / .romfs, распакованный код code.bin, бинарные патчи code.ips (IPS и IPS32) и дельта-патчи .bps.\n" +
+                                      "3. Декодирование метаданных и иконок SMDH — встроенный декодер Morton Z-order RGB565 извлекает оригинальные иконки 48x48, названия и издателей прямо из образов 3DS/CIA/CXI.\n" +
+                                      "4. Нативная совместимость — полученный файл (.3ds / .cci или .cia) с авто-обрезкой пустых байтов (Trimming) моментально открывается в эмуляторах Citra, Lime3DS, Azahar и на консоли 3DS со всеми вшитыми дополнениями, актуальной версией и русским переводом.",
+                    Tip = "Для сборки достаточно перетащить в Мульти-контент базовую игру, патч, файлы DLC и папку русификатора (romfs / luma / .ips / .bps)!",
                     SetupPreview = container =>
                     {
                         var sp = new StackPanel { Spacing = 8 };
-                        sp.Children.Add(new TextBlock { Text = "🕹️ Комплект Nintendo 3DS Мульти-контента:", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) });
-                        sp.Children.Add(new TextBlock { Text = "1. [ИГРА] The Legend of Zelda (.3ds / 2.0 ГБ)", FontSize = 12, Foreground = GetSecondaryBrush() });
-                        sp.Children.Add(new TextBlock { Text = "2. [PATCH] Update v1.2 (.cia / 120 МБ)", FontSize = 12, Foreground = GetSecondaryBrush() });
-                        sp.Children.Add(new TextBlock { Text = "3. [DLC 1+2] Дополнения (.cia / 65 МБ)", FontSize = 12, Foreground = GetSecondaryBrush() });
-                        sp.Children.Add(new TextBlock { Text = "4. [MOD] Папка romfs с русским переводом", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
-                        sp.Children.Add(new TextBlock { Text = "✓ Итог: Единый монолитный .3ds файл (CCI, Trimming применен)", FontSize = 12, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
+                        sp.Children.Add(new TextBlock { Text = "🕹️ Комплект Nintendo 3DS Мульти-контента (5.1.0):", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) });
+                        sp.Children.Add(new TextBlock { Text = "1. [ИГРА] The Legend of Zelda (.3ds / 00040000)", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "2. [PATCH] Update v1.2 (.cia / 0004000e)", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "3. [DLC 1..N] Все разделы дополнений (.cia / 0004008c)", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "4. [MOD] Русификатор: luma/titles/<TID>/romfs + code.ips / .bps", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
+                        sp.Children.Add(new TextBlock { Text = "✓ Итог: Единый монолитный .3ds / .cia файл (Trimming + SMDH применены)", FontSize = 12, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
                         container.Children.Add(sp);
                     }
                 },
@@ -871,20 +874,21 @@ new TopicItem
                     Title = "Nintendo 3DS: Architecture & Multi-Content",
                     Category = "Nintendo 3DS",
                     Icon = "\uE7FC",
-                    DescriptionText = "Complete Nintendo 3DS ecosystem support (CTR/CCI/CIA/CXI):\n\n" +
-                                      "1. 3DS Multi-Content — Combines Base game (.3ds/.cci/.cia), Update (.cia), DLCs (.cia), and translation mods (romfs folder) into one trimmed .3ds file.\n" +
-                                      "2. LayeredFS Splicing — Unpacks via ctrtool, overlays update patches, injects DLC content, replaces modified RomFS files, and repacks with 3dstool and makerom.\n" +
-                                      "3. Native Compatibility — Works out of the box in Citra, Lime3DS, and Azahar emulators.",
-                    Tip = "Drop the base game, CIA update, DLCs, and RomFS mod folder together into Multi-Content!",
+                    DescriptionText = "Complete Nintendo 3DS ecosystem support (CTR/CCI/CIA/CXI) and SMDH icon extraction in 5.1.0:\n\n" +
+                                      "1. 3DS Multi-Content (Base + Update + DLC + Translation/Mod → 1 file) — Combines Base game (.3ds/.cci/.cia/.cxi, TitleID High 00040000), Update (.cia, 0004000e), all DLC containers (.cia, 0004008c), and mods/translations into one trimmed .3ds or .cia file.\n" +
+                                      "2. Full Mod & Translation Support — Automatically detects and applies Luma3DS folders (luma/titles/<TID>/romfs & exefs), pre-built romfs.bin / .romfs images, code.bin, binary code.ips patches (IPS & IPS32), and .bps delta patches.\n" +
+                                      "3. Native SMDH Metadata & Icon Parser — Decodes Morton Z-order RGB565 48x48 icons, localized titles, and publishers directly from 3DS/CIA/CXI images.\n" +
+                                      "4. Native Compatibility — Works out of the box in Citra, Lime3DS, Azahar emulators and 3DS hardware.",
+                    Tip = "Drop the base game, CIA update, DLCs, and translation/mod folder (romfs / luma / .ips / .bps) together into Multi-Content!",
                     SetupPreview = container =>
                     {
                         var sp = new StackPanel { Spacing = 8 };
-                        sp.Children.Add(new TextBlock { Text = "🕹️ Nintendo 3DS Multi-Content Package:", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) });
-                        sp.Children.Add(new TextBlock { Text = "1. [BASE] The Legend of Zelda (.3ds / 2.0 GB)", FontSize = 12, Foreground = GetSecondaryBrush() });
-                        sp.Children.Add(new TextBlock { Text = "2. [PATCH] Update v1.2 (.cia / 120 MB)", FontSize = 12, Foreground = GetSecondaryBrush() });
-                        sp.Children.Add(new TextBlock { Text = "3. [DLC] Add-on Content (.cia / 65 MB)", FontSize = 12, Foreground = GetSecondaryBrush() });
-                        sp.Children.Add(new TextBlock { Text = "4. [MOD] RomFS Translation Folder", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
-                        sp.Children.Add(new TextBlock { Text = "✓ Output: Monolithic .3ds file (CCI, Trimming applied)", FontSize = 12, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
+                        sp.Children.Add(new TextBlock { Text = "🕹️ Nintendo 3DS Multi-Content Package (5.1.0):", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) });
+                        sp.Children.Add(new TextBlock { Text = "1. [BASE] The Legend of Zelda (.3ds / 00040000)", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "2. [PATCH] Update v1.2 (.cia / 0004000e)", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "3. [DLC 1..N] All Add-on Content containers (.cia / 0004008c)", FontSize = 12, Foreground = GetSecondaryBrush() });
+                        sp.Children.Add(new TextBlock { Text = "4. [MOD] Luma RomFS / romfs.bin / code.ips / .bps", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
+                        sp.Children.Add(new TextBlock { Text = "✓ Output: Monolithic .3ds / .cia file (Trimming + SMDH applied)", FontSize = 12, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
                         container.Children.Add(sp);
                     }
                 },
@@ -1230,7 +1234,7 @@ new TopicItem
             }
         }
 
-        #region Interactive Task Simulator (v4.7.1)
+        #region Interactive Task Simulator (5.1.0)
 
         private void BuildSimulatorPreview(StackPanel container)
         {
@@ -1273,7 +1277,7 @@ new TopicItem
             var dropContent = new StackPanel { Spacing = 8, HorizontalAlignment = HorizontalAlignment.Center };
             dropContent.Children.Add(new FontIcon { Glyph = "\uE8E5", FontSize = 32, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue), HorizontalAlignment = HorizontalAlignment.Center });
             dropContent.Children.Add(new TextBlock { Text = "Перетащите сюда файлы (.nsp/.nsz/.xci) или папки с играми", FontWeight = Microsoft.UI.Text.FontWeights.Bold, FontSize = 14, HorizontalAlignment = HorizontalAlignment.Center });
-            dropContent.Children.Add(new TextBlock { Text = "Симулятор проанализирует пути, разделит подпапки, подберет TitleID и роутит RomFS/ExeFS по правилам v4.7.1", FontSize = 12, Foreground = GetSecondaryBrush(), HorizontalAlignment = HorizontalAlignment.Center, TextWrapping = TextWrapping.Wrap, MaxWidth = 550, TextAlignment = TextAlignment.Center });
+            dropContent.Children.Add(new TextBlock { Text = "Симулятор проанализирует пути, разделит подпапки, подберет TitleID и роутит RomFS/ExeFS по правилам 5.1.0", FontSize = 12, Foreground = GetSecondaryBrush(), HorizontalAlignment = HorizontalAlignment.Center, TextWrapping = TextWrapping.Wrap, MaxWidth = 550, TextAlignment = TextAlignment.Center });
 
             dropZoneBorder.Child = dropContent;
             mainSp.Children.Add(dropZoneBorder);
@@ -1364,7 +1368,7 @@ new TopicItem
 
             _simulatorResultsPanel.Children.Add(new TextBlock
             {
-                Text = "результат симуляции v4.7.1 — Папка «Dispatch» (2 подпапки = 2 изолированные задачи):",
+                Text = "результат симуляции 5.1.0 — Папка «Dispatch» (2 подпапки = 2 изолированные задачи):",
                 FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
                 FontSize = 14,
                 Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen)
@@ -1409,7 +1413,7 @@ new TopicItem
 
             _simulatorResultsPanel.Children.Add(new TextBlock
             {
-                Text = "результат симуляции v4.7.1 — Папка «Cadence of Hyrule» (3 подпапки = 3 изолированные задачи):",
+                Text = "результат симуляции 5.1.0 — Папка «Cadence of Hyrule» (3 подпапки = 3 изолированные задачи):",
                 FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
                 FontSize = 14,
                 Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen)
@@ -1481,7 +1485,7 @@ new TopicItem
 
             _simulatorResultsPanel.Children.Add(new TextBlock
             {
-                Text = "Результат симуляции v4.7.1 — Сборка 3DS Мульти-контента (Игра + Patch + 2 DLC + Мод RomFS):",
+                Text = "Результат симуляции 5.1.0 — Сборка 3DS Мульти-контента (Игра + Patch + 2 DLC + Мод RomFS):",
                 FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
                 FontSize = 14,
                 Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue)
@@ -1517,7 +1521,7 @@ new TopicItem
 
             _simulatorResultsPanel.Children.Add(new TextBlock
             {
-                Text = $"Результат симуляции анализа {items.Count} элементов по правилам v4.7.1:",
+                Text = $"Результат симуляции анализа {items.Count} элементов по правилам 5.1.0:",
                 FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
                 FontSize = 14,
                 Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen)
