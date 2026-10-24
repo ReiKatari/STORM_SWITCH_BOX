@@ -427,7 +427,8 @@ namespace StormSwitchBox.Services
                 string targetOutFile = Path.ChangeExtension(outputFilePath, "." + outExt);
 
                 // If only a single base file and no updates/mods/dlcs/patches, convert directly unless forceRebuild is requested
-                if (!forceRebuild && sortedUpdates.Count == 0 && modDirs.Count == 0 && dlcFiles.Count == 0 && patchFiles.Count == 0)
+                bool hasCustomMeta = task.CustomMetadata != null && task.CustomMetadata.HasModifications;
+                if (!forceRebuild && !hasCustomMeta && sortedUpdates.Count == 0 && modDirs.Count == 0 && dlcFiles.Count == 0 && patchFiles.Count == 0)
                 {
                     await Convert3dsContainerAsync(task, baseFile, Path.GetDirectoryName(targetOutFile) ?? "", targetFormat, cancellationToken);
                     return;
@@ -577,6 +578,7 @@ namespace StormSwitchBox.Services
             CancellationToken cancellationToken,
             bool extractSecondaryCfa)
         {
+            inputFile = await Nintendo3dsCryptoService.EnsureDecrypted3dsFileAsync(inputFile, tempDir, null, cancellationToken);
             string ctrtool = GetCtrtoolPath();
             string threedstool = Get3dstoolPath();
             string seedDb = GetSeedDbPath();
@@ -970,6 +972,10 @@ namespace StormSwitchBox.Services
 
             string exefsDir = Path.Combine(extractedDir, "exefs");
             NormalizeExefsFiles(exefsDir);
+            if (task.CustomMetadata != null && task.CustomMetadata.HasModifications)
+            {
+                IconBadgeStudioService.ApplyCustom3dsMetadataAndBannerToExtractedDir(task.CustomMetadata, exefsDir, task);
+            }
 
             string romfsBin = Path.Combine(tempDir, "rebuilt_romfs.bin");
             string romfsDir = Path.Combine(extractedDir, "romfs");
@@ -1172,6 +1178,18 @@ namespace StormSwitchBox.Services
             string outPath = Path.Combine(outputFolder, outFileName);
 
             if (!Directory.Exists(outputFolder)) Directory.CreateDirectory(outputFolder);
+            if (task.CustomMetadata != null && !string.IsNullOrWhiteSpace(task.CustomMetadata.CustomAudioWavPath))
+            {
+                await Build3dsMultiContentAsync(task, new List<string> { inputPath }, outPath, targetFormat, cancellationToken, forceRebuild: true);
+                return;
+            }
+            if (Nintendo3dsCryptoService.Is3dsFileEncrypted(inputPath))
+            {
+                string decTemp = Path.Combine(Path.GetTempPath(), $"Storm3DS_DecConv_{Guid.NewGuid():N}");
+                Directory.CreateDirectory(decTemp);
+                TempCleanupService.RegisterActiveTempDirectory(decTemp);
+                inputPath = await Nintendo3dsCryptoService.EnsureDecrypted3dsFileAsync(inputPath, decTemp, task, cancellationToken);
+            }
 
             App.RunOnUI(() =>
             {
@@ -1269,6 +1287,10 @@ namespace StormSwitchBox.Services
 
             if (File.Exists(outPath))
             {
+                if (task.CustomMetadata != null && task.CustomMetadata.HasModifications)
+                {
+                    IconBadgeStudioService.Patch3dsSmdhInPlace(outPath, task.CustomMetadata);
+                }
                 if (outExt == "3ds" || outExt == "cci")
                 {
                     SmartShrinkService.Trim3dsCardImage(outPath, task);

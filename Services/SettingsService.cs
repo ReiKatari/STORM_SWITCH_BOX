@@ -46,9 +46,9 @@ namespace StormSwitchBox.Services
                     if (settings != null)
                     {
                         bool isDirty = false;
-                        if (settings.AppVersion != "5.1.0")
+                        if (settings.AppVersion != "5.1.1")
                         {
-                            settings.AppVersion = "5.1.0";
+                            settings.AppVersion = "5.1.1";
                             settings.SmartProcessing = true;
                             settings.RemoveDeltaNca = true;
                             settings.OptimizeModAssets = true;

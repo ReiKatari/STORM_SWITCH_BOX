@@ -14,7 +14,7 @@ if (-not (Test-Path $assemblingDir)) { New-Item -ItemType Directory -Path $assem
 if (-not (Test-Path $filesDir)) { New-Item -ItemType Directory -Path $filesDir | Out-Null }
 if (-not (Test-Path $outputDir)) { New-Item -ItemType Directory -Path $outputDir | Out-Null }
 
-$appVersion = "5.1.0"
+$appVersion = "5.1.1"
 try {
     [xml]$appProjXml = Get-Content (Join-Path $appProjDir "StormSwitchBox.csproj")
     $verFromProj = $appProjXml.Project.PropertyGroup.Version
@@ -109,12 +109,20 @@ if (Test-Path $pfxSource) {
 # Unblock published files
 Get-ChildItem $publishDir -Recurse | Unblock-File -ErrorAction SilentlyContinue
 
+function Invoke-StormSign([string]$FilePath) {
+    if (Test-Path $signtool) {
+        & $signtool sign /fd SHA256 /tr $tsUrl /td SHA256 /d "STORM SWITCH BOX" /du "https://github.com/ReiKatari/STORM_SWITCH_BOX" /sha1 $certThumb $FilePath
+    } else {
+        Set-AuthenticodeSignature -FilePath $FilePath -Certificate $cert -HashAlgorithm SHA256 -TimestampServer $tsUrl | Out-Null
+    }
+}
+
 # Sign binaries (strictly without version in /d for UAC compliance)
-& $signtool sign /fd SHA256 /tr $tsUrl /td SHA256 /d "STORM SWITCH BOX" /du "https://github.com/ReiKatari/STORM_SWITCH_BOX" /sha1 $certThumb "$publishDir\StormSwitchBox.exe"
-& $signtool sign /fd SHA256 /tr $tsUrl /td SHA256 /d "STORM SWITCH BOX" /du "https://github.com/ReiKatari/STORM_SWITCH_BOX" /sha1 $certThumb "$publishDir\StormSwitchBox.dll"
+Invoke-StormSign "$publishDir\StormSwitchBox.exe"
+Invoke-StormSign "$publishDir\StormSwitchBox.dll"
 
 Get-ChildItem "$publishDir\tools" -Recurse -Filter *.exe | ForEach-Object {
-    & $signtool sign /fd SHA256 /tr $tsUrl /td SHA256 /d "STORM SWITCH BOX" /du "https://github.com/ReiKatari/STORM_SWITCH_BOX" /sha1 $certThumb $_.FullName
+    Invoke-StormSign $_.FullName
 }
 
 # Copy to Assembling
@@ -148,8 +156,8 @@ Copy-Item $publishedInstaller $setupExePath -Force
 Copy-Item $publishedInstaller $outputSetupExePath -Force
 
 # Sign Installers (strictly without version in /d for UAC compliance)
-& $signtool sign /fd SHA256 /tr $tsUrl /td SHA256 /d "STORM SWITCH BOX" /du "https://github.com/ReiKatari/STORM_SWITCH_BOX" /sha1 $certThumb $setupExePath
-& $signtool sign /fd SHA256 /tr $tsUrl /td SHA256 /d "STORM SWITCH BOX" /du "https://github.com/ReiKatari/STORM_SWITCH_BOX" /sha1 $certThumb $outputSetupExePath
+Invoke-StormSign $setupExePath
+Invoke-StormSign $outputSetupExePath
 
 # Install certificate locally into TrustedPublisher for seamless local execution
 try {

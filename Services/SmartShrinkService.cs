@@ -425,6 +425,11 @@ namespace StormSwitchBox.Services
         /// Безопасно обрезает пустой хвост картриджа Nintendo 3DS (.3ds / .cci, заголовок NCSD)
         /// строго по границе последнего активного раздела NCCH, сохраняя 100% данных и экономя до 1.5 ГБ на роме.
         /// </summary>
+        public static long TrimXciCardImage(string xciPath, Models.ProcessingTask? task = null)
+        {
+            return Trim3dsCardImage(xciPath, task);
+        }
+
         public static long Trim3dsCardImage(string filePath, Models.ProcessingTask? task = null)
         {
             if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath)) return 0;

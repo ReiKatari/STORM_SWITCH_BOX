@@ -711,6 +711,7 @@ namespace StormSwitchBox.Views
                 }
             }
 
+            model.Is3ds = task.Is3dsTask || (sourceFile != null && Nintendo3dsService.Is3dsExtension(Path.GetExtension(sourceFile)));
             model.HasRomFs = task.HasRomFs != "-";
             model.HasExeFs = task.HasExeFs != "-";
             model.ModNameRomFs = task.ModNameRomFs;
@@ -1185,6 +1186,69 @@ namespace StormSwitchBox.Views
             var dp = new Windows.ApplicationModel.DataTransfer.DataPackage();
             dp.SetText(sb.ToString());
             Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(dp);
+        }
+
+        private async void OpenRomFsInspector_Click(object sender, RoutedEventArgs e)
+        {
+            var task = GetTargetTask(sender);
+            string? initialFile = task?.InputFiles?.FirstOrDefault(f => System.IO.File.Exists(f));
+            var dlg = new Dialogs.RomFsInspectorDialog(initialFile);
+            await dlg.ShowAsync();
+        }
+
+        private async void InspectTaskRomFs_Click(object sender, RoutedEventArgs e)
+        {
+            var task = GetTargetTask(sender);
+            string? initialFile = task?.InputFiles?.FirstOrDefault(f => System.IO.File.Exists(f));
+            var dlg = new Dialogs.RomFsInspectorDialog(initialFile);
+            await dlg.ShowAsync();
+        }
+
+        private async void OpenMultiCartridgeBuilder_Click(object sender, RoutedEventArgs e)
+        {
+            var selectedFiles = ViewModel.Tasks
+                .SelectMany(t => t.InputFiles ?? new List<string>())
+                .Where(f => System.IO.File.Exists(f) && (f.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase)))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            var dlg = new Dialogs.MultiCartridgeDialog(selectedFiles);
+            await dlg.ShowAsync();
+        }
+
+        private async void OpenLibraryAuditor_Click(object sender, RoutedEventArgs e)
+        {
+            var dlg = new Dialogs.LibraryAuditorDialog(ViewModel);
+            await dlg.ShowAsync();
+        }
+
+        private async void Decrypt3dsTask_Click(object sender, RoutedEventArgs e)
+        {
+            var task = GetTargetTask(sender);
+            if (task == null) return;
+
+            string? src3ds = task.InputFiles?.FirstOrDefault(f => System.IO.File.Exists(f) && Nintendo3dsService.Is3dsExtension(System.IO.Path.GetExtension(f)));
+            if (string.IsNullOrEmpty(src3ds))
+            {
+                App.Logger.Log("??? ?????????? ???????? ?????? Nintendo 3DS (.3ds, .cci, .cia, .cxi).", LogLevel.Warning);
+                return;
+            }
+
+            string outDir = !string.IsNullOrWhiteSpace(task.OutputFolder) ? task.OutputFolder : (System.IO.Path.GetDirectoryName(src3ds) ?? "");
+            string ext = System.IO.Path.GetExtension(src3ds);
+            string decOutPath = System.IO.Path.Combine(outDir, System.IO.Path.GetFileNameWithoutExtension(src3ds) + " [Decrypted]" + ext);
+
+            task.IsRunning = true;
+            task.Status = "?????????? 3DS...";
+            var prog = new Progress<(double Percent, string Status)>(p =>
+            {
+                task.Progress = p.Percent;
+                task.Status = p.Status;
+            });
+
+            bool ok = await Nintendo3dsCryptoService.Decrypt3dsFileAsync(src3ds, decOutPath, task, prog, System.Threading.CancellationToken.None);
+            task.IsRunning = false;
+            task.Progress = 100;
+            task.Status = ok ? "???????????" : "??? ??????????";
         }
 
         public void ApplyLocalization()

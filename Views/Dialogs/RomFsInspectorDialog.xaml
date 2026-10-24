@@ -1,0 +1,102 @@
+<ContentDialog
+    x:Class="StormSwitchBox.Views.Dialogs.RomFsInspectorDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:svc="using:StormSwitchBox.Services"
+    mc:Ignorable="d"
+    Title="?? ?????????? ????????? ? ?????????? ??????????? RomFS / ExeFS (??? ?????? ??????????)"
+    CloseButtonText="???????"
+    CornerRadius="8"
+    MinWidth="1040"
+    MaxWidth="1280">
+
+    <Grid RowSpacing="10" Margin="0,6,0,0">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="440"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- ?????? ?????? ?????????? -->
+        <Grid Grid.Row="0" ColumnSpacing="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBox x:Name="ContainerPathBox" Grid.Column="0" PlaceholderText="???? ? ????? (.nsp, .nsz, .xci, .xcz, .nca, .3ds, .cci, .cia, .cxi)" IsReadOnly="True" CornerRadius="4"/>
+            <Button Grid.Column="1" Content="?? ??????? ?????..." Click="BrowseContainer_Click" Style="{StaticResource AccentButtonStyle}" CornerRadius="4"/>
+            <Button Grid.Column="2" Content="?? ???????????? 3DS" x:Name="Decrypt3dsBtn" Click="Decrypt3ds_Click" Visibility="Collapsed" CornerRadius="4"/>
+        </Grid>
+
+        <!-- ?????? ?????? ? ??????? ???????? -->
+        <Grid Grid.Row="1" ColumnSpacing="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="190"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBox x:Name="SearchFilterBox" Grid.Column="0" PlaceholderText="?? ??????? ?????? ?? ????? ??? ????? (????. .msbt, .bntx, .lua, control.nacp, code, icon)..." TextChanged="SearchFilterBox_TextChanged" CornerRadius="4"/>
+            <ComboBox x:Name="SectionFilterCombo" Grid.Column="1" SelectedIndex="0" HorizontalAlignment="Stretch" SelectionChanged="SectionFilterCombo_SelectionChanged" CornerRadius="4">
+                <ComboBoxItem Content="??? ???????" Tag="ALL"/>
+                <ComboBoxItem Content="RomFS (???????)" Tag="RomFS"/>
+                <ComboBoxItem Content="ExeFS (??? / ??????)" Tag="ExeFS"/>
+                <ComboBoxItem Content="Control / SMDH" Tag="Control"/>
+                <ComboBoxItem Content="????????? / NCA" Tag="?????????"/>
+            </ComboBox>
+            <Button Grid.Column="2" Content="?? ??????? ?????????" Click="ExtractSelected_Click" CornerRadius="4"/>
+            <Button Grid.Column="3" Content="?? ??????? ??? ?????????" Click="ExtractFiltered_Click" Style="{StaticResource AccentButtonStyle}" CornerRadius="4"/>
+        </Grid>
+
+        <!-- ????????????? ???: ??????/?????? ?????? ????? + ?????? ?????? -->
+        <Grid Grid.Row="2" ColumnSpacing="10">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="580"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0" Background="#14FFFFFF" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6" Padding="4">
+                <ListView x:Name="EntriesListView" SelectionMode="Single" SelectionChanged="EntriesListView_SelectionChanged">
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="svc:VirtualArchiveEntry">
+                            <Grid ColumnSpacing="8" Padding="2,4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="78"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="85"/>
+                                </Grid.ColumnDefinitions>
+                                <Border Grid.Column="0" Background="#2238BDF8" CornerRadius="4" Padding="4,1" VerticalAlignment="Center">
+                                    <TextBlock Text="{x:Bind Section}" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center"/>
+                                </Border>
+                                <TextBlock Grid.Column="1" Text="{x:Bind FullPath}" FontFamily="Consolas" FontSize="11.5" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" ToolTipService.ToolTip="{x:Bind FullPath}"/>
+                                <TextBlock Grid.Column="2" Text="{x:Bind SizeFormatted}" FontFamily="Consolas" FontSize="11" HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+            </Border>
+
+            <!-- ?????? ???????? ?????? (HEX / ????? / ???????????) -->
+            <Border Grid.Column="1" Background="#14FFFFFF" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6" Padding="10">
+                <Grid RowSpacing="8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock x:Name="PreviewHeaderText" Grid.Row="0" Text="???????????? ????? (HEX / UTF-8 / ???????????)" FontSize="12" FontWeight="Bold" Foreground="{ThemeResource SystemAccentColor}" TextTrimming="CharacterEllipsis"/>
+                    <ScrollViewer x:Name="TextPreviewScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                        <TextBlock x:Name="PreviewTextBlock" FontFamily="Consolas" FontSize="11" IsTextSelectionEnabled="True" TextWrapping="Wrap" Text="???????? ????? ???? ????? ??? ??????????? ????????????? ?????? 4 ?? ??? ?????????? ??????."/>
+                    </ScrollViewer>
+                    <Image x:Name="PreviewImage" Grid.Row="1" Stretch="Uniform" Visibility="Collapsed" MaxHeight="360"/>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!-- ??????-??? -->
+        <TextBlock x:Name="StatusText" Grid.Row="3" Text="????? ? ???????????? ???????????? ??????????." FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+    </Grid>
+</ContentDialog>

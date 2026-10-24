@@ -225,6 +225,11 @@ namespace StormSwitchBox.Services
 
                 // 2. Подготовка иконки (256x256 JPEG со сжатием без метаданных EXIF)
                 byte[]? iconBytes = model.CustomIconBytes ?? model.OriginalIconBytes;
+                if (model.HasBadges && model.CustomIconBytes == null && iconBytes != null && iconBytes.Length > 0)
+                {
+                    iconBytes = IconBadgeStudioService.RenderIconWithBadges(
+                        iconBytes, 256, model.BadgeRus, model.Badge60Fps, model.BadgeMod, model.BadgeAllDlc, model.CustomBadgeText, model.BadgePosition, outputPng: false);
+                }
                 if (iconBytes != null && iconBytes.Length > 0)
                 {
                     iconBytes = SmartShrinkService.OptimizeSwitchIconJpeg(iconBytes);

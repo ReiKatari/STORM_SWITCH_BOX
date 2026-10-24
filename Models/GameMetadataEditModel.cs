@@ -20,5 +20,26 @@ namespace StormSwitchBox.Models
         public string ModNameExeFs { get; set; } = string.Empty;
         public bool HasRomFs { get; set; }
         public bool HasExeFs { get; set; }
+
+        // 3D Banner & Icon Badge Studio (5.1.1)
+        public bool Is3ds { get; set; }
+        public bool BadgeRus { get; set; }
+        public bool Badge60Fps { get; set; }
+        public bool BadgeMod { get; set; }
+        public bool BadgeAllDlc { get; set; }
+        public string CustomBadgeText { get; set; } = string.Empty;
+        public string BadgePosition { get; set; } = "BottomRight";
+        public string CustomAudioWavPath { get; set; } = string.Empty;
+
+        public bool HasBadges =>
+            BadgeRus || Badge60Fps || BadgeMod || BadgeAllDlc || !string.IsNullOrWhiteSpace(CustomBadgeText);
+
+        public bool HasModifications =>
+            CustomIconBytes != null ||
+            HasBadges ||
+            !string.IsNullOrWhiteSpace(CustomAudioWavPath) ||
+            !string.IsNullOrWhiteSpace(TitleNameRussian) ||
+            !string.IsNullOrWhiteSpace(TitleNameEnglish) ||
+            !string.IsNullOrWhiteSpace(Publisher);
     }
 }

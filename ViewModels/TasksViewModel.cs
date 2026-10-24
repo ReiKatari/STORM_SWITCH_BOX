@@ -1617,7 +1617,7 @@ public partial class TasksViewModel : ObservableObject
 					? $"Обработка завершена. Успешно: {executedCount - failed}, Ошибок: {failed}"
 					: $"Обработка успешно завершена ({executedCount} задач)!";
 
-				App.ShowToastNotification("STORM SWITCH BOX 5.1.0", notifyMsg);
+				App.ShowToastNotification("STORM SWITCH BOX 5.1.1", notifyMsg);
 				App.RunOnUI(() =>
 				{
 					if (App.MainWindow is MainWindow mw)
