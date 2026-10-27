@@ -1200,6 +1200,13 @@ object RuTrackerCloudEngine {
         }
 
         val shouldUseBlockNcz = useBlockNcz && (targetFormatMode == 0 || targetFormatMode == 1)
+        val mergePartsSummary = allReleaseFiles.joinToString(" + ") { "${it.roleBadge} ${StormNczEngine.formatSize(it.sizeBytes)}" }
+        report(
+            58,
+            "Этап 3/3: Сшивка Мульти-контента (${allReleaseFiles.size} части)",
+            "Объединение: $mergePartsSummary = ${StormNczEngine.formatSize(totalSelectedBytes)}",
+            "🔗 Сшивка Мульти-контента: $mergePartsSummary = ${StormNczEngine.formatSize(totalSelectedBytes)}"
+        )
         report(
             62,
             "Этап 3/3: Умная сшивка и блочное сжатие (${extOut.uppercase()})",
@@ -1446,13 +1453,11 @@ object RuTrackerCloudEngine {
 
                     // Быстрое нелинейное преобразование каждого байта высокоэнтропийной зоны с учётом stepCounter,
                     // чтобы ни одна 4-байтовая последовательность не повторялась на расстоянии 256 КБ внутри 1 МБ окна Zstd!
-                    val c1 = ((stepCounter + 1) * 131 + 17) and 0xFF
-                    val c2 = ((stepCounter + 1) * 73 + 53) and 0xFF
+                    var lcg = ((stepCounter + 1) * 0x45D9F3B) xor cleanTid.hashCode()
                     var idx = 0
                     while (idx < entLimit) {
-                        val b0 = baseHighEntropy[idx].toInt() and 0xFF
-                        val mix = ((b0 + c1 + (idx and 0xFF)) xor ((idx ushr 8) * c2)) and 0xFF
-                        structuredChunk[idx] = mix.toByte()
+                        lcg = lcg * 1664525 + 1013904223
+                        structuredChunk[idx] = (baseHighEntropy[idx].toInt() xor (lcg ushr 16)).toByte()
                         idx++
                     }
 
