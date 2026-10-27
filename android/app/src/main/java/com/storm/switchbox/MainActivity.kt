@@ -37,6 +37,7 @@ import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
+import android.widget.PopupWindow
 import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.SeekBar
@@ -105,12 +106,20 @@ class MainActivity : Activity() {
     private var currentLangCode = "ru"
     private var activeTab = 0
 
-    // Параметры движка и пакетной очереди
+    // Параметры движка и пакетной очереди (сохраняются локально)
     private val queuedFiles = mutableListOf<File>()
     private var selectedInputFile: File? = null
     private var selectedOperationMode = 0
-    // 0 = Block NSZ/XCZ Compress, 1 = Decompress NSZ/XCZ -> NSP/XCI, 2 = Convert NSP <-> XCI,
-    // 3 = Multi-Content 4-in-1 NSP, 4 = Multi-Cartridge XCI, 5 = SmartShrink Trim 0xFF, 6 = 3DS Decrypt
+    // 0 = Умный мульти-контент (Сшивка База + Патч + DLC + Моды),
+    // 1 = Пакетное сжатие и конвертация (По отдельности),
+    // 2 = Распаковка NSZ/XCZ -> NSP/XCI,
+    // 3 = SmartShrink Trim 0xFF (XCI/3DS),
+    // 4 = Дешифратор Nintendo 3DS (.3ds/.cia)
+    private var selectedOutputFormat = 0
+    // 0 = Авто (Умный выбор минимального размера), 1 = NSP / NSZ (PFS0), 2 = XCI / XCZ (Картридж HFS0)
+    private var useBlockNcz = true // По умолчанию включен!
+    private var smartMergeDedup = true // По умолчанию включен!
+    private var autoEmbedMods = true // По умолчанию включен!
     private var zstdLevel = 18
     private var blockSizeExpo = 20 // 1 MB
     private var cpuThreads = Runtime.getRuntime().availableProcessors().coerceIn(2, 8)
@@ -118,6 +127,7 @@ class MainActivity : Activity() {
     private var trimXciBeforeCompress = true
     private var deleteSourceAfterSuccess = false
     private var autoCheckUpdatesOnStartup = true
+    private var lastBrowseDirPath = "/storage/emulated/0"
 
     @Volatile private var isTaskRunning = false
     @Volatile private var cancelCurrentTaskRequested = false
@@ -163,7 +173,7 @@ class MainActivity : Activity() {
         }
 
         buildUserInterface()
-        appendLog("STORM SWITCH BOX ${"5.5.0"} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) готов к работе.")
+        appendLog("STORM SWITCH BOX ${"5.5.1"} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) готов к работе.")
 
         // Автоматическая проверка обновлений с GitHub при запуске
         if (autoCheckUpdatesOnStartup) {
@@ -270,12 +280,23 @@ class MainActivity : Activity() {
 
     private fun loadSettings() {
         try {
-            if (settingsFile.exists()) {
-                val json = JSONObject(settingsFile.readText())
+            val prefs = getSharedPreferences("storm_switch_box_prefs", Context.MODE_PRIVATE)
+            val rawJson = if (settingsFile.exists()) {
+                settingsFile.readText()
+            } else {
+                prefs.getString("settings_json", null)
+            }
+            if (!rawJson.isNullOrBlank()) {
+                val json = JSONObject(rawJson)
                 val themeId = json.optString("theme", "MIDNIGHT")
                 val idx = themes.indexOfFirst { it.id == themeId }
                 if (idx >= 0) currentThemeIndex = idx
                 currentLangCode = json.optString("lang", "ru")
+                selectedOperationMode = json.optInt("operationMode", 0).coerceIn(0, 4)
+                selectedOutputFormat = json.optInt("outputFormat", 0).coerceIn(0, 2)
+                useBlockNcz = json.optBoolean("useBlockNcz", true)
+                smartMergeDedup = json.optBoolean("smartMergeDedup", true)
+                autoEmbedMods = json.optBoolean("autoEmbedMods", true)
                 zstdLevel = json.optInt("zstdLevel", 18).coerceIn(1, 22)
                 blockSizeExpo = json.optInt("blockSizeExpo", 20).coerceIn(18, 22)
                 cpuThreads = json.optInt("cpuThreads", cpuThreads).coerceIn(1, 8)
@@ -283,6 +304,7 @@ class MainActivity : Activity() {
                 trimXciBeforeCompress = json.optBoolean("trimXci", true)
                 deleteSourceAfterSuccess = json.optBoolean("deleteSource", false)
                 autoCheckUpdatesOnStartup = json.optBoolean("autoCheckUpdates", true)
+                lastBrowseDirPath = json.optString("lastBrowseDir", "/storage/emulated/0")
                 val savedOut = json.optString("outputDir", "")
                 if (savedOut.isNotBlank()) {
                     customOutputDir = File(savedOut)
@@ -294,10 +316,14 @@ class MainActivity : Activity() {
 
     private fun saveSettings() {
         try {
-            settingsFile.parentFile?.mkdirs()
             val json = JSONObject()
             json.put("theme", themes[currentThemeIndex].id)
             json.put("lang", currentLangCode)
+            json.put("operationMode", selectedOperationMode)
+            json.put("outputFormat", selectedOutputFormat)
+            json.put("useBlockNcz", useBlockNcz)
+            json.put("smartMergeDedup", smartMergeDedup)
+            json.put("autoEmbedMods", autoEmbedMods)
             json.put("zstdLevel", zstdLevel)
             json.put("blockSizeExpo", blockSizeExpo)
             json.put("cpuThreads", cpuThreads)
@@ -306,7 +332,14 @@ class MainActivity : Activity() {
             json.put("deleteSource", deleteSourceAfterSuccess)
             json.put("autoCheckUpdates", autoCheckUpdatesOnStartup)
             json.put("outputDir", customOutputDir.absolutePath)
-            settingsFile.writeText(json.toString(2))
+            json.put("lastBrowseDir", lastBrowseDirPath)
+            val serialized = json.toString(2)
+            getSharedPreferences("storm_switch_box_prefs", Context.MODE_PRIVATE)
+                .edit()
+                .putString("settings_json", serialized)
+                .apply()
+            settingsFile.parentFile?.mkdirs()
+            settingsFile.writeText(serialized)
         } catch (_: Exception) {}
     }
 
@@ -358,6 +391,188 @@ class MainActivity : Activity() {
         }
     }
 
+    /**
+     * Стилизованный чекбокс по стандарту STORM SOFT:
+     * Сплошной квадрат со скруглением (CornerRadius="4") с акцентной неоновой заливкой при включении и БЕЗ галочек.
+     */
+    private fun updateStormCheckSquare(square: View, checked: Boolean, th: StormTheme) {
+        square.background = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(4).toFloat()
+            if (checked) {
+                setColor(th.accent)
+                setStroke(dp(1), th.accent)
+            } else {
+                setColor(th.bgPrimary)
+                setStroke(dp(2), th.border)
+            }
+        }
+    }
+
+    private fun makeStormCheckBox(
+        label: String,
+        initialChecked: Boolean,
+        th: StormTheme,
+        onCheckedChange: (Boolean) -> Unit
+    ): LinearLayout {
+        var isCheckedState = initialChecked
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(2), dp(6), dp(4), dp(6))
+        }
+        val boxView = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(dp(18), dp(18)).apply {
+                marginEnd = dp(10)
+            }
+        }
+        updateStormCheckSquare(boxView, isCheckedState, th)
+
+        val textView = TextView(this).apply {
+            text = label
+            setTextColor(if (isCheckedState) th.textPrimary else th.textSecondary)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.2f)
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+
+        row.addView(boxView)
+        row.addView(textView)
+
+        row.setOnClickListener {
+            isCheckedState = !isCheckedState
+            updateStormCheckSquare(boxView, isCheckedState, th)
+            textView.setTextColor(if (isCheckedState) th.textPrimary else th.textSecondary)
+            onCheckedChange(isCheckedState)
+        }
+        return row
+    }
+
+    /**
+     * Компактный выпадающий список (StormDropdown), стилизованный под все 9 тем STORM SOFT.
+     */
+    private fun makeStormDropdown(
+        items: List<String>,
+        selectedIndex: Int,
+        th: StormTheme,
+        onItemSelected: (Int) -> Unit
+    ): LinearLayout {
+        var currentIndex = selectedIndex.coerceIn(0, (items.size - 1).coerceAtLeast(0))
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = makeCardDrawable(th.bgElevated, th.border, radiusDp = 8)
+            setPadding(dp(11), dp(8), dp(11), dp(8))
+        }
+
+        val selectedText = TextView(this).apply {
+            text = items.getOrElse(currentIndex) { "" }
+            setTextColor(th.textPrimary)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.2f)
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            maxLines = 2
+            ellipsize = TextUtils.TruncateAt.END
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+
+        val arrowText = TextView(this).apply {
+            text = "▾"
+            setTextColor(th.accent)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(dp(8), 0, 0, 0)
+        }
+
+        container.addView(selectedText)
+        container.addView(arrowText)
+
+        container.setOnClickListener {
+            val popupRoot = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                background = makeCardDrawable(th.bgCard, th.accent, radiusDp = 10)
+                setPadding(dp(4), dp(4), dp(4), dp(4))
+            }
+
+            val listLinear = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+            }
+
+            val scroll = ScrollView(this).apply {
+                addView(listLinear)
+            }
+            popupRoot.addView(scroll)
+
+            val popupWidth = container.width.coerceAtLeast(dp(260))
+            val popup = PopupWindow(
+                popupRoot,
+                popupWidth,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                true
+            ).apply {
+                isOutsideTouchable = true
+                elevation = dp(12).toFloat()
+                setBackgroundDrawable(GradientDrawable())
+            }
+
+            val accentTint = Color.argb(45, Color.red(th.accent), Color.green(th.accent), Color.blue(th.accent))
+
+            for ((idx, itemText) in items.withIndex()) {
+                val isSel = idx == currentIndex
+                val itemRow = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    background = GradientDrawable().apply {
+                        shape = GradientDrawable.RECTANGLE
+                        cornerRadius = dp(6).toFloat()
+                        setColor(if (isSel) accentTint else Color.TRANSPARENT)
+                    }
+                    setPadding(dp(9), dp(7), dp(9), dp(7))
+                    layoutParams = LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    ).apply {
+                        bottomMargin = dp(2)
+                    }
+                }
+
+                val bar = View(this).apply {
+                    layoutParams = LinearLayout.LayoutParams(dp(3), dp(16)).apply {
+                        marginEnd = dp(8)
+                    }
+                    background = GradientDrawable().apply {
+                        shape = GradientDrawable.RECTANGLE
+                        cornerRadius = dp(2).toFloat()
+                        setColor(if (isSel) th.accent else Color.TRANSPARENT)
+                    }
+                }
+
+                val lbl = TextView(this).apply {
+                    text = itemText
+                    setTextColor(if (isSel) th.accent else th.textPrimary)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                    typeface = if (isSel) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                }
+
+                itemRow.addView(bar)
+                itemRow.addView(lbl)
+
+                itemRow.setOnClickListener {
+                    currentIndex = idx
+                    selectedText.text = itemText
+                    popup.dismiss()
+                    onItemSelected(idx)
+                }
+                listLinear.addView(itemRow)
+            }
+
+            popup.showAsDropDown(container, 0, dp(4))
+            hideSystemBars(window)
+        }
+
+        return container
+    }
+
     private fun appendLog(msg: String) {
         val stamp = SimpleDateFormat("dd.MM.yyyy HH:mm:ss", Locale.getDefault()).format(Date())
         val line = "[$stamp] $msg"
@@ -394,7 +609,7 @@ class MainActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
         titleCol.addView(TextView(this).apply {
-            text = "STORM SWITCH BOX ${"5.5.0"}"
+            text = "STORM SWITCH BOX ${"5.5.1"}"
             setTextColor(th.textPrimary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
             typeface = Typeface.DEFAULT_BOLD
@@ -657,7 +872,7 @@ class MainActivity : Activity() {
         }
         parent.addView(queueCard)
 
-        // ГРУППА 3: Режим операции и параметры движка Zstd / NCZBLOCK
+        // ГРУППА 3: Режим операции, мульти-контент, целевой формат и параметры блочного сжатия
         val cfgCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = makeCardDrawable(th.bgCard, th.border)
@@ -667,39 +882,56 @@ class MainActivity : Activity() {
             }
         }
         cfgCard.addView(makeSectionHeader(
-            "3. Режим операции и настройки сжатия (Zstd / NCZBLOCK)",
-            "Выберите действие для очереди и настройте параметры блочного алгоритма",
+            "3. Мульти-контент, формат и блочное сжатие (Zstd / NCZBLOCK)",
+            "Умная сшивка База + Патч + DLC + Моды с выбором итогового контейнера и блочного сжатия",
             th
         ))
 
+        cfgCard.addView(TextView(this).apply {
+            text = "Режим обработки выбранных файлов:"
+            setTextColor(th.textSecondary)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
+            setPadding(0, dp(2), 0, dp(3))
+        })
+
         val modes = listOf(
-            "🗜 Сжатие в Блочный NSZ / XCZ (NCZSECTN + NCZBLOCK + Zstd)",
-            "📦 Распаковка NSZ / XCZ → Оригинальный NSP / XCI",
-            "🔄 Прямая конвертация контейнеров NSP ↔ XCI (PFS0 ↔ HEAD/HFS0)",
-            "🧩 Мульти-контент (Слияние 4-в-1: База + Патч + DLC + Мод → единый NSP)",
-            "🎴 Сборщик Мульти-картриджа XCI (Все файлы очереди → единый XCI)",
-            "✂️ SmartShrink: Обрезка пустых областей 0xFF (Switch XCI HEAD / 3DS NCSD)",
-            "🔓 Дешифратор Nintendo 3DS (.3ds / .cia → Decrypted)"
+            "Умный мульти-контент (Сшивка База + Патч + DLC + Моды в один файл)",
+            "Пакетное сжатие и конвертация (Каждый файл очереди отдельно)",
+            "Распаковка NSZ и XCZ в оригинальный NSP и XCI",
+            "SmartShrink: Обрезка пустых областей 0xFF (Switch XCI и 3DS)",
+            "Дешифратор Nintendo 3DS (.3ds и .cia в Decrypted)"
         )
-        val modeSpinner = Spinner(this).apply {
-            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, modes)
-            setSelection(selectedOperationMode)
-            setBackgroundColor(th.bgElevated)
-            onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-                override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
-                    selectedOperationMode = pos
-                }
-                override fun onNothingSelected(p: AdapterView<*>?) {}
-            }
+        val modeDropdown = makeStormDropdown(modes, selectedOperationMode, th) { pos ->
+            selectedOperationMode = pos
+            saveSettings()
         }
-        cfgCard.addView(modeSpinner)
+        cfgCard.addView(modeDropdown)
+
+        // Целевой формат выходного контейнера (как на ПК!)
+        cfgCard.addView(TextView(this).apply {
+            text = "Итоговый формат выходного контейнера:"
+            setTextColor(th.textSecondary)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
+            setPadding(0, dp(8), 0, dp(3))
+        })
+
+        val outputFormats = listOf(
+            "Авто (Умный выбор минимального размера — NSZ / XCZ)",
+            "NSP / NSZ (Цифровой контейнер PFS0 — игры, патчи, DLC, моды)",
+            "XCI / XCZ (Мульти-картридж HFS0 — всё-в-одном без тикетов)"
+        )
+        val formatDropdown = makeStormDropdown(outputFormats, selectedOutputFormat, th) { pos ->
+            selectedOutputFormat = pos
+            saveSettings()
+        }
+        cfgCard.addView(formatDropdown)
 
         // Ползунок уровня Zstd (1..22)
         val levelLabel = TextView(this).apply {
-            text = "Уровень сжатия Zstandard: $zstdLevel (рек. 18 — баланс скорости и степени сжатия)"
+            text = "Уровень сжатия Zstandard: $zstdLevel (рек. 18 — баланс скорости и сжатия)"
             setTextColor(th.textPrimary)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
-            setPadding(0, dp(10), 0, dp(2))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setPadding(0, dp(9), 0, dp(2))
         }
         cfgCard.addView(levelLabel)
         val levelSeek = SeekBar(this).apply {
@@ -708,7 +940,7 @@ class MainActivity : Activity() {
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(sb: SeekBar?, p: Int, fromUser: Boolean) {
                     zstdLevel = p + 1
-                    levelLabel.text = "Уровень сжатия Zstandard: $zstdLevel"
+                    levelLabel.text = "Уровень сжатия Zstandard: $zstdLevel (рек. 18 — баланс скорости и сжатия)"
                     saveSettings()
                 }
                 override fun onStartTrackingTouch(sb: SeekBar?) {}
@@ -717,64 +949,99 @@ class MainActivity : Activity() {
         }
         cfgCard.addView(levelSeek)
 
-        // Размер блока NCZBLOCK + Потоки CPU в одну строку
+        // Размер блока NCZBLOCK
         val blockRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, dp(6), 0, dp(4))
+            setPadding(0, dp(6), 0, dp(6))
         }
         blockRow.addView(TextView(this).apply {
             text = "Размер блока NCZBLOCK:"
             setTextColor(th.textPrimary)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.2f)
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginEnd = dp(8)
+            }
         })
         val blockOptions = listOf(18 to "256 КБ", 19 to "512 КБ", 20 to "1 МБ (Эталон)", 21 to "2 МБ", 22 to "4 МБ")
-        val blockSpinner = Spinner(this).apply {
-            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, blockOptions.map { it.second })
-            setSelection(blockOptions.indexOfFirst { it.first == blockSizeExpo }.coerceAtLeast(2))
-            setBackgroundColor(th.bgElevated)
-            onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-                override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
-                    blockSizeExpo = blockOptions[pos].first
-                    saveSettings()
-                }
-                override fun onNothingSelected(p: AdapterView<*>?) {}
-            }
+        val blockDropdown = makeStormDropdown(
+            blockOptions.map { it.second },
+            blockOptions.indexOfFirst { it.first == blockSizeExpo }.coerceAtLeast(2),
+            th
+        ) { pos ->
+            blockSizeExpo = blockOptions[pos].first
+            saveSettings()
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(dp(155), ViewGroup.LayoutParams.WRAP_CONTENT)
         }
-        blockRow.addView(blockSpinner)
+        blockRow.addView(blockDropdown)
         cfgCard.addView(blockRow)
 
-        val chkGuard = CheckBox(this).apply {
-            text = "SmartSize Guard (Защита от раздутия мелких блоков)"
-            setTextColor(th.textSecondary)
-            isChecked = smartSizeGuard
-            setOnCheckedChangeListener { _, checked -> smartSizeGuard = checked; saveSettings() }
-        }
-        cfgCard.addView(chkGuard)
+        // Стилизованные чекбоксы по правилам STORM SOFT (сплошной квадрат 4dp без галочки!)
+        cfgCard.addView(makeStormCheckBox(
+            "Включить блочное сжатие Zstandard (NSZ / XCZ — NCZSECTN + NCZBLOCK)",
+            useBlockNcz,
+            th
+        ) { checked ->
+            useBlockNcz = checked
+            saveSettings()
+        })
 
-        val chkTrim = CheckBox(this).apply {
-            text = "Автоматически обрезать пустые области 0xFF (Trim XCI / 3DS) перед обработкой"
-            setTextColor(th.textSecondary)
-            isChecked = trimXciBeforeCompress
-            setOnCheckedChangeListener { _, checked -> trimXciBeforeCompress = checked; saveSettings() }
-        }
-        cfgCard.addView(chkTrim)
+        cfgCard.addView(makeStormCheckBox(
+            "Умная сшивка и дедупликация NCA (удалять дубли и перекрытые патчи)",
+            smartMergeDedup,
+            th
+        ) { checked ->
+            smartMergeDedup = checked
+            saveSettings()
+        })
 
-        val chkDelSrc = CheckBox(this).apply {
-            text = "Удалять исходный файл после успешной проверки выходного контейнера"
-            setTextColor(th.textSecondary)
-            isChecked = deleteSourceAfterSuccess
-            setOnCheckedChangeListener { _, checked -> deleteSourceAfterSuccess = checked; saveSettings() }
-        }
-        cfgCard.addView(chkDelSrc)
+        cfgCard.addView(makeStormCheckBox(
+            "Правильно вшивать моды, русификаторы и дополнения в мульти-контент",
+            autoEmbedMods,
+            th
+        ) { checked ->
+            autoEmbedMods = checked
+            saveSettings()
+        })
+
+        cfgCard.addView(makeStormCheckBox(
+            "SmartSize Guard (защита от раздутия мелких блоков при сжатии)",
+            smartSizeGuard,
+            th
+        ) { checked ->
+            smartSizeGuard = checked
+            saveSettings()
+        })
+
+        cfgCard.addView(makeStormCheckBox(
+            "Автоматически обрезать пустые области 0xFF (Trim XCI / 3DS) перед сборкой",
+            trimXciBeforeCompress,
+            th
+        ) { checked ->
+            trimXciBeforeCompress = checked
+            saveSettings()
+        })
+
+        cfgCard.addView(makeStormCheckBox(
+            "Удалять исходные файлы после успешной проверки выходного контейнера",
+            deleteSourceAfterSuccess,
+            th
+        ) { checked ->
+            deleteSourceAfterSuccess = checked
+            saveSettings()
+        })
+
         parent.addView(cfgCard)
 
-        // ГРУППА 4: Запуск пакетной очереди и живая телеметрия
+        // ГРУППА 4: Панель запуска и телеметрия прогресса
         val runCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = makeCardDrawable(th.bgCard, th.border)
             setPadding(dp(14), dp(12), dp(14), dp(12))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(10)
+            }
         }
         runCard.addView(makeSectionHeader("4. Выполнение и прогресс", null, th))
 
@@ -828,26 +1095,60 @@ class MainActivity : Activity() {
 
         thread {
             try {
-                // Режимы слияния (3 = Multi-Content 4-в-1 NSP, 4 = Multi-Cartridge XCI) объединяют всю очередь в один контейнер
-                if (selectedOperationMode == 3 || selectedOperationMode == 4) {
-                    val baseName = snapshot.first().nameWithoutExtension
-                    val outFile = if (selectedOperationMode == 3) {
-                        File(customOutputDir, "${baseName}_[Multi_4in1].nsp")
-                    } else {
-                        File(customOutputDir, "${baseName}_[MultiCart].xci")
-                    }
+                // Режим 0: Умный мульти-контент (Сшивка База + Патч + DLC + Моды в единый оптимальный контейнер NSZ/XCZ/NSP/XCI)
+                if (selectedOperationMode == 0) {
+                    val preparedInputs = mutableListOf<File>()
+                    val tempTrimmedFiles = mutableListOf<File>()
                     val cb: (StormNczEngine.NczProgress) -> Unit = { p ->
                         mainHandler.post {
                             progressBar.progress = p.percent
                             statusTxt.text = "${p.stageText} (${p.percent}%)"
                         }
                     }
-                    val res = if (selectedOperationMode == 3) {
-                        StormNczEngine.mergeMultiContentNsp(snapshot, outFile, cb)
-                    } else {
-                        StormNczEngine.buildMultiCartridgeXci(snapshot, outFile, cb)
+
+                    for (inFile in snapshot) {
+                        if (!inFile.exists()) continue
+                        if (trimXciBeforeCompress && inFile.extension.equals("xci", ignoreCase = true)) {
+                            val trimmedCandidate = File(customOutputDir, "${inFile.nameWithoutExtension}.trimmed_tmp.xci")
+                            val trimRes = StormNczEngine.smartShrinkRom(inFile, trimmedCandidate, cb)
+                            if (trimRes.compressedBytes in 1 until inFile.length()) {
+                                preparedInputs.add(trimmedCandidate)
+                                tempTrimmedFiles.add(trimmedCandidate)
+                                appendLog("✂️ SmartShrink XCI сэкономил ${StormNczEngine.formatSize(inFile.length() - trimRes.compressedBytes)} на ${inFile.name}")
+                            } else {
+                                trimmedCandidate.delete()
+                                preparedInputs.add(inFile)
+                            }
+                        } else {
+                            preparedInputs.add(inFile)
+                        }
                     }
-                    appendLog("✅ ${res.message} -> ${outFile.absolutePath}")
+
+                    val res = StormNczEngine.buildSmartMultiContentPackage(
+                        inputFiles = preparedInputs,
+                        outputDir = customOutputDir,
+                        targetFormatMode = selectedOutputFormat,
+                        useBlockNcz = useBlockNcz,
+                        smartDedup = smartMergeDedup,
+                        embedMods = autoEmbedMods,
+                        zstdLevel = zstdLevel,
+                        blockSizeExponent = blockSizeExpo,
+                        threads = cpuThreads,
+                        smartSizeGuard = smartSizeGuard,
+                        onProgress = cb
+                    )
+
+                    tempTrimmedFiles.forEach { it.delete() }
+
+                    val outFile = File(res.outputPath)
+                    appendLog("✅ ${res.message}")
+                    if (deleteSourceAfterSuccess && outFile.exists() && outFile.length() > 0) {
+                        for (src in snapshot) {
+                            if (src.isFile && src.canonicalPath != outFile.canonicalPath) {
+                                src.delete()
+                            }
+                        }
+                    }
                     mainHandler.post {
                         progressBar.progress = 100
                         statusTxt.text = "✅ Готово: ${outFile.name} (${StormNczEngine.formatSize(res.compressedBytes)})"
@@ -875,11 +1176,10 @@ class MainActivity : Activity() {
                         var workingInput = inFile
                         var tempTrimmed: File? = null
 
-                        // Предварительная обрезка пустых областей 0xFF для XCI перед сжатием
-                        if (selectedOperationMode == 0 && trimXciBeforeCompress && ext == "xci") {
+                        if (selectedOperationMode == 1 && trimXciBeforeCompress && ext == "xci") {
                             val trimmedCandidate = File(customOutputDir, "${baseName}.trimmed_tmp.xci")
                             val trimRes = StormNczEngine.smartShrinkRom(inFile, trimmedCandidate, cb)
-                            if (trimRes.compressedBytes < inFile.length()) {
+                            if (trimRes.compressedBytes in 1 until inFile.length()) {
                                 workingInput = trimmedCandidate
                                 tempTrimmed = trimmedCandidate
                                 appendLog("✂️ Предварительный Trim XCI сэкономил ${StormNczEngine.formatSize(inFile.length() - trimRes.compressedBytes)}")
@@ -889,22 +1189,28 @@ class MainActivity : Activity() {
                         }
 
                         val res = when (selectedOperationMode) {
-                            0 -> {
-                                val outExt = if (ext == "xci" || ext == "xcz") "xcz" else "nsz"
-                                val outFile = File(customOutputDir, "$baseName.$outExt")
-                                StormNczEngine.compressNspOrXciToBlockNsz(workingInput, outFile, zstdLevel, blockSizeExpo, cpuThreads, smartSizeGuard, cb)
-                            }
                             1 -> {
+                                // Пакетное сжатие и конвертация каждого файла отдельно с учетом целевого формата и чекбокса useBlockNcz
+                                StormNczEngine.buildSmartMultiContentPackage(
+                                    inputFiles = listOf(workingInput),
+                                    outputDir = customOutputDir,
+                                    targetFormatMode = selectedOutputFormat,
+                                    useBlockNcz = useBlockNcz,
+                                    smartDedup = smartMergeDedup,
+                                    embedMods = autoEmbedMods,
+                                    zstdLevel = zstdLevel,
+                                    blockSizeExponent = blockSizeExpo,
+                                    threads = cpuThreads,
+                                    smartSizeGuard = smartSizeGuard,
+                                    onProgress = cb
+                                )
+                            }
+                            2 -> {
                                 val outExt = if (ext == "xcz" || ext == "xci") "xci" else "nsp"
                                 val outFile = File(customOutputDir, "${baseName}_unpacked.$outExt")
                                 StormNczEngine.decompressNszOrXczToNsp(workingInput, outFile, cb)
                             }
-                            2 -> {
-                                val outExt = if (ext == "xci" || ext == "xcz") "nsp" else "xci"
-                                val outFile = File(customOutputDir, "$baseName.$outExt")
-                                StormNczEngine.convertNspAndXci(workingInput, outFile, cb)
-                            }
-                            5 -> {
+                            3 -> {
                                 val outFile = File(customOutputDir, "${baseName}_trimmed.$ext")
                                 StormNczEngine.smartShrinkRom(workingInput, outFile, cb)
                             }
@@ -1382,18 +1688,14 @@ class MainActivity : Activity() {
             val rec = if (asset.isRecommended) " (Рекомендуется)" else ""
             "Ключи HOS ${asset.version}$rec — ${StormNczEngine.formatSize(asset.sizeBytes)}"
         }
-        val keysSpinner = Spinner(this).apply {
-            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, keysSpinnerLabels)
-            setSelection(selectedOnlineKeyIndex.coerceIn(0, onlineKeysCatalog.lastIndex.coerceAtLeast(0)))
-            setBackgroundColor(th.bgElevated)
-            onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-                override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
-                    selectedOnlineKeyIndex = pos
-                }
-                override fun onNothingSelected(p: AdapterView<*>?) {}
-            }
+        val keysDropdown = makeStormDropdown(
+            keysSpinnerLabels,
+            selectedOnlineKeyIndex.coerceIn(0, onlineKeysCatalog.lastIndex.coerceAtLeast(0)),
+            th
+        ) { pos ->
+            selectedOnlineKeyIndex = pos
         }
-        keysCard.addView(keysSpinner)
+        keysCard.addView(keysDropdown)
 
         val onlineKeysRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -1486,21 +1788,23 @@ class MainActivity : Activity() {
         }
         updCard.addView(makeSectionHeader(
             "2. Обновление STORM SWITCH BOX с GitHub",
-            "Текущая версия: ${"5.5.0"} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()})",
+            "Текущая версия: ${"5.5.1"} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()})",
             th
         ))
-        val chkAutoUpd = CheckBox(this).apply {
-            text = "Автоматически проверять наличие новой версии при запуске приложения"
-            setTextColor(th.textSecondary)
-            isChecked = autoCheckUpdatesOnStartup
-            setOnCheckedChangeListener { _, checked ->
-                autoCheckUpdatesOnStartup = checked
-                saveSettings()
-            }
-        }
-        updCard.addView(chkAutoUpd)
+        updCard.addView(makeStormCheckBox(
+            "Автоматически проверять наличие новой версии при запуске приложения",
+            autoCheckUpdatesOnStartup,
+            th
+        ) { checked ->
+            autoCheckUpdatesOnStartup = checked
+            saveSettings()
+        })
         updCard.addView(makeButton("🔄 Проверить обновления на GitHub сейчас", th.accent) {
             checkForUpdatesFromGitHub(isManualClick = true)
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(6)
+            }
         })
         parent.addView(updCard)
 
@@ -1512,43 +1816,42 @@ class MainActivity : Activity() {
         }
         uiCard.addView(makeSectionHeader("3. Визуальная тема (9 эталонных стилей STORM) и язык", null, th))
 
-        val themeSpinner = Spinner(this).apply {
-            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, themes.map { it.title })
-            setSelection(currentThemeIndex)
-            setBackgroundColor(th.bgElevated)
-            onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-                override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
-                    if (pos != currentThemeIndex) {
-                        currentThemeIndex = pos
-                        saveSettings()
-                        buildUserInterface()
-                    }
-                }
-                override fun onNothingSelected(p: AdapterView<*>?) {}
-            }
-        }
-        uiCard.addView(themeSpinner)
+        uiCard.addView(TextView(this).apply {
+            text = "Тема оформления интерфейса:"
+            setTextColor(th.textSecondary)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
+            setPadding(0, dp(2), 0, dp(3))
+        })
 
-        val langSpinner = Spinner(this).apply {
-            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, languages.map { it.second })
-            setSelection(languages.indexOfFirst { it.first == currentLangCode }.coerceAtLeast(0))
-            setBackgroundColor(th.bgElevated)
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(8)
-            }
-            onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-                override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
-                    val code = languages[pos].first
-                    if (code != currentLangCode) {
-                        currentLangCode = code
-                        saveSettings()
-                        buildUserInterface()
-                    }
-                }
-                override fun onNothingSelected(p: AdapterView<*>?) {}
+        val themeDropdown = makeStormDropdown(themes.map { it.title }, currentThemeIndex, th) { pos ->
+            if (pos != currentThemeIndex) {
+                currentThemeIndex = pos
+                saveSettings()
+                buildUserInterface()
             }
         }
-        uiCard.addView(langSpinner)
+        uiCard.addView(themeDropdown)
+
+        uiCard.addView(TextView(this).apply {
+            text = "Язык интерфейса:"
+            setTextColor(th.textSecondary)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
+            setPadding(0, dp(8), 0, dp(3))
+        })
+
+        val langDropdown = makeStormDropdown(
+            languages.map { it.second },
+            languages.indexOfFirst { it.first == currentLangCode }.coerceAtLeast(0),
+            th
+        ) { pos ->
+            val code = languages[pos].first
+            if (code != currentLangCode) {
+                currentLangCode = code
+                saveSettings()
+                buildUserInterface()
+            }
+        }
+        uiCard.addView(langDropdown)
         parent.addView(uiCard)
     }
 
@@ -1711,7 +2014,7 @@ class MainActivity : Activity() {
     /**
      * Встроенный мульти-проводник с чекбоксами для выбора любых папок и множества отдельных файлов.
      */
-    private fun showMultiSelectFileAndFolderDialog(initialDir: File = File("/storage/emulated/0")) {
+    private fun showMultiSelectFileAndFolderDialog(initialDir: File = File(lastBrowseDirPath)) {
         val th = themes[currentThemeIndex]
         var currentDir = if (initialDir.exists() && initialDir.isDirectory) initialDir else File("/storage/emulated/0")
         val selectedPaths = LinkedHashSet<File>()
@@ -1780,13 +2083,20 @@ class MainActivity : Activity() {
                     }
                 }
 
-                val cb = CheckBox(this).apply {
-                    isChecked = selectedPaths.contains(child)
-                    setOnCheckedChangeListener { _, checked ->
-                        if (checked) selectedPaths.add(child) else selectedPaths.remove(child)
+                var itemChecked = selectedPaths.contains(child)
+                val squareBox = View(this).apply {
+                    layoutParams = LinearLayout.LayoutParams(dp(18), dp(18)).apply {
+                        marginEnd = dp(10)
                     }
                 }
-                row.addView(cb)
+                updateStormCheckSquare(squareBox, itemChecked, th)
+                val toggleItem = {
+                    itemChecked = !itemChecked
+                    if (itemChecked) selectedPaths.add(child) else selectedPaths.remove(child)
+                    updateStormCheckSquare(squareBox, itemChecked, th)
+                }
+                squareBox.setOnClickListener { toggleItem() }
+                row.addView(squareBox)
 
                 val label = TextView(this).apply {
                     text = if (child.isDirectory) "📁 ${child.name}/" else "📄 ${child.name} (${StormNczEngine.formatSize(child.length())})"
@@ -1796,9 +2106,11 @@ class MainActivity : Activity() {
                     setOnClickListener {
                         if (child.isDirectory) {
                             currentDir = child
+                            lastBrowseDirPath = currentDir.absolutePath
+                            saveSettings()
                             refreshDir()
                         } else {
-                            cb.isChecked = !cb.isChecked
+                            toggleItem()
                         }
                     }
                 }
@@ -1903,14 +2215,14 @@ class MainActivity : Activity() {
         }
         val preferLegacy = (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) || Build.VERSION.SDK_INT < 26
         thread {
-            val rel = RuTrackerCloudEngine.checkGitHubAppUpdate("5.5.0", preferLegacy)
+            val rel = RuTrackerCloudEngine.checkGitHubAppUpdate("5.5.1", preferLegacy)
             mainHandler.post {
                 if (rel != null) {
                     showUpdateAvailableDialog(rel)
                 } else if (isManualClick) {
                     Toast.makeText(
                         this,
-                        "✅ У вас установлена актуальная версия STORM SWITCH BOX ${"5.5.0"}!",
+                        "✅ У вас установлена актуальная версия STORM SWITCH BOX ${"5.5.1"}!",
                         Toast.LENGTH_LONG
                     ).show()
                 }
@@ -1926,7 +2238,7 @@ class MainActivity : Activity() {
             setPadding(dp(16), dp(12), dp(16), dp(12))
         }
         box.addView(TextView(this).apply {
-            text = "Доступна новая версия: ${release.version} (Установлена: ${"5.5.0"})"
+            text = "Доступна новая версия: ${release.version} (Установлена: ${"5.5.1"})"
             setTextColor(th.accent)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
             typeface = Typeface.DEFAULT_BOLD
