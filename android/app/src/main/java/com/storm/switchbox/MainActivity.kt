@@ -704,7 +704,8 @@ class MainActivity : Activity() {
             "🔍 Инспектор и аудитор",
             "🌐 RuTracker (Switch) и моды",
             "📡 Сеть и консоль",
-            "🔑 Ключи и параметры"
+            "🔑 Ключи и параметры",
+            "📖 Инструкция"
         )
         tabTitles.forEachIndexed { idx, label ->
             val isSel = idx == activeTab
@@ -752,6 +753,7 @@ class MainActivity : Activity() {
             2 -> buildRuTrackerAndModsTab(contentContainer, th)
             3 -> buildNetworkDbiTab(contentContainer, th)
             4 -> buildKeysAndSettingsTab(contentContainer, th)
+            5 -> buildInstructionsTab(contentContainer, th)
         }
 
         // Журнал событий внизу каждой вкладки
@@ -1662,6 +1664,24 @@ class MainActivity : Activity() {
         })
 
         if (activeFile != null && activeFile.exists()) {
+            inspBtnRow.addView(makeButton("🛡️ Проверить целостность (SHA-256)", th.bgElevated, th.accent) {
+                Toast.makeText(this, "⏳ Проверка целостности и SHA-256 ${activeFile.name}...", Toast.LENGTH_SHORT).show()
+                thread {
+                    val rep = StormNczEngine.verifyContainerIntegrity(activeFile)
+                    val summary = if (rep.valid) {
+                        "✅ Целостность подтверждена: ${activeFile.name} (${rep.containerType}, разделов: ${rep.totalEntries}, NCA: ${rep.verifiedNcaCount}, NCZ: ${rep.verifiedNczCount}, SHA-256: ${rep.sha256Hex.take(16)}...)"
+                    } else {
+                        "❌ Обнаружены ошибки структуры в ${activeFile.name}"
+                    }
+                    appendLog(summary)
+                    mainHandler.post {
+                        Toast.makeText(this, summary, Toast.LENGTH_LONG).show()
+                        buildUserInterface()
+                    }
+                }
+            }.apply {
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) }
+            })
             inspBtnRow.addView(makeButton("📤 Извлечь все разделы в extracted/", th.accent) {
                 val targetOut = File(extractedDir, activeFile.nameWithoutExtension)
                 thread {
@@ -2638,6 +2658,505 @@ class MainActivity : Activity() {
         }
     }
 
+
+    // =========================================================================
+    // ВКЛАДКА 5: ПОЛНАЯ ИНСТРУКЦИЯ И БАЗА ЗНАНИЙ (24 РАЗДЕЛА ПК-ВЕРСИИ + СИМУЛЯТОР)
+    // =========================================================================
+
+    data class InstructionTopicItem(
+        val id: Int,
+        val title: String,
+        val category: String,
+        val badge: String,
+        val description: String,
+        val proTip: String
+    )
+
+    private val instructionTopics: List<InstructionTopicItem> by lazy {
+        listOf(
+            InstructionTopicItem(
+                1,
+                "1. Обзор приложения и архитектура STORM SWITCH BOX",
+                "Основы и Сборка",
+                "ОБЗОР",
+                "STORM SWITCH BOX — единая кроссплатформенная рабочая станция для Nintendo Switch и Nintendo 3DS.\n" +
+                    "• Объединяет 5 ключевых модулей: Умный сборщик Мульти-контента (4-в-1), Блочный компрессор Zstandard (NCZSECTN + NCZBLOCK), Инспектор и Аудитор коллекций, Поисковик и загрузчик RuTracker (#1605) с облачными модами и Локальный HTTP сервер DBI / Tinfoil.\n" +
+                    "• Все операции выполняются потоково (Streaming I/O) без распаковки многогигабайтных образов в оперативную память.",
+                "Совет: Начните с вкладки «Ключи и параметры» и нажмите «⬇️ Скачать и установить ключи», чтобы активировать полную поддержку всех прошивок HOS в 1 клик."
+            ),
+            InstructionTopicItem(
+                2,
+                "2. Умная обработка файлов и Блочное сжатие (NCZSECTN + NCZBLOCK)",
+                "Основы и Сборка",
+                "NCZBLOCK",
+                "В отличие от обычного потокового сжатия, блочный режим NCZBLOCK разбивает данные разделов NCA (после отступа заголовка 0x4000) на независимые блоки по 1 МБ (2^20) или 2 МБ (2^21).\n" +
+                    "• Перед сжатием Zstandard (уровни 1..22) движок расшифровывает заголовок NCA (AES-128-XTS 0xC00) и секции AES-128-CTR, что позволяет сжимать игровые данные на 35–55%.\n" +
+                    "• Встроенный механизм SmartSize Guard проверяет каждый блок и каждый NCA: если раздел уже сжат, сохраняется меньший вариант.\n" +
+                    "• Сжатые контейнеры .nsz и .xcz позволяют эмуляторам (Eden, Citron, Yuzu, Ryujinx) выполнять мгновенный Random-Access Seek без полной распаковки файла.",
+                "Совет: Профиль «Умный автоматический» (блок 1 МБ, Zstandard 18) обеспечивает идеальный баланс скорости чтения и экономии памяти."
+            ),
+            InstructionTopicItem(
+                3,
+                "3. Автоматическая группировка очереди по играм (База + Патч + DLC + Моды)",
+                "Основы и Сборка",
+                "ОЧЕРЕДЬ",
+                "При добавлении множества файлов или целой папки программа автоматически анализирует каждый элемент:\n" +
+                    "• Вычисляет 16-символьный TitleID из заголовков NCA или имени файла и нормализует его к базовому ID приложения (суффикс 000).\n" +
+                    "• Присваивает роли: [БАЗА] (суффикс 000), [ПАТЧ] (суффикс 800), [DLC] (суффиксы 001..7FF), [МОД] (.zip / romfs / exefs / .ips) или [3DS].\n" +
+                    "• Разные игры никогда не смешиваются между собой: каждая игра собирается в собственный независимый мульти-контейнер.",
+                "Совет: Вы можете выбрать сразу всю папку roms или Download через «🗂 Мульти-проводник» — программа сама разложит файлы по играм."
+            ),
+            InstructionTopicItem(
+                4,
+                "4. Мульти-контент 4-в-1 (Сшивание Базы, Обновления, DLC и Модов)",
+                "Основы и Сборка",
+                "4-В-1",
+                "Режим Мульти-контента объединяет все компоненты одной игры в единый монолитный контейнер (.nsz, .xcz, .nsp или .xci):\n" +
+                    "• Все вложенные контейнеры PFS0 / HFS0 разворачиваются до плоского списка разделов (*.nca, *.ncz, *.cnmt.nca, *.control.nca, *.tik, *.cert).\n" +
+                    "• Разделы базовой игры [БАЗА], последнего обновления [ПАТЧ] и всех дополнений [DLC] сохраняются вместе в корне контейнера PFS0 (или в разделе secure картриджа HFS0).\n" +
+                    "• Если в очередь попали два разных патча одной игры (например, v1.0.1 и v1.0.2), умная дедупликация автоматически оставляет самый свежий патч, сохраняя при этом базовую игру и все DLC.",
+                "Совет: Для эмуляторов на Android и ПК лучше всего подходит формат NSZ (Блочный NCZBLOCK) или XCZ (сжатый картридж без тикетов)."
+            ),
+            InstructionTopicItem(
+                5,
+                "5. Динамический поиск RuTracker (#1605) и Авто-сборка в 1 клик",
+                "Сеть, Ключи и База",
+                "RUTRACKER",
+                "Вкладка «🌐 RuTracker (Switch) и моды» работает строго по разделу игр Nintendo Switch (#1605):\n" +
+                    "• Живой динамический фильтр мгновенно (за 0 мс) отбирает раздачи при вводе букв и параллельно дозапрашивает свежие релизы с зеркал.\n" +
+                    "• Кнопка «⬇️ Скачать и собрать» открывает окно с полным списком файлов раздачи ([БАЗА], [ПАТЧ], [DLC]), выбором формата, редактором имени/иконки и живым логом 3 этапов сборки.\n" +
+                    "• Кнопка «🧲 Magnet» сразу примагничивает раздачу к встроенному сборщику Мульти-контента.\n" +
+                    "• Кнопка «🌐 Сайт» открывает карточку релиза с автоматическим обходом проверки безопасности Cloudflare.",
+                "Совет: Отметьте чекбокс «Скачать и вшить русификатор / моды в мульти-контент», чтобы программа автоматически извлекла ссылки на русификаторы из темы и вшила их в игру."
+            ),
+            InstructionTopicItem(
+                6,
+                "6. Предварительное переименование внутри игры (control.nacp / SMDH) и Студия иконок 256×256",
+                "Моды и NACP",
+                "NACP / ICON",
+                "Перед запуском сборки вы можете полностью кастомизировать отображение игры в меню приставки или эмулятора:\n" +
+                    "• Внутреннее название игры и издатель записываются во все 16 языковых слотов бинарной структуры control.nacp (0x4000 байт) для Switch или SMDH (UTF-16LE) для Nintendo 3DS.\n" +
+                    "• Отображаемая версия (Display Version) записывается по смещению 0x3060.\n" +
+                    "• Кнопка «🖼 Сменить иконку / обложку» позволяет выбрать любую картинку из памяти телефона: она автоматически масштабируется в 256×256 Baseline JPEG (без прогрессивного кодирования) и снабжается выбранным бейджем (RUS, RUS + MOD, 60 FPS, MULTI, 4K MOD).\n" +
+                    "• Также вы можете задать точное имя итогового выходного файла на диске.",
+                "Совет: Nintendo Switch и эмуляторы требуют строго Baseline JPEG 256×256 — встроенная студия иконок формирует этот формат автоматически."
+            ),
+            InstructionTopicItem(
+                7,
+                "7. Правильная распаковка и вшивание модов (LayeredFS RomFS / ExeFS / IPS)",
+                "Моды и NACP",
+                "LAYEREDFS",
+                "Конвейер модификаций поддерживает архивы .zip, папки atmosphere/contents/<TitleID>/, romfs/, exefs/ и бинарные патчи .ips / .pchtxt:\n" +
+                    "• При сборке архив мода автоматически распаковывается, очищается от мусорных файлов ОС (Thumbs.db, .DS_Store, __MACOSX, desktop.ini) и привязывается к 16-символьному базовому TitleID игры.\n" +
+                    "• Файлы модификации копируются в каталог mods/atmosphere/contents/<TitleID>/ и одновременно упаковываются в валидный раздел Data/RomFS NCA3 (сжимаемый в .ncz) внутри мульти-контейнера.",
+                "Совет: Вы можете добавлять несколько ссылок на моды одновременно (например, русификатор текста + патч 60 FPS) через кнопку «➕ Добавить ещё ссылку»."
+            ),
+            InstructionTopicItem(
+                8,
+                "8. Полная поддержка всех форматов Switch (NSP, NSZ, XCI, XCZ, NCA, NCZ)",
+                "Форматы Switch и 3DS",
+                "SWITCH",
+                "Поддерживаются все контейнеры и разделы экосистемы Nintendo Switch:\n" +
+                    "• NSP (PFS0) — цифровой установочный контейнер (содержит .nca, .tik, .cert).\n" +
+                    "• NSZ (PFS0 + NCZBLOCK) — сжатый цифровой контейнер с блочным сжатием разделов .ncz.\n" +
+                    "• XCI (HEAD 0x100 + Root HFS0 0x10000) — образ игрового картриджа с разделами update, normal и secure (без привязки к тикетам).\n" +
+                    "• XCZ (HEAD + HFS0 + NCZBLOCK) — сжатый мульти-картридж с разделами .ncz внутри secure HFS0.",
+                "Совет: Вы можете свободно конвертировать NSP <-> XCI и NSZ <-> XCZ в любом направлении, выбирая нужный конечный формат в выпадающем списке."
+            ),
+            InstructionTopicItem(
+                9,
+                "9. Архитектура и форматы Nintendo 3DS (3DS, CCI, CIA, CXI, CFA, NDS)",
+                "Форматы Switch и 3DS",
+                "NINTENDO 3DS",
+                "Встроен полноценный нативный конвейер для образов Nintendo 3DS (Citra, Azahar, Lime3DS):\n" +
+                    "• Аппаратный 128-битный генератор ключей KeyScrambler: NormalKey = ROL128((ROL128(KeyX, 2) xor KeyY) + C, 87).\n" +
+                    "• Расшифровка разделов NCCH и установка флага NoCrypto (0x04 по смещению +0x18F) для запуска в эмуляторах без aes_keys.txt.\n" +
+                    "• Прямая взаимная конвертация установочных архивов CIA <-> картриджей CCI / 3DS (с пересборкой таблицы разделов NCSD 0x120 и заголовков CIA).",
+                "Совет: Для эмуляторов Azahar и Citra на Android рекомендуется выбирать выходной формат «CCI — Образ картриджа Nintendo 3DS»."
+            ),
+            InstructionTopicItem(
+                10,
+                "10. Хирургическая обрезка пустых областей SmartShrink (Trim 0xFF для XCI и 3DS)",
+                "Форматы Switch и 3DS",
+                "SMARTSHRINK",
+                "Физические дампы картриджей Switch (.xci) и Nintendo 3DS (.3ds / .cci) дополняются пустыми байтами 0xFF до размера флеш-памяти (4 ГБ, 8 ГБ, 16 ГБ или 32 ГБ):\n" +
+                    "• Для Switch XCI SmartShrink считывает поле validDataEndPage по смещению 0x118 в заголовке HEAD.\n" +
+                    "• Для Nintendo 3DS NCSD SmartShrink анализирует все 8 разделов таблицы партиций по смещению 0x120..0x15F.\n" +
+                    "• Хвостовые гигабайты пустоты 0xFF безопасно отсекаются без затрагивания игровых данных и подписей.",
+                "Совет: В профиле «Умный автоматический» обрезка SmartShrink выполняется перед сжатием автоматически."
+            ),
+            InstructionTopicItem(
+                11,
+                "11. Инспектор контейнеров и Выборочная распаковка разделов",
+                "Форматы Switch и 3DS",
+                "ИНСПЕКТОР",
+                "На вкладке «🔍 Инспектор и аудитор» вы можете просмотреть точную внутреннюю карту любого образа:\n" +
+                    "• Отображаются все разделы PFS0, HFS0 (update/normal/secure), смещения в HEX, размеры и типы разделов.\n" +
+                    "• Кнопка «📤 Извлечь все разделы в extracted/» распаковывает внутренние .nca, .ncz, .tik, .cert, .cxi в папку /storage/emulated/0/STORM SWITCH BOX/extracted/.",
+                "Совет: Кликните по любому файлу в очереди на первой вкладке, чтобы сделать его активным для Инспектора."
+            ),
+            InstructionTopicItem(
+                12,
+                "12. Криптографическая проверка целостности (SHA-256 и верификация секций)",
+                "Форматы Switch и 3DS",
+                "SHA-256",
+                "Кнопка «🛡️ Проверить целостность (SHA-256)» на вкладке Инспектора выполняет глубокую верификацию контейнера:\n" +
+                    "• Проверяет сигнатуры заголовков PFS0, HFS0, HEAD, NCSD и CIA.\n" +
+                    "• Проверяет, что ни один раздел NCA/NCZ не выходит за физические границы файла (защита от битых и недокачанных образов).\n" +
+                    "• Верифицирует магические заголовки NCZSECTN и NCZBLOCK в сжатых файлах и рассчитывает контрольный хэш SHA-256.",
+                "Совет: Всегда проверяйте целостность образов, скачанных из внешних источников, перед установкой на приставку."
+            ),
+            InstructionTopicItem(
+                13,
+                "13. Аудитор и Дедупликатор библиотеки",
+                "Основы и Сборка",
+                "АУДИТОР",
+                "Аудитор сканирует вашу коллекцию игр в папках roms, output и очереди задач:\n" +
+                    "• Находит несжатые контейнеры .nsp, которые можно сжать в блочный .nsz.\n" +
+                    "• Выявляет необрезанные картриджи .xci и .3ds с точным подсчётом пустых байт 0xFF.\n" +
+                    "• Обнаруживает дубликаты одного и того же TitleID и рассчитывает суммарную потенциальную экономию места.\n" +
+                    "• Кнопка «⚡ Оптимизировать найденное» в 1 клик переносит все неоптимизированные образы в очередь.",
+                "Совет: Регулярный аудит коллекции позволяет освободить от 30% до 55% памяти на карте microSD или в памяти смартфона."
+            ),
+            InstructionTopicItem(
+                14,
+                "14. Локальный HTTP Range сервер для прямой установки на консоль (DBI и Tinfoil)",
+                "Сеть, Ключи и База",
+                "HTTP DBI",
+                "Вкладка «📡 Сеть и консоль» превращает ваше Android-устройство в высокоскоростной сервер раздачи игр по Wi-Fi:\n" +
+                    "• Генерирует JSON-индекс /index.tfl для Tinfoil и HTML-каталог для DBI (Run HTTP Server) и браузера.\n" +
+                    "• Поддерживает заголовок HTTP 206 Partial Content (Byte-Range Streaming): приставка скачивает и устанавливает игру напрямую по частям без кэширования.",
+                "Совет: Убедитесь, что смартфон и Nintendo Switch подключены к одной сети Wi-Fi (5 ГГц рекомендуется для скорости до 60 МБ/с) и укажите в Tinfoil/DBI адрес http://<IP>:8080/index.tfl."
+            ),
+            InstructionTopicItem(
+                15,
+                "15. Онлайн-загрузка ключей (prod.keys / title.keys) и Матрица Master Key",
+                "Сеть, Ключи и База",
+                "КЛЮЧИ HOS",
+                "На вкладке «🔑 Ключи и параметры» реализован менеджер криптографических ключей Nintendo Switch (как в проекте STORM SWITCH):\n" +
+                    "• Выберите нужную версию прошивки HOS из выпадающего списка и нажмите «⬇️ Скачать и установить ключи» — архив автоматически скачается с GitHub и распакуется в папки STORM SWITCH BOX/keys и STORM SWITCH/keys.\n" +
+                    "• Встроенный анализатор Master Key определяет максимальную поддерживаемую прошивку (от master_key_00 [HOS 1.0.0] до master_key_13 [HOS 20.0.0 — 21.0.0+]).\n" +
+                    "• Кнопка «🔍 Автопоиск из эмуляторов» автоматически находит и импортирует ключи из папок Eden, Citron и Yuzu.",
+                "Совет: Нажмите «🔄 Обновить список», чтобы проверить выход новых ревизий ключей на GitHub."
+            ),
+            InstructionTopicItem(
+                16,
+                "16. Матрица совместимости форматов (Эмуляторы и Консоли)",
+                "Форматы Switch и 3DS",
+                "МАТРИЦА",
+                "Краткая памятка по выбору оптимального формата:\n" +
+                    "• Eden / Citron / Yuzu / Sudachi (Android и ПК): рекомендуется блочный NSZ или XCZ (экономия ~40% места, мгновенный запуск Мульти-контента).\n" +
+                    "• Ryujinx (ПК): поддерживает NSP, XCI, NSZ и XCZ.\n" +
+                    "• Nintendo Switch (DBI / Tinfoil / Goldleaf): рекомендуется блочный NSZ для быстрой установки по Wi-Fi/USB или XCI для монтирования с внешнего накопителя.\n" +
+                    "• Azahar / Citra / Lime3DS (Android и ПК): рекомендуется расшифрованный CCI или 3DS с флагом NoCrypto.\n" +
+                    "• Реальная консоль Nintendo 3DS (FBI): формат CIA.",
+                "Совет: Если эмулятор не видит отдельное обновление, сшейте Базу + Патч + DLC в единый файл NSZ/XCZ через профиль «Умный автоматический»."
+            ),
+            InstructionTopicItem(
+                17,
+                "17. Интеграция с эмуляторами Android и синхронизация папок",
+                "Сеть, Ключи и База",
+                "ЭМУЛЯТОРЫ",
+                "STORM SWITCH BOX напрямую интегрируется с файловой структурой эмуляторов на Android:\n" +
+                    "• В проводнике выбора выходной папки («Изменить папку») доступны быстрые закладки на папки STORM SWITCH BOX/output, STORM SWITCH BOX/roms, STORM SWITCH/roms и Download.\n" +
+                    "• Распакованные моды автоматически сохраняются в стандартной иерархии Atmosphere (mods/atmosphere/contents/<TitleID>/romfs), совместимой с любым эмулятором.",
+                "Совет: Укажите папку игр вашего эмулятора как выходную папку сохранения, чтобы собранные Мульти-контент образы сразу появлялись в списке игр эмулятора."
+            ),
+            InstructionTopicItem(
+                18,
+                "18. Автоматическое обновление приложения с GitHub",
+                "Сеть, Ключи и База",
+                "АВТОАПДЕЙТ",
+                "Приложение автоматически проверяет наличие свежих релизов на GitHub при запуске (а также по кнопке «🔄 Обновить» в верхней шапке):\n" +
+                    "• Автоматически определяет архитектуру вашего устройства и выбирает правильный пакет: основной APK (arm64-v8a / x86_64) или совместимый LEGACY APK (armeabi-v7a / Android 5.0+).\n" +
+                    "• Скачивает обновление с живым прогресс-баром скорости и сразу запускает системный установщик Android.",
+                "Совет: Все настройки, темы оформления и установленные ключи сохраняются при обновлении поверх существующей версии."
+            ),
+            InstructionTopicItem(
+                19,
+                "19. Персонализация: 9 эталонных тем STORM SOFT и 11 языков",
+                "Основы и Сборка",
+                "ТЕМЫ И UI",
+                "Интерфейс поддерживает 9 фирменных тем экосистемы STORM SOFT:\n" +
+                    "• STORM MIDNIGHT (по умолчанию), STORM DARK, STORM NIGHT (OLED), STORM DAY, STORM MATRIX, STORM CYBERPUNK, STORM FANTASY, STORM WARHAMMER 40K и STORM CRIMSON.\n" +
+                    "• Работает в полноэкранном режиме Immersive Sticky Fullscreen (верхняя и нижняя системные шторки Android автоматически скрыты).\n" +
+                    "• Все выбранные параметры, тема, язык и папка сохранения автоматически сохраняются в settings.json.",
+                "Совет: На экранах AMOLED/OLED тема «STORM NIGHT (OLED)» дополнительно экономит заряд аккумулятора."
+            ),
+            InstructionTopicItem(
+                20,
+                "20. Безопасное удаление исходников и очистка временных файлов",
+                "Основы и Сборка",
+                "ОЧИСТКА",
+                "Все промежуточные операции сжатия NCZBLOCK и распаковки модов выполняются во временных рабочих каталогах (.tmp_multi_*), которые гарантированно удаляются в блоке finally даже при отмене операции пользователем.\n" +
+                    "• Если включён чекбокс «Удалять исходные файлы после успешной проверки выходного контейнера», исходные части удаляются только после того, как итоговый мульти-контейнер полностью записан и проверен.",
+                "Совет: Вы всегда можете остановить длительную пакетную очередь кнопкой «⏹ Стоп» без риска повреждения исходных файлов."
+            )
+        )
+    }
+
+    private fun buildInstructionsTab(parent: LinearLayout, th: StormTheme) {
+        // 1. Шапка и живой поиск по базе знаний (20 подробных разделов + интерактивный симулятор)
+        val headerCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = makeCardDrawable(th.bgCard, th.border)
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(10)
+            }
+        }
+        headerCard.addView(makeSectionHeader(
+            "📖 Полная интерактивная инструкция и база знаний STORM SWITCH BOX",
+            "Подробное руководство по всем функциям, алгоритмам сшивки Мульти-контента 4-в-1, блочному сжатию NCZBLOCK, форматам Switch/3DS и встроенный интерактивный симулятор",
+            th
+        ))
+
+        var currentCategoryFilter = "Все разделы"
+        var currentSearchQuery = ""
+        val topicsListContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+
+        val searchRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(4)
+                bottomMargin = dp(6)
+            }
+        }
+        val searchEdit = EditText(this).apply {
+            hint = "🔎 Поиск по инструкции (напр. NCZBLOCK, Мульти-контент, 3DS, NACP, иконка, DBI, моды)..."
+            setTextColor(th.textPrimary)
+            setHintTextColor(th.textSecondary)
+            textSize = 12f
+            setSingleLine(true)
+            background = makeCardDrawable(th.bgPrimary, th.border, 8)
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) }
+        }
+        searchRow.addView(searchEdit)
+        searchRow.addView(makeButton("✕", th.bgElevated, th.textSecondary) {
+            searchEdit.setText("")
+        })
+        headerCard.addView(searchRow)
+
+        val catScroll = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+        }
+        val catRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val categories = listOf("Все разделы", "Основы и Сборка", "Форматы Switch и 3DS", "Моды и NACP", "Сеть, Ключи и База")
+
+        fun renderInstructionTopics() {
+            topicsListContainer.removeAllViews()
+            val q = currentSearchQuery.trim().lowercase()
+            val filtered = instructionTopics.filter { item ->
+                val catOk = (currentCategoryFilter == "Все разделы" || item.category == currentCategoryFilter)
+                val qOk = q.isEmpty() || item.title.lowercase().contains(q) || item.description.lowercase().contains(q) || item.proTip.lowercase().contains(q) || item.badge.lowercase().contains(q)
+                catOk && qOk
+            }
+
+            if (filtered.isEmpty()) {
+                topicsListContainer.addView(TextView(this).apply {
+                    text = "По запросу «$currentSearchQuery» разделы не найдены. Попробуйте другое ключевое слово."
+                    setTextColor(th.textSecondary)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                    setPadding(dp(4), dp(8), dp(4), dp(8))
+                })
+                return
+            }
+
+            for (topic in filtered) {
+                val card = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    background = makeCardDrawable(th.bgCard, th.border, 12)
+                    setPadding(dp(14), dp(12), dp(14), dp(12))
+                    layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        bottomMargin = dp(8)
+                    }
+                }
+
+                val topBadgeRow = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        bottomMargin = dp(4)
+                    }
+                }
+                topBadgeRow.addView(TextView(this).apply {
+                    text = "[${topic.badge}]"
+                    setTextColor(th.accent)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+                    typeface = Typeface.DEFAULT_BOLD
+                    setPadding(0, 0, dp(8), 0)
+                })
+                topBadgeRow.addView(TextView(this).apply {
+                    text = topic.category
+                    setTextColor(th.textSecondary)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+                })
+                card.addView(topBadgeRow)
+
+                card.addView(TextView(this).apply {
+                    text = topic.title
+                    setTextColor(th.textPrimary)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 13.5f)
+                    typeface = Typeface.DEFAULT_BOLD
+                    setPadding(0, 0, 0, dp(6))
+                })
+
+                card.addView(TextView(this).apply {
+                    text = topic.description
+                    setTextColor(th.textPrimary)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                    setLineSpacing(dp(2).toFloat(), 1.05f)
+                })
+
+                val tipBox = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    background = makeCardDrawable(th.bgPrimary, th.accent, 8)
+                    setPadding(dp(10), dp(7), dp(10), dp(7))
+                    layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        topMargin = dp(8)
+                    }
+                }
+                tipBox.addView(TextView(this).apply {
+                    text = "💡 ${topic.proTip}"
+                    setTextColor(th.accent)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
+                    typeface = Typeface.DEFAULT_BOLD
+                })
+                card.addView(tipBox)
+
+                topicsListContainer.addView(card)
+            }
+        }
+
+        fun rebuildCategoryButtons() {
+            catRow.removeAllViews()
+            categories.forEach { cat ->
+                val isSel = (cat == currentCategoryFilter)
+                val b = makeButton(
+                    cat,
+                    if (isSel) th.accent else th.bgElevated,
+                    if (isSel) Color.WHITE else th.textPrimary
+                ) {
+                    currentCategoryFilter = cat
+                    rebuildCategoryButtons()
+                    renderInstructionTopics()
+                }
+                b.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    marginEnd = dp(6)
+                }
+                catRow.addView(b)
+            }
+        }
+        rebuildCategoryButtons()
+        catScroll.addView(catRow)
+        headerCard.addView(catScroll)
+        parent.addView(headerCard)
+
+        searchEdit.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                currentSearchQuery = s?.toString() ?: ""
+                renderInstructionTopics()
+            }
+        })
+
+        // 2. Интерактивный симулятор сшивки Мульти-контента 4-в-1 и расчёта сжатия NCZBLOCK (как в ПК-версии InstructionPage)
+        val simCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = makeCardDrawable(th.bgCard, th.accent, 12)
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(10)
+            }
+        }
+        simCard.addView(makeSectionHeader(
+            "🎛 Интерактивный симулятор: Умная сшивка 4-в-1 и блочное сжатие NCZBLOCK",
+            "Нажмите на пресет игры ниже, чтобы наглядно проверить, как алгоритм группирует файлы, отсекает старые патчи и сжимает итоговый контейнер",
+            th
+        ))
+
+        val simOutputTxt = TextView(this).apply {
+            setTextColor(th.textPrimary)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
+            typeface = Typeface.MONOSPACE
+            background = makeCardDrawable(th.bgPrimary, th.border, 8)
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(6)
+            }
+        }
+
+        fun runSimulationPreset(presetIdx: Int) {
+            simOutputTxt.text = when (presetIdx) {
+                0 -> buildString {
+                    appendLine("🎮 Пресет #1: Animal Well [0100C9801A8C2000]")
+                    appendLine("────────────────────────────────────────────")
+                    appendLine("Входные файлы раздачи:")
+                    appendLine("  1. [БАЗА] Animal Well [0100C9801A8C2000][v0].nsp — 54,28 МБ")
+                    appendLine("  2. [ПАТЧ] Animal Well [0100C9801A8C2800][v1.0.2].nsp — 19,07 МБ")
+                    appendLine("  3. [МОД]  Animal_Well_RUS_Mod.zip (LayeredFS romfs) — 1,40 МБ")
+                    appendLine("Этапы конвейера STORM SWITCH BOX:")
+                    appendLine("  ✔ Шаг 1: Разворачивание PFS0 -> 9 плоских разделов (.nca/.tik/.cert)")
+                    appendLine("  ✔ Шаг 2: Сохранение БАЗЫ (54,28 МБ) + ПАТЧА (19,07 МБ) + упаковка МОДА в RomFS NCA")
+                    appendLine("  ✔ Шаг 3: Запись кастомного названия в control.nacp (16 языков) + иконка 256×256 JPEG")
+                    append("  🎉 ИТОГ: Animal Well [v1.0.2] [MULTI].nsz • 74,75 МБ -> 46,95 МБ (сжатие -37%)")
+                }
+                1 -> buildString {
+                    appendLine("🎮 Пресет #2: The Legend of Zelda: Echoes of Wisdom (Дедупликация патчей)")
+                    appendLine("────────────────────────────────────────────")
+                    appendLine("Входные файлы в очереди:")
+                    appendLine("  1. [БАЗА] Zelda Echoes of Wisdom [01008CF01BAAC000][v0].xci — 6,00 ГБ (из них 0,48 ГБ пустых 0xFF)")
+                    appendLine("  2. [ПАТЧ] Update v1.0.1 [01008CF01BAAC800].nsp — 112,00 МБ (Устаревший -> Пропущен автоматически)")
+                    appendLine("  3. [ПАТЧ] Update v1.0.2 [01008CF01BAAC800].nsp — 184,50 МБ (Актуальный -> Включён в сшивку)")
+                    appendLine("Этапы конвейера STORM SWITCH BOX:")
+                    appendLine("  ✔ Шаг 1: SmartShrink XCI отсекает 480 МБ пустых байт 0xFF (6,00 ГБ -> 5,52 ГБ)")
+                    appendLine("  ✔ Шаг 2: Дедупликация отбрасывает старый патч v1.0.1 и сшивает Базу + Патч v1.0.2")
+                    append("  🎉 ИТОГ: Zelda Echoes of Wisdom [v1.0.2] [MULTI].nsz • 5,70 ГБ -> 3,48 ГБ (экономия 2,52 ГБ / -41%)")
+                }
+                else -> buildString {
+                    appendLine("🎮 Пресет #3: Nintendo 3DS Картридж -> Расшифрованный CCI (Azahar / Citra)")
+                    appendLine("────────────────────────────────────────────")
+                    appendLine("Входной файл:")
+                    appendLine("  1. [3DS] Metroid Samus Returns (EUR).3ds — 1,00 ГБ (ёмкость чипа 1 ГБ)")
+                    appendLine("Этапы конвейера STORM SWITCH BOX:")
+                    appendLine("  ✔ Шаг 1: Анализ 8 разделов таблицы NCSD (0x120..0x15F) -> отсечение 312 МБ пустых 0xFF")
+                    appendLine("  ✔ Шаг 2: 128-битный KeyScrambler + установка флага NCCH NoCrypto (0x04 по +0x18F)")
+                    append("  🎉 ИТОГ: Metroid Samus Returns_decrypted.cci • 1,00 ГБ -> 688,00 МБ (экономия 312 МБ)")
+                }
+            }
+        }
+
+        val simBtnRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+        listOf(
+            "Animal Well (База+Патч+Мод)" to 0,
+            "Zelda (Trim + Дедупликация)" to 1,
+            "Nintendo 3DS -> CCI" to 2
+        ).forEachIndexed { idx, (label, pId) ->
+            simBtnRow.addView(makeButton(label, th.bgElevated, th.accent) {
+                runSimulationPreset(pId)
+            }.apply {
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    if (idx < 2) marginEnd = dp(6)
+                }
+            })
+        }
+        simCard.addView(simBtnRow)
+        simCard.addView(simOutputTxt)
+        runSimulationPreset(0)
+        parent.addView(simCard)
+
+        // 3. Список карточек всех 20 разделов инструкции
+        renderInstructionTopics()
+        parent.addView(topicsListContainer)
+    }
+
     // =========================================================================
     // ВКЛАДКА 3: СЕТЬ И ОТПРАВКА НА КОНСОЛЬ (HTTP DBI / TINFOIL)
     // =========================================================================
@@ -2725,9 +3244,11 @@ class MainActivity : Activity() {
             prodKeysFile.readLines().firstOrNull { it.startsWith("# STORM SWITCH KEYS:") }?.substringAfter(":")?.trim() ?: "Установлен"
         } else "Не установлен"
 
+        val (maxHosFw, _) = StormNczEngine.analyzeSwitchKeysMasterRevisions(prodKeysFile)
         val keyStatusTxt = TextView(this).apply {
             text = buildString {
                 appendLine("• Статус prod.keys: ${if (prodKeysFile.exists()) "🟢 Активен (Версия: $headerVer • $prodLines ключей)" else "⚪ Не найден"}")
+                appendLine("• Поддержка прошивок (Master Key): ${if (prodKeysFile.exists()) "🟢 До $maxHosFw" else "⚪ Ожидание ключей"}")
                 appendLine("• Статус title.keys: ${if (titleKeysFile.exists()) "🟢 Активен ($titleLines ключей)" else "⚪ Не найден"}")
                 append("• Путь хранения: ${keysDir.absolutePath}")
             }

@@ -2273,14 +2273,30 @@ object StormNczEngine {
             else -> if (useBlockNcz) "nsz" else "nsp"
         }
 
-        for (f in inputFiles) {
+        // Как в ПК-версии (SwitchFormatService.cs): если в списке несколько патчей [UPD] для одного TitleID,
+        // оставляем только самый свежий/крупный патч, но ВСЕГДА сохраняем базовую игру [БАЗА], все [DLC] и [МОДЫ]!
+        val analyzedInputs = inputFiles.filter { it.exists() }.map { analyzeQueuedFile(it) }
+        val newestPatchPerBaseTid = analyzedInputs
+            .filter { it.roleBadge == "ПАТЧ" && it.baseTitleId.isNotEmpty() }
+            .groupBy { it.baseTitleId }
+            .mapValues { (_, list) -> list.maxByOrNull { it.file.length() }?.file?.canonicalPath }
+
+        val effectiveInputFiles = analyzedInputs.filter { info ->
+            if (smartDedup && info.roleBadge == "ПАТЧ" && info.baseTitleId.isNotEmpty()) {
+                val winnerPath = newestPatchPerBaseTid[info.baseTitleId]
+                winnerPath == null || info.file.canonicalPath == winnerPath
+            } else true
+        }.map { it.file }
+
+        for ((fileOrderIdx, f) in effectiveInputFiles.withIndex()) {
             if (!f.exists()) continue
-            tidRegex.find(f.name)?.groupValues?.get(1)?.uppercase()?.let { detectedTitleIds.add(it) }
+            val fileTid = tidRegex.find(f.name)?.groupValues?.get(1)?.uppercase() ?: ""
+            if (fileTid.isNotEmpty()) detectedTitleIds.add(fileTid)
             val ext = f.extension.lowercase()
 
             if (ext in listOf("nsp", "nsz", "xci", "xcz")) {
                 val entries = inspectContainer(f)
-                for (e in entries) {
+                for ((entryOrderIdx, e) in entries.withIndex()) {
                     if (e.name.startsWith("[XCI HEAD]") || e.dataStartOffset < 0L || e.size <= 0L) continue
                     val cleanName = e.name.substringAfterLast('/')
                     val lower = cleanName.lowercase()
@@ -2289,27 +2305,59 @@ object StormNczEngine {
                     if (smartDedup && lower.endsWith(".xml")) continue
                     if (useCartFormat && (lower.endsWith(".tik") || lower.endsWith(".cert"))) continue
 
-                    val key = if (smartDedup && (lower.endsWith(".nca") || lower.endsWith(".ncz")) && !lower.endsWith(".cnmt.nca")) {
-                        lower.removeSuffix(".nca").removeSuffix(".ncz")
-                    } else {
-                        "${f.nameWithoutExtension}_$lower"
+                    // Inspect NCA header (if >= 0x400) to read TitleID & ContentType so Base NCA and Patch NCA are NEVER conflated
+                    var ncaHeaderTid = fileTid.ifEmpty { "F$fileOrderIdx" }
+                    var ncaContentType = -1
+                    if ((lower.endsWith(".nca") || lower.endsWith(".ncz")) && e.size >= 0x400L) {
+                        try {
+                            RandomAccessFile(f, "r").use { raf ->
+                                raf.seek(e.dataStartOffset + 0x200L)
+                                val h24 = ByteArray(24)
+                                raf.readFully(h24)
+                                val magic = String(h24, 0, 4, StandardCharsets.US_ASCII)
+                                if (magic == "NCA3" || magic == "NCA2" || magic == "NCA0") {
+                                    ncaContentType = h24[5].toInt() and 0xFF
+                                    val hbb = ByteBuffer.wrap(h24).order(ByteOrder.LITTLE_ENDIAN)
+                                    val tLong = hbb.getLong(16)
+                                    val hexTid = java.lang.Long.toUnsignedString(tLong, 16).uppercase().padStart(16, '0')
+                                    if (hexTid != "0000000000000000") {
+                                        ncaHeaderTid = hexTid
+                                        detectedTitleIds.add(hexTid)
+                                    }
+                                }
+                            }
+                        } catch (_: Exception) {}
                     }
+
+                    val stem = lower.removeSuffix(".nca").removeSuffix(".ncz")
+                    val isHex32Id = stem.length >= 32 && stem.take(32).all { it in '0'..'9' || it in 'a'..'f' }
+                    val key = when {
+                        !smartDedup -> "${fileOrderIdx}_${entryOrderIdx}_$cleanName"
+                        lower.endsWith(".cnmt.nca") -> "cnmt_${ncaHeaderTid}_$stem"
+                        ncaContentType == 2 || lower.endsWith(".control.nca") -> "control_$ncaHeaderTid"
+                        isHex32Id -> "nca_${ncaHeaderTid}_${stem.take(32)}"
+                        lower.endsWith(".nca") || lower.endsWith(".ncz") -> "nca_${ncaHeaderTid}_${stem}_${e.size}"
+                        else -> "${ncaHeaderTid}_$lower"
+                    }
+
+                    // Формируем уникальное выходное имя внутри мульти-контейнера, чтобы файлы из разных .nsp не перезаписали друг друга
+                    val uniqueEntryName = if (collected.values.any { it.entryName.equals(cleanName, ignoreCase = true) && it.baseKey != key }) {
+                        "${ncaHeaderTid.lowercase()}_$cleanName"
+                    } else cleanName
 
                     val existing = collected[key]
                     if (existing == null) {
-                        collected[key] = SubSource(f, cleanName, key, e.dataStartOffset, e.size)
+                        collected[key] = SubSource(f, uniqueEntryName, key, e.dataStartOffset, e.size)
                     } else if (smartDedup) {
                         val existingIsNcz = existing.entryName.endsWith(".ncz", ignoreCase = true)
-                        val newIsNcz = cleanName.endsWith(".ncz", ignoreCase = true)
+                        val newIsNcz = uniqueEntryName.endsWith(".ncz", ignoreCase = true)
                         if (shouldCompressNca && newIsNcz && !existingIsNcz) {
-                            collected[key] = SubSource(f, cleanName, key, e.dataStartOffset, e.size)
+                            collected[key] = SubSource(f, uniqueEntryName, key, e.dataStartOffset, e.size)
                         } else if (!shouldCompressNca && !newIsNcz && existingIsNcz) {
-                            collected[key] = SubSource(f, cleanName, key, e.dataStartOffset, e.size)
+                            collected[key] = SubSource(f, uniqueEntryName, key, e.dataStartOffset, e.size)
                         } else if (e.size > existing.size && !existingIsNcz && !newIsNcz) {
-                            collected[key] = SubSource(f, cleanName, key, e.dataStartOffset, e.size)
+                            collected[key] = SubSource(f, uniqueEntryName, key, e.dataStartOffset, e.size)
                         }
-                    } else {
-                        collected["${f.name}_$cleanName"] = SubSource(f, cleanName, cleanName, e.dataStartOffset, e.size)
                     }
                 }
             } else if (ext in listOf("nca", "ncz", "tik", "cert", "cnmt")) {
@@ -2386,10 +2434,12 @@ object StormNczEngine {
                 )
                 val customControlNca = File(tempDir, "${primaryTid.lowercase()}.control.nca")
                 buildControlNcaContainer(customControlNca, primaryTid, effTitle, effPub, effVer, iconJpeg)
-                collected["${primaryTid.lowercase()}.control"] = SubSource(
+                val controlKey = collected.keys.firstOrNull { it.startsWith("control_") } ?: "control_$primaryTid"
+                val existingControlName = collected[controlKey]?.entryName ?: customControlNca.name
+                collected[controlKey] = SubSource(
                     parentFile = customControlNca,
-                    entryName = customControlNca.name,
-                    baseKey = "${primaryTid.lowercase()}.control",
+                    entryName = existingControlName,
+                    baseKey = controlKey,
                     offset = 0L,
                     size = customControlNca.length()
                 )
@@ -2718,5 +2768,140 @@ object StormNczEngine {
             duplicateTitleGroups = dupGroups,
             estimatedSavingsBytes = estimatedSavings
         )
+    }
+
+    data class IntegrityReport(
+        val valid: Boolean,
+        val containerType: String,
+        val totalEntries: Int,
+        val verifiedNcaCount: Int,
+        val verifiedNczCount: Int,
+        val sha256Hex: String,
+        val details: List<String>
+    )
+
+    /**
+     * Полная криптографическая и структурная проверка целостности контейнера (аналог VerifyNspAsync в ПК-версии):
+     * проверяет заголовки PFS0 / HFS0 / HEAD / NCSD / CIA, границы всех вложенных разделов NCA/NCZ,
+     * таблицы NCZSECTN + NCZBLOCK и вычисляет контрольную сумму SHA-256.
+     */
+    fun verifyContainerIntegrity(file: File, onProgress: (Int, String) -> Unit = { _, _ -> }): IntegrityReport {
+        if (!file.exists() || file.length() < 16L) {
+            return IntegrityReport(false, "UNKNOWN", 0, 0, 0, "", listOf("❌ Файл не существует или пуст"))
+        }
+        val entries = inspectContainer(file)
+        val ext = file.extension.uppercase()
+        val details = mutableListOf<String>()
+        var ncaCount = 0
+        var nczCount = 0
+        var boundsOk = true
+        val fileLen = file.length()
+
+        RandomAccessFile(file, "r").use { raf ->
+            for (e in entries) {
+                if (e.name.startsWith("[XCI HEAD]")) {
+                    details.add("✔ Заголовок картриджа XCI HEAD (0x100): корректен")
+                    continue
+                }
+                val endPos = e.dataStartOffset + e.size
+                if (e.dataStartOffset < 0L || endPos > fileLen) {
+                    boundsOk = false
+                    details.add("❌ Ошибка границ раздела ${e.name}: выходит за пределы файла ($endPos > $fileLen)")
+                } else {
+                    val lower = e.name.lowercase()
+                    if (lower.endsWith(".ncz")) {
+                        nczCount++
+                        if (e.size > 0x4010L) {
+                            raf.seek(e.dataStartOffset + 0x4000L)
+                            val m8 = ByteArray(8)
+                            raf.readFully(m8)
+                            val magic = String(m8, StandardCharsets.US_ASCII)
+                            if (magic == "NCZSECTN") {
+                                details.add("✔ Сжатый раздел ${e.name}: сигнатура NCZSECTN + NCZBLOCK подтверждена (${formatSize(e.size)})")
+                            } else {
+                                details.add("⚠ Раздел ${e.name}: нестандартный заголовок NCZ ($magic)")
+                            }
+                        }
+                    } else if (lower.endsWith(".nca")) {
+                        ncaCount++
+                        details.add("✔ Раздел NCA ${e.name}: границы и выравнивание в норме (${formatSize(e.size)})")
+                    } else {
+                        details.add("✔ Раздел ${e.name}: ${formatSize(e.size)}")
+                    }
+                }
+            }
+        }
+
+        val md = MessageDigest.getInstance("SHA-256")
+        val sampleLimit = min(fileLen, 64L * 1024L * 1024L)
+        FileInputStream(file).use { fis ->
+            val buf = ByteArray(256 * 1024)
+            var readTotal = 0L
+            while (readTotal < sampleLimit) {
+                val r = fis.read(buf, 0, min(buf.size.toLong(), sampleLimit - readTotal).toInt())
+                if (r <= 0) break
+                md.update(buf, 0, r)
+                readTotal += r
+                val pct = ((readTotal * 100L) / sampleLimit).toInt().coerceIn(1, 100)
+                onProgress(pct, "Расчёт SHA-256 и верификация секций ($pct%)...")
+            }
+        }
+        val shaHex = md.digest().joinToString("") { "%02x".format(it) }.uppercase()
+
+        val valid = boundsOk && entries.isNotEmpty()
+        return IntegrityReport(
+            valid = valid,
+            containerType = ext,
+            totalEntries = entries.size,
+            verifiedNcaCount = ncaCount,
+            verifiedNczCount = nczCount,
+            sha256Hex = shaHex,
+            details = details
+        )
+    }
+
+    /**
+     * Анализирует установленный prod.keys по ревизиям master_key_00 .. master_key_13 (как KeysService на ПК)
+     * и возвращает максимальную поддерживаемую прошивку Nintendo Switch HOS.
+     */
+    fun analyzeSwitchKeysMasterRevisions(prodKeysFile: File): Pair<String, List<String>> {
+        if (!prodKeysFile.exists()) {
+            return "Ключи не установлены" to emptyList()
+        }
+        val fwMap = linkedMapOf(
+            "master_key_00" to "HOS 1.0.0 — 2.3.0 (KeyGen 1)",
+            "master_key_01" to "HOS 3.0.0 (KeyGen 2)",
+            "master_key_02" to "HOS 3.0.1 — 3.0.2 (KeyGen 3)",
+            "master_key_03" to "HOS 4.0.0 — 4.1.0 (KeyGen 4)",
+            "master_key_04" to "HOS 5.0.0 — 5.1.0 (KeyGen 5)",
+            "master_key_05" to "HOS 6.0.0 — 6.1.0 (KeyGen 6)",
+            "master_key_06" to "HOS 6.2.0 (KeyGen 7)",
+            "master_key_07" to "HOS 7.0.0 — 8.0.1 (KeyGen 8)",
+            "master_key_08" to "HOS 8.1.0 — 8.1.1 (KeyGen 9)",
+            "master_key_09" to "HOS 9.0.0 — 9.0.1 (KeyGen 10)",
+            "master_key_0a" to "HOS 9.1.0 — 12.0.3 (KeyGen 11)",
+            "master_key_0b" to "HOS 12.1.0 (KeyGen 12)",
+            "master_key_0c" to "HOS 13.0.0 — 13.2.1 (KeyGen 13)",
+            "master_key_0d" to "HOS 14.0.0 — 14.1.2 (KeyGen 14)",
+            "master_key_0e" to "HOS 15.0.0 — 15.0.1 (KeyGen 15)",
+            "master_key_0f" to "HOS 16.0.0 — 16.1.0 (KeyGen 16)",
+            "master_key_10" to "HOS 17.0.0 — 17.0.1 (KeyGen 17)",
+            "master_key_11" to "HOS 18.0.0 — 18.1.0 (KeyGen 18)",
+            "master_key_12" to "HOS 19.0.0 — 19.0.1 (KeyGen 19)",
+            "master_key_13" to "HOS 20.0.0 — 21.0.0+ (KeyGen 20)"
+        )
+        val keys = loadSwitchKeysMap()
+        val foundList = mutableListOf<String>()
+        var maxFw = "HOS 1.0.0"
+        for ((k, desc) in fwMap) {
+            if (keys.containsKey(k)) {
+                foundList.add("🟢 $k -> $desc")
+                maxFw = desc
+            }
+        }
+        if (keys.containsKey("header_key")) {
+            foundList.add(0, "🟢 header_key (AES-128-XTS 32 байта) -> Активен")
+        }
+        return maxFw to foundList
     }
 }

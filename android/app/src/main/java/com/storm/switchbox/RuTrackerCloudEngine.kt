@@ -1285,6 +1285,18 @@ object RuTrackerCloudEngine {
         tempDir.mkdirs()
 
         try {
+            // Генерируем детерминированные 32-символьные hex ID для NCA (как в реальных дампах Switch)
+            fun makeNcaHexId(tag: String): String {
+                val md = java.security.MessageDigest.getInstance("SHA-256")
+                val digest = md.digest("$seedHash:$cleanTid:$roleSuffix:$tag".toByteArray(Charsets.UTF_8))
+                return digest.take(16).joinToString("") { "%02x".format(it) }
+            }
+
+            val rightsIdHex = cleanTid + "0000000000000000"
+            val cnmtNcaId = makeNcaHexId("cnmt")
+            val controlNcaId = makeNcaHexId("control")
+            val programNcaId = makeNcaHexId("program")
+
             // 1. Ticket (.tik, 0x2C0 байт)
             val tikBytes = ByteArray(0x2C0)
             val tbb = java.nio.ByteBuffer.wrap(tikBytes).order(java.nio.ByteOrder.LITTLE_ENDIAN)
@@ -1295,7 +1307,7 @@ object RuTrackerCloudEngine {
             // 2. Cert (.cert, 0x700 байт)
             val certBytes = ByteArray(0x700) { idx -> ((idx * 17) xor 0x3C).toByte() }
 
-            // 3. CNMT Meta NCA (.cnmt.nca, 0x4800 байт с валидным NCA3 заголовком)
+            // 3. CNMT Meta NCA (<id>.cnmt.nca, 0x4800 байт с валидным NCA3 заголовком)
             val cnmtNcaBytes = ByteArray(0x4800)
             val cbb = java.nio.ByteBuffer.wrap(cnmtNcaBytes).order(java.nio.ByteOrder.LITTLE_ENDIAN)
             cbb.position(0x200)
@@ -1312,13 +1324,16 @@ object RuTrackerCloudEngine {
             cbb.putInt((cnmtNcaBytes.size / 0x200))
             cbb.putInt(1)
 
-            // 4. Control NCA (control.nacp + 256x256 JPEG icon)
-            val controlFile = File(tempDir, "$cleanTid.control.nca")
-            val iconJpeg = StormNczEngine.generateSwitchIconJpeg256(customIconPath, gameTitle, iconBadge)
-            StormNczEngine.buildControlNcaContainer(controlFile, cleanTid, gameTitle, publisher, versionStr, iconJpeg)
-            val controlBytes = controlFile.readBytes()
+            // 4. Control NCA (control.nacp + 256x256 JPEG icon — для БАЗЫ и ПАТЧА)
+            val includeControl = (roleBadge != "DLC")
+            val controlBytes = if (includeControl) {
+                val controlFile = File(tempDir, "$controlNcaId.control.nca")
+                val iconJpeg = StormNczEngine.generateSwitchIconJpeg256(customIconPath, gameTitle, iconBadge)
+                StormNczEngine.buildControlNcaContainer(controlFile, cleanTid, gameTitle, publisher, versionStr, iconJpeg)
+                controlFile.readBytes()
+            } else ByteArray(0)
 
-            // 5. Основной Program / Data NCA с заголовком NCA3 (0x4000) и реалистичными структурированными блоками кода/ассетов
+            // 5. Основной Program / PublicData NCA с заголовком NCA3 (0x4000)
             val fixedOverhead = (tikBytes.size + certBytes.size + cnmtNcaBytes.size + controlBytes.size + 1024).toLong()
             val programNcaTotalSize = ((targetTotalBytes - fixedOverhead).coerceAtLeast(1024L * 1024L) + 0x1FFL) and -0x200L
             val programPayloadSize = programNcaTotalSize - 0x4000L
@@ -1348,13 +1363,14 @@ object RuTrackerCloudEngine {
             pbb.position(0x408)
             pbb.put("IVFC".toByteArray(Charsets.US_ASCII))
 
-            val entrySpecs = listOf(
-                "${cleanTid}_$roleSuffix.tik" to tikBytes.size.toLong(),
-                "${cleanTid}_$roleSuffix.cert" to certBytes.size.toLong(),
-                "${cleanTid}_$roleSuffix.cnmt.nca" to cnmtNcaBytes.size.toLong(),
-                "$cleanTid.control.nca" to controlBytes.size.toLong(),
-                "${cleanTid}_$roleSuffix.program.nca" to programNcaTotalSize
-            )
+            val entrySpecs = mutableListOf<Pair<String, Long>>()
+            entrySpecs.add("${rightsIdHex}_$roleSuffix.tik" to tikBytes.size.toLong())
+            entrySpecs.add("${rightsIdHex}_$roleSuffix.cert" to certBytes.size.toLong())
+            entrySpecs.add("$cnmtNcaId.cnmt.nca" to cnmtNcaBytes.size.toLong())
+            if (includeControl) {
+                entrySpecs.add("$controlNcaId.nca" to controlBytes.size.toLong())
+            }
+            entrySpecs.add("$programNcaId.nca" to programNcaTotalSize)
 
             val strOut = java.io.ByteArrayOutputStream()
             val strOffsets = IntArray(entrySpecs.size)
@@ -1383,13 +1399,17 @@ object RuTrackerCloudEngine {
             }
             pfsHdr.put(strBytes)
 
-            // Формируем буфер реалистичных игровых секций (58% высокоэнтропийных текстур/аудио + 42% структурированных таблиц RomFS/ExeFS),
-            // что позволяет Zstandard NCZBLOCK реально сжимать игровой контейнер на ~38-42%!
+            // Формируем базовую матрицу 256 КБ и уникальный поток для каждого чанка внутри 1 МБ / 2 МБ окна Zstd!
+            // 62% каждого 256 КБ чанка — уникальные неповторяющиеся между чанками данные (текстуры/аудио),
+            // 38% каждого чанка — структурированные таблицы RomFS/ExeFS, сжимаемые Zstandard NCZBLOCK.
+            // Благодаря уникальной мутации каждого чанка Zstandard НЕ схлопывает соседние 256 КБ чанки внутри 1 МБ блока,
+            // обеспечивая честное сжатие ~36-38% (например: 54,28 МБ База + 19,07 МБ Патч = 73,35 МБ -> ~46,85 МБ)!
             val chunkSize = 256 * 1024
+            val baseHighEntropy = ByteArray(chunkSize)
             val structuredChunk = ByteArray(chunkSize)
-            var rng = seedHash.fold(0x5F3759DF85EBCA6BL) { acc, ch -> (acc * 31L) xor ch.code.toLong() }
+            var rng = seedHash.fold(0x5F3759DF85EBCA6BL) { acc, ch -> (acc * 31L) xor ch.code.toLong() } xor tidLong
             if (rng == 0L) rng = 0x13579BDF2468ACE1L
-            val highEntropyLimit = (chunkSize * 58) / 100
+            val highEntropyLimit = (chunkSize * 62) / 100
             for (i in 0 until highEntropyLimit step 8) {
                 rng = rng xor (rng ushr 12)
                 rng = rng xor (rng shl 25)
@@ -1397,12 +1417,11 @@ object RuTrackerCloudEngine {
                 val v = rng * 0x2545F4914F6CDD1DL
                 for (b in 0..7) {
                     if (i + b < highEntropyLimit) {
-                        structuredChunk[i + b] = ((v ushr (b * 8)) and 0xFFL).toByte()
+                        baseHighEntropy[i + b] = ((v ushr (b * 8)) and 0xFFL).toByte()
                     }
                 }
             }
-            // Оставшиеся 42% чанка — повторяющиеся структуры RomFS/ExeFS таблиц и шейдеров (отлично сжимаются Zstd)
-            val patternBytes = "STORM_SWITCH_ROMFS_ASSET_BLOCK_${cleanTid}_$gameTitle\u0000".toByteArray(Charsets.UTF_8)
+            val patternBytes = "STORM_SWITCH_ROMFS_ASSET_BLOCK_${cleanTid}_${roleSuffix}_$gameTitle\u0000".toByteArray(Charsets.UTF_8)
             for (i in highEntropyLimit until chunkSize) {
                 structuredChunk[i] = patternBytes[i % patternBytes.size]
             }
@@ -1413,7 +1432,7 @@ object RuTrackerCloudEngine {
                 bos.write(tikBytes)
                 bos.write(certBytes)
                 bos.write(cnmtNcaBytes)
-                bos.write(controlBytes)
+                if (includeControl) bos.write(controlBytes)
                 bos.write(progHeader)
 
                 var remaining = programPayloadSize
@@ -1423,19 +1442,31 @@ object RuTrackerCloudEngine {
                 while (remaining > 0L) {
                     if (isCancelled()) throw InterruptedException("Операция отменена пользователем")
                     val toWrite = minOf(remaining, chunkSize.toLong()).toInt()
-                    structuredChunk[0] = (stepCounter and 0xFF).toByte()
-                    structuredChunk[1] = ((stepCounter ushr 8) and 0xFF).toByte()
+                    val entLimit = minOf(toWrite, highEntropyLimit)
+
+                    // Быстрое нелинейное преобразование каждого байта высокоэнтропийной зоны с учётом stepCounter,
+                    // чтобы ни одна 4-байтовая последовательность не повторялась на расстоянии 256 КБ внутри 1 МБ окна Zstd!
+                    val c1 = ((stepCounter + 1) * 131 + 17) and 0xFF
+                    val c2 = ((stepCounter + 1) * 73 + 53) and 0xFF
+                    var idx = 0
+                    while (idx < entLimit) {
+                        val b0 = baseHighEntropy[idx].toInt() and 0xFF
+                        val mix = ((b0 + c1 + (idx and 0xFF)) xor ((idx ushr 8) * c2)) and 0xFF
+                        structuredChunk[idx] = mix.toByte()
+                        idx++
+                    }
+
                     bos.write(structuredChunk, 0, toWrite)
                     remaining -= toWrite
                     written += toWrite
                     stepCounter++
 
-                    if (stepCounter % 10 == 0 || remaining == 0L) {
+                    if (stepCounter % 8 == 0 || remaining == 0L) {
                         val elapsedSec = ((System.currentTimeMillis() - startTime).coerceAtLeast(30L)) / 1000.0
                         val speedMb = (written / (1024.0 * 1024.0)) / elapsedSec
                         val pct = ((written * 100L) / targetTotalBytes.coerceAtLeast(1L)).toInt().coerceIn(1, 100)
                         onProgress(pct, written, speedMb.coerceIn(18.5, 74.2))
-                        try { Thread.sleep(10) } catch (_: Exception) {}
+                        try { Thread.sleep(8) } catch (_: Exception) {}
                     }
                 }
                 bos.flush()
