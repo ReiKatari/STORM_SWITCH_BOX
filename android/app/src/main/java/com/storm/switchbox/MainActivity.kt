@@ -8,6 +8,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -37,6 +38,7 @@ import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.PopupWindow
 import android.widget.ProgressBar
@@ -155,12 +157,24 @@ class MainActivity : Activity() {
     private lateinit var logTextView: TextView
     private val logLines = mutableListOf<String>()
 
+    // Предварительное переименование внутри (control.nacp / SMDH), смена иконки 256x256 и имя итогового файла (как на ПК)
+    private var preBuildCustomizeEnabled = false
+    private var customInternalGameTitle = ""
+    private var customGamePublisher = "Nintendo / STORM TEAM"
+    private var customDisplayVer = ""
+    private var customOutputFileName = ""
+    private var customIconImagePath = ""
+    private var selectedIconBadgeIndex = 0
+    private val iconBadgeOptions = listOf("Без бейджа", "RUS", "RUS + MOD", "60 FPS", "MULTI", "4K MOD")
+    private var onCustomIconPickedCallback: ((String) -> Unit)? = null
+
     companion object {
         private const val REQ_PICK_MULTIPLE_FILES = 1001
         private const val REQ_PICK_FOLDER_TREE = 1002
         private const val REQ_PICK_KEYS_FILE = 1003
         private const val REQ_INSTALL_UNKNOWN_APPS = 1004
         private const val REQ_PICK_OUTPUT_FOLDER_TREE = 1005
+        private const val REQ_PICK_CUSTOM_ICON = 1006
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -181,7 +195,7 @@ class MainActivity : Activity() {
         }
 
         buildUserInterface()
-        appendLog("STORM SWITCH BOX ${"5.5.3"} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) готов к работе.")
+        appendLog("STORM SWITCH BOX ${"5.5.4"} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) готов к работе.")
 
         // Автоматическая проверка обновлений с GitHub при запуске
         if (autoCheckUpdatesOnStartup) {
@@ -325,7 +339,7 @@ class MainActivity : Activity() {
                 currentLangCode = json.optString("lang", "ru")
                 selectedOperationMode = json.optInt("operationMode", 0).coerceIn(0, 4)
                 selectedCompressionMethod = json.optInt("compressionMethod", 0).coerceIn(0, 3)
-                selectedOutputFormat = json.optInt("outputFormat", 0).coerceIn(0, 3)
+                selectedOutputFormat = json.optInt("outputFormat", 0).coerceIn(0, 6)
                 useBlockNcz = json.optBoolean("useBlockNcz", true)
                 smartMergeDedup = json.optBoolean("smartMergeDedup", true)
                 autoEmbedMods = json.optBoolean("autoEmbedMods", true)
@@ -652,7 +666,7 @@ class MainActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
         titleCol.addView(TextView(this).apply {
-            text = "STORM SWITCH BOX ${"5.5.3"}"
+            text = "STORM SWITCH BOX ${"5.5.4"}"
             setTextColor(th.textPrimary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
             typeface = Typeface.DEFAULT_BOLD
@@ -978,10 +992,13 @@ class MainActivity : Activity() {
         })
 
         val outputFormats = listOf(
-            "NSZ — Сжатый цифровой контейнер (Блочный NCZBLOCK, рекомендуется)",
-            "XCZ — Сжатый мульти-картридж (Блочный NCZBLOCK, без тикетов)",
-            "NSP — Оригинальный цифровой контейнер (Без сжатия NCA)",
-            "XCI — Оригинальный мульти-картридж (Без сжатия NCA)"
+            "NSZ — Сжатый цифровой контейнер Switch (Блочный NCZBLOCK, рекомендуется)",
+            "XCZ — Сжатый мульти-картридж Switch (Блочный NCZBLOCK, без тикетов)",
+            "NSP — Оригинальный цифровой контейнер Switch (PFS0, без сжатия NCA)",
+            "XCI — Оригинальный мульти-картридж Switch (HEAD + HFS0, без сжатия NCA)",
+            "CCI — Образ картриджа Nintendo 3DS / Citra / Azahar (NCSD + NoCrypto)",
+            "3DS — Образ картриджа Nintendo 3DS (NCSD Decrypted + Trim 0xFF)",
+            "CIA — Установочный архив Nintendo 3DS (CTR Importable Archive)"
         )
         val formatDropdown = makeStormDropdown(outputFormats, selectedOutputFormat, th) { pos ->
             selectedOutputFormat = pos
@@ -1136,7 +1153,233 @@ class MainActivity : Activity() {
 
         parent.addView(cfgCard)
 
-        // ГРУППА 4: Панель запуска и телеметрия прогресса
+        // ГРУППА 3.5: Предварительное переименование внутри (control.nacp / SMDH), смена иконки/обложки (256x256) и имя итогового файла (как в ПК-версии)
+        val activeMetaFile = selectedInputFile ?: queuedFiles.firstOrNull()
+        val detectedMeta = if (activeMetaFile != null) StormNczEngine.readContainerMetadata(activeMetaFile) else null
+        val defaultCleanTitle = detectedMeta?.internalTitle ?: (gameGroups.firstOrNull()?.displayTitle ?: "Switch Game")
+        val defaultVer = detectedMeta?.displayVersion ?: "1.0.0"
+        val targetExtPreview = when (selectedOutputFormat) {
+            0 -> "nsz"
+            1 -> "xcz"
+            2 -> "nsp"
+            3 -> "xci"
+            4 -> "cci"
+            5 -> "3ds"
+            6 -> "cia"
+            else -> "nsz"
+        }
+
+        val renameCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = makeCardDrawable(th.bgCard, th.border)
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(10)
+            }
+        }
+        renameCard.addView(makeSectionHeader(
+            "4. Предварительное переименование внутри (NACP / SMDH), смена иконки и имя файла",
+            "Как в ПК-версии: измените внутреннее имя игры в меню приставки/эмулятора (на всех 16 языках), замените обложку 256×256 JPEG, наложите бейдж и задайте точное имя выходного файла",
+            th
+        ))
+
+        val editorBody = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = if (preBuildCustomizeEnabled) View.VISIBLE else View.GONE
+            background = makeCardDrawable(th.bgPrimary, th.border, 8)
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(6)
+            }
+        }
+
+        val enableRenameCb = makeStormCheckBox(
+            "Включить предварительное переименование внутри (control.nacp / SMDH), смену иконки/обложки и имени файла",
+            preBuildCustomizeEnabled,
+            th
+        ) { checked ->
+            preBuildCustomizeEnabled = checked
+            if (checked) {
+                if (customInternalGameTitle.isBlank()) customInternalGameTitle = defaultCleanTitle
+                if (customDisplayVer.isBlank()) customDisplayVer = defaultVer
+                if (customOutputFileName.isBlank()) customOutputFileName = "$defaultCleanTitle [v$defaultVer].$targetExtPreview"
+            }
+            buildUserInterface()
+        }
+        renameCard.addView(enableRenameCb)
+
+        // Ряд превью иконки 256x256 JPEG и кнопок выбора обложки / бейджа
+        val iconRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(8)
+            }
+        }
+
+        val iconPreviewImg = ImageView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(dp(74), dp(74)).apply {
+                marginEnd = dp(10)
+            }
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            background = makeCardDrawable(th.bgCard, th.accent, 10)
+            setPadding(dp(2), dp(2), dp(2), dp(2))
+        }
+
+        fun refreshIconPreview() {
+            val previewTitle = customInternalGameTitle.ifBlank { defaultCleanTitle }
+            val badgeStr = iconBadgeOptions.getOrElse(selectedIconBadgeIndex) { "" }
+            val jpegBytes = StormNczEngine.generateSwitchIconJpeg256(customIconImagePath, previewTitle, badgeStr)
+            val bmp = BitmapFactory.decodeByteArray(jpegBytes, 0, jpegBytes.size)
+            if (bmp != null) iconPreviewImg.setImageBitmap(bmp)
+        }
+        refreshIconPreview()
+        iconRow.addView(iconPreviewImg)
+
+        val iconRightCol = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val iconBtnRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(6)
+            }
+        }
+        iconBtnRow.addView(makeButton("🖼 Сменить иконку / обложку", th.accent) {
+            openCustomIconImagePicker { pickedPath ->
+                customIconImagePath = pickedPath
+                refreshIconPreview()
+            }
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) }
+        })
+        if (customIconImagePath.isNotBlank()) {
+            iconBtnRow.addView(makeButton("↺ Сброс", th.bgElevated, th.textSecondary) {
+                customIconImagePath = ""
+                refreshIconPreview()
+                buildUserInterface()
+            })
+        }
+        iconRightCol.addView(iconBtnRow)
+
+        iconRightCol.addView(TextView(this).apply {
+            text = "Бейдж на иконке 256×256 JPEG:"
+            setTextColor(th.textSecondary)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+            setPadding(0, 0, 0, dp(2))
+        })
+        iconRightCol.addView(makeStormDropdown(iconBadgeOptions, selectedIconBadgeIndex, th) { pos ->
+            selectedIconBadgeIndex = pos
+            refreshIconPreview()
+        })
+        iconRow.addView(iconRightCol)
+        editorBody.addView(iconRow)
+
+        // Поле 1: Внутреннее название игры (control.nacp / SMDH)
+        editorBody.addView(TextView(this).apply {
+            text = "Внутреннее название игры (control.nacp / SMDH во всех 16 языковых слотах):"
+            setTextColor(th.textSecondary)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.2f)
+            setPadding(0, dp(2), 0, dp(2))
+        })
+        val titleInput = EditText(this).apply {
+            setText(customInternalGameTitle.ifBlank { defaultCleanTitle })
+            hint = "Например: Animal Well [RUS]"
+            setTextColor(th.textPrimary)
+            setHintTextColor(th.textSecondary)
+            textSize = 12f
+            setSingleLine(true)
+            background = makeCardDrawable(th.bgCard, th.border, 6)
+            setPadding(dp(8), dp(6), dp(8), dp(6))
+            addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                override fun afterTextChanged(s: android.text.Editable?) {
+                    customInternalGameTitle = s?.toString() ?: ""
+                    refreshIconPreview()
+                }
+            })
+        }
+        editorBody.addView(titleInput)
+
+        // Поле 2: Издатель и отображаемая версия
+        val pubVerRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(6)
+            }
+        }
+        val pubInput = EditText(this).apply {
+            setText(customGamePublisher)
+            hint = "Издатель / Автор..."
+            setTextColor(th.textPrimary)
+            setHintTextColor(th.textSecondary)
+            textSize = 11.8f
+            setSingleLine(true)
+            background = makeCardDrawable(th.bgCard, th.border, 6)
+            setPadding(dp(8), dp(6), dp(8), dp(6))
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) }
+            addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                override fun afterTextChanged(s: android.text.Editable?) {
+                    customGamePublisher = s?.toString() ?: ""
+                }
+            })
+        }
+        val verInput = EditText(this).apply {
+            setText(customDisplayVer.ifBlank { defaultVer })
+            hint = "Версия (1.0.3)"
+            setTextColor(th.textPrimary)
+            setHintTextColor(th.textSecondary)
+            textSize = 11.8f
+            setSingleLine(true)
+            background = makeCardDrawable(th.bgCard, th.border, 6)
+            setPadding(dp(8), dp(6), dp(8), dp(6))
+            layoutParams = LinearLayout.LayoutParams(dp(120), ViewGroup.LayoutParams.WRAP_CONTENT)
+            addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                override fun afterTextChanged(s: android.text.Editable?) {
+                    customDisplayVer = s?.toString() ?: ""
+                }
+            })
+        }
+        pubVerRow.addView(pubInput)
+        pubVerRow.addView(verInput)
+        editorBody.addView(pubVerRow)
+
+        // Поле 3: Имя итогового файла на диске
+        editorBody.addView(TextView(this).apply {
+            text = "Имя итогового выходного файла (автоматически получит расширение .$targetExtPreview):"
+            setTextColor(th.textSecondary)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.2f)
+            setPadding(0, dp(6), 0, dp(2))
+        })
+        val outFileInput = EditText(this).apply {
+            setText(customOutputFileName.ifBlank { "$defaultCleanTitle [v$defaultVer] [MULTI].$targetExtPreview" })
+            hint = "Имя итогового файла (напр. Animal Well [RUS].$targetExtPreview)..."
+            setTextColor(th.textPrimary)
+            setHintTextColor(th.textSecondary)
+            textSize = 12f
+            setSingleLine(true)
+            background = makeCardDrawable(th.bgCard, th.border, 6)
+            setPadding(dp(8), dp(6), dp(8), dp(6))
+            addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                override fun afterTextChanged(s: android.text.Editable?) {
+                    customOutputFileName = s?.toString() ?: ""
+                }
+            })
+        }
+        editorBody.addView(outFileInput)
+
+        renameCard.addView(editorBody)
+        parent.addView(renameCard)
+
+        // ГРУППА 5: Панель запуска и телеметрия прогресса
         val runCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = makeCardDrawable(th.bgCard, th.border)
@@ -1145,7 +1388,7 @@ class MainActivity : Activity() {
                 bottomMargin = dp(10)
             }
         }
-        runCard.addView(makeSectionHeader("4. Выполнение и прогресс", null, th))
+        runCard.addView(makeSectionHeader("5. Выполнение и прогресс", null, th))
 
         val progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
             max = 100
@@ -1251,6 +1494,15 @@ class MainActivity : Activity() {
 
                         if (preparedInputs.isEmpty()) continue
 
+                        val preCustom = StormNczEngine.PreBuildCustomization(
+                            enabled = preBuildCustomizeEnabled,
+                            customInternalTitle = customInternalGameTitle,
+                            customPublisher = customGamePublisher,
+                            customDisplayVersion = customDisplayVer,
+                            customOutputFileName = if (gameGroups.size == 1) customOutputFileName else "",
+                            customIconPath = customIconImagePath,
+                            iconBadgeText = iconBadgeOptions.getOrElse(selectedIconBadgeIndex) { "" }
+                        )
                         val res = StormNczEngine.buildSmartMultiContentPackage(
                             inputFiles = preparedInputs,
                             outputDir = customOutputDir,
@@ -1262,6 +1514,7 @@ class MainActivity : Activity() {
                             blockSizeExponent = effectiveBlockExpo,
                             threads = cpuThreads,
                             smartSizeGuard = true,
+                            preBuildCustomization = preCustom,
                             onProgress = cb
                         )
 
@@ -1320,6 +1573,15 @@ class MainActivity : Activity() {
                                 StormNczEngine.smartShrinkRom(inFile, outFile, cb)
                             }
                             else -> {
+                                val preCustomSingle = StormNczEngine.PreBuildCustomization(
+                                    enabled = preBuildCustomizeEnabled,
+                                    customInternalTitle = customInternalGameTitle,
+                                    customPublisher = customGamePublisher,
+                                    customDisplayVersion = customDisplayVer,
+                                    customOutputFileName = if (snapshot.size == 1) customOutputFileName else "",
+                                    customIconPath = customIconImagePath,
+                                    iconBadgeText = iconBadgeOptions.getOrElse(selectedIconBadgeIndex) { "" }
+                                )
                                 StormNczEngine.buildSmartMultiContentPackage(
                                     inputFiles = listOf(inFile),
                                     outputDir = customOutputDir,
@@ -1331,6 +1593,7 @@ class MainActivity : Activity() {
                                     blockSizeExponent = effectiveBlockExpo,
                                     threads = cpuThreads,
                                     smartSizeGuard = true,
+                                    preBuildCustomization = preCustomSingle,
                                     onProgress = cb
                                 )
                             }
@@ -1963,14 +2226,166 @@ class MainActivity : Activity() {
         })
 
         val formatNames = listOf(
-            "NSZ — Сжатый цифровой контейнер (Блочный NCZBLOCK)",
-            "XCZ — Сжатый мульти-картридж (Блочный NCZBLOCK)",
-            "NSP — Оригинальный цифровой контейнер (Без сжатия)",
-            "XCI — Оригинальный мульти-картридж (Без сжатия)"
+            "NSZ — Сжатый цифровой контейнер Switch (Блочный NCZBLOCK)",
+            "XCZ — Сжатый мульти-картридж Switch (Блочный NCZBLOCK)",
+            "NSP — Оригинальный цифровой контейнер Switch (Без сжатия)",
+            "XCI — Оригинальный мульти-картридж Switch (Без сжатия)",
+            "CCI — Образ картриджа Nintendo 3DS (NCSD + NoCrypto)",
+            "3DS — Образ картриджа Nintendo 3DS (Decrypted + Trim)",
+            "CIA — Установочный архив Nintendo 3DS"
         )
+
+        val cleanDefaultTitle = StormNczEngine.extractCleanGameTitle(item.title)
+        val verMatch = Regex("""\b(v\d+(?:\.\d+)+)\b""", RegexOption.IGNORE_CASE).find(item.title)
+        val defaultVerStr = verMatch?.groupValues?.get(1)?.removePrefix("v")?.removePrefix("V") ?: "1.0.3"
+        fun extForMode(m: Int): String = when (m) {
+            0 -> "nsz"
+            1 -> "xcz"
+            2 -> "nsp"
+            3 -> "xci"
+            4 -> "cci"
+            5 -> "3ds"
+            6 -> "cia"
+            else -> "nsz"
+        }
+
+        var dlgCustomRenameEnabled = true
+        var dlgInternalTitle = cleanDefaultTitle
+        var dlgPublisher = "Nintendo / STORM TEAM"
+        var dlgDisplayVer = defaultVerStr
+        var dlgOutputFileName = "$cleanDefaultTitle [v$defaultVerStr] [MULTI].${extForMode(dialogFormatMode)}"
+        var dlgCustomIconPath = customIconImagePath
+        var dlgBadgeIndex = 0
+        var dlgOutNameEdit: EditText? = null
+
         root.addView(makeStormDropdown(formatNames, dialogFormatMode, th) { pos ->
+            val oldExt = ".${extForMode(dialogFormatMode)}"
             dialogFormatMode = pos
+            val newExt = ".${extForMode(dialogFormatMode)}"
+            dlgOutNameEdit?.let { editRef ->
+                val curTxt = editRef.text.toString().trim()
+                val updated = if (curTxt.endsWith(oldExt, ignoreCase = true)) {
+                    curTxt.dropLast(oldExt.length) + newExt
+                } else {
+                    curTxt.substringBeforeLast('.') + newExt
+                }
+                editRef.setText(updated)
+                dlgOutputFileName = updated
+            }
         })
+
+        // Блок предварительного переименования внутри (control.nacp), смены иконки 256x256 и имени итогового файла
+        val dlgRenameBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = makeCardDrawable(th.bgPrimary, th.border, 8)
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(6)
+                bottomMargin = dp(4)
+            }
+        }
+        dlgRenameBox.addView(TextView(this).apply {
+            text = "✏️ Предварительное переименование (NACP), смена иконки 256×256 и имя файла:"
+            setTextColor(th.accent)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(0, 0, 0, dp(6))
+        })
+
+        val dlgIconRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(6)
+            }
+        }
+        val dlgIconPreview = ImageView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(dp(64), dp(64)).apply { marginEnd = dp(8) }
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            background = makeCardDrawable(th.bgCard, th.accent, 8)
+            setPadding(dp(2), dp(2), dp(2), dp(2))
+        }
+        fun updateDlgIconPreview() {
+            val badge = iconBadgeOptions.getOrElse(dlgBadgeIndex) { "" }
+            val jpg = StormNczEngine.generateSwitchIconJpeg256(dlgCustomIconPath, dlgInternalTitle.ifBlank { cleanDefaultTitle }, badge)
+            val bmp = BitmapFactory.decodeByteArray(jpg, 0, jpg.size)
+            if (bmp != null) dlgIconPreview.setImageBitmap(bmp)
+        }
+        updateDlgIconPreview()
+        dlgIconRow.addView(dlgIconPreview)
+
+        val dlgIconControls = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        dlgIconControls.addView(makeButton("🖼 Сменить иконку / обложку (256×256)", th.bgElevated, th.accent) {
+            openCustomIconImagePicker { path ->
+                dlgCustomIconPath = path
+                customIconImagePath = path
+                updateDlgIconPreview()
+            }
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(4)
+            }
+        })
+        dlgIconControls.addView(makeStormDropdown(iconBadgeOptions, dlgBadgeIndex, th) { pos ->
+            dlgBadgeIndex = pos
+            updateDlgIconPreview()
+        })
+        dlgIconRow.addView(dlgIconControls)
+        dlgRenameBox.addView(dlgIconRow)
+
+        dlgRenameBox.addView(TextView(this).apply {
+            text = "Название игры внутри приставки/эмулятора (control.nacp):"
+            setTextColor(th.textSecondary)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.8f)
+        })
+        val dlgTitleEdit = EditText(this).apply {
+            setText(dlgInternalTitle)
+            hint = "Внутреннее название игры..."
+            setTextColor(th.textPrimary)
+            setHintTextColor(th.textSecondary)
+            textSize = 11.5f
+            setSingleLine(true)
+            background = makeCardDrawable(th.bgCard, th.border, 6)
+            setPadding(dp(8), dp(5), dp(8), dp(5))
+            addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                override fun afterTextChanged(s: android.text.Editable?) {
+                    dlgInternalTitle = s?.toString() ?: ""
+                    updateDlgIconPreview()
+                }
+            })
+        }
+        dlgRenameBox.addView(dlgTitleEdit)
+
+        dlgRenameBox.addView(TextView(this).apply {
+            text = "Имя итогового выходного файла:"
+            setTextColor(th.textSecondary)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.8f)
+            setPadding(0, dp(4), 0, 0)
+        })
+        dlgOutNameEdit = EditText(this).apply {
+            setText(dlgOutputFileName)
+            hint = "Имя выходного файла..."
+            setTextColor(th.textPrimary)
+            setHintTextColor(th.textSecondary)
+            textSize = 11.5f
+            setSingleLine(true)
+            background = makeCardDrawable(th.bgCard, th.border, 6)
+            setPadding(dp(8), dp(5), dp(8), dp(5))
+            addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                override fun afterTextChanged(s: android.text.Editable?) {
+                    dlgOutputFileName = s?.toString() ?: ""
+                }
+            })
+        }
+        dlgRenameBox.addView(dlgOutNameEdit)
+        root.addView(dlgRenameBox)
 
         val modsContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -2153,6 +2568,15 @@ class MainActivity : Activity() {
             thread {
                 try {
                     val useBlock = (dialogFormatMode == 0 || dialogFormatMode == 1)
+                    val dlgPreBuild = StormNczEngine.PreBuildCustomization(
+                        enabled = dlgCustomRenameEnabled,
+                        customInternalTitle = dlgInternalTitle.ifBlank { cleanDefaultTitle },
+                        customPublisher = dlgPublisher,
+                        customDisplayVersion = dlgDisplayVer,
+                        customOutputFileName = dlgOutputFileName,
+                        customIconPath = dlgCustomIconPath,
+                        iconBadgeText = iconBadgeOptions.getOrElse(dlgBadgeIndex) { "" }
+                    )
                     val res = RuTrackerCloudEngine.downloadTopicAndBuildMultiContent(
                         topic = item,
                         modUrls = collectedModUrls,
@@ -2167,6 +2591,7 @@ class MainActivity : Activity() {
                         isCancelled = { cancelPipeline },
                         onProgress = { _, _ -> },
                         selectedReleaseFiles = activeSelection,
+                        preBuildCustomization = dlgPreBuild,
                         onDetailedProgress = { pct, stageTitle, detailText, stepLines ->
                             mainHandler.post {
                                 progressBar.progress = pct
@@ -2416,7 +2841,7 @@ class MainActivity : Activity() {
         }
         updCard.addView(makeSectionHeader(
             "2. Обновление STORM SWITCH BOX с GitHub",
-            "Текущая версия: ${"5.5.3"} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()})",
+            "Текущая версия: ${"5.5.4"} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()})",
             th
         ))
         updCard.addView(makeStormCheckBox(
@@ -2584,6 +3009,38 @@ class MainActivity : Activity() {
                     }
                 }
             }
+            REQ_PICK_CUSTOM_ICON -> {
+                data.data?.let { uri ->
+                    try {
+                        val iconsDir = File(stormRoot, "settings/icons")
+                        iconsDir.mkdirs()
+                        val outIconFile = File(iconsDir, "custom_icon_${System.currentTimeMillis()}.jpg")
+                        contentResolver.openInputStream(uri)?.use { input ->
+                            FileOutputStream(outIconFile).use { output -> input.copyTo(output) }
+                        }
+                        if (outIconFile.exists() && outIconFile.length() > 0L) {
+                            customIconImagePath = outIconFile.absolutePath
+                            onCustomIconPickedCallback?.invoke(outIconFile.absolutePath)
+                            Toast.makeText(this, "🖼 Иконка загружена и отмасштабирована в 256×256 JPEG!", Toast.LENGTH_SHORT).show()
+                        }
+                    } catch (e: Exception) {
+                        Toast.makeText(this, "Ошибка загрузки изображения: ${e.message}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun openCustomIconImagePicker(onPicked: (String) -> Unit) {
+        onCustomIconPickedCallback = onPicked
+        try {
+            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "image/*"
+            }
+            startActivityForResult(Intent.createChooser(intent, "Выберите иконку или обложку (PNG / JPG / WEBP)"), REQ_PICK_CUSTOM_ICON)
+        } catch (e: Exception) {
+            Toast.makeText(this, "Не удалось открыть галерею изображений: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -2639,7 +3096,7 @@ class MainActivity : Activity() {
 
     private fun addFolderRecursivelyToQueue(folder: File): Int {
         if (!folder.exists()) return 0
-        val validExts = setOf("nsp", "nsz", "xci", "xcz", "3ds", "cia", "nca", "ncz")
+        val validExts = setOf("nsp", "nsz", "xci", "xcz", "nca", "ncz", "3ds", "cci", "cia", "cxi", "cfa", "3dsx", "nds", "zip", "ips", "pchtxt")
         var added = 0
         folder.walkTopDown().maxDepth(4).forEach { f ->
             if (f.isFile && f.extension.lowercase() in validExts) {
@@ -2660,7 +3117,7 @@ class MainActivity : Activity() {
         val th = themes[currentThemeIndex]
         var currentDir = if (initialDir.exists() && initialDir.isDirectory) initialDir else File("/storage/emulated/0")
         val selectedPaths = LinkedHashSet<File>()
-        val validExts = setOf("nsp", "nsz", "xci", "xcz", "3ds", "cia", "nca", "ncz")
+        val validExts = setOf("nsp", "nsz", "xci", "xcz", "nca", "ncz", "3ds", "cci", "cia", "cxi", "cfa", "3dsx", "nds", "zip", "ips", "pchtxt")
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -3070,14 +3527,14 @@ class MainActivity : Activity() {
         }
         val preferLegacy = (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) || Build.VERSION.SDK_INT < 26
         thread {
-            val rel = RuTrackerCloudEngine.checkGitHubAppUpdate("5.5.3", preferLegacy)
+            val rel = RuTrackerCloudEngine.checkGitHubAppUpdate("5.5.4", preferLegacy)
             mainHandler.post {
                 if (rel != null) {
                     showUpdateAvailableDialog(rel)
                 } else if (isManualClick) {
                     Toast.makeText(
                         this,
-                        "✅ У вас установлена актуальная версия STORM SWITCH BOX ${"5.5.3"}!",
+                        "✅ У вас установлена актуальная версия STORM SWITCH BOX ${"5.5.4"}!",
                         Toast.LENGTH_LONG
                     ).show()
                 }
@@ -3099,7 +3556,7 @@ class MainActivity : Activity() {
             typeface = Typeface.DEFAULT_BOLD
         })
         box.addView(TextView(this).apply {
-            text = "Новая версия: ${release.version} (Установлена: ${"5.5.3"})\nПакет: ${release.apkName} (${StormNczEngine.formatSize(release.apkSizeBytes)})"
+            text = "Новая версия: ${release.version} (Установлена: ${"5.5.4"})\nПакет: ${release.apkName} (${StormNczEngine.formatSize(release.apkSizeBytes)})"
             setTextColor(th.textPrimary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
             setPadding(0, dp(4), 0, dp(8))
