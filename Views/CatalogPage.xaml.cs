@@ -260,6 +260,29 @@ namespace StormSwitchBox.Views
 
                     if (string.IsNullOrWhiteSpace(query))
                     {
+                        if (itemsCopy.Count == 0 && _selectedPlatformFilter != 2)
+                        {
+                            var initialDb = App.TitleDb.GetAllEntries()
+                                .Where(x => !string.IsNullOrEmpty(x.Id) && x.Id.EndsWith("000") && !string.IsNullOrEmpty(x.Name))
+                                .Take(160);
+                            foreach (var dbEntry in initialDb)
+                            {
+                                var newItem = new CatalogItem
+                                {
+                                    TitleName = dbEntry.Name ?? "Unknown Game",
+                                    TitleId = dbEntry.Id ?? "0000000000000000",
+                                    Publisher = dbEntry.Publisher ?? "Nintendo Switch",
+                                    Description = dbEntry.Description ?? "Официальный релиз из базы TitleDB",
+                                    FileSize = "TitleDB (База)",
+                                    IsOnlineOnly = true,
+                                    IsLoading = false
+                                };
+                                if (!string.IsNullOrEmpty(dbEntry.Version))
+                                    newItem.Version = dbEntry.Version;
+                                App.TitleDb.EnrichCatalogItem(newItem);
+                                itemsCopy.Add(newItem);
+                            }
+                        }
                         return itemsCopy;
                     }
 

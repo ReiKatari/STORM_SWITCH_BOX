@@ -38,15 +38,17 @@
                 <AppBarButton.Flyout>
                     <MenuFlyout>
                         <MenuFlyoutItem x:Name="AddFilesItem" Text="Добавить файлы..." Click="AddFiles_Click"/>
-                        <MenuFlyoutItem x:Name="AddFolderItem" Text="Добавить папку..." Click="AddFolder_Click"/>
-                        <MenuFlyoutSeparator/>
+                        <MenuFlyoutItem x:Name="AddFolderItem" Text="Добавить папку..." Click="AddFolder_Click"/>
+
+                        <MenuFlyoutSeparator/>
+
                         <MenuFlyoutItem Text="🌐 Скачать игру / патч / мод (RuTracker / Я.Диск / GDrive)..." Click="OpenRuTrackerDownloader_Click"/>
                     </MenuFlyout>
                 </AppBarButton.Flyout>
             </AppBarButton>
             <AppBarElementContainer VerticalAlignment="Center" Margin="12,0">
                 <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                    <Button Click="PlatformToggle_Click" Padding="8,5" CornerRadius="6"
+                    <Button Click="PlatformToggle_Click" Height="34" Padding="10,0" CornerRadius="6"
                             ToolTipService.ToolTip="Переключить платформу (Switch / 3DS)">
                         <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                             <FontIcon Glyph="&#xE7FC;" FontSize="12" Foreground="{ThemeResource SystemAccentColor}"/>
@@ -132,7 +134,8 @@
                 </AppBarButton.Icon>
                 <AppBarButton.Flyout>
                     <MenuFlyout>
-                        <MenuFlyoutItem Text="🌐 RuTracker и Облачный загрузчик игр / модов..." Click="OpenRuTrackerDownloader_Click"/>
+                        <MenuFlyoutItem Text="🌐 RuTracker и Облачный загрузчик игр / модов..." Click="OpenRuTrackerDownloader_Click"/>
+
                         <MenuFlyoutItem Text="📡 Отправить на консоль (Wi-Fi / FTP / FBI QR)..." Click="OpenDirectConsoleSender_Click"/>
                         <MenuFlyoutSeparator/>
                         <MenuFlyoutItem Text="🔍 Визуальный инспектор RomFS / ExeFS..." Click="OpenRomFsInspector_Click"/>
@@ -143,11 +146,11 @@
             </AppBarButton>
             <AppBarSeparator/>
             <AppBarElementContainer VerticalAlignment="Center">
-                <TextBox x:Name="TaskSearchBox" PlaceholderText="🔍 Поиск..." Width="200" Height="30" 
+                <TextBox x:Name="TaskSearchBox" PlaceholderText="🔍 Поиск..." Width="200" Height="34" 
                          TextChanged="TaskSearchBox_TextChanged" VerticalContentAlignment="Center" FontSize="11" CornerRadius="4"/>
             </AppBarElementContainer>
             <AppBarElementContainer VerticalAlignment="Center" Margin="4,0">
-                <ComboBox x:Name="TaskOpFilter" PlaceholderText="Фильтр" Width="130" Height="30"
+                <ComboBox x:Name="TaskOpFilter" PlaceholderText="Фильтр" Width="130" Height="34"
                           SelectionChanged="TaskOpFilter_Changed" VerticalContentAlignment="Center" FontSize="11" CornerRadius="4">
                     <ComboBoxItem Content="Все" Tag=""/>
                     <ComboBoxItem Content="Обновление" Tag="Update"/>
@@ -358,11 +361,16 @@
                             </MenuFlyoutItem>
                         </MenuFlyoutSubItem>
                         <MenuFlyoutSeparator/>
-                        <MenuFlyoutItem Text="Скачать и привязать мод / русификатор (RuTracker / Я.Диск / GDrive)..." Click="AttachCloudModToTask_Click" MinWidth="300">
-                            <MenuFlyoutItem.Icon>
-                                <FontIcon Glyph="&#xE774;" Foreground="#38BDF8"/>
-                            </MenuFlyoutItem.Icon>
-                        </MenuFlyoutItem>
+                        <MenuFlyoutItem Text="Скачать и привязать мод / русификатор (RuTracker / Я.Диск / GDrive)..." Click="AttachCloudModToTask_Click" MinWidth="300">
+
+                            <MenuFlyoutItem.Icon>
+
+                                <FontIcon Glyph="&#xE774;" Foreground="#38BDF8"/>
+
+                            </MenuFlyoutItem.Icon>
+
+                        </MenuFlyoutItem>
+
                         <MenuFlyoutItem Text="Редактировать иконку и название..." Click="EditMetadata_Click" MinWidth="300">
                             <MenuFlyoutItem.Icon>
                                 <FontIcon Glyph="&#xE70F;" Foreground="#82B1FF"/>
@@ -560,11 +568,16 @@
                             </MenuFlyoutItem>
                         </MenuFlyoutSubItem>
                         <MenuFlyoutSeparator/>
-                        <MenuFlyoutItem Text="Скачать и привязать мод / русификатор (RuTracker / Я.Диск / GDrive)..." Click="AttachCloudModToTask_Click" MinWidth="300">
-                            <MenuFlyoutItem.Icon>
-                                <FontIcon Glyph="&#xE774;" Foreground="#38BDF8"/>
-                            </MenuFlyoutItem.Icon>
-                        </MenuFlyoutItem>
+                        <MenuFlyoutItem Text="Скачать и привязать мод / русификатор (RuTracker / Я.Диск / GDrive)..." Click="AttachCloudModToTask_Click" MinWidth="300">
+
+                            <MenuFlyoutItem.Icon>
+
+                                <FontIcon Glyph="&#xE774;" Foreground="#38BDF8"/>
+
+                            </MenuFlyoutItem.Icon>
+
+                        </MenuFlyoutItem>
+
                         <MenuFlyoutItem Text="Редактировать иконку и название..." Click="EditMetadata_Click" MinWidth="300">
                             <MenuFlyoutItem.Icon>
                                 <FontIcon Glyph="&#xE70F;"/>

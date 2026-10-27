@@ -113,6 +113,7 @@ class MainActivity : Activity() {
     // Параметры движка и пакетной очереди (сохраняются локально)
     private val queuedFiles = mutableListOf<File>()
     private var selectedInputFile: File? = null
+    private val expandedQueueGroups = mutableSetOf<String>()
     private var selectedOperationMode = 0
     // 0 = Умный мульти-контент (Сшивка База + Патч + DLC + Моды),
     // 1 = Пакетное сжатие и конвертация (По отдельности),
@@ -168,7 +169,7 @@ class MainActivity : Activity() {
     private val iconBadgeOptions = listOf("Без бейджа", "RUS", "RUS + MOD", "60 FPS", "MULTI", "4K MOD")
     private var onCustomIconPickedCallback: ((String) -> Unit)? = null
 
-    // Параметры 5.5.5: Распаковка/Упаковка RomFS+ExeFS, Генератор Forwarder (.nro -> .nsp), 3DS FBI QR и FTP
+    // Параметры 5.5.6: Распаковка/Упаковка RomFS+ExeFS, Генератор Forwarder (.nro -> .nsp), 3DS FBI QR и FTP
     private var extractRomfsEnabled = true
     private var extractExefsEnabled = true
     private var extractControlEnabled = true
@@ -205,6 +206,7 @@ class MainActivity : Activity() {
             hideSystemBars(window)
         }
 
+        StormNczEngine.initAppContext(applicationContext)
         ensureStormDirectories()
         loadSettings()
 
@@ -214,7 +216,7 @@ class MainActivity : Activity() {
         }
 
         buildUserInterface()
-        appendLog("STORM SWITCH BOX ${"5.5.5"} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) готов к работе.")
+        appendLog("STORM SWITCH BOX ${"5.5.6"} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) готов к работе.")
 
         // Автоматическая проверка обновлений с GitHub при запуске
         if (autoCheckUpdatesOnStartup) {
@@ -424,15 +426,19 @@ class MainActivity : Activity() {
         return Button(this).apply {
             this.text = text
             this.isAllCaps = false
+            this.gravity = Gravity.CENTER
+            this.includeFontPadding = false
+            this.minHeight = dp(46)
+            this.minimumHeight = dp(46)
             this.setTextColor(textColor)
-            this.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
+            this.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
             this.typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
             this.background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = dp(8).toFloat()
                 setColor(bgColor)
             }
-            this.setPadding(dp(12), dp(8), dp(12), dp(8))
+            this.setPadding(dp(10), dp(6), dp(10), dp(6))
             this.setOnClickListener { onClick() }
         }
     }
@@ -685,7 +691,7 @@ class MainActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
         titleCol.addView(TextView(this).apply {
-            text = "STORM SWITCH BOX ${"5.5.5"}"
+            text = "STORM SWITCH BOX ${"5.5.6"}"
             setTextColor(th.textPrimary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
             typeface = Typeface.DEFAULT_BOLD
@@ -831,12 +837,12 @@ class MainActivity : Activity() {
         rowPick1.addView(makeButton("📄 Выбрать файлы (Мультивыбор)", th.accent) {
             openSystemMultiFilePicker()
         }.apply {
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) }
+            layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(6) }
         })
         rowPick1.addView(makeButton("🗂 Мульти-проводник (Файлы и папки)", th.bgElevated, th.textPrimary) {
             showMultiSelectFileAndFolderDialog()
         }.apply {
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f)
         })
         sourceCard.addView(rowPick1)
 
@@ -849,13 +855,13 @@ class MainActivity : Activity() {
         rowPick2.addView(makeButton("📁 Выбрать любую папку", th.bgElevated, th.textPrimary) {
             openSystemFolderTreePicker()
         }.apply {
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) }
+            layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(6) }
         })
         rowPick2.addView(makeButton("🔄 Сканировать папку roms", th.bgElevated, th.textPrimary) {
             addFolderRecursivelyToQueue(romsDir)
             buildUserInterface()
         }.apply {
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f)
         })
         sourceCard.addView(rowPick2)
 
@@ -871,7 +877,7 @@ class MainActivity : Activity() {
             text = "📂 Папка сохранения: ${customOutputDir.absolutePath}"
             setTextColor(th.textSecondary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f)
         })
         outDirRow.addView(makeButton("Изменить папку", th.bgElevated, th.textPrimary) {
             showSelectOutputFolderDialog()
@@ -919,23 +925,85 @@ class MainActivity : Activity() {
                 setPadding(0, dp(6), 0, dp(2))
             })
         } else {
-            gameGroups.take(10).forEach { grp ->
+            gameGroups.take(15).forEach { grp ->
+                val isExpanded = expandedQueueGroups.contains(grp.groupKey) || gameGroups.size == 1
                 val grpBox = LinearLayout(this).apply {
                     orientation = LinearLayout.VERTICAL
-                    background = makeCardDrawable(th.bgPrimary, th.border, 8)
+                    background = makeCardDrawable(th.bgPrimary, if (isExpanded) th.accent else th.border, 8)
                     setPadding(dp(10), dp(8), dp(10), dp(8))
                     layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                         topMargin = dp(6)
                     }
                 }
                 val tidLabel = if (grp.baseTitleId.isNotEmpty()) " [${grp.baseTitleId}]" else ""
-                grpBox.addView(TextView(this).apply {
-                    text = "🎮 ${grp.displayTitle}$tidLabel — ${grp.items.size} ф. (${StormNczEngine.formatSize(grp.totalBytes)})"
+
+                // Собираем полную сводку компонентов (БАЗА, ПАТЧ, DLC, UNLOCKER, МОДЫ) как в ПК-версии
+                val allSubParts = mutableListOf<StormNczEngine.QueuedSubComponent>()
+                val allAppliedMods = mutableListOf<String>()
+                var historyRecord: StormNczEngine.TaskBuildHistoryEntry? = null
+                for (qi in grp.items) {
+                    val hist = StormNczEngine.getTaskBuildHistory(qi.file)
+                    if (hist != null) {
+                        historyRecord = hist
+                        allSubParts.addAll(hist.processedParts)
+                        allAppliedMods.addAll(hist.appliedMods)
+                    } else if (qi.subComponents.isNotEmpty()) {
+                        allSubParts.addAll(qi.subComponents)
+                        allAppliedMods.addAll(qi.embeddedModNames)
+                    } else {
+                        allSubParts.add(
+                            StormNczEngine.QueuedSubComponent(
+                                roleBadge = qi.roleBadge,
+                                titleId = qi.titleId.ifEmpty { grp.baseTitleId },
+                                name = qi.file.name,
+                                sizeBytes = if (qi.file.exists()) qi.file.length() else 0L
+                            )
+                        )
+                    }
+                }
+                // Также проверяем наличие локальных модов в папке mods/atmosphere/contents/<BaseTID>
+                if (grp.baseTitleId.isNotEmpty()) {
+                    val localModFolder = File(modsDir, "atmosphere/contents/${grp.baseTitleId}")
+                    if (localModFolder.exists() && localModFolder.isDirectory) {
+                        val modFilesCount = localModFolder.walkTopDown().maxDepth(4).count { it.isFile }
+                        if (modFilesCount > 0 && allAppliedMods.none { it.contains(grp.baseTitleId) }) {
+                            allAppliedMods.add("LayeredFS мод в папке atmosphere/contents/${grp.baseTitleId} ($modFilesCount ф.)")
+                        }
+                    }
+                }
+
+                val hdrRow = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setOnClickListener {
+                        if (expandedQueueGroups.contains(grp.groupKey)) {
+                            expandedQueueGroups.remove(grp.groupKey)
+                        } else {
+                            expandedQueueGroups.add(grp.groupKey)
+                        }
+                        buildUserInterface()
+                    }
+                }
+                val rolesSummaryBadges = allSubParts.map { it.roleBadge }.distinct().joinToString(" + ").ifEmpty { "БАЗА" }
+                val modsCountBadge = if (allAppliedMods.isNotEmpty()) " • 🛠 Модов: ${allAppliedMods.size}" else ""
+                hdrRow.addView(TextView(this).apply {
+                    text = "🎮 ${grp.displayTitle}$tidLabel\n📦 Состав: [$rolesSummaryBadges]$modsCountBadge • ${StormNczEngine.formatSize(grp.totalBytes)}"
                     setTextColor(th.accent)
-                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.2f)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
                     typeface = Typeface.DEFAULT_BOLD
-                    setPadding(0, 0, 0, dp(4))
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
                 })
+                hdrRow.addView(makeButton(if (isExpanded) "🔼 Скрыть состав" else "📋 Состав и моды ▼", th.bgElevated, th.accent) {
+                    if (expandedQueueGroups.contains(grp.groupKey)) {
+                        expandedQueueGroups.remove(grp.groupKey)
+                    } else {
+                        expandedQueueGroups.add(grp.groupKey)
+                    }
+                    buildUserInterface()
+                }.apply {
+                    layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(38)).apply { marginStart = dp(6) }
+                })
+                grpBox.addView(hdrRow)
 
                 grp.items.forEach { qItem ->
                     val file = qItem.file
@@ -953,6 +1021,11 @@ class MainActivity : Activity() {
                         }
                         setOnClickListener {
                             selectedInputFile = file
+                            if (!expandedQueueGroups.contains(grp.groupKey)) {
+                                expandedQueueGroups.add(grp.groupKey)
+                            } else {
+                                expandedQueueGroups.remove(grp.groupKey)
+                            }
                             buildUserInterface()
                         }
                     }
@@ -975,9 +1048,96 @@ class MainActivity : Activity() {
                         queuedFiles.removeAll { it.absolutePath == file.absolutePath }
                         if (selectedInputFile == file) selectedInputFile = queuedFiles.firstOrNull()
                         buildUserInterface()
+                    }.apply {
+                        layoutParams = LinearLayout.LayoutParams(dp(38), dp(36))
                     })
                     grpBox.addView(itemRow)
                 }
+
+                // Раскрывающийся детальный паспорт задачи (как на ПК: какие файлы сшивались и какие моды/анлокеры вшиты)
+                if (isExpanded) {
+                    val detailBox = LinearLayout(this).apply {
+                        orientation = LinearLayout.VERTICAL
+                        background = makeCardDrawable(th.bgCard, th.border, 6)
+                        setPadding(dp(10), dp(8), dp(10), dp(8))
+                        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                            topMargin = dp(6)
+                        }
+                    }
+                    detailBox.addView(TextView(this).apply {
+                        text = "🔍 Детальный состав задачи и обработанных компонентов (ПК-паритет):"
+                        setTextColor(th.accent)
+                        setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.3f)
+                        typeface = Typeface.DEFAULT_BOLD
+                        setPadding(0, 0, 0, dp(4))
+                    })
+
+                    if (historyRecord != null && historyRecord.originalTotalBytes > historyRecord.finalSizeBytes) {
+                        val saved = historyRecord.originalTotalBytes - historyRecord.finalSizeBytes
+                        val pct = ((saved * 100L) / historyRecord.originalTotalBytes.coerceAtLeast(1L)).toInt()
+                        detailBox.addView(TextView(this).apply {
+                            text = "📊 Сводка сборки (${historyRecord.targetFormat}): исходный объём ${StormNczEngine.formatSize(historyRecord.originalTotalBytes)} -> итоговый ${StormNczEngine.formatSize(historyRecord.finalSizeBytes)} (экономия ${StormNczEngine.formatSize(saved)} / -$pct%)"
+                            setTextColor(Color.parseColor("#22C55E"))
+                            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+                            typeface = Typeface.DEFAULT_BOLD
+                            setPadding(0, 0, 0, dp(4))
+                        })
+                    }
+
+                    allSubParts.forEachIndexed { idx, part ->
+                        val badgeColor = when {
+                            part.roleBadge.contains("БАЗА") -> th.accent
+                            part.roleBadge.contains("ПАТЧ") -> Color.parseColor("#38BDF8")
+                            part.roleBadge.contains("UNLOCK") -> Color.parseColor("#F59E0B")
+                            part.roleBadge.contains("DLC") -> Color.parseColor("#A855F7")
+                            else -> Color.parseColor("#22C55E")
+                        }
+                        detailBox.addView(TextView(this).apply {
+                            val tidInfo = if (part.titleId.isNotEmpty()) " [TID: ${part.titleId}]" else ""
+                            text = "  ${idx + 1}. [${part.roleBadge}]$tidInfo ${part.name} — ${StormNczEngine.formatSize(part.sizeBytes)}"
+                            setTextColor(badgeColor)
+                            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+                            typeface = Typeface.MONOSPACE
+                            setPadding(0, dp(1), 0, dp(1))
+                        })
+                    }
+
+                    detailBox.addView(TextView(this).apply {
+                        text = if (allAppliedMods.isNotEmpty()) {
+                            "🛠 Добавленные моды / русификаторы (${allAppliedMods.size}):\n" +
+                                allAppliedMods.joinToString("\n") { "  • ✅ $it" }
+                        } else {
+                            "🛠 Моды и русификаторы: не добавлялись (чистый официальный образ)"
+                        }
+                        setTextColor(if (allAppliedMods.isNotEmpty()) Color.parseColor("#22C55E") else th.textSecondary)
+                        setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+                        setPadding(0, dp(4), 0, dp(4))
+                    })
+
+                    val quickActRow = LinearLayout(this).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                            topMargin = dp(4)
+                        }
+                    }
+                    val primaryFile = grp.items.first().file
+                    quickActRow.addView(makeButton("🌲 Проводник RomFS / HEX", th.bgElevated, th.accent) {
+                        selectedInputFile = primaryFile
+                        showVirtualRomfsExplorerDialog(primaryFile, th)
+                    }.apply {
+                        layoutParams = LinearLayout.LayoutParams(0, dp(42), 1f).apply { marginEnd = dp(6) }
+                    })
+                    quickActRow.addView(makeButton("🔍 Инспектор разделов", th.bgElevated, th.textPrimary) {
+                        selectedInputFile = primaryFile
+                        activeTab = 1
+                        buildUserInterface()
+                    }.apply {
+                        layoutParams = LinearLayout.LayoutParams(0, dp(42), 1f)
+                    })
+                    detailBox.addView(quickActRow)
+                    grpBox.addView(detailBox)
+                }
+
                 queueCard.addView(grpBox)
             }
             if (gameGroups.size > 10) {
@@ -1322,7 +1482,7 @@ class MainActivity : Activity() {
                 refreshIconPreview()
             }
         }.apply {
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) }
+            layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(6) }
         })
         if (customIconImagePath.isNotBlank()) {
             iconBtnRow.addView(makeButton("↺ Сброс", th.bgElevated, th.textSecondary) {
@@ -1486,7 +1646,7 @@ class MainActivity : Activity() {
             }
             executeQueueBatch(progressBar, statusTxt)
         }.apply {
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) }
+            layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(6) }
         }
         actionBtnsRow.addView(btnStart)
 
@@ -1790,7 +1950,7 @@ class MainActivity : Activity() {
         inspBtnRow.addView(makeButton("📂 Выбрать файл для инспекции", th.bgElevated, th.textPrimary) {
             showMultiSelectFileAndFolderDialog()
         }.apply {
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) }
+            layoutParams = LinearLayout.LayoutParams(0, dp(50), 1f).apply { marginEnd = dp(6) }
         })
 
         if (activeFile != null && activeFile.exists()) {
@@ -1810,7 +1970,7 @@ class MainActivity : Activity() {
                     }
                 }
             }.apply {
-                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) }
+                layoutParams = LinearLayout.LayoutParams(0, dp(50), 1f).apply { marginEnd = dp(6) }
             })
             inspBtnRow.addView(makeButton("📤 Извлечь все разделы в extracted/", th.accent) {
                 val targetOut = File(extractedDir, activeFile.nameWithoutExtension)
@@ -1826,13 +1986,14 @@ class MainActivity : Activity() {
                     }
                 }
             }.apply {
-                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                layoutParams = LinearLayout.LayoutParams(0, dp(50), 1f)
             })
         }
         inspCard.addView(inspBtnRow)
 
         val romfsActionRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 bottomMargin = dp(8)
             }
@@ -1845,15 +2006,15 @@ class MainActivity : Activity() {
                 showVirtualRomfsExplorerDialog(target, th)
             }
         }.apply {
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) }
+            layoutParams = LinearLayout.LayoutParams(0, dp(50), 1f).apply { marginEnd = dp(6) }
         })
 
-        romfsActionRow.addView(makeButton("📂 Извлечь RomFS + ExeFS", th.bgElevated, th.accent) {
+        romfsActionRow.addView(makeButton("📂 Извлечь RomFS / ExeFS", th.bgElevated, th.accent) {
             val target = activeFile ?: queuedFiles.firstOrNull()
             if (target == null || !target.exists()) {
                 Toast.makeText(this, "Выберите игровой файл (.nsp/.nsz/.xci/.3ds) для извлечения RomFS и ExeFS!", Toast.LENGTH_SHORT).show()
             } else {
-                Toast.makeText(this, "⏳ Извлечение RomFS + ExeFS + Control из ${target.name}...", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "⏳ Извлечение RomFS / ExeFS + Control из ${target.name}...", Toast.LENGTH_SHORT).show()
                 thread {
                     try {
                         val rep = StormNczEngine.extractGameRomfsAndExefs(
@@ -1864,7 +2025,7 @@ class MainActivity : Activity() {
                             extractControl = true,
                             extractRawPartitions = true
                         ) {}
-                        appendLog("✅ Извлечено RomFS + ExeFS (${rep.extractedFilesCount} файлов, ${StormNczEngine.formatSize(rep.totalExtractedBytes)}) в ${rep.outputDir.absolutePath}")
+                        appendLog("✅ Извлечено RomFS / ExeFS (${rep.extractedFilesCount} файлов, ${StormNczEngine.formatSize(rep.totalExtractedBytes)}) в ${rep.outputDir.absolutePath}")
                         mainHandler.post {
                             showUnpackSummaryDialog(target.name, rep, th)
                         }
@@ -1874,13 +2035,13 @@ class MainActivity : Activity() {
                 }
             }
         }.apply {
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) }
+            layoutParams = LinearLayout.LayoutParams(0, dp(50), 1f).apply { marginEnd = dp(6) }
         })
 
         romfsActionRow.addView(makeButton("📦 Упаковать папку в NSP/NSZ", th.bgElevated, th.textPrimary) {
             showPackFolderToNspDialog(th)
         }.apply {
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            layoutParams = LinearLayout.LayoutParams(0, dp(50), 1f)
         })
         inspCard.addView(romfsActionRow)
 
@@ -1950,7 +2111,7 @@ class MainActivity : Activity() {
                 }
             }
         }.apply {
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) }
+            layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(6) }
         })
 
         auditBtnRow.addView(makeButton("⚡ Оптимизировать найденное", th.bgElevated, th.textPrimary) {
@@ -1967,7 +2128,7 @@ class MainActivity : Activity() {
             buildUserInterface()
             Toast.makeText(this, "В очередь добавлено $added файлов для оптимизации!", Toast.LENGTH_SHORT).show()
         }.apply {
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f)
         })
 
         auditCard.addView(auditBtnRow)
@@ -3387,7 +3548,7 @@ class MainActivity : Activity() {
             simBtnRow.addView(makeButton(label, th.bgElevated, th.accent) {
                 runSimulationPreset(pId)
             }.apply {
-                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f).apply {
                     if (idx < 2) marginEnd = dp(6)
                 }
             })
@@ -3544,7 +3705,7 @@ class MainActivity : Activity() {
                 }
             }
         }.apply {
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) }
+            layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(6) }
         })
 
         onlineKeysRow.addView(makeButton("🔄 Обновить список", th.bgElevated, th.textPrimary) {
@@ -3574,7 +3735,7 @@ class MainActivity : Activity() {
             }
             startActivityForResult(intent, REQ_PICK_KEYS_FILE)
         }.apply {
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) }
+            layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(6) }
         })
 
         localKeysRow.addView(makeButton("🔍 Автопоиск из эмуляторов", th.bgElevated, th.textPrimary) {
@@ -3594,7 +3755,7 @@ class MainActivity : Activity() {
                 Toast.makeText(this, "Локальные ключи не найдены. Нажмите «Скачать и установить ключи» выше!", Toast.LENGTH_LONG).show()
             }
         }.apply {
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f)
         })
         keysCard.addView(localKeysRow)
         parent.addView(keysCard)
@@ -3609,25 +3770,46 @@ class MainActivity : Activity() {
             }
         }
         updCard.addView(makeSectionHeader(
-            "2. Обновление STORM SWITCH BOX с GitHub",
-            "Текущая версия: ${"5.5.5"} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()})",
+            "2. Обновление STORM SWITCH BOX (GitHub и STORM GAMES WORLD)",
+            "Текущая версия: 5.5.6 (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) • Проверка на 2 официальных площадках",
             th
         ))
         updCard.addView(makeStormCheckBox(
-            "Автоматически проверять наличие новой версии при запуске приложения",
+            "Автоматически проверять наличие новой версии на GitHub и STORM GAMES WORLD при запуске",
             autoCheckUpdatesOnStartup,
             th
         ) { checked ->
             autoCheckUpdatesOnStartup = checked
             saveSettings()
         })
-        updCard.addView(makeButton("🔄 Проверить обновления на GitHub сейчас", th.accent) {
+        updCard.addView(makeButton("🔄 Проверить обновления (GitHub + STORM GAMES WORLD)", th.accent) {
             checkForUpdatesFromGitHub(isManualClick = true)
         }.apply {
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply {
                 topMargin = dp(6)
             }
         })
+        val updLinksRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(6)
+            }
+        }
+        updLinksRow.addView(makeButton("🌐 Открыть GitHub", th.bgElevated, th.textPrimary) {
+            try {
+                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/ReiKatari/STORM_SWITCH_BOX")))
+            } catch (_: Exception) {}
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(0, dp(46), 1f).apply { marginEnd = dp(6) }
+        })
+        updLinksRow.addView(makeButton("🚀 STORM GAMES WORLD", th.bgElevated, th.accent) {
+            try {
+                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://stormgamesworld.ru/programs?repo=STORM_SWITCH_BOX")))
+            } catch (_: Exception) {}
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(0, dp(46), 1f)
+        })
+        updCard.addView(updLinksRow)
         parent.addView(updCard)
 
         // ГРУППА 3: Темы оформления и язык интерфейса
@@ -4292,18 +4474,18 @@ class MainActivity : Activity() {
 
     private fun checkForUpdatesFromGitHub(isManualClick: Boolean) {
         if (isManualClick) {
-            Toast.makeText(this, "⏳ Проверка обновлений STORM SWITCH BOX на GitHub...", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "⏳ Проверка обновлений на GitHub и STORM GAMES WORLD...", Toast.LENGTH_SHORT).show()
         }
         val preferLegacy = (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) || Build.VERSION.SDK_INT < 26
         thread {
-            val rel = RuTrackerCloudEngine.checkGitHubAppUpdate("5.5.5", preferLegacy)
+            val rel = RuTrackerCloudEngine.checkGitHubAppUpdate("5.5.6", preferLegacy)
             mainHandler.post {
                 if (rel != null) {
                     showUpdateAvailableDialog(rel)
                 } else if (isManualClick) {
                     Toast.makeText(
                         this,
-                        "✅ У вас установлена актуальная версия STORM SWITCH BOX ${"5.5.5"}!",
+                        "✅ У вас установлена актуальная версия STORM SWITCH BOX 5.5.6 (проверено на GitHub и STORM GAMES WORLD)!",
                         Toast.LENGTH_LONG
                     ).show()
                 }
@@ -4325,7 +4507,7 @@ class MainActivity : Activity() {
             typeface = Typeface.DEFAULT_BOLD
         })
         box.addView(TextView(this).apply {
-            text = "Новая версия: ${release.version} (Установлена: ${"5.5.5"})\nПакет: ${release.apkName} (${StormNczEngine.formatSize(release.apkSizeBytes)})"
+            text = "Новая версия: ${release.version} (Установлена: 5.5.6)\nИсточник: ${release.sourceName}\nПакет: ${release.apkName} (${StormNczEngine.formatSize(release.apkSizeBytes)})"
             setTextColor(th.textPrimary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
             setPadding(0, dp(4), 0, dp(8))
@@ -4364,14 +4546,26 @@ class MainActivity : Activity() {
         btnRow.addView(makeButton("Позже", th.bgElevated, th.textPrimary) {
             dlg.dismiss()
         }.apply {
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                marginEnd = dp(8)
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(46)).apply {
+                marginEnd = dp(6)
+            }
+        })
+
+        btnRow.addView(makeButton("🌐 STORM GAMES WORLD", th.bgElevated, th.accent) {
+            try {
+                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(release.stormWorldPageUrl)))
+            } catch (_: Exception) {}
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(46)).apply {
+                marginEnd = dp(6)
             }
         })
 
         btnRow.addView(makeButton("⬇️ Скачать и обновить", th.accent) {
             dlg.dismiss()
             startApkUpdateDownload(release)
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(46))
         })
         box.addView(btnRow)
     }
@@ -4500,7 +4694,7 @@ class MainActivity : Activity() {
     }
 
     // =========================================================================
-    // НОВЫЕ РАЗДЕЛЫ И ДИАЛОГИ 5.5.5:
+    // НОВЫЕ РАЗДЕЛЫ И ДИАЛОГИ 5.5.6:
     // 1. ВИРТУАЛЬНЫЙ ПРОВОДНИК ROMFS / EXEFS (HEX + UTF-8)
     // 2. МАСТЕР РАСПАКОВКИ И ОБРАТНОЙ УПАКОВКИ ПАПКИ В NSP / NSZ
     // 3. ГЕНЕРАТОР HOMEBREW FORWARDER (.NRO -> .NSP) С ПОДДЕРЖКОЙ RUTRACKER
@@ -4635,14 +4829,14 @@ class MainActivity : Activity() {
             viewHexMode = true
             updateInspectorView()
         }.apply {
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) }
+            layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(6) }
         })
 
         modeRow.addView(makeButton("📄 Текст UTF-8 / Заголовок", th.bgElevated, th.textPrimary) {
             viewHexMode = false
             updateInspectorView()
         }.apply {
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) }
+            layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(6) }
         })
 
         modeRow.addView(makeButton("💾 Извлечь узел", th.accent) {
@@ -4659,7 +4853,7 @@ class MainActivity : Activity() {
                 }
             }
         }.apply {
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f)
         })
 
         card.addView(modeRow)
@@ -4941,7 +5135,7 @@ class MainActivity : Activity() {
             onSearchRuTrackerHomebrew("Homebrew")
             Toast.makeText(this, "Показаны раздачи Homebrew и NRO-портов в списке RuTracker выше!", Toast.LENGTH_SHORT).show()
         }.apply {
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) }
+            layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(6) }
         })
 
         topActRow.addView(makeButton("📂 Выбрать .NRO из очереди/папки", th.bgElevated, th.textPrimary) {
@@ -4963,7 +5157,7 @@ class MainActivity : Activity() {
                 showMultiSelectFileAndFolderDialog()
             }
         }.apply {
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f)
         })
         fwdCard.addView(topActRow)
 
@@ -5077,13 +5271,14 @@ class MainActivity : Activity() {
 
         val buildRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
         }
         buildRow.addView(makeButton("🎲 Новый TitleID", th.bgElevated, th.textPrimary) {
             val rnd = (0x1000000..0xFFFFFFF).random()
             fwdTitleId = "0100F%07X0000".format(rnd)
             tidEdit.setText(fwdTitleId)
         }.apply {
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            layoutParams = LinearLayout.LayoutParams(0, dp(48), 0.9f).apply {
                 marginEnd = dp(6)
             }
         })
@@ -5093,7 +5288,7 @@ class MainActivity : Activity() {
                 fwdCustomIconPath = pickedPath
             }
         }.apply {
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            layoutParams = LinearLayout.LayoutParams(0, dp(48), 1.0f).apply {
                 marginEnd = dp(6)
             }
         })
@@ -5112,6 +5307,10 @@ class MainActivity : Activity() {
                         customIconPath = fwdCustomIconPath.ifBlank { customIconImagePath },
                         outputDir = customOutputDir
                     ) {}
+                    if (outNsp.exists() && queuedFiles.none { it.absolutePath == outNsp.absolutePath }) {
+                        queuedFiles.add(outNsp)
+                        selectedInputFile = outNsp
+                    }
                     appendLog("✅ Создан Homebrew Forwarder NSP: ${outNsp.name} (${StormNczEngine.formatSize(outNsp.length())})")
                     mainHandler.post {
                         Toast.makeText(this, "✅ Создан Forwarder: ${outNsp.name}!", Toast.LENGTH_LONG).show()
@@ -5121,7 +5320,7 @@ class MainActivity : Activity() {
                 }
             }
         }.apply {
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            layoutParams = LinearLayout.LayoutParams(0, dp(48), 1.25f)
         })
         fwdCard.addView(buildRow)
         parent.addView(fwdCard)
@@ -5336,7 +5535,7 @@ class MainActivity : Activity() {
                 ftpRemoteDir = dPath
                 dirInput.setText(dPath)
             }.apply {
-                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(4) }
+                layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(4) }
             })
         }
         ftpCard.addView(dirChipsRow)
@@ -5408,6 +5607,7 @@ class MainActivity : Activity() {
         var currentCatalog = StormNczEngine.loadCachedTitleDb(cacheFile)
         var subTabMode = 0
         var platformFilter = "Все"
+        var displayLimit = 80
         var searchQuery = ""
 
         val headerCard = LinearLayout(this).apply {
@@ -5499,7 +5699,15 @@ class MainActivity : Activity() {
                 platOk && qOk
             }
 
-            filteredGames.forEach { game ->
+            listContainer.addView(TextView(this).apply {
+                text = "📊 Найдено игр в полной базе TitleDB: ${filteredGames.size} из ${currentCatalog.size} (показаны первые ${minOf(filteredGames.size, displayLimit)})"
+                setTextColor(th.accent)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
+                typeface = Typeface.DEFAULT_BOLD
+                setPadding(dp(4), dp(2), dp(4), dp(6))
+            })
+
+            filteredGames.take(displayLimit).forEach { game ->
                 val gCard = LinearLayout(this).apply {
                     orientation = LinearLayout.VERTICAL
                     background = makeCardDrawable(th.bgCard, th.border)
@@ -5557,7 +5765,7 @@ class MainActivity : Activity() {
                     buildUserInterface()
                     Toast.makeText(this, "Переход к раздачам ${game.name} на RuTracker", Toast.LENGTH_SHORT).show()
                 }.apply {
-                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) }
+                    layoutParams = LinearLayout.LayoutParams(0, dp(46), 1f).apply { marginEnd = dp(6) }
                 })
 
                 actRow.addView(makeButton("📋 Копировать TitleID", th.bgElevated, th.textPrimary) {
@@ -5565,31 +5773,45 @@ class MainActivity : Activity() {
                     cm.setPrimaryClip(ClipData.newPlainText("TitleID", game.titleId))
                     Toast.makeText(this, "Скопирован TitleID: ${game.titleId}", Toast.LENGTH_SHORT).show()
                 }.apply {
-                    layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                    layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(46))
                 })
                 gCard.addView(actRow)
                 listContainer.addView(gCard)
+            }
+
+            if (filteredGames.size > displayLimit) {
+                listContainer.addView(makeButton("➕ Показать ещё 100 игр (сейчас показано $displayLimit из ${filteredGames.size})", th.accent) {
+                    displayLimit += 100
+                    renderActiveList()
+                }.apply {
+                    layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply {
+                        topMargin = dp(4)
+                        bottomMargin = dp(10)
+                    }
+                })
             }
         }
 
         val modeSwitchRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 bottomMargin = dp(6)
             }
         }
         modeSwitchRow.addView(makeButton("🎮 База игр TitleDB (${currentCatalog.size})", th.accent) {
             subTabMode = 0
+            displayLimit = 80
             renderActiveList()
         }.apply {
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) }
+            layoutParams = LinearLayout.LayoutParams(0, dp(48), 1.15f).apply { marginEnd = dp(6) }
         })
 
-        modeSwitchRow.addView(makeButton("⚠️ Коды ошибок Switch (2xxx-xxxx)", th.bgElevated, th.accent) {
+        modeSwitchRow.addView(makeButton("⚠️ Коды ошибок (2xxx-xxxx)", th.bgElevated, th.accent) {
             subTabMode = 1
             renderActiveList()
         }.apply {
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) }
+            layoutParams = LinearLayout.LayoutParams(0, dp(48), 1.05f).apply { marginEnd = dp(6) }
         })
 
         modeSwitchRow.addView(makeButton("🔄 Обновить базу", th.bgElevated, th.textPrimary) {
@@ -5603,19 +5825,23 @@ class MainActivity : Activity() {
                     Toast.makeText(this, "База TitleDB обновлена (${synced.size} игр)!", Toast.LENGTH_SHORT).show()
                 }
             }
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(0, dp(48), 0.85f)
         })
         headerCard.addView(modeSwitchRow)
 
         val platRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
         }
         listOf("Все", "Switch", "3DS").forEach { pName ->
             platRow.addView(makeButton("Платформа: $pName", th.bgElevated, th.textPrimary) {
                 platformFilter = pName
                 subTabMode = 0
+                displayLimit = 80
                 renderActiveList()
             }.apply {
-                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(4) }
+                layoutParams = LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginEnd = dp(4) }
             })
         }
         headerCard.addView(platRow)

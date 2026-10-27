@@ -1294,6 +1294,24 @@ namespace StormSwitchBox.Views
             }
         }
 
+        private void OpenGitHubButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("https://github.com/ReiKatari/STORM_SWITCH_BOX") { UseShellExecute = true });
+            }
+            catch { }
+        }
+
+        private void OpenStormWorldButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("https://stormgamesworld.ru/programs?repo=STORM_SWITCH_BOX") { UseShellExecute = true });
+            }
+            catch { }
+        }
+
         private async void CheckUpdatesButton_Click(object sender, RoutedEventArgs e)
         {
             CheckUpdatesButton.IsEnabled = false;
@@ -1302,67 +1320,105 @@ namespace StormSwitchBox.Views
 
             try
             {
-                using var client = new System.Net.Http.HttpClient();
+                using var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(12) };
                 client.DefaultRequestHeaders.Add("User-Agent", "StormSwitchBox-Updater");
 
-                var response = await client.GetAsync("https://api.github.com/repos/ReiKatari/STORM_SWITCH_BOX/releases/latest");
-                if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
-                {
-                    var dialog = new ContentDialog
-                    {
-                        Title = "Обновления не найдены",
-                        Content = new TextBlock { Text = $"У вас установлена актуальная версия STORM SWITCH BOX {App.Settings.Current.AppVersion}." },
-                        CloseButtonText = "OK",
-                        XamlRoot = this.XamlRoot
-                    };
-                    await dialog.ShowAsync();
-                    return;
-                }
-                if (!response.IsSuccessStatusCode)
-                {
-                    throw new Exception($"Ошибка запроса к GitHub API: {response.ReasonPhrase}");
-                }
+                var asmVer = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+                var currentVer = asmVer != null ? new Version(asmVer.Major, asmVer.Minor, Math.Max(0, asmVer.Build)) : new Version(5, 5, 6);
+                string currentVerStr = currentVer.ToString();
 
-                var jsonString = await response.Content.ReadAsStringAsync();
-                
-                using var doc = System.Text.Json.JsonDocument.Parse(jsonString);
-                var root = doc.RootElement;
-                
-                string tagName = root.GetProperty("tag_name").GetString() ?? "";
-                string body = root.TryGetProperty("body", out var bodyProp) ? bodyProp.GetString() ?? "" : "";
-                
-                string downloadUrl = "";
-                string assetName = "";
-                if (root.TryGetProperty("assets", out var assetsProp) && assetsProp.ValueKind == System.Text.Json.JsonValueKind.Array)
+                string bestTag = "";
+                string bestBody = "";
+                string bestDownloadUrl = "";
+                string bestAssetName = "";
+                string bestSource = "GitHub + STORM GAMES WORLD";
+
+                // 1. Проверка на GitHub (https://github.com/ReiKatari/STORM_SWITCH_BOX)
+                try
                 {
-                    foreach (var asset in assetsProp.EnumerateArray())
+                    var ghResp = await client.GetAsync("https://api.github.com/repos/ReiKatari/STORM_SWITCH_BOX/releases/latest");
+                    if (ghResp.IsSuccessStatusCode)
                     {
-                        string name = asset.GetProperty("name").GetString() ?? "";
-                        if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                        var jsonString = await ghResp.Content.ReadAsStringAsync();
+                        using var doc = System.Text.Json.JsonDocument.Parse(jsonString);
+                        var root = doc.RootElement;
+                        string tagName = (root.TryGetProperty("tag_name", out var tp) ? tp.GetString() ?? "" : "").TrimStart('v', 'V').Trim();
+                        string body = root.TryGetProperty("body", out var bodyProp) ? bodyProp.GetString() ?? "" : "";
+                        string dlUrl = "";
+                        string aName = "";
+
+                        if (root.TryGetProperty("assets", out var assetsProp) && assetsProp.ValueKind == System.Text.Json.JsonValueKind.Array)
                         {
-                            downloadUrl = asset.GetProperty("browser_download_url").GetString() ?? "";
-                            assetName = name;
-                            break; // Prefer .exe installer
+                            foreach (var asset in assetsProp.EnumerateArray())
+                            {
+                                string name = asset.GetProperty("name").GetString() ?? "";
+                                if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    dlUrl = asset.GetProperty("browser_download_url").GetString() ?? "";
+                                    aName = name;
+                                    break;
+                                }
+                                else if (name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) && string.IsNullOrEmpty(dlUrl))
+                                {
+                                    dlUrl = asset.GetProperty("browser_download_url").GetString() ?? "";
+                                    aName = name;
+                                }
+                            }
                         }
-                        else if (name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) && string.IsNullOrEmpty(downloadUrl))
+
+                        if (!string.IsNullOrEmpty(tagName))
                         {
-                            downloadUrl = asset.GetProperty("browser_download_url").GetString() ?? "";
-                            assetName = name;
+                            bestTag = tagName;
+                            bestBody = body;
+                            bestDownloadUrl = dlUrl;
+                            bestAssetName = aName;
+                            bestSource = "GitHub (ReiKatari/STORM_SWITCH_BOX)";
                         }
                     }
                 }
+                catch { }
 
-                string cleanTag = tagName.TrimStart('v');
-                var asmVer = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
-                var currentVer = new Version(asmVer.Major, asmVer.Minor, asmVer.Build);
-                string currentVerStr = currentVer.ToString();
-                
-                if (Version.TryParse(cleanTag, out var latestVer) && latestVer > currentVer)
+                // 2. Проверка на STORM GAMES WORLD (https://stormgamesworld.ru/programs?repo=STORM_SWITCH_BOX)
+                try
+                {
+                    var sgwResp = await client.GetAsync("https://stormgamesworld.ru/api/programs?id=storm_switch_box");
+                    if (sgwResp.IsSuccessStatusCode)
+                    {
+                        string sgwBody = await sgwResp.Content.ReadAsStringAsync();
+                        if (sgwBody.TrimStart().StartsWith("{"))
+                        {
+                            using var sgwDoc = System.Text.Json.JsonDocument.Parse(sgwBody);
+                            var sRoot = sgwDoc.RootElement;
+                            string sVer = (sRoot.TryGetProperty("version", out var vp) ? vp.GetString() ?? "" : "").TrimStart('v', 'V').Trim();
+                            if (!string.IsNullOrEmpty(sVer) && Version.TryParse(sVer, out var parsedSgw))
+                            {
+                                if (string.IsNullOrEmpty(bestTag) || (Version.TryParse(bestTag, out var parsedGh) && parsedSgw > parsedGh))
+                                {
+                                    bestTag = sVer;
+                                    bestAssetName = $"STORM_SWITCH_BOX_{sVer}_Setup.exe";
+                                    bestDownloadUrl = sRoot.TryGetProperty("setupUrl", out var su) && !string.IsNullOrEmpty(su.GetString())
+                                        ? su.GetString()!
+                                        : $"https://github.com/ReiKatari/STORM_SWITCH_BOX/releases/download/{sVer}/{bestAssetName}";
+                                    bestBody = sRoot.TryGetProperty("changelog", out var cl) ? cl.GetString() ?? "" : $"Доступно обновление {sVer} на STORM GAMES WORLD.";
+                                    bestSource = "STORM GAMES WORLD (stormgamesworld.ru)";
+                                }
+                                else if (Version.TryParse(bestTag, out var parsedEq) && parsedSgw == parsedEq)
+                                {
+                                    bestSource = "GitHub и STORM GAMES WORLD";
+                                }
+                            }
+                        }
+                    }
+                }
+                catch { }
+
+                if (!string.IsNullOrEmpty(bestTag) && Version.TryParse(bestTag, out var latestVer) && latestVer > currentVer)
                 {
                     var dialog = new ContentDialog
                     {
                         Title = "Доступно новое обновление!",
                         PrimaryButtonText = "Скачать и обновить",
+                        SecondaryButtonText = "Открыть STORM GAMES WORLD",
                         CloseButtonText = "Отмена",
                         XamlRoot = this.XamlRoot,
                         Content = new StackPanel
@@ -1370,21 +1426,25 @@ namespace StormSwitchBox.Views
                             Spacing = 12,
                             Children =
                             {
-                                new TextBlock { Text = $"Доступна версия: {cleanTag} (Текущая: {currentVerStr})", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold },
+                                new TextBlock { Text = $"Доступна версия: {bestTag} (Текущая: {currentVerStr})\nИсточник: {bestSource}", FontSize = 15, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold },
                                 new TextBlock { Text = "Список изменений:", FontSize = 12, Foreground = Application.Current.Resources.TryGetValue("TextFillColorSecondaryBrush", out var resBrush) && resBrush is Microsoft.UI.Xaml.Media.Brush b ? b : new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Gray) },
                                 new ScrollViewer
                                 {
-                                    MaxHeight = 150,
-                                    Content = new TextBlock { Text = body, TextWrapping = TextWrapping.Wrap, FontSize = 12 }
+                                    MaxHeight = 160,
+                                    Content = new TextBlock { Text = bestBody, TextWrapping = TextWrapping.Wrap, FontSize = 12 }
                                 }
                             }
                         }
                     };
 
                     var result = await dialog.ShowAsync();
-                    if (result == ContentDialogResult.Primary && !string.IsNullOrEmpty(downloadUrl))
+                    if (result == ContentDialogResult.Primary && !string.IsNullOrEmpty(bestDownloadUrl))
                     {
-                        await StartDownloadAndUpdateAsync(downloadUrl, assetName);
+                        await StartDownloadAndUpdateAsync(bestDownloadUrl, bestAssetName);
+                    }
+                    else if (result == ContentDialogResult.Secondary)
+                    {
+                        OpenStormWorldButton_Click(sender, e);
                     }
                 }
                 else
@@ -1392,7 +1452,7 @@ namespace StormSwitchBox.Views
                     var dialog = new ContentDialog
                     {
                         Title = "Обновления не найдены",
-                        Content = new TextBlock { Text = $"У вас установлена актуальная версия STORM SWITCH BOX {currentVerStr}." },
+                        Content = new TextBlock { Text = $"У вас установлена актуальная версия STORM SWITCH BOX {currentVerStr}.\nПроверены оба официальных источника:\n• https://github.com/ReiKatari/STORM_SWITCH_BOX\n• https://stormgamesworld.ru/programs?repo=STORM_SWITCH_BOX", TextWrapping = TextWrapping.Wrap },
                         CloseButtonText = "OK",
                         XamlRoot = this.XamlRoot
                     };

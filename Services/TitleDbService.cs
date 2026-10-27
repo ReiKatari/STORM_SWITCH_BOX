@@ -153,36 +153,52 @@ namespace StormSwitchBox.Services
         {
             try
             {
-                string path = _dbPath;
-                if (!File.Exists(path))
+                var reindexedDb = new Dictionary<string, TitleDbEntry>(StringComparer.OrdinalIgnoreCase);
+
+                // 1. Сначала всегда загружаем встроенную полную базу nutdb.json (20 711 записей: 11 256 базовых игр + DLC)
+                string nutDbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tools", "db", "nutdb.json");
+                if (!File.Exists(nutDbPath))
                 {
-                    string nutDbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tools", "db", "nutdb.json");
-                    if (File.Exists(nutDbPath))
-                    {
-                        path = nutDbPath;
-                    }
+                    string parentNut = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "tools", "db", "nutdb.json");
+                    if (File.Exists(parentNut)) nutDbPath = parentNut;
                 }
 
-                if (File.Exists(path))
+                async Task MergeJsonDbFileAsync(string filePath)
                 {
-                    using var stream = File.OpenRead(path);
-                    var rawDb = await JsonSerializer.DeserializeAsync<Dictionary<string, TitleDbEntry>>(stream) ?? new();
-                    
-                    var reindexedDb = new Dictionary<string, TitleDbEntry>(StringComparer.OrdinalIgnoreCase);
-                    foreach (var kvp in rawDb)
+                    if (!File.Exists(filePath)) return;
+                    try
                     {
-                        var entry = kvp.Value;
-                        if (string.IsNullOrEmpty(entry.Id))
+                        using var stream = File.OpenRead(filePath);
+                        var rawDb = await JsonSerializer.DeserializeAsync<Dictionary<string, TitleDbEntry>>(stream);
+                        if (rawDb == null) return;
+                        foreach (var kvp in rawDb)
                         {
-                            entry.Id = kvp.Key;
-                        }
-                        reindexedDb[kvp.Key] = entry;
-                        if (!string.IsNullOrEmpty(entry.Id))
-                        {
-                            reindexedDb[entry.Id.ToUpperInvariant()] = entry;
+                            var entry = kvp.Value;
+                            if (entry == null) continue;
+                            if (string.IsNullOrEmpty(entry.Id))
+                            {
+                                entry.Id = kvp.Key;
+                            }
+                            reindexedDb[kvp.Key] = entry;
+                            if (!string.IsNullOrEmpty(entry.Id))
+                            {
+                                reindexedDb[entry.Id.ToUpperInvariant()] = entry;
+                            }
                         }
                     }
-                    
+                    catch { }
+                }
+
+                await MergeJsonDbFileAsync(nutDbPath);
+
+                // 2. Поверх накладываем свежий пользовательский кэш .switch/titledb.json (если он обновлялся из сети)
+                if (File.Exists(_dbPath) && !string.Equals( Path.GetFullPath(_dbPath), Path.GetFullPath(nutDbPath), StringComparison.OrdinalIgnoreCase))
+                {
+                    await MergeJsonDbFileAsync(_dbPath);
+                }
+
+                if (reindexedDb.Count > 0)
+                {
                     _db = reindexedDb;
                     _isLoaded = true;
                     DatabaseLoaded?.Invoke();
@@ -196,41 +212,56 @@ namespace StormSwitchBox.Services
 
         public async Task<bool> UpdateDatabaseAsync(IProgress<int>? progress = null)
         {
-            try
+            string[] mirrors = new[]
             {
-                var response = await _httpClient.GetAsync(DbUrl, HttpCompletionOption.ResponseHeadersRead);
-                response.EnsureSuccessStatusCode();
+                "https://raw.githubusercontent.com/blawar/titledb/master/ru.json",
+                FallbackDbUrl,
+                DbUrl,
+                "https://ghfast.top/https://raw.githubusercontent.com/blawar/titledb/master/ru.json"
+            };
 
-                var totalBytes = response.Content.Headers.ContentLength ?? -1L;
-                
-                Directory.CreateDirectory(Path.GetDirectoryName(_dbPath)!);
-                using var fileStream = new FileStream(_dbPath, FileMode.Create, FileAccess.Write, FileShare.None);
-                using var stream = await response.Content.ReadAsStreamAsync();
-
-                var buffer = new byte[8192];
-                long totalRead = 0;
-                int read;
-
-                while ((read = await stream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+            foreach (var mirrorUrl in mirrors)
+            {
+                try
                 {
-                    await fileStream.WriteAsync(buffer, 0, read);
-                    totalRead += read;
-                    if (totalBytes > 0 && progress != null)
+                    using var response = await _httpClient.GetAsync(mirrorUrl, HttpCompletionOption.ResponseHeadersRead);
+                    if (!response.IsSuccessStatusCode) continue;
+
+                    var totalBytes = response.Content.Headers.ContentLength ?? -1L;
+                    Directory.CreateDirectory(Path.GetDirectoryName(_dbPath)!);
+                    string tmpPath = _dbPath + ".tmp";
+                    using (var fileStream = new FileStream(tmpPath, FileMode.Create, FileAccess.Write, FileShare.None))
+                    using (var stream = await response.Content.ReadAsStreamAsync())
                     {
-                        progress.Report((int)((totalRead * 100) / totalBytes));
+                        var buffer = new byte[16384];
+                        long totalRead = 0;
+                        int read;
+                        while ((read = await stream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+                        {
+                            await fileStream.WriteAsync(buffer, 0, read);
+                            totalRead += read;
+                            if (totalBytes > 0 && progress != null)
+                            {
+                                progress.Report((int)((totalRead * 100) / totalBytes));
+                            }
+                        }
+                    }
+
+                    if (new FileInfo(tmpPath).Length > 1024)
+                    {
+                        File.Move(tmpPath, _dbPath, true);
+                        await LoadLocalDbAsync();
+                        return true;
                     }
                 }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Ошибка зеркала TitleDB ({mirrorUrl}): {ex.Message}");
+                }
+            }
 
-                // Перезагружаем в память
-                fileStream.Close();
-                await LoadLocalDbAsync();
-                return true;
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Ошибка обновления TitleDB: {ex.Message}");
-                return false;
-            }
+            await LoadLocalDbAsync();
+            return _db.Count > 0;
         }
 
         public TitleDbEntry? GetEntry(string titleId) => TryGetEntry(titleId, out var entry) ? entry : null;
