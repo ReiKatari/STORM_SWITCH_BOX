@@ -1,0 +1,323 @@
+<ContentDialog
+    x:Class="StormSwitchBox.Views.Dialogs.RuTrackerModDownloaderDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    Title="🌐 RuTracker и Облачный загрузчик игр, патчей и модов (Switch и 3DS)"
+    CloseButtonText="Закрыть"
+    DefaultButton="None"
+    KeyDown="Dialog_KeyDown"
+    Closed="Dialog_Closed">
+
+    <ContentDialog.Resources>
+        <x:Double x:Key="ContentDialogMaxWidth">1140</x:Double>
+        <x:Double x:Key="ContentDialogMaxHeight">840</x:Double>
+    </ContentDialog.Resources>
+
+    <Grid Width="1060" Height="680" RowSpacing="10">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Плашка привязанной задачи (если открыто из контекстного меню задачи) -->
+        <Border x:Name="TargetTaskBanner" Grid.Row="0" Visibility="Collapsed"
+                Background="#1E293B" BorderBrush="#38BDF8" BorderThickness="1" CornerRadius="6" Padding="12,8">
+            <Grid ColumnSpacing="10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <FontIcon Grid.Column="0" Glyph="&#xE71B;" Foreground="#38BDF8" FontSize="16"/>
+                <TextBlock x:Name="TargetTaskBannerText" Grid.Column="1" VerticalAlignment="Center"
+                           Foreground="#E2E8F0" FontWeight="SemiBold" FontSize="12" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
+                <TextBlock Grid.Column="2" Text="Режим автопривязки модов к задаче" Foreground="#38BDF8" FontSize="11" VerticalAlignment="Center"/>
+            </Grid>
+        </Border>
+
+        <!-- Верхняя панель поиска RuTracker / ввода прямой ссылки / Magnet / .torrent -->
+        <Grid Grid.Row="1" ColumnSpacing="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="150"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <ComboBox x:Name="ForumSectionCombo" Grid.Column="0" SelectedIndex="0" HorizontalAlignment="Stretch" CornerRadius="6"
+                      ToolTipService.ToolTip="Раздел поиска на RuTracker">
+                <ComboBoxItem Content="Switch + 3DS" Tag="1605,2481,2188"/>
+                <ComboBoxItem Content="Nintendo Switch" Tag="1605,2481"/>
+                <ComboBoxItem Content="Nintendo 3DS" Tag="2188"/>
+            </ComboBox>
+
+            <TextBox x:Name="SearchOrUrlBox" Grid.Column="1"
+                     PlaceholderText="Введите название игры (напр. Zelda Breath of the Wild), ссылку на тему RuTracker, Magnet или ID темы..."
+                     KeyDown="SearchOrUrlBox_KeyDown" VerticalContentAlignment="Center" CornerRadius="6"/>
+
+            <Button x:Name="SearchBtn" Grid.Column="2" Content="🔍 Найти / Открыть" Click="SearchOrInspect_Click"
+                    Background="#0284C7" Foreground="White" FontWeight="SemiBold" CornerRadius="6" Padding="14,6"/>
+
+            <Button Grid.Column="3" Content="📂 .torrent файл..." Click="BrowseTorrentFile_Click" CornerRadius="6" Padding="12,6"
+                    ToolTipService.ToolTip="Открыть локальный .torrent файл с диска"/>
+
+            <ToggleButton x:Name="SettingsToggleBtn" Grid.Column="4" Content="⚙ Доступ и DoH" Click="SettingsToggleBtn_Click" CornerRadius="6" Padding="12,6"
+                          ToolTipService.ToolTip="Настройки зеркала RuTracker, обхода блокировок (DoH / Прокси), авторизации и папки загрузки"/>
+        </Grid>
+
+        <!-- Скрываемая панель настроек: Зеркало, DoH, Прокси, Авторизация RuTracker и Папка загрузки -->
+        <Border x:Name="SettingsPanel" Grid.Row="2" Visibility="Collapsed"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="12">
+            <Grid RowSpacing="8" ColumnSpacing="10">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="170"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Строка 1: Зеркало, DoH, Прокси -->
+                <ComboBox x:Name="MirrorCombo" Grid.Row="0" Grid.Column="0" Header="Зеркало RuTracker" SelectedIndex="0" HorizontalAlignment="Stretch" CornerRadius="6">
+                    <ComboBoxItem Content="rutracker.org" Tag="rutracker.org"/>
+                    <ComboBoxItem Content="rutracker.net" Tag="rutracker.net"/>
+                    <ComboBoxItem Content="rutracker.nl" Tag="rutracker.nl"/>
+                </ComboBox>
+
+                <CheckBox x:Name="UseDoHCheckBox" Grid.Row="0" Grid.Column="1" Content="DNS-over-HTTPS (Cloudflare / Google)" IsChecked="True"
+                          VerticalAlignment="Bottom" Margin="0,0,0,2"
+                          ToolTipService.ToolTip="Разрешать домен RuTracker через защищённый DoH (1.1.1.1 / 8.8.8.8) в обход DNS-блокировок провайдера"/>
+
+                <TextBox x:Name="ProxyBox" Grid.Row="0" Grid.Column="2" Header="HTTP / SOCKS5 Прокси (необязательно)"
+                         PlaceholderText="Напр. socks5://127.0.0.1:1080 или http://127.0.0.1:8080" VerticalContentAlignment="Center" CornerRadius="6"/>
+
+                <Button Grid.Row="0" Grid.Column="3" Content="Применить сеть" Click="ApplyNetworkSettings_Click"
+                        VerticalAlignment="Bottom" CornerRadius="6" Padding="12,6"/>
+
+                <!-- Строка 2: Авторизация RuTracker (Логин / Пароль или Cookie bb_session) -->
+                <TextBox x:Name="LoginUserBox" Grid.Row="1" Grid.Column="0" Header="Логин RuTracker"
+                         PlaceholderText="Логин (необязательно)" VerticalContentAlignment="Center" CornerRadius="6"/>
+
+                <PasswordBox x:Name="LoginPassBox" Grid.Row="1" Grid.Column="1" Header="Пароль" Width="190"
+                             PlaceholderText="Пароль" CornerRadius="6"/>
+
+                <TextBox x:Name="CookieBox" Grid.Row="1" Grid.Column="2" Header="Или Cookie bb_session (для входа без пароля)"
+                         PlaceholderText="Вставьте значение cookie bb_session из браузера..." VerticalContentAlignment="Center" CornerRadius="6"/>
+
+                <Button x:Name="LoginBtn" Grid.Row="1" Grid.Column="3" Content="🔑 Войти" Click="LoginRuTracker_Click"
+                        VerticalAlignment="Bottom" CornerRadius="6" Padding="12,6"/>
+
+                <!-- Строка 3: Папка загрузки и статус авторизации -->
+                <TextBlock x:Name="AuthStatusText" Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2"
+                           Text="Статус: Гостевой режим (поиск по темам, Magnet API и облачные моды работают без входа)"
+                           Foreground="#94A3B8" FontSize="11" VerticalAlignment="Center" TextWrapping="Wrap"/>
+
+                <TextBox x:Name="DownloadFolderBox" Grid.Row="2" Grid.Column="2"
+                         PlaceholderText="Папка сохранения игр и модов..." VerticalContentAlignment="Center" CornerRadius="6"/>
+
+                <Button Grid.Row="2" Grid.Column="3" Content="📁 Папка..." Click="BrowseDownloadFolder_Click" CornerRadius="6" Padding="12,6"/>
+            </Grid>
+        </Border>
+
+        <!-- Основная рабочая область (2 колонки: слева список раздач, справа состав торрента + облачные ссылки на моды) -->
+        <Grid Grid.Row="3" ColumnSpacing="12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="1.05*"/>
+                <ColumnDefinition Width="1.15*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Левая колонка: Результаты поиска RuTracker -->
+            <Border Grid.Column="0" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="10">
+                <Grid RowSpacing="8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <Grid Grid.Row="0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="📋 Раздачи RuTracker (Switch и 3DS)" FontWeight="Bold" FontSize="13"/>
+                        <TextBlock x:Name="TopicsCountText" Grid.Column="1" Text="0 тем" Foreground="#38BDF8" FontSize="12" FontWeight="SemiBold"/>
+                    </Grid>
+
+                    <ListView x:Name="TopicsListView" Grid.Row="1" SelectionMode="Single" SelectionChanged="TopicsListView_SelectionChanged"
+                              Background="#0DFFFFFF" CornerRadius="6">
+                        <ListView.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Padding="6,6" ColumnSpacing="8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" Spacing="2">
+                                        <TextBlock Text="{Binding Title}" FontSize="12" FontWeight="SemiBold" TextWrapping="Wrap" MaxLines="2"/>
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <TextBlock Text="{Binding Category}" FontSize="10" Foreground="#38BDF8"/>
+                                            <TextBlock Text="{Binding SizeText}" FontSize="10" Foreground="#CBD5E1" FontWeight="SemiBold"/>
+                                            <TextBlock Text="{Binding TopicId}" FontSize="10" Foreground="#64748B"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Right">
+                                        <TextBlock Foreground="#22C55E" FontSize="11" FontWeight="Bold" HorizontalAlignment="Right">
+                                            <Run Text="▲ "/><Run Text="{Binding Seeds}"/>
+                                        </TextBlock>
+                                        <TextBlock Foreground="#94A3B8" FontSize="10" HorizontalAlignment="Right">
+                                            <Run Text="▼ "/><Run Text="{Binding Leechers}"/>
+                                        </TextBlock>
+                                    </StackPanel>
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                </Grid>
+            </Border>
+
+            <!-- Правая колонка: Файлы внутри торрента + Авто-извлечённые / внешние ссылки на моды и русификаторы -->
+            <Grid Grid.Column="1" RowSpacing="10">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="1.15*"/>
+                    <RowDefinition Height="0.95*"/>
+                </Grid.RowDefinitions>
+
+                <!-- Верхняя карточка: Выборочное скачивание файлов из раздачи (Игра / Патч / DLC / Мод) -->
+                <Border Grid.Row="0" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="10">
+                    <Grid RowSpacing="6">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+
+                        <Grid Grid.Row="0" ColumnSpacing="6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock x:Name="TorrentFilesHeader" Text="📦 Файлы раздачи (выберите нужные: База / Update / DLC / Моды)"
+                                       FontWeight="Bold" FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                            <Button Grid.Column="1" Content="Все" Click="SelectAllFiles_Click" Padding="8,2" FontSize="11" CornerRadius="4"/>
+                            <Button Grid.Column="2" Content="Только патчи/моды" Click="SelectOnlyUpdatesAndMods_Click" Padding="8,2" FontSize="11" CornerRadius="4"
+                                    ToolTipService.ToolTip="Снять галочку с базовой игры и оставить только обновления, DLC и моды"/>
+                        </Grid>
+
+                        <ListView x:Name="TorrentFilesListView" Grid.Row="1" SelectionMode="None" Background="#0DFFFFFF" CornerRadius="6">
+                            <ListView.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Padding="4,2" ColumnSpacing="8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected, Mode=TwoWay}" MinWidth="0"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding RelativePath}" FontSize="11" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                                   ToolTipService.ToolTip="{Binding RelativePath}"/>
+                                        <Border Grid.Column="2" Background="#1E293B" CornerRadius="4" Padding="6,1" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding CategoryBadge}" FontSize="10" Foreground="#38BDF8"/>
+                                        </Border>
+                                        <TextBlock Grid.Column="3" Text="{Binding SizeFormatted}" FontSize="11" Foreground="#94A3B8" VerticalAlignment="Center"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                    </Grid>
+                </Border>
+
+                <!-- Нижняя карточка: Ссылки на облачные моды и русификаторы (Яндекс.Диск / Google Drive / GitHub / прямые URL) -->
+                <Border Grid.Row="1" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="10">
+                    <Grid RowSpacing="6">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <Grid Grid.Row="0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="☁ Ссылки на русификаторы и моды (Яндекс.Диск, Google Drive, GitHub, прямые архивы)"
+                                       FontWeight="Bold" FontSize="12"/>
+                            <TextBlock x:Name="ModLinksHintText" Grid.Column="1" Text="Авто-парсинг из шапки темы" Foreground="#22C55E" FontSize="11"/>
+                        </Grid>
+
+                        <TextBox x:Name="CloudModLinksBox" Grid.Row="1" AcceptsReturn="True" TextWrapping="Wrap"
+                                 ScrollViewer.VerticalScrollBarVisibility="Auto" FontSize="11" CornerRadius="6"
+                                 PlaceholderText="Вставьте одну или несколько ссылок (по одной на строку) на Яндекс.Диск (disk.yandex.ru/...), Google Drive (drive.google.com/...), GitHub Releases или прямой архив (.zip / .7z / .rar / .ips / .pchtxt). При выборе темы RuTracker внешние ссылки на русификаторы извлекаются сюда автоматически!"/>
+
+                        <Grid Grid.Row="2" ColumnSpacing="10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBox x:Name="CustomModNameBox" Grid.Column="0"
+                                     PlaceholderText="Название мода для вшивания (необязательно, напр. Русификатор текста + 60 FPS)"
+                                     FontSize="11" VerticalContentAlignment="Center" CornerRadius="6"/>
+                            <CheckBox x:Name="AutoBuildCheckBox" Grid.Column="1" Content="Сразу запустить сборку задачи" IsChecked="False" FontSize="11"/>
+                        </Grid>
+                    </Grid>
+                </Border>
+            </Grid>
+        </Grid>
+
+        <!-- Прогресс-бар и журнал выполнения -->
+        <Grid Grid.Row="4" RowSpacing="4">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <Grid Grid.Row="0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="StatusText" Text="Готов к поиску и загрузке игр или облачных модификаций." FontSize="12" Foreground="#38BDF8" FontWeight="SemiBold"/>
+                <TextBlock x:Name="SpeedPeersText" Grid.Column="1" Text="" FontSize="11" Foreground="#22C55E" FontWeight="SemiBold"/>
+            </Grid>
+            <ProgressBar x:Name="DownloadProgressBar" Grid.Row="1" Minimum="0" Maximum="100" Value="0" Height="6" CornerRadius="3"/>
+        </Grid>
+
+        <!-- Кнопки действий -->
+        <Grid Grid.Row="5" ColumnSpacing="10">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <Button x:Name="OpenTopicBrowserBtn" Grid.Column="0" Content="🌍 Открыть тему в браузере" Click="OpenTopicInBrowser_Click"
+                    HorizontalAlignment="Left" CornerRadius="6" Padding="12,7"/>
+
+            <Button x:Name="CancelDownloadBtn" Grid.Column="1" Content="⏹ Остановить загрузку" Click="CancelDownload_Click"
+                    IsEnabled="False" CornerRadius="6" Padding="14,7"/>
+
+            <Button x:Name="DownloadOnlyModsBtn" Grid.Column="2" Content="☁ Скачать только облачные моды и привязать" Click="DownloadOnlyCloudMods_Click"
+                    Background="#7C3AED" Foreground="White" FontWeight="SemiBold" CornerRadius="6" Padding="14,7"/>
+
+            <Button x:Name="StartFullDownloadBtn" Grid.Column="3" Content="🚀 Скачать раздачу + моды и создать задачу" Click="StartFullDownload_Click"
+                    Background="#0284C7" Foreground="White" FontWeight="Bold" CornerRadius="6" Padding="16,7"/>
+        </Grid>
+    </Grid>
+</ContentDialog>

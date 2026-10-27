@@ -17,9 +17,9 @@
     <PublishReadyToRun>false</PublishReadyToRun>
     <TieredCompilation>true</TieredCompilation>
     <SuppressNETCoreSdkPreviewMessage>true</SuppressNETCoreSdkPreviewMessage>
-    <Version>5.2.0</Version>
-    <AssemblyVersion>5.2.0.0</AssemblyVersion>
-    <FileVersion>5.2.0.0</FileVersion>
+    <Version>5.3.0</Version>
+    <AssemblyVersion>5.3.0.0</AssemblyVersion>
+    <FileVersion>5.3.0.0</FileVersion>
     <ApplicationIcon>storm_switch_box.ico</ApplicationIcon>
     <DefaultItemExcludes>$(DefaultItemExcludes);obj\**;bin\**;installer\**;Assembling\**;Files\**;publish\**;temp\**;*.bmp;*.zip;*.cer;*.pfx;*.log</DefaultItemExcludes>
   </PropertyGroup>
@@ -30,6 +30,7 @@
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.2.2" />
     <!-- Библиотеки, которые понадобятся на следующих этапах -->
     <PackageReference Include="LibHac" Version="0.18.0" />
+    <PackageReference Include="MonoTorrent" Version="3.0.2" />
     <PackageReference Include="ZstdSharp.Port" Version="0.8.0" />
     <PackageReference Include="CommunityToolkit.WinUI.UI.Controls.DataGrid" Version="7.1.2" />
     <Manifest Include="$(ApplicationManifest)" />

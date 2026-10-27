@@ -1188,6 +1188,19 @@ namespace StormSwitchBox.Views
             Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(dp);
         }
 
+        private async void OpenRuTrackerDownloader_Click(object sender, RoutedEventArgs e)
+        {
+            var dlg = new Dialogs.RuTrackerModDownloaderDialog(ViewModel, null);
+            await dlg.ShowAsync();
+        }
+
+        private async void AttachCloudModToTask_Click(object sender, RoutedEventArgs e)
+        {
+            var task = GetTargetTask(sender);
+            var dlg = new Dialogs.RuTrackerModDownloaderDialog(ViewModel, task);
+            await dlg.ShowAsync();
+        }
+
         private async void OpenDirectConsoleSender_Click(object sender, RoutedEventArgs e)
         {
             var task = GetTargetTask(sender);

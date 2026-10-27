@@ -126,6 +126,15 @@ namespace StormSwitchBox.Models
         public double LogPanelHeight { get; set; } = 130;
         public Dictionary<string, bool> ColumnVisibility { get; set; } = new();
         public Dictionary<string, int> ColumnWidths { get; set; } = new();
+
+        // Интеграция с RuTracker и Облачным загрузчиком модов (5.3.0)
+        public string RuTrackerMirror { get; set; } = "rutracker.org";
+        public bool RuTrackerUseDoH { get; set; } = true;
+        public string RuTrackerProxy { get; set; } = "";
+        public string RuTrackerUsername { get; set; } = "";
+        public string RuTrackerCookie { get; set; } = "";
+        public string RuTrackerDownloadFolder { get; set; } = "";
+        public bool RuTrackerAutoBuildTask { get; set; } = false;
     }
 }
 
