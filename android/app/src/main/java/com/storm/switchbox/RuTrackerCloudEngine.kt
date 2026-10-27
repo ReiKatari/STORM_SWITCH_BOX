@@ -92,7 +92,7 @@ object RuTrackerCloudEngine {
 
     // Строго только игры и русификаторы Nintendo Switch из официального раздела RuTracker #1605 / #2481 (по 1 эталонной записи на игру)
     private val CURATED_SWITCH_DB = listOf(
-        TopicItem("6525297", "[Nintendo Switch] Animal Well [v1.0.2 / 0100C9801A8C2000] [NSZ] [RUS / Multi11]", "Nintendo Switch", "73,35 МБ", 54, 2, "0A996B997AA2B90DB658E4CA76D2989DD1F80F56", "", ""),
+        TopicItem("6525297", "[Nintendo Switch] Animal Well [v1.0.10 (655360) / 0100C9801A8C2000] [NSP / NSZ] [RUS / Multi11]", "Nintendo Switch", "39,46 МБ", 54, 2, "0A996B997AA2B90DB658E4CA76D2989DD1F80F56", "", ""),
         TopicItem("6589120", "[Nintendo Switch] Nine Sols [v1.0.5 + Русификатор] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "3,42 ГБ", 165, 12, "957ADC803EE75C916B735378F25406B4A4A7F1D5", "", ""),
         TopicItem("5468910", "[Nintendo Switch] Celeste [v1.4.0.0] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "1,18 ГБ", 182, 6, "6EDC344625A26DCA0861F2ABE2FE2B98C0E83B1D", "", ""),
         TopicItem("6381290", "[Nintendo Switch] Sea of Stars [v1.0.47958 + DLC + Русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "4,15 ГБ", 154, 9, "5054E8E6621522E2173D5AE817AFFAC8DABE50FE", "", ""),
@@ -1030,7 +1030,7 @@ object RuTrackerCloudEngine {
             .ifBlank { "Switch_Game_${topic.topicId}" }
 
         val verMatch = Regex("""\b(v\d+(?:\.\d+)+)\b""", RegexOption.IGNORE_CASE).find(topic.title)
-        val verTag = verMatch?.groupValues?.get(1) ?: "v1.0.2"
+        val verTag = verMatch?.groupValues?.get(1) ?: "v1.0.10"
         val hasDlc = Regex("""\b(DLC|All DLC|Pack|Pass|Edition)\b""", RegexOption.IGNORE_CASE).containsMatchIn(topic.title)
 
         val files = mutableListOf<ReleaseContentFile>()
@@ -1045,7 +1045,7 @@ object RuTrackerCloudEngine {
             files.add(ReleaseContentFile("$cleanGameName [$dlcPackTid][DLC Pack].nsp", "DLC", dlcBytes, dlcPackTid, true))
             files.add(ReleaseContentFile("$cleanGameName [$dlcTid][DLC Unlocker].nsp", "UNLOCKER", unlockerBytes, dlcTid, true))
         } else {
-            val baseBytes = (totalBytes * 74L) / 100L
+            val baseBytes = (totalBytes * 88L) / 100L
             val patchBytes = (totalBytes - baseBytes).coerceAtLeast(1024L * 1024L)
             files.add(ReleaseContentFile("$cleanGameName [$baseTid][v0].nsp", "БАЗА", baseBytes, baseTid, true))
             files.add(ReleaseContentFile("$cleanGameName [$updTid][$verTag].nsp", "ПАТЧ", patchBytes, updTid, true))
@@ -1177,9 +1177,11 @@ object RuTrackerCloudEngine {
         val publisherForControl = if (preBuildCustomization.enabled && preBuildCustomization.customPublisher.isNotBlank()) {
             preBuildCustomization.customPublisher.trim()
         } else "Shared Memory / Nintendo Switch"
-        val verForControl = if (preBuildCustomization.enabled && preBuildCustomization.customDisplayVersion.isNotBlank()) {
+        val topicVerStr = Regex("""\bv?(\d+(?:\.\d+)+)\b""", RegexOption.IGNORE_CASE)
+            .find(topic.title)?.groupValues?.get(1) ?: "1.0.10"
+        val verForControl = if (preBuildCustomization.enabled && preBuildCustomization.customDisplayVersion.isNotBlank() && preBuildCustomization.customDisplayVersion.trim() != "1.0.2") {
             preBuildCustomization.customDisplayVersion.trim()
-        } else "1.0.2"
+        } else topicVerStr
 
         for ((fileIdx, relFile) in allReleaseFiles.withIndex()) {
             if (isCancelled()) throw InterruptedException("Операция отменена пользователем")

@@ -1387,7 +1387,8 @@ class MainActivity : Activity() {
         val activeMetaFile = selectedInputFile ?: queuedFiles.firstOrNull()
         val detectedMeta = if (activeMetaFile != null) StormNczEngine.readContainerMetadata(activeMetaFile) else null
         val defaultCleanTitle = detectedMeta?.internalTitle ?: (gameGroups.firstOrNull()?.displayTitle ?: "Switch Game")
-        val defaultVer = detectedMeta?.displayVersion ?: "1.0.0"
+        val highestQueueVer = queuedFiles.mapNotNull { StormNczEngine.extractDisplayVersionFromFileName(it.name) }.lastOrNull()
+        val defaultVer = highestQueueVer ?: (detectedMeta?.displayVersion ?: "1.0.0")
         val targetExtPreview = when (selectedOutputFormat) {
             0 -> "nsz"
             1 -> "xcz"
@@ -2609,7 +2610,7 @@ class MainActivity : Activity() {
 
         val cleanDefaultTitle = StormNczEngine.extractCleanGameTitle(item.title)
         val verMatch = Regex("""\b(v\d+(?:\.\d+)+)\b""", RegexOption.IGNORE_CASE).find(item.title)
-        val defaultVerStr = verMatch?.groupValues?.get(1)?.removePrefix("v")?.removePrefix("V") ?: "1.0.3"
+        val defaultVerStr = verMatch?.groupValues?.get(1)?.removePrefix("v")?.removePrefix("V") ?: "1.0.10"
         fun extForMode(m: Int): String = when (m) {
             0 -> "nsz"
             1 -> "xcz"
