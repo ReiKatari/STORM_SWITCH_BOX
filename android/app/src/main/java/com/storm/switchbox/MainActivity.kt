@@ -168,6 +168,25 @@ class MainActivity : Activity() {
     private val iconBadgeOptions = listOf("Без бейджа", "RUS", "RUS + MOD", "60 FPS", "MULTI", "4K MOD")
     private var onCustomIconPickedCallback: ((String) -> Unit)? = null
 
+    // Параметры 5.5.5: Распаковка/Упаковка RomFS+ExeFS, Генератор Forwarder (.nro -> .nsp), 3DS FBI QR и FTP
+    private var extractRomfsEnabled = true
+    private var extractExefsEnabled = true
+    private var extractControlEnabled = true
+    private var extractRawPfs0Enabled = true
+    private var fwdAppTitle = "DBI Installer"
+    private var fwdAppAuthor = "duckbill007 / STORM TEAM"
+    private var fwdAppVersion = "715.0"
+    private var fwdTitleId = "0100F0001DB10000"
+    private var fwdSdmcNroPath = "sdmc:/switch/DBI/DBI.nro"
+    private var fwdRomArgPath = ""
+    private var fwdLocalNroPath = ""
+    private var fwdCustomIconPath = ""
+    private var ftpConsoleIp = "192.168.1.50"
+    private var ftpConsolePort = 5000
+    private var ftpRemoteDir = "/switch/"
+    private var selectedQrFileIndex = 0
+    private var selectedFtpFileIndex = 0
+
     companion object {
         private const val REQ_PICK_MULTIPLE_FILES = 1001
         private const val REQ_PICK_FOLDER_TREE = 1002
@@ -195,7 +214,7 @@ class MainActivity : Activity() {
         }
 
         buildUserInterface()
-        appendLog("STORM SWITCH BOX ${"5.5.4"} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) готов к работе.")
+        appendLog("STORM SWITCH BOX ${"5.5.5"} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) готов к работе.")
 
         // Автоматическая проверка обновлений с GitHub при запуске
         if (autoCheckUpdatesOnStartup) {
@@ -666,7 +685,7 @@ class MainActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
         titleCol.addView(TextView(this).apply {
-            text = "STORM SWITCH BOX ${"5.5.4"}"
+            text = "STORM SWITCH BOX ${"5.5.5"}"
             setTextColor(th.textPrimary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
             typeface = Typeface.DEFAULT_BOLD
@@ -701,9 +720,10 @@ class MainActivity : Activity() {
         }
         val tabTitles = listOf(
             "📦 Очередь и конвертер",
-            "🔍 Инспектор и аудитор",
-            "🌐 RuTracker (Switch) и моды",
-            "📡 Сеть и консоль",
+            "🔍 Инспектор и RomFS",
+            "🌐 RuTracker и Форвардер",
+            "📡 Сеть, 3DS QR и FTP",
+            "📚 База TitleDB и Ошибки",
             "🔑 Ключи и параметры",
             "📖 Инструкция"
         )
@@ -752,8 +772,9 @@ class MainActivity : Activity() {
             1 -> buildInspectorAndAuditorTab(contentContainer, th)
             2 -> buildRuTrackerAndModsTab(contentContainer, th)
             3 -> buildNetworkDbiTab(contentContainer, th)
-            4 -> buildKeysAndSettingsTab(contentContainer, th)
-            5 -> buildInstructionsTab(contentContainer, th)
+            4 -> buildTitleDbAndErrorCodesTab(contentContainer, th)
+            5 -> buildKeysAndSettingsTab(contentContainer, th)
+            6 -> buildInstructionsTab(contentContainer, th)
         }
 
         // Журнал событий внизу каждой вкладки
@@ -1023,7 +1044,10 @@ class MainActivity : Activity() {
             "Максимальное сжатие (Ультра Zstandard 22, блок 2 МБ, минимальный размер)",
             "Ручная настройка параметров (Выбор уровня Zstandard и размера блока NCZBLOCK)",
             "Распаковка NSZ / XCZ в оригинальный NSP / XCI",
-            "SmartShrink: Только обрезка пустых областей 0xFF (Switch XCI и 3DS)"
+            "SmartShrink: Только обрезка пустых областей 0xFF (Switch XCI и 3DS)",
+            "Полная распаковка игры: Извлечение RomFS + ExeFS + Control + PFS0 в папку",
+            "Упаковка папки: Сборка модифицированных RomFS / ExeFS / PFS0 обратно в NSP / NSZ",
+            "Создание Homebrew Forwarder (.nro → установочный .nsp для главного экрана Switch)"
         )
         val profileDropdown = makeStormDropdown(optimizationProfiles, selectedOperationMode, th) { pos ->
             selectedOperationMode = pos
@@ -1117,8 +1141,11 @@ class MainActivity : Activity() {
             val summaryText = when (selectedOperationMode) {
                 0 -> "⚡ Автоматика: Блочный NCZ (1 МБ, Zstd 18) • Умная дедупликация NCA • Авто-вшивание модов • Trim 0xFF"
                 1 -> "🔥 Ультра-режим: Блочный NCZ (2 МБ, Zstd 22) • Максимальное уменьшение размера • Дедупликация NCA"
-                3 -> "📦 Режим распаковки: Восстановление сжатых разделов NCZ в оригинальные NCA (.nsp / .xci)"
-                else -> "✂️ SmartShrink: Хирургическая обрезка пустых областей 0xFF в образах картриджей XCI и 3DS"
+                3 -> "📦 Режим декомпрессии: Восстановление сжатых разделов NCZ в оригинальные NCA (.nsp / .xci)"
+                4 -> "✂️ SmartShrink: Хирургическая обрезка пустых областей 0xFF в образах картриджей XCI и 3DS"
+                5 -> "📂 Извлечение данных игры: Полная распаковка секций RomFS, ExeFS (main/npdm), Control (NACP/иконка) и PFS0"
+                6 -> "📦 Обратная упаковка: Сборка папки с модифицированными RomFS / ExeFS / PFS0 в готовый контейнер NSP / NSZ"
+                else -> "🚀 Генератор Форвардеров: Сборка установочного .NSP ярлыка для экрана Switch из любого .NRO или ретро-РОМа"
             }
             cfgCard.addView(TextView(this).apply {
                 text = summaryText
@@ -1131,6 +1158,47 @@ class MainActivity : Activity() {
                     bottomMargin = dp(4)
                 }
             })
+            if (selectedOperationMode == 5) {
+                val unpackBox = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    background = makeCardDrawable(th.bgPrimary, th.border, 8)
+                    setPadding(dp(10), dp(8), dp(10), dp(8))
+                    layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        topMargin = dp(4)
+                        bottomMargin = dp(6)
+                    }
+                }
+                unpackBox.addView(TextView(this).apply {
+                    text = "Выберите секции для извлечения из NSP / NSZ / XCI / 3DS:"
+                    setTextColor(th.textPrimary)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.8f)
+                    typeface = Typeface.DEFAULT_BOLD
+                })
+                unpackBox.addView(makeStormCheckBox("Извлечь RomFS (игровые ресурсы, тексты перевода, конфиги -> romfs/)", extractRomfsEnabled, th) { extractRomfsEnabled = it })
+                unpackBox.addView(makeStormCheckBox("Извлечь ExeFS (исполняемые модули main, main.npdm, rtld, sdk -> exefs/)", extractExefsEnabled, th) { extractExefsEnabled = it })
+                unpackBox.addView(makeStormCheckBox("Извлечь Control (паспорт control.nacp + обложка 256×256 JPEG -> control/)", extractControlEnabled, th) { extractControlEnabled = it })
+                unpackBox.addView(makeStormCheckBox("Сохранить сырые разделы контейнера (.nca, .tik, .cert -> pfs0/)", extractRawPfs0Enabled, th) { extractRawPfs0Enabled = it })
+                cfgCard.addView(unpackBox)
+            } else if (selectedOperationMode == 6) {
+                cfgCard.addView(makeButton("📦 Открыть мастер упаковки папки (RomFS / ExeFS / PFS0 -> NSP/NSZ)", th.accent) {
+                    showPackFolderToNspDialog(th)
+                }.apply {
+                    layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        topMargin = dp(4)
+                        bottomMargin = dp(6)
+                    }
+                })
+            } else if (selectedOperationMode == 7) {
+                cfgCard.addView(makeButton("🚀 Открыть генератор Homebrew Forwarder (.nro → .nsp)", th.accent) {
+                    activeTab = 2
+                    buildUserInterface()
+                }.apply {
+                    layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        topMargin = dp(4)
+                        bottomMargin = dp(6)
+                    }
+                })
+            }
         }
 
         // Только 2 понятных чекбокса без какого-либо дублирования!
@@ -1574,6 +1642,68 @@ class MainActivity : Activity() {
                                 val outFile = File(customOutputDir, "${baseName}_trimmed.$ext")
                                 StormNczEngine.smartShrinkRom(inFile, outFile, cb)
                             }
+                            5 -> {
+                                val rep = StormNczEngine.extractGameRomfsAndExefs(
+                                    inputFile = inFile,
+                                    targetBaseDir = customOutputDir,
+                                    extractRomfs = extractRomfsEnabled,
+                                    extractExefs = extractExefsEnabled,
+                                    extractControl = extractControlEnabled,
+                                    extractRawPartitions = extractRawPfs0Enabled,
+                                    onProgress = cb
+                                )
+                                StormNczEngine.CompressionResult(
+                                    success = rep.success,
+                                    inputPath = inFile.absolutePath,
+                                    outputPath = rep.outputDir.absolutePath,
+                                    originalBytes = inFile.length(),
+                                    compressedBytes = rep.totalExtractedBytes,
+                                    elapsedMs = 100L,
+                                    compressedNcaCount = 1,
+                                    totalFilesCount = rep.extractedFilesCount,
+                                    blockSizeExponent = 20,
+                                    zstdLevel = 18,
+                                    message = "Распаковано ${rep.extractedFilesCount} файлов (RomFS + ExeFS)"
+                                )
+                            }
+                            6 -> {
+                                val targetFolder = if (inFile.isDirectory) inFile else inFile.parentFile ?: customOutputDir
+                                StormNczEngine.packFolderToSwitchContainer(
+                                    inputFolder = targetFolder,
+                                    outputDir = customOutputDir,
+                                    targetFormatMode = selectedOutputFormat,
+                                    useBlockNcz = useBlockForFormat,
+                                    zstdLevel = effectiveLevel,
+                                    blockSizeExponent = effectiveBlockExpo,
+                                    onProgress = cb
+                                )
+                            }
+                            7 -> {
+                                val fwdOut = StormNczEngine.buildHomebrewForwarderNsp(
+                                    appTitle = customInternalGameTitle.ifBlank { baseName },
+                                    appAuthor = customGamePublisher.ifBlank { "STORM TEAM" },
+                                    appVersion = customDisplayVer.ifBlank { "1.0.0" },
+                                    titleIdHex = fwdTitleId,
+                                    sdmcNroPath = if (ext == "nro") "sdmc:/switch/${inFile.name}" else fwdSdmcNroPath,
+                                    localNroFile = if (ext == "nro") inFile else null,
+                                    customIconPath = customIconImagePath,
+                                    outputDir = customOutputDir,
+                                    onProgress = cb
+                                )
+                                StormNczEngine.CompressionResult(
+                                    success = fwdOut.exists(),
+                                    inputPath = inFile.absolutePath,
+                                    outputPath = fwdOut.absolutePath,
+                                    originalBytes = inFile.length(),
+                                    compressedBytes = fwdOut.length(),
+                                    elapsedMs = 100L,
+                                    compressedNcaCount = 1,
+                                    totalFilesCount = 3,
+                                    blockSizeExponent = 20,
+                                    zstdLevel = 18,
+                                    message = "Создан Forwarder NSP: ${fwdOut.name}"
+                                )
+                            }
                             else -> {
                                 val preCustomSingle = StormNczEngine.PreBuildCustomization(
                                     enabled = preBuildCustomizeEnabled,
@@ -1700,6 +1830,59 @@ class MainActivity : Activity() {
             })
         }
         inspCard.addView(inspBtnRow)
+
+        val romfsActionRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(8)
+            }
+        }
+        romfsActionRow.addView(makeButton("🌲 Проводник RomFS / ExeFS (HEX)", th.accent) {
+            val target = activeFile ?: queuedFiles.firstOrNull()
+            if (target == null || !target.exists()) {
+                Toast.makeText(this, "Сначала выберите файл (.nsp/.nsz/.xci/.3ds) для открытия в проводнике RomFS!", Toast.LENGTH_SHORT).show()
+            } else {
+                showVirtualRomfsExplorerDialog(target, th)
+            }
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) }
+        })
+
+        romfsActionRow.addView(makeButton("📂 Извлечь RomFS + ExeFS", th.bgElevated, th.accent) {
+            val target = activeFile ?: queuedFiles.firstOrNull()
+            if (target == null || !target.exists()) {
+                Toast.makeText(this, "Выберите игровой файл (.nsp/.nsz/.xci/.3ds) для извлечения RomFS и ExeFS!", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, "⏳ Извлечение RomFS + ExeFS + Control из ${target.name}...", Toast.LENGTH_SHORT).show()
+                thread {
+                    try {
+                        val rep = StormNczEngine.extractGameRomfsAndExefs(
+                            inputFile = target,
+                            targetBaseDir = extractedDir,
+                            extractRomfs = true,
+                            extractExefs = true,
+                            extractControl = true,
+                            extractRawPartitions = true
+                        ) {}
+                        appendLog("✅ Извлечено RomFS + ExeFS (${rep.extractedFilesCount} файлов, ${StormNczEngine.formatSize(rep.totalExtractedBytes)}) в ${rep.outputDir.absolutePath}")
+                        mainHandler.post {
+                            showUnpackSummaryDialog(target.name, rep, th)
+                        }
+                    } catch (e: Exception) {
+                        appendLog("❌ Ошибка извлечения RomFS/ExeFS: ${e.message}")
+                    }
+                }
+            }
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) }
+        })
+
+        romfsActionRow.addView(makeButton("📦 Упаковать папку в NSP/NSZ", th.bgElevated, th.textPrimary) {
+            showPackFolderToNspDialog(th)
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        })
+        inspCard.addView(romfsActionRow)
 
         if (activeFile != null && activeFile.exists()) {
             val entries = StormNczEngine.inspectContainer(activeFile)
@@ -2008,6 +2191,14 @@ class MainActivity : Activity() {
         })
         rtCard.addView(resultsLayout)
         parent.addView(rtCard)
+
+        buildHomebrewForwarderCard(parent, th) { homebrewQuery: String ->
+            suppressWatcher = true
+            queryEdit.setText(homebrewQuery)
+            queryEdit.setSelection(homebrewQuery.length)
+            suppressWatcher = false
+            runSearch(homebrewQuery, immediateOnly = false)
+        }
 
         runSearch("", immediateOnly = true)
     }
@@ -2891,6 +3082,60 @@ class MainActivity : Activity() {
                 "Все промежуточные операции сжатия NCZBLOCK и распаковки модов выполняются во временных рабочих каталогах (.tmp_multi_*), которые гарантированно удаляются в блоке finally даже при отмене операции пользователем.\n" +
                     "• Если включён чекбокс «Удалять исходные файлы после успешной проверки выходного контейнера», исходные части удаляются только после того, как итоговый мульти-контейнер полностью записан и проверен.",
                 "Совет: Вы всегда можете остановить длительную пакетную очередь кнопкой «⏹ Стоп» без риска повреждения исходных файлов."
+            ),
+            InstructionTopicItem(
+                21,
+                "21. Распаковка и обратная Упаковка RomFS и ExeFS (Моддинг и перевод)",
+                "Форматы Switch и 3DS",
+                "ROMFS / EXEFS",
+                "Полный цикл распаковки и обратной сборки игровых контейнеров прямо на Android (как на ПК):\n" +
+                    "• Во вкладке «🔍 Инспектор и RomFS» нажмите «📂 Извлечь RomFS + ExeFS» (или выберите режим «Полная распаковка игры» в Конвейере).\n" +
+                    "• Движок автоматически декомпрессирует сжатые потоки NCZ, разбирает Program NCA и Control NCA и раскладывает данные по папкам: romfs/ (игровые ресурсы и конфиги), exefs/ (исполняемые модули main, main.npdm, rtld, sdk), control/ (control.nacp + обложка 256×256 JPEG), pfs0/ (сырые разделы) и готовый шаблон atmosphere/contents/<TitleID>/romfs/.\n" +
+                    "• После внесения правок или добавления русификатора нажмите «📦 Упаковать папку в NSP/NSZ» — программа соберёт модифицированные файлы обратно в монолитный .nsp или сжатый .nsz!",
+                "Совет: Вам больше не нужен ПК для вшивания перевода или редактирования config.ini внутри игры — распакуйте RomFS, замените файлы и упакуйте обратно в NSZ прямо на смартфоне."
+            ),
+            InstructionTopicItem(
+                22,
+                "22. Виртуальный проводник RomFS / ExeFS с просмотром HEX и UTF-8",
+                "Форматы Switch и 3DS",
+                "HEX ПРОВОДНИК",
+                "Интерактивный просмотр внутреннего дерева любого образа (.nsp, .nsz, .xci, .xcz, .3ds, .cci, .cia) без полной распаковки на накопитель:\n" +
+                    "• Откройте вкладку «🔍 Инспектор и RomFS» и нажмите «🌲 Проводник RomFS / ExeFS (HEX)».\n" +
+                    "• Переключайтесь между узлами /pfs0/, /exefs/main.npdm, /exefs/main, /control/control.nacp и /romfs/config.ini.\n" +
+                    "• Встроенный двухрежимный инспектор показывает классический 16-байтный дамп HEX + ASCII и автоматическую расшифровку заголовков NACP (16 языков), NPDM (ACI0/TitleID), NSO0 и текста UTF-8.\n" +
+                    "• Кнопка «💾 Извлечь узел» мгновенно сохраняет только выбранный файл.",
+                "Совет: Используйте фильтр поиска в верхней части проводника, чтобы за секунду найти нужный конфигурационный или языковой файл внутри многогигабайтного контейнера."
+            ),
+            InstructionTopicItem(
+                23,
+                "23. Генератор Homebrew Forwarder (.nro → .nsp) + RuTracker Homebrew",
+                "RuTracker и Моды",
+                "NRO -> NSP",
+                "Создание установочных ярлыков (.nsp) для главного экрана Nintendo Switch (Horizon OS) из любого хоумбрю (.nro) или ретро-игры:\n" +
+                    "• Откройте вкладку «🌐 RuTracker и Форвардер» и прокрутите к карточке «🚀 Генератор Homebrew Forwarder (.nro → .nsp)».\n" +
+                    "• Выберите один из готовых пресетов (DBI, RetroArch, JKSV, Moonlight-NX), нажмите «🌐 Найти Homebrew на RuTracker» или выберите локальный .nro файл со смартфона (название, автор, версия и иконка 256×256 JPEG автоматически считаются из секции ASET!).\n" +
+                    "• Нажмите «⚡ Собрать Forwarder .NSP» — программа сформирует валидный PFS0 NSP с ExeFS (NSO0 nx-hbloader + NPDM) и RomFS (nextNroPath / nextArgv).",
+                "Совет: Запуск хоумбрю и эмуляторов через установленный NSP-форвардер автоматически выделяет приложению все 4 ГБ оперативной памяти Switch (Title Override Mode) и предотвращает вылеты с ошибкой 2168-0002!"
+            ),
+            InstructionTopicItem(
+                24,
+                "24. Установка .CIA на Nintendo 3DS по QR-коду (FBI) и передача по FTP",
+                "Сеть, Ключи и База",
+                "3DS QR + FTP",
+                "Беспроводная передача игр на консоли Nintendo 3DS и Nintendo Switch во вкладке «📡 Сеть, 3DS QR и FTP»:\n" +
+                    "• Установка на 3DS по QR-коду: выберите любой .cia файл и нажмите «📷 Показать QR-код для установки через FBI (Nintendo 3DS)». На консоли 3DS откройте FBI -> Remote Install -> Scan QR Code и наведите камеру на экран телефона — игра сразу скачается и установится по Wi-Fi!\n" +
+                    "• Встроенный FTP-клиент: нажмите «🔍 Найти в Wi-Fi» (автопоиск портов 5000 и 21 для sys-ftpd / DBI / FTPD), выберите целевую папку (/switch/, /cia/, /atmosphere/contents/) и отправьте игру или мод напрямую с живым индикатором скорости.",
+                "Совет: Для работы QR-установки 3DS и смартфон должны находиться в одной локальной сети Wi-Fi (или подключены к точке доступа смартфона)."
+            ),
+            InstructionTopicItem(
+                25,
+                "25. База игр TitleDB и расшифровка системных ошибок Switch (2xxx-xxxx)",
+                "Сеть, Ключи и База",
+                "TITLEDB + ОШИБКИ",
+                "Встроенный справочник метаданных и диагностики во вкладке «📚 База TitleDB и Ошибки»:\n" +
+                    "• База игр TitleDB: мгновенный поиск по названию игры или TitleID (0100... / 00040000...), просмотр ID базы [000] и патча [800], статуса русского перевода, количества DLC и переход к скачиванию с RuTracker в 1 клик.\n" +
+                    "• Декодер ошибок Switch и Atmosphère (2xxx-xxxx): введите код системной ошибки (например, 2002-4153, 2168-0002, 2016-0641, 2162-0002, 2155-8007), чтобы узнать сбойный модуль ОС, точную причину и пошаговую инструкцию по устранению.",
+                "Совет: Кнопка «🔄 Обновить базу» синхронизирует и сохраняет расширенный каталог релизов в локальный кэш для работы без интернета."
             )
         )
     }
@@ -3214,6 +3459,9 @@ class MainActivity : Activity() {
         })
 
         parent.addView(card)
+
+        build3dsFbiQrInstallCard(parent, th, ip)
+        buildFtpConsoleSenderCard(parent, th, ip)
     }
 
     // =========================================================================
@@ -3362,7 +3610,7 @@ class MainActivity : Activity() {
         }
         updCard.addView(makeSectionHeader(
             "2. Обновление STORM SWITCH BOX с GitHub",
-            "Текущая версия: ${"5.5.4"} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()})",
+            "Текущая версия: ${"5.5.5"} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()})",
             th
         ))
         updCard.addView(makeStormCheckBox(
@@ -4048,14 +4296,14 @@ class MainActivity : Activity() {
         }
         val preferLegacy = (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) || Build.VERSION.SDK_INT < 26
         thread {
-            val rel = RuTrackerCloudEngine.checkGitHubAppUpdate("5.5.4", preferLegacy)
+            val rel = RuTrackerCloudEngine.checkGitHubAppUpdate("5.5.5", preferLegacy)
             mainHandler.post {
                 if (rel != null) {
                     showUpdateAvailableDialog(rel)
                 } else if (isManualClick) {
                     Toast.makeText(
                         this,
-                        "✅ У вас установлена актуальная версия STORM SWITCH BOX ${"5.5.4"}!",
+                        "✅ У вас установлена актуальная версия STORM SWITCH BOX ${"5.5.5"}!",
                         Toast.LENGTH_LONG
                     ).show()
                 }
@@ -4077,7 +4325,7 @@ class MainActivity : Activity() {
             typeface = Typeface.DEFAULT_BOLD
         })
         box.addView(TextView(this).apply {
-            text = "Новая версия: ${release.version} (Установлена: ${"5.5.4"})\nПакет: ${release.apkName} (${StormNczEngine.formatSize(release.apkSizeBytes)})"
+            text = "Новая версия: ${release.version} (Установлена: ${"5.5.5"})\nПакет: ${release.apkName} (${StormNczEngine.formatSize(release.apkSizeBytes)})"
             setTextColor(th.textPrimary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
             setPadding(0, dp(4), 0, dp(8))
@@ -4250,4 +4498,1141 @@ class MainActivity : Activity() {
         } catch (_: Exception) {}
         return "127.0.0.1"
     }
+
+    // =========================================================================
+    // НОВЫЕ РАЗДЕЛЫ И ДИАЛОГИ 5.5.5:
+    // 1. ВИРТУАЛЬНЫЙ ПРОВОДНИК ROMFS / EXEFS (HEX + UTF-8)
+    // 2. МАСТЕР РАСПАКОВКИ И ОБРАТНОЙ УПАКОВКИ ПАПКИ В NSP / NSZ
+    // 3. ГЕНЕРАТОР HOMEBREW FORWARDER (.NRO -> .NSP) С ПОДДЕРЖКОЙ RUTRACKER
+    // 4. QR-СЕРВЕР ДЛЯ NINTENDO 3DS (FBI) И ВСТРОЕННЫЙ FTP-КЛИЕНТ
+    // 5. ВКЛАДКА «📚 БАЗА TITLEDB И КОДЫ ОШИБОК SWITCH (2XXX-XXXX)»
+    // =========================================================================
+
+    private fun showVirtualRomfsExplorerDialog(containerFile: File, th: StormTheme) {
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = makeCardDrawable(th.bgCard, th.accent, 14)
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+        }
+        card.addView(makeSectionHeader(
+            "🌲 Виртуальный проводник RomFS / ExeFS / PFS0 и HEX-инспектор",
+            "Контейнер: ${containerFile.name} (${StormNczEngine.formatSize(containerFile.length())}) • Просмотр и извлечение без полной распаковки",
+            th
+        ))
+
+        val allNodes = StormNczEngine.inspectVirtualRomfsTree(containerFile)
+        var selectedNode: StormNczEngine.VirtualFsNode = allNodes.firstOrNull() ?: StormNczEngine.VirtualFsNode(
+            virtualPath = "/romfs/config.ini",
+            displayName = "📄 /romfs/config.ini",
+            categoryBadge = "RomFS",
+            size = 256L,
+            containerOffset = 0L
+        )
+        var viewHexMode = true
+
+        val filterInput = EditText(this).apply {
+            hint = "🔍 Фильтр по дереву файлов (.nca, .npdm, .nacp, config.ini, romfs, exefs)..."
+            setTextColor(th.textPrimary)
+            setHintTextColor(th.textSecondary)
+            textSize = 12f
+            setSingleLine(true)
+            background = makeCardDrawable(th.bgPrimary, th.border, 8)
+            setPadding(dp(10), dp(7), dp(10), dp(7))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(8)
+            }
+        }
+        card.addView(filterInput)
+
+        val treeScroll = ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(165)).apply {
+                bottomMargin = dp(8)
+            }
+            background = makeCardDrawable(th.bgPrimary, th.border, 8)
+            setPadding(dp(6), dp(6), dp(6), dp(6))
+        }
+        val treeListLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        treeScroll.addView(treeListLayout)
+        card.addView(treeScroll)
+
+        val modeRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(6)
+            }
+        }
+
+        val viewerScroll = ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(185)).apply {
+                bottomMargin = dp(8)
+            }
+            background = makeCardDrawable(th.bgPrimary, th.border, 8)
+            setPadding(dp(8), dp(6), dp(8), dp(6))
+        }
+        val hexAndTextOutput = TextView(this).apply {
+            setTextColor(th.textPrimary)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.5f)
+            typeface = Typeface.MONOSPACE
+        }
+        viewerScroll.addView(hexAndTextOutput)
+
+        fun updateInspectorView() {
+            val (hexStr, txtStr) = StormNczEngine.inspectVirtualNodeHexAndText(containerFile, selectedNode, 2048)
+            hexAndTextOutput.text = if (viewHexMode) hexStr else txtStr
+        }
+
+        fun renderTreeNodes(q: String) {
+            treeListLayout.removeAllViews()
+            val cleanQ = q.trim().lowercase()
+            val filtered = if (cleanQ.isEmpty()) allNodes else allNodes.filter {
+                it.virtualPath.lowercase().contains(cleanQ) || it.displayName.lowercase().contains(cleanQ) || it.categoryBadge.lowercase().contains(cleanQ)
+            }
+            filtered.forEach { node ->
+                val isSel = node.virtualPath == selectedNode.virtualPath
+                val row = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    background = makeCardDrawable(
+                        if (isSel) th.bgElevated else th.bgCard,
+                        if (isSel) th.accent else th.border,
+                        6
+                    )
+                    setPadding(dp(8), dp(6), dp(8), dp(6))
+                    layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        bottomMargin = dp(4)
+                    }
+                    setOnClickListener {
+                        selectedNode = node
+                        renderTreeNodes(filterInput.text.toString())
+                        updateInspectorView()
+                    }
+                }
+                row.addView(TextView(this).apply {
+                    text = "[${node.categoryBadge}]"
+                    setTextColor(th.accent)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.5f)
+                    typeface = Typeface.DEFAULT_BOLD
+                    setPadding(0, 0, dp(6), 0)
+                })
+                row.addView(TextView(this).apply {
+                    text = node.displayName
+                    setTextColor(th.textPrimary)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                })
+                row.addView(TextView(this).apply {
+                    text = StormNczEngine.formatSize(node.size)
+                    setTextColor(th.textSecondary)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.8f)
+                })
+                treeListLayout.addView(row)
+            }
+        }
+
+        modeRow.addView(makeButton("🔢 Дамп HEX + ASCII", th.bgElevated, th.accent) {
+            viewHexMode = true
+            updateInspectorView()
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) }
+        })
+
+        modeRow.addView(makeButton("📄 Текст UTF-8 / Заголовок", th.bgElevated, th.textPrimary) {
+            viewHexMode = false
+            updateInspectorView()
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) }
+        })
+
+        modeRow.addView(makeButton("💾 Извлечь узел", th.accent) {
+            thread {
+                try {
+                    val outDir = File(extractedDir, containerFile.nameWithoutExtension + "_Nodes")
+                    val savedFile = StormNczEngine.extractSingleVirtualNode(containerFile, selectedNode, outDir)
+                    appendLog("✅ Извлечён узел ${selectedNode.virtualPath} -> ${savedFile.absolutePath}")
+                    mainHandler.post {
+                        Toast.makeText(this, "Сохранено: ${savedFile.absolutePath}", Toast.LENGTH_LONG).show()
+                    }
+                } catch (e: Exception) {
+                    appendLog("❌ Ошибка извлечения узла: ${e.message}")
+                }
+            }
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        })
+
+        card.addView(modeRow)
+        card.addView(viewerScroll)
+
+        filterInput.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                renderTreeNodes(s?.toString() ?: "")
+            }
+        })
+
+        renderTreeNodes("")
+        updateInspectorView()
+
+        val dlg = showImmersiveDialog(
+            AlertDialog.Builder(this)
+                .setView(makeUnclippedDialogContainer(card))
+                .setCancelable(true)
+        )
+        card.addView(makeButton("Закрыть проводник", th.bgElevated, th.textPrimary) {
+            dlg.dismiss()
+        })
+    }
+
+    private fun showUnpackSummaryDialog(sourceName: String, rep: StormNczEngine.UnpackRomfsReport, th: StormTheme) {
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = makeCardDrawable(th.bgCard, th.accent, 14)
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+        }
+        card.addView(makeSectionHeader(
+            "✅ Распаковка RomFS и ExeFS завершена!",
+            "Исходный контейнер: $sourceName • Извлечено файлов: ${rep.extractedFilesCount} (${StormNczEngine.formatSize(rep.totalExtractedBytes)})",
+            th
+        ))
+        card.addView(TextView(this).apply {
+            text = buildString {
+                appendLine("📂 Корневая папка распаковки:")
+                appendLine("   ${rep.outputDir.absolutePath}")
+                appendLine("────────────────────────────────────────────")
+                rep.details.forEach { appendLine(it) }
+                appendLine("────────────────────────────────────────────")
+                append("💡 Совет: Вы можете изменить файлы перевода/конфигурации в папке romfs/ и сразу собрать игру обратно кнопкой «📦 Упаковать папку в NSP/NSZ»!")
+            }
+            setTextColor(th.textPrimary)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.8f)
+            setPadding(0, dp(6), 0, dp(10))
+        })
+
+        val dlg = showImmersiveDialog(
+            AlertDialog.Builder(this)
+                .setView(makeUnclippedDialogContainer(card))
+                .setCancelable(true)
+        )
+        val btnRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.END
+        }
+        btnRow.addView(makeButton("📦 Сразу упаковать обратно в NSP/NSZ", th.accent) {
+            dlg.dismiss()
+            showPackFolderToNspDialog(th, rep.outputDir)
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                marginEnd = dp(8)
+            }
+        })
+        btnRow.addView(makeButton("Закрыть", th.bgElevated, th.textPrimary) {
+            dlg.dismiss()
+        })
+        card.addView(btnRow)
+    }
+
+    private fun showPackFolderToNspDialog(th: StormTheme, preselectedFolder: File? = null) {
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = makeCardDrawable(th.bgCard, th.accent, 14)
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+        }
+        card.addView(makeSectionHeader(
+            "📦 Мастер упаковки папки (RomFS / ExeFS / PFS0 → NSP / NSZ)",
+            "Сборка распакованной игры или папки мода обратно в установочный контейнер Switch",
+            th
+        ))
+
+        val candidateFolders = mutableListOf<File>()
+        preselectedFolder?.takeIf { it.exists() && it.isDirectory }?.let { candidateFolders.add(it) }
+        extractedDir.listFiles()?.filter { it.isDirectory }?.forEach {
+            if (candidateFolders.none { c -> c.canonicalPath == it.canonicalPath }) candidateFolders.add(it)
+        }
+        modsDir.listFiles()?.filter { it.isDirectory }?.forEach {
+            if (candidateFolders.none { c -> c.canonicalPath == it.canonicalPath }) candidateFolders.add(it)
+        }
+        if (candidateFolders.isEmpty()) {
+            extractedDir.mkdirs()
+            candidateFolders.add(extractedDir)
+        }
+
+        var chosenFolder = candidateFolders.first()
+        var targetFmt = 0
+
+        card.addView(TextView(this).apply {
+            text = "Выберите распакованную папку (с подпапками romfs/, exefs/, control/ или pfs0/):"
+            setTextColor(th.textSecondary)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
+            setPadding(0, dp(4), 0, dp(4))
+        })
+
+        val folderDropdown = makeStormDropdown(
+            candidateFolders.map { "${it.name} (${it.parentFile?.name ?: ""}/)" },
+            0,
+            th
+        ) { idx ->
+            chosenFolder = candidateFolders[idx]
+        }
+        card.addView(folderDropdown)
+
+        card.addView(TextView(this).apply {
+            text = "Целевой формат выходного контейнера:"
+            setTextColor(th.textSecondary)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
+            setPadding(0, dp(8), 0, dp(4))
+        })
+
+        val fmtOptions = listOf("NSZ (Блочное сжатие NCZBLOCK)", "XCZ (Сжатый картридж)", "NSP (Без сжатия)", "XCI (Картридж без сжатия)")
+        card.addView(makeStormDropdown(fmtOptions, targetFmt, th) { idx ->
+            targetFmt = idx
+        })
+
+        val titleInput = EditText(this).apply {
+            setText(chosenFolder.name.replace("_Unpacked", ""))
+            hint = "Внутреннее название игры (необязательно)..."
+            setTextColor(th.textPrimary)
+            setHintTextColor(th.textSecondary)
+            textSize = 12f
+            setSingleLine(true)
+            background = makeCardDrawable(th.bgPrimary, th.border, 8)
+            setPadding(dp(10), dp(7), dp(10), dp(7))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(8)
+                bottomMargin = dp(8)
+            }
+        }
+        card.addView(titleInput)
+
+        val statusTxt = TextView(this).apply {
+            text = "Готов к сборке контейнера в ${customOutputDir.absolutePath}"
+            setTextColor(th.accent)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
+            setPadding(0, 0, 0, dp(8))
+        }
+        card.addView(statusTxt)
+
+        val dlg = showImmersiveDialog(
+            AlertDialog.Builder(this)
+                .setView(makeUnclippedDialogContainer(card))
+                .setCancelable(true)
+        )
+
+        val btnRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.END
+        }
+        btnRow.addView(makeButton("Закрыть", th.bgElevated, th.textPrimary) {
+            dlg.dismiss()
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                marginEnd = dp(8)
+            }
+        })
+
+        btnRow.addView(makeButton("🚀 Собрать и упаковать", th.accent) {
+            val customName = titleInput.text.toString().trim()
+            statusTxt.text = "⏳ Упаковка секций RomFS / ExeFS..."
+            thread {
+                try {
+                    val res = StormNczEngine.packFolderToSwitchContainer(
+                        inputFolder = chosenFolder,
+                        outputDir = customOutputDir,
+                        targetFormatMode = targetFmt,
+                        useBlockNcz = (targetFmt == 0 || targetFmt == 1),
+                        zstdLevel = zstdLevel,
+                        blockSizeExponent = blockSizeExpo,
+                        customTitle = customName
+                    ) { p ->
+                        mainHandler.post {
+                            statusTxt.text = "⏳ ${p.stageText} (${p.percent}%)"
+                        }
+                    }
+                    appendLog("✅ Упакована папка ${chosenFolder.name} -> ${File(res.outputPath).name} (${StormNczEngine.formatSize(res.compressedBytes)})")
+                    mainHandler.post {
+                        statusTxt.text = "✅ Создан файл: ${File(res.outputPath).name} (${StormNczEngine.formatSize(res.compressedBytes)})"
+                        Toast.makeText(this, "Готово: ${File(res.outputPath).name}!", Toast.LENGTH_LONG).show()
+                    }
+                } catch (e: Exception) {
+                    mainHandler.post {
+                        statusTxt.text = "❌ Ошибка: ${e.message}"
+                    }
+                }
+            }
+        })
+        card.addView(btnRow)
+    }
+
+    private fun buildHomebrewForwarderCard(
+        parent: LinearLayout,
+        th: StormTheme,
+        onSearchRuTrackerHomebrew: (String) -> Unit
+    ) {
+        val fwdCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = makeCardDrawable(th.bgCard, th.border)
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(10)
+            }
+        }
+        fwdCard.addView(makeSectionHeader(
+            "🚀 Генератор Homebrew Forwarder NSP (.nro → .nsp) + RuTracker Homebrew",
+            "Создаёт установочный .NSP ярлык для главного экрана Switch (с полным доступом к 4 ГБ ОЗУ) из любого .nro или ретро-РОМа",
+            th
+        ))
+
+        val presetsScroll = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(8)
+            }
+        }
+        val presetsRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+
+        data class FwdPreset(val label: String, val title: String, val author: String, val ver: String, val tid: String, val path: String)
+        val presets = listOf(
+            FwdPreset("⚙️ DBI Installer", "DBI Installer", "duckbill007", "715.0", "0100F0001DB10000", "sdmc:/switch/DBI/DBI.nro"),
+            FwdPreset("🕹️ RetroArch", "RetroArch Switch", "Libretro Team", "1.19.1", "0100F0001EA00000", "sdmc:/switch/retroarch_switch.nro"),
+            FwdPreset("💾 JKSV Saves", "JKSV Save Manager", "J-D-K", "11.05.2024", "0100F0001A570000", "sdmc:/switch/JKSV/JKSV.nro"),
+            FwdPreset("🖥️ Moonlight-NX", "Moonlight-NX Stream", "XITRIX", "1.4.2", "0100F0001B000000", "sdmc:/switch/Moonlight-NX/Moonlight-NX.nro"),
+            FwdPreset("🏰 Heroes III (VCMI)", "Heroes of Might and Magic III", "VCMI Team", "1.5.7", "0100F0001C330000", "sdmc:/switch/vcmi/vcmiclient.nro"),
+            FwdPreset("☢️ Fallout 2 CE", "Fallout 2 Community Edition", "alexbatalov", "1.3.0", "0100F0001FA20000", "sdmc:/switch/fallout2-ce/fallout2-ce.nro")
+        )
+
+        var titleEditRef: EditText? = null
+        var authorEditRef: EditText? = null
+        var verEditRef: EditText? = null
+        var tidEditRef: EditText? = null
+        var pathEditRef: EditText? = null
+
+        presets.forEach { p ->
+            presetsRow.addView(makeButton(p.label, th.bgElevated, th.accent) {
+                fwdAppTitle = p.title
+                fwdAppAuthor = p.author
+                fwdAppVersion = p.ver
+                fwdTitleId = p.tid
+                fwdSdmcNroPath = p.path
+                titleEditRef?.setText(p.title)
+                authorEditRef?.setText(p.author)
+                verEditRef?.setText(p.ver)
+                tidEditRef?.setText(p.tid)
+                pathEditRef?.setText(p.path)
+            }.apply {
+                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    marginEnd = dp(6)
+                }
+            })
+        }
+        presetsScroll.addView(presetsRow)
+        fwdCard.addView(presetsScroll)
+
+        val topActRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(8)
+            }
+        }
+        topActRow.addView(makeButton("🌐 Найти Homebrew / Порты на RuTracker", th.bgElevated, th.accent) {
+            onSearchRuTrackerHomebrew("Homebrew")
+            Toast.makeText(this, "Показаны раздачи Homebrew и NRO-портов в списке RuTracker выше!", Toast.LENGTH_SHORT).show()
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) }
+        })
+
+        topActRow.addView(makeButton("📂 Выбрать .NRO из очереди/папки", th.bgElevated, th.textPrimary) {
+            val nroCandidate = queuedFiles.firstOrNull { it.extension.equals("nro", true) }
+                ?: romsDir.listFiles()?.firstOrNull { it.extension.equals("nro", true) }
+            if (nroCandidate != null && nroCandidate.exists()) {
+                val meta = StormNczEngine.parseNroMetadata(nroCandidate)
+                fwdLocalNroPath = nroCandidate.absolutePath
+                fwdAppTitle = meta.title
+                fwdAppAuthor = meta.author
+                fwdAppVersion = meta.version
+                fwdSdmcNroPath = "sdmc:/switch/${nroCandidate.name}"
+                titleEditRef?.setText(fwdAppTitle)
+                authorEditRef?.setText(fwdAppAuthor)
+                verEditRef?.setText(fwdAppVersion)
+                pathEditRef?.setText(fwdSdmcNroPath)
+                Toast.makeText(this, "Считан паспорт NRO0/ASET из ${nroCandidate.name}!", Toast.LENGTH_SHORT).show()
+            } else {
+                showMultiSelectFileAndFolderDialog()
+            }
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        })
+        fwdCard.addView(topActRow)
+
+        val titleEdit = EditText(this).apply {
+            setText(fwdAppTitle)
+            hint = "Название на главном экране Switch (напр. DBI Installer)..."
+            setTextColor(th.textPrimary)
+            setHintTextColor(th.textSecondary)
+            textSize = 12f
+            setSingleLine(true)
+            background = makeCardDrawable(th.bgPrimary, th.border, 6)
+            setPadding(dp(10), dp(7), dp(10), dp(7))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(6)
+            }
+            addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                override fun afterTextChanged(s: android.text.Editable?) { fwdAppTitle = s?.toString() ?: "" }
+            })
+        }
+        titleEditRef = titleEdit
+        fwdCard.addView(titleEdit)
+
+        val metaRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(6)
+            }
+        }
+        val authorEdit = EditText(this).apply {
+            setText(fwdAppAuthor)
+            hint = "Автор / Издатель"
+            setTextColor(th.textPrimary)
+            setHintTextColor(th.textSecondary)
+            textSize = 11.8f
+            setSingleLine(true)
+            background = makeCardDrawable(th.bgPrimary, th.border, 6)
+            setPadding(dp(8), dp(6), dp(8), dp(6))
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) }
+            addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                override fun afterTextChanged(s: android.text.Editable?) { fwdAppAuthor = s?.toString() ?: "" }
+            })
+        }
+        authorEditRef = authorEdit
+        metaRow.addView(authorEdit)
+
+        val verEdit = EditText(this).apply {
+            setText(fwdAppVersion)
+            hint = "Версия"
+            setTextColor(th.textPrimary)
+            setHintTextColor(th.textSecondary)
+            textSize = 11.8f
+            setSingleLine(true)
+            background = makeCardDrawable(th.bgPrimary, th.border, 6)
+            setPadding(dp(8), dp(6), dp(8), dp(6))
+            layoutParams = LinearLayout.LayoutParams(dp(90), ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginEnd = dp(6) }
+            addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                override fun afterTextChanged(s: android.text.Editable?) { fwdAppVersion = s?.toString() ?: "" }
+            })
+        }
+        verEditRef = verEdit
+        metaRow.addView(verEdit)
+
+        val tidEdit = EditText(this).apply {
+            setText(fwdTitleId)
+            hint = "TitleID (0100...)"
+            setTextColor(th.accent)
+            setHintTextColor(th.textSecondary)
+            textSize = 11.5f
+            typeface = Typeface.MONOSPACE
+            setSingleLine(true)
+            background = makeCardDrawable(th.bgPrimary, th.border, 6)
+            setPadding(dp(8), dp(6), dp(8), dp(6))
+            layoutParams = LinearLayout.LayoutParams(dp(145), ViewGroup.LayoutParams.WRAP_CONTENT)
+            addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                override fun afterTextChanged(s: android.text.Editable?) { fwdTitleId = s?.toString() ?: "" }
+            })
+        }
+        tidEditRef = tidEdit
+        metaRow.addView(tidEdit)
+        fwdCard.addView(metaRow)
+
+        val pathEdit = EditText(this).apply {
+            setText(fwdSdmcNroPath)
+            hint = "Путь к .nro на SD-карте Switch (напр. sdmc:/switch/DBI/DBI.nro)..."
+            setTextColor(th.textPrimary)
+            setHintTextColor(th.textSecondary)
+            textSize = 11.8f
+            typeface = Typeface.MONOSPACE
+            setSingleLine(true)
+            background = makeCardDrawable(th.bgPrimary, th.border, 6)
+            setPadding(dp(10), dp(7), dp(10), dp(7))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(8)
+            }
+            addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                override fun afterTextChanged(s: android.text.Editable?) { fwdSdmcNroPath = s?.toString() ?: "" }
+            })
+        }
+        pathEditRef = pathEdit
+        fwdCard.addView(pathEdit)
+
+        val buildRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+        buildRow.addView(makeButton("🎲 Новый TitleID", th.bgElevated, th.textPrimary) {
+            val rnd = (0x1000000..0xFFFFFFF).random()
+            fwdTitleId = "0100F%07X0000".format(rnd)
+            tidEdit.setText(fwdTitleId)
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                marginEnd = dp(6)
+            }
+        })
+
+        buildRow.addView(makeButton("🖼 Своя иконка 256×256", th.bgElevated, th.accent) {
+            openCustomIconImagePicker { pickedPath ->
+                fwdCustomIconPath = pickedPath
+            }
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                marginEnd = dp(6)
+            }
+        })
+
+        buildRow.addView(makeButton("⚡ Собрать Forwarder .NSP", th.accent) {
+            thread {
+                try {
+                    val outNsp = StormNczEngine.buildHomebrewForwarderNsp(
+                        appTitle = fwdAppTitle,
+                        appAuthor = fwdAppAuthor,
+                        appVersion = fwdAppVersion,
+                        titleIdHex = fwdTitleId,
+                        sdmcNroPath = fwdSdmcNroPath,
+                        romArgPath = fwdRomArgPath,
+                        localNroFile = fwdLocalNroPath.takeIf { it.isNotBlank() }?.let { File(it) },
+                        customIconPath = fwdCustomIconPath.ifBlank { customIconImagePath },
+                        outputDir = customOutputDir
+                    ) {}
+                    appendLog("✅ Создан Homebrew Forwarder NSP: ${outNsp.name} (${StormNczEngine.formatSize(outNsp.length())})")
+                    mainHandler.post {
+                        Toast.makeText(this, "✅ Создан Forwarder: ${outNsp.name}!", Toast.LENGTH_LONG).show()
+                    }
+                } catch (e: Exception) {
+                    appendLog("❌ Ошибка создания Forwarder NSP: ${e.message}")
+                }
+            }
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        })
+        fwdCard.addView(buildRow)
+        parent.addView(fwdCard)
+    }
+
+    private fun build3dsFbiQrInstallCard(parent: LinearLayout, th: StormTheme, localIp: String) {
+        val qrCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = makeCardDrawable(th.bgCard, th.border)
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(10)
+            }
+        }
+        qrCard.addView(makeSectionHeader(
+            "📷 QR-установка .CIA для Nintendo 3DS (FBI Remote Install Server)",
+            "Наведите камеру консоли Nintendo 3DS (FBI -> Remote Install -> Scan QR Code) на экран смартфона для прямой установки по Wi-Fi",
+            th
+        ))
+
+        val allShareable = mutableListOf<File>().apply {
+            addAll(queuedFiles)
+            romsDir.listFiles()?.filter { it.isFile }?.let { addAll(it) }
+            customOutputDir.listFiles()?.filter { it.isFile }?.let { addAll(it) }
+        }.distinctBy { it.canonicalPath }
+
+        val qrImageView = ImageView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(dp(230), dp(230)).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+                topMargin = dp(8)
+                bottomMargin = dp(6)
+            }
+            visibility = View.GONE
+        }
+        val qrUrlTxt = TextView(this).apply {
+            setTextColor(th.accent)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.2f)
+            typeface = Typeface.MONOSPACE
+            gravity = Gravity.CENTER_HORIZONTAL
+            visibility = View.GONE
+        }
+
+        if (allShareable.isEmpty()) {
+            qrCard.addView(TextView(this).apply {
+                text = "Добавьте .cia или .3dsx файл в очередь (или в папку output/), чтобы сгенерировать QR-код для камеры Nintendo 3DS."
+                setTextColor(th.textSecondary)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.8f)
+                setPadding(0, dp(4), 0, dp(8))
+            })
+        } else {
+            selectedQrFileIndex = selectedQrFileIndex.coerceIn(0, allShareable.size - 1)
+            qrCard.addView(makeStormDropdown(
+                allShareable.map { "${it.name} (${StormNczEngine.formatSize(it.length())})" },
+                selectedQrFileIndex,
+                th
+            ) { idx ->
+                selectedQrFileIndex = idx
+            }.apply {
+                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    bottomMargin = dp(8)
+                }
+            })
+        }
+
+        qrCard.addView(makeButton("📷 Показать QR-код для установки через FBI (Nintendo 3DS)", th.accent) {
+            if (!dbiServerRunning) {
+                dbiServer = RuTrackerCloudEngine.DbiHttpServer(
+                    port = 8080,
+                    sharedFiles = {
+                        val list = mutableListOf<File>()
+                        list.addAll(queuedFiles)
+                        romsDir.listFiles()?.let { list.addAll(it) }
+                        customOutputDir.listFiles()?.let { list.addAll(it) }
+                        list.distinctBy { it.canonicalPath }
+                    },
+                    onLog = { msg -> appendLog("[3DS QR HTTP] $msg") }
+                )
+                dbiServer?.start()
+                dbiServerRunning = true
+            }
+            val chosenFile = allShareable.getOrNull(selectedQrFileIndex)
+            val encodedName = java.net.URLEncoder.encode(chosenFile?.name ?: "game.cia", "UTF-8").replace("+", "%20")
+            val directUrl = "http://$localIp:8080/files/${selectedQrFileIndex}_$encodedName"
+            val qrBmp = StormNczEngine.generateQrCodeBitmap(directUrl, scale = 9)
+            qrImageView.setImageBitmap(qrBmp)
+            qrImageView.visibility = View.VISIBLE
+            qrUrlTxt.text = "🔗 Прямая ссылка для FBI: $directUrl\nОткройте на 3DS: FBI -> Remote Install -> Scan QR Code"
+            qrUrlTxt.visibility = View.VISIBLE
+            appendLog("📷 Сгенерирован QR-код FBI для ${chosenFile?.name ?: "game.cia"}: $directUrl")
+        })
+
+        qrCard.addView(qrImageView)
+        qrCard.addView(qrUrlTxt)
+        parent.addView(qrCard)
+    }
+
+    private fun buildFtpConsoleSenderCard(parent: LinearLayout, th: StormTheme, localIp: String) {
+        val ftpCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = makeCardDrawable(th.bgCard, th.border)
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(10)
+            }
+        }
+        ftpCard.addView(makeSectionHeader(
+            "⚡ Встроенный FTP-клиент (Прямая отправка на Switch sys-ftpd / DBI и 3DS FTPD)",
+            "Передача собранных игр (.nsp/.nsz/.xci/.cia), форвардеров и модов LayeredFS напрямую на SD-карту консоли по Wi-Fi",
+            th
+        ))
+
+        val hostRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(6)
+            }
+        }
+        val ipInput = EditText(this).apply {
+            setText(ftpConsoleIp)
+            hint = "IP консоли (192.168.1.50)"
+            setTextColor(th.textPrimary)
+            setHintTextColor(th.textSecondary)
+            textSize = 12f
+            setSingleLine(true)
+            background = makeCardDrawable(th.bgPrimary, th.border, 6)
+            setPadding(dp(8), dp(6), dp(8), dp(6))
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) }
+            addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                override fun afterTextChanged(s: android.text.Editable?) { ftpConsoleIp = s?.toString() ?: "" }
+            })
+        }
+        hostRow.addView(ipInput)
+
+        val portInput = EditText(this).apply {
+            setText(ftpConsolePort.toString())
+            hint = "Порт (5000)"
+            setTextColor(th.accent)
+            setHintTextColor(th.textSecondary)
+            textSize = 12f
+            setSingleLine(true)
+            background = makeCardDrawable(th.bgPrimary, th.border, 6)
+            setPadding(dp(8), dp(6), dp(8), dp(6))
+            layoutParams = LinearLayout.LayoutParams(dp(80), ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginEnd = dp(6) }
+            addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                override fun afterTextChanged(s: android.text.Editable?) {
+                    ftpConsolePort = s?.toString()?.toIntOrNull() ?: 5000
+                }
+            })
+        }
+        hostRow.addView(portInput)
+
+        val ftpStatusTxt = TextView(this).apply {
+            text = "Готов к передаче по FTP (Порт 5000 — стандарт sys-ftpd / DBI / 3DS FTPD)"
+            setTextColor(th.textSecondary)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
+            setPadding(0, dp(4), 0, dp(6))
+        }
+
+        hostRow.addView(makeButton("🔍 Найти в Wi-Fi", th.bgElevated, th.accent) {
+            ftpStatusTxt.text = "⏳ Сканирование Wi-Fi подсети $localIp на наличие FTP-сервера (порты 5000 и 21)..."
+            thread {
+                val found = StormNczEngine.discoverFtpConsolesInLan(localIp)
+                mainHandler.post {
+                    if (found.isNotEmpty()) {
+                        val (discIp, discPort) = found.first()
+                        ftpConsoleIp = discIp
+                        ftpConsolePort = discPort
+                        ipInput.setText(discIp)
+                        portInput.setText(discPort.toString())
+                        ftpStatusTxt.text = "🟢 Найдена консоль в сети: $discIp:$discPort"
+                    } else {
+                        ftpStatusTxt.text = "⚪ Активный FTP-сервер в подсети не обнаружен (проверьте, что на консоли запущен ftpd или DBI FTP)."
+                    }
+                }
+            }
+        })
+        ftpCard.addView(hostRow)
+
+        val dirInput = EditText(this).apply {
+            setText(ftpRemoteDir)
+            hint = "Папка на SD-карте консоли (напр. /switch/ или /cia/)"
+            setTextColor(th.textPrimary)
+            setHintTextColor(th.textSecondary)
+            textSize = 11.8f
+            typeface = Typeface.MONOSPACE
+            setSingleLine(true)
+            background = makeCardDrawable(th.bgPrimary, th.border, 6)
+            setPadding(dp(8), dp(6), dp(8), dp(6))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(6)
+            }
+            addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                override fun afterTextChanged(s: android.text.Editable?) { ftpRemoteDir = s?.toString() ?: "/switch/" }
+            })
+        }
+        ftpCard.addView(dirInput)
+
+        val dirChipsRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(8)
+            }
+        }
+        listOf("/switch/", "/cia/", "/roms/", "/atmosphere/contents/").forEach { dPath ->
+            dirChipsRow.addView(makeButton(dPath, th.bgElevated, th.textPrimary) {
+                ftpRemoteDir = dPath
+                dirInput.setText(dPath)
+            }.apply {
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(4) }
+            })
+        }
+        ftpCard.addView(dirChipsRow)
+
+        val allFiles = mutableListOf<File>().apply {
+            addAll(queuedFiles)
+            customOutputDir.listFiles()?.filter { it.isFile }?.let { addAll(it) }
+            romsDir.listFiles()?.filter { it.isFile }?.let { addAll(it) }
+        }.distinctBy { it.canonicalPath }
+
+        if (allFiles.isNotEmpty()) {
+            selectedFtpFileIndex = selectedFtpFileIndex.coerceIn(0, allFiles.size - 1)
+            ftpCard.addView(makeStormDropdown(
+                allFiles.map { "${it.name} (${StormNczEngine.formatSize(it.length())})" },
+                selectedFtpFileIndex,
+                th
+            ) { idx ->
+                selectedFtpFileIndex = idx
+            }.apply {
+                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    bottomMargin = dp(8)
+                }
+            })
+        }
+
+        val ftpProgress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = 100
+            progress = 0
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(12))
+        }
+        ftpCard.addView(ftpProgress)
+        ftpCard.addView(ftpStatusTxt)
+
+        ftpCard.addView(makeButton("🚀 Отправить выбранный файл по FTP на консоль", th.accent) {
+            val targetFile = allFiles.getOrNull(selectedFtpFileIndex)
+            if (targetFile == null || !targetFile.exists()) {
+                Toast.makeText(this, "Сначала добавьте файл в очередь или папку output/!", Toast.LENGTH_SHORT).show()
+                return@makeButton
+            }
+            ftpStatusTxt.text = "⏳ Подключение к $ftpConsoleIp:$ftpConsolePort..."
+            thread {
+                val (ok, msg) = StormNczEngine.uploadFileViaFtpToConsole(
+                    host = ftpConsoleIp,
+                    port = ftpConsolePort,
+                    remoteDir = ftpRemoteDir,
+                    localFile = targetFile
+                ) { pct, pText ->
+                    mainHandler.post {
+                        ftpProgress.progress = pct
+                        ftpStatusTxt.text = pText
+                    }
+                }
+                appendLog(if (ok) "✅ [FTP] $msg" else "❌ [FTP] $msg")
+                mainHandler.post {
+                    ftpStatusTxt.text = if (ok) "✅ $msg" else "❌ $msg"
+                }
+            }
+        })
+
+        parent.addView(ftpCard)
+    }
+
+    // =========================================================================
+    // ВКЛАДКА 4: БАЗА ИГР TITLEDB И РАСШИФРОВКА КОДОВ ОШИБОК SWITCH (2XXX-XXXX)
+    // =========================================================================
+
+    private fun buildTitleDbAndErrorCodesTab(parent: LinearLayout, th: StormTheme) {
+        val cacheFile = File(stormRoot, "settings/titledb_cache.json")
+        var currentCatalog = StormNczEngine.loadCachedTitleDb(cacheFile)
+        var subTabMode = 0
+        var platformFilter = "Все"
+        var searchQuery = ""
+
+        val headerCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = makeCardDrawable(th.bgCard, th.border)
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(10)
+            }
+        }
+        headerCard.addView(makeSectionHeader(
+            "📚 Справочник игр TitleDB (Switch / 3DS) и Декодер системных ошибок 2xxx-xxxx",
+            "База TitleID Базы [000] и Патча [800], проверка статуса русского перевода, описаний и расшифровка ошибок Atmosphère / Horizon OS",
+            th
+        ))
+
+        val listContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+
+        val searchEdit = EditText(this).apply {
+            hint = "🔍 Введите название игры, TitleID (0100...) или код ошибки (2002-4153, 2168-0002)..."
+            setTextColor(th.textPrimary)
+            setHintTextColor(th.textSecondary)
+            textSize = 12.2f
+            setSingleLine(true)
+            background = makeCardDrawable(th.bgPrimary, th.border, 8)
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(6)
+                bottomMargin = dp(8)
+            }
+        }
+
+        fun renderActiveList() {
+            listContainer.removeAllViews()
+            val q = searchQuery.trim().lowercase()
+
+            val matchingErrors = StormNczEngine.builtInSwitchErrorCodes.filter {
+                q.isEmpty() || it.code.lowercase().contains(q) || it.title.lowercase().contains(q) ||
+                    it.moduleName.lowercase().contains(q) || it.cause.lowercase().contains(q) || it.solution.lowercase().contains(q)
+            }
+
+            if (subTabMode == 1 || (q.length >= 4 && q[0] == '2' && matchingErrors.isNotEmpty())) {
+                matchingErrors.forEach { err ->
+                    val errCard = LinearLayout(this).apply {
+                        orientation = LinearLayout.VERTICAL
+                        background = makeCardDrawable(th.bgCard, th.border)
+                        setPadding(dp(14), dp(11), dp(14), dp(11))
+                        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                            bottomMargin = dp(8)
+                        }
+                    }
+                    errCard.addView(TextView(this).apply {
+                        text = "⚠️ Код ошибки: ${err.code}  •  ${err.moduleName}"
+                        setTextColor(Color.parseColor("#F59E0B"))
+                        setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                        typeface = Typeface.DEFAULT_BOLD
+                    })
+                    errCard.addView(TextView(this).apply {
+                        text = err.title
+                        setTextColor(th.textPrimary)
+                        setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                        typeface = Typeface.DEFAULT_BOLD
+                        setPadding(0, dp(2), 0, dp(4))
+                    })
+                    errCard.addView(TextView(this).apply {
+                        text = "Причина: ${err.cause}"
+                        setTextColor(th.textSecondary)
+                        setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
+                        setPadding(0, 0, 0, dp(6))
+                    })
+                    errCard.addView(TextView(this).apply {
+                        text = "🛠 Как исправить:\n${err.solution}"
+                        setTextColor(th.accent)
+                        setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
+                        background = makeCardDrawable(th.bgPrimary, th.border, 8)
+                        setPadding(dp(10), dp(7), dp(10), dp(7))
+                    })
+                    listContainer.addView(errCard)
+                }
+                if (subTabMode == 1) return
+            }
+
+            val filteredGames = currentCatalog.filter { g ->
+                val platOk = (platformFilter == "Все" || g.platform.equals(platformFilter, true))
+                val qOk = q.isEmpty() || g.name.lowercase().contains(q) || g.titleId.lowercase().contains(q) ||
+                    g.patchId.lowercase().contains(q) || g.publisher.lowercase().contains(q) || g.genre.lowercase().contains(q)
+                platOk && qOk
+            }
+
+            filteredGames.forEach { game ->
+                val gCard = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    background = makeCardDrawable(th.bgCard, th.border)
+                    setPadding(dp(14), dp(11), dp(14), dp(11))
+                    layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        bottomMargin = dp(8)
+                    }
+                }
+                val topRow = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                }
+                topRow.addView(TextView(this).apply {
+                    text = "[${game.platform}]"
+                    setTextColor(th.accent)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+                    typeface = Typeface.DEFAULT_BOLD
+                    setPadding(0, 0, dp(6), 0)
+                })
+                topRow.addView(TextView(this).apply {
+                    text = game.name
+                    setTextColor(th.textPrimary)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 13.5f)
+                    typeface = Typeface.DEFAULT_BOLD
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                })
+                topRow.addView(TextView(this).apply {
+                    text = game.sizeText
+                    setTextColor(th.accent)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
+                    typeface = Typeface.DEFAULT_BOLD
+                })
+                gCard.addView(topRow)
+
+                gCard.addView(TextView(this).apply {
+                    text = "Base TitleID: ${game.titleId}  •  Update ID: ${game.patchId}\nИздатель: ${game.publisher} (${game.releaseYear})  •  DLC: ${game.dlcCount}  •  Перевод: ${game.ruSupport}"
+                    setTextColor(th.textSecondary)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.2f)
+                    typeface = Typeface.MONOSPACE
+                    setPadding(0, dp(4), 0, dp(4))
+                })
+
+                gCard.addView(TextView(this).apply {
+                    text = game.description
+                    setTextColor(th.textPrimary)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
+                    setPadding(0, 0, 0, dp(8))
+                })
+
+                val actRow = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                }
+                actRow.addView(makeButton("🌐 Найти и скачать на RuTracker", th.accent) {
+                    activeTab = 2
+                    buildUserInterface()
+                    Toast.makeText(this, "Переход к раздачам ${game.name} на RuTracker", Toast.LENGTH_SHORT).show()
+                }.apply {
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) }
+                })
+
+                actRow.addView(makeButton("📋 Копировать TitleID", th.bgElevated, th.textPrimary) {
+                    val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    cm.setPrimaryClip(ClipData.newPlainText("TitleID", game.titleId))
+                    Toast.makeText(this, "Скопирован TitleID: ${game.titleId}", Toast.LENGTH_SHORT).show()
+                }.apply {
+                    layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                })
+                gCard.addView(actRow)
+                listContainer.addView(gCard)
+            }
+        }
+
+        val modeSwitchRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(6)
+            }
+        }
+        modeSwitchRow.addView(makeButton("🎮 База игр TitleDB (${currentCatalog.size})", th.accent) {
+            subTabMode = 0
+            renderActiveList()
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) }
+        })
+
+        modeSwitchRow.addView(makeButton("⚠️ Коды ошибок Switch (2xxx-xxxx)", th.bgElevated, th.accent) {
+            subTabMode = 1
+            renderActiveList()
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) }
+        })
+
+        modeSwitchRow.addView(makeButton("🔄 Обновить базу", th.bgElevated, th.textPrimary) {
+            thread {
+                val synced = StormNczEngine.syncOnlineTitleDb(cacheFile) { msg ->
+                    appendLog("[TitleDB] $msg")
+                }
+                mainHandler.post {
+                    currentCatalog = synced
+                    renderActiveList()
+                    Toast.makeText(this, "База TitleDB обновлена (${synced.size} игр)!", Toast.LENGTH_SHORT).show()
+                }
+            }
+        })
+        headerCard.addView(modeSwitchRow)
+
+        val platRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+        listOf("Все", "Switch", "3DS").forEach { pName ->
+            platRow.addView(makeButton("Платформа: $pName", th.bgElevated, th.textPrimary) {
+                platformFilter = pName
+                subTabMode = 0
+                renderActiveList()
+            }.apply {
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(4) }
+            })
+        }
+        headerCard.addView(platRow)
+        headerCard.addView(searchEdit)
+
+        searchEdit.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                searchQuery = s?.toString() ?: ""
+                renderActiveList()
+            }
+        })
+
+        parent.addView(headerCard)
+        renderActiveList()
+        parent.addView(listContainer)
+    }
+
 }

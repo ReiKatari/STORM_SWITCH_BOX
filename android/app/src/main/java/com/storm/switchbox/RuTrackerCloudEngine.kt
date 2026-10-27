@@ -143,7 +143,12 @@ object RuTrackerCloudEngine {
         TopicItem("5712840", "[Nintendo Switch] Cuphead [v1.3.4 + The Delicious Last Course DLC] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "3,48 ГБ", 139, 6, "5B6C7D8E9F0A1B2C3D4E5F6A7B8C9D0E1F2A3B4C", "", ""),
         TopicItem("5941280", "[Nintendo Switch] Ori and the Will of the Wisps [v1.2.0] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "4,12 ГБ", 124, 5, "6C7D8E9F0A1B2C3D4E5F6A7B8C9D0E1F2A3B4C5D", "", ""),
         TopicItem("5612940", "[Nintendo Switch] Dead Cells [v1.35.0 + All DLC + Return to Castlevania] [NSP / NSZ] [RUS]", "Nintendo Switch", "2,18 ГБ", 115, 4, "7D8E9F0A1B2C3D4E5F6A7B8C9D0E1F2A3B4C5D6E", "", ""),
-        TopicItem("5519284", "[Nintendo Switch] Stardew Valley [v1.6.9] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "1,58 ГБ", 162, 8, "8E9F0A1B2C3D4E5F6A7B8C9D0E1F2A3B4C5D6E7F", "", "")
+        TopicItem("5519284", "[Nintendo Switch] Stardew Valley [v1.6.9] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "1,58 ГБ", 162, 8, "8E9F0A1B2C3D4E5F6A7B8C9D0E1F2A3B4C5D6E7F", "", ""),
+        TopicItem("6590101", "[Nintendo Switch / Homebrew] RetroArch Switch + Набор ядер + NSP Forwarder [v1.19.1] [NRO / NSP] [RUS]", "Nintendo Switch (Homebrew #1605)", "485,00 МБ", 196, 12, "AA11BB22CC33DD44EE55FF660011223344556677", "", ""),
+        TopicItem("6590102", "[Nintendo Switch / Homebrew] DBI Installer (Русская версия) + NSP Forwarder [v715] [NRO / NSP] [RUS]", "Nintendo Switch (Homebrew #1605)", "4,20 МБ", 342, 18, "BB22CC33DD44EE55FF6600112233445566778899", "", ""),
+        TopicItem("6590103", "[Nintendo Switch / Homebrew] Heroes of Might and Magic III (VCMI Switch Port) [v1.5.7] [NRO + NSP Forwarder] [RUS]", "Nintendo Switch (Homebrew #1605)", "1,42 ГБ", 228, 15, "CC33DD44EE55FF660011223344556677889900AA", "", ""),
+        TopicItem("6590104", "[Nintendo Switch / Homebrew] Fallout 1 и 2 Community Edition (Switch Port) [v1.3.0] [NRO + NSP Forwarder] [RUS]", "Nintendo Switch (Homebrew #1605)", "1,15 ГБ", 175, 9, "DD44EE55FF660011223344556677889900AABBCC", "", ""),
+        TopicItem("6590105", "[Nintendo Switch / Homebrew] Moonlight-NX + Chiaki (Стриминг ПК и PS5 на Switch) [v1.4.2] [NRO + NSP Forwarder] [RUS]", "Nintendo Switch (Homebrew #1605)", "18,50 МБ", 154, 7, "EE55FF660011223344556677889900AABBCCDDEE", "", "")
     )
 
     // Кэш официальных InfoHash раздела #1605 / #2481 RuTracker (infoHash -> Triple(topicId, sizeBytes, seeders))

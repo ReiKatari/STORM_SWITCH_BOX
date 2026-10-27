@@ -82,6 +82,12 @@
             </StackPanel>
 
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12" HorizontalAlignment="Right" VerticalAlignment="Center">
+                <Button x:Name="ErrorCodesLookupButton" Click="ErrorCodesLookupButton_Click" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Height="36" Padding="12,0" ToolTipService.ToolTip="Справочник и расшифровка системных кодов ошибок Nintendo Switch и Atmosphère (2xxx-xxxx)">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <FontIcon Glyph="&#xE7BA;" FontSize="15" Foreground="#F59E0B"/>
+                        <TextBlock Text="Коды ошибок (2xxx-xxxx)" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
                 <Button x:Name="UpdateDbButton" Click="UpdateDbButton_Click" Background="Transparent" BorderThickness="0" ToolTipService.ToolTip="Обновить базу данных TitleDB">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <FontIcon x:Name="UpdateDbIcon" Glyph="&#xE895;" FontSize="16" Foreground="#00BCD4"/>
