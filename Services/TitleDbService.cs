@@ -106,7 +106,7 @@ namespace StormSwitchBox.Services
         {
             _dbPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "titledb.json");
             _httpClient = new HttpClient();
-            _httpClient.DefaultRequestHeaders.Add("User-Agent", "StormSwitchBox/5.1.1");
+            _httpClient.DefaultRequestHeaders.Add("User-Agent", $"StormSwitchBox/{App.AppVersionString}");
             _eShopService = new NintendoEShopService();
             
             // Асинхронно загружаем базу из локального кэша
@@ -156,7 +156,7 @@ namespace StormSwitchBox.Services
                 string path = _dbPath;
                 if (!File.Exists(path))
                 {
-                    string nutDbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tools", "nscb", "zconfig", "DB", "nutdb.json");
+                    string nutDbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tools", "db", "nutdb.json");
                     if (File.Exists(nutDbPath))
                     {
                         path = nutDbPath;

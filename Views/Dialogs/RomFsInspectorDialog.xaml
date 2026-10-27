@@ -6,8 +6,8 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:svc="using:StormSwitchBox.Services"
     mc:Ignorable="d"
-    Title="?? ?????????? ????????? ? ?????????? ??????????? RomFS / ExeFS (??? ?????? ??????????)"
-    CloseButtonText="???????"
+    Title="🔍 Визуальный инспектор и выборочный распаковщик RomFS / ExeFS (без полной распаковки)"
+    CloseButtonText="Закрыть"
     CornerRadius="8"
     MinWidth="1040"
     MaxWidth="1280">
@@ -20,19 +20,19 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- ?????? ?????? ?????????? -->
+        <!-- Строка выбора контейнера -->
         <Grid Grid.Row="0" ColumnSpacing="8">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
-            <TextBox x:Name="ContainerPathBox" Grid.Column="0" PlaceholderText="???? ? ????? (.nsp, .nsz, .xci, .xcz, .nca, .3ds, .cci, .cia, .cxi)" IsReadOnly="True" CornerRadius="4"/>
-            <Button Grid.Column="1" Content="?? ??????? ?????..." Click="BrowseContainer_Click" Style="{StaticResource AccentButtonStyle}" CornerRadius="4"/>
-            <Button Grid.Column="2" Content="?? ???????????? 3DS" x:Name="Decrypt3dsBtn" Click="Decrypt3ds_Click" Visibility="Collapsed" CornerRadius="4"/>
+            <TextBox x:Name="ContainerPathBox" Grid.Column="0" PlaceholderText="Путь к образу (.nsp, .nsz, .xci, .xcz, .nca, .3ds, .cci, .cia, .cxi)" IsReadOnly="True" CornerRadius="4"/>
+            <Button Grid.Column="1" Content="📂 Открыть образ..." Click="BrowseContainer_Click" Style="{StaticResource AccentButtonStyle}" CornerRadius="4"/>
+            <Button Grid.Column="2" Content="🔓 Дешифровать 3DS" x:Name="Decrypt3dsBtn" Click="Decrypt3ds_Click" Visibility="Collapsed" CornerRadius="4"/>
         </Grid>
 
-        <!-- ?????? ?????? ? ??????? ???????? -->
+        <!-- Строка поиска и быстрых действий -->
         <Grid Grid.Row="1" ColumnSpacing="8">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
@@ -40,19 +40,19 @@
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
-            <TextBox x:Name="SearchFilterBox" Grid.Column="0" PlaceholderText="?? ??????? ?????? ?? ????? ??? ????? (????. .msbt, .bntx, .lua, control.nacp, code, icon)..." TextChanged="SearchFilterBox_TextChanged" CornerRadius="4"/>
+            <TextBox x:Name="SearchFilterBox" Grid.Column="0" PlaceholderText="🔎 Быстрый фильтр по имени или маске (напр. .msbt, .bntx, .lua, control.nacp, code, icon)..." TextChanged="SearchFilterBox_TextChanged" CornerRadius="4"/>
             <ComboBox x:Name="SectionFilterCombo" Grid.Column="1" SelectedIndex="0" HorizontalAlignment="Stretch" SelectionChanged="SectionFilterCombo_SelectionChanged" CornerRadius="4">
-                <ComboBoxItem Content="??? ???????" Tag="ALL"/>
-                <ComboBoxItem Content="RomFS (???????)" Tag="RomFS"/>
-                <ComboBoxItem Content="ExeFS (??? / ??????)" Tag="ExeFS"/>
+                <ComboBoxItem Content="Все разделы" Tag="ALL"/>
+                <ComboBoxItem Content="RomFS (Ресурсы)" Tag="RomFS"/>
+                <ComboBoxItem Content="ExeFS (Код / Иконка)" Tag="ExeFS"/>
                 <ComboBoxItem Content="Control / SMDH" Tag="Control"/>
-                <ComboBoxItem Content="????????? / NCA" Tag="?????????"/>
+                <ComboBoxItem Content="Контейнер / NCA" Tag="Контейнер"/>
             </ComboBox>
-            <Button Grid.Column="2" Content="?? ??????? ?????????" Click="ExtractSelected_Click" CornerRadius="4"/>
-            <Button Grid.Column="3" Content="?? ??????? ??? ?????????" Click="ExtractFiltered_Click" Style="{StaticResource AccentButtonStyle}" CornerRadius="4"/>
+            <Button Grid.Column="2" Content="📥 Извлечь выбранный" Click="ExtractSelected_Click" CornerRadius="4"/>
+            <Button Grid.Column="3" Content="📦 Извлечь все найденные" Click="ExtractFiltered_Click" Style="{StaticResource AccentButtonStyle}" CornerRadius="4"/>
         </Grid>
 
-        <!-- ????????????? ???: ??????/?????? ?????? ????? + ?????? ?????? -->
+        <!-- Двухпанельный вид: дерево/список файлов слева + превью справа -->
         <Grid Grid.Row="2" ColumnSpacing="10">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="580"/>
@@ -80,23 +80,23 @@
                 </ListView>
             </Border>
 
-            <!-- ?????? ???????? ?????? (HEX / ????? / ???????????) -->
+            <!-- Панель быстрого превью (HEX / Текст / Изображение) -->
             <Border Grid.Column="1" Background="#14FFFFFF" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6" Padding="10">
                 <Grid RowSpacing="8">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
-                    <TextBlock x:Name="PreviewHeaderText" Grid.Row="0" Text="???????????? ????? (HEX / UTF-8 / ???????????)" FontSize="12" FontWeight="Bold" Foreground="{ThemeResource SystemAccentColor}" TextTrimming="CharacterEllipsis"/>
+                    <TextBlock x:Name="PreviewHeaderText" Grid.Row="0" Text="Предпросмотр файла (HEX / UTF-8 / Изображение)" FontSize="12" FontWeight="Bold" Foreground="{ThemeResource SystemAccentColor}" TextTrimming="CharacterEllipsis"/>
                     <ScrollViewer x:Name="TextPreviewScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto">
-                        <TextBlock x:Name="PreviewTextBlock" FontFamily="Consolas" FontSize="11" IsTextSelectionEnabled="True" TextWrapping="Wrap" Text="???????? ????? ???? ????? ??? ??????????? ????????????? ?????? 4 ?? ??? ?????????? ??????."/>
+                        <TextBlock x:Name="PreviewTextBlock" FontFamily="Consolas" FontSize="11" IsTextSelectionEnabled="True" TextWrapping="Wrap" Text="Выберите любой файл слева для мгновенного предпросмотра первых 4 КБ без распаковки образа."/>
                     </ScrollViewer>
                     <Image x:Name="PreviewImage" Grid.Row="1" Stretch="Uniform" Visibility="Collapsed" MaxHeight="360"/>
                 </Grid>
             </Border>
         </Grid>
 
-        <!-- ??????-??? -->
-        <TextBlock x:Name="StatusText" Grid.Row="3" Text="????? ? ???????????? ???????????? ??????????." FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+        <!-- Статус-бар -->
+        <TextBlock x:Name="StatusText" Grid.Row="3" Text="Готов к виртуальному сканированию контейнера." FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
     </Grid>
 </ContentDialog>

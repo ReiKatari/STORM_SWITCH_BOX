@@ -36,7 +36,7 @@ namespace StormSwitchBox
         public MainWindow()
         {
             this.InitializeComponent();
-            this.Title = "STORM SWITCH BOX 5.1.1";
+            this.Title = $"STORM SWITCH BOX {App.AppVersionString}";
             this.ExtendsContentIntoTitleBar = true; // Современный заголовок окна
 
             var hWnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
@@ -316,7 +316,7 @@ namespace StormSwitchBox
             if (_notifyIcon != null)
             {
                 _notifyIcon.Visible = true;
-                _notifyIcon.ShowBalloonTip(2000, "STORM SWITCH BOX 5.1.1", "Приложение работает в фоновом режиме в системном трее.", WinForms.ToolTipIcon.Info);
+                _notifyIcon.ShowBalloonTip(2000, $"STORM SWITCH BOX {App.AppVersionString}", "Приложение работает в фоновом режиме в системном трее.", WinForms.ToolTipIcon.Info);
             }
         }
 
@@ -325,7 +325,7 @@ namespace StormSwitchBox
             if (_notifyIcon != null)
             {
                 _notifyIcon.Visible = true;
-                _notifyIcon.ShowBalloonTip(4000, "STORM SWITCH BOX 5.1.1", summaryMessage, WinForms.ToolTipIcon.Info);
+                _notifyIcon.ShowBalloonTip(4000, $"STORM SWITCH BOX {App.AppVersionString}", summaryMessage, WinForms.ToolTipIcon.Info);
             }
         }
 
@@ -333,7 +333,7 @@ namespace StormSwitchBox
         {
             if (_notifyIcon != null)
             {
-                string text = $"STORM SWITCH BOX 5.1.1\n{status}";
+                string text = $"STORM SWITCH BOX {App.AppVersionString}\n{status}";
                 if (text.Length > 63) text = text.Substring(0, 63);
                 _notifyIcon.Text = text;
             }

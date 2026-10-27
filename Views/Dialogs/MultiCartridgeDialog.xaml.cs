@@ -39,7 +39,7 @@ namespace StormSwitchBox.Views.Dialogs
         private void UpdateSummary()
         {
             long totalBytes = Items.Sum(x => x.SizeBytes);
-            SummaryText.Text = $"??????: {Items.Count} | ????? ??????: {ProcessingTask.FormatSize(totalBytes)}";
+            SummaryText.Text = $"Файлов: {Items.Count} | Общий размер: {ProcessingTask.FormatSize(totalBytes)}";
         }
 
         private async void AddFiles_Click(object sender, RoutedEventArgs e)
@@ -74,7 +74,7 @@ namespace StormSwitchBox.Views.Dialogs
             }
             catch (Exception ex)
             {
-                StatusTextBlock.Text = "?????? ?????????? ??????: " + ex.Message;
+                StatusTextBlock.Text = "Ошибка добавления файлов: " + ex.Message;
             }
         }
 
@@ -86,7 +86,7 @@ namespace StormSwitchBox.Views.Dialogs
 
         private async void BrowseFolder_Click(object sender, RoutedEventArgs e)
         {
-            string? folder = await SystemDialogService.OpenFolderDialogAsync("???????? ???????? ????? ??? ??????-?????????", OutputFolderBox.Text);
+            string? folder = await SystemDialogService.OpenFolderDialogAsync("Выберите выходную папку для мульти-картриджа", OutputFolderBox.Text);
             if (!string.IsNullOrWhiteSpace(folder))
             {
                 OutputFolderBox.Text = folder;
@@ -97,7 +97,7 @@ namespace StormSwitchBox.Views.Dialogs
         {
             if (Items.Count == 0)
             {
-                StatusTextBlock.Text = "?? ??????? ???????? ???? ?? ???? ??????? ????????? (.NSP / .NSZ / .XCI / .XCZ).";
+                StatusTextBlock.Text = "⚠ Сначала добавьте хотя бы один игровой контейнер (.NSP / .NSZ / .XCI / .XCZ).";
                 return;
             }
 
@@ -127,13 +127,13 @@ namespace StormSwitchBox.Views.Dialogs
                     progress,
                     _cts.Token);
 
-                StatusTextBlock.Text = $"? ??????-???????? ??????? ??????: {finalFile}";
-                App.Logger.Log($"[Multi-Cartridge] ?????? ??????-???????? ({Items.Count} ??????): {finalFile}", LogLevel.Success);
+                StatusTextBlock.Text = $"✅ Мульти-картридж успешно собран: {finalFile}";
+                App.Logger.Log($"[Multi-Cartridge] Собран мульти-картридж ({Items.Count} файлов): {finalFile}", LogLevel.Success);
             }
             catch (Exception ex)
             {
-                StatusTextBlock.Text = "? ?????? ??????: " + ex.Message;
-                App.Logger.Log($"[Multi-Cartridge] ??????: {ex.Message}", LogLevel.Error);
+                StatusTextBlock.Text = "❌ Ошибка сборки: " + ex.Message;
+                App.Logger.Log($"[Multi-Cartridge] Ошибка: {ex.Message}", LogLevel.Error);
             }
             finally
             {

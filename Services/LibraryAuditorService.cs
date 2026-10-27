@@ -1,8 +1,8 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using StormSwitchBox.Models;
@@ -58,124 +58,134 @@ namespace StormSwitchBox.Services
 
                 report.TotalFilesScanned = allFiles.Count;
 
-                var switchRecords = new List<(string Path, long Size, string TitleId, string BaseAppId, string ContentType, uint Version, string GameName)>();
-                var threeDsRecords = new List<(string Path, long Size, string TitleId, string BaseAppId, string ContentType, uint Version, string GameName, bool IsEncrypted)>();
+                var switchRecords = new ConcurrentBag<(string Path, long Size, string TitleId, string BaseAppId, string ContentType, uint Version, string GameName)>();
+                var threeDsRecords = new ConcurrentBag<(string Path, long Size, string TitleId, string BaseAppId, string ContentType, uint Version, string GameName, bool IsEncrypted)>();
+                var issuesBag = new ConcurrentBag<LibraryAuditIssue>();
 
-                for (int i = 0; i < allFiles.Count; i++)
-                {
-                    ct.ThrowIfCancellationRequested();
-                    string f = allFiles[i];
-                    long size = 0;
-                    try { size = new FileInfo(f).Length; } catch { continue; }
-                    report.TotalLibraryBytes += size;
+                long totalBytes = 0;
+                int scannedCount = 0;
+                int maxDegree = Math.Clamp(Environment.ProcessorCount, 2, 8);
 
-                    progress?.Report((i + 1, allFiles.Count, Path.GetFileName(f)));
-                    string ext = Path.GetExtension(f).ToLowerInvariant();
-
-                    if (Nintendo3dsService.Is3dsExtension(ext))
+                Parallel.ForEach(
+                    allFiles,
+                    new ParallelOptions { MaxDegreeOfParallelism = maxDegree, CancellationToken = ct },
+                    f =>
                     {
-                        var meta = App.Nintendo3ds.Parse3dsFile(f);
-                        string tid = (meta.TitleId ?? "").ToUpperInvariant();
-                        string baseId = tid.Length == 16 ? ("00040000" + tid.Substring(8, 6) + "00") : Path.GetFileNameWithoutExtension(f);
-                        uint ver = 0;
-                        if (!string.IsNullOrEmpty(meta.Version) && meta.Version.StartsWith("v", StringComparison.OrdinalIgnoreCase))
-                            uint.TryParse(meta.Version.Substring(1), out ver);
-                        string gName = !string.IsNullOrWhiteSpace(meta.GameName) ? meta.GameName : Path.GetFileNameWithoutExtension(f);
-                        bool enc = Nintendo3dsCryptoService.Is3dsFileEncrypted(f);
+                        long size = 0;
+                        try { size = new FileInfo(f).Length; } catch { return; }
+                        Interlocked.Add(ref totalBytes, size);
 
-                        threeDsRecords.Add((f, size, tid, baseId, meta.ContentType ?? "Application", ver, gName, enc));
+                        int currentScanned = Interlocked.Increment(ref scannedCount);
+                        progress?.Report((currentScanned, allFiles.Count, Path.GetFileName(f)));
+                        string ext = Path.GetExtension(f).ToLowerInvariant();
 
-                        if (enc)
+                        if (Nintendo3dsService.Is3dsExtension(ext))
                         {
-                            report.Issues.Add(new LibraryAuditIssue
-                            {
-                                IssueType = "Encrypted3ds",
-                                IssueLabel = "?? ????????????? 3DS",
-                                GameName = gName,
-                                TitleId = tid,
-                                Platform = "3DS",
-                                CurrentSizeBytes = size,
-                                EstimatedSavingsBytes = 0,
-                                Recommendation = "???????????? ????? 3DS (SeedDB + NCCH) ??? ?????????? Citra/Azahar ? ?????",
-                                RelatedFiles = new List<string> { f }
-                            });
-                        }
+                            var meta = App.Nintendo3ds.Parse3dsFile(f);
+                            string tid = (meta.TitleId ?? "").ToUpperInvariant();
+                            string baseId = tid.Length == 16 ? ("00040000" + tid.Substring(8, 6) + "00") : Path.GetFileNameWithoutExtension(f);
+                            uint ver = 0;
+                            if (!string.IsNullOrEmpty(meta.Version) && meta.Version.StartsWith("v", StringComparison.OrdinalIgnoreCase))
+                                uint.TryParse(meta.Version.Substring(1), out ver);
+                            string gName = !string.IsNullOrWhiteSpace(meta.GameName) ? meta.GameName : Path.GetFileNameWithoutExtension(f);
+                            bool enc = Nintendo3dsCryptoService.Is3dsFileEncrypted(f);
 
-                        if (ext == ".3ds" || ext == ".cci")
-                        {
-                            long trimSavings = EstimateTrailingPaddingBytes(f);
-                            if (trimSavings > 2 * 1024 * 1024)
+                            threeDsRecords.Add((f, size, tid, baseId, meta.ContentType ?? "Application", ver, gName, enc));
+
+                            if (enc)
                             {
-                                report.Issues.Add(new LibraryAuditIssue
+                                issuesBag.Add(new LibraryAuditIssue
                                 {
-                                    IssueType = "UntrimmedCartridge",
-                                    IssueLabel = "?? ?????? ????? ????????? 3DS",
+                                    IssueType = "Encrypted3ds",
+                                    IssueLabel = "🔒 Зашифрованный 3DS",
                                     GameName = gName,
                                     TitleId = tid,
                                     Platform = "3DS",
                                     CurrentSizeBytes = size,
-                                    EstimatedSavingsBytes = trimSavings,
-                                    Recommendation = $"???????? ?????? 0xFF/0x00 ????? ? ????? ????????? 3DS (-{ProcessingTask.FormatSize(trimSavings)})",
+                                    EstimatedSavingsBytes = 0,
+                                    Recommendation = "Расшифровать образ 3DS (SeedDB + NCCH) для эмуляторов Citra/Azahar и модов",
                                     RelatedFiles = new List<string> { f }
                                 });
                             }
-                        }
-                    }
-                    else
-                    {
-                        var info = App.SwitchFormat.ParseNsp(f);
-                        string tid = (info.TitleId ?? "").ToUpperInvariant();
-                        string baseId = tid.Length == 16 ? (tid.Substring(0, 13) + "000") : Path.GetFileNameWithoutExtension(f);
-                        uint.TryParse(info.Version, out uint ver);
-                        string gName = Path.GetFileNameWithoutExtension(f);
-                        if (!string.IsNullOrEmpty(baseId) && App.TitleDb != null)
-                        {
-                            var dbEntry = App.TitleDb.GetEntry(baseId) ?? App.TitleDb.GetEntry(tid);
-                            if (dbEntry != null && !string.IsNullOrWhiteSpace(dbEntry.Name))
-                                gName = dbEntry.Name;
-                        }
 
-                        switchRecords.Add((f, size, tid, baseId, info.ContentType ?? "Application", ver, gName));
-
-                        if (ext == ".xci")
-                        {
-                            long trimSavings = EstimateTrailingPaddingBytes(f);
-                            if (trimSavings > 4 * 1024 * 1024)
+                            if (ext == ".3ds" || ext == ".cci")
                             {
-                                report.Issues.Add(new LibraryAuditIssue
+                                long trimSavings = EstimateTrailingPaddingBytes(f);
+                                if (trimSavings > 2 * 1024 * 1024)
                                 {
-                                    IssueType = "UntrimmedCartridge",
-                                    IssueLabel = "?? ????????????? XCI",
+                                    issuesBag.Add(new LibraryAuditIssue
+                                    {
+                                        IssueType = "UntrimmedCartridge",
+                                        IssueLabel = "✂️ Пустой хвост картриджа 3DS",
+                                        GameName = gName,
+                                        TitleId = tid,
+                                        Platform = "3DS",
+                                        CurrentSizeBytes = size,
+                                        EstimatedSavingsBytes = trimSavings,
+                                        Recommendation = $"Обрезать пустые 0xFF/0x00 блоки в конце картриджа 3DS (-{ProcessingTask.FormatSize(trimSavings)})",
+                                        RelatedFiles = new List<string> { f }
+                                    });
+                                }
+                            }
+                        }
+                        else
+                        {
+                            var info = App.SwitchFormat.ParseNsp(f);
+                            string tid = (info.TitleId ?? "").ToUpperInvariant();
+                            string baseId = tid.Length == 16 ? (tid.Substring(0, 13) + "000") : Path.GetFileNameWithoutExtension(f);
+                            uint.TryParse(info.Version, out uint ver);
+                            string gName = Path.GetFileNameWithoutExtension(f);
+                            if (!string.IsNullOrEmpty(baseId) && App.TitleDb != null)
+                            {
+                                var dbEntry = App.TitleDb.GetEntry(baseId) ?? App.TitleDb.GetEntry(tid);
+                                if (dbEntry != null && !string.IsNullOrWhiteSpace(dbEntry.Name))
+                                    gName = dbEntry.Name;
+                            }
+
+                            switchRecords.Add((f, size, tid, baseId, info.ContentType ?? "Application", ver, gName));
+
+                            if (ext == ".xci")
+                            {
+                                long trimSavings = EstimateTrailingPaddingBytes(f);
+                                if (trimSavings > 4 * 1024 * 1024)
+                                {
+                                    issuesBag.Add(new LibraryAuditIssue
+                                    {
+                                        IssueType = "UntrimmedCartridge",
+                                        IssueLabel = "✂️ Необрезанный XCI",
+                                        GameName = gName,
+                                        TitleId = tid,
+                                        Platform = "Switch",
+                                        CurrentSizeBytes = size,
+                                        EstimatedSavingsBytes = trimSavings,
+                                        Recommendation = $"Обрезать пустой хвост картриджа XCI (-{ProcessingTask.FormatSize(trimSavings)})",
+                                        RelatedFiles = new List<string> { f }
+                                    });
+                                }
+                            }
+
+                            if ((ext == ".nsp" || ext == ".xci") && size > 64 * 1024 * 1024)
+                            {
+                                long estSavings = (long)(size * 0.32);
+                                string targetCompressed = ext == ".xci" ? "XCZ" : "NSZ";
+                                issuesBag.Add(new LibraryAuditIssue
+                                {
+                                    IssueType = "UncompressedContainer",
+                                    IssueLabel = $"📦 Несжатый {ext.TrimStart('.').ToUpperInvariant()}",
                                     GameName = gName,
                                     TitleId = tid,
                                     Platform = "Switch",
                                     CurrentSizeBytes = size,
-                                    EstimatedSavingsBytes = trimSavings,
-                                    Recommendation = $"???????? ?????? ????? ????????? XCI (-{ProcessingTask.FormatSize(trimSavings)})",
+                                    EstimatedSavingsBytes = estSavings,
+                                    Recommendation = $"Сжать в {targetCompressed} (Zstandard) для экономии ~32% места без потерь",
                                     RelatedFiles = new List<string> { f }
                                 });
                             }
                         }
+                    });
 
-                        if ((ext == ".nsp" || ext == ".xci") && size > 64 * 1024 * 1024)
-                        {
-                            long estSavings = (long)(size * 0.32);
-                            string targetCompressed = ext == ".xci" ? "XCZ" : "NSZ";
-                            report.Issues.Add(new LibraryAuditIssue
-                            {
-                                IssueType = "UncompressedContainer",
-                                IssueLabel = $"??? ???????? {ext.TrimStart('.').ToUpperInvariant()}",
-                                GameName = gName,
-                                TitleId = tid,
-                                Platform = "Switch",
-                                CurrentSizeBytes = size,
-                                EstimatedSavingsBytes = estSavings,
-                                Recommendation = $"????? ? {targetCompressed} (Zstandard) ??? ???????? ~32% ????? ??? ??????",
-                                RelatedFiles = new List<string> { f }
-                            });
-                        }
-                    }
-                }
+                report.TotalLibraryBytes = totalBytes;
+                report.Issues.AddRange(issuesBag);
 
                 foreach (var grp in switchRecords.Where(r => r.BaseAppId.Length == 16).GroupBy(r => r.BaseAppId))
                 {
@@ -190,13 +200,13 @@ namespace StormSwitchBox.Services
                         report.Issues.Add(new LibraryAuditIssue
                         {
                             IssueType = "SupersededUpdate",
-                            IssueLabel = "??? ????????? ?????? ??????",
+                            IssueLabel = "🗑️ Устаревшие версии патчей",
                             GameName = gName,
                             TitleId = grp.Key,
                             Platform = "Switch",
                             CurrentSizeBytes = wasted,
                             EstimatedSavingsBytes = wasted,
-                            Recommendation = $"??????? {olderPatches.Count} ?????????? ?????????? (??????????: v{patches[0].Version}). ?????? ????? ????? ????????? ???????",
+                            Recommendation = $"Удалить {olderPatches.Count} устаревших обновлений (актуальная: v{patches[0].Version}). Свежий патч уже включает старые",
                             RelatedFiles = olderPatches.Select(p => p.Path).ToList()
                         });
                     }
@@ -208,13 +218,13 @@ namespace StormSwitchBox.Services
                         report.Issues.Add(new LibraryAuditIssue
                         {
                             IssueType = "UnmergedSet",
-                            IssueLabel = $"?? ???????? ???????? ({items.Count} ?????)",
+                            IssueLabel = $"🧩 Разбитый комплект ({items.Count} файла)",
                             GameName = gName,
                             TitleId = grp.Key,
                             Platform = "Switch",
                             CurrentSizeBytes = totalSetSize,
                             EstimatedSavingsBytes = estSave,
-                            Recommendation = $"????? ????, ?????????? ? DLC ({items.Count} ??.) ? ?????? ?????????? ???? Multi-Content",
+                            Recommendation = $"Сшить игру, обновление и DLC ({items.Count} шт.) в единый монолитный файл Multi-Content",
                             RelatedFiles = items.Select(x => x.Path).ToList()
                         });
                     }
@@ -233,13 +243,13 @@ namespace StormSwitchBox.Services
                         report.Issues.Add(new LibraryAuditIssue
                         {
                             IssueType = "SupersededUpdate",
-                            IssueLabel = "??? ?????? ????? 3DS",
+                            IssueLabel = "🗑️ Старые патчи 3DS",
                             GameName = gName,
                             TitleId = grp.Key,
                             Platform = "3DS",
                             CurrentSizeBytes = wasted,
                             EstimatedSavingsBytes = wasted,
-                            Recommendation = $"??????? {older.Count} ?????????? CIA/3DS ?????????? (???????? v{patches[0].Version})",
+                            Recommendation = $"Удалить {older.Count} устаревших CIA/3DS обновлений (оставить v{patches[0].Version})",
                             RelatedFiles = older.Select(p => p.Path).ToList()
                         });
                     }
@@ -251,18 +261,19 @@ namespace StormSwitchBox.Services
                         report.Issues.Add(new LibraryAuditIssue
                         {
                             IssueType = "UnmergedSet",
-                            IssueLabel = $"?? ???????? 3DS ???????? ({items.Count} ??.)",
+                            IssueLabel = $"🧩 Разбитый 3DS комплект ({items.Count} шт.)",
                             GameName = gName,
                             TitleId = grp.Key,
                             Platform = "3DS",
                             CurrentSizeBytes = totalSetSize,
                             EstimatedSavingsBytes = estSave,
-                            Recommendation = $"????? ??????? 3DS ????, ?????????? ? DLC ? ?????? .3DS / .CIA ?????????",
+                            Recommendation = "Сшить базовую 3DS игру, обновление и DLC в единый .3DS / .CIA контейнер",
                             RelatedFiles = items.Select(x => x.Path).ToList()
                         });
                     }
                 }
 
+                report.Issues = report.Issues.OrderByDescending(i => i.EstimatedSavingsBytes).ThenBy(i => i.GameName).ToList();
                 report.TotalEstimatedSavingsBytes = report.Issues.Sum(i => i.EstimatedSavingsBytes);
                 return report;
             }, ct);

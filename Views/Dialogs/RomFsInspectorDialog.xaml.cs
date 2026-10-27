@@ -39,16 +39,16 @@ namespace StormSwitchBox.Views.Dialogs
             bool is3dsEnc = Nintendo3dsService.Is3dsExtension(Path.GetExtension(path)) && Nintendo3dsCryptoService.Is3dsFileEncrypted(path);
             Decrypt3dsBtn.Visibility = is3dsEnc ? Visibility.Visible : Visibility.Collapsed;
 
-            StatusText.Text = $"? ??????????? ???????????? {Path.GetFileName(path)}...";
+            StatusText.Text = $"⏳ Виртуальное сканирование {Path.GetFileName(path)}...";
             try
             {
                 _allEntries = await VirtualRomFsInspectorService.InspectContainerAsync(path, CancellationToken.None);
                 ApplyFilters();
-                StatusText.Text = $"? ??????? ??????????? ????????: {_allEntries.Count} (??????????: {FilteredEntries.Count})";
+                StatusText.Text = $"✅ Найдено виртуальных объектов: {_allEntries.Count} (отображено: {FilteredEntries.Count})";
             }
             catch (Exception ex)
             {
-                StatusText.Text = "? ?????? ?????? ??????????: " + ex.Message;
+                StatusText.Text = "❌ Ошибка чтения контейнера: " + ex.Message;
             }
         }
 
@@ -81,8 +81,8 @@ namespace StormSwitchBox.Views.Dialogs
         private async void BrowseContainer_Click(object sender, RoutedEventArgs e)
         {
             string? path = await SystemDialogService.OpenFileDialogAsync(
-                "???????? ??????? ????? Switch / 3DS",
-                "??????? ?????????? (*.nsp;*.nsz;*.xci;*.xcz;*.nca;*.3ds;*.cci;*.cia;*.cxi)|*.nsp;*.nsz;*.xci;*.xcz;*.nca;*.3ds;*.cci;*.cia;*.cxi|??? ????? (*.*)|*.*");
+                "Выберите игровой образ Switch / 3DS",
+                "Игровые контейнеры (*.nsp;*.nsz;*.xci;*.xcz;*.nca;*.3ds;*.cci;*.cia;*.cxi)|*.nsp;*.nsz;*.xci;*.xcz;*.nca;*.3ds;*.cci;*.cia;*.cxi|Все файлы (*.*)|*.*");
             if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
             {
                 await LoadContainerAsync(path);
@@ -132,7 +132,7 @@ namespace StormSwitchBox.Views.Dialogs
                 {
                     PreviewImage.Visibility = Visibility.Collapsed;
                     TextPreviewScroll.Visibility = Visibility.Visible;
-                    PreviewTextBlock.Text = "(???? ???? ??? ?????????? ??? ??????? ??????)";
+                    PreviewTextBlock.Text = "(файл пуст или недоступен для прямого чтения)";
                     return;
                 }
 
@@ -158,7 +158,7 @@ namespace StormSwitchBox.Views.Dialogs
             {
                 PreviewImage.Visibility = Visibility.Collapsed;
                 TextPreviewScroll.Visibility = Visibility.Visible;
-                PreviewTextBlock.Text = "?????? ?????????????: " + ex.Message;
+                PreviewTextBlock.Text = "Ошибка предпросмотра: " + ex.Message;
             }
         }
 
@@ -189,22 +189,22 @@ namespace StormSwitchBox.Views.Dialogs
         {
             if (EntriesListView.SelectedItem is not VirtualArchiveEntry entry)
             {
-                StatusText.Text = "?? ???????? ???? ? ?????? ??? ??????????? ??????????.";
+                StatusText.Text = "⚠ Выберите файл в списке для выборочного извлечения.";
                 return;
             }
 
-            string? folder = await SystemDialogService.OpenFolderDialogAsync("???????? ????? ??? ?????????? ?????");
+            string? folder = await SystemDialogService.OpenFolderDialogAsync("Выберите папку для извлечения файла");
             if (string.IsNullOrWhiteSpace(folder)) return;
 
             try
             {
                 int count = await VirtualRomFsInspectorService.ExtractEntriesAsync(
                     _currentContainerPath, new[] { entry }, folder, null, CancellationToken.None);
-                StatusText.Text = $"? ??????? ???????? ????: {entry.FullPath} -> {folder}";
+                StatusText.Text = $"✅ Успешно извлечён файл: {entry.FullPath} -> {folder}";
             }
             catch (Exception ex)
             {
-                StatusText.Text = "? ?????? ??????????: " + ex.Message;
+                StatusText.Text = "❌ Ошибка извлечения: " + ex.Message;
             }
         }
 
@@ -212,21 +212,21 @@ namespace StormSwitchBox.Views.Dialogs
         {
             if (FilteredEntries.Count == 0) return;
 
-            string? folder = await SystemDialogService.OpenFolderDialogAsync($"???????? ????? ??? ?????????? {FilteredEntries.Count} ??????");
+            string? folder = await SystemDialogService.OpenFolderDialogAsync($"Выберите папку для извлечения {FilteredEntries.Count} файлов");
             if (string.IsNullOrWhiteSpace(folder)) return;
 
             var prog = new Progress<(int Done, int Total, string CurrentFile)>(p =>
-                StatusText.Text = $"? ?????????? ({p.Done}/{p.Total}): {p.CurrentFile}");
+                StatusText.Text = $"⏳ Извлечение ({p.Done}/{p.Total}): {p.CurrentFile}");
 
             try
             {
                 int count = await VirtualRomFsInspectorService.ExtractEntriesAsync(
                     _currentContainerPath, FilteredEntries.ToList(), folder, prog, CancellationToken.None);
-                StatusText.Text = $"? ??????? ????????? ??????: {count} ? ????? {folder}";
+                StatusText.Text = $"✅ Успешно извлечено файлов: {count} в папку {folder}";
             }
             catch (Exception ex)
             {
-                StatusText.Text = "? ?????? ????????? ??????????: " + ex.Message;
+                StatusText.Text = "❌ Ошибка пакетного извлечения: " + ex.Message;
             }
         }
     }

@@ -120,7 +120,7 @@ namespace StormSwitchBox.Services
                     {
                         Name = entry.Name,
                         FullPath = "/" + entry.Name,
-                        Section = "?????????",
+                        Section = "Контейнер",
                         Size = entry.Size,
                         SourceNcaName = entry.Name,
                         NcaSectionIndex = -1
@@ -271,7 +271,7 @@ namespace StormSwitchBox.Services
                         {
                             results.Add(new VirtualArchiveEntry
                             {
-                                Name = "exefs.bin (?????????? ? ??????????? ?????????? 3DS)",
+                                Name = "exefs.bin (зашифрован — используйте Дешифровку 3DS)",
                                 FullPath = "/exefs.bin",
                                 Section = "ExeFS",
                                 Size = (long)exefsSizeUnits * 0x200L,
@@ -310,7 +310,7 @@ namespace StormSwitchBox.Services
                         {
                             results.Add(new VirtualArchiveEntry
                             {
-                                Name = "romfs.bin (?????????? ? ??????????? ?????????? 3DS)",
+                                Name = "romfs.bin (зашифрован — используйте Дешифровку 3DS)",
                                 FullPath = "/romfs.bin",
                                 Section = "RomFS",
                                 Size = romfsByteLen,

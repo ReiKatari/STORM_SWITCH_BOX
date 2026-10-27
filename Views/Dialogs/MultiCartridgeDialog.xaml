@@ -6,8 +6,8 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:svc="using:StormSwitchBox.Services"
     mc:Ignorable="d"
-    Title="??? ??????????? ??????-?????????? XCI / XCZ (Multi-Game Cartridge Builder)"
-    CloseButtonText="???????"
+    Title="🗂 Конструктор мульти-картриджей XCI / XCZ (Multi-Game Cartridge Builder)"
+    CloseButtonText="Закрыть"
     CornerRadius="8"
     MinWidth="860"
     MaxWidth="1020">
@@ -20,7 +20,7 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- ??????? ?????? ???????? -->
+        <!-- Верхняя панель действий -->
         <Grid Grid.Row="0" ColumnSpacing="8">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
@@ -28,12 +28,12 @@
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
-            <Button Grid.Column="0" Content="? ???????? ???? / ????? / DLC (.NSP/.NSZ/.XCI/.XCZ)" Click="AddFiles_Click" Style="{StaticResource AccentButtonStyle}" CornerRadius="4"/>
-            <Button Grid.Column="1" Content="??? ???????? ??????" Click="ClearFiles_Click" CornerRadius="4"/>
-            <TextBlock x:Name="SummaryText" Grid.Column="3" Text="??????: 0 | ????? ??????: 0 ?" VerticalAlignment="Center" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+            <Button Grid.Column="0" Content="➕ Добавить игры / патчи / DLC (.NSP/.NSZ/.XCI/.XCZ)" Click="AddFiles_Click" Style="{StaticResource AccentButtonStyle}" CornerRadius="4"/>
+            <Button Grid.Column="1" Content="🗑 Очистить список" Click="ClearFiles_Click" CornerRadius="4"/>
+            <TextBlock x:Name="SummaryText" Grid.Column="3" Text="Файлов: 0 | Общий размер: 0 Б" VerticalAlignment="Center" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
         </Grid>
 
-        <!-- ?????? ??????????? ??? -->
+        <!-- Список добавленных игр -->
         <Border Grid.Row="1" Background="#14FFFFFF" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6" Padding="4">
             <ListView x:Name="ItemsListView" SelectionMode="Single">
                 <ListView.ItemTemplate>
@@ -55,7 +55,7 @@
             </ListView>
         </Border>
 
-        <!-- ????????? ?????? -->
+        <!-- Настройки сборки -->
         <Grid Grid.Row="2" ColumnSpacing="10" RowSpacing="8">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
@@ -67,21 +67,21 @@
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
 
-            <TextBox x:Name="CartridgeNameBox" Grid.Row="0" Grid.Column="0" Header="??? ???????? (??????-?????????)" Text="STORM Multi-Game Collection [1G+Multi]" CornerRadius="4"/>
-            <ComboBox x:Name="OutputFormatCombo" Grid.Row="0" Grid.Column="1" Header="??????? ??????" SelectedIndex="0" HorizontalAlignment="Stretch" CornerRadius="4">
+            <TextBox x:Name="CartridgeNameBox" Grid.Row="0" Grid.Column="0" Header="Имя сборника (мульти-картриджа)" Text="STORM Multi-Game Collection [1G+Multi]" CornerRadius="4"/>
+            <ComboBox x:Name="OutputFormatCombo" Grid.Row="0" Grid.Column="1" Header="Целевой формат" SelectedIndex="0" HorizontalAlignment="Stretch" CornerRadius="4">
                 <ComboBoxItem Content="XCI (Trimmed Multi-Cart)" Tag="XCI"/>
-                <ComboBoxItem Content="XCZ (?????? Multi-Cart)" Tag="XCZ"/>
+                <ComboBoxItem Content="XCZ (Сжатый Multi-Cart)" Tag="XCZ"/>
             </ComboBox>
-            <Button x:Name="BuildButton" Grid.Row="0" Grid.Column="2" Content="?? ??????? ??????-????????" Click="BuildCartridge_Click" VerticalAlignment="Bottom" Height="34" Style="{StaticResource AccentButtonStyle}" CornerRadius="4"/>
+            <Button x:Name="BuildButton" Grid.Row="0" Grid.Column="2" Content="🚀 Собрать мульти-картридж" Click="BuildCartridge_Click" VerticalAlignment="Bottom" Height="34" Style="{StaticResource AccentButtonStyle}" CornerRadius="4"/>
 
-            <TextBox x:Name="OutputFolderBox" Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" Header="???????? ?????" CornerRadius="4"/>
-            <Button Grid.Row="1" Grid.Column="2" Content="?? ?????..." Click="BrowseFolder_Click" VerticalAlignment="Bottom" Height="34" CornerRadius="4"/>
+            <TextBox x:Name="OutputFolderBox" Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" Header="Выходная папка" CornerRadius="4"/>
+            <Button Grid.Row="1" Grid.Column="2" Content="📂 Обзор..." Click="BrowseFolder_Click" VerticalAlignment="Bottom" Height="34" CornerRadius="4"/>
         </Grid>
 
-        <!-- ???????? ?????? -->
+        <!-- Прогресс сборки -->
         <StackPanel Grid.Row="3" Spacing="6">
             <ProgressBar x:Name="BuildProgressBar" Minimum="0" Maximum="100" Value="0" Height="8"/>
-            <TextBlock x:Name="StatusTextBlock" Text="???????? 2 ??? ????? ??? Switch (.NSP, .NSZ, .XCI, .XCZ) ??? ???????? ? ?????? ??????-???????? ??? MIG Switch, ?????????? ? ????????? ????????." FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+            <TextBlock x:Name="StatusTextBlock" Text="Добавьте 2 или более игр Switch (.NSP, .NSZ, .XCI, .XCZ) для упаковки в единый мульти-картридж для MIG Switch, эмуляторов и коллекций сборников." FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
         </StackPanel>
     </Grid>
 </ContentDialog>

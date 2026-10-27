@@ -30,9 +30,9 @@ namespace StormSwitchBox.Services
     }
 
     /// <summary>
-    /// ???????? ??????????? ????????? XCI/XCZ ??????-?????????? (?Multi-Game Cartridge Builder?):
-    /// ?????????? ????????? ?????? ??? Switch (NSP/NSZ/XCI/XCZ), ?? ?????????? ? DLC ? ??????
-    /// ??????-??????? ???????? .XCI ??? ?????? .XCZ ? ?????????????? ?????????? ? ????????????? NCA.
+    /// Пакетный конструктор кастомных XCI/XCZ мульти-картриджей.
+    /// Пакетный конструктор кастомных XCI/XCZ мульти-картриджей.
+    /// Пакетный конструктор кастомных XCI/XCZ мульти-картриджей.
     /// </summary>
     public static class MultiGameCartridgeService
     {
@@ -75,7 +75,7 @@ namespace StormSwitchBox.Services
             CancellationToken ct)
         {
             if (inputFiles == null || inputFiles.Count == 0)
-                throw new ArgumentException("?? ??????? ?? ?????? ????? ??? ?????? ??????-?????????.");
+                throw new ArgumentException("Не выбрано ни одного файла для сборки мульти-картриджа.");
 
             string tempDecompDir = Path.Combine(Path.GetTempPath(), $"StormMultiCart_{Guid.NewGuid():N}");
             Directory.CreateDirectory(tempDecompDir);
@@ -104,7 +104,7 @@ namespace StormSwitchBox.Services
                     string ext = Path.GetExtension(srcFile).ToLowerInvariant();
                     if (ext == ".nsz" || ext == ".xcz")
                     {
-                        progress?.Report((idx * 25.0 / inputFiles.Count, $"?????????? ??????? ?????????? ({idx}/{inputFiles.Count}): {Path.GetFileName(srcFile)}..."));
+                        progress?.Report((idx * 25.0 / inputFiles.Count, $"Извлечение игровых разделов ({idx}/{inputFiles.Count}): {Path.GetFileName(srcFile)}..."));
                         var dummyTask = task ?? new ProcessingTask { OutputFileName = Path.GetFileNameWithoutExtension(srcFile) };
                         string? decomp = await App.NszCompression.DecompressNszAsync(dummyTask, srcFile, tempDecompDir, ct);
                         if (!string.IsNullOrEmpty(decomp) && File.Exists(decomp))
@@ -119,9 +119,9 @@ namespace StormSwitchBox.Services
                 }
 
                 if (workingFiles.Count == 0)
-                    throw new InvalidOperationException("?? ??????? ??????????? ??????? ?????????? ??? ?????? XCI.");
+                    throw new InvalidOperationException("Не найдено ключей шифрования для сборки XCI.");
 
-                progress?.Report((30, "???????????? ??????? HFS0 ??????? /secure ? ???????????? NCA..."));
+                progress?.Report((30, "Формирование единого HFS0 раздела /secure и дедупликация NCA..."));
 
                 await Task.Run(() =>
                 {
@@ -194,7 +194,7 @@ namespace StormSwitchBox.Services
                     }
 
                     if (totalEntriesAdded == 0)
-                        throw new InvalidOperationException("? ????????? ?????? ?? ??????? ???????? NCA ????????.");
+                        throw new InvalidOperationException("В выбранных файлах не найдено валидных NCA разделов.");
 
                     // Build /normal, /update (empty HFS0) and /secure HFS0 for maximum hardware & emulator compatibility
                     var emptyNormalBuilder = new PartitionFileSystemBuilder();
@@ -263,13 +263,13 @@ namespace StormSwitchBox.Services
                         remaining -= toRead;
 
                         double pct = 30.0 + (offset * 55.0 / Math.Max(1, rootSize));
-                        progress?.Report((pct, $"?????? ??????-????????? XCI: {ProcessingTask.FormatSize(offset)} / {ProcessingTask.FormatSize(rootSize)}"));
+                        progress?.Report((pct, $"Сборка мульти-картриджа XCI: {ProcessingTask.FormatSize(offset)} / {ProcessingTask.FormatSize(rootSize)}"));
                     }
                 }, ct);
 
                 if (compressToXcz && File.Exists(targetXciPath))
                 {
-                    progress?.Report((88, "?????? ??????-????????? ? ?????? XCZ (Zstandard)..."));
+                    progress?.Report((88, "Сжатие мульти-картриджа в формат XCZ (Zstandard)..."));
                     string outFolder = Path.GetDirectoryName(outputFilePath) ?? "";
                     var dummyTask = task ?? new ProcessingTask { OutputFileName = Path.GetFileNameWithoutExtension(outputFilePath) };
                     await App.NszCompression.CompressToNszAsync(dummyTask, targetXciPath, outFolder, ct);
@@ -282,11 +282,11 @@ namespace StormSwitchBox.Services
                         File.Move(genNsz, finalXcz);
                     }
                     try { if (File.Exists(targetXciPath)) File.Delete(targetXciPath); } catch { }
-                    progress?.Report((100, $"??????: {Path.GetFileName(finalXcz)} ({ProcessingTask.FormatSize(new FileInfo(finalXcz).Length)})"));
+                    progress?.Report((100, $"Готово: {Path.GetFileName(finalXcz)} ({ProcessingTask.FormatSize(new FileInfo(finalXcz).Length)})"));
                     return finalXcz;
                 }
 
-                progress?.Report((100, $"??????: {Path.GetFileName(targetXciPath)} ({ProcessingTask.FormatSize(new FileInfo(targetXciPath).Length)})"));
+                progress?.Report((100, $"Готово: {Path.GetFileName(targetXciPath)} ({ProcessingTask.FormatSize(new FileInfo(targetXciPath).Length)})"));
                 return targetXciPath;
             }
             finally

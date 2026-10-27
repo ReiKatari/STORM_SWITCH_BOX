@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -16,6 +18,53 @@ namespace StormSwitchBox.Services
         {
             public WindowWrapper(IntPtr handle) { Handle = handle; }
             public IntPtr Handle { get; }
+        }
+
+        public static Task<List<string>?> OpenMultipleFilesDialogAsync(string title, string filter, string? initialDirectory = null)
+        {
+            var tcs = new TaskCompletionSource<List<string>?>();
+            var thread = new Thread(() =>
+            {
+                try
+                {
+                    using var ofd = new OpenFileDialog
+                    {
+                        Title = title,
+                        Filter = filter,
+                        CheckFileExists = true,
+                        Multiselect = true,
+                        RestoreDirectory = true,
+                        AutoUpgradeEnabled = true
+                    };
+
+                    if (!string.IsNullOrEmpty(initialDirectory) && Directory.Exists(initialDirectory))
+                    {
+                        ofd.InitialDirectory = initialDirectory;
+                    }
+
+                    IWin32Window? owner = (App.MainWindowHandle != IntPtr.Zero) ? new WindowWrapper(App.MainWindowHandle) : null;
+                    var res = owner != null ? ofd.ShowDialog(owner) : ofd.ShowDialog();
+                    if (res == DialogResult.OK && ofd.FileNames != null && ofd.FileNames.Length > 0)
+                    {
+                        tcs.SetResult(ofd.FileNames.ToList());
+                    }
+                    else
+                    {
+                        tcs.SetResult(null);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    App.Logger?.Log($"[Dialog] Ошибка открытия OpenMultipleFilesDialog: {ex.Message}", Models.LogLevel.Warning);
+                    tcs.SetResult(null);
+                }
+            });
+
+            thread.SetApartmentState(ApartmentState.STA);
+            thread.IsBackground = true;
+            thread.Start();
+
+            return tcs.Task;
         }
 
         public static Task<string?> OpenFileDialogAsync(string title, string filter, string? initialDirectory = null)

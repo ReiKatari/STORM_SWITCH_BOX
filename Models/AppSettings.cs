@@ -28,7 +28,7 @@ namespace StormSwitchBox.Models
         }
 
         // Окно
-        public string AppVersion { get; set; } = "5.1.1";
+        public string AppVersion { get; set; } = App.AppVersionString;
         public string Language { get; set; } = GetDefaultOsLanguage(); // ru, en, de, fr, zh, ja
         public bool EnableGpuAcceleration { get; set; } = true;
         public int WindowX { get; set; } = -1;

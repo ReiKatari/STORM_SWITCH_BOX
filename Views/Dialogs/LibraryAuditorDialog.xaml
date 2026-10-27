@@ -6,8 +6,8 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:svc="using:StormSwitchBox.Services"
     mc:Ignorable="d"
-    Title="??? ??????? ? ???????????? ????????? ??? (Library Health &amp; Space Saver)"
-    CloseButtonText="???????"
+    Title="🛡 Аудитор и дедупликатор коллекции игр (Library Health and Space Saver)"
+    CloseButtonText="Закрыть"
     CornerRadius="8"
     MinWidth="1040"
     MaxWidth="1260">
@@ -21,19 +21,19 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- ????? ?????????? ?????????? -->
+        <!-- Выбор директории библиотеки -->
         <Grid Grid.Row="0" ColumnSpacing="8">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
-            <TextBox x:Name="LibraryPathBox" Grid.Column="0" PlaceholderText="???? ? ????? ????????? ??? Switch ? 3DS (.nsp, .nsz, .xci, .xcz, .3ds, .cci, .cia)" CornerRadius="4"/>
-            <Button Grid.Column="1" Content="?? ?????..." Click="BrowseFolder_Click" CornerRadius="4"/>
-            <Button x:Name="ScanButton" Grid.Column="2" Content="?? ??????????? ?????????" Click="ScanLibrary_Click" Style="{StaticResource AccentButtonStyle}" CornerRadius="4"/>
+            <TextBox x:Name="LibraryPathBox" Grid.Column="0" PlaceholderText="Путь к папке коллекции игр Switch и 3DS (.nsp, .nsz, .xci, .xcz, .3ds, .cci, .cia)" CornerRadius="4"/>
+            <Button Grid.Column="1" Content="📂 Обзор..." Click="BrowseFolder_Click" CornerRadius="4"/>
+            <Button x:Name="ScanButton" Grid.Column="2" Content="🔍 Сканировать коллекцию" Click="ScanLibrary_Click" Style="{StaticResource AccentButtonStyle}" CornerRadius="4"/>
         </Grid>
 
-        <!-- ???????? ?????????? -->
+        <!-- Карточки статистики -->
         <Grid Grid.Row="1" ColumnSpacing="12">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
@@ -43,31 +43,31 @@
             </Grid.ColumnDefinitions>
             <Border Grid.Column="0" Background="#14FFFFFF" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6" Padding="12,8">
                 <StackPanel>
-                    <TextBlock Text="?????????????? ??????" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <TextBlock Text="Просканировано файлов" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     <TextBlock x:Name="CardTotalFiles" Text="0" FontSize="20" FontWeight="Bold"/>
                 </StackPanel>
             </Border>
             <Border Grid.Column="1" Background="#14FFFFFF" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6" Padding="12,8">
                 <StackPanel>
-                    <TextBlock Text="????? ?????? ?????????" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                    <TextBlock x:Name="CardTotalSize" Text="0 ?" FontSize="20" FontWeight="Bold" Foreground="#38BDF8"/>
+                    <TextBlock Text="Общий размер коллекции" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <TextBlock x:Name="CardTotalSize" Text="0 Б" FontSize="20" FontWeight="Bold" Foreground="#38BDF8"/>
                 </StackPanel>
             </Border>
             <Border Grid.Column="2" Background="#14FFFFFF" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6" Padding="12,8">
                 <StackPanel>
-                    <TextBlock Text="????????????? ????????" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                    <TextBlock x:Name="CardPotentialSavings" Text="~0 ?" FontSize="20" FontWeight="Bold" Foreground="#10B981"/>
+                    <TextBlock Text="Потенциальная экономия" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <TextBlock x:Name="CardPotentialSavings" Text="~0 Б" FontSize="20" FontWeight="Bold" Foreground="#10B981"/>
                 </StackPanel>
             </Border>
             <Border Grid.Column="3" Background="#14FFFFFF" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6" Padding="12,8">
                 <StackPanel>
-                    <TextBlock Text="??????? ???????????" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <TextBlock Text="Найдено оптимизаций" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     <TextBlock x:Name="CardIssuesCount" Text="0" FontSize="20" FontWeight="Bold" Foreground="#F59E0B"/>
                 </StackPanel>
             </Border>
         </Grid>
 
-        <!-- ?????? ???????????? -->
+        <!-- Список рекомендаций -->
         <Border Grid.Row="2" Background="#14FFFFFF" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6" Padding="4">
             <ListView x:Name="IssuesListView" SelectionMode="None">
                 <ListView.ItemTemplate>
@@ -95,7 +95,7 @@
             </ListView>
         </Border>
 
-        <!-- ?????? ??????? ???????? ? 1 ???? -->
+        <!-- Панель быстрых действий в 1 клик -->
         <Grid Grid.Row="3" ColumnSpacing="8">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
@@ -104,16 +104,16 @@
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
-            <Button Grid.Column="0" Content="?? ? ???????? (????? / ????? ?????????)" Click="SendToTasks_Click" Style="{StaticResource AccentButtonStyle}" CornerRadius="4"/>
-            <Button Grid.Column="1" Content="?? ???????? XCI/3DS ? ?????????? 3DS" Click="QuickTrimAndDecrypt_Click" CornerRadius="4"/>
-            <Button Grid.Column="2" Content="??? ??????? ????????? ?????? ??????" Click="DeleteSupersededPatches_Click" CornerRadius="4"/>
-            <Button Grid.Column="4" Content="?? ??????? ?????? (.TXT)" Click="ExportReport_Click" CornerRadius="4"/>
+            <Button Grid.Column="0" Content="🚀 В Задачник (сшить / сжать выбранные)" Click="SendToTasks_Click" Style="{StaticResource AccentButtonStyle}" CornerRadius="4"/>
+            <Button Grid.Column="1" Content="✂ Обрезать XCI/3DS и дешифровать 3DS" Click="QuickTrimAndDecrypt_Click" CornerRadius="4"/>
+            <Button Grid.Column="2" Content="🗑 Удалить выбранные старые патчи" Click="DeleteSupersededPatches_Click" CornerRadius="4"/>
+            <Button Grid.Column="4" Content="📄 Экспорт отчёта (.TXT)" Click="ExportReport_Click" CornerRadius="4"/>
         </Grid>
 
-        <!-- ?????? -->
+        <!-- Статус -->
         <StackPanel Grid.Row="4" Spacing="4">
             <ProgressBar x:Name="ScanProgressBar" Minimum="0" Maximum="100" Value="0" Height="6"/>
-            <TextBlock x:Name="StatusText" Text="???????? ????? ? ?????? Switch / 3DS ? ??????? ???????????? ??????????." FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+            <TextBlock x:Name="StatusText" Text="Выберите папку с играми Switch / 3DS и нажмите «Сканировать коллекцию»." FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
         </StackPanel>
     </Grid>
 </ContentDialog>

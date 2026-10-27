@@ -5,9 +5,9 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
-    Title="?? ?????? ??????????, ?????? ? 3DS ????????"
-    PrimaryButtonText="?????????"
-    CloseButtonText="??????"
+    Title="🎨 Студия метаданных, иконок и 3DS баннеров"
+    PrimaryButtonText="Сохранить"
+    CloseButtonText="Отмена"
     DefaultButton="Primary"
     PrimaryButtonClick="ContentDialog_PrimaryButtonClick"
     CornerRadius="8"
@@ -25,29 +25,29 @@
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
-            <!-- ??????? ??????: ?????? + Title ID / ?????? -->
+            <!-- Верхняя панель: иконка + Title ID / версия -->
             <Grid Grid.Row="0" ColumnSpacing="16">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
 
-                <!-- ?????? ? ????? Drag-and-Drop -->
+                <!-- Иконка с зоной Drag-and-Drop -->
                 <Border Grid.Column="0" Width="136" Height="136" CornerRadius="10"
                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="2"
                         Background="#1E293B" AllowDrop="True"
                         DragOver="IconDropArea_DragOver" Drop="IconDropArea_Drop"
-                        ToolTipService.ToolTip="?????????? ????? ??????????? (PNG/JPEG) ??? ????????? ?????? ????">
+                        ToolTipService.ToolTip="Перетащите любое изображение (PNG/JPEG) для установки иконки игры">
                     <Grid>
                         <Image x:Name="GameIconImage" Stretch="UniformToFill" Width="132" Height="132"/>
                         <Border Background="#99000000" VerticalAlignment="Bottom" Height="24">
-                            <TextBlock Text="Live-?????? ??????" FontSize="10" Foreground="White" 
+                            <TextBlock Text="Live-превью иконки" FontSize="10" Foreground="White" 
                                        HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                     </Grid>
                 </Border>
 
-                <!-- ???? ? ?????? ?????? ?????? -->
+                <!-- Инфо и кнопки замены иконки -->
                 <StackPanel Grid.Column="1" Spacing="6" VerticalAlignment="Center">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <TextBlock Text="Title ID:" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
@@ -58,99 +58,99 @@
                     </StackPanel>
 
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                        <TextBlock Text="??????:" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        <TextBlock Text="Версия:" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                         <TextBlock x:Name="VersionText" Text="1.0.0" FontWeight="Bold"/>
                     </StackPanel>
 
                     <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
-                        <Button Content="?? ??????? ?????? (PNG/JPG)" Click="SelectIconButton_Click" CornerRadius="4"/>
-                        <Button Content="?? ????????" Click="ResetIconButton_Click" CornerRadius="4"/>
+                        <Button Content="🖼 Выбрать иконку (PNG/JPG)" Click="SelectIconButton_Click" CornerRadius="4"/>
+                        <Button Content="🔄 Сбросить" Click="ResetIconButton_Click" CornerRadius="4"/>
                     </StackPanel>
                 </StackPanel>
             </Grid>
 
-            <!-- ??????: ?????? ?????????? ??????? ?? ?????? -->
+            <!-- Секция: Студия визуальных бейджей на иконку -->
             <Border Grid.Row="1" Background="#14FFFFFF" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="12,10">
                 <StackPanel Spacing="8">
-                    <TextBlock Text="?? ?????????? ?????? ?? ?????? (256x256 Switch / 48x48 3DS SMDH)" FontSize="12" FontWeight="Bold" Foreground="{ThemeResource SystemAccentColor}"/>
+                    <TextBlock Text="🏷 Визуальные бейджи на иконке (256x256 Switch / 48x48 3DS SMDH)" FontSize="12" FontWeight="Bold" Foreground="{ThemeResource SystemAccentColor}"/>
                     <StackPanel Orientation="Horizontal" Spacing="14">
-                        <CheckBox x:Name="BadgeRusCheck" Content="???? [RUS]" Checked="Badge_Changed" Unchecked="Badge_Changed" MinWidth="85"/>
-                        <CheckBox x:Name="Badge60FpsCheck" Content="? [60 FPS]" Checked="Badge_Changed" Unchecked="Badge_Changed" MinWidth="95"/>
-                        <CheckBox x:Name="BadgeModCheck" Content="??? [MOD]" Checked="Badge_Changed" Unchecked="Badge_Changed" MinWidth="85"/>
-                        <CheckBox x:Name="BadgeAllDlcCheck" Content="?? [ALL DLC]" Checked="Badge_Changed" Unchecked="Badge_Changed" MinWidth="95"/>
+                        <CheckBox x:Name="BadgeRusCheck" Content="🇷🇺 [RUS]" Checked="Badge_Changed" Unchecked="Badge_Changed" MinWidth="85"/>
+                        <CheckBox x:Name="Badge60FpsCheck" Content="⚡ [60 FPS]" Checked="Badge_Changed" Unchecked="Badge_Changed" MinWidth="95"/>
+                        <CheckBox x:Name="BadgeModCheck" Content="🛠 [MOD]" Checked="Badge_Changed" Unchecked="Badge_Changed" MinWidth="85"/>
+                        <CheckBox x:Name="BadgeAllDlcCheck" Content="💎 [ALL DLC]" Checked="Badge_Changed" Unchecked="Badge_Changed" MinWidth="95"/>
                     </StackPanel>
                     <Grid ColumnSpacing="10">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="210"/>
                         </Grid.ColumnDefinitions>
-                        <TextBox x:Name="CustomBadgeBox" Grid.Column="0" PlaceholderText="???? ????? ?????? (????. HD, 2.0, CHEAT)" TextChanged="CustomBadgeBox_TextChanged" CornerRadius="4"/>
+                        <TextBox x:Name="CustomBadgeBox" Grid.Column="0" PlaceholderText="Свой текст бейджа (напр. HD, 2.0, CHEAT)" TextChanged="CustomBadgeBox_TextChanged" CornerRadius="4"/>
                         <ComboBox x:Name="BadgePositionCombo" Grid.Column="1" HorizontalAlignment="Stretch" SelectionChanged="BadgePositionCombo_SelectionChanged" SelectedIndex="0" CornerRadius="4">
-                            <ComboBoxItem Content="????? ??????" Tag="BottomRight"/>
-                            <ComboBoxItem Content="????? ?????" Tag="BottomLeft"/>
-                            <ComboBoxItem Content="?????? ??????" Tag="TopRight"/>
-                            <ComboBoxItem Content="?????? ?????" Tag="TopLeft"/>
-                            <ComboBoxItem Content="????? ????? (Ribbon)" Tag="BottomBar"/>
+                            <ComboBoxItem Content="Внизу справа" Tag="BottomRight"/>
+                            <ComboBoxItem Content="Внизу слева" Tag="BottomLeft"/>
+                            <ComboBoxItem Content="Вверху справа" Tag="TopRight"/>
+                            <ComboBoxItem Content="Вверху слева" Tag="TopLeft"/>
+                            <ComboBoxItem Content="Лента внизу (Ribbon)" Tag="BottomBar"/>
                         </ComboBox>
                     </Grid>
                 </StackPanel>
             </Border>
 
-            <!-- ??????: ????????? ?????-?????? 3DS ??????? -->
+            <!-- Секция: Кастомный аудио-джингл 3DS баннера -->
             <Border x:Name="AudioBannerSection" Grid.Row="2" Background="#14FFFFFF" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="12,10">
                 <StackPanel Spacing="6">
-                    <TextBlock Text="?? ?????-?????? 3D-??????? Nintendo 3DS (.WAV / .BCWAV -> CBMD)" FontSize="12" FontWeight="Bold" Foreground="#10B981"/>
+                    <TextBlock Text="🎵 Аудио-джингл 3D-баннера Nintendo 3DS (.WAV / .BCWAV -> CBMD)" FontSize="12" FontWeight="Bold" Foreground="#10B981"/>
                     <Grid ColumnSpacing="8">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <TextBox x:Name="AudioWavPathBox" Grid.Column="0" IsReadOnly="True" PlaceholderText="???????????? ???????? ?????? ???? (?? 3 ???. WAV PCM ??? BCWAV)" CornerRadius="4"/>
-                        <Button Grid.Column="1" Content="?? ??????? WAV/BCWAV" Click="SelectAudioWav_Click" CornerRadius="4"/>
-                        <Button Grid.Column="2" Content="?" Click="ClearAudioWav_Click" CornerRadius="4" ToolTipService.ToolTip="???????? ????????? ????"/>
+                        <TextBox x:Name="AudioWavPathBox" Grid.Column="0" IsReadOnly="True" PlaceholderText="Использовать исходный джингл игры (до 3 сек. WAV PCM или BCWAV)" CornerRadius="4"/>
+                        <Button Grid.Column="1" Content="🎵 Выбрать WAV/BCWAV" Click="SelectAudioWav_Click" CornerRadius="4"/>
+                        <Button Grid.Column="2" Content="✕" Click="ClearAudioWav_Click" CornerRadius="4" ToolTipService.ToolTip="Очистить выбранный звук"/>
                     </Grid>
                 </StackPanel>
             </Border>
 
             <MenuFlyoutSeparator Grid.Row="3"/>
 
-            <!-- ???? ????? ???????? -->
+            <!-- Поля ввода названий -->
             <StackPanel Grid.Row="4" Spacing="10">
                 <StackPanel Spacing="4">
-                    <TextBlock Text="???????? ???? (English / ????????)" FontSize="12" FontWeight="SemiBold"/>
-                    <TextBox x:Name="TitleEnglishBox" PlaceholderText="????????: The Legend of Zelda" CornerRadius="4"/>
+                    <TextBlock Text="Название игры (English / основное)" FontSize="12" FontWeight="SemiBold"/>
+                    <TextBox x:Name="TitleEnglishBox" PlaceholderText="Например: The Legend of Zelda" CornerRadius="4"/>
                 </StackPanel>
 
                 <StackPanel Spacing="4">
-                    <TextBlock Text="???????? ???? (???????)" FontSize="12" FontWeight="SemiBold"/>
-                    <TextBox x:Name="TitleRussianBox" PlaceholderText="????????: The Legend of Zelda [RUS]" CornerRadius="4"/>
+                    <TextBlock Text="Название игры (Русское)" FontSize="12" FontWeight="SemiBold"/>
+                    <TextBox x:Name="TitleRussianBox" PlaceholderText="Например: The Legend of Zelda [RUS]" CornerRadius="4"/>
                 </StackPanel>
 
                 <StackPanel Spacing="4">
-                    <TextBlock Text="???????? / ???????????" FontSize="12" FontWeight="SemiBold"/>
-                    <TextBox x:Name="PublisherBox" PlaceholderText="????????: Nintendo" CornerRadius="4"/>
+                    <TextBlock Text="Издатель / Разработчик" FontSize="12" FontWeight="SemiBold"/>
+                    <TextBox x:Name="PublisherBox" PlaceholderText="Например: Nintendo" CornerRadius="4"/>
                 </StackPanel>
 
-                <!-- ?????? ???????? ??????????? (RomFS / ExeFS) -->
+                <!-- Секция названий модификаций (RomFS / ExeFS) -->
                 <StackPanel x:Name="ModsSection" Spacing="10" Margin="0,4,0,0">
                     <MenuFlyoutSeparator Margin="0,4,0,4"/>
-                    <TextBlock Text="??? ????????? ??????????? (??????????? ? ????????? ? ????????????)" FontSize="12" FontWeight="Bold" Foreground="{ThemeResource SystemAccentColor}"/>
+                    <TextBlock Text="🛠 Параметры модификаций (сохраняются в коллекции и подстановках)" FontSize="12" FontWeight="Bold" Foreground="{ThemeResource SystemAccentColor}"/>
 
                     <StackPanel x:Name="RomFsNamePanel" Spacing="4">
-                        <TextBlock Text="???????? RomFS ??????????? (?????)" FontSize="12" FontWeight="SemiBold"/>
+                        <TextBlock Text="Название RomFS модификации (папки)" FontSize="12" FontWeight="SemiBold"/>
                         <TextBox x:Name="ModRomFsBox" CornerRadius="4"/>
                     </StackPanel>
 
                     <StackPanel x:Name="ExeFsNamePanel" Spacing="4">
-                        <TextBlock Text="???????? ExeFS / IPS ??????????? (?????)" FontSize="12" FontWeight="SemiBold"/>
+                        <TextBlock Text="Название ExeFS / IPS модификации (папки)" FontSize="12" FontWeight="SemiBold"/>
                         <TextBox x:Name="ModExeFsBox" CornerRadius="4"/>
                     </StackPanel>
                 </StackPanel>
             </StackPanel>
 
-            <!-- ????????? -->
-            <TextBlock Grid.Row="5" Text="?? ??? Switch ????????? ????????? ? Control NCA (NACP + 256x256 JPEG). ??? 3DS ????????????? ?????????? 16-???????? SMDH (48x48 + 24x24 Morton RGB565) ? ???????? ????? CWAV ? banner.bin."
+            <!-- Подсказка -->
+            <TextBlock Grid.Row="5" Text="💡 Для Switch изменения вшиваются в Control NCA (NACP + 256x256 JPEG). Для 3DS автоматически генерируется 16-язычный SMDH (48x48 + 24x24 Morton RGB565) и вшивается аудио CWAV в banner.bin."
                        FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
         </Grid>
     </ScrollViewer>

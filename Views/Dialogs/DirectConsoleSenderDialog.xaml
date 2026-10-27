@@ -1,0 +1,126 @@
+<ContentDialog
+    x:Class="StormSwitchBox.Views.Dialogs.DirectConsoleSenderDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    Title="📡 Прямая отправка на консоль Switch и 3DS (Wi-Fi / FTP / FBI QR / Tinfoil)"
+    CloseButtonText="Закрыть"
+    DefaultButton="None"
+    Closed="Dialog_Closed">
+
+    <ContentDialog.Resources>
+        <x:Double x:Key="ContentDialogMaxWidth">1040</x:Double>
+        <x:Double x:Key="ContentDialogMaxHeight">780</x:Double>
+    </ContentDialog.Resources>
+
+    <Grid Width="960" Height="620" RowSpacing="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="110"/>
+        </Grid.RowDefinitions>
+
+        <!-- Выбор файла для раздачи и отправки -->
+        <Grid Grid.Row="0" ColumnSpacing="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <ComboBox x:Name="FilesComboBox" Grid.Column="0" HorizontalAlignment="Stretch" SelectionChanged="FilesComboBox_SelectionChanged" CornerRadius="6"/>
+            <Button Grid.Column="1" Content="📂 Выбрать файлы (.NSP/.NSZ/.XCI/.CIA/.3DS)..." Click="BrowseFiles_Click" CornerRadius="6"/>
+        </Grid>
+
+        <!-- Основная рабочая область: Слева QR + HTTP (FBI / Tinfoil), Справа FTP + SD Push -->
+        <Grid Grid.Row="1" ColumnSpacing="14">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="1.05*"/>
+                <ColumnDefinition Width="1.15*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Левая карточка: FBI QR-код (3DS) + HTTP-сервер (Switch Tinfoil / DBI) -->
+            <Border Grid.Column="0" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="14">
+                <Grid RowSpacing="8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" Text="📱 Wi-Fi HTTP-сервер и QR-установка (3DS FBI / Switch Tinfoil)" FontSize="13" FontWeight="Bold" Foreground="{ThemeResource SystemAccentColor}"/>
+
+                    <Border Grid.Row="1" Background="White" CornerRadius="8" Width="210" Height="210" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="6">
+                        <Image x:Name="QrCodeImage" Stretch="Uniform"/>
+                    </Border>
+
+                    <Grid Grid.Row="2" ColumnSpacing="6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="DirectUrlBox" Grid.Column="0" IsReadOnly="True" FontSize="12" CornerRadius="6"/>
+                        <Button Grid.Column="1" Content="📋 Копировать" Click="CopyUrl_Click" CornerRadius="6"/>
+                    </Grid>
+
+                    <TextBlock Grid.Row="3" FontSize="11.5" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"
+                               Text="• Nintendo 3DS: Откройте FBI ➔ Remote Install ➔ Scan QR Code и наведите камеру на QR-код выше.&#x0a;• Nintendo Switch: В Tinfoil / DBI укажите HTTP-источник с адресом сервера из поля выше."/>
+                </Grid>
+            </Border>
+
+            <!-- Правая карточка: Прямая отправка по FTP (Switch ftpd / DBI / 3DS FTPD) и SD-карта -->
+            <Border Grid.Column="1" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="14">
+                <StackPanel Spacing="10">
+                    <TextBlock Text="🚀 Прямая отправка по FTP и на SD/USB накопитель" FontSize="13" FontWeight="Bold" Foreground="#10B981"/>
+
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <ComboBox x:Name="DiscoveredConsolesCombo" Grid.Column="0" HorizontalAlignment="Stretch" PlaceholderText="Нажмите «Найти консоль» или введите IP ниже..." SelectionChanged="DiscoveredConsolesCombo_SelectionChanged" CornerRadius="6"/>
+                        <Button x:Name="ScanLanBtn" Grid.Column="1" Content="🔍 Найти консоль в LAN" Click="ScanLan_Click" CornerRadius="6"/>
+                    </Grid>
+
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="2*"/>
+                            <ColumnDefinition Width="1*"/>
+                            <ColumnDefinition Width="1.5*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="FtpHostBox" Grid.Column="0" Header="IP-адрес консоли" PlaceholderText="192.168.1.50" Text="192.168.1.50" CornerRadius="6"/>
+                        <TextBox x:Name="FtpPortBox" Grid.Column="1" Header="Порт FTP" Text="5000" CornerRadius="6"/>
+                        <TextBox x:Name="FtpRemoteDirBox" Grid.Column="2" Header="Папка на SD" Text="/switch" CornerRadius="6"/>
+                    </Grid>
+
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Button x:Name="SendFtpBtn" Grid.Column="0" Content="📡 Отправить по FTP (Switch / 3DS)" Click="SendFtp_Click" Style="{StaticResource AccentButtonStyle}" HorizontalAlignment="Stretch" Height="36" CornerRadius="6"/>
+                        <Button x:Name="CopyUsbDriveBtn" Grid.Column="1" Content="💾 Сбросить на SD / USB диск" Click="CopyUsbDrive_Click" HorizontalAlignment="Stretch" Height="36" CornerRadius="6"/>
+                    </Grid>
+
+                    <TextBlock FontSize="11.5" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"
+                               Text="💡 Подсказка: на Switch запустите DBI («Run FTP server», порт 5000) или sys-ftpd, на 3DS — приложение FTPD (порт 5000 или 21). Для .CIA папка по умолчанию: /cias."/>
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <!-- Прогресс передачи -->
+        <StackPanel Grid.Row="2" Spacing="4">
+            <ProgressBar x:Name="TransferProgressBar" Minimum="0" Maximum="100" Value="0" Height="8" CornerRadius="4"/>
+            <TextBlock x:Name="StatusText" Text="Готов к передаче. HTTP-сервер раздачи запущен автоматически." FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+        </StackPanel>
+
+        <!-- Журнал событий сервера и передачи -->
+        <Border Grid.Row="3" Background="{ThemeResource LayerFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6" Padding="8">
+            <ScrollViewer x:Name="LogScrollViewer" VerticalScrollBarVisibility="Auto">
+                <TextBlock x:Name="ServerLogText" FontFamily="Consolas" FontSize="11" IsTextSelectionEnabled="True" TextWrapping="Wrap"/>
+            </ScrollViewer>
+        </Border>
+    </Grid>
+</ContentDialog>

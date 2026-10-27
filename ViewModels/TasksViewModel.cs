@@ -333,7 +333,7 @@ public partial class TasksViewModel : ObservableObject
 			Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tools", "7z.exe"),
 			Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "tools", "7z.exe"),
 			Path.Combine(AppContext.BaseDirectory, "tools", "7z.exe"),
-			Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tools", "nscb", "ztools", "7za.exe"),
+			Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tools", "7z", "7za.exe"),
 			Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "7-Zip", "7z.exe"),
 			Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "7-Zip", "7z.exe")
 		};
@@ -1617,7 +1617,7 @@ public partial class TasksViewModel : ObservableObject
 					? $"Обработка завершена. Успешно: {executedCount - failed}, Ошибок: {failed}"
 					: $"Обработка успешно завершена ({executedCount} задач)!";
 
-				App.ShowToastNotification("STORM SWITCH BOX 5.1.1", notifyMsg);
+				App.ShowToastNotification($"STORM SWITCH BOX {App.AppVersionString}", notifyMsg);
 				App.RunOnUI(() =>
 				{
 					if (App.MainWindow is MainWindow mw)

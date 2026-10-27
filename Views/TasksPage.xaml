@@ -124,6 +124,21 @@
                 </AppBarButton.Icon>
             </AppBarButton>
             <AppBarSeparator/>
+            <AppBarButton x:Name="StudioToolsButton" Label="Студия и сеть" ToolTipService.ToolTip="Прямая отправка на консоль, Инспектор RomFS, Мульти-картридж и Аудитор библиотеки">
+                <AppBarButton.Icon>
+                    <FontIcon Glyph="&#xE90F;" Foreground="#38BDF8"/>
+                </AppBarButton.Icon>
+                <AppBarButton.Flyout>
+                    <MenuFlyout>
+                        <MenuFlyoutItem Text="📡 Отправить на консоль (Wi-Fi / FTP / FBI QR)..." Click="OpenDirectConsoleSender_Click"/>
+                        <MenuFlyoutSeparator/>
+                        <MenuFlyoutItem Text="🔍 Визуальный инспектор RomFS / ExeFS..." Click="OpenRomFsInspector_Click"/>
+                        <MenuFlyoutItem Text="🗂 Конструктор мульти-картриджей XCI / XCZ..." Click="OpenMultiCartridgeBuilder_Click"/>
+                        <MenuFlyoutItem Text="🛡 Аудитор и дедупликатор коллекции игр..." Click="OpenLibraryAuditor_Click"/>
+                    </MenuFlyout>
+                </AppBarButton.Flyout>
+            </AppBarButton>
+            <AppBarSeparator/>
             <AppBarElementContainer VerticalAlignment="Center">
                 <TextBox x:Name="TaskSearchBox" PlaceholderText="🔍 Поиск..." Width="200" Height="30" 
                          TextChanged="TaskSearchBox_TextChanged" VerticalContentAlignment="Center" FontSize="11" CornerRadius="4"/>

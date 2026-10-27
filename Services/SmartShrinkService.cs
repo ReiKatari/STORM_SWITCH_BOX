@@ -427,7 +427,85 @@ namespace StormSwitchBox.Services
         /// </summary>
         public static long TrimXciCardImage(string xciPath, Models.ProcessingTask? task = null)
         {
-            return Trim3dsCardImage(xciPath, task);
+            if (string.IsNullOrEmpty(xciPath) || !File.Exists(xciPath)) return 0;
+
+            try
+            {
+                using var fs = new FileStream(xciPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+                if (fs.Length <= 0x10000) return 0;
+
+                using var br = new BinaryReader(fs, Encoding.ASCII, leaveOpen: true);
+
+                long hdrBase = -1;
+                foreach (long candidateBase in new[] { 0x0L, 0x1000L })
+                {
+                    if (fs.Length > candidateBase + 0x200)
+                    {
+                        fs.Seek(candidateBase + 0x100, SeekOrigin.Begin);
+                        string magic = Encoding.ASCII.GetString(br.ReadBytes(4));
+                        if (magic == "HEAD")
+                        {
+                            hdrBase = candidateBase;
+                            break;
+                        }
+                        if (candidateBase == 0 && magic == "NCSD")
+                        {
+                            fs.Dispose();
+                            return Trim3dsCardImage(xciPath, task);
+                        }
+                    }
+                }
+
+                if (hdrBase < 0) return 0;
+
+                fs.Seek(hdrBase + 0x118, SeekOrigin.Begin);
+                ulong validDataEndPage = br.ReadUInt64();
+
+                fs.Seek(hdrBase + 0x130, SeekOrigin.Begin);
+                ulong hfsOffset = br.ReadUInt64();
+                ulong hfsSize = br.ReadUInt64();
+
+                long endByPageCount = hdrBase + (long)validDataEndPage * 0x200L;
+                long endByLastPageInclusive = hdrBase + (long)(validDataEndPage + 1) * 0x200L;
+                long endByHfs = (hfsOffset > 0 && hfsSize > 0) ? (hdrBase + (long)(hfsOffset + hfsSize)) : 0;
+
+                long maxValidEnd = Math.Max(endByPageCount, endByHfs);
+                maxValidEnd = (maxValidEnd + 0x1FFL) & ~0x1FFL;
+
+                if (endByLastPageInclusive <= fs.Length && maxValidEnd < endByLastPageInclusive)
+                {
+                    fs.Seek(maxValidEnd, SeekOrigin.Begin);
+                    byte[] pageCheck = br.ReadBytes((int)Math.Min(0x200, fs.Length - maxValidEnd));
+                    if (pageCheck.Any(b => b != 0xFF && b != 0x00))
+                    {
+                        maxValidEnd = endByLastPageInclusive;
+                    }
+                }
+
+                if (maxValidEnd > 0x10000 && maxValidEnd < fs.Length)
+                {
+                    long tailBytes = fs.Length - maxValidEnd;
+                    if (tailBytes >= 0x200)
+                    {
+                        fs.Seek(maxValidEnd, SeekOrigin.Begin);
+                        int checkLen = (int)Math.Min(4096, tailBytes);
+                        byte[] sample = br.ReadBytes(checkLen);
+                        bool isPadding = sample.All(b => b == 0xFF || b == 0x00);
+                        if (isPadding)
+                        {
+                            fs.SetLength(maxValidEnd);
+                            if (task != null)
+                            {
+                                App.RunOnUI(() => task.LogDetails += $"\n[SmartShrink XCI] Обрезан пустой хвост картриджа Switch: -{Models.ProcessingTask.FormatSize(tailBytes)}");
+                            }
+                            return tailBytes;
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            return 0;
         }
 
         public static long Trim3dsCardImage(string filePath, Models.ProcessingTask? task = null)

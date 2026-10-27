@@ -289,23 +289,34 @@ namespace StormSwitchBox.Services
             {
                 if (tileData == null || tileData.Length < 0x1200) return null;
                 using var bmp = new System.Drawing.Bitmap(48, 48, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-                int i = 0;
-                for (int tileY = 0; tileY < 48; tileY += 8)
+                var rect = new System.Drawing.Rectangle(0, 0, 48, 48);
+                var bmpData = bmp.LockBits(rect, System.Drawing.Imaging.ImageLockMode.WriteOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                try
                 {
-                    for (int tileX = 0; tileX < 48; tileX += 8)
+                    int[] argbPixels = new int[48 * 48];
+                    int i = 0;
+                    for (int tileY = 0; tileY < 48; tileY += 8)
                     {
-                        for (int k = 0; k < 64; k++)
+                        for (int tileX = 0; tileX < 48; tileX += 8)
                         {
-                            int x = (k & 0x01) | ((k & 0x04) >> 1) | ((k & 0x10) >> 2);
-                            int y = ((k & 0x02) >> 1) | ((k & 0x08) >> 2) | ((k & 0x20) >> 3);
-                            ushort pixel = (ushort)(tileData[i] | (tileData[i + 1] << 8));
-                            i += 2;
-                            int r = ((pixel >> 11) & 0x1F) * 255 / 31;
-                            int g = ((pixel >> 5) & 0x3F) * 255 / 63;
-                            int b = (pixel & 0x1F) * 255 / 31;
-                            bmp.SetPixel(tileX + x, tileY + y, System.Drawing.Color.FromArgb(255, r, g, b));
+                            for (int k = 0; k < 64; k++)
+                            {
+                                int x = (k & 0x01) | ((k & 0x04) >> 1) | ((k & 0x10) >> 2);
+                                int y = ((k & 0x02) >> 1) | ((k & 0x08) >> 2) | ((k & 0x20) >> 3);
+                                ushort pixel = (ushort)(tileData[i] | (tileData[i + 1] << 8));
+                                i += 2;
+                                int r = ((pixel >> 11) & 0x1F) * 255 / 31;
+                                int g = ((pixel >> 5) & 0x3F) * 255 / 63;
+                                int b = (pixel & 0x1F) * 255 / 31;
+                                argbPixels[(tileY + y) * 48 + (tileX + x)] = (255 << 24) | (r << 16) | (g << 8) | b;
+                            }
                         }
                     }
+                    System.Runtime.InteropServices.Marshal.Copy(argbPixels, 0, bmpData.Scan0, argbPixels.Length);
+                }
+                finally
+                {
+                    bmp.UnlockBits(bmpData);
                 }
                 using var ms = new MemoryStream();
                 bmp.Save(ms, System.Drawing.Imaging.ImageFormat.Png);

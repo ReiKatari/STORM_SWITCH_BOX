@@ -1188,6 +1188,41 @@ namespace StormSwitchBox.Views
             Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(dp);
         }
 
+        private async void OpenDirectConsoleSender_Click(object sender, RoutedEventArgs e)
+        {
+            var task = GetTargetTask(sender);
+            var filesToSend = new List<string>();
+
+            if (task != null)
+            {
+                string outDir = string.IsNullOrEmpty(task.OutputFolder) ? App.Settings.Current.OutputFolder : task.OutputFolder;
+                if (!string.IsNullOrEmpty(outDir) && System.IO.Directory.Exists(outDir))
+                {
+                    var built = System.IO.Directory.GetFiles(outDir, "*.*")
+                        .Where(f => DirectConsoleSenderService.IsSupportedPackage(f))
+                        .OrderByDescending(f => System.IO.File.GetLastWriteTimeUtc(f))
+                        .FirstOrDefault();
+                    if (!string.IsNullOrEmpty(built))
+                        filesToSend.Add(built);
+                }
+
+                if (filesToSend.Count == 0 && task.InputFiles != null)
+                {
+                    filesToSend.AddRange(task.InputFiles.Where(f => System.IO.File.Exists(f) && DirectConsoleSenderService.IsSupportedPackage(f)));
+                }
+            }
+            else
+            {
+                filesToSend.AddRange(ViewModel.Tasks
+                    .SelectMany(t => t.InputFiles ?? new List<string>())
+                    .Where(f => System.IO.File.Exists(f) && DirectConsoleSenderService.IsSupportedPackage(f))
+                    .Distinct(StringComparer.OrdinalIgnoreCase));
+            }
+
+            var dlg = new Dialogs.DirectConsoleSenderDialog(filesToSend);
+            await dlg.ShowAsync();
+        }
+
         private async void OpenRomFsInspector_Click(object sender, RoutedEventArgs e)
         {
             var task = GetTargetTask(sender);
@@ -1229,7 +1264,7 @@ namespace StormSwitchBox.Views
             string? src3ds = task.InputFiles?.FirstOrDefault(f => System.IO.File.Exists(f) && Nintendo3dsService.Is3dsExtension(System.IO.Path.GetExtension(f)));
             if (string.IsNullOrEmpty(src3ds))
             {
-                App.Logger.Log("??? ?????????? ???????? ?????? Nintendo 3DS (.3ds, .cci, .cia, .cxi).", LogLevel.Warning);
+                App.Logger.Log("Для дешифровки выберите задачу Nintendo 3DS (.3ds, .cci, .cia, .cxi).", LogLevel.Warning);
                 return;
             }
 
@@ -1238,7 +1273,7 @@ namespace StormSwitchBox.Views
             string decOutPath = System.IO.Path.Combine(outDir, System.IO.Path.GetFileNameWithoutExtension(src3ds) + " [Decrypted]" + ext);
 
             task.IsRunning = true;
-            task.Status = "?????????? 3DS...";
+            task.Status = "Дешифровка 3DS...";
             var prog = new Progress<(double Percent, string Status)>(p =>
             {
                 task.Progress = p.Percent;
@@ -1248,7 +1283,7 @@ namespace StormSwitchBox.Views
             bool ok = await Nintendo3dsCryptoService.Decrypt3dsFileAsync(src3ds, decOutPath, task, prog, System.Threading.CancellationToken.None);
             task.IsRunning = false;
             task.Progress = 100;
-            task.Status = ok ? "???????????" : "??? ??????????";
+            task.Status = ok ? "Дешифровано" : "Без изменений";
         }
 
         public void ApplyLocalization()

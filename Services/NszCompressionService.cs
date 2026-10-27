@@ -345,24 +345,32 @@ namespace StormSwitchBox.Services
                         builtPfs.GetSize(out long totalPfsSize).ThrowIfFailure();
                         long remaining = totalPfsSize;
                         long offset = 0;
-                        byte[] buffer = new byte[128 * 1024];
-                        System.Diagnostics.Stopwatch uiSw = System.Diagnostics.Stopwatch.StartNew();
-
-                        while (remaining > 0)
+                        const int PackBufferSize = 8 * 1024 * 1024; // 8 МБ пулированный буфер для скоростной сборки на NVMe SSD
+                        byte[] buffer = System.Buffers.ArrayPool<byte>.Shared.Rent(PackBufferSize);
+                        try
                         {
-                            cancellationToken.ThrowIfCancellationRequested();
-                            int toRead = (int)Math.Min(buffer.Length, remaining);
-                            builtPfs.Read(offset, buffer.AsSpan(0, toRead)).ThrowIfFailure();
-                            destStream.Write(buffer, 0, toRead);
-                            offset += toRead;
-                            remaining -= toRead;
+                            System.Diagnostics.Stopwatch uiSw = System.Diagnostics.Stopwatch.StartNew();
 
-                            if (uiSw.ElapsedMilliseconds > 200 || remaining == 0)
+                            while (remaining > 0)
                             {
-                                uiSw.Restart();
-                                double packProgress = 99.0 + ((double)offset / totalPfsSize * 1.0);
-                                App.RunOnUI(() => task.Progress = Math.Min(99.9, packProgress));
+                                cancellationToken.ThrowIfCancellationRequested();
+                                int toRead = (int)Math.Min(PackBufferSize, remaining);
+                                builtPfs.Read(offset, buffer.AsSpan(0, toRead)).ThrowIfFailure();
+                                destStream.Write(buffer, 0, toRead);
+                                offset += toRead;
+                                remaining -= toRead;
+
+                                if (uiSw.ElapsedMilliseconds > 200 || remaining == 0)
+                                {
+                                    uiSw.Restart();
+                                    double packProgress = 99.0 + ((double)offset / totalPfsSize * 1.0);
+                                    App.RunOnUI(() => task.Progress = Math.Min(99.9, packProgress));
+                                }
                             }
+                        }
+                        finally
+                        {
+                            System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
                         }
                     }
                 }

@@ -118,7 +118,7 @@ namespace StormSwitchBox.Views.Dialogs
             }
             catch (Exception ex)
             {
-                App.Logger.Log($"[ControlEditorDialog] ?????? ??????? ?????? ??????: {ex.Message}", LogLevel.Warning);
+                App.Logger.Log($"[ControlEditorDialog] Ошибка рендера превью иконки: {ex.Message}", LogLevel.Warning);
             }
         }
 
@@ -129,7 +129,7 @@ namespace StormSwitchBox.Views.Dialogs
         private void IconDropArea_DragOver(object sender, DragEventArgs e)
         {
             e.AcceptedOperation = DataPackageOperation.Copy;
-            e.DragUIOverride.Caption = "?????????? ????????? ??????";
+            e.DragUIOverride.Caption = "Установить кастомную иконку";
             e.DragUIOverride.IsCaptionVisible = true;
             e.DragUIOverride.IsGlyphVisible = true;
         }
@@ -151,8 +151,8 @@ namespace StormSwitchBox.Views.Dialogs
             try
             {
                 var filePath = await SystemDialogService.OpenFileDialogAsync(
-                    "???????? ??????????? ?????? (PNG/JPG/WEBP)",
-                    "??????????? (*.png;*.jpg;*.jpeg;*.webp)|*.png;*.jpg;*.jpeg;*.webp|??? ????? (*.*)|*.*");
+                    "Выберите изображение иконки (PNG/JPG/WEBP)",
+                    "Изображения (*.png;*.jpg;*.jpeg;*.webp)|*.png;*.jpg;*.jpeg;*.webp|Все файлы (*.*)|*.*");
 
                 if (!string.IsNullOrWhiteSpace(filePath) && File.Exists(filePath))
                 {
@@ -161,7 +161,7 @@ namespace StormSwitchBox.Views.Dialogs
             }
             catch (Exception ex)
             {
-                App.Logger.Log($"[ControlEditorDialog] ?????? ?????? ?????: {ex.Message}", LogLevel.Warning);
+                App.Logger.Log($"[ControlEditorDialog] Ошибка выбора файла: {ex.Message}", LogLevel.Warning);
             }
         }
 
@@ -178,7 +178,7 @@ namespace StormSwitchBox.Views.Dialogs
             }
             catch (Exception ex)
             {
-                App.Logger.Log($"[ControlEditorDialog] ?? ??????? ????????? ??????: {ex.Message}", LogLevel.Error);
+                App.Logger.Log($"[ControlEditorDialog] Не удалось загрузить иконку: {ex.Message}", LogLevel.Error);
             }
         }
 
@@ -200,8 +200,8 @@ namespace StormSwitchBox.Views.Dialogs
             try
             {
                 var filePath = await SystemDialogService.OpenFileDialogAsync(
-                    "???????? ?????-?????? ??? 3DS ??????? (.WAV / .BCWAV)",
-                    "????? 3DS (*.wav;*.bcwav;*.cwav)|*.wav;*.bcwav;*.cwav|??? ????? (*.*)|*.*");
+                    "Выберите аудио-джингл для 3DS баннера (.WAV / .BCWAV)",
+                    "Аудио 3DS (*.wav;*.bcwav;*.cwav)|*.wav;*.bcwav;*.cwav|Все файлы (*.*)|*.*");
                 if (!string.IsNullOrWhiteSpace(filePath) && File.Exists(filePath))
                 {
                     AudioWavPathBox.Text = filePath;

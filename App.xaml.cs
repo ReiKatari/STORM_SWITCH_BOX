@@ -5,6 +5,19 @@ namespace StormSwitchBox
 {
     public partial class App : Application
     {
+        public static string AppVersionString { get; } = GetAssemblyVersionString();
+        private static int _toolsUnblockedOnce = 0;
+
+        private static string GetAssemblyVersionString()
+        {
+            try
+            {
+                var v = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+                if (v != null) return $"{v.Major}.{v.Minor}.{Math.Max(0, v.Build)}";
+            }
+            catch { }
+            return "5.2.0";
+        }
         public static Window? MainWindow { get; private set; }
         public static IntPtr MainWindowHandle { get; set; }
 
@@ -489,27 +502,28 @@ namespace StormSwitchBox
 
         public static void EnsureUserKeysAvailable()
         {
-            UnblockAllTools();
+            if (System.Threading.Interlocked.Exchange(ref _toolsUnblockedOnce, 1) == 0)
+            {
+                System.Threading.Tasks.Task.Run(UnblockAllTools);
+            }
 
             string userKeys = Settings.Current.KeysPath;
             if (string.IsNullOrEmpty(userKeys) || !System.IO.File.Exists(userKeys))
             {
-                throw new Exception("Отсутствуют криптографические ключи (prod.keys / keys.txt). Пожалуйста, выберите их в Параметрах.");
+                throw new Exception("??????????? ????????????????? ????? (prod.keys / keys.txt). ??????????, ???????? ?? ? ??????????.");
             }
 
             try
             {
-                // Резервное создание директорий temp в LocalAppData для предотвращения ошибок прав
                 string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
                 string stormAppData = System.IO.Path.Combine(localAppData, "StormSwitchBox");
                 try { System.IO.Directory.CreateDirectory(stormAppData); } catch { }
                 try { System.IO.Directory.CreateDirectory(System.IO.Path.Combine(stormAppData, "temp")); } catch { }
-                try { System.IO.Directory.CreateDirectory(System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory, "temp")); } catch { }
 
                 SwitchFormat.CleanKeysFile(userKeys);
                 Keys.LoadKeys(userKeys);
 
-                // 1. Первоочередная синхронизация в профиль пользователя Windows (.switch) - всегда доступно без прав администратора
+                // 1. ????????????? ? ??????? ???????????? Windows (.switch) ? ?????? ???????? ??? ???? ??????????????
                 string userProfileSwitch = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch");
                 try
                 {
@@ -519,7 +533,7 @@ namespace StormSwitchBox
                 }
                 catch { }
 
-                // 2. Синхронизация в изолированную директорию LocalAppData
+                // 2. ????????????? ? ????????????? ?????????? LocalAppData
                 try
                 {
                     string localKeysDir = System.IO.Path.Combine(stormAppData, "keys");
@@ -528,48 +542,6 @@ namespace StormSwitchBox
                     System.IO.File.Copy(userKeys, System.IO.Path.Combine(localKeysDir, "keys.txt"), true);
                 }
                 catch { }
-
-                // 3. Безопасная синхронизация в каталог tools (если программа запущена в портативном режиме с правами записи)
-                string appDir = System.AppDomain.CurrentDomain.BaseDirectory;
-                string toolsDir = System.IO.Path.Combine(appDir, "tools");
-                if (!System.IO.Directory.Exists(toolsDir))
-                {
-                    string parentTools = System.IO.Path.Combine(appDir, "..", "..", "tools");
-                    if (System.IO.Directory.Exists(parentTools)) toolsDir = parentTools;
-                }
-
-                if (System.IO.Directory.Exists(toolsDir))
-                {
-                    try
-                    {
-                        string targetToolsKeys = System.IO.Path.Combine(toolsDir, "keys.txt");
-                        string targetToolsProdKeys = System.IO.Path.Combine(toolsDir, "prod.keys");
-                        
-                        string nscbDir = System.IO.Path.Combine(toolsDir, "nscb");
-                        string nscbZtoolsDir = System.IO.Path.Combine(nscbDir, "ztools");
-                        if (!System.IO.Directory.Exists(nscbZtoolsDir)) try { System.IO.Directory.CreateDirectory(nscbZtoolsDir); } catch { }
-
-                        string squirrelKeys1 = System.IO.Path.Combine(nscbDir, "keys.txt");
-                        string squirrelKeys2 = System.IO.Path.Combine(nscbZtoolsDir, "keys.txt");
-                        string squirrelProdKeys1 = System.IO.Path.Combine(nscbDir, "prod.keys");
-                        string squirrelProdKeys2 = System.IO.Path.Combine(nscbZtoolsDir, "prod.keys");
-
-                        string nszDir = System.IO.Path.Combine(toolsDir, "nsz");
-                        if (!System.IO.Directory.Exists(nszDir)) try { System.IO.Directory.CreateDirectory(nszDir); } catch { }
-                        string nszKeys1 = System.IO.Path.Combine(nszDir, "keys.txt");
-                        string nszKeys2 = System.IO.Path.Combine(nszDir, "prod.keys");
-
-                        try { System.IO.File.Copy(userKeys, targetToolsKeys, true); } catch { }
-                        try { System.IO.File.Copy(userKeys, targetToolsProdKeys, true); } catch { }
-                        try { System.IO.File.Copy(userKeys, squirrelKeys1, true); } catch { }
-                        try { System.IO.File.Copy(userKeys, squirrelKeys2, true); } catch { }
-                        try { System.IO.File.Copy(userKeys, squirrelProdKeys1, true); } catch { }
-                        try { System.IO.File.Copy(userKeys, squirrelProdKeys2, true); } catch { }
-                        try { System.IO.File.Copy(userKeys, nszKeys1, true); } catch { }
-                        try { System.IO.File.Copy(userKeys, nszKeys2, true); } catch { }
-                    }
-                    catch { }
-                }
             }
             catch (Exception ex)
             {

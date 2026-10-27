@@ -1,15 +1,16 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationIcon>..\..\storm_switch_box.ico</ApplicationIcon>
-    <Version>5.1.1</Version>
-    <AssemblyVersion>5.1.1.0</AssemblyVersion>
-    <FileVersion>5.1.1.0</FileVersion>
+    <Version>5.2.0</Version>
+    <AssemblyVersion>5.2.0.0</AssemblyVersion>
+    <FileVersion>5.2.0.0</FileVersion>
     <AssemblyTitle>STORM SWITCH BOX</AssemblyTitle>
     <Product>STORM SWITCH BOX</Product>
     <Title>STORM SWITCH BOX</Title>
@@ -21,7 +22,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="..\Output\STORM_SWITCH_BOX_5.1.1_win-x64.zip" Link="Payload\Payload.zip" />
+    <EmbeddedResource Include="..\Output\STORM_SWITCH_BOX_5.2.0_win-x64.zip" Link="Payload\Payload.zip" />
     <EmbeddedResource Include="..\STORM_Certificate.cer" Link="Payload\STORM_Certificate.cer" />
     <EmbeddedResource Include="..\..\storm_switch_box.ico" Link="Payload\storm_switch_box.ico" />
     <EmbeddedResource Include="header_badge.png" Link="Payload\header_badge.png" />
