@@ -304,6 +304,12 @@ namespace StormSwitchBox.Views.Dialogs
 
             try
             {
+                if (topic.ExtractedModLinks != null && topic.ExtractedModLinks.Count > 0)
+                {
+                    AppendCloudModLinks(topic.ExtractedModLinks.Select(m => m.Url));
+                    ModLinksHintText.Text = $"Найдено ссылок в теме: {topic.ExtractedModLinks.Count}";
+                }
+
                 // 1. Детальный парсинг темы (извлекает Magnet, InfoHash и ссылки на Яндекс.Диск / Google Drive / GitHub из шапки)
                 var detailed = await _service.FetchTopicDetailsAsync(topic.TopicId, CancellationToken.None);
                 if (detailed != null)
@@ -318,10 +324,14 @@ namespace StormSwitchBox.Views.Dialogs
                         AppendCloudModLinks(detailed.ExtractedModLinks.Select(m => m.Url));
                         ModLinksHintText.Text = $"Найдено ссылок в теме: {detailed.ExtractedModLinks.Count}";
                     }
-                    else
+                    else if (topic.ExtractedModLinks == null || topic.ExtractedModLinks.Count == 0)
                     {
                         ModLinksHintText.Text = "Внешних ссылок в теме не найдено";
                     }
+                }
+                else if (topic.ExtractedModLinks == null || topic.ExtractedModLinks.Count == 0)
+                {
+                    ModLinksHintText.Text = "Готов к вставке облачных ссылок";
                 }
 
                 // 2. Инспектируем .torrent (если есть bb_session) или Magnet

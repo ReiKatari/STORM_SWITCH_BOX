@@ -252,14 +252,14 @@
                             <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
 
-                        <Grid Grid.Row="0">
+                        <Grid Grid.Row="0" ColumnSpacing="8">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="☁ Ссылки на русификаторы и моды (Яндекс.Диск, Google Drive, GitHub, прямые архивы)"
-                                       FontWeight="Bold" FontSize="12"/>
-                            <TextBlock x:Name="ModLinksHintText" Grid.Column="1" Text="Авто-парсинг из шапки темы" Foreground="#22C55E" FontSize="11"/>
+                            <TextBlock Text="☁ Ссылки на русификаторы и моды (Я.Диск, GDrive, GitHub)"
+                                       FontWeight="Bold" FontSize="12" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                            <TextBlock x:Name="ModLinksHintText" Grid.Column="1" Text="Авто-парсинг из шапки темы" Foreground="#22C55E" FontSize="11" VerticalAlignment="Center"/>
                         </Grid>
 
                         <TextBox x:Name="CloudModLinksBox" Grid.Row="1" AcceptsReturn="True" TextWrapping="Wrap"
@@ -299,8 +299,9 @@
         </Grid>
 
         <!-- Кнопки действий -->
-        <Grid Grid.Row="5" ColumnSpacing="10">
+        <Grid Grid.Row="5" ColumnSpacing="8">
             <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="Auto"/>
@@ -310,14 +311,14 @@
             <Button x:Name="OpenTopicBrowserBtn" Grid.Column="0" Content="🌍 Открыть тему в браузере" Click="OpenTopicInBrowser_Click"
                     HorizontalAlignment="Left" CornerRadius="6" Padding="12,7"/>
 
-            <Button x:Name="CancelDownloadBtn" Grid.Column="1" Content="⏹ Остановить загрузку" Click="CancelDownload_Click"
-                    IsEnabled="False" CornerRadius="6" Padding="14,7"/>
+            <Button x:Name="CancelDownloadBtn" Grid.Column="2" Content="⏹ Остановить" Click="CancelDownload_Click"
+                    IsEnabled="False" CornerRadius="6" Padding="12,7"/>
 
-            <Button x:Name="DownloadOnlyModsBtn" Grid.Column="2" Content="☁ Скачать только облачные моды и привязать" Click="DownloadOnlyCloudMods_Click"
-                    Background="#7C3AED" Foreground="White" FontWeight="SemiBold" CornerRadius="6" Padding="14,7"/>
+            <Button x:Name="DownloadOnlyModsBtn" Grid.Column="3" Content="☁ Скачать только моды и привязать" Click="DownloadOnlyCloudMods_Click"
+                    Background="#7C3AED" Foreground="White" FontWeight="SemiBold" CornerRadius="6" Padding="12,7"/>
 
-            <Button x:Name="StartFullDownloadBtn" Grid.Column="3" Content="🚀 Скачать раздачу + моды и создать задачу" Click="StartFullDownload_Click"
-                    Background="#0284C7" Foreground="White" FontWeight="Bold" CornerRadius="6" Padding="16,7"/>
+            <Button x:Name="StartFullDownloadBtn" Grid.Column="4" Content="🚀 Скачать раздачу + моды и создать задачу" Click="StartFullDownload_Click"
+                    Background="#0284C7" Foreground="White" FontWeight="Bold" CornerRadius="6" Padding="14,7"/>
         </Grid>
     </Grid>
 </ContentDialog>

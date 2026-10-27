@@ -78,3 +78,9 @@ prod.keys
 
 __pycache__/
 *.pyc
+
+# Android build artifacts
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties

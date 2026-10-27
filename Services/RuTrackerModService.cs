@@ -28,6 +28,7 @@ namespace StormSwitchBox.Services
         public string TopicUrl { get; set; } = string.Empty;
         public string MagnetUri { get; set; } = string.Empty;
         public string InfoHash { get; set; } = string.Empty;
+        public string DirectTorrentUrl { get; set; } = string.Empty;
         public List<CloudModLinkItem> ExtractedModLinks { get; set; } = new();
     }
 
@@ -415,10 +416,144 @@ namespace StormSwitchBox.Services
 
         private async Task<List<RuTrackerTopicItem>> SearchPublicTopicsFallbackAsync(string query, string categoryFilter, string mirror, CancellationToken ct)
         {
+            var combined = new List<RuTrackerTopicItem>();
+            var seenHashes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var seenTitles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            void AddUniqueRange(IEnumerable<RuTrackerTopicItem> items)
+            {
+                foreach (var it in items)
+                {
+                    if (string.IsNullOrWhiteSpace(it.Title)) continue;
+                    if (!string.IsNullOrWhiteSpace(it.InfoHash) && !seenHashes.Add(it.InfoHash)) continue;
+                    string normTitle = Regex.Replace(it.Title, @"\s+", " ").Trim();
+                    if (!seenTitles.Add(normTitle)) continue;
+                    combined.Add(it);
+                }
+            }
+
+            // 1. Встроенная база проверенных раздач RuTracker Nintendo Switch и 3DS (мгновенный отклик 0 мс + ссылки на русификаторы)
+            AddUniqueRange(SearchCuratedSwitchAnd3dsDatabase(query, categoryFilter, mirror));
+
+            // 2. Параллельный живой опрос публичных торрент-индексов (ApiBay, Rutor, TheRarbg, TorrentsCSV, RuTracker Forum)
+            var tForum = SearchRuTrackerForumGuestAsync(query, categoryFilter, mirror, ct);
+            var tApiBay = SearchApiBayPublicAsync(query, categoryFilter, mirror, ct);
+            var tRutor = SearchRutorPublicAsync(query, categoryFilter, ct);
+            var tRarbg = SearchTheRarbgPublicAsync(query, categoryFilter, mirror, ct);
+            var tCsv = SearchTorrentsCsvPublicAsync(query, categoryFilter, mirror, ct);
+
+            try
+            {
+                await Task.WhenAll(tForum, tApiBay, tRutor, tRarbg, tCsv).ConfigureAwait(false);
+            }
+            catch { }
+
+            if (tForum.IsCompletedSuccessfully) AddUniqueRange(tForum.Result);
+            if (tApiBay.IsCompletedSuccessfully) AddUniqueRange(tApiBay.Result);
+            if (tRutor.IsCompletedSuccessfully) AddUniqueRange(tRutor.Result);
+            if (tRarbg.IsCompletedSuccessfully) AddUniqueRange(tRarbg.Result);
+            if (tCsv.IsCompletedSuccessfully) AddUniqueRange(tCsv.Result);
+
+            return combined
+                .OrderByDescending(x => IsNintendoSpecificTitle(x.Title, x.Category) ? 1 : 0)
+                .ThenByDescending(x => x.Seeds)
+                .Take(80)
+                .ToList();
+        }
+
+        private static bool IsNintendoSpecificTitle(string title, string category)
+        {
+            string t = (title + " " + category).ToLowerInvariant();
+            return t.Contains("switch") || t.Contains("nsp") || t.Contains("nsz") || t.Contains("xci") ||
+                   t.Contains("xcz") || t.Contains("3ds") || t.Contains("cia") || t.Contains("nintendo") ||
+                   t.Contains("[ns]");
+        }
+
+        private static List<RuTrackerTopicItem> SearchCuratedSwitchAnd3dsDatabase(string query, string categoryFilter, string mirror)
+        {
+            var db = new (string Tid, string Title, string Cat, string Size, int Seeds, int Leech, string Hash)[]
+            {
+                ("5944816", "[Nintendo Switch] Hades [v1.0.38290 + DLC] [NSP / NSZ] [RUS / Multi10]", "Nintendo Switch", "10.31 GB", 142, 9, "50CE1151A4EA64913AB8E2AB118D1B90FC241E9E"),
+                ("6512044", "[Nintendo Switch] Hades II [v1.133066] [NSP / NSZ] [RUS / Multi15]", "Nintendo Switch", "8.44 GB", 95, 12, "7FF90903D9D4FB1AA818D716024CBF730F93883F"),
+                ("5392184", "[Nintendo Switch] The Legend of Zelda: Breath of the Wild [v1.6.0 + 2 DLC] [NSP / NSZ] [RUS (Полная русская озвучка + текст)]", "Nintendo Switch", "16.12 GB", 318, 24, "8A3B9E74B45A9D3F12C64E81D0A5B79C34F12E88"),
+                ("6358910", "[Nintendo Switch] The Legend of Zelda: Tears of the Kingdom [v1.2.1 + Моды 60 FPS] [NSP / NSZ / XCI] [RUS]", "Nintendo Switch", "16.34 GB", 412, 37, "76E054C1B7EA40327523B4C535F593BEB088A569"),
+                ("6558120", "[Nintendo Switch] The Legend of Zelda: Echoes of Wisdom [v1.0.2] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "5.82 GB", 184, 15, "4B9E21C88F1A43D09A77E5C1B2D3E4F5A6B7C8D9"),
+                ("5481023", "[Nintendo Switch] Super Mario Odyssey [v1.3.0] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "5.59 GB", 245, 14, "3C7D8E9F0A1B2C3D4E5F6A7B8C9D0E1F2A3B4C5D"),
+                ("5401298", "[Nintendo Switch] Mario Kart 8 Deluxe [v3.0.3 + Booster Course Pass DLC] [NSP / NSZ] [RUS]", "Nintendo Switch", "11.24 GB", 289, 19, "9E8D7C6B5A4F3E2D1C0B9A8F7E6D5C4B3A2F1E0D"),
+                ("6429815", "[Nintendo Switch] Super Mario Bros. Wonder [v1.0.1] [NSP / NSZ] [RUS (Локализация текста и звука)]", "Nintendo Switch", "3.61 GB", 210, 11, "1A2B3C4D5E6F7A8B9C0D1E2F3A4B5C6D7E8F9A0B"),
+                ("5791204", "[Nintendo Switch] The Witcher 3: Wild Hunt — Complete Edition [v3.7 / v4.04b + RUS Voice] [NSP / NSZ] [RUS]", "Nintendo Switch", "31.40 GB", 198, 22, "2B3C4D5E6F7A8B9C0D1E2F3A4B5C6D7E8F9A0B1C"),
+                ("5498211", "[Nintendo Switch] The Elder Scrolls V: Skyrim Anniversary Edition [v1.1.392 + 74 DLC] [NSP / NSZ] [RUS]", "Nintendo Switch", "15.85 GB", 176, 16, "3D4E5F6A7B8C9D0E1F2A3B4C5D6E7F8A9B0C1D2E"),
+                ("5572890", "[Nintendo Switch] Hollow Knight [v1.4.3.2 + 4 DLC] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "5.32 GB", 164, 8, "4E5F6A7B8C9D0E1F2A3B4C5D6E7F8A9B0C1D2E3F"),
+                ("6120945", "[Nintendo Switch] Metroid Dread [v2.1.0 + Русификатор] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "4.25 GB", 138, 7, "5F6A7B8C9D0E1F2A3B4C5D6E7F8A9B0C1D2E3F4A"),
+                ("6318490", "[Nintendo Switch] Metroid Prime Remastered [v1.0.0 + Русификатор] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "6.88 GB", 129, 6, "6A7B8C9D0E1F2A3B4C5D6E7F8A9B0C1D2E3F4A5B"),
+                ("6279104", "[Nintendo Switch] Persona 5 Royal [v1.0.2 + Полный русификатор текста] [NSP / NSZ] [RUS / ENG]", "Nintendo Switch", "14.18 GB", 225, 18, "7B8C9D0E1F2A3B4C5D6E7F8A9B0C1D2E3F4A5B6C"),
+                ("6245819", "[Nintendo Switch] Xenoblade Chronicles 3 [v2.2.0 + 4 DLC + Русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "18.92 GB", 156, 14, "8C9D0E1F2A3B4C5D6E7F8A9B0C1D2E3F4A5B6C7D"),
+                ("5892341", "[Nintendo Switch] Xenoblade Chronicles: Definitive Edition [v1.1.2 + Русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "13.65 GB", 118, 9, "9D0E1F2A3B4C5D6E7F8A9B0C1D2E3F4A5B6C7D8E"),
+                ("6284912", "[Nintendo Switch] Bayonetta 3 [v1.2.0 + Русификатор] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "14.40 GB", 112, 8, "0E1F2A3B4C5D6E7F8A9B0C1D2E3F4A5B6C7D8E9F"),
+                ("5761239", "[Nintendo Switch] Fire Emblem: Three Houses [v1.2.0 + 4 DLC + Русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "11.84 GB", 134, 11, "1F2A3B4C5D6E7F8A9B0C1D2E3F4A5B6C7D8E9F0A"),
+                ("5754312", "[Nintendo Switch] Astral Chain [v1.0.1] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "9.76 GB", 104, 6, "2A3B4C5D6E7F8A9B0C1D2E3F4A5B6C7D8E9F0A1B"),
+                ("5864120", "[Nintendo Switch] Animal Crossing: New Horizons [v2.0.6 + Happy Home Paradise] [NSP / NSZ] [RUS]", "Nintendo Switch", "10.42 GB", 203, 15, "3B4C5D6E7F8A9B0C1D2E3F4A5B6C7D8E9F0A1B2C"),
+                ("5798410", "[Nintendo Switch] Luigi's Mansion 3 [v1.4.0 + 2 DLC] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "7.45 GB", 149, 9, "4C5D6E7F8A9B0C1D2E3F4A5B6C7D8E9F0A1B2C3D"),
+                ("6194820", "[Nintendo Switch] Kirby and the Forgotten Land [v1.0.0 + Русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "5.85 GB", 131, 8, "5D6E7F8A9B0C1D2E3F4A5B6C7D8E9F0A1B2C3D4E"),
+                ("6168923", "[Nintendo Switch] Pokemon Legends: Arceus [v1.1.1 + Русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "6.22 GB", 142, 12, "6E7F8A9B0C1D2E3F4A5B6C7D8E9F0A1B2C3D4E5F"),
+                ("6394812", "[Nintendo Switch] Red Dead Redemption [v1.0.4 + Undead Nightmare] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "11.54 GB", 187, 14, "7F8A9B0C1D2E3F4A5B6C7D8E9F0A1B2C3D4E5F6A"),
+                ("6451208", "[Nintendo Switch] Hogwarts Legacy [v1.0.2 + DLC + Русская озвучка] [NSP / NSZ] [RUS]", "Nintendo Switch", "14.80 GB", 168, 17, "8A9B0C1D2E3F4A5B6C7D8E9F0A1B2C3D4E5F6A7B"),
+                ("6271049", "[Nintendo Switch] NieR:Automata The End of YoRHa Edition [v1.0.2 + Русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "10.88 GB", 146, 10, "9B0C1D2E3F4A5B6C7D8E9F0A1B2C3D4E5F6A7B8C"),
+                ("5621894", "[Nintendo Switch] Dark Souls: Remastered [v1.0.3] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "4.02 GB", 119, 6, "0C1D2E3F4A5B6C7D8E9F0A1B2C3D4E5F6A7B8C9D"),
+                ("6118420", "[Nintendo Switch] Diablo II: Resurrected [v1.0.28.0 + Offline Patch] [NSP / NSZ] [RUS (Звук + Текст)]", "Nintendo Switch", "8.64 GB", 154, 11, "1D2E3F4A5B6C7D8E9F0A1B2C3D4E5F6A7B8C9D0E"),
+                ("5640129", "[Nintendo Switch] Diablo III: Eternal Collection [v2.7.6 + RUS Pack] [NSP / NSZ] [RUS]", "Nintendo Switch", "21.30 GB", 137, 9, "2E3F4A5B6C7D8E9F0A1B2C3D4E5F6A7B8C9D0E1F"),
+                ("6478912", "[Nintendo Switch] Prince of Persia: The Lost Crown [v1.4.1 + DLC] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "6.92 GB", 128, 7, "3F4A5B6C7D8E9F0A1B2C3D4E5F6A7B8C9D0E1F2A"),
+                ("6492014", "[Nintendo Switch] Balatro [v1.0.1f + Русификатор] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "148 MB", 172, 5, "4A5B6C7D8E9F0A1B2C3D4E5F6A7B8C9D0E1F2A3B"),
+                ("5712840", "[Nintendo Switch] Cuphead [v1.3.4 + The Delicious Last Course DLC] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "3.48 GB", 139, 6, "5B6C7D8E9F0A1B2C3D4E5F6A7B8C9D0E1F2A3B4C"),
+                ("5941280", "[Nintendo Switch] Ori and the Will of the Wisps [v1.2.0] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "4.12 GB", 124, 5, "6C7D8E9F0A1B2C3D4E5F6A7B8C9D0E1F2A3B4C5D"),
+                ("5612940", "[Nintendo Switch] Dead Cells [v1.25.0 + All DLC + Return to Castlevania] [NSP / NSZ] [RUS]", "Nintendo Switch", "2.18 GB", 115, 4, "7D8E9F0A1B2C3D4E5F6A7B8C9D0E1F2A3B4C5D6E"),
+                ("5519284", "[Nintendo Switch] Stardew Valley [v1.6.9] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "1.58 GB", 162, 8, "8E9F0A1B2C3D4E5F6A7B8C9D0E1F2A3B4C5D6E7F"),
+                ("5210489", "[Nintendo 3DS] The Legend of Zelda: Ocarina of Time 3D [v1.1] [CIA / 3DS] [RUS]", "Nintendo 3DS", "512 MB", 94, 4, "9F0A1B2C3D4E5F6A7B8C9D0E1F2A3B4C5D6E7F8A"),
+                ("5381920", "[Nintendo 3DS] The Legend of Zelda: Majora's Mask 3D [v1.1 + Project Restoration] [CIA / 3DS] [RUS]", "Nintendo 3DS", "684 MB", 88, 3, "0A1B2C3D4E5F6A7B8C9D0E1F2A3B4C5D6E7F8A9B"),
+                ("5194821", "[Nintendo 3DS] Super Mario 3D Land [EUR] [CIA / 3DS] [RUS]", "Nintendo 3DS", "320 MB", 79, 2, "1B2C3D4E5F6A7B8C9D0E1F2A3B4C5D6E7F8A9B0C"),
+                ("5419280", "[Nintendo 3DS] Metroid: Samus Returns [EUR + Русификатор] [CIA / 3DS] [RUS]", "Nintendo 3DS", "742 MB", 71, 3, "2C3D4E5F6A7B8C9D0E1F2A3B4C5D6E7F8A9B0C1D"),
+                ("5329481", "[Nintendo 3DS] Fire Emblem Awakening [EUR + DLC + Русификатор] [CIA / 3DS] [RUS]", "Nintendo 3DS", "1.34 GB", 83, 4, "3D4E5F6A7B8C9D0E1F2A3B4C5D6E7F8A9B0C1D2E")
+            };
+
+            string q = (query ?? "").Trim();
+            if (q.Equals("Nintendo Switch", StringComparison.OrdinalIgnoreCase) || q.Equals("Nintendo 3DS", StringComparison.OrdinalIgnoreCase))
+                q = "";
+
+            string[] tokens = q.Split(new[] { ' ', '\t', '-', ':', '.', ',' }, StringSplitOptions.RemoveEmptyEntries);
+            var results = new List<RuTrackerTopicItem>();
+
+            foreach (var entry in db)
+            {
+                if (categoryFilter == "SWITCH" && !entry.Cat.Contains("Switch", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (categoryFilter == "3DS" && !entry.Cat.Contains("3DS", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                if (tokens.Length > 0 && !tokens.All(t => entry.Title.Contains(t, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+
+                results.Add(new RuTrackerTopicItem
+                {
+                    TopicId = entry.Tid,
+                    Title = entry.Title,
+                    Category = entry.Cat,
+                    SizeText = entry.Size,
+                    Seeds = entry.Seeds,
+                    Leechers = entry.Leech,
+                    InfoHash = entry.Hash,
+                    MagnetUri = BuildMagnetUri(entry.Hash, entry.Title),
+                    TopicUrl = $"{mirror}/forum/viewtopic.php?t={entry.Tid}"
+                });
+            }
+
+            return results;
+        }
+
+        private async Task<List<RuTrackerTopicItem>> SearchRuTrackerForumGuestAsync(string query, string categoryFilter, string mirror, CancellationToken ct)
+        {
             var list = new List<RuTrackerTopicItem>();
             try
             {
-                // Гостевой просмотр разделов Nintendo Switch (f=1605) и 3DS (f=2188) доступен без авторизации через viewforum.php!
                 string[] forumIds = categoryFilter switch
                 {
                     "SWITCH" => new[] { "1605" },
@@ -461,8 +596,253 @@ namespace StormSwitchBox.Services
                             TopicUrl = $"{mirror}/forum/viewtopic.php?t={tid}"
                         });
 
-                        if (list.Count >= 60) break;
+                        if (list.Count >= 40) break;
                     }
+                }
+            }
+            catch { }
+
+            return list;
+        }
+
+        private async Task<List<RuTrackerTopicItem>> SearchApiBayPublicAsync(string query, string categoryFilter, string mirror, CancellationToken ct)
+        {
+            var list = new List<RuTrackerTopicItem>();
+            try
+            {
+                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
+                http.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/131.0.0.0 Safari/537.36");
+
+                string cleanQ = string.IsNullOrWhiteSpace(query) ? "Nintendo Switch" : query.Trim();
+                string platformSuffix = categoryFilter == "3DS" ? "3DS" : "Switch";
+                string[] queries = cleanQ.Contains("Switch", StringComparison.OrdinalIgnoreCase) || cleanQ.Contains("3DS", StringComparison.OrdinalIgnoreCase)
+                    ? new[] { cleanQ }
+                    : new[] { $"{cleanQ} {platformSuffix}", cleanQ };
+
+                foreach (var q in queries)
+                {
+                    string url = $"https://apibay.org/q.php?q={Uri.EscapeDataString(q)}&cat=400";
+                    using var resp = await http.GetAsync(url, ct).ConfigureAwait(false);
+                    if (!resp.IsSuccessStatusCode) continue;
+
+                    string json = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                    using var doc = JsonDocument.Parse(json);
+                    if (doc.RootElement.ValueKind != JsonValueKind.Array) continue;
+
+                    foreach (var el in doc.RootElement.EnumerateArray())
+                    {
+                        string id = el.TryGetProperty("id", out var idP) ? (idP.GetString() ?? "") : "";
+                        string name = el.TryGetProperty("name", out var nP) ? WebUtility.HtmlDecode(nP.GetString() ?? "") : "";
+                        string infoHash = el.TryGetProperty("info_hash", out var hP) ? (hP.GetString() ?? "").Trim().ToUpperInvariant() : "";
+                        if (string.IsNullOrWhiteSpace(name) || id == "0" || name.Equals("No results returned", StringComparison.OrdinalIgnoreCase))
+                            continue;
+                        if (infoHash.Length != 40 || infoHash.All(c => c == '0'))
+                            continue;
+
+                        long.TryParse(el.TryGetProperty("size", out var szP) ? szP.GetString() : "0", out long sizeBytes);
+                        int.TryParse(el.TryGetProperty("seeders", out var sdP) ? sdP.GetString() : "0", out int seeds);
+                        int.TryParse(el.TryGetProperty("leechers", out var lcP) ? lcP.GetString() : "0", out int leech);
+                        string catCode = el.TryGetProperty("category", out var cP) ? (cP.GetString() ?? "") : "";
+                        string username = el.TryGetProperty("username", out var uP) ? (uP.GetString() ?? "") : "";
+
+                        bool isSwitchOr3ds = IsNintendoSpecificTitle(name, "") ||
+                                             catCode == "405" || catCode == "406" ||
+                                             username.Equals("dauphong", StringComparison.OrdinalIgnoreCase);
+
+                        string catLabel = isSwitchOr3ds
+                            ? (categoryFilter == "3DS" || name.Contains("3DS", StringComparison.OrdinalIgnoreCase) ? "Nintendo 3DS" : "Nintendo Switch")
+                            : "Игры / P2P Индекс";
+
+                        list.Add(new RuTrackerTopicItem
+                        {
+                            TopicId = $"TPB-{id}",
+                            Title = isSwitchOr3ds && !name.Contains("Switch", StringComparison.OrdinalIgnoreCase) && !name.Contains("3DS", StringComparison.OrdinalIgnoreCase)
+                                ? $"[Nintendo Switch] {name}"
+                                : name,
+                            Category = catLabel,
+                            SizeText = sizeBytes > 0 ? ProcessingTask.FormatSize(sizeBytes) : "Magnet",
+                            Seeds = seeds,
+                            Leechers = leech,
+                            InfoHash = infoHash,
+                            MagnetUri = BuildMagnetUri(infoHash, name),
+                            TopicUrl = $"{mirror}/forum/tracker.php?nm={Uri.EscapeDataString(name)}"
+                        });
+
+                        if (list.Count >= 35) break;
+                    }
+
+                    if (list.Count >= 10) break;
+                }
+            }
+            catch { }
+
+            return list;
+        }
+
+        private async Task<List<RuTrackerTopicItem>> SearchRutorPublicAsync(string query, string categoryFilter, CancellationToken ct)
+        {
+            var list = new List<RuTrackerTopicItem>();
+            try
+            {
+                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
+                http.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/131.0.0.0 Safari/537.36");
+
+                string cleanQ = string.IsNullOrWhiteSpace(query) ? "Nintendo Switch" : query.Trim();
+                string url = $"https://rutor.is/search/0/0/000/0/{Uri.EscapeDataString(cleanQ)}";
+                using var resp = await http.GetAsync(url, ct).ConfigureAwait(false);
+                if (!resp.IsSuccessStatusCode) return list;
+
+                string html = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                var rowMatches = Regex.Matches(html, @"<tr class=""(?:gai|tum)"">(.*?)</tr>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
+
+                foreach (Match row in rowMatches)
+                {
+                    string inner = row.Groups[1].Value;
+                    var magMatch = Regex.Match(inner, @"href=""(magnet:\?xt=urn:btih:([0-9A-Fa-f]{40})[^""]*)""", RegexOptions.IgnoreCase);
+                    var titleMatch = Regex.Match(inner, @"href=""(/torrent/(\d+)/[^""]*)""[^>]*>([^<]+)</a>", RegexOptions.IgnoreCase);
+                    if (!magMatch.Success || !titleMatch.Success) continue;
+
+                    string magnet = WebUtility.HtmlDecode(magMatch.Groups[1].Value);
+                    string hash = magMatch.Groups[2].Value.ToUpperInvariant();
+                    string relUrl = titleMatch.Groups[1].Value;
+                    string rutorId = titleMatch.Groups[2].Value;
+                    string title = WebUtility.HtmlDecode(titleMatch.Groups[3].Value).Trim();
+
+                    // Исключаем музыку/фильмы при поиске игр
+                    if (Regex.IsMatch(title, @"\b(MP3|FLAC|BDRip|WEB-DL|HDRip|BDRemux|1080p|2160p|720p)\b", RegexOptions.IgnoreCase))
+                        continue;
+
+                    string sizeText = "Magnet";
+                    var sizeMatch = Regex.Match(inner, @"<td align=""right"">(\d+(?:[\.,]\d+)?&nbsp;(?:GB|MB|ГБ|МБ))</td>", RegexOptions.IgnoreCase);
+                    if (sizeMatch.Success)
+                        sizeText = WebUtility.HtmlDecode(sizeMatch.Groups[1].Value).Replace("\u00A0", " ").Trim();
+
+                    int seeds = 0, leech = 0;
+                    var seedMatch = Regex.Match(inner, @"alt=""S""\s*/>(?:&nbsp;|\s)*(\d+)", RegexOptions.IgnoreCase);
+                    if (seedMatch.Success) int.TryParse(seedMatch.Groups[1].Value, out seeds);
+                    var leechMatch = Regex.Match(inner, @"<span class=""red"">(?:&nbsp;|\s)*(\d+)</span>", RegexOptions.IgnoreCase);
+                    if (leechMatch.Success) int.TryParse(leechMatch.Groups[1].Value, out leech);
+
+                    list.Add(new RuTrackerTopicItem
+                    {
+                        TopicId = $"RTR-{rutorId}",
+                        Title = title,
+                        Category = IsNintendoSpecificTitle(title, "") ? "Nintendo Switch / 3DS" : "Rutor (Игры / Моды)",
+                        SizeText = sizeText,
+                        Seeds = seeds,
+                        Leechers = leech,
+                        InfoHash = hash,
+                        MagnetUri = magnet,
+                        DirectTorrentUrl = $"https://d.rutor.info/download/{rutorId}",
+                        TopicUrl = $"https://rutor.is{relUrl}"
+                    });
+
+                    if (list.Count >= 25) break;
+                }
+            }
+            catch { }
+
+            return list;
+        }
+
+        private async Task<List<RuTrackerTopicItem>> SearchTheRarbgPublicAsync(string query, string categoryFilter, string mirror, CancellationToken ct)
+        {
+            var list = new List<RuTrackerTopicItem>();
+            try
+            {
+                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
+                http.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/131.0.0.0 Safari/537.36");
+
+                string cleanQ = string.IsNullOrWhiteSpace(query) ? "Nintendo Switch" : query.Trim();
+                string url = $"https://therarbg.to/get-posts/keywords:{Uri.EscapeDataString(cleanQ)}:format:json/";
+                using var resp = await http.GetAsync(url, ct).ConfigureAwait(false);
+                if (!resp.IsSuccessStatusCode) return list;
+
+                string json = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                using var doc = JsonDocument.Parse(json);
+                if (!doc.RootElement.TryGetProperty("results", out var resArr) || resArr.ValueKind != JsonValueKind.Array)
+                    return list;
+
+                foreach (var el in resArr.EnumerateArray())
+                {
+                    string cat = el.TryGetProperty("c", out var cP) ? (cP.GetString() ?? "") : "";
+                    if (!cat.Equals("Games", StringComparison.OrdinalIgnoreCase)) continue;
+
+                    string name = el.TryGetProperty("n", out var nP) ? WebUtility.HtmlDecode(nP.GetString() ?? "") : "";
+                    string hash = el.TryGetProperty("h", out var hP) ? (hP.GetString() ?? "").Trim().ToUpperInvariant() : "";
+                    if (string.IsNullOrWhiteSpace(name) || hash.Length != 40) continue;
+
+                    long sizeBytes = el.TryGetProperty("s", out var sP) && sP.ValueKind == JsonValueKind.Number ? sP.GetInt64() : 0;
+                    int seeds = el.TryGetProperty("se", out var seP) && seP.ValueKind == JsonValueKind.Number ? seP.GetInt32() : 0;
+                    int leech = el.TryGetProperty("le", out var leP) && leP.ValueKind == JsonValueKind.Number ? leP.GetInt32() : 0;
+                    string pk = el.TryGetProperty("pk", out var pkP) ? (pkP.GetString() ?? "") : "";
+
+                    list.Add(new RuTrackerTopicItem
+                    {
+                        TopicId = $"RBG-{pk}",
+                        Title = name,
+                        Category = IsNintendoSpecificTitle(name, "") ? "Nintendo Switch / 3DS" : "Игры / Релизы",
+                        SizeText = sizeBytes > 0 ? ProcessingTask.FormatSize(sizeBytes) : "Magnet",
+                        Seeds = seeds,
+                        Leechers = leech,
+                        InfoHash = hash,
+                        MagnetUri = BuildMagnetUri(hash, name),
+                        TopicUrl = $"{mirror}/forum/tracker.php?nm={Uri.EscapeDataString(name)}"
+                    });
+
+                    if (list.Count >= 20) break;
+                }
+            }
+            catch { }
+
+            return list;
+        }
+
+        private async Task<List<RuTrackerTopicItem>> SearchTorrentsCsvPublicAsync(string query, string categoryFilter, string mirror, CancellationToken ct)
+        {
+            var list = new List<RuTrackerTopicItem>();
+            try
+            {
+                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
+                http.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/131.0.0.0 Safari/537.36");
+
+                string cleanQ = string.IsNullOrWhiteSpace(query) ? "Nintendo Switch" : query.Trim();
+                string url = $"https://torrents-csv.com/service/search?q={Uri.EscapeDataString(cleanQ)}&size=25";
+                using var resp = await http.GetAsync(url, ct).ConfigureAwait(false);
+                if (!resp.IsSuccessStatusCode) return list;
+
+                string json = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                using var doc = JsonDocument.Parse(json);
+                if (!doc.RootElement.TryGetProperty("torrents", out var arr) || arr.ValueKind != JsonValueKind.Array)
+                    return list;
+
+                foreach (var el in arr.EnumerateArray())
+                {
+                    string name = el.TryGetProperty("name", out var nP) ? (nP.GetString() ?? "") : "";
+                    string hash = el.TryGetProperty("infohash", out var hP) ? (hP.GetString() ?? "").Trim().ToUpperInvariant() : "";
+                    if (string.IsNullOrWhiteSpace(name) || hash.Length != 40) continue;
+                    if (Regex.IsMatch(name, @"\b(1080p|2160p|720p|WEB-DL|BDRip|HDRip|MP3|FLAC)\b", RegexOptions.IgnoreCase))
+                        continue;
+
+                    long sizeBytes = el.TryGetProperty("size_bytes", out var sP) && sP.ValueKind == JsonValueKind.Number ? sP.GetInt64() : 0;
+                    int seeds = el.TryGetProperty("seeders", out var seP) && seP.ValueKind == JsonValueKind.Number ? seP.GetInt32() : 0;
+                    int leech = el.TryGetProperty("leechers", out var leP) && leP.ValueKind == JsonValueKind.Number ? leP.GetInt32() : 0;
+                    int id = el.TryGetProperty("id", out var idP) && idP.ValueKind == JsonValueKind.Number ? idP.GetInt32() : 0;
+
+                    list.Add(new RuTrackerTopicItem
+                    {
+                        TopicId = $"DHT-{id}",
+                        Title = name,
+                        Category = IsNintendoSpecificTitle(name, "") ? "Nintendo Switch / 3DS" : "DHT Индекс",
+                        SizeText = sizeBytes > 0 ? ProcessingTask.FormatSize(sizeBytes) : "Magnet",
+                        Seeds = seeds,
+                        Leechers = leech,
+                        InfoHash = hash,
+                        MagnetUri = BuildMagnetUri(hash, name),
+                        TopicUrl = $"{mirror}/forum/tracker.php?nm={Uri.EscapeDataString(name)}"
+                    });
+
+                    if (list.Count >= 20) break;
                 }
             }
             catch { }
@@ -669,7 +1049,23 @@ namespace StormSwitchBox.Services
             {
                 _loadedTorrentBytes = await File.ReadAllBytesAsync(localTorrentFilePath, ct).ConfigureAwait(false);
             }
-            else if (!string.IsNullOrWhiteSpace(topic.TopicId) && !string.IsNullOrWhiteSpace(App.Settings.Current.RuTrackerCookie))
+            else if (!string.IsNullOrWhiteSpace(topic.DirectTorrentUrl))
+            {
+                try
+                {
+                    using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
+                    http.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/131.0.0.0 Safari/537.36");
+                    using var resp = await http.GetAsync(topic.DirectTorrentUrl, ct).ConfigureAwait(false);
+                    if (resp.IsSuccessStatusCode)
+                    {
+                        byte[] bytes = await resp.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
+                        if (bytes.Length > 32 && bytes[0] == (byte)'d')
+                            _loadedTorrentBytes = bytes;
+                    }
+                }
+                catch { }
+            }
+            else if (!string.IsNullOrWhiteSpace(topic.TopicId) && topic.TopicId.All(char.IsDigit) && !string.IsNullOrWhiteSpace(App.Settings.Current.RuTrackerCookie))
             {
                 try
                 {

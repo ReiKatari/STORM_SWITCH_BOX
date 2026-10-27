@@ -1,33 +1,32 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <ApplicationIcon>..\..\storm_switch_box.ico</ApplicationIcon>
-    <Version>5.3.0</Version>
-    <AssemblyVersion>5.3.0.0</AssemblyVersion>
-    <FileVersion>5.3.0.0</FileVersion>
-    <AssemblyTitle>STORM SWITCH BOX</AssemblyTitle>
-    <Product>STORM SWITCH BOX</Product>
-    <Title>STORM SWITCH BOX</Title>
-    <Description>STORM SWITCH BOX</Description>
-    <Company>STORM TEAM</Company>
-    <Authors>ReiKatari and STORM TEAM</Authors>
-    <Copyright>Copyright © STORM TEAM 2026</Copyright>
+    <ApplicationIcon>..\..\Assets\AppIcon.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AssemblyName>STORM_SWITCH_BOX_5.4.0_Setup</AssemblyName>
+    <AssemblyTitle>STORM SWITCH BOX</AssemblyTitle>
+    <Title>STORM SWITCH BOX</Title>
+    <RootNamespace>StormSwitchBox.Installer</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Version>5.4.0</Version>
+    <AssemblyVersion>5.4.0.0</AssemblyVersion>
+    <FileVersion>5.4.0.0</FileVersion>
+    <Product>STORM SWITCH BOX</Product>
+    <Company>STORM TEAM</Company>
+    <Copyright>Copyright © 2026 STORM TEAM. All rights reserved.</Copyright>
+    <Description>STORM SWITCH BOX</Description>
+    <NoWarn>$(NoWarn);WFO1000;SYSLIB0057</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="..\Output\STORM_SWITCH_BOX_5.3.0_win-x64.zip" Link="Payload\Payload.zip" />
-    <EmbeddedResource Include="..\STORM_Certificate.cer" Link="Payload\STORM_Certificate.cer" />
-    <EmbeddedResource Include="..\..\storm_switch_box.ico" Link="Payload\storm_switch_box.ico" />
-    <EmbeddedResource Include="header_badge.png" Link="Payload\header_badge.png" />
+    <EmbeddedResource Include="..\..\Files\STORM_SWITCH_BOX_5.4.0_win-x64.zip" Link="Payload.zip" />
+    <EmbeddedResource Include="..\..\Assets\AppIcon.ico" Link="app.ico" />
+    <EmbeddedResource Include="F:\STORM ALL PROJECTS\.storm-secrets\STORM_SERTIFICATE.cer" Link="STORM_SERTIFICATE.cer" />
   </ItemGroup>
 
 </Project>
-
-

@@ -358,7 +358,7 @@
                             </MenuFlyoutItem>
                         </MenuFlyoutSubItem>
                         <MenuFlyoutSeparator/>
-                        <MenuFlyoutItem Text="🌐 Скачать и привязать мод / русификатор (RuTracker / Я.Диск / GDrive)..." Click="AttachCloudModToTask_Click" MinWidth="300">
+                        <MenuFlyoutItem Text="Скачать и привязать мод / русификатор (RuTracker / Я.Диск / GDrive)..." Click="AttachCloudModToTask_Click" MinWidth="300">
                             <MenuFlyoutItem.Icon>
                                 <FontIcon Glyph="&#xE774;" Foreground="#38BDF8"/>
                             </MenuFlyoutItem.Icon>
@@ -560,7 +560,7 @@
                             </MenuFlyoutItem>
                         </MenuFlyoutSubItem>
                         <MenuFlyoutSeparator/>
-                        <MenuFlyoutItem Text="🌐 Скачать и привязать мод / русификатор (RuTracker / Я.Диск / GDrive)..." Click="AttachCloudModToTask_Click" MinWidth="300">
+                        <MenuFlyoutItem Text="Скачать и привязать мод / русификатор (RuTracker / Я.Диск / GDrive)..." Click="AttachCloudModToTask_Click" MinWidth="300">
                             <MenuFlyoutItem.Icon>
                                 <FontIcon Glyph="&#xE774;" Foreground="#38BDF8"/>
                             </MenuFlyoutItem.Icon>
