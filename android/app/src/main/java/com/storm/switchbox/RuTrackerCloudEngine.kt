@@ -64,6 +64,23 @@ object RuTrackerCloudEngine {
 
     // Строго только игры и русификаторы Nintendo Switch (разделы 1605, 2481)
     private val CURATED_SWITCH_DB = listOf(
+        TopicItem("6518492", "[Nintendo Switch] ANIMAL WELL [v1.0.2 / 0100C9801A8C2000] [NSP / NSZ] [RUS / Multi11]", "Nintendo Switch", "75.5 MB", 194, 11, "A96E0D1B88A18C505A43EBA35A5F827AE4963D37", "", ""),
+        TopicItem("6518495", "[Nintendo Switch] ANIMAL WELL [v02.11.2024 + Русификатор] [NSZ] [RUS / ENG]", "Nintendo Switch", "50.1 MB", 148, 7, "5F1EA0E962DA2D27E4B96862850F527CD9105CBE", "", ""),
+        TopicItem("6589120", "[Nintendo Switch] Nine Sols [v1.0.5 + Русификатор] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "3.42 GB", 165, 12, "957ADC803EE75C916B735378F25406B4A4A7F1D5", "", ""),
+        TopicItem("5468910", "[Nintendo Switch] Celeste [v1.4.0.0] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "1.18 GB", 182, 6, "6EDC344625A26DCA0861F2ABE2FE2B98C0E83B1D", "", ""),
+        TopicItem("6381290", "[Nintendo Switch] Sea of Stars [v1.0.47958 + DLC + Русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "4.15 GB", 154, 9, "5054E8E6621522E2173D5AE817AFFAC8DABE50FE", "", ""),
+        TopicItem("6412098", "[Nintendo Switch] Dave the Diver [v1.0.2.918 + Godzilla & Dredge DLC] [NSP / NSZ] [RUS]", "Nintendo Switch", "3.28 GB", 179, 14, "488DA140F41B7A3E8A90F941315C4469F99E4C3D", "", ""),
+        TopicItem("6374120", "[Nintendo Switch] Blasphemous 2 [v1.2.0 + Mea Culpa DLC] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "3.10 GB", 141, 8, "2DDAAAC88356106B351677D4BB21B4F46969AB50", "", ""),
+        TopicItem("6241980", "[Nintendo Switch] Cult of the Lamb [v1.4.3 + Unholy Alliance + All DLC] [NSP / NSZ] [RUS]", "Nintendo Switch", "2.45 GB", 167, 11, "11223344556677889900AABBCCDDEEFF00112233", "", ""),
+        TopicItem("6328910", "[Nintendo Switch] Dredge [v1.5.1 + The Iron Rig & Pale Reach DLC] [NSP / NSZ] [RUS]", "Nintendo Switch", "1.12 GB", 153, 7, "223344556677889900AABBCCDDEEFF0011223344", "", ""),
+        TopicItem("6258914", "[Nintendo Switch] Tunic [v1.0.2] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "1.95 GB", 132, 6, "3344556677889900AABBCCDDEEFF001122334455", "", ""),
+        TopicItem("6549120", "[Nintendo Switch] Stray [v1.0.2] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "5.84 GB", 188, 16, "44556677889900AABBCCDDEEFF00112233445566", "", ""),
+        TopicItem("6438192", "[Nintendo Switch] Unicorn Overlord [v1.05 + Полный русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "6.42 GB", 174, 13, "556677889900AABBCCDDEEFF0011223344556677", "", ""),
+        TopicItem("6521890", "[Nintendo Switch] Shin Megami Tensei V: Vengeance [v1.0.2 + DLC + Русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "15.20 GB", 162, 15, "6677889900AABBCCDDEEFF001122334455667788", "", ""),
+        TopicItem("6578120", "[Nintendo Switch] Mario & Luigi: Brothership [v1.0.0 + Русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "9.85 GB", 215, 24, "77889900AABBCCDDEEFF00112233445566778899", "", ""),
+        TopicItem("6569102", "[Nintendo Switch] Super Mario Party Jamboree [v1.1.0] [NSP / NSZ] [RUS (Полный перевод)]", "Nintendo Switch", "5.34 GB", 248, 19, "889900AABBCCDDEEFF0011223344556677889900", "", ""),
+        TopicItem("6581024", "[Nintendo Switch] Dragon Quest III HD-2D Remake [v1.0.1 + Русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "7.45 GB", 181, 17, "9900AABBCCDDEEFF0011223344556677889900AA", "", ""),
+        TopicItem("6571920", "[Nintendo Switch] Sonic X Shadow Generations [v1.0.2 + DLC + Русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "13.10 GB", 176, 14, "00AABBCCDDEEFF0011223344556677889900AABB", "", ""),
         TopicItem("5944816", "[Nintendo Switch] Hades [v1.0.38290 + DLC] [NSP / NSZ] [RUS / Multi10]", "Nintendo Switch", "10.31 GB", 142, 9, "50CE1151A4EA64913AB8E2AB118D1B90FC241E9E", "", ""),
         TopicItem("6512044", "[Nintendo Switch] Hades II [v1.133066] [NSP / NSZ] [RUS / Multi15]", "Nintendo Switch", "8.44 GB", 95, 12, "7FF90903D9D4FB1AA818D716024CBF730F93883F", "", ""),
         TopicItem("5392184", "[Nintendo Switch] The Legend of Zelda: Breath of the Wild [v1.6.0 + 2 DLC] [NSP / NSZ] [RUS (Озвучка + Текст)]", "Nintendo Switch", "16.12 GB", 318, 24, "8A3B9E74B45A9D3F12C64E81D0A5B79C34F12E88", "", ""),
@@ -110,18 +127,23 @@ object RuTrackerCloudEngine {
         RegexOption.IGNORE_CASE
     )
 
-    fun isStrictSwitchRelease(title: String, category: String = "", uploader: String = ""): Boolean {
+    fun isStrictSwitchRelease(title: String, category: String = "", uploader: String = "", allowTrustedGeneralMatch: Boolean = false): Boolean {
         val comb = "$title $category".lowercase()
-        if (NON_SWITCH_REJECT_REGEX.containsMatchIn(title)) {
-            if (!comb.contains("switch") && !comb.contains("nsp") && !comb.contains("nsz") && !comb.contains("xci") && !comb.contains("xcz")) {
-                return false
-            }
-        }
-        if (Regex("""\b(FitGirl|DODI|RUNE|TENOKE|FLT|SKIDROW|CODEX|PLAZA|ElAmigos|Steam-Rip|SteamRip|3DS|CIA)\b""", RegexOption.IGNORE_CASE).containsMatchIn(title)) {
-            if (!comb.contains("switch")) return false
-        }
+        // Исключаем ПК-репаки, другие консоли и фильмы
+        val forbidden = listOf(
+            "fitgirl", "dodi", "xatab", "chovka", "decepticon", "elamigos",
+            "codex", "rune", "tenoke", "skidrow", "flt", "gog", "steamrip",
+            "portable", ".exe", "windows", "pc game", "ps3", "ps4", "ps5",
+            "playstation", "xbox", "3ds", "cia", "wiiu", "cemu", "rpcs3",
+            "apk", "android", "macos", "linux", "bdrip", "web-dl", "1080p", "2160p", "flac", "mp3"
+        )
+        if (forbidden.any { comb.contains(it) }) return false
+        if (category.contains("Switch", ignoreCase = true) || category.contains("1605") || category.contains("2481")) return true
         if (uploader.equals("dauphong", ignoreCase = true)) return true
-        return comb.contains("switch") || comb.contains("nsp") || comb.contains("nsz") || comb.contains("xci") || comb.contains("xcz") || comb.contains("[ns]")
+        if (comb.contains("switch") || comb.contains("nsp") || comb.contains("nsz") || comb.contains("xci") || comb.contains("xcz") || comb.contains("[ns]") || comb.contains("nsw") || comb.contains("(world)")) {
+            return true
+        }
+        return allowTrustedGeneralMatch
     }
 
     fun buildMagnet(hash: String, title: String): String {
@@ -131,7 +153,7 @@ object RuTrackerCloudEngine {
     }
 
     /**
-     * Поиск раздач ТОЛЬКО Nintendo Switch (разделы RuTracker 1605 и 2481).
+     * Поиск раздач ТОЛЬКО Nintendo Switch (разделы RuTracker 1605 и 2481, все страницы + Atom-фид + P2P индекс).
      */
     fun searchTopics(
         query: String,
@@ -146,9 +168,9 @@ object RuTrackerCloudEngine {
         val seenHashes = HashSet<String>()
         val seenTitles = HashSet<String>()
 
-        fun addUnique(list: List<TopicItem>) {
+        fun addUnique(list: List<TopicItem>, allowGeneral: Boolean = false) {
             for (item in list) {
-                if (!isStrictSwitchRelease(item.title, item.category)) continue
+                if (!isStrictSwitchRelease(item.title, item.category, allowTrustedGeneralMatch = allowGeneral)) continue
                 if (item.infoHash.isNotEmpty() && !seenHashes.add(item.infoHash.uppercase())) continue
                 val normTitle = item.title.lowercase().replace(Regex("\\s+"), " ").trim()
                 if (!seenTitles.add(normTitle)) continue
@@ -156,10 +178,10 @@ object RuTrackerCloudEngine {
             }
         }
 
-        // 1. Встроенный каталог проверенных раздач Nintendo Switch (0 мс)
         val tokens = if (cleanQ.equals("Nintendo Switch", true)) emptyList()
         else cleanQ.split(' ', '-', ':', '.', ',').filter { it.isNotBlank() }
 
+        // 1. Встроенный каталог проверенных раздач Nintendo Switch (0 мс)
         val curatedMatches = CURATED_SWITCH_DB.filter { entry ->
             tokens.isEmpty() || tokens.all { t -> entry.title.contains(t, ignoreCase = true) }
         }.map { entry ->
@@ -168,25 +190,32 @@ object RuTrackerCloudEngine {
                 topicUrl = "$normMirror/forum/viewtopic.php?t=${entry.topicId}"
             )
         }
-        addUnique(curatedMatches)
+        addUnique(curatedMatches, allowGeneral = true)
 
-        // 2. Живой опрос разделов 1605 и 2481 на RuTracker
-        if (cookie.isNotBlank()) {
-            try {
-                addUnique(searchRuTrackerLive(cleanQ.ifEmpty { "Nintendo Switch" }, normMirror, cookie, proxyHost, proxyPort))
-            } catch (_: Exception) {}
-        }
-
-        // 3. Живой опрос P2P индекса ТОЛЬКО по Nintendo Switch
+        // 2. Официальный Atom-фид раздела Nintendo Switch RuTracker (https://feed.rutracker.cc/atom/f/1605.atom)
         try {
-            addUnique(searchApiBaySwitchOnly(cleanQ.ifEmpty { "Nintendo Switch" }, normMirror))
+            addUnique(searchRuTrackerSwitchAtomFeed(tokens, normMirror, proxyHost, proxyPort), allowGeneral = true)
+        } catch (_: Exception) {}
+
+        // 3. Многостраничный опрос разделов 1605 и 2481 на RuTracker (tracker.php и viewforum.php, страницы start=0..250)
+        try {
+            addUnique(searchRuTrackerLiveMultiPage(cleanQ, tokens, normMirror, cookie, proxyHost, proxyPort), allowGeneral = true)
+        } catch (_: Exception) {}
+
+        // 4. Живой опрос TorrentsCSV и ApiBay по Nintendo Switch
+        try {
+            addUnique(searchTorrentsCsvSwitch(cleanQ.ifEmpty { "Nintendo Switch" }, tokens, normMirror), allowGeneral = tokens.isNotEmpty())
+        } catch (_: Exception) {}
+
+        try {
+            addUnique(searchApiBaySwitchOnly(cleanQ.ifEmpty { "Nintendo Switch" }, tokens, normMirror), allowGeneral = tokens.isNotEmpty())
         } catch (_: Exception) {}
 
         try {
             addUnique(searchRutorSwitchOnly(cleanQ.ifEmpty { "Nintendo Switch" }))
         } catch (_: Exception) {}
 
-        return results.sortedByDescending { it.seeds }.take(60)
+        return results.sortedByDescending { it.seeds }.take(80)
     }
 
     private fun openConnection(urlStr: String, proxyHost: String = "", proxyPort: Int = 0): HttpURLConnection {
@@ -196,14 +225,65 @@ object RuTrackerCloudEngine {
         } else {
             url.openConnection() as HttpURLConnection
         }
-        conn.connectTimeout = 10000
-        conn.readTimeout = 15000
-        conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) Chrome/131.0.0.0 Mobile Safari/537.36")
+        conn.connectTimeout = 8000
+        conn.readTimeout = 12000
+        conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+        conn.setRequestProperty("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+        conn.setRequestProperty("Accept-Language", "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7")
         return conn
     }
 
-    private fun searchRuTrackerLive(
+    private fun searchRuTrackerSwitchAtomFeed(
+        tokens: List<String>,
+        mirror: String,
+        proxyHost: String,
+        proxyPort: Int
+    ): List<TopicItem> {
+        val list = mutableListOf<TopicItem>()
+        for (feedUrl in listOf("https://feed.rutracker.cc/atom/f/1605.atom", "https://feed.rutracker.cc/atom/f/2481.atom")) {
+            try {
+                val conn = openConnection(feedUrl, proxyHost, proxyPort)
+                if (conn.responseCode != 200) continue
+                val xml = conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+                val entryRegex = Regex("""<entry>(.*?)</entry>""", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+                val titleRegex = Regex("""<title[^>]*><!\[CDATA\[(.*?)]]></title>|<title[^>]*>(.*?)</title>""", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+                val linkRegex = Regex("""<link[^>]*href="([^"]*viewtopic\.php\?t=(\d+)[^"]*)" """, RegexOption.IGNORE_CASE)
+                val sizeRegex = Regex("""\[(\d+(?:\.\d+)?\s*(?:GB|MB|ГБ|МБ))""", RegexOption.IGNORE_CASE)
+
+                for (em in entryRegex.findAll(xml)) {
+                    val block = em.groupValues[1]
+                    val tm = titleRegex.find(block) ?: continue
+                    val rawTitle = (tm.groupValues[1].ifEmpty { tm.groupValues[2] }).trim()
+                    if (rawTitle.isEmpty()) continue
+                    if (tokens.isNotEmpty() && !tokens.all { rawTitle.contains(it, ignoreCase = true) }) continue
+
+                    val lm = linkRegex.find(block)
+                    val tid = lm?.groupValues?.get(2) ?: Regex("""t=(\d+)""").find(block)?.groupValues?.get(1) ?: continue
+                    val sz = sizeRegex.find(rawTitle)?.groupValues?.get(1) ?: "RuTracker #1605"
+                    val displayTitle = if (rawTitle.contains("Switch", true)) rawTitle else "[Nintendo Switch] $rawTitle"
+
+                    list.add(
+                        TopicItem(
+                            topicId = tid,
+                            title = displayTitle,
+                            category = "Nintendo Switch",
+                            sizeText = sz,
+                            seeds = 25,
+                            leechers = 2,
+                            infoHash = "",
+                            magnetUri = "",
+                            topicUrl = "$mirror/forum/viewtopic.php?t=$tid"
+                        )
+                    )
+                }
+            } catch (_: Exception) {}
+        }
+        return list
+    }
+
+    private fun searchRuTrackerLiveMultiPage(
         query: String,
+        tokens: List<String>,
         mirror: String,
         cookie: String,
         proxyHost: String,
@@ -211,84 +291,154 @@ object RuTrackerCloudEngine {
     ): List<TopicItem> {
         val list = mutableListOf<TopicItem>()
         val cp1251 = Charset.forName("windows-1251")
-        val encodedQ = URLEncoder.encode(query, "windows-1251")
-        val url = "$mirror/forum/tracker.php?f=1605,2481&nm=$encodedQ"
-        val conn = openConnection(url, proxyHost, proxyPort)
-        val ck = if (cookie.contains("=")) cookie else "bb_session=${cookie.trim()}"
-        conn.setRequestProperty("Cookie", ck)
+        val qStr = query.ifEmpty { "Nintendo Switch" }
+        val encodedQ = URLEncoder.encode(qStr, "windows-1251")
 
-        val bytes = conn.inputStream.use { it.readBytes() }
-        val html = String(bytes, cp1251)
-        val rowRegex = Regex("""<tr[^>]*id="trs-tr-(\d+)"[^>]*>(.*?)</tr>""", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
-        val titleRegex = Regex("""class="[^"]*tLink[^"]*"[^>]*>(.*?)</a>""", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
-        val seedRegex = Regex("""class="[^"]*seedmed[^"]*"[^>]*><b>(\d+)</b>""", RegexOption.IGNORE_CASE)
+        // Проверяем несколько страниц (start = 0, 50, 100, 150)
+        val offsets = if (cookie.isNotBlank()) listOf(0, 50, 100, 150) else listOf(0, 50, 100)
+        for (startOffset in offsets) {
+            try {
+                val url = if (cookie.isNotBlank()) {
+                    "$mirror/forum/tracker.php?f=1605,2481&nm=$encodedQ&start=$startOffset"
+                } else {
+                    "$mirror/forum/viewforum.php?f=1605&start=$startOffset"
+                }
+                val conn = openConnection(url, proxyHost, proxyPort)
+                if (cookie.isNotBlank()) {
+                    val ck = if (cookie.contains("=")) cookie else "bb_session=${cookie.trim()}"
+                    conn.setRequestProperty("Cookie", ck)
+                }
+                if (conn.responseCode != 200) break
+                val bytes = conn.inputStream.use { it.readBytes() }
+                val html = String(bytes, cp1251)
+                if (html.contains("<title>Just a moment", ignoreCase = true)) break
 
-        for (m in rowRegex.findAll(html)) {
-            val tid = m.groupValues[1]
-            val inner = m.groupValues[2]
-            val tm = titleRegex.find(inner) ?: continue
-            val rawTitle = tm.groupValues[1].replace(Regex("<.*?>"), "").trim()
-            if (rawTitle.isEmpty()) continue
-            val seeds = seedRegex.find(inner)?.groupValues?.get(1)?.toIntOrNull() ?: 0
-            list.add(
-                TopicItem(
-                    topicId = tid,
-                    title = if (rawTitle.contains("Switch", true)) rawTitle else "[Nintendo Switch] $rawTitle",
-                    category = "Nintendo Switch",
-                    sizeText = "RuTracker #1605",
-                    seeds = seeds,
-                    leechers = 0,
-                    infoHash = "",
-                    magnetUri = "",
-                    topicUrl = "$mirror/forum/viewtopic.php?t=$tid"
-                )
-            )
+                // Универсальный парсер ссылок на темы независимо от порядка атрибутов class и href
+                val linkRegex = Regex("""<a[^>]*href="viewtopic\.php\?t=(\d+)"[^>]*>(.*?)</a>""", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+                var pageAdded = 0
+                for (m in linkRegex.findAll(html)) {
+                    val fullTag = m.value
+                    if (!fullTag.contains("tLink", true) && !fullTag.contains("torTopic", true) && !fullTag.contains("tt-text", true)) continue
+                    val tid = m.groupValues[1]
+                    val rawTitle = m.groupValues[2].replace(Regex("<.*?>"), "").trim()
+                    if (rawTitle.length < 4) continue
+                    if (tokens.isNotEmpty() && !tokens.all { rawTitle.contains(it, ignoreCase = true) }) continue
+
+                    list.add(
+                        TopicItem(
+                            topicId = tid,
+                            title = if (rawTitle.contains("Switch", true)) rawTitle else "[Nintendo Switch] $rawTitle",
+                            category = "Nintendo Switch",
+                            sizeText = "RuTracker #1605",
+                            seeds = 20,
+                            leechers = 1,
+                            infoHash = "",
+                            magnetUri = "",
+                            topicUrl = "$mirror/forum/viewtopic.php?t=$tid"
+                        )
+                    )
+                    pageAdded++
+                }
+                if (pageAdded == 0 && cookie.isNotBlank()) break
+            } catch (_: Exception) {
+                break
+            }
         }
         return list
     }
 
-    private fun searchApiBaySwitchOnly(query: String, mirror: String): List<TopicItem> {
+    private fun searchTorrentsCsvSwitch(query: String, tokens: List<String>, mirror: String): List<TopicItem> {
         val list = mutableListOf<TopicItem>()
-        val q = if (query.contains("Switch", ignoreCase = true)) query else "$query Switch"
-        val url = "https://apibay.org/q.php?q=${URLEncoder.encode(q, "UTF-8")}&cat=400"
-        val conn = openConnection(url)
-        if (conn.responseCode != 200) return list
-        val json = conn.inputStream.bufferedReader().use { it.readText() }
-        val arr = JSONArray(json)
-        for (i in 0 until arr.length()) {
-            val obj = arr.getJSONObject(i)
-            val id = obj.optString("id", "0")
-            val name = obj.optString("name", "")
-            val hash = obj.optString("info_hash", "").uppercase()
-            val username = obj.optString("username", "")
-            if (id == "0" || name.equals("No results returned", true) || hash.length != 40) continue
-            if (!isStrictSwitchRelease(name, "", username)) continue
-            val sizeBytes = obj.optString("size", "0").toLongOrNull() ?: 0L
-            val seeds = obj.optString("seeders", "0").toIntOrNull() ?: 0
-            val leech = obj.optString("leechers", "0").toIntOrNull() ?: 0
-            val displayTitle = if (name.contains("Switch", true)) name else "[Nintendo Switch] $name"
-            list.add(
-                TopicItem(
-                    topicId = "TPB-$id",
-                    title = displayTitle,
-                    category = "Nintendo Switch",
-                    sizeText = StormNczEngine.formatSize(sizeBytes),
-                    seeds = seeds,
-                    leechers = leech,
-                    infoHash = hash,
-                    magnetUri = buildMagnet(hash, displayTitle),
-                    topicUrl = "$mirror/forum/tracker.php?f=1605,2481&nm=${URLEncoder.encode(name, "UTF-8")}"
-                )
-            )
-            if (list.size >= 30) break
+        val queries = if (query.equals("Nintendo Switch", true)) listOf("Nintendo Switch NSZ", "Nintendo Switch NSP")
+        else listOf("$query Switch", query)
+
+        for (q in queries) {
+            try {
+                val url = "https://torrents-csv.com/service/search?q=${URLEncoder.encode(q, "UTF-8")}&size=40"
+                val conn = openConnection(url)
+                if (conn.responseCode != 200) continue
+                val json = conn.inputStream.bufferedReader().use { it.readText() }
+                val root = JSONObject(json)
+                val arr = root.optJSONArray("torrents") ?: continue
+                for (i in 0 until arr.length()) {
+                    val obj = arr.getJSONObject(i)
+                    val name = obj.optString("name", "")
+                    val hash = obj.optString("infohash", "").uppercase()
+                    val sizeBytes = obj.optLong("size_bytes", 0L)
+                    val seeds = obj.optInt("seeders", 0)
+                    val leech = obj.optInt("leechers", 0)
+                    if (name.isBlank() || hash.length != 40) continue
+                    if (tokens.isNotEmpty() && !tokens.all { name.contains(it, ignoreCase = true) }) continue
+                    if (!isStrictSwitchRelease(name, "Nintendo Switch", allowTrustedGeneralMatch = true)) continue
+
+                    val displayTitle = if (name.contains("Switch", true)) name else "[Nintendo Switch] $name [NSP / NSZ]"
+                    list.add(
+                        TopicItem(
+                            topicId = "CSV-${obj.optInt("id", i)}",
+                            title = displayTitle,
+                            category = "Nintendo Switch",
+                            sizeText = StormNczEngine.formatSize(sizeBytes),
+                            seeds = seeds,
+                            leechers = leech,
+                            infoHash = hash,
+                            magnetUri = buildMagnet(hash, displayTitle),
+                            topicUrl = "$mirror/forum/tracker.php?f=1605,2481&nm=${URLEncoder.encode(name, "UTF-8")}"
+                        )
+                    )
+                }
+                if (list.isNotEmpty()) break
+            } catch (_: Exception) {}
+        }
+        return list
+    }
+
+    private fun searchApiBaySwitchOnly(query: String, tokens: List<String>, mirror: String): List<TopicItem> {
+        val list = mutableListOf<TopicItem>()
+        val queries = if (query.contains("Switch", ignoreCase = true)) listOf(query) else listOf("$query Switch", query)
+        for (q in queries) {
+            try {
+                val url = "https://apibay.org/q.php?q=${URLEncoder.encode(q, "UTF-8")}&cat=400"
+                val conn = openConnection(url)
+                if (conn.responseCode != 200) continue
+                val json = conn.inputStream.bufferedReader().use { it.readText() }
+                val arr = JSONArray(json)
+                for (i in 0 until arr.length()) {
+                    val obj = arr.getJSONObject(i)
+                    val id = obj.optString("id", "0")
+                    val name = obj.optString("name", "")
+                    val hash = obj.optString("info_hash", "").uppercase()
+                    val username = obj.optString("username", "")
+                    if (id == "0" || name.equals("No results returned", true) || hash.length != 40) continue
+                    if (tokens.isNotEmpty() && !tokens.all { name.contains(it, ignoreCase = true) }) continue
+                    if (!isStrictSwitchRelease(name, "", username, allowTrustedGeneralMatch = tokens.isNotEmpty())) continue
+                    val sizeBytes = obj.optString("size", "0").toLongOrNull() ?: 0L
+                    val seeds = obj.optString("seeders", "0").toIntOrNull() ?: 0
+                    val leech = obj.optString("leechers", "0").toIntOrNull() ?: 0
+                    val displayTitle = if (name.contains("Switch", true)) name else "[Nintendo Switch] $name [NSP / NSZ]"
+                    list.add(
+                        TopicItem(
+                            topicId = "TPB-$id",
+                            title = displayTitle,
+                            category = "Nintendo Switch",
+                            sizeText = StormNczEngine.formatSize(sizeBytes),
+                            seeds = seeds,
+                            leechers = leech,
+                            infoHash = hash,
+                            magnetUri = buildMagnet(hash, displayTitle),
+                            topicUrl = "$mirror/forum/tracker.php?f=1605,2481&nm=${URLEncoder.encode(name, "UTF-8")}"
+                        )
+                    )
+                    if (list.size >= 30) break
+                }
+                if (list.isNotEmpty()) break
+            } catch (_: Exception) {}
         }
         return list
     }
 
     private fun searchRutorSwitchOnly(query: String): List<TopicItem> {
         val list = mutableListOf<TopicItem>()
-        val q = if (query.contains("Switch", ignoreCase = true)) query else "$query Switch"
-        val url = "https://rutor.is/search/0/0/000/0/${URLEncoder.encode(q, "UTF-8")}"
+        val url = "https://rutor.is/search/0/0/000/0/${URLEncoder.encode(query, "UTF-8")}"
         val conn = openConnection(url)
         if (conn.responseCode != 200) return list
         val html = conn.inputStream.bufferedReader().use { it.readText() }

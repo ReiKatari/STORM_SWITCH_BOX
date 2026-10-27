@@ -115,8 +115,13 @@ class MainActivity : Activity() {
     // 2 = Распаковка NSZ/XCZ -> NSP/XCI,
     // 3 = SmartShrink Trim 0xFF (XCI/3DS),
     // 4 = Дешифратор Nintendo 3DS (.3ds/.cia)
+    private var selectedCompressionMethod = 0
+    // 0 = Умный адаптивный способ сжатия (авто-подбор параметров блоков, пропуск уже сжатых .ncz и несжимаемых данных),
+    // 1 = Эталонный блочный NCZBLOCK (фиксированный блок для всех NCA),
+    // 2 = Максимальное сжатие Zstandard Ultra (приоритет минимального веса),
+    // 3 = Быстрая прямая сшивка без пережатия NCA
     private var selectedOutputFormat = 0
-    // 0 = Авто (Умный выбор минимального размера), 1 = NSP / NSZ (PFS0), 2 = XCI / XCZ (Картридж HFS0)
+    // Конечный формат задаёт пользователь: 0 = NSZ, 1 = XCZ, 2 = NSP, 3 = XCI
     private var useBlockNcz = true // По умолчанию включен!
     private var smartMergeDedup = true // По умолчанию включен!
     private var autoEmbedMods = true // По умолчанию включен!
@@ -293,7 +298,8 @@ class MainActivity : Activity() {
                 if (idx >= 0) currentThemeIndex = idx
                 currentLangCode = json.optString("lang", "ru")
                 selectedOperationMode = json.optInt("operationMode", 0).coerceIn(0, 4)
-                selectedOutputFormat = json.optInt("outputFormat", 0).coerceIn(0, 2)
+                selectedCompressionMethod = json.optInt("compressionMethod", 0).coerceIn(0, 3)
+                selectedOutputFormat = json.optInt("outputFormat", 0).coerceIn(0, 3)
                 useBlockNcz = json.optBoolean("useBlockNcz", true)
                 smartMergeDedup = json.optBoolean("smartMergeDedup", true)
                 autoEmbedMods = json.optBoolean("autoEmbedMods", true)
@@ -320,6 +326,7 @@ class MainActivity : Activity() {
             json.put("theme", themes[currentThemeIndex].id)
             json.put("lang", currentLangCode)
             json.put("operationMode", selectedOperationMode)
+            json.put("compressionMethod", selectedCompressionMethod)
             json.put("outputFormat", selectedOutputFormat)
             json.put("useBlockNcz", useBlockNcz)
             json.put("smartMergeDedup", smartMergeDedup)
@@ -907,22 +914,47 @@ class MainActivity : Activity() {
         }
         cfgCard.addView(modeDropdown)
 
-        // Целевой формат выходного контейнера (как на ПК!)
+        // Способ сжатия («Умный» режим выбирает именно способ сжатия и сшивки, а не формат файла!)
         cfgCard.addView(TextView(this).apply {
-            text = "Итоговый формат выходного контейнера:"
+            text = "Способ сжатия и оптимизации разделов:"
+            setTextColor(th.textSecondary)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
+            setPadding(0, dp(8), 0, dp(3))
+        })
+
+        val compressionMethods = listOf(
+            "Умный адаптивный (Авто-подбор способа сжатия блоков, дедупликации и модов)",
+            "Эталонный блочный NCZBLOCK (Строгий фиксированный блок для всех NCA)",
+            "Максимальное сжатие Zstandard Ultra (Минимальный размер файла)",
+            "Быстрая прямая сшивка контейнера (Без пережатия разделов NCA)"
+        )
+        val methodDropdown = makeStormDropdown(compressionMethods, selectedCompressionMethod, th) { pos ->
+            selectedCompressionMethod = pos
+            if (pos == 2 && zstdLevel < 19) zstdLevel = 19
+            saveSettings()
+            buildUserInterface()
+        }
+        cfgCard.addView(methodDropdown)
+
+        // Конечный формат файла строго задаётся пользователем!
+        cfgCard.addView(TextView(this).apply {
+            text = "Конечный формат выходного файла (задаётся пользователем):"
             setTextColor(th.textSecondary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
             setPadding(0, dp(8), 0, dp(3))
         })
 
         val outputFormats = listOf(
-            "Авто (Умный выбор минимального размера — NSZ / XCZ)",
-            "NSP / NSZ (Цифровой контейнер PFS0 — игры, патчи, DLC, моды)",
-            "XCI / XCZ (Мульти-картридж HFS0 — всё-в-одном без тикетов)"
+            "NSZ — Сжатый цифровой контейнер Switch (Игры + Патчи + DLC + Моды)",
+            "XCZ — Сжатый мульти-картридж Switch (Всё-в-одном без тикетов)",
+            "NSP — Оригинальный цифровой контейнер PFS0 (Без сжатия NCA)",
+            "XCI — Оригинальный мульти-картридж HFS0 (Без сжатия NCA)"
         )
         val formatDropdown = makeStormDropdown(outputFormats, selectedOutputFormat, th) { pos ->
             selectedOutputFormat = pos
+            useBlockNcz = (pos == 0 || pos == 1)
             saveSettings()
+            buildUserInterface()
         }
         cfgCard.addView(formatDropdown)
 
@@ -979,12 +1011,17 @@ class MainActivity : Activity() {
 
         // Стилизованные чекбоксы по правилам STORM SOFT (сплошной квадрат 4dp без галочки!)
         cfgCard.addView(makeStormCheckBox(
-            "Включить блочное сжатие Zstandard (NSZ / XCZ — NCZSECTN + NCZBLOCK)",
+            "Включить блочное сжатие Zstandard (NCZSECTN + NCZBLOCK)",
             useBlockNcz,
             th
         ) { checked ->
             useBlockNcz = checked
+            if (checked && selectedOutputFormat == 2) selectedOutputFormat = 0
+            if (checked && selectedOutputFormat == 3) selectedOutputFormat = 1
+            if (!checked && selectedOutputFormat == 0) selectedOutputFormat = 2
+            if (!checked && selectedOutputFormat == 1) selectedOutputFormat = 3
             saveSettings()
+            buildUserInterface()
         })
 
         cfgCard.addView(makeStormCheckBox(
@@ -1128,13 +1165,13 @@ class MainActivity : Activity() {
                         inputFiles = preparedInputs,
                         outputDir = customOutputDir,
                         targetFormatMode = selectedOutputFormat,
-                        useBlockNcz = useBlockNcz,
-                        smartDedup = smartMergeDedup,
+                        useBlockNcz = useBlockNcz && (selectedCompressionMethod != 3),
+                        smartDedup = smartMergeDedup || (selectedCompressionMethod == 0),
                         embedMods = autoEmbedMods,
-                        zstdLevel = zstdLevel,
-                        blockSizeExponent = blockSizeExpo,
+                        zstdLevel = if (selectedCompressionMethod == 2) zstdLevel.coerceAtLeast(19) else zstdLevel,
+                        blockSizeExponent = if (selectedCompressionMethod == 2) blockSizeExpo.coerceAtLeast(21) else blockSizeExpo,
                         threads = cpuThreads,
-                        smartSizeGuard = smartSizeGuard,
+                        smartSizeGuard = if (selectedCompressionMethod == 0) true else smartSizeGuard,
                         onProgress = cb
                     )
 

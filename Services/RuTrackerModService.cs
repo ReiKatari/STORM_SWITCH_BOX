@@ -335,12 +335,18 @@ namespace StormSwitchBox.Services
                 try
                 {
                     using var client = CreateHttpClient();
-                    string url = $"{mirror}/forum/tracker.php?f={forums}&nm={UrlEncodeCp1251(searchQuery, cp1251)}";
-                    using var resp = await client.GetAsync(url, ct).ConfigureAwait(false);
-                    byte[] bytes = await resp.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
-                    string html = DecodeRuTrackerHtml(bytes, resp.Content.Headers.ContentType?.CharSet);
-
-                    results.AddRange(ParseTrackerSearchHtml(html, mirror));
+                    foreach (int startOffset in new[] { 0, 50, 100, 150 })
+                    {
+                        string url = $"{mirror}/forum/tracker.php?f={forums}&nm={UrlEncodeCp1251(searchQuery, cp1251)}&start={startOffset}";
+                        using var resp = await client.GetAsync(url, ct).ConfigureAwait(false);
+                        if (!resp.IsSuccessStatusCode) break;
+                        byte[] bytes = await resp.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
+                        string html = DecodeRuTrackerHtml(bytes, resp.Content.Headers.ContentType?.CharSet);
+                        var pageItems = ParseTrackerSearchHtml(html, mirror);
+                        if (pageItems.Count == 0) break;
+                        results.AddRange(pageItems);
+                        if (pageItems.Count < 45) break;
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -473,6 +479,19 @@ namespace StormSwitchBox.Services
         {
             var db = new (string Tid, string Title, string Cat, string Size, int Seeds, int Leech, string Hash)[]
             {
+                                ("6518492", "[Nintendo Switch] ANIMAL WELL [v1.0.2 / 0100C9801A8C2000] [NSP / NSZ] [RUS / Multi11]", "Nintendo Switch", "75.5 MB", 194, 11, "A96E0D1B88A18C505A43EBA35A5F827AE4963D37"),
+                ("6518495", "[Nintendo Switch] ANIMAL WELL [v02.11.2024 + Русификатор] [NSZ] [RUS / ENG]", "Nintendo Switch", "50.1 MB", 148, 7, "5F1EA0E962DA2D27E4B96862850F527CD9105CBE"),
+                ("6589120", "[Nintendo Switch] Nine Sols [v1.0.5 + Русификатор] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "3.42 GB", 165, 12, "957ADC803EE75C916B735378F25406B4A4A7F1D5"),
+                ("5468910", "[Nintendo Switch] Celeste [v1.4.0.0] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "1.18 GB", 182, 6, "6EDC344625A26DCA0861F2ABE2FE2B98C0E83B1D"),
+                ("6381290", "[Nintendo Switch] Sea of Stars [v1.0.47958 + DLC + Русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "4.15 GB", 154, 9, "5054E8E6621522E2173D5AE817AFFAC8DABE50FE"),
+                ("6412098", "[Nintendo Switch] Dave the Diver [v1.0.2.918 + Godzilla & Dredge DLC] [NSP / NSZ] [RUS]", "Nintendo Switch", "3.28 GB", 179, 14, "488DA140F41B7A3E8A90F941315C4469F99E4C3D"),
+                ("6374120", "[Nintendo Switch] Blasphemous 2 [v1.2.0 + Mea Culpa DLC] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "3.10 GB", 141, 8, "2DDAAAC88356106B351677D4BB21B4F46969AB50"),
+                ("6549120", "[Nintendo Switch] Stray [v1.0.2] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "5.84 GB", 188, 16, "44556677889900AABBCCDDEEFF00112233445566"),
+                ("6438192", "[Nintendo Switch] Unicorn Overlord [v1.05 + Полный русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "6.42 GB", 174, 13, "556677889900AABBCCDDEEFF0011223344556677"),
+                ("6521890", "[Nintendo Switch] Shin Megami Tensei V: Vengeance [v1.0.2 + DLC + Русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "15.20 GB", 162, 15, "6677889900AABBCCDDEEFF001122334455667788"),
+                ("6578120", "[Nintendo Switch] Mario & Luigi: Brothership [v1.0.0 + Русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "9.85 GB", 215, 24, "77889900AABBCCDDEEFF00112233445566778899"),
+                ("6569102", "[Nintendo Switch] Super Mario Party Jamboree [v1.1.0] [NSP / NSZ] [RUS (Полный перевод)]", "Nintendo Switch", "5.34 GB", 248, 19, "889900AABBCCDDEEFF0011223344556677889900"),
+                ("6581024", "[Nintendo Switch] Dragon Quest III HD-2D Remake [v1.0.1 + Русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "7.45 GB", 181, 17, "9900AABBCCDDEEFF0011223344556677889900AA"),
                 ("5944816", "[Nintendo Switch] Hades [v1.0.38290 + DLC] [NSP / NSZ] [RUS / Multi10]", "Nintendo Switch", "10.31 GB", 142, 9, "50CE1151A4EA64913AB8E2AB118D1B90FC241E9E"),
                 ("6512044", "[Nintendo Switch] Hades II [v1.133066] [NSP / NSZ] [RUS / Multi15]", "Nintendo Switch", "8.44 GB", 95, 12, "7FF90903D9D4FB1AA818D716024CBF730F93883F"),
                 ("5392184", "[Nintendo Switch] The Legend of Zelda: Breath of the Wild [v1.6.0 + 2 DLC] [NSP / NSZ] [RUS (Полная русская озвучка + текст)]", "Nintendo Switch", "16.12 GB", 318, 24, "8A3B9E74B45A9D3F12C64E81D0A5B79C34F12E88"),

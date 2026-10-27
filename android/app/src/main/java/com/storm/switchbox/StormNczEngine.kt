@@ -868,7 +868,7 @@ object StormNczEngine {
                     tidRegex.find(cleanName)?.groupValues?.get(1)?.uppercase()?.let { detectedTitleIds.add(it) }
 
                     if (smartDedup && lower.endsWith(".xml")) continue
-                    if (targetFormatMode == 2 && (lower.endsWith(".tik") || lower.endsWith(".cert"))) continue
+                    if ((targetFormatMode == 1 || targetFormatMode == 3) && (lower.endsWith(".tik") || lower.endsWith(".cert"))) continue
 
                     val key = if (smartDedup && (lower.endsWith(".nca") || lower.endsWith(".ncz")) && !lower.endsWith(".cnmt.nca")) {
                         lower.removeSuffix(".nca").removeSuffix(".ncz")
@@ -895,7 +895,7 @@ object StormNczEngine {
                 }
             } else if (ext in listOf("nca", "ncz", "tik", "cert", "cnmt")) {
                 val lower = f.name.lowercase()
-                if (!(targetFormatMode == 2 && (lower.endsWith(".tik") || lower.endsWith(".cert")))) {
+                if (!((targetFormatMode == 1 || targetFormatMode == 3) && (lower.endsWith(".tik") || lower.endsWith(".cert")))) {
                     val key = if (smartDedup) lower.removeSuffix(".nca").removeSuffix(".ncz") else lower
                     collected[key] = SubSource(f, f.name, key, 0L, f.length())
                 }
@@ -943,16 +943,19 @@ object StormNczEngine {
 
         require(collected.isNotEmpty()) { "Не найдено подходящих разделов NCA/NCZ для сборки мульти-контента" }
 
-        // Умный выбор итогового расширения (.nsz / .xcz / .nsp / .xci)
-        val useCartFormat = when (targetFormatMode) {
-            1 -> false // NSP / NSZ
-            2 -> true  // XCI / XCZ
-            else -> allInputsAreCarts && collected.values.none { it.entryName.endsWith(".tik", true) }
-        }
-        val finalExt = if (useCartFormat) {
-            if (useBlockNcz) "xcz" else "xci"
-        } else {
-            if (useBlockNcz) "nsz" else "nsp"
+        // Конечный формат контейнера строго задается пользователем:
+        // 0 = NSZ (Сжатый цифровой контейнер)
+        // 1 = XCZ (Сжатый мульти-картридж)
+        // 2 = NSP (Несжатый цифровой контейнер)
+        // 3 = XCI (Несжатый мульти-картридж)
+        val useCartFormat = (targetFormatMode == 1 || targetFormatMode == 3)
+        val shouldCompressNca = useBlockNcz && (targetFormatMode == 0 || targetFormatMode == 1)
+        val finalExt = when (targetFormatMode) {
+            0 -> if (useBlockNcz) "nsz" else "nsp"
+            1 -> if (useBlockNcz) "xcz" else "xci"
+            2 -> "nsp"
+            3 -> "xci"
+            else -> if (useBlockNcz) "nsz" else "nsp"
         }
 
         val firstBaseName = inputFiles.first().nameWithoutExtension
@@ -979,7 +982,7 @@ object StormNczEngine {
                 val isNcz = lower.endsWith(".ncz")
                 val isCnmtNca = lower.endsWith(".cnmt.nca")
 
-                if (useBlockNcz && isNca && !isCnmtNca && src.size >= 64 * 1024L) {
+                if (shouldCompressNca && isNca && !isCnmtNca && src.size >= 64 * 1024L) {
                     val nczName = src.entryName.dropLast(4) + ".ncz"
                     val tmpNcz = File(tempDir, "${idx}_$nczName")
                     RandomAccessFile(src.parentFile, "r").use { raf ->
@@ -1019,7 +1022,7 @@ object StormNczEngine {
                         preparedItems.add(Triple(nczName, null, tmpNcz))
                         compressedNcaCount++
                     }
-                } else if (!useBlockNcz && isNcz) {
+                } else if (!shouldCompressNca && isNcz) {
                     val ncaName = src.entryName.dropLast(4) + ".nca"
                     val tmpNca = File(tempDir, "${idx}_$ncaName")
                     RandomAccessFile(src.parentFile, "r").use { raf ->
