@@ -96,15 +96,18 @@ object StormNczEngine {
     }
 
     fun extractCleanGameTitle(fileName: String): String {
-        val noExt = fileName.substringBeforeLast('.')
+        val knownExtRegex = Regex("""(?i)\.(nsp|nsz|xci|xcz|3ds|cia|nca|ncz|zip|rar|7z)$""")
+        val noExt = fileName.replace(knownExtRegex, "")
         val stripped = noExt
             .replace(Regex("""\[[^\]]*\]"""), " ")
             .replace(Regex("""\([^)]*\)"""), " ")
-            .replace(Regex("""(?i)\b(v\d+(?:\.\d+)*|upd|update|patch|dlc|base|mod|rus|multi\d*|switch|nsp|nsz|xci|xcz)\b"""), " ")
-            .replace(Regex("""[_\-.]+"""), " ")
+            .replace("[", " ")
+            .replace("]", " ")
+            .replace(Regex("""(?i)\b(v\d+(?:\.\d+)*|upd|update|patch|dlc|base|mod|rus|multi\d*|nintendo|switch|nsp|nsz|xci|xcz)\b"""), " ")
+            .replace(Regex("""[_\-]+|\.+"""), " ")
             .replace(Regex("""\s+"""), " ")
             .trim()
-        return stripped.ifBlank { noExt.take(32) }
+        return stripped.ifBlank { noExt.replace("[", "").replace("]", "").trim().take(32) }
     }
 
     fun analyzeQueuedFile(file: File): QueuedItemInfo {
@@ -196,13 +199,38 @@ object StormNczEngine {
     }
 
     fun formatSize(bytes: Long): String {
-        if (bytes < 1024) return "$bytes B"
-        val kb = bytes / 1024.0
-        if (kb < 1024) return String.format("%.2f KB", kb)
+        val safe = bytes.coerceAtLeast(0L)
+        if (safe < 1024L) return "$safe Б"
+        val ruLocale = java.util.Locale("ru", "RU")
+        val kb = safe / 1024.0
+        if (kb < 1024.0) return String.format(ruLocale, "%.2f КБ", kb)
         val mb = kb / 1024.0
-        if (mb < 1024) return String.format("%.2f MB", mb)
+        if (mb < 1024.0) return String.format(ruLocale, "%.2f МБ", mb)
         val gb = mb / 1024.0
-        return String.format("%.2f GB", gb)
+        return String.format(ruLocale, "%.2f ГБ", gb)
+    }
+
+    fun localizeSizeText(raw: String): String {
+        return raw.trim()
+            .replace(".", ",")
+            .replace(Regex("""(?i)\bGB\b"""), "ГБ")
+            .replace(Regex("""(?i)\bMB\b"""), "МБ")
+            .replace(Regex("""(?i)\bKB\b"""), "КБ")
+            .replace(Regex("""(?i)\bB\b"""), "Б")
+    }
+
+    fun parseSizeToBytes(sizeText: String): Long {
+        val clean = sizeText.replace(",", ".").replace(" ", " ").trim()
+        val m = Regex("""(\d+(?:\.\d+)?)\s*(GB|ГБ|MB|МБ|KB|КБ|B|Б)?""", RegexOption.IGNORE_CASE).find(clean)
+            ?: return 75L * 1024L * 1024L
+        val num = m.groupValues[1].toDoubleOrNull() ?: 75.0
+        val unit = m.groupValues[2].uppercase()
+        return when (unit) {
+            "GB", "ГБ" -> (num * 1024.0 * 1024.0 * 1024.0).toLong()
+            "KB", "КБ" -> (num * 1024.0).toLong()
+            "B", "Б" -> num.toLong()
+            else -> (num * 1024.0 * 1024.0).toLong()
+        }
     }
 
     /**
@@ -1103,13 +1131,11 @@ object StormNczEngine {
             else -> if (useBlockNcz) "nsz" else "nsp"
         }
 
-        val firstBaseName = inputFiles.first().nameWithoutExtension
-            .replace(Regex("\\[(UPD|DLC|BASE|v\\d+)[^\\]]*\\]", RegexOption.IGNORE_CASE), "")
-            .trim()
-            .ifBlank { inputFiles.first().nameWithoutExtension }
-
-        val suffixTag = if (inputFiles.size > 1 || embeddedModsCount > 0) "_[Multi]" else ""
-        val outputFile = File(outputDir, "${firstBaseName}${suffixTag}.$finalExt")
+        val cleanTitle = extractCleanGameTitle(inputFiles.first().name)
+        val primaryTid = detectedTitleIds.firstOrNull()?.let { normalizeBaseTitleId(it).ifEmpty { it } } ?: ""
+        val tidPart = if (primaryTid.isNotEmpty()) " [$primaryTid]" else ""
+        val suffixTag = if (inputFiles.size > 1 || embeddedModsCount > 0) "[Multi]" else ""
+        val outputFile = File(outputDir, "${cleanTitle}${tidPart}${suffixTag}.$finalExt")
 
         val sourceList = collected.values.toList()
         val totalSourceBytes = sourceList.sumOf { it.size }.coerceAtLeast(1L)

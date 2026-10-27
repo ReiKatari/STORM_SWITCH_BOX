@@ -77,7 +77,7 @@ public sealed class VolumetricButton : Button
 public sealed class InstallerForm : Form
 {
     private const string AppDisplayName = "STORM SWITCH BOX";
-    private static readonly string AppVersion = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "5.5.2";
+    private static readonly string AppVersion = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "5.5.3";
     private const string AppFolderName = "STORM SWITCH BOX";
     private const string ExeName = "StormSwitchBox.exe";
     private const string IcoName = "app.ico";
