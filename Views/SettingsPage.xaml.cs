@@ -706,6 +706,133 @@ namespace StormSwitchBox.Views
             }
         }
 
+
+        private async void DownloadOnlineKeysButton_Click(object sender, RoutedEventArgs e)
+        {
+            string version = "23.0.0";
+            if (OnlineKeysVersionCombo?.SelectedItem is ComboBoxItem cbi && cbi.Tag is string tagVer && !string.IsNullOrWhiteSpace(tagVer))
+            {
+                version = tagVer.Trim();
+            }
+
+            if (DownloadOnlineKeysBtn != null) DownloadOnlineKeysBtn.IsEnabled = false;
+            if (OnlineKeysStatusTxt != null) OnlineKeysStatusTxt.Text = $"⏳ Подключение к репозиторию STORM SWITCH TOOLS и скачивание ключей {version}...";
+
+            try
+            {
+                string baseUrl = $"https://github.com/ReiKatari/STORM_SWITCH_TOOLS/releases/download/STORM_SWITCH_TOOLS_KEYS/{version}.zip";
+                string[] candidateUrls = new[]
+                {
+                    baseUrl,
+                    "https://gh.con.sh/" + baseUrl,
+                    "https://gh.llkk.cc/" + baseUrl,
+                    "https://ghfast.top/" + baseUrl
+                };
+
+                byte[]? zipBytes = null;
+                using var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(20) };
+                http.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "STORM_SWITCH_BOX_KeysDownloader");
+
+                foreach (var url in candidateUrls)
+                {
+                    try
+                    {
+                        using var resp = await http.GetAsync(url);
+                        if (!resp.IsSuccessStatusCode) continue;
+                        var bytes = await resp.Content.ReadAsByteArrayAsync();
+                        if (bytes.Length > 200 && bytes[0] == 0x50 && bytes[1] == 0x4B)
+                        {
+                            zipBytes = bytes;
+                            break;
+                        }
+                    }
+                    catch { }
+                }
+
+                if (zipBytes == null)
+                {
+                    throw new Exception("Не удалось скачать архив ключей ни с одного зеркала GitHub.");
+                }
+
+                string localKeysDir = System.IO.Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "StormSwitchBox", "keys");
+                System.IO.Directory.CreateDirectory(localKeysDir);
+
+                string userSwitchDir = System.IO.Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                    ".switch");
+                System.IO.Directory.CreateDirectory(userSwitchDir);
+
+                string prodKeysDest = System.IO.Path.Combine(localKeysDir, "prod.keys");
+                int extractedCount = 0;
+
+                using (var ms = new System.IO.MemoryStream(zipBytes))
+                using (var archive = new System.IO.Compression.ZipArchive(ms, System.IO.Compression.ZipArchiveMode.Read))
+                {
+                    foreach (var entry in archive.Entries)
+                    {
+                        string name = System.IO.Path.GetFileName(entry.FullName);
+                        bool isProd = name.Equals("prod.keys", StringComparison.OrdinalIgnoreCase);
+                        bool isTitle = name.Equals("title.keys", StringComparison.OrdinalIgnoreCase);
+                        if (!isProd && !isTitle) continue;
+
+                        using var entryStream = entry.Open();
+                        using var outMs = new System.IO.MemoryStream();
+                        if (isProd)
+                        {
+                            byte[] header = System.Text.Encoding.UTF8.GetBytes($"# STORM SWITCH KEYS: {version}\n");
+                            outMs.Write(header, 0, header.Length);
+                        }
+                        await entryStream.CopyToAsync(outMs);
+                        byte[] finalBytes = outMs.ToArray();
+
+                        string target1 = System.IO.Path.Combine(localKeysDir, name.ToLowerInvariant());
+                        await System.IO.File.WriteAllBytesAsync(target1, finalBytes);
+
+                        try
+                        {
+                            string target2 = System.IO.Path.Combine(userSwitchDir, name.ToLowerInvariant());
+                            await System.IO.File.WriteAllBytesAsync(target2, finalBytes);
+                        }
+                        catch { }
+
+                        extractedCount++;
+                    }
+                }
+
+                if (extractedCount == 0 || !System.IO.File.Exists(prodKeysDest))
+                {
+                    throw new Exception("В скачанном архиве не найден файл prod.keys.");
+                }
+
+                App.Settings.Current.KeysPath = prodKeysDest;
+                App.Settings.Current.KeysVersion = version;
+                PopulateKeysVersion(version);
+                await App.Settings.SaveAsync();
+                App.EnsureUserKeysAvailable();
+                this.Bindings.Update();
+
+                if (OnlineKeysStatusTxt != null)
+                {
+                    OnlineKeysStatusTxt.Text = $"✅ Ключи prod.keys и title.keys (версия {version}) успешно скачаны и установлены!";
+                }
+                App.Logger?.Log($"[Keys] Онлайн-ключи STORM SWITCH TOOLS ({version}) успешно установлены в {prodKeysDest}", Models.LogLevel.Success);
+            }
+            catch (Exception ex)
+            {
+                if (OnlineKeysStatusTxt != null)
+                {
+                    OnlineKeysStatusTxt.Text = $"❌ Ошибка загрузки ключей: {ex.Message}";
+                }
+                App.Logger?.Log($"[Keys] Ошибка онлайн-загрузки ключей: {ex.Message}", Models.LogLevel.Error);
+            }
+            finally
+            {
+                if (DownloadOnlineKeysBtn != null) DownloadOnlineKeysBtn.IsEnabled = true;
+            }
+        }
+
         private async void SelectKeysButton_Click(object sender, RoutedEventArgs e)
         {
             string? filePath = await SystemDialogService.OpenFileDialogAsync(

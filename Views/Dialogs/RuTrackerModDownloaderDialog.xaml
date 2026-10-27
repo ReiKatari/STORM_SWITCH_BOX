@@ -5,7 +5,7 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
-    Title="🌐 RuTracker и Облачный загрузчик игр, патчей и модов (Switch и 3DS)"
+    Title="🌐 RuTracker и облачный загрузчик игр, патчей и модов (Nintendo Switch)"
     CloseButtonText="Закрыть"
     DefaultButton="None"
     KeyDown="Dialog_KeyDown"
@@ -53,10 +53,10 @@
             </Grid.ColumnDefinitions>
 
             <ComboBox x:Name="ForumSectionCombo" Grid.Column="0" SelectedIndex="0" HorizontalAlignment="Stretch" CornerRadius="6"
-                      ToolTipService.ToolTip="Раздел поиска на RuTracker">
-                <ComboBoxItem Content="Switch + 3DS" Tag="1605,2481,2188"/>
-                <ComboBoxItem Content="Nintendo Switch" Tag="1605,2481"/>
-                <ComboBoxItem Content="Nintendo 3DS" Tag="2188"/>
+                      ToolTipService.ToolTip="Раздел поиска Nintendo Switch на RuTracker">
+                <ComboBoxItem Content="Switch (Все)" Tag="1605,2481"/>
+                <ComboBoxItem Content="Switch (Игры)" Tag="1605"/>
+                <ComboBoxItem Content="Switch (Моды/RUS)" Tag="2481"/>
             </ComboBox>
 
             <TextBox x:Name="SearchOrUrlBox" Grid.Column="1"

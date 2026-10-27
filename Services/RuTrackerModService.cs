@@ -318,13 +318,13 @@ namespace StormSwitchBox.Services
             Encoding cp1251 = Encoding.GetEncoding(1251);
             var results = new List<RuTrackerTopicItem>();
 
-            // Профильные разделы Nintendo на RuTracker:
-            // 1605 = Nintendo Switch, 2481 = Switch (Русификаторы / Моды), 2188 = Nintendo 3DS / DS, 548 = Консольные игры
+            // Профильные разделы Nintendo Switch на RuTracker:
+            // 1605 = Nintendo Switch (Игры), 2481 = Nintendo Switch (Русификаторы / Патчи / Моды)
             string forums = categoryFilter switch
             {
-                "SWITCH" => "1605,2481",
-                "3DS" => "2188",
-                _ => "1605,2481,2188,548"
+                "SWITCH_GAMES" => "1605",
+                "SWITCH_MODS" => "2481",
+                _ => "1605,2481"
             };
 
             string searchQuery = string.IsNullOrWhiteSpace(query) ? "Nintendo Switch" : query;

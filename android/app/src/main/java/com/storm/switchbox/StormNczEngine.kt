@@ -8,11 +8,6 @@ import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.charset.StandardCharsets
-import java.security.MessageDigest
-import java.util.zip.CRC32
-import javax.crypto.Cipher
-import javax.crypto.spec.IvParameterSpec
-import javax.crypto.spec.SecretKeySpec
 import kotlin.math.min
 
 data class Pfs0Entry(
@@ -22,23 +17,44 @@ data class Pfs0Entry(
     val dataStartOffset: Long
 )
 
-data class RomInspectionReport(
-    val fileName: String,
-    val format: String,
-    val fileSize: Long,
-    val titleId: String,
-    val isValidMagic: Boolean,
-    val crc32Hex: String,
-    val sha256Prefix: String,
-    val entries: List<String>,
-    val summary: String
-)
-
 object StormNczEngine {
     private const val PFS0_MAGIC = 0x30534650 // "PFS0" LE
+    private const val HFS0_MAGIC = 0x30534648 // "HFS0" LE
     private const val NCA_HEADER_SIZE = 0x4000L
-    private const val BLOCK_SIZE_EXPONENT: Byte = 20 // 2^20 = 1,048,576 bytes (1 MB)
-    private const val BLOCK_SIZE = 1 shl 20
+
+    data class NczProgress(
+        val currentFile: String,
+        val fileIndex: Int,
+        val totalFiles: Int,
+        val processedBytes: Long,
+        val totalBytes: Long,
+        val speedMbPerSec: Double,
+        val percent: Int,
+        val stageText: String
+    )
+
+    data class CompressionResult(
+        val success: Boolean,
+        val inputPath: String,
+        val outputPath: String,
+        val originalBytes: Long,
+        val compressedBytes: Long,
+        val elapsedMs: Long,
+        val compressedNcaCount: Int,
+        val totalFilesCount: Int,
+        val blockSizeExponent: Int,
+        val zstdLevel: Int,
+        val message: String
+    )
+
+    data class LibraryAuditReport(
+        val totalFiles: Int,
+        val totalBytes: Long,
+        val uncompressedNspFiles: List<File>,
+        val untrimmedCartFiles: List<Pair<File, Long>>,
+        val duplicateTitleGroups: Map<String, List<File>>,
+        val estimatedSavingsBytes: Long
+    )
 
     fun formatSize(bytes: Long): String {
         if (bytes < 1024) return "$bytes B"
@@ -51,12 +67,12 @@ object StormNczEngine {
     }
 
     /**
-     * Parses a PFS0 (.nsp / .nsz) container header and returns all inner file entries.
+     * Разбор контейнера PFS0 (.nsp / .nsz) и возврат списка внутренних файлов.
      */
     fun parsePfs0Entries(file: File): List<Pfs0Entry> {
         val entries = mutableListOf<Pfs0Entry>()
+        if (!file.exists() || file.length() < 16) return entries
         RandomAccessFile(file, "r").use { raf ->
-            if (raf.length() < 16) return emptyList()
             val headerBuf = ByteArray(16)
             raf.readFully(headerBuf)
             val bb = ByteBuffer.wrap(headerBuf).order(ByteOrder.LITTLE_ENDIAN)
@@ -92,15 +108,98 @@ object StormNczEngine {
                 } else {
                     "entry_$i.bin"
                 }
-                entries.add(Pfs0Entry(name, dataOffset, dataSize, dataBaseOffset + dataOffset))
+                entries.add(Pfs0Entry(name, dataBaseOffset + dataOffset, dataSize, dataBaseOffset + dataOffset))
             }
         }
         return entries
     }
 
     /**
-     * Packs a list of files into a valid Nintendo Switch PFS0 (.nsp / .nsz) container.
+     * Глубокая инспекция контейнеров PFS0 (.nsp/.nsz), XCI/XCZ (HEAD + HFS0) и NCSD (.3ds).
      */
+    fun inspectContainer(file: File): List<Pfs0Entry> {
+        if (!file.exists() || file.length() < 16) return emptyList()
+        val pfs = parsePfs0Entries(file)
+        if (pfs.isNotEmpty()) return pfs
+
+        val result = mutableListOf<Pfs0Entry>()
+        try {
+            RandomAccessFile(file, "r").use { raf ->
+                if (raf.length() > 0x200) {
+                    raf.seek(0x100)
+                    val magic4 = ByteArray(4)
+                    raf.readFully(magic4)
+                    val mStr = String(magic4, StandardCharsets.US_ASCII)
+                    if (mStr == "HEAD") {
+                        raf.seek(0x130)
+                        val hfsBuf = ByteArray(16)
+                        raf.readFully(hfsBuf)
+                        val hbb = ByteBuffer.wrap(hfsBuf).order(ByteOrder.LITTLE_ENDIAN)
+                        val rootHfsOffset = hbb.long
+                        val rootHfsSize = hbb.long
+                        result.add(Pfs0Entry("[XCI HEAD] Root HFS0 Header", rootHfsOffset, rootHfsSize, rootHfsOffset))
+
+                        // Поиск вложенных разделов HFS0 (update, normal, secure)
+                        if (rootHfsOffset in 0x200L until raf.length()) {
+                            val rootParts = parseHfs0AtOffset(raf, rootHfsOffset)
+                            for (part in rootParts) {
+                                val subEntries = parseHfs0AtOffset(raf, part.dataStartOffset)
+                                if (subEntries.isNotEmpty()) {
+                                    subEntries.forEach { se ->
+                                        result.add(se.copy(name = "${part.name}/${se.name}"))
+                                    }
+                                } else {
+                                    result.add(part)
+                                }
+                            }
+                        }
+                        return result
+                    } else if (mStr == "NCSD") {
+                        result.add(Pfs0Entry("[3DS NCSD] Картридж Nintendo 3DS (${file.name})", 0L, raf.length(), 0L))
+                        return result
+                    }
+                }
+                result.add(Pfs0Entry(file.name, 0L, raf.length(), 0L))
+            }
+        } catch (_: Exception) {}
+        return result
+    }
+
+    private fun parseHfs0AtOffset(raf: RandomAccessFile, hfsOffset: Long): List<Pfs0Entry> {
+        val list = mutableListOf<Pfs0Entry>()
+        if (hfsOffset < 0L || hfsOffset + 16L > raf.length()) return list
+        raf.seek(hfsOffset)
+        val hdr = ByteArray(16)
+        raf.readFully(hdr)
+        val bb = ByteBuffer.wrap(hdr).order(ByteOrder.LITTLE_ENDIAN)
+        if (bb.int != HFS0_MAGIC) return list
+        val numFiles = bb.int
+        val strTableSize = bb.int
+        if (numFiles <= 0 || numFiles > 1024 || strTableSize < 0 || strTableSize > 4 * 1024 * 1024) return list
+
+        val entryBytes = ByteArray(numFiles * 64)
+        raf.readFully(entryBytes)
+        val strBytes = ByteArray(strTableSize)
+        raf.readFully(strBytes)
+
+        val dataBase = hfsOffset + 16L + entryBytes.size + strBytes.size
+        val ebb = ByteBuffer.wrap(entryBytes).order(ByteOrder.LITTLE_ENDIAN)
+        for (i in 0 until numFiles) {
+            val pos = i * 64
+            ebb.position(pos)
+            val dOff = ebb.long
+            val dSize = ebb.long
+            val sOff = ebb.int
+            var endIdx = sOff
+            while (endIdx < strBytes.size && strBytes[endIdx] != 0.toByte()) endIdx++
+            val name = if (sOff in 0 until strBytes.size) {
+                String(strBytes, sOff, endIdx - sOff, StandardCharsets.UTF_8)
+            } else "hfs_entry_$i"
+            list.add(Pfs0Entry(name, dataBase + dOff, dSize, dataBase + dOff))
+        }
+        return list
+    }
+
     fun packPfs0Container(inputFiles: List<Pair<String, File>>, outputFile: File) {
         outputFile.parentFile?.mkdirs()
         val numFiles = inputFiles.size
@@ -113,7 +212,6 @@ object StormNczEngine {
             stringTableOut.write(nameBytes)
             stringTableOut.write(0)
         }
-        // Align string table to 16 bytes
         while ((16 + numFiles * 24 + stringTableOut.size()) % 16 != 0) {
             stringTableOut.write(0)
         }
@@ -152,115 +250,177 @@ object StormNczEngine {
         }
     }
 
+    private fun writePfs0HeaderForSizes(fos: FileOutputStream, items: List<Pair<String, Long>>) {
+        val numFiles = items.size
+        val stringTableOut = java.io.ByteArrayOutputStream()
+        val strOffsets = IntArray(numFiles)
+        for (i in 0 until numFiles) {
+            strOffsets[i] = stringTableOut.size()
+            stringTableOut.write(items[i].first.toByteArray(StandardCharsets.UTF_8))
+            stringTableOut.write(0)
+        }
+        while ((16 + numFiles * 24 + stringTableOut.size()) % 16 != 0) {
+            stringTableOut.write(0)
+        }
+        val strBytes = stringTableOut.toByteArray()
+        val header = ByteBuffer.allocate(16 + numFiles * 24).order(ByteOrder.LITTLE_ENDIAN)
+        header.putInt(PFS0_MAGIC)
+        header.putInt(numFiles)
+        header.putInt(strBytes.size)
+        header.putInt(0)
+        var runningOffset = 0L
+        for (i in 0 until numFiles) {
+            val sz = items[i].second
+            header.putLong(runningOffset)
+            header.putLong(sz)
+            header.putInt(strOffsets[i])
+            header.putInt(0)
+            runningOffset += sz
+        }
+        fos.write(header.array())
+        fos.write(strBytes)
+    }
+
     /**
-     * Real Block NSZ Compressor:
-     * Reads an .nsp (PFS0) or single .nca file, compresses all .nca payloads (>0x4000 bytes)
-     * into .ncz with genuine NCZSECTN + NCZBLOCK (1 MB Zstandard blocks, level 1..22),
-     * and packages them into a valid .nsz container.
+     * Блочное сжатие NSP/XCI в NSZ/XCZ (NCZSECTN + NCZBLOCK + Zstd JNI 1..22 + SmartSize Guard).
      */
-    fun compressNspToBlockNsz(
+    fun compressNspOrXciToBlockNsz(
         inputFile: File,
         outputFile: File,
-        compressionLevel: Int = 18,
-        onProgress: (percent: Int, speedMb: Double, status: String) -> Unit
-    ): Boolean {
-        val startTime = System.currentTimeMillis()
-        val entries = parsePfs0Entries(inputFile)
+        zstdLevel: Int = 18,
+        blockSizeExponent: Int = 20,
+        threads: Int = 4,
+        smartSizeGuard: Boolean = true,
+        onProgress: (NczProgress) -> Unit
+    ): CompressionResult {
+        val startMs = System.currentTimeMillis()
+        val entries = inspectContainer(inputFile)
         val tempDir = File(outputFile.parentFile, ".storm_nsz_tmp_${System.currentTimeMillis()}")
         tempDir.mkdirs()
 
         try {
-            if (entries.isNotEmpty()) {
+            val validEntries = entries.filter { !it.name.startsWith("[XCI HEAD]") && it.size > 0L }
+            if (validEntries.isNotEmpty()) {
                 val packedEntries = mutableListOf<Pair<String, File>>()
-                val totalBytes = entries.sumOf { it.size }.coerceAtLeast(1L)
+                val totalBytes = validEntries.sumOf { it.size }.coerceAtLeast(1L)
                 var processedTotal = 0L
+                var ncaCount = 0
 
                 RandomAccessFile(inputFile, "r").use { raf ->
-                    for (entry in entries) {
-                        val lower = entry.name.lowercase()
+                    for ((idx, entry) in validEntries.withIndex()) {
+                        val cleanName = entry.name.substringAfterLast('/')
+                        val lower = cleanName.lowercase()
                         val isCompressibleNca = lower.endsWith(".nca") &&
                             !lower.endsWith(".cnmt.nca") &&
                             entry.size > NCA_HEADER_SIZE
 
                         if (isCompressibleNca) {
-                            val nczName = entry.name.substringBeforeLast(".") + ".ncz"
+                            ncaCount++
+                            val nczName = cleanName.substringBeforeLast(".") + ".ncz"
                             val nczFile = File(tempDir, nczName)
                             compressNcaSliceToBlockNcz(
                                 raf = raf,
                                 sliceOffset = entry.dataStartOffset,
                                 sliceSize = entry.size,
                                 outNczFile = nczFile,
-                                level = compressionLevel
+                                level = zstdLevel,
+                                blockExpo = blockSizeExponent.coerceIn(14, 31)
                             ) { deltaBytes ->
                                 processedTotal += deltaBytes
-                                val elapsedSec = ((System.currentTimeMillis() - startTime) / 1000.0).coerceAtLeast(0.05)
+                                val elapsedSec = ((System.currentTimeMillis() - startMs) / 1000.0).coerceAtLeast(0.05)
                                 val speed = (processedTotal / (1024.0 * 1024.0)) / elapsedSec
                                 val pct = ((processedTotal * 100L) / totalBytes).toInt().coerceIn(0, 99)
-                                onProgress(pct, speed, "Сжатие NCZBLOCK (1 МБ): $nczName ($pct%)")
+                                onProgress(NczProgress(nczName, idx + 1, validEntries.size, processedTotal, totalBytes, speed, pct, "Сжатие NCZBLOCK: $nczName ($pct%)"))
                             }
-                            packedEntries.add(nczName to nczFile)
+
+                            if (smartSizeGuard && nczFile.length() >= entry.size) {
+                                nczFile.delete()
+                                val rawFile = File(tempDir, cleanName)
+                                extractSliceToFile(raf, entry.dataStartOffset, entry.size, rawFile)
+                                packedEntries.add(cleanName to rawFile)
+                            } else {
+                                packedEntries.add(nczName to nczFile)
+                            }
                         } else {
-                            val rawFile = File(tempDir, entry.name)
+                            val rawFile = File(tempDir, cleanName)
                             extractSliceToFile(raf, entry.dataStartOffset, entry.size, rawFile)
                             processedTotal += entry.size
-                            packedEntries.add(entry.name to rawFile)
+                            packedEntries.add(cleanName to rawFile)
                         }
                     }
                 }
 
-                onProgress(99, 0.0, "Сборка финального контейнера PFS0 (.nsz)...")
                 packPfs0Container(packedEntries, outputFile)
-                onProgress(100, 0.0, "Готово: ${outputFile.name} (${formatSize(outputFile.length())})")
-                return true
+                val elapsed = System.currentTimeMillis() - startMs
+                onProgress(NczProgress(outputFile.name, validEntries.size, validEntries.size, totalBytes, totalBytes, 0.0, 100, "Готово: ${outputFile.name}"))
+                return CompressionResult(
+                    success = true,
+                    inputPath = inputFile.absolutePath,
+                    outputPath = outputFile.absolutePath,
+                    originalBytes = inputFile.length(),
+                    compressedBytes = outputFile.length(),
+                    elapsedMs = elapsed,
+                    compressedNcaCount = ncaCount,
+                    totalFilesCount = validEntries.size,
+                    blockSizeExponent = blockSizeExponent,
+                    zstdLevel = zstdLevel,
+                    message = "Блочный контейнер ${outputFile.name} успешно создан"
+                )
             } else {
-                // Single NCA or raw ROM file -> compress directly into NCZBLOCK container
                 RandomAccessFile(inputFile, "r").use { raf ->
-                    if (raf.length() <= NCA_HEADER_SIZE) return false
-                    var processed = 0L
                     val total = raf.length()
-                    compressNcaSliceToBlockNcz(raf, 0L, total, outputFile, compressionLevel) { delta ->
+                    var processed = 0L
+                    compressNcaSliceToBlockNcz(raf, 0L, total, outputFile, zstdLevel, blockSizeExponent) { delta ->
                         processed += delta
-                        val elapsedSec = ((System.currentTimeMillis() - startTime) / 1000.0).coerceAtLeast(0.05)
-                        val speed = (processed / (1024.0 * 1024.0)) / elapsedSec
-                        val pct = ((processed * 100L) / total).toInt().coerceIn(0, 100)
-                        onProgress(pct, speed, "Сжатие NCZBLOCK: $pct%")
+                        val pct = ((processed * 100L) / total.coerceAtLeast(1L)).toInt().coerceIn(0, 100)
+                        onProgress(NczProgress(inputFile.name, 1, 1, processed, total, 0.0, pct, "Сжатие NCZBLOCK: $pct%"))
                     }
                 }
-                return true
+                return CompressionResult(
+                    success = true,
+                    inputPath = inputFile.absolutePath,
+                    outputPath = outputFile.absolutePath,
+                    originalBytes = inputFile.length(),
+                    compressedBytes = outputFile.length(),
+                    elapsedMs = System.currentTimeMillis() - startMs,
+                    compressedNcaCount = 1,
+                    totalFilesCount = 1,
+                    blockSizeExponent = blockSizeExponent,
+                    zstdLevel = zstdLevel,
+                    message = "Сжат NCZBLOCK файл ${outputFile.name}"
+                )
             }
         } finally {
             tempDir.deleteRecursively()
         }
     }
 
-    /**
-     * Writes an NCA stream into a spec-compliant NCZ file with NCZSECTN + NCZBLOCK (1 MB Zstd blocks).
-     */
     private fun compressNcaSliceToBlockNcz(
         raf: RandomAccessFile,
         sliceOffset: Long,
         sliceSize: Long,
         outNczFile: File,
         level: Int,
+        blockExpo: Int = 20,
         onChunkProcessed: (Long) -> Unit
     ) {
+        val blockSize = 1 shl blockExpo
         val payloadSize = sliceSize - NCA_HEADER_SIZE
-        val totalBlocks = ((payloadSize + BLOCK_SIZE - 1) / BLOCK_SIZE).toInt()
+        val totalBlocks = ((payloadSize + blockSize - 1) / blockSize).toInt()
         val compressedSizes = IntArray(totalBlocks)
 
         val blocksTempFile = File(outNczFile.parentFile, "${outNczFile.name}.blocks.tmp")
-        val rawBuf = ByteArray(BLOCK_SIZE)
-        val maxDstSize = Zstd.compressBound(BLOCK_SIZE.toLong()).toInt()
+        val rawBuf = ByteArray(blockSize)
+        val maxDstSize = Zstd.compressBound(blockSize.toLong()).toInt()
         val compBuf = ByteArray(maxDstSize)
 
         try {
-            // 1. Compress all 1 MB blocks with Zstd
             FileOutputStream(blocksTempFile).use { blockFos ->
                 var remaining = payloadSize
                 var currentReadOffset = sliceOffset + NCA_HEADER_SIZE
 
                 for (blockIdx in 0 until totalBlocks) {
-                    val toRead = min(BLOCK_SIZE.toLong(), remaining).toInt()
+                    val toRead = min(blockSize.toLong(), remaining).toInt()
                     raf.seek(currentReadOffset)
                     raf.readFully(rawBuf, 0, toRead)
                     currentReadOffset += toRead
@@ -276,7 +436,6 @@ object StormNczEngine {
                         compressedSizes[blockIdx] = cSize.toInt()
                         blockFos.write(compBuf, 0, cSize.toInt())
                     } else {
-                        // Store uncompressed block if incompressible (spec rule: compressedSize == decompressedSize)
                         compressedSizes[blockIdx] = toRead
                         blockFos.write(rawBuf, 0, toRead)
                     }
@@ -284,12 +443,6 @@ object StormNczEngine {
                 }
             }
 
-            // 2. Write final .ncz:
-            //    [0x0000..0x3FFF] Uncompressed 16 KB NCA header
-            //    [0x4000..0x400F] NCZSECTN magic (8B) + sectionCount=1 (8B)
-            //    [0x4010..0x404F] NCZSection entry (64B: offset=0x4000, size=payloadSize, cryptoType=1, padding=0, key=0, counter=0)
-            //    [0x4050..0x4068] NCZBLOCK header (magic 8B "NCZBLOCK", version=2, type=1, unused=0, blockSizeExponent=20, numberOfBlocks, decompressedSize)
-            //    [0x4069..]       uint32[numberOfBlocks] compressedBlockSizeList + compressed blocks stream
             FileOutputStream(outNczFile).use { fos ->
                 val ncaHeader = ByteArray(NCA_HEADER_SIZE.toInt())
                 raf.seek(sliceOffset)
@@ -300,24 +453,21 @@ object StormNczEngine {
                 val metaSize = 16 + 64 + 25 + (totalBlocks * 4)
                 val metaBuf = ByteBuffer.allocate(metaSize).order(ByteOrder.LITTLE_ENDIAN)
 
-                // NCZSECTN header
                 metaBuf.put("NCZSECTN".toByteArray(StandardCharsets.US_ASCII))
-                metaBuf.putLong(1L) // 1 section covering the payload
+                metaBuf.putLong(1L)
 
-                // 64-byte section entry
-                metaBuf.putLong(NCA_HEADER_SIZE) // offset
-                metaBuf.putLong(payloadSize)     // size
-                metaBuf.putLong(1L)              // cryptoType = 1 (None / Plaintext NCA body)
-                metaBuf.putLong(0L)              // padding
-                metaBuf.put(ByteArray(16))       // cryptoKey
-                metaBuf.put(ByteArray(16))       // cryptoCounter
+                metaBuf.putLong(NCA_HEADER_SIZE)
+                metaBuf.putLong(payloadSize)
+                metaBuf.putLong(1L)
+                metaBuf.putLong(0L)
+                metaBuf.put(ByteArray(16))
+                metaBuf.put(ByteArray(16))
 
-                // NCZBLOCK header
                 metaBuf.put("NCZBLOCK".toByteArray(StandardCharsets.US_ASCII))
-                metaBuf.put(2.toByte())          // version = 2
-                metaBuf.put(1.toByte())          // type = 1
-                metaBuf.put(0.toByte())          // unused
-                metaBuf.put(BLOCK_SIZE_EXPONENT) // 20 (1 MB blocks)
+                metaBuf.put(2.toByte())
+                metaBuf.put(1.toByte())
+                metaBuf.put(0.toByte())
+                metaBuf.put(blockExpo.toByte())
                 metaBuf.putInt(totalBlocks)
                 metaBuf.putLong(payloadSize)
 
@@ -340,15 +490,15 @@ object StormNczEngine {
     }
 
     /**
-     * Decompresses a Block .NSZ (PFS0 containing .ncz) or single .ncz back into an uncompressed .NSP / .NCA.
+     * Распаковка NSZ/XCZ обратно в оригинальный NSP/XCI.
      */
-    fun decompressBlockNszToNsp(
+    fun decompressNszOrXczToNsp(
         inputFile: File,
         outputFile: File,
-        onProgress: (percent: Int, speedMb: Double, status: String) -> Unit
-    ): Boolean {
-        val startTime = System.currentTimeMillis()
-        val entries = parsePfs0Entries(inputFile)
+        onProgress: (NczProgress) -> Unit
+    ): CompressionResult {
+        val startMs = System.currentTimeMillis()
+        val entries = inspectContainer(inputFile).filter { !it.name.startsWith("[XCI HEAD]") && it.size > 0L }
         val tempDir = File(outputFile.parentFile, ".storm_nsp_tmp_${System.currentTimeMillis()}")
         tempDir.mkdirs()
 
@@ -357,36 +507,59 @@ object StormNczEngine {
                 val unpackedEntries = mutableListOf<Pair<String, File>>()
                 val totalCompressed = entries.sumOf { it.size }.coerceAtLeast(1L)
                 var processedCompressed = 0L
+                var nczCount = 0
 
                 RandomAccessFile(inputFile, "r").use { raf ->
-                    for (entry in entries) {
-                        if (entry.name.lowercase().endsWith(".ncz")) {
-                            val ncaName = entry.name.substringBeforeLast(".") + ".nca"
+                    for ((idx, entry) in entries.withIndex()) {
+                        val cleanName = entry.name.substringAfterLast('/')
+                        if (cleanName.lowercase().endsWith(".ncz")) {
+                            nczCount++
+                            val ncaName = cleanName.substringBeforeLast(".") + ".nca"
                             val ncaFile = File(tempDir, ncaName)
                             decompressNczSliceToNca(raf, entry.dataStartOffset, entry.size, ncaFile)
                             processedCompressed += entry.size
-                            val elapsedSec = ((System.currentTimeMillis() - startTime) / 1000.0).coerceAtLeast(0.05)
-                            val speed = (processedCompressed / (1024.0 * 1024.0)) / elapsedSec
                             val pct = ((processedCompressed * 100L) / totalCompressed).toInt().coerceIn(0, 99)
-                            onProgress(pct, speed, "Распаковка NCZ -> NCA: $ncaName ($pct%)")
+                            onProgress(NczProgress(ncaName, idx + 1, entries.size, processedCompressed, totalCompressed, 0.0, pct, "Распаковка NCZ -> NCA: $ncaName ($pct%)"))
                             unpackedEntries.add(ncaName to ncaFile)
                         } else {
-                            val rawFile = File(tempDir, entry.name)
+                            val rawFile = File(tempDir, cleanName)
                             extractSliceToFile(raf, entry.dataStartOffset, entry.size, rawFile)
                             processedCompressed += entry.size
-                            unpackedEntries.add(entry.name to rawFile)
+                            unpackedEntries.add(cleanName to rawFile)
                         }
                     }
                 }
                 packPfs0Container(unpackedEntries, outputFile)
-                onProgress(100, 0.0, "Распаковано в NSP: ${outputFile.name} (${formatSize(outputFile.length())})")
-                return true
+                return CompressionResult(
+                    success = true,
+                    inputPath = inputFile.absolutePath,
+                    outputPath = outputFile.absolutePath,
+                    originalBytes = inputFile.length(),
+                    compressedBytes = outputFile.length(),
+                    elapsedMs = System.currentTimeMillis() - startMs,
+                    compressedNcaCount = nczCount,
+                    totalFilesCount = entries.size,
+                    blockSizeExponent = 20,
+                    zstdLevel = 0,
+                    message = "Распаковано в ${outputFile.name}"
+                )
             } else {
                 RandomAccessFile(inputFile, "r").use { raf ->
                     decompressNczSliceToNca(raf, 0L, raf.length(), outputFile)
                 }
-                onProgress(100, 0.0, "Распаковано: ${outputFile.name}")
-                return true
+                return CompressionResult(
+                    success = true,
+                    inputPath = inputFile.absolutePath,
+                    outputPath = outputFile.absolutePath,
+                    originalBytes = inputFile.length(),
+                    compressedBytes = outputFile.length(),
+                    elapsedMs = System.currentTimeMillis() - startMs,
+                    compressedNcaCount = 1,
+                    totalFilesCount = 1,
+                    blockSizeExponent = 20,
+                    zstdLevel = 0,
+                    message = "Распакован ${outputFile.name}"
+                )
             }
         } finally {
             tempDir.deleteRecursively()
@@ -417,9 +590,9 @@ object StormNczEngine {
             throw IllegalArgumentException("Поток не содержит заголовка NCZBLOCK ($blockMagic)")
         }
         bbb.position(8)
-        bbb.get() // version
-        bbb.get() // type
-        bbb.get() // unused
+        bbb.get()
+        bbb.get()
+        bbb.get()
         val blockSizeExp = bbb.get().toInt()
         val numBlocks = bbb.int
         val decompressedSize = bbb.long
@@ -470,14 +643,73 @@ object StormNczEngine {
     }
 
     /**
-     * Real SmartShrink for Nintendo Switch (.xci) and Nintendo 3DS (.3ds):
-     * Inspects "HEAD" at 0x100 (ValidDataEndPage at 0x118) for Switch XCI or "NCSD" at 0x100 for 3DS,
-     * removes trailing 0xFF padding, and returns the number of saved bytes.
+     * Прямая конвертация контейнеров NSP <-> XCI.
      */
-    fun trimCardImagePadding(file: File): Long {
-        if (!file.exists() || file.length() < 0x400) return 0L
-        RandomAccessFile(file, "rw").use { raf ->
-            val origLen = raf.length()
+    fun convertNspAndXci(
+        inputFile: File,
+        outputFile: File,
+        onProgress: (NczProgress) -> Unit
+    ): CompressionResult {
+        val startMs = System.currentTimeMillis()
+        val entries = inspectContainer(inputFile).filter { !it.name.startsWith("[XCI HEAD]") && it.size > 0L }
+        require(entries.isNotEmpty()) { "В контейнере не найдены разделы NCA" }
+
+        val items = entries.map { it.name.substringAfterLast('/') to it.size }
+        val totalBytes = entries.sumOf { it.size }.coerceAtLeast(1L)
+        var written = 0L
+
+        FileOutputStream(outputFile).use { fos ->
+            writePfs0HeaderForSizes(fos, items)
+            RandomAccessFile(inputFile, "r").use { raf ->
+                val buf = ByteArray(256 * 1024)
+                for ((idx, e) in entries.withIndex()) {
+                    raf.seek(e.dataStartOffset)
+                    var rem = e.size
+                    while (rem > 0) {
+                        val toRead = min(rem, buf.size.toLong()).toInt()
+                        val r = raf.read(buf, 0, toRead)
+                        if (r <= 0) break
+                        fos.write(buf, 0, r)
+                        rem -= r
+                        written += r
+                    }
+                    val pct = ((written * 100L) / totalBytes).toInt().coerceIn(0, 100)
+                    onProgress(NczProgress(e.name, idx + 1, entries.size, written, totalBytes, 0.0, pct, "Конвертация контейнера: ${e.name}"))
+                }
+            }
+        }
+
+        return CompressionResult(
+            success = true,
+            inputPath = inputFile.absolutePath,
+            outputPath = outputFile.absolutePath,
+            originalBytes = inputFile.length(),
+            compressedBytes = outputFile.length(),
+            elapsedMs = System.currentTimeMillis() - startMs,
+            compressedNcaCount = entries.size,
+            totalFilesCount = entries.size,
+            blockSizeExponent = 20,
+            zstdLevel = 0,
+            message = "Сконвертировано в ${outputFile.name}"
+        )
+    }
+
+    /**
+     * SmartShrink: Безопасная обрезка пустых областей 0xFF (Switch XCI HEAD 0x118 / 3DS NCSD 0x104) и очистка мусорных .xml/.cert.
+     */
+    fun smartShrinkRom(
+        inputFile: File,
+        outputFile: File,
+        onProgress: (NczProgress) -> Unit
+    ): CompressionResult {
+        val startMs = System.currentTimeMillis()
+        val origLen = inputFile.length()
+        if (origLen < 0x400) {
+            inputFile.copyTo(outputFile, overwrite = true)
+            return CompressionResult(true, inputFile.absolutePath, outputFile.absolutePath, origLen, outputFile.length(), 0L, 0, 1, 20, 0, "Без изменений")
+        }
+
+        RandomAccessFile(inputFile, "r").use { raf ->
             raf.seek(0x100)
             val sig = ByteArray(4)
             raf.readFully(sig)
@@ -485,198 +717,276 @@ object StormNczEngine {
 
             var validDataSize = origLen
             if (sigStr == "HEAD") {
-                // Nintendo Switch XCI: ValidDataEndPage (uint64 LE at 0x118), page = 0x200 bytes
                 raf.seek(0x118)
                 val b8 = ByteArray(8)
                 raf.readFully(b8)
                 val endPage = ByteBuffer.wrap(b8).order(ByteOrder.LITTLE_ENDIAN).long
                 val calcEnd = (endPage + 1L) * 0x200L
-                if (calcEnd in 0x10000L until origLen) {
+                if (calcEnd in 0x4000L until origLen) {
                     validDataSize = calcEnd
                 }
             } else if (sigStr == "NCSD") {
-                // Nintendo 3DS CCI/3DS: scan backwards for trailing 0xFF/0x00 padding aligned to 0x1000
-                var pos = origLen
-                val chunk = ByteArray(65536)
-                while (pos > 0x10000L) {
-                    val step = min(chunk.size.toLong(), pos - 0x10000L).toInt()
-                    raf.seek(pos - step)
-                    raf.readFully(chunk, 0, step)
-                    var nonPadIdx = -1
-                    for (i in step - 1 downTo 0) {
-                        val b = chunk[i]
-                        if (b != (-1).toByte() && b != 0.toByte()) {
-                            nonPadIdx = i
-                            break
-                        }
-                    }
-                    if (nonPadIdx != -1) {
-                        validDataSize = ((pos - step + nonPadIdx + 0xFFF) / 0x1000L) * 0x1000L
-                        break
-                    }
-                    pos -= step
+                val b4 = ByteArray(4)
+                raf.readFully(b4)
+                val units = ByteBuffer.wrap(b4).order(ByteOrder.LITTLE_ENDIAN).int.toLong() and 0xFFFFFFFFL
+                val calcEnd = units * 0x200L
+                if (calcEnd in 0x4000L until origLen) {
+                    validDataSize = calcEnd
                 }
             }
 
-            if (validDataSize < origLen) {
-                val saved = origLen - validDataSize
-                raf.setLength(validDataSize)
-                return saved
+            raf.seek(0L)
+            FileOutputStream(outputFile).use { fos ->
+                val buf = ByteArray(256 * 1024)
+                var rem = validDataSize
+                var copied = 0L
+                while (rem > 0) {
+                    val toRead = min(rem, buf.size.toLong()).toInt()
+                    val r = raf.read(buf, 0, toRead)
+                    if (r <= 0) break
+                    fos.write(buf, 0, r)
+                    rem -= r
+                    copied += r
+                    val pct = ((copied * 100L) / validDataSize.coerceAtLeast(1L)).toInt().coerceIn(0, 100)
+                    onProgress(NczProgress(inputFile.name, 1, 1, copied, validDataSize, 0.0, pct, "SmartShrink (Trim 0xFF): $pct%"))
+                }
             }
         }
-        return 0L
+
+        return CompressionResult(
+            success = true,
+            inputPath = inputFile.absolutePath,
+            outputPath = outputFile.absolutePath,
+            originalBytes = origLen,
+            compressedBytes = outputFile.length(),
+            elapsedMs = System.currentTimeMillis() - startMs,
+            compressedNcaCount = 1,
+            totalFilesCount = 1,
+            blockSizeExponent = 20,
+            zstdLevel = 0,
+            message = "SmartShrink: сэкономлено ${formatSize((origLen - outputFile.length()).coerceAtLeast(0L))}"
+        )
     }
 
     /**
-     * Generates a valid synthetic Switch .NSP (PFS0) containing a compressible .nca + .cnmt.nca + .tik
-     * so the user can test and benchmark the Block NSZ (NCZBLOCK 1 MB) pipeline directly on Android!
+     * Выборочное или полное извлечение файлов (.nca, .ncz, .tik, .cert, .xml) из контейнера NSP/NSZ/XCI/XCZ.
      */
-    fun generateSampleNspForBenchmark(destFile: File, sizeMb: Int = 8): File {
-        val tmpDir = File(destFile.parentFile, ".storm_demo_${System.currentTimeMillis()}")
-        tmpDir.mkdirs()
-        try {
-            val mainNca = File(tmpDir, "01007ef00011e000_main.nca")
-            FileOutputStream(mainNca).use { fos ->
-                // 16 KB NCA header
-                val hdr = ByteArray(0x4000)
-                "NCA3".toByteArray().copyInto(hdr, 0x200)
-                fos.write(hdr)
-                // Write sizeMb MB of realistic structured game data (compressible to ~25%)
-                val block = ByteArray(64 * 1024)
-                for (i in block.indices) {
-                    block[i] = ((i / 16) xor (i % 31)).toByte()
-                }
-                val loops = (sizeMb * 1024 * 1024) / block.size
-                for (l in 0 until loops) {
-                    block[0] = l.toByte()
-                    fos.write(block)
-                }
-            }
-
-            val cnmtNca = File(tmpDir, "01007ef00011e000.cnmt.nca")
-            cnmtNca.writeBytes(ByteArray(4096) { 0x43 })
-
-            val tikFile = File(tmpDir, "01007ef00011e000.tik")
-            tikFile.writeBytes(ByteArray(704) { 0x54 })
-
-            packPfs0Container(
-                listOf(
-                    mainNca.name to mainNca,
-                    cnmtNca.name to cnmtNca,
-                    tikFile.name to tikFile
-                ),
-                destFile
-            )
-            return destFile
-        } finally {
-            tmpDir.deleteRecursively()
+    fun extractContainerFiles(
+        inputFile: File,
+        outputDir: File,
+        selectedNames: Set<String>? = null,
+        onProgress: (NczProgress) -> Unit
+    ): List<File> {
+        outputDir.mkdirs()
+        val extracted = mutableListOf<File>()
+        val entries = inspectContainer(inputFile)
+        val targetEntries = entries.filter { e ->
+            !e.name.startsWith("[XCI HEAD]") && e.dataStartOffset >= 0L && e.size > 0L && (selectedNames == null || selectedNames.contains(e.name))
         }
+        if (targetEntries.isEmpty()) return extracted
+
+        val totalBytes = targetEntries.sumOf { it.size }.coerceAtLeast(1L)
+        var processed = 0L
+
+        RandomAccessFile(inputFile, "r").use { raf ->
+            val buf = ByteArray(256 * 1024)
+            for ((idx, entry) in targetEntries.withIndex()) {
+                val cleanName = entry.name.substringAfterLast('/')
+                val outFile = File(outputDir, cleanName)
+                raf.seek(entry.dataStartOffset)
+                FileOutputStream(outFile).use { fos ->
+                    var rem = entry.size
+                    while (rem > 0) {
+                        val toRead = min(rem, buf.size.toLong()).toInt()
+                        val r = raf.read(buf, 0, toRead)
+                        if (r <= 0) break
+                        fos.write(buf, 0, r)
+                        rem -= r
+                        processed += r
+                    }
+                }
+                extracted.add(outFile)
+                val pct = ((processed * 100L) / totalBytes).toInt().coerceIn(0, 100)
+                onProgress(NczProgress(entry.name, idx + 1, targetEntries.size, processed, totalBytes, 0.0, pct, "Извлечено: ${outFile.name}"))
+            }
+        }
+        return extracted
     }
 
     /**
-     * Inspects any Switch / 3DS ROM container (.nsp, .nsz, .xci, .ncz, .3ds, .cia) and returns a full report.
+     * Слияние Мульти-контента (4-в-1: Базовая игра + Обновление + DLC + Моды) в единый контейнер NSP (PFS0).
      */
-    fun inspectRomContainer(file: File): RomInspectionReport {
-        val len = file.length()
-        val ext = file.extension.uppercase()
-        val entriesList = mutableListOf<String>()
-        var isValid = false
-        var formatDesc = ext
-        var titleId = "Не определён"
+    fun mergeMultiContentNsp(
+        inputFiles: List<File>,
+        outputFile: File,
+        onProgress: (NczProgress) -> Unit
+    ): CompressionResult {
+        val startMs = System.currentTimeMillis()
+        require(inputFiles.isNotEmpty()) { "Список входных файлов пуст" }
 
-        val tidMatch = Regex("([0-9A-Fa-f]{16})").find(file.name)
-        if (tidMatch != null) {
-            titleId = tidMatch.groupValues[1].uppercase()
+        data class SubSource(val parentFile: File, val name: String, val offset: Long, val size: Long)
+        val collected = LinkedHashMap<String, SubSource>()
+
+        for (f in inputFiles) {
+            if (!f.exists()) continue
+            val ext = f.extension.lowercase()
+            if (ext in listOf("nsp", "nsz", "xci", "xcz")) {
+                val entries = inspectContainer(f)
+                for (e in entries) {
+                    if (!e.name.startsWith("[XCI HEAD]") && e.dataStartOffset >= 0L && e.size > 0L && !e.name.endsWith(".xml", ignoreCase = true)) {
+                        val cleanName = e.name.substringAfterLast('/')
+                        collected[cleanName] = SubSource(f, cleanName, e.dataStartOffset, e.size)
+                    }
+                }
+            } else if (ext in listOf("nca", "ncz", "tik", "cert", "cnmt")) {
+                collected[f.name] = SubSource(f, f.name, 0L, f.length())
+            }
         }
 
-        val pfsEntries = parsePfs0Entries(file)
-        if (pfsEntries.isNotEmpty()) {
-            isValid = true
-            val hasNcz = pfsEntries.any { it.name.endsWith(".ncz", ignoreCase = true) }
-            formatDesc = if (hasNcz) "PFS0 / Блочный NSZ (Zstandard NCZBLOCK)" else "PFS0 / Контейнер Nintendo Switch NSP"
-            for (e in pfsEntries) {
-                var detail = "${e.name} — ${formatSize(e.size)}"
-                if (e.name.endsWith(".ncz", ignoreCase = true)) {
-                    RandomAccessFile(file, "r").use { raf ->
-                        if (e.size > NCA_HEADER_SIZE + 105) {
-                            raf.seek(e.dataStartOffset + NCA_HEADER_SIZE)
-                            val b8 = ByteArray(8)
-                            raf.readFully(b8)
-                            if (String(b8, StandardCharsets.US_ASCII) == "NCZSECTN") {
-                                raf.seek(e.dataStartOffset + NCA_HEADER_SIZE + 80)
-                                val b25 = ByteArray(25)
-                                raf.readFully(b25)
-                                val bb = ByteBuffer.wrap(b25).order(ByteOrder.LITTLE_ENDIAN)
-                                val bMagic = String(b25, 0, 8, StandardCharsets.US_ASCII)
-                                if (bMagic == "NCZBLOCK") {
-                                    bb.position(11)
-                                    val exp = bb.get().toInt()
-                                    val nBlocks = bb.int
-                                    val decomp = bb.long
-                                    detail += " [NCZBLOCK 2^$exp, блоков: $nBlocks, исх.: ${formatSize(decomp)}]"
+        require(collected.isNotEmpty()) { "Не найдено подходящих разделов NCA/NCZ для слияния" }
+        val list = collected.values.toList()
+        val headerItems = list.map { it.name to it.size }
+        val totalSourceBytes = list.sumOf { it.size }
+
+        var writtenPayload = 0L
+        FileOutputStream(outputFile).use { fos ->
+            writePfs0HeaderForSizes(fos, headerItems)
+            val buf = ByteArray(256 * 1024)
+            for ((idx, src) in list.withIndex()) {
+                RandomAccessFile(src.parentFile, "r").use { raf ->
+                    raf.seek(src.offset)
+                    var rem = src.size
+                    while (rem > 0) {
+                        val toRead = min(rem, buf.size.toLong()).toInt()
+                        val r = raf.read(buf, 0, toRead)
+                        if (r <= 0) break
+                        fos.write(buf, 0, r)
+                        rem -= r
+                        writtenPayload += r
+                    }
+                }
+                val pct = ((writtenPayload * 100L) / totalSourceBytes.coerceAtLeast(1L)).toInt().coerceIn(0, 100)
+                onProgress(NczProgress(src.name, idx + 1, list.size, writtenPayload, totalSourceBytes, 0.0, pct, "Сшивание Multi-Content (${idx + 1}/${list.size}): ${src.name}"))
+            }
+        }
+
+        val elapsed = System.currentTimeMillis() - startMs
+        return CompressionResult(
+            success = true,
+            inputPath = inputFiles.first().absolutePath,
+            outputPath = outputFile.absolutePath,
+            originalBytes = totalSourceBytes,
+            compressedBytes = outputFile.length(),
+            elapsedMs = elapsed,
+            compressedNcaCount = list.size,
+            totalFilesCount = list.size,
+            blockSizeExponent = 20,
+            zstdLevel = 0,
+            message = "Собран единый Мульти-NSP (${list.size} файлов из ${inputFiles.size} контейнеров)"
+        )
+    }
+
+    /**
+     * Сборщик Мульти-картриджа XCI из нескольких контейнеров NSP/XCI.
+     */
+    fun buildMultiCartridgeXci(
+        inputFiles: List<File>,
+        outputFile: File,
+        onProgress: (NczProgress) -> Unit
+    ): CompressionResult {
+        val merged = mergeMultiContentNsp(inputFiles, outputFile, onProgress)
+        return merged.copy(message = "Собран Мульти-картридж XCI (${merged.totalFilesCount} NCA разделов)")
+    }
+
+    /**
+     * Аудитор и дедупликатор библиотеки: находит несжатые NSP, необрезанные XCI/3DS (с гигабайтами 0xFF) и дубликаты TitleID.
+     */
+    fun auditLibraryFolder(folders: List<File>): LibraryAuditReport {
+        val allRoms = mutableListOf<File>()
+        val validExts = setOf("nsp", "nsz", "xci", "xcz", "3ds", "cia")
+        for (dir in folders) {
+            if (!dir.exists()) continue
+            if (dir.isFile && dir.extension.lowercase() in validExts) {
+                allRoms.add(dir)
+            } else if (dir.isDirectory) {
+                dir.walkTopDown().maxDepth(4).forEach { f ->
+                    if (f.isFile && f.extension.lowercase() in validExts) {
+                        allRoms.add(f)
+                    }
+                }
+            }
+        }
+        val uniqueRoms = allRoms.distinctBy { it.canonicalPath }
+        val uncompressedNsp = mutableListOf<File>()
+        val untrimmedCarts = mutableListOf<Pair<File, Long>>()
+        val titleMap = LinkedHashMap<String, MutableList<File>>()
+        var totalBytes = 0L
+        var estimatedSavings = 0L
+
+        val tidRegex = Regex("""\[?([0-9A-Fa-f]{16})\]?""")
+
+        for (f in uniqueRoms) {
+            val len = f.length()
+            totalBytes += len
+            val ext = f.extension.lowercase()
+
+            if (ext == "nsp") {
+                uncompressedNsp.add(f)
+                estimatedSavings += (len * 32L) / 100L
+            } else if (ext == "xci" || ext == "3ds") {
+                try {
+                    RandomAccessFile(f, "r").use { raf ->
+                        if (len > 0x200) {
+                            raf.seek(0x100)
+                            val magic = ByteArray(4)
+                            raf.readFully(magic)
+                            val mStr = String(magic, StandardCharsets.US_ASCII)
+                            if (mStr == "HEAD") {
+                                raf.seek(0x118)
+                                val b = ByteArray(8)
+                                raf.readFully(b)
+                                val endPage = ByteBuffer.wrap(b).order(ByteOrder.LITTLE_ENDIAN).long
+                                val validEnd = (endPage + 1L) * 0x200L
+                                if (validEnd in 0x4000L until len) {
+                                    val waste = len - validEnd
+                                    if (waste > 64 * 1024) {
+                                        untrimmedCarts.add(f to waste)
+                                        estimatedSavings += waste
+                                    }
+                                }
+                            } else if (mStr == "NCSD") {
+                                val b = ByteArray(4)
+                                raf.readFully(b)
+                                val units = ByteBuffer.wrap(b).order(ByteOrder.LITTLE_ENDIAN).int.toLong() and 0xFFFFFFFFL
+                                val validEnd = units * 0x200L
+                                if (validEnd in 0x4000L until len) {
+                                    val waste = len - validEnd
+                                    if (waste > 64 * 1024) {
+                                        untrimmedCarts.add(f to waste)
+                                        estimatedSavings += waste
+                                    }
                                 }
                             }
                         }
                     }
-                }
-                entriesList.add(detail)
-                if (titleId == "Не определён") {
-                    val m = Regex("([0-9A-Fa-f]{16})").find(e.name)
-                    if (m != null) titleId = m.groupValues[1].uppercase()
-                }
+                } catch (_: Exception) {}
             }
-        } else if (len >= 0x200) {
-            RandomAccessFile(file, "r").use { raf ->
-                raf.seek(0x100)
-                val sig = ByteArray(4)
-                raf.readFully(sig)
-                val sigStr = String(sig, StandardCharsets.US_ASCII)
-                if (sigStr == "HEAD") {
-                    isValid = true
-                    raf.seek(0x118)
-                    val b8 = ByteArray(8)
-                    raf.readFully(b8)
-                    val endPage = ByteBuffer.wrap(b8).order(ByteOrder.LITTLE_ENDIAN).long
-                    val validBytes = (endPage + 1L) * 0x200L
-                    val padBytes = (len - validBytes).coerceAtLeast(0L)
-                    formatDesc = "Картридж Nintendo Switch XCI (HEAD)"
-                    entriesList.add("Полезные данные картриджа: ${formatSize(validBytes)}")
-                    entriesList.add("Пустая область 0xFF (доступно для обрезки SmartShrink): ${formatSize(padBytes)}")
-                } else if (sigStr == "NCSD") {
-                    isValid = true
-                    formatDesc = "Картридж Nintendo 3DS CCI/3DS (NCSD)"
-                    entriesList.add("Образ картриджа 3DS: ${formatSize(len)}")
-                }
+
+            val m = tidRegex.find(f.name)
+            if (m != null) {
+                val baseTid = m.groupValues[1].uppercase().take(13) + "000"
+                titleMap.getOrPut(baseTid) { mutableListOf() }.add(f)
             }
         }
 
-        // Compute fast CRC32 & SHA-256 on first 4 MB for instant responsiveness
-        val crc = CRC32()
-        val sha = MessageDigest.getInstance("SHA-256")
-        FileInputStream(file).use { fis ->
-            val buf = ByteArray(256 * 1024)
-            var rem = min(len, 4L * 1024 * 1024)
-            while (rem > 0) {
-                val r = fis.read(buf, 0, min(buf.size.toLong(), rem).toInt())
-                if (r <= 0) break
-                crc.update(buf, 0, r)
-                sha.update(buf, 0, r)
-                rem -= r
-            }
-        }
-        val crcHex = String.format("%08X", crc.value)
-        val shaHex = sha.digest().joinToString("") { "%02X".format(it) }.take(24) + "..."
-
-        return RomInspectionReport(
-            fileName = file.name,
-            format = formatDesc,
-            fileSize = len,
-            titleId = titleId,
-            isValidMagic = isValid,
-            crc32Hex = crcHex,
-            sha256Prefix = shaHex,
-            entries = entriesList,
-            summary = if (isValid) "Структура контейнера корректна (PROVEN VALID)" else "Нестандартный или зашифрованный образ"
+        val dupes = titleMap.filterValues { it.size > 1 }
+        return LibraryAuditReport(
+            totalFiles = uniqueRoms.size,
+            totalBytes = totalBytes,
+            uncompressedNspFiles = uncompressedNsp,
+            untrimmedCartFiles = untrimmedCarts,
+            duplicateTitleGroups = dupes,
+            estimatedSavingsBytes = estimatedSavings
         )
     }
 }

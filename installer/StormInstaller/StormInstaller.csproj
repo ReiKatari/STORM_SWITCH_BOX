@@ -7,15 +7,15 @@
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
     <ApplicationIcon>..\..\Assets\AppIcon.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <AssemblyName>STORM_SWITCH_BOX_5.4.0_Setup</AssemblyName>
+    <AssemblyName>STORM_SWITCH_BOX_5.5.0_Setup</AssemblyName>
     <AssemblyTitle>STORM SWITCH BOX</AssemblyTitle>
     <Title>STORM SWITCH BOX</Title>
     <RootNamespace>StormSwitchBox.Installer</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <Version>5.4.0</Version>
-    <AssemblyVersion>5.4.0.0</AssemblyVersion>
-    <FileVersion>5.4.0.0</FileVersion>
+    <Version>5.5.0</Version>
+    <AssemblyVersion>5.5.0.0</AssemblyVersion>
+    <FileVersion>5.5.0.0</FileVersion>
     <Product>STORM SWITCH BOX</Product>
     <Company>STORM TEAM</Company>
     <Copyright>Copyright © 2026 STORM TEAM. All rights reserved.</Copyright>
@@ -24,7 +24,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="..\..\Files\STORM_SWITCH_BOX_5.4.0_win-x64.zip" Link="Payload.zip" />
+    <EmbeddedResource Include="..\..\Files\STORM_SWITCH_BOX_5.5.0_win-x64.zip" Link="Payload.zip" />
     <EmbeddedResource Include="..\..\Assets\AppIcon.ico" Link="app.ico" />
     <EmbeddedResource Include="F:\STORM ALL PROJECTS\.storm-secrets\STORM_SERTIFICATE.cer" Link="STORM_SERTIFICATE.cer" />
   </ItemGroup>

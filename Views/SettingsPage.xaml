@@ -287,7 +287,7 @@
                             </Border>
                             <StackPanel Grid.Column="1" Spacing="6">
                                 <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                                    <TextBlock x:Name="AppTitleVersionTxt" Text="STORM SWITCH BOX 5.4.0" FontWeight="Bold" FontSize="22"/>
+                                    <TextBlock x:Name="AppTitleVersionTxt" Text="STORM SWITCH BOX 5.5.0" FontWeight="Bold" FontSize="22"/>
                                     <Border Background="{ThemeResource SystemAccentColor}" CornerRadius="4" Padding="6,2" VerticalAlignment="Center">
                                         <TextBlock Text="WinUI 3 Native" Foreground="White" FontSize="11" FontWeight="Bold"/>
                                     </Border>
@@ -317,31 +317,61 @@
                         <TextBlock x:Name="SwitchKeysHeaderTxt" Text="Криптографические ключи Nintendo Switch" FontWeight="SemiBold" FontSize="15" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
                     </StackPanel>
                     <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="20">
-                        <Grid AllowDrop="True" DragOver="KeysFile_DragOver" Drop="KeysFile_Drop" Padding="4" CornerRadius="6">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <StackPanel VerticalAlignment="Center" Spacing="4" Margin="0,0,16,0">
-                                <TextBlock x:Name="SwitchKeysTitleTxt" Text="Файл криптографических ключей (prod.keys / keys.txt)" FontWeight="Medium" VerticalAlignment="Center" TextWrapping="Wrap"/>
-                                <TextBlock x:Name="SwitchKeysDescTxt" Text="Загружать ключи для расшифровки. Можно перетащить файл прямо сюда" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
-                            </StackPanel>
-                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
-                                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" Visibility="{x:Bind KeysSelectedVisibility, Mode=OneTime}">
-                                    <FontIcon Glyph="&#xE73E;" Foreground="LimeGreen" FontSize="14"/>
-                                    <TextBlock x:Name="SwitchKeysLoadedTxt" Text="Файл выбран" Foreground="LimeGreen" FontWeight="SemiBold" VerticalAlignment="Center" FontSize="12"/>
+                        <StackPanel Spacing="14">
+                            <Grid AllowDrop="True" DragOver="KeysFile_DragOver" Drop="KeysFile_Drop" Padding="4" CornerRadius="6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel VerticalAlignment="Center" Spacing="4" Margin="0,0,16,0">
+                                    <TextBlock x:Name="SwitchKeysTitleTxt" Text="Файл криптографических ключей (prod.keys / keys.txt)" FontWeight="Medium" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                    <TextBlock x:Name="SwitchKeysDescTxt" Text="Загружать ключи для расшифровки. Можно перетащить файл прямо сюда" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
                                 </StackPanel>
-                                <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" ToolTipService.ToolTip="Версия ключей прошивки (6 ячеек)">
-                                    <TextBox x:Name="VerBox1" Width="32" Height="32" CornerRadius="6" MaxLength="1" FontSize="14" FontWeight="Bold" Padding="0,3,0,0" TextAlignment="Center" KeyDown="VerBox_KeyDown" TextChanged="VerBox_TextChanged"/>
-                                    <TextBox x:Name="VerBox2" Width="32" Height="32" CornerRadius="6" MaxLength="1" FontSize="14" FontWeight="Bold" Padding="0,3,0,0" TextAlignment="Center" KeyDown="VerBox_KeyDown" TextChanged="VerBox_TextChanged"/>
-                                    <TextBlock Text="." FontSize="18" FontWeight="Bold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" Margin="1,0,1,0"/>
-                                    <TextBox x:Name="VerBox4" Width="32" Height="32" CornerRadius="6" MaxLength="1" FontSize="14" FontWeight="Bold" Padding="0,3,0,0" TextAlignment="Center" KeyDown="VerBox_KeyDown" TextChanged="VerBox_TextChanged"/>
-                                    <TextBlock Text="." FontSize="18" FontWeight="Bold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" Margin="1,0,1,0"/>
-                                    <TextBox x:Name="VerBox6" Width="32" Height="32" CornerRadius="6" MaxLength="1" FontSize="14" FontWeight="Bold" Padding="0,3,0,0" TextAlignment="Center" KeyDown="VerBox_KeyDown" TextChanged="VerBox_TextChanged"/>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
+                                    <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" Visibility="{x:Bind KeysSelectedVisibility, Mode=OneTime}">
+                                        <FontIcon Glyph="&#xE73E;" Foreground="LimeGreen" FontSize="14"/>
+                                        <TextBlock x:Name="SwitchKeysLoadedTxt" Text="Файл выбран" Foreground="LimeGreen" FontWeight="SemiBold" VerticalAlignment="Center" FontSize="12"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" ToolTipService.ToolTip="Версия ключей прошивки (6 ячеек)">
+                                        <TextBox x:Name="VerBox1" Width="32" Height="32" CornerRadius="6" MaxLength="1" FontSize="14" FontWeight="Bold" Padding="0,3,0,0" TextAlignment="Center" KeyDown="VerBox_KeyDown" TextChanged="VerBox_TextChanged"/>
+                                        <TextBox x:Name="VerBox2" Width="32" Height="32" CornerRadius="6" MaxLength="1" FontSize="14" FontWeight="Bold" Padding="0,3,0,0" TextAlignment="Center" KeyDown="VerBox_KeyDown" TextChanged="VerBox_TextChanged"/>
+                                        <TextBlock Text="." FontSize="18" FontWeight="Bold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" Margin="1,0,1,0"/>
+                                        <TextBox x:Name="VerBox4" Width="32" Height="32" CornerRadius="6" MaxLength="1" FontSize="14" FontWeight="Bold" Padding="0,3,0,0" TextAlignment="Center" KeyDown="VerBox_KeyDown" TextChanged="VerBox_TextChanged"/>
+                                        <TextBlock Text="." FontSize="18" FontWeight="Bold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" Margin="1,0,1,0"/>
+                                        <TextBox x:Name="VerBox6" Width="32" Height="32" CornerRadius="6" MaxLength="1" FontSize="14" FontWeight="Bold" Padding="0,3,0,0" TextAlignment="Center" KeyDown="VerBox_KeyDown" TextChanged="VerBox_TextChanged"/>
+                                    </StackPanel>
+                                    <Button x:Name="SelectKeysButton" Content="📂 Выбрать файл" Click="SelectKeysButton_Click" VerticalAlignment="Center" CornerRadius="6"/>
                                 </StackPanel>
-                                <Button x:Name="SelectKeysButton" Content="📂 Выбрать файл" Click="SelectKeysButton_Click" VerticalAlignment="Center" CornerRadius="6"/>
-                            </StackPanel>
-                        </Grid>
+                            </Grid>
+
+                            <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
+
+                            <!-- Онлайн-загрузка ключей как в STORM SWITCH -->
+                            <Grid ColumnDefinitions="*,Auto" Padding="4,0">
+                                <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="4" Margin="0,0,16,0">
+                                    <TextBlock Text="🌐 Онлайн-загрузка ключей Nintendo Switch (STORM SWITCH TOOLS)" FontWeight="Medium" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                    <TextBlock x:Name="OnlineKeysStatusTxt" Text="Автоматическое скачивание и установка свежих prod.keys и title.keys из облачного репозитория STORM SWITCH" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                                    <ComboBox x:Name="OnlineKeysVersionCombo" Width="190" SelectedIndex="0" CornerRadius="6" ToolTipService.ToolTip="Выберите версию ключей прошивки HOS">
+                                        <ComboBoxItem Content="23.0.0 (Рекомендуется)" Tag="23.0.0"/>
+                                        <ComboBoxItem Content="22.5.0" Tag="22.5.0"/>
+                                        <ComboBoxItem Content="22.1.0" Tag="22.1.0"/>
+                                        <ComboBoxItem Content="22.0.0" Tag="22.0.0"/>
+                                        <ComboBoxItem Content="21.2.0" Tag="21.2.0"/>
+                                        <ComboBoxItem Content="21.1.0" Tag="21.1.0"/>
+                                        <ComboBoxItem Content="21.0.1" Tag="21.0.1"/>
+                                        <ComboBoxItem Content="21.0.0" Tag="21.0.0"/>
+                                        <ComboBoxItem Content="20.5.0" Tag="20.5.0"/>
+                                        <ComboBoxItem Content="20.1.0" Tag="20.1.0"/>
+                                        <ComboBoxItem Content="20.0.1" Tag="20.0.1"/>
+                                        <ComboBoxItem Content="20.0.0" Tag="20.0.0"/>
+                                        <ComboBoxItem Content="19.0.1" Tag="19.0.1"/>
+                                    </ComboBox>
+                                    <Button x:Name="DownloadOnlineKeysBtn" Content="⬇️ Скачать ключи" Click="DownloadOnlineKeysButton_Click" Style="{StaticResource AccentButtonStyle}" VerticalAlignment="Center" CornerRadius="6"/>
+                                </StackPanel>
+                            </Grid>
+                        </StackPanel>
                     </Border>
                 </StackPanel>
 
