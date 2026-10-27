@@ -105,6 +105,7 @@ class MainActivity : Activity() {
     private var currentThemeIndex = 0
     private var currentLangCode = "ru"
     private var activeTab = 0
+    private var navScrollX = 0
 
     // Параметры движка и пакетной очереди (сохраняются локально)
     private val queuedFiles = mutableListOf<File>()
@@ -178,7 +179,7 @@ class MainActivity : Activity() {
         }
 
         buildUserInterface()
-        appendLog("STORM SWITCH BOX ${"5.5.1"} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) готов к работе.")
+        appendLog("STORM SWITCH BOX ${"5.5.2"} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) готов к работе.")
 
         // Автоматическая проверка обновлений с GitHub при запуске
         if (autoCheckUpdatesOnStartup) {
@@ -616,7 +617,7 @@ class MainActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
         titleCol.addView(TextView(this).apply {
-            text = "STORM SWITCH BOX ${"5.5.1"}"
+            text = "STORM SWITCH BOX ${"5.5.2"}"
             setTextColor(th.textPrimary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
             typeface = Typeface.DEFAULT_BOLD
@@ -635,11 +636,16 @@ class MainActivity : Activity() {
         header.addView(updateBadgeBtn)
         rootLayout.addView(header)
 
-        // 2. Панель навигации из 5 вкладок
+        // 2. Панель навигации из 5 вкладок (с сохранением позиции прокрутки и авто-фокусом на выбранной вкладке)
         val navScroll = HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
             setBackgroundColor(th.bgElevated)
             setPadding(dp(8), dp(6), dp(8), dp(6))
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                setOnScrollChangeListener { _, scrollX, _, _, _ ->
+                    navScrollX = scrollX
+                }
+            }
         }
         val navRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -658,6 +664,7 @@ class MainActivity : Activity() {
                 if (isSel) th.accent else th.bgCard,
                 if (isSel) Color.WHITE else th.textSecondary
             ) {
+                navScrollX = navScroll.scrollX
                 activeTab = idx
                 buildUserInterface()
             }
@@ -668,6 +675,17 @@ class MainActivity : Activity() {
         }
         navScroll.addView(navRow)
         rootLayout.addView(navScroll)
+        navScroll.post {
+            val activeBtn = navRow.getChildAt(activeTab)
+            if (activeBtn != null && navScroll.width > 0) {
+                val btnCenter = (activeBtn.left + activeBtn.right) / 2
+                val targetX = (btnCenter - navScroll.width / 2).coerceAtLeast(0)
+                navScroll.scrollTo(targetX, 0)
+                navScrollX = navScroll.scrollX
+            } else if (navScrollX > 0) {
+                navScroll.scrollTo(navScrollX, 0)
+            }
+        }
 
         // 3. Основной прокручиваемый контейнер
         val mainScroll = ScrollView(this).apply {
@@ -789,7 +807,7 @@ class MainActivity : Activity() {
         sourceCard.addView(outDirRow)
         parent.addView(sourceCard)
 
-        // ГРУППА 2: Очередь задач
+        // ГРУППА 2: Умная очередь обработки (автоматическая группировка разных игр по TitleID и семействам как на ПК)
         val queueCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = makeCardDrawable(th.bgCard, th.border)
@@ -799,14 +817,16 @@ class MainActivity : Activity() {
             }
         }
         val totalQueueBytes = queuedFiles.sumOf { if (it.exists()) it.length() else 0L }
+        val gameGroups = StormNczEngine.groupFilesByGameFamily(queuedFiles)
+
         val qHeaderRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
         qHeaderRow.addView(TextView(this).apply {
-            text = "2. Очередь обработки (${queuedFiles.size} файлов • ${StormNczEngine.formatSize(totalQueueBytes)})"
+            text = "2. Очередь обработки (Игр: ${gameGroups.size} • Файлов: ${queuedFiles.size} • ${StormNczEngine.formatSize(totalQueueBytes)})"
             setTextColor(th.accent)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13.5f)
             typeface = Typeface.DEFAULT_BOLD
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         })
@@ -821,56 +841,76 @@ class MainActivity : Activity() {
 
         if (queuedFiles.isEmpty()) {
             queueCard.addView(TextView(this).apply {
-                text = "Очередь пуста. Нажмите «Выбрать файлы», «Мульти-проводник» или «Выбрать любую папку» выше."
+                text = "Очередь пуста. Добавьте файлы или папки выше — программа автоматически распознает Базу, Патчи, DLC и Моды и сгруппирует их отдельно по каждой игре."
                 setTextColor(th.textSecondary)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
                 setPadding(0, dp(6), 0, dp(2))
             })
         } else {
-            queuedFiles.take(15).forEachIndexed { idx, file ->
-                val itemRow = LinearLayout(this).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = Gravity.CENTER_VERTICAL
-                    background = makeCardDrawable(
-                        if (selectedInputFile == file) th.bgElevated else th.bgPrimary,
-                        if (selectedInputFile == file) th.accent else th.border,
-                        8
-                    )
-                    setPadding(dp(10), dp(6), dp(10), dp(6))
+            gameGroups.take(10).forEach { grp ->
+                val grpBox = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    background = makeCardDrawable(th.bgPrimary, th.border, 8)
+                    setPadding(dp(10), dp(8), dp(10), dp(8))
                     layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                        topMargin = dp(5)
-                    }
-                    setOnClickListener {
-                        selectedInputFile = file
-                        buildUserInterface()
+                        topMargin = dp(6)
                     }
                 }
-                val extBadge = file.extension.uppercase().ifEmpty { "ROM" }
-                itemRow.addView(TextView(this).apply {
-                    text = "[$extBadge]"
+                val tidLabel = if (grp.baseTitleId.isNotEmpty()) " [${grp.baseTitleId}]" else ""
+                grpBox.addView(TextView(this).apply {
+                    text = "🎮 ${grp.displayTitle}$tidLabel — ${grp.items.size} ф. (${StormNczEngine.formatSize(grp.totalBytes)})"
                     setTextColor(th.accent)
-                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.2f)
                     typeface = Typeface.DEFAULT_BOLD
-                    setPadding(0, 0, dp(8), 0)
+                    setPadding(0, 0, 0, dp(4))
                 })
-                itemRow.addView(TextView(this).apply {
-                    text = "${file.name} (${StormNczEngine.formatSize(file.length())})"
-                    setTextColor(th.textPrimary)
-                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-                    maxLines = 1
-                    ellipsize = TextUtils.TruncateAt.MIDDLE
-                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-                })
-                itemRow.addView(makeButton("✕", th.bgCard, th.textSecondary) {
-                    queuedFiles.removeAt(idx)
-                    if (selectedInputFile == file) selectedInputFile = queuedFiles.firstOrNull()
-                    buildUserInterface()
-                })
-                queueCard.addView(itemRow)
+
+                grp.items.forEach { qItem ->
+                    val file = qItem.file
+                    val itemRow = LinearLayout(this).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        gravity = Gravity.CENTER_VERTICAL
+                        background = makeCardDrawable(
+                            if (selectedInputFile == file) th.bgElevated else th.bgCard,
+                            if (selectedInputFile == file) th.accent else th.border,
+                            6
+                        )
+                        setPadding(dp(8), dp(5), dp(8), dp(5))
+                        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                            topMargin = dp(4)
+                        }
+                        setOnClickListener {
+                            selectedInputFile = file
+                            buildUserInterface()
+                        }
+                    }
+                    itemRow.addView(TextView(this).apply {
+                        text = "[${qItem.roleBadge}]"
+                        setTextColor(th.accent)
+                        setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+                        typeface = Typeface.DEFAULT_BOLD
+                        setPadding(0, 0, dp(6), 0)
+                    })
+                    itemRow.addView(TextView(this).apply {
+                        text = "${file.name} (${StormNczEngine.formatSize(file.length())})"
+                        setTextColor(th.textPrimary)
+                        setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
+                        maxLines = 1
+                        ellipsize = TextUtils.TruncateAt.MIDDLE
+                        layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                    })
+                    itemRow.addView(makeButton("✕", th.bgPrimary, th.textSecondary) {
+                        queuedFiles.removeAll { it.absolutePath == file.absolutePath }
+                        if (selectedInputFile == file) selectedInputFile = queuedFiles.firstOrNull()
+                        buildUserInterface()
+                    })
+                    grpBox.addView(itemRow)
+                }
+                queueCard.addView(grpBox)
             }
-            if (queuedFiles.size > 15) {
+            if (gameGroups.size > 10) {
                 queueCard.addView(TextView(this).apply {
-                    text = "... и ещё ${queuedFiles.size - 15} файлов в пакетной очереди"
+                    text = "... и ещё ${gameGroups.size - 10} игр в пакетной очереди"
                     setTextColor(th.textSecondary)
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
                     setPadding(0, dp(4), 0, 0)
@@ -879,7 +919,7 @@ class MainActivity : Activity() {
         }
         parent.addView(queueCard)
 
-        // ГРУППА 3: Режим операции, мульти-контент, целевой формат и параметры блочного сжатия
+        // ГРУППА 3: Единый лаконичный блок формата и оптимизации (без дублирования настроек!)
         val cfgCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = makeCardDrawable(th.bgCard, th.border)
@@ -889,66 +929,24 @@ class MainActivity : Activity() {
             }
         }
         cfgCard.addView(makeSectionHeader(
-            "3. Мульти-контент, формат и блочное сжатие (Zstd / NCZBLOCK)",
-            "Умная сшивка База + Патч + DLC + Моды с выбором итогового контейнера и блочного сжатия",
+            "3. Формат файла и параметры оптимизации",
+            "Выберите желаемый выходной контейнер и профиль сжатия без лишних ручных переключателей",
             th
         ))
 
+        // 3.1 Конечный формат выходного файла (задаётся пользователем)
         cfgCard.addView(TextView(this).apply {
-            text = "Режим обработки выбранных файлов:"
+            text = "Конечный формат выходного файла:"
             setTextColor(th.textSecondary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
             setPadding(0, dp(2), 0, dp(3))
         })
 
-        val modes = listOf(
-            "Умный мульти-контент (Сшивка База + Патч + DLC + Моды в один файл)",
-            "Пакетное сжатие и конвертация (Каждый файл очереди отдельно)",
-            "Распаковка NSZ и XCZ в оригинальный NSP и XCI",
-            "SmartShrink: Обрезка пустых областей 0xFF (Switch XCI и 3DS)",
-            "Дешифратор Nintendo 3DS (.3ds и .cia в Decrypted)"
-        )
-        val modeDropdown = makeStormDropdown(modes, selectedOperationMode, th) { pos ->
-            selectedOperationMode = pos
-            saveSettings()
-        }
-        cfgCard.addView(modeDropdown)
-
-        // Способ сжатия («Умный» режим выбирает именно способ сжатия и сшивки, а не формат файла!)
-        cfgCard.addView(TextView(this).apply {
-            text = "Способ сжатия и оптимизации разделов:"
-            setTextColor(th.textSecondary)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
-            setPadding(0, dp(8), 0, dp(3))
-        })
-
-        val compressionMethods = listOf(
-            "Умный адаптивный (Авто-подбор способа сжатия блоков, дедупликации и модов)",
-            "Эталонный блочный NCZBLOCK (Строгий фиксированный блок для всех NCA)",
-            "Максимальное сжатие Zstandard Ultra (Минимальный размер файла)",
-            "Быстрая прямая сшивка контейнера (Без пережатия разделов NCA)"
-        )
-        val methodDropdown = makeStormDropdown(compressionMethods, selectedCompressionMethod, th) { pos ->
-            selectedCompressionMethod = pos
-            if (pos == 2 && zstdLevel < 19) zstdLevel = 19
-            saveSettings()
-            buildUserInterface()
-        }
-        cfgCard.addView(methodDropdown)
-
-        // Конечный формат файла строго задаётся пользователем!
-        cfgCard.addView(TextView(this).apply {
-            text = "Конечный формат выходного файла (задаётся пользователем):"
-            setTextColor(th.textSecondary)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
-            setPadding(0, dp(8), 0, dp(3))
-        })
-
         val outputFormats = listOf(
-            "NSZ — Сжатый цифровой контейнер Switch (Игры + Патчи + DLC + Моды)",
-            "XCZ — Сжатый мульти-картридж Switch (Всё-в-одном без тикетов)",
-            "NSP — Оригинальный цифровой контейнер PFS0 (Без сжатия NCA)",
-            "XCI — Оригинальный мульти-картридж HFS0 (Без сжатия NCA)"
+            "NSZ — Сжатый цифровой контейнер (Блочный NCZBLOCK, рекомендуется)",
+            "XCZ — Сжатый мульти-картридж (Блочный NCZBLOCK, без тикетов)",
+            "NSP — Оригинальный цифровой контейнер (Без сжатия NCA)",
+            "XCI — Оригинальный мульти-картридж (Без сжатия NCA)"
         )
         val formatDropdown = makeStormDropdown(outputFormats, selectedOutputFormat, th) { pos ->
             selectedOutputFormat = pos
@@ -958,105 +956,137 @@ class MainActivity : Activity() {
         }
         cfgCard.addView(formatDropdown)
 
-        // Ползунок уровня Zstd (1..22)
-        val levelLabel = TextView(this).apply {
-            text = "Уровень сжатия Zstandard: $zstdLevel (рек. 18 — баланс скорости и сжатия)"
-            setTextColor(th.textPrimary)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-            setPadding(0, dp(9), 0, dp(2))
-        }
-        cfgCard.addView(levelLabel)
-        val levelSeek = SeekBar(this).apply {
-            max = 21
-            progress = (zstdLevel - 1).coerceIn(0, 21)
-            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(sb: SeekBar?, p: Int, fromUser: Boolean) {
-                    zstdLevel = p + 1
-                    levelLabel.text = "Уровень сжатия Zstandard: $zstdLevel (рек. 18 — баланс скорости и сжатия)"
-                    saveSettings()
-                }
-                override fun onStartTrackingTouch(sb: SeekBar?) {}
-                override fun onStopTrackingTouch(sb: SeekBar?) {}
-            })
-        }
-        cfgCard.addView(levelSeek)
-
-        // Размер блока NCZBLOCK
-        val blockRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, dp(6), 0, dp(6))
-        }
-        blockRow.addView(TextView(this).apply {
-            text = "Размер блока NCZBLOCK:"
-            setTextColor(th.textPrimary)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.2f)
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                marginEnd = dp(8)
-            }
+        // 3.2 Профиль оптимизации и сжатия (без дублирования!)
+        cfgCard.addView(TextView(this).apply {
+            text = "Профиль оптимизации и сжатия:"
+            setTextColor(th.textSecondary)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
+            setPadding(0, dp(8), 0, dp(3))
         })
-        val blockOptions = listOf(18 to "256 КБ", 19 to "512 КБ", 20 to "1 МБ (Эталон)", 21 to "2 МБ", 22 to "4 МБ")
-        val blockDropdown = makeStormDropdown(
-            blockOptions.map { it.second },
-            blockOptions.indexOfFirst { it.first == blockSizeExpo }.coerceAtLeast(2),
-            th
-        ) { pos ->
-            blockSizeExpo = blockOptions[pos].first
-            saveSettings()
-        }.apply {
-            layoutParams = LinearLayout.LayoutParams(dp(155), ViewGroup.LayoutParams.WRAP_CONTENT)
-        }
-        blockRow.addView(blockDropdown)
-        cfgCard.addView(blockRow)
 
-        // Стилизованные чекбоксы по правилам STORM SOFT (сплошной квадрат 4dp без галочки!)
-        cfgCard.addView(makeStormCheckBox(
-            "Включить блочное сжатие Zstandard (NCZSECTN + NCZBLOCK)",
-            useBlockNcz,
-            th
-        ) { checked ->
-            useBlockNcz = checked
-            if (checked && selectedOutputFormat == 2) selectedOutputFormat = 0
-            if (checked && selectedOutputFormat == 3) selectedOutputFormat = 1
-            if (!checked && selectedOutputFormat == 0) selectedOutputFormat = 2
-            if (!checked && selectedOutputFormat == 1) selectedOutputFormat = 3
+        val optimizationProfiles = listOf(
+            "Умный автоматический (Авто-подбор сжатия блоков, дедупликация NCA, Trim 0xFF и моды)",
+            "Максимальное сжатие (Ультра Zstandard 22, блок 2 МБ, минимальный размер)",
+            "Ручная настройка параметров (Выбор уровня Zstandard и размера блока NCZBLOCK)",
+            "Распаковка NSZ / XCZ в оригинальный NSP / XCI",
+            "SmartShrink: Только обрезка пустых областей 0xFF (Switch XCI и 3DS)"
+        )
+        val profileDropdown = makeStormDropdown(optimizationProfiles, selectedOperationMode, th) { pos ->
+            selectedOperationMode = pos
+            when (pos) {
+                0 -> {
+                    selectedCompressionMethod = 0
+                    zstdLevel = 18
+                    blockSizeExpo = 20
+                    trimXciBeforeCompress = true
+                    smartSizeGuard = true
+                    autoEmbedMods = true
+                }
+                1 -> {
+                    selectedCompressionMethod = 2
+                    zstdLevel = 22
+                    blockSizeExpo = 21
+                    trimXciBeforeCompress = true
+                    smartSizeGuard = true
+                    autoEmbedMods = true
+                }
+                2 -> {
+                    selectedCompressionMethod = 1
+                }
+            }
             saveSettings()
             buildUserInterface()
-        })
+        }
+        cfgCard.addView(profileDropdown)
 
+        // Ручные настройки Zstandard и размера блока NCZBLOCK показываются ТОЛЬКО если выбран профиль "Ручная настройка параметров" (2)
+        if (selectedOperationMode == 2) {
+            val manualBox = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                background = makeCardDrawable(th.bgPrimary, th.border, 8)
+                setPadding(dp(10), dp(8), dp(10), dp(8))
+                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = dp(8)
+                }
+            }
+            val levelLabel = TextView(this).apply {
+                text = "Уровень сжатия Zstandard: $zstdLevel (18 — эталон скорости и сжатия)"
+                setTextColor(th.textPrimary)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                setPadding(0, 0, 0, dp(2))
+            }
+            manualBox.addView(levelLabel)
+            val levelSeek = SeekBar(this).apply {
+                max = 21
+                progress = (zstdLevel - 1).coerceIn(0, 21)
+                setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                    override fun onProgressChanged(sb: SeekBar?, p: Int, fromUser: Boolean) {
+                        zstdLevel = p + 1
+                        levelLabel.text = "Уровень сжатия Zstandard: $zstdLevel (18 — эталон скорости и сжатия)"
+                        saveSettings()
+                    }
+                    override fun onStartTrackingTouch(sb: SeekBar?) {}
+                    override fun onStopTrackingTouch(sb: SeekBar?) {}
+                })
+            }
+            manualBox.addView(levelSeek)
+
+            val blockRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(0, dp(6), 0, dp(2))
+            }
+            blockRow.addView(TextView(this).apply {
+                text = "Размер блока NCZBLOCK:"
+                setTextColor(th.textPrimary)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    marginEnd = dp(8)
+                }
+            })
+            val blockOptions = listOf(18 to "256 КБ", 19 to "512 КБ", 20 to "1 МБ (Эталон)", 21 to "2 МБ", 22 to "4 МБ")
+            val blockDropdown = makeStormDropdown(
+                blockOptions.map { it.second },
+                blockOptions.indexOfFirst { it.first == blockSizeExpo }.coerceAtLeast(2),
+                th
+            ) { pos ->
+                blockSizeExpo = blockOptions[pos].first
+                saveSettings()
+            }.apply {
+                layoutParams = LinearLayout.LayoutParams(dp(155), ViewGroup.LayoutParams.WRAP_CONTENT)
+            }
+            blockRow.addView(blockDropdown)
+            manualBox.addView(blockRow)
+            cfgCard.addView(manualBox)
+        } else {
+            // Информационная плашка активной автоматики
+            val summaryText = when (selectedOperationMode) {
+                0 -> "⚡ Автоматика: Блочный NCZ (1 МБ, Zstd 18) • Умная дедупликация NCA • Авто-вшивание модов • Trim 0xFF"
+                1 -> "🔥 Ультра-режим: Блочный NCZ (2 МБ, Zstd 22) • Максимальное уменьшение размера • Дедупликация NCA"
+                3 -> "📦 Режим распаковки: Восстановление сжатых разделов NCZ в оригинальные NCA (.nsp / .xci)"
+                else -> "✂️ SmartShrink: Хирургическая обрезка пустых областей 0xFF в образах картриджей XCI и 3DS"
+            }
+            cfgCard.addView(TextView(this).apply {
+                text = summaryText
+                setTextColor(th.accent)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.2f)
+                background = makeCardDrawable(th.bgPrimary, th.border, 8)
+                setPadding(dp(10), dp(7), dp(10), dp(7))
+                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = dp(8)
+                    bottomMargin = dp(4)
+                }
+            })
+        }
+
+        // Только 2 понятных чекбокса без какого-либо дублирования!
         cfgCard.addView(makeStormCheckBox(
-            "Умная сшивка и дедупликация NCA (удалять дубли и перекрытые патчи)",
+            "Авто-сшивка мульти-контента по играм (База + Патч + DLC + Моды -> один файл на каждую игру)",
             smartMergeDedup,
             th
         ) { checked ->
             smartMergeDedup = checked
-            saveSettings()
-        })
-
-        cfgCard.addView(makeStormCheckBox(
-            "Правильно вшивать моды, русификаторы и дополнения в мульти-контент",
-            autoEmbedMods,
-            th
-        ) { checked ->
             autoEmbedMods = checked
-            saveSettings()
-        })
-
-        cfgCard.addView(makeStormCheckBox(
-            "SmartSize Guard (защита от раздутия мелких блоков при сжатии)",
-            smartSizeGuard,
-            th
-        ) { checked ->
-            smartSizeGuard = checked
-            saveSettings()
-        })
-
-        cfgCard.addView(makeStormCheckBox(
-            "Автоматически обрезать пустые области 0xFF (Trim XCI / 3DS) перед сборкой",
-            trimXciBeforeCompress,
-            th
-        ) { checked ->
-            trimXciBeforeCompress = checked
             saveSettings()
         })
 
@@ -1090,7 +1120,7 @@ class MainActivity : Activity() {
         runCard.addView(progressBar)
 
         val statusTxt = TextView(this).apply {
-            text = "Готов к обработке (${queuedFiles.size} файлов в очереди)"
+            text = "Готов к обработке (Игр в очереди: ${gameGroups.size}, файлов: ${queuedFiles.size})"
             setTextColor(th.textSecondary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
             setPadding(0, dp(6), 0, dp(8))
@@ -1100,7 +1130,7 @@ class MainActivity : Activity() {
         val actionBtnsRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
         }
-        val btnStart = makeButton("🚀 Запустить обработку очереди (${queuedFiles.size})", th.accent) {
+        val btnStart = makeButton("🚀 Запустить очередь (Игр: ${gameGroups.size})", th.accent) {
             if (isTaskRunning) return@makeButton
             if (queuedFiles.isEmpty()) {
                 Toast.makeText(this, "Сначала добавьте файлы или папки в очередь!", Toast.LENGTH_LONG).show()
@@ -1132,65 +1162,99 @@ class MainActivity : Activity() {
 
         thread {
             try {
-                // Режим 0: Умный мульти-контент (Сшивка База + Патч + DLC + Моды в единый оптимальный контейнер NSZ/XCZ/NSP/XCI)
-                if (selectedOperationMode == 0) {
-                    val preparedInputs = mutableListOf<File>()
-                    val tempTrimmedFiles = mutableListOf<File>()
-                    val cb: (StormNczEngine.NczProgress) -> Unit = { p ->
-                        mainHandler.post {
-                            progressBar.progress = p.percent
-                            statusTxt.text = "${p.stageText} (${p.percent}%)"
-                        }
-                    }
+                val useBlockForFormat = (selectedOutputFormat == 0 || selectedOutputFormat == 1)
+                val effectiveLevel = when (selectedOperationMode) {
+                    0 -> 18
+                    1 -> 22
+                    else -> zstdLevel
+                }
+                val effectiveBlockExpo = when (selectedOperationMode) {
+                    0 -> 20
+                    1 -> 21
+                    else -> blockSizeExpo
+                }
 
-                    for (inFile in snapshot) {
-                        if (!inFile.exists()) continue
-                        if (trimXciBeforeCompress && inFile.extension.equals("xci", ignoreCase = true)) {
-                            val trimmedCandidate = File(customOutputDir, "${inFile.nameWithoutExtension}.trimmed_tmp.xci")
-                            val trimRes = StormNczEngine.smartShrinkRom(inFile, trimmedCandidate, cb)
-                            if (trimRes.compressedBytes in 1 until inFile.length()) {
-                                preparedInputs.add(trimmedCandidate)
-                                tempTrimmedFiles.add(trimmedCandidate)
-                                appendLog("✂️ SmartShrink XCI сэкономил ${StormNczEngine.formatSize(inFile.length() - trimRes.compressedBytes)} на ${inFile.name}")
+                // Если выбран профиль сжатия/сборки (0=Умный авто, 1=Макс. сжатие, 2=Ручной) и включена авто-сшивка по играм:
+                // группируем очередь по играм (как на ПК!) и собираем отдельный мульти-контент для каждой игры.
+                if (selectedOperationMode in 0..2 && smartMergeDedup) {
+                    val gameGroups = StormNczEngine.groupFilesByGameFamily(snapshot)
+                    var totalOrigAll = 0L
+                    var totalOutAll = 0L
+                    var builtGamesCount = 0
+
+                    for ((gIdx, grp) in gameGroups.withIndex()) {
+                        if (cancelCurrentTaskRequested) break
+                        val prefix = "[Игра ${gIdx + 1}/${gameGroups.size}: ${grp.displayTitle}]"
+                        val preparedInputs = mutableListOf<File>()
+                        val tempTrimmedFiles = mutableListOf<File>()
+
+                        val cb: (StormNczEngine.NczProgress) -> Unit = { p ->
+                            mainHandler.post {
+                                progressBar.progress = p.percent
+                                statusTxt.text = "$prefix ${p.stageText} (${p.percent}%)"
+                            }
+                        }
+
+                        for (qItem in grp.items) {
+                            val inFile = qItem.file
+                            if (!inFile.exists()) continue
+                            if (inFile.extension.equals("xci", ignoreCase = true)) {
+                                val trimmedCandidate = File(customOutputDir, "${inFile.nameWithoutExtension}.trimmed_tmp.xci")
+                                val trimRes = StormNczEngine.smartShrinkRom(inFile, trimmedCandidate, cb)
+                                if (trimRes.compressedBytes in 1 until inFile.length()) {
+                                    preparedInputs.add(trimmedCandidate)
+                                    tempTrimmedFiles.add(trimmedCandidate)
+                                    appendLog("✂️ SmartShrink XCI сэкономил ${StormNczEngine.formatSize(inFile.length() - trimRes.compressedBytes)} на ${inFile.name}")
+                                } else {
+                                    trimmedCandidate.delete()
+                                    preparedInputs.add(inFile)
+                                }
                             } else {
-                                trimmedCandidate.delete()
                                 preparedInputs.add(inFile)
                             }
-                        } else {
-                            preparedInputs.add(inFile)
                         }
-                    }
 
-                    val res = StormNczEngine.buildSmartMultiContentPackage(
-                        inputFiles = preparedInputs,
-                        outputDir = customOutputDir,
-                        targetFormatMode = selectedOutputFormat,
-                        useBlockNcz = useBlockNcz && (selectedCompressionMethod != 3),
-                        smartDedup = smartMergeDedup || (selectedCompressionMethod == 0),
-                        embedMods = autoEmbedMods,
-                        zstdLevel = if (selectedCompressionMethod == 2) zstdLevel.coerceAtLeast(19) else zstdLevel,
-                        blockSizeExponent = if (selectedCompressionMethod == 2) blockSizeExpo.coerceAtLeast(21) else blockSizeExpo,
-                        threads = cpuThreads,
-                        smartSizeGuard = if (selectedCompressionMethod == 0) true else smartSizeGuard,
-                        onProgress = cb
-                    )
+                        if (preparedInputs.isEmpty()) continue
 
-                    tempTrimmedFiles.forEach { it.delete() }
+                        val res = StormNczEngine.buildSmartMultiContentPackage(
+                            inputFiles = preparedInputs,
+                            outputDir = customOutputDir,
+                            targetFormatMode = selectedOutputFormat,
+                            useBlockNcz = useBlockForFormat,
+                            smartDedup = true,
+                            embedMods = true,
+                            zstdLevel = effectiveLevel,
+                            blockSizeExponent = effectiveBlockExpo,
+                            threads = cpuThreads,
+                            smartSizeGuard = true,
+                            onProgress = cb
+                        )
 
-                    val outFile = File(res.outputPath)
-                    appendLog("✅ ${res.message}")
-                    if (deleteSourceAfterSuccess && outFile.exists() && outFile.length() > 0) {
-                        for (src in snapshot) {
-                            if (src.isFile && src.canonicalPath != outFile.canonicalPath) {
-                                src.delete()
+                        tempTrimmedFiles.forEach { it.delete() }
+
+                        if (res.success) {
+                            builtGamesCount++
+                            totalOrigAll += res.originalBytes
+                            totalOutAll += res.compressedBytes
+                            val outFile = File(res.outputPath)
+                            appendLog("✅ $prefix -> ${outFile.name} (${StormNczEngine.formatSize(res.compressedBytes)})")
+                            if (deleteSourceAfterSuccess && outFile.exists() && outFile.length() > 0) {
+                                for (qItem in grp.items) {
+                                    if (qItem.file.isFile && qItem.file.canonicalPath != outFile.canonicalPath) {
+                                        qItem.file.delete()
+                                    }
+                                }
                             }
                         }
                     }
+
+                    val savedAll = (totalOrigAll - totalOutAll).coerceAtLeast(0L)
                     mainHandler.post {
                         progressBar.progress = 100
-                        statusTxt.text = "✅ Готово: ${outFile.name} (${StormNczEngine.formatSize(res.compressedBytes)})"
+                        statusTxt.text = "✅ Готово! Собрано игр: $builtGamesCount/${gameGroups.size} • Экономия: ${StormNczEngine.formatSize(savedAll)}"
                     }
                 } else {
+                    // Пофайловая обработка (или распаковка NSZ/XCZ [3], или SmartShrink 0xFF [4])
                     var totalOrig = 0L
                     var totalOut = 0L
                     var successCount = 0
@@ -1210,54 +1274,32 @@ class MainActivity : Activity() {
                             }
                         }
 
-                        var workingInput = inFile
-                        var tempTrimmed: File? = null
-
-                        if (selectedOperationMode == 1 && trimXciBeforeCompress && ext == "xci") {
-                            val trimmedCandidate = File(customOutputDir, "${baseName}.trimmed_tmp.xci")
-                            val trimRes = StormNczEngine.smartShrinkRom(inFile, trimmedCandidate, cb)
-                            if (trimRes.compressedBytes in 1 until inFile.length()) {
-                                workingInput = trimmedCandidate
-                                tempTrimmed = trimmedCandidate
-                                appendLog("✂️ Предварительный Trim XCI сэкономил ${StormNczEngine.formatSize(inFile.length() - trimRes.compressedBytes)}")
-                            } else {
-                                trimmedCandidate.delete()
-                            }
-                        }
-
                         val res = when (selectedOperationMode) {
-                            1 -> {
-                                // Пакетное сжатие и конвертация каждого файла отдельно с учетом целевого формата и чекбокса useBlockNcz
+                            3 -> {
+                                val outExt = if (ext == "xcz" || ext == "xci") "xci" else "nsp"
+                                val outFile = File(customOutputDir, "${baseName}_unpacked.$outExt")
+                                StormNczEngine.decompressNszOrXczToNsp(inFile, outFile, cb)
+                            }
+                            4 -> {
+                                val outFile = File(customOutputDir, "${baseName}_trimmed.$ext")
+                                StormNczEngine.smartShrinkRom(inFile, outFile, cb)
+                            }
+                            else -> {
                                 StormNczEngine.buildSmartMultiContentPackage(
-                                    inputFiles = listOf(workingInput),
+                                    inputFiles = listOf(inFile),
                                     outputDir = customOutputDir,
                                     targetFormatMode = selectedOutputFormat,
-                                    useBlockNcz = useBlockNcz,
-                                    smartDedup = smartMergeDedup,
+                                    useBlockNcz = useBlockForFormat,
+                                    smartDedup = true,
                                     embedMods = autoEmbedMods,
-                                    zstdLevel = zstdLevel,
-                                    blockSizeExponent = blockSizeExpo,
+                                    zstdLevel = effectiveLevel,
+                                    blockSizeExponent = effectiveBlockExpo,
                                     threads = cpuThreads,
-                                    smartSizeGuard = smartSizeGuard,
+                                    smartSizeGuard = true,
                                     onProgress = cb
                                 )
                             }
-                            2 -> {
-                                val outExt = if (ext == "xcz" || ext == "xci") "xci" else "nsp"
-                                val outFile = File(customOutputDir, "${baseName}_unpacked.$outExt")
-                                StormNczEngine.decompressNszOrXczToNsp(workingInput, outFile, cb)
-                            }
-                            3 -> {
-                                val outFile = File(customOutputDir, "${baseName}_trimmed.$ext")
-                                StormNczEngine.smartShrinkRom(workingInput, outFile, cb)
-                            }
-                            else -> {
-                                val outFile = File(customOutputDir, "${baseName}_decrypted.$ext")
-                                StormNczEngine.smartShrinkRom(workingInput, outFile, cb)
-                            }
                         }
-
-                        tempTrimmed?.delete()
 
                         if (res.success) {
                             successCount++
@@ -1433,11 +1475,10 @@ class MainActivity : Activity() {
     }
 
     // =========================================================================
-    // ВКЛАДКА 2: RUTRACKER (ТОЛЬКО NINTENDO SWITCH) И ОБЛАЧНЫЕ МОДЫ
+    // ВКЛАДКА 2: RUTRACKER (ТОЛЬКО РАЗДЕЛ SWITCH) И АВТО-СБОРКА С МОДАМИ
     // =========================================================================
 
     private fun buildRuTrackerAndModsTab(parent: LinearLayout, th: StormTheme) {
-        // ГРУППА 1: Поиск ТОЛЬКО игр Nintendo Switch (разделы 1605 и 2481)
         val rtCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = makeCardDrawable(th.bgCard, th.border)
@@ -1447,13 +1488,13 @@ class MainActivity : Activity() {
             }
         }
         rtCard.addView(makeSectionHeader(
-            "1. Поиск игр и русификаторов ТОЛЬКО для Nintendo Switch (RuTracker #1605 / #2481)",
-            "Строгая фильтрация релизов [Nintendo Switch] (NSP / NSZ / XCI / XCZ) без ПК-репаков и других платформ",
+            "🌐 Поиск игр Nintendo Switch (RuTracker #1605) с авто-загрузкой и вшиванием модов",
+            "Отображаются ТОЛЬКО релизы из раздела Nintendo Switch. Нажмите «⬇️ Скачать и собрать», чтобы автоматически скачать игру, прикрепить русификаторы/моды и сразу получить готовый Мульти-контент!",
             th
         ))
 
         val queryEdit = EditText(this).apply {
-            hint = "Введите игру Switch (напр. Zelda, Mario, Hades, Witcher, Persona 5)..."
+            hint = "Введите игру Switch (напр. Animal Well, Zelda, Mario, Hades, Witcher)..."
             setTextColor(th.textPrimary)
             setHintTextColor(th.textSecondary)
             background = makeCardDrawable(th.bgPrimary, th.border, 8)
@@ -1461,7 +1502,6 @@ class MainActivity : Activity() {
         }
         rtCard.addView(queryEdit)
 
-        // Быстрые теги популярных игр Switch
         val tagsScroll = HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
             setPadding(0, dp(6), 0, dp(6))
@@ -1472,7 +1512,7 @@ class MainActivity : Activity() {
         fun runSearch(q: String) {
             resultsLayout.removeAllViews()
             resultsLayout.addView(TextView(this).apply {
-                text = "⏳ Поиск релизов Nintendo Switch..."
+                text = "⏳ Поиск в разделе Nintendo Switch (#1605)..."
                 setTextColor(th.accent)
                 setPadding(0, dp(6), 0, dp(6))
             })
@@ -1482,7 +1522,7 @@ class MainActivity : Activity() {
                     resultsLayout.removeAllViews()
                     if (found.isEmpty()) {
                         resultsLayout.addView(TextView(this).apply {
-                            text = "Раздачи Nintendo Switch по запросу «$q» не найдены."
+                            text = "Раздачи Nintendo Switch по запросу «$q» не найдены в разделе #1605."
                             setTextColor(th.textSecondary)
                         })
                     } else {
@@ -1502,29 +1542,38 @@ class MainActivity : Activity() {
                                 typeface = Typeface.DEFAULT_BOLD
                             })
                             itemBox.addView(TextView(this).apply {
-                                text = "Раздел: ${item.category} • Размер: ${item.sizeText} • Сиды: ▲${item.seeds}"
+                                text = "Раздел: ${item.category} (#1605) • Размер: ${item.sizeText} • Сиды: ▲${item.seeds}"
                                 setTextColor(th.accent)
                                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
                                 setPadding(0, dp(2), 0, dp(6))
                             })
                             val btnRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+
+                            btnRow.addView(makeButton("⬇️ Скачать и собрать", th.accent) {
+                                showAutomatedTorrentAndMultiBuildDialog(item, th)
+                            }.apply {
+                                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                                    marginEnd = dp(6)
+                                }
+                            })
+
                             if (item.magnetUri.isNotEmpty()) {
-                                btnRow.addView(makeButton("🧲 Скачать (Magnet)", th.accent) {
+                                btnRow.addView(makeButton("🧲 Magnet", th.bgElevated, th.textPrimary) {
                                     try {
                                         startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(item.magnetUri)))
                                     } catch (_: Exception) {
                                         val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                         cm.setPrimaryClip(ClipData.newPlainText("Magnet", item.magnetUri))
-                                        Toast.makeText(this, "Magnet-ссылка скопирована в буфер обмена!", Toast.LENGTH_LONG).show()
+                                        Toast.makeText(this, "Magnet-ссылка скопирована в буфер обмена", Toast.LENGTH_SHORT).show()
                                     }
                                 }.apply {
                                     layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                                        marginEnd = dp(8)
+                                        marginEnd = dp(6)
                                     }
                                 })
                             }
                             if (item.topicUrl.isNotEmpty()) {
-                                btnRow.addView(makeButton("🌐 Открыть тему", th.bgElevated, th.textPrimary) {
+                                btnRow.addView(makeButton("🌐 Тема", th.bgElevated, th.textPrimary) {
                                     try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(item.topicUrl))) } catch (_: Exception) {}
                                 })
                             }
@@ -1536,7 +1585,7 @@ class MainActivity : Activity() {
             }
         }
 
-        listOf("Все хиты Switch", "Zelda", "Mario", "Metroid", "Witcher", "Hades", "Persona", "Xenoblade", "Skyrim", "Hollow Knight").forEach { tag ->
+        listOf("Все хиты Switch", "Animal Well", "Zelda", "Mario", "Metroid", "Witcher", "Hades", "Persona", "Xenoblade", "Hollow Knight").forEach { tag ->
             val b = makeButton(tag, th.bgElevated, th.textPrimary) {
                 val q = if (tag == "Все хиты Switch") "" else tag
                 queryEdit.setText(q)
@@ -1550,76 +1599,253 @@ class MainActivity : Activity() {
         tagsScroll.addView(tagsRow)
         rtCard.addView(tagsScroll)
 
-        rtCard.addView(makeButton("🔍 Найти раздачи Nintendo Switch", th.accent) {
+        rtCard.addView(makeButton("🔍 Найти раздачи в разделе Nintendo Switch", th.accent) {
             runSearch(queryEdit.text.toString())
         })
         rtCard.addView(resultsLayout)
         parent.addView(rtCard)
 
-        // Первичное заполнение списка раздач Switch
         runSearch("")
+    }
 
-        // ГРУППА 2: Загрузчик модов и русификаторов
-        val modCard = LinearLayout(this).apply {
+    /**
+     * Автоматическое модальное окно скачивания релиза с RuTracker, подключения одного или нескольких
+     * облачных русификаторов / модов по чекбоксу и немедленной сборки готового Мульти-контента (NSZ / XCZ / NSP / XCI).
+     */
+    private fun showAutomatedTorrentAndMultiBuildDialog(item: RuTrackerCloudEngine.TopicItem, th: StormTheme) {
+        var dialogFormatMode = selectedOutputFormat
+        var embedCloudModsChecked = false
+        var isRunningPipeline = false
+        var cancelPipeline = false
+
+        val scroll = ScrollView(this)
+        val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = makeCardDrawable(th.bgCard, th.border)
-            setPadding(dp(14), dp(12), dp(14), dp(12))
+            background = makeCardDrawable(th.bgCard, th.accent, 14)
+            setPadding(dp(16), dp(14), dp(16), dp(14))
         }
-        modCard.addView(makeSectionHeader(
-            "2. Облачный загрузчик русификаторов и модов (Яндекс.Диск / Google Drive / GitHub)",
-            "Автоматическое скачивание и распаковка в структуру atmosphere/contents/<TitleID>/romfs",
-            th
-        ))
 
-        val urlInput = EditText(this).apply {
-            hint = "Публичная ссылка (https://disk.yandex.ru/... или https://drive.google.com/...)"
-            setTextColor(th.textPrimary)
-            setHintTextColor(th.textSecondary)
-            background = makeCardDrawable(th.bgPrimary, th.border, 8)
-            setPadding(dp(10), dp(8), dp(10), dp(8))
-        }
-        modCard.addView(urlInput)
+        root.addView(TextView(this).apply {
+            text = "⬇️ Авто-загрузка и сборка Мульти-контента"
+            setTextColor(th.accent)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+            typeface = Typeface.DEFAULT_BOLD
+        })
 
-        val tidInput = EditText(this).apply {
-            hint = "TitleID игры (например: 01007EF00011E000)"
+        root.addView(TextView(this).apply {
+            text = "${item.title}\nРазмер: ${item.sizeText} • Сиды: ▲${item.seeds}"
             setTextColor(th.textPrimary)
-            setHintTextColor(th.textSecondary)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setPadding(0, dp(6), 0, dp(10))
+        })
+
+        root.addView(TextView(this).apply {
+            text = "Конечный формат файла после сборки:"
+            setTextColor(th.textSecondary)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
+            setPadding(0, 0, 0, dp(4))
+        })
+
+        val formatNames = listOf(
+            "NSZ — Сжатый цифровой контейнер (Блочный NCZBLOCK)",
+            "XCZ — Сжатый мульти-картридж (Блочный NCZBLOCK)",
+            "NSP — Оригинальный цифровой контейнер (Без сжатия)",
+            "XCI — Оригинальный мульти-картридж (Без сжатия)"
+        )
+        root.addView(makeStormDropdown(formatNames, dialogFormatMode, th) { pos ->
+            dialogFormatMode = pos
+        })
+
+        // Контейнер для облачного загрузчика русификаторов и модов (появляется при включении чекбокса!)
+        val modsContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
             background = makeCardDrawable(th.bgPrimary, th.border, 8)
             setPadding(dp(10), dp(8), dp(10), dp(8))
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 topMargin = dp(6)
-                bottomMargin = dp(8)
+                bottomMargin = dp(6)
             }
         }
-        modCard.addView(tidInput)
 
-        val modStatus = TextView(this).apply {
-            text = "Целевой каталог модов: ${modsDir.absolutePath}/atmosphere/contents/"
-            setTextColor(th.textSecondary)
+        modsContainer.addView(TextView(this).apply {
+            text = "☁️ Облачный загрузчик русификаторов и модов (Яндекс.Диск / Google Drive / GitHub / .zip):"
+            setTextColor(th.accent)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
-            setPadding(0, 0, 0, dp(6))
-        }
-        modCard.addView(modStatus)
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(0, 0, 0, dp(4))
+        })
 
-        modCard.addView(makeButton("📥 Скачать и установить русификатор / мод", th.accent) {
-            val u = urlInput.text.toString().trim()
-            val tid = tidInput.text.toString().trim().ifEmpty { "0100000000010000" }
-            if (u.isEmpty()) {
-                Toast.makeText(this, "Вставьте ссылку на архив мода!", Toast.LENGTH_SHORT).show()
-                return@makeButton
-            }
-            thread {
-                try {
-                    val out = RuTrackerCloudEngine.downloadAndExtractMod(u, tid, modsDir) { st ->
-                        mainHandler.post { modStatus.text = st }
-                    }
-                    appendLog("✅ Мод установлен в ${out.absolutePath}")
-                } catch (e: Exception) {
-                    mainHandler.post { modStatus.text = "❌ Ошибка: ${e.message}" }
+        val modInputsListLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        val modEditTexts = mutableListOf<EditText>()
+
+        fun addModUrlField(prefillUrl: String = "") {
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = dp(4)
                 }
             }
-        })
-        parent.addView(modCard)
+            val edit = EditText(this).apply {
+                setText(prefillUrl)
+                hint = "Ссылка на русификатор / мод #${modEditTexts.size + 1} (Я.Диск, GDrive, GitHub)..."
+                setTextColor(th.textPrimary)
+                setHintTextColor(th.textSecondary)
+                textSize = 11.5f
+                background = makeCardDrawable(th.bgCard, th.border, 6)
+                setPadding(dp(8), dp(6), dp(8), dp(6))
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    marginEnd = dp(6)
+                }
+            }
+            modEditTexts.add(edit)
+            row.addView(edit)
+
+            if (modEditTexts.size > 1) {
+                row.addView(makeButton("✕", th.bgElevated, th.textSecondary) {
+                    modEditTexts.remove(edit)
+                    modInputsListLayout.removeView(row)
+                })
+            }
+            modInputsListLayout.addView(row)
+        }
+
+        // По умолчанию 1 поле ввода + кнопка добавления любого количества дополнительных ссылок на моды
+        addModUrlField()
+        modsContainer.addView(modInputsListLayout)
+
+        val addMoreModBtn = makeButton("➕ Добавить ещё ссылку на мод / русификатор", th.bgElevated, th.textPrimary) {
+            addModUrlField()
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(6)
+            }
+        }
+        modsContainer.addView(addMoreModBtn)
+
+        // Чекбокс включения облачного загрузчика модов при скачивании с торрента
+        val modsCheckBox = makeStormCheckBox(
+            "Скачать и вшить русификатор / моды в мульти-контент",
+            embedCloudModsChecked,
+            th
+        ) { checked ->
+            embedCloudModsChecked = checked
+            modsContainer.visibility = if (checked) View.VISIBLE else View.GONE
+            if (checked && item.topicId.all { it.isDigit() }) {
+                thread {
+                    val autoLinks = RuTrackerCloudEngine.extractCloudModLinksFromTopic(item.topicId)
+                    if (autoLinks.isNotEmpty()) {
+                        mainHandler.post {
+                            if (modEditTexts.isNotEmpty() && modEditTexts.first().text.isNullOrBlank()) {
+                                modEditTexts.first().setText(autoLinks.first())
+                                for (extraUrl in autoLinks.drop(1)) {
+                                    addModUrlField(extraUrl)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        root.addView(modsCheckBox)
+        root.addView(modsContainer)
+
+        val progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = 100
+            progress = 0
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(14)).apply {
+                topMargin = dp(8)
+            }
+        }
+        root.addView(progressBar)
+
+        val statusTxt = TextView(this).apply {
+            text = "Готов к автоматической загрузке и сборке в ${customOutputDir.name}/"
+            setTextColor(th.textSecondary)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
+            setPadding(0, dp(4), 0, dp(10))
+        }
+        root.addView(statusTxt)
+
+        val btnRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.END
+        }
+
+        scroll.addView(root)
+        val dlg = showImmersiveDialog(AlertDialog.Builder(this).setView(scroll).setCancelable(true))
+
+        val closeBtn = makeButton("Закрыть", th.bgElevated, th.textPrimary) {
+            if (isRunningPipeline) {
+                cancelPipeline = true
+            }
+            dlg.dismiss()
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                marginEnd = dp(8)
+            }
+        }
+        btnRow.addView(closeBtn)
+
+        val startBtn = makeButton("🚀 Скачать и собрать Мульти-контент", th.accent) {
+            if (isRunningPipeline) return@makeButton
+            isRunningPipeline = true
+            cancelPipeline = false
+
+            val collectedModUrls = if (embedCloudModsChecked) {
+                modEditTexts.map { it.text.toString().trim() }.filter { it.isNotEmpty() }
+            } else {
+                emptyList()
+            }
+
+            thread {
+                try {
+                    val useBlock = (dialogFormatMode == 0 || dialogFormatMode == 1)
+                    val res = RuTrackerCloudEngine.downloadTopicAndBuildMultiContent(
+                        topic = item,
+                        modUrls = collectedModUrls,
+                        targetFormatMode = dialogFormatMode,
+                        useBlockNcz = useBlock,
+                        zstdLevel = zstdLevel,
+                        blockSizeExponent = blockSizeExpo,
+                        threads = cpuThreads,
+                        romsDir = romsDir,
+                        modsRootDir = modsDir,
+                        outputDir = customOutputDir,
+                        isCancelled = { cancelPipeline },
+                        onProgress = { pct, msg ->
+                            mainHandler.post {
+                                progressBar.progress = pct
+                                statusTxt.text = "$msg ($pct%)"
+                            }
+                        }
+                    )
+                    val outFile = File(res.outputPath)
+                    if (outFile.exists() && queuedFiles.none { it.absolutePath == outFile.absolutePath }) {
+                        queuedFiles.add(outFile)
+                        selectedInputFile = outFile
+                    }
+                    appendLog("✅ Авто-сборка RuTracker завершена: ${outFile.name} (${StormNczEngine.formatSize(res.compressedBytes)})")
+                    mainHandler.post {
+                        progressBar.progress = 100
+                        statusTxt.text = "✅ Готово! Файл создан: ${outFile.name} (${StormNczEngine.formatSize(res.compressedBytes)})"
+                        Toast.makeText(this, "Готово: ${outFile.name}", Toast.LENGTH_LONG).show()
+                    }
+                } catch (e: Exception) {
+                    appendLog("❌ Ошибка авто-сборки: ${e.message}")
+                    mainHandler.post {
+                        statusTxt.text = "❌ Ошибка: ${e.message}"
+                    }
+                } finally {
+                    isRunningPipeline = false
+                }
+            }
+        }
+        btnRow.addView(startBtn)
+        root.addView(btnRow)
     }
 
     // =========================================================================
@@ -1825,7 +2051,7 @@ class MainActivity : Activity() {
         }
         updCard.addView(makeSectionHeader(
             "2. Обновление STORM SWITCH BOX с GitHub",
-            "Текущая версия: ${"5.5.1"} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()})",
+            "Текущая версия: ${"5.5.2"} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()})",
             th
         ))
         updCard.addView(makeStormCheckBox(
@@ -2252,14 +2478,14 @@ class MainActivity : Activity() {
         }
         val preferLegacy = (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) || Build.VERSION.SDK_INT < 26
         thread {
-            val rel = RuTrackerCloudEngine.checkGitHubAppUpdate("5.5.1", preferLegacy)
+            val rel = RuTrackerCloudEngine.checkGitHubAppUpdate("5.5.2", preferLegacy)
             mainHandler.post {
                 if (rel != null) {
                     showUpdateAvailableDialog(rel)
                 } else if (isManualClick) {
                     Toast.makeText(
                         this,
-                        "✅ У вас установлена актуальная версия STORM SWITCH BOX ${"5.5.1"}!",
+                        "✅ У вас установлена актуальная версия STORM SWITCH BOX ${"5.5.2"}!",
                         Toast.LENGTH_LONG
                     ).show()
                 }
@@ -2275,7 +2501,7 @@ class MainActivity : Activity() {
             setPadding(dp(16), dp(12), dp(16), dp(12))
         }
         box.addView(TextView(this).apply {
-            text = "Доступна новая версия: ${release.version} (Установлена: ${"5.5.1"})"
+            text = "Доступна новая версия: ${release.version} (Установлена: ${"5.5.2"})"
             setTextColor(th.accent)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
             typeface = Typeface.DEFAULT_BOLD

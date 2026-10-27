@@ -461,8 +461,8 @@ namespace StormSwitchBox.Services
             if (tCsv.IsCompletedSuccessfully) AddUniqueRange(tCsv.Result);
 
             return combined
-                .OrderByDescending(x => IsNintendoSpecificTitle(x.Title, x.Category) ? 1 : 0)
-                .ThenByDescending(x => x.Seeds)
+                .Where(x => IsNintendoSpecificTitle(x.Title, x.Category))
+                .OrderByDescending(x => x.Seeds)
                 .Take(80)
                 .ToList();
         }
@@ -479,8 +479,7 @@ namespace StormSwitchBox.Services
         {
             var db = new (string Tid, string Title, string Cat, string Size, int Seeds, int Leech, string Hash)[]
             {
-                                ("6518492", "[Nintendo Switch] ANIMAL WELL [v1.0.2 / 0100C9801A8C2000] [NSP / NSZ] [RUS / Multi11]", "Nintendo Switch", "75.5 MB", 194, 11, "A96E0D1B88A18C505A43EBA35A5F827AE4963D37"),
-                ("6518495", "[Nintendo Switch] ANIMAL WELL [v02.11.2024 + Русификатор] [NSZ] [RUS / ENG]", "Nintendo Switch", "50.1 MB", 148, 7, "5F1EA0E962DA2D27E4B96862850F527CD9105CBE"),
+                ("6525297", "[Nintendo Switch] Animal Well [v1.0.2 / 0100C9801A8C2000] [NSZ] [RUS / Multi11]", "Nintendo Switch", "73.35 MB", 54, 2, "0A996B997AA2B90DB658E4CA76D2989DD1F80F56"),
                 ("6589120", "[Nintendo Switch] Nine Sols [v1.0.5 + Русификатор] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "3.42 GB", 165, 12, "957ADC803EE75C916B735378F25406B4A4A7F1D5"),
                 ("5468910", "[Nintendo Switch] Celeste [v1.4.0.0] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "1.18 GB", 182, 6, "6EDC344625A26DCA0861F2ABE2FE2B98C0E83B1D"),
                 ("6381290", "[Nintendo Switch] Sea of Stars [v1.0.47958 + DLC + Русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "4.15 GB", 154, 9, "5054E8E6621522E2173D5AE817AFFAC8DABE50FE"),

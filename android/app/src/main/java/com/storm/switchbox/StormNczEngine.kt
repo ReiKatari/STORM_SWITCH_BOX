@@ -56,6 +56,145 @@ object StormNczEngine {
         val estimatedSavingsBytes: Long
     )
 
+    data class QueuedItemInfo(
+        val file: File,
+        val rawTitleId: String,
+        val baseTitleId: String,
+        val roleBadge: String,
+        val roleOrder: Int,
+        val cleanGameName: String
+    )
+
+    data class GameQueueGroup(
+        val groupKey: String,
+        val baseTitleId: String,
+        val displayTitle: String,
+        val items: List<QueuedItemInfo>,
+        val totalBytes: Long
+    )
+
+    private val hex16Regex = Regex("""([0-9A-Fa-f]{16})""")
+
+    fun normalizeBaseTitleId(rawTid: String): String {
+        val clean = rawTid.trim().uppercase()
+        if (clean.length != 16 || !clean.all { it in '0'..'9' || it in 'A'..'F' }) return ""
+        val suffix = clean.substring(13, 16)
+        return when {
+            suffix == "000" -> clean
+            suffix == "800" -> clean.substring(0, 13) + "000"
+            else -> {
+                // DLC имеет (BasePrefix13 + 1) и суффикс 001..FFF
+                try {
+                    val prefixVal = clean.substring(0, 13).toLong(16)
+                    val basePrefix = (prefixVal and 0xFFFFFFFFFFFFEL).toString(16).uppercase().padStart(13, '0')
+                    basePrefix + "000"
+                } catch (_: Exception) {
+                    clean.substring(0, 13) + "000"
+                }
+            }
+        }
+    }
+
+    fun extractCleanGameTitle(fileName: String): String {
+        val noExt = fileName.substringBeforeLast('.')
+        val stripped = noExt
+            .replace(Regex("""\[[^\]]*\]"""), " ")
+            .replace(Regex("""\([^)]*\)"""), " ")
+            .replace(Regex("""(?i)\b(v\d+(?:\.\d+)*|upd|update|patch|dlc|base|mod|rus|multi\d*|switch|nsp|nsz|xci|xcz)\b"""), " ")
+            .replace(Regex("""[_\-.]+"""), " ")
+            .replace(Regex("""\s+"""), " ")
+            .trim()
+        return stripped.ifBlank { noExt.take(32) }
+    }
+
+    fun analyzeQueuedFile(file: File): QueuedItemInfo {
+        val name = file.name
+        val ext = file.extension.lowercase()
+        var foundTid = hex16Regex.find(name)?.groupValues?.get(1)?.uppercase() ?: ""
+
+        if (foundTid.isEmpty() && file.exists() && file.isFile && ext in listOf("nsp", "nsz", "xci", "xcz")) {
+            try {
+                val entries = inspectContainer(file)
+                for (e in entries) {
+                    val m = hex16Regex.find(e.name)
+                    if (m != null) {
+                        foundTid = m.groupValues[1].uppercase()
+                        break
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+
+        val baseTid = normalizeBaseTitleId(foundTid)
+        val lowerName = name.lowercase()
+        val (roleBadge, roleOrder) = when {
+            ext in listOf("zip", "pchtxt", "ips", "bps") || file.isDirectory || lowerName.contains("mod") || lowerName.contains("rus") ->
+                "МОД" to 3
+            foundTid.endsWith("800") || Regex("""(?i)\b(upd|update|patch)\b""").containsMatchIn(lowerName) ->
+                "ПАТЧ" to 1
+            (foundTid.length == 16 && !foundTid.endsWith("000") && !foundTid.endsWith("800")) || Regex("""(?i)\b(dlc|addon)\b""").containsMatchIn(lowerName) ->
+                "DLC" to 2
+            else ->
+                "БАЗА" to 0
+        }
+
+        val cleanName = extractCleanGameTitle(name)
+        return QueuedItemInfo(
+            file = file,
+            rawTitleId = foundTid,
+            baseTitleId = baseTid,
+            roleBadge = roleBadge,
+            roleOrder = roleOrder,
+            cleanGameName = cleanName
+        )
+    }
+
+    /**
+     * Умная группировка файлов очереди по играм (как в ПК-версии):
+     * объединяет Базу + Патчи + DLC + Моды одной игры в единую группу по Base TitleID или нормализованному названию игры,
+     * не смешивая разные игры между собой.
+     */
+    fun groupFilesByGameFamily(files: List<File>): List<GameQueueGroup> {
+        val analyzed = files.filter { it.exists() }.map { analyzeQueuedFile(it) }
+        if (analyzed.isEmpty()) return emptyList()
+
+        // Карта нормализованного имени -> известный BaseTitleID, чтобы моды/патчи без TitleID в имени привязывались к своей игре
+        val nameToTid = mutableMapOf<String, String>()
+        for (item in analyzed) {
+            val normName = item.cleanGameName.lowercase().replace(Regex("[^a-zа-я0-9]"), "")
+            if (item.baseTitleId.isNotEmpty() && normName.length >= 3) {
+                nameToTid.putIfAbsent(normName, item.baseTitleId)
+            }
+        }
+
+        val groupedMap = LinkedHashMap<String, MutableList<QueuedItemInfo>>()
+        for (item in analyzed) {
+            val normName = item.cleanGameName.lowercase().replace(Regex("[^a-zа-я0-9]"), "")
+            val resolvedTid = item.baseTitleId.ifEmpty {
+                nameToTid[normName] ?: nameToTid.entries.firstOrNull { (k, _) ->
+                    k.length >= 4 && normName.length >= 4 && (k.contains(normName) || normName.contains(k))
+                }?.value ?: ""
+            }
+            val key = if (resolvedTid.isNotEmpty()) "TID_$resolvedTid" else "NAME_${normName.ifEmpty { item.file.nameWithoutExtension.lowercase() }}"
+            val updatedItem = if (item.baseTitleId.isEmpty() && resolvedTid.isNotEmpty()) item.copy(baseTitleId = resolvedTid) else item
+            groupedMap.getOrPut(key) { mutableListOf() }.add(updatedItem)
+        }
+
+        return groupedMap.map { (key, list) ->
+            val sortedItems = list.sortedWith(compareBy<QueuedItemInfo> { it.roleOrder }.thenByDescending { it.file.length() })
+            val bestTitle = sortedItems.firstOrNull { it.roleOrder == 0 }?.cleanGameName
+                ?: sortedItems.first().cleanGameName
+            val tid = sortedItems.firstOrNull { it.baseTitleId.isNotEmpty() }?.baseTitleId ?: ""
+            GameQueueGroup(
+                groupKey = key,
+                baseTitleId = tid,
+                displayTitle = bestTitle,
+                items = sortedItems,
+                totalBytes = sortedItems.sumOf { it.file.length() }
+            )
+        }
+    }
+
     fun formatSize(bytes: Long): String {
         if (bytes < 1024) return "$bytes B"
         val kb = bytes / 1024.0
@@ -921,9 +1060,15 @@ object StormNczEngine {
             val stormModsRoot = File("/storage/emulated/0/STORM SWITCH BOX/mods")
             if (stormModsRoot.exists() && stormModsRoot.isDirectory) {
                 for (tid in detectedTitleIds) {
-                    val baseTid = tid.take(13) + "000"
-                    for (candTid in setOf(tid, baseTid)) {
-                        val modFolder = File(stormModsRoot, candTid)
+                    val baseTid = normalizeBaseTitleId(tid).ifEmpty { tid.take(13) + "000" }
+                    val candidateFolders = listOf(
+                        File(stormModsRoot, tid),
+                        File(stormModsRoot, baseTid),
+                        File(stormModsRoot, "atmosphere/contents/$tid"),
+                        File(stormModsRoot, "atmosphere/contents/$baseTid")
+                    )
+                    for (modFolder in candidateFolders.distinctBy { it.absolutePath }) {
+                        val candTid = modFolder.name
                         if (modFolder.exists() && modFolder.isDirectory) {
                             modFolder.walkTopDown().maxDepth(5).forEach { mf ->
                                 if (mf.isFile && mf.length() > 0 && mf.length() < 512L * 1024L * 1024L) {
