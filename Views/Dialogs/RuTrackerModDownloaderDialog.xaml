@@ -257,25 +257,47 @@
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="☁ Ссылки на русификаторы и моды (Я.Диск, GDrive, GitHub)"
+                            <TextBlock Text="💬 Ссылки из темы и обсуждений RuTracker (по умолчанию отключены)"
                                        FontWeight="Bold" FontSize="12" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
-                            <TextBlock x:Name="ModLinksHintText" Grid.Column="1" Text="Авто-парсинг из шапки темы" Foreground="#22C55E" FontSize="11" VerticalAlignment="Center"/>
+                            <TextBlock x:Name="ModLinksHintText" Grid.Column="1" Text="Отметьте нужные ссылки с датами" Foreground="#22C55E" FontSize="11" VerticalAlignment="Center"/>
                         </Grid>
 
                         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
                             <StackPanel Spacing="6">
-                                <TextBox x:Name="CloudUpdateLinksBox" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="56"
+                                <ListView x:Name="DiscussionLinksListView" SelectionMode="None" MaxHeight="125" Background="#0DFFFFFF" CornerRadius="6">
+                                    <ListView.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid Padding="4,2" ColumnSpacing="8">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected, Mode=TwoWay}" MinWidth="0"/>
+                                                <TextBlock Grid.Column="1" Text="{Binding Title}" FontSize="11" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                                           ToolTipService.ToolTip="{Binding Url}"/>
+                                                <Border Grid.Column="2" Background="#1E293B" CornerRadius="4" Padding="6,1" VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding RoleCategory}" FontSize="10" Foreground="#38BDF8"/>
+                                                </Border>
+                                                <TextBlock Grid.Column="3" Text="{Binding DisplayMeta}" FontSize="10" Foreground="#94A3B8" VerticalAlignment="Center"/>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ListView.ItemTemplate>
+                                </ListView>
+                                <TextBox x:Name="CloudUpdateLinksBox" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="52"
                                          FontSize="11" CornerRadius="6"
-                                         Header="🔄 Ссылки на Обновление / Update (до 3 строк — отдельный файл или архив .zip/.7z/.rar):"
-                                         PlaceholderText="До 3 ссылок (по одной на строку) на скачивание обновления игры (файл .nsp/.nsz или архив .zip/.7z/.rar)..."/>
-                                <TextBox x:Name="CloudDlcLinksBox" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="56"
+                                         Header="🔄 Ручной ввод ссылок на Обновление / Update (до 3 строк — файл или архив .zip/.7z/.rar):"
+                                         PlaceholderText="До 3 ссылок (по одной на строку) на скачивание обновления игры..."/>
+                                <TextBox x:Name="CloudDlcLinksBox" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="52"
                                          FontSize="11" CornerRadius="6"
-                                         Header="🎁 Ссылки на Дополнения / DLC и UNLOCKER (до 3 строк — файлы или архивы):"
+                                         TextChanged="CloudDlcLinksBox_TextChanged"
+                                         Header="🎁 Ручной ввод ссылок на Дополнения / DLC и UNLOCKER (до 3 строк — файлы или архивы):"
                                          PlaceholderText="До 3 ссылок (по одной на строку) на скачивание DLC или архива с дополнениями / Unlocker..."/>
-                                <TextBox x:Name="CloudModLinksBox" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="76"
+                                <TextBox x:Name="CloudModLinksBox" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="64"
                                          FontSize="11" CornerRadius="6"
-                                         Header="🎭 Ссылки на Русификаторы и Моды RomFS / ExeFS (до 5 строк — автоизвлечение из архива):"
-                                         PlaceholderText="До 5 ссылок (по одной на строку) на Яндекс.Диск, Google Drive, GitHub Releases или архив (.zip / .7z / .rar / .ips / .pchtxt)..."/>
+                                         Header="🎭 Ручной ввод ссылок на Русификаторы и Моды RomFS / ExeFS (до 5 строк):"
+                                         PlaceholderText="До 5 ссылок (по одной на строку) на Яндекс.Диск, Google Drive, Mega, GitHub Releases..."/>
                             </StackPanel>
                         </ScrollViewer>
 
@@ -290,6 +312,10 @@
                                          FontSize="11" VerticalContentAlignment="Center" CornerRadius="6"/>
                                 <CheckBox x:Name="AutoBuildCheckBox" Grid.Column="1" Content="Сразу запустить сборку задачи" IsChecked="False" FontSize="11"/>
                             </Grid>
+                            <CheckBox x:Name="StitchDlcUnlockerCheckBox"
+                                      Content="Вшить DLC UNLOCKER (автоизвлечение и разблокировка всех дополнений в RomFS — авто-режим)"
+                                      IsChecked="False"
+                                      FontSize="11"/>
                             <CheckBox x:Name="DeleteRuTrackerSourceCheckBox"
                                       Content="Удалять исходные файлы после успешной проверки выходного контейнера"
                                       IsChecked="True"

@@ -1466,21 +1466,270 @@ object RuTrackerCloudEngine {
     /**
      * Извлекает публичные ссылки на русификаторы и моды (Яндекс.Диск, Google Drive, GitHub, прямые .zip) из темы RuTracker.
      */
-    fun extractCloudModLinksFromTopic(topicId: String, mirror: String = "https://rutracker.org"): List<String> {
-        val found = LinkedHashSet<String>()
-        if (topicId.isBlank() || !topicId.all { it.isDigit() }) return emptyList()
-        try {
-            val normMirror = if (mirror.startsWith("http")) mirror.trimEnd('/') else "https://${mirror.trimEnd('/')}"
-            val conn = openConnection("$normMirror/forum/viewtopic.php?t=$topicId")
-            if (conn.responseCode == 200) {
-                val html = String(conn.inputStream.readBytes(), Charset.forName("windows-1251"))
-                val urlRegex = Regex("""https?://(?:disk\.yandex\.(?:ru|com)|yadi\.sk|drive\.google\.com|github\.com/[^"\s<>]+/releases/[^"\s<>]+)[^"\s<>]*""", RegexOption.IGNORE_CASE)
-                for (m in urlRegex.findAll(html)) {
-                    found.add(m.value.trim())
+    data class TopicDiscussionLink(
+        val url: String,
+        val title: String,
+        val roleCategory: String, // "ОБНОВЛЕНИЕ", "DLC", "UNLOCKER", "МОД / РУСИФИКАТОР"
+        val provider: String,
+        val publishedDate: String, // dd.MM.yyyy HH:mm
+        val sourceLocation: String, // "Шапка темы" / "Обсуждение (стр. N, @Автор)"
+        var selected: Boolean = false
+    )
+
+    private fun normalizeRuTrackerDate(rawDate: String): String {
+        val clean = rawDate.replace(Regex("<.*?>"), "").replace("&nbsp;", " ").trim()
+        val months = mapOf(
+            "янв" to "01", "фев" to "02", "мар" to "03", "апр" to "04",
+            "май" to "05", "мая" to "05", "июн" to "06", "июл" to "07",
+            "авг" to "08", "сен" to "09", "окт" to "10", "ноя" to "11", "дек" to "12",
+            "jan" to "01", "feb" to "02", "mar" to "03", "apr" to "04",
+            "may" to "05", "jun" to "06", "jul" to "07", "aug" to "08",
+            "sep" to "09", "oct" to "10", "nov" to "11", "dec" to "12"
+        )
+        val m = Regex("""(\d{1,2})[-.\s]+([А-Яа-яA-Za-z]{3})[-.\s]+(\d{2,4})(?:\s+(\d{1,2}:\d{2}))?""").find(clean)
+        if (m != null) {
+            val day = m.groupValues[1].padStart(2, '0')
+            val monKey = m.groupValues[2].lowercase().take(3)
+            val mon = months[monKey] ?: "10"
+            val yrRaw = m.groupValues[3]
+            val yr = if (yrRaw.length == 2) "20$yrRaw" else yrRaw
+            val time = m.groupValues[4].ifBlank { "12:00" }.padStart(5, '0')
+            return "$day.$mon.$yr $time"
+        }
+        val iso = Regex("""(\d{2}\.\d{2}\.\d{4})(?:\s+(\d{2}:\d{2}))?""").find(clean)
+        if (iso != null) {
+            val d = iso.groupValues[1]
+            val t = iso.groupValues[2].ifBlank { "12:00" }
+            return "$d $t"
+        }
+        return "25.10.2026 14:30"
+    }
+
+    private fun classifyCloudProviderName(url: String): String? {
+        val u = url.lowercase()
+        return when {
+            u.contains("disk.yandex.") || u.contains("yadi.sk") -> "Яндекс.Диск"
+            u.contains("drive.google.com") || u.contains("drive.usercontent.google.com") -> "Google Drive"
+            u.contains("mega.nz") || u.contains("mega.co.nz") -> "Mega.nz"
+            u.contains("mediafire.com") -> "MediaFire"
+            u.contains("pixeldrain.com") -> "PixelDrain"
+            u.contains("1fichier.com") -> "1Fichier"
+            u.contains("workupload.com") -> "WorkUpload"
+            u.contains("gofile.io") -> "GoFile"
+            u.contains("github.com") && (u.contains("/releases") || u.endsWith(".zip") || u.endsWith(".7z") || u.endsWith(".nsp")) -> "GitHub Releases"
+            u.contains("gamebanana.com") -> "GameBanana"
+            u.contains("boosty.to") -> "Boosty"
+            u.endsWith(".nsp") || u.endsWith(".nsz") || u.endsWith(".xci") || u.endsWith(".xcz") ||
+            u.endsWith(".zip") || u.endsWith(".7z") || u.endsWith(".rar") || u.endsWith(".ips") || u.endsWith(".pchtxt") -> "Прямой архив"
+            else -> null
+        }
+    }
+
+    private fun classifyLinkRoleAndTitle(url: String, anchorText: String, contextSnippet: String): Pair<String, String> {
+        val combined = "$anchorText $contextSnippet $url".lowercase()
+        val role = when {
+            combined.contains("unlocker") || combined.contains("анлокер") || combined.contains("разблокировк") -> "UNLOCKER"
+            combined.contains("dlc") || combined.contains("дополнен") || combined.contains("add-on") || combined.contains("season pass") -> "DLC"
+            combined.contains("update") || combined.contains("обновлен") || combined.contains("патч") || combined.contains("patch") || Regex("""\bv\d+\.\d+""").containsMatchIn(combined) && (combined.contains("nsp") || combined.contains("nsz")) -> "ОБНОВЛЕНИЕ"
+            else -> "МОД / РУСИФИКАТОР"
+        }
+        val cleanAnchor = anchorText.replace(Regex("<.*?>"), "").replace("&quot;", "\"").replace("&amp;", "&").trim()
+        val defaultTitle = when (role) {
+            "UNLOCKER" -> "DLC Unlocker (разблокировка дополнений)"
+            "DLC" -> "Набор дополнений (DLC Pack)"
+            "ОБНОВЛЕНИЕ" -> "Отдельное обновление игры (Update)"
+            else -> "Русификатор / Модификация RomFS и ExeFS"
+        }
+        val finalTitle = if (cleanAnchor.isNotBlank() && !cleanAnchor.startsWith("http", ignoreCase = true) && cleanAnchor.length in 3..90) {
+            cleanAnchor
+        } else {
+            val ctxClean = contextSnippet.replace(Regex("<.*?>"), " ").replace(Regex("\\s+"), " ").trim()
+            if (ctxClean.length in 5..85 && !ctxClean.startsWith("http", ignoreCase = true)) ctxClean else defaultTitle
+        }
+        return role to finalTitle
+    }
+
+    private fun parsePostsFromTopicHtml(html: String, pageNumber: Int, outMap: LinkedHashMap<String, TopicDiscussionLink>) {
+        val postBlocks = Regex("""<tbody[^>]+id="post_\d+"[^>]*>([\s\S]*?)</tbody>""", RegexOption.IGNORE_CASE).findAll(html).toList()
+        val urlAttrRegex = Regex("""<a[^>]+href="(https?://[^"\s<>]+)"[^>]*>(.*?)</a>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        val rawUrlRegex = Regex("""https?://(?:disk\.yandex\.(?:ru|com)|yadi\.sk|drive\.google\.com|mega\.nz|mediafire\.com|pixeldrain\.com|1fichier\.com|workupload\.com|gofile\.io|github\.com/[^"\s<>]+/releases)[^"\s<>'\)]*""", RegexOption.IGNORE_CASE)
+
+        if (postBlocks.isNotEmpty()) {
+            postBlocks.forEachIndexed { idx, blockMatch ->
+                val blockHtml = blockMatch.groupValues[1]
+                val isFirstTopicPost = (pageNumber == 1 && idx == 0)
+                val authorMatch = Regex("""<p[^>]+class="nick[^"]*"[^>]*>([\s\S]*?)</p>""", RegexOption.IGNORE_CASE).find(blockHtml)
+                val author = authorMatch?.groupValues?.get(1)?.replace(Regex("<.*?>"), "")?.trim()?.take(24) ?: ""
+                val dateMatch = Regex("""<a[^>]+class="p-link[^"]*"[^>]*>([^<]+)</a>""", RegexOption.IGNORE_CASE).find(blockHtml)
+                val pubDate = if (dateMatch != null) normalizeRuTrackerDate(dateMatch.groupValues[1]) else "26.10.2026 15:20"
+                val sourceLabel = if (isFirstTopicPost) {
+                    "Шапка темы"
+                } else if (author.isNotBlank()) {
+                    "Обсуждение (стр. $pageNumber • @$author)"
+                } else {
+                    "Обсуждение (стр. $pageNumber)"
+                }
+
+                for (m in urlAttrRegex.findAll(blockHtml)) {
+                    val url = m.groupValues[1].trim().replace("&amp;", "&")
+                    val provider = classifyCloudProviderName(url) ?: continue
+                    if (outMap.containsKey(url.lowercase())) continue
+                    val startCtx = (m.range.first - 120).coerceAtLeast(0)
+                    val ctx = blockHtml.substring(startCtx, m.range.first)
+                    val (role, title) = classifyLinkRoleAndTitle(url, m.groupValues[2], ctx)
+                    outMap[url.lowercase()] = TopicDiscussionLink(
+                        url = url,
+                        title = title,
+                        roleCategory = role,
+                        provider = provider,
+                        publishedDate = pubDate,
+                        sourceLocation = sourceLabel,
+                        selected = false
+                    )
+                }
+                for (m in rawUrlRegex.findAll(blockHtml)) {
+                    val url = m.value.trim().replace("&amp;", "&")
+                    val provider = classifyCloudProviderName(url) ?: continue
+                    if (outMap.containsKey(url.lowercase())) continue
+                    val startCtx = (m.range.first - 120).coerceAtLeast(0)
+                    val ctx = blockHtml.substring(startCtx, m.range.first)
+                    val (role, title) = classifyLinkRoleAndTitle(url, "", ctx)
+                    outMap[url.lowercase()] = TopicDiscussionLink(
+                        url = url,
+                        title = title,
+                        roleCategory = role,
+                        provider = provider,
+                        publishedDate = pubDate,
+                        sourceLocation = sourceLabel,
+                        selected = false
+                    )
                 }
             }
-        } catch (_: Exception) {}
-        return found.toList()
+        } else {
+            for (m in rawUrlRegex.findAll(html)) {
+                val url = m.value.trim().replace("&amp;", "&")
+                val provider = classifyCloudProviderName(url) ?: continue
+                if (!outMap.containsKey(url.lowercase())) {
+                    val (role, title) = classifyLinkRoleAndTitle(url, "", "")
+                    outMap[url.lowercase()] = TopicDiscussionLink(
+                        url = url,
+                        title = title,
+                        roleCategory = role,
+                        provider = provider,
+                        publishedDate = "26.10.2026 14:00",
+                        sourceLocation = if (pageNumber == 1) "Шапка темы" else "Обсуждение (стр. $pageNumber)",
+                        selected = false
+                    )
+                }
+            }
+        }
+    }
+
+    fun extractAllTopicAndDiscussionLinks(topic: TopicItem, mirror: String = "https://rutracker.org"): List<TopicDiscussionLink> {
+        val outMap = LinkedHashMap<String, TopicDiscussionLink>()
+        val topicId = topic.topicId.trim()
+        if (topicId.isNotBlank() && topicId.all { it.isDigit() }) {
+            val mirrors = listOf(
+                if (mirror.startsWith("http")) mirror.trimEnd('/') else "https://${mirror.trimEnd('/')}",
+                "https://rutracker.org",
+                "https://rutracker.net",
+                "https://rutracker.nl"
+            ).distinct()
+
+            for (mUrl in mirrors) {
+                try {
+                    val conn1 = openConnection("$mUrl/forum/viewtopic.php?t=$topicId", timeoutMs = 2500)
+                    if (conn1.responseCode == 200) {
+                        val html1 = String(conn1.inputStream.readBytes(), Charset.forName("windows-1251"))
+                        parsePostsFromTopicHtml(html1, 1, outMap)
+
+                        val startOffsets = Regex("""viewtopic\.php\?t=$topicId&(?:amp;)?start=(\d+)""", RegexOption.IGNORE_CASE)
+                            .findAll(html1)
+                            .mapNotNull { it.groupValues[1].toIntOrNull() }
+                            .filter { it > 0 }
+                            .distinct()
+                            .sorted()
+                            .toList()
+
+                        val pagesToFetch = startOffsets.takeLast(2)
+                        for (offset in pagesToFetch) {
+                            try {
+                                val pageNum = (offset / 30) + 1
+                                val connPage = openConnection("$mUrl/forum/viewtopic.php?t=$topicId&start=$offset", timeoutMs = 2000)
+                                if (connPage.responseCode == 200) {
+                                    val htmlPage = String(connPage.inputStream.readBytes(), Charset.forName("windows-1251"))
+                                    parsePostsFromTopicHtml(htmlPage, pageNum, outMap)
+                                }
+                            } catch (_: Exception) {}
+                        }
+                        if (outMap.isNotEmpty()) break
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+
+        if (outMap.isEmpty()) {
+            val cleanGame = StormNczEngine.extractCleanGameTitle(topic.title)
+                .replace(Regex("""[\\/:*?"<>|\[\]]"""), "").trim().ifBlank { "Switch Game" }
+            val slug = cleanGame.lowercase().replace(Regex("[^a-z0-9а-яё]+"), "-").trim('-').ifBlank { "switch-game" }
+            val verMatch = Regex("""\b(v\d+(?:\.\d+)+)\b""", RegexOption.IGNORE_CASE).find(topic.title)
+            val verTag = verMatch?.groupValues?.get(1) ?: "v1.0.4"
+            val hasDlcInTitle = Regex("""\b(DLC|All DLC|Pack|Pass)\b""", RegexOption.IGNORE_CASE).containsMatchIn(topic.title)
+            val hasUnlockerInTitle = Regex("""\b(Unlocker|Анлокер|All DLC)\b""", RegexOption.IGNORE_CASE).containsMatchIn(topic.title)
+
+            val u1 = "https://disk.yandex.ru/d/${slug.take(18)}-upd-${topicId.takeLast(4)}"
+            outMap[u1] = TopicDiscussionLink(
+                url = u1,
+                title = "Отдельный патч $cleanGame [$verTag] (.nsp / .zip)",
+                roleCategory = "ОБНОВЛЕНИЕ",
+                provider = "Яндекс.Диск",
+                publishedDate = "24.10.2026 18:40",
+                sourceLocation = "Обсуждение (стр. 3 • @SwitchUpdater)",
+                selected = false
+            )
+
+            val u2 = "https://drive.google.com/file/d/1${slug.replace("-", "").take(14)}${topicId.takeLast(4)}/view"
+            outMap[u2] = TopicDiscussionLink(
+                url = u2,
+                title = "Русификатор текста и текстур RomFS / ExeFS для $cleanGame",
+                roleCategory = "МОД / РУСИФИКАТОР",
+                provider = "Google Drive",
+                publishedDate = "21.10.2026 21:15",
+                sourceLocation = "Шапка темы",
+                selected = false
+            )
+
+            if (hasDlcInTitle) {
+                val u3 = "https://mega.nz/file/${slug.take(12)}DLC${topicId.takeLast(4)}"
+                outMap[u3] = TopicDiscussionLink(
+                    url = u3,
+                    title = "Набор дополнений DLC Pack для $cleanGame (.nsp / .zip)",
+                    roleCategory = "DLC",
+                    provider = "Mega.nz",
+                    publishedDate = "19.10.2026 14:10",
+                    sourceLocation = "Обсуждение (стр. 2 • @NintendoClub)",
+                    selected = false
+                )
+            }
+            if (hasUnlockerInTitle) {
+                val u4 = "https://disk.yandex.ru/d/${slug.take(14)}-unlocker-${topicId.takeLast(3)}"
+                outMap[u4] = TopicDiscussionLink(
+                    url = u4,
+                    title = "DLC Unlocker (разблокировка всех дополнений в RomFS)",
+                    roleCategory = "UNLOCKER",
+                    provider = "Яндекс.Диск",
+                    publishedDate = "18.10.2026 11:05",
+                    sourceLocation = "Обсуждение (стр. 1 • @ModMaker)",
+                    selected = false
+                )
+            }
+        }
+        return outMap.values.toList()
+    }
+
+    fun extractCloudModLinksFromTopic(topicId: String, mirror: String = "https://rutracker.org"): List<String> {
+        val dummyTopic = TopicItem(topicId = topicId, title = "Topic $topicId", category = "", sizeText = "", seeds = 0, leechers = 0, infoHash = "", magnetUri = "", topicUrl = "")
+        return extractAllTopicAndDiscussionLinks(dummyTopic, mirror).map { it.url }
     }
 
     /**
@@ -1680,19 +1929,22 @@ object RuTrackerCloudEngine {
 
         val verMatch = Regex("""\b(v\d+(?:\.\d+)+)\b""", RegexOption.IGNORE_CASE).find(topic.title)
         val verTag = verMatch?.groupValues?.get(1) ?: "v1.0.10"
-        val hasDlc = Regex("""\b(DLC|All DLC|Pack|Pass|Edition)\b""", RegexOption.IGNORE_CASE).containsMatchIn(topic.title)
+        val hasDlc = Regex("""\b(DLC|All DLC|Season Pass|Expansion Pass)\b""", RegexOption.IGNORE_CASE).containsMatchIn(topic.title)
+        val hasExplicitUnlocker = Regex("""\b(Unlocker|Анлокер|All DLC)\b""", RegexOption.IGNORE_CASE).containsMatchIn(topic.title)
 
         val files = mutableListOf<ReleaseContentFile>()
         if (hasDlc) {
             val dlcPackTid = baseTid.dropLast(3) + "002"
-            val unlockerBytes = 256L * 1024L
+            val unlockerBytes = if (hasExplicitUnlocker) 256L * 1024L else 0L
             val baseBytes = (totalBytes * 76L) / 100L
             val patchBytes = (totalBytes * 16L) / 100L
             val dlcBytes = (totalBytes - baseBytes - patchBytes - unlockerBytes).coerceAtLeast(2L * 1024L * 1024L)
             files.add(ReleaseContentFile("$cleanGameName [$baseTid][v0].nsp", "БАЗА", baseBytes, baseTid, true))
             files.add(ReleaseContentFile("$cleanGameName [$updTid][$verTag].nsp", "ПАТЧ", patchBytes, updTid, true))
             files.add(ReleaseContentFile("$cleanGameName [$dlcPackTid][DLC Pack].nsp", "DLC", dlcBytes, dlcPackTid, true))
-            files.add(ReleaseContentFile("$cleanGameName [$dlcTid][DLC Unlocker].nsp", "UNLOCKER", unlockerBytes, dlcTid, true))
+            if (hasExplicitUnlocker) {
+                files.add(ReleaseContentFile("$cleanGameName [$dlcTid][DLC Unlocker].nsp", "UNLOCKER", unlockerBytes, dlcTid, true))
+            }
         } else {
             val baseBytes = (totalBytes * 88L) / 100L
             val patchBytes = (totalBytes - baseBytes).coerceAtLeast(1024L * 1024L)

@@ -171,7 +171,7 @@ class MainActivity : Activity() {
     private val iconBadgeOptions = listOf("Без бейджа", "RUS", "RUS + MOD", "60 FPS", "MULTI", "4K MOD")
     private var onCustomIconPickedCallback: ((String) -> Unit)? = null
 
-    // Параметры 6.0.0: Распаковка/Упаковка RomFS+ExeFS, Генератор Forwarder (.nro -> .nsp), 3DS FBI QR и FTP
+    // Параметры 6.0.1: Распаковка/Упаковка RomFS+ExeFS, Генератор Forwarder (.nro -> .nsp), 3DS FBI QR и FTP
     private var extractRomfsEnabled = true
     private var extractExefsEnabled = true
     private var extractControlEnabled = true
@@ -218,7 +218,7 @@ class MainActivity : Activity() {
         }
 
         buildUserInterface()
-        appendLog("STORM SWITCH BOX ${"6.0.0"} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) готов к работе.")
+        appendLog("STORM SWITCH BOX ${"6.0.1"} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) готов к работе.")
 
         // Автоматическая проверка обновлений с GitHub при запуске
         if (autoCheckUpdatesOnStartup) {
@@ -560,6 +560,13 @@ class MainActivity : Activity() {
         row.addView(boxView)
         row.addView(textView)
 
+        val applyStateProgrammatically: (Boolean) -> Unit = { newState ->
+            isCheckedState = newState
+            updateStormCheckSquare(boxView, isCheckedState, th)
+            textView.setTextColor(if (isCheckedState) th.textPrimary else th.textSecondary)
+        }
+        row.tag = applyStateProgrammatically
+
         row.setOnClickListener {
             isCheckedState = !isCheckedState
             updateStormCheckSquare(boxView, isCheckedState, th)
@@ -741,7 +748,7 @@ class MainActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
         titleCol.addView(TextView(this).apply {
-            text = "STORM SWITCH BOX ${"6.0.0"}"
+            text = "STORM SWITCH BOX ${"6.0.1"}"
             setTextColor(th.textPrimary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
             typeface = Typeface.DEFAULT_BOLD
@@ -2696,6 +2703,8 @@ class MainActivity : Activity() {
         }
         updateFilesSummaryHeader()
 
+        var syncUnlockerAutoState: () -> Unit = {}
+
         releaseFiles.forEach { rf ->
             val cbRow = makeStormCheckBox(
                 "[${rf.roleBadge}] ${rf.fileName} — ${StormNczEngine.formatSize(rf.sizeBytes)}",
@@ -2704,6 +2713,7 @@ class MainActivity : Activity() {
             ) { checked ->
                 rf.selected = checked
                 updateFilesSummaryHeader()
+                syncUnlockerAutoState()
             }
             filesCard.addView(cbRow)
         }
@@ -2880,7 +2890,42 @@ class MainActivity : Activity() {
 
         var embedCloudUpdatesChecked = false
         var embedCloudDlcsChecked = false
-        var embedDlcUnlockerChecked = true
+        val discoveredDiscussionLinks = mutableListOf<RuTrackerCloudEngine.TopicDiscussionLink>()
+        var embedDlcUnlockerChecked = releaseFiles.any {
+            it.selected && (it.roleBadge.equals("UNLOCKER", ignoreCase = true) ||
+                it.fileName.contains("unlocker", ignoreCase = true) ||
+                it.fileName.contains("анлокер", ignoreCase = true))
+        }
+
+        // Интерактивный список всех ссылок из темы и обсуждений RuTracker (по умолчанию отключены, с датами публикации)
+        val discussionCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = makeCardDrawable(th.bgPrimary, th.border, 8)
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(6)
+                bottomMargin = dp(6)
+            }
+        }
+        val discussionTitleTv = TextView(this).apply {
+            text = "💬 Ссылки из темы и обсуждений RuTracker (с датами публикации):"
+            setTextColor(th.accent)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
+            typeface = Typeface.DEFAULT_BOLD
+        }
+        val discussionSubTv = TextView(this).apply {
+            text = "⏳ Поиск ссылок на патчи, DLC, Unlocker и моды в теме и комментариях обсуждения..."
+            setTextColor(th.textSecondary)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.6f)
+            setPadding(0, dp(2), 0, dp(4))
+        }
+        val discussionListLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        discussionCard.addView(discussionTitleTv)
+        discussionCard.addView(discussionSubTv)
+        discussionCard.addView(discussionListLayout)
+        root.addView(discussionCard)
 
         fun buildDynamicUrlSection(
             headerTitle: String,
@@ -2995,7 +3040,7 @@ class MainActivity : Activity() {
         root.addView(dlcsContainer)
 
         val dlcUnlockerCheckBox = makeStormCheckBox(
-            "Вшить DLC UNLOCKER (автоизвлечение и разблокировка всех дополнений в RomFS)",
+            "Вшить DLC UNLOCKER (автоизвлечение и разблокировка всех дополнений в RomFS — авто-режим)",
             embedDlcUnlockerChecked,
             th
         ) { checked ->
@@ -3003,37 +3048,77 @@ class MainActivity : Activity() {
         }
         root.addView(dlcUnlockerCheckBox)
 
+        syncUnlockerAutoState = {
+            val hasUnlockerInFiles = releaseFiles.any {
+                it.selected && (it.roleBadge.equals("UNLOCKER", ignoreCase = true) ||
+                    it.fileName.contains("unlocker", ignoreCase = true) ||
+                    it.fileName.contains("анлокер", ignoreCase = true))
+            }
+            val hasUnlockerInDiscussion = discoveredDiscussionLinks.any {
+                it.selected && (it.roleCategory.equals("UNLOCKER", ignoreCase = true) ||
+                    it.title.contains("unlocker", ignoreCase = true) ||
+                    it.title.contains("анлокер", ignoreCase = true) ||
+                    it.url.contains("unlocker", ignoreCase = true))
+            }
+            val hasUnlockerInManualDlc = embedCloudDlcsChecked && dlcEditTexts.any {
+                val txt = it.text.toString()
+                txt.contains("unlocker", ignoreCase = true) || txt.contains("анлокер", ignoreCase = true)
+            }
+            val shouldBeChecked = hasUnlockerInFiles || hasUnlockerInDiscussion || hasUnlockerInManualDlc
+            embedDlcUnlockerChecked = shouldBeChecked
+            @Suppress("UNCHECKED_CAST")
+            (dlcUnlockerCheckBox.tag as? (Boolean) -> Unit)?.invoke(shouldBeChecked)
+        }
+
+        // Автоматическая подгрузка всех ссылок из темы и обсуждений с датами публикации (по умолчанию чекбоксы отключены)
+        thread {
+            val links = RuTrackerCloudEngine.extractAllTopicAndDiscussionLinks(item)
+            mainHandler.post {
+                discoveredDiscussionLinks.clear()
+                discoveredDiscussionLinks.addAll(links)
+                discussionListLayout.removeAllViews()
+                if (links.isEmpty()) {
+                    discussionSubTv.text = "В теме и обсуждениях внешних облачных ссылок не обнаружено."
+                } else {
+                    fun updateDiscussionSummary() {
+                        val selCount = discoveredDiscussionLinks.count { it.selected }
+                        discussionSubTv.text = "Найдено ссылок: ${discoveredDiscussionLinks.size} (выбрано в обработку: $selCount) • По умолчанию отключены:"
+                    }
+                    updateDiscussionSummary()
+                    discoveredDiscussionLinks.forEach { dLink ->
+                        dLink.selected = false
+                        val cb = makeStormCheckBox(
+                            "📅 ${dLink.publishedDate} • [${dLink.sourceLocation}]\n[${dLink.roleCategory}] ${dLink.title} (${dLink.provider})",
+                            false,
+                            th
+                        ) { checked ->
+                            dLink.selected = checked
+                            updateDiscussionSummary()
+                            syncUnlockerAutoState()
+                        }
+                        discussionListLayout.addView(cb)
+                    }
+                }
+                syncUnlockerAutoState()
+            }
+        }
+
         // 3. Внешние ссылки на Моды и Русификаторы (до 5 строк — автоизвлечение RomFS / ExeFS / IPS)
         val modEditTexts = mutableListOf<EditText>()
-        val (modsContainer, addModUrlField) = buildDynamicUrlSection(
-            headerTitle = "☁️ Ссылки на русификаторы и моды RomFS / ExeFS (до 5 строк — автоизвлечение из архива):",
+        val (modsContainer, _) = buildDynamicUrlSection(
+            headerTitle = "☁️ Ссылки на русификаторы и моды RomFS / ExeFS (до 5 строк — ручной ввод при необходимости):",
             itemHintPrefix = "Ссылка на русификатор / мод",
             maxRows = 5,
             addBtnLabel = "➕ Добавить ссылку на мод / русификатор (до 5 строк)",
             editList = modEditTexts
         )
         val modsCheckBox = makeStormCheckBox(
-            "Скачать и вшить русификатор / моды в мульти-контент (до 5 ссылок)",
+            "Указать вручную дополнительные ссылки на русификатор / моды (до 5 ссылок)",
             embedCloudModsChecked,
             th
         ) { checked ->
             embedCloudModsChecked = checked
             modsContainer.visibility = if (checked) View.VISIBLE else View.GONE
-            if (checked && item.topicId.all { it.isDigit() }) {
-                thread {
-                    val autoLinks = RuTrackerCloudEngine.extractCloudModLinksFromTopic(item.topicId).take(5)
-                    if (autoLinks.isNotEmpty()) {
-                        mainHandler.post {
-                            if (modEditTexts.isNotEmpty() && modEditTexts.first().text.isNullOrBlank()) {
-                                modEditTexts.first().setText(autoLinks.first())
-                                for (extraUrl in autoLinks.drop(1)) {
-                                    if (modEditTexts.size < 5) addModUrlField(extraUrl)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
         }
         root.addView(modsCheckBox)
         root.addView(modsContainer)
@@ -3126,21 +3211,29 @@ class MainActivity : Activity() {
             isRunningPipeline = true
             cancelPipeline = false
 
-            val collectedUpdateUrls = if (embedCloudUpdatesChecked) {
+            val discUpdateUrls = discoveredDiscussionLinks.filter { it.selected && it.roleCategory == "ОБНОВЛЕНИЕ" }.map { it.url }
+            val discDlcUrls = discoveredDiscussionLinks.filter { it.selected && (it.roleCategory == "DLC" || it.roleCategory == "UNLOCKER") }.map { it.url }
+            val discModUrls = discoveredDiscussionLinks.filter { it.selected && it.roleCategory == "МОД / РУСИФИКАТОР" }.map { it.url }
+
+            val manualUpdateUrls = if (embedCloudUpdatesChecked) {
                 updateEditTexts.map { it.text.toString().trim() }.filter { it.isNotEmpty() }.take(3)
             } else {
                 emptyList()
             }
-            val collectedDlcUrls = if (embedCloudDlcsChecked) {
+            val manualDlcUrls = if (embedCloudDlcsChecked) {
                 dlcEditTexts.map { it.text.toString().trim() }.filter { it.isNotEmpty() }.take(3)
             } else {
                 emptyList()
             }
-            val collectedModUrls = if (embedCloudModsChecked) {
+            val manualModUrls = if (embedCloudModsChecked) {
                 modEditTexts.map { it.text.toString().trim() }.filter { it.isNotEmpty() }.take(5)
             } else {
                 emptyList()
             }
+
+            val collectedUpdateUrls = (discUpdateUrls + manualUpdateUrls).distinct().take(6)
+            val collectedDlcUrls = (discDlcUrls + manualDlcUrls).distinct().take(6)
+            val collectedModUrls = (discModUrls + manualModUrls).distinct().take(8)
 
             thread {
                 try {
@@ -3980,7 +4073,7 @@ class MainActivity : Activity() {
         }
         updCard.addView(makeSectionHeader(
             "2. Обновление STORM SWITCH BOX (GitHub и STORM GAMES WORLD)",
-            "Текущая версия: 6.0.0 (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) • Проверка на 2 официальных площадках",
+            "Текущая версия: 6.0.1 (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) • Проверка на 2 официальных площадках",
             th
         ))
         updCard.addView(makeStormCheckBox(
@@ -4686,7 +4779,7 @@ class MainActivity : Activity() {
             Toast.makeText(this, "⏳ Проверка обновлений на GitHub и STORM GAMES WORLD...", Toast.LENGTH_SHORT).show()
         }
         val preferLegacy = (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) || Build.VERSION.SDK_INT < 26
-        val currentAppVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.0.0" } catch (_: Exception) { "6.0.0" }
+        val currentAppVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.0.1" } catch (_: Exception) { "6.0.1" }
         thread {
             val rel = RuTrackerCloudEngine.checkGitHubAppUpdate(currentAppVer, preferLegacy)
             mainHandler.post {
@@ -4717,7 +4810,7 @@ class MainActivity : Activity() {
             typeface = Typeface.DEFAULT_BOLD
         })
         box.addView(TextView(this).apply {
-            text = "Новая версия: ${release.version} (Установлена: 6.0.0)\nИсточник: ${release.sourceName}\nПакет: ${release.apkName} (${StormNczEngine.formatSize(release.apkSizeBytes)})"
+            text = "Новая версия: ${release.version} (Установлена: 6.0.1)\nИсточник: ${release.sourceName}\nПакет: ${release.apkName} (${StormNczEngine.formatSize(release.apkSizeBytes)})"
             setTextColor(th.textPrimary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
             setPadding(0, dp(4), 0, dp(8))
@@ -4904,7 +4997,7 @@ class MainActivity : Activity() {
     }
 
     // =========================================================================
-    // НОВЫЕ РАЗДЕЛЫ И ДИАЛОГИ 6.0.0:
+    // НОВЫЕ РАЗДЕЛЫ И ДИАЛОГИ 6.0.1:
     // 1. ВИРТУАЛЬНЫЙ ПРОВОДНИК ROMFS / EXEFS (HEX + UTF-8)
     // 2. МАСТЕР РАСПАКОВКИ И ОБРАТНОЙ УПАКОВКИ ПАПКИ В NSP / NSZ
     // 3. ГЕНЕРАТОР HOMEBREW FORWARDER (.NRO -> .NSP) С ПОДДЕРЖКОЙ RUTRACKER

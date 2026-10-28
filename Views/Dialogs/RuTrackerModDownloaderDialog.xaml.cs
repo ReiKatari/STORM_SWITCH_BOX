@@ -25,6 +25,7 @@ namespace StormSwitchBox.Views.Dialogs
 
         private readonly ObservableCollection<RuTrackerTopicItem> _topics = new();
         private readonly ObservableCollection<TorrentFileSelectionItem> _torrentFiles = new();
+        private readonly ObservableCollection<CloudModLinkItem> _discussionLinks = new();
 
         private string? _localTorrentPath;
         private string _currentTopicTitle = string.Empty;
@@ -42,6 +43,7 @@ namespace StormSwitchBox.Views.Dialogs
 
             TopicsListView.ItemsSource = _topics;
             TorrentFilesListView.ItemsSource = _torrentFiles;
+            DiscussionLinksListView.ItemsSource = _discussionLinks;
 
             LoadSavedSettings();
 
@@ -323,8 +325,7 @@ namespace StormSwitchBox.Views.Dialogs
 
                     if (detailed.ExtractedModLinks.Count > 0)
                     {
-                        AppendCloudModLinks(detailed.ExtractedModLinks.Select(m => m.Url));
-                        ModLinksHintText.Text = $"Найдено ссылок в теме: {detailed.ExtractedModLinks.Count}";
+                        PopulateDiscussionLinks(detailed.ExtractedModLinks);
                     }
                     else if (topic.ExtractedModLinks == null || topic.ExtractedModLinks.Count == 0)
                     {
@@ -363,10 +364,75 @@ namespace StormSwitchBox.Views.Dialogs
 
         private void PopulateTorrentFiles(List<TorrentFileSelectionItem> entries)
         {
+            foreach (var oldItem in _torrentFiles)
+                oldItem.PropertyChanged -= OnItemSelectionChangedForUnlocker;
             _torrentFiles.Clear();
             foreach (var entry in entries)
+            {
+                entry.PropertyChanged += OnItemSelectionChangedForUnlocker;
                 _torrentFiles.Add(entry);
+            }
             TorrentFilesHeader.Text = $"📦 Файлы в раздаче ({entries.Count} шт.)";
+            UpdateDlcUnlockerAutoState();
+        }
+
+        private void PopulateDiscussionLinks(IEnumerable<CloudModLinkItem> links)
+        {
+            foreach (var oldLink in _discussionLinks)
+                oldLink.PropertyChanged -= OnItemSelectionChangedForUnlocker;
+            _discussionLinks.Clear();
+            foreach (var link in links)
+            {
+                link.IsSelected = false;
+                link.PropertyChanged += OnItemSelectionChangedForUnlocker;
+                _discussionLinks.Add(link);
+            }
+            UpdateDiscussionSummaryText();
+            UpdateDlcUnlockerAutoState();
+        }
+
+        private void OnItemSelectionChangedForUnlocker(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(TorrentFileSelectionItem.IsSelected) || e.PropertyName == nameof(CloudModLinkItem.IsSelected))
+            {
+                UpdateDiscussionSummaryText();
+                UpdateDlcUnlockerAutoState();
+            }
+        }
+
+        private void CloudDlcLinksBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            UpdateDlcUnlockerAutoState();
+        }
+
+        private void UpdateDiscussionSummaryText()
+        {
+            int total = _discussionLinks.Count;
+            int selected = _discussionLinks.Count(x => x.IsSelected);
+            ModLinksHintText.Text = $"Ссылок в теме и обсуждениях: {total} (выбрано: {selected})";
+        }
+
+        private void UpdateDlcUnlockerAutoState()
+        {
+            bool hasInTorrent = _torrentFiles.Any(f => f.IsSelected &&
+                (f.CategoryBadge.Contains("UNLOCKER", StringComparison.OrdinalIgnoreCase) ||
+                 f.RelativePath.Contains("unlocker", StringComparison.OrdinalIgnoreCase) ||
+                 f.RelativePath.Contains("анлокер", StringComparison.OrdinalIgnoreCase)));
+
+            bool hasInDiscussion = _discussionLinks.Any(d => d.IsSelected &&
+                (string.Equals(d.RoleCategory, "UNLOCKER", StringComparison.OrdinalIgnoreCase) ||
+                 d.Title.Contains("unlocker", StringComparison.OrdinalIgnoreCase) ||
+                 d.Title.Contains("анлокер", StringComparison.OrdinalIgnoreCase) ||
+                 d.Url.Contains("unlocker", StringComparison.OrdinalIgnoreCase)));
+
+            string manualDlcText = CloudDlcLinksBox?.Text ?? string.Empty;
+            bool hasInManualDlc = manualDlcText.Contains("unlocker", StringComparison.OrdinalIgnoreCase) ||
+                                  manualDlcText.Contains("анлокер", StringComparison.OrdinalIgnoreCase);
+
+            if (StitchDlcUnlockerCheckBox != null)
+            {
+                StitchDlcUnlockerCheckBox.IsChecked = hasInTorrent || hasInDiscussion || hasInManualDlc;
+            }
         }
 
         private void AppendCloudModLinks(IEnumerable<string> links)
@@ -460,7 +526,8 @@ namespace StormSwitchBox.Views.Dialogs
                 .Take(5)
                 .ToList();
 
-            var cloudLinks = updateLinks.Concat(dlcLinks).Concat(modLinks)
+            var checkedDiscussionLinks = _discussionLinks.Where(x => x.IsSelected).Select(x => x.Url).ToList();
+            var cloudLinks = checkedDiscussionLinks.Concat(updateLinks).Concat(dlcLinks).Concat(modLinks)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
