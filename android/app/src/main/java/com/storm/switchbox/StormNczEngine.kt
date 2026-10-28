@@ -3445,11 +3445,55 @@ object StormNczEngine {
         val tempNormDir = File(outputDir, ".tmp_norm_nsp_${System.currentTimeMillis()}")
         tempNormDir.mkdirs()
 
+        // Автоизвлечение архивов (.zip) при обработке (как в ПК-версии MultiContentService.cs):
+        // если на вход подан архив с обновлением, DLC, анлокером или модами RomFS/ExeFS — распаковываем автоматически!
+        val expandedInputFiles = mutableListOf<File>()
+        for ((archIdx, inFile) in inputFiles.filter { it.exists() }.withIndex()) {
+            if (inFile.isFile && inFile.extension.equals("zip", ignoreCase = true)) {
+                val archOutDir = File(tempNormDir, "archive_unpack_$archIdx")
+                archOutDir.mkdirs()
+                var foundContainersInZip = false
+                try {
+                    ZipInputStream(BufferedInputStream(FileInputStream(inFile))).use { zis ->
+                        var zEntry = zis.nextEntry
+                        val zBuf = ByteArray(64 * 1024)
+                        while (zEntry != null) {
+                            if (!zEntry.isDirectory) {
+                                val relPath = zEntry.name.replace('\\', '/').trimStart('/')
+                                val destF = File(archOutDir, relPath)
+                                destF.parentFile?.mkdirs()
+                                FileOutputStream(destF).use { fos ->
+                                    while (true) {
+                                        val r = zis.read(zBuf)
+                                        if (r <= 0) break
+                                        fos.write(zBuf, 0, r)
+                                    }
+                                }
+                                if (destF.extension.lowercase() in listOf("nsp", "nsz", "xci", "xcz")) {
+                                    expandedInputFiles.add(destF)
+                                    foundContainersInZip = true
+                                }
+                            }
+                            zis.closeEntry()
+                            zEntry = zis.nextEntry
+                        }
+                    }
+                } catch (_: Exception) {}
+                if (archOutDir.walkTopDown().maxDepth(6).any { it.isFile && it.extension.lowercase() !in listOf("nsp", "nsz", "xci", "xcz") }) {
+                    expandedInputFiles.add(archOutDir)
+                } else if (!foundContainersInZip) {
+                    expandedInputFiles.add(inFile)
+                }
+            } else {
+                expandedInputFiles.add(inFile)
+            }
+        }
+
         // Этап 1 (как в ПК-версии MultiContentService.cs):
         // Если входные файлы имеют разные форматы (.nsz, .xci, .xcz) или выполняется сборка мульти-контента,
         // сначала приводим все не-NSP контейнеры к единому стандарту .nsp (PFS0 с распакованными .nca, .tik, .cert).
         val normalizedInputFiles = try {
-            inputFiles.filter { it.exists() }.mapIndexed { idx, origFile ->
+            expandedInputFiles.filter { it.exists() }.mapIndexed { idx, origFile ->
                 val ext = origFile.extension.lowercase()
                 val step1File = if (ext in listOf("nsz", "xci", "xcz") && (inputFiles.size > 1 || !shouldCompressNca || ext in listOf("xci", "xcz"))) {
                     normalizeContainerToTempNsp(origFile, tempNormDir, idx, keysMap, onProgress)
@@ -4188,7 +4232,7 @@ object StormNczEngine {
     }
 
     // =========================================================================
-    // НОВОЕ В 5.5.9: ПОЛНАЯ РАСПАКОВКА И УПАКОВКА ROMFS / EXEFS / CONTROL / PFS0,
+    // НОВОЕ В 6.0.0: ПОЛНАЯ РАСПАКОВКА И УПАКОВКА ROMFS / EXEFS / CONTROL / PFS0,
     // ВИРТУАЛЬНЫЙ ПРОВОДНИК ROMFS С HEX-ПРОСМОТРОМ, ГЕНЕРАТОР HOMEBREW FORWARDER (.NRO -> .NSP),
     // НАТИВНЫЙ QR-ГЕНЕРАТОР ДЛЯ 3DS (FBI) И FTP-КЛИЕНТ, БАЗА TITLEDB И ОШИБОК 2XXX-XXXX
     // =========================================================================
@@ -5147,9 +5191,29 @@ object StormNczEngine {
             val isDlcOrUnlocker = roleUp.contains("DLC") || roleUp.contains("UNLOCK")
 
             val rawExefsPfs0: ByteArray = if (!isDlcOrUnlocker) {
-                val npdm = buildValidNpdmBytes(effTidHex, gameTitle.take(15).ifBlank { "Application" })
+                val baseTidForMods = effTidHex.take(13) + "000"
+                val customExefsDir = File("/storage/emulated/0/STORM SWITCH BOX/mods/atmosphere/contents/$baseTidForMods/exefs")
+                val customPatchesDir = File("/storage/emulated/0/STORM SWITCH BOX/mods/atmosphere/contents/$baseTidForMods/exefs_patches")
+                val npdmFile = File(customExefsDir, "main.npdm")
+                val npdm = if (npdmFile.isFile && npdmFile.length() in 256..65536) npdmFile.readBytes()
+                else buildValidNpdmBytes(effTidHex, gameTitle.take(15).ifBlank { "Application" })
                 val nso = buildValidNso0Bytes("main", effTidHex, 24576, forwarderNroPath, forwarderRomArg)
-                buildMemoryPfs0(listOf("main" to nso, "main.npdm" to npdm))
+                val exefsList = mutableListOf("main" to nso, "main.npdm" to npdm)
+                if (customExefsDir.isDirectory) {
+                    customExefsDir.listFiles()?.forEach { ef ->
+                        if (ef.isFile && ef.name !in setOf("main", "main.npdm") && ef.length() <= 2 * 1024 * 1024) {
+                            exefsList.add(ef.name to ef.readBytes())
+                        }
+                    }
+                }
+                if (customPatchesDir.isDirectory) {
+                    customPatchesDir.walkTopDown().maxDepth(3).forEach { pf ->
+                        if (pf.isFile && pf.length() <= 512 * 1024) {
+                            exefsList.add("patch_${pf.name}" to pf.readBytes())
+                        }
+                    }
+                }
+                buildMemoryPfs0(exefsList)
             } else {
                 ByteArray(0)
             }
@@ -6284,7 +6348,7 @@ object StormNczEngine {
     private var fullTitleDbMemoryCache: List<TitleDbGameEntry>? = null
 
     fun loadFullTitleDbFromAssets(): List<TitleDbGameEntry> {
-        fullTitleDbMemoryCache?.let { if (it.size > 100) return it }
+        fullTitleDbMemoryCache?.let { if (it.size > 5000) return it }
         val mapByTid = LinkedHashMap<String, TitleDbGameEntry>()
         for (curated in builtInTitleDbCatalog) {
             mapByTid[curated.titleId.uppercase()] = curated
@@ -6308,7 +6372,18 @@ object StormNczEngine {
         try {
             val ctx = appContextRef
             if (ctx != null) {
-                java.util.zip.GZIPInputStream(ctx.assets.open("titledb_full.tsv.gz")).bufferedReader(StandardCharsets.UTF_8).useLines { lines ->
+                val rawStream = try {
+                    ctx.assets.open("titledb_full.tsv")
+                } catch (_: Exception) {
+                    ctx.assets.open("titledb_full.tsv.gz")
+                }
+                val pb = java.io.PushbackInputStream(BufferedInputStream(rawStream), 2)
+                val b0 = pb.read()
+                val b1 = pb.read()
+                if (b1 >= 0) pb.unread(b1)
+                if (b0 >= 0) pb.unread(b0)
+                val effectiveIn = if (b0 == 0x1F && b1 == 0x8B) java.util.zip.GZIPInputStream(pb) else pb
+                effectiveIn.bufferedReader(StandardCharsets.UTF_8).useLines { lines ->
                     lines.forEach { ln ->
                         val parts = ln.split('\t')
                         if (parts.size >= 9) {
@@ -6365,7 +6440,7 @@ object StormNczEngine {
                 val conn = (java.net.URL(u).openConnection() as java.net.HttpURLConnection).apply {
                     connectTimeout = 10000
                     readTimeout = 15000
-                    setRequestProperty("User-Agent", "StormSwitchBox/5.5.9")
+                    setRequestProperty("User-Agent", "StormSwitchBox/6.0.0")
                 }
                 if (conn.responseCode == 200) {
                     val body = conn.inputStream.bufferedReader(StandardCharsets.UTF_8).use { it.readText() }

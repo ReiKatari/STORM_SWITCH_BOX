@@ -92,6 +92,8 @@ object RuTrackerCloudEngine {
 
     // Строго только игры и русификаторы Nintendo Switch из официального раздела RuTracker #1605 / #2481 (по 1 эталонной записи на игру)
     private val CURATED_SWITCH_DB = listOf(
+        TopicItem("6504812", "[Nintendo Switch] Felix the Cat [v1.0.2 / 010079D01C6B6000] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "345,0 МБ", 94, 6, "7F3A9C1D5E8B2046193A7D5C8E2F4B109A6C3D8E", "", ""),
+        TopicItem("5794103", "[Nintendo Switch] Felix The Reaper [v1.0.3 / 010003B00D3A2000] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "4,31 ГБ", 52, 4, "3B8E1D4C7A9F2056183C5E7A9B2D4F608C1E3A5B", "", ""),
         TopicItem("6438192", "[Nintendo Switch] Brotato [v1.1.15.4 (851968) + DLC / 01002EF01A316000] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "388,19 МБ", 142, 9, "7B4E2C198A0F5D3E6B9124C87E1A3F509D2B4C6E", "", ""),
         TopicItem("6525297", "[Nintendo Switch] Animal Well [v1.0.10 (655360) / 010020D01AD24000] [NSP / NSZ] [RUS / Multi11]", "Nintendo Switch", "37,63 МБ", 54, 2, "0A996B997AA2B90DB658E4CA76D2989DD1F80F56", "", ""),
         TopicItem("6589120", "[Nintendo Switch] Nine Sols [v1.0.5 + Русификатор] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "3,42 ГБ", 165, 12, "957ADC803EE75C916B735378F25406B4A4A7F1D5", "", ""),
@@ -453,6 +455,25 @@ object RuTrackerCloudEngine {
         return variants.filter { it.isNotBlank() }
     }
 
+    private val ENGLISH_STOP_WORDS = setOf("the", "and", "for", "with", "from", "into", "edition", "switch", "nintendo")
+
+    private fun isWordFuzzyMatch(qw: String, gw: String): Pair<Boolean, Int> {
+        if (qw == gw) return true to 0
+        if (qw.length >= 3 && gw.startsWith(qw)) return true to 0
+        if (qw.length < 4 || gw.length < 4) return false to 99
+        if (kotlin.math.abs(qw.length - gw.length) > 2) return false to 99
+        val sameStart = (qw[0] == gw[0]) || (qw.length >= 2 && gw.length >= 2 && qw[0] == gw[1] && qw[1] == gw[0])
+        if (!sameStart) return false to 99
+        val maxDist = if (qw.length <= 5) 1 else 2
+        val d = damerauLevenshtein(qw, gw)
+        if (d <= maxDist) return true to d
+        if (gw.length > qw.length && qw.length >= 4) {
+            val dPref = damerauLevenshtein(qw, gw.take(qw.length))
+            if (dPref <= 1) return true to dPref
+        }
+        return false to 99
+    }
+
     fun scoreFuzzyGameMatch(
         rawQuery: String,
         gameTitle: String,
@@ -464,65 +485,59 @@ object RuTrackerCloudEngine {
         if (q.isEmpty() || q.equals("nintendo switch", true) || q.equals("все хиты switch", true)) return 500
 
         val cleanGame = StormNczEngine.extractCleanGameTitle(gameTitle).lowercase().trim()
-        val fullLower = "$gameTitle $titleId $publisher $genre".lowercase()
 
         if (titleId.isNotEmpty() && titleId.lowercase().contains(q)) return 1300
-        if (cleanGame == q) return 1200
-        if (cleanGame.startsWith(q)) return 1100
+        if (cleanGame == q) return 1250
+        if (cleanGame.startsWith(q)) return 1180
+        if (cleanGame.contains(q)) return 1100
+
+        val gameWords = cleanGame.split(Regex("""[^a-zа-яё0-9]+""")).filter { it.isNotEmpty() }
+        if (gameWords.isEmpty()) return 0
 
         val variants = generateSmartQueryVariants(q)
         for ((idx, v) in variants.withIndex()) {
-            val penalty = if (idx == 0) 0 else 40
-            if (cleanGame == v) return 1180 - penalty
-            if (cleanGame.startsWith(v)) return 1060 - penalty
-            val tokens = v.split(' ', '-', ':', '.', ',', '/').filter { it.isNotBlank() }
-            if (tokens.isNotEmpty() && tokens.all { tok -> cleanGame.contains(tok) }) {
-                return 960 - penalty
-            }
-            if (tokens.isNotEmpty() && tokens.all { tok -> fullLower.contains(tok) }) {
-                return 860 - penalty
-            }
-        }
+            val penalty = if (idx == 0) 0 else 35
+            if (cleanGame == v) return 1220 - penalty
+            if (cleanGame.startsWith(v)) return 1140 - penalty
+            if (cleanGame.contains(v) && v.length >= 4) return 1060 - penalty
 
-        // Phonetic skeleton comparison
-        val qSkel = phoneticSkeleton(variants.firstOrNull { it.all { c -> c.code < 128 } } ?: q)
-        val gSkel = phoneticSkeleton(cleanGame)
-        if (qSkel.length >= 3 && gSkel.isNotEmpty()) {
-            if (gSkel == qSkel) return 840
-            if (gSkel.contains(qSkel)) return 790
-        }
+            val allQWords = v.split(Regex("""[^a-zа-яё0-9]+""")).filter { it.isNotEmpty() }
+            if (allQWords.isEmpty()) continue
 
-        // Typo tolerance (Damerau-Levenshtein on words)
-        val gameWords = cleanGame.split(Regex("""[^a-zа-яё0-9]+""")).filter { it.length >= 3 }
-        for (v in variants.take(4)) {
-            val qWords = v.split(Regex("""[^a-zа-яё0-9]+""")).filter { it.length >= 3 }
-            if (qWords.isEmpty()) continue
-            var matchedWords = 0
+            val significantQWords = allQWords.filter { it.length >= 2 && it !in ENGLISH_STOP_WORDS }.ifEmpty { allQWords }
+            val stopQWords = allQWords.filter { it in ENGLISH_STOP_WORDS }
+
+            var allSignificantMatched = true
             var totalDist = 0
-            for (qw in qWords) {
-                val maxAllowedDist = when {
-                    qw.length <= 4 -> 1
-                    qw.length <= 7 -> 2
-                    else -> 3
-                }
-                var bestWordDist = 99
+            var exactOrPrefixCount = 0
+
+            for (qw in significantQWords) {
+                var bestDist = 99
+                var matchedThisWord = false
                 for (gw in gameWords) {
-                    val d = damerauLevenshtein(qw, gw)
-                    if (d < bestWordDist) bestWordDist = d
-                    if (gw.length > qw.length && gw.startsWith(qw.take(3))) {
-                        val dPrefix = damerauLevenshtein(qw, gw.take(qw.length))
-                        if (dPrefix < bestWordDist) bestWordDist = dPrefix
+                    val (ok, d) = isWordFuzzyMatch(qw, gw)
+                    if (ok && d < bestDist) {
+                        matchedThisWord = true
+                        bestDist = d
+                        if (d == 0) break
                     }
-                    val dSkel = damerauLevenshtein(phoneticSkeleton(qw), phoneticSkeleton(gw))
-                    if (dSkel < bestWordDist) bestWordDist = dSkel
                 }
-                if (bestWordDist <= maxAllowedDist) {
-                    matchedWords++
-                    totalDist += bestWordDist
+                if (!matchedThisWord) {
+                    allSignificantMatched = false
+                    break
                 }
+                if (bestDist == 0) exactOrPrefixCount++
+                totalDist += bestDist
             }
-            if (matchedWords == qWords.size) {
-                return (760 - totalDist * 45).coerceAtLeast(600)
+
+            if (allSignificantMatched) {
+                var stopBonus = 0
+                for (sw in stopQWords) {
+                    if (gameWords.any { it == sw || it.startsWith(sw) }) stopBonus += 45
+                    else stopBonus -= 25
+                }
+                val baseScore = if (totalDist == 0) 980 else (820 - totalDist * 55)
+                return (baseScore + exactOrPrefixCount * 20 + stopBonus - penalty).coerceAtLeast(600)
             }
         }
 
@@ -531,11 +546,13 @@ object RuTrackerCloudEngine {
 
     fun explainQueryCorrection(rawQuery: String, results: List<TopicItem>): String? {
         val q = rawQuery.trim()
-        if (q.length < 2 || results.isEmpty()) return null
+        if (q.length < 3 || results.isEmpty()) return null
         val topClean = StormNczEngine.extractCleanGameTitle(results.first().title).trim()
         if (topClean.isEmpty()) return null
-        if (topClean.lowercase().contains(q.lowercase())) return null
-        return "💡 Проверка на дурака: запрос «$q» автоматически распознан как «$topClean»"
+        val qTokens = q.lowercase().split(Regex("""[^a-zа-яё0-9]+""")).filter { it.length >= 3 && it !in ENGLISH_STOP_WORDS }
+        val topLower = topClean.lowercase()
+        if (qTokens.isEmpty() || qTokens.any { topLower.contains(it) }) return null
+        return "🔎 Показаны результаты для «$topClean» (по запросу «$q»)"
     }
 
     fun filterTitleDbCatalogFuzzy(
@@ -1274,22 +1291,38 @@ object RuTrackerCloudEngine {
         return u
     }
 
-    fun downloadAndExtractMod(
+    data class CloudExtractedBundle(
+        val containerFiles: List<File>,
+        val modDirectories: List<File>,
+        val extractedFileCount: Int
+    )
+
+    /**
+     * Универсальная загрузка и автоизвлечение облачных архивов (.zip / .tar / .gz) и контейнеров (.nsp / .nsz / .xci / .xcz)
+     * для Обновлений (Update), Дополнений (DLC / Unlocker) и Модов (RomFS / ExeFS / IPS).
+     */
+    fun downloadAndExtractCloudResource(
         cloudUrl: String,
+        roleHint: String,
         targetTitleId: String,
+        romsDir: File,
         modsRootDir: File,
         onProgress: (String) -> Unit
-    ): File {
-        onProgress("Разрешение прямой ссылки облака...")
+    ): CloudExtractedBundle {
+        onProgress("Разрешение прямой ссылки ($roleHint)...")
         val directUrl = resolveCloudUrl(cloudUrl)
-        val tempZip = File(modsRootDir, "temp_mod_${System.currentTimeMillis()}.zip")
+        romsDir.mkdirs()
         modsRootDir.mkdirs()
 
-        onProgress("Скачивание архива модификации...")
+        val cleanTid = targetTitleId.replace(Regex("[^0-9A-Fa-f]"), "").uppercase().padEnd(16, '0').take(16)
+        val urlFileName = directUrl.substringBefore('?').substringAfterLast('/').ifBlank { "cloud_${roleHint.lowercase()}_${System.currentTimeMillis()}" }
+        val tempFile = File(modsRootDir, "dl_${System.currentTimeMillis()}_$urlFileName")
+
+        onProgress("Скачивание ($roleHint)...")
         val conn = openConnection(directUrl)
         conn.instanceFollowRedirects = true
         conn.inputStream.use { input ->
-            FileOutputStream(tempZip).use { output ->
+            FileOutputStream(tempFile).use { output ->
                 val buf = ByteArray(64 * 1024)
                 var total = 0L
                 while (true) {
@@ -1297,46 +1330,137 @@ object RuTrackerCloudEngine {
                     if (r <= 0) break
                     output.write(buf, 0, r)
                     total += r
-                    onProgress("Скачано: ${StormNczEngine.formatSize(total)}")
+                    onProgress("Скачано ($roleHint): ${StormNczEngine.formatSize(total)}")
                 }
             }
         }
 
-        val cleanTid = targetTitleId.replace(Regex("[^0-9A-Fa-f]"), "").uppercase().padEnd(16, '0').take(16)
-        val outDir = File(modsRootDir, "atmosphere/contents/$cleanTid")
-        outDir.mkdirs()
+        val containerFiles = mutableListOf<File>()
+        val modDirs = mutableListOf<File>()
+        var extractedCount = 0
 
-        onProgress("Распаковка в atmosphere/contents/$cleanTid...")
-        FileInputStream(tempZip).use { fis ->
-            ZipInputStream(BufferedInputStream(fis)).use { zis ->
-                var entry: ZipEntry? = zis.nextEntry
-                val buf = ByteArray(64 * 1024)
-                while (entry != null) {
-                    val e = entry
-                    if (!e.isDirectory) {
-                        val dest = File(outDir, e.name)
-                        dest.parentFile?.mkdirs()
-                        FileOutputStream(dest).use { fos ->
-                            while (true) {
-                                val r = zis.read(buf)
-                                if (r <= 0) break
-                                fos.write(buf, 0, r)
+        val magic = ByteArray(4)
+        if (tempFile.length() >= 4) {
+            FileInputStream(tempFile).use { it.read(magic) }
+        }
+        val isZip = (magic[0] == 0x50.toByte() && magic[1] == 0x4B.toByte()) || tempFile.extension.equals("zip", true)
+        val isDirectContainer = (magic[0] == 'P'.code.toByte() && magic[1] == 'F'.code.toByte() && magic[2] == 'S'.code.toByte() && magic[3] == '0'.code.toByte()) ||
+            tempFile.extension.lowercase() in listOf("nsp", "nsz", "xci", "xcz")
+
+        if (isDirectContainer && !isZip) {
+            val ext = tempFile.extension.lowercase().takeIf { it in listOf("nsp", "nsz", "xci", "xcz") } ?: "nsp"
+            val tidSuffix = when (roleHint.uppercase()) {
+                "ПАТЧ", "UPDATE" -> cleanTid.take(13) + "800"
+                "DLC", "UNLOCKER" -> cleanTid.take(13) + "001"
+                else -> cleanTid
+            }
+            val finalContainer = File(romsDir, "${roleHint}_[${tidSuffix}]_${System.currentTimeMillis()}.$ext")
+            tempFile.copyTo(finalContainer, overwrite = true)
+            tempFile.delete()
+            containerFiles.add(finalContainer)
+            extractedCount = 1
+            onProgress("Контейнер $roleHint готов: ${finalContainer.name}")
+            return CloudExtractedBundle(containerFiles, modDirs, extractedCount)
+        }
+
+        val outAtmoDir = File(modsRootDir, "atmosphere/contents/$cleanTid")
+        outAtmoDir.mkdirs()
+
+        if (isZip) {
+            onProgress("Автоизвлечение архива ($roleHint)...")
+            FileInputStream(tempFile).use { fis ->
+                ZipInputStream(BufferedInputStream(fis)).use { zis ->
+                    var entry: ZipEntry? = zis.nextEntry
+                    val buf = ByteArray(64 * 1024)
+                    while (entry != null) {
+                        val e = entry
+                        if (!e.isDirectory) {
+                            val rawPath = e.name.replace('\\', '/').trimStart('/')
+                            val fName = rawPath.substringAfterLast('/')
+                            val lowerName = fName.lowercase()
+                            val ext = fName.substringAfterLast('.', "").lowercase()
+
+                            if (ext in listOf("nsp", "nsz", "xci", "xcz")) {
+                                val destContainer = File(romsDir, fName)
+                                FileOutputStream(destContainer).use { fos ->
+                                    while (true) {
+                                        val r = zis.read(buf)
+                                        if (r <= 0) break
+                                        fos.write(buf, 0, r)
+                                    }
+                                }
+                                containerFiles.add(destContainer)
+                                extractedCount++
+                            } else if (!rawPath.contains("__MACOSX") && lowerName !in setOf("thumbs.db", ".ds_store", "desktop.ini")) {
+                                val mappedSubPath = when {
+                                    rawPath.contains("romfs/", ignoreCase = true) ->
+                                        "romfs/" + rawPath.substringAfter("romfs/", rawPath.substringAfter("RomFS/", rawPath.substringAfter("ROMFS/", fName)))
+                                    rawPath.contains("exefs_patches/", ignoreCase = true) || ext == "pchtxt" ->
+                                        "exefs_patches/" + rawPath.substringAfter("exefs_patches/", fName)
+                                    rawPath.contains("exefs/", ignoreCase = true) || ext == "ips" || lowerName in setOf("main", "main.npdm", "rtld", "sdk") || lowerName.startsWith("subsdk") ->
+                                        "exefs/" + rawPath.substringAfter("exefs/", rawPath.substringAfter("ExeFS/", fName))
+                                    else -> "romfs/$rawPath"
+                                }
+                                val destMod = File(outAtmoDir, mappedSubPath)
+                                destMod.parentFile?.mkdirs()
+                                FileOutputStream(destMod).use { fos ->
+                                    while (true) {
+                                        val r = zis.read(buf)
+                                        if (r <= 0) break
+                                        fos.write(buf, 0, r)
+                                    }
+                                }
+                                extractedCount++
                             }
                         }
+                        zis.closeEntry()
+                        entry = zis.nextEntry
                     }
-                    zis.closeEntry()
-                    entry = zis.nextEntry
                 }
             }
+            tempFile.delete()
+        } else {
+            val lowerName = tempFile.name.lowercase()
+            val subDir = when {
+                lowerName.endsWith(".pchtxt") -> "exefs_patches"
+                lowerName.endsWith(".ips") || lowerName.endsWith(".npdm") -> "exefs"
+                else -> "romfs"
+            }
+            val destFile = File(outAtmoDir, "$subDir/${tempFile.name}")
+            destFile.parentFile?.mkdirs()
+            tempFile.copyTo(destFile, overwrite = true)
+            tempFile.delete()
+            extractedCount = 1
         }
-        tempZip.delete()
-        // Дублируем также в корневую папку mods/<TitleID> для мгновенного подхвата сборщиком мульти-контента
-        val directTidDir = File(modsRootDir, cleanTid)
-        if (directTidDir.canonicalPath != outDir.canonicalPath) {
-            try { outDir.copyRecursively(directTidDir, overwrite = true) } catch (_: Exception) {}
+
+        if (outAtmoDir.walkTopDown().maxDepth(5).any { it.isFile }) {
+            val directTidDir = File(modsRootDir, cleanTid)
+            if (directTidDir.canonicalPath != outAtmoDir.canonicalPath) {
+                try { outAtmoDir.copyRecursively(directTidDir, overwrite = true) } catch (_: Exception) {}
+            }
+            modDirs.add(outAtmoDir)
         }
-        onProgress("Мод успешно установлен в: ${outDir.absolutePath}")
-        return outDir
+
+        onProgress("Автоизвлечение завершено ($roleHint): файлов $extractedCount")
+        return CloudExtractedBundle(containerFiles, modDirs, extractedCount)
+    }
+
+    fun downloadAndExtractMod(
+        cloudUrl: String,
+        targetTitleId: String,
+        modsRootDir: File,
+        onProgress: (String) -> Unit
+    ): File {
+        val cleanTid = targetTitleId.replace(Regex("[^0-9A-Fa-f]"), "").uppercase().padEnd(16, '0').take(16)
+        val bundle = downloadAndExtractCloudResource(
+            cloudUrl = cloudUrl,
+            roleHint = "MOD",
+            targetTitleId = cleanTid,
+            romsDir = modsRootDir,
+            modsRootDir = modsRootDir,
+            onProgress = onProgress
+        )
+        return bundle.modDirectories.firstOrNull() ?: File(modsRootDir, "atmosphere/contents/$cleanTid")
     }
 
     /**
@@ -1652,6 +1776,9 @@ object RuTrackerCloudEngine {
         selectedReleaseFiles: List<ReleaseContentFile> = emptyList(),
         preBuildCustomization: StormNczEngine.PreBuildCustomization = StormNczEngine.PreBuildCustomization(),
         deleteSourceAfterVerify: Boolean = true,
+        updateUrls: List<String> = emptyList(),
+        dlcUrls: List<String> = emptyList(),
+        embedDlcUnlocker: Boolean = true,
         onDetailedProgress: ((pct: Int, stageTitle: String, detailText: String, stepLogLines: List<String>) -> Unit)? = null
     ): StormNczEngine.CompressionResult {
         romsDir.mkdirs()

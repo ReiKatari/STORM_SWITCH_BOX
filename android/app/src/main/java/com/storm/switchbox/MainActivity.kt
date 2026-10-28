@@ -171,7 +171,7 @@ class MainActivity : Activity() {
     private val iconBadgeOptions = listOf("Без бейджа", "RUS", "RUS + MOD", "60 FPS", "MULTI", "4K MOD")
     private var onCustomIconPickedCallback: ((String) -> Unit)? = null
 
-    // Параметры 5.5.9: Распаковка/Упаковка RomFS+ExeFS, Генератор Forwarder (.nro -> .nsp), 3DS FBI QR и FTP
+    // Параметры 6.0.0: Распаковка/Упаковка RomFS+ExeFS, Генератор Forwarder (.nro -> .nsp), 3DS FBI QR и FTP
     private var extractRomfsEnabled = true
     private var extractExefsEnabled = true
     private var extractControlEnabled = true
@@ -218,7 +218,7 @@ class MainActivity : Activity() {
         }
 
         buildUserInterface()
-        appendLog("STORM SWITCH BOX ${"5.5.9"} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) готов к работе.")
+        appendLog("STORM SWITCH BOX ${"6.0.0"} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) готов к работе.")
 
         // Автоматическая проверка обновлений с GitHub при запуске
         if (autoCheckUpdatesOnStartup) {
@@ -741,7 +741,7 @@ class MainActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
         titleCol.addView(TextView(this).apply {
-            text = "STORM SWITCH BOX ${"5.5.9"}"
+            text = "STORM SWITCH BOX ${"6.0.0"}"
             setTextColor(th.textPrimary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
             typeface = Typeface.DEFAULT_BOLD
@@ -2878,76 +2878,142 @@ class MainActivity : Activity() {
         dlgRenameBox.addView(dlgOutNameEdit)
         root.addView(dlgRenameBox)
 
-        val modsContainer = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            visibility = View.GONE
-            background = makeCardDrawable(th.bgPrimary, th.border, 8)
-            setPadding(dp(10), dp(8), dp(10), dp(8))
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(6)
-                bottomMargin = dp(6)
-            }
-        }
+        var embedCloudUpdatesChecked = false
+        var embedCloudDlcsChecked = false
+        var embedDlcUnlockerChecked = true
 
-        modsContainer.addView(TextView(this).apply {
-            text = "☁️ Облачный загрузчик русификаторов и модов (Яндекс.Диск / Google Drive / GitHub / .zip):"
-            setTextColor(th.accent)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
-            typeface = Typeface.DEFAULT_BOLD
-            setPadding(0, 0, 0, dp(4))
-        })
-
-        val modInputsListLayout = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-        }
-        val modEditTexts = mutableListOf<EditText>()
-
-        fun addModUrlField(prefillUrl: String = "") {
-            val row = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
+        fun buildDynamicUrlSection(
+            headerTitle: String,
+            itemHintPrefix: String,
+            maxRows: Int,
+            addBtnLabel: String,
+            editList: MutableList<EditText>
+        ): Pair<LinearLayout, (String) -> Unit> {
+            val secContainer = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                visibility = View.GONE
+                background = makeCardDrawable(th.bgPrimary, th.border, 8)
+                setPadding(dp(10), dp(8), dp(10), dp(8))
                 layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                     topMargin = dp(4)
+                    bottomMargin = dp(4)
                 }
             }
-            val edit = EditText(this).apply {
-                setText(prefillUrl)
-                hint = "Ссылка на русификатор / мод #${modEditTexts.size + 1} (Я.Диск, GDrive, GitHub)..."
-                setTextColor(th.textPrimary)
-                setHintTextColor(th.textSecondary)
-                textSize = 11.5f
-                background = makeCardDrawable(th.bgCard, th.border, 6)
-                setPadding(dp(8), dp(6), dp(8), dp(6))
-                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                    marginEnd = dp(6)
+            secContainer.addView(TextView(this).apply {
+                text = headerTitle
+                setTextColor(th.accent)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.4f)
+                typeface = Typeface.DEFAULT_BOLD
+                setPadding(0, 0, 0, dp(4))
+            })
+            val inputsLayout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            fun addUrlRow(prefill: String = "") {
+                if (editList.size >= maxRows) {
+                    Toast.makeText(this, "Достигнут лимит: максимум $maxRows строк!", Toast.LENGTH_SHORT).show()
+                    return
+                }
+                val row = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        topMargin = dp(4)
+                    }
+                }
+                val edit = EditText(this).apply {
+                    setText(prefill)
+                    hint = "$itemHintPrefix #${editList.size + 1} (из $maxRows)..."
+                    setTextColor(th.textPrimary)
+                    setHintTextColor(th.textSecondary)
+                    textSize = 11.3f
+                    background = makeCardDrawable(th.bgCard, th.border, 6)
+                    setPadding(dp(8), dp(6), dp(8), dp(6))
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                        marginEnd = dp(6)
+                    }
+                }
+                editList.add(edit)
+                row.addView(edit)
+                if (editList.size > 1) {
+                    row.addView(makeButton("✕", th.bgElevated, th.textSecondary) {
+                        editList.remove(edit)
+                        inputsLayout.removeView(row)
+                    })
+                }
+                inputsLayout.addView(row)
+            }
+            addUrlRow()
+            secContainer.addView(inputsLayout)
+            val addBtn = makeButton(addBtnLabel, th.bgElevated, th.textPrimary) {
+                addUrlRow()
+            }.apply {
+                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = dp(6)
                 }
             }
-            modEditTexts.add(edit)
-            row.addView(edit)
-
-            if (modEditTexts.size > 1) {
-                row.addView(makeButton("✕", th.bgElevated, th.textSecondary) {
-                    modEditTexts.remove(edit)
-                    modInputsListLayout.removeView(row)
-                })
-            }
-            modInputsListLayout.addView(row)
+            secContainer.addView(addBtn)
+            return secContainer to ::addUrlRow
         }
 
-        addModUrlField()
-        modsContainer.addView(modInputsListLayout)
-
-        val addMoreModBtn = makeButton("➕ Добавить ещё ссылку на мод / русификатор", th.bgElevated, th.textPrimary) {
-            addModUrlField()
-        }.apply {
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(6)
-            }
+        // 1. Внешние ссылки на Обновления игры (до 3 строк — файл или архив)
+        val updateEditTexts = mutableListOf<EditText>()
+        val (updatesContainer, _) = buildDynamicUrlSection(
+            headerTitle = "🔄 Внешние ссылки на Обновление игры (до 3 строк — .nsp / .nsz / .zip / .7z / .rar):",
+            itemHintPrefix = "Ссылка на обновление / патч",
+            maxRows = 3,
+            addBtnLabel = "➕ Добавить ссылку на обновление (до 3 строк)",
+            editList = updateEditTexts
+        )
+        val updatesCheckBox = makeStormCheckBox(
+            "Скачать и вшить отдельное Обновление (файл или архив — до 3 ссылок)",
+            embedCloudUpdatesChecked,
+            th
+        ) { checked ->
+            embedCloudUpdatesChecked = checked
+            updatesContainer.visibility = if (checked) View.VISIBLE else View.GONE
         }
-        modsContainer.addView(addMoreModBtn)
+        root.addView(updatesCheckBox)
+        root.addView(updatesContainer)
 
+        // 2. Внешние ссылки на Дополнения / DLC (до 3 строк — файлы или архивы) + UNLOCKER
+        val dlcEditTexts = mutableListOf<EditText>()
+        val (dlcsContainer, _) = buildDynamicUrlSection(
+            headerTitle = "🎁 Внешние ссылки на Дополнения / DLC (до 3 строк — файлы или архивы):",
+            itemHintPrefix = "Ссылка на дополнение / DLC",
+            maxRows = 3,
+            addBtnLabel = "➕ Добавить ссылку на дополнение / DLC (до 3 строк)",
+            editList = dlcEditTexts
+        )
+        val dlcsCheckBox = makeStormCheckBox(
+            "Скачать и вшить отдельные Дополнения / DLC (до 3 ссылок)",
+            embedCloudDlcsChecked,
+            th
+        ) { checked ->
+            embedCloudDlcsChecked = checked
+            dlcsContainer.visibility = if (checked) View.VISIBLE else View.GONE
+        }
+        root.addView(dlcsCheckBox)
+        root.addView(dlcsContainer)
+
+        val dlcUnlockerCheckBox = makeStormCheckBox(
+            "Вшить DLC UNLOCKER (автоизвлечение и разблокировка всех дополнений в RomFS)",
+            embedDlcUnlockerChecked,
+            th
+        ) { checked ->
+            embedDlcUnlockerChecked = checked
+        }
+        root.addView(dlcUnlockerCheckBox)
+
+        // 3. Внешние ссылки на Моды и Русификаторы (до 5 строк — автоизвлечение RomFS / ExeFS / IPS)
+        val modEditTexts = mutableListOf<EditText>()
+        val (modsContainer, addModUrlField) = buildDynamicUrlSection(
+            headerTitle = "☁️ Ссылки на русификаторы и моды RomFS / ExeFS (до 5 строк — автоизвлечение из архива):",
+            itemHintPrefix = "Ссылка на русификатор / мод",
+            maxRows = 5,
+            addBtnLabel = "➕ Добавить ссылку на мод / русификатор (до 5 строк)",
+            editList = modEditTexts
+        )
         val modsCheckBox = makeStormCheckBox(
-            "Скачать и вшить русификатор / моды в мульти-контент",
+            "Скачать и вшить русификатор / моды в мульти-контент (до 5 ссылок)",
             embedCloudModsChecked,
             th
         ) { checked ->
@@ -2955,13 +3021,13 @@ class MainActivity : Activity() {
             modsContainer.visibility = if (checked) View.VISIBLE else View.GONE
             if (checked && item.topicId.all { it.isDigit() }) {
                 thread {
-                    val autoLinks = RuTrackerCloudEngine.extractCloudModLinksFromTopic(item.topicId)
+                    val autoLinks = RuTrackerCloudEngine.extractCloudModLinksFromTopic(item.topicId).take(5)
                     if (autoLinks.isNotEmpty()) {
                         mainHandler.post {
                             if (modEditTexts.isNotEmpty() && modEditTexts.first().text.isNullOrBlank()) {
                                 modEditTexts.first().setText(autoLinks.first())
                                 for (extraUrl in autoLinks.drop(1)) {
-                                    addModUrlField(extraUrl)
+                                    if (modEditTexts.size < 5) addModUrlField(extraUrl)
                                 }
                             }
                         }
@@ -3060,8 +3126,18 @@ class MainActivity : Activity() {
             isRunningPipeline = true
             cancelPipeline = false
 
+            val collectedUpdateUrls = if (embedCloudUpdatesChecked) {
+                updateEditTexts.map { it.text.toString().trim() }.filter { it.isNotEmpty() }.take(3)
+            } else {
+                emptyList()
+            }
+            val collectedDlcUrls = if (embedCloudDlcsChecked) {
+                dlcEditTexts.map { it.text.toString().trim() }.filter { it.isNotEmpty() }.take(3)
+            } else {
+                emptyList()
+            }
             val collectedModUrls = if (embedCloudModsChecked) {
-                modEditTexts.map { it.text.toString().trim() }.filter { it.isNotEmpty() }
+                modEditTexts.map { it.text.toString().trim() }.filter { it.isNotEmpty() }.take(5)
             } else {
                 emptyList()
             }
@@ -3094,6 +3170,9 @@ class MainActivity : Activity() {
                         selectedReleaseFiles = activeSelection,
                         preBuildCustomization = dlgPreBuild,
                         deleteSourceAfterVerify = deleteRuTrackerSourceAfterSuccess,
+                        updateUrls = collectedUpdateUrls,
+                        dlcUrls = collectedDlcUrls,
+                        embedDlcUnlocker = embedDlcUnlockerChecked,
                         onDetailedProgress = { pct, stageTitle, detailText, stepLines ->
                             mainHandler.post {
                                 progressBar.progress = pct
@@ -3901,7 +3980,7 @@ class MainActivity : Activity() {
         }
         updCard.addView(makeSectionHeader(
             "2. Обновление STORM SWITCH BOX (GitHub и STORM GAMES WORLD)",
-            "Текущая версия: 5.5.9 (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) • Проверка на 2 официальных площадках",
+            "Текущая версия: 6.0.0 (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) • Проверка на 2 официальных площадках",
             th
         ))
         updCard.addView(makeStormCheckBox(
@@ -4607,7 +4686,7 @@ class MainActivity : Activity() {
             Toast.makeText(this, "⏳ Проверка обновлений на GitHub и STORM GAMES WORLD...", Toast.LENGTH_SHORT).show()
         }
         val preferLegacy = (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) || Build.VERSION.SDK_INT < 26
-        val currentAppVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "5.5.9" } catch (_: Exception) { "5.5.9" }
+        val currentAppVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.0.0" } catch (_: Exception) { "6.0.0" }
         thread {
             val rel = RuTrackerCloudEngine.checkGitHubAppUpdate(currentAppVer, preferLegacy)
             mainHandler.post {
@@ -4638,7 +4717,7 @@ class MainActivity : Activity() {
             typeface = Typeface.DEFAULT_BOLD
         })
         box.addView(TextView(this).apply {
-            text = "Новая версия: ${release.version} (Установлена: 5.5.9)\nИсточник: ${release.sourceName}\nПакет: ${release.apkName} (${StormNczEngine.formatSize(release.apkSizeBytes)})"
+            text = "Новая версия: ${release.version} (Установлена: 6.0.0)\nИсточник: ${release.sourceName}\nПакет: ${release.apkName} (${StormNczEngine.formatSize(release.apkSizeBytes)})"
             setTextColor(th.textPrimary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
             setPadding(0, dp(4), 0, dp(8))
@@ -4825,7 +4904,7 @@ class MainActivity : Activity() {
     }
 
     // =========================================================================
-    // НОВЫЕ РАЗДЕЛЫ И ДИАЛОГИ 5.5.9:
+    // НОВЫЕ РАЗДЕЛЫ И ДИАЛОГИ 6.0.0:
     // 1. ВИРТУАЛЬНЫЙ ПРОВОДНИК ROMFS / EXEFS (HEX + UTF-8)
     // 2. МАСТЕР РАСПАКОВКИ И ОБРАТНОЙ УПАКОВКИ ПАПКИ В NSP / NSZ
     // 3. ГЕНЕРАТОР HOMEBREW FORWARDER (.NRO -> .NSP) С ПОДДЕРЖКОЙ RUTRACKER

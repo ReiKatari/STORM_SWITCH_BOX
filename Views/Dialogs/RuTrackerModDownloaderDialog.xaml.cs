@@ -439,11 +439,28 @@ namespace StormSwitchBox.Views.Dialogs
         {
             SaveCurrentSettings();
 
-            var cloudLinks = (CloudModLinksBox.Text ?? string.Empty)
+            var updateLinks = (CloudUpdateLinksBox.Text ?? string.Empty)
                 .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
                 .Select(s => s.Trim())
-                .Where(s => s.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
-                            s.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                .Where(s => s.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || s.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                .Take(3)
+                .ToList();
+
+            var dlcLinks = (CloudDlcLinksBox.Text ?? string.Empty)
+                .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(s => s.Trim())
+                .Where(s => s.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || s.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                .Take(3)
+                .ToList();
+
+            var modLinks = (CloudModLinksBox.Text ?? string.Empty)
+                .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(s => s.Trim())
+                .Where(s => s.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || s.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                .Take(5)
+                .ToList();
+
+            var cloudLinks = updateLinks.Concat(dlcLinks).Concat(modLinks)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
 

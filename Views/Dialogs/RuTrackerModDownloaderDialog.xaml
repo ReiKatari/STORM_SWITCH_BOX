@@ -262,9 +262,22 @@
                             <TextBlock x:Name="ModLinksHintText" Grid.Column="1" Text="Авто-парсинг из шапки темы" Foreground="#22C55E" FontSize="11" VerticalAlignment="Center"/>
                         </Grid>
 
-                        <TextBox x:Name="CloudModLinksBox" Grid.Row="1" AcceptsReturn="True" TextWrapping="Wrap"
-                                 ScrollViewer.VerticalScrollBarVisibility="Auto" FontSize="11" CornerRadius="6"
-                                 PlaceholderText="Вставьте одну или несколько ссылок (по одной на строку) на Яндекс.Диск (disk.yandex.ru/...), Google Drive (drive.google.com/...), GitHub Releases или прямой архив (.zip / .7z / .rar / .ips / .pchtxt). При выборе темы RuTracker внешние ссылки на русификаторы извлекаются сюда автоматически!"/>
+                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                            <StackPanel Spacing="6">
+                                <TextBox x:Name="CloudUpdateLinksBox" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="56"
+                                         FontSize="11" CornerRadius="6"
+                                         Header="🔄 Ссылки на Обновление / Update (до 3 строк — отдельный файл или архив .zip/.7z/.rar):"
+                                         PlaceholderText="До 3 ссылок (по одной на строку) на скачивание обновления игры (файл .nsp/.nsz или архив .zip/.7z/.rar)..."/>
+                                <TextBox x:Name="CloudDlcLinksBox" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="56"
+                                         FontSize="11" CornerRadius="6"
+                                         Header="🎁 Ссылки на Дополнения / DLC и UNLOCKER (до 3 строк — файлы или архивы):"
+                                         PlaceholderText="До 3 ссылок (по одной на строку) на скачивание DLC или архива с дополнениями / Unlocker..."/>
+                                <TextBox x:Name="CloudModLinksBox" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="76"
+                                         FontSize="11" CornerRadius="6"
+                                         Header="🎭 Ссылки на Русификаторы и Моды RomFS / ExeFS (до 5 строк — автоизвлечение из архива):"
+                                         PlaceholderText="До 5 ссылок (по одной на строку) на Яндекс.Диск, Google Drive, GitHub Releases или архив (.zip / .7z / .rar / .ips / .pchtxt)..."/>
+                            </StackPanel>
+                        </ScrollViewer>
 
                         <StackPanel Grid.Row="2" Spacing="4">
                             <Grid ColumnSpacing="10">

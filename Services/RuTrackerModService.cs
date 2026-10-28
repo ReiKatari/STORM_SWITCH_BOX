@@ -717,34 +717,81 @@ namespace StormSwitchBox.Services
             return set.Where(x => !string.IsNullOrWhiteSpace(x)).ToList();
         }
 
+        private static readonly HashSet<string> EnglishStopWords = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "the", "and", "for", "with", "from", "into", "edition", "switch", "nintendo"
+        };
+
+        private static bool IsWordFuzzyMatch(string qw, string gw, out int dist)
+        {
+            dist = 99;
+            if (string.Equals(qw, gw, StringComparison.OrdinalIgnoreCase)) { dist = 0; return true; }
+            if (qw.Length >= 3 && gw.StartsWith(qw, StringComparison.OrdinalIgnoreCase)) { dist = 0; return true; }
+            if (qw.Length < 4 || gw.Length < 4) return false;
+            if (Math.Abs(qw.Length - gw.Length) > 2) return false;
+            bool sameStart = (qw[0] == gw[0]) || (qw.Length >= 2 && gw.Length >= 2 && qw[0] == gw[1] && qw[1] == gw[0]);
+            if (!sameStart) return false;
+            int maxDist = qw.Length <= 5 ? 1 : 2;
+            int d = CalcEditDistance(qw, gw);
+            if (d <= maxDist) { dist = d; return true; }
+            if (gw.Length > qw.Length && qw.Length >= 4)
+            {
+                int dPref = CalcEditDistance(qw, gw.Substring(0, qw.Length));
+                if (dPref <= 1) { dist = dPref; return true; }
+            }
+            return false;
+        }
+
         private static int ScoreFuzzyTitleMatch(string title, List<string> variants)
         {
             if (variants.Count == 0) return 500;
             string lowerTitle = (title ?? "").ToLowerInvariant();
             string cleanTitle = Regex.Replace(lowerTitle, @"\[.*?\]|\(.*?\)", " ").Trim();
+            string[] titleWords = Regex.Split(cleanTitle, @"[^a-zа-яё0-9]+").Where(w => w.Length > 0).ToArray();
+            if (titleWords.Length == 0) return 0;
 
-            foreach (string v in variants)
+            for (int idx = 0; idx < variants.Count; idx++)
             {
-                if (cleanTitle.Equals(v, StringComparison.OrdinalIgnoreCase)) return 1100;
-                if (cleanTitle.StartsWith(v, StringComparison.OrdinalIgnoreCase)) return 1000;
-                string[] tokens = v.Split(new[] { ' ', '-', ':', '.', ',', '/' }, StringSplitOptions.RemoveEmptyEntries);
-                if (tokens.Length > 0 && tokens.All(t => lowerTitle.Contains(t, StringComparison.OrdinalIgnoreCase)))
-                    return 900;
-            }
+                string v = variants[idx];
+                int penalty = idx == 0 ? 0 : 35;
+                if (cleanTitle.Equals(v, StringComparison.OrdinalIgnoreCase)) return 1200 - penalty;
+                if (cleanTitle.StartsWith(v, StringComparison.OrdinalIgnoreCase)) return 1120 - penalty;
+                if (v.Length >= 4 && cleanTitle.Contains(v, StringComparison.OrdinalIgnoreCase)) return 1050 - penalty;
 
-            string[] titleWords = Regex.Split(cleanTitle, @"[^a-zа-яё0-9]+").Where(w => w.Length >= 3).ToArray();
-            foreach (string v in variants.Take(4))
-            {
-                string[] qWords = Regex.Split(v, @"[^a-zа-яё0-9]+").Where(w => w.Length >= 3).ToArray();
-                if (qWords.Length == 0) continue;
-                int matched = 0;
-                foreach (string qw in qWords)
+                string[] allQWords = Regex.Split(v, @"[^a-zа-яё0-9]+").Where(w => w.Length > 0).ToArray();
+                if (allQWords.Length == 0) continue;
+
+                var sigWords = allQWords.Where(w => w.Length >= 2 && !EnglishStopWords.Contains(w)).ToArray();
+                if (sigWords.Length == 0) sigWords = allQWords;
+                var stopWords = allQWords.Where(w => EnglishStopWords.Contains(w)).ToArray();
+
+                bool allMatched = true;
+                int totalDist = 0;
+                foreach (string qw in sigWords)
                 {
-                    int maxDist = qw.Length <= 4 ? 1 : (qw.Length <= 7 ? 2 : 3);
-                    if (titleWords.Any(tw => CalcEditDistance(qw, tw) <= maxDist))
-                        matched++;
+                    int bestD = 99;
+                    bool matchedWord = false;
+                    foreach (string gw in titleWords)
+                    {
+                        if (IsWordFuzzyMatch(qw, gw, out int d) && d < bestD)
+                        {
+                            matchedWord = true;
+                            bestD = d;
+                            if (d == 0) break;
+                        }
+                    }
+                    if (!matchedWord) { allMatched = false; break; }
+                    totalDist += bestD;
                 }
-                if (matched == qWords.Length) return 720;
+
+                if (allMatched)
+                {
+                    int stopBonus = 0;
+                    foreach (string sw in stopWords)
+                        stopBonus += titleWords.Any(tw => tw.Equals(sw, StringComparison.OrdinalIgnoreCase) || tw.StartsWith(sw, StringComparison.OrdinalIgnoreCase)) ? 45 : -25;
+                    int baseScore = totalDist == 0 ? 960 : (800 - totalDist * 55);
+                    return Math.Max(600, baseScore + stopBonus - penalty);
+                }
             }
             return 0;
         }
@@ -1532,8 +1579,31 @@ namespace StormSwitchBox.Services
                     progress?.Report(((i + 0.85) * 100.0 / links.Count, $"Распаковка архива мода {safeFileName}..."));
 
                     await ExtractArchiveWith7zAsync(archivePath, extractDir, ct).ConfigureAwait(false);
+                    try { File.Delete(archivePath); } catch { }
+                    foreach (var nestedRom in Directory.EnumerateFiles(extractDir, "*.*", SearchOption.AllDirectories))
+                    {
+                        string nExt = Path.GetExtension(nestedRom).ToLowerInvariant();
+                        if (nExt is ".nsp" or ".nsz" or ".xci" or ".xcz")
+                        {
+                            string promotedPath = Path.Combine(workDirectory, Path.GetFileName(nestedRom));
+                            if (!string.Equals(nestedRom, promotedPath, StringComparison.OrdinalIgnoreCase))
+                            {
+                                try { File.Copy(nestedRom, promotedPath, overwrite: true); } catch { }
+                            }
+                            extractedModPaths.Add(promotedPath);
+                        }
+                    }
                     var modFolders = DiscoverModPayloadsInDirectory(extractDir);
                     extractedModPaths.AddRange(modFolders);
+                }
+                else if (ext is ".nsp" or ".nsz" or ".xci" or ".xcz")
+                {
+                    string promotedPath = Path.Combine(workDirectory, Path.GetFileName(archivePath));
+                    if (!string.Equals(archivePath, promotedPath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        try { File.Move(archivePath, promotedPath, overwrite: true); } catch { }
+                    }
+                    extractedModPaths.Add(promotedPath);
                 }
                 else
                 {
