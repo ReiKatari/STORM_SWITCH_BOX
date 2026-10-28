@@ -2980,6 +2980,85 @@ object StormNczEngine {
     // УМНАЯ СБОРКА МУЛЬТИ-КОНТЕНТА (БАЗА + ПАТЧ + DLC + МОДЫ + ПЕРЕИМЕНОВАНИЕ + ИКОНКА)
     // =========================================================================
 
+    /**
+     * Этап 1 (как в ПК-версии MultiContentService.cs):
+     * Приводит любой входной контейнер (.nsz, .xci, .xcz) к единому промежуточному формату .nsp (PFS0 с чистыми .nca, .tik, .cert).
+     * Если файл уже является .nsp или папкой мода — возвращает его без лишнего копирования.
+     */
+    private fun normalizeContainerToTempNsp(
+        inputFile: File,
+        tempNormDir: File,
+        fileIndex: Int,
+        keysMap: Map<String, ByteArray>,
+        onProgress: (NczProgress) -> Unit
+    ): File {
+        val ext = inputFile.extension.lowercase()
+        if (ext == "nsp" || inputFile.isDirectory || ext !in listOf("nsz", "xci", "xcz")) {
+            return inputFile
+        }
+        val itemWorkDir = File(tempNormDir, "norm_work_$fileIndex")
+        itemWorkDir.mkdirs()
+        val outTempNsp = File(tempNormDir, "norm_${fileIndex}_${inputFile.nameWithoutExtension}.nsp")
+
+        val rawEntries = inspectContainer(inputFile)
+        val hasSecurePart = rawEntries.any { it.name.startsWith("secure/", ignoreCase = true) }
+        val entries = if (hasSecurePart) {
+            rawEntries.filter { it.name.startsWith("secure/", ignoreCase = true) || !it.name.contains('/') }
+        } else {
+            rawEntries.filter { !it.name.startsWith("update/", ignoreCase = true) && !it.name.startsWith("logo/", ignoreCase = true) }
+        }
+
+        val extractedPairs = mutableListOf<Pair<String, File>>()
+        RandomAccessFile(inputFile, "r").use { raf ->
+            for ((eIdx, e) in entries.withIndex()) {
+                if (e.name.startsWith("[XCI HEAD]") || e.dataStartOffset < 0L || e.size <= 0L) continue
+                val cleanName = e.name.substringAfterLast('/')
+                val lower = cleanName.lowercase()
+                if (lower.endsWith(".xml")) continue
+
+                if ((lower.endsWith(".nca") || lower.endsWith(".ncz")) && e.size >= 0x400L) {
+                    val qMeta = readQuickNcaHeaderMeta(raf, e.dataStartOffset, keysMap)
+                    if (qMeta != null && qMeta.titleId.startsWith("0100000000000")) {
+                        continue // Игнорируем системные NCA прошивки Horizon OS из XCI
+                    }
+                }
+
+                onProgress(
+                    NczProgress(
+                        currentFile = inputFile.name,
+                        fileIndex = eIdx + 1,
+                        totalFiles = entries.size.coerceAtLeast(1),
+                        processedBytes = e.size,
+                        totalBytes = inputFile.length().coerceAtLeast(1L),
+                        speedMbPerSec = 0.0,
+                        percent = ((eIdx + 1) * 15 / entries.size.coerceAtLeast(1)).coerceIn(1, 15),
+                        stageText = "Конвертация ${ext.uppercase()} -> NSP: ${inputFile.name} ($cleanName)"
+                    )
+                )
+
+                if (lower.endsWith(".ncz")) {
+                    val ncaName = cleanName.dropLast(4) + ".nca"
+                    val outNca = File(itemWorkDir, "${eIdx}_$ncaName")
+                    decompressNczSliceToNca(raf, e.dataStartOffset, e.size, outNca)
+                    extractedPairs.add(ncaName to outNca)
+                } else if (lower.endsWith(".nca") || lower.endsWith(".tik") || lower.endsWith(".cert") || lower.endsWith(".cnmt")) {
+                    val outSlice = File(itemWorkDir, "${eIdx}_$cleanName")
+                    extractSliceToFile(raf, e.dataStartOffset, e.size, outSlice)
+                    extractedPairs.add(cleanName to outSlice)
+                }
+            }
+        }
+
+        if (extractedPairs.isEmpty()) {
+            itemWorkDir.deleteRecursively()
+            return inputFile
+        }
+
+        packPfs0Container(extractedPairs, outTempNsp)
+        itemWorkDir.deleteRecursively()
+        return if (outTempNsp.exists() && outTempNsp.length() > 64L) outTempNsp else inputFile
+    }
+
     fun buildSmartMultiContentPackage(
         inputFiles: List<File>,
         outputDir: File,
@@ -3040,7 +3119,27 @@ object StormNczEngine {
         val ticketKeysByRightsId = HashMap<String, ByteArray>()
         var fallbackTicketKey: ByteArray? = null
 
-        val analyzedInputs = inputFiles.filter { it.exists() }.map { analyzeQueuedFile(it) }
+        val tempNormDir = File(outputDir, ".tmp_norm_nsp_${System.currentTimeMillis()}")
+        tempNormDir.mkdirs()
+
+        // Этап 1 (как в ПК-версии MultiContentService.cs):
+        // Если входные файлы имеют разные форматы (.nsz, .xci, .xcz) или выполняется сборка мульти-контента,
+        // сначала приводим все не-NSP контейнеры к единому стандарту .nsp (PFS0 с распакованными .nca, .tik, .cert).
+        val normalizedInputFiles = try {
+            inputFiles.filter { it.exists() }.mapIndexed { idx, origFile ->
+                val ext = origFile.extension.lowercase()
+                if (ext in listOf("nsz", "xci", "xcz") && (inputFiles.size > 1 || !shouldCompressNca || ext in listOf("xci", "xcz"))) {
+                    normalizeContainerToTempNsp(origFile, tempNormDir, idx, keysMap, onProgress)
+                } else {
+                    origFile
+                }
+            }
+        } catch (e: Exception) {
+            tempNormDir.deleteRecursively()
+            throw e
+        }
+
+        val analyzedInputs = normalizedInputFiles.filter { it.exists() }.map { analyzeQueuedFile(it) }
         val newestPatchPerBaseTid = analyzedInputs
             .filter { it.roleBadge == "ПАТЧ" && it.baseTitleId.isNotEmpty() }
             .groupBy { it.baseTitleId }
@@ -3065,7 +3164,13 @@ object StormNczEngine {
             val ext = f.extension.lowercase()
 
             if (ext in listOf("nsp", "nsz", "xci", "xcz")) {
-                val entries = inspectContainer(f)
+                val rawEntries = inspectContainer(f)
+                val hasSecurePart = rawEntries.any { it.name.startsWith("secure/", ignoreCase = true) }
+                val entries = if (hasSecurePart) {
+                    rawEntries.filter { it.name.startsWith("secure/", ignoreCase = true) || !it.name.contains('/') }
+                } else {
+                    rawEntries.filter { !it.name.startsWith("update/", ignoreCase = true) && !it.name.startsWith("logo/", ignoreCase = true) }
+                }
                 RandomAccessFile(f, "r").use { raf ->
                     for ((entryOrderIdx, e) in entries.withIndex()) {
                         if (e.name.startsWith("[XCI HEAD]") || e.dataStartOffset < 0L || e.size <= 0L) continue
@@ -3103,6 +3208,7 @@ object StormNczEngine {
                         if ((lower.endsWith(".nca") || lower.endsWith(".ncz")) && e.size >= 0x400L) {
                             val qMeta = readQuickNcaHeaderMeta(raf, e.dataStartOffset, keysMap)
                             if (qMeta != null) {
+                                if (qMeta.titleId.startsWith("0100000000000")) continue // Пропускаем системные NCA прошивки Horizon OS из XCI update/
                                 ncaContentType = qMeta.contentType
                                 if (qMeta.titleId != "0000000000000000") {
                                     ncaHeaderTid = qMeta.titleId
@@ -3405,7 +3511,8 @@ object StormNczEngine {
 
             // Записываем полный паспорт собранной задачи (все обработанные файлы Базы, Патчей, DLC, Анлокеров и Модов)
             val recordedParts = mutableListOf<QueuedSubComponent>()
-            for (inInfo in analyzedInputs) {
+            val origAnalyzedForHistory = inputFiles.filter { it.exists() }.map { analyzeQueuedFile(it) }
+            for (inInfo in origAnalyzedForHistory) {
                 if (inInfo.roleBadge == "МОД / РУС") {
                     val modLabel = "${inInfo.file.name} (${formatSize(inInfo.file.length())})"
                     if (appliedModNames.none { it.contains(inInfo.file.name) }) appliedModNames.add(modLabel)
@@ -3467,6 +3574,7 @@ object StormNczEngine {
             )
         } finally {
             tempDir.deleteRecursively()
+            tempNormDir.deleteRecursively()
         }
     }
 
