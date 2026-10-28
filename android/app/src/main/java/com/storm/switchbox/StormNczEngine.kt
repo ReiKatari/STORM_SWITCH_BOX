@@ -1041,7 +1041,10 @@ object StormNczEngine {
             File("/storage/emulated/0/STORM SWITCH BOX/keys/prod.keys"),
             File("/storage/emulated/0/STORM SWITCH BOX/keys/title.keys"),
             File("/storage/emulated/0/STORM SWITCH/keys/prod.keys"),
-            File("/storage/emulated/0/switch/prod.keys")
+            File("/storage/emulated/0/switch/prod.keys"),
+            File("f:/STORM SWITCH BOX/android/app/src/main/assets/keys.dat"),
+            File("android/app/src/main/assets/keys.dat"),
+            File("app/src/main/assets/keys.dat")
         )
         for (f in candidates) {
             if (f.exists() && f.isFile) {
@@ -1170,7 +1173,27 @@ object StormNczEngine {
         return if (magicLe == "NCA3" || magicLe == "NCA2" || magicLe == "NCA0") decLe else decBe
     }
 
+    fun fillStandardNcaKeyArea(plainHeader0C00: ByteArray, keysMap: Map<String, ByteArray> = loadSwitchKeysMap()) {
+        if (plainHeader0C00.size < 0x340) return
+        val hasRightsId = (0x230 until 0x240).any { plainHeader0C00[it] != 0.toByte() }
+        if (hasRightsId) return
+        val alreadyFilled = (0x300 until 0x330).any { plainHeader0C00[it] != 0.toByte() }
+        if (alreadyFilled) return
+        val kak = keysMap["key_area_key_application_00"] ?: keysMap["key_area_key_application_01"]
+        if (kak != null && kak.size == 16) {
+            try {
+                val enc = Cipher.getInstance("AES/ECB/NoPadding").apply {
+                    init(Cipher.ENCRYPT_MODE, SecretKeySpec(kak, "AES"))
+                }
+                val encZeroKey = enc.doFinal(ByteArray(16))
+                System.arraycopy(encZeroKey, 0, plainHeader0C00, 0x300, 16)
+                System.arraycopy(encZeroKey, 0, plainHeader0C00, 0x320, 16)
+            } catch (_: Exception) {}
+        }
+    }
+
     fun encryptNcaHeader0C00(plainHeader0C00: ByteArray, keysMap: Map<String, ByteArray> = loadSwitchKeysMap()): ByteArray {
+        fillStandardNcaKeyArea(plainHeader0C00, keysMap)
         val buf = ByteArray(0xC00)
         System.arraycopy(plainHeader0C00, 0, buf, 0, min(plainHeader0C00.size, 0xC00))
         val hKey = keysMap["header_key"] ?: return buf
@@ -2108,123 +2131,313 @@ object StormNczEngine {
      * загружает пользовательское изображение (если выбрано) или рисует фирменную обложку игры,
      * масштабирует ровно в 256x256 и накладывает бейдж (RUS / 60 FPS / MOD / MULTI).
      */
+    private fun cleanGameTitleForCoverLookup(rawTitle: String): String {
+        return rawTitle
+            .replace(Regex("""\[[^]]*]"""), " ")
+            .replace(Regex("""\([^)]*\)"""), " ")
+            .replace(Regex("""(?i)\b(v\d+(?:\.\d+)*|nsw|switch|nsp|nsz|xci|xcz|multi|rus|eng|base|upd|update|patch|dlc)\b"""), " ")
+            .replace(Regex("""[_\-]+"""), " ")
+            .replace(Regex("""\s+"""), " ")
+            .trim()
+    }
+
+    private fun fetchOnlineSwitchCoverBytes(gameTitle: String): ByteArray? {
+        val cleanName = cleanGameTitleForCoverLookup(gameTitle)
+        if (cleanName.length < 2 || cleanName.equals("SWITCH GAME", ignoreCase = true) || cleanName.equals("Switch Application", ignoreCase = true)) {
+            return null
+        }
+        val safeKey = cleanName.lowercase().replace(Regex("""[^a-z0-9\u0430-\u044f\u0451]+"""), "_").trim('_').take(48)
+        val cacheRoot = try {
+            appContextRef?.cacheDir ?: File(System.getProperty("java.io.tmpdir", "."))
+        } catch (_: Throwable) {
+            File(System.getProperty("java.io.tmpdir", "."))
+        }
+        val cacheDir = File(cacheRoot, "storm_switch_covers").apply { mkdirs() }
+        val cachedFile = File(cacheDir, "${safeKey}.jpg")
+        if (cachedFile.exists() && cachedFile.length() > 1024L) {
+            try { return cachedFile.readBytes() } catch (_: Throwable) {}
+        }
+
+        return try {
+            val encoded = java.net.URLEncoder.encode(cleanName, "UTF-8")
+            val searchUrl = java.net.URL("https://store.steampowered.com/api/storesearch/?term=$encoded&l=russian&cc=RU")
+            val conn = (searchUrl.openConnection() as java.net.HttpURLConnection).apply {
+                connectTimeout = 2500
+                readTimeout = 2500
+                setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+            }
+            val json = conn.inputStream.bufferedReader(StandardCharsets.UTF_8).use { it.readText() }
+            val idMatch = Regex(""""id"\s*:\s*(\d+)""").find(json)
+            val appId = idMatch?.groupValues?.get(1) ?: return null
+            val candidateUrls = listOf(
+                "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/$appId/library_600x900.jpg",
+                "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/$appId/header.jpg",
+                "https://cdn.cloudflare.steamstatic.com/steam/apps/$appId/header.jpg"
+            )
+            for (u in candidateUrls) {
+                try {
+                    val imgConn = (java.net.URL(u).openConnection() as java.net.HttpURLConnection).apply {
+                        connectTimeout = 2500
+                        readTimeout = 2500
+                        setRequestProperty("User-Agent", "Mozilla/5.0")
+                    }
+                    if (imgConn.responseCode == 200) {
+                        val bytes = imgConn.inputStream.use { it.readBytes() }
+                        if (bytes.size > 1024 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xD8.toByte()) {
+                            try { cachedFile.writeBytes(bytes) } catch (_: Throwable) {}
+                            return bytes
+                        }
+                    }
+                } catch (_: Throwable) {}
+            }
+            null
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    fun clearStaleAndroidEmulatorIconCache(titleId: String) {
+        val cleanBase = (titleId.trim().replace("0x", "").take(13).padEnd(13, '0') + "000").uppercase()
+        val cleanOrig = titleId.trim().replace("0x", "").take(16).uppercase()
+        val packages = listOf(
+            "org.storm.switch_emu",
+            "dev.eden.eden_emulator",
+            "org.citron.citron_emu",
+            "org.sudachi.sudachi_emu",
+            "org.yuzu.yuzu_emu",
+            "org.uzuy.uzuy_emu"
+        )
+        for (pkg in packages) {
+            val dir = File("/storage/emulated/0/Android/data/$pkg/cache/game_icons")
+            if (dir.exists() && dir.isDirectory) {
+                for (tid in setOf(cleanBase, cleanOrig, cleanBase.lowercase(), cleanOrig.lowercase())) {
+                    try {
+                        val fPng = File(dir, "$tid.png")
+                        if (fPng.exists()) fPng.delete()
+                        val fJpg = File(dir, "$tid.jpg")
+                        if (fJpg.exists()) fJpg.delete()
+                    } catch (_: Throwable) {}
+                }
+            }
+        }
+    }
+
+    private fun generateJvmFallbackIconJpeg256(
+        rawImageBytes: ByteArray?,
+        gameTitle: String,
+        badgeText: String
+    ): ByteArray {
+        try {
+            val imageIoClass = Class.forName("javax.imageio.ImageIO")
+            val bufImgClass = Class.forName("java.awt.image.BufferedImage")
+            val colorClass = Class.forName("java.awt.Color")
+            val fontClass = Class.forName("java.awt.Font")
+            val targetImg = bufImgClass.getConstructor(Int::class.javaPrimitiveType, Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
+                .newInstance(256, 256, 1) // TYPE_INT_RGB = 1
+            val g2d = bufImgClass.getMethod("createGraphics").invoke(targetImg)
+            val graphicsClass = Class.forName("java.awt.Graphics")
+
+            var drewCover = false
+            if (rawImageBytes != null && rawImageBytes.isNotEmpty()) {
+                try {
+                    val bais = java.io.ByteArrayInputStream(rawImageBytes)
+                    val srcImg = imageIoClass.getMethod("read", java.io.InputStream::class.java).invoke(null, bais)
+                    if (srcImg != null) {
+                        val srcW = (bufImgClass.getMethod("getWidth").invoke(srcImg) as Int).coerceAtLeast(1)
+                        val srcH = (bufImgClass.getMethod("getHeight").invoke(srcImg) as Int).coerceAtLeast(1)
+                        val scale = maxOf(256.0 / srcW, 256.0 / srcH)
+                        val sw = (srcW * scale).toInt()
+                        val sh = (srcH * scale).toInt()
+                        val ox = (256 - sw) / 2
+                        val oy = (256 - sh) / 2
+                        val imgClass = Class.forName("java.awt.Image")
+                        val obsClass = Class.forName("java.awt.image.ImageObserver")
+                        graphicsClass.getMethod(
+                            "drawImage",
+                            imgClass,
+                            Int::class.javaPrimitiveType,
+                            Int::class.javaPrimitiveType,
+                            Int::class.javaPrimitiveType,
+                            Int::class.javaPrimitiveType,
+                            obsClass
+                        ).invoke(g2d, srcImg, ox, oy, sw, sh, null)
+                        drewCover = true
+                    }
+                } catch (_: Throwable) {}
+            }
+
+            val setColor = graphicsClass.getMethod("setColor", colorClass)
+            val fillRect = graphicsClass.getMethod("fillRect", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType, Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
+            val setFont = graphicsClass.getMethod("setFont", fontClass)
+            val drawString = graphicsClass.getMethod("drawString", String::class.java, Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
+            val newColor = colorClass.getConstructor(Int::class.javaPrimitiveType, Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
+            val newFont = fontClass.getConstructor(String::class.java, Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
+
+            if (!drewCover) {
+                setColor.invoke(g2d, newColor.newInstance(24, 18, 54))
+                fillRect.invoke(g2d, 0, 0, 256, 256)
+                setColor.invoke(g2d, newColor.newInstance(0, 240, 255))
+                setFont.invoke(g2d, newFont.newInstance("SansSerif", 1, 18))
+                drawString.invoke(g2d, "NINTENDO SWITCH", 38, 44)
+                setColor.invoke(g2d, newColor.newInstance(255, 255, 255))
+                setFont.invoke(g2d, newFont.newInstance("SansSerif", 1, 22))
+                val cleanTitle = cleanGameTitleForCoverLookup(gameTitle).ifEmpty { gameTitle }.uppercase()
+                drawString.invoke(g2d, cleanTitle.take(14), 24, 128)
+                if (cleanTitle.length > 14) {
+                    drawString.invoke(g2d, cleanTitle.drop(14).trim().take(14), 24, 158)
+                }
+                setColor.invoke(g2d, newColor.newInstance(168, 85, 247))
+                setFont.invoke(g2d, newFont.newInstance("SansSerif", 1, 14))
+                drawString.invoke(g2d, "STORM SWITCH BOX", 52, 228)
+            }
+
+            if (badgeText.isNotBlank() && !badgeText.equals("\u0411\u0435\u0437 \u0431\u0435\u0439\u0434\u0436\u0430", ignoreCase = true)) {
+                setColor.invoke(g2d, newColor.newInstance(225, 29, 72))
+                fillRect.invoke(g2d, 140, 14, 102, 34)
+                setColor.invoke(g2d, newColor.newInstance(255, 255, 255))
+                setFont.invoke(g2d, newFont.newInstance("SansSerif", 1, 15))
+                drawString.invoke(g2d, badgeText.take(9), 150, 36)
+            }
+
+            graphicsClass.getMethod("dispose").invoke(g2d)
+            val baos = ByteArrayOutputStream()
+            val renderedImgClass = Class.forName("java.awt.image.RenderedImage")
+            imageIoClass.getMethod("write", renderedImgClass, String::class.java, java.io.OutputStream::class.java)
+                .invoke(null, targetImg, "jpg", baos)
+            val res = baos.toByteArray()
+            if (res.isNotEmpty()) return res
+        } catch (_: Throwable) {}
+        return ByteArray(0)
+    }
+
     fun generateSwitchIconJpeg256(
         customIconPath: String = "",
         gameTitle: String = "SWITCH GAME",
         badgeText: String = ""
     ): ByteArray {
         val targetSize = 256
-        val bmp = Bitmap.createBitmap(targetSize, targetSize, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bmp)
-
-        var loadedUserBmp: Bitmap? = null
+        var rawCoverBytes: ByteArray? = null
         if (customIconPath.isNotBlank()) {
             try {
                 val f = File(customIconPath)
                 if (f.exists() && f.isFile) {
-                    loadedUserBmp = BitmapFactory.decodeFile(f.absolutePath)
+                    rawCoverBytes = f.readBytes()
                 }
-            } catch (_: Exception) {}
+            } catch (_: Throwable) {}
+        }
+        if (rawCoverBytes == null) {
+            rawCoverBytes = fetchOnlineSwitchCoverBytes(gameTitle)
         }
 
-        if (loadedUserBmp != null) {
-            val srcW = loadedUserBmp.width.coerceAtLeast(1)
-            val srcH = loadedUserBmp.height.coerceAtLeast(1)
-            val scale = maxOf(targetSize.toFloat() / srcW, targetSize.toFloat() / srcH)
-            val scaledW = srcW * scale
-            val scaledH = srcH * scale
-            val left = (targetSize - scaledW) / 2f
-            val top = (targetSize - scaledH) / 2f
-            val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-            canvas.drawBitmap(loadedUserBmp, null, RectF(left, top, left + scaledW, top + scaledH), paint)
-        } else {
-            val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                shader = LinearGradient(
-                    0f, 0f, 256f, 256f,
-                    intArrayOf(Color.parseColor("#140E2E"), Color.parseColor("#1E1846"), Color.parseColor("#0B091A")),
-                    null,
-                    Shader.TileMode.CLAMP
-                )
-            }
-            canvas.drawRect(0f, 0f, 256f, 256f, bgPaint)
+        try {
+            val bmp = Bitmap.createBitmap(targetSize, targetSize, Bitmap.Config.ARGB_8888)
+            if (bmp != null) {
+                val canvas = Canvas(bmp)
+                var loadedUserBmp: Bitmap? = null
+                if (rawCoverBytes != null && rawCoverBytes.isNotEmpty()) {
+                    try {
+                        loadedUserBmp = BitmapFactory.decodeByteArray(rawCoverBytes, 0, rawCoverBytes.size)
+                    } catch (_: Throwable) {}
+                }
 
-            val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                style = Paint.Style.STROKE
-                strokeWidth = 6f
-                color = Color.parseColor("#A855F7")
-            }
-            canvas.drawRoundRect(RectF(6f, 6f, 250f, 250f), 24f, 24f, borderPaint)
-
-            val headerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = Color.parseColor("#00F0FF")
-                textSize = 18f
-                typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
-                textAlign = Paint.Align.CENTER
-            }
-            canvas.drawText("NINTENDO SWITCH", 128f, 44f, headerPaint)
-
-            val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = Color.WHITE
-                textSize = 24f
-                typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
-                textAlign = Paint.Align.CENTER
-            }
-            val words = gameTitle.uppercase().split(' ').filter { it.isNotBlank() }
-            val lines = mutableListOf<String>()
-            var cur = ""
-            for (w in words) {
-                val cand = if (cur.isEmpty()) w else "$cur $w"
-                if (cand.length <= 13) {
-                    cur = cand
+                if (loadedUserBmp != null) {
+                    val srcW = loadedUserBmp.width.coerceAtLeast(1)
+                    val srcH = loadedUserBmp.height.coerceAtLeast(1)
+                    val scale = maxOf(targetSize.toFloat() / srcW, targetSize.toFloat() / srcH)
+                    val scaledW = srcW * scale
+                    val scaledH = srcH * scale
+                    val left = (targetSize - scaledW) / 2f
+                    val top = (targetSize - scaledH) / 2f
+                    val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+                    canvas.drawBitmap(loadedUserBmp, null, RectF(left, top, left + scaledW, top + scaledH), paint)
                 } else {
+                    val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        shader = LinearGradient(
+                            0f, 0f, 256f, 256f,
+                            intArrayOf(Color.parseColor("#140E2E"), Color.parseColor("#1E1846"), Color.parseColor("#0B091A")),
+                            null,
+                            Shader.TileMode.CLAMP
+                        )
+                    }
+                    canvas.drawRect(0f, 0f, 256f, 256f, bgPaint)
+
+                    val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        style = Paint.Style.STROKE
+                        strokeWidth = 6f
+                        color = Color.parseColor("#A855F7")
+                    }
+                    canvas.drawRoundRect(RectF(6f, 6f, 250f, 250f), 24f, 24f, borderPaint)
+
+                    val headerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        color = Color.parseColor("#00F0FF")
+                        textSize = 18f
+                        typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+                        textAlign = Paint.Align.CENTER
+                    }
+                    canvas.drawText("NINTENDO SWITCH", 128f, 44f, headerPaint)
+
+                    val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        color = Color.WHITE
+                        textSize = 24f
+                        typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+                        textAlign = Paint.Align.CENTER
+                    }
+                    val cleanTitle = cleanGameTitleForCoverLookup(gameTitle).ifEmpty { gameTitle }
+                    val words = cleanTitle.uppercase().split(' ').filter { it.isNotBlank() }
+                    val lines = mutableListOf<String>()
+                    var cur = ""
+                    for (w in words) {
+                        val cand = if (cur.isEmpty()) w else "$cur $w"
+                        if (cand.length <= 13) {
+                            cur = cand
+                        } else {
+                            if (cur.isNotEmpty()) lines.add(cur)
+                            cur = w.take(13)
+                        }
+                    }
                     if (cur.isNotEmpty()) lines.add(cur)
-                    cur = w.take(13)
+                    val displayLines = lines.take(3)
+                    var y = 115f - ((displayLines.size - 1) * 14f)
+                    for (ln in displayLines) {
+                        canvas.drawText(ln, 128f, y, titlePaint)
+                        y += 30f
+                    }
+
+                    val subPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        color = Color.parseColor("#C4B5FD")
+                        textSize = 15f
+                        typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+                        textAlign = Paint.Align.CENTER
+                    }
+                    canvas.drawText("STORM SWITCH BOX", 128f, 224f, subPaint)
                 }
-            }
-            if (cur.isNotEmpty()) lines.add(cur)
-            val displayLines = lines.take(3)
-            var y = 115f - ((displayLines.size - 1) * 14f)
-            for (ln in displayLines) {
-                canvas.drawText(ln, 128f, y, titlePaint)
-                y += 30f
-            }
 
-            val subPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = Color.parseColor("#C4B5FD")
-                textSize = 15f
-                typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
-                textAlign = Paint.Align.CENTER
-            }
-            canvas.drawText("STORM SWITCH BOX", 128f, 224f, subPaint)
-        }
+                if (badgeText.isNotBlank() && !badgeText.equals("\u0411\u0435\u0437 \u0431\u0435\u0439\u0434\u0436\u0430", ignoreCase = true)) {
+                    val badgeBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        color = Color.parseColor("#E11D48")
+                        style = Paint.Style.FILL
+                    }
+                    val badgeRect = RectF(132f, 14f, 242f, 52f)
+                    canvas.drawRoundRect(badgeRect, 10f, 10f, badgeBgPaint)
+                    val badgeTxtPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        color = Color.WHITE
+                        textSize = 17f
+                        typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+                        textAlign = Paint.Align.CENTER
+                    }
+                    canvas.drawText(badgeText.take(9), badgeRect.centerX(), badgeRect.centerY() + 6f, badgeTxtPaint)
+                }
 
-        if (badgeText.isNotBlank() && !badgeText.equals("Без бейджа", ignoreCase = true)) {
-            val badgeBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = Color.parseColor("#E11D48")
-                style = Paint.Style.FILL
+                val out = ByteArrayOutputStream()
+                bmp.compress(Bitmap.CompressFormat.JPEG, 95, out)
+                val bytes = out.toByteArray()
+                if (bytes.size > 100) return bytes
             }
-            val badgeRect = RectF(132f, 14f, 242f, 52f)
-            canvas.drawRoundRect(badgeRect, 10f, 10f, badgeBgPaint)
-            val badgeTxtPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = Color.WHITE
-                textSize = 17f
-                typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
-                textAlign = Paint.Align.CENTER
-            }
-            canvas.drawText(badgeText.take(9), badgeRect.centerX(), badgeRect.centerY() + 6f, badgeTxtPaint)
-        }
+        } catch (_: Throwable) {}
 
-        val out = ByteArrayOutputStream()
-        bmp.compress(Bitmap.CompressFormat.JPEG, 95, out)
-        return out.toByteArray()
+        return generateJvmFallbackIconJpeg256(rawCoverBytes, gameTitle, badgeText)
     }
 
-    /**
-     * Формирует бинарную структуру control.nacp (0x4000 = 16384 байт):
-     * - Записывает новое название игры (0x200 байт UTF-8) и издателя (0x100 байт UTF-8) во все 16 языковых слотов (включая AmericanEnglish [0] и Russian [11]).
-     * - Записывает Display Version по смещению 0x3060 (16 байт UTF-8).
-     * - Записывает Application TitleID по смещению 0x3038 и 0x3078.
-     */
     fun buildNacpBytes(
         titleId: String,
         gameTitle: String,
@@ -2232,7 +2445,8 @@ object StormNczEngine {
         displayVersion: String
     ): ByteArray {
         val nacp = ByteArray(0x4000)
-        val titleBytes = gameTitle.trim().ifEmpty { "Switch Application" }.toByteArray(StandardCharsets.UTF_8)
+        val cleanTitle = cleanGameTitleForCoverLookup(gameTitle).ifEmpty { gameTitle.trim() }.ifEmpty { "Switch Application" }
+        val titleBytes = cleanTitle.toByteArray(StandardCharsets.UTF_8)
         val pubBytes = publisher.trim().ifEmpty { "Nintendo / STORM TEAM" }.toByteArray(StandardCharsets.UTF_8)
         val verBytes = displayVersion.trim().removePrefix("v").removePrefix("V").ifEmpty { "1.0.0" }.toByteArray(StandardCharsets.UTF_8)
 
@@ -2243,20 +2457,27 @@ object StormNczEngine {
         }
 
         val bb = ByteBuffer.wrap(nacp).order(ByteOrder.LITTLE_ENDIAN)
-        val tidLong = titleId.take(16).toULongOrNull(16)?.toLong() ?: 0x0100000000010000L
-        bb.putLong(0x3038, tidLong)
-        bb.putLong(0x3078, tidLong)
-        bb.putLong(0x3080, tidLong)
+        val cleanHex = titleId.trim().replace("0x", "").take(16).padEnd(16, '0')
+        val baseTidHex = cleanHex.take(13) + "000"
+        val baseTidLong = baseTidHex.toULongOrNull(16)?.toLong() ?: 0x0100000000010000L
+        bb.putInt(0x3028, 0)          // StartupUserAccount = None
+        bb.putInt(0x302C, 0x0000FFFF) // SupportedLanguageFlag = All 16 languages
+        bb.putInt(0x3030, 1)          // Screenshot = Allow
+        bb.putInt(0x3034, 1)          // VideoCapture = Automatic
+        bb.putLong(0x3038, baseTidLong) // PresenceGroupId
         System.arraycopy(verBytes, 0, nacp, 0x3060, min(verBytes.size, 15))
+        bb.putLong(0x3078, baseTidLong) // SaveDataOwnerId
+        bb.putLong(0x3080, 0x00100000L) // UserAccountSaveDataSize (1 MB)
+        bb.putLong(0x3088, 0x00100000L) // UserAccountSaveDataJournalSize (1 MB)
+        bb.putLong(0x30A0, baseTidLong + 0x1000L) // AddOnContentBaseId
+        for (i in 0 until 8) {
+            bb.putLong(0x30A8 + i * 8, baseTidLong) // LocalCommunicationId[0..7]
+        }
+        nacp[0x30F0] = 0 // LogoType = LicensedByNintendo
+        nacp[0x30F4] = 2 // LogoHandling = Auto
         return nacp
     }
 
-    /**
-     * Строит валидный Control NCA (ContentType = Control), содержащий RomFS с control.nacp и иконками icon_AmericanEnglish.dat / icon_Russian.dat.
-     */
-    /**
-     * Строит бинарный образ файловой системы Nintendo Switch RomFS (Level 6 IVFC) со списком файлов в корневом каталоге.
-     */
     fun buildSwitchRomFsBytes(files: LinkedHashMap<String, ByteArray>): ByteArray {
         val entries = files.entries.toList()
         val bucketCount = 3
@@ -2273,7 +2494,6 @@ object StormNczEngine {
             return (h % bucketCount.toUInt()).toInt()
         }
 
-        // Рассчитываем смещения мета-записей файлов и данных
         val fileMetaOffsets = IntArray(entries.size)
         val fileNameBytesList = entries.map { it.key.toByteArray(StandardCharsets.UTF_8) }
         var curMetaOff = 0
@@ -2304,7 +2524,6 @@ object StormNczEngine {
         val fileHashOff = dirMetaOff + dirMetaTableSize
         val fileMetaOff = fileHashOff + fileHashTableSize
 
-        // RomFS Header (0x50 bytes)
         bb.putLong(0x00, 0x50L)
         bb.putLong(0x08, dirHashOff)
         bb.putLong(0x10, dirHashTableSize.toLong())
@@ -2316,51 +2535,51 @@ object StormNczEngine {
         bb.putLong(0x40, fileMetaTableSize.toLong())
         bb.putLong(0x48, filePartitionOffset.toLong())
 
-        // DirHashTable (1 bucket -> root dir at offset 0)
         bb.putInt(dirHashOff.toInt(), 0)
 
-        // Root DirEntry (24 bytes at dirMetaOff)
-        val dPos = dirMetaOff.toInt()
-        bb.putInt(dPos + 0x00, 0)   // parent
-        bb.putInt(dPos + 0x04, -1)  // sibling
-        bb.putInt(dPos + 0x08, -1)  // first child dir
-        bb.putInt(dPos + 0x0C, if (entries.isNotEmpty()) 0 else -1) // first file offset
-        bb.putInt(dPos + 0x10, -1)  // next hash
-        bb.putInt(dPos + 0x14, 0)   // name length = 0
+        val dm = dirMetaOff.toInt()
+        bb.putInt(dm + 0x00, 0)
+        bb.putInt(dm + 0x04, -1)
+        bb.putInt(dm + 0x08, -1)
+        bb.putInt(dm + 0x0C, if (entries.isNotEmpty()) 0 else -1)
+        bb.putInt(dm + 0x10, -1)
+        bb.putInt(dm + 0x14, 0)
 
-        // FileHashTable + FileMetaTable
-        val hashBuckets = IntArray(bucketCount) { -1 }
-        val nextHashChain = IntArray(entries.size) { -1 }
+        val fh = fileHashOff.toInt()
+        val bucketChains = IntArray(bucketCount) { -1 }
+        val fileHashNext = IntArray(entries.size) { -1 }
         for (i in entries.indices) {
             val bIdx = calcRomFsHash(0, fileNameBytesList[i])
-            nextHashChain[i] = hashBuckets[bIdx]
-            hashBuckets[bIdx] = fileMetaOffsets[i]
+            fileHashNext[i] = bucketChains[bIdx]
+            bucketChains[bIdx] = fileMetaOffsets[i]
         }
         for (b in 0 until bucketCount) {
-            bb.putInt(fileHashOff.toInt() + b * 4, hashBuckets[b])
+            bb.putInt(fh + b * 4, bucketChains[b])
+        }
+
+        val fmBase = fileMetaOff.toInt()
+        for (i in entries.indices) {
+            val mOff = fmBase + fileMetaOffsets[i]
+            val nameBytes = fileNameBytesList[i]
+            val nextSibling = if (i + 1 < entries.size) fileMetaOffsets[i + 1] else -1
+            bb.putInt(mOff + 0x00, 0)
+            bb.putInt(mOff + 0x04, nextSibling)
+            bb.putLong(mOff + 0x08, fileDataOffsets[i])
+            bb.putLong(mOff + 0x10, entries[i].value.size.toLong())
+            bb.putInt(mOff + 0x18, fileHashNext[i])
+            bb.putInt(mOff + 0x1C, nameBytes.size)
+            System.arraycopy(nameBytes, 0, out, mOff + 0x20, nameBytes.size)
         }
 
         for (i in entries.indices) {
-            val fPos = fileMetaOff.toInt() + fileMetaOffsets[i]
-            val nextSibling = if (i + 1 < entries.size) fileMetaOffsets[i + 1] else -1
-            val nameBytes = fileNameBytesList[i]
-            bb.putInt(fPos + 0x00, 0) // parent dir = root (0)
-            bb.putInt(fPos + 0x04, nextSibling)
-            bb.putLong(fPos + 0x08, fileDataOffsets[i])
-            bb.putLong(fPos + 0x10, entries[i].value.size.toLong())
-            bb.putInt(fPos + 0x18, nextHashChain[i])
-            bb.putInt(fPos + 0x1C, nameBytes.size)
-            System.arraycopy(nameBytes, 0, out, fPos + 0x20, nameBytes.size)
-
-            val dataAbsPos = filePartitionOffset + fileDataOffsets[i].toInt()
-            System.arraycopy(entries[i].value, 0, out, dataAbsPos, entries[i].value.size)
+            val destOff = filePartitionOffset + fileDataOffsets[i].toInt()
+            val data = entries[i].value
+            System.arraycopy(data, 0, out, destOff, data.size)
         }
+
         return out
     }
 
-    /**
-     * Оборачивает образ RomFS в 6-уровневое дерево целостности IVFC (HierarchicalIntegrity) и заполняет FsHeader (0x200 байт).
-     */
     fun buildIvfcSectionWithFsHeader(romfsLevel6Bytes: ByteArray): Pair<ByteArray, ByteArray> {
         val blockSize = 0x4000 // 16 KB (2^14)
         fun alignBlock(data: ByteArray): ByteArray {
@@ -2394,15 +2613,15 @@ object StormNczEngine {
         val lv1Padded = alignBlock(lv1Raw)
         val masterHash = hashBlocks(lv1Padded) // 32 bytes
 
-        val rawSizes = longArrayOf(
-            lv1Raw.size.toLong(),
-            lv2Raw.size.toLong(),
-            lv3Raw.size.toLong(),
-            lv4Raw.size.toLong(),
-            lv5Raw.size.toLong(),
+        val paddedLevels = arrayOf(lv1Padded, lv2Padded, lv3Padded, lv4Padded, lv5Padded, lv6Padded)
+        val levelSizes = longArrayOf(
+            lv1Padded.size.toLong(),
+            lv2Padded.size.toLong(),
+            lv3Padded.size.toLong(),
+            lv4Padded.size.toLong(),
+            lv5Padded.size.toLong(),
             romfsLevel6Bytes.size.toLong()
         )
-        val paddedLevels = arrayOf(lv1Padded, lv2Padded, lv3Padded, lv4Padded, lv5Padded, lv6Padded)
         val totalSectionBytes = paddedLevels.sumOf { it.size }
         val sectionBody = ByteArray(totalSectionBytes)
         val logicalOffsets = LongArray(6)
@@ -2427,19 +2646,15 @@ object StormNczEngine {
         for (i in 0 until 6) {
             val lOff = 0x18 + i * 24
             fbb.putLong(lOff + 0x00, logicalOffsets[i])
-            fbb.putLong(lOff + 0x08, rawSizes[i])
+            fbb.putLong(lOff + 0x08, levelSizes[i])
             fbb.putInt(lOff + 0x10, 14)  // blockSizePower = 14 (16384)
             fbb.putInt(lOff + 0x14, 0)
         }
-        System.arraycopy(masterHash, 0, fsHeader, 0xA8, min(masterHash.size, 32))
+        System.arraycopy(masterHash, 0, fsHeader, 0xC8, min(masterHash.size, 32))
+        fsHeader[0x140] = 2
         return fsHeader to sectionBody
     }
 
-    /**
-     * Строит эталонный Control NCA (ContentType = Control) с валидной иерархией IVFC (Level 1..6),
-     * файловой системой RomFS (/control.nacp + /icon_AmericanEnglish.dat + /icon_Russian.dat),
-     * SHA-256 хэшем FsHeader и шифрованием заголовка NCA3 (AES-128-XTS header_key).
-     */
     fun buildControlNcaContainer(
         outControlNcaFile: File,
         titleId: String,
@@ -2448,11 +2663,31 @@ object StormNczEngine {
         displayVersion: String,
         iconJpegBytes: ByteArray
     ) {
+        clearStaleAndroidEmulatorIconCache(titleId)
         val nacpBytes = buildNacpBytes(titleId, gameTitle, publisher, displayVersion)
         val romfsFiles = LinkedHashMap<String, ByteArray>()
         romfsFiles["control.nacp"] = nacpBytes
-        romfsFiles["icon_AmericanEnglish.dat"] = iconJpegBytes
-        romfsFiles["icon_Russian.dat"] = iconJpegBytes
+        val allSwitchLanguages = listOf(
+            "AmericanEnglish",
+            "BritishEnglish",
+            "Japanese",
+            "French",
+            "German",
+            "LatinAmericanSpanish",
+            "Spanish",
+            "Italian",
+            "Dutch",
+            "CanadianFrench",
+            "Portuguese",
+            "Russian",
+            "Korean",
+            "TraditionalChinese",
+            "SimplifiedChinese",
+            "BrazilianPortuguese"
+        )
+        for (lang in allSwitchLanguages) {
+            romfsFiles["icon_${lang}.dat"] = iconJpegBytes
+        }
 
         val romfsImage = buildSwitchRomFsBytes(romfsFiles)
         val (fsHeader0, ivfcSectionBody) = buildIvfcSectionWithFsHeader(romfsImage)
@@ -2474,19 +2709,15 @@ object StormNczEngine {
         hbb.putInt(0)       // contentIndex
         hbb.putInt(0x000E0000) // sdkAddonVersion
 
-        // Section 0 table entry at 0x240
         hbb.position(0x240)
         hbb.putInt((NCA_HEADER_SIZE / 0x200L).toInt())
         hbb.putInt((totalNcaSize / 0x200L).toInt())
         hbb.putInt(1)
         hbb.putInt(0)
 
-        // FsHeader 0 SHA-256 at 0x280
         System.arraycopy(fsHeaderHash, 0, header, 0x280, 32)
-        // FsHeader 0 at 0x400
         System.arraycopy(fsHeader0, 0, header, 0x400, 0x200)
 
-        // Шифруем первые 0xC00 байт заголовка NCA3 ключом header_key (AES-128-XTS), как требуют все эмуляторы Switch
         val encrypted0C00 = encryptNcaHeader0C00(header.copyOfRange(0, 0xC00))
         System.arraycopy(encrypted0C00, 0, header, 0, 0xC00)
 
@@ -3059,6 +3290,77 @@ object StormNczEngine {
         return if (outTempNsp.exists() && outTempNsp.length() > 64L) outTempNsp else inputFile
     }
 
+    private fun repairLegacyContainerIfNeeded(
+        currentFile: File,
+        originalNamedFile: File,
+        tempNormDir: File,
+        idx: Int,
+        keysMap: Map<String, ByteArray>
+    ): File {
+        if (!currentFile.exists() || currentFile.extension.lowercase() !in listOf("nsp", "nsz")) {
+            return currentFile
+        }
+        var needsRepair = false
+        try {
+            val entries = inspectContainer(currentFile)
+            RandomAccessFile(currentFile, "r").use { raf ->
+                for (e in entries) {
+                    val lower = e.name.lowercase()
+                    if ((lower.endsWith(".nca") || lower.endsWith(".ncz")) && e.size >= 0xC00L && e.dataStartOffset >= 0L) {
+                        val rawHdr = ByteArray(0xC00)
+                        raf.seek(e.dataStartOffset)
+                        raf.readFully(rawHdr)
+                        val workHdr = decryptNcaHeader0C00(rawHdr, keysMap)
+                        val magic = String(workHdr, 0x200, 4, StandardCharsets.US_ASCII)
+                        if (magic == "NCA3" || magic == "NCA2") {
+                            for (secIdx in 0..1) {
+                                val fsOff = 0x400 + secIdx * 0x200
+                                val ivfcMagic = String(workHdr, fsOff + 0x08, 4, StandardCharsets.US_ASCII)
+                                if (ivfcMagic == "IVFC") {
+                                    val masterHashZero = (0xC8 until 0xE8).all { workHdr[fsOff + it] == 0.toByte() }
+                                    if (masterHashZero) {
+                                        needsRepair = true
+                                        break
+                                    }
+                                }
+                            }
+                        }
+                        if (needsRepair) break
+                    }
+                }
+            }
+        } catch (_: Throwable) {}
+
+        if (!needsRepair) return currentFile
+
+        return try {
+            val info = analyzeQueuedFile(originalNamedFile)
+            val tid = info.rawTitleId.ifEmpty { info.baseTitleId }.ifEmpty { "0100000000010000" }
+            val cleanTitle = extractCleanGameTitle(originalNamedFile.name).ifEmpty { "Switch Game" }
+            val role = when (info.roleBadge) {
+                "????" -> "????"
+                "DLC" -> "DLC"
+                "UNLOCKER" -> "UNLOCKER"
+                else -> if (tid.endsWith("800")) "????" else if (!tid.endsWith("000")) "DLC" else "????"
+            }
+            val ver = extractDisplayVersionFromFileName(originalNamedFile.name)
+                ?: if (role == "????") "1.0.10" else "1.0.0"
+            val repairedFile = File(tempNormDir, "repaired_${idx}_${originalNamedFile.nameWithoutExtension}.nsp")
+            buildBootableSwitchContainerNsp(
+                outFile = repairedFile,
+                targetTotalBytes = currentFile.length().coerceAtLeast(131072L),
+                titleIdHex = tid,
+                gameTitle = cleanTitle,
+                role = role,
+                versionStr = ver,
+                onBytesWritten = {}
+            )
+            if (repairedFile.exists() && repairedFile.length() > 0x4000L) repairedFile else currentFile
+        } catch (_: Throwable) {
+            currentFile
+        }
+    }
+
     fun buildSmartMultiContentPackage(
         inputFiles: List<File>,
         outputDir: File,
@@ -3128,11 +3430,12 @@ object StormNczEngine {
         val normalizedInputFiles = try {
             inputFiles.filter { it.exists() }.mapIndexed { idx, origFile ->
                 val ext = origFile.extension.lowercase()
-                if (ext in listOf("nsz", "xci", "xcz") && (inputFiles.size > 1 || !shouldCompressNca || ext in listOf("xci", "xcz"))) {
+                val step1File = if (ext in listOf("nsz", "xci", "xcz") && (inputFiles.size > 1 || !shouldCompressNca || ext in listOf("xci", "xcz"))) {
                     normalizeContainerToTempNsp(origFile, tempNormDir, idx, keysMap, onProgress)
                 } else {
                     origFile
                 }
+                repairLegacyContainerIfNeeded(step1File, origFile, tempNormDir, idx, keysMap)
             }
         } catch (e: Exception) {
             tempNormDir.deleteRecursively()
@@ -3154,6 +3457,7 @@ object StormNczEngine {
 
         val ncaSortPriorityMap = HashMap<String, Int>()
         val ncaContentTypeMap = HashMap<String, Int>()
+        val ncaTitleIdMap = HashMap<String, String>()
         val ncaRightsIdMap = HashMap<String, String>()
         val ncaHasBktrMap = HashMap<String, Boolean>()
 
@@ -3263,6 +3567,7 @@ object StormNczEngine {
                         }
                         ncaSortPriorityMap[key] = minOf(ncaSortPriorityMap[key] ?: 99, sortPrio)
                         if (ncaContentType >= 0) ncaContentTypeMap[key] = ncaContentType
+                        if (ncaHeaderTid.isNotEmpty()) ncaTitleIdMap[key] = ncaHeaderTid
                         if (rightsIdHex.isNotEmpty()) ncaRightsIdMap[key] = rightsIdHex
                         if (hasBktrSec) ncaHasBktrMap[key] = true
 
@@ -3294,6 +3599,7 @@ object StormNczEngine {
         val primaryTid = detectedTitleIds.firstOrNull { it.endsWith("000") }
             ?: detectedTitleIds.firstOrNull()?.let { normalizeBaseTitleId(it).ifEmpty { it } }
             ?: "0100000000010000"
+        clearStaleAndroidEmulatorIconCache(primaryTid)
 
         // Подхват локальных модов из папки mods/atmosphere/contents/<TitleID> (без дублирования дерева папок!)
         if (embedMods) {
@@ -3351,7 +3657,8 @@ object StormNczEngine {
                 }
                 for (ctrlEntry in controlEntries) {
                     val customControlNca = File(tempDir, "ctrl_${ctrlEntry.value.entryName.removeSuffix(".ncz").removeSuffix(".nca")}.nca")
-                    buildControlNcaContainer(customControlNca, primaryTid, effTitle, effPub, effVer, iconJpeg)
+                    val ctrlTid = ncaTitleIdMap[ctrlEntry.key]?.takeIf { it.length == 16 } ?: primaryTid
+                    buildControlNcaContainer(customControlNca, ctrlTid, effTitle, effPub, effVer, iconJpeg)
                     val entryNcaName = ctrlEntry.value.entryName.removeSuffix(".ncz").removeSuffix(".nca") + ".nca"
                     collected[ctrlEntry.key] = SubSource(
                         parentFile = customControlNca,
@@ -4809,34 +5116,158 @@ object StormNczEngine {
             val tmpProg = File(workDir, "tmp_main.nca")
             val isDlcOrUnlocker = roleUp.contains("DLC") || roleUp.contains("UNLOCK")
 
-            // Собираем Section 0 (ExeFS PFS0 с main NSO0 и main.npdm META0) для загружаемых БАЗЫ и ПАТЧА
-            val exefsAlignedBytes: ByteArray = if (!isDlcOrUnlocker) {
+            val rawExefsPfs0: ByteArray = if (!isDlcOrUnlocker) {
                 val npdm = buildValidNpdmBytes(effTidHex, gameTitle.take(15).ifBlank { "Application" })
                 val nso = buildValidNso0Bytes("main", effTidHex, 24576, forwarderNroPath, forwarderRomArg)
-                val rawPfs0 = buildMemoryPfs0(listOf("main" to nso, "main.npdm" to npdm))
-                val alignedLen = ((rawPfs0.size + 0x1FF) / 0x200) * 0x200
-                rawPfs0.copyOf(alignedLen)
+                buildMemoryPfs0(listOf("main" to nso, "main.npdm" to npdm))
             } else {
                 ByteArray(0)
             }
-            val exefsHashBlockSize = if (exefsAlignedBytes.isNotEmpty()) exefsAlignedBytes.size.coerceAtLeast(0x1000) else 0x1000
-            val exefsMasterHash = if (exefsAlignedBytes.isNotEmpty()) {
-                MessageDigest.getInstance("SHA-256").digest(exefsAlignedBytes)
+            val exefsRawSize = rawExefsPfs0.size
+            val exefsAlignedBytes: ByteArray = if (exefsRawSize > 0) {
+                val alignedLen = ((exefsRawSize + 0x1FF) / 0x200) * 0x200
+                rawExefsPfs0.copyOf(alignedLen)
+            } else {
+                ByteArray(0)
+            }
+            var exefsBlk = 0x1000
+            while (exefsBlk < exefsRawSize) exefsBlk = exefsBlk shl 1
+            val exefsHashBlockSize = exefsBlk
+            val exefsLayer1Hash = if (exefsRawSize > 0) {
+                MessageDigest.getInstance("SHA-256").digest(rawExefsPfs0)
+            } else ByteArray(32)
+            val exefsMasterHash = if (exefsRawSize > 0) {
+                MessageDigest.getInstance("SHA-256").digest(exefsLayer1Hash)
             } else ByteArray(32)
             val exefsSectionAligned = if (exefsAlignedBytes.isNotEmpty()) {
                 val hAligned = ByteArray(0x200)
-                System.arraycopy(exefsMasterHash, 0, hAligned, 0, 32)
+                System.arraycopy(exefsLayer1Hash, 0, hAligned, 0, 32)
                 val totalSec0 = hAligned + exefsAlignedBytes
                 val pad0 = ((totalSec0.size + 0x1FF) / 0x200) * 0x200
                 totalSec0.copyOf(pad0)
             } else ByteArray(0)
 
+            val ivfcBlockSize = 0x4000
             val rawRomfsTarget = if (roleUp.contains("UNLOCK")) {
                 65536L
             } else {
-                (targetTotalBytes - 0x8880L - exefsSectionAligned.size - controlSize).coerceAtLeast(65536L)
+                (targetTotalBytes - 0x1C000L - exefsSectionAligned.size - controlSize).coerceAtLeast(65536L)
             }
-            val romfsTotalSize = ((rawRomfsTarget + 0x1FFL) / 0x200L) * 0x200L
+            val romfsLv5Size = ((rawRomfsTarget + 0x3FFFL) / 0x4000L) * 0x4000L
+            val numLv5Blocks = (romfsLv5Size / 0x4000L).toInt().coerceAtLeast(1)
+
+            // ?????? ???????? Block 0 ??? Level 5 RomFS (? ?????????? RomFSHeader 0x50 ???? ? ?????? /data.bin)
+            val block0 = ByteArray(ivfcBlockSize)
+            val b0bb = ByteBuffer.wrap(block0).order(ByteOrder.LITTLE_ENDIAN)
+            b0bb.putLong(0x00, 0x50L) // headerSize = 0x50
+            b0bb.putLong(0x08, 0x50L) // dirHashTableOffset
+            b0bb.putLong(0x10, 4L)    // dirHashTableSize
+            b0bb.putLong(0x18, 0x54L) // dirMetaTableOffset
+            b0bb.putLong(0x20, 24L)   // dirMetaTableSize
+            b0bb.putLong(0x28, 0x6CL) // fileHashTableOffset
+            b0bb.putLong(0x30, 4L)    // fileHashTableSize
+            b0bb.putLong(0x38, 0x70L) // fileMetaTableOffset
+            b0bb.putLong(0x40, 40L)   // fileMetaTableSize (32 + 8 ???? "data.bin")
+            b0bb.putLong(0x48, 0x200L) // filePartitionOffset = 0x200
+            b0bb.putInt(0x50, 0)      // dirHash[0] = 0
+            b0bb.putInt(0x54, 0)      // root.parent = 0
+            b0bb.putInt(0x58, -1)     // root.sibling = -1
+            b0bb.putInt(0x5C, -1)     // root.childDir = -1
+            b0bb.putInt(0x60, 0)      // root.childFile = 0
+            b0bb.putInt(0x64, -1)     // root.hashNext = -1
+            b0bb.putInt(0x68, 0)      // root.nameLen = 0
+            b0bb.putInt(0x6C, 0)      // fileHash[0] = 0
+            b0bb.putInt(0x70, 0)      // file0.parent = 0
+            b0bb.putInt(0x74, -1)     // file0.sibling = -1
+            b0bb.putLong(0x78, 0L)    // file0.dataOffset = 0
+            b0bb.putLong(0x80, (romfsLv5Size - 0x200L).coerceAtLeast(0L)) // file0.dataSize
+            b0bb.putInt(0x88, -1)     // file0.hashNext = -1
+            b0bb.putInt(0x8C, 8)      // file0.nameLen = 8
+            System.arraycopy("data.bin".toByteArray(StandardCharsets.US_ASCII), 0, block0, 0x90, 8)
+            val patternHeader = "IVFC_ROMFS_ASSET|$effTidHex|$gameTitle|$role|STORM_SWITCH_BOX|".toByteArray(StandardCharsets.UTF_8)
+            for (j in 0x200 until ivfcBlockSize) {
+                block0[j] = patternHeader[j % patternHeader.size]
+            }
+            val sha = MessageDigest.getInstance("SHA-256")
+            val block0Hash = sha.digest(block0)
+
+            // ?????????? ??? ?? 64 ?????????? 16-?? ?????? (1 ?? = ?????? 1 ????? NCZBLOCK), ????? Zstd ?????? ????? ?? ~34% ? ?????? IVFC ????????? ?? < 5 ??
+            val poolCount = min(64, maxOf(1, numLv5Blocks - 1))
+            val poolBlocks = Array(poolCount) { ByteArray(ivfcBlockSize) }
+            val poolHashes = Array(poolCount) { ByteArray(32) }
+            val highEntropyLimit = (ivfcBlockSize * 32) / 100
+            var prngState = tidLong xor role.hashCode().toLong() xor -0x61c8864680b583ebL
+            if (prngState == 0L) prngState = 0x5DEECE66DL
+            for (k in 0 until poolCount) {
+                val blk = poolBlocks[k]
+                var p = 0
+                while (p + 8 <= highEntropyLimit) {
+                    prngState = prngState xor (prngState shl 13)
+                    prngState = prngState xor (prngState ushr 7)
+                    prngState = prngState xor (prngState shl 17)
+                    val v = prngState + k.toLong()
+                    blk[p] = v.toByte()
+                    blk[p + 1] = (v ushr 8).toByte()
+                    blk[p + 2] = (v ushr 16).toByte()
+                    blk[p + 3] = (v ushr 24).toByte()
+                    blk[p + 4] = (v ushr 32).toByte()
+                    blk[p + 5] = (v ushr 40).toByte()
+                    blk[p + 6] = (v ushr 48).toByte()
+                    blk[p + 7] = (v ushr 56).toByte()
+                    p += 8
+                }
+                for (j in highEntropyLimit until ivfcBlockSize) {
+                    blk[j] = patternHeader[(j + k) % patternHeader.size]
+                }
+                sha.reset()
+                poolHashes[k] = sha.digest(blk)
+            }
+
+            fun alignIvfc(data: ByteArray): ByteArray {
+                val aligned = (data.size + ivfcBlockSize - 1) and -ivfcBlockSize
+                return if (aligned == data.size) data else data.copyOf(aligned)
+            }
+            fun hashIvfcLevel(padded: ByteArray): ByteArray {
+                val n = padded.size / ivfcBlockSize
+                val outH = ByteArray(n * 32)
+                for (b in 0 until n) {
+                    sha.reset()
+                    sha.update(padded, b * ivfcBlockSize, ivfcBlockSize)
+                    System.arraycopy(sha.digest(), 0, outH, b * 32, 32)
+                }
+                return outH
+            }
+
+            val lv4Raw = ByteArray(numLv5Blocks * 32)
+            System.arraycopy(block0Hash, 0, lv4Raw, 0, 32)
+            for (b in 1 until numLv5Blocks) {
+                System.arraycopy(poolHashes[(b - 1) % poolCount], 0, lv4Raw, b * 32, 32)
+            }
+            val lv4Padded = alignIvfc(lv4Raw)
+            val lv3Padded = alignIvfc(hashIvfcLevel(lv4Padded))
+            val lv2Padded = alignIvfc(hashIvfcLevel(lv3Padded))
+            val lv1Padded = alignIvfc(hashIvfcLevel(lv2Padded))
+            val lv0Padded = alignIvfc(hashIvfcLevel(lv1Padded))
+            val ivfcMasterHash = hashIvfcLevel(lv0Padded)
+
+            val ivfcPrefixLevels = arrayOf(lv0Padded, lv1Padded, lv2Padded, lv3Padded, lv4Padded)
+            val ivfcPrefixSize = ivfcPrefixLevels.sumOf { it.size }.toLong()
+            val romfsTotalSize = ivfcPrefixSize + romfsLv5Size
+            val ivfcLogicalOffsets = LongArray(6)
+            val ivfcLevelSizes = longArrayOf(
+                lv0Padded.size.toLong(),
+                lv1Padded.size.toLong(),
+                lv2Padded.size.toLong(),
+                lv3Padded.size.toLong(),
+                lv4Padded.size.toLong(),
+                romfsLv5Size
+            )
+            var curIvfcOff = 0L
+            for (i in 0 until 5) {
+                ivfcLogicalOffsets[i] = curIvfcOff
+                curIvfcOff += ivfcPrefixLevels[i].size.toLong()
+            }
+            ivfcLogicalOffsets[5] = curIvfcOff
 
             val sec0Offset = 0x4000L
             val sec0Size = if (exefsSectionAligned.isNotEmpty()) exefsSectionAligned.size.toLong() else romfsTotalSize
@@ -4859,6 +5290,31 @@ object StormNczEngine {
             hbb.putInt(0x21C, 0x000E0000) // SdkAddonVersion
             hbb.putInt(0x220, 0)
 
+            fun writeRomFsIvfcFsHeader(fsOff: Int, outHashOff: Int) {
+                hbb.putShort(fsOff + 0x00, 2)
+                ncaHdr[fsOff + 0x02] = 0 // RomFS
+                ncaHdr[fsOff + 0x03] = 3 // HierarchicalIntegrity (IVFC)
+                ncaHdr[fsOff + 0x04] = 1 // Encryption = None
+                ncaHdr[fsOff + 0x08] = 'I'.code.toByte()
+                ncaHdr[fsOff + 0x09] = 'V'.code.toByte()
+                ncaHdr[fsOff + 0x0A] = 'F'.code.toByte()
+                ncaHdr[fsOff + 0x0B] = 'C'.code.toByte()
+                hbb.putInt(fsOff + 0x0C, 0x20000)
+                hbb.putInt(fsOff + 0x10, 0x20)
+                hbb.putInt(fsOff + 0x14, 7)
+                for (i in 0 until 6) {
+                    val lOff = fsOff + 0x18 + i * 24
+                    hbb.putLong(lOff + 0x00, ivfcLogicalOffsets[i])
+                    hbb.putLong(lOff + 0x08, ivfcLevelSizes[i])
+                    hbb.putInt(lOff + 0x10, 14)
+                    hbb.putInt(lOff + 0x14, 0)
+                }
+                System.arraycopy(ivfcMasterHash, 0, ncaHdr, fsOff + 0xC8, min(ivfcMasterHash.size, 32))
+                ncaHdr[fsOff + 0x140] = 2
+                val fsSha = MessageDigest.getInstance("SHA-256").digest(ncaHdr.copyOfRange(fsOff, fsOff + 0x200))
+                System.arraycopy(fsSha, 0, ncaHdr, outHashOff, 32)
+            }
+
             if (exefsSectionAligned.isNotEmpty()) {
                 // Section 0 = ExeFS (PFS0 + HierarchicalSha256)
                 hbb.putInt(0x240, (sec0Offset / 0x200L).toInt())
@@ -4875,56 +5331,22 @@ object StormNczEngine {
                 hbb.putLong(fs0 + 0x30, 0L)
                 hbb.putLong(fs0 + 0x38, 32L)
                 hbb.putLong(fs0 + 0x40, 0x200L)
-                hbb.putLong(fs0 + 0x48, exefsAlignedBytes.size.toLong())
+                hbb.putLong(fs0 + 0x48, exefsRawSize.toLong())
                 ncaHdr[fs0 + 0x140] = 2
                 val fs0Sha = MessageDigest.getInstance("SHA-256").digest(ncaHdr.copyOfRange(fs0, fs0 + 0x200))
                 System.arraycopy(fs0Sha, 0, ncaHdr, 0x280, 32)
 
-                // Section 1 = RomFS (IVFC)
+                // Section 1 = RomFS (IVFC Level 0..5)
                 hbb.putInt(0x250, (sec1Offset / 0x200L).toInt())
                 hbb.putInt(0x254, ((sec1Offset + sec1Size) / 0x200L).toInt())
                 ncaHdr[0x258] = 1
-                val fs1 = 0x600
-                hbb.putShort(fs1 + 0x00, 2)
-                ncaHdr[fs1 + 0x02] = 0 // RomFS
-                ncaHdr[fs1 + 0x03] = 3 // HierarchicalIntegrity (IVFC)
-                ncaHdr[fs1 + 0x04] = 1 // Encryption = None (Plaintext IVFC, ready for Zstd NCZBLOCK & emulators)
-                ncaHdr[fs1 + 0x08] = 'I'.code.toByte()
-                ncaHdr[fs1 + 0x09] = 'V'.code.toByte()
-                ncaHdr[fs1 + 0x0A] = 'F'.code.toByte()
-                ncaHdr[fs1 + 0x0B] = 'C'.code.toByte()
-                hbb.putInt(fs1 + 0x0C, 0x20000)
-                hbb.putInt(fs1 + 0x10, 0x20)
-                hbb.putInt(fs1 + 0x14, 7)
-                hbb.putLong(fs1 + 0x98, 0L)
-                hbb.putLong(fs1 + 0xA0, sec1Size)
-                hbb.putInt(fs1 + 0xA8, 14)
-                ncaHdr[fs1 + 0x140] = 2
-                val fs1Sha = MessageDigest.getInstance("SHA-256").digest(ncaHdr.copyOfRange(fs1, fs1 + 0x200))
-                System.arraycopy(fs1Sha, 0, ncaHdr, 0x2A0, 32)
+                writeRomFsIvfcFsHeader(0x600, 0x2A0)
             } else {
                 // Section 0 = RomFS (PublicData / DLC)
                 hbb.putInt(0x240, (sec0Offset / 0x200L).toInt())
                 hbb.putInt(0x244, ((sec0Offset + sec0Size) / 0x200L).toInt())
                 ncaHdr[0x248] = 1
-                val fs0 = 0x400
-                hbb.putShort(fs0 + 0x00, 2)
-                ncaHdr[fs0 + 0x02] = 0 // RomFS
-                ncaHdr[fs0 + 0x03] = 3 // HierarchicalIntegrity (IVFC)
-                ncaHdr[fs0 + 0x04] = 1 // Encryption = None
-                ncaHdr[fs0 + 0x08] = 'I'.code.toByte()
-                ncaHdr[fs0 + 0x09] = 'V'.code.toByte()
-                ncaHdr[fs0 + 0x0A] = 'F'.code.toByte()
-                ncaHdr[fs0 + 0x0B] = 'C'.code.toByte()
-                hbb.putInt(fs0 + 0x0C, 0x20000)
-                hbb.putInt(fs0 + 0x10, 0x20)
-                hbb.putInt(fs0 + 0x14, 7)
-                hbb.putLong(fs0 + 0x98, 0L)
-                hbb.putLong(fs0 + 0xA0, sec0Size)
-                hbb.putInt(fs0 + 0xA8, 14)
-                ncaHdr[fs0 + 0x140] = 2
-                val fs0Sha = MessageDigest.getInstance("SHA-256").digest(ncaHdr.copyOfRange(fs0, fs0 + 0x200))
-                System.arraycopy(fs0Sha, 0, ncaHdr, 0x280, 32)
+                writeRomFsIvfcFsHeader(0x400, 0x280)
             }
 
             encryptNcaHeader0C00(ncaHdr)
@@ -4941,51 +5363,21 @@ object StormNczEngine {
                     onBytesWritten(exefsSectionAligned.size.toLong())
                 }
 
-                // Стриминг RomFS с детерминированным соотношением 32% high-entropy / 68% сжимаемых блоков (NSZ гарантированно сжимается на ~42% меньше NSP!)
-                val chunkSize = 64 * 1024
-                val chunk = ByteArray(chunkSize)
-                val highEntropyLimit = (chunkSize * 32) / 100
-                val patternHeader = "IVFC_ROMFS_ASSET|$effTidHex|$gameTitle|$role|STORM_SWITCH_BOX|".toByteArray(StandardCharsets.UTF_8)
-                var prngState = tidLong xor role.hashCode().toLong() xor -0x61c8864680b583ebL
-                if (prngState == 0L) prngState = 0x5DEECE66DL
+                for (lvBytes in ivfcPrefixLevels) {
+                    bos.write(lvBytes)
+                    progDigest.update(lvBytes)
+                    onBytesWritten(lvBytes.size.toLong())
+                }
 
-                var rem = romfsTotalSize
-                var blockIdx = 0L
-                while (rem > 0L) {
-                    val toWrite = min(chunkSize.toLong(), rem).toInt()
-                    val randEnd = min(toWrite, highEntropyLimit)
-                    var p = 0
-                    while (p + 8 <= randEnd) {
-                        prngState = prngState xor (prngState shl 13)
-                        prngState = prngState xor (prngState ushr 7)
-                        prngState = prngState xor (prngState shl 17)
-                        val v = prngState + blockIdx
-                        chunk[p] = v.toByte()
-                        chunk[p + 1] = (v ushr 8).toByte()
-                        chunk[p + 2] = (v ushr 16).toByte()
-                        chunk[p + 3] = (v ushr 24).toByte()
-                        chunk[p + 4] = (v ushr 32).toByte()
-                        chunk[p + 5] = (v ushr 40).toByte()
-                        chunk[p + 6] = (v ushr 48).toByte()
-                        chunk[p + 7] = (v ushr 56).toByte()
-                        p += 8
-                    }
-                    for (j in randEnd until toWrite) {
-                        chunk[j] = patternHeader[j % patternHeader.size]
-                    }
-                    if (blockIdx == 0L && toWrite >= 0x58) {
-                        val rbb = ByteBuffer.wrap(chunk).order(ByteOrder.LITTLE_ENDIAN)
-                        rbb.putLong(0x00, 0x50L)
-                        rbb.putLong(0x08, 0x18L)
-                        rbb.putLong(0x18, 0x50L)
-                        rbb.putLong(0x20, 0x20L)
-                        rbb.putLong(0x38, 0x70L)
-                    }
-                    bos.write(chunk, 0, toWrite)
-                    progDigest.update(chunk, 0, toWrite)
-                    rem -= toWrite
-                    blockIdx++
-                    onBytesWritten(toWrite.toLong())
+                bos.write(block0)
+                progDigest.update(block0)
+                onBytesWritten(block0.size.toLong())
+
+                for (b in 1 until numLv5Blocks) {
+                    val blk = poolBlocks[(b - 1) % poolCount]
+                    bos.write(blk)
+                    progDigest.update(blk)
+                    onBytesWritten(blk.size.toLong())
                 }
                 bos.flush()
             }
@@ -5127,9 +5519,12 @@ object StormNczEngine {
         val cnmtEntryName = "${typePrefix}_${tidHex.lowercase()}.cnmt"
         val rawPfs0 = buildMemoryPfs0(listOf(cnmtEntryName to cnmtBytes))
         val pfs0Aligned = rawPfs0.copyOf(((rawPfs0.size + 0x1FF) / 0x200) * 0x200)
-        val masterHash = MessageDigest.getInstance("SHA-256").digest(pfs0Aligned)
+        var cnmtHashBlockSize = 0x1000
+        while (cnmtHashBlockSize < rawPfs0.size) cnmtHashBlockSize = cnmtHashBlockSize shl 1
+        val layer1Hash = MessageDigest.getInstance("SHA-256").digest(rawPfs0)
+        val masterHash = MessageDigest.getInstance("SHA-256").digest(layer1Hash)
         val hashAligned = ByteArray(0x200)
-        System.arraycopy(masterHash, 0, hashAligned, 0, 32)
+        System.arraycopy(layer1Hash, 0, hashAligned, 0, 32)
         val sectionRaw = hashAligned + pfs0Aligned
         val sectionAligned = sectionRaw.copyOf(((sectionRaw.size + 0x1FF) / 0x200) * 0x200)
 
@@ -5156,12 +5551,12 @@ object StormNczEngine {
         ncaHdr[fs0 + 0x03] = 2 // HierarchicalSha256
         ncaHdr[fs0 + 0x04] = 1 // Encryption = None
         System.arraycopy(masterHash, 0, ncaHdr, fs0 + 0x08, 32)
-        hbb.putInt(fs0 + 0x28, pfs0Aligned.size.coerceAtLeast(0x1000))
+        hbb.putInt(fs0 + 0x28, cnmtHashBlockSize)
         hbb.putInt(fs0 + 0x2C, 2)
         hbb.putLong(fs0 + 0x30, 0L)
         hbb.putLong(fs0 + 0x38, 32L)
         hbb.putLong(fs0 + 0x40, 0x200L)
-        hbb.putLong(fs0 + 0x48, pfs0Aligned.size.toLong())
+        hbb.putLong(fs0 + 0x48, rawPfs0.size.toLong())
         ncaHdr[fs0 + 0x140] = 2
 
         val fs0Sha = MessageDigest.getInstance("SHA-256").digest(ncaHdr.copyOfRange(fs0, fs0 + 0x200))
@@ -5233,7 +5628,46 @@ object StormNczEngine {
     }
 
     private fun buildValidNpdmBytes(tidHex: String, procName: String): ByteArray {
-        val bytes = ByteArray(0x400)
+        val cleanHex = tidHex.trim().replace("0x", "").take(16).padEnd(16, '0')
+        val baseTidHex = cleanHex.take(13) + "000"
+        val baseTidVal = baseTidHex.toULongOrNull(16)?.toLong() ?: 0x0100000000010000L
+
+        // ???????? ????????? ????????? ???????? ?????? main.npdm (972 ?????, ACID=0x80..0x32C, ACI0=0x330..0x3E0)
+        var templateBytes: ByteArray? = null
+        try {
+            templateBytes = appContextRef?.assets?.open("forwarder/main.npdm")?.use { it.readBytes() }
+        } catch (_: Throwable) {}
+        if (templateBytes == null) {
+            val diskCandidates = listOf(
+                File("f:/STORM SWITCH BOX/android/app/src/main/assets/forwarder/main.npdm"),
+                File("android/app/src/main/assets/forwarder/main.npdm"),
+                File("f:/STORM SWITCH BOX/tools/forwarder/cnx29/main.npdm"),
+                File("tools/forwarder/cnx29/main.npdm")
+            )
+            for (f in diskCandidates) {
+                if (f.exists() && f.isFile && f.length() >= 0x380L) {
+                    try {
+                        templateBytes = f.readBytes()
+                        break
+                    } catch (_: Throwable) {}
+                }
+            }
+        }
+
+        if (templateBytes != null && templateBytes.size >= 0x380) {
+            val out = templateBytes.copyOf()
+            val bb = ByteBuffer.wrap(out).order(ByteOrder.LITTLE_ENDIAN)
+            val nameBytes = procName.trim().ifEmpty { "Application" }.take(15).toByteArray(StandardCharsets.UTF_8)
+            for (i in 0x20 until 0x30) out[i] = 0
+            System.arraycopy(nameBytes, 0, out, 0x20, min(nameBytes.size, 15))
+            bb.putLong(0x290, baseTidVal) // ACID TitleIdMin
+            bb.putLong(0x298, baseTidVal) // ACID TitleIdMax
+            bb.putLong(0x340, baseTidVal) // ACI0 ProgramId
+            return out
+        }
+
+        // Fallback ? ?????? ??????????? ???????????? Switch NPDM (META + ACID 0x2AC + ACI0 0xB0)
+        val bytes = ByteArray(0x3E0)
         val bb = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
         bytes[0] = 'M'.code.toByte()
         bytes[1] = 'E'.code.toByte()
@@ -5242,39 +5676,50 @@ object StormNczEngine {
         bytes[12] = 0x13 // 64-bit ARM64 + AddressSpace64Bit
         bytes[14] = 0x2C // MainThreadPriority = 44
         bytes[15] = 0x00 // DefaultCpuId = 0
-        val nameBytes = procName.take(15).toByteArray(StandardCharsets.UTF_8)
-        System.arraycopy(nameBytes, 0, bytes, 0x10, nameBytes.size)
-        bb.putInt(0x40, 0x100000) // MainThreadStackSize = 1 MB
-        bb.putInt(0x70, 0x80)     // ACI0 offset
-        bb.putInt(0x74, 0x100)    // ACI0 size
-        bb.putInt(0x78, 0x180)    // ACID offset
-        bb.putInt(0x7C, 0x100)    // ACID size
+        bb.putInt(0x18, 0x10000000) // SystemResourceSize
+        bb.putInt(0x1C, 0x00100000) // MainThreadStackSize = 1 MB
+        val nameBytes = procName.trim().ifEmpty { "Application" }.take(15).toByteArray(StandardCharsets.UTF_8)
+        System.arraycopy(nameBytes, 0, bytes, 0x20, min(nameBytes.size, 15))
+        bb.putInt(0x70, 0x330) // ACI0 offset
+        bb.putInt(0x74, 0x0B0) // ACI0 size
+        bb.putInt(0x78, 0x080) // ACID offset
+        bb.putInt(0x7C, 0x2AC) // ACID size
 
-        // ACI0
-        bytes[0x80] = 'A'.code.toByte()
-        bytes[0x81] = 'C'.code.toByte()
-        bytes[0x82] = 'I'.code.toByte()
-        bytes[0x83] = '0'.code.toByte()
-        val tidVal = tidHex.take(16).toULongOrNull(16)?.toLong() ?: 0x0100F00000010000L
-        bb.putLong(0x90, tidVal)
-        bb.putInt(0xA0, 0x40) // FsAccessHeader offset
-        bb.putInt(0xA4, 0x1C) // FsAccessHeader size
-        bb.putInt(0xA8, 0x60) // SvcAccessControl offset
-        bb.putInt(0xAC, 0x20) // SvcAccessControl size
-        bb.putInt(0xB0, 0x80) // KernelCapability offset
-        bb.putInt(0xB4, 0x10) // KernelCapability size
-        bytes[0x80 + 0x40] = 1
-        bb.putLong(0x80 + 0x44, -1L) // Full FS permissions bitmask
-        bb.putInt(0x80 + 0x80, 0x0039FFE7) // ThreadInfo capability
+        // ACID at 0x80
+        bytes[0x280] = 'A'.code.toByte()
+        bytes[0x281] = 'C'.code.toByte()
+        bytes[0x282] = 'I'.code.toByte()
+        bytes[0x283] = 'D'.code.toByte()
+        bb.putInt(0x284, 0xAC)
+        bytes[0x28C] = 1
+        bb.putLong(0x290, baseTidVal)
+        bb.putLong(0x298, baseTidVal)
+        bb.putInt(0x2A0, 0x220)
+        bb.putInt(0x2A4, 0x1C)
+        bb.putInt(0x2A8, 0x240)
+        bb.putInt(0x2AC, 0x18)
+        bb.putInt(0x2B0, 0x258)
+        bb.putInt(0x2B4, 0x54)
+        bytes[0x2A0] = 1
+        bb.putLong(0x2A4, -1L)
 
-        // ACID
-        bytes[0x180] = 'A'.code.toByte()
-        bytes[0x181] = 'C'.code.toByte()
-        bytes[0x182] = 'I'.code.toByte()
-        bytes[0x183] = 'D'.code.toByte()
-        bytes[0x180 + 0x104] = 1
-        bb.putLong(0x180 + 0x110, tidVal)
-        bb.putLong(0x180 + 0x118, tidVal)
+        // ACI0 at 0x330
+        val aci = 0x330
+        bytes[aci + 0] = 'A'.code.toByte()
+        bytes[aci + 1] = 'C'.code.toByte()
+        bytes[aci + 2] = 'I'.code.toByte()
+        bytes[aci + 3] = '0'.code.toByte()
+        bb.putLong(aci + 0x10, baseTidVal)
+        bb.putInt(aci + 0x20, 0x40) // FsAccessHeader offset
+        bb.putInt(aci + 0x24, 0x1C) // FsAccessHeader size
+        bb.putInt(aci + 0x28, 0x60) // SvcAccessControl offset
+        bb.putInt(aci + 0x2C, 0x18) // SvcAccessControl size
+        bb.putInt(aci + 0x30, 0x78) // KernelCapability offset
+        bb.putInt(aci + 0x34, 0x38) // KernelCapability size
+        bytes[aci + 0x40] = 1
+        bb.putLong(aci + 0x44, -1L)
+        for (i in 0 until 0x18) bytes[aci + 0x60 + i] = 0xFF.toByte()
+        bb.putInt(aci + 0x78, 0x0039FFE7)
         return bytes
     }
 
@@ -5287,13 +5732,6 @@ object StormNczEngine {
     ): ByteArray {
         val textBytes = ByteArray(0x1000)
         val tbb = ByteBuffer.wrap(textBytes).order(ByteOrder.LITTLE_ENDIAN)
-        // ARM64 entry stub: MOV X0, #0 ; SVC #0x07 (ExitProcess) ; RET
-        tbb.putInt(0, 0xD2800000.toInt())
-        tbb.putInt(4, 0xD40000E1.toInt())
-        tbb.putInt(8, 0xD65F03C0.toInt())
-        tbb.putInt(0x10, 0x30444F4D) // "MOD0"
-        tbb.putInt(0x14, 0x18)
-
         val roStr = "STORM_NSO0|$moduleName|$tidHex|nextNroPath=$nroPath|nextArgv=$nroPath $romArg\u0000"
         val roRaw = roStr.toByteArray(StandardCharsets.UTF_8)
         val roSize = maxOf(0x1000, ((roRaw.size + 0xFFF) / 0x1000) * 0x1000)
@@ -5302,6 +5740,28 @@ object StormNczEngine {
 
         val dataSize = maxOf(0x1000, ((totalSize - 0x100 - textBytes.size - roBytes.size).coerceAtLeast(0x1000) / 0x1000) * 0x1000)
         val dataBytes = ByteArray(dataSize)
+        val bssSize = 0x1000
+
+        // ?????? .text ? ??????????? ????????? MOD0 (+0x04 = 8, +0x08 = "MOD0") ? ????? ????? ???????? ModuleCodeIndex (0x24) ??? ????????????? ? Android NCE ? Dynarmic JIT
+        tbb.putInt(0x00, 0x14000020) // B #0x80 (??????? ? ???????? ????? ?? ???????? +0x80 >= 0x24)
+        tbb.putInt(0x04, 0x00000008) // MOD0 offset = 0x08
+        tbb.putInt(0x08, 0x30444F4D) // "MOD0"
+        val dynOffInImage = textBytes.size + roBytes.size
+        val bssStartInImage = dynOffInImage + dataBytes.size
+        val bssEndInImage = bssStartInImage + bssSize
+        tbb.putInt(0x0C, dynOffInImage - 0x08)   // dynamic offset relative to MOD0
+        tbb.putInt(0x10, bssStartInImage - 0x08) // bss_start relative to MOD0
+        tbb.putInt(0x14, bssEndInImage - 0x08)   // bss_end relative to MOD0
+        tbb.putInt(0x18, textBytes.size - 0x08)  // eh_frame_hdr_start relative to MOD0
+        tbb.putInt(0x1C, textBytes.size - 0x08)  // eh_frame_hdr_end relative to MOD0
+        tbb.putInt(0x20, 0)                      // runtime_generated_module_object
+
+        // ??????? 60 ?? ???? ???????? ?? ???????? +0x80 (??????????? ? NCE patcher.cpp:86 ? Dynarmic):
+        // MOVZ X0, #0x4E20 ; MOVK X0, #0x00FD, LSL #16 (16_600_000 ns = 16.6 ms) ; SVC #0x0B (svcSleepThread) ; B #-12
+        tbb.putInt(0x80, 0xD289C400.toInt())
+        tbb.putInt(0x84, 0xF2A01FA0.toInt())
+        tbb.putInt(0x88, 0xD4000161.toInt())
+        tbb.putInt(0x8C, 0x17FFFFFD)
 
         val nsoHeader = ByteArray(0x100)
         val hbb = ByteBuffer.wrap(nsoHeader).order(ByteOrder.LITTLE_ENDIAN)
@@ -5323,7 +5783,7 @@ object StormNczEngine {
         hbb.putInt(0x30, dataFileOff)
         hbb.putInt(0x34, textBytes.size + roBytes.size)
         hbb.putInt(0x38, dataBytes.size)
-        hbb.putInt(0x3C, 0x1000)
+        hbb.putInt(0x3C, bssSize)
         val modId = MessageDigest.getInstance("SHA-256").digest("$moduleName:$tidHex:$nroPath".toByteArray()).copyOf(20)
         System.arraycopy(modId, 0, nsoHeader, 0x40, 20)
         hbb.putInt(0x60, textBytes.size)
