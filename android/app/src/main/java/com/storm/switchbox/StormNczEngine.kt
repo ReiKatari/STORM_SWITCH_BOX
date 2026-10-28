@@ -4188,7 +4188,7 @@ object StormNczEngine {
     }
 
     // =========================================================================
-    // НОВОЕ В 5.5.8: ПОЛНАЯ РАСПАКОВКА И УПАКОВКА ROMFS / EXEFS / CONTROL / PFS0,
+    // НОВОЕ В 5.5.9: ПОЛНАЯ РАСПАКОВКА И УПАКОВКА ROMFS / EXEFS / CONTROL / PFS0,
     // ВИРТУАЛЬНЫЙ ПРОВОДНИК ROMFS С HEX-ПРОСМОТРОМ, ГЕНЕРАТОР HOMEBREW FORWARDER (.NRO -> .NSP),
     // НАТИВНЫЙ QR-ГЕНЕРАТОР ДЛЯ 3DS (FBI) И FTP-КЛИЕНТ, БАЗА TITLEDB И ОШИБОК 2XXX-XXXX
     // =========================================================================
@@ -6365,7 +6365,7 @@ object StormNczEngine {
                 val conn = (java.net.URL(u).openConnection() as java.net.HttpURLConnection).apply {
                     connectTimeout = 10000
                     readTimeout = 15000
-                    setRequestProperty("User-Agent", "StormSwitchBox/5.5.8")
+                    setRequestProperty("User-Agent", "StormSwitchBox/5.5.9")
                 }
                 if (conn.responseCode == 200) {
                     val body = conn.inputStream.bufferedReader(StandardCharsets.UTF_8).use { it.readText() }

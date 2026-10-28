@@ -266,16 +266,22 @@
                                  ScrollViewer.VerticalScrollBarVisibility="Auto" FontSize="11" CornerRadius="6"
                                  PlaceholderText="Вставьте одну или несколько ссылок (по одной на строку) на Яндекс.Диск (disk.yandex.ru/...), Google Drive (drive.google.com/...), GitHub Releases или прямой архив (.zip / .7z / .rar / .ips / .pchtxt). При выборе темы RuTracker внешние ссылки на русификаторы извлекаются сюда автоматически!"/>
 
-                        <Grid Grid.Row="2" ColumnSpacing="10">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBox x:Name="CustomModNameBox" Grid.Column="0"
-                                     PlaceholderText="Название мода для вшивания (необязательно, напр. Русификатор текста + 60 FPS)"
-                                     FontSize="11" VerticalContentAlignment="Center" CornerRadius="6"/>
-                            <CheckBox x:Name="AutoBuildCheckBox" Grid.Column="1" Content="Сразу запустить сборку задачи" IsChecked="False" FontSize="11"/>
-                        </Grid>
+                        <StackPanel Grid.Row="2" Spacing="4">
+                            <Grid ColumnSpacing="10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBox x:Name="CustomModNameBox" Grid.Column="0"
+                                         PlaceholderText="Название мода для вшивания (необязательно, напр. Русификатор текста + 60 FPS)"
+                                         FontSize="11" VerticalContentAlignment="Center" CornerRadius="6"/>
+                                <CheckBox x:Name="AutoBuildCheckBox" Grid.Column="1" Content="Сразу запустить сборку задачи" IsChecked="False" FontSize="11"/>
+                            </Grid>
+                            <CheckBox x:Name="DeleteRuTrackerSourceCheckBox"
+                                      Content="Удалять исходные файлы после успешной проверки выходного контейнера"
+                                      IsChecked="True"
+                                      FontSize="11"/>
+                        </StackPanel>
                     </Grid>
                 </Border>
             </Grid>

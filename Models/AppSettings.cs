@@ -127,7 +127,7 @@ namespace StormSwitchBox.Models
         public Dictionary<string, bool> ColumnVisibility { get; set; } = new();
         public Dictionary<string, int> ColumnWidths { get; set; } = new();
 
-        // Интеграция с RuTracker и Облачным загрузчиком модов (5.5.8)
+        // Интеграция с RuTracker и Облачным загрузчиком модов (5.5.9)
         public string RuTrackerMirror { get; set; } = "rutracker.org";
         public bool RuTrackerUseDoH { get; set; } = true;
         public string RuTrackerProxy { get; set; } = "";
@@ -135,6 +135,7 @@ namespace StormSwitchBox.Models
         public string RuTrackerCookie { get; set; } = "";
         public string RuTrackerDownloadFolder { get; set; } = "";
         public bool RuTrackerAutoBuildTask { get; set; } = false;
+        public bool RuTrackerDeleteSourceOnSuccess { get; set; } = true;
     }
 }
 

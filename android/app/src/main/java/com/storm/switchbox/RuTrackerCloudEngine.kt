@@ -1651,6 +1651,7 @@ object RuTrackerCloudEngine {
         onProgress: (Int, String) -> Unit,
         selectedReleaseFiles: List<ReleaseContentFile> = emptyList(),
         preBuildCustomization: StormNczEngine.PreBuildCustomization = StormNczEngine.PreBuildCustomization(),
+        deleteSourceAfterVerify: Boolean = true,
         onDetailedProgress: ((pct: Int, stageTitle: String, detailText: String, stepLogLines: List<String>) -> Unit)? = null
     ): StormNczEngine.CompressionResult {
         romsDir.mkdirs()
@@ -1913,12 +1914,22 @@ object RuTrackerCloudEngine {
             )
         )
 
-        // Удаляем временные исходные .nsp части из romsDir после успешной упаковки в итоговый мульти-контейнер
+        // Проверяем выходной контейнер и при включенной опции RuTracker удаляем исходные файлы раздачи
         val outFile = File(buildRes.outputPath)
-        for (tmpFile in downloadedFiles) {
-            if (tmpFile.isFile && tmpFile.parentFile?.absolutePath == romsDir.absolutePath && tmpFile.absolutePath != outFile.absolutePath) {
-                try { tmpFile.delete() } catch (_: Exception) {}
+        val verifyRes = StormNczEngine.verifyContainerIntegrity(outFile)
+        val isOutContainerValid = verifyRes.valid && outFile.exists() && outFile.length() > 0L
+        if (deleteSourceAfterVerify && isOutContainerValid) {
+            var deletedCount = 0
+            for (tmpFile in downloadedFiles) {
+                if (tmpFile.isFile && tmpFile.parentFile?.absolutePath == romsDir.absolutePath && tmpFile.absolutePath != outFile.absolutePath) {
+                    try {
+                        if (tmpFile.delete()) deletedCount++
+                    } catch (_: Exception) {}
+                }
             }
+            stepLogs.add("✓ Выходной контейнер проверен — удалено исходных файлов раздачи: " + deletedCount)
+        } else if (!deleteSourceAfterVerify) {
+            stepLogs.add("ℹ Исходные файлы раздачи сохранены в " + romsDir.name + "/ (удаление отключено)")
         }
 
         val finalLen = outFile.length()

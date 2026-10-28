@@ -91,11 +91,11 @@ namespace StormSwitchBox.Views
                     Title = "Обзор приложения",
                     Category = "Введение",
                     Icon = "\uE9CE",
-                    DescriptionText = "STORM SWITCH BOX 5.5.8 — это профессиональный высокопроизводительный комбайн для всесторонней обработки образов игр Nintendo Switch и Nintendo 3DS, а также интерактивная энциклопедия всех 19 поколений игровых систем Nintendo (от Color TV-Game до Nintendo Switch 2).\n\nПрограмма оснащена системой «Умная обработка файлов» (Smart Processing), которая работает всегда и автоматически выбирает оптимальный метод сборки (нативное сшивание без раздувания RomFS для легких патчей или HardPatch для тяжелых обновлений и модов), распаковывает ресурсы, компилирует файлы в NSP/NSZ/3DS/CIA, конвертирует форматы внутри экосистем (Switch: NSP ↔ XCI ↔ NSZ ↔ XCZ; 3DS: 3DS ↔ CIA ↔ CXI), объединяет игры с обновлениями, дополнениями (DLC) и модификациями в единый монолитный файл (Мульти-контент 4-в-1), автоматически собирает Homebrew порты и игры в один файл, осуществляет независимый мониторинг «Умных папок» Switch и 3DS, а также мгновенно сохраняет историю в LocalAppData.",
+                    DescriptionText = "STORM SWITCH BOX 5.5.9 — это профессиональный высокопроизводительный комбайн для всесторонней обработки образов игр Nintendo Switch и Nintendo 3DS, а также интерактивная энциклопедия всех 19 поколений игровых систем Nintendo (от Color TV-Game до Nintendo Switch 2).\n\nПрограмма оснащена системой «Умная обработка файлов» (Smart Processing), которая работает всегда и автоматически выбирает оптимальный метод сборки (нативное сшивание без раздувания RomFS для легких патчей или HardPatch для тяжелых обновлений и модов), распаковывает ресурсы, компилирует файлы в NSP/NSZ/3DS/CIA, конвертирует форматы внутри экосистем (Switch: NSP ↔ XCI ↔ NSZ ↔ XCZ; 3DS: 3DS ↔ CIA ↔ CXI), объединяет игры с обновлениями, дополнениями (DLC) и модификациями в единый монолитный файл (Мульти-контент 4-в-1), автоматически собирает Homebrew порты и игры в один файл, осуществляет независимый мониторинг «Умных папок» Switch и 3DS, а также мгновенно сохраняет историю в LocalAppData.",
                     Tip = "Переключайтесь между платформами Switch и 3DS в один клик через верхний селектор или настраивайте независимое отслеживание папок!",
                     SetupPreview = container =>
                     {
-                        container.Children.Add(new TextBlock { Text = "⚡ STORM SWITCH BOX 5.5.8", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.Bold });
+                        container.Children.Add(new TextBlock { Text = "⚡ STORM SWITCH BOX 5.5.9", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.Bold });
                         container.Children.Add(new TextBlock { Text = "• Умная обработка файлов: идеальный баланс размера и функционала по умолчанию\n• Поддержка двух экосистем: Nintendo Switch и Nintendo 3DS с изолированными конвертациями\n• Интерактивная «Библиотека игр» всех 19 поколений Nintendo (No-Intro и Redump)\n• Раздел «Информация» с визуальными плашками платформ на обложках\n• Две независимые службы «Умная папка» (Switch и 3DS)\n• Встроенный сверхбыстрый движок 7-Zip и ZstdSharp (до 22 уровня сжатия)", Foreground = GetSecondaryBrush() });
                     }
                 },
@@ -104,7 +104,7 @@ namespace StormSwitchBox.Views
                     Title = "Умная обработка файлов",
                     Category = "Алгоритмы",
                     Icon = "\uE945",
-                    DescriptionText = "Интеллектуальный алгоритм автоматического выбора метода сборки и минимизации размера без потерь (Smart Processing & Lossless Shrink Engine 5.5.8):\n\n" +
+                    DescriptionText = "Интеллектуальный алгоритм автоматического выбора метода сборки и минимизации размера без потерь (Smart Processing & Lossless Shrink Engine 5.5.9):\n\n" +
                                       "Цель алгоритма: получить абсолютно минимальный размер выходного файла при 100% сохранении всего функционала, модов и дополнений.\n\n" +
                                       "Как работает авто-анализ и сжатие без потерь:\n" +
                                       "1. Легковесные патчи (напр. Ys X Nordics: патч 60 МБ на игру 6.75 ГБ) — программа применяет нативное сшивание LibHac PFS0. Это сохраняет оригинальный несжатый размер (6.81 ГБ) без раздувания RomFS до 10.4 ГБ!\n" +
@@ -132,7 +132,7 @@ namespace StormSwitchBox.Views
 
                     Icon = "\uE774",
 
-                    DescriptionText = "Встроенный в STORM SWITCH BOX 5.5.8 модуль прямого поиска и скачивания раздач Nintendo Switch и Nintendo 3DS с RuTracker, а также автоматического извлечения и привязки внешних русификаторов и модификаций из облачных хранилищ:\n\n" +
+                    DescriptionText = "Встроенный в STORM SWITCH BOX 5.5.9 модуль прямого поиска и скачивания раздач Nintendo Switch и Nintendo 3DS с RuTracker, а также автоматического извлечения и привязки внешних русификаторов и модификаций из облачных хранилищ:\n\n" +
 
                                       "1. Обход блокировок без VPN (DoH + Зеркала + Прокси) — встроенный DNS-over-HTTPS резолвер (Cloudflare 1.1.1.1 / Google 8.8.8.8) на уровне сокетов позволяет открывать темы и раздачи RuTracker напрямую, а также поддерживает переключение зеркал (rutracker.org / .net / .nl) и SOCKS5/HTTP прокси.\n" +
 
@@ -170,7 +170,7 @@ namespace StormSwitchBox.Views
 
                     Title = "Студия и сеть: Консоль, Инспектор RomFS, Мульти-картридж и Аудитор",
 
-                    Category = "Инструменты 5.5.8",
+                    Category = "Инструменты 5.5.9",
 
                     Icon = "\uE90F",
 
@@ -194,7 +194,7 @@ namespace StormSwitchBox.Views
 
                         var sp = new StackPanel { Spacing = 8 };
 
-                        sp.Children.Add(new TextBlock { Text = "🛠️ Инструментарий STORM SWITCH BOX 5.5.8:", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
+                        sp.Children.Add(new TextBlock { Text = "🛠️ Инструментарий STORM SWITCH BOX 5.5.9:", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
 
                         sp.Children.Add(new TextBlock { Text = "• Прямая передача на Switch (HTTP Tinfoil/DBI, FTP, USB MTP) и 3DS (QR-сервер для FBI)", FontSize = 12, Foreground = GetSecondaryBrush() });
 
@@ -268,7 +268,7 @@ namespace StormSwitchBox.Views
                     Title = "Интеграция с эмуляторами и синхронизация SDMC",
                     Category = "Эмуляторы",
                     Icon = "\uE7FC",
-                    DescriptionText = "STORM SWITCH BOX 5.5.8 предоставляет полную свободу в интеграции с локальными эмуляторами Nintendo Switch (STORM SWITCH, Yuzu, Ryujinx, Suyu, Sudachi, Torzu, Citron и др.):\n\n" +
+                    DescriptionText = "STORM SWITCH BOX 5.5.9 предоставляет полную свободу в интеграции с локальными эмуляторами Nintendo Switch (STORM SWITCH, Yuzu, Ryujinx, Suyu, Sudachi, Torzu, Citron и др.):\n\n" +
                                       "1. Пользовательский выбор папок эмуляторов — в разделе «Параметры» доступен специальный блок «Интеграция с эмуляторами (Путь к папке эмулятора)». Вы можете перетащить (Drag and Drop) или выбрать через проводник одну или несколько директорий ваших эмуляторов (например, E:\\STORM SWITCH\\Assembling, L:\\Emulators\\Ryujinx и др.).\n\n" +
                                       "2. Чистота выходной библиотеки — при сборке Homebrew-игр и портов программа больше НЕ создает лишних папок [SDMC] в вашей основной папке с играми. Все файлы NRO, данные и конфигурации доставляются строго в виртуальные SD-карты указанных эмуляторов (user/sdmc/switch/<game>/), а рядом с игрой сохраняется только чистый итоговый файл (.nsp / .nsz / .xci).\n\n" +
                                       "3. Автономные ZIP-архивы для реальной консоли Switch — если вам требуются готовые данные SDMC для физической консоли, укажите «Каталог для архивов SDMC» в Параметрах. Программа автоматически упакует структуру карты памяти в полноценный zip-архив вида «Имя_Игры_[SDMC].zip» в указанную папку, оставив библиотеку игр чистой.\n\n" +
@@ -283,7 +283,7 @@ namespace StormSwitchBox.Views
                     Icon = "\uE7FC",
                     DescriptionText = "Специализированный раздел «Homebrew» для автоматического распознавания, объединения и сборки любых портов и любительских игр в монолитные автономные файлы (NSP / NSZ / XCI):\n\n" +
                                       "1. Умное распознавание любых наборов файлов — просто перетащите папку с игрой (например, Diablo I, GTA San Andreas / Vice City, DOOM, Half-Life, Quake, S.T.A.L.K.E.R., Morrowind) или группу файлов (.nro, включая LZ4-сжатые NRO для Atmosphere, .ovl, .nsp форвардеры, архивы .zip/.7z, папки atmosphere/contents/<TitleID>/romfs). Программа мгновенно объединит их в готовую задачу.\n" +
-                                      "2. Стандартизация 5.5.8 (Без раздувания, без ошибки 0x75B и с загрузчиком nx-hbloader):\n" +
+                                      "2. Стандартизация 5.5.9 (Без раздувания, без ошибки 0x75B и с загрузчиком nx-hbloader):\n" +
                                       "   • В каталог tools/forwarder/ встроены модули main и main.npdm от nx-hbloader с поддержкой 42-битного адресного пространства (0x07), а также поддерживаются форвардеры ядер RetroArch.\n" +
                                       "   • Ресурсы RomFS вшиваются ровно в 1 экземпляре (Diablo I весит 718.01 МБ вместо раздутых 4.27 ГБ!).\n" +
                                       "   • В SDMC эмулятора создается ровно одна правильная папка user/sdmc/switch/<game>/.\n" +
@@ -469,7 +469,7 @@ new TopicItem
                     Title = "Nintendo 3DS: Архитектура и Мульти-контент",
                     Category = "Nintendo 3DS",
                     Icon = "\uE7FC",
-                    DescriptionText = "Полная поддержка экосистемы Nintendo 3DS (CTR/CCI/CIA/CXI) и иконок SMDH в 5.5.8:\n\n" +
+                    DescriptionText = "Полная поддержка экосистемы Nintendo 3DS (CTR/CCI/CIA/CXI) и иконок SMDH в 5.5.9:\n\n" +
                                       "1. Сборка Мульти-контента для 3DS (Игра + Обновление + DLC + Русификатор/Мод → 1 файл) — объединяет Базовую игру (.3ds/.cci/.cia/.cxi, TitleID High 00040000), Файл обновления (Патч .cia, 0004000e), все Дополнения (DLC .cia, 0004008c — с извлечением всех контейнеров 0..N) и Модификации/Русификаторы в единый монолитный файл.\n" +
                                       "2. Поддержка всех форматов русификаторов и модов 3DS — программа автоматически распознает и вшивает папки Luma3DS (luma/titles/<TID>/romfs и exefs), готовые образы romfs.bin / .romfs, распакованный код code.bin, бинарные патчи code.ips (IPS и IPS32) и дельта-патчи .bps.\n" +
                                       "3. Декодирование метаданных и иконок SMDH — встроенный декодер Morton Z-order RGB565 извлекает оригинальные иконки 48x48, названия и издателей прямо из образов 3DS/CIA/CXI.\n" +
@@ -478,7 +478,7 @@ new TopicItem
                     SetupPreview = container =>
                     {
                         var sp = new StackPanel { Spacing = 8 };
-                        sp.Children.Add(new TextBlock { Text = "🕹️ Комплект Nintendo 3DS Мульти-контента (5.5.8):", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) });
+                        sp.Children.Add(new TextBlock { Text = "🕹️ Комплект Nintendo 3DS Мульти-контента (5.5.9):", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) });
                         sp.Children.Add(new TextBlock { Text = "1. [ИГРА] The Legend of Zelda (.3ds / 00040000)", FontSize = 12, Foreground = GetSecondaryBrush() });
                         sp.Children.Add(new TextBlock { Text = "2. [PATCH] Update v1.2 (.cia / 0004000e)", FontSize = 12, Foreground = GetSecondaryBrush() });
                         sp.Children.Add(new TextBlock { Text = "3. [DLC 1..N] Все разделы дополнений (.cia / 0004008c)", FontSize = 12, Foreground = GetSecondaryBrush() });
@@ -619,11 +619,11 @@ new TopicItem
                     Title = "Application Overview",
                     Category = "Introduction",
                     Icon = "\uE9CE",
-                    DescriptionText = "STORM SWITCH BOX 5.5.8 is a professional, high-performance toolkit for processing Nintendo Switch and Nintendo 3DS games, as well as an interactive encyclopedia of all 19 Nintendo console generations (from Color TV-Game to Nintendo Switch 2).\n\nEquipped with Smart File Processing, the program automatically selects the optimal build method (native PFS0 splicing without RomFS inflation for lightweight patches, or physical HardPatch for heavy updates and mods), unpacks resources, compiles NSP/NSZ/3DS/CIA, converts formats across ecosystems (Switch: NSP ↔ XCI ↔ NSZ ↔ XCZ; 3DS: 3DS ↔ CIA ↔ CXI), bundles games with updates and DLCs into monolithic 4-in-1 packages, builds Homebrew ports, monitors dual Smart Folders, and saves instant history.",
+                    DescriptionText = "STORM SWITCH BOX 5.5.9 is a professional, high-performance toolkit for processing Nintendo Switch and Nintendo 3DS games, as well as an interactive encyclopedia of all 19 Nintendo console generations (from Color TV-Game to Nintendo Switch 2).\n\nEquipped with Smart File Processing, the program automatically selects the optimal build method (native PFS0 splicing without RomFS inflation for lightweight patches, or physical HardPatch for heavy updates and mods), unpacks resources, compiles NSP/NSZ/3DS/CIA, converts formats across ecosystems (Switch: NSP ↔ XCI ↔ NSZ ↔ XCZ; 3DS: 3DS ↔ CIA ↔ CXI), bundles games with updates and DLCs into monolithic 4-in-1 packages, builds Homebrew ports, monitors dual Smart Folders, and saves instant history.",
                     Tip = "Switch between Nintendo Switch and 3DS in one click via the top header bar!",
                     SetupPreview = container =>
                     {
-                        container.Children.Add(new TextBlock { Text = "⚡ STORM SWITCH BOX 5.5.8", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.Bold });
+                        container.Children.Add(new TextBlock { Text = "⚡ STORM SWITCH BOX 5.5.9", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.Bold });
                         container.Children.Add(new TextBlock { Text = "• Smart File Processing: Optimal file size and 100% mod compatibility by default\n• Dual Ecosystems: Nintendo Switch and Nintendo 3DS support\n• Interactive Game Library: All 19 Nintendo generations (No-Intro and Redump)\n• Information Catalog: High-res artwork with platform badges\n• Dual Independent Smart Folders (Switch and 3DS)\n• Embedded 7-Zip and Zstandard compression engines (up to level 22)", Foreground = GetSecondaryBrush() });
                     }
                 },
@@ -635,7 +635,7 @@ new TopicItem
 
                     Icon = "\uE774",
 
-                    DescriptionText = "Built-in RuTracker and Cloud Mod Downloader in STORM SWITCH BOX 5.5.8:\n\n" +
+                    DescriptionText = "Built-in RuTracker and Cloud Mod Downloader in STORM SWITCH BOX 5.5.9:\n\n" +
 
                                       "1. Built-in DoH (DNS-over-HTTPS via Cloudflare 1.1.1.1 / Google 8.8.8.8), mirror switching (rutracker.org / .net / .nl), and SOCKS5/HTTP proxy support.\n" +
 
@@ -651,7 +651,7 @@ new TopicItem
 
                         var sp = new StackPanel { Spacing = 8 };
 
-                        sp.Children.Add(new TextBlock { Text = "🌐 RuTracker & Cloud Mod Pipeline (5.5.8):", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DeepSkyBlue) });
+                        sp.Children.Add(new TextBlock { Text = "🌐 RuTracker & Cloud Mod Pipeline (5.5.9):", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DeepSkyBlue) });
 
                         sp.Children.Add(new TextBlock { Text = "• Selective .torrent / Magnet downloader + Auto-extraction of Yandex.Disk / Google Drive / GitHub mods", FontSize = 12, Foreground = GetSecondaryBrush() });
 
@@ -668,7 +668,7 @@ new TopicItem
                     Title = "Smart File Processing",
                     Category = "Algorithms",
                     Icon = "\uE945",
-                    DescriptionText = "Intelligent automatic build method selection algorithm (Smart Processing) in 5.5.8:\n\n" +
+                    DescriptionText = "Intelligent automatic build method selection algorithm (Smart Processing) in 5.5.9:\n\n" +
                                       "Algorithm Objective: Produce the absolute smallest output file size while preserving 100% of game functionality, DLCs, and mods.\n\n" +
                                       "How it works:\n" +
                                       "1. Lightweight patches (e.g. Ys X Nordics: 60 MB patch on 6.75 GB base) — native LibHac PFS0 splicing is used. Preserves the exact 6.81 GB size without RomFS ballooning to 10.4 GB!\n" +
@@ -996,7 +996,7 @@ new TopicItem
                     Title = "Nintendo 3DS: Architecture & Multi-Content",
                     Category = "Nintendo 3DS",
                     Icon = "\uE7FC",
-                    DescriptionText = "Complete Nintendo 3DS ecosystem support (CTR/CCI/CIA/CXI) and SMDH icon extraction in 5.5.8:\n\n" +
+                    DescriptionText = "Complete Nintendo 3DS ecosystem support (CTR/CCI/CIA/CXI) and SMDH icon extraction in 5.5.9:\n\n" +
                                       "1. 3DS Multi-Content (Base + Update + DLC + Translation/Mod → 1 file) — Combines Base game (.3ds/.cci/.cia/.cxi, TitleID High 00040000), Update (.cia, 0004000e), all DLC containers (.cia, 0004008c), and mods/translations into one trimmed .3ds or .cia file.\n" +
                                       "2. Full Mod & Translation Support — Automatically detects and applies Luma3DS folders (luma/titles/<TID>/romfs & exefs), pre-built romfs.bin / .romfs images, code.bin, binary code.ips patches (IPS & IPS32), and .bps delta patches.\n" +
                                       "3. Native SMDH Metadata & Icon Parser — Decodes Morton Z-order RGB565 48x48 icons, localized titles, and publishers directly from 3DS/CIA/CXI images.\n" +
@@ -1005,7 +1005,7 @@ new TopicItem
                     SetupPreview = container =>
                     {
                         var sp = new StackPanel { Spacing = 8 };
-                        sp.Children.Add(new TextBlock { Text = "🕹️ Nintendo 3DS Multi-Content Package (5.5.8):", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) });
+                        sp.Children.Add(new TextBlock { Text = "🕹️ Nintendo 3DS Multi-Content Package (5.5.9):", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) });
                         sp.Children.Add(new TextBlock { Text = "1. [BASE] The Legend of Zelda (.3ds / 00040000)", FontSize = 12, Foreground = GetSecondaryBrush() });
                         sp.Children.Add(new TextBlock { Text = "2. [PATCH] Update v1.2 (.cia / 0004000e)", FontSize = 12, Foreground = GetSecondaryBrush() });
                         sp.Children.Add(new TextBlock { Text = "3. [DLC 1..N] All Add-on Content containers (.cia / 0004008c)", FontSize = 12, Foreground = GetSecondaryBrush() });
@@ -1356,7 +1356,7 @@ new TopicItem
             }
         }
 
-        #region Interactive Task Simulator (5.5.8)
+        #region Interactive Task Simulator (5.5.9)
 
         private void BuildSimulatorPreview(StackPanel container)
         {
@@ -1399,7 +1399,7 @@ new TopicItem
             var dropContent = new StackPanel { Spacing = 8, HorizontalAlignment = HorizontalAlignment.Center };
             dropContent.Children.Add(new FontIcon { Glyph = "\uE8E5", FontSize = 32, Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue), HorizontalAlignment = HorizontalAlignment.Center });
             dropContent.Children.Add(new TextBlock { Text = "Перетащите сюда файлы (.nsp/.nsz/.xci) или папки с играми", FontWeight = Microsoft.UI.Text.FontWeights.Bold, FontSize = 14, HorizontalAlignment = HorizontalAlignment.Center });
-            dropContent.Children.Add(new TextBlock { Text = "Симулятор проанализирует пути, разделит подпапки, подберет TitleID и роутит RomFS/ExeFS по правилам 5.5.8", FontSize = 12, Foreground = GetSecondaryBrush(), HorizontalAlignment = HorizontalAlignment.Center, TextWrapping = TextWrapping.Wrap, MaxWidth = 550, TextAlignment = TextAlignment.Center });
+            dropContent.Children.Add(new TextBlock { Text = "Симулятор проанализирует пути, разделит подпапки, подберет TitleID и роутит RomFS/ExeFS по правилам 5.5.9", FontSize = 12, Foreground = GetSecondaryBrush(), HorizontalAlignment = HorizontalAlignment.Center, TextWrapping = TextWrapping.Wrap, MaxWidth = 550, TextAlignment = TextAlignment.Center });
 
             dropZoneBorder.Child = dropContent;
             mainSp.Children.Add(dropZoneBorder);
@@ -1490,7 +1490,7 @@ new TopicItem
 
             _simulatorResultsPanel.Children.Add(new TextBlock
             {
-                Text = "результат симуляции 5.5.8 — Папка «Dispatch» (2 подпапки = 2 изолированные задачи):",
+                Text = "результат симуляции 5.5.9 — Папка «Dispatch» (2 подпапки = 2 изолированные задачи):",
                 FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
                 FontSize = 14,
                 Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen)
@@ -1535,7 +1535,7 @@ new TopicItem
 
             _simulatorResultsPanel.Children.Add(new TextBlock
             {
-                Text = "результат симуляции 5.5.8 — Папка «Cadence of Hyrule» (3 подпапки = 3 изолированные задачи):",
+                Text = "результат симуляции 5.5.9 — Папка «Cadence of Hyrule» (3 подпапки = 3 изолированные задачи):",
                 FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
                 FontSize = 14,
                 Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen)
@@ -1607,7 +1607,7 @@ new TopicItem
 
             _simulatorResultsPanel.Children.Add(new TextBlock
             {
-                Text = "Результат симуляции 5.5.8 — Сборка 3DS Мульти-контента (Игра + Patch + 2 DLC + Мод RomFS):",
+                Text = "Результат симуляции 5.5.9 — Сборка 3DS Мульти-контента (Игра + Patch + 2 DLC + Мод RomFS):",
                 FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
                 FontSize = 14,
                 Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue)
@@ -1643,7 +1643,7 @@ new TopicItem
 
             _simulatorResultsPanel.Children.Add(new TextBlock
             {
-                Text = $"Результат симуляции анализа {items.Count} элементов по правилам 5.5.8:",
+                Text = $"Результат симуляции анализа {items.Count} элементов по правилам 5.5.9:",
                 FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
                 FontSize = 14,
                 Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen)
@@ -1837,7 +1837,7 @@ new TopicItem
 
         #endregion
 
-        #region New Interactive Previews (5.5.8)
+        #region New Interactive Previews (5.5.9)
 
         private void BuildModsInteractivePreview(StackPanel container)
         {
@@ -2043,7 +2043,7 @@ new TopicItem
         private void BuildEmulatorSyncInteractivePreview(StackPanel container)
         {
             var sp = new StackPanel { Spacing = 8 };
-            sp.Children.Add(new TextBlock { Text = "🎮 Синхронизация с виртуальной картой эмулятора (SDMC 5.5.8):", FontWeight = Microsoft.UI.Text.FontWeights.Bold, FontSize = 14, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
+            sp.Children.Add(new TextBlock { Text = "🎮 Синхронизация с виртуальной картой эмулятора (SDMC 5.5.9):", FontWeight = Microsoft.UI.Text.FontWeights.Bold, FontSize = 14, Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) });
 
             var card = new Border
             {
@@ -2074,7 +2074,7 @@ new TopicItem
             var headerSp = new StackPanel { Spacing = 4 };
             headerSp.Children.Add(new TextBlock 
             { 
-                Text = "🕹️ Интерактивный инспектор портов Homebrew (5.5.8)", 
+                Text = "🕹️ Интерактивный инспектор портов Homebrew (5.5.9)", 
                 FontWeight = Microsoft.UI.Text.FontWeights.Bold, 
                 FontSize = 15, 
                 Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) 
@@ -2280,7 +2280,7 @@ new TopicItem
 
             mainSp.Children.Add(new TextBlock 
             { 
-                Text = "🧠 Интерактивный калькулятор Умной обработки (Smart Processing 5.5.8)", 
+                Text = "🧠 Интерактивный калькулятор Умной обработки (Smart Processing 5.5.9)", 
                 FontWeight = Microsoft.UI.Text.FontWeights.Bold, 
                 FontSize = 15, 
                 Foreground = new SolidColorBrush(Microsoft.UI.Colors.LimeGreen) 
@@ -2413,7 +2413,7 @@ new TopicItem
 
             mainSp.Children.Add(new TextBlock 
             { 
-                Text = "🔄 Интерактивный конфигуратор конвертации форматов (5.5.8)", 
+                Text = "🔄 Интерактивный конфигуратор конвертации форматов (5.5.9)", 
                 FontWeight = Microsoft.UI.Text.FontWeights.Bold, 
                 FontSize = 15, 
                 Foreground = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue) 

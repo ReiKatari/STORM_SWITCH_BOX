@@ -1689,8 +1689,9 @@ public partial class TasksViewModel : ObservableObject
 				}
 				task.IsRunning = false;
 
-				// Удаление исходных файлов при включенной опции DeleteSourceOnSuccess
-				if ((task.Status == "Успешно" || task.Status == "Готово") && App.Settings.Current.DeleteSourceOnSuccess && task.InputFiles != null)
+				// Удаление исходных файлов после успешной проверки выходного контейнера (отдельно для RuTracker и основных задач)
+				bool shouldDeleteSource = task.IsRuTrackerTask ? task.DeleteSourceAfterVerify : App.Settings.Current.DeleteSourceOnSuccess;
+				if ((task.Status == "Успешно" || task.Status == "Готово") && shouldDeleteSource && task.InputFiles != null)
 				{
 					foreach (var file in task.InputFiles)
 					{

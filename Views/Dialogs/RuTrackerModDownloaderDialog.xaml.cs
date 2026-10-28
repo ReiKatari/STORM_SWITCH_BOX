@@ -77,6 +77,7 @@ namespace StormSwitchBox.Views.Dialogs
             LoginUserBox.Text = cfg.RuTrackerUsername ?? string.Empty;
             CookieBox.Text = cfg.RuTrackerCookie ?? string.Empty;
             AutoBuildCheckBox.IsChecked = cfg.RuTrackerAutoBuildTask;
+            DeleteRuTrackerSourceCheckBox.IsChecked = cfg.RuTrackerDeleteSourceOnSuccess;
 
             string defaultDlFolder = !string.IsNullOrWhiteSpace(cfg.RuTrackerDownloadFolder)
                 ? cfg.RuTrackerDownloadFolder
@@ -104,6 +105,7 @@ namespace StormSwitchBox.Views.Dialogs
             cfg.RuTrackerCookie = CookieBox.Text?.Trim() ?? string.Empty;
             cfg.RuTrackerDownloadFolder = DownloadFolderBox.Text?.Trim() ?? string.Empty;
             cfg.RuTrackerAutoBuildTask = AutoBuildCheckBox.IsChecked == true;
+            cfg.RuTrackerDeleteSourceOnSuccess = DeleteRuTrackerSourceCheckBox.IsChecked == true;
             _ = App.Settings.SaveAsync();
         }
 
@@ -525,8 +527,13 @@ namespace StormSwitchBox.Views.Dialogs
                 // 3. Интеграция в задачу (привязка к существующей задаче или создание новой комплектной задачи)
                 string customModTitle = CustomModNameBox.Text?.Trim() ?? string.Empty;
 
+                SaveCurrentSettings();
+                bool deleteRtSource = DeleteRuTrackerSourceCheckBox.IsChecked == true;
+
                 if (_targetTask != null)
                 {
+                    _targetTask.IsRuTrackerTask = true;
+                    _targetTask.DeleteSourceAfterVerify = deleteRtSource;
                     BindDownloadedFilesToExistingTask(_targetTask, targetReleaseDir, discoveredModPayloads, customModTitle);
                     StatusText.Text = $"✅ Модификации и файлы успешно привязаны к задаче «{_targetTask.GameName}»!";
                 }
@@ -536,10 +543,15 @@ namespace StormSwitchBox.Views.Dialogs
                     await _viewModel.AddDroppedFilesBatchAsync(new List<string> { targetReleaseDir });
 
                     var newestTask = _viewModel.Tasks.LastOrDefault();
-                    if (newestTask != null && !string.IsNullOrWhiteSpace(customModTitle))
+                    if (newestTask != null)
                     {
-                        if (newestTask.HasRomFs == "Да") newestTask.ModNameRomFs = customModTitle;
-                        if (newestTask.HasExeFs == "Да") newestTask.ModNameExeFs = customModTitle;
+                        newestTask.IsRuTrackerTask = true;
+                        newestTask.DeleteSourceAfterVerify = deleteRtSource;
+                        if (!string.IsNullOrWhiteSpace(customModTitle))
+                        {
+                            if (newestTask.HasRomFs == "Да") newestTask.ModNameRomFs = customModTitle;
+                            if (newestTask.HasExeFs == "Да") newestTask.ModNameExeFs = customModTitle;
+                        }
                     }
 
                     StatusText.Text = $"✅ Загрузка завершена! Задача добавлена в список ({targetReleaseDir}).";

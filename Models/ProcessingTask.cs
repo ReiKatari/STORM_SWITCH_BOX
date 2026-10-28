@@ -178,6 +178,12 @@ namespace StormSwitchBox.Models
         /// <summary>Мульти-программный тайтл (несколько TitleID в одном NSP) — yanu-cli не может обработать</summary>
         [System.Text.Json.Serialization.JsonIgnore]
         public bool IsMultiProgramTitle { get; set; }
+
+        /// <summary>Флаг задачи, созданной через RuTracker</summary>
+        public bool IsRuTrackerTask { get; set; }
+
+        /// <summary>Удалять исходные файлы после успешной проверки выходного контейнера (для задач RuTracker)</summary>
+        public bool DeleteSourceAfterVerify { get; set; } = true;
         
         /// <summary>Результат предварительного анализа входных файлов</summary>
         [System.Text.Json.Serialization.JsonIgnore]

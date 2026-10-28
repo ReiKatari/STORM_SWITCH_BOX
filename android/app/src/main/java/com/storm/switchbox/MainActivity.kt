@@ -137,6 +137,7 @@ class MainActivity : Activity() {
     private var smartSizeGuard = true
     private var trimXciBeforeCompress = true
     private var deleteSourceAfterSuccess = false
+    private var deleteRuTrackerSourceAfterSuccess = true
     private var autoCheckUpdatesOnStartup = true
     private var lastBrowseDirPath = "/storage/emulated/0"
 
@@ -170,7 +171,7 @@ class MainActivity : Activity() {
     private val iconBadgeOptions = listOf("Без бейджа", "RUS", "RUS + MOD", "60 FPS", "MULTI", "4K MOD")
     private var onCustomIconPickedCallback: ((String) -> Unit)? = null
 
-    // Параметры 5.5.8: Распаковка/Упаковка RomFS+ExeFS, Генератор Forwarder (.nro -> .nsp), 3DS FBI QR и FTP
+    // Параметры 5.5.9: Распаковка/Упаковка RomFS+ExeFS, Генератор Forwarder (.nro -> .nsp), 3DS FBI QR и FTP
     private var extractRomfsEnabled = true
     private var extractExefsEnabled = true
     private var extractControlEnabled = true
@@ -217,7 +218,7 @@ class MainActivity : Activity() {
         }
 
         buildUserInterface()
-        appendLog("STORM SWITCH BOX ${"5.5.8"} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) готов к работе.")
+        appendLog("STORM SWITCH BOX ${"5.5.9"} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) готов к работе.")
 
         // Автоматическая проверка обновлений с GitHub при запуске
         if (autoCheckUpdatesOnStartup) {
@@ -399,6 +400,7 @@ class MainActivity : Activity() {
             json.put("smartSizeGuard", smartSizeGuard)
             json.put("trimXci", trimXciBeforeCompress)
             json.put("deleteSource", deleteSourceAfterSuccess)
+            json.put("deleteRuTrackerSource", deleteRuTrackerSourceAfterSuccess)
             json.put("autoCheckUpdates", autoCheckUpdatesOnStartup)
             json.put("outputDir", customOutputDir.absolutePath)
             json.put("lastBrowseDir", lastBrowseDirPath)
@@ -739,7 +741,7 @@ class MainActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
         titleCol.addView(TextView(this).apply {
-            text = "STORM SWITCH BOX ${"5.5.8"}"
+            text = "STORM SWITCH BOX ${"5.5.9"}"
             setTextColor(th.textPrimary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
             typeface = Typeface.DEFAULT_BOLD
@@ -2245,6 +2247,16 @@ class MainActivity : Activity() {
         searchInputRow.addView(clearQueryBtn)
         rtCard.addView(searchInputRow)
 
+        val rtDeleteSourceCheck = makeStormCheckBox(
+            "Удалять исходные файлы после успешной проверки выходного контейнера",
+            deleteRuTrackerSourceAfterSuccess,
+            th
+        ) { checked ->
+            deleteRuTrackerSourceAfterSuccess = checked
+            saveSettings()
+        }
+        rtCard.addView(rtDeleteSourceCheck)
+
         // Панель анимации динамического поиска
         val animSearchRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -2960,6 +2972,16 @@ class MainActivity : Activity() {
         root.addView(modsCheckBox)
         root.addView(modsContainer)
 
+        val rtDlgDeleteSourceCheck = makeStormCheckBox(
+            "Удалять исходные файлы после успешной проверки выходного контейнера",
+            deleteRuTrackerSourceAfterSuccess,
+            th
+        ) { checked ->
+            deleteRuTrackerSourceAfterSuccess = checked
+            saveSettings()
+        }
+        root.addView(rtDlgDeleteSourceCheck)
+
         // Монитор живого процесса загрузки и сборки
         val processBox = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -3071,6 +3093,7 @@ class MainActivity : Activity() {
                         onProgress = { _, _ -> },
                         selectedReleaseFiles = activeSelection,
                         preBuildCustomization = dlgPreBuild,
+                        deleteSourceAfterVerify = deleteRuTrackerSourceAfterSuccess,
                         onDetailedProgress = { pct, stageTitle, detailText, stepLines ->
                             mainHandler.post {
                                 progressBar.progress = pct
@@ -3878,7 +3901,7 @@ class MainActivity : Activity() {
         }
         updCard.addView(makeSectionHeader(
             "2. Обновление STORM SWITCH BOX (GitHub и STORM GAMES WORLD)",
-            "Текущая версия: 5.5.8 (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) • Проверка на 2 официальных площадках",
+            "Текущая версия: 5.5.9 (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) • Проверка на 2 официальных площадках",
             th
         ))
         updCard.addView(makeStormCheckBox(
@@ -4584,7 +4607,7 @@ class MainActivity : Activity() {
             Toast.makeText(this, "⏳ Проверка обновлений на GitHub и STORM GAMES WORLD...", Toast.LENGTH_SHORT).show()
         }
         val preferLegacy = (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) || Build.VERSION.SDK_INT < 26
-        val currentAppVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "5.5.8" } catch (_: Exception) { "5.5.8" }
+        val currentAppVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "5.5.9" } catch (_: Exception) { "5.5.9" }
         thread {
             val rel = RuTrackerCloudEngine.checkGitHubAppUpdate(currentAppVer, preferLegacy)
             mainHandler.post {
@@ -4615,7 +4638,7 @@ class MainActivity : Activity() {
             typeface = Typeface.DEFAULT_BOLD
         })
         box.addView(TextView(this).apply {
-            text = "Новая версия: ${release.version} (Установлена: 5.5.8)\nИсточник: ${release.sourceName}\nПакет: ${release.apkName} (${StormNczEngine.formatSize(release.apkSizeBytes)})"
+            text = "Новая версия: ${release.version} (Установлена: 5.5.9)\nИсточник: ${release.sourceName}\nПакет: ${release.apkName} (${StormNczEngine.formatSize(release.apkSizeBytes)})"
             setTextColor(th.textPrimary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
             setPadding(0, dp(4), 0, dp(8))
@@ -4802,7 +4825,7 @@ class MainActivity : Activity() {
     }
 
     // =========================================================================
-    // НОВЫЕ РАЗДЕЛЫ И ДИАЛОГИ 5.5.8:
+    // НОВЫЕ РАЗДЕЛЫ И ДИАЛОГИ 5.5.9:
     // 1. ВИРТУАЛЬНЫЙ ПРОВОДНИК ROMFS / EXEFS (HEX + UTF-8)
     // 2. МАСТЕР РАСПАКОВКИ И ОБРАТНОЙ УПАКОВКИ ПАПКИ В NSP / NSZ
     // 3. ГЕНЕРАТОР HOMEBREW FORWARDER (.NRO -> .NSP) С ПОДДЕРЖКОЙ RUTRACKER
