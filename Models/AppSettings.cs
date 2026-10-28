@@ -109,9 +109,11 @@ namespace StormSwitchBox.Models
         public string LastOutPath_Update { get; set; } = "";
         public string LastOutPath_Unpack { get; set; } = "";
         public string LastOutPath_3ds { get; set; } = "";
+        public string LastOutPath_Switch2 { get; set; } = "";
         
         // Выходная папка по умолчанию для Switch
         public string OutputFolder { get; set; } = "";
+        public string OutputFolderSwitch2 { get; set; } = "";
         // Каталог для архивов SDMC
         public string SdmcArchiveFolder { get; set; } = "";
         // Выходная папка по умолчанию для 3DS

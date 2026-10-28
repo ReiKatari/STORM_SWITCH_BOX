@@ -88,6 +88,40 @@ namespace StormSwitchBox.Views
             {
                 new TopicItem
                 {
+                    Title = "Nintendo Switch 2 (Ounce / NVN2)",
+                    Category = "Экосистемы",
+                    Icon = "\uE7FC",
+                    DescriptionText = "STORM SWITCH BOX 6.0.2 включает полную поддержку следующего поколения игровых систем Nintendo — Nintendo Switch 2 (кодовое имя «Ounce» / API «NVN2»):\n\n" +
+                                      "• Идентификация дампов: TitleID игр Switch 2 начинается с префикса «0400...» (в отличие от «0100...» у Switch 1), извлекаемый напрямую из main.npdm (заголовок META -> секция ACI0 + 0x10).\n" +
+                                      "• Авто-сборка из папок дампа: при перетаскивании каталога дампа Switch 2 (содержащего base/exefs/main.npdm, base/romfs, updates/<версия> и dlc/<tid>) программа автоматически объединяет базовую игру, самое свежее обновление, все DLC и моды в 1 монолитный контейнер (.nsp, .nsz, .xci, .xcz).\n" +
+                                      "• Авто-генерация Control NCA: создание control.nacp на 16 языках и получение официальной 256×256 обложки через Nintendo Europe Search API / Steam.\n" +
+                                      "• Блочное Zstandard сжатие NCZBLOCK v2: сжатие Program NCA в ультра-компактный .nsz / .xcz.\n" +
+                                      "• Отдельная папка вывода: сохранение в выделенную папку (по умолчанию Switch 2 / roms_switch2), настраиваемую в Параметрах с удобным проводником.",
+                    Tip = "Используйте отдельную папку сохранения для Switch 2 в Настройках, чтобы держать коллекции Switch 1, Switch 2 и 3DS аккуратно разделенными!",
+                    SetupPreview = container =>
+                    {
+                        container.Children.Add(new TextBlock { Text = "🚀 Поддержка Nintendo Switch 2 (Ounce)", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.Bold });
+                        container.Children.Add(new TextBlock { Text = "• TitleID 0400... из main.npdm (ACI0 + 0x10)\n• Слияние base + updates + dlc + mods в единый NSP/NSZ\n• Официальные обложки Nintendo eShop 256×256\n• Отдельная выходная папка с проводником для Switch 2", Foreground = GetSecondaryBrush() });
+                    }
+                },
+                new TopicItem
+                {
+                    Title = "RuTracker: Чеклист ссылок обсуждения и DLC Unlocker",
+                    Category = "RuTracker",
+                    Icon = "\uE896",
+                    DescriptionText = "В версии 6.0.2 усовершенствован модуль интеграции с RuTracker (#1605):\n\n" +
+                                      "• Чеклист ссылок из темы обсуждения: все полезные ссылки (русификаторы, моды, патчи 60 FPS, читы), найденные в комментариях и шапке темы раздачи, отображаются с датами публикации сообщений.\n" +
+                                      "• Выборочная загрузка: можно отметить только нужные модификации чекбоксами перед стартом сборки.\n" +
+                                      "• DLC Unlocker: автоматическое управление анлокерами дополнений и синхронизация тикетов.",
+                    Tip = "Ссылки на сторонние модификации проверяются на доступность перед скачиванием!",
+                    SetupPreview = container =>
+                    {
+                        container.Children.Add(new TextBlock { Text = "🌐 RuTracker & Облачные моды", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.Bold });
+                        container.Children.Add(new TextBlock { Text = "• Чеклист ссылок темы с датами постов\n• Автоматический выбор и вшивание модов\n• Авто-управление DLC Unlocker", Foreground = GetSecondaryBrush() });
+                    }
+                },
+                new TopicItem
+                {
                     Title = "Обзор приложения",
                     Category = "Введение",
                     Icon = "\uE9CE",

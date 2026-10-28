@@ -64,6 +64,8 @@ namespace StormSwitchBox.Models
         }
 
         [ObservableProperty] private int _buildMode = 0;
+        [ObservableProperty] private bool _isSwitch2Task;
+        [ObservableProperty] private string _titleId = string.Empty;
         [ObservableProperty] private bool _is3dsTask;
         partial void OnIs3dsTaskChanged(bool value)
         {

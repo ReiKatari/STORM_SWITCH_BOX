@@ -65,6 +65,13 @@ namespace StormSwitchBox.Services
                     task.LogDetails += $"\n📋 [Настройки] Файлов: {inputFiles.Count} | HardPatch: {(patchFirmware ? "Да" : "Нет")}";
                 });
 
+                string? sw2Dir = inputFiles.FirstOrDefault(f => Directory.Exists(f) && Switch2DumpHelper.IsSwitch2OrExtractedGameDumpDirectory(f));
+                if (sw2Dir != null)
+                {
+                    await Switch2DumpHelper.CompileSwitch2DumpToContainerAsync(task, sw2Dir, inputFiles, outPath, cancellationToken);
+                    return;
+                }
+
                 if (!_keysService.IsLoaded) throw new Exception("Отсутствуют криптографические ключи (prod.keys). Пожалуйста, выберите их в параметрах.");
 
 

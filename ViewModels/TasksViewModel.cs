@@ -507,6 +507,14 @@ public partial class TasksViewModel : ObservableObject
 	{
 		if (!Directory.Exists(dirPath)) return false;
 
+		if (Switch2DumpHelper.IsSwitch2OrExtractedGameDumpDirectory(dirPath))
+			return false;
+
+		var parentDir = Directory.GetParent(dirPath);
+		if (parentDir != null && (Switch2DumpHelper.IsSwitch2OrExtractedGameDumpDirectory(parentDir.FullName) ||
+		    (parentDir.Parent != null && Switch2DumpHelper.IsSwitch2OrExtractedGameDumpDirectory(parentDir.Parent.FullName))))
+			return false;
+
 		// Если папка содержит игровые файлы (.nsp/.xci/.nsz/.xcz/3ds/cia и т.д.),
 		// то это полноценная папка с игрой (возможно, с модами внутри), а не отдельная папка мода
 		try
@@ -862,6 +870,68 @@ public partial class TasksViewModel : ObservableObject
 			if (string.IsNullOrWhiteSpace(path)) return;
 
 			bool isDirectory = Directory.Exists(path);
+			if (isDirectory && Switch2DumpHelper.IsSwitch2OrExtractedGameDumpDirectory(path))
+			{
+				var sw2Info = await Switch2DumpHelper.InspectSwitch2DumpDirectoryAsync(path);
+				if (sw2Info != null)
+				{
+					string outName = sw2Info.GameName;
+					if (!string.IsNullOrEmpty(sw2Info.MaxUpdateVersion)) outName += $" [v{sw2Info.MaxUpdateVersion}]";
+					outName += $" [{sw2Info.TitleId}] (1G+1U";
+					if (sw2Info.DlcCount > 0) outName += $"+{sw2Info.DlcCount}D";
+					outName += ")";
+
+					string sw2OutFolder = !string.IsNullOrEmpty(App.Settings.Current.OutputFolderSwitch2) ? App.Settings.Current.OutputFolderSwitch2 : App.Settings.Current.OutputFolder;
+					if (string.IsNullOrEmpty(sw2OutFolder)) sw2OutFolder = Path.GetDirectoryName(path) ?? path;
+
+					long sz = CalculateSize(path);
+					var sw2Task = new ProcessingTask
+					{
+						Id = $"T{Tasks.Count + 1:D3}",
+						GroupId = sw2Info.TitleId,
+						TitleId = sw2Info.TitleId,
+						GameName = $"[SWITCH 2] {sw2Info.GameName}",
+						Operation = _currentPageType == "Verify" ? "Verify" : "Multi",
+						SourceFormat = "DIR",
+						IsSwitch2Task = true,
+						Is3dsTask = false,
+						TargetFormat = SelectedFormat,
+						SourceSizeBytes = sz,
+						SourceSize = ProcessingTask.FormatSize(sz),
+						TargetSize = "-",
+						SizeDifference = "-",
+						CompressionLevel = App.Settings.Current.CompressionLevel.ToString(),
+						FilesCount = "1",
+						InputFiles = new List<string> { sw2Info.GameRootDir },
+						FilesList = new List<string> { Path.GetFileName(sw2Info.GameRootDir) },
+						HasRomFs = "1",
+						HasExeFs = "1",
+						Status = "Ожидание",
+						Progress = 0.0,
+						InputFolders = sw2Info.GameRootDir,
+						OutputFolder = sw2OutFolder,
+						OutputFileName = outName,
+						LogDetails = $"Готов к обработке... [Nintendo Switch 2: {sw2Info.GameName}]"
+					};
+
+					if (sw2Info.CoverBytes != null && sw2Info.CoverBytes.Length > 0)
+					{
+						try
+						{
+							using var ms = new MemoryStream(sw2Info.CoverBytes);
+							var bmp = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
+							await bmp.SetSourceAsync(ms.AsRandomAccessStream());
+							sw2Task.GameIcon = bmp;
+						}
+						catch { }
+					}
+
+					Tasks.Add(sw2Task);
+					App.Logger.Log($"Добавлена задача Nintendo Switch 2: {sw2Info.GameName} [{sw2Info.TitleId}]");
+					return;
+				}
+			}
+
 			if (!isDirectory)
 			{
 				string ext = Path.GetExtension(path).ToLowerInvariant();
@@ -1323,9 +1393,12 @@ public partial class TasksViewModel : ObservableObject
 							if (e) eFs = true;
 						}
 					}
-					string outFolder = is3ds 
-						? (!string.IsNullOrEmpty(App.Settings.Current.OutputFolder3ds) ? App.Settings.Current.OutputFolder3ds : (!string.IsNullOrEmpty(App.Settings.Current.LastOutPath_3ds) ? App.Settings.Current.LastOutPath_3ds : App.Settings.Current.OutputFolder))
-						: App.Settings.Current.OutputFolder;
+					bool isSwitch2 = (groupId?.StartsWith("0400") == true) || inputFiles.Any(f => Directory.Exists(f) && Switch2DumpHelper.IsSwitch2OrExtractedGameDumpDirectory(f));
+					string outFolder = isSwitch2
+						? (!string.IsNullOrEmpty(App.Settings.Current.OutputFolderSwitch2) ? App.Settings.Current.OutputFolderSwitch2 : (!string.IsNullOrEmpty(App.Settings.Current.LastOutPath_Switch2) ? App.Settings.Current.LastOutPath_Switch2 : App.Settings.Current.OutputFolder))
+						: (is3ds 
+							? (!string.IsNullOrEmpty(App.Settings.Current.OutputFolder3ds) ? App.Settings.Current.OutputFolder3ds : (!string.IsNullOrEmpty(App.Settings.Current.LastOutPath_3ds) ? App.Settings.Current.LastOutPath_3ds : App.Settings.Current.OutputFolder))
+							: App.Settings.Current.OutputFolder);
 
 					if (string.IsNullOrEmpty(outFolder))
 					{

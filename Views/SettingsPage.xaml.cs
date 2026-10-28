@@ -1122,6 +1122,54 @@ namespace StormSwitchBox.Views
             App.Logger.Log("[Settings] Выходная папка Switch по умолчанию очищена (сохранение в папку с исходником)", Models.LogLevel.Info);
         }
 
+        private async void SelectOutputFolderSwitch2_Click(object sender, RoutedEventArgs e)
+        {
+            string? folder = await SystemDialogService.OpenFolderDialogAsync(
+                "Выберите выходную папку Nintendo Switch 2 по умолчанию",
+                !string.IsNullOrEmpty(App.Settings.Current.OutputFolderSwitch2) ? App.Settings.Current.OutputFolderSwitch2 : null);
+
+            if (!string.IsNullOrWhiteSpace(folder) && System.IO.Directory.Exists(folder))
+            {
+                App.Settings.Current.OutputFolderSwitch2 = folder;
+                OutputFolderBoxSwitch2.Text = folder;
+                await App.Settings.SaveAsync();
+                App.Logger.Log($"Выходная папка Nintendo Switch 2: {folder}", Models.LogLevel.Success);
+            }
+        }
+
+        private async void ClearOutputFolderSwitch2_Click(object sender, RoutedEventArgs e)
+        {
+            App.Settings.Current.OutputFolderSwitch2 = string.Empty;
+            OutputFolderBoxSwitch2.Text = string.Empty;
+            await App.Settings.SaveAsync();
+            App.Logger.Log("[Settings] Выходная папка Nintendo Switch 2 очищена (сохранение в папку с исходником)", Models.LogLevel.Info);
+        }
+
+        private void OutputFolderBoxSwitch2_DragOver(object sender, DragEventArgs e)
+        {
+            e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
+            e.DragUIOverride.Caption = "Выбрать как выходную папку Switch 2";
+            e.DragUIOverride.IsCaptionVisible = true;
+            e.DragUIOverride.IsContentVisible = true;
+            e.Handled = true;
+        }
+
+        private async void OutputFolderBoxSwitch2_Drop(object sender, DragEventArgs e)
+        {
+            e.Handled = true;
+            if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+            {
+                var items = await e.DataView.GetStorageItemsAsync();
+                if (items.Count > 0 && items[0] is Windows.Storage.StorageFolder folder)
+                {
+                    App.Settings.Current.OutputFolderSwitch2 = folder.Path;
+                    OutputFolderBoxSwitch2.Text = folder.Path;
+                    await App.Settings.SaveAsync();
+                    App.Logger.Log($"Выходная папка Nintendo Switch 2: {folder.Path}", Models.LogLevel.Success);
+                }
+            }
+        }
+
         private async void CompressionCombo_Changed(object sender, SelectionChangedEventArgs e)
         {
             if (sender is ComboBox cb && cb.SelectedItem is ComboBoxItem item)

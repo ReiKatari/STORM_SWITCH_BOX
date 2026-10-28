@@ -100,6 +100,8 @@ class MainActivity : Activity() {
     private val stormRoot = File("/storage/emulated/0/STORM SWITCH BOX")
     private val romsDir = File(stormRoot, "roms")
     private var customOutputDir: File = File(stormRoot, "output")
+    private var customSwitch2OutputDir: File = File(stormRoot, "roms_switch2")
+    private var custom3dsOutputDir: File = File(stormRoot, "roms_3ds")
     private val modsDir = File(stormRoot, "mods")
     private val keysDir = File(stormRoot, "keys")
     private val extractedDir = File(stormRoot, "extracted")
@@ -218,7 +220,7 @@ class MainActivity : Activity() {
         }
 
         buildUserInterface()
-        appendLog("STORM SWITCH BOX ${"6.0.1"} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) готов к работе.")
+        appendLog("STORM SWITCH BOX ${"6.0.2"} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) готов к работе.")
 
         // Автоматическая проверка обновлений с GitHub при запуске
         if (autoCheckUpdatesOnStartup) {
@@ -403,6 +405,8 @@ class MainActivity : Activity() {
             json.put("deleteRuTrackerSource", deleteRuTrackerSourceAfterSuccess)
             json.put("autoCheckUpdates", autoCheckUpdatesOnStartup)
             json.put("outputDir", customOutputDir.absolutePath)
+            json.put("outputDirSwitch2", customSwitch2OutputDir.absolutePath)
+            json.put("outputDir3ds", custom3dsOutputDir.absolutePath)
             json.put("lastBrowseDir", lastBrowseDirPath)
             val serialized = json.toString(2)
             getSharedPreferences("storm_switch_box_prefs", Context.MODE_PRIVATE)
@@ -748,7 +752,7 @@ class MainActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
         titleCol.addView(TextView(this).apply {
-            text = "STORM SWITCH BOX ${"6.0.1"}"
+            text = "STORM SWITCH BOX ${"6.0.2"}"
             setTextColor(th.textPrimary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
             typeface = Typeface.DEFAULT_BOLD
@@ -1517,9 +1521,16 @@ class MainActivity : Activity() {
         fun refreshIconPreview() {
             val previewTitle = customInternalGameTitle.ifBlank { defaultCleanTitle }
             val badgeStr = iconBadgeOptions.getOrElse(selectedIconBadgeIndex) { "" }
-            val jpegBytes = StormNczEngine.generateSwitchIconJpeg256(customIconImagePath, previewTitle, badgeStr)
-            val bmp = BitmapFactory.decodeByteArray(jpegBytes, 0, jpegBytes.size)
-            if (bmp != null) iconPreviewImg.setImageBitmap(bmp)
+            val iconPath = customIconImagePath
+            kotlin.concurrent.thread {
+                try {
+                    val jpegBytes = StormNczEngine.generateSwitchIconJpeg256(iconPath, previewTitle, badgeStr)
+                    val bmp = BitmapFactory.decodeByteArray(jpegBytes, 0, jpegBytes.size)
+                    if (bmp != null) {
+                        mainHandler.post { iconPreviewImg.setImageBitmap(bmp) }
+                    }
+                } catch (_: Throwable) {}
+            }
         }
         refreshIconPreview()
         iconRow.addView(iconPreviewImg)
@@ -2808,9 +2819,17 @@ class MainActivity : Activity() {
         }
         fun updateDlgIconPreview() {
             val badge = iconBadgeOptions.getOrElse(dlgBadgeIndex) { "" }
-            val jpg = StormNczEngine.generateSwitchIconJpeg256(dlgCustomIconPath, dlgInternalTitle.ifBlank { cleanDefaultTitle }, badge)
-            val bmp = BitmapFactory.decodeByteArray(jpg, 0, jpg.size)
-            if (bmp != null) dlgIconPreview.setImageBitmap(bmp)
+            val title = dlgInternalTitle.ifBlank { cleanDefaultTitle }
+            val iconPath = dlgCustomIconPath
+            kotlin.concurrent.thread {
+                try {
+                    val jpg = StormNczEngine.generateSwitchIconJpeg256(iconPath, title, badge)
+                    val bmp = BitmapFactory.decodeByteArray(jpg, 0, jpg.size)
+                    if (bmp != null) {
+                        mainHandler.post { dlgIconPreview.setImageBitmap(bmp) }
+                    }
+                } catch (_: Throwable) {}
+            }
         }
         updateDlgIconPreview()
         dlgIconRow.addView(dlgIconPreview)
@@ -3328,6 +3347,30 @@ class MainActivity : Activity() {
 
     private val instructionTopics: List<InstructionTopicItem> by lazy {
         listOf(
+                InstructionTopicItem(
+                    21,
+                    "21. Nintendo Switch 2 (Ounce / NVN2)",
+                    "Экосистемы",
+                    "SWITCH 2",
+                    "STORM SWITCH BOX 6.0.2 включает полную поддержку следующего поколения игровых систем Nintendo — Nintendo Switch 2 (кодовое имя «Ounce» / API «NVN2»):\n" +
+                    "• Идентификация дампов: TitleID игр Switch 2 начинается с префикса «0400...» (в отличие от «0100...» у Switch 1), извлекаемый напрямую из main.npdm (заголовок META -> секция ACI0 + 0x10).\n" +
+                    "• Авто-сборка из папок дампа: при перетаскивании каталога дампа Switch 2 (содержащего base/exefs/main.npdm, base/romfs, updates/<версия> и dlc/<tid>) программа автоматически объединяет базовую игру, самое свежее обновление, все DLC и моды в 1 монолитный контейнер (.nsp, .nsz, .xci, .xcz).\n" +
+                    "• Авто-генерация Control NCA: создание control.nacp на 16 языках и получение официальной 256×256 обложки через Nintendo Europe Search API / Steam.\n" +
+                    "• Блочное Zstandard сжатие NCZBLOCK v2: сжатие Program NCA в ультра-компактный .nsz / .xcz.\n" +
+                    "• Отдельная папка вывода: сохранение в выделенную папку (по умолчанию Switch 2 / roms_switch2), настраиваемую в Параметрах с удобным проводником.",
+                    "Совет: Используйте отдельную папку сохранения для Switch 2 в Настройках, чтобы держать коллекции Switch 1, Switch 2 и 3DS аккуратно разделенными!"
+                ),
+                InstructionTopicItem(
+                    22,
+                    "22. RuTracker: Чеклист ссылок обсуждения и DLC Unlocker",
+                    "Сеть, Ключи и База",
+                    "RUTRACKER",
+                    "В версии 6.0.2 усовершенствован модуль интеграции с RuTracker (#1605):\n" +
+                    "• Чеклист ссылок из темы обсуждения: все полезные ссылки (русификаторы, моды, патчи 60 FPS, читы), найденные в комментариях и шапке темы раздачи, отображаются с датами публикации сообщений.\n" +
+                    "• Выборочная загрузка: можно отметить только нужные модификации чекбоксами перед стартом сборки.\n" +
+                    "• DLC Unlocker: автоматическое управление анлокерами дополнений и синхронизация тикетов.",
+                    "Совет: Ссылки на сторонние модификации проверяются на доступность перед скачиванием!"
+                ),
             InstructionTopicItem(
                 1,
                 "1. Обзор приложения и архитектура STORM SWITCH BOX",
@@ -4349,6 +4392,14 @@ class MainActivity : Activity() {
 
     private fun addFolderRecursivelyToQueue(folder: File): Int {
         if (!folder.exists()) return 0
+        if (StormNczEngine.isSwitch2DumpDirectory(folder)) {
+            if (queuedFiles.none { it.canonicalPath == folder.canonicalPath }) {
+                queuedFiles.add(folder)
+                if (selectedInputFile == null) selectedInputFile = folder
+                return 1
+            }
+            return 0
+        }
         val validExts = setOf("nsp", "nsz", "xci", "xcz", "nca", "ncz", "3ds", "cci", "cia", "cxi", "cfa", "3dsx", "nds", "zip", "ips", "pchtxt")
         var added = 0
         folder.walkTopDown().maxDepth(4).forEach { f ->
@@ -4550,9 +4601,19 @@ class MainActivity : Activity() {
      * Стилизованный проводник выбора выходной папки сохранения (вместо ручного ввода пути)
      * с навигацией по папкам, созданием новой папки и кнопкой системного проводника Android.
      */
-    private fun showSelectOutputFolderDialog() {
+    private fun showSelectOutputFolderDialog(targetMode: Int = 0) {
         val th = themes[currentThemeIndex]
-        var currentDir = if (customOutputDir.exists() && customOutputDir.isDirectory) customOutputDir else File("/storage/emulated/0")
+        val targetName = when (targetMode) {
+            1 -> "Nintendo Switch 2 (roms_switch2)"
+            2 -> "Nintendo 3DS (roms_3ds)"
+            else -> "Nintendo Switch (output)"
+        }
+        val defaultTargetDir = when (targetMode) {
+            1 -> customSwitch2OutputDir
+            2 -> custom3dsOutputDir
+            else -> customOutputDir
+        }
+        var currentDir = if (defaultTargetDir.exists() && defaultTargetDir.isDirectory) defaultTargetDir else File("/storage/emulated/0")
 
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -4561,7 +4622,7 @@ class MainActivity : Activity() {
         }
 
         card.addView(TextView(this).apply {
-            text = "📁 Выберите выходную папку сохранения"
+            text = "📁 Выберите выходную папку сохранения ($targetName)"
             setTextColor(th.accent)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
             typeface = Typeface.DEFAULT_BOLD
@@ -4746,8 +4807,11 @@ class MainActivity : Activity() {
         })
 
         bottomRow.addView(makeButton("По умолчанию", th.bgElevated, th.textSecondary) {
-            customOutputDir = File(stormRoot, "output")
-            customOutputDir.mkdirs()
+            when (targetMode) {
+                1 -> { customSwitch2OutputDir = File(stormRoot, "roms_switch2"); customSwitch2OutputDir.mkdirs() }
+                2 -> { custom3dsOutputDir = File(stormRoot, "roms_3ds"); custom3dsOutputDir.mkdirs() }
+                else -> { customOutputDir = File(stormRoot, "output"); customOutputDir.mkdirs() }
+            }
             saveSettings()
             buildUserInterface()
             dlg.dismiss()
@@ -4760,10 +4824,14 @@ class MainActivity : Activity() {
         bottomRow.addView(makeButton("✅ Выбрать эту папку", th.accent) {
             currentDir.mkdirs()
             if (currentDir.exists()) {
-                customOutputDir = currentDir
+                when (targetMode) {
+                    1 -> customSwitch2OutputDir = currentDir
+                    2 -> custom3dsOutputDir = currentDir
+                    else -> customOutputDir = currentDir
+                }
                 saveSettings()
                 buildUserInterface()
-                Toast.makeText(this, "Выходная папка: ${currentDir.absolutePath}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Папка $targetName: ${currentDir.absolutePath}", Toast.LENGTH_SHORT).show()
             }
             dlg.dismiss()
         })
@@ -4779,7 +4847,7 @@ class MainActivity : Activity() {
             Toast.makeText(this, "⏳ Проверка обновлений на GitHub и STORM GAMES WORLD...", Toast.LENGTH_SHORT).show()
         }
         val preferLegacy = (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) || Build.VERSION.SDK_INT < 26
-        val currentAppVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.0.1" } catch (_: Exception) { "6.0.1" }
+        val currentAppVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.0.2" } catch (_: Exception) { "6.0.2" }
         thread {
             val rel = RuTrackerCloudEngine.checkGitHubAppUpdate(currentAppVer, preferLegacy)
             mainHandler.post {
