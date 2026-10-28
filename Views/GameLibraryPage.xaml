@@ -228,9 +228,9 @@
 
                         <!-- Cover Image with System, Region & Version Badges -->
                         <Grid Grid.Row="0" CornerRadius="12,12,0,0">
-                            <Border Background="#141414" CornerRadius="12,12,0,0"/>
+                            <Border Background="Transparent" BorderThickness="0"/>
                             <FontIcon Glyph="&#xE7FC;" FontSize="40" Foreground="#2A2A2A" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                            <Image Source="{x:Bind CoverUrl}" Stretch="Uniform" Margin="4" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            <Image Source="{x:Bind CoverUrl}" Stretch="Uniform" Margin="0" HorizontalAlignment="Center" VerticalAlignment="Center"/>
 
                             <!-- Region Badge Top-Left -->
                             <Border Background="#E6000000" CornerRadius="5" Padding="5,2" Margin="6" HorizontalAlignment="Left" VerticalAlignment="Top">
@@ -358,7 +358,7 @@
 
                 <!-- Left: Enlarged Cover Art & Web Search -->
                 <StackPanel Grid.Column="0" Spacing="14" Margin="0,0,24,0" VerticalAlignment="Top">
-                    <Border CornerRadius="14" Background="#141414" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" Padding="8">
+                    <Border CornerRadius="0" Background="Transparent" BorderThickness="0" Padding="0">
                         <Image x:Name="DialogCoverImage" Height="440" Stretch="Uniform" HorizontalAlignment="Center"/>
                     </Border>
                     <Button Click="DialogSearchWeb_Click" HorizontalAlignment="Stretch" Height="40" CornerRadius="8">

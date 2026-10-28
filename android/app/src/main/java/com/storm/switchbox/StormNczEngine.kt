@@ -2381,12 +2381,7 @@ object StormNczEngine {
                     }
                     canvas.drawRect(0f, 0f, 256f, 256f, bgPaint)
 
-                    val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                        style = Paint.Style.STROKE
-                        strokeWidth = 6f
-                        color = Color.parseColor("#A855F7")
-                    }
-                    canvas.drawRoundRect(RectF(6f, 6f, 250f, 250f), 24f, 24f, borderPaint)
+                    // Без огранки и рамок по стандарту STORM SOFT
 
                     val headerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                         color = Color.parseColor("#00F0FF")
@@ -4193,7 +4188,7 @@ object StormNczEngine {
     }
 
     // =========================================================================
-    // НОВОЕ В 5.5.7: ПОЛНАЯ РАСПАКОВКА И УПАКОВКА ROMFS / EXEFS / CONTROL / PFS0,
+    // НОВОЕ В 5.5.8: ПОЛНАЯ РАСПАКОВКА И УПАКОВКА ROMFS / EXEFS / CONTROL / PFS0,
     // ВИРТУАЛЬНЫЙ ПРОВОДНИК ROMFS С HEX-ПРОСМОТРОМ, ГЕНЕРАТОР HOMEBREW FORWARDER (.NRO -> .NSP),
     // НАТИВНЫЙ QR-ГЕНЕРАТОР ДЛЯ 3DS (FBI) И FTP-КЛИЕНТ, БАЗА TITLEDB И ОШИБОК 2XXX-XXXX
     // =========================================================================
@@ -6203,6 +6198,7 @@ object StormNczEngine {
     )
 
     val builtInTitleDbCatalog: List<TitleDbGameEntry> = listOf(
+        TitleDbGameEntry("01002EF01A316000", "01002EF01A316800", "Brotato", "Seaven Studio / Blobfish", "2023", "388,19 МБ", "Switch", "Официальный русский язык + DLC", 1, "Экшен / Рогалик", "Динамичный аренный рогалик-шутер про вооружённую картофелину с десятками персонажей и сотнями видов оружия."),
         TitleDbGameEntry("010020D01AD24000", "010020D01AD24800", "Animal Well", "Bigmode / Shared Memory", "2024", "37,63 МБ", "Switch", "Официальный русский язык", 0, "Метроидвания / Головоломка", "Атмосферная пиксельная метроидвания с глубокими секретами и физическими головоломками."),
         TitleDbGameEntry("01008CF01BAAC000", "01008CF01BAAC800", "The Legend of Zelda: Echoes of Wisdom", "Nintendo", "2024", "5,70 ГБ", "Switch", "Официальный русский язык", 0, "Приключения / Экшен", "Принцесса Зельда отправляется спасать Хайрул с помощью волшебного посоха Три и созидания Эхо."),
         TitleDbGameEntry("0100F2C0115B6000", "0100F2C0115B6800", "The Legend of Zelda: Tears of the Kingdom", "Nintendo", "2023", "16,30 ГБ", "Switch", "Официальный русский язык + Озвучка", 0, "Открытый мир / RPG", "Масштабное продолжение Breath of the Wild в небесах, на земле и в глубинах Хайрула."),
@@ -6369,7 +6365,7 @@ object StormNczEngine {
                 val conn = (java.net.URL(u).openConnection() as java.net.HttpURLConnection).apply {
                     connectTimeout = 10000
                     readTimeout = 15000
-                    setRequestProperty("User-Agent", "StormSwitchBox/5.5.7")
+                    setRequestProperty("User-Agent", "StormSwitchBox/5.5.8")
                 }
                 if (conn.responseCode == 200) {
                     val body = conn.inputStream.bufferedReader(StandardCharsets.UTF_8).use { it.readText() }

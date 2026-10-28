@@ -134,7 +134,7 @@
                         </Grid.RowDefinitions>
                         
                         <!-- Image Container -->
-                        <Border Grid.Row="0" CornerRadius="8" Background="{ThemeResource ControlFillColorDefaultBrush}" BorderBrush="{ThemeResource SurfaceStrokeColorFlyoutBrush}" BorderThickness="1">
+                        <Border Grid.Row="0" CornerRadius="0" Background="Transparent" BorderThickness="0">
                             <Grid>
                                 <FontIcon Glyph="&#xE8B9;" FontSize="48" Foreground="{ThemeResource TextFillColorDisabledBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                 <Image Source="{Binding CoverImage}" Stretch="UniformToFill"/>
@@ -284,7 +284,7 @@
                             
                             <!-- Left: Cover & Basic Info -->
                             <StackPanel Grid.Column="0" Spacing="16">
-                                <Border CornerRadius="12" Background="{ThemeResource ControlFillColorDefaultBrush}" BorderBrush="{ThemeResource SurfaceStrokeColorFlyoutBrush}" BorderThickness="1" ToolTipService.ToolTip="Нажмите правой кнопкой мыши для сохранения обложки">
+                                <Border CornerRadius="0" Background="Transparent" BorderThickness="0" ToolTipService.ToolTip="Нажмите правой кнопкой мыши для сохранения обложки">
                                     <Border.ContextFlyout>
                                         <MenuFlyout>
                                             <MenuFlyoutItem Text="Сохранить обложку (PNG)" Click="SaveCoverButton_Click">

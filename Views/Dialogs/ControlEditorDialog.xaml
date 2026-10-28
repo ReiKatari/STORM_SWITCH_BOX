@@ -33,13 +33,13 @@
                 </Grid.ColumnDefinitions>
 
                 <!-- Иконка с зоной Drag-and-Drop -->
-                <Border Grid.Column="0" Width="136" Height="136" CornerRadius="10"
-                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="2"
-                        Background="#1E293B" AllowDrop="True"
+                <Border Grid.Column="0" Width="136" Height="136" CornerRadius="0"
+                        BorderThickness="0"
+                        Background="Transparent" AllowDrop="True"
                         DragOver="IconDropArea_DragOver" Drop="IconDropArea_Drop"
                         ToolTipService.ToolTip="Перетащите любое изображение (PNG/JPEG) для установки иконки игры">
                     <Grid>
-                        <Image x:Name="GameIconImage" Stretch="UniformToFill" Width="132" Height="132"/>
+                        <Image x:Name="GameIconImage" Stretch="UniformToFill" Width="136" Height="136"/>
                         <Border Background="#99000000" VerticalAlignment="Bottom" Height="24">
                             <TextBlock Text="Live-превью иконки" FontSize="10" Foreground="White" 
                                        HorizontalAlignment="Center" VerticalAlignment="Center"/>

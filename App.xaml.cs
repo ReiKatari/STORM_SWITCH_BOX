@@ -16,7 +16,7 @@ namespace StormSwitchBox
                 if (v != null) return $"{v.Major}.{v.Minor}.{Math.Max(0, v.Build)}";
             }
             catch { }
-            return "5.5.7";
+            return "5.5.8";
         }
         public static Window? MainWindow { get; private set; }
         public static IntPtr MainWindowHandle { get; set; }
