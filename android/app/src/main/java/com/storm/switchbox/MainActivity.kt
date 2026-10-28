@@ -108,6 +108,7 @@ class MainActivity : Activity() {
     private var currentThemeIndex = 0
     private var currentLangCode = "ru"
     private var activeTab = 0
+    private var pendingRuTrackerSearchQuery: String = ""
     private var navScrollX = 0
 
     // Параметры движка и пакетной очереди (сохраняются локально)
@@ -2362,7 +2363,17 @@ class MainActivity : Activity() {
             runSearch(homebrewQuery, immediateOnly = false)
         }
 
-        runSearch("", immediateOnly = true)
+        if (pendingRuTrackerSearchQuery.isNotBlank()) {
+            val initQ = pendingRuTrackerSearchQuery
+            pendingRuTrackerSearchQuery = ""
+            suppressWatcher = true
+            queryEdit.setText(initQ)
+            queryEdit.setSelection(initQ.length)
+            suppressWatcher = false
+            runSearch(initQ, immediateOnly = false)
+        } else {
+            runSearch("", immediateOnly = true)
+        }
     }
 
     /**
@@ -4478,15 +4489,16 @@ class MainActivity : Activity() {
             Toast.makeText(this, "⏳ Проверка обновлений на GitHub и STORM GAMES WORLD...", Toast.LENGTH_SHORT).show()
         }
         val preferLegacy = (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) || Build.VERSION.SDK_INT < 26
+        val currentAppVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "5.5.6" } catch (_: Exception) { "5.5.6" }
         thread {
-            val rel = RuTrackerCloudEngine.checkGitHubAppUpdate("5.5.6", preferLegacy)
+            val rel = RuTrackerCloudEngine.checkGitHubAppUpdate(currentAppVer, preferLegacy)
             mainHandler.post {
                 if (rel != null) {
                     showUpdateAvailableDialog(rel)
                 } else if (isManualClick) {
                     Toast.makeText(
                         this,
-                        "✅ У вас установлена актуальная версия STORM SWITCH BOX 5.5.6 (проверено на GitHub и STORM GAMES WORLD)!",
+                        "✅ У вас установлена актуальная версия STORM SWITCH BOX $currentAppVer (проверено на GitHub и STORM GAMES WORLD)!",
                         Toast.LENGTH_LONG
                     ).show()
                 }
@@ -5762,6 +5774,7 @@ class MainActivity : Activity() {
                     orientation = LinearLayout.HORIZONTAL
                 }
                 actRow.addView(makeButton("🌐 Найти и скачать на RuTracker", th.accent) {
+                    pendingRuTrackerSearchQuery = game.name
                     activeTab = 2
                     buildUserInterface()
                     Toast.makeText(this, "Переход к раздачам ${game.name} на RuTracker", Toast.LENGTH_SHORT).show()
