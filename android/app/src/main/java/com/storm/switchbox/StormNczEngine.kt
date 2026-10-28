@@ -1230,7 +1230,7 @@ object StormNczEngine {
             if (magic != "NCA3" && magic != "NCA2" && magic != "NCA0") return null
             val rawType205 = workHdr[0x205].toInt() and 0xFF
             val rawType204 = workHdr[0x204].toInt() and 0xFF
-            val cType = if (rawType205 == 0 && rawType204 in 1..5) rawType204 else rawType205
+            val cType = if (rawType205 == 0 && rawType204 in 2..5 && avail < 524288L) rawType204 else rawType205
             val bb = ByteBuffer.wrap(workHdr).order(ByteOrder.LITTLE_ENDIAN)
             val tidLong = bb.getLong(0x210)
             val tidHex = java.lang.Long.toUnsignedString(tidLong, 16).uppercase().padStart(16, '0')
@@ -1368,14 +1368,11 @@ object StormNczEngine {
                 counter[b] = workHdr[fsOff + 0x147 - b]
             }
 
-            // Для HierarchicalIntegrity (RomFS, hashType == 3) учитываем masterHashOffset (fsOff + 0x90), как в StormNczCompressor.cs
-            val skipBytes = if (hashType == 3) {
-                bb.getLong(fsOff + 0x90).coerceIn(0L, secByteEnd - secByteOffset)
-            } else 0L
+            val rawSecStart = startMedia * 0x200L
 
-            // Проверяем, не является ли секция уже расшифрованной (PFS0 / IVFC)
-            var isAlreadyPlaintext = false
-            if (raf != null && secByteEnd - secByteOffset >= 16L) {
+            // Проверяем, не является ли секция уже расшифрованной (PFS0 в ExeFS или заголовок 0x50 в RomFS)
+            var isAlreadyPlaintext = (rawCryptoType == 1L)
+            if (!isAlreadyPlaintext && raf != null && secByteEnd - secByteOffset >= 16L) {
                 try {
                     val peek = ByteArray(16)
                     raf.seek(sliceOffset + secByteOffset)
@@ -1384,6 +1381,30 @@ object StormNczEngine {
                     val m8 = String(peek, 8, 4, StandardCharsets.US_ASCII)
                     if (m0 == "PFS0" || m0 == "IVFC" || m8 == "PFS0" || m8 == "IVFC") {
                         isAlreadyPlaintext = true
+                    }
+                    if (!isAlreadyPlaintext && hashType == 2) {
+                        val layer1Rel = bb.getLong(fsOff + 0x40)
+                        val pfs0Pos = rawSecStart + layer1Rel
+                        if (layer1Rel >= 0L && pfs0Pos + 4L <= secByteEnd) {
+                            val pfsPeek = ByteArray(4)
+                            raf.seek(sliceOffset + pfs0Pos)
+                            raf.readFully(pfsPeek)
+                            if (String(pfsPeek, 0, 4, StandardCharsets.US_ASCII) == "PFS0") {
+                                isAlreadyPlaintext = true
+                            }
+                        }
+                    } else if (!isAlreadyPlaintext && hashType == 3) {
+                        val lv5Rel = bb.getLong(fsOff + 0x90)
+                        val romfsPos = rawSecStart + lv5Rel
+                        if (lv5Rel >= 0L && romfsPos + 8L <= secByteEnd) {
+                            val rPeek = ByteArray(8)
+                            raf.seek(sliceOffset + romfsPos)
+                            raf.readFully(rPeek)
+                            val romfsHdrSize = ByteBuffer.wrap(rPeek).order(ByteOrder.LITTLE_ENDIAN).long
+                            if (romfsHdrSize == 0x50L) {
+                                isAlreadyPlaintext = true
+                            }
+                        }
                     }
                 } catch (_: Exception) {}
             }
@@ -1396,19 +1417,18 @@ object StormNczEngine {
                 1L
             }
 
-            var encOffset = secByteOffset
-            if (skipBytes > 0L && effCryptoType in 3L..4L && secByteOffset + skipBytes < secByteEnd) {
-                sections.add(
-                    NcaSectionCryptoMeta(
-                        offset = secByteOffset,
-                        size = skipBytes,
-                        cryptoType = 1L,
-                        key = ByteArray(16),
-                        counter = ByteArray(16)
-                    )
-                )
-                encOffset += skipBytes
+            // Если зашифрованная секция начинается по смещению < 0x4000 (например 0x0C00),
+            // расшифровываем область [rawSecStart .. min(secByteEnd, 0x4000)) прямо в ncaHeader3840,
+            // так как NCZVirtualFile в эмуляторах читает байты < 0x4000 напрямую из заголовка .ncz без AesCtrStorage.
+            if (rawSecStart in 0xC00L until NCA_HEADER_SIZE && (effCryptoType == 3L || effCryptoType == 4L) && resolvedCtrKey.any { it != 0.toByte() }) {
+                val hdrOverlapEnd = minOf(secByteEnd, NCA_HEADER_SIZE).toInt()
+                val hdrOverlapLen = hdrOverlapEnd - rawSecStart.toInt()
+                if (hdrOverlapLen > 0 && rawSecStart.toInt() + hdrOverlapLen <= ncaHeader3840.size) {
+                    transformAesCtrInPlace(ncaHeader3840, rawSecStart.toInt(), hdrOverlapLen, rawSecStart, resolvedCtrKey, counter)
+                }
             }
+
+            val encOffset = secByteOffset
 
             // Поддержка AES-128-CTR-EX (BKTR в секциях обновлений [ПАТЧ], как на ПК в StormNczCompressor.cs)
             val aesCtrExOffset = bb.getLong(fsOff + 0x120)
@@ -3297,7 +3317,8 @@ object StormNczEngine {
         idx: Int,
         keysMap: Map<String, ByteArray>
     ): File {
-        if (!currentFile.exists() || currentFile.extension.lowercase() !in listOf("nsp", "nsz")) {
+        // Никогда не заменяем реальные игровые контейнеры (> 8 МБ):
+        if (!currentFile.exists() || currentFile.length() > 8L * 1024L * 1024L || currentFile.extension.lowercase() !in listOf("nsp", "nsz")) {
             return currentFile
         }
         var needsRepair = false
@@ -3310,6 +3331,11 @@ object StormNczEngine {
                         val rawHdr = ByteArray(0xC00)
                         raf.seek(e.dataStartOffset)
                         raf.readFully(rawHdr)
+                        // Если заголовок NCA3 зашифрован розничным ключом AES-XTS, это настоящий контейнер — не трогаем
+                        val rawMagic = String(rawHdr, 0x200, 4, StandardCharsets.US_ASCII)
+                        if (rawMagic != "NCA3" && rawMagic != "NCA2") {
+                            return currentFile
+                        }
                         val workHdr = decryptNcaHeader0C00(rawHdr, keysMap)
                         val magic = String(workHdr, 0x200, 4, StandardCharsets.US_ASCII)
                         if (magic == "NCA3" || magic == "NCA2") {
@@ -3338,13 +3364,13 @@ object StormNczEngine {
             val tid = info.rawTitleId.ifEmpty { info.baseTitleId }.ifEmpty { "0100000000010000" }
             val cleanTitle = extractCleanGameTitle(originalNamedFile.name).ifEmpty { "Switch Game" }
             val role = when (info.roleBadge) {
-                "????" -> "????"
+                "ПАТЧ" -> "ПАТЧ"
                 "DLC" -> "DLC"
                 "UNLOCKER" -> "UNLOCKER"
-                else -> if (tid.endsWith("800")) "????" else if (!tid.endsWith("000")) "DLC" else "????"
+                else -> if (tid.endsWith("800")) "ПАТЧ" else if (!tid.endsWith("000")) "DLC" else "БАЗА"
             }
             val ver = extractDisplayVersionFromFileName(originalNamedFile.name)
-                ?: if (role == "????") "1.0.10" else "1.0.0"
+                ?: if (role == "ПАТЧ") "1.0.10" else "1.0.0"
             val repairedFile = File(tempNormDir, "repaired_${idx}_${originalNamedFile.nameWithoutExtension}.nsp")
             buildBootableSwitchContainerNsp(
                 outFile = repairedFile,
@@ -3636,10 +3662,19 @@ object StormNczEngine {
                 .mapNotNull { extractDisplayVersionFromFileName(it.name) }
                 .lastOrNull()
                 ?: "1.0.10"
+            val hasExistingControlNca = collected.keys.any { ncaContentTypeMap[it] == 2 }
+            val hasCustomIconFile = preBuildCustomization.customIconPath.isNotBlank() && File(preBuildCustomization.customIconPath).isFile
+            val effectiveBadgeText = preBuildCustomization.iconBadgeText.trim()
+                .takeIf { it.isNotEmpty() && !it.equals("Без бейджа", ignoreCase = true) && !it.equals("None", ignoreCase = true) }
+                ?: ""
+            // Если в контейнере уже есть оригинальный Control NCA игры, перезаписываем его ТОЛЬКО если пользователь явно выбрал свой файл иконки!
             val customTitleActive = preBuildCustomization.enabled && (
-                (preBuildCustomization.customInternalTitle.isNotBlank() && !preBuildCustomization.customInternalTitle.trim().equals(baseCleanTitle, ignoreCase = true)) ||
-                preBuildCustomization.customIconPath.isNotBlank() ||
-                preBuildCustomization.iconBadgeText.isNotBlank()
+                hasCustomIconFile || (
+                    !hasExistingControlNca && (
+                        (preBuildCustomization.customInternalTitle.isNotBlank() && !preBuildCustomization.customInternalTitle.trim().equals(baseCleanTitle, ignoreCase = true)) ||
+                        effectiveBadgeText.isNotBlank()
+                    )
+                )
             )
             if (customTitleActive) {
                 val effTitle = preBuildCustomization.customInternalTitle.trim().ifEmpty { baseCleanTitle }
@@ -3707,7 +3742,7 @@ object StormNczEngine {
                 val isNcz = lower.endsWith(".ncz")
                 val ncaType = ncaContentTypeMap[src.baseKey] ?: -1
                 val hasBktr = ncaHasBktrMap[src.baseKey] == true
-                val mustStayUncompressedNca = lower.endsWith(".cnmt.nca") || ncaType == 1 || ncaType == 2 || hasBktr
+                val mustStayUncompressedNca = lower.endsWith(".cnmt.nca") || ncaType == 1 || ncaType == 2 || ncaType == 3 || hasBktr
                 val specificTicketKey = ncaRightsIdMap[src.baseKey]?.let { ticketKeysByRightsId[it] } ?: fallbackTicketKey
 
                 // Сжимаем в .ncz игровые разделы Program / Data / Manual (> 64 КБ).
@@ -4158,7 +4193,7 @@ object StormNczEngine {
     }
 
     // =========================================================================
-    // НОВОЕ В 5.5.6: ПОЛНАЯ РАСПАКОВКА И УПАКОВКА ROMFS / EXEFS / CONTROL / PFS0,
+    // НОВОЕ В 5.5.7: ПОЛНАЯ РАСПАКОВКА И УПАКОВКА ROMFS / EXEFS / CONTROL / PFS0,
     // ВИРТУАЛЬНЫЙ ПРОВОДНИК ROMFS С HEX-ПРОСМОТРОМ, ГЕНЕРАТОР HOMEBREW FORWARDER (.NRO -> .NSP),
     // НАТИВНЫЙ QR-ГЕНЕРАТОР ДЛЯ 3DS (FBI) И FTP-КЛИЕНТ, БАЗА TITLEDB И ОШИБОК 2XXX-XXXX
     // =========================================================================
@@ -5156,7 +5191,7 @@ object StormNczEngine {
             val romfsLv5Size = ((rawRomfsTarget + 0x3FFFL) / 0x4000L) * 0x4000L
             val numLv5Blocks = (romfsLv5Size / 0x4000L).toInt().coerceAtLeast(1)
 
-            // ?????? ???????? Block 0 ??? Level 5 RomFS (? ?????????? RomFSHeader 0x50 ???? ? ?????? /data.bin)
+            // Секция NCA3 / RomFS / ExeFS
             val block0 = ByteArray(ivfcBlockSize)
             val b0bb = ByteBuffer.wrap(block0).order(ByteOrder.LITTLE_ENDIAN)
             b0bb.putLong(0x00, 0x50L) // headerSize = 0x50
@@ -5191,7 +5226,7 @@ object StormNczEngine {
             val sha = MessageDigest.getInstance("SHA-256")
             val block0Hash = sha.digest(block0)
 
-            // ?????????? ??? ?? 64 ?????????? 16-?? ?????? (1 ?? = ?????? 1 ????? NCZBLOCK), ????? Zstd ?????? ????? ?? ~34% ? ?????? IVFC ????????? ?? < 5 ??
+            // Секция NCA3 / RomFS / ExeFS
             val poolCount = min(64, maxOf(1, numLv5Blocks - 1))
             val poolBlocks = Array(poolCount) { ByteArray(ivfcBlockSize) }
             val poolHashes = Array(poolCount) { ByteArray(32) }
@@ -5632,7 +5667,7 @@ object StormNczEngine {
         val baseTidHex = cleanHex.take(13) + "000"
         val baseTidVal = baseTidHex.toULongOrNull(16)?.toLong() ?: 0x0100000000010000L
 
-        // ???????? ????????? ????????? ???????? ?????? main.npdm (972 ?????, ACID=0x80..0x32C, ACI0=0x330..0x3E0)
+        // Секция NCA3 / RomFS / ExeFS
         var templateBytes: ByteArray? = null
         try {
             templateBytes = appContextRef?.assets?.open("forwarder/main.npdm")?.use { it.readBytes() }
@@ -5742,7 +5777,7 @@ object StormNczEngine {
         val dataBytes = ByteArray(dataSize)
         val bssSize = 0x1000
 
-        // ?????? .text ? ??????????? ????????? MOD0 (+0x04 = 8, +0x08 = "MOD0") ? ????? ????? ???????? ModuleCodeIndex (0x24) ??? ????????????? ? Android NCE ? Dynarmic JIT
+        // Секция NCA3 / RomFS / ExeFS
         tbb.putInt(0x00, 0x14000020) // B #0x80 (??????? ? ???????? ????? ?? ???????? +0x80 >= 0x24)
         tbb.putInt(0x04, 0x00000008) // MOD0 offset = 0x08
         tbb.putInt(0x08, 0x30444F4D) // "MOD0"
@@ -5756,7 +5791,7 @@ object StormNczEngine {
         tbb.putInt(0x1C, textBytes.size - 0x08)  // eh_frame_hdr_end relative to MOD0
         tbb.putInt(0x20, 0)                      // runtime_generated_module_object
 
-        // ??????? 60 ?? ???? ???????? ?? ???????? +0x80 (??????????? ? NCE patcher.cpp:86 ? Dynarmic):
+        // Секция NCA3 / RomFS / ExeFS
         // MOVZ X0, #0x4E20 ; MOVK X0, #0x00FD, LSL #16 (16_600_000 ns = 16.6 ms) ; SVC #0x0B (svcSleepThread) ; B #-12
         tbb.putInt(0x80, 0xD289C400.toInt())
         tbb.putInt(0x84, 0xF2A01FA0.toInt())
@@ -6168,7 +6203,7 @@ object StormNczEngine {
     )
 
     val builtInTitleDbCatalog: List<TitleDbGameEntry> = listOf(
-        TitleDbGameEntry("0100C9801A8C2000", "0100C9801A8C2800", "Animal Well", "Bigmode / Shared Memory", "2024", "73,35 МБ", "Switch", "Официальный / Мод RUS", 0, "Метроидвания / Головоломка", "Атмосферная пиксельная метроидвания с глубокими секретами и физическими головоломками."),
+        TitleDbGameEntry("010020D01AD24000", "010020D01AD24800", "Animal Well", "Bigmode / Shared Memory", "2024", "37,63 МБ", "Switch", "Официальный русский язык", 0, "Метроидвания / Головоломка", "Атмосферная пиксельная метроидвания с глубокими секретами и физическими головоломками."),
         TitleDbGameEntry("01008CF01BAAC000", "01008CF01BAAC800", "The Legend of Zelda: Echoes of Wisdom", "Nintendo", "2024", "5,70 ГБ", "Switch", "Официальный русский язык", 0, "Приключения / Экшен", "Принцесса Зельда отправляется спасать Хайрул с помощью волшебного посоха Три и созидания Эхо."),
         TitleDbGameEntry("0100F2C0115B6000", "0100F2C0115B6800", "The Legend of Zelda: Tears of the Kingdom", "Nintendo", "2023", "16,30 ГБ", "Switch", "Официальный русский язык + Озвучка", 0, "Открытый мир / RPG", "Масштабное продолжение Breath of the Wild в небесах, на земле и в глубинах Хайрула."),
         TitleDbGameEntry("01007EF00011E000", "01007EF00011E800", "The Legend of Zelda: Breath of the Wild", "Nintendo", "2017", "14,40 ГБ", "Switch", "Официальный русский язык + Озвучка", 2, "Открытый мир / Приключения", "Легендарное приключение Линка в открытом мире Хайрула с 2 сюжетными DLC."),
@@ -6334,7 +6369,7 @@ object StormNczEngine {
                 val conn = (java.net.URL(u).openConnection() as java.net.HttpURLConnection).apply {
                     connectTimeout = 10000
                     readTimeout = 15000
-                    setRequestProperty("User-Agent", "StormSwitchBox/5.5.6")
+                    setRequestProperty("User-Agent", "StormSwitchBox/5.5.7")
                 }
                 if (conn.responseCode == 200) {
                     val body = conn.inputStream.bufferedReader(StandardCharsets.UTF_8).use { it.readText() }

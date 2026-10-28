@@ -272,6 +272,22 @@ namespace StormSwitchBox.Services
 
                     if (isNca)
                     {
+                        try
+                        {
+                            using var probeFile = OpenFileSafe(pfs, entry.FullPath);
+                            var probeNca = new Nca(App.Keys.CurrentKeyset, probeFile.AsStorage());
+                            var cType = probeNca.Header.ContentType;
+                            // Сохраняем Meta, Control и Manual NCA несжатыми .nca для 100% совместимости иконок и метаданных во всех эмуляторах
+                            if (cType == NcaContentType.Meta || cType == NcaContentType.Control || cType == NcaContentType.Manual)
+                            {
+                                isNca = false;
+                            }
+                        }
+                        catch { }
+                    }
+
+                    if (isNca)
+                    {
                         string nczName = System.IO.Path.ChangeExtension(entryName, ".ncz");
                         string tempNczPath = System.IO.Path.Combine(tempDir, nczName);
 

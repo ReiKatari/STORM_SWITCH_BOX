@@ -170,7 +170,7 @@ class MainActivity : Activity() {
     private val iconBadgeOptions = listOf("Без бейджа", "RUS", "RUS + MOD", "60 FPS", "MULTI", "4K MOD")
     private var onCustomIconPickedCallback: ((String) -> Unit)? = null
 
-    // Параметры 5.5.6: Распаковка/Упаковка RomFS+ExeFS, Генератор Forwarder (.nro -> .nsp), 3DS FBI QR и FTP
+    // Параметры 5.5.7: Распаковка/Упаковка RomFS+ExeFS, Генератор Forwarder (.nro -> .nsp), 3DS FBI QR и FTP
     private var extractRomfsEnabled = true
     private var extractExefsEnabled = true
     private var extractControlEnabled = true
@@ -217,7 +217,7 @@ class MainActivity : Activity() {
         }
 
         buildUserInterface()
-        appendLog("STORM SWITCH BOX ${"5.5.6"} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) готов к работе.")
+        appendLog("STORM SWITCH BOX ${"5.5.7"} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) готов к работе.")
 
         // Автоматическая проверка обновлений с GitHub при запуске
         if (autoCheckUpdatesOnStartup) {
@@ -692,7 +692,7 @@ class MainActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
         titleCol.addView(TextView(this).apply {
-            text = "STORM SWITCH BOX ${"5.5.6"}"
+            text = "STORM SWITCH BOX ${"5.5.7"}"
             setTextColor(th.textPrimary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
             typeface = Typeface.DEFAULT_BOLD
@@ -1733,7 +1733,7 @@ class MainActivity : Activity() {
                             customDisplayVersion = customDisplayVer,
                             customOutputFileName = if (gameGroups.size == 1) customOutputFileName else "",
                             customIconPath = customIconImagePath,
-                            iconBadgeText = iconBadgeOptions.getOrElse(selectedIconBadgeIndex) { "" }
+                            iconBadgeText = if (selectedIconBadgeIndex > 0) iconBadgeOptions.getOrElse(selectedIconBadgeIndex) { "" } else ""
                         )
                         val res = StormNczEngine.buildSmartMultiContentPackage(
                             inputFiles = preparedInputs,
@@ -1874,7 +1874,7 @@ class MainActivity : Activity() {
                                     customDisplayVersion = customDisplayVer,
                                     customOutputFileName = if (snapshot.size == 1) customOutputFileName else "",
                                     customIconPath = customIconImagePath,
-                                    iconBadgeText = iconBadgeOptions.getOrElse(selectedIconBadgeIndex) { "" }
+                                    iconBadgeText = if (selectedIconBadgeIndex > 0) iconBadgeOptions.getOrElse(selectedIconBadgeIndex) { "" } else ""
                                 )
                                 StormNczEngine.buildSmartMultiContentPackage(
                                     inputFiles = listOf(inFile),
@@ -2959,7 +2959,7 @@ class MainActivity : Activity() {
                         customDisplayVersion = dlgDisplayVer,
                         customOutputFileName = dlgOutputFileName,
                         customIconPath = dlgCustomIconPath,
-                        iconBadgeText = iconBadgeOptions.getOrElse(dlgBadgeIndex) { "" }
+                        iconBadgeText = if (dlgBadgeIndex > 0) iconBadgeOptions.getOrElse(dlgBadgeIndex) { "" } else ""
                     )
                     val res = RuTrackerCloudEngine.downloadTopicAndBuildMultiContent(
                         topic = item,
@@ -3512,11 +3512,11 @@ class MainActivity : Activity() {
         fun runSimulationPreset(presetIdx: Int) {
             simOutputTxt.text = when (presetIdx) {
                 0 -> buildString {
-                    appendLine("🎮 Пресет #1: Animal Well [0100C9801A8C2000]")
+                    appendLine("🎮 Пресет #1: Animal Well [010020D01AD24000]")
                     appendLine("────────────────────────────────────────────")
                     appendLine("Входные файлы раздачи:")
-                    appendLine("  1. [БАЗА] Animal Well [0100C9801A8C2000][v0].nsp — 54,28 МБ")
-                    appendLine("  2. [ПАТЧ] Animal Well [0100C9801A8C2800][v1.0.2].nsp — 19,07 МБ")
+                    appendLine("  1. [БАЗА] Animal Well [010020D01AD24000][v0].nsp — 54,28 МБ")
+                    appendLine("  2. [ПАТЧ] Animal Well [010020D01AD24800][v1.0.2].nsp — 19,07 МБ")
                     appendLine("  3. [МОД]  Animal_Well_RUS_Mod.zip (LayeredFS romfs) — 1,40 МБ")
                     appendLine("Этапы конвейера STORM SWITCH BOX:")
                     appendLine("  ✔ Шаг 1: Разворачивание PFS0 -> 9 плоских разделов (.nca/.tik/.cert)")
@@ -3783,7 +3783,7 @@ class MainActivity : Activity() {
         }
         updCard.addView(makeSectionHeader(
             "2. Обновление STORM SWITCH BOX (GitHub и STORM GAMES WORLD)",
-            "Текущая версия: 5.5.6 (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) • Проверка на 2 официальных площадках",
+            "Текущая версия: 5.5.7 (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) • Проверка на 2 официальных площадках",
             th
         ))
         updCard.addView(makeStormCheckBox(
@@ -4489,7 +4489,7 @@ class MainActivity : Activity() {
             Toast.makeText(this, "⏳ Проверка обновлений на GitHub и STORM GAMES WORLD...", Toast.LENGTH_SHORT).show()
         }
         val preferLegacy = (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) || Build.VERSION.SDK_INT < 26
-        val currentAppVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "5.5.6" } catch (_: Exception) { "5.5.6" }
+        val currentAppVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "5.5.7" } catch (_: Exception) { "5.5.7" }
         thread {
             val rel = RuTrackerCloudEngine.checkGitHubAppUpdate(currentAppVer, preferLegacy)
             mainHandler.post {
@@ -4520,7 +4520,7 @@ class MainActivity : Activity() {
             typeface = Typeface.DEFAULT_BOLD
         })
         box.addView(TextView(this).apply {
-            text = "Новая версия: ${release.version} (Установлена: 5.5.6)\nИсточник: ${release.sourceName}\nПакет: ${release.apkName} (${StormNczEngine.formatSize(release.apkSizeBytes)})"
+            text = "Новая версия: ${release.version} (Установлена: 5.5.7)\nИсточник: ${release.sourceName}\nПакет: ${release.apkName} (${StormNczEngine.formatSize(release.apkSizeBytes)})"
             setTextColor(th.textPrimary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
             setPadding(0, dp(4), 0, dp(8))
@@ -4707,7 +4707,7 @@ class MainActivity : Activity() {
     }
 
     // =========================================================================
-    // НОВЫЕ РАЗДЕЛЫ И ДИАЛОГИ 5.5.6:
+    // НОВЫЕ РАЗДЕЛЫ И ДИАЛОГИ 5.5.7:
     // 1. ВИРТУАЛЬНЫЙ ПРОВОДНИК ROMFS / EXEFS (HEX + UTF-8)
     // 2. МАСТЕР РАСПАКОВКИ И ОБРАТНОЙ УПАКОВКИ ПАПКИ В NSP / NSZ
     // 3. ГЕНЕРАТОР HOMEBREW FORWARDER (.NRO -> .NSP) С ПОДДЕРЖКОЙ RUTRACKER

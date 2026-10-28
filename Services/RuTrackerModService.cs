@@ -479,7 +479,7 @@ namespace StormSwitchBox.Services
         {
             var db = new (string Tid, string Title, string Cat, string Size, int Seeds, int Leech, string Hash)[]
             {
-                ("6525297", "[Nintendo Switch] Animal Well [v1.0.2 / 0100C9801A8C2000] [NSZ] [RUS / Multi11]", "Nintendo Switch", "73.35 MB", 54, 2, "0A996B997AA2B90DB658E4CA76D2989DD1F80F56"),
+                ("6525297", "[Nintendo Switch] Animal Well [v1.0.2 / 010020D01AD24000] [NSZ] [RUS / Multi11]", "Nintendo Switch", "73.35 MB", 54, 2, "0A996B997AA2B90DB658E4CA76D2989DD1F80F56"),
                 ("6589120", "[Nintendo Switch] Nine Sols [v1.0.5 + Русификатор] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "3.42 GB", 165, 12, "957ADC803EE75C916B735378F25406B4A4A7F1D5"),
                 ("5468910", "[Nintendo Switch] Celeste [v1.4.0.0] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "1.18 GB", 182, 6, "6EDC344625A26DCA0861F2ABE2FE2B98C0E83B1D"),
                 ("6381290", "[Nintendo Switch] Sea of Stars [v1.0.47958 + DLC + Русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "4.15 GB", 154, 9, "5054E8E6621522E2173D5AE817AFFAC8DABE50FE"),

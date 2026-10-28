@@ -332,9 +332,24 @@ namespace StormSwitchBox.Core.NSZ
 
                 long skipBytes = 0;
                 byte hashType = fsHeader[0x03];
-                if (hashType == 3)
+                if (encryptionType == 5 || encryptionType == 6)
                 {
-                    skipBytes = BitConverter.ToInt64(fsHeader, 0x90);
+                    if (hashType == 2 || hashType == 5)
+                    {
+                        int layerCount = BitConverter.ToInt32(fsHeader, 0x2C);
+                        if (layerCount > 0 && layerCount <= 5)
+                        {
+                            skipBytes = BitConverter.ToInt64(fsHeader, 0x30 + (layerCount - 1) * 16);
+                        }
+                    }
+                    else if (hashType == 3 || hashType == 6)
+                    {
+                        int maxLayers = BitConverter.ToInt32(fsHeader, 0x14);
+                        if (maxLayers >= 2 && maxLayers <= 7)
+                        {
+                            skipBytes = BitConverter.ToInt64(fsHeader, 0x18 + (maxLayers - 2) * 24);
+                        }
+                    }
                 }
 
                 long metadataSize = 0;
