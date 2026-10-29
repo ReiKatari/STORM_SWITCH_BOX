@@ -3029,7 +3029,7 @@ object StormNczEngine {
 
         val cleanName = extractCleanGameTitle(inputFile.name).ifBlank { inputFile.nameWithoutExtension }
         val finalFileName = if (preBuildCustomization.enabled && preBuildCustomization.customOutputFileName.isNotBlank()) {
-            val userBase = preBuildCustomization.customOutputFileName.trim().replace(Regex("""[\\/:*?"<>|]"""), "")
+            val userBase = preBuildCustomization.customOutputFileName.trim().filter { it !in "\\/:*?\"<>|[]" }
             if (userBase.contains('.')) userBase.substringBeforeLast('.') + ".$targetExt" else "$userBase.$targetExt"
         } else {
             "${cleanName}_[Decrypted].$targetExt"
@@ -3806,7 +3806,7 @@ object StormNczEngine {
 
             val outputFile = if (preBuildCustomization.enabled && preBuildCustomization.customOutputFileName.isNotBlank()) {
                 val cleanCustomName = preBuildCustomization.customOutputFileName.trim()
-                    .replace(Regex("""[\\/:*?"<>|]"""), "")
+                    .filter { it !in "\\/:*?\"<>|[]" }
                 val withRightExt = if (cleanCustomName.contains('.')) {
                     cleanCustomName.substringBeforeLast('.') + ".$finalExt"
                 } else {
@@ -3816,7 +3816,7 @@ object StormNczEngine {
             } else {
                 val displayClean = (if (preBuildCustomization.enabled && preBuildCustomization.customInternalTitle.isNotBlank()) {
                     preBuildCustomization.customInternalTitle.trim()
-                } else baseCleanTitle).replace(Regex("""[\\/:*?"<>|\[\]]"""), "").trim().ifEmpty { "Switch_Game" }
+                } else baseCleanTitle).filter { it !in "\\/:*?\"<>|[]" }.trim().ifEmpty { "Switch_Game" }
                 val tidPart = if (primaryTid.isNotEmpty()) "_[$primaryTid]" else ""
                 val suffixTag = if (inputFiles.size > 1 || embeddedModsCount > 0) "_[Multi]" else ""
                 File(outputDir, "${displayClean}${suffixTag}${tidPart}.$finalExt")
@@ -6630,7 +6630,7 @@ object StormNczEngine {
             titleId = strictTid16Regex.find(dir.name)?.groupValues?.get(1)?.uppercase() ?: "0400000000010000"
         }
 
-        val cleanName = cleanSwitch2FolderName(rootDir.name.replace(strictTid16Regex, "").replace(Regex("""\[.*?\]"""), "").trim())
+        val cleanName = cleanSwitch2FolderName(rootDir.name.replace(strictTid16Regex, "").replace(Regex("""\[.*?\]"""), "").trim()).map { if (it in "\\/:*?\"<>|[]") '_' else it }.joinToString("").trim()
         val gameTitle = cleanName.ifBlank { "Nintendo Switch 2 Game" }
 
         var updateDir: String? = null

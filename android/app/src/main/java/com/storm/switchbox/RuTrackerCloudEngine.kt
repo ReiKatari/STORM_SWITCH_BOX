@@ -61,7 +61,13 @@ object RuTrackerCloudEngine {
         val sizeBytes: Long,
         val titleId: String,
         var selected: Boolean = true
-    )
+    ) {
+        val isMod: Boolean get() = roleBadge.contains("MOD", ignoreCase = true) ||
+            roleBadge.contains("РУС", ignoreCase = true) ||
+            fileName.contains("MOD", ignoreCase = true) ||
+            fileName.contains("RUS", ignoreCase = true) ||
+            fileName.contains("Русификатор", ignoreCase = true)
+    }
 
     data class ReleaseSiteDetails(
         val topicId: String,
@@ -107,7 +113,7 @@ object RuTrackerCloudEngine {
         TopicItem("6549120", "[Nintendo Switch] Stray [v1.0.2] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "5,84 ГБ", 188, 16, "44556677889900AABBCCDDEEFF00112233445566", "", ""),
         TopicItem("6438192", "[Nintendo Switch] Unicorn Overlord [v1.05 + Полный русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "6,42 ГБ", 174, 13, "556677889900AABBCCDDEEFF0011223344556677", "", ""),
         TopicItem("6521890", "[Nintendo Switch] Shin Megami Tensei V: Vengeance [v1.0.2 + DLC + Русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "15,20 ГБ", 162, 15, "6677889900AABBCCDDEEFF001122334455667788", "", ""),
-        TopicItem("6578120", "[Nintendo Switch] Mario & Luigi: Brothership [v1.0.0 + Русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "9,85 ГБ", 215, 24, "77889900AABBCCDDEEFF00112233445566778899", "", ""),
+        TopicItem("6578120", "[Nintendo Switch] Mario & Luigi: Brothership [v1.0.1 / 01006D0017F7A000] [RUS / Multi]", "Nintendo Switch", "9,85 ГБ", 215, 24, "77889900AABBCCDDEEFF00112233445566778899", "", ""),
         TopicItem("6569102", "[Nintendo Switch] Super Mario Party Jamboree [v1.1.0] [NSP / NSZ] [RUS (Полный перевод)]", "Nintendo Switch", "5,34 ГБ", 248, 19, "889900AABBCCDDEEFF0011223344556677889900", "", ""),
         TopicItem("6581024", "[Nintendo Switch] Dragon Quest III HD-2D Remake [v1.0.1 + Русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "7,45 ГБ", 181, 17, "9900AABBCCDDEEFF0011223344556677889900AA", "", ""),
         TopicItem("6571920", "[Nintendo Switch] Sonic X Shadow Generations [v1.0.2 + DLC + Русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "13,10 ГБ", 176, 14, "00AABBCCDDEEFF0011223344556677889900AABB", "", ""),
@@ -214,7 +220,7 @@ object RuTrackerCloudEngine {
                                 if (arr.length() >= 6) {
                                     val seeds = arr.optInt(1, 0)
                                     val sizeBytes = arr.optLong(3, 0L)
-                                    val hash = arr.optString(5, "").uppercase()
+                                    val hash = arr.optString(7, "").trim().ifEmpty { arr.optString(5, "").trim() }.uppercase()
                                     if (hash.length == 40) {
                                         map[hash] = Triple(tid, sizeBytes, seeds)
                                     }
@@ -382,7 +388,7 @@ object RuTrackerCloudEngine {
             .replace('o', 'a')
             .replace(Regex("""[^a-z0-9]+"""), "")
         val sb = StringBuilder()
-        var prev = ' '
+        var prev = '\u0000'
         for (ch in s) {
             if (ch != prev) {
                 sb.append(ch)
@@ -1670,7 +1676,7 @@ object RuTrackerCloudEngine {
 
         if (outMap.isEmpty()) {
             val cleanGame = StormNczEngine.extractCleanGameTitle(topic.title)
-                .replace(Regex("""[\\/:*?"<>|\[\]]"""), "").trim().ifBlank { "Switch Game" }
+                .map { if (it in "\\/:*?\"<>|[]") '_' else it }.joinToString("").trim().ifBlank { "Switch Game" }
             val slug = cleanGame.lowercase().replace(Regex("[^a-z0-9а-яё]+"), "-").trim('-').ifBlank { "switch-game" }
             val verMatch = Regex("""\b(v\d+(?:\.\d+)+)\b""", RegexOption.IGNORE_CASE).find(topic.title)
             val verTag = verMatch?.groupValues?.get(1) ?: "v1.0.4"
@@ -1752,8 +1758,11 @@ object RuTrackerCloudEngine {
             if (normalized == "0100C9801A8C2000") return "010020D01AD24000"
             return normalized
         }
+        val lower = rawTitle.lowercase()
+        if (lower.contains("mario") && lower.contains("brothership")) return "01006D0017F7A000"
+        if (lower.contains("mario vs") && lower.contains("donkey kong")) return "0100B99019412000"
         val clean = StormNczEngine.extractCleanGameTitle(rawTitle).lowercase().trim()
-        if (clean.contains("animal well")) return "010020D01AD24000"
+        if (clean.contains("animal well") || lower.contains("animal well")) return "010020D01AD24000"
         try {
             val dbMatch = StormNczEngine.loadFullTitleDbFromAssets().firstOrNull {
                 it.platform.equals("Switch", ignoreCase = true) &&
@@ -1780,6 +1789,7 @@ object RuTrackerCloudEngine {
         baseTid: String,
         romsDir: File,
         outputDir: File,
+        preferRussianMod: Boolean = true,
         isCancelled: () -> Boolean,
         onProgress: (downloadedBytes: Long, totalBytes: Long, speedMbSec: Double) -> Unit
     ): File? {
@@ -1845,6 +1855,11 @@ object RuTrackerCloudEngine {
         }
 
         // 2. Если локального файла нет, скачиваем настоящий контейнер с облачного сервера STORM GAMES WORLD (stormgamesworld.ru)
+        fun normTitle(s: String) = s.lowercase()
+            .replace("and", "")
+            .replace("&", "")
+            .replace(Regex("[^a-zа-яё0-9]+"), "")
+
         var cloudGameId = if (effectiveTid == "010020D01AD24000" || cleanLower.contains("animal well")) 1217 else -1
         if (cloudGameId <= 0) {
             try {
@@ -1852,15 +1867,44 @@ object RuTrackerCloudEngine {
                 if (conn.responseCode == 200) {
                     val rawJson = conn.inputStream.bufferedReader().use { it.readText() }
                     val arr = JSONArray(rawJson)
+                    val candidates = mutableListOf<Pair<Int, String>>()
+                    val normClean = normTitle(cleanLower)
+
                     for (i in 0 until arr.length()) {
                         val obj = arr.optJSONObject(i) ?: continue
                         if (obj.optInt("platformId", 0) != 18) continue
                         val sId = obj.optString("serialId", "").uppercase().trim()
-                        val gTitle = obj.optString("title", "").lowercase().trim()
-                        if ((sId.isNotEmpty() && sId.startsWith(tidPrefix13)) ||
-                            (cleanLower.length >= 4 && gTitle == cleanLower)) {
-                            cloudGameId = obj.optInt("id", -1)
-                            if (cloudGameId > 0) break
+                        val gTitle = obj.optString("title", "").trim()
+                        val gCorrect = obj.optString("correctTitle", "").trim()
+                        val gRel = (obj.optString("finalTitle", "") + " " +
+                                    obj.optString("correctTitle", "") + " " +
+                                    obj.optJSONArray("textLangs")?.toString().orEmpty() + " " +
+                                    obj.optJSONArray("mods")?.toString().orEmpty()).uppercase()
+                        val id = obj.optInt("id", -1)
+                        if (id <= 0) continue
+
+                        val matchesSerial = sId.isNotEmpty() && sId.startsWith(tidPrefix13)
+                        val matchesTitle = normClean.length >= 4 && (
+                            normTitle(gTitle) == normClean ||
+                            normTitle(gCorrect) == normClean ||
+                            normTitle(gTitle).contains(normClean) ||
+                            normClean.contains(normTitle(gTitle))
+                        )
+
+                        if (matchesSerial || matchesTitle) {
+                            candidates.add(Pair(id, gRel))
+                        }
+                    }
+
+                    if (candidates.isNotEmpty()) {
+                        cloudGameId = if (preferRussianMod) {
+                            candidates.filter { it.second.contains("MOD - RUS") || it.second.contains("RUS") }
+                                .maxByOrNull { it.first }?.first
+                                ?: candidates.maxByOrNull { it.first }!!.first
+                        } else {
+                            candidates.filter { !it.second.contains("MOD - RUS") }
+                                .maxByOrNull { it.first }?.first
+                                ?: candidates.maxByOrNull { it.first }!!.first
                         }
                     }
                 }
@@ -1923,7 +1967,7 @@ object RuTrackerCloudEngine {
         val dlcTid = baseTid.dropLast(3) + "001"
 
         val cleanGameName = StormNczEngine.extractCleanGameTitle(topic.title)
-            .replace(Regex("""[\\/:*?"<>|\[\]]"""), "")
+            .map { if (it in "\\/:*?\"<>|[]") '_' else it }.joinToString("")
             .trim()
             .ifBlank { "Switch_Game_${topic.topicId}" }
 
@@ -2111,7 +2155,7 @@ object RuTrackerCloudEngine {
         } else rawBaseTid
 
         val cleanGameName = StormNczEngine.extractCleanGameTitle(topic.title)
-            .replace(Regex("""[\\/:*?"<>|[\]]"""), "")
+            .filter { it !in "\\/:*?\"<>|[]" }
             .trim()
             .ifBlank { "Switch_Game_${topic.topicId}" }
 
@@ -2132,7 +2176,7 @@ object RuTrackerCloudEngine {
         val publisherForControl = if (preBuildCustomization.enabled && preBuildCustomization.customPublisher.isNotBlank()) {
             preBuildCustomization.customPublisher.trim()
         } else "Nintendo"
-        val topicVerStr = Regex("""\\bv?(\\d+(?:\\.\\d+)+)\\b""", RegexOption.IGNORE_CASE)
+        val topicVerStr = Regex("""\bv?(\d+(?:\.\d+)+)\b""", RegexOption.IGNORE_CASE)
             .find(topic.title)?.groupValues?.get(1) ?: "1.0.0"
         val verForControl = if (preBuildCustomization.enabled && preBuildCustomization.customDisplayVersion.isNotBlank()) {
             preBuildCustomization.customDisplayVersion.trim()
@@ -2153,11 +2197,13 @@ object RuTrackerCloudEngine {
         val downloadedModFiles = mutableListOf<File>()
 
         // 1.1 Скачивание контейнеров раздачи (БАЗА, ОБНОВЛЕНИЕ, DLC, UNLOCKER)
+        val preferRussianMod = modUrls.isNotEmpty() || topic.title.contains("RUS", ignoreCase = true) || allReleaseFiles.any { it.isMod }
         val realRetailContainer = acquireRealRetailGameContainer(
             cleanGameName = cleanGameName,
             baseTid = baseTid,
             romsDir = romsDir,
             outputDir = outputDir,
+            preferRussianMod = preferRussianMod,
             isCancelled = isCancelled
         ) { dlBytes, dlTotal, speedMbSec ->
             val overallPct = 2 + ((dlBytes * 28L) / dlTotal.coerceAtLeast(1L)).toInt().coerceIn(0, 28)
@@ -2536,10 +2582,24 @@ object RuTrackerCloudEngine {
         }
 
         val finalPackInputs = mutableListOf<File>()
-        finalPackInputs.add(unpackRootDir)
-        finalPackInputs.addAll(dlcAndUnlockerFiles)
-        if (finalPackInputs.size == 1 && downloadedFiles.isNotEmpty()) {
-            finalPackInputs.addAll(downloadedFiles.filter { it != baseFile && it !in updateFiles })
+        if (baseFile.exists()) finalPackInputs.add(baseFile)
+        for (uf in updateFiles) {
+            if (uf.exists() && uf.absolutePath != baseFile.absolutePath && finalPackInputs.none { it.absolutePath == uf.absolutePath }) {
+                finalPackInputs.add(uf)
+            }
+        }
+        for (df in dlcAndUnlockerFiles) {
+            if (df.exists() && finalPackInputs.none { it.absolutePath == df.absolutePath }) {
+                finalPackInputs.add(df)
+            }
+        }
+        for (cf in cloudContainers) {
+            if (cf.exists() && finalPackInputs.none { it.absolutePath == cf.absolutePath }) {
+                finalPackInputs.add(cf)
+            }
+        }
+        if (File(unpackRootDir, "romfs").exists() || File(unpackRootDir, "exefs").exists()) {
+            finalPackInputs.add(unpackRootDir)
         }
 
         val buildRes = StormNczEngine.buildSmartMultiContentPackage(
