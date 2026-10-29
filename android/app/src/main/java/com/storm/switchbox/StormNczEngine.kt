@@ -438,29 +438,44 @@ object StormNczEngine {
     fun synchronizeCrossRegionLocalization(romfsDir: File) {
         if (!romfsDir.exists() || !romfsDir.isDirectory) return
         try {
-            // 1. Nintendo Mals Archives (*.Product.*.sarc.zs)
+            // 1. Nintendo Mals Archives (*.Product.*.sarc.zs) -> зеркалирование EUen / USen / EUru (удаление невалидного RUru)
             romfsDir.walkTopDown().filter { it.isDirectory && it.name.equals("Mals", ignoreCase = true) }.forEach { malsDir ->
                 val sarcFiles = malsDir.listFiles { f -> f.isFile && f.name.endsWith(".sarc.zs", ignoreCase = true) }?.toList() ?: emptyList()
-                val modded = sarcFiles.firstOrNull()
+                val modded = sarcFiles.firstOrNull { it.name.startsWith("EUru.Product.", ignoreCase = true) }
+                    ?: sarcFiles.firstOrNull { it.name.startsWith("RUru.Product.", ignoreCase = true) }
+                    ?: sarcFiles.firstOrNull { it.name.startsWith("EUen.Product.", ignoreCase = true) }
+                    ?: sarcFiles.firstOrNull { it.name.startsWith("USen.Product.", ignoreCase = true) }
+                    ?: sarcFiles.firstOrNull()
                 if (modded != null) {
                     val moddedName = modded.name
                     val verMatch = Regex("""^[A-Za-z]{2,4}\.(Product\.[^.]+\.sarc\.zs)$""", RegexOption.IGNORE_CASE).find(moddedName)
                     if (verMatch != null) {
                         val suffix = verMatch.groupValues[1]
-                        val usen = File(malsDir, "USen.$suffix")
-                        val euen = File(malsDir, "EUen.$suffix")
-                        if (!usen.exists()) modded.copyTo(usen, overwrite = true)
-                        if (!euen.exists()) modded.copyTo(euen, overwrite = true)
+                        for (langPrefix in listOf("EUen", "USen", "EUru")) {
+                            val dst = File(malsDir, "$langPrefix.$suffix")
+                            if (!dst.exists() || !dst.canonicalPath.equals(modded.canonicalPath, ignoreCase = true)) {
+                                modded.copyTo(dst, overwrite = true)
+                            }
+                        }
                     }
                     for (target in sarcFiles) {
                         val tName = target.name
-                        if (tName.startsWith("EUen.Product.", ignoreCase = true) ||
+                        if (tName.startsWith("RUru.Product.", ignoreCase = true)) {
+                            if (!target.canonicalPath.equals(modded.canonicalPath, ignoreCase = true)) {
+                                target.delete()
+                            }
+                        } else if (tName.startsWith("EUen.Product.", ignoreCase = true) ||
                             tName.startsWith("USen.Product.", ignoreCase = true) ||
-                            tName.startsWith("RUru.Product.", ignoreCase = true)) {
+                            tName.startsWith("EUru.Product.", ignoreCase = true)) {
                             if (!target.canonicalPath.equals(modded.canonicalPath, ignoreCase = true)) {
                                 modded.copyTo(target, overwrite = true)
                             }
                         }
+                    }
+                    // Если исходник назывался RUru.Product.*, удаляем его после создания EUen/USen/EUru
+                    if (modded.name.startsWith("RUru.Product.", ignoreCase = true) &&
+                        File(malsDir, modded.name.replaceFirst(Regex("""^RUru\.""", RegexOption.IGNORE_CASE), "EUru.")).exists()) {
+                        modded.delete()
                     }
                 }
             }
@@ -1273,8 +1288,10 @@ object StormNczEngine {
                     init(Cipher.ENCRYPT_MODE, SecretKeySpec(kak, "AES"))
                 }
                 val encZeroKey = enc.doFinal(ByteArray(16))
+                val encCtrKey = enc.doFinal(ByteArray(16) { 4.toByte() })
                 System.arraycopy(encZeroKey, 0, plainHeader0C00, 0x300, 16)
-                System.arraycopy(encZeroKey, 0, plainHeader0C00, 0x320, 16)
+                System.arraycopy(encZeroKey, 0, plainHeader0C00, 0x310, 16)
+                System.arraycopy(encCtrKey, 0, plainHeader0C00, 0x320, 16)
             } catch (_: Exception) {}
         }
     }
@@ -1608,6 +1625,8 @@ object StormNczEngine {
     ) {
         if (length <= 0 || key.size != 16 || key.all { it == 0.toByte() }) return
         try {
+            val inBlock = (virtualNcaOffset and 15L).toInt()
+            val alignedOffset = virtualNcaOffset - inBlock
             val iv = ByteArray(16)
             for (i in 0..7) iv[i] = upperCounter8[i]
             var baseLowIv = 0L
@@ -1616,15 +1635,22 @@ object StormNczEngine {
                     baseLowIv = (baseLowIv shl 8) or (upperCounter8[i].toLong() and 0xFFL)
                 }
             }
-            var blockCounter = baseLowIv + (virtualNcaOffset ushr 4)
+            var blockCounter = baseLowIv + (alignedOffset ushr 4)
             for (i in 15 downTo 8) {
                 iv[i] = (blockCounter and 0xFFL).toByte()
                 blockCounter = blockCounter ushr 8
             }
             val cipher = Cipher.getInstance("AES/CTR/NoPadding")
             cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), IvParameterSpec(iv))
-            val out = cipher.doFinal(buffer, bufOffset, length)
-            System.arraycopy(out, 0, buffer, bufOffset, length)
+            if (inBlock == 0) {
+                val out = cipher.doFinal(buffer, bufOffset, length)
+                System.arraycopy(out, 0, buffer, bufOffset, length)
+            } else {
+                val padded = ByteArray(inBlock + length)
+                System.arraycopy(buffer, bufOffset, padded, inBlock, length)
+                val out = cipher.doFinal(padded)
+                System.arraycopy(out, inBlock, buffer, bufOffset, length)
+            }
         } catch (_: Exception) {}
     }
 
@@ -1692,52 +1718,72 @@ object StormNczEngine {
         val maxDstSize = Zstd.compressBound(blockSize.toLong()).toInt()
         val compBuf = ByteArray(maxDstSize)
 
+        val workerCount = minOf(Runtime.getRuntime().availableProcessors(), 4).coerceAtLeast(2)
+        val batchSize = workerCount * 2
+        val pool = Executors.newFixedThreadPool(workerCount)
         try {
-            BufferedOutputStream(FileOutputStream(blocksTempFile), 256 * 1024).use { blockBos ->
+            BufferedOutputStream(FileOutputStream(blocksTempFile), 512 * 1024).use { blockBos ->
                 var remaining = payloadSize
                 var currentReadOffset = sliceOffset + NCA_HEADER_SIZE
                 var currentVirtualOffset = NCA_HEADER_SIZE
+                val effZstdLevel = level.coerceIn(1, 22)
 
-                for (blockIdx in 0 until totalBlocks) {
-                    val toRead = min(blockSize.toLong(), remaining).toInt()
-                    raf.seek(currentReadOffset)
-                    raf.readFully(rawBuf, 0, toRead)
+                var batchStart = 0
+                while (batchStart < totalBlocks) {
+                    val countInBatch = minOf(batchSize, totalBlocks - batchStart)
+                    val batchInputs = Array(countInBatch) { ByteArray(0) }
+                    val batchVirtOffsets = LongArray(countInBatch)
+                    val batchLens = IntArray(countInBatch)
 
-                    // Если блок попадает в секцию с AES-128-CTR / BKTR шифрованием (cryptoType == 3 или 4), расшифровываем перед Zstd
-                    for (sec in sections) {
-                        if ((sec.cryptoType == 3L || sec.cryptoType == 4L) && sec.key.any { it != 0.toByte() }) {
-                            val secStart = sec.offset
-                            val secEnd = sec.offset + sec.size
-                            val blkStart = currentVirtualOffset
-                            val blkEnd = currentVirtualOffset + toRead
-                            val overlapStart = maxOf(secStart, blkStart)
-                            val overlapEnd = minOf(secEnd, blkEnd)
-                            if (overlapEnd > overlapStart) {
-                                val bufOff = (overlapStart - blkStart).toInt()
-                                val len = (overlapEnd - overlapStart).toInt()
-                                transformAesCtrInPlace(rawBuf, bufOff, len, overlapStart, sec.key, sec.counter)
+                    for (i in 0 until countInBatch) {
+                        val toRead = min(blockSize.toLong(), remaining).toInt()
+                        val bRaw = ByteArray(toRead)
+                        raf.seek(currentReadOffset)
+                        raf.readFully(bRaw, 0, toRead)
+                        batchInputs[i] = bRaw
+                        batchVirtOffsets[i] = currentVirtualOffset
+                        batchLens[i] = toRead
+                        currentReadOffset += toRead
+                        currentVirtualOffset += toRead
+                        remaining -= toRead
+                    }
+
+                    val tasks = (0 until countInBatch).map { i ->
+                        Callable<ByteArray> {
+                            val bRaw = batchInputs[i]
+                            val toRead = batchLens[i]
+                            val blkStart = batchVirtOffsets[i]
+                            val blkEnd = blkStart + toRead
+                            for (sec in sections) {
+                                if ((sec.cryptoType == 3L || sec.cryptoType == 4L) && sec.key.any { it != 0.toByte() }) {
+                                    val overlapStart = maxOf(sec.offset, blkStart)
+                                    val overlapEnd = minOf(sec.offset + sec.size, blkEnd)
+                                    if (overlapEnd > overlapStart) {
+                                        val bufOff = (overlapStart - blkStart).toInt()
+                                        val len = (overlapEnd - overlapStart).toInt()
+                                        transformAesCtrInPlace(bRaw, bufOff, len, overlapStart, sec.key, sec.counter)
+                                    }
+                                }
+                            }
+                            val dstMax = Zstd.compressBound(toRead.toLong()).toInt()
+                            val dst = ByteArray(dstMax)
+                            val cSize = Zstd.compressByteArray(dst, 0, dst.size, bRaw, 0, toRead, effZstdLevel)
+                            if (!Zstd.isError(cSize) && cSize > 0 && cSize < toRead) {
+                                dst.copyOf(cSize.toInt())
+                            } else {
+                                bRaw
                             }
                         }
                     }
 
-                    currentReadOffset += toRead
-                    currentVirtualOffset += toRead
-                    remaining -= toRead
-
-                    val cSize = Zstd.compressByteArray(
-                        compBuf, 0, compBuf.size,
-                        rawBuf, 0, toRead,
-                        level.coerceIn(1, 22)
-                    )
-
-                    if (!Zstd.isError(cSize) && cSize > 0 && cSize < toRead) {
-                        compressedSizes[blockIdx] = cSize.toInt()
-                        blockBos.write(compBuf, 0, cSize.toInt())
-                    } else {
-                        compressedSizes[blockIdx] = toRead
-                        blockBos.write(rawBuf, 0, toRead)
+                    val futures = pool.invokeAll(tasks)
+                    for (i in 0 until countInBatch) {
+                        val outBlock = futures[i].get()
+                        compressedSizes[batchStart + i] = outBlock.size
+                        blockBos.write(outBlock)
+                        onChunkProcessed(batchLens[i].toLong())
                     }
-                    onChunkProcessed(toRead.toLong())
+                    batchStart += countInBatch
                 }
                 blockBos.flush()
             }
@@ -1784,6 +1830,7 @@ object StormNczEngine {
                 fos.flush()
             }
         } finally {
+            pool.shutdownNow()
             blocksTempFile.delete()
         }
     }
@@ -2630,121 +2677,24 @@ object StormNczEngine {
 
     fun buildRomfsBinaryImageFromDir(romfsDir: File, outFile: File): Long {
         if (!romfsDir.exists() || !romfsDir.isDirectory) return 0L
-        val allFiles = romfsDir.walkTopDown().filter { it.isFile }.toList()
-        if (allFiles.isEmpty()) return 0L
-
-        val relPaths = allFiles.map { it.relativeTo(romfsDir).path.replace('\\', '/') }
-        val fileNameBytesList = relPaths.map { it.toByteArray(StandardCharsets.UTF_8) }
-        val bucketCount = maxOf(3, relPaths.size / 2)
-        val dirHashTableSize = 4
-        val dirMetaTableSize = 24
-        val fileHashTableSize = bucketCount * 4
-
-        fun calcRomFsHash(parentOff: Int, nameBytes: ByteArray): Int {
-            var h = parentOff.toUInt() xor 123456789u
-            for (b in nameBytes) {
-                h = (h shr 5) or (h shl 27)
-                h = h xor (b.toInt() and 0xFF).toUInt()
+        val entries = LinkedHashMap<String, VirtualRomfsSource>()
+        romfsDir.walkTopDown().filter { it.isFile }.forEach { f ->
+            val rel = f.relativeTo(romfsDir).path.replace('\\', '/').trimStart('/')
+            if (rel.isNotEmpty() && !isJunkOrReadmeFile(f.name)) {
+                entries[rel] = VirtualRomfsSource.LocalFile(f)
             }
-            return (h % bucketCount.toUInt()).toInt()
         }
-
-        val fileMetaOffsets = IntArray(relPaths.size)
-        var curMetaOff = 0
-        for (i in relPaths.indices) {
-            fileMetaOffsets[i] = curMetaOff
-            val alignedNameLen = (fileNameBytesList[i].size + 3) and -4
-            curMetaOff += 32 + alignedNameLen
-        }
-        val fileMetaTableSize = curMetaOff
-
-        val headerAndMetaEnd = 0x50 + dirHashTableSize + dirMetaTableSize + fileHashTableSize + fileMetaTableSize
-        val filePartitionOffset = (headerAndMetaEnd + 0x1FF) and -0x200
-
-        val fileDataOffsets = LongArray(relPaths.size)
-        var curDataOff = 0L
-        for (i in relPaths.indices) {
-            curDataOff = (curDataOff + 0x0FL) and -0x10L
-            fileDataOffsets[i] = curDataOff
-            curDataOff += allFiles[i].length()
-        }
-
-        val totalRomFsSize = (filePartitionOffset.toLong() + curDataOff + 0x3FFFL) and -0x4000L
-
+        if (entries.isEmpty()) return 0L
+        val plan = buildHierarchicalRomfsPlan(entries)
         outFile.parentFile?.mkdirs()
         RandomAccessFile(outFile, "rw").use { raf ->
-            raf.setLength(totalRomFsSize)
-            val metaHeaderBytes = ByteArray(filePartitionOffset)
-            val bb = ByteBuffer.wrap(metaHeaderBytes).order(ByteOrder.LITTLE_ENDIAN)
-
-            val dirHashOff = 0x50L
-            val dirMetaOff = dirHashOff + dirHashTableSize
-            val fileHashOff = dirMetaOff + dirMetaTableSize
-            val fileMetaOff = fileHashOff + fileHashTableSize
-
-            bb.putLong(0x00, 0x50L)
-            bb.putLong(0x08, dirHashOff)
-            bb.putLong(0x10, dirHashTableSize.toLong())
-            bb.putLong(0x18, dirMetaOff)
-            bb.putLong(0x20, dirMetaTableSize.toLong())
-            bb.putLong(0x28, fileHashOff)
-            bb.putLong(0x30, fileHashTableSize.toLong())
-            bb.putLong(0x38, fileMetaOff)
-            bb.putLong(0x40, fileMetaTableSize.toLong())
-            bb.putLong(0x48, filePartitionOffset.toLong())
-
-            bb.putInt(dirHashOff.toInt(), 0)
-
-            val dm = dirMetaOff.toInt()
-            bb.putInt(dm + 0x00, 0)
-            bb.putInt(dm + 0x04, -1)
-            bb.putInt(dm + 0x08, -1)
-            bb.putInt(dm + 0x0C, if (relPaths.isNotEmpty()) 0 else -1)
-            bb.putInt(dm + 0x10, -1)
-            bb.putInt(dm + 0x14, 0)
-
-            val fh = fileHashOff.toInt()
-            val bucketChains = IntArray(bucketCount) { -1 }
-            val fileHashNext = IntArray(relPaths.size) { -1 }
-            for (i in relPaths.indices) {
-                val bIdx = calcRomFsHash(0, fileNameBytesList[i])
-                fileHashNext[i] = bucketChains[bIdx]
-                bucketChains[bIdx] = fileMetaOffsets[i]
-            }
-            for (b in 0 until bucketCount) {
-                bb.putInt(fh + b * 4, bucketChains[b])
-            }
-
-            val fmBase = fileMetaOff.toInt()
-            for (i in relPaths.indices) {
-                val mOff = fmBase + fileMetaOffsets[i]
-                val nameBytes = fileNameBytesList[i]
-                val nextSibling = if (i + 1 < relPaths.size) fileMetaOffsets[i + 1] else -1
-                bb.putInt(mOff + 0x00, 0)
-                bb.putInt(mOff + 0x04, nextSibling)
-                bb.putLong(mOff + 0x08, fileDataOffsets[i])
-                bb.putLong(mOff + 0x10, allFiles[i].length())
-                bb.putInt(mOff + 0x18, fileHashNext[i])
-                bb.putInt(mOff + 0x1C, nameBytes.size)
-                System.arraycopy(nameBytes, 0, metaHeaderBytes, mOff + 0x20, nameBytes.size)
-            }
-
+            raf.setLength(plan.paddedTotalSize)
             raf.seek(0L)
-            raf.write(metaHeaderBytes)
-
-            val copyBuf = ByteArray(64 * 1024)
-            for (i in relPaths.indices) {
-                val destOff = filePartitionOffset.toLong() + fileDataOffsets[i]
-                raf.seek(destOff)
-                FileInputStream(allFiles[i]).use { fis ->
-                    var r: Int
-                    while (fis.read(copyBuf).also { r = it } > 0) {
-                        raf.write(copyBuf, 0, r)
-                    }
-                }
+            streamRomfsPlanToSink(plan) { chunk, len ->
+                raf.write(chunk, 0, len)
             }
         }
-        return totalRomFsSize
+        return plan.paddedTotalSize
     }
 
     fun buildSwitchRomFsBytes(files: LinkedHashMap<String, ByteArray>): ByteArray {
@@ -3000,96 +2950,113 @@ object StormNczEngine {
      * Распаковывает архивы модов (.zip) и папки LayeredFS (romfs / exefs / ips), очищает системный мусор,
      * разворачивает структуру в mods/atmosphere/contents/<TitleID>/ и упаковывает в Data/RomFS NCA раздел для вшивания в Мульти-контент.
      */
-    private fun unpackAndPackModsIntoLayeredFsNca(
+    private fun normalizeModRelativeSubPath(rawRelPath: String): String? {
+        val clean = rawRelPath.replace('\\', '/').trimStart('/')
+        if (clean.isBlank() || clean.contains("..") || clean.contains("__MACOSX")) return null
+        if (clean.contains("_Unpacked/", ignoreCase = true) || clean.contains("STORM_LAYEREDFS_MOD", ignoreCase = true)) return null
+        val fName = clean.substringAfterLast('/')
+        if (isJunkOrReadmeFile(fName)) return null
+        val lowerExt = fName.substringAfterLast('.', "").lowercase()
+        if (lowerExt in setOf("nsp", "nsz", "xci", "xcz", "nca", "ncz", "tik", "cert")) return null
+        val lowerName = fName.lowercase()
+        if (lowerName == "strings_ru_template.json" || lowerName == "romfs_level6_section.bin") return null
+
+        val mRomfs = Regex("""(?:^|/)romfs/(.+)$""", RegexOption.IGNORE_CASE).find(clean)
+        if (mRomfs != null) return "romfs/" + mRomfs.groupValues[1]
+        val mExefsPatches = Regex("""(?:^|/)exefs_patches/(.+)$""", RegexOption.IGNORE_CASE).find(clean)
+        if (mExefsPatches != null) return "exefs_patches/" + mExefsPatches.groupValues[1]
+        val mExefs = Regex("""(?:^|/)exefs/(.+)$""", RegexOption.IGNORE_CASE).find(clean)
+        if (mExefs != null) return "exefs/" + mExefs.groupValues[1]
+        val mAtmoTid = Regex("""(?:^|/)(?:atmosphere/)?contents/[0-9A-Fa-f]{16}/(.+)$""", RegexOption.IGNORE_CASE).find(clean)
+        if (mAtmoTid != null) {
+            val sub = mAtmoTid.groupValues[1]
+            return if (sub.startsWith("romfs/", true) || sub.startsWith("exefs/", true) || sub.startsWith("exefs_patches/", true)) {
+                sub.substringBefore('/') .lowercase() + "/" + sub.substringAfter('/')
+            } else {
+                "romfs/$sub"
+            }
+        }
+        if (lowerExt == "ips" || lowerExt == "pchtxt") return "exefs/$fName"
+        // Архивы вида "<Название папки мода>/Font/..." или "<Папка>/Mals/..." -> срезаем одиночную корневую обёртку, если внутри известные каталоги RomFS
+        val parts = clean.split('/').filter { it.isNotEmpty() }
+        val knownRomfsTopDirs = setOf("font", "mals", "localizeddata", "message", "msg", "text", "ui", "layout", "lyt", "sound", "system", "pack", "content", "data", "streamingassets", "assetbundles")
+        if (parts.size >= 3 && parts[1].lowercase() in knownRomfsTopDirs && parts[0].lowercase() !in knownRomfsTopDirs) {
+            return "romfs/" + parts.drop(1).joinToString("/")
+        }
+        return "romfs/$clean"
+    }
+
+    private fun stageModFilesForHardPatch(
         modSources: List<File>,
         baseTitleId: String,
         tempDir: File
-    ): Pair<File?, Int> {
-        if (modSources.isEmpty()) return null to 0
+    ): Pair<File, Int> {
         val cleanTid = normalizeBaseTitleId(baseTitleId).ifEmpty { "0100000000010000" }
-        val targetAtmoDir = File("/storage/emulated/0/STORM SWITCH BOX/mods/atmosphere/contents/$cleanTid")
-        targetAtmoDir.mkdirs()
-
         val stagingDir = File(tempDir, "mod_staging_$cleanTid")
         stagingDir.mkdirs()
+        if (modSources.isEmpty()) return stagingDir to 0
         var modFilesCount = 0
-        val junkNames = setOf("thumbs.db", ".ds_store", "desktop.ini")
 
         for (src in modSources) {
             if (!src.exists()) continue
             if (src.isFile && src.extension.equals("zip", ignoreCase = true)) {
-                try {
-                    ZipInputStream(BufferedInputStream(FileInputStream(src))).use { zis ->
-                        var entry = zis.nextEntry
-                        while (entry != null) {
-                            if (!entry.isDirectory) {
-                                val rawPath = entry.name.replace('\\', '/').trimStart('/')
-                                val fName = rawPath.substringAfterLast('/').lowercase()
-                                if (fName !in junkNames && !rawPath.contains("__MACOSX")) {
-                                    val relSubPath = when {
-                                    Regex("""(?:^|/)romfs/(.+)$""", RegexOption.IGNORE_CASE).find(rawPath) != null -> "romfs/" + Regex("""(?:^|/)romfs/(.+)$""", RegexOption.IGNORE_CASE).find(rawPath)!!.groupValues[1]
-                                    Regex("""(?:^|/)exefs_patches/(.+)$""", RegexOption.IGNORE_CASE).find(rawPath) != null -> "exefs_patches/" + Regex("""(?:^|/)exefs_patches/(.+)$""", RegexOption.IGNORE_CASE).find(rawPath)!!.groupValues[1]
-                                    Regex("""(?:^|/)exefs/(.+)$""", RegexOption.IGNORE_CASE).find(rawPath) != null -> "exefs/" + Regex("""(?:^|/)exefs/(.+)$""", RegexOption.IGNORE_CASE).find(rawPath)!!.groupValues[1]
-                                        else -> "romfs/$rawPath"
-                                    }
-                                    val outStaged = File(stagingDir, relSubPath)
-                                    outStaged.parentFile?.mkdirs()
-                                    FileOutputStream(outStaged).use { fos -> zis.copyTo(fos) }
-
-                                    val outAtmo = File(targetAtmoDir, relSubPath)
-                                    outAtmo.parentFile?.mkdirs()
-                                    outStaged.copyTo(outAtmo, overwrite = true)
-                                    modFilesCount++
-                                }
-                            }
-                            zis.closeEntry()
-                            entry = zis.nextEntry
-                        }
-                    }
-                } catch (_: Exception) {}
-            } else if (src.isFile) {
-                val fName = src.name.lowercase()
-                if (fName !in junkNames) {
-                    val sub = if (fName.endsWith(".ips") || fName.endsWith(".pchtxt")) "exefs/$fName" else "romfs/$fName"
-                    val outStaged = File(stagingDir, sub)
+                extractZipArchiveSafe(src) { rawEntryName, entryStream ->
+                    val relSub = normalizeModRelativeSubPath(rawEntryName) ?: return@extractZipArchiveSafe
+                    val outStaged = File(stagingDir, relSub)
                     outStaged.parentFile?.mkdirs()
-                    src.copyTo(outStaged, overwrite = true)
-
-                    val outAtmo = File(targetAtmoDir, sub)
-                    outAtmo.parentFile?.mkdirs()
-                    src.copyTo(outAtmo, overwrite = true)
-                    modFilesCount++
+                    FileOutputStream(outStaged).use { fos -> entryStream.copyTo(fos) }
+                    if (isPoisonedStubMainFile(outStaged) || isPoisonedFakeConfigIni(outStaged)) {
+                        outStaged.delete()
+                    } else {
+                        modFilesCount++
+                    }
+                }
+            } else if (src.isFile) {
+                if (!isPoisonedStubMainFile(src) && !isPoisonedFakeConfigIni(src)) {
+                    val relSub = normalizeModRelativeSubPath(src.name)
+                    if (relSub != null) {
+                        val outStaged = File(stagingDir, relSub)
+                        outStaged.parentFile?.mkdirs()
+                        src.copyTo(outStaged, overwrite = true)
+                        modFilesCount++
+                    }
                 }
             } else if (src.isDirectory) {
-                src.walkTopDown().maxDepth(6).forEach { mf ->
-                    if (mf.isFile && mf.name.lowercase() !in junkNames) {
+                if (src.name.endsWith("_Unpacked", ignoreCase = true)) continue
+                src.walkTopDown().maxDepth(8).forEach { mf ->
+                    if (mf.isFile && !isPoisonedStubMainFile(mf) && !isPoisonedFakeConfigIni(mf)) {
                         val rel = mf.relativeTo(src).path.replace('\\', '/')
-                        val sub = when {
-                            Regex("""(?:^|/)romfs/(.+)$""", RegexOption.IGNORE_CASE).find(rel) != null -> "romfs/" + Regex("""(?:^|/)romfs/(.+)$""", RegexOption.IGNORE_CASE).find(rel)!!.groupValues[1]
-                            Regex("""(?:^|/)exefs_patches/(.+)$""", RegexOption.IGNORE_CASE).find(rel) != null -> "exefs_patches/" + Regex("""(?:^|/)exefs_patches/(.+)$""", RegexOption.IGNORE_CASE).find(rel)!!.groupValues[1]
-                            Regex("""(?:^|/)exefs/(.+)$""", RegexOption.IGNORE_CASE).find(rel) != null -> "exefs/" + Regex("""(?:^|/)exefs/(.+)$""", RegexOption.IGNORE_CASE).find(rel)!!.groupValues[1]
-                            else -> "romfs/$rel"
+                        val relSub = normalizeModRelativeSubPath(rel)
+                        if (relSub != null) {
+                            val outStaged = File(stagingDir, relSub)
+                            outStaged.parentFile?.mkdirs()
+                            if (mf.canonicalPath != outStaged.canonicalPath) {
+                                mf.copyTo(outStaged, overwrite = true)
+                            }
+                            modFilesCount++
                         }
-                        val outStaged = File(stagingDir, sub)
-                        outStaged.parentFile?.mkdirs()
-                        mf.copyTo(outStaged, overwrite = true)
-
-                        val outAtmo = File(targetAtmoDir, sub)
-                        outAtmo.parentFile?.mkdirs()
-                        if (mf.canonicalPath != outAtmo.canonicalPath) {
-                            mf.copyTo(outAtmo, overwrite = true)
-                        }
-                        modFilesCount++
                     }
                 }
             }
         }
 
+        if (modFilesCount > 0) {
+            synchronizeCrossRegionLocalization(File(stagingDir, "romfs"))
+            modFilesCount = stagingDir.walkTopDown().count { it.isFile }
+        }
+        return stagingDir to modFilesCount
+    }
+
+    private fun unpackAndPackModsIntoLayeredFsNca(
+        modSources: List<File>,
+        baseTitleId: String,
+        tempDir: File
+    ): Pair<File?, Int> {
+        val cleanTid = normalizeBaseTitleId(baseTitleId).ifEmpty { "0100000000010000" }
+        val (stagingDir, modFilesCount) = stageModFilesForHardPatch(modSources, cleanTid, tempDir)
         if (modFilesCount == 0) return null to 0
 
         val modNcaFile = File(tempDir, "${cleanTid.lowercase()}_layeredfs_mod.nca")
-        synchronizeCrossRegionLocalization(File(stagingDir, "romfs"))
-        synchronizeCrossRegionLocalization(File(targetAtmoDir, "romfs"))
         val stagedFiles = stagingDir.walkTopDown().filter { it.isFile }.toList()
         val rawPayloadSize = stagedFiles.sumOf { it.length() + 64L }.coerceAtLeast(0x1000L)
         val alignedPayload = (rawPayloadSize + 0x1FFL) and -0x200L
@@ -3726,28 +3693,21 @@ object StormNczEngine {
                 archOutDir.mkdirs()
                 var foundContainersInZip = false
                 try {
-                    ZipInputStream(BufferedInputStream(FileInputStream(inFile))).use { zis ->
-                        var zEntry = zis.nextEntry
-                        val zBuf = ByteArray(64 * 1024)
-                        while (zEntry != null) {
-                            if (!zEntry.isDirectory) {
-                                val relPath = zEntry.name.replace('\\', '/').trimStart('/')
-                                val destF = File(archOutDir, relPath)
-                                destF.parentFile?.mkdirs()
-                                FileOutputStream(destF).use { fos ->
-                                    while (true) {
-                                        val r = zis.read(zBuf)
-                                        if (r <= 0) break
-                                        fos.write(zBuf, 0, r)
-                                    }
-                                }
-                                if (destF.extension.lowercase() in listOf("nsp", "nsz", "xci", "xcz")) {
-                                    expandedInputFiles.add(destF)
-                                    foundContainersInZip = true
-                                }
-                            }
-                            zis.closeEntry()
-                            zEntry = zis.nextEntry
+                    extractZipArchiveSafe(inFile) { rawName, entryStream ->
+                        val relPath = rawName.replace('\\', '/').trimStart('/')
+                        if (relPath.isBlank() || relPath.contains("..") || relPath.contains("__MACOSX")) return@extractZipArchiveSafe
+                        val leaf = relPath.substringAfterLast('/')
+                        if (isJunkOrReadmeFile(leaf)) return@extractZipArchiveSafe
+                        val destF = File(archOutDir, relPath)
+                        destF.parentFile?.mkdirs()
+                        FileOutputStream(destF).use { fos -> entryStream.copyTo(fos) }
+                        if (isPoisonedStubMainFile(destF) || isPoisonedFakeConfigIni(destF)) {
+                            destF.delete()
+                            return@extractZipArchiveSafe
+                        }
+                        if (destF.extension.lowercase() in listOf("nsp", "nsz", "xci", "xcz")) {
+                            expandedInputFiles.add(destF)
+                            foundContainersInZip = true
                         }
                     }
                 } catch (_: Exception) {}
@@ -3767,7 +3727,7 @@ object StormNczEngine {
         val normalizedInputFiles = try {
             expandedInputFiles.filter { it.exists() }.mapIndexed { idx, origFile ->
                 val ext = origFile.extension.lowercase()
-                val step1File = if (ext in listOf("nsz", "xci", "xcz") && (inputFiles.size > 1 || !shouldCompressNca || ext in listOf("xci", "xcz"))) {
+                val step1File = if (ext in listOf("nsz", "xci", "xcz") && (expandedInputFiles.size > 1 || embedMods || !shouldCompressNca || ext in listOf("xci", "xcz"))) {
                     normalizeContainerToTempNsp(origFile, tempNormDir, idx, keysMap, onProgress)
                 } else {
                     origFile
@@ -3936,13 +3896,14 @@ object StormNczEngine {
         val primaryTid = detectedTitleIds.firstOrNull { it.endsWith("000") }
             ?: detectedTitleIds.firstOrNull()?.let { normalizeBaseTitleId(it).ifEmpty { it } }
             ?: "0100000000010000"
+        sanitizePoisonedAndroidModDirs(primaryTid)
         clearStaleAndroidEmulatorIconCache(primaryTid)
 
-        // Подхват локальных модов из папки mods/atmosphere/contents/<TitleID> (без дублирования дерева папок!)
+        // Подхват локальных модов из папки mods/atmosphere/contents/<TitleID> (после очистки отравленных стабов!)
         if (embedMods) {
             val atmoModFolder = File("/storage/emulated/0/STORM SWITCH BOX/mods/atmosphere/contents/$primaryTid")
             if (atmoModFolder.exists() && atmoModFolder.isDirectory && modInputSources.none { it.absolutePath == atmoModFolder.absolutePath }) {
-                if (atmoModFolder.walkTopDown().maxDepth(4).any { it.isFile }) {
+                if (atmoModFolder.walkTopDown().maxDepth(4).any { it.isFile && !isPoisonedStubMainFile(it) && !isPoisonedFakeConfigIni(it) }) {
                     modInputSources.add(atmoModFolder)
                 }
             }
@@ -3954,15 +3915,131 @@ object StormNczEngine {
         try {
             var embeddedModsCount = 0
             val appliedModNames = mutableListOf<String>()
+            var stagedModRoot: File? = null
             if (embedMods && modInputSources.isNotEmpty()) {
-                val (_, modCount) = unpackAndPackModsIntoLayeredFsNca(modInputSources, primaryTid, tempDir)
+                val (stagedDir, modCount) = stageModFilesForHardPatch(modInputSources, primaryTid, tempDir)
                 if (modCount > 0) {
+                    stagedModRoot = stagedDir
                     embeddedModsCount = modCount
                     for (ms in modInputSources) {
-                        appliedModNames.add("${ms.name} (LayeredFS [$primaryTid], $modCount ф.)")
+                        appliedModNames.add("${ms.name} (Hard-Patch [$primaryTid], $modCount ф.)")
                     }
-                    // Синхронизируем моды и анлокеры напрямую в папки эмуляторов Android (Eden, Citron, Sudachi, Yuzu) и в выходную папку atmosphere/
-                    syncModsAndUnlockersToAndroidEmulators(primaryTid, outputDir)
+                }
+            }
+
+            // Полноценный потоковый Hard-Patching (Base + BKTR/Full Update + Mod RomFS/ExeFS -> единый автономный Program NCA 0x4000)
+            val baseTidPrefix13 = primaryTid.take(13)
+            val baseProgEntry = collected.entries.firstOrNull { (k, _) ->
+                ncaContentTypeMap[k] == 0 &&
+                (ncaTitleIdMap[k]?.endsWith("000") == true) &&
+                ncaHasBktrMap[k] != true
+            }
+            val updProgEntry = collected.entries.firstOrNull { (k, _) ->
+                k != baseProgEntry?.key &&
+                ncaContentTypeMap[k] == 0 &&
+                ((ncaTitleIdMap[k]?.startsWith(baseTidPrefix13) == true && ncaTitleIdMap[k]?.endsWith("800") == true) || ncaHasBktrMap[k] == true)
+            }
+            if (baseProgEntry != null && (updProgEntry != null || (stagedModRoot != null && embeddedModsCount > 0))) {
+                val hpInputRefs = StandaloneHardPatchRefs(
+                    primaryTid = primaryTid,
+                    baseProgKey = baseProgEntry.key,
+                    baseProgParent = baseProgEntry.value.parentFile,
+                    baseProgOffset = baseProgEntry.value.offset,
+                    baseProgSize = baseProgEntry.value.size,
+                    baseProgRightsId = ncaRightsIdMap[baseProgEntry.key] ?: "",
+                    updProgKey = updProgEntry?.key,
+                    updProgParent = updProgEntry?.value?.parentFile,
+                    updProgOffset = updProgEntry?.value?.offset ?: 0L,
+                    updProgSize = updProgEntry?.value?.size ?: 0L,
+                    updProgRightsId = updProgEntry?.let { ncaRightsIdMap[it.key] } ?: "",
+                    stagedModDir = stagedModRoot,
+                    auxCandidates = collected.entries.map { (k, v) ->
+                        AuxNcaCandidate(
+                            mapKey = k,
+                            parentFile = v.parentFile,
+                            entryName = v.entryName,
+                            offset = v.offset,
+                            size = v.size,
+                            contentType = ncaContentTypeMap[k] ?: -1,
+                            titleId = ncaTitleIdMap[k] ?: "",
+                            rightsId = ncaRightsIdMap[k] ?: "",
+                            hasBktr = ncaHasBktrMap[k] == true
+                        )
+                    }
+                )
+                val hpOut = executeStandaloneHardPatchToTempNcas(
+                    refs = hpInputRefs,
+                    tempDir = tempDir,
+                    keysMap = keysMap,
+                    ticketKeysByRightsId = ticketKeysByRightsId,
+                    fallbackTicketKey = fallbackTicketKey,
+                    onProgress = onProgress
+                )
+                if (hpOut != null) {
+                    // Удаляем устаревшие разделы Base и Update (...000 / ...800), кроме DLC (...001+)
+                    val removedRightsIds = HashSet<String>()
+                    val keysToRemove = collected.keys.filter { k ->
+                        val tid = ncaTitleIdMap[k] ?: ""
+                        val lowerName = collected[k]?.entryName?.lowercase() ?: ""
+                        val isBaseOrPatchTid = tid.isEmpty() || (tid.startsWith(baseTidPrefix13) && (tid.endsWith("000") || tid.endsWith("800")))
+                        val isTicketOrCert = lowerName.endsWith(".tik") || lowerName.endsWith(".cert")
+                        if (isBaseOrPatchTid && !isTicketOrCert) {
+                            ncaRightsIdMap[k]?.takeIf { it.isNotEmpty() }?.let { removedRightsIds.add(it.uppercase()) }
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                    for (rk in keysToRemove) {
+                        collected.remove(rk)
+                        ncaSortPriorityMap.remove(rk)
+                        ncaContentTypeMap.remove(rk)
+                        ncaTitleIdMap.remove(rk)
+                        ncaRightsIdMap.remove(rk)
+                        ncaHasBktrMap.remove(rk)
+                    }
+                    // Если в пакете нет DLC с собственными RightsID, удаляем старые .tik/.cert от Base/Update (все наши NCA теперь StandardCrypto!)
+                    val remainingRightsIds = ncaRightsIdMap.values.filter { it.isNotEmpty() }.map { it.uppercase() }.toSet()
+                    if (remainingRightsIds.isEmpty()) {
+                        val tikCertKeys = collected.keys.filter { k ->
+                            val en = collected[k]?.entryName?.lowercase() ?: ""
+                            en.endsWith(".tik") || en.endsWith(".cert")
+                        }
+                        for (tk in tikCertKeys) {
+                            collected.remove(tk)
+                            ncaSortPriorityMap.remove(tk)
+                        }
+                    }
+
+                    // Регистрируем новые автономные NCA (Meta, Control, Program, Manual)
+                    val cnmtKey = "nca_${hpOut.cnmtFile.name.substringBefore('.')}"
+                    collected[cnmtKey] = SubSource(hpOut.cnmtFile, hpOut.cnmtFile.name, cnmtKey, 0L, hpOut.cnmtFile.length())
+                    ncaSortPriorityMap[cnmtKey] = 2
+                    ncaContentTypeMap[cnmtKey] = 1
+                    ncaTitleIdMap[cnmtKey] = primaryTid
+
+                    if (hpOut.controlFile != null) {
+                        val ctrlKey = "nca_${hpOut.controlFile.name.substringBefore('.')}"
+                        collected[ctrlKey] = SubSource(hpOut.controlFile, hpOut.controlFile.name, ctrlKey, 0L, hpOut.controlFile.length())
+                        ncaSortPriorityMap[ctrlKey] = 3
+                        ncaContentTypeMap[ctrlKey] = 2
+                        ncaTitleIdMap[ctrlKey] = primaryTid
+                    }
+
+                    val progKey = "nca_${hpOut.programFile.name.substringBefore('.')}"
+                    collected[progKey] = SubSource(hpOut.programFile, hpOut.programFile.name, progKey, 0L, hpOut.programFile.length())
+                    ncaSortPriorityMap[progKey] = 4
+                    ncaContentTypeMap[progKey] = 0
+                    ncaTitleIdMap[progKey] = primaryTid
+                    ncaHasBktrMap[progKey] = false
+
+                    for ((mIdx, manualFile) in hpOut.manualFiles.withIndex()) {
+                        val manKey = "nca_${manualFile.name.substringBefore('.')}"
+                        collected[manKey] = SubSource(manualFile, manualFile.name, manKey, 0L, manualFile.length())
+                        ncaSortPriorityMap[manKey] = 5 + mIdx
+                        ncaContentTypeMap[manKey] = 3
+                        ncaTitleIdMap[manKey] = primaryTid
+                    }
                 }
             }
 
@@ -4053,7 +4130,7 @@ object StormNczEngine {
                 val isNcz = lower.endsWith(".ncz")
                 val ncaType = ncaContentTypeMap[src.baseKey] ?: -1
                 val hasBktr = ncaHasBktrMap[src.baseKey] == true
-                val mustStayUncompressedNca = lower.endsWith(".cnmt.nca") || ncaType == 1 || ncaType == 2 || ncaType == 3
+                val mustStayUncompressedNca = lower.endsWith(".cnmt.nca") || ncaType == 1 || ncaType == 2 || ncaType == 3 || hasBktr
                 val specificTicketKey = ncaRightsIdMap[src.baseKey]?.let { ticketKeysByRightsId[it] } ?: fallbackTicketKey
 
                 // Сжимаем в .ncz игровые разделы Program / Data / Manual (> 64 КБ).
@@ -4688,108 +4765,33 @@ object StormNczEngine {
         )
     }
 
-    private fun extractExefsFromNca(ncaFile: File, exefsDir: File, tidHex: String, titleName: String): List<File> {
+    private fun extractExefsFromNca(
+        ncaFile: File,
+        exefsDir: File,
+        tidHex: String,
+        titleName: String,
+        ticketKeysByRightsId: Map<String, ByteArray> = emptyMap(),
+        fallbackTicketKey: ByteArray? = null
+    ): List<File> {
         val result = mutableListOf<File>()
         val ncaLen = ncaFile.length()
-        var foundEmbeddedPfs0 = false
         val keysMap = loadSwitchKeysMap()
 
         try {
             RandomAccessFile(ncaFile, "r").use { raf ->
-                val hdrBuf = ByteArray(0xC00)
-                raf.seek(0L)
-                raf.readFully(hdrBuf)
-                val sections = parseNcaSectionsForCompression(hdrBuf, ncaLen, keysMap, null, raf, 0L)
-                val sec0 = sections.firstOrNull { it.offset in 0x400L..0x1000000L } ?: sections.firstOrNull()
-
-                if (sec0 != null && sec0.size > 0x100L) {
-                    val scanSize = minOf(sec0.size, 8L * 1024L * 1024L).toInt()
-                    val secBuf = ByteArray(scanSize)
-                    raf.seek(sec0.offset)
-                    raf.readFully(secBuf)
-                    if (sec0.cryptoType == 3L || sec0.cryptoType == 4L) {
-                        transformAesCtrInPlace(secBuf, 0, scanSize, sec0.offset, sec0.key, sec0.counter)
-                    }
-
-                    var pos = 0
-                    while (pos < scanSize - 64) {
-                        if (secBuf[pos] == 'P'.code.toByte() && secBuf[pos + 1] == 'F'.code.toByte() &&
-                            secBuf[pos + 2] == 'S'.code.toByte() && secBuf[pos + 3] == '0'.code.toByte()
-                        ) {
-                            val bb = ByteBuffer.wrap(secBuf, pos, 16).order(ByteOrder.LITTLE_ENDIAN)
-                            bb.int
-                            val count = bb.int
-                            val strSize = bb.int
-                            if (count in 1..32 && strSize in 4..4096 && pos + 16 + count * 24 + strSize <= scanSize) {
-                                val dataStart = sec0.offset + pos.toLong() + 16L + count * 24L + strSize
-                                val strBase = pos + 16 + count * 24
-                                var validExefs = false
-                                for (i in 0 until count) {
-                                    val ePos = pos + 16 + i * 24
-                                    val eBuf = ByteBuffer.wrap(secBuf, ePos, 24).order(ByteOrder.LITTLE_ENDIAN)
-                                    val dOff = eBuf.long
-                                    val dSize = eBuf.long
-                                    val sOff = eBuf.int
-                                    if (sOff in 0 until strSize && dOff >= 0 && dataStart + dOff + dSize <= ncaLen) {
-                                        var endS = strBase + sOff
-                                        while (endS < strBase + strSize && secBuf[endS] != 0.toByte()) endS++
-                                        val name = String(secBuf, strBase + sOff, endS - (strBase + sOff), StandardCharsets.UTF_8)
-                                        if (name in listOf("main", "main.npdm", "rtld", "sdk", "subsdk0", "subsdk1", "subsdk2", "subsdk3", "subsdk4", "subsdk5", "subsdk6", "subsdk7", "subsdk8", "subsdk9")) {
-                                            validExefs = true
-                                            val outF = File(exefsDir, name)
-                                            if (sec0.cryptoType == 3L || sec0.cryptoType == 4L) {
-                                                val fileBuf = ByteArray(minOf(dSize, 64L * 1024L * 1024L).toInt())
-                                                raf.seek(dataStart + dOff)
-                                                raf.readFully(fileBuf)
-                                                transformAesCtrInPlace(fileBuf, 0, fileBuf.size, dataStart + dOff, sec0.key, sec0.counter)
-                                                outF.writeBytes(fileBuf)
-                                            } else {
-                                                copyFileRegionToFile(ncaFile, dataStart + dOff, dSize, outF)
-                                            }
-                                            result.add(outF)
-                                        }
-                                    }
-                                }
-                                if (validExefs) {
-                                    foundEmbeddedPfs0 = true
-                                    break
-                                }
-                            }
-                        }
-                        pos += 16
-                    }
-                }
+                val extractedMap = extractExefsFilesFromNcaSlice(
+                    raf = raf,
+                    sliceOffset = 0L,
+                    sliceSize = ncaLen,
+                    outDir = exefsDir,
+                    keysMap = keysMap,
+                    ticketKeysByRightsId = ticketKeysByRightsId,
+                    fallbackTicketKey = fallbackTicketKey
+                )
+                result.addAll(extractedMap.values)
             }
         } catch (_: Throwable) {}
-
-        if (!foundEmbeddedPfs0) {
-            val npdmFile = File(exefsDir, "main.npdm")
-            npdmFile.writeBytes(buildValidNpdmBytes(tidHex, titleName.ifBlank { "SwitchApp" }))
-            result.add(npdmFile)
-
-            val rtldFile = File(exefsDir, "rtld")
-            rtldFile.writeBytes(buildValidNso0Bytes("rtld", tidHex, 4096))
-            result.add(rtldFile)
-
-            val mainFile = File(exefsDir, "main")
-            val mainSampleSize = min(ncaLen / 8L, 512L * 1024L).coerceAtLeast(32768L).toInt()
-            val mainHeader = buildValidNso0Bytes("main", tidHex, mainSampleSize)
-            RandomAccessFile(ncaFile, "r").use { raf ->
-                val tailOffset = min(0x4000L, (ncaLen - mainSampleSize).coerceAtLeast(0L))
-                raf.seek(tailOffset)
-                val body = ByteArray(mainSampleSize - 0x100)
-                val readBytes = raf.read(body)
-                if (readBytes > 0) {
-                    System.arraycopy(body, 0, mainHeader, 0x100, readBytes)
-                }
-            }
-            mainFile.writeBytes(mainHeader)
-            result.add(mainFile)
-
-            val sdkFile = File(exefsDir, "sdk")
-            sdkFile.writeBytes(buildValidNso0Bytes("sdk", tidHex, 16384))
-            result.add(sdkFile)
-        }
+        // Никаких фейковых STORM_NSO0 стабов (svcSleepThread) не генерируем!
         return result
     }
 
@@ -4804,135 +4806,70 @@ object StormNczEngine {
         val fileLen = sourceFile.length()
         val keysMap = loadSwitchKeysMap()
 
-        // 1. Попытка дешифрования и извлечения реального RomFS (IVFC Level 6)
-        var extractedRealRomfs = false
         try {
             RandomAccessFile(sourceFile, "r").use { raf ->
                 val hdrBuf = ByteArray(0xC00)
                 raf.seek(0L)
                 raf.readFully(hdrBuf)
+                val workHdr = decryptNcaHeader0C00(hdrBuf.copyOf(), keysMap)
                 val sections = parseNcaSectionsForCompression(hdrBuf, fileLen, keysMap, null, raf, 0L)
-                val romfsSec = sections.firstOrNull { it.offset > 0x10000L && it.size > 0x1000L }
+                val bb = ByteBuffer.wrap(workHdr).order(ByteOrder.LITTLE_ENDIAN)
 
-                if (romfsSec != null) {
-                    val workHdr = decryptNcaHeader0C00(hdrBuf, keysMap)
-                    for (i in 0 until 4) {
-                        val fsOff = 0x400 + i * 0x200
-                        val magicIvfc = String(workHdr, fsOff + 8, 4, StandardCharsets.US_ASCII)
-                        if (magicIvfc == "IVFC") {
-                            val fbb = ByteBuffer.wrap(workHdr, fsOff, 0x200).order(ByteOrder.LITTLE_ENDIAN)
-                            val numLevels = fbb.getInt(0x14)
-                            if (numLevels >= 6) {
-                                val lv6RelOff = fbb.getLong(0x18 + 5 * 24)
-                                val lv6Size = fbb.getLong(0x18 + 5 * 24 + 8)
-                                val lv6AbsOff = romfsSec.offset + lv6RelOff
-
-                                if (lv6Size in 0x50L..(128L * 1024L * 1024L) && lv6AbsOff + lv6Size <= fileLen) {
-                                    val rHdrBytes = ByteArray(0x50)
-                                    raf.seek(lv6AbsOff)
-                                    raf.readFully(rHdrBytes)
-                                    if (romfsSec.cryptoType == 3L || romfsSec.cryptoType == 4L) {
-                                        transformAesCtrInPlace(rHdrBytes, 0, 0x50, lv6AbsOff, romfsSec.key, romfsSec.counter)
-                                    }
-                                    val rbb = ByteBuffer.wrap(rHdrBytes).order(ByteOrder.LITTLE_ENDIAN)
-                                    val hdrSize = rbb.getLong(0x00)
-                                    val fileMetaOff = rbb.getLong(0x38)
-                                    val fileMetaSize = rbb.getLong(0x40)
-                                    val dataOff = rbb.getLong(0x48)
-
-                                    if (hdrSize == 0x50L && dataOff in 0x50L..lv6Size && fileMetaSize in 0L..lv6Size) {
-                                        val metaBufSize = (fileMetaOff + fileMetaSize).toInt()
-                                        val metaBuf = ByteArray(metaBufSize)
-                                        raf.seek(lv6AbsOff)
-                                        raf.readFully(metaBuf)
-                                        if (romfsSec.cryptoType == 3L || romfsSec.cryptoType == 4L) {
-                                            transformAesCtrInPlace(metaBuf, 0, metaBufSize, lv6AbsOff, romfsSec.key, romfsSec.counter)
-                                        }
-
-                                        var curFilePos = fileMetaOff.toInt()
-                                        val endFilePos = curFilePos + fileMetaSize.toInt()
-                                        while (curFilePos < endFilePos - 32) {
-                                            val mbb = ByteBuffer.wrap(metaBuf, curFilePos, 32).order(ByteOrder.LITTLE_ENDIAN)
-                                            mbb.getInt()
-                                            val nextSib = mbb.getInt()
-                                            val fOff = mbb.getLong()
-                                            val fSz = mbb.getLong()
-                                            mbb.getInt()
-                                            val nameLen = mbb.getInt()
-                                            if (nameLen in 1..256 && curFilePos + 32 + nameLen <= metaBufSize) {
-                                                val fn = String(metaBuf, curFilePos + 32, nameLen, StandardCharsets.UTF_8)
-                                                val outRomFile = File(romfsDir, fn)
-                                                outRomFile.parentFile?.mkdirs()
-                                                val copyLen = minOf(fSz, 32L * 1024L * 1024L).toInt()
-                                                if (copyLen > 0) {
-                                                    val fData = ByteArray(copyLen)
-                                                    raf.seek(lv6AbsOff + dataOff + fOff)
-                                                    raf.readFully(fData)
-                                                    if (romfsSec.cryptoType == 3L || romfsSec.cryptoType == 4L) {
-                                                        transformAesCtrInPlace(fData, 0, copyLen, lv6AbsOff + dataOff + fOff, romfsSec.key, romfsSec.counter)
-                                                    }
-                                                    outRomFile.writeBytes(fData)
-                                                    outRomFile.copyTo(File(atmoRomfsDir, fn), overwrite = true)
-                                                    result.add(outRomFile)
-                                                }
-                                                extractedRealRomfs = true
-                                            }
-                                            val alignedMeta = 32 + ((nameLen + 3) and -4)
-                                            curFilePos += alignedMeta
+                for (sIdx in 0 until 4) {
+                    val entryOff = 0x240 + sIdx * 16
+                    val startMedia = bb.getInt(entryOff).toLong() and 0xFFFFFFFFL
+                    val endMedia = bb.getInt(entryOff + 4).toLong() and 0xFFFFFFFFL
+                    val enabled = bb.getInt(entryOff + 8) != 0
+                    if (!enabled || endMedia <= startMedia) continue
+                    val rawSecStart = startMedia * 0x200L
+                    val fsOff = 0x400 + sIdx * 0x200
+                    val magicIvfc = String(workHdr, fsOff + 8, 4, StandardCharsets.US_ASCII)
+                    if (magicIvfc == "IVFC") {
+                        val romfsSec = sections.firstOrNull { rawSecStart in it.offset until (it.offset + it.size) }
+                            ?: sections.firstOrNull { it.offset >= rawSecStart }
+                        if (romfsSec != null) {
+                            val lv6RelOff = bb.getLong(fsOff + 0x18 + 5 * 24)
+                            val lv6Size = bb.getLong(fsOff + 0x18 + 5 * 24 + 8)
+                            val lv6AbsOff = rawSecStart + lv6RelOff
+                            if (lv6Size >= 0x50L && lv6AbsOff + lv6Size <= fileLen) {
+                                val reader = DirectNcaRomfsSectionReader(
+                                    raf = raf,
+                                    sliceOffset = 0L,
+                                    secAbsStart = rawSecStart,
+                                    cryptoType = romfsSec.cryptoType,
+                                    ctrKey = romfsSec.key,
+                                    ctrUpper8 = romfsSec.counter
+                                )
+                                val parsed = parseRomfsMetadataFromReader(reader, lv6RelOff)
+                                val copyBuf = ByteArray(65536)
+                                for ((relPath, fMeta) in parsed.files) {
+                                    val outRomFile = File(romfsDir, relPath)
+                                    outRomFile.parentFile?.mkdirs()
+                                    FileOutputStream(outRomFile).use { fos ->
+                                        var rem = fMeta.second
+                                        var cur = parsed.dataOffset + fMeta.first
+                                        while (rem > 0L) {
+                                            val chunk = minOf(rem, copyBuf.size.toLong()).toInt()
+                                            val bytes = reader.readBytes(lv6RelOff + cur, chunk)
+                                            fos.write(bytes, 0, bytes.size)
+                                            cur += chunk
+                                            rem -= chunk
                                         }
                                     }
+                                    if (atmoRomfsDir.canonicalPath != romfsDir.canonicalPath) {
+                                        val dstAtmo = File(atmoRomfsDir, relPath)
+                                        dstAtmo.parentFile?.mkdirs()
+                                        outRomFile.copyTo(dstAtmo, overwrite = true)
+                                    }
+                                    result.add(outRomFile)
                                 }
                             }
-                            break
                         }
+                        break
                     }
                 }
             }
         } catch (_: Throwable) {}
-
-        val configIni = File(romfsDir, "config.ini")
-        configIni.writeText(
-            buildString {
-                appendLine("[TitleInfo]")
-                appendLine("TitleID=$tidHex")
-                appendLine("TitleName=${meta.internalTitle.ifBlank { sourceFile.nameWithoutExtension }}")
-                appendLine("Publisher=${meta.publisher.ifBlank { "Nintendo" }}")
-                appendLine("DisplayVersion=${meta.displayVersion.ifBlank { "1.0.0" }}")
-                appendLine("ContainerFormat=${meta.formatFamily}")
-                appendLine("")
-                appendLine("[RomFS]")
-                appendLine("ContainerMagic=IVFC (Level 6 Hierarchical Integrity)")
-                appendLine("LayeredFS_Path=/atmosphere/contents/$tidHex/romfs/")
-                appendLine("LanguageOverride=ru,en")
-            },
-            StandardCharsets.UTF_8
-        )
-        configIni.copyTo(File(atmoRomfsDir, "config.ini"), overwrite = true)
-        result.add(configIni)
-
-        val locDir = File(romfsDir, "localization")
-        locDir.mkdirs()
-        val locFile = File(locDir, "strings_ru_template.json")
-        val jsonObj = org.json.JSONObject().apply {
-            put("title_id", tidHex)
-            put("game_title", meta.internalTitle.ifBlank { sourceFile.nameWithoutExtension })
-            put("version", meta.displayVersion.ifBlank { "1.0.0" })
-            put("layeredfs_ready", true)
-            put("note", "Поместите файлы русификатора или мода в эту папку или в atmosphere/contents/$tidHex/romfs/ и нажмите 'Упаковать папку в NSP/NSZ'.")
-        }
-        locFile.writeText(jsonObj.toString(2), StandardCharsets.UTF_8)
-        result.add(locFile)
-
-        val dataDir = File(romfsDir, "data")
-        dataDir.mkdirs()
-        val romfsDataBin = File(dataDir, "romfs_level6_section.bin")
-        val sliceOffset = if (fileLen > 0x10000L) 0x8000L else 0L
-        val sliceLen = min(fileLen - sliceOffset, 2L * 1024L * 1024L).coerceAtLeast(0L)
-        if (sliceLen > 0L) {
-            copyFileRegionToFile(sourceFile, sliceOffset, sliceLen, romfsDataBin)
-            result.add(romfsDataBin)
-        }
-
         return result
     }
 
@@ -6824,7 +6761,7 @@ object StormNczEngine {
                 val conn = (java.net.URL(u).openConnection() as java.net.HttpURLConnection).apply {
                     connectTimeout = 10000
                     readTimeout = 15000
-                    setRequestProperty("User-Agent", "StormSwitchBox/6.0.0")
+                    setRequestProperty("User-Agent", "StormSwitchBox/6.3.0")
                 }
                 if (conn.responseCode == 200) {
                     val body = conn.inputStream.bufferedReader(StandardCharsets.UTF_8).use { it.readText() }
@@ -7106,6 +7043,1388 @@ object StormNczEngine {
             }
             npdmFile.writeBytes(bytes)
         } catch (_: Exception) {}
+    }
+
+
+
+    // =========================================================================
+
+
+    // =========================================================================
+    // HELPER BLOCK PART 1: Safe ZIP (UTF-8/IBM866), Stub Sanitization,
+    // RomFS Section Readers (Direct + BKTR), and Hierarchical RomFS Builder
+    // =========================================================================
+
+    fun extractZipArchiveSafe(zipFile: File, onEntry: (String, java.io.InputStream) -> Unit) {
+        if (!zipFile.exists() || !zipFile.isFile || zipFile.length() < 22L) return
+        val charsets = listOf(
+            StandardCharsets.UTF_8,
+            java.nio.charset.Charset.forName("IBM866"),
+            java.nio.charset.Charset.forName("windows-1251"),
+            StandardCharsets.ISO_8859_1
+        )
+        for (cs in charsets) {
+            try {
+                java.util.zip.ZipFile(zipFile, cs).use { zf ->
+                    val entries = zf.entries()
+                    while (entries.hasMoreElements()) {
+                        val entry = entries.nextElement()
+                        if (!entry.isDirectory) {
+                            zf.getInputStream(entry).use { stream ->
+                                onEntry(entry.name, stream)
+                            }
+                        }
+                    }
+                }
+                return
+            } catch (_: Throwable) {
+                // Fallback to next charset or streaming reader
+            }
+        }
+        for (cs in charsets) {
+            try {
+                ZipInputStream(BufferedInputStream(FileInputStream(zipFile)), cs).use { zis ->
+                    var entry = zis.nextEntry
+                    while (entry != null) {
+                        if (!entry.isDirectory) {
+                            val nonClosing = object : java.io.FilterInputStream(zis) {
+                                override fun close() {}
+                            }
+                            onEntry(entry.name, nonClosing)
+                        }
+                        zis.closeEntry()
+                        entry = zis.nextEntry
+                    }
+                }
+                return
+            } catch (_: Throwable) {}
+        }
+    }
+
+    fun isPoisonedStubMainFile(file: File): Boolean {
+        if (!file.exists() || !file.isFile) return false
+        if (!file.name.equals("main", ignoreCase = true)) return false
+        val len = file.length()
+        if (len in 1L..32768L) return true
+        return try {
+            RandomAccessFile(file, "r").use { raf ->
+                val probe = ByteArray(minOf(len, 512L).toInt())
+                raf.readFully(probe)
+                val ascii = String(probe, StandardCharsets.ISO_8859_1)
+                ascii.contains("STORM_NSO0")
+            }
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    fun isPoisonedFakeConfigIni(file: File): Boolean {
+        if (!file.exists() || !file.isFile) return false
+        val lower = file.name.lowercase()
+        if (lower in setOf("strings_ru_template.json", "romfs_level6_section.bin", "storm_romfs_manifest.ini", "storm_mod_manifest.ini")) {
+            return true
+        }
+        if (lower == "config.ini" && file.length() <= 4096L) {
+            return try {
+                val txt = file.readText(StandardCharsets.UTF_8)
+                txt.contains("STORM_SWITCH_BOX") || txt.contains("layeredfs_ready") || txt.contains("extracted_romfs")
+            } catch (_: Throwable) {
+                false
+            }
+        }
+        return false
+    }
+
+    fun isGenuineSwitchContainer(file: File, expectedTid: String = ""): Boolean {
+        if (!file.exists() || !file.isFile || file.length() < 0x10000L) return false
+        return try {
+            RandomAccessFile(file, "r").use { raf ->
+                val hdr = ByteArray(0x200)
+                raf.readFully(hdr)
+                val magic0 = String(hdr, 0, 4, StandardCharsets.US_ASCII)
+                val magic100 = String(hdr, 0x100, 4, StandardCharsets.US_ASCII)
+                if (magic0 != "PFS0" && magic100 != "HEAD") return@use false
+
+                val probeLen = minOf(file.length(), 256L * 1024L).toInt()
+                val probe = ByteArray(probeLen)
+                raf.seek(0L)
+                raf.readFully(probe)
+                val probeStr = String(probe, StandardCharsets.ISO_8859_1)
+                if (probeStr.contains("STORM_NSO0")) return@use false
+            }
+            val entries = inspectContainer(file)
+            entries.any { e ->
+                val n = e.name.lowercase()
+                (n.endsWith(".nca") || n.endsWith(".ncz")) && e.size > 0x10000L
+            }
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    fun sanitizePoisonedAndroidModDirs(titleId: String) {
+        val cleanTid = normalizeBaseTitleId(titleId).ifEmpty { titleId.trim().uppercase() }
+        if (cleanTid.length < 16) return
+        val candidateDirs = listOf(
+            File("/storage/emulated/0/STORM SWITCH/load/$cleanTid"),
+            File("/storage/emulated/0/STORM SWITCH/sdmc/atmosphere/contents/$cleanTid"),
+            File("/storage/emulated/0/STORM SWITCH BOX/mods/atmosphere/contents/$cleanTid"),
+            File("/storage/emulated/0/GAMES/CONSOLES/Nintendo Switch/atmosphere/contents/$cleanTid"),
+            File("/storage/emulated/0/Android/data/dev.storm_switch/files/load/$cleanTid"),
+            File("/storage/emulated/0/Android/data/dev.storm_switch/files/sdmc/atmosphere/contents/$cleanTid"),
+            File("/storage/emulated/0/Android/data/dev.eden.eden_emulator.nightly/files/load/$cleanTid")
+        )
+        for (dir in candidateDirs) {
+            if (!dir.exists() || !dir.isDirectory) continue
+            try {
+                dir.walkTopDown().filter { it.isDirectory && it.name.endsWith("_Unpacked", ignoreCase = true) }.toList().forEach {
+                    try { it.deleteRecursively() } catch (_: Throwable) {}
+                }
+                var removedPoison = false
+                dir.walkTopDown().filter { it.isFile }.toList().forEach { f ->
+                    if (isPoisonedStubMainFile(f) || isPoisonedFakeConfigIni(f)) {
+                        try { f.delete() } catch (_: Throwable) {}
+                        removedPoison = true
+                    }
+                }
+                val exefsDirs = dir.walkTopDown().filter { it.isDirectory && it.name.equals("exefs", ignoreCase = true) }.toList()
+                for (eDir in exefsDirs) {
+                    val remFiles = eDir.listFiles()?.filter { it.isFile } ?: emptyList()
+                    if (remFiles.size == 1 && remFiles[0].name.equals("main.npdm", ignoreCase = true) && remFiles[0].length() <= 2048L) {
+                        try { remFiles[0].delete() } catch (_: Throwable) {}
+                    }
+                }
+                dir.walkBottomUp().forEach { d ->
+                    if (d.isDirectory && (d.listFiles()?.isEmpty() == true)) {
+                        try { d.delete() } catch (_: Throwable) {}
+                    }
+                }
+                if (removedPoison && dir.exists() && dir.walkTopDown().none { it.isFile }) {
+                    try { dir.deleteRecursively() } catch (_: Throwable) {}
+                }
+            } catch (_: Throwable) {}
+        }
+    }
+
+    interface RomfsSectionReader {
+        fun readBytes(sectionRelOffset: Long, length: Int): ByteArray
+    }
+
+    class DirectNcaRomfsSectionReader(
+        private val raf: RandomAccessFile,
+        private val sliceOffset: Long,
+        private val secAbsStart: Long,
+        private val cryptoType: Long,
+        private val ctrKey: ByteArray?,
+        private val ctrUpper8: ByteArray?
+    ) : RomfsSectionReader {
+        override fun readBytes(sectionRelOffset: Long, length: Int): ByteArray {
+            if (length <= 0) return ByteArray(0)
+            val ncaRelOffset = secAbsStart + sectionRelOffset
+            val buf = ByteArray(length)
+            synchronized(raf) {
+                raf.seek(sliceOffset + ncaRelOffset)
+                raf.readFully(buf)
+            }
+            if ((cryptoType == 3L || cryptoType == 4L) && ctrKey != null && ctrUpper8 != null) {
+                transformAesCtrInPlace(buf, 0, length, ncaRelOffset, ctrKey, ctrUpper8)
+            }
+            return buf
+        }
+    }
+
+    data class ParsedRomfsMeta(
+        val dataOffset: Long,
+        val files: LinkedHashMap<String, Pair<Long, Long>>
+    )
+
+    fun parseRomfsMetadataFromReader(reader: RomfsSectionReader, lv6RelOff: Long): ParsedRomfsMeta {
+        val hdr = reader.readBytes(lv6RelOff, 0x50)
+        val bb = ByteBuffer.wrap(hdr).order(ByteOrder.LITTLE_ENDIAN)
+        val hdrSize = bb.getLong(0x00)
+        val dirMetaOff = bb.getLong(0x18)
+        val dirMetaSize = bb.getLong(0x20)
+        val fileMetaOff = bb.getLong(0x38)
+        val fileMetaSize = bb.getLong(0x40)
+        val dataOff = bb.getLong(0x48)
+        val outFiles = LinkedHashMap<String, Pair<Long, Long>>()
+        if (hdrSize != 0x50L || dirMetaSize < 24L || fileMetaSize < 0L || dirMetaSize > 64L * 1024L * 1024L || fileMetaSize > 128L * 1024L * 1024L) {
+            return ParsedRomfsMeta(dataOff.coerceAtLeast(0x50L), outFiles)
+        }
+        val dirMeta = reader.readBytes(lv6RelOff + dirMetaOff, dirMetaSize.toInt())
+        val fileMeta = if (fileMetaSize > 0L) reader.readBytes(lv6RelOff + fileMetaOff, fileMetaSize.toInt()) else ByteArray(0)
+        val dbb = ByteBuffer.wrap(dirMeta).order(ByteOrder.LITTLE_ENDIAN)
+        val fbb = ByteBuffer.wrap(fileMeta).order(ByteOrder.LITTLE_ENDIAN)
+
+        fun traverseDir(dirOff: Int, prefix: String) {
+            if (dirOff < 0 || dirOff + 24 > dirMeta.size) return
+            val firstChildDir = dbb.getInt(dirOff + 8)
+            val firstFile = dbb.getInt(dirOff + 12)
+
+            var fOff = firstFile
+            var fGuard = 0
+            while (fOff >= 0 && fOff + 32 <= fileMeta.size && fGuard++ < 500000) {
+                val nextSib = fbb.getInt(fOff + 4)
+                val dataRelOff = fbb.getLong(fOff + 8)
+                val dataSize = fbb.getLong(fOff + 16)
+                val nameLen = fbb.getInt(fOff + 28)
+                if (nameLen in 1..1024 && fOff + 32 + nameLen <= fileMeta.size) {
+                    val fName = String(fileMeta, fOff + 32, nameLen, StandardCharsets.UTF_8)
+                    val fullRel = if (prefix.isEmpty()) fName else "$prefix/$fName"
+                    outFiles[fullRel] = dataRelOff to dataSize
+                }
+                if (nextSib == fOff) break
+                fOff = nextSib
+            }
+
+            var cOff = firstChildDir
+            var dGuard = 0
+            while (cOff >= 0 && cOff + 24 <= dirMeta.size && dGuard++ < 200000) {
+                val nextSibDir = dbb.getInt(cOff + 4)
+                val nameLen = dbb.getInt(cOff + 20)
+                if (nameLen in 1..1024 && cOff + 24 + nameLen <= dirMeta.size) {
+                    val dName = String(dirMeta, cOff + 24, nameLen, StandardCharsets.UTF_8)
+                    val nextPrefix = if (prefix.isEmpty()) dName else "$prefix/$dName"
+                    traverseDir(cOff, nextPrefix)
+                }
+                if (nextSibDir == cOff) break
+                cOff = nextSibDir
+            }
+        }
+
+        traverseDir(0, "")
+        return ParsedRomfsMeta(dataOff, outFiles)
+    }
+
+
+    // =========================================================================
+    // HELPER BLOCK PART 2: BktrRomfsSectionReader, VirtualRomfsSource,
+    // HierarchicalRomfsPlan, and extractExefsFilesFromNcaSlice
+    // =========================================================================
+
+    class BktrRomfsSectionReader(
+        private val baseReader: RomfsSectionReader,
+        private val patchRaf: RandomAccessFile,
+        private val patchSliceOffset: Long,
+        private val patchSecAbsStart: Long,
+        private val patchCtrKey: ByteArray,
+        private val patchCtrUpper8: ByteArray,
+        fsHeaderBytes: ByteArray
+    ) : RomfsSectionReader {
+        private data class RelocRun(val virtOff: Long, val virtEnd: Long, val physOff: Long, val isPatch: Boolean)
+        private data class SubRun(val physOff: Long, val physEnd: Long, val ctrVal: Int)
+
+        private val relocRuns = ArrayList<RelocRun>()
+        private val subRuns = ArrayList<SubRun>()
+
+        init {
+            val fbb = ByteBuffer.wrap(fsHeaderBytes).order(ByteOrder.LITTLE_ENDIAN)
+            val relocOff = fbb.getLong(0x100)
+            val relocSize = fbb.getLong(0x108)
+            val subOff = fbb.getLong(0x120)
+            val subSize = fbb.getLong(0x128)
+
+            fun readRawPatchEncrypted(secRelOff: Long, len: Int): ByteArray {
+                val out = ByteArray(len)
+                synchronized(patchRaf) {
+                    patchRaf.seek(patchSliceOffset + patchSecAbsStart + secRelOff)
+                    patchRaf.readFully(out)
+                }
+                transformAesCtrInPlace(out, 0, len, patchSecAbsStart + secRelOff, patchCtrKey, patchCtrUpper8)
+                return out
+            }
+
+            if (subSize >= 0x4000L && relocSize >= 0x4000L) {
+                val subRaw = readRawPatchEncrypted(subOff, subSize.toInt())
+                val sbb = ByteBuffer.wrap(subRaw).order(ByteOrder.LITTLE_ENDIAN)
+                val numSubNodes = ((subSize - 0x4000L) / 0x4000L).toInt()
+                val tmpSub = ArrayList<Pair<Long, Int>>()
+                for (n in 0 until numSubNodes) {
+                    val nodeBase = 0x4000 + n * 0x4000
+                    val cnt = sbb.getInt(nodeBase + 4)
+                    val nodeEndOff = sbb.getLong(nodeBase + 8)
+                    for (i in 0 until cnt) {
+                        val ePos = nodeBase + 0x10 + i * 16
+                        if (ePos + 16 <= subRaw.size) {
+                            val pOff = sbb.getLong(ePos)
+                            val ctr = sbb.getInt(ePos + 12)
+                            tmpSub.add(pOff to ctr)
+                        }
+                    }
+                    if (n == numSubNodes - 1 && tmpSub.isNotEmpty()) {
+                        for (k in 0 until tmpSub.size) {
+                            val st = tmpSub[k].first
+                            val en = if (k + 1 < tmpSub.size) tmpSub[k + 1].first else nodeEndOff
+                            if (en > st) subRuns.add(SubRun(st, en, tmpSub[k].second))
+                        }
+                    }
+                }
+
+                val relRaw = readRawPatchEncrypted(relocOff, relocSize.toInt())
+                val rbb = ByteBuffer.wrap(relRaw).order(ByteOrder.LITTLE_ENDIAN)
+                val numRelNodes = ((relocSize - 0x4000L) / 0x4000L).toInt()
+                val tmpRel = ArrayList<Triple<Long, Long, Boolean>>()
+                var totalVirtEnd = 0L
+                for (n in 0 until numRelNodes) {
+                    val nodeBase = 0x4000 + n * 0x4000
+                    val cnt = rbb.getInt(nodeBase + 4)
+                    val nodeEndVirt = rbb.getLong(nodeBase + 8)
+                    if (nodeEndVirt > totalVirtEnd) totalVirtEnd = nodeEndVirt
+                    for (i in 0 until cnt) {
+                        val ePos = nodeBase + 0x10 + i * 20
+                        if (ePos + 20 <= relRaw.size) {
+                            val vOff = rbb.getLong(ePos)
+                            val pOff = rbb.getLong(ePos + 8)
+                            val isP = rbb.getInt(ePos + 16) != 0
+                            tmpRel.add(Triple(vOff, pOff, isP))
+                        }
+                    }
+                }
+                for (k in 0 until tmpRel.size) {
+                    val st = tmpRel[k].first
+                    val en = if (k + 1 < tmpRel.size) tmpRel[k + 1].first else totalVirtEnd
+                    if (en > st) relocRuns.add(RelocRun(st, en, tmpRel[k].second, tmpRel[k].third))
+                }
+            }
+        }
+
+        private fun readPatchPhysical(physOff: Long, len: Int): ByteArray {
+            val out = ByteArray(len)
+            var done = 0
+            while (done < len) {
+                val curPhys = physOff + done
+                var lo = 0
+                var hi = subRuns.size - 1
+                var matched: SubRun? = null
+                while (lo <= hi) {
+                    val mid = (lo + hi) ushr 1
+                    val r = subRuns[mid]
+                    if (curPhys < r.physOff) hi = mid - 1
+                    else if (curPhys >= r.physEnd) lo = mid + 1
+                    else { matched = r; break }
+                }
+                val chunk = if (matched != null) {
+                    minOf((len - done).toLong(), matched.physEnd - curPhys).toInt()
+                } else {
+                    len - done
+                }
+                val ncaRel = patchSecAbsStart + curPhys
+                synchronized(patchRaf) {
+                    patchRaf.seek(patchSliceOffset + ncaRel)
+                    patchRaf.readFully(out, done, chunk)
+                }
+                val upper8 = patchCtrUpper8.copyOf(8)
+                if (matched != null) {
+                    ByteBuffer.wrap(upper8, 4, 4).order(ByteOrder.LITTLE_ENDIAN).putInt(matched.ctrVal)
+                }
+                transformAesCtrInPlace(out, done, chunk, ncaRel, patchCtrKey, upper8)
+                done += chunk
+            }
+            return out
+        }
+
+        override fun readBytes(sectionRelOffset: Long, length: Int): ByteArray {
+            if (length <= 0) return ByteArray(0)
+            if (relocRuns.isEmpty()) return baseReader.readBytes(sectionRelOffset, length)
+            val out = ByteArray(length)
+            var done = 0
+            while (done < length) {
+                val curVirt = sectionRelOffset + done
+                var lo = 0
+                var hi = relocRuns.size - 1
+                var matched: RelocRun? = null
+                while (lo <= hi) {
+                    val mid = (lo + hi) ushr 1
+                    val r = relocRuns[mid]
+                    if (curVirt < r.virtOff) hi = mid - 1
+                    else if (curVirt >= r.virtEnd) lo = mid + 1
+                    else { matched = r; break }
+                }
+                if (matched == null) {
+                    val fallback = baseReader.readBytes(curVirt, length - done)
+                    System.arraycopy(fallback, 0, out, done, fallback.size)
+                    break
+                }
+                val chunk = minOf((length - done).toLong(), matched.virtEnd - curVirt).toInt()
+                val srcPhys = matched.physOff + (curVirt - matched.virtOff)
+                val part = if (matched.isPatch) {
+                    readPatchPhysical(srcPhys, chunk)
+                } else {
+                    baseReader.readBytes(srcPhys, chunk)
+                }
+                System.arraycopy(part, 0, out, done, chunk)
+                done += chunk
+            }
+            return out
+        }
+    }
+
+    sealed class VirtualRomfsSource {
+        abstract val size: Long
+        abstract fun copyToSink(sink: (ByteArray, Int) -> Unit)
+
+        data class LocalFile(val file: File) : VirtualRomfsSource() {
+            override val size: Long get() = file.length()
+            override fun copyToSink(sink: (ByteArray, Int) -> Unit) {
+                val buf = ByteArray(65536)
+                FileInputStream(file).use { fis ->
+                    while (true) {
+                        val r = fis.read(buf)
+                        if (r <= 0) break
+                        sink(buf, r)
+                    }
+                }
+            }
+        }
+
+        class MemoryBytes(val bytes: ByteArray) : VirtualRomfsSource() {
+            override val size: Long get() = bytes.size.toLong()
+            override fun copyToSink(sink: (ByteArray, Int) -> Unit) {
+                if (bytes.isNotEmpty()) sink(bytes, bytes.size)
+            }
+        }
+
+        class ReaderSlice(
+            val reader: RomfsSectionReader,
+            val sectionRelOffset: Long,
+            override val size: Long
+        ) : VirtualRomfsSource() {
+            override fun copyToSink(sink: (ByteArray, Int) -> Unit) {
+                var rem = size
+                var cur = sectionRelOffset
+                while (rem > 0L) {
+                    val chunk = minOf(rem, 262144L).toInt()
+                    val data = reader.readBytes(cur, chunk)
+                    sink(data, data.size)
+                    cur += chunk
+                    rem -= chunk
+                }
+            }
+        }
+    }
+
+    class HierarchicalRomfsPlan(
+        val headerAndMetaBytes: ByteArray,
+        val fileSchedule: List<Triple<Long, Long, VirtualRomfsSource>>,
+        val unpaddedTotalSize: Long,
+        val paddedTotalSize: Long
+    )
+
+    fun buildHierarchicalRomfsPlan(entries: Map<String, VirtualRomfsSource>): HierarchicalRomfsPlan {
+        fun align4(v: Int): Int = (v + 3) and -4
+        fun align16(v: Long): Long = (v + 15L) and -16L
+        fun calcHashCount(count: Int): Int {
+            if (count < 3) return 3
+            if (count < 19) return count or 1
+            var c = count
+            while (c % 2 == 0 || c % 3 == 0 || c % 5 == 0 || c % 7 == 0 || c % 11 == 0 || c % 13 == 0 || c % 17 == 0) {
+                c++
+            }
+            return c
+        }
+        fun calcRomFsHash(parentOff: Int, nameBytes: ByteArray): Int {
+            var h = parentOff xor 123456789
+            for (b in nameBytes) {
+                h = (h ushr 5) or (h shl 27)
+                h = h xor (b.toInt() and 0xFF)
+            }
+            return h
+        }
+
+        class DirNode(val name: String, val parentIdx: Int) {
+            val nameBytes: ByteArray = name.toByteArray(StandardCharsets.UTF_8)
+            val childDirs = java.util.TreeMap<String, Int>()
+            val childFiles = java.util.TreeMap<String, Int>()
+            var metaOffset: Int = 0
+            var firstChildDirOff: Int = -1
+            var nextSiblingDirOff: Int = -1
+            var firstFileOff: Int = -1
+            var hashNextOff: Int = -1
+        }
+
+        class FileNode(val name: String, val parentDirIdx: Int, val source: VirtualRomfsSource) {
+            val nameBytes: ByteArray = name.toByteArray(StandardCharsets.UTF_8)
+            var metaOffset: Int = 0
+            var nextSiblingFileOff: Int = -1
+            var dataRelOffset: Long = 0L
+            val dataSize: Long = source.size
+            var hashNextOff: Int = -1
+        }
+
+        val dirs = ArrayList<DirNode>()
+        val files = ArrayList<FileNode>()
+        dirs.add(DirNode("", 0))
+
+        val sortedRelPaths = entries.keys.map { it.replace('\\', '/').trim('/') }.filter { it.isNotEmpty() }.sorted()
+        val sourceByClean = LinkedHashMap<String, VirtualRomfsSource>()
+        for ((k, v) in entries) {
+            val cl = k.replace('\\', '/').trim('/')
+            if (cl.isNotEmpty()) sourceByClean[cl] = v
+        }
+
+        for (rel in sortedRelPaths) {
+            val src = sourceByClean[rel] ?: continue
+            val parts = rel.split('/').filter { it.isNotEmpty() }
+            if (parts.isEmpty()) continue
+            var curDirIdx = 0
+            for (i in 0 until parts.size - 1) {
+                val dName = parts[i]
+                val existing = dirs[curDirIdx].childDirs[dName]
+                curDirIdx = if (existing != null) {
+                    existing
+                } else {
+                    val newIdx = dirs.size
+                    dirs.add(DirNode(dName, curDirIdx))
+                    dirs[curDirIdx].childDirs[dName] = newIdx
+                    newIdx
+                }
+            }
+            val fName = parts.last()
+            if (!dirs[curDirIdx].childFiles.containsKey(fName)) {
+                val fIdx = files.size
+                files.add(FileNode(fName, curDirIdx, src))
+                dirs[curDirIdx].childFiles[fName] = fIdx
+            }
+        }
+
+        var curDirMetaSize = 0
+        for (d in dirs) {
+            d.metaOffset = curDirMetaSize
+            curDirMetaSize += 24 + align4(d.nameBytes.size)
+        }
+
+        var curFileMetaSize = 0
+        var curDataRelOff = 0L
+        for (f in files) {
+            f.metaOffset = curFileMetaSize
+            curFileMetaSize += 32 + align4(f.nameBytes.size)
+            curDataRelOff = align16(curDataRelOff)
+            f.dataRelOffset = curDataRelOff
+            curDataRelOff += f.dataSize
+        }
+
+        for (d in dirs) {
+            val cDirs = d.childDirs.values.toList()
+            if (cDirs.isNotEmpty()) {
+                d.firstChildDirOff = dirs[cDirs[0]].metaOffset
+                for (i in 0 until cDirs.size - 1) {
+                    dirs[cDirs[i]].nextSiblingDirOff = dirs[cDirs[i + 1]].metaOffset
+                }
+            }
+            val cFiles = d.childFiles.values.toList()
+            if (cFiles.isNotEmpty()) {
+                d.firstFileOff = files[cFiles[0]].metaOffset
+                for (i in 0 until cFiles.size - 1) {
+                    files[cFiles[i]].nextSiblingFileOff = files[cFiles[i + 1]].metaOffset
+                }
+            }
+        }
+
+        val dirBucketCount = calcHashCount(dirs.size)
+        val fileBucketCount = calcHashCount(files.size)
+        val dirBuckets = IntArray(dirBucketCount) { -1 }
+        val fileBuckets = IntArray(fileBucketCount) { -1 }
+
+        for (i in 0 until dirs.size) {
+            val d = dirs[i]
+            val pOff = dirs[d.parentIdx].metaOffset
+            val h = calcRomFsHash(pOff, d.nameBytes)
+            val bIdx = ((h.toLong() and 0xFFFFFFFFL) % dirBucketCount.toLong()).toInt()
+            d.hashNextOff = dirBuckets[bIdx]
+            dirBuckets[bIdx] = d.metaOffset
+        }
+
+        for (f in files) {
+            val pOff = dirs[f.parentDirIdx].metaOffset
+            val h = calcRomFsHash(pOff, f.nameBytes)
+            val bIdx = ((h.toLong() and 0xFFFFFFFFL) % fileBucketCount.toLong()).toInt()
+            f.hashNextOff = fileBuckets[bIdx]
+            fileBuckets[bIdx] = f.metaOffset
+        }
+
+        val dirHashOff = 0x50L
+        val dirHashSize = dirBucketCount.toLong() * 4L
+        val dirMetaOff = dirHashOff + dirHashSize
+        val dirMetaSize = curDirMetaSize.toLong()
+        val fileHashOff = dirMetaOff + dirMetaSize
+        val fileHashSize = fileBucketCount.toLong() * 4L
+        val fileMetaOff = fileHashOff + fileHashSize
+        val fileMetaSize = curFileMetaSize.toLong()
+        val dataOffset = align16((fileMetaOff + fileMetaSize).coerceAtLeast(0x200L))
+
+        val headerAndMeta = ByteArray(dataOffset.toInt())
+        val bb = ByteBuffer.wrap(headerAndMeta).order(ByteOrder.LITTLE_ENDIAN)
+        bb.putLong(0x00, 0x50L)
+        bb.putLong(0x08, dirHashOff)
+        bb.putLong(0x10, dirHashSize)
+        bb.putLong(0x18, dirMetaOff)
+        bb.putLong(0x20, dirMetaSize)
+        bb.putLong(0x28, fileHashOff)
+        bb.putLong(0x30, fileHashSize)
+        bb.putLong(0x38, fileMetaOff)
+        bb.putLong(0x40, fileMetaSize)
+        bb.putLong(0x48, dataOffset)
+
+        for (i in 0 until dirBucketCount) {
+            bb.putInt(dirHashOff.toInt() + i * 4, dirBuckets[i])
+        }
+        for (d in dirs) {
+            val pos = dirMetaOff.toInt() + d.metaOffset
+            bb.putInt(pos + 0, dirs[d.parentIdx].metaOffset)
+            bb.putInt(pos + 4, d.nextSiblingDirOff)
+            bb.putInt(pos + 8, d.firstChildDirOff)
+            bb.putInt(pos + 12, d.firstFileOff)
+            bb.putInt(pos + 16, d.hashNextOff)
+            bb.putInt(pos + 20, d.nameBytes.size)
+            if (d.nameBytes.isNotEmpty()) {
+                System.arraycopy(d.nameBytes, 0, headerAndMeta, pos + 24, d.nameBytes.size)
+            }
+        }
+        for (i in 0 until fileBucketCount) {
+            bb.putInt(fileHashOff.toInt() + i * 4, fileBuckets[i])
+        }
+        val schedule = ArrayList<Triple<Long, Long, VirtualRomfsSource>>(files.size)
+        for (f in files) {
+            val pos = fileMetaOff.toInt() + f.metaOffset
+            bb.putInt(pos + 0, dirs[f.parentDirIdx].metaOffset)
+            bb.putInt(pos + 4, f.nextSiblingFileOff)
+            bb.putLong(pos + 8, f.dataRelOffset)
+            bb.putLong(pos + 16, f.dataSize)
+            bb.putInt(pos + 24, f.hashNextOff)
+            bb.putInt(pos + 28, f.nameBytes.size)
+            if (f.nameBytes.isNotEmpty()) {
+                System.arraycopy(f.nameBytes, 0, headerAndMeta, pos + 32, f.nameBytes.size)
+            }
+            schedule.add(Triple(dataOffset + f.dataRelOffset, f.dataSize, f.source))
+        }
+
+        val unpaddedTotal = dataOffset + curDataRelOff
+        val paddedTotal = ((unpaddedTotal + 0x3FFFL) / 0x4000L) * 0x4000L
+        return HierarchicalRomfsPlan(headerAndMeta, schedule, unpaddedTotal, paddedTotal.coerceAtLeast(0x4000L))
+    }
+
+    fun streamRomfsPlanToSink(plan: HierarchicalRomfsPlan, writeChunk: (ByteArray, Int) -> Unit) {
+        val zeroPad = ByteArray(65536)
+        var written = 0L
+        if (plan.headerAndMetaBytes.isNotEmpty()) {
+            writeChunk(plan.headerAndMetaBytes, plan.headerAndMetaBytes.size)
+            written += plan.headerAndMetaBytes.size.toLong()
+        }
+        for ((targetAbsOff, expectedSize, src) in plan.fileSchedule) {
+            while (written < targetAbsOff) {
+                val gap = minOf(targetAbsOff - written, zeroPad.size.toLong()).toInt()
+                writeChunk(zeroPad, gap)
+                written += gap
+            }
+            var fileWritten = 0L
+            src.copyToSink { chunk, len ->
+                val allowed = minOf(len.toLong(), expectedSize - fileWritten).toInt()
+                if (allowed > 0) {
+                    writeChunk(chunk, allowed)
+                    fileWritten += allowed
+                    written += allowed
+                }
+            }
+            while (fileWritten < expectedSize) {
+                val pad = minOf(expectedSize - fileWritten, zeroPad.size.toLong()).toInt()
+                writeChunk(zeroPad, pad)
+                fileWritten += pad
+                written += pad
+            }
+        }
+        while (written < plan.paddedTotalSize) {
+            val pad = minOf(plan.paddedTotalSize - written, zeroPad.size.toLong()).toInt()
+            writeChunk(zeroPad, pad)
+            written += pad
+        }
+    }
+
+    fun extractExefsFilesFromNcaSlice(
+        raf: RandomAccessFile,
+        sliceOffset: Long,
+        sliceSize: Long,
+        keysMap: Map<String, ByteArray>,
+        externalTitleKey: ByteArray?
+    ): LinkedHashMap<String, ByteArray> {
+        val out = LinkedHashMap<String, ByteArray>()
+        if (sliceSize < 0x1000L) return out
+        try {
+            val hdrBuf = ByteArray(0xC00)
+            synchronized(raf) {
+                raf.seek(sliceOffset)
+                raf.readFully(hdrBuf)
+            }
+            val workHdr = decryptNcaHeader0C00(hdrBuf.copyOf(), keysMap)
+            val sections = parseNcaSectionsForCompression(hdrBuf, sliceSize, keysMap, externalTitleKey, raf, sliceOffset)
+            val bb = ByteBuffer.wrap(workHdr).order(ByteOrder.LITTLE_ENDIAN)
+
+            for (sIdx in 0 until 4) {
+                val entryOff = 0x240 + sIdx * 16
+                val startMedia = bb.getInt(entryOff).toLong() and 0xFFFFFFFFL
+                val endMedia = bb.getInt(entryOff + 4).toLong() and 0xFFFFFFFFL
+                val enabled = bb.getInt(entryOff + 8) != 0
+                if (!enabled || endMedia <= startMedia) continue
+                val rawSecStart = startMedia * 0x200L
+                val fsOff = 0x400 + sIdx * 0x200
+                val fsType = workHdr[fsOff + 2].toInt() and 0xFF
+                val hashType = workHdr[fsOff + 3].toInt() and 0xFF
+                if (fsType == 1 && hashType == 2) {
+                    val pfs0RelOff = bb.getLong(fsOff + 0x38)
+                    val pfs0Size = bb.getLong(fsOff + 0x40)
+                    val pfs0AbsInNca = rawSecStart + pfs0RelOff
+                    if (pfs0Size <= 16L || pfs0AbsInNca + pfs0Size > sliceSize) continue
+                    val secCrypto = sections.firstOrNull { rawSecStart in it.offset until (it.offset + it.size) }
+                        ?: sections.firstOrNull()
+                    val hdrProbe = ByteArray(minOf(pfs0Size, 4096L).toInt())
+                    synchronized(raf) {
+                        raf.seek(sliceOffset + pfs0AbsInNca)
+                        raf.readFully(hdrProbe)
+                    }
+                    if (secCrypto != null && (secCrypto.cryptoType == 3L || secCrypto.cryptoType == 4L) && secCrypto.key != null && secCrypto.counter != null) {
+                        transformAesCtrInPlace(hdrProbe, 0, hdrProbe.size, pfs0AbsInNca, secCrypto.key, secCrypto.counter)
+                    }
+                    if (String(hdrProbe, 0, 4, StandardCharsets.US_ASCII) != "PFS0") continue
+                    val pbb = ByteBuffer.wrap(hdrProbe).order(ByteOrder.LITTLE_ENDIAN)
+                    val count = pbb.getInt(4)
+                    val strTabSize = pbb.getInt(8)
+                    val dataStartRel = 16L + count.toLong() * 24L + strTabSize.toLong()
+                    if (count !in 1..64 || dataStartRel > hdrProbe.size) continue
+                    val strBase = 16 + count * 24
+                    for (i in 0 until count) {
+                        val ePos = 16 + i * 24
+                        val fOff = pbb.getLong(ePos)
+                        val fSz = pbb.getLong(ePos + 8)
+                        val sOff = pbb.getInt(ePos + 16)
+                        if (sOff !in 0 until strTabSize || fSz <= 0L || fSz > 128L * 1024L * 1024L) continue
+                        var sEnd = strBase + sOff
+                        while (sEnd < strBase + strTabSize && hdrProbe[sEnd] != 0.toByte()) sEnd++
+                        val fName = String(hdrProbe, strBase + sOff, sEnd - (strBase + sOff), StandardCharsets.UTF_8)
+                        val fileAbsInNca = pfs0AbsInNca + dataStartRel + fOff
+                        if (fileAbsInNca + fSz > sliceSize) continue
+                        val fBytes = ByteArray(fSz.toInt())
+                        synchronized(raf) {
+                            raf.seek(sliceOffset + fileAbsInNca)
+                            raf.readFully(fBytes)
+                        }
+                        if (secCrypto != null && (secCrypto.cryptoType == 3L || secCrypto.cryptoType == 4L) && secCrypto.key != null && secCrypto.counter != null) {
+                            transformAesCtrInPlace(fBytes, 0, fBytes.size, fileAbsInNca, secCrypto.key, secCrypto.counter)
+                        }
+                        out[fName] = fBytes
+                    }
+                    if (out.isNotEmpty()) return out
+                }
+            }
+        } catch (_: Throwable) {}
+        return out
+    }
+
+    fun extractExefsFilesFromNcaSlice(
+        raf: RandomAccessFile,
+        sliceOffset: Long,
+        sliceSize: Long,
+        outDir: File,
+        keysMap: Map<String, ByteArray>,
+        ticketKeysByRightsId: Map<String, ByteArray> = emptyMap(),
+        fallbackTicketKey: ByteArray? = null
+    ): LinkedHashMap<String, File> {
+        val outFiles = LinkedHashMap<String, File>()
+        val rawMap = extractExefsFilesFromNcaSlice(raf, sliceOffset, sliceSize, keysMap, fallbackTicketKey)
+        if (rawMap.isNotEmpty()) {
+            outDir.mkdirs()
+            for ((name, bytes) in rawMap) {
+                val f = File(outDir, name)
+                f.writeBytes(bytes)
+                if (!isPoisonedStubMainFile(f)) {
+                    outFiles[name] = f
+                } else {
+                    f.delete()
+                }
+            }
+        }
+        return outFiles
+    }
+
+
+    // =========================================================================
+    // HELPER BLOCK PART 3: Standalone Hard-Patch Engine (Base + BKTR/Full Update
+    // + Staged Mod -> Unified 0x4000-aligned StandardCrypto Program NCA + CNMT)
+    // =========================================================================
+
+    data class AuxNcaCandidate(
+        val mapKey: String,
+        val parentFile: File,
+        val entryName: String,
+        val offset: Long,
+        val size: Long,
+        val contentType: Int,
+        val titleId: String,
+        val rightsId: String,
+        val hasBktr: Boolean
+    )
+
+    data class StandaloneHardPatchRefs(
+        val primaryTid: String,
+        val baseProgKey: String,
+        val baseProgParent: File,
+        val baseProgOffset: Long,
+        val baseProgSize: Long,
+        val baseProgRightsId: String,
+        val updProgKey: String?,
+        val updProgParent: File?,
+        val updProgOffset: Long,
+        val updProgSize: Long,
+        val updProgRightsId: String,
+        val stagedModDir: File?,
+        val auxCandidates: List<AuxNcaCandidate>
+    )
+
+    data class StandaloneHardPatchOutput(
+        val cnmtFile: File,
+        val controlFile: File?,
+        val programFile: File,
+        val manualFiles: List<File>
+    )
+
+    private fun standardizeAuxiliaryNcaToFile(
+        cand: AuxNcaCandidate,
+        primaryTidHex: String,
+        tempDir: File,
+        keysMap: Map<String, ByteArray>,
+        ticketKeysByRightsId: Map<String, ByteArray>,
+        fallbackTicketKey: ByteArray?
+    ): File? {
+        if (!cand.parentFile.exists() || cand.size < 0x1000L) return null
+        return try {
+            val rawBytes = ByteArray(cand.size.toInt())
+            RandomAccessFile(cand.parentFile, "r").use { raf ->
+                raf.seek(cand.offset)
+                raf.readFully(rawBytes)
+            }
+            val hdr0C00 = rawBytes.copyOfRange(0, 0xC00)
+            val plainHdr = decryptNcaHeader0C00(hdr0C00, keysMap)
+            if (String(plainHdr, 0x200, 4, StandardCharsets.US_ASCII) != "NCA3") return null
+
+            val extKey = if (cand.rightsId.isNotEmpty()) {
+                ticketKeysByRightsId[cand.rightsId.uppercase()] ?: fallbackTicketKey
+            } else null
+
+            val sections = RandomAccessFile(cand.parentFile, "r").use { raf ->
+                parseNcaSectionsForCompression(hdr0C00, cand.size, keysMap, extKey, raf, cand.offset)
+            }
+            val hasRightsId = (0x230 until 0x240).any { plainHdr[it] != 0.toByte() }
+            val tidLong = primaryTidHex.toULongOrNull(16)?.toLong() ?: 0L
+            ByteBuffer.wrap(plainHdr).order(ByteOrder.LITTLE_ENDIAN).putLong(0x210, tidLong)
+            plainHdr[0x204] = 0.toByte()
+
+            if (hasRightsId) {
+                for (i in 0x230 until 0x240) plainHdr[i] = 0.toByte()
+                fillStandardNcaKeyArea(plainHdr, keysMap)
+                val newSections = parseNcaSectionsForCompression(encryptNcaHeader0C00(plainHdr.copyOf(), keysMap), cand.size, keysMap, null, null, 0L)
+                val newCtrKey = newSections.firstOrNull()?.key
+                for (sec in sections) {
+                    if ((sec.cryptoType == 3L || sec.cryptoType == 4L) && sec.key != null && sec.counter != null && newCtrKey != null) {
+                        val sOff = sec.offset.toInt()
+                        val sLen = minOf(sec.size, (rawBytes.size - sOff).toLong()).toInt()
+                        if (sOff >= 0xC00 && sLen > 0) {
+                            transformAesCtrInPlace(rawBytes, sOff, sLen, sec.offset, sec.key, sec.counter)
+                            transformAesCtrInPlace(rawBytes, sOff, sLen, sec.offset, newCtrKey, sec.counter)
+                        }
+                    }
+                }
+            }
+            val encHdr = encryptNcaHeader0C00(plainHdr, keysMap)
+            System.arraycopy(encHdr, 0, rawBytes, 0, 0xC00)
+            val sha = MessageDigest.getInstance("SHA-256").digest(rawBytes)
+            val hexId = sha.copyOfRange(0, 16).joinToString("") { "%02x".format(it) }
+            val outF = File(tempDir, "$hexId.nca")
+            outF.writeBytes(rawBytes)
+            outF
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    fun executeStandaloneHardPatchToTempNcas(
+        refs: StandaloneHardPatchRefs,
+        tempDir: File,
+        keysMap: Map<String, ByteArray>,
+        ticketKeysByRightsId: Map<String, ByteArray>,
+        fallbackTicketKey: ByteArray?,
+        onProgress: (NczProgress) -> Unit
+    ): StandaloneHardPatchOutput? {
+        if (!refs.baseProgParent.exists() || refs.baseProgSize < 0x4000L) return null
+        val cleanTid = normalizeBaseTitleId(refs.primaryTid).ifEmpty { refs.primaryTid.uppercase() }
+        val tidLong = cleanTid.toULongOrNull(16)?.toLong() ?: return null
+
+        val baseExtKey = if (refs.baseProgRightsId.isNotEmpty()) {
+            ticketKeysByRightsId[refs.baseProgRightsId.uppercase()] ?: fallbackTicketKey
+        } else null
+        val updExtKey = if (refs.updProgRightsId.isNotEmpty()) {
+            ticketKeysByRightsId[refs.updProgRightsId.uppercase()] ?: fallbackTicketKey
+        } else null
+
+        var baseRaf: RandomAccessFile? = null
+        var updRaf: RandomAccessFile? = null
+        try {
+            baseRaf = RandomAccessFile(refs.baseProgParent, "r")
+            if (refs.updProgParent != null && refs.updProgParent.exists() && refs.updProgSize >= 0x4000L) {
+                updRaf = RandomAccessFile(refs.updProgParent, "r")
+            }
+
+            onProgress(makeProg(58, "Hard-Patch: слияние ExeFS модулей...", "exefs/main", 58L, 100L))
+            val mergedExefs = extractExefsFilesFromNcaSlice(baseRaf, refs.baseProgOffset, refs.baseProgSize, keysMap, baseExtKey)
+            if (updRaf != null) {
+                val updExefs = extractExefsFilesFromNcaSlice(updRaf, refs.updProgOffset, refs.updProgSize, keysMap, updExtKey)
+                for ((k, v) in updExefs) {
+                    mergedExefs[k] = v
+                }
+            }
+            val modExefsDir = refs.stagedModDir?.let { File(it, "exefs") }
+            if (modExefsDir != null && modExefsDir.exists() && modExefsDir.isDirectory) {
+                modExefsDir.listFiles()?.filter { it.isFile && !isPoisonedStubMainFile(it) && !isJunkOrReadmeFile(it.name) }?.forEach { mf ->
+                    val ext = mf.extension.lowercase()
+                    if (ext != "ips" && ext != "pchtxt") {
+                        mergedExefs[mf.name] = mf.readBytes()
+                    }
+                }
+            }
+            if (mergedExefs.isEmpty() || !mergedExefs.containsKey("main")) return null
+            val npdmBytes = mergedExefs["main.npdm"]
+            if (npdmBytes != null) {
+                val tmpNpdm = File(tempDir, "tmp_patch_main.npdm")
+                tmpNpdm.writeBytes(npdmBytes)
+                patchNpdmTitleIdInFile(tmpNpdm, cleanTid)
+                mergedExefs["main.npdm"] = tmpNpdm.readBytes()
+                tmpNpdm.delete()
+            }
+
+            onProgress(makeProg(62, "Hard-Patch: чтение дерева RomFS (Base + BKTR + Mod)...", cleanTid, 62L, 100L))
+            val baseHdrRaw = ByteArray(0xC00)
+            baseRaf.seek(refs.baseProgOffset)
+            baseRaf.readFully(baseHdrRaw)
+            val baseHdrPlain = decryptNcaHeader0C00(baseHdrRaw.copyOf(), keysMap)
+            val baseSections = parseNcaSectionsForCompression(baseHdrRaw, refs.baseProgSize, keysMap, baseExtKey, baseRaf, refs.baseProgOffset)
+            val bbb = ByteBuffer.wrap(baseHdrPlain).order(ByteOrder.LITTLE_ENDIAN)
+
+            var baseRomfsReader: RomfsSectionReader? = null
+            var baseLv6Off = 0L
+            for (sIdx in 0 until 4) {
+                val eOff = 0x240 + sIdx * 16
+                val stMedia = bbb.getInt(eOff).toLong() and 0xFFFFFFFFL
+                val enMedia = bbb.getInt(eOff + 4).toLong() and 0xFFFFFFFFL
+                if (bbb.getInt(eOff + 8) == 0 || enMedia <= stMedia) continue
+                val secStart = stMedia * 0x200L
+                val fsOff = 0x400 + sIdx * 0x200
+                if (String(baseHdrPlain, fsOff + 8, 4, StandardCharsets.US_ASCII) == "IVFC") {
+                    val romSec = baseSections.firstOrNull { secStart in it.offset until (it.offset + it.size) }
+                        ?: baseSections.firstOrNull { it.offset >= secStart }
+                    if (romSec != null) {
+                        baseLv6Off = bbb.getLong(fsOff + 0x18 + 5 * 24)
+                        baseRomfsReader = DirectNcaRomfsSectionReader(
+                            raf = baseRaf,
+                            sliceOffset = refs.baseProgOffset,
+                            secAbsStart = secStart,
+                            cryptoType = romSec.cryptoType,
+                            ctrKey = romSec.key,
+                            ctrUpper8 = romSec.counter
+                        )
+                        break
+                    }
+                }
+            }
+            if (baseRomfsReader == null) return null
+
+            var activeRomfsReader: RomfsSectionReader = baseRomfsReader
+            var activeLv6Off = baseLv6Off
+
+            if (updRaf != null) {
+                val updHdrRaw = ByteArray(0xC00)
+                updRaf.seek(refs.updProgOffset)
+                updRaf.readFully(updHdrRaw)
+                val updHdrPlain = decryptNcaHeader0C00(updHdrRaw.copyOf(), keysMap)
+                val updSections = parseNcaSectionsForCompression(updHdrRaw, refs.updProgSize, keysMap, updExtKey, updRaf, refs.updProgOffset)
+                val ubb = ByteBuffer.wrap(updHdrPlain).order(ByteOrder.LITTLE_ENDIAN)
+
+                for (sIdx in 0 until 4) {
+                    val eOff = 0x240 + sIdx * 16
+                    val stMedia = ubb.getInt(eOff).toLong() and 0xFFFFFFFFL
+                    val enMedia = ubb.getInt(eOff + 4).toLong() and 0xFFFFFFFFL
+                    if (ubb.getInt(eOff + 8) == 0 || enMedia <= stMedia) continue
+                    val secStart = stMedia * 0x200L
+                    val fsOff = 0x400 + sIdx * 0x200
+                    if (String(updHdrPlain, fsOff + 8, 4, StandardCharsets.US_ASCII) == "IVFC") {
+                        val encType = updHdrPlain[fsOff + 4].toInt() and 0xFF
+                        val uLv6Off = ubb.getLong(fsOff + 0x18 + 5 * 24)
+                        val romSec = updSections.firstOrNull { secStart in it.offset until (it.offset + it.size) }
+                            ?: updSections.firstOrNull { it.offset >= secStart }
+                        if (romSec != null && romSec.key != null && romSec.counter != null) {
+                            activeRomfsReader = if (encType == 4) {
+                                BktrRomfsSectionReader(
+                                    baseReader = baseRomfsReader,
+                                    patchRaf = updRaf,
+                                    patchSliceOffset = refs.updProgOffset,
+                                    patchSecAbsStart = secStart,
+                                    patchCtrKey = romSec.key,
+                                    patchCtrUpper8 = romSec.counter,
+                                    fsHeaderBytes = updHdrPlain.copyOfRange(fsOff, fsOff + 0x200)
+                                )
+                            } else {
+                                DirectNcaRomfsSectionReader(
+                                    raf = updRaf,
+                                    sliceOffset = refs.updProgOffset,
+                                    secAbsStart = secStart,
+                                    cryptoType = romSec.cryptoType,
+                                    ctrKey = romSec.key,
+                                    ctrUpper8 = romSec.counter
+                                )
+                            }
+                            activeLv6Off = uLv6Off
+                        }
+                        break
+                    }
+                }
+            }
+
+            val parsedRomfs = parseRomfsMetadataFromReader(activeRomfsReader, activeLv6Off)
+            if (parsedRomfs.files.isEmpty()) return null
+
+            val mergedRomfsMap = LinkedHashMap<String, VirtualRomfsSource>()
+            val caseInsensitiveLookup = HashMap<String, String>()
+            for ((relPath, metaPair) in parsedRomfs.files) {
+                val cleanRel = relPath.replace('\\', '/').trim('/')
+                mergedRomfsMap[cleanRel] = VirtualRomfsSource.ReaderSlice(
+                    reader = activeRomfsReader,
+                    sectionRelOffset = activeLv6Off + parsedRomfs.dataOffset + metaPair.first,
+                    size = metaPair.second
+                )
+                caseInsensitiveLookup[cleanRel.lowercase()] = cleanRel
+            }
+
+            val modRomfsDir = refs.stagedModDir?.let { File(it, "romfs") }
+            if (modRomfsDir != null && modRomfsDir.exists() && modRomfsDir.isDirectory) {
+                // Синхронизируем версию .Product.<ver>.sarc.zs если у игры в обновлении сменился номер (например .100 -> .110)
+                val gameMalsVer = mergedRomfsMap.keys.firstNotNullOfOrNull { k ->
+                    Regex("^Mals/[A-Za-z]{4}\\\\.Product\\\\.([0-9A-Za-z_]+)\\\\.sarc\\\\.zs$", RegexOption.IGNORE_CASE).find(k)?.groupValues?.get(1)
+                }
+                modRomfsDir.walkTopDown().filter { it.isFile && !isPoisonedFakeConfigIni(it) && !isJunkOrReadmeFile(it.name) }.forEach { mf ->
+                    val rawRel = mf.relativeTo(modRomfsDir).path.replace('\\', '/').trim('/')
+                    if (rawRel.startsWith("Mals/", ignoreCase = true) && rawRel.endsWith(".sarc.zs", ignoreCase = true) && gameMalsVer != null) {
+                        val mMatch = Regex("^Mals/([A-Za-z]{4})\\\\.Product\\\\.([0-9A-Za-z_]+)\\\\.sarc\\\\.zs$", RegexOption.IGNORE_CASE).find(rawRel)
+                        if (mMatch != null) {
+                            val langCode = mMatch.groupValues[1]
+                            if (langCode.equals("RUru", ignoreCase = true)) {
+                                return@forEach
+                            }
+                            for (targetLang in listOf(langCode, "EUen", "USen", "EUru")) {
+                                val adjustedRel = "Mals/$targetLang.Product.$gameMalsVer.sarc.zs"
+                                val canonicalKey = caseInsensitiveLookup[adjustedRel.lowercase()] ?: adjustedRel
+                                mergedRomfsMap[canonicalKey] = VirtualRomfsSource.LocalFile(mf)
+                                caseInsensitiveLookup[canonicalKey.lowercase()] = canonicalKey
+                            }
+                            return@forEach
+                        }
+                    }
+                    val canonicalKey = caseInsensitiveLookup[rawRel.lowercase()] ?: rawRel
+                    mergedRomfsMap[canonicalKey] = VirtualRomfsSource.LocalFile(mf)
+                    caseInsensitiveLookup[canonicalKey.lowercase()] = canonicalKey
+                }
+            }
+
+            onProgress(makeProg(68, "Hard-Patch: построение иерархического RomFS...", "${mergedRomfsMap.size} файлов", 68L, 100L))
+            val romfsPlan = buildHierarchicalRomfsPlan(mergedRomfsMap)
+
+            // 1. Собираем Section[0] (ExeFS PFS0 + 2-уровневый SHA-256), строго с выравниванием 0x4000!
+            val exefsOrder = listOf("rtld", "main", "main.npdm", "subsdk0", "subsdk1", "subsdk2", "subsdk3", "subsdk4", "subsdk5", "subsdk6", "subsdk7", "subsdk8", "subsdk9", "sdk")
+            val orderedExefsPairs = ArrayList<Pair<String, ByteArray>>()
+            for (k in exefsOrder) {
+                val b = mergedExefs[k]
+                if (b != null) orderedExefsPairs.add(k to b)
+            }
+            for ((k, b) in mergedExefs) {
+                if (k !in exefsOrder) orderedExefsPairs.add(k to b)
+            }
+            val exefsPfs0Bytes = buildMemoryPfs0(orderedExefsPairs)
+            val exefsBlockSize = 0x10000
+            val numExefsBlocks = (exefsPfs0Bytes.size + exefsBlockSize - 1) / exefsBlockSize
+            val exefsHashTab = ByteArray(numExefsBlocks * 32)
+            for (bIdx in 0 until numExefsBlocks) {
+                val bStart = bIdx * exefsBlockSize
+                val bLen = minOf(exefsBlockSize, exefsPfs0Bytes.size - bStart)
+                val sha = MessageDigest.getInstance("SHA-256")
+                sha.update(exefsPfs0Bytes, bStart, bLen)
+                System.arraycopy(sha.digest(), 0, exefsHashTab, bIdx * 32, 32)
+            }
+            val exefsMasterHash = MessageDigest.getInstance("SHA-256").digest(exefsHashTab)
+            val exefsPfs0RelOff = ((exefsHashTab.size + 0x1FF) / 0x200) * 0x200
+            val sec0UnalignedSize = exefsPfs0RelOff + exefsPfs0Bytes.size
+            val sec0AlignedSize = ((sec0UnalignedSize + 0x1FF) / 0x200) * 0x200
+            val sec0PlainBytes = ByteArray(sec0AlignedSize)
+            System.arraycopy(exefsHashTab, 0, sec0PlainBytes, 0, exefsHashTab.size)
+            System.arraycopy(exefsPfs0Bytes, 0, sec0PlainBytes, exefsPfs0RelOff, exefsPfs0Bytes.size)
+
+            val sec0StartOff = 0x4000L
+            val sec1StartOff = sec0StartOff + sec0AlignedSize.toLong()
+
+            // 2. Рассчитываем геометрию 6-уровневого IVFC дерева (Lv0..Lv5) для Section[1] (RomFS)
+            fun alignIvfcSize(sz: Long): Long = ((sz + 0x3FFFL) / 0x4000L) * 0x4000L
+            val lv5PaddedSize = romfsPlan.paddedTotalSize
+            val numLv5Blocks = (lv5PaddedSize / 0x4000L).toInt()
+            val lv4RawSize = numLv5Blocks.toLong() * 32L
+            val lv4PaddedSize = alignIvfcSize(lv4RawSize)
+            val lv3RawSize = (lv4PaddedSize / 0x4000L) * 32L
+            val lv3PaddedSize = alignIvfcSize(lv3RawSize)
+            val lv2RawSize = (lv3PaddedSize / 0x4000L) * 32L
+            val lv2PaddedSize = alignIvfcSize(lv2RawSize)
+            val lv1RawSize = (lv2PaddedSize / 0x4000L) * 32L
+            val lv1PaddedSize = alignIvfcSize(lv1RawSize)
+            val lv0RawSize = (lv1PaddedSize / 0x4000L) * 32L
+            val lv0PaddedSize = alignIvfcSize(lv0RawSize)
+
+            val lv0LogOff = 0L
+            val lv1LogOff = lv0LogOff + lv0PaddedSize
+            val lv2LogOff = lv1LogOff + lv1PaddedSize
+            val lv3LogOff = lv2LogOff + lv2PaddedSize
+            val lv4LogOff = lv3LogOff + lv3PaddedSize
+            val lv5LogOff = lv4LogOff + lv4PaddedSize
+            val sec1TotalSize = lv5LogOff + lv5PaddedSize
+            val totalProgramNcaSize = sec1StartOff + sec1TotalSize
+
+            // Подготавливаем заголовок NCA (0x4000 байт, StandardCrypto, KeyArea заполняется стандартным ключом)
+            val progHdr0x4000 = ByteArray(0x4000)
+            val hbb = ByteBuffer.wrap(progHdr0x4000).order(ByteOrder.LITTLE_ENDIAN)
+            progHdr0x4000[0x200] = 'N'.code.toByte()
+            progHdr0x4000[0x201] = 'C'.code.toByte()
+            progHdr0x4000[0x202] = 'A'.code.toByte()
+            progHdr0x4000[0x203] = '3'.code.toByte()
+            progHdr0x4000[0x204] = 0.toByte() // DistributionType = Download
+            progHdr0x4000[0x205] = 0.toByte() // ContentType = Program (0)
+            progHdr0x4000[0x206] = baseHdrPlain[0x206]
+            progHdr0x4000[0x207] = baseHdrPlain[0x207]
+            hbb.putLong(0x208, totalProgramNcaSize)
+            hbb.putLong(0x210, tidLong)
+            hbb.putInt(0x218, 0)
+            hbb.putInt(0x21C, bbb.getInt(0x21C))
+            progHdr0x4000[0x220] = baseHdrPlain[0x220]
+
+            // Media entries: Section 0 (0x4000..sec1StartOff), Section 1 (sec1StartOff..totalProgramNcaSize)
+            hbb.putInt(0x240, (sec0StartOff / 0x200L).toInt())
+            hbb.putInt(0x244, (sec1StartOff / 0x200L).toInt())
+            progHdr0x4000[0x248] = 1.toByte()
+
+            hbb.putInt(0x250, (sec1StartOff / 0x200L).toInt())
+            hbb.putInt(0x254, (totalProgramNcaSize / 0x200L).toInt())
+            progHdr0x4000[0x258] = 1.toByte()
+
+            fillStandardNcaKeyArea(progHdr0x4000, keysMap)
+            val stdCtrKey = ByteArray(16) { (it * 17 + 0x5A).toByte() }
+
+            val tmpProgFile = File(tempDir, "tmp_hardpatched_program_${System.currentTimeMillis()}.nca")
+            val lv4PaddedBytes = ByteArray(lv4PaddedSize.toInt())
+
+            RandomAccessFile(tmpProgFile, "rw").use { outRaf ->
+                outRaf.setLength(totalProgramNcaSize)
+                // Стримим Lv5 (RomFS) в позицию sec1StartOff + lv5LogOff, попутно считая SHA-256 каждого 16-КБ блока для Lv4 и шифруя AES-CTR
+                val sec1Upper8 = ByteArray(8)
+                sec1Upper8[0] = 2.toByte() // Section 1 (RomFS) generation = 2
+                val batchBuf = ByteArray(262144)
+                var batchFill = 0
+                var curLv5RelOff = 0L
+                var lv5BlockIdx = 0
+                val shaBlock = MessageDigest.getInstance("SHA-256")
+
+                fun flushLv5Batch() {
+                    if (batchFill <= 0) return
+                    var pos = 0
+                    while (pos < batchFill) {
+                        shaBlock.reset()
+                        shaBlock.update(batchBuf, pos, 0x4000)
+                        System.arraycopy(shaBlock.digest(), 0, lv4PaddedBytes, lv5BlockIdx * 32, 32)
+                        lv5BlockIdx++
+                        pos += 0x4000
+                    }
+                    val absNcaOff = sec1StartOff + lv5LogOff + curLv5RelOff
+                    transformAesCtrInPlace(batchBuf, 0, batchFill, absNcaOff, stdCtrKey, sec1Upper8)
+                    outRaf.seek(absNcaOff)
+                    outRaf.write(batchBuf, 0, batchFill)
+                    curLv5RelOff += batchFill.toLong()
+                    val pct = 70 + ((curLv5RelOff * 18L) / lv5PaddedSize.coerceAtLeast(1L)).toInt()
+                    if (lv5BlockIdx % 256 == 0) {
+                        onProgress(makeProg(pct.coerceIn(70, 88), "Hard-Patch: запись и хеширование RomFS...", formatSize(curLv5RelOff), curLv5RelOff, lv5PaddedSize))
+                    }
+                    batchFill = 0
+                }
+
+                streamRomfsPlanToSink(romfsPlan) { chunk, len ->
+                    var cOff = 0
+                    var rem = len
+                    while (rem > 0) {
+                        val take = minOf(rem, batchBuf.size - batchFill)
+                        System.arraycopy(chunk, cOff, batchBuf, batchFill, take)
+                        batchFill += take
+                        cOff += take
+                        rem -= take
+                        if (batchFill == batchBuf.size) {
+                            flushLv5Batch()
+                        }
+                    }
+                }
+                if (batchFill > 0) flushLv5Batch()
+
+                // Вычисляем Lv3, Lv2, Lv1, Lv0 и MasterHash
+                fun buildParentIvfcLevel(childPadded: ByteArray, parentPaddedSize: Int): ByteArray {
+                    val out = ByteArray(parentPaddedSize)
+                    val numBlocks = childPadded.size / 0x4000
+                    val md = MessageDigest.getInstance("SHA-256")
+                    for (i in 0 until numBlocks) {
+                        md.reset()
+                        md.update(childPadded, i * 0x4000, 0x4000)
+                        System.arraycopy(md.digest(), 0, out, i * 32, 32)
+                    }
+                    return out
+                }
+
+                val lv3PaddedBytes = buildParentIvfcLevel(lv4PaddedBytes, lv3PaddedSize.toInt())
+                val lv2PaddedBytes = buildParentIvfcLevel(lv3PaddedBytes, lv2PaddedSize.toInt())
+                val lv1PaddedBytes = buildParentIvfcLevel(lv2PaddedBytes, lv1PaddedSize.toInt())
+                val lv0PaddedBytes = buildParentIvfcLevel(lv1PaddedBytes, lv0PaddedSize.toInt())
+                val ivfcMasterHash = MessageDigest.getInstance("SHA-256").digest(lv0PaddedBytes.copyOfRange(0, 0x4000))
+
+                // Записываем и шифруем Lv0..Lv4
+                val levelsData = listOf(
+                    lv0LogOff to lv0PaddedBytes,
+                    lv1LogOff to lv1PaddedBytes,
+                    lv2LogOff to lv2PaddedBytes,
+                    lv3LogOff to lv3PaddedBytes,
+                    lv4LogOff to lv4PaddedBytes
+                )
+                for ((lOff, lBytes) in levelsData) {
+                    val encCopy = lBytes.copyOf()
+                    val absOff = sec1StartOff + lOff
+                    transformAesCtrInPlace(encCopy, 0, encCopy.size, absOff, stdCtrKey, sec1Upper8)
+                    outRaf.seek(absOff)
+                    outRaf.write(encCopy)
+                }
+
+                // Заполняем FS Header 0 (ExeFS PFS0) и FS Header 1 (RomFS IVFC)
+                val fs0 = 0x400
+                hbb.putShort(fs0 + 0x00, 2)
+                progHdr0x4000[fs0 + 0x02] = 1.toByte() //FsType = PFS0
+                progHdr0x4000[fs0 + 0x03] = 2.toByte() // HashType = HierarchicalSha256
+                progHdr0x4000[fs0 + 0x04] = 3.toByte() // EncryptionType = AesCtr
+                System.arraycopy(exefsMasterHash, 0, progHdr0x4000, fs0 + 0x08, 32)
+                hbb.putInt(fs0 + 0x28, exefsBlockSize)
+                hbb.putInt(fs0 + 0x2C, 2)
+                hbb.putLong(fs0 + 0x30, 0L)
+                hbb.putLong(fs0 + 0x38, exefsHashTab.size.toLong())
+                hbb.putLong(fs0 + 0x40, exefsPfs0RelOff.toLong())
+                hbb.putLong(fs0 + 0x48, exefsPfs0Bytes.size.toLong())
+                progHdr0x4000[fs0 + 0x140] = 1.toByte() // Generation = 1
+
+                val fs1 = 0x600
+                hbb.putShort(fs1 + 0x00, 2)
+                progHdr0x4000[fs1 + 0x02] = 0.toByte() // FsType = RomFS
+                progHdr0x4000[fs1 + 0x03] = 3.toByte() // HashType = HierarchicalIntegrity (IVFC)
+                progHdr0x4000[fs1 + 0x04] = 3.toByte() // EncryptionType = AesCtr
+                progHdr0x4000[fs1 + 0x08] = 'I'.code.toByte()
+                progHdr0x4000[fs1 + 0x09] = 'V'.code.toByte()
+                progHdr0x4000[fs1 + 0x0A] = 'F'.code.toByte()
+                progHdr0x4000[fs1 + 0x0B] = 'C'.code.toByte()
+                hbb.putInt(fs1 + 0x0C, 0x20000)
+                hbb.putInt(fs1 + 0x10, 0x20)
+                hbb.putInt(fs1 + 0x14, 7)
+
+                val lvMeta = listOf(
+                    lv0LogOff to lv0RawSize,
+                    lv1LogOff to lv1RawSize,
+                    lv2LogOff to lv2RawSize,
+                    lv3LogOff to lv3RawSize,
+                    lv4LogOff to lv4RawSize,
+                    lv5LogOff to romfsPlan.unpaddedTotalSize
+                )
+                for (lvIdx in 0 until 6) {
+                    val lPos = fs1 + 0x18 + lvIdx * 24
+                    hbb.putLong(lPos + 0, lvMeta[lvIdx].first)
+                    hbb.putLong(lPos + 8, lvMeta[lvIdx].second)
+                    hbb.putInt(lPos + 16, 14) // 2^14 = 0x4000
+                }
+                System.arraycopy(ivfcMasterHash, 0, progHdr0x4000, fs1 + 0xC0, 32)
+                progHdr0x4000[fs1 + 0x140] = 2.toByte() // Generation = 2
+
+                val fs0Sha = MessageDigest.getInstance("SHA-256").digest(progHdr0x4000.copyOfRange(fs0, fs0 + 0x200))
+                val fs1Sha = MessageDigest.getInstance("SHA-256").digest(progHdr0x4000.copyOfRange(fs1, fs1 + 0x200))
+                System.arraycopy(fs0Sha, 0, progHdr0x4000, 0x280, 32)
+                System.arraycopy(fs1Sha, 0, progHdr0x4000, 0x2A0, 32)
+
+                val encHdr0C00 = encryptNcaHeader0C00(progHdr0x4000.copyOfRange(0, 0xC00), keysMap)
+                System.arraycopy(encHdr0C00, 0, progHdr0x4000, 0, 0xC00)
+                outRaf.seek(0L)
+                outRaf.write(progHdr0x4000)
+
+                val sec0Upper8 = ByteArray(8)
+                sec0Upper8[0] = 1.toByte()
+                val sec0Enc = sec0PlainBytes.copyOf()
+                transformAesCtrInPlace(sec0Enc, 0, sec0Enc.size, sec0StartOff, stdCtrKey, sec0Upper8)
+                outRaf.seek(sec0StartOff)
+                outRaf.write(sec0Enc)
+            }
+
+            onProgress(makeProg(89, "Hard-Patch: финализация SHA-256 и CNMT...", cleanTid, 89L, 100L))
+            val progSha256 = sha256FileBytes(tmpProgFile)
+            val progHexId = progSha256.copyOfRange(0, 16).joinToString("") { "%02x".format(it) }
+            val finalProgFile = File(tempDir, "$progHexId.nca")
+            if (finalProgFile.exists()) finalProgFile.delete()
+            tmpProgFile.renameTo(finalProgFile)
+
+            // Выбираем актуальный Control NCA (предпочитаем из Update ...800) и Manual NCA
+            val basePrefix13 = cleanTid.take(13)
+            val ctrlCand = refs.auxCandidates.filter {
+                it.contentType == 2 && (it.titleId.isEmpty() || it.titleId.startsWith(basePrefix13))
+            }.maxByOrNull { if (it.titleId.endsWith("800")) 2 else 1 }
+
+            val finalCtrlFile = ctrlCand?.let {
+                standardizeAuxiliaryNcaToFile(it, cleanTid, tempDir, keysMap, ticketKeysByRightsId, fallbackTicketKey)
+            }
+
+            val manualCands = refs.auxCandidates.filter {
+                it.contentType == 3 && (it.titleId.isEmpty() || it.titleId.startsWith(basePrefix13))
+            }
+            val preferUpdManuals = manualCands.any { it.titleId.endsWith("800") }
+            val selectedManualCands = if (preferUpdManuals) manualCands.filter { it.titleId.endsWith("800") } else manualCands
+            val finalManualFiles = ArrayList<File>()
+            for (mc in selectedManualCands) {
+                val mf = standardizeAuxiliaryNcaToFile(mc, cleanTid, tempDir, keysMap, ticketKeysByRightsId, fallbackTicketKey)
+                if (mf != null) finalManualFiles.add(mf)
+            }
+
+            val ctrlSha = finalCtrlFile?.let { sha256FileBytes(it) }
+            val verStr = if (updRaf != null) "65536" else "0"
+            val cnmtFile = buildBinaryCnmtNca(
+                workDir = tempDir,
+                tidHex = cleanTid,
+                tidLong = tidLong,
+                roleUp = "БАЗА",
+                versionStr = verStr,
+                progSha256 = progSha256,
+                progNcaIdBytes = progSha256.copyOfRange(0, 16),
+                progSize = finalProgFile.length(),
+                controlSha256 = ctrlSha,
+                controlNcaIdBytes = ctrlSha?.copyOfRange(0, 16),
+                controlSize = finalCtrlFile?.length() ?: 0L
+            )
+
+            return StandaloneHardPatchOutput(
+                cnmtFile = cnmtFile,
+                controlFile = finalCtrlFile,
+                programFile = finalProgFile,
+                manualFiles = finalManualFiles
+            )
+        } catch (e: Throwable) {
+            e.printStackTrace()
+            return null
+        } finally {
+            try { baseRaf?.close() } catch (_: Throwable) {}
+            try { updRaf?.close() } catch (_: Throwable) {}
+        }
     }
 
 }

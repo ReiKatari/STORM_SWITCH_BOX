@@ -55,7 +55,9 @@ namespace StormSwitchBox.Core.NSZ
             public ThreadCompressionWorkspace(int compressionLevel)
             {
                 ZstdCompressor = new Compressor(compressionLevel);
-                try { ZstdCompressor.SetParameter(ZstdSharp.Unsafe.ZSTD_cParameter.ZSTD_c_enableLongDistanceMatching, 1); } catch { }
+                // Каждый блок NCZBLOCK сжимается независимо (<= 1 МБ = 2^20).
+                // Ограничиваем windowLog <= 20 (строго <= 27 стандарта Zstd), чтобы исключить ошибки лимита окна 128 МБ на уровнях 20..22.
+                try { ZstdCompressor.SetParameter(ZstdSharp.Unsafe.ZSTD_cParameter.ZSTD_c_windowLog, BLOCK_SIZE_EXPONENT); } catch { }
             }
 
             public ICryptoTransform GetOrCreateEncryptor(SectionDecryptInfo sec)
@@ -343,13 +345,16 @@ namespace StormSwitchBox.Core.NSZ
                                     {
                                         byte[] testBlock = new byte[16];
                                         Array.Copy(startMagic, testBlock, 16);
+                                        byte[] testCounter = new byte[16];
+                                        Array.Copy(cryptoCounter, testCounter, 8);
+                                        BinaryPrimitives.WriteUInt64BigEndian(new Span<byte>(testCounter, 8, 8), (ulong)(pOffset >> 4));
                                         using var testAes = Aes.Create();
                                         testAes.Mode = CipherMode.ECB;
                                         testAes.Padding = PaddingMode.None;
                                         testAes.Key = decKey;
                                         using var enc = testAes.CreateEncryptor();
                                         byte[] keystream = new byte[16];
-                                        enc.TransformBlock(cryptoCounter, 0, 16, keystream, 0);
+                                        enc.TransformBlock(testCounter, 0, 16, keystream, 0);
                                         for (int b = 0; b < 16; b++) testBlock[b] ^= keystream[b];
 
                                         string magic4 = Encoding.ASCII.GetString(testBlock, 0, 4);
@@ -442,68 +447,75 @@ namespace StormSwitchBox.Core.NSZ
 
                 if (metadataSize > 0 && metadataSize < vSize)
                 {
-                    decryptInfos.Add(new SectionDecryptInfo
+                    long s1PhysOff = isSparse ? pOffset : Math.Max(vOffset, NCA_HEADER_SIZE);
+                    long s1PhysSize = isSparse ? section1Size : section1Size - (s1PhysOff - vOffset);
+                    if (s1PhysSize > 0)
                     {
-                        Offset = vOffset,
-                        Size = section1Size,
-                        PhysicalOffset = pOffset,
-                        PhysicalSize = section1Size,
-                        EncryptionType = nczCryptoType,
-                        CryptoKey = cryptoKey,
-                        IsZeroKey = keyIsZero,
-                        BaseUpperIv = baseUpperIv,
-                        IsSparse = isSparse,
-                        SparsePhysicalOffset = sparsePhysicalOffset,
-                        SparseBucketStart = sparseBucketStart,
-                        SparseBucketEnd = sparseBucketEnd,
-                        SparseUpperIv = sparseUpperIv,
-                        SkipBytes = skipBytes,
-                        CryptoCounter = (byte[])cryptoCounter.Clone()
-                    });
+                        decryptInfos.Add(new SectionDecryptInfo
+                        {
+                            Offset = vOffset,
+                            Size = section1Size,
+                            PhysicalOffset = s1PhysOff,
+                            PhysicalSize = s1PhysSize,
+                            EncryptionType = nczCryptoType,
+                            CryptoKey = cryptoKey,
+                            IsZeroKey = keyIsZero,
+                            BaseUpperIv = baseUpperIv,
+                            IsSparse = isSparse,
+                            SparsePhysicalOffset = sparsePhysicalOffset,
+                            SparseBucketStart = sparseBucketStart,
+                            SparseBucketEnd = sparseBucketEnd,
+                            SparseUpperIv = sparseUpperIv,
+                            SkipBytes = skipBytes,
+                            CryptoCounter = (byte[])cryptoCounter.Clone()
+                        });
 
-                    sections.Add(new NczSection
-                    {
-                        Offset = vOffset,
-                        Size = section1Size,
-                        PhysicalOffset = pOffset,
-                        CryptoType = nczCryptoType,
-                        CryptoKey = cryptoKey,
-                        CryptoCounter = cryptoCounter,
-                        SolidStreamOffset = i
-                    });
+                        sections.Add(new NczSection
+                        {
+                            Offset = isSparse ? vOffset : s1PhysOff,
+                            Size = isSparse ? section1Size : s1PhysSize,
+                            PhysicalOffset = s1PhysOff,
+                            CryptoType = nczCryptoType,
+                            CryptoKey = cryptoKey,
+                            CryptoCounter = cryptoCounter,
+                            SolidStreamOffset = i
+                        });
+                    }
 
                     byte[] secondCryptoCounter = new byte[16];
                     Array.Copy(cryptoCounter, secondCryptoCounter, 8);
 
                     long secondSectionOffset = vOffset + section1Size;
-                    ulong secondCounterLow = ((ulong)(secondSectionOffset / 0x200)) << 32;
-                    BinaryPrimitives.WriteUInt64BigEndian(new Span<byte>(secondCryptoCounter, 8, 8), secondCounterLow);
-
-                    decryptInfos.Add(new SectionDecryptInfo
+                    long s2PhysOff = Math.Max(secondSectionOffset, NCA_HEADER_SIZE);
+                    long s2PhysSize = metadataSize - (s2PhysOff - secondSectionOffset);
+                    if (s2PhysSize > 0)
                     {
-                        Offset = secondSectionOffset,
-                        Size = metadataSize,
-                        PhysicalOffset = pOffset + section1Size,
-                        PhysicalSize = metadataSize,
-                        EncryptionType = nczCryptoType,
-                        CryptoKey = cryptoKey,
-                        IsZeroKey = keyIsZero,
-                        BaseUpperIv = baseUpperIv,
-                        IsSparse = false,
-                        SkipBytes = 0,
-                        CryptoCounter = (byte[])secondCryptoCounter.Clone()
-                    });
+                        decryptInfos.Add(new SectionDecryptInfo
+                        {
+                            Offset = secondSectionOffset,
+                            Size = metadataSize,
+                            PhysicalOffset = s2PhysOff,
+                            PhysicalSize = s2PhysSize,
+                            EncryptionType = nczCryptoType,
+                            CryptoKey = cryptoKey,
+                            IsZeroKey = keyIsZero,
+                            BaseUpperIv = baseUpperIv,
+                            IsSparse = false,
+                            SkipBytes = 0,
+                            CryptoCounter = (byte[])secondCryptoCounter.Clone()
+                        });
 
-                    sections.Add(new NczSection
-                    {
-                        Offset = secondSectionOffset,
-                        Size = metadataSize,
-                        PhysicalOffset = pOffset + section1Size,
-                        CryptoType = nczCryptoType,
-                        CryptoKey = cryptoKey,
-                        CryptoCounter = secondCryptoCounter,
-                        SolidStreamOffset = i
-                    });
+                        sections.Add(new NczSection
+                        {
+                            Offset = s2PhysOff,
+                            Size = s2PhysSize,
+                            PhysicalOffset = s2PhysOff,
+                            CryptoType = nczCryptoType,
+                            CryptoKey = cryptoKey,
+                            CryptoCounter = secondCryptoCounter,
+                            SolidStreamOffset = i
+                        });
+                    }
                 }
                 else
                 {
@@ -522,36 +534,41 @@ namespace StormSwitchBox.Core.NSZ
                         nczCryptoType = 1;
                     }
 
-                    decryptInfos.Add(new SectionDecryptInfo
+                    long effNczOff = isSparse ? vOffset : pOffset;
+                    long effNczSize = isSparse ? vSize : pSize;
+                    if (effNczSize > 0)
                     {
-                        Offset = vOffset,
-                        Size = vSize,
-                        PhysicalOffset = pOffset,
-                        PhysicalSize = pSize,
-                        EncryptionType = nczCryptoType,
-                        CryptoKey = cryptoKey,
-                        IsZeroKey = keyIsZero,
-                        BaseUpperIv = baseUpperIv,
-                        IsSparse = isSparse,
-                        SparsePhysicalOffset = sparsePhysicalOffset,
-                        SparseBucketStart = sparseBucketStart,
-                        SparseBucketEnd = sparseBucketEnd,
-                        SparseUpperIv = sparseUpperIv,
-                        SkipBytes = skipBytes,
-                        IsAlreadyDecrypted = isAlreadyDecrypted,
-                        CryptoCounter = (byte[])cryptoCounter.Clone()
-                    });
+                        decryptInfos.Add(new SectionDecryptInfo
+                        {
+                            Offset = vOffset,
+                            Size = vSize,
+                            PhysicalOffset = pOffset,
+                            PhysicalSize = pSize,
+                            EncryptionType = nczCryptoType,
+                            CryptoKey = cryptoKey,
+                            IsZeroKey = keyIsZero,
+                            BaseUpperIv = baseUpperIv,
+                            IsSparse = isSparse,
+                            SparsePhysicalOffset = sparsePhysicalOffset,
+                            SparseBucketStart = sparseBucketStart,
+                            SparseBucketEnd = sparseBucketEnd,
+                            SparseUpperIv = sparseUpperIv,
+                            SkipBytes = skipBytes,
+                            IsAlreadyDecrypted = isAlreadyDecrypted,
+                            CryptoCounter = (byte[])cryptoCounter.Clone()
+                        });
 
-                    sections.Add(new NczSection
-                    {
-                        Offset = vOffset,
-                        Size = vSize,
-                        PhysicalOffset = pOffset,
-                        CryptoType = nczCryptoType,
-                        CryptoKey = cryptoKey,
-                        CryptoCounter = cryptoCounter,
-                        SolidStreamOffset = i
-                    });
+                        sections.Add(new NczSection
+                        {
+                            Offset = effNczOff,
+                            Size = effNczSize,
+                            PhysicalOffset = pOffset,
+                            CryptoType = nczCryptoType,
+                            CryptoKey = cryptoKey,
+                            CryptoCounter = cryptoCounter,
+                            SolidStreamOffset = i
+                        });
+                    }
                 }
             }
 

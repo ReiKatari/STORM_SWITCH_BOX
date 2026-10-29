@@ -3497,9 +3497,15 @@ class MainActivity : Activity() {
             isRunningPipeline = true
             cancelPipeline = false
 
-            val discUpdateUrls = discoveredDiscussionLinks.filter { it.selected && it.roleCategory == "??????????" }.map { (listOf(it.url) + it.mirrorUrls).distinct().joinToString("|MIRROR|") }
-            val discDlcUrls = discoveredDiscussionLinks.filter { it.selected && (it.roleCategory == "DLC" || it.roleCategory == "UNLOCKER") }.map { (listOf(it.url) + it.mirrorUrls).distinct().joinToString("|MIRROR|") }
-            val discModUrls = discoveredDiscussionLinks.filter { it.selected && it.roleCategory == "??? / ???????????" }.map { (listOf(it.url) + it.mirrorUrls).distinct().joinToString("|MIRROR|") }
+            val discUpdateUrls = discoveredDiscussionLinks.filter {
+                it.selected && (it.roleCategory.contains("ОБНОВЛ", ignoreCase = true) || it.roleCategory.contains("UPDATE", ignoreCase = true) || it.roleCategory.contains("ПАТЧ", ignoreCase = true))
+            }.map { (listOf(it.url) + it.mirrorUrls).distinct().joinToString("|MIRROR|") }
+            val discDlcUrls = discoveredDiscussionLinks.filter {
+                it.selected && (it.roleCategory.contains("DLC", ignoreCase = true) || it.roleCategory.contains("UNLOCK", ignoreCase = true))
+            }.map { (listOf(it.url) + it.mirrorUrls).distinct().joinToString("|MIRROR|") }
+            val discModUrls = discoveredDiscussionLinks.filter {
+                it.selected && (it.roleCategory.contains("МОД", ignoreCase = true) || it.roleCategory.contains("РУС", ignoreCase = true) || it.roleCategory.contains("MOD", ignoreCase = true) || it.roleCategory.contains("RUS", ignoreCase = true))
+            }.map { (listOf(it.url) + it.mirrorUrls).distinct().joinToString("|MIRROR|") }
 
             val manualUpdateUrls = if (embedCloudUpdatesChecked) {
                 updateEditTexts.map { it.text.toString().trim() }.filter { it.isNotEmpty() }.take(3)
@@ -4386,7 +4392,7 @@ class MainActivity : Activity() {
         }
         updCard.addView(makeSectionHeader(
             "2. Обновление STORM SWITCH BOX (GitHub и STORM GAMES WORLD)",
-            "Текущая версия: 6.0.1 (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) • Проверка на 2 официальных площадках",
+            "Текущая версия: ${try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.3.0" } catch (_: Exception) { "6.3.0" }} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) • Проверка на 2 официальных площадках",
             th
         ))
         updCard.addView(makeStormCheckBox(
@@ -5117,7 +5123,7 @@ class MainActivity : Activity() {
             Toast.makeText(this, "⏳ Проверка обновлений на GitHub и STORM GAMES WORLD...", Toast.LENGTH_SHORT).show()
         }
         val preferLegacy = (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) || Build.VERSION.SDK_INT < 26
-        val currentAppVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.1.0" } catch (_: Exception) { "6.1.0" }
+        val currentAppVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.3.0" } catch (_: Exception) { "6.3.0" }
         thread {
             val rel = RuTrackerCloudEngine.checkGitHubAppUpdate(currentAppVer, preferLegacy)
             mainHandler.post {
@@ -5148,7 +5154,8 @@ class MainActivity : Activity() {
             typeface = Typeface.DEFAULT_BOLD
         })
         box.addView(TextView(this).apply {
-            text = "Новая версия: ${release.version} (Установлена: 6.0.1)\nИсточник: ${release.sourceName}\nПакет: ${release.apkName} (${StormNczEngine.formatSize(release.apkSizeBytes)})"
+            val installedVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.3.0" } catch (_: Exception) { "6.3.0" }
+            text = "Новая версия: ${release.version} (Установлена: $installedVer)\nИсточник: ${release.sourceName}\nПакет: ${release.apkName} (${StormNczEngine.formatSize(release.apkSizeBytes)})"
             setTextColor(th.textPrimary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
             setPadding(0, dp(4), 0, dp(8))

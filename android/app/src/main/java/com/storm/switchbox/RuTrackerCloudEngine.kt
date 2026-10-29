@@ -1098,7 +1098,7 @@ object RuTrackerCloudEngine {
         )
         for (u in ghUrls) {
             try {
-                val conn = openConnection(u)
+                val conn = openConnection(u, timeoutMs = 8000)
                 conn.setRequestProperty("Accept", "application/vnd.github+json")
                 if (conn.responseCode != 200) continue
                 val bodyStr = conn.inputStream.bufferedReader().use { it.readText() }
@@ -1154,7 +1154,7 @@ object RuTrackerCloudEngine {
         )
         for (sgwUrl in sgwUrls) {
             try {
-                val conn = openConnection(sgwUrl)
+                val conn = openConnection(sgwUrl, timeoutMs = 8000)
                 if (conn.responseCode != 200) continue
                 val bodyStr = conn.inputStream.bufferedReader().use { it.readText() }
                 if (bodyStr.trimStart().startsWith("{")) {
@@ -1215,18 +1215,29 @@ object RuTrackerCloudEngine {
     ): Boolean {
         val baseUrl = release.downloadUrl
         val candidates = mutableListOf(baseUrl)
+        if (release.apkName.isNotBlank()) {
+            val sgwDirect = "https://stormgamesworld.ru/uploads/programs/storm_switch_box/${release.apkName}"
+            if (!candidates.contains(sgwDirect)) candidates.add(sgwDirect)
+        }
         if (baseUrl.startsWith("https://github.com/")) {
-            candidates.add("https://gh.con.sh/$baseUrl")
-            candidates.add("https://gh.llkk.cc/$baseUrl")
             candidates.add("https://ghfast.top/$baseUrl")
+            candidates.add("https://gh.llkk.cc/$baseUrl")
+            candidates.add("https://gh.con.sh/$baseUrl")
         }
 
         destFile.parentFile?.mkdirs()
         for (dlUrl in candidates) {
             if (isCancelled()) return false
             try {
-                val conn = openConnection(dlUrl)
-                conn.instanceFollowRedirects = true
+                var currentUrl = dlUrl
+                var conn = openConnection(currentUrl, timeoutMs = 15000)
+                var redirects = 0
+                while (conn.responseCode in listOf(301, 302, 303, 307, 308) && redirects < 6) {
+                    val loc = conn.getHeaderField("Location") ?: break
+                    currentUrl = if (loc.startsWith("http")) loc else URL(URL(currentUrl), loc).toString()
+                    conn = openConnection(currentUrl, timeoutMs = 15000)
+                    redirects++
+                }
                 if (conn.responseCode != 200) continue
                 val totalLen = conn.contentLengthLong.takeIf { it > 0 } ?: release.apkSizeBytes
                 var downloaded = 0L
@@ -1321,6 +1332,22 @@ object RuTrackerCloudEngine {
         if (gdMatch != null) {
             return "https://drive.google.com/uc?export=download&confirm=t&id=${gdMatch.groupValues[1]}"
         }
+        if (u.contains("wdfiles.ru/", ignoreCase = true)) {
+            try {
+                val conn = openConnection(u, timeoutMs = 10000)
+                conn.instanceFollowRedirects = true
+                val ct = conn.contentType?.lowercase() ?: ""
+                if (conn.responseCode in 200..299 && (ct.contains("text/html") || ct.contains("text/plain"))) {
+                    val html = conn.inputStream.bufferedReader().use { it.readText() }
+                    val directMatch = Regex("""https?://[^"'\s<>]*wdfiles\.ru/[^"'\s<>]*(?:\?pt=|/download)[^"'\s<>]*""", RegexOption.IGNORE_CASE).find(html)
+                        ?: Regex("""href=["'](https?://[^"']+\?pt=[^"']+)["']""", RegexOption.IGNORE_CASE).find(html)
+                    if (directMatch != null) {
+                        val resolved = if (directMatch.groupValues.size > 1 && directMatch.groupValues[1].isNotBlank()) directMatch.groupValues[1] else directMatch.value
+                        return resolved.replace("&amp;", "&")
+                    }
+                }
+            } catch (_: Throwable) {}
+        }
         return u
     }
 
@@ -1351,20 +1378,26 @@ object RuTrackerCloudEngine {
 
         for (candUrl in candidateUrls) {
             try {
-                onProgress("?????????? ?????? ($roleHint): $candUrl...")
+                onProgress("Подготовка ссылки ($roleHint): $candUrl...")
                 val directUrl = resolveCloudUrl(candUrl)
                 val urlFileName = directUrl.substringBefore('?').substringAfterLast('/').ifBlank { "cloud_${roleHint.lowercase()}_${System.currentTimeMillis()}" }
                 val candTempFile = File(modsRootDir, "dl_${System.currentTimeMillis()}_$urlFileName")
 
-                onProgress("?????????? ($roleHint)...")
+                onProgress("Скачивание ($roleHint)...")
                 var effectiveDlUrl = directUrl
-                var conn = openConnection(effectiveDlUrl, timeoutMs = 20000)
+                val connTimeout = if (effectiveDlUrl.contains("wdfiles.ru", ignoreCase = true)) 12000 else 20000
+                var conn = openConnection(effectiveDlUrl, timeoutMs = connTimeout)
                 conn.instanceFollowRedirects = true
 
                 val cType = conn.contentType?.lowercase() ?: ""
                 if (cType.contains("text/html") || cType.contains("text/plain")) {
                     val html = conn.inputStream.bufferedReader().use { it.readText() }
-                    if (html.contains("download-form") || html.contains("drive.usercontent.google.com") || html.contains("confirm=")) {
+                    val wdDirect = Regex("""https?://[^"'\s<>]*wdfiles\.ru/[^"'\s<>]*\?pt=[^"'\s<>]*""", RegexOption.IGNORE_CASE).find(html)
+                    if (wdDirect != null) {
+                        effectiveDlUrl = wdDirect.value.replace("&amp;", "&")
+                        conn = openConnection(effectiveDlUrl, timeoutMs = 15000)
+                        conn.instanceFollowRedirects = true
+                    } else if (html.contains("download-form") || html.contains("drive.usercontent.google.com") || html.contains("confirm=")) {
                         val actionMatch = Regex("""<form[^>]+id=["']download-form["'][^>]+action=["']([^"']+)["']""").find(html)
                         val formAction = actionMatch?.groupValues?.get(1) ?: "https://drive.usercontent.google.com/download"
                         val inputMatches = Regex("""<input[^>]+type=["']hidden["'][^>]+name=["']([^"']+)["'][^>]+value=["']([^"']*)["']""").findAll(html)
@@ -1390,7 +1423,7 @@ object RuTrackerCloudEngine {
                             if (r <= 0) break
                             output.write(buf, 0, r)
                             total += r
-                            onProgress("??????? ($roleHint): ${StormNczEngine.formatSize(total)}")
+                            onProgress("Скачано ($roleHint): ${StormNczEngine.formatSize(total)}")
                         }
                     }
                 }
@@ -1444,55 +1477,56 @@ object RuTrackerCloudEngine {
             return CloudExtractedBundle(containerFiles, modDirs, extractedCount)
         }
 
-        val outAtmoDir = File(modsRootDir, "atmosphere/contents/$cleanTid")
+        val outAtmoDir = File(modsRootDir, "staged_cloud_mods/$cleanTid")
+        if (outAtmoDir.exists()) outAtmoDir.deleteRecursively()
         outAtmoDir.mkdirs()
 
         if (isZip) {
             onProgress("Автоизвлечение архива ($roleHint)...")
-            FileInputStream(tempFile).use { fis ->
-                ZipInputStream(BufferedInputStream(fis)).use { zis ->
-                    var entry: ZipEntry? = zis.nextEntry
-                    val buf = ByteArray(64 * 1024)
-                    while (entry != null) {
-                        val e = entry
-                        if (!e.isDirectory) {
-                            val rawPath = e.name.replace('\\', '/').trimStart('/')
-                            val fName = rawPath.substringAfterLast('/')
-                            val lowerName = fName.lowercase()
-                            val ext = fName.substringAfterLast('.', "").lowercase()
+            StormNczEngine.extractZipArchiveSafe(tempFile) { rawEntryPath, entryStream ->
+                val rawPath = rawEntryPath.replace('\\', '/').trimStart('/')
+                val fName = rawPath.substringAfterLast('/')
+                val lowerName = fName.lowercase()
+                val ext = fName.substringAfterLast('.', "").lowercase()
+                val buf = ByteArray(64 * 1024)
 
-                            if (ext in listOf("nsp", "nsz", "xci", "xcz")) {
-                                val destContainer = File(romsDir, fName)
-                                FileOutputStream(destContainer).use { fos ->
-                                    while (true) {
-                                        val r = zis.read(buf)
-                                        if (r <= 0) break
-                                        fos.write(buf, 0, r)
-                                    }
-                                }
-                                containerFiles.add(destContainer)
-                                extractedCount++
-                            } else if (!rawPath.contains("__MACOSX") && lowerName !in setOf("thumbs.db", ".ds_store", "desktop.ini")) {
-                                val mappedSubPath = when {
-                                    Regex("""(?:^|/)romfs/(.+)$""", RegexOption.IGNORE_CASE).find(rawPath) != null -> "romfs/" + Regex("""(?:^|/)romfs/(.+)$""", RegexOption.IGNORE_CASE).find(rawPath)!!.groupValues[1]
-                                    Regex("""(?:^|/)exefs_patches/(.+)$""", RegexOption.IGNORE_CASE).find(rawPath) != null || ext == "pchtxt" -> "exefs_patches/" + (Regex("""(?:^|/)exefs_patches/(.+)$""", RegexOption.IGNORE_CASE).find(rawPath)?.groupValues?.get(1) ?: fName)
-                                    Regex("""(?:^|/)exefs/(.+)$""", RegexOption.IGNORE_CASE).find(rawPath) != null || ext == "ips" || lowerName in setOf("main", "main.npdm", "rtld", "sdk") || lowerName.startsWith("subsdk") -> "exefs/" + (Regex("""(?:^|/)exefs/(.+)$""", RegexOption.IGNORE_CASE).find(rawPath)?.groupValues?.get(1) ?: fName)
-                                    else -> "romfs/$rawPath"
-                                }
-                                val destMod = File(outAtmoDir, mappedSubPath)
-                                destMod.parentFile?.mkdirs()
-                                FileOutputStream(destMod).use { fos ->
-                                    while (true) {
-                                        val r = zis.read(buf)
-                                        if (r <= 0) break
-                                        fos.write(buf, 0, r)
-                                    }
-                                }
-                                extractedCount++
-                            }
+                if (ext in listOf("nsp", "nsz", "xci", "xcz")) {
+                    val destContainer = File(romsDir, fName)
+                    FileOutputStream(destContainer).use { fos ->
+                        while (true) {
+                            val r = entryStream.read(buf)
+                            if (r <= 0) break
+                            fos.write(buf, 0, r)
                         }
-                        zis.closeEntry()
-                        entry = zis.nextEntry
+                    }
+                    containerFiles.add(destContainer)
+                    extractedCount++
+                } else if (!rawPath.contains("__MACOSX") && !StormNczEngine.isJunkOrReadmeFile(fName)) {
+                    val romfsMatch = Regex("""(?:^|/)romfs/(.+)$""", RegexOption.IGNORE_CASE).find(rawPath)
+                    val patchesMatch = Regex("""(?:^|/)exefs_patches/(.+)$""", RegexOption.IGNORE_CASE).find(rawPath)
+                    val exefsMatch = Regex("""(?:^|/)exefs/(.+)$""", RegexOption.IGNORE_CASE).find(rawPath)
+                    val malsMatch = Regex("""(?:^|/)(Mals/.+)$""", RegexOption.IGNORE_CASE).find(rawPath)
+                    val strippedTidRel = rawPath.replace(Regex("""^(?:atmosphere/contents/|contents/)?[0-9A-Fa-f]{16}/""", RegexOption.IGNORE_CASE), "")
+                    val mappedSubPath = when {
+                        romfsMatch != null -> "romfs/" + romfsMatch.groupValues[1]
+                        patchesMatch != null || ext == "pchtxt" -> "exefs_patches/" + (patchesMatch?.groupValues?.get(1) ?: fName)
+                        exefsMatch != null || ext == "ips" || lowerName in setOf("main", "main.npdm", "rtld", "sdk") || lowerName.startsWith("subsdk") -> "exefs/" + (exefsMatch?.groupValues?.get(1) ?: fName)
+                        malsMatch != null -> "romfs/" + malsMatch.groupValues[1]
+                        else -> "romfs/$strippedTidRel"
+                    }
+                    val destMod = File(outAtmoDir, mappedSubPath)
+                    destMod.parentFile?.mkdirs()
+                    FileOutputStream(destMod).use { fos ->
+                        while (true) {
+                            val r = entryStream.read(buf)
+                            if (r <= 0) break
+                            fos.write(buf, 0, r)
+                        }
+                    }
+                    if (destMod.name.equals("main", ignoreCase = true) && StormNczEngine.isPoisonedStubMainFile(destMod)) {
+                        destMod.delete()
+                    } else {
+                        extractedCount++
                     }
                 }
             }
@@ -1511,11 +1545,7 @@ object RuTrackerCloudEngine {
             extractedCount = 1
         }
 
-        if (outAtmoDir.walkTopDown().maxDepth(5).any { it.isFile }) {
-            val directTidDir = File(modsRootDir, cleanTid)
-            if (directTidDir.canonicalPath != outAtmoDir.canonicalPath) {
-                try { outAtmoDir.copyRecursively(directTidDir, overwrite = true) } catch (_: Exception) {}
-            }
+        if (outAtmoDir.walkTopDown().maxDepth(6).any { it.isFile }) {
             modDirs.add(outAtmoDir)
         }
 
@@ -1593,7 +1623,7 @@ object RuTrackerCloudEngine {
             u.contains("mega.nz") || u.contains("mega.co.nz") -> "Mega.nz"
             u.contains("mediafire.com") -> "MediaFire"
             u.contains("pixeldrain.com") -> "PixelDrain"
-            u.contains("cloud.mail.ru") -> "?????? Mail.ru"
+            u.contains("cloud.mail.ru") -> "Облако Mail.ru"
             u.contains("wdfiles.ru") -> "WDfiles"
             u.contains("modsfire.com") -> "ModsFire"
             u.contains("dropmefiles.com") -> "DropMeFiles"
@@ -1636,7 +1666,7 @@ object RuTrackerCloudEngine {
     private fun parsePostsFromTopicHtml(html: String, pageNumber: Int, outMap: LinkedHashMap<String, TopicDiscussionLink>) {
         val postBlocks = Regex("""<tbody[^>]+id="post_\d+"[^>]*>([\s\S]*?)</tbody>""", RegexOption.IGNORE_CASE).findAll(html).toList()
         val urlAttrRegex = Regex("""<a[^>]+href="(https?://[^"\s<>]+)"[^>]*>(.*?)</a>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
-        val rawUrlRegex = Regex("""https?://(?:disk\.yandex\.(?:ru|com)|yadi\.sk|drive\.google\.com|mega\.nz|mediafire\.com|pixeldrain\.com|1fichier\.com|workupload\.com|gofile\.io|github\.com/[^"\s<>]+/releases)[^"\s<>'\)]*""", RegexOption.IGNORE_CASE)
+        val rawUrlRegex = Regex("""https?://(?:disk\.yandex\.(?:ru|com)|yadi\.sk|drive\.google\.com|mega\.nz|mediafire\.com|pixeldrain\.com|wdfiles\.ru|cloud\.mail\.ru|modsfire\.com|dropmefiles\.com|1fichier\.com|workupload\.com|gofile\.io|github\.com/[^"\s<>]+/releases)[^"\s<>'\)]*""", RegexOption.IGNORE_CASE)
 
         if (postBlocks.isNotEmpty()) {
             postBlocks.forEachIndexed { idx, blockMatch ->
@@ -1863,15 +1893,16 @@ object RuTrackerCloudEngine {
      * Ищет реальный розничный контейнер игры (.nsp / .xci) локально на устройстве
      * или скачивает его напрямую с облачного хранилища STORM GAMES WORLD (stormgamesworld.ru).
      */
-    private fun acquireRealRetailGameContainer(
+    private fun acquireRealRetailGameContainers(
         cleanGameName: String,
         baseTid: String,
         romsDir: File,
         outputDir: File,
         preferRussianMod: Boolean = true,
+        hasExternalModsToApply: Boolean = false,
         isCancelled: () -> Boolean,
         onProgress: (downloadedBytes: Long, totalBytes: Long, speedMbSec: Double) -> Unit
-    ): File? {
+    ): List<File> {
         val effectiveTid = if (baseTid == "0100C9801A8C2000" || cleanGameName.contains("Animal Well", ignoreCase = true)) {
             "010020D01AD24000"
         } else {
@@ -1880,68 +1911,69 @@ object RuTrackerCloudEngine {
         val tidPrefix13 = effectiveTid.take(13).uppercase()
         val cleanLower = cleanGameName.lowercase().trim()
 
-        // 1. Проверяем локальные директории на наличие подлинного розничного контейнера (.nsp / .xci >= 8 МБ с AES-XTS заголовком NCA)
+        // 1. Проверяем локальные директории на наличие подлинных розничных контейнеров (.nsp / .nsz / .xci / .xcz без фейкового STORM_NSO0)
         val searchDirs = listOf(
-            File("/storage/emulated/0/GAMES/CONSOLES/Nintendo Switch"),
-            File("/storage/emulated/0/Download"),
             romsDir,
-            outputDir,
+            File("/storage/emulated/0/Download"),
             File("/storage/emulated/0/STORM SWITCH/roms"),
-            File("/storage/emulated/0/Games/Switch")
+            File("/storage/emulated/0/Games/Switch"),
+            File("/storage/emulated/0/GAMES/CONSOLES/Nintendo Switch"),
+            outputDir
         ).distinctBy { it.absolutePath }
 
+        val candidateFiles = mutableListOf<File>()
         for (dir in searchDirs) {
             if (!dir.exists() || !dir.isDirectory) continue
             val files = dir.listFiles() ?: continue
             for (f in files) {
-                if (!f.isFile || f.length() < 8L * 1024L * 1024L) continue
+                if (!f.isFile || f.length() < 128L * 1024L) continue
                 val ext = f.extension.lowercase()
-                if (ext != "nsp" && ext != "xci") continue
+                if (ext !in listOf("nsp", "nsz", "xci", "xcz")) continue
                 val fNameLower = f.name.lowercase()
                 val matchesGame = f.name.uppercase().contains(tidPrefix13) ||
                     (cleanLower.length >= 4 && fNameLower.contains(cleanLower)) ||
                     (effectiveTid == "010020D01AD24000" && fNameLower.contains("animal_well"))
                 if (!matchesGame) continue
 
-                val hasRussianMarker = f.name.contains("MOD_RUS", ignoreCase = true) ||
-                    f.name.contains("MOD - RUS", ignoreCase = true) ||
-                    f.name.contains("[RUS]", ignoreCase = true) ||
-                    f.name.contains("_RUS", ignoreCase = true)
-
-                if (preferRussianMod && !hasRussianMarker) {
-                    continue
+                if (StormNczEngine.isGenuineSwitchContainer(f, tidPrefix13)) {
+                    candidateFiles.add(f)
                 }
-                if (!preferRussianMod && hasRussianMarker) {
-                    continue
-                }
+            }
+        }
 
-                // Проверяем, что внутри находится настоящий розничный NCA (зашифрованный AES-XTS заголовок на диске)
-                var isGenuineRetail = false
-                try {
-                    val entries = StormNczEngine.inspectContainer(f)
-                    java.io.RandomAccessFile(f, "r").use { raf ->
-                        for (e in entries) {
-                            if (e.name.lowercase().endsWith(".nca") && e.size >= 4L * 1024L * 1024L && e.dataStartOffset >= 0L) {
-                                val raw4 = ByteArray(4)
-                                raf.seek(e.dataStartOffset + 0x200L)
-                                raf.readFully(raw4)
-                                val rawMagic = String(raw4, 0, 4, StandardCharsets.US_ASCII)
-                                val qMeta = StormNczEngine.readQuickNcaHeaderMeta(raf, e.dataStartOffset)
-                                if (rawMagic != "NCA3" && qMeta != null && qMeta.titleId.startsWith(tidPrefix13)) {
-                                    isGenuineRetail = true
-                                    break
-                                }
-                            }
-                        }
+        if (candidateFiles.isNotEmpty()) {
+            // Разделяем на чистые исходники (БАЗА, ПАТЧ, DLC) и уже собранные мульти-контейнеры
+            val unmodded = candidateFiles.filter {
+                !it.name.contains("MOD - RUS", ignoreCase = true) &&
+                !it.name.contains("MOD_RUS", ignoreCase = true) &&
+                !it.name.contains("_[Multi]", ignoreCase = true)
+            }
+            val pool = if (hasExternalModsToApply && unmodded.any { it.length() >= 8L * 1024L * 1024L }) unmodded else candidateFiles
+            val baseCands = pool.filter { f ->
+                val info = StormNczEngine.analyzeQueuedFile(f)
+                info.roleBadge == "БАЗА" || info.subComponents.any { it.roleBadge == "БАЗА" }
+            }
+            val bestBase = baseCands.firstOrNull { !it.extension.equals("nsz", true) && !it.extension.equals("xcz", true) }
+                ?: baseCands.firstOrNull()
+            if (bestBase != null) {
+                val chosen = mutableListOf(bestBase)
+                val baseInfo = StormNczEngine.analyzeQueuedFile(bestBase)
+                val baseAlreadyHasPatch = baseInfo.subComponents.any { it.roleBadge == "ПАТЧ" }
+                if (!baseAlreadyHasPatch) {
+                    val updCands = candidateFiles.filter { f ->
+                        f.absolutePath != bestBase.absolutePath && StormNczEngine.analyzeQueuedFile(f).roleBadge == "ПАТЧ"
                     }
-                } catch (_: Throwable) {}
-
-                if (isGenuineRetail) {
-                    val totalLen = f.length()
-                    onProgress(totalLen / 2, totalLen, 65.0)
-                    onProgress(totalLen, totalLen, 85.0)
-                    return f
+                    updCands.maxByOrNull { it.length() }?.let { chosen.add(it) }
                 }
+                val dlcCands = candidateFiles.filter { f ->
+                    f.absolutePath != bestBase.absolutePath && StormNczEngine.analyzeQueuedFile(f).roleBadge in setOf("DLC", "UNLOCKER")
+                }.distinctBy { StormNczEngine.analyzeQueuedFile(it).rawTitleId }
+                chosen.addAll(dlcCands)
+
+                val totalLen = chosen.sumOf { it.length() }
+                onProgress(totalLen / 2, totalLen, 65.0)
+                onProgress(totalLen, totalLen, 85.0)
+                return chosen
             }
         }
 
@@ -2006,11 +2038,11 @@ object RuTrackerCloudEngine {
             val langSuffix = if (preferRussianMod) "MOD_RUS" else "ENG"
             val targetCloudNsp = File(romsDir, "${cleanGameName}_[${effectiveTid}]_${langSuffix}_sgw.nsp")
             val tempDownloadFile = File(romsDir, "${cleanGameName}_[${effectiveTid}]_${langSuffix}_sgw.nsp.part")
-            if (targetCloudNsp.exists() && targetCloudNsp.length() >= 8L * 1024L * 1024L) {
+            if (targetCloudNsp.exists() && targetCloudNsp.length() >= 8L * 1024L * 1024L && StormNczEngine.isGenuineSwitchContainer(targetCloudNsp, tidPrefix13)) {
                 val totalLen = targetCloudNsp.length()
                 onProgress(totalLen / 2, totalLen, 65.0)
                 onProgress(totalLen, totalLen, 100.0)
-                return targetCloudNsp
+                return listOf(targetCloudNsp)
             }
             try {
                 val dlUrl = "https://stormgamesworld.ru/api/games/$cloudGameId/download"
@@ -2042,10 +2074,12 @@ object RuTrackerCloudEngine {
                             bos.flush()
                         }
                     }
-                    if (tempDownloadFile.exists() && tempDownloadFile.length() >= 8L * 1024L * 1024L) {
+                    if (tempDownloadFile.exists() && tempDownloadFile.length() >= 8L * 1024L * 1024L && StormNczEngine.isGenuineSwitchContainer(tempDownloadFile, tidPrefix13)) {
                         if (targetCloudNsp.exists()) targetCloudNsp.delete()
                         tempDownloadFile.renameTo(targetCloudNsp)
-                        return targetCloudNsp
+                        return listOf(targetCloudNsp)
+                    } else {
+                        tempDownloadFile.delete()
                     }
                 }
             } catch (ie: InterruptedException) {
@@ -2055,7 +2089,7 @@ object RuTrackerCloudEngine {
                 tempDownloadFile.delete()
             }
         }
-        return null
+        return emptyList()
     }
 
     fun getReleaseFilesList(topic: TopicItem): List<ReleaseContentFile> {
@@ -2162,7 +2196,7 @@ object RuTrackerCloudEngine {
         saveDir: File,
         isCancelled: () -> Boolean,
         onProgress: (dlBytes: Long, totalBytes: Long, speedMbSec: Double) -> Unit
-    ): File? {
+    ): List<File> {
         try {
             saveDir.mkdirs()
             val session = org.libtorrent4j.SessionManager()
@@ -2193,9 +2227,17 @@ object RuTrackerCloudEngine {
                             onProgress(done, total.coerceAtLeast(1L), speed)
                         }
                         if (st.isFinished || st.state() == org.libtorrent4j.TorrentStatus.State.SEEDING) {
+                            val torrentName = th.name
                             session.stop()
-                            val saveFile = File(saveDir, th.name)
-                            return if (saveFile.exists()) saveFile else null
+                            val saveTarget = File(saveDir, torrentName)
+                            if (!saveTarget.exists()) return emptyList()
+                            return if (saveTarget.isFile) {
+                                listOf(saveTarget)
+                            } else {
+                                saveTarget.walkTopDown()
+                                    .filter { it.isFile && it.extension.lowercase() in setOf("nsp", "nsz", "xci", "xcz", "zip") }
+                                    .toList()
+                            }
                         }
                         Thread.sleep(500)
                     }
@@ -2203,7 +2245,7 @@ object RuTrackerCloudEngine {
             }
             session.stop()
         } catch (_: Throwable) {}
-        return null
+        return emptyList()
     }
 
     /**
@@ -2294,90 +2336,56 @@ object RuTrackerCloudEngine {
         val downloadedFiles = mutableListOf<File>()
         val downloadedModFiles = mutableListOf<File>()
 
-        // 1.1 Скачивание контейнеров раздачи (БАЗА, ОБНОВЛЕНИЕ, DLC, UNLOCKER)
-        val preferRussianMod = modUrls.isNotEmpty() || topic.title.contains("RUS", ignoreCase = true) || topic.title.contains("Multi", ignoreCase = true) || allReleaseFiles.any { it.isMod }
-        val realRetailContainer = acquireRealRetailGameContainer(
+        // 1.1 Скачивание подлинных контейнеров раздачи (БАЗА, ОБНОВЛЕНИЕ, DLC, UNLOCKER)
+        StormNczEngine.sanitizePoisonedAndroidModDirs(baseTid)
+        val hasExternalMods = modUrls.any { it.isNotBlank() } || allReleaseFiles.any { it.isMod }
+        val preferRussianMod = hasExternalMods || topic.title.contains("RUS", ignoreCase = true) || topic.title.contains("Multi", ignoreCase = true)
+        val realRetailContainers = acquireRealRetailGameContainers(
             cleanGameName = cleanGameName,
             baseTid = baseTid,
             romsDir = romsDir,
             outputDir = outputDir,
             preferRussianMod = preferRussianMod,
+            hasExternalModsToApply = hasExternalMods,
             isCancelled = isCancelled
         ) { dlBytes, dlTotal, speedMbSec ->
             val overallPct = 2 + ((dlBytes * 28L) / dlTotal.coerceAtLeast(1L)).toInt().coerceIn(0, 28)
             val speedStr = String.format(java.util.Locale("ru", "RU"), "%.1f МБ/с", speedMbSec)
             report(
                 overallPct,
-                "Этап 1/5: Скачивание оригинального контейнера игры",
+                "Этап 1/5: Подготовка оригинальных контейнеров игры",
                 "${StormNczEngine.formatSize(dlBytes)} / ${StormNczEngine.formatSize(dlTotal)} • $speedStr"
             )
         }
 
-        if (realRetailContainer != null && realRetailContainer.exists()) {
-            downloadedFiles.add(realRetailContainer)
-            for (rf in allReleaseFiles) {
-                stepLogs.add("✅ Скачан [${rf.roleBadge}] ${rf.fileName} (${StormNczEngine.formatSize(rf.sizeBytes)})")
+        if (realRetailContainers.isNotEmpty()) {
+            downloadedFiles.addAll(realRetailContainers)
+            for (rf in realRetailContainers) {
+                stepLogs.add("✅ Найден подлинный контейнер: ${rf.name} (${StormNczEngine.formatSize(rf.length())})")
             }
-        } else {
-            var downloadedBytesTotal = 0L
-            for ((fileIdx, relFile) in allReleaseFiles.withIndex()) {
-                if (isCancelled()) throw InterruptedException("Операция отменена пользователем")
-                val targetLocalFile = File(romsDir, relFile.fileName)
-                val targetPhysicalBytes = relFile.sizeBytes.coerceAtLeast(65536L)
-
+        } else if (topic.magnetUri.isNotEmpty()) {
+            val torrentDownloadedFiles = downloadTorrentOrMagnetWithLibTorrent(
+                magnetOrTorrent = topic.magnetUri,
+                saveDir = romsDir,
+                isCancelled = isCancelled
+            ) { dlBytes, totalBytes, speedMbSec ->
+                val pct = 3 + ((dlBytes * 28L) / totalBytes.coerceAtLeast(1L)).toInt().coerceIn(0, 28)
                 report(
-                    3 + ((fileIdx * 28) / allReleaseFiles.size),
-                    "Этап 1/5: Скачивание [${relFile.roleBadge}] (${fileIdx + 1}/${allReleaseFiles.size})",
-                    "${relFile.fileName} (${StormNczEngine.formatSize(relFile.sizeBytes)})"
+                    pct.coerceIn(3, 30),
+                    "Этап 1/5: BitTorrent P2P скачивание раздачи",
+                    "${StormNczEngine.formatSize(dlBytes)} / ${StormNczEngine.formatSize(totalBytes)} • ${String.format(java.util.Locale("ru", "RU"), "%.1f МБ/с", speedMbSec)}"
                 )
-
-                // Попытка скачать через BitTorrent клиент libtorrent4j, если есть magnetUri
-                var torrentDownloadedFile: File? = null
-                if (topic.magnetUri.isNotEmpty()) {
-                    torrentDownloadedFile = downloadTorrentOrMagnetWithLibTorrent(
-                        magnetOrTorrent = topic.magnetUri,
-                        saveDir = romsDir,
-                        isCancelled = isCancelled
-                    ) { dlBytes, totalBytes, speedMbSec ->
-                        val pct = 3 + ((fileIdx * 28) / allReleaseFiles.size) + ((dlBytes * 28L) / (totalBytes.coerceAtLeast(1L) * allReleaseFiles.size)).toInt()
-                        report(
-                            pct.coerceIn(3, 30),
-                            "Этап 1/5: BitTorrent P2P скачивание [${relFile.roleBadge}]",
-                            "${StormNczEngine.formatSize(dlBytes)} / ${StormNczEngine.formatSize(totalBytes)} • ${String.format(java.util.Locale("ru", "RU"), "%.1f МБ/с", speedMbSec)}"
-                        )
-                    }
-                }
-
-                if (torrentDownloadedFile != null && torrentDownloadedFile.exists()) {
-                    downloadedFiles.add(torrentDownloadedFile)
-                } else {
-                    buildValidSwitchNspWithCompressibleNca(
-                        targetFile = targetLocalFile,
-                        titleId = relFile.titleId,
-                        roleBadge = relFile.roleBadge,
-                        gameTitle = displayTitleForControl,
-                        publisher = publisherForControl,
-                        versionStr = verForControl,
-                        customIconPath = preBuildCustomization.customIconPath,
-                        iconBadge = preBuildCustomization.iconBadgeText,
-                        targetTotalBytes = targetPhysicalBytes,
-                        seedHash = topic.infoHash + "_$fileIdx",
-                        isCancelled = isCancelled
-                    ) { filePct, _, speedMbSec ->
-                        val curVirtual = downloadedBytesTotal + ((relFile.sizeBytes * filePct) / 100L)
-                        val overallPct = 3 + ((curVirtual * 28L) / totalSelectedBytes).toInt().coerceIn(0, 30)
-                        val speedStr = String.format(java.util.Locale("ru", "RU"), "%.1f МБ/с", speedMbSec)
-                        report(
-                            overallPct,
-                            "Этап 1/5: Скачивание [${relFile.roleBadge}] (${fileIdx + 1}/${allReleaseFiles.size})",
-                            "${StormNczEngine.formatSize(curVirtual)} / ${StormNczEngine.formatSize(totalSelectedBytes)} • $speedStr"
-                        )
-                    }
-                    downloadedBytesTotal += relFile.sizeBytes
-                    downloadedFiles.add(targetLocalFile)
-                }
-                stepLogs.add("✅ Скачан [${relFile.roleBadge}] ${relFile.fileName} (${StormNczEngine.formatSize(targetLocalFile.length())})")
             }
+            for (tf in torrentDownloadedFiles) {
+                if (tf.exists() && (tf.extension.equals("zip", true) || StormNczEngine.isGenuineSwitchContainer(tf, baseTid.take(13)))) {
+                    downloadedFiles.add(tf)
+                    stepLogs.add("✅ Скачан файл раздачи: ${tf.name} (${StormNczEngine.formatSize(tf.length())})")
+                }
+            }
+        }
+
+        if (downloadedFiles.isEmpty()) {
+            throw java.io.IOException("Не удалось получить подлинный розничный контейнер игры ($cleanGameName [$baseTid]). Проверьте наличие файла или сидов раздачи.")
         }
 
         // 1.2 Скачивание cloud updateUrls и dlcUrls
@@ -2424,175 +2432,104 @@ object RuTrackerCloudEngine {
                     }
                     downloadedModFiles.addAll(bundle.modDirectories)
                     downloadedFiles.addAll(bundle.containerFiles)
-                } catch (_: Exception) {
-                    val fallbackModDir = File(modsRootDir, "atmosphere/contents/$baseTid/romfs")
-                    fallbackModDir.mkdirs()
-                    downloadedModFiles.add(File(modsRootDir, "atmosphere/contents/$baseTid"))
+                } catch (e: Exception) {
+                    stepLogs.add("⚠️ Не удалось скачать мод по ссылке ${rawModUrl.take(48)}: ${e.message ?: "ошибка сети"}")
                 }
             }
         }
 
         // =========================================================================
-        // ШАГ 2 (45–60%) — Распаковка БАЗЫ (romfs и exefs)
+        // ШАГИ 2–4 (45–84%) — Проверка подлинных разделов БАЗЫ/ПАТЧА и подготовка чистого дерева МОДОВ
+        // (без фейковой распаковки игры в unpackRootDir и без загрязнения папок модов!)
         // =========================================================================
-        val unpackRootDir = File(romsDir, ".unpack_${cleanGameName}_${System.currentTimeMillis()}")
-        val unpackRomfs = File(unpackRootDir, "romfs").apply { mkdirs() }
-        val unpackExefs = File(unpackRootDir, "exefs").apply { mkdirs() }
-        val unpackControl = File(unpackRootDir, "control").apply { mkdirs() }
+        val unpackRootDir = File(modsRootDir, ".mod_stage_${baseTid}_${System.currentTimeMillis()}")
+        val stagedModRomfs = File(unpackRootDir, "romfs")
+        val stagedModExefs = File(unpackRootDir, "exefs")
+        val stagedModPatches = File(unpackRootDir, "exefs_patches")
 
-        val baseFile = downloadedFiles.firstOrNull { f ->
-            val n = f.name.uppercase()
-            n.contains("[БАЗА]") || n.contains("[V0]") || n.endsWith("000].NSP") || n.contains("BASE") || (!n.contains("800") && !n.contains("001") && !n.contains("002"))
-        } ?: downloadedFiles.first()
+        val containerInputs = downloadedFiles.filter { f ->
+            f.isFile && f.extension.lowercase() in listOf("nsp", "nsz", "xci", "xcz")
+        }
+        val baseFile = containerInputs.firstOrNull { f ->
+            val info = StormNczEngine.analyzeQueuedFile(f)
+            info.roleBadge == "БАЗА" || info.subComponents.any { it.roleBadge == "БАЗА" }
+        } ?: containerInputs.first()
+
+        val updateFiles = containerInputs.filter { f ->
+            f.absolutePath != baseFile.absolutePath && StormNczEngine.analyzeQueuedFile(f).roleBadge == "ПАТЧ"
+        }
 
         report(
-            45,
-            "Этап 2/5: Распаковка БАЗЫ (romfs и exefs)",
+            52,
+            "Этап 2/5: Проверка разделов БАЗЫ",
             baseFile.name,
-            "📂 [Этап 2/5] Распаковка БАЗЫ (${baseFile.name}) -> извлечены папки romfs и exefs..."
+            "📂 [Этап 2/5] Подготовлен оригинальный базовый контейнер: ${baseFile.name}"
         )
-
-        try {
-            StormNczEngine.extractGameRomfsAndExefs(
-                inputFile = baseFile,
-                targetBaseDir = unpackRootDir,
-                extractRomfs = true,
-                extractExefs = true,
-                extractControl = true,
-                extractRawPartitions = true
-            ) { p ->
-                val mapped = 45 + ((p.percent * 15) / 100)
-                report(mapped.coerceIn(45, 60), "Этап 2/5: Распаковка БАЗЫ", p.stageText)
-            }
-            val baseOutFolder = File(unpackRootDir, "${baseFile.nameWithoutExtension.replace(Regex("[^a-zA-Z0-9а-яА-ЯёЁ_\\-\\[\\] ]"), "_").trim()}_Unpacked")
-            if (baseOutFolder.exists()) {
-                val bRomfs = File(baseOutFolder, "romfs")
-                val bExefs = File(baseOutFolder, "exefs")
-                val bCtrl = File(baseOutFolder, "control")
-                if (bRomfs.exists()) bRomfs.copyRecursively(unpackRomfs, overwrite = true)
-                if (bExefs.exists()) bExefs.copyRecursively(unpackExefs, overwrite = true)
-                if (bCtrl.exists()) bCtrl.copyRecursively(unpackControl, overwrite = true)
-            }
-        } catch (_: Exception) {}
-
-        val baseNpdmFile = File(unpackExefs, "main.npdm")
-        if (!baseNpdmFile.exists()) {
-            baseNpdmFile.writeBytes(StormNczEngine.buildValidNpdmBytes(baseTid, cleanGameName))
-        }
-
-        // =========================================================================
-        // ШАГ 3 (60–72%) — Распаковка ОБНОВЛЕНИЯ поверх БАЗЫ с заменой файлов
-        // =========================================================================
-        val updateFiles = downloadedFiles.filter { f ->
-            f != baseFile && (f.name.contains("800", ignoreCase = true) || f.name.contains("ПАТЧ", ignoreCase = true) || f.name.contains("UPD", ignoreCase = true))
-        }
 
         if (updateFiles.isNotEmpty()) {
             report(
-                60,
-                "Этап 3/5: Распаковка ОБНОВЛЕНИЯ поверх БАЗЫ",
+                64,
+                "Этап 3/5: Подготовка ОБНОВЛЕНИЯ (BKTR)",
                 "Файлов обновления: ${updateFiles.size}",
-                "🔄 [Этап 3/5] Распаковка ОБНОВЛЕНИЯ поверх БАЗЫ с заменой файлов в папках romfs и exefs..."
+                "🔄 [Этап 3/5] Обновление (${updateFiles.joinToString { it.name }}) готово к прямому слиянию секций BKTR + ExeFS..."
             )
-
-            for ((uIdx, uFile) in updateFiles.withIndex()) {
-                val tempUpdDir = File(unpackRootDir, ".tmp_upd_$uIdx")
-                tempUpdDir.mkdirs()
-                try {
-                    StormNczEngine.extractGameRomfsAndExefs(
-                        inputFile = uFile,
-                        targetBaseDir = tempUpdDir,
-                        extractRomfs = true,
-                        extractExefs = true,
-                        extractControl = false,
-                        extractRawPartitions = false
-                    ) { p ->
-                        val mapped = 60 + ((p.percent * 12) / 100)
-                        report(mapped.coerceIn(60, 72), "Этап 3/5: Распаковка ОБНОВЛЕНИЯ", p.stageText)
-                    }
-                    tempUpdDir.walkTopDown().forEach { dir ->
-                        if (dir.isDirectory) {
-                            if (dir.name.equals("romfs", ignoreCase = true) && dir != unpackRomfs) {
-                                dir.copyRecursively(unpackRomfs, overwrite = true)
-                            } else if (dir.name.equals("exefs", ignoreCase = true) && dir != unpackExefs) {
-                                dir.copyRecursively(unpackExefs, overwrite = true)
-                            }
-                        }
-                    }
-                } catch (_: Exception) {}
-            }
         } else {
-            report(65, "Этап 3/5: Пропуск обновления (версия v0 не требует патча)", "Базовая игра готова", "🔄 [Этап 3/5] Пропуск распаковки обновления: используется актуальная базовая игра.")
+            report(64, "Этап 3/5: Проверка версии игры", "Дополнительный патч не требуется", "🔄 [Этап 3/5] Используется актуальная версия базового контейнера.")
         }
 
-        // Всегда патчим TitleID в main.npdm на Base TitleID (...000)
-        StormNczEngine.patchNpdmTitleIdInFile(File(unpackExefs, "main.npdm"), baseTid)
-
-        // =========================================================================
-        // ШАГ 4 (72–84%) — Распаковка МОДА / РУСИФИКАТОРА и копирование ТОЛЬКО папок
-        // romfs и exefs (с любой глубины пути) с заменой файлов
-        // =========================================================================
         var modCopiedFilesCount = 0
-
         val modSourcesToScan = mutableListOf<File>()
         modSourcesToScan.addAll(downloadedModFiles)
         for (f in downloadedFiles) {
-            if (f.extension.lowercase() in listOf("zip", "7z", "rar") || (f.isDirectory && f != unpackRootDir)) {
+            if (f.extension.lowercase() == "zip" || (f.isDirectory && f.absolutePath != unpackRootDir.absolutePath)) {
                 modSourcesToScan.add(f)
             }
         }
 
         if (modSourcesToScan.isNotEmpty()) {
             report(
-                72,
-                "Этап 4/5: Инъекция мода / русификатора",
-                "Поиск romfs и exefs в архивах модов...",
-                "🧩 [Этап 4/5] Распаковка мода / русификатора: сканирование папок romfs/exefs..."
+                74,
+                "Этап 4/5: Подготовка мода / русификатора",
+                "Извлечение чистых romfs и exefs...",
+                "🧩 [Этап 4/5] Подготовка файлов мода / русификатора (CP866/UTF-8 + кросс-региональная синхронизация Mals)..."
             )
 
             for ((mIdx, modSrc) in modSourcesToScan.withIndex()) {
                 val tempModDir = if (modSrc.isDirectory) modSrc else {
-                    val outM = File(unpackRootDir, ".tmp_mod_$mIdx")
+                    val outM = File(unpackRootDir, ".tmp_zip_$mIdx")
                     outM.mkdirs()
-                    if (modSrc.extension.equals("zip", ignoreCase = true)) {
-                        try {
-                            ZipInputStream(BufferedInputStream(FileInputStream(modSrc))).use { zis ->
-                                var ze = zis.nextEntry
-                                val buf = ByteArray(64 * 1024)
-                                while (ze != null) {
-                                    if (!ze.isDirectory) {
-                                        val dest = File(outM, ze.name.replace('\\', '/'))
-                                        dest.parentFile?.mkdirs()
-                                        FileOutputStream(dest).use { fos ->
-                                            while (true) {
-                                                val r = zis.read(buf)
-                                                if (r <= 0) break
-                                                fos.write(buf, 0, r)
-                                            }
-                                        }
-                                    }
-                                    zis.closeEntry()
-                                    ze = zis.nextEntry
-                                }
-                            }
-                        } catch (_: Exception) {}
+                    StormNczEngine.extractZipArchiveSafe(modSrc) { entryPath, stream ->
+                        val cleanRel = entryPath.replace('\\', '/').trimStart('/')
+                        val fName = cleanRel.substringAfterLast('/')
+                        if (!cleanRel.contains("__MACOSX") && !StormNczEngine.isJunkOrReadmeFile(fName)) {
+                            val dest = File(outM, cleanRel)
+                            dest.parentFile?.mkdirs()
+                            FileOutputStream(dest).use { fos -> stream.copyTo(fos) }
+                        }
                     }
                     outM
                 }
 
                 val foundRomfs = mutableListOf<File>()
                 val foundExefs = mutableListOf<File>()
+                val foundPatches = mutableListOf<File>()
                 val standaloneModFiles = mutableListOf<File>()
 
                 tempModDir.walkTopDown().forEach { f ->
+                    if (f.absolutePath.startsWith(unpackRootDir.absolutePath) && (
+                        f.absolutePath.startsWith(stagedModRomfs.absolutePath) ||
+                        f.absolutePath.startsWith(stagedModExefs.absolutePath) ||
+                        f.absolutePath.startsWith(stagedModPatches.absolutePath))
+                    ) return@forEach
+
                     if (f.isDirectory) {
                         val fn = f.name.lowercase()
-                        if (fn == "romfs" || fn.startsWith("unlocker_romfs")) {
-                            foundRomfs.add(f)
-                        } else if (fn == "exefs") {
-                            foundExefs.add(f)
+                        when {
+                            fn == "romfs" || fn.startsWith("unlocker_romfs") -> foundRomfs.add(f)
+                            fn == "exefs" -> foundExefs.add(f)
+                            fn == "exefs_patches" -> foundPatches.add(f)
                         }
-                    } else if (f.isFile) {
+                    } else if (f.isFile && !StormNczEngine.isJunkOrReadmeFile(f.name)) {
                         val fn = f.name.lowercase()
                         val ext = f.extension.lowercase()
                         if (ext == "pak" || ext == "zs" || ext == "sarc" || fn.endsWith(".sarc.zs")) {
@@ -2607,96 +2544,81 @@ object RuTrackerCloudEngine {
                     rDir.walkTopDown().forEach { file ->
                         if (file.isFile && !StormNczEngine.isJunkOrReadmeFile(file.name)) {
                             val relPath = file.relativeTo(rDir).path
-                            val dest = File(unpackRomfs, relPath)
+                            val dest = File(stagedModRomfs, relPath)
                             dest.parentFile?.mkdirs()
                             file.copyTo(dest, overwrite = true)
                             modCopiedFilesCount++
                         }
                     }
                 }
-
                 for (eDir in foundExefs) {
                     eDir.walkTopDown().forEach { file ->
-                        if (file.isFile && !StormNczEngine.isJunkOrReadmeFile(file.name)) {
+                        if (file.isFile && !StormNczEngine.isJunkOrReadmeFile(file.name) && !StormNczEngine.isPoisonedStubMainFile(file)) {
                             val relPath = file.relativeTo(eDir).path
-                            val dest = File(unpackExefs, relPath)
+                            val dest = File(stagedModExefs, relPath)
                             dest.parentFile?.mkdirs()
                             file.copyTo(dest, overwrite = true)
                             modCopiedFilesCount++
                         }
                     }
                 }
-
+                for (pDir in foundPatches) {
+                    pDir.walkTopDown().forEach { file ->
+                        if (file.isFile && !StormNczEngine.isJunkOrReadmeFile(file.name)) {
+                            val relPath = file.relativeTo(pDir).path
+                            val dest = File(stagedModPatches, relPath)
+                            dest.parentFile?.mkdirs()
+                            file.copyTo(dest, overwrite = true)
+                            modCopiedFilesCount++
+                        }
+                    }
+                }
                 for (sFile in standaloneModFiles) {
                     val sName = sFile.name.lowercase()
-                    val targetDir = if (sName.endsWith(".pak")) {
-                        unpackRomfs.walkTopDown().firstOrNull { it.isDirectory && it.name.contains("pak", ignoreCase = true) } ?: unpackRomfs
-                    } else if (sName.endsWith(".sarc.zs") || sName.endsWith(".zs") || sName.endsWith(".sarc")) {
-                        unpackRomfs.walkTopDown().firstOrNull { it.isDirectory && it.name.contains("mals", ignoreCase = true) } ?: unpackRomfs
-                    } else unpackRomfs
-
-                    targetDir.mkdirs()
-                    val dest = File(targetDir, sFile.name)
-                    sFile.copyTo(dest, overwrite = true)
+                    val subDir = if (sName.endsWith(".sarc.zs") || sName.contains(".product.", ignoreCase = true)) {
+                        File(stagedModRomfs, "Mals")
+                    } else stagedModRomfs
+                    subDir.mkdirs()
+                    sFile.copyTo(File(subDir, sFile.name), overwrite = true)
                     modCopiedFilesCount++
                 }
             }
 
+            if (stagedModRomfs.exists()) {
+                StormNczEngine.synchronizeCrossRegionLocalization(stagedModRomfs)
+            }
+
             report(
                 82,
-                "Этап 4/5: Моды скопированы",
-                "Файлов внедрено: $modCopiedFilesCount",
-                "🧩 [Этап 4/5] Распаковка мода/русификатора -> скопированы только папки romfs и exefs (с заменой файлов: $modCopiedFilesCount)..."
+                "Этап 4/5: Моды подготовлены к вшиванию",
+                "Файлов для Hard-Patch: $modCopiedFilesCount",
+                "🧩 [Этап 4/5] Чистые файлы мода подготовлены к прямому вшиванию в Program NCA ($modCopiedFilesCount ф.)..."
             )
         } else {
             report(78, "Этап 4/5: Пропуск модов", "Моды не выбраны", "🧩 [Этап 4/5] Моды и русификаторы не выбраны.")
         }
 
         // =========================================================================
-        // ШАГ 5 (84–100%) — Упаковка всех файлов (включая romfs/exefs) в единый файл,
-        // правильное добавление DLC / UNLOCKER и сжатие NSZ
+        // ШАГ 5 (84–100%) — Монолитное слияние (Base + BKTR Update + Mod Hard-Patch) и блочное сжатие NSZ
         // =========================================================================
-        val extOut = when (targetFormatMode) {
-            1 -> "xcz"
-            2 -> "nsp"
-            3 -> "xci"
-            4 -> "cci"
-            5 -> "3ds"
-            6 -> "cia"
-            else -> "nsz"
-        }
         val shouldUseBlockNcz = useBlockNcz && (targetFormatMode == 0 || targetFormatMode == 1)
 
         report(
             84,
-            "Этап 5/5: Упаковка Мульти-контента",
-            "Сборка Program NCA + Control NCA + DLC + сжатие NSZ",
-            "📦 [Этап 5/5] Упаковка romfs и exefs в итоговый файл, добавление DLC/Unlocker и блочное сжатие NSZ..."
+            "Этап 5/5: Сборка автономного контейнера и сжатие NSZ",
+            "Вшивание патча/мода в Program NCA + NCZBLOCK",
+            "📦 [Этап 5/5] Прямая сборка автономного StandardCrypto Program NCA (RomFS + ExeFS) и блочное сжатие NSZ..."
         )
-
-        val dlcAndUnlockerFiles = downloadedFiles.filter { f ->
-            val n = f.name.uppercase()
-            n.contains("DLC") || n.contains("UNLOCK") || n.endsWith("001].NSP") || n.endsWith("002].NSP")
-        }
 
         val finalPackInputs = mutableListOf<File>()
         if (baseFile.exists()) finalPackInputs.add(baseFile)
         for (uf in updateFiles) {
-            if (uf.exists() && uf.absolutePath != baseFile.absolutePath && finalPackInputs.none { it.absolutePath == uf.absolutePath }) {
-                finalPackInputs.add(uf)
-            }
+            if (uf.exists() && finalPackInputs.none { it.absolutePath == uf.absolutePath }) finalPackInputs.add(uf)
         }
-        for (df in dlcAndUnlockerFiles) {
-            if (df.exists() && finalPackInputs.none { it.absolutePath == df.absolutePath }) {
-                finalPackInputs.add(df)
-            }
+        for (cf in containerInputs) {
+            if (cf.exists() && finalPackInputs.none { it.absolutePath == cf.absolutePath }) finalPackInputs.add(cf)
         }
-        for (cf in cloudContainers) {
-            if (cf.exists() && finalPackInputs.none { it.absolutePath == cf.absolutePath }) {
-                finalPackInputs.add(cf)
-            }
-        }
-        if (File(unpackRootDir, "romfs").exists() || File(unpackRootDir, "exefs").exists()) {
+        if (modCopiedFilesCount > 0 && (stagedModRomfs.exists() || stagedModExefs.exists() || stagedModPatches.exists())) {
             finalPackInputs.add(unpackRootDir)
         }
 
@@ -2728,6 +2650,7 @@ object RuTrackerCloudEngine {
         val isOutContainerValid = verifyRes.valid && outFile.exists() && outFile.length() > 0L
 
         try { unpackRootDir.deleteRecursively() } catch (_: Exception) {}
+        try { File(modsRootDir, "staged_cloud_mods/$baseTid").deleteRecursively() } catch (_: Exception) {}
 
         if (deleteSourceAfterVerify && isOutContainerValid) {
             var deletedCount = 0

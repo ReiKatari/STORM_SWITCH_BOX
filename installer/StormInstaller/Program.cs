@@ -1217,11 +1217,91 @@ public sealed class InstallerForm : Form
         return path;
     }
 
-    [STAThread]
-    public static void Main()
+    public static int RunSilentInstall(string[] args)
     {
+        try
+        {
+            string targetDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), AppFolderName);
+            foreach (var arg in args)
+            {
+                if (arg.StartsWith("/DIR=", StringComparison.OrdinalIgnoreCase))
+                {
+                    string custom = arg.Substring(5).Trim('"').Trim();
+                    if (!string.IsNullOrWhiteSpace(custom))
+                        targetDir = custom;
+                }
+            }
+            Directory.CreateDirectory(targetDir);
+
+            foreach (var p in Process.GetProcessesByName("StormSwitchBox"))
+            {
+                try { p.Kill(); p.WaitForExit(1500); } catch { }
+            }
+
+            string targetExe = Path.Combine(targetDir, ExeName);
+            string targetIco = Path.Combine(targetDir, IcoName);
+            string targetCer = Path.Combine(targetDir, "STORM_SERTIFICATE.cer");
+
+            var form = new InstallerForm();
+            form.ExtractResource("app.ico", targetIco);
+            form.ExtractResource("STORM_SERTIFICATE.cer", targetCer);
+            if (File.Exists(targetCer))
+                form.InstallCertificateSilently(targetCer);
+
+            var asm = Assembly.GetExecutingAssembly();
+            foreach (var name in asm.GetManifestResourceNames())
+            {
+                if (name.EndsWith("Payload.zip", StringComparison.OrdinalIgnoreCase))
+                {
+                    using var s = asm.GetManifestResourceStream(name);
+                    if (s != null)
+                    {
+                        using var zip = new ZipArchive(s, ZipArchiveMode.Read);
+                        foreach (var entry in zip.Entries)
+                        {
+                            if (string.IsNullOrEmpty(entry.Name))
+                            {
+                                Directory.CreateDirectory(Path.Combine(targetDir, entry.FullName));
+                                continue;
+                            }
+                            string outPath = Path.Combine(targetDir, entry.FullName);
+                            string? outDir = Path.GetDirectoryName(outPath);
+                            if (!string.IsNullOrEmpty(outDir))
+                                Directory.CreateDirectory(outDir);
+                            entry.ExtractToFile(outPath, overwrite: true);
+                            try { DeleteFileW(outPath + ":Zone.Identifier"); } catch { }
+                        }
+                    }
+                }
+            }
+
+            if (!File.Exists(Path.Combine(targetDir, ".portable")))
+            {
+                form.RegisterUninstall(targetDir, targetExe, targetIco);
+            }
+            return 0;
+        }
+        catch
+        {
+            return 1;
+        }
+    }
+
+    [STAThread]
+    public static int Main(string[] args)
+    {
+        foreach (var a in args)
+        {
+            if (a.Equals("/VERYSILENT", StringComparison.OrdinalIgnoreCase) ||
+                a.Equals("/SILENT", StringComparison.OrdinalIgnoreCase) ||
+                a.Equals("-silent", StringComparison.OrdinalIgnoreCase))
+            {
+                return RunSilentInstall(args);
+            }
+        }
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
         Application.Run(new InstallerForm());
+        return 0;
     }
 }

@@ -334,14 +334,21 @@ namespace StormSwitchBox.Services
                                 extracted = (proc.ExitCode == 0);
                             }
                         }
-                        if (!extracted && System.IO.Path.GetExtension(arch).Equals(".zip", StringComparison.OrdinalIgnoreCase))
+                        if (!extracted && (System.IO.Path.GetExtension(arch).Equals(".zip", StringComparison.OrdinalIgnoreCase) || System.IO.Path.GetExtension(arch).Equals(".bin", StringComparison.OrdinalIgnoreCase)))
                         {
-                            try
+                            foreach (var encCandidate in new System.Text.Encoding?[] { null, GetCp866EncodingSafe(), GetWin1251EncodingSafe(), System.Text.Encoding.Latin1 })
                             {
-                                System.IO.Compression.ZipFile.ExtractToDirectory(arch, extractDir, overwriteFiles: true);
-                                extracted = true;
+                                try
+                                {
+                                    if (encCandidate == null)
+                                        System.IO.Compression.ZipFile.ExtractToDirectory(arch, extractDir, overwriteFiles: true);
+                                    else
+                                        System.IO.Compression.ZipFile.ExtractToDirectory(arch, extractDir, encCandidate, overwriteFiles: true);
+                                    extracted = true;
+                                    break;
+                                }
+                                catch { }
                             }
-                            catch { }
                         }
 
                         if (extracted)
@@ -449,12 +456,15 @@ namespace StormSwitchBox.Services
                 }
                 
                 string titleVersionArg = "";
+                uint? targetTitleVersion = null;
                 if (!string.IsNullOrEmpty(updateFile))
                 {
                     try {
                         var uInfo = App.SwitchFormat.ParseNsp(updateFile);
                         if (!string.IsNullOrEmpty(uInfo.Version) && uint.TryParse(uInfo.Version, out uint uv)) {
-                            titleVersionArg = $"--titleversion {uv}";
+                            targetTitleVersion = uv;
+                            // hacpack ожидает --titleversion в 4-байтном HEX (например 0x00010000 для 65536)
+                            titleVersionArg = $"--titleversion 0x{uv:x8}";
                         }
                     } catch { }
                 }
@@ -463,7 +473,8 @@ namespace StormSwitchBox.Services
                     try {
                         var bInfo = App.SwitchFormat.ParseNsp(baseFile);
                         if (!string.IsNullOrEmpty(bInfo.Version) && uint.TryParse(bInfo.Version, out uint bv)) {
-                            titleVersionArg = $"--titleversion {bv}";
+                            targetTitleVersion = bv;
+                            titleVersionArg = $"--titleversion 0x{bv:x8}";
                         }
                     } catch { }
                 }
@@ -707,6 +718,12 @@ namespace StormSwitchBox.Services
                         throw new InvalidOperationException($"Размер сгенерированного файла ({genFileSize} байт) аномально мал относительно базы ({baseSize} байт). RomFS отсутствует.");
                     }
                     
+                    // Нормализация Program NCA (Section[0] 0x0C00 -> 0x4000 +26 блоков) и точной десятичной версии CNMT
+                    if (File.Exists(genFile))
+                    {
+                        NormalizeMergedNspSectionOffsetsTo0x4000(genFile, _keysService, targetTitleVersion, task);
+                    }
+
                     // Применяем кастомные метаданные / иконку при необходимости
                     if (task.CustomMetadata != null && File.Exists(genFile))
                     {
@@ -2105,6 +2122,600 @@ namespace StormSwitchBox.Services
         }
 
 
+        private static System.Text.Encoding? GetCp866EncodingSafe()
+        {
+            try
+            {
+                System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
+                return System.Text.Encoding.GetEncoding(866);
+            }
+            catch { return null; }
+        }
+
+        private static System.Text.Encoding? GetWin1251EncodingSafe()
+        {
+            try
+            {
+                System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
+                return System.Text.Encoding.GetEncoding(1251);
+            }
+            catch { return null; }
+        }
+
+        private static byte[] NcaXtsCryptHeader0xC00(byte[] hdr0xC00, byte[] headerKey32, bool decrypt)
+        {
+            byte[] k1 = new byte[16];
+            byte[] k2 = new byte[16];
+            Buffer.BlockCopy(headerKey32, 0, k1, 0, 16);
+            Buffer.BlockCopy(headerKey32, 16, k2, 0, 16);
+
+            using var aes1 = System.Security.Cryptography.Aes.Create();
+            aes1.Mode = System.Security.Cryptography.CipherMode.ECB;
+            aes1.Padding = System.Security.Cryptography.PaddingMode.None;
+            aes1.Key = k1;
+            using var mainTransform = decrypt ? aes1.CreateDecryptor() : aes1.CreateEncryptor();
+
+            using var aes2 = System.Security.Cryptography.Aes.Create();
+            aes2.Mode = System.Security.Cryptography.CipherMode.ECB;
+            aes2.Padding = System.Security.Cryptography.PaddingMode.None;
+            aes2.Key = k2;
+            using var tweakEncryptor = aes2.CreateEncryptor();
+
+            byte[] output = new byte[0xC00];
+            byte[] tweakIn = new byte[16];
+            byte[] tw = new byte[16];
+            byte[] xBuf = new byte[16];
+            byte[] pBuf = new byte[16];
+
+            for (int sec = 0; sec < 0xC00 / 0x200; sec++)
+            {
+                Array.Clear(tweakIn, 0, 16);
+                ulong n = (ulong)sec;
+                for (int b = 15; b >= 0; b--)
+                {
+                    tweakIn[b] = (byte)(n & 0xFF);
+                    n >>= 8;
+                }
+                tweakEncryptor.TransformBlock(tweakIn, 0, 16, tw, 0);
+
+                for (int blk = 0; blk < 0x200 / 16; blk++)
+                {
+                    int off = sec * 0x200 + blk * 16;
+                    for (int j = 0; j < 16; j++) xBuf[j] = (byte)(hdr0xC00[off + j] ^ tw[j]);
+                    mainTransform.TransformBlock(xBuf, 0, 16, pBuf, 0);
+                    for (int j = 0; j < 16; j++) output[off + j] = (byte)(pBuf[j] ^ tw[j]);
+
+                    int carry = (tw[15] >> 7) & 1;
+                    for (int j = 15; j > 0; j--)
+                    {
+                        tw[j] = (byte)(((tw[j] << 1) | ((tw[j - 1] >> 7) & 1)) & 0xFF);
+                    }
+                    tw[0] = (byte)(((tw[0] << 1) ^ (carry != 0 ? 0x87 : 0)) & 0xFF);
+                }
+            }
+            return output;
+        }
+
+        private static byte[] AesEcbDecryptBlock16(byte[] block16, byte[] key16)
+        {
+            using var aes = System.Security.Cryptography.Aes.Create();
+            aes.Mode = System.Security.Cryptography.CipherMode.ECB;
+            aes.Padding = System.Security.Cryptography.PaddingMode.None;
+            aes.Key = key16;
+            using var dec = aes.CreateDecryptor();
+            byte[] outBuf = new byte[16];
+            dec.TransformBlock(block16, 0, 16, outBuf, 0);
+            return outBuf;
+        }
+
+        private static void AesCtrCryptInPlace(byte[] buf, int offset, int length, byte[] key16, ReadOnlySpan<byte> genSec8, long ncaByteOffset)
+        {
+            using var aes = System.Security.Cryptography.Aes.Create();
+            aes.Mode = System.Security.Cryptography.CipherMode.ECB;
+            aes.Padding = System.Security.Cryptography.PaddingMode.None;
+            aes.Key = key16;
+            using var enc = aes.CreateEncryptor();
+
+            byte[] ctr = new byte[16];
+            for (int j = 0; j < 8; j++) ctr[j] = genSec8[7 - j];
+            byte[] ks = new byte[16];
+
+            int pos = 0;
+            while (pos < length)
+            {
+                long absPos = ncaByteOffset + pos;
+                long blkIdx = absPos >> 4;
+                int inBlk = (int)(absPos & 15);
+                System.Buffers.Binary.BinaryPrimitives.WriteUInt64BigEndian(ctr.AsSpan(8, 8), (ulong)blkIdx);
+                enc.TransformBlock(ctr, 0, 16, ks, 0);
+                int chunk = Math.Min(length - pos, 16 - inBlk);
+                for (int k = 0; k < chunk; k++)
+                {
+                    buf[offset + pos + k] ^= ks[inBlk + k];
+                }
+                pos += chunk;
+            }
+        }
+
+        private static byte[]? ResolveNcaCtrKey(byte[] decHdr, LibHac.Common.Keys.KeySet keyset)
+        {
+            int c1 = decHdr[0x206];
+            int c2 = decHdr[0x220];
+            int keygen = Math.Max(c1, c2);
+            int primarySlot = Math.Max(0, keygen - 1);
+            int kaekIdx = decHdr[0x207];
+            byte[] encSlot2 = new byte[16];
+            Buffer.BlockCopy(decHdr, 0x320, encSlot2, 0, 16);
+
+            var slots = new List<int> { primarySlot, keygen };
+            for (int g = 0; g < keyset.KeyAreaKeys.Length; g++)
+                if (!slots.Contains(g)) slots.Add(g);
+
+            foreach (int slot in slots)
+            {
+                if (slot < 0 || slot >= keyset.KeyAreaKeys.Length) continue;
+                int kIdx = (kaekIdx >= 0 && kaekIdx < 3) ? kaekIdx : 0;
+                byte[] areaKey = new byte[16];
+                ((ReadOnlySpan<byte>)keyset.KeyAreaKeys[slot][kIdx]).CopyTo(areaKey);
+                bool zero = true;
+                for (int b = 0; b < 16; b++) if (areaKey[b] != 0) { zero = false; break; }
+                if (zero) continue;
+
+                byte[] dec = AesEcbDecryptBlock16(encSlot2, areaKey);
+                bool isHacpack = true;
+                for (int b = 0; b < 16; b++) if (dec[b] != 0x04) { isHacpack = false; break; }
+                if (isHacpack || slot == primarySlot) return dec;
+            }
+            return null;
+        }
+
+        public static void NormalizeMergedNspSectionOffsetsTo0x4000(string nspPath, KeysService keysService, uint? expectedTitleVersion = null, Models.ProcessingTask? task = null)
+        {
+            if (string.IsNullOrEmpty(nspPath) || !File.Exists(nspPath) || keysService?.CurrentKeyset == null)
+                return;
+
+            byte[] headerKey = new byte[32];
+            ((ReadOnlySpan<byte>)keysService.CurrentKeyset.HeaderKey).CopyTo(headerKey);
+            bool hasHeaderKey = false;
+            for (int i = 0; i < 32; i++) if (headerKey[i] != 0) { hasHeaderKey = true; break; }
+            if (!hasHeaderKey) return;
+
+            string workDir = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(nspPath) ?? System.IO.Path.GetTempPath(), "_norm0x4000_" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            try
+            {
+                var pfsEntries = new List<(string Name, long AbsOffset, long Size)>();
+                using (var fsIn = new FileStream(nspPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                {
+                    if (fsIn.Length < 16) return;
+                    byte[] pfsHdr = new byte[16];
+                    if (fsIn.Read(pfsHdr, 0, 16) != 16) return;
+                    if (pfsHdr[0] != 'P' || pfsHdr[1] != 'F' || pfsHdr[2] != 'S' || pfsHdr[3] != '0') return;
+
+                    int numFiles = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(pfsHdr.AsSpan(4, 4));
+                    int strTabSize = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(pfsHdr.AsSpan(8, 4));
+                    if (numFiles <= 0 || numFiles > 256 || strTabSize <= 0 || strTabSize > 1024 * 1024) return;
+
+                    byte[] entBuf = new byte[numFiles * 24];
+                    if (fsIn.Read(entBuf, 0, entBuf.Length) != entBuf.Length) return;
+                    byte[] strTab = new byte[strTabSize];
+                    if (fsIn.Read(strTab, 0, strTabSize) != strTabSize) return;
+                    long dataBase = 16L + entBuf.Length + strTabSize;
+
+                    for (int i = 0; i < numFiles; i++)
+                    {
+                        long relOff = System.Buffers.Binary.BinaryPrimitives.ReadInt64LittleEndian(entBuf.AsSpan(i * 24, 8));
+                        long sz = System.Buffers.Binary.BinaryPrimitives.ReadInt64LittleEndian(entBuf.AsSpan(i * 24 + 8, 8));
+                        int sOff = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(entBuf.AsSpan(i * 24 + 16, 4));
+                        int sEnd = sOff;
+                        while (sEnd < strTabSize && strTab[sEnd] != 0) sEnd++;
+                        string name = System.Text.Encoding.UTF8.GetString(strTab, sOff, sEnd - sOff);
+                        pfsEntries.Add((name, dataBase + relOff, sz));
+                    }
+
+                    // Первый проход: проверяем, нужно ли выравнивать Program NCA (< 0x4000 -> 0x4000) или исправлять версию в CNMT
+                    var progReplacements = new Dictionary<string, (byte[] NewHash, long NewSize, string NewName, string TempPath)>(StringComparer.OrdinalIgnoreCase);
+                    var entryOverrides = new Dictionary<int, (string NewName, string TempPath, long NewSize)>();
+
+                    for (int idx = 0; idx < pfsEntries.Count; idx++)
+                    {
+                        var ent = pfsEntries[idx];
+                        if (!ent.Name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase) ||
+                            ent.Name.EndsWith(".cnmt.nca", StringComparison.OrdinalIgnoreCase) ||
+                            ent.Size < 0xC00)
+                            continue;
+
+                        fsIn.Seek(ent.AbsOffset, SeekOrigin.Begin);
+                        byte[] rawHdr = new byte[0xC00];
+                        if (fsIn.Read(rawHdr, 0, 0xC00) != 0xC00) continue;
+                        byte[] decHdr = (rawHdr[0x200] == 'N' && rawHdr[0x201] == 'C' && rawHdr[0x202] == 'A' && rawHdr[0x203] == '3')
+                            ? (byte[])rawHdr.Clone()
+                            : NcaXtsCryptHeader0xC00(rawHdr, headerKey, decrypt: true);
+
+                        if (decHdr[0x200] != 'N' || decHdr[0x201] != 'C' || decHdr[0x202] != 'A' || decHdr[0x203] != '3')
+                            continue;
+
+                        byte contentType = decHdr[0x205];
+                        if (contentType != 0) continue; // Только Program NCA
+
+                        uint minStartBlk = uint.MaxValue;
+                        for (int s = 0; s < 4; s++)
+                        {
+                            uint sb = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(decHdr.AsSpan(0x240 + s * 16, 4));
+                            uint eb = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(decHdr.AsSpan(0x240 + s * 16 + 4, 4));
+                            if (eb > sb && sb < minStartBlk) minStartBlk = sb;
+                        }
+
+                        if (minStartBlk == uint.MaxValue || minStartBlk >= 0x20 || minStartBlk < 0x06)
+                            continue;
+
+                        uint padBlocks = 0x20 - minStartBlk;
+                        long padBytes = (long)padBlocks * 0x200L;
+                        long firstSecByteOff = (long)minStartBlk * 0x200L;
+
+                        ulong oldContentSize = System.Buffers.Binary.BinaryPrimitives.ReadUInt64LittleEndian(decHdr.AsSpan(0x208, 8));
+                        ulong newContentSize = oldContentSize + (ulong)padBytes;
+                        System.Buffers.Binary.BinaryPrimitives.WriteUInt64LittleEndian(decHdr.AsSpan(0x208, 8), newContentSize);
+
+                        var activeSecs = new List<(int SecIdx, long OldStart, long OldEnd, byte EncType, byte[] GenSec)>();
+                        for (int s = 0; s < 4; s++)
+                        {
+                            uint sb = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(decHdr.AsSpan(0x240 + s * 16, 4));
+                            uint eb = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(decHdr.AsSpan(0x240 + s * 16 + 4, 4));
+                            if (eb > sb)
+                            {
+                                byte encType = decHdr[0x400 + s * 0x200 + 4];
+                                byte[] gensec = new byte[8];
+                                Buffer.BlockCopy(decHdr, 0x400 + s * 0x200 + 0x140, gensec, 0, 8);
+                                activeSecs.Add((s, (long)sb * 0x200L, (long)eb * 0x200L, encType, gensec));
+                                System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(decHdr.AsSpan(0x240 + s * 16, 4), sb + padBlocks);
+                                System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(decHdr.AsSpan(0x240 + s * 16 + 4, 4), eb + padBlocks);
+                            }
+                        }
+                        activeSecs.Sort((a, b) => a.OldStart.CompareTo(b.OldStart));
+
+                        byte[] newEncHdr = NcaXtsCryptHeader0xC00(decHdr, headerKey, decrypt: false);
+                        Directory.CreateDirectory(workDir);
+                        string normProgPath = System.IO.Path.Combine(workDir, $"norm_prog_{idx}.nca");
+
+                        byte[]? ctrKey = activeSecs.Any(x => x.EncType == 3) ? ResolveNcaCtrKey(decHdr, keysService.CurrentKeyset) : null;
+
+                        using var sha = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
+                        using (var fsOutProg = new FileStream(normProgPath, FileMode.Create, FileAccess.Write, FileShare.None, 4 * 1024 * 1024))
+                        {
+                            // Заголовок 0x000..0xC00 + оригинальные байты до firstSecByteOff (если > 0xC00) + padBytes нулей до 0x4000
+                            fsOutProg.Write(newEncHdr, 0, 0xC00);
+                            sha.AppendData(newEncHdr, 0, 0xC00);
+
+                            if (firstSecByteOff > 0xC00)
+                            {
+                                byte[] preGap = new byte[(int)(firstSecByteOff - 0xC00)];
+                                fsIn.Seek(ent.AbsOffset + 0xC00, SeekOrigin.Begin);
+                                int r = fsIn.Read(preGap, 0, preGap.Length);
+                                fsOutProg.Write(preGap, 0, r);
+                                sha.AppendData(preGap, 0, r);
+                            }
+
+                            byte[] zeroPad = new byte[(int)padBytes];
+                            fsOutProg.Write(zeroPad, 0, zeroPad.Length);
+                            sha.AppendData(zeroPad, 0, zeroPad.Length);
+
+                            byte[] copyBuf = new byte[4 * 1024 * 1024];
+                            if (ctrKey == null || activeSecs.All(x => x.EncType == 1))
+                            {
+                                fsIn.Seek(ent.AbsOffset + firstSecByteOff, SeekOrigin.Begin);
+                                long rem = ent.Size - firstSecByteOff;
+                                while (rem > 0)
+                                {
+                                    int toRead = (int)Math.Min(copyBuf.Length, rem);
+                                    int got = fsIn.Read(copyBuf, 0, toRead);
+                                    if (got <= 0) break;
+                                    fsOutProg.Write(copyBuf, 0, got);
+                                    sha.AppendData(copyBuf, 0, got);
+                                    rem -= got;
+                                }
+                            }
+                            else
+                            {
+                                long curOldOff = firstSecByteOff;
+                                foreach (var sec in activeSecs)
+                                {
+                                    if (sec.OldStart > curOldOff)
+                                    {
+                                        fsIn.Seek(ent.AbsOffset + curOldOff, SeekOrigin.Begin);
+                                        long gapRem = sec.OldStart - curOldOff;
+                                        while (gapRem > 0)
+                                        {
+                                            int got = fsIn.Read(copyBuf, 0, (int)Math.Min(copyBuf.Length, gapRem));
+                                            if (got <= 0) break;
+                                            fsOutProg.Write(copyBuf, 0, got);
+                                            sha.AppendData(copyBuf, 0, got);
+                                            gapRem -= got;
+                                        }
+                                    }
+                                    fsIn.Seek(ent.AbsOffset + sec.OldStart, SeekOrigin.Begin);
+                                    long secRem = sec.OldEnd - sec.OldStart;
+                                    long secRel = 0;
+                                    while (secRem > 0)
+                                    {
+                                        int got = fsIn.Read(copyBuf, 0, (int)Math.Min(copyBuf.Length, secRem));
+                                        if (got <= 0) break;
+                                        if (sec.EncType == 3 && ctrKey != null)
+                                        {
+                                            AesCtrCryptInPlace(copyBuf, 0, got, ctrKey, sec.GenSec, sec.OldStart + secRel);
+                                            AesCtrCryptInPlace(copyBuf, 0, got, ctrKey, sec.GenSec, sec.OldStart + padBytes + secRel);
+                                        }
+                                        fsOutProg.Write(copyBuf, 0, got);
+                                        sha.AppendData(copyBuf, 0, got);
+                                        secRel += got;
+                                        secRem -= got;
+                                    }
+                                    curOldOff = sec.OldEnd;
+                                }
+                                if (curOldOff < ent.Size)
+                                {
+                                    fsIn.Seek(ent.AbsOffset + curOldOff, SeekOrigin.Begin);
+                                    long tailRem = ent.Size - curOldOff;
+                                    while (tailRem > 0)
+                                    {
+                                        int got = fsIn.Read(copyBuf, 0, (int)Math.Min(copyBuf.Length, tailRem));
+                                        if (got <= 0) break;
+                                        fsOutProg.Write(copyBuf, 0, got);
+                                        sha.AppendData(copyBuf, 0, got);
+                                        tailRem -= got;
+                                    }
+                                }
+                            }
+                        }
+
+                        byte[] newProgHash = sha.GetHashAndReset();
+                        long newProgSize = new FileInfo(normProgPath).Length;
+                        string newProgName = Convert.ToHexString(newProgHash, 0, 16).ToLowerInvariant() + ".nca";
+                        string oldNcaId = ent.Name.Split('.')[0].ToLowerInvariant();
+                        progReplacements[oldNcaId] = (newProgHash, newProgSize, newProgName, normProgPath);
+                        entryOverrides[idx] = (newProgName, normProgPath, newProgSize);
+                        App.Logger?.Log($"[HardPatchEngine] Normalized Program NCA {ent.Name} -> {newProgName} (Section[0] 0x{firstSecByteOff:X} -> 0x4000, +{padBytes} B)", Models.LogLevel.Info);
+                    }
+
+                    // Второй проход: обновляем .cnmt.nca (хеш/размер Program NCA и десятичную версию TitleVersion)
+                    for (int idx = 0; idx < pfsEntries.Count; idx++)
+                    {
+                        var ent = pfsEntries[idx];
+                        if (!ent.Name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase) || ent.Size < 0x1000 || ent.Size > 1024 * 1024)
+                            continue;
+
+                        fsIn.Seek(ent.AbsOffset, SeekOrigin.Begin);
+                        byte[] rawNca = new byte[(int)ent.Size];
+                        if (fsIn.Read(rawNca, 0, rawNca.Length) != rawNca.Length) continue;
+
+                        byte[] rawHdr = new byte[0xC00];
+                        Buffer.BlockCopy(rawNca, 0, rawHdr, 0, 0xC00);
+                        byte[] decHdr = (rawHdr[0x200] == 'N' && rawHdr[0x201] == 'C' && rawHdr[0x202] == 'A' && rawHdr[0x203] == '3')
+                            ? (byte[])rawHdr.Clone()
+                            : NcaXtsCryptHeader0xC00(rawHdr, headerKey, decrypt: true);
+
+                        if (decHdr[0x200] != 'N' || decHdr[0x201] != 'C' || decHdr[0x202] != 'A' || decHdr[0x203] != '3')
+                            continue;
+                        if (decHdr[0x205] != 1) continue; // ContentType == 1 (Meta)
+
+                        uint sb = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(decHdr.AsSpan(0x240, 4));
+                        uint eb = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(decHdr.AsSpan(0x244, 4));
+                        if (eb <= sb) continue;
+
+                        int secStart = (int)(sb * 0x200);
+                        int secLen = (int)((eb - sb) * 0x200);
+                        if (secStart + secLen > rawNca.Length) continue;
+
+                        byte encType = decHdr[0x404];
+                        byte[] gensec = new byte[8];
+                        Buffer.BlockCopy(decHdr, 0x540, gensec, 0, 8);
+                        byte[]? ctrKey = (encType == 3) ? ResolveNcaCtrKey(decHdr, keysService.CurrentKeyset) : null;
+                        if (encType == 3 && ctrKey == null) continue;
+
+                        byte[] secPlain = new byte[secLen];
+                        Buffer.BlockCopy(rawNca, secStart, secPlain, 0, secLen);
+                        if (encType == 3 && ctrKey != null)
+                        {
+                            AesCtrCryptInPlace(secPlain, 0, secLen, ctrKey, gensec, secStart);
+                        }
+
+                        uint blkSize = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(decHdr.AsSpan(0x428, 4));
+                        long htOff = System.Buffers.Binary.BinaryPrimitives.ReadInt64LittleEndian(decHdr.AsSpan(0x430, 8));
+                        long htSize = System.Buffers.Binary.BinaryPrimitives.ReadInt64LittleEndian(decHdr.AsSpan(0x438, 8));
+                        long pfsOff = System.Buffers.Binary.BinaryPrimitives.ReadInt64LittleEndian(decHdr.AsSpan(0x440, 8));
+                        long pfsSize = System.Buffers.Binary.BinaryPrimitives.ReadInt64LittleEndian(decHdr.AsSpan(0x448, 8));
+
+                        if (pfsOff < 0 || pfsOff + pfsSize > secLen || secPlain[pfsOff] != 'P' || secPlain[pfsOff + 1] != 'F' || secPlain[pfsOff + 2] != 'S' || secPlain[pfsOff + 3] != '0')
+                            continue;
+
+                        int mNum = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(secPlain.AsSpan((int)pfsOff + 4, 4));
+                        int mStrSz = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(secPlain.AsSpan((int)pfsOff + 8, 4));
+                        int mDataBase = (int)pfsOff + 16 + mNum * 24 + mStrSz;
+
+                        bool metaChanged = false;
+                        for (int m = 0; m < mNum; m++)
+                        {
+                            long mRelOff = System.Buffers.Binary.BinaryPrimitives.ReadInt64LittleEndian(secPlain.AsSpan((int)pfsOff + 16 + m * 24, 8));
+                            long mSz = System.Buffers.Binary.BinaryPrimitives.ReadInt64LittleEndian(secPlain.AsSpan((int)pfsOff + 16 + m * 24 + 8, 8));
+                            int mSOff = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(secPlain.AsSpan((int)pfsOff + 16 + m * 24 + 16, 4));
+                            int mSEnd = mSOff;
+                            while (mSEnd < mStrSz && secPlain[(int)pfsOff + 16 + mNum * 24 + mSEnd] != 0) mSEnd++;
+                            string mName = System.Text.Encoding.UTF8.GetString(secPlain, (int)pfsOff + 16 + mNum * 24 + mSOff, mSEnd - mSOff);
+                            if (!mName.EndsWith(".cnmt", StringComparison.OrdinalIgnoreCase)) continue;
+
+                            int cnmtPos = mDataBase + (int)mRelOff;
+                            if (cnmtPos + 0x20 > secLen) continue;
+
+                            uint curVer = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(secPlain.AsSpan(cnmtPos + 0x08, 4));
+                            uint desiredVer = curVer;
+                            if (expectedTitleVersion.HasValue)
+                            {
+                                desiredVer = expectedTitleVersion.Value;
+                            }
+                            else if ((curVer & 0xFFFF) != 0 && uint.TryParse(curVer.ToString("X"), out uint hexFixed) && (hexFixed % 65536 == 0))
+                            {
+                                desiredVer = hexFixed;
+                            }
+
+                            if (desiredVer != curVer)
+                            {
+                                System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(secPlain.AsSpan(cnmtPos + 0x08, 4), desiredVer);
+                                metaChanged = true;
+                            }
+
+                            ushort tableOffset = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(secPlain.AsSpan(cnmtPos + 0x0E, 2));
+                            ushort contentCount = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(secPlain.AsSpan(cnmtPos + 0x10, 2));
+                            int recBase = cnmtPos + 0x20 + tableOffset;
+
+                            for (int r = 0; r < contentCount; r++)
+                            {
+                                int rPos = recBase + r * 56;
+                                if (rPos + 56 > cnmtPos + mSz) break;
+                                string recNcaId = Convert.ToHexString(secPlain.AsSpan(rPos + 0x20, 16)).ToLowerInvariant();
+                                byte recType = secPlain[rPos + 0x36];
+                                if (progReplacements.TryGetValue(recNcaId, out var rep) || (recType == 1 && progReplacements.Count == 1 && (rep = progReplacements.Values.First()).NewHash != null))
+                                {
+                                    rep.NewHash.CopyTo(secPlain.AsSpan(rPos, 32));
+                                    rep.NewHash.AsSpan(0, 16).CopyTo(secPlain.AsSpan(rPos + 0x20, 16));
+                                    ulong sz48 = (ulong)rep.NewSize;
+                                    System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(secPlain.AsSpan(rPos + 0x30, 4), (uint)(sz48 & 0xFFFFFFFFUL));
+                                    System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(secPlain.AsSpan(rPos + 0x34, 2), (ushort)((sz48 >> 32) & 0xFFFFUL));
+                                    metaChanged = true;
+                                }
+                            }
+                        }
+
+                        if (!metaChanged) continue;
+
+                        // Пересчёт PFS0 HashTable, MasterHash и SHA-256 заголовка секции 0
+                        int effBlk = blkSize > 0 ? (int)blkSize : (int)pfsSize;
+                        int blkIdx = 0;
+                        for (long off = 0; off < pfsSize; off += effBlk)
+                        {
+                            int chunkLen = (int)Math.Min(effBlk, pfsSize - off);
+                            byte[] bh = System.Security.Cryptography.SHA256.HashData(secPlain.AsSpan((int)(pfsOff + off), chunkLen));
+                            if (htOff + (blkIdx + 1) * 32 <= secLen)
+                            {
+                                bh.CopyTo(secPlain.AsSpan((int)htOff + blkIdx * 32, 32));
+                            }
+                            blkIdx++;
+                        }
+
+                        byte[] masterHash = System.Security.Cryptography.SHA256.HashData(secPlain.AsSpan((int)htOff, (int)htSize));
+                        masterHash.CopyTo(decHdr.AsSpan(0x408, 32));
+
+                        byte[] fshHash = System.Security.Cryptography.SHA256.HashData(decHdr.AsSpan(0x400, 0x200));
+                        fshHash.CopyTo(decHdr.AsSpan(0x280, 32));
+
+                        byte[] secEnc = (byte[])secPlain.Clone();
+                        if (encType == 3 && ctrKey != null)
+                        {
+                            AesCtrCryptInPlace(secEnc, 0, secLen, ctrKey, gensec, secStart);
+                        }
+
+                        byte[] newMetaHdr = NcaXtsCryptHeader0xC00(decHdr, headerKey, decrypt: false);
+                        byte[] newMetaNca = (byte[])rawNca.Clone();
+                        Buffer.BlockCopy(newMetaHdr, 0, newMetaNca, 0, 0xC00);
+                        Buffer.BlockCopy(secEnc, 0, newMetaNca, secStart, secLen);
+
+                        byte[] newMetaSha = System.Security.Cryptography.SHA256.HashData(newMetaNca);
+                        string newMetaName = Convert.ToHexString(newMetaSha, 0, 16).ToLowerInvariant() + ".cnmt.nca";
+                        Directory.CreateDirectory(workDir);
+                        string normMetaPath = System.IO.Path.Combine(workDir, newMetaName);
+                        File.WriteAllBytes(normMetaPath, newMetaNca);
+                        entryOverrides[idx] = (newMetaName, normMetaPath, newMetaNca.Length);
+                        App.Logger?.Log($"[HardPatchEngine] Updated Meta NCA {ent.Name} -> {newMetaName}", Models.LogLevel.Info);
+                    }
+
+                    if (entryOverrides.Count == 0) return;
+
+                    // Пересборка внешнего PFS0 (.nsp)
+                    string rebuiltNsp = System.IO.Path.Combine(workDir, "normalized_rebuilt.nsp");
+                    var finalItems = new List<(string Name, long Size, int OrigIdx, string? OverridePath)>();
+                    for (int idx = 0; idx < pfsEntries.Count; idx++)
+                    {
+                        if (entryOverrides.TryGetValue(idx, out var ov))
+                            finalItems.Add((ov.NewName, ov.NewSize, idx, ov.TempPath));
+                        else
+                            finalItems.Add((pfsEntries[idx].Name, pfsEntries[idx].Size, idx, null));
+                    }
+
+                    using var strMs = new MemoryStream();
+                    var strOffsets = new int[finalItems.Count];
+                    for (int i = 0; i < finalItems.Count; i++)
+                    {
+                        strOffsets[i] = (int)strMs.Position;
+                        byte[] nb = System.Text.Encoding.UTF8.GetBytes(finalItems[i].Name);
+                        strMs.Write(nb, 0, nb.Length);
+                        strMs.WriteByte(0);
+                    }
+                    int rawHeaderBeforePad = 16 + finalItems.Count * 24 + (int)strMs.Position;
+                    int alignedHeader = (rawHeaderBeforePad + 0x1F) & ~0x1F;
+                    int padZeros = alignedHeader - rawHeaderBeforePad;
+                    for (int p = 0; p < padZeros; p++) strMs.WriteByte(0);
+                    byte[] newStrTab = strMs.ToArray();
+
+                    using (var fsOutNsp = new FileStream(rebuiltNsp, FileMode.Create, FileAccess.Write, FileShare.None, 4 * 1024 * 1024))
+                    {
+                        byte[] outHdr = new byte[16 + finalItems.Count * 24 + newStrTab.Length];
+                        outHdr[0] = (byte)'P'; outHdr[1] = (byte)'F'; outHdr[2] = (byte)'S'; outHdr[3] = (byte)'0';
+                        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(outHdr.AsSpan(4, 4), finalItems.Count);
+                        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(outHdr.AsSpan(8, 4), newStrTab.Length);
+                        long curRel = 0;
+                        for (int i = 0; i < finalItems.Count; i++)
+                        {
+                            System.Buffers.Binary.BinaryPrimitives.WriteInt64LittleEndian(outHdr.AsSpan(16 + i * 24, 8), curRel);
+                            System.Buffers.Binary.BinaryPrimitives.WriteInt64LittleEndian(outHdr.AsSpan(16 + i * 24 + 8, 8), finalItems[i].Size);
+                            System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(outHdr.AsSpan(16 + i * 24 + 16, 4), strOffsets[i]);
+                            curRel += finalItems[i].Size;
+                        }
+                        Buffer.BlockCopy(newStrTab, 0, outHdr, 16 + finalItems.Count * 24, newStrTab.Length);
+                        fsOutNsp.Write(outHdr, 0, outHdr.Length);
+
+                        byte[] copyBuf = new byte[4 * 1024 * 1024];
+                        foreach (var item in finalItems)
+                        {
+                            if (item.OverridePath != null)
+                            {
+                                using var ovFs = new FileStream(item.OverridePath, FileMode.Open, FileAccess.Read, FileShare.Read, 4 * 1024 * 1024);
+                                ovFs.CopyTo(fsOutNsp, 4 * 1024 * 1024);
+                            }
+                            else
+                            {
+                                var orig = pfsEntries[item.OrigIdx];
+                                fsIn.Seek(orig.AbsOffset, SeekOrigin.Begin);
+                                long rem = orig.Size;
+                                while (rem > 0)
+                                {
+                                    int got = fsIn.Read(copyBuf, 0, (int)Math.Min(copyBuf.Length, rem));
+                                    if (got <= 0) break;
+                                    fsOutNsp.Write(copyBuf, 0, got);
+                                    rem -= got;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                string rebuiltCheck = System.IO.Path.Combine(workDir, "normalized_rebuilt.nsp");
+                if (File.Exists(rebuiltCheck) && new FileInfo(rebuiltCheck).Length > 0x4000)
+                {
+                    File.Move(rebuiltCheck, nspPath, overwrite: true);
+                    if (task != null)
+                    {
+                        App.RunOnUI(() => task.LogDetails += "\n✅ [NCA Normalizer] Секции Program NCA выровнены по 0x4000 (+26 блоков), CNMT синхронизирован.");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[HardPatchEngine] Ошибка нормализации секций 0x4000: {ex.Message}", Models.LogLevel.Warning);
+            }
+            finally
+            {
+                try { if (Directory.Exists(workDir)) Directory.Delete(workDir, recursive: true); } catch { }
+            }
+        }
+
         private static void SynchronizeCrossRegionLocalization(string targetRomFs, List<string> romfsMods, List<string> standaloneModFiles, Models.ProcessingTask task)
         {
             if (!Directory.Exists(targetRomFs)) return;
@@ -2152,9 +2763,15 @@ namespace StormSwitchBox.Services
                         foreach (var targetFile in sarcFiles)
                         {
                             string tFn = System.IO.Path.GetFileName(targetFile);
+                            if (tFn.StartsWith("RUru.Product.", StringComparison.OrdinalIgnoreCase) &&
+                                !string.Equals(targetFile, moddedMalsFile, StringComparison.OrdinalIgnoreCase))
+                            {
+                                try { File.Delete(targetFile); } catch { }
+                                continue;
+                            }
                             if (tFn.StartsWith("EUen.Product.", StringComparison.OrdinalIgnoreCase) ||
                                 tFn.StartsWith("USen.Product.", StringComparison.OrdinalIgnoreCase) ||
-                                tFn.StartsWith("RUru.Product.", StringComparison.OrdinalIgnoreCase))
+                                tFn.StartsWith("EUru.Product.", StringComparison.OrdinalIgnoreCase))
                             {
                                 if (!string.Equals(targetFile, moddedMalsFile, StringComparison.OrdinalIgnoreCase))
                                 {
@@ -2164,21 +2781,18 @@ namespace StormSwitchBox.Services
                             }
                         }
 
-                        var mMatch = Regex.Match(moddedFn, @"^[A-Za-z]{2,4}\.(Product\.[^.]+\sarc\.zs)$", RegexOptions.IgnoreCase);
+                        var mMatch = Regex.Match(moddedFn, @"^[A-Za-z]{2,4}\.(Product\.[^.]+\.sarc\.zs)$", RegexOptions.IgnoreCase);
                         if (mMatch.Success)
                         {
                             string rest = mMatch.Groups[1].Value;
-                            string usenTarget = System.IO.Path.Combine(malsDir, "USen." + rest);
-                            if (!File.Exists(usenTarget))
+                            foreach (var regionPrefix in new[] { "EUen.", "USen.", "EUru." })
                             {
-                                File.Copy(moddedMalsFile, usenTarget, overwrite: true);
-                                syncedAny = true;
-                            }
-                            string euenTarget = System.IO.Path.Combine(malsDir, "EUen." + rest);
-                            if (!File.Exists(euenTarget))
-                            {
-                                File.Copy(moddedMalsFile, euenTarget, overwrite: true);
-                                syncedAny = true;
+                                string regTarget = System.IO.Path.Combine(malsDir, regionPrefix + rest);
+                                if (!string.Equals(regTarget, moddedMalsFile, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    File.Copy(moddedMalsFile, regTarget, overwrite: true);
+                                    syncedAny = true;
+                                }
                             }
                         }
                     }

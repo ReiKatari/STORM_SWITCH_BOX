@@ -1383,7 +1383,7 @@ namespace StormSwitchBox.Views
                 client.DefaultRequestHeaders.Add("User-Agent", "StormSwitchBox-Updater");
 
                 var asmVer = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
-                var currentVer = asmVer != null ? new Version(asmVer.Major, asmVer.Minor, Math.Max(0, asmVer.Build)) : new Version(5, 5, 6);
+                var currentVer = asmVer != null ? new Version(asmVer.Major, asmVer.Minor, Math.Max(0, asmVer.Build)) : new Version(6, 3, 0);
                 string currentVerStr = currentVer.ToString();
 
                 string bestTag = "";
@@ -1654,7 +1654,7 @@ if not errorlevel 1 (
 echo Процесс завершён. >> ""{logPath}""
 echo Запуск установщика...
 echo Запуск: {tempPath} /VERYSILENT /DIR={appDir} >> ""{logPath}""
-""{tempPath}"" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /FORCECLOSEAPPLICATIONS /DIR=""{appDir}""
+powershell -NoProfile -ExecutionPolicy Bypass -Command ""Start-Process -FilePath '{tempPath}' -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/DIR=\""{appDir}\""' -Verb RunAs -Wait"" >> ""{logPath}"" 2>&1
 if errorlevel 1 (
     echo ОШИБКА: Установщик завершился с ошибкой! >> ""{logPath}""
     echo Ошибка установки. Файл сохранён: {tempPath}
