@@ -1976,7 +1976,8 @@ namespace StormSwitchBox.Services
             foreach (var file in Directory.GetFiles(rootDir, "*.*", SearchOption.AllDirectories))
             {
                 string ext = Path.GetExtension(file).ToLowerInvariant();
-                if (ext is ".nsp" or ".nsz" or ".xci" or ".xcz" or ".ips" or ".pchtxt" or ".bps" or ".cia" or ".3ds")
+                string fn = Path.GetFileName(file).ToLowerInvariant();
+                if (ext is ".nsp" or ".nsz" or ".xci" or ".xcz" or ".ips" or ".pchtxt" or ".bps" or ".cia" or ".3ds" or ".pak" or ".zs" or ".sarc" || fn.EndsWith(".sarc.zs"))
                 {
                     found.Add(file);
                 }

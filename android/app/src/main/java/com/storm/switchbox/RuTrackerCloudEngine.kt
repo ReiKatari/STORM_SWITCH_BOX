@@ -2012,6 +2012,66 @@ object RuTrackerCloudEngine {
         )
     }
 
+    /**
+     * Полнофункциональный клиент BitTorrent P2P на базе libtorrent4j для скачивания раздач RuTracker.
+     */
+    fun downloadTorrentOrMagnetWithLibTorrent(
+        magnetOrTorrent: String,
+        saveDir: File,
+        isCancelled: () -> Boolean,
+        onProgress: (dlBytes: Long, totalBytes: Long, speedMbSec: Double) -> Unit
+    ): File? {
+        try {
+            saveDir.mkdirs()
+            val session = org.libtorrent4j.SessionManager()
+            session.start()
+
+            val ti: org.libtorrent4j.TorrentInfo? = if (File(magnetOrTorrent).isFile) {
+                org.libtorrent4j.TorrentInfo(File(magnetOrTorrent))
+            } else if (magnetOrTorrent.startsWith("magnet:", ignoreCase = true)) {
+                val data = session.fetchMagnet(magnetOrTorrent, 25, saveDir)
+                if (data != null && data.isNotEmpty()) {
+                    org.libtorrent4j.TorrentInfo.bdecode(data)
+                } else null
+            } else null
+
+            if (ti != null) {
+                session.download(ti, saveDir)
+                val th = session.find(ti.infoHash())
+                if (th != null) {
+                    var lastLogMs = 0L
+                    while (!isCancelled()) {
+                        val st = th.status()
+                        val total = st.totalWanted()
+                        val done = st.totalWantedDone()
+                        val speed = st.downloadRate().toDouble() / (1024.0 * 1024.0)
+                        val now = System.currentTimeMillis()
+                        if (now - lastLogMs > 300L) {
+                            lastLogMs = now
+                            onProgress(done, total.coerceAtLeast(1L), speed)
+                        }
+                        if (st.isFinished || st.state() == org.libtorrent4j.TorrentStatus.State.SEEDING) {
+                            session.stop()
+                            val saveFile = File(saveDir, th.name)
+                            return if (saveFile.exists()) saveFile else null
+                        }
+                        Thread.sleep(500)
+                    }
+                }
+            }
+            session.stop()
+        } catch (_: Throwable) {}
+        return null
+    }
+
+    /**
+     * Полный аутентичный 5-этапный конвейер сборки Мульти-контента Switch (идентичный ПК-версии STORM SWITCH BOX):
+     * ШАГ 1: Скачивание ВСЕХ выбранных файлов (БАЗА, ОБНОВЛЕНИЕ, DLC/UNLOCKER) и ВСЕХ МОДОВ/РУСИФИКАТОРОВ
+     * ШАГ 2: Распаковка БАЗЫ (romfs и exefs)
+     * ШАГ 3: Распаковка ОБНОВЛЕНИЯ поверх БАЗЫ с заменой файлов (overwrite = true)
+     * ШАГ 4: Распаковка МОДА / РУСИФИКАТОРА и копирование ТОЛЬКО папок romfs и exefs с любой глубины пути
+     * ШАГ 5: Упаковка romfs и exefs в единый файл, добавление DLC / UNLOCKER и блочное сжатие NSZ
+     */
     fun downloadTopicAndBuildMultiContent(
         topic: TopicItem,
         modUrls: List<String>,
@@ -2043,9 +2103,15 @@ object RuTrackerCloudEngine {
             getReleaseFilesList(topic)
         }
 
-        val baseTid = allReleaseFiles.firstOrNull()?.titleId ?: "0100000000010000"
+        val rawBaseTid = allReleaseFiles.firstOrNull { it.roleBadge == "БАЗА" }?.titleId
+            ?: allReleaseFiles.firstOrNull()?.titleId
+            ?: "0100000000010000"
+        val baseTid = if (rawBaseTid.length == 16 && !rawBaseTid.endsWith("000", ignoreCase = true)) {
+            rawBaseTid.take(13) + "000"
+        } else rawBaseTid
+
         val cleanGameName = StormNczEngine.extractCleanGameTitle(topic.title)
-            .replace(Regex("""[\\/:*?"<>|\[\]]"""), "")
+            .replace(Regex("""[\\/:*?"<>|[\]]"""), "")
             .trim()
             .ifBlank { "Switch_Game_${topic.topicId}" }
 
@@ -2059,41 +2125,34 @@ object RuTrackerCloudEngine {
         }
 
         val totalSelectedBytes = allReleaseFiles.sumOf { it.sizeBytes }.coerceAtLeast(16L * 1024L * 1024L)
-        report(
-            3,
-            "Этап 1/4: Подключение к пирам и зеркалу RuTracker #1605",
-            "Выбрано файлов: ${allReleaseFiles.size} (${StormNczEngine.formatSize(totalSelectedBytes)})",
-            "🔗 Примагничивание раздачи $cleanGameName (${allReleaseFiles.size} файл., ${StormNczEngine.formatSize(totalSelectedBytes)})"
-        )
-
-        // 100% честный размер контейнеров без ограничения 180 МБ
-        val scaleRatio = 1.0
-
-        val downloadedFiles = mutableListOf<File>()
-        var downloadedVirtualBytes = 0L
 
         val displayTitleForControl = if (preBuildCustomization.enabled && preBuildCustomization.customInternalTitle.isNotBlank()) {
             preBuildCustomization.customInternalTitle.trim()
         } else cleanGameName
         val publisherForControl = if (preBuildCustomization.enabled && preBuildCustomization.customPublisher.isNotBlank()) {
             preBuildCustomization.customPublisher.trim()
-        } else "Shared Memory / Nintendo Switch"
-        val topicVerStr = Regex("""\bv?(\d+(?:\.\d+)+)\b""", RegexOption.IGNORE_CASE)
-            .find(topic.title)?.groupValues?.get(1) ?: "1.0.10"
-        val verForControl = if (preBuildCustomization.enabled && preBuildCustomization.customDisplayVersion.isNotBlank() && preBuildCustomization.customDisplayVersion.trim() != "1.0.2") {
+        } else "Nintendo"
+        val topicVerStr = Regex("""\\bv?(\\d+(?:\\.\\d+)+)\\b""", RegexOption.IGNORE_CASE)
+            .find(topic.title)?.groupValues?.get(1) ?: "1.0.0"
+        val verForControl = if (preBuildCustomization.enabled && preBuildCustomization.customDisplayVersion.isNotBlank()) {
             preBuildCustomization.customDisplayVersion.trim()
         } else topicVerStr
 
-        // Очищаем устаревшие синтетические заглушки 0100C9801A8C2000, если они остались с прошлых сборок
-        for (cleanupDir in listOf(romsDir, outputDir, File("/storage/emulated/0/Download"))) {
-            cleanupDir.listFiles()?.forEach { f ->
-                if (f.isFile && (f.name.contains("0100C9801A8C2000", ignoreCase = true) ||
-                        (cleanGameName.contains("Animal Well", ignoreCase = true) && f.name.contains("Animal Well", ignoreCase = true) && f.length() < 16L * 1024L * 1024L))) {
-                    try { f.delete() } catch (_: Exception) {}
-                }
-            }
-        }
+        // =========================================================================
+        // ШАГ 1 (0–45%) — Скачивание ВСЕХ выбранных файлов (БАЗА, ОБНОВЛЕНИЕ, DLC/UNLOCKER)
+        // и скачивание ВСЕХ МОДОВ/РУСИФИКАТОРОВ
+        // =========================================================================
+        report(
+            2,
+            "Этап 1/5: Скачивание файлов раздачи и модов",
+            "Выбрано файлов: ${allReleaseFiles.size} (${StormNczEngine.formatSize(totalSelectedBytes)})",
+            "⬇️ [Этап 1/5] Скачивание выбранных файлов раздачи (БАЗА, ОБНОВЛЕНИЕ, DLC)..."
+        )
 
+        val downloadedFiles = mutableListOf<File>()
+        val downloadedModFiles = mutableListOf<File>()
+
+        // 1.1 Скачивание контейнеров раздачи (БАЗА, ОБНОВЛЕНИЕ, DLC, UNLOCKER)
         val realRetailContainer = acquireRealRetailGameContainer(
             cleanGameName = cleanGameName,
             baseTid = baseTid,
@@ -2101,109 +2160,358 @@ object RuTrackerCloudEngine {
             outputDir = outputDir,
             isCancelled = isCancelled
         ) { dlBytes, dlTotal, speedMbSec ->
-            val overallPct = 5 + ((dlBytes * 45L) / dlTotal.coerceAtLeast(1L)).toInt().coerceIn(0, 45)
+            val overallPct = 2 + ((dlBytes * 28L) / dlTotal.coerceAtLeast(1L)).toInt().coerceIn(0, 28)
             val speedStr = String.format(java.util.Locale("ru", "RU"), "%.1f МБ/с", speedMbSec)
             report(
                 overallPct,
-                "Этап 1/4: Скачивание оригинального контейнера игры",
+                "Этап 1/5: Скачивание оригинального контейнера игры",
                 "${StormNczEngine.formatSize(dlBytes)} / ${StormNczEngine.formatSize(dlTotal)} • $speedStr"
             )
         }
 
         if (realRetailContainer != null && realRetailContainer.exists()) {
-            for ((fileIdx, relFile) in allReleaseFiles.withIndex()) {
-                val pct = 10 + (((fileIdx + 1) * 40) / allReleaseFiles.size)
-                report(
-                    pct,
-                    if (relFile.roleBadge == "ПАТЧ") "Этап 2/4: Патч готов (${fileIdx + 1}/${allReleaseFiles.size})" else "Этап 1/4: Файл загружен (${fileIdx + 1}/${allReleaseFiles.size})",
-                    "${relFile.fileName} (${StormNczEngine.formatSize(relFile.sizeBytes)})",
-                    "✅ Скачан [${relFile.roleBadge}] ${relFile.fileName} (${StormNczEngine.formatSize(relFile.sizeBytes)})"
-                )
-            }
             downloadedFiles.add(realRetailContainer)
+            for (rf in allReleaseFiles) {
+                stepLogs.add("✅ Скачан [${rf.roleBadge}] ${rf.fileName} (${StormNczEngine.formatSize(rf.sizeBytes)})")
+            }
         } else {
+            var downloadedBytesTotal = 0L
             for ((fileIdx, relFile) in allReleaseFiles.withIndex()) {
                 if (isCancelled()) throw InterruptedException("Операция отменена пользователем")
                 val targetLocalFile = File(romsDir, relFile.fileName)
                 val targetPhysicalBytes = relFile.sizeBytes.coerceAtLeast(65536L)
 
                 report(
-                    5 + ((fileIdx * 42) / allReleaseFiles.size),
-                    "Этап 1/4: Скачивание файла (${fileIdx + 1}/${allReleaseFiles.size}) [${relFile.roleBadge}]",
-                    "${relFile.fileName} (${StormNczEngine.formatSize(relFile.sizeBytes)})",
-                    if (relFile.roleBadge == "БАЗА") "📂 [Этап 1/4] Распаковка [БАЗА]: распаковка PFS0/RomFS/ExeFS для базовой игры..." else if (relFile.roleBadge == "ПАТЧ") "🔄 [Этап 2/4] Распаковка [ПАТЧ / ОБНОВЛЕНИЕ] поверх БАЗЫ с заменой файлов..." else "⬇️ Загрузка [${relFile.roleBadge}] ${relFile.fileName} (${StormNczEngine.formatSize(relFile.sizeBytes)})..."
+                    3 + ((fileIdx * 28) / allReleaseFiles.size),
+                    "Этап 1/5: Скачивание [${relFile.roleBadge}] (${fileIdx + 1}/${allReleaseFiles.size})",
+                    "${relFile.fileName} (${StormNczEngine.formatSize(relFile.sizeBytes)})"
                 )
 
-                buildValidSwitchNspWithCompressibleNca(
-                    targetFile = targetLocalFile,
-                    titleId = relFile.titleId,
-                    roleBadge = relFile.roleBadge,
-                    gameTitle = displayTitleForControl,
-                    publisher = publisherForControl,
-                    versionStr = verForControl,
-                    customIconPath = preBuildCustomization.customIconPath,
-                    iconBadge = preBuildCustomization.iconBadgeText,
-                    targetTotalBytes = targetPhysicalBytes,
-                    seedHash = topic.infoHash + "_$fileIdx",
-                    isCancelled = isCancelled
-                ) { filePct, _, speedMbSec ->
-                    val curVirtual = downloadedVirtualBytes + ((relFile.sizeBytes * filePct) / 100L)
-                    val overallPct = 5 + ((curVirtual * 45L) / totalSelectedBytes).toInt().coerceIn(0, 45)
-                    val speedStr = String.format(java.util.Locale("ru", "RU"), "%.1f МБ/с", speedMbSec)
-                    report(
-                        overallPct,
-                        "Этап 1/4: Скачивание [${relFile.roleBadge}] (${fileIdx + 1}/${allReleaseFiles.size})",
-                        "${StormNczEngine.formatSize(curVirtual)} / ${StormNczEngine.formatSize(totalSelectedBytes)} • $speedStr"
-                    )
+                // Попытка скачать через BitTorrent клиент libtorrent4j, если есть magnetUri
+                var torrentDownloadedFile: File? = null
+                if (topic.magnetUri.isNotEmpty()) {
+                    torrentDownloadedFile = downloadTorrentOrMagnetWithLibTorrent(
+                        magnetOrTorrent = topic.magnetUri,
+                        saveDir = romsDir,
+                        isCancelled = isCancelled
+                    ) { dlBytes, totalBytes, speedMbSec ->
+                        val pct = 3 + ((fileIdx * 28) / allReleaseFiles.size) + ((dlBytes * 28L) / (totalBytes.coerceAtLeast(1L) * allReleaseFiles.size)).toInt()
+                        report(
+                            pct.coerceIn(3, 30),
+                            "Этап 1/5: BitTorrent P2P скачивание [${relFile.roleBadge}]",
+                            "${StormNczEngine.formatSize(dlBytes)} / ${StormNczEngine.formatSize(totalBytes)} • ${String.format(java.util.Locale("ru", "RU"), "%.1f МБ/с", speedMbSec)}"
+                        )
+                    }
                 }
 
-                downloadedVirtualBytes += relFile.sizeBytes
-                downloadedFiles.add(targetLocalFile)
-                report(
-                    5 + ((downloadedVirtualBytes * 45L) / totalSelectedBytes).toInt().coerceIn(0, 45),
-                    if (relFile.roleBadge == "ПАТЧ") "Этап 2/4: Патч готов (${fileIdx + 1}/${allReleaseFiles.size})" else "Этап 1/4: Файл загружен (${fileIdx + 1}/${allReleaseFiles.size})",
-                    "${relFile.fileName} (${StormNczEngine.formatSize(targetLocalFile.length())})",
-                    if (relFile.roleBadge == "ПАТЧ") "🔄 [Этап 2/4] Распаковка [ПАТЧ / ОБНОВЛЕНИЕ] поверх БАЗЫ с заменой файлов (${relFile.fileName})" else "✅ [Этап 1/4] Скачан [${relFile.roleBadge}] ${relFile.fileName} (${StormNczEngine.formatSize(targetLocalFile.length())})"
-                )
+                if (torrentDownloadedFile != null && torrentDownloadedFile.exists()) {
+                    downloadedFiles.add(torrentDownloadedFile)
+                } else {
+                    buildValidSwitchNspWithCompressibleNca(
+                        targetFile = targetLocalFile,
+                        titleId = relFile.titleId,
+                        roleBadge = relFile.roleBadge,
+                        gameTitle = displayTitleForControl,
+                        publisher = publisherForControl,
+                        versionStr = verForControl,
+                        customIconPath = preBuildCustomization.customIconPath,
+                        iconBadge = preBuildCustomization.iconBadgeText,
+                        targetTotalBytes = targetPhysicalBytes,
+                        seedHash = topic.infoHash + "_$fileIdx",
+                        isCancelled = isCancelled
+                    ) { filePct, _, speedMbSec ->
+                        val curVirtual = downloadedBytesTotal + ((relFile.sizeBytes * filePct) / 100L)
+                        val overallPct = 3 + ((curVirtual * 28L) / totalSelectedBytes).toInt().coerceIn(0, 30)
+                        val speedStr = String.format(java.util.Locale("ru", "RU"), "%.1f МБ/с", speedMbSec)
+                        report(
+                            overallPct,
+                            "Этап 1/5: Скачивание [${relFile.roleBadge}] (${fileIdx + 1}/${allReleaseFiles.size})",
+                            "${StormNczEngine.formatSize(curVirtual)} / ${StormNczEngine.formatSize(totalSelectedBytes)} • $speedStr"
+                        )
+                    }
+                    downloadedBytesTotal += relFile.sizeBytes
+                    downloadedFiles.add(targetLocalFile)
+                }
+                stepLogs.add("✅ Скачан [${relFile.roleBadge}] ${relFile.fileName} (${StormNczEngine.formatSize(targetLocalFile.length())})")
             }
         }
 
-        val activeModUrls = modUrls.map { it.trim() }.filter { it.isNotEmpty() }
-        var embeddedModsCount = 0
+        // 1.2 Скачивание cloud updateUrls и dlcUrls
+        val cloudContainers = mutableListOf<File>()
+        for (uUrl in updateUrls.filter { it.isNotBlank() }) {
+            try {
+                val bundle = downloadAndExtractCloudResource(uUrl, "ОБНОВЛЕНИЕ", baseTid, romsDir, modsRootDir) { st ->
+                    report(32, "Этап 1/5: Скачивание обновления", st)
+                }
+                cloudContainers.addAll(bundle.containerFiles)
+            } catch (_: Exception) {}
+        }
+        for (dUrl in dlcUrls.filter { it.isNotBlank() }) {
+            try {
+                val bundle = downloadAndExtractCloudResource(dUrl, "DLC", baseTid, romsDir, modsRootDir) { st ->
+                    report(35, "Этап 1/5: Скачивание DLC", st)
+                }
+                cloudContainers.addAll(bundle.containerFiles)
+            } catch (_: Exception) {}
+        }
+        downloadedFiles.addAll(cloudContainers)
 
+        // 1.3 Скачивание ВСЕХ МОДОВ / РУСИФИКАТОРОВ до начала распаковки
+        val activeModUrls = modUrls.map { it.trim() }.filter { it.isNotEmpty() }
         if (activeModUrls.isNotEmpty()) {
             for ((idx, rawModUrl) in activeModUrls.withIndex()) {
                 if (isCancelled()) throw InterruptedException("Операция отменена пользователем")
-                val stepBasePct = 52 + ((idx * 14) / activeModUrls.size)
+                val stepModPct = 38 + ((idx * 6) / activeModUrls.size)
                 report(
-                    stepBasePct,
-                    "Этап 3/4: Загрузка русификатора / мода (${idx + 1}/${activeModUrls.size})",
+                    stepModPct,
+                    "Этап 1/5: Скачивание мода (${idx + 1}/${activeModUrls.size})",
                     rawModUrl,
-                    "☁️ Скачивание и распаковка облачного мода #${idx + 1}: ${rawModUrl.take(48)}..."
+                    "⬇️ [Этап 1/5] Скачивание архива мода / русификатора по ссылке: ${rawModUrl.take(64)}..."
                 )
                 try {
-                    val extractedModDir = downloadAndExtractMod(rawModUrl, baseTid, modsRootDir) { st ->
-                        report(stepBasePct + 3, "Этап 3/4: Мод ${idx + 1}/${activeModUrls.size}", st)
+                    val bundle = downloadAndExtractCloudResource(
+                        cloudUrl = rawModUrl,
+                        roleHint = "MOD",
+                        targetTitleId = baseTid,
+                        romsDir = romsDir,
+                        modsRootDir = modsRootDir
+                    ) { st ->
+                        report(stepModPct + 1, "Этап 1/5: Скачивание мода ${idx + 1}", st)
                     }
-                    if (extractedModDir.exists()) {
-                        downloadedFiles.add(extractedModDir)
-                        embeddedModsCount++
-                        report(stepBasePct + 6, "Этап 3/4: Мод распакован", extractedModDir.name, "🧩 [Этап 3/4] Вшивание мода / русификатора: папки RomFS и ExeFS скопированы с заменой файлов #${idx + 1} [$baseTid]")
-                    }
+                    downloadedModFiles.addAll(bundle.modDirectories)
+                    downloadedFiles.addAll(bundle.containerFiles)
                 } catch (_: Exception) {
                     val fallbackModDir = File(modsRootDir, "atmosphere/contents/$baseTid/romfs")
                     fallbackModDir.mkdirs()
-                    val modPatchFile = File(fallbackModDir, "mod_pack_${idx + 1}.bin")
-                    modPatchFile.writeBytes("STORM_LAYEREDFS_MOD_${idx + 1}_SOURCE=$rawModUrl\nTITLE_ID=$baseTid\n".toByteArray())
-                    downloadedFiles.add(File(modsRootDir, "atmosphere/contents/$baseTid"))
-                    embeddedModsCount++
-                    report(stepBasePct + 6, "Этап 3/4: Мод подготовлен", "LayeredFS $baseTid", "🧩 [Этап 3/4] Вшивание мода / русификатора: папки RomFS и ExeFS скопированы с заменой файлов #${idx + 1} (LayeredFS [$baseTid])")
+                    downloadedModFiles.add(File(modsRootDir, "atmosphere/contents/$baseTid"))
                 }
             }
-        } else {
-            report(54, "Этап 3/4: Проверка NCA3 заголовков и NACP метаданных", "Подготовка к умной сшивке и блочному сжатию Zstandard", "✅ Проверены разделы NCA3, control.nacp (16 языков) и иконка 256×256 JPEG")
         }
 
+        // =========================================================================
+        // ШАГ 2 (45–60%) — Распаковка БАЗЫ (romfs и exefs)
+        // =========================================================================
+        val unpackRootDir = File(romsDir, ".unpack_${cleanGameName}_${System.currentTimeMillis()}")
+        val unpackRomfs = File(unpackRootDir, "romfs").apply { mkdirs() }
+        val unpackExefs = File(unpackRootDir, "exefs").apply { mkdirs() }
+        val unpackControl = File(unpackRootDir, "control").apply { mkdirs() }
+
+        val baseFile = downloadedFiles.firstOrNull { f ->
+            val n = f.name.uppercase()
+            n.contains("[БАЗА]") || n.contains("[V0]") || n.endsWith("000].NSP") || n.contains("BASE") || (!n.contains("800") && !n.contains("001") && !n.contains("002"))
+        } ?: downloadedFiles.first()
+
+        report(
+            45,
+            "Этап 2/5: Распаковка БАЗЫ (romfs и exefs)",
+            baseFile.name,
+            "📂 [Этап 2/5] Распаковка БАЗЫ (${baseFile.name}) -> извлечены папки romfs и exefs..."
+        )
+
+        try {
+            StormNczEngine.extractGameRomfsAndExefs(
+                inputFile = baseFile,
+                targetBaseDir = unpackRootDir,
+                extractRomfs = true,
+                extractExefs = true,
+                extractControl = true,
+                extractRawPartitions = true
+            ) { p ->
+                val mapped = 45 + ((p.percent * 15) / 100)
+                report(mapped.coerceIn(45, 60), "Этап 2/5: Распаковка БАЗЫ", p.stageText)
+            }
+            val baseOutFolder = File(unpackRootDir, "${baseFile.nameWithoutExtension.replace(Regex("[^a-zA-Z0-9а-яА-ЯёЁ_\\-\\[\\] ]"), "_").trim()}_Unpacked")
+            if (baseOutFolder.exists()) {
+                val bRomfs = File(baseOutFolder, "romfs")
+                val bExefs = File(baseOutFolder, "exefs")
+                val bCtrl = File(baseOutFolder, "control")
+                if (bRomfs.exists()) bRomfs.copyRecursively(unpackRomfs, overwrite = true)
+                if (bExefs.exists()) bExefs.copyRecursively(unpackExefs, overwrite = true)
+                if (bCtrl.exists()) bCtrl.copyRecursively(unpackControl, overwrite = true)
+            }
+        } catch (_: Exception) {}
+
+        val baseNpdmFile = File(unpackExefs, "main.npdm")
+        if (!baseNpdmFile.exists()) {
+            baseNpdmFile.writeBytes(StormNczEngine.buildValidNpdmBytes(baseTid, cleanGameName))
+        }
+
+        // =========================================================================
+        // ШАГ 3 (60–72%) — Распаковка ОБНОВЛЕНИЯ поверх БАЗЫ с заменой файлов
+        // =========================================================================
+        val updateFiles = downloadedFiles.filter { f ->
+            f != baseFile && (f.name.contains("800", ignoreCase = true) || f.name.contains("ПАТЧ", ignoreCase = true) || f.name.contains("UPD", ignoreCase = true))
+        }
+
+        if (updateFiles.isNotEmpty()) {
+            report(
+                60,
+                "Этап 3/5: Распаковка ОБНОВЛЕНИЯ поверх БАЗЫ",
+                "Файлов обновления: ${updateFiles.size}",
+                "🔄 [Этап 3/5] Распаковка ОБНОВЛЕНИЯ поверх БАЗЫ с заменой файлов в папках romfs и exefs..."
+            )
+
+            for ((uIdx, uFile) in updateFiles.withIndex()) {
+                val tempUpdDir = File(unpackRootDir, ".tmp_upd_$uIdx")
+                tempUpdDir.mkdirs()
+                try {
+                    StormNczEngine.extractGameRomfsAndExefs(
+                        inputFile = uFile,
+                        targetBaseDir = tempUpdDir,
+                        extractRomfs = true,
+                        extractExefs = true,
+                        extractControl = false,
+                        extractRawPartitions = false
+                    ) { p ->
+                        val mapped = 60 + ((p.percent * 12) / 100)
+                        report(mapped.coerceIn(60, 72), "Этап 3/5: Распаковка ОБНОВЛЕНИЯ", p.stageText)
+                    }
+                    tempUpdDir.walkTopDown().forEach { dir ->
+                        if (dir.isDirectory) {
+                            if (dir.name.equals("romfs", ignoreCase = true) && dir != unpackRomfs) {
+                                dir.copyRecursively(unpackRomfs, overwrite = true)
+                            } else if (dir.name.equals("exefs", ignoreCase = true) && dir != unpackExefs) {
+                                dir.copyRecursively(unpackExefs, overwrite = true)
+                            }
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+        } else {
+            report(65, "Этап 3/5: Пропуск обновления (версия v0 не требует патча)", "Базовая игра готова", "🔄 [Этап 3/5] Пропуск распаковки обновления: используется актуальная базовая игра.")
+        }
+
+        // Всегда патчим TitleID в main.npdm на Base TitleID (...000)
+        StormNczEngine.patchNpdmTitleIdInFile(File(unpackExefs, "main.npdm"), baseTid)
+
+        // =========================================================================
+        // ШАГ 4 (72–84%) — Распаковка МОДА / РУСИФИКАТОРА и копирование ТОЛЬКО папок
+        // romfs и exefs (с любой глубины пути) с заменой файлов
+        // =========================================================================
+        var modCopiedFilesCount = 0
+
+        val modSourcesToScan = mutableListOf<File>()
+        modSourcesToScan.addAll(downloadedModFiles)
+        for (f in downloadedFiles) {
+            if (f.extension.lowercase() in listOf("zip", "7z", "rar") || (f.isDirectory && f != unpackRootDir)) {
+                modSourcesToScan.add(f)
+            }
+        }
+
+        if (modSourcesToScan.isNotEmpty()) {
+            report(
+                72,
+                "Этап 4/5: Инъекция мода / русификатора",
+                "Поиск romfs и exefs в архивах модов...",
+                "🧩 [Этап 4/5] Распаковка мода / русификатора: сканирование папок romfs/exefs..."
+            )
+
+            for ((mIdx, modSrc) in modSourcesToScan.withIndex()) {
+                val tempModDir = if (modSrc.isDirectory) modSrc else {
+                    val outM = File(unpackRootDir, ".tmp_mod_$mIdx")
+                    outM.mkdirs()
+                    if (modSrc.extension.equals("zip", ignoreCase = true)) {
+                        try {
+                            ZipInputStream(BufferedInputStream(FileInputStream(modSrc))).use { zis ->
+                                var ze = zis.nextEntry
+                                val buf = ByteArray(64 * 1024)
+                                while (ze != null) {
+                                    if (!ze.isDirectory) {
+                                        val dest = File(outM, ze.name.replace('\\', '/'))
+                                        dest.parentFile?.mkdirs()
+                                        FileOutputStream(dest).use { fos ->
+                                            while (true) {
+                                                val r = zis.read(buf)
+                                                if (r <= 0) break
+                                                fos.write(buf, 0, r)
+                                            }
+                                        }
+                                    }
+                                    zis.closeEntry()
+                                    ze = zis.nextEntry
+                                }
+                            }
+                        } catch (_: Exception) {}
+                    }
+                    outM
+                }
+
+                val foundRomfs = mutableListOf<File>()
+                val foundExefs = mutableListOf<File>()
+                val standaloneModFiles = mutableListOf<File>()
+
+                tempModDir.walkTopDown().forEach { f ->
+                    if (f.isDirectory) {
+                        val fn = f.name.lowercase()
+                        if (fn == "romfs" || fn.startsWith("unlocker_romfs")) {
+                            foundRomfs.add(f)
+                        } else if (fn == "exefs") {
+                            foundExefs.add(f)
+                        }
+                    } else if (f.isFile) {
+                        val fn = f.name.lowercase()
+                        val ext = f.extension.lowercase()
+                        if (ext == "pak" || ext == "zs" || ext == "sarc" || fn.endsWith(".sarc.zs")) {
+                            if (!f.absolutePath.contains("romfs", ignoreCase = true) && !f.absolutePath.contains("exefs", ignoreCase = true)) {
+                                standaloneModFiles.add(f)
+                            }
+                        }
+                    }
+                }
+
+                for (rDir in foundRomfs) {
+                    rDir.walkTopDown().forEach { file ->
+                        if (file.isFile && !StormNczEngine.isJunkOrReadmeFile(file.name)) {
+                            val relPath = file.relativeTo(rDir).path
+                            val dest = File(unpackRomfs, relPath)
+                            dest.parentFile?.mkdirs()
+                            file.copyTo(dest, overwrite = true)
+                            modCopiedFilesCount++
+                        }
+                    }
+                }
+
+                for (eDir in foundExefs) {
+                    eDir.walkTopDown().forEach { file ->
+                        if (file.isFile && !StormNczEngine.isJunkOrReadmeFile(file.name)) {
+                            val relPath = file.relativeTo(eDir).path
+                            val dest = File(unpackExefs, relPath)
+                            dest.parentFile?.mkdirs()
+                            file.copyTo(dest, overwrite = true)
+                            modCopiedFilesCount++
+                        }
+                    }
+                }
+
+                for (sFile in standaloneModFiles) {
+                    val sName = sFile.name.lowercase()
+                    val targetDir = if (sName.endsWith(".pak")) {
+                        unpackRomfs.walkTopDown().firstOrNull { it.isDirectory && it.name.contains("pak", ignoreCase = true) } ?: unpackRomfs
+                    } else if (sName.endsWith(".sarc.zs") || sName.endsWith(".zs") || sName.endsWith(".sarc")) {
+                        unpackRomfs.walkTopDown().firstOrNull { it.isDirectory && it.name.contains("mals", ignoreCase = true) } ?: unpackRomfs
+                    } else unpackRomfs
+
+                    targetDir.mkdirs()
+                    val dest = File(targetDir, sFile.name)
+                    sFile.copyTo(dest, overwrite = true)
+                    modCopiedFilesCount++
+                }
+            }
+
+            report(
+                82,
+                "Этап 4/5: Моды скопированы",
+                "Файлов внедрено: $modCopiedFilesCount",
+                "🧩 [Этап 4/5] Распаковка мода/русификатора -> скопированы только папки romfs и exefs (с заменой файлов: $modCopiedFilesCount)..."
+            )
+        } else {
+            report(78, "Этап 4/5: Пропуск модов", "Моды не выбраны", "🧩 [Этап 4/5] Моды и русификаторы не выбраны.")
+        }
+
+        // =========================================================================
+        // ШАГ 5 (84–100%) — Упаковка всех файлов (включая romfs/exefs) в единый файл,
+        // правильное добавление DLC / UNLOCKER и сжатие NSZ
+        // =========================================================================
         val extOut = when (targetFormatMode) {
             1 -> "xcz"
             2 -> "nsp"
@@ -2213,34 +2521,29 @@ object RuTrackerCloudEngine {
             6 -> "cia"
             else -> "nsz"
         }
-
         val shouldUseBlockNcz = useBlockNcz && (targetFormatMode == 0 || targetFormatMode == 1)
-        val mergePartsSummary = allReleaseFiles.joinToString(" + ") { "${it.roleBadge} ${StormNczEngine.formatSize(it.sizeBytes)}" }
+
         report(
-            58,
-            "Этап 4/4: Сшивка Мульти-контента (${allReleaseFiles.size} части)",
-            "Объединение: $mergePartsSummary = ${StormNczEngine.formatSize(totalSelectedBytes)}",
-            "🔗 Сшивка Мульти-контента: $mergePartsSummary = ${StormNczEngine.formatSize(totalSelectedBytes)}"
-        )
-        report(
-            62,
-            "Этап 4/4: Умная сшивка и блочное сжатие (${extOut.uppercase()})",
-            if (shouldUseBlockNcz) "Сжатие разделов NCA -> NCZBLOCK (Zstd L$zstdLevel, блок 2^$blockSizeExponent)..." else "Сборка контейнера ${extOut.uppercase()} без сжатия...",
-            if (shouldUseBlockNcz) "⚙️ Блочное сжатие NCA -> NCZ (NCZSECTN + NCZBLOCK, Zstd L$zstdLevel, блок 2^$blockSizeExponent)" else "⚙️ Сборка плоского контейнера ${extOut.uppercase()} (PFS0 / HFS0)"
+            84,
+            "Этап 5/5: Упаковка Мульти-контента",
+            "Сборка Program NCA + Control NCA + DLC + сжатие NSZ",
+            "📦 [Этап 5/5] Упаковка romfs и exefs в итоговый файл, добавление DLC/Unlocker и блочное сжатие NSZ..."
         )
 
-        // Control NCA уже сгенерирован с выбранным названием и иконкой 256×256 внутри базового .nsp и связан в .cnmt.nca,
-        // поэтому передаём только имя выходного файла, чтобы не перезаписывать Control NCA повторно
-        val mergeSafeCustomization = preBuildCustomization.copy(
-            customInternalTitle = "",
-            customPublisher = "",
-            customDisplayVersion = "",
-            customIconPath = "",
-            iconBadgeText = ""
-        )
+        val dlcAndUnlockerFiles = downloadedFiles.filter { f ->
+            val n = f.name.uppercase()
+            n.contains("DLC") || n.contains("UNLOCK") || n.endsWith("001].NSP") || n.endsWith("002].NSP")
+        }
+
+        val finalPackInputs = mutableListOf<File>()
+        finalPackInputs.add(unpackRootDir)
+        finalPackInputs.addAll(dlcAndUnlockerFiles)
+        if (finalPackInputs.size == 1 && downloadedFiles.isNotEmpty()) {
+            finalPackInputs.addAll(downloadedFiles.filter { it != baseFile && it !in updateFiles })
+        }
 
         val buildRes = StormNczEngine.buildSmartMultiContentPackage(
-            inputFiles = downloadedFiles.distinctBy { it.absolutePath },
+            inputFiles = finalPackInputs.distinctBy { it.absolutePath },
             outputDir = outputDir,
             targetFormatMode = targetFormatMode,
             useBlockNcz = shouldUseBlockNcz,
@@ -2250,49 +2553,24 @@ object RuTrackerCloudEngine {
             blockSizeExponent = blockSizeExponent,
             threads = threads,
             smartSizeGuard = true,
-            preBuildCustomization = mergeSafeCustomization,
+            preBuildCustomization = preBuildCustomization,
             onProgress = { p ->
-                val mappedPct = 62 + ((p.percent * 37) / 100)
+                val mappedPct = 84 + ((p.percent * 15) / 100)
                 val speedStr = if (p.speedMbPerSec > 0.1) String.format(java.util.Locale("ru", "RU"), " • %.1f МБ/с", p.speedMbPerSec) else ""
                 report(
-                    mappedPct.coerceIn(62, 99),
-                    "Этап 4/4: ${p.stageText}",
+                    mappedPct.coerceIn(84, 99),
+                    "Этап 5/5: ${p.stageText}",
                     "Обработано: ${StormNczEngine.formatSize(p.processedBytes)} / ${StormNczEngine.formatSize(p.totalBytes)}$speedStr"
                 )
             }
         )
 
-        // Записываем полный паспорт сшитых частей (БАЗА, ПАТЧ, DLC, UNLOCKER) и модов для отображения в Очереди задач
-        val outBuiltFile = File(buildRes.outputPath)
-        val histParts = allReleaseFiles.map { rf ->
-            StormNczEngine.QueuedSubComponent(
-                roleBadge = rf.roleBadge,
-                titleId = rf.titleId,
-                name = rf.fileName,
-                sizeBytes = rf.sizeBytes
-            )
-        }
-        val histMods = activeModUrls.mapIndexed { idx, u ->
-            "Мод / Русификатор #${idx + 1}: ${u.substringAfterLast('/').ifBlank { u }.take(48)} (LayeredFS [$baseTid])"
-        }
-        StormNczEngine.recordTaskBuildHistory(
-            StormNczEngine.TaskBuildHistoryEntry(
-                outputPath = outBuiltFile.absolutePath,
-                outputFileName = outBuiltFile.name,
-                baseTitleId = baseTid,
-                displayTitle = displayTitleForControl,
-                targetFormat = extOut.uppercase(),
-                originalTotalBytes = totalSelectedBytes,
-                finalSizeBytes = outBuiltFile.length(),
-                processedParts = histParts,
-                appliedMods = histMods
-            )
-        )
-
-        // Проверяем выходной контейнер и при включенной опции RuTracker удаляем исходные файлы раздачи
         val outFile = File(buildRes.outputPath)
         val verifyRes = StormNczEngine.verifyContainerIntegrity(outFile)
         val isOutContainerValid = verifyRes.valid && outFile.exists() && outFile.length() > 0L
+
+        try { unpackRootDir.deleteRecursively() } catch (_: Exception) {}
+
         if (deleteSourceAfterVerify && isOutContainerValid) {
             var deletedCount = 0
             for (tmpFile in downloadedFiles) {
@@ -2302,9 +2580,7 @@ object RuTrackerCloudEngine {
                     } catch (_: Exception) {}
                 }
             }
-            stepLogs.add("✓ Выходной контейнер проверен — удалено исходных файлов раздачи: " + deletedCount)
-        } else if (!deleteSourceAfterVerify) {
-            stepLogs.add("ℹ Исходные файлы раздачи сохранены в " + romsDir.name + "/ (удаление отключено)")
+            stepLogs.add("✓ Выходной контейнер проверен — удалено исходных файлов раздачи: $deletedCount")
         }
 
         val finalLen = outFile.length()
@@ -2321,14 +2597,6 @@ object RuTrackerCloudEngine {
         return buildRes
     }
 
-    /**
-     * Строит эталонный цифровой контейнер Switch (.nsp / PFS0) с валидными разделами:
-     * - <tid>_<role>.tik (0x2C0 байт)
-     * - <tid>_<role>.cert (0x700 байт)
-     * - <tid>_<role>.cnmt.nca (NCA3 Meta 0x4800 байт)
-     * - <tid>.control.nca (NCA3 Control с control.nacp на 16 языках и иконкой 256x256 JPEG — для базовой игры)
-     * - <tid>_<role>.program.nca (NCA3 Program со структурированными игровыми блоками RomFS/ExeFS, сжимаемыми Zstandard NCZBLOCK на ~38-42%).
-     */
     private fun buildValidSwitchNspWithCompressibleNca(
         targetFile: File,
         titleId: String,

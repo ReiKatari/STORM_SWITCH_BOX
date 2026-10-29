@@ -283,8 +283,9 @@ namespace StormSwitchBox.Services
                 Directory.CreateDirectory(yanuOutDir);
 
                 var romfsMods = new List<string>();
-                string? exefsMod = null;
+                var exefsMods = new List<string>();
                 string? exefsPatchesMod = null;
+                var standaloneModFiles = new List<string>();
 
                 foreach (var d in inputFiles.Where(Directory.Exists))
                 {
@@ -295,7 +296,7 @@ namespace StormSwitchBox.Services
                     }
                     else if (dName.Equals("exefs", StringComparison.OrdinalIgnoreCase))
                     {
-                        exefsMod ??= d;
+                        exefsMods.Add(d);
                     }
                     else if (dName.Equals("exefs_patches", StringComparison.OrdinalIgnoreCase))
                     {
@@ -305,20 +306,35 @@ namespace StormSwitchBox.Services
                     {
                         try
                         {
-                            var nestedRomfs = Directory.GetDirectories(d, "romfs", SearchOption.AllDirectories);
+                            // Рекурсивный поиск romfs и exefs с любой глубины вложенности
+                            var nestedRomfs = Directory.GetDirectories(d, "*romfs*", SearchOption.AllDirectories)
+                                .Where(sub => System.IO.Path.GetFileName(sub).Equals("romfs", StringComparison.OrdinalIgnoreCase) || System.IO.Path.GetFileName(sub).StartsWith("unlocker_romfs", StringComparison.OrdinalIgnoreCase));
                             romfsMods.AddRange(nestedRomfs);
 
-                            var nestedExefs = Directory.GetDirectories(d, "exefs", SearchOption.AllDirectories).FirstOrDefault();
-                            if (nestedExefs != null) exefsMod ??= nestedExefs;
+                            var nestedExefs = Directory.GetDirectories(d, "*exefs*", SearchOption.AllDirectories)
+                                .Where(sub => System.IO.Path.GetFileName(sub).Equals("exefs", StringComparison.OrdinalIgnoreCase));
+                            exefsMods.AddRange(nestedExefs);
 
                             var nestedPatches = Directory.GetDirectories(d, "exefs_patches", SearchOption.AllDirectories).FirstOrDefault();
                             if (nestedPatches != null) exefsPatchesMod ??= nestedPatches;
+
+                            // Поиск автономных файлов модов (.pak, .sarc.zs), если нет корневой папки romfs
+                            var standalone = Directory.GetFiles(d, "*.*", SearchOption.AllDirectories)
+                                .Where(f => {
+                                    string fn = System.IO.Path.GetFileName(f).ToLowerInvariant();
+                                    string ext = System.IO.Path.GetExtension(f).ToLowerInvariant();
+                                    return (ext == ".pak" || ext == ".zs" || ext == ".sarc" || fn.EndsWith(".sarc.zs")) &&
+                                           !f.Contains("romfs", StringComparison.OrdinalIgnoreCase) &&
+                                           !f.Contains("exefs", StringComparison.OrdinalIgnoreCase);
+                                });
+                            standaloneModFiles.AddRange(standalone);
                         }
                         catch { }
                     }
                 }
                 string? romfsMod = romfsMods.FirstOrDefault();
-                bool applyMods = (romfsMods.Count > 0 || exefsMod != null || exefsPatchesMod != null);
+                string? exefsMod = exefsMods.FirstOrDefault();
+                bool applyMods = (romfsMods.Count > 0 || exefsMods.Count > 0 || exefsPatchesMod != null || standaloneModFiles.Count > 0);
                 
                 string keepLangsArg = "";
                 if (App.Settings.Current.TrimXci && App.Settings.Current.KeepLanguages != null && App.Settings.Current.KeepLanguages.Count > 0)
@@ -506,10 +522,17 @@ namespace StormSwitchBox.Services
                         App.RunOnUI(() => task.LogDetails += $"\n[2/3] Инъекция модов (romfs/exefs/exefs_patches)...");
                         foreach (var rMod in romfsMods)
                         {
-                            CopyDirectoryContent(rMod, targetRomFs);
+                            CopyDirectoryContentFiltered(rMod, targetRomFs);
                         }
-                        if (!string.IsNullOrEmpty(exefsMod)) CopyDirectoryContent(exefsMod, targetExeFs);
+                        foreach (var eMod in exefsMods)
+                        {
+                            CopyDirectoryContentFiltered(eMod, targetExeFs);
+                        }
                         if (!string.IsNullOrEmpty(exefsPatchesMod)) ApplyExeFsPatches(exefsPatchesMod, targetExeFs, task);
+                        foreach (var sMod in standaloneModFiles)
+                        {
+                            InjectStandaloneModFile(sMod, targetRomFs, task);
+                        }
                     }
 
                     if (App.Settings.Current.AutoInject60FpsPatches)
@@ -1149,14 +1172,16 @@ namespace StormSwitchBox.Services
             string targetExeFs = System.IO.Path.Combine(tempUnpack, "final_exefs");
             Directory.CreateDirectory(targetExeFs);
 
-            // 1.1 Копируем файлы из всех найденных папок exefs / basedata / patchdata
-            // Сначала basedata (чтобы получить base main.npdm, sdk, rtld, subsdk*), затем patchdata (чтобы перезаписать main свежей версией из патча)
-            var allExeDirs = Directory.GetDirectories(tempUnpack, "*exefs*", SearchOption.AllDirectories)
-                .Where(d => !d.Equals(targetExeFs, StringComparison.OrdinalIgnoreCase))
-                .OrderBy(d => d.Contains("patchdata", StringComparison.OrdinalIgnoreCase) ? 1 : 0)
-                .ToArray();
+            // 1.1 Гарантированно извлекаем полный ExeFS базовой игры (rtld, main, main.npdm, sdk, subsdk*) ПЕРВЫМ
+            if (!string.IsNullOrEmpty(baseFile) && File.Exists(baseFile))
+            {
+                ExtractExeFsSingleFile(baseFile, targetExeFs, keysService, keysPath, overwriteExisting: true);
+            }
 
-            foreach (var exefsDir in allExeDirs)
+            // 1.2 Копируем файлы из basedata/*exefs* в tempUnpack с перезаписью
+            var baseExeDirs = Directory.GetDirectories(tempUnpack, "*exefs*", SearchOption.AllDirectories)
+                .Where(d => !d.Equals(targetExeFs, StringComparison.OrdinalIgnoreCase) && !d.Contains("patchdata", StringComparison.OrdinalIgnoreCase));
+            foreach (var exefsDir in baseExeDirs)
             {
                 foreach (var file in Directory.GetFiles(exefsDir))
                 {
@@ -1165,7 +1190,23 @@ namespace StormSwitchBox.Services
                 }
             }
 
-            // 1.2 Если main.npdm все еще отсутствует в targetExeFs — гарантированно извлекаем оригинальный ExeFS и main.npdm
+            // 1.3 Если есть файл обновления, извлекаем и перезаписываем исполняемые файлы свежими версиями из обновления (overwrite: true)
+            if (!string.IsNullOrEmpty(updateFile) && File.Exists(updateFile))
+            {
+                ExtractExeFsSingleFile(updateFile, targetExeFs, keysService, keysPath, overwriteExisting: true);
+                var patchExeDirs = Directory.GetDirectories(tempUnpack, "*exefs*", SearchOption.AllDirectories)
+                    .Where(d => !d.Equals(targetExeFs, StringComparison.OrdinalIgnoreCase) && d.Contains("patchdata", StringComparison.OrdinalIgnoreCase));
+                foreach (var exefsDir in patchExeDirs)
+                {
+                    foreach (var file in Directory.GetFiles(exefsDir))
+                    {
+                        string dest = System.IO.Path.Combine(targetExeFs, System.IO.Path.GetFileName(file));
+                        File.Copy(file, dest, true);
+                    }
+                }
+            }
+
+            // 1.4 Если main.npdm все еще отсутствует в targetExeFs — гарантированно извлекаем через fallback
             if (!File.Exists(System.IO.Path.Combine(targetExeFs, "main.npdm")))
             {
                 ExtractExeFsFromNspWithLibHac(
@@ -1285,7 +1326,28 @@ namespace StormSwitchBox.Services
                 controlNca = ExtractControlNcaIfMissing(baseFile, updateFile, tempUnpack, keysService);
             }
 
-            string resolvedTitleId = maxTitleId > 0 ? maxTitleId.ToString("X16") : fallbackTitleId;
+            ulong baseTidUlong = maxTitleId > 0 ? (maxTitleId & ~0xFFFUL) : 0;
+            string resolvedTitleId = baseTidUlong > 0 ? baseTidUlong.ToString("X16") : fallbackTitleId;
+            if (resolvedTitleId.Length == 16 && !resolvedTitleId.EndsWith("000", StringComparison.OrdinalIgnoreCase))
+            {
+                resolvedTitleId = resolvedTitleId.Substring(0, 13) + "000";
+            }
+
+            ulong npdmBaseTid = 0;
+            if (baseTidUlong > 0)
+            {
+                npdmBaseTid = baseTidUlong;
+            }
+            else if (!string.IsNullOrEmpty(resolvedTitleId) && ulong.TryParse(resolvedTitleId, System.Globalization.NumberStyles.HexNumber, null, out ulong parsedTid))
+            {
+                npdmBaseTid = parsedTid;
+            }
+
+            if (npdmBaseTid > 0)
+            {
+                string npdmFile = System.IO.Path.Combine(targetExeFs, "main.npdm");
+                PatchNpdmTitleId(npdmFile, npdmBaseTid);
+            }
 
             return (targetExeFs, targetRomFs, controlNca, resolvedTitleId);
         }
@@ -1427,7 +1489,7 @@ namespace StormSwitchBox.Services
         /// <summary>
         /// Извлекает ExeFS из отдельного файла контейнера (.nsp/.xci) с предварительным сбором тикетов TitleKey
         /// </summary>
-        private static void ExtractExeFsSingleFile(string filePath, string targetExeFs, KeysService keysService, string keysPath)
+        private static void ExtractExeFsSingleFile(string filePath, string targetExeFs, KeysService keysService, string keysPath, bool overwriteExisting = false)
         {
             try
             {
@@ -1561,7 +1623,7 @@ namespace StormSwitchBox.Services
                                                     {
                                                         string destFile = System.IO.Path.Combine(targetExeFs, exefsEntry.Name.TrimStart('/'));
                                                         // main.npdm, sdk, rtld копируем всегда; main не перезаписываем, если уже есть обновленный main
-                                                        if (exefsEntry.Name.TrimStart('/').Equals("main.npdm", StringComparison.OrdinalIgnoreCase) || !File.Exists(destFile))
+                                                        if (overwriteExisting || exefsEntry.Name.TrimStart('/').Equals("main.npdm", StringComparison.OrdinalIgnoreCase) || !File.Exists(destFile))
                                                         {
                                                             using var srcFileRef = new UniqueRef<IFile>();
                                                             using var srcPath = new LibHac.Fs.Path();
@@ -1806,7 +1868,137 @@ namespace StormSwitchBox.Services
 
             return null;
         }
-}
+/// <summary>
+        /// Патчит TitleID в дескрипторе main.npdm (секции ACI0 и ACID) на Base TitleID (...000) для предотвращения черного экрана.
+        /// </summary>
+        private static void PatchNpdmTitleId(string npdmPath, ulong baseTitleId)
+        {
+            if (!File.Exists(npdmPath) || baseTitleId == 0) return;
+            try
+            {
+                byte[] npdm = File.ReadAllBytes(npdmPath);
+                if (npdm.Length < 0x80) return;
+                if (npdm[0] != (byte)'M' || npdm[1] != (byte)'E' || npdm[2] != (byte)'T' || npdm[3] != (byte)'A') return;
+
+                // ACI0 offset pointer at 0x70
+                uint aci0Off = BitConverter.ToUInt32(npdm, 0x70);
+                if (aci0Off >= 0x80 && aci0Off + 0x18 <= npdm.Length &&
+                    npdm[aci0Off] == (byte)'A' && npdm[aci0Off + 1] == (byte)'C' && npdm[aci0Off + 2] == (byte)'I' && npdm[aci0Off + 3] == (byte)'0')
+                {
+                    BitConverter.GetBytes(baseTitleId).CopyTo(npdm, (int)aci0Off + 0x10);
+                }
+
+                // ACID offset pointer at 0x78
+                uint acidOff = BitConverter.ToUInt32(npdm, 0x78);
+                if (acidOff >= 0x80 && acidOff + 0x220 <= npdm.Length &&
+                    npdm[acidOff + 0x200] == (byte)'A' && npdm[acidOff + 0x201] == (byte)'C' && npdm[acidOff + 0x202] == (byte)'I' && npdm[acidOff + 0x203] == (byte)'D')
+                {
+                    BitConverter.GetBytes(baseTitleId).CopyTo(npdm, (int)acidOff + 0x210);
+                    BitConverter.GetBytes(baseTitleId).CopyTo(npdm, (int)acidOff + 0x218);
+                }
+
+                File.WriteAllBytes(npdmPath, npdm);
+                App.Logger.Log($"[HardPatchEngine] main.npdm успешно пропатчен на Base TitleID: {baseTitleId:X16}", Models.LogLevel.Info);
+            }
+            catch (Exception ex)
+            {
+                App.Logger.Log($"[HardPatchEngine] PatchNpdmTitleId warning: {ex.Message}", Models.LogLevel.Warning);
+            }
+        }
+
+        /// <summary>
+        /// Копирует содержимое папки с перезаписью и фильтрацией мусорных файлов и инструкций/ReadMe.
+        /// </summary>
+        private static void CopyDirectoryContentFiltered(string sourceDir, string destinationDir)
+        {
+            if (!Directory.Exists(destinationDir))
+            {
+                Directory.CreateDirectory(destinationDir);
+            }
+
+            foreach (var file in Directory.GetFiles(sourceDir))
+            {
+                if (ModOptimizerService.IsJunkFile(file)) continue;
+                string fn = System.IO.Path.GetFileName(file).ToLowerInvariant();
+                if (fn.EndsWith(".txt") || fn.EndsWith(".md") || fn.EndsWith(".url") || fn.EndsWith(".nfo") ||
+                    fn.EndsWith(".bat") || fn.EndsWith(".cmd") || fn.StartsWith("readme") ||
+                    fn.Contains("установ") || fn.Contains("автор") || fn.Contains("changelog"))
+                {
+                    continue; // Пропускаем инструкции, текстовые файлы и ридми из модов
+                }
+                string dest = System.IO.Path.Combine(destinationDir, System.IO.Path.GetFileName(file));
+                File.Copy(file, dest, true);
+            }
+
+            foreach (var dir in Directory.GetDirectories(sourceDir))
+            {
+                string dirName = System.IO.Path.GetFileName(dir);
+                if (dirName.Equals(".git", StringComparison.OrdinalIgnoreCase) || 
+                    dirName.Equals(".svn", StringComparison.OrdinalIgnoreCase)) continue;
+                string dest = System.IO.Path.Combine(destinationDir, dirName);
+                CopyDirectoryContentFiltered(dir, dest);
+            }
+        }
+
+        /// <summary>
+        /// Автоматически внедряет одиночный файл мода (.pak, .sarc.zs) в подходящий подкаталог внутри RomFS.
+        /// </summary>
+        private static void InjectStandaloneModFile(string modFilePath, string targetRomFs, Models.ProcessingTask task)
+        {
+            if (!File.Exists(modFilePath) || !Directory.Exists(targetRomFs)) return;
+            try
+            {
+                string fileName = System.IO.Path.GetFileName(modFilePath);
+                string ext = System.IO.Path.GetExtension(fileName).ToLowerInvariant();
+                string targetDir = targetRomFs;
+
+                if (ext == ".pak")
+                {
+                    // Ищем существующую папку Paks внутри targetRomFs
+                    var pakDirs = Directory.GetDirectories(targetRomFs, "*pak*", SearchOption.AllDirectories);
+                    if (pakDirs.Length > 0)
+                    {
+                        targetDir = pakDirs[0];
+                    }
+                    else
+                    {
+                        var pakFiles = Directory.GetFiles(targetRomFs, "*.pak", SearchOption.AllDirectories);
+                        if (pakFiles.Length > 0)
+                        {
+                            targetDir = System.IO.Path.GetDirectoryName(pakFiles[0])!;
+                        }
+                    }
+                }
+                else if (fileName.EndsWith(".sarc.zs", StringComparison.OrdinalIgnoreCase) || ext == ".sarc" || ext == ".zs")
+                {
+                    // Ищем папку Mals или расположение .sarc.zs в RomFS
+                    var malsDirs = Directory.GetDirectories(targetRomFs, "*mals*", SearchOption.AllDirectories);
+                    if (malsDirs.Length > 0)
+                    {
+                        targetDir = malsDirs[0];
+                    }
+                    else
+                    {
+                        var sarcFiles = Directory.GetFiles(targetRomFs, "*.sarc.zs", SearchOption.AllDirectories);
+                        if (sarcFiles.Length > 0)
+                        {
+                            targetDir = System.IO.Path.GetDirectoryName(sarcFiles[0])!;
+                        }
+                    }
+                }
+
+                Directory.CreateDirectory(targetDir);
+                string destPath = System.IO.Path.Combine(targetDir, fileName);
+                File.Copy(modFilePath, destPath, true);
+                App.Logger.Log($"[HardPatchEngine] Внедрен автономный мод {fileName} -> {destPath}", Models.LogLevel.Info);
+            }
+            catch (Exception ex)
+            {
+                App.Logger.Log($"[HardPatchEngine] Ошибка внедрения автономного мода {modFilePath}: {ex.Message}", Models.LogLevel.Warning);
+            }
+        }
+
+    }
 
     public class ProgressLogBuffer : IDisposable
     {
@@ -1936,5 +2128,5 @@ namespace StormSwitchBox.Services
             _timer.Dispose();
             Flush();
         }
-    }
+            }
 }

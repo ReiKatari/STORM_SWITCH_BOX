@@ -174,7 +174,7 @@ class MainActivity : Activity() {
     // Предварительное переименование внутри (control.nacp / SMDH), смена иконки 256x256 и имя итогового файла (как на ПК)
     private var preBuildCustomizeEnabled = false
     private var customInternalGameTitle = ""
-    private var customGamePublisher = "Nintendo / STORM TEAM"
+    private var customGamePublisher = ""
     private var customDisplayVer = ""
     private var customOutputFileName = ""
     private var customIconImagePath = ""
@@ -188,7 +188,7 @@ class MainActivity : Activity() {
     private var extractControlEnabled = true
     private var extractRawPfs0Enabled = true
     private var fwdAppTitle = "DBI Installer"
-    private var fwdAppAuthor = "duckbill007 / STORM TEAM"
+    private var fwdAppAuthor = "Nintendo"
     private var fwdAppVersion = "715.0"
     private var fwdTitleId = "0100F0001DB10000"
     private var fwdSdmcNroPath = "sdmc:/switch/DBI/DBI.nro"
@@ -228,7 +228,7 @@ class MainActivity : Activity() {
         }
 
         buildUserInterface()
-        appendLog("STORM SWITCH BOX ${"6.1.0"} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) готов к работе.")
+        appendLog("STORM SWITCH BOX ${"6.2.0"} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) готов к работе.")
 
         // Автоматическая проверка обновлений с GitHub при запуске
         if (autoCheckUpdatesOnStartup) {
@@ -791,7 +791,7 @@ class MainActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
         titleCol.addView(TextView(this).apply {
-            text = "STORM SWITCH BOX ${"6.1.0"}"
+            text = "STORM SWITCH BOX ${"6.2.0"}"
             setTextColor(th.textPrimary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
             typeface = Typeface.DEFAULT_BOLD
@@ -2171,7 +2171,7 @@ class MainActivity : Activity() {
                             7 -> {
                                 val fwdOut = StormNczEngine.buildHomebrewForwarderNsp(
                                     appTitle = customInternalGameTitle.ifBlank { baseName },
-                                    appAuthor = customGamePublisher.ifBlank { "STORM TEAM" },
+                                    appAuthor = customGamePublisher.ifBlank { "Nintendo" },
                                     appVersion = customDisplayVer.ifBlank { "1.0.0" },
                                     titleIdHex = fwdTitleId,
                                     sdmcNroPath = if (ext == "nro") "sdmc:/switch/${inFile.name}" else fwdSdmcNroPath,
@@ -3026,7 +3026,7 @@ class MainActivity : Activity() {
 
         var dlgCustomRenameEnabled = true
         var dlgInternalTitle = cleanDefaultTitle
-        var dlgPublisher = "Nintendo / STORM TEAM"
+        var dlgPublisher = ""
         var dlgDisplayVer = defaultVerStr
         var dlgOutputFileName = "$cleanDefaultTitle [v$defaultVerStr] [MULTI].${extForMode(dialogFormatMode)}"
         var dlgCustomIconPath = customIconImagePath
@@ -3615,7 +3615,7 @@ class MainActivity : Activity() {
                     "21. Nintendo Switch 2 (Ounce / NVN2)",
                     "Экосистемы",
                     "SWITCH 2",
-                    "STORM SWITCH BOX 6.1.0 включает полную поддержку следующего поколения игровых систем Nintendo — Nintendo Switch 2 (кодовое имя «Ounce» / API «NVN2»):\n" +
+                    "STORM SWITCH BOX 6.2.0 включает полную поддержку следующего поколения игровых систем Nintendo — Nintendo Switch 2 (кодовое имя «Ounce» / API «NVN2»):\n" +
                     "• Идентификация дампов: TitleID игр Switch 2 начинается с префикса «0400...» (в отличие от «0100...» у Switch 1), извлекаемый напрямую из main.npdm (заголовок META -> секция ACI0 + 0x10).\n" +
                     "• Авто-сборка из папок дампа: при перетаскивании каталога дампа Switch 2 (содержащего base/exefs/main.npdm, base/romfs, updates/<версия> и dlc/<tid>) программа автоматически объединяет базовую игру, самое свежее обновление, все DLC и моды в 1 монолитный контейнер (.nsp, .nsz, .xci, .xcz).\n" +
                     "• Авто-генерация Control NCA: создание control.nacp на 16 языках и получение официальной 256×256 обложки через Nintendo Europe Search API / Steam.\n" +
@@ -3628,7 +3628,7 @@ class MainActivity : Activity() {
                     "22. RuTracker: Чеклист ссылок обсуждения и DLC Unlocker",
                     "Сеть, Ключи и База",
                     "RUTRACKER",
-                    "В версии 6.1.0 усовершенствован модуль интеграции с RuTracker (#1605):\n" +
+                    "В версии 6.2.0 усовершенствован модуль интеграции с RuTracker (#1605):\n" +
                     "• Чеклист ссылок из темы обсуждения: все полезные ссылки (русификаторы, моды, патчи 60 FPS, читы), найденные в комментариях и шапке темы раздачи, отображаются с датами публикации сообщений.\n" +
                     "• Выборочная загрузка: можно отметить только нужные модификации чекбоксами перед стартом сборки.\n" +
                     "• DLC Unlocker: автоматическое управление анлокерами дополнений и синхронизация тикетов.",

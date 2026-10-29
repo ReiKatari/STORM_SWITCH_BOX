@@ -982,6 +982,7 @@ object StormNczEngine {
         "key_area_key_application_13" to "76a3a1e5963759e5c0c178a93b547880",
         "key_area_key_application_14" to "dbd99c9834f2bb2bf8dacef3f8e090d5",
         "key_area_key_application_15" to "ab49472bbc7368fe59df11cbe34dfa72",
+        "key_area_key_application_16" to "1546f43e6700bad0ebdfdc1bf37249a2",
         "key_area_key_application_source" to "7f59971e629f36a13098066f2144c30d",
         "master_key_00" to "c2caaff089b9aed55694876055271c7d",
         "master_key_01" to "54e1b8e999c2fd16cd07b66109acaaa6",
@@ -1005,6 +1006,7 @@ object StormNczEngine {
         "master_key_13" to "5146f2e7096bd2f8fa14030b883a98d0",
         "master_key_14" to "4c9b499cc482b0fe8c6c2f698e19ff64",
         "master_key_15" to "21198f7bdc2a40dba2bdfc31a2d82a83",
+        "master_key_16" to "d63be86650abec50b5566e5856c2d3ef",
         "master_key_source" to "d8a2410ac6c59001c61d6a267c513f3c",
         "titlekek_00" to "62a24d6e6d0d0e0abf3554d259be3dc9",
         "titlekek_01" to "8821f642176969b1a18021d2665c0111",
@@ -1437,16 +1439,7 @@ object StormNczEngine {
                 1L
             }
 
-            // Если зашифрованная секция начинается по смещению < 0x4000 (например 0x0C00),
-            // расшифровываем область [rawSecStart .. min(secByteEnd, 0x4000)) прямо в ncaHeader3840,
-            // так как NCZVirtualFile в эмуляторах читает байты < 0x4000 напрямую из заголовка .ncz без AesCtrStorage.
-            if (rawSecStart in 0xC00L until NCA_HEADER_SIZE && (effCryptoType == 3L || effCryptoType == 4L) && resolvedCtrKey.any { it != 0.toByte() }) {
-                val hdrOverlapEnd = minOf(secByteEnd, NCA_HEADER_SIZE).toInt()
-                val hdrOverlapLen = hdrOverlapEnd - rawSecStart.toInt()
-                if (hdrOverlapLen > 0 && rawSecStart.toInt() + hdrOverlapLen <= ncaHeader3840.size) {
-                    transformAesCtrInPlace(ncaHeader3840, rawSecStart.toInt(), hdrOverlapLen, rawSecStart, resolvedCtrKey, counter)
-                }
-            }
+            // In-place header modification removed to prevent corrupting first 0x4000 bytes of NCA header
 
             val encOffset = secByteOffset
 
@@ -2132,7 +2125,7 @@ object StormNczEngine {
         val family = if (ext in listOf("3ds", "cci", "cia", "cxi", "cfa", "3dsx", "nds")) "3DS" else "SWITCH"
 
         if (!file.exists() || file.length() < 1024L) {
-            return ContainerMetadataInfo(cleanFallbackTitle, "Nintendo / STORM TEAM", fallbackVer, fallbackTid, family, null)
+            return ContainerMetadataInfo(cleanFallbackTitle, "Nintendo", fallbackVer, fallbackTid, family, null)
         }
 
         try {
@@ -2158,7 +2151,7 @@ object StormNczEngine {
 
         return ContainerMetadataInfo(
             internalTitle = cleanFallbackTitle,
-            publisher = "STORM SOFT / Nintendo Switch",
+            publisher = "Nintendo",
             displayVersion = fallbackVer,
             titleId = fallbackTid,
             formatFamily = family,
@@ -2515,7 +2508,7 @@ object StormNczEngine {
         val nacp = ByteArray(0x4000)
         val cleanTitle = cleanGameTitleForCoverLookup(gameTitle).ifEmpty { gameTitle.trim() }.ifEmpty { "Switch Application" }
         val titleBytes = cleanTitle.toByteArray(StandardCharsets.UTF_8)
-        val pubBytes = publisher.trim().ifEmpty { "Nintendo / STORM TEAM" }.toByteArray(StandardCharsets.UTF_8)
+        val pubBytes = publisher.trim().ifEmpty { "Nintendo" }.toByteArray(StandardCharsets.UTF_8)
         val verBytes = displayVersion.trim().removePrefix("v").removePrefix("V").ifEmpty { "1.0.0" }.toByteArray(StandardCharsets.UTF_8)
 
         for (slot in 0 until 16) {
@@ -3226,7 +3219,7 @@ object StormNczEngine {
             patch3dsSmdhTitleInPlace(
                 outputFile,
                 preBuildCustomization.customInternalTitle,
-                preBuildCustomization.customPublisher.ifBlank { "Nintendo 3DS / STORM TEAM" }
+                preBuildCustomization.customPublisher.ifBlank { "Nintendo" }
             )
         }
 
@@ -3781,7 +3774,7 @@ object StormNczEngine {
             )
             if (customTitleActive) {
                 val effTitle = preBuildCustomization.customInternalTitle.trim().ifEmpty { baseCleanTitle }
-                val effPub = preBuildCustomization.customPublisher.trim().ifEmpty { "STORM SOFT / Nintendo Switch" }
+                val effPub = preBuildCustomization.customPublisher.trim().ifEmpty { "Nintendo" }
                 val effVer = preBuildCustomization.customDisplayVersion.trim()
                     .takeIf { it.isNotEmpty() && it != "1.0.0" && it != "1.0.2" }
                     ?: highestDetectedVer
@@ -4251,7 +4244,7 @@ object StormNczEngine {
     }
 
     /**
-     * Анализирует установленный prod.keys по ревизиям master_key_00 .. master_key_13 (как KeysService на ПК)
+     * Анализирует установленный prod.keys по ревизиям master_key_00 .. master_key_16 (как KeysService на ПК)
      * и возвращает максимальную поддерживаемую прошивку Nintendo Switch HOS.
      */
     fun analyzeSwitchKeysMasterRevisions(prodKeysFile: File): Pair<String, List<String>> {
@@ -4278,7 +4271,10 @@ object StormNczEngine {
             "master_key_10" to "HOS 17.0.0 — 17.0.1 (KeyGen 17)",
             "master_key_11" to "HOS 18.0.0 — 18.1.0 (KeyGen 18)",
             "master_key_12" to "HOS 19.0.0 — 19.0.1 (KeyGen 19)",
-            "master_key_13" to "HOS 20.0.0 — 21.0.0+ (KeyGen 20)"
+            "master_key_13" to "HOS 20.0.0 (KeyGen 20)",
+            "master_key_14" to "HOS 21.0.0 (KeyGen 21)",
+            "master_key_15" to "HOS 22.0.0 (KeyGen 22)",
+            "master_key_16" to "HOS 23.0.0+ (KeyGen 23)"
         )
         val keys = loadSwitchKeysMap()
         val foundList = mutableListOf<String>()
@@ -4429,7 +4425,7 @@ object StormNczEngine {
                 val nacpBytes = buildNacpBytes(
                     titleId = tidHex,
                     gameTitle = meta.internalTitle.ifBlank { inputFile.nameWithoutExtension },
-                    publisher = meta.publisher.ifBlank { "Nintendo / STORM TEAM" },
+                    publisher = meta.publisher.ifBlank { "Nintendo" },
                     displayVersion = meta.displayVersion.ifBlank { "1.0.0" }
                 )
                 nacpFile.writeBytes(nacpBytes)
@@ -5118,7 +5114,7 @@ object StormNczEngine {
         }.take(16)
 
         val cleanTitle = appTitle.ifBlank { "Switch Homebrew Forwarder" }.trim()
-        val cleanAuthor = appAuthor.ifBlank { "STORM TEAM / Homebrew" }.trim()
+        val cleanAuthor = appAuthor.ifBlank { "Nintendo" }.trim()
         val cleanVer = appVersion.ifBlank { "1.0.0" }.trim()
         val normalizedNroPath = if (sdmcNroPath.startsWith("sdmc:/")) sdmcNroPath else "sdmc:/" + sdmcNroPath.trimStart('/')
 
@@ -5170,7 +5166,7 @@ object StormNczEngine {
         outFile: File,
         titleIdHex: String,
         gameTitle: String,
-        publisher: String = "Nintendo / STORM TEAM",
+        publisher: String = "Nintendo",
         versionStr: String = "1.0.0",
         role: String = "БАЗА",
         targetTotalBytes: Long = 64L * 1024L * 1024L,
@@ -5234,7 +5230,7 @@ object StormNczEngine {
                     outControlNcaFile = tmpCtrl,
                     titleId = effTidHex,
                     gameTitle = gameTitle,
-                    publisher = publisher.ifBlank { "Nintendo / STORM TEAM" },
+                    publisher = publisher.ifBlank { "Nintendo" },
                     displayVersion = versionStr.ifBlank { "1.0.0" },
                     iconJpegBytes = iconJpeg
                 )
@@ -5785,7 +5781,7 @@ object StormNczEngine {
         return md.digest()
     }
 
-    private fun buildValidNpdmBytes(tidHex: String, procName: String): ByteArray {
+    fun buildValidNpdmBytes(tidHex: String, procName: String): ByteArray {
         val cleanHex = tidHex.trim().replace("0x", "").take(16).padEnd(16, '0')
         val baseTidHex = cleanHex.take(13) + "000"
         val baseTidVal = baseTidHex.toULongOrNull(16)?.toLong() ?: 0x0100000000010000L
@@ -6401,7 +6397,7 @@ object StormNczEngine {
         ),
         SwitchErrorCodeEntry(
             code = "MasterKey / KeyGeneration Error (NCA Header)",
-            moduleName = "Криптография NCA3 (master_key_00 .. master_key_13)",
+            moduleName = "Криптография NCA3 (master_key_00 .. master_key_16)",
             title = "Игра требует более новую версию прошивки (KeyGeneration 17..20 / HOS 18.0.0 — 21.0.0+)",
             cause = "Новые игры и патчи 2024–2026 годов зашифрованы ключами master_key_11..master_key_13. Если на приставке или в эмуляторе стоят старые prod.keys, игра не распознаётся.",
             solution = "Перейдите во вкладку «🔑 Ключи и параметры» и нажмите «⚡ Скачать и установить ключи (Авто)» — STORM SWITCH BOX автоматически загрузит все ключи вплоть до master_key_13 (HOS 21.0.0+)!"
@@ -6750,4 +6746,42 @@ object StormNczEngine {
             tempDir.deleteRecursively()
         }
     }
+    fun isJunkOrReadmeFile(fileName: String): Boolean {
+        val fn = fileName.lowercase()
+        return fn.endsWith(".txt") || fn.endsWith(".md") || fn.endsWith(".url") || fn.endsWith(".nfo") ||
+               fn.endsWith(".bat") || fn.endsWith(".cmd") || fn.startsWith("readme") ||
+               fn.contains("установ") || fn.contains("автор") || fn.contains("changelog") ||
+               fn == "thumbs.db" || fn == ".ds_store" || fn == "desktop.ini"
+    }
+
+    fun patchNpdmTitleIdInFile(npdmFile: File, baseTitleIdHex: String) {
+        if (!npdmFile.isFile || npdmFile.length() < 0x80) return
+        try {
+            val bytes = npdmFile.readBytes()
+            if (bytes.size < 0x80) return
+            if (bytes[0] != 'M'.code.toByte() || bytes[1] != 'E'.code.toByte() || bytes[2] != 'T'.code.toByte() || bytes[3] != 'A'.code.toByte()) return
+
+            val cleanHex = baseTitleIdHex.replace(Regex("[^0-9A-Fa-f]"), "").uppercase().padEnd(16, '0').take(16)
+            val baseTidVal = cleanHex.toULongOrNull(16)?.toLong() ?: 0L
+            if (baseTidVal == 0L) return
+
+            val bb = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+            val aci0Off = bb.getInt(0x70)
+            if (aci0Off in 0x80..(bytes.size - 0x18)) {
+                if (bytes[aci0Off] == 'A'.code.toByte() && bytes[aci0Off + 1] == 'C'.code.toByte() && bytes[aci0Off + 2] == 'I'.code.toByte() && bytes[aci0Off + 3] == '0'.code.toByte()) {
+                    bb.putLong(aci0Off + 0x10, baseTidVal)
+                }
+            }
+
+            val acidOff = bb.getInt(0x78)
+            if (acidOff in 0x80..(bytes.size - 0x220)) {
+                if (bytes[acidOff + 0x200] == 'A'.code.toByte() && bytes[acidOff + 0x201] == 'C'.code.toByte() && bytes[acidOff + 0x202] == 'I'.code.toByte() && bytes[acidOff + 0x203] == 'D'.code.toByte()) {
+                    bb.putLong(acidOff + 0x210, baseTidVal)
+                    bb.putLong(acidOff + 0x218, baseTidVal)
+                }
+            }
+            npdmFile.writeBytes(bytes)
+        } catch (_: Exception) {}
+    }
+
 }
