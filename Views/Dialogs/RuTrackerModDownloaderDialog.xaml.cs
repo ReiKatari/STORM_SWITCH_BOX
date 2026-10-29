@@ -526,7 +526,12 @@ namespace StormSwitchBox.Views.Dialogs
                 .Take(5)
                 .ToList();
 
-            var checkedDiscussionLinks = _discussionLinks.Where(x => x.IsSelected).Select(x => x.Url).ToList();
+            var checkedDiscussionLinks = _discussionLinks
+                .Where(x => x.IsSelected)
+                .Select(x => x.MirrorUrls != null && x.MirrorUrls.Count > 0
+                    ? string.Join("|MIRROR|", new[] { x.Url }.Concat(x.MirrorUrls).Distinct(StringComparer.OrdinalIgnoreCase))
+                    : x.Url)
+                .ToList();
             var cloudLinks = checkedDiscussionLinks.Concat(updateLinks).Concat(dlcLinks).Concat(modLinks)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();

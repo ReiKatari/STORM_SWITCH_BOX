@@ -435,6 +435,71 @@ object StormNczEngine {
         return String.format(ruLocale, "%.2f ГБ", gb)
     }
 
+    fun synchronizeCrossRegionLocalization(romfsDir: File) {
+        if (!romfsDir.exists() || !romfsDir.isDirectory) return
+        try {
+            // 1. Nintendo Mals Archives (*.Product.*.sarc.zs)
+            romfsDir.walkTopDown().filter { it.isDirectory && it.name.equals("Mals", ignoreCase = true) }.forEach { malsDir ->
+                val sarcFiles = malsDir.listFiles { f -> f.isFile && f.name.endsWith(".sarc.zs", ignoreCase = true) }?.toList() ?: emptyList()
+                val modded = sarcFiles.firstOrNull()
+                if (modded != null) {
+                    val moddedName = modded.name
+                    val verMatch = Regex("""^[A-Za-z]{2,4}\.(Product\.[^.]+\.sarc\.zs)$""", RegexOption.IGNORE_CASE).find(moddedName)
+                    if (verMatch != null) {
+                        val suffix = verMatch.groupValues[1]
+                        val usen = File(malsDir, "USen.$suffix")
+                        val euen = File(malsDir, "EUen.$suffix")
+                        if (!usen.exists()) modded.copyTo(usen, overwrite = true)
+                        if (!euen.exists()) modded.copyTo(euen, overwrite = true)
+                    }
+                    for (target in sarcFiles) {
+                        val tName = target.name
+                        if (tName.startsWith("EUen.Product.", ignoreCase = true) ||
+                            tName.startsWith("USen.Product.", ignoreCase = true) ||
+                            tName.startsWith("RUru.Product.", ignoreCase = true)) {
+                            if (!target.canonicalPath.equals(modded.canonicalPath, ignoreCase = true)) {
+                                modded.copyTo(target, overwrite = true)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 2. Regional Subfolders (EU_English <-> US_English, EuEnglish <-> UsEnglish, en-GB <-> en-US, EUen <-> USen)
+            val regionalPairs = listOf(
+                "EU_English" to "US_English",
+                "EuEnglish" to "UsEnglish",
+                "en-GB" to "en-US",
+                "EUen" to "USen"
+            )
+            romfsDir.walkTopDown().filter { it.isFile }.toList().forEach { f ->
+                val rel = f.relativeTo(romfsDir).path.replace('\\', '/')
+                for ((rA, rB) in regionalPairs) {
+                    var srcReg: String? = null
+                    var dstReg: String? = null
+                    if (rel.contains(rA, ignoreCase = true)) {
+                        srcReg = rA
+                        dstReg = rB
+                    } else if (rel.contains(rB, ignoreCase = true)) {
+                        srcReg = rB
+                        dstReg = rA
+                    }
+                    if (srcReg != null && dstReg != null) {
+                        val counterpartRel = rel.replace(srcReg, dstReg, ignoreCase = true)
+                        val counterpartFile = File(romfsDir, counterpartRel)
+                        if (!counterpartFile.exists()) {
+                            val parent = counterpartFile.parentFile
+                            if (parent != null && (parent.exists() || parent.parentFile?.exists() == true)) {
+                                parent.mkdirs()
+                                f.copyTo(counterpartFile, overwrite = true)
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+    }
+
     fun localizeSizeText(raw: String): String {
         return raw.trim()
             .replace(".", ",")
@@ -1351,20 +1416,44 @@ object StormNczEngine {
                 2 -> "system"
                 else -> "application"
             }
-            val kak = keysMap["key_area_key_${kakName}_$idxHex"]
-                ?: keysMap["key_area_key_${kakName}_00"]
-                ?: keysMap["key_area_key_application_$idxHex"]
-                ?: keysMap["key_area_key_application_00"]
-            val encSlot2 = workHdr.copyOfRange(0x320, 0x330)
-            if (kak != null && kak.size == 16 && encSlot2.any { it != 0.toByte() }) {
-                try {
-                    Cipher.getInstance("AES/ECB/NoPadding").apply {
-                        init(Cipher.DECRYPT_MODE, SecretKeySpec(kak, "AES"))
-                    }.doFinal(encSlot2)
-                } catch (_: Exception) { encSlot2 }
-            } else {
-                encSlot2
+            var encSlot2 = workHdr.copyOfRange(0x320, 0x330)
+            if (encSlot2.all { it == 0.toByte() }) {
+                encSlot2 = workHdr.copyOfRange(0x300, 0x310)
             }
+
+            var resolvedKey = encSlot2
+            if (encSlot2.any { it != 0.toByte() }) {
+                val candidateKaks = mutableListOf<ByteArray>()
+                keysMap["key_area_key_${kakName}_$idxHex"]?.let { candidateKaks.add(it) }
+                keysMap["key_area_key_application_$idxHex"]?.let { candidateKaks.add(it) }
+                keysMap["key_area_key_${kakName}_00"]?.let { candidateKaks.add(it) }
+                keysMap["key_area_key_application_00"]?.let { candidateKaks.add(it) }
+
+                for (gen in 0..32) {
+                    val gHex = String.format("%02x", gen)
+                    keysMap["key_area_key_${kakName}_$gHex"]?.let { if (!candidateKaks.any { k -> k.contentEquals(it) }) candidateKaks.add(it) }
+                    keysMap["key_area_key_application_$gHex"]?.let { if (!candidateKaks.any { k -> k.contentEquals(it) }) candidateKaks.add(it) }
+                }
+
+                var bestCandidate: ByteArray? = null
+                for (kak in candidateKaks) {
+                    if (kak.size != 16) continue
+                    try {
+                        val testKey = Cipher.getInstance("AES/ECB/NoPadding").apply {
+                            init(Cipher.DECRYPT_MODE, SecretKeySpec(kak, "AES"))
+                        }.doFinal(encSlot2)
+                        if (testKey != null && testKey.size == 16 && testKey.any { it != 0.toByte() }) {
+                            if (bestCandidate == null) bestCandidate = testKey
+                            if (testKey.all { it == 4.toByte() }) {
+                                bestCandidate = testKey
+                                break
+                            }
+                        }
+                    } catch (_: Exception) {}
+                }
+                resolvedKey = bestCandidate ?: encSlot2
+            }
+            resolvedKey
         }
 
         val bb = ByteBuffer.wrap(workHdr).order(ByteOrder.LITTLE_ENDIAN)
@@ -2938,9 +3027,9 @@ object StormNczEngine {
                                 val fName = rawPath.substringAfterLast('/').lowercase()
                                 if (fName !in junkNames && !rawPath.contains("__MACOSX")) {
                                     val relSubPath = when {
-                                        rawPath.contains("romfs/", ignoreCase = true) -> "romfs/" + rawPath.substringAfter("romfs/", "")
-                                        rawPath.contains("exefs/", ignoreCase = true) -> "exefs/" + rawPath.substringAfter("exefs/", "")
-                                        rawPath.contains("exefs_patches/", ignoreCase = true) -> "exefs_patches/" + rawPath.substringAfter("exefs_patches/", "")
+                                    Regex("""(?:^|/)romfs/(.+)$""", RegexOption.IGNORE_CASE).find(rawPath) != null -> "romfs/" + Regex("""(?:^|/)romfs/(.+)$""", RegexOption.IGNORE_CASE).find(rawPath)!!.groupValues[1]
+                                    Regex("""(?:^|/)exefs_patches/(.+)$""", RegexOption.IGNORE_CASE).find(rawPath) != null -> "exefs_patches/" + Regex("""(?:^|/)exefs_patches/(.+)$""", RegexOption.IGNORE_CASE).find(rawPath)!!.groupValues[1]
+                                    Regex("""(?:^|/)exefs/(.+)$""", RegexOption.IGNORE_CASE).find(rawPath) != null -> "exefs/" + Regex("""(?:^|/)exefs/(.+)$""", RegexOption.IGNORE_CASE).find(rawPath)!!.groupValues[1]
                                         else -> "romfs/$rawPath"
                                     }
                                     val outStaged = File(stagingDir, relSubPath)
@@ -2975,7 +3064,12 @@ object StormNczEngine {
                 src.walkTopDown().maxDepth(6).forEach { mf ->
                     if (mf.isFile && mf.name.lowercase() !in junkNames) {
                         val rel = mf.relativeTo(src).path.replace('\\', '/')
-                        val sub = if (rel.startsWith("romfs") || rel.startsWith("exefs")) rel else "romfs/$rel"
+                        val sub = when {
+                            Regex("""(?:^|/)romfs/(.+)$""", RegexOption.IGNORE_CASE).find(rel) != null -> "romfs/" + Regex("""(?:^|/)romfs/(.+)$""", RegexOption.IGNORE_CASE).find(rel)!!.groupValues[1]
+                            Regex("""(?:^|/)exefs_patches/(.+)$""", RegexOption.IGNORE_CASE).find(rel) != null -> "exefs_patches/" + Regex("""(?:^|/)exefs_patches/(.+)$""", RegexOption.IGNORE_CASE).find(rel)!!.groupValues[1]
+                            Regex("""(?:^|/)exefs/(.+)$""", RegexOption.IGNORE_CASE).find(rel) != null -> "exefs/" + Regex("""(?:^|/)exefs/(.+)$""", RegexOption.IGNORE_CASE).find(rel)!!.groupValues[1]
+                            else -> "romfs/$rel"
+                        }
                         val outStaged = File(stagingDir, sub)
                         outStaged.parentFile?.mkdirs()
                         mf.copyTo(outStaged, overwrite = true)
@@ -2994,6 +3088,8 @@ object StormNczEngine {
         if (modFilesCount == 0) return null to 0
 
         val modNcaFile = File(tempDir, "${cleanTid.lowercase()}_layeredfs_mod.nca")
+        synchronizeCrossRegionLocalization(File(stagingDir, "romfs"))
+        synchronizeCrossRegionLocalization(File(targetAtmoDir, "romfs"))
         val stagedFiles = stagingDir.walkTopDown().filter { it.isFile }.toList()
         val rawPayloadSize = stagedFiles.sumOf { it.length() + 64L }.coerceAtLeast(0x1000L)
         val alignedPayload = (rawPayloadSize + 0x1FFL) and -0x200L
@@ -3957,7 +4053,7 @@ object StormNczEngine {
                 val isNcz = lower.endsWith(".ncz")
                 val ncaType = ncaContentTypeMap[src.baseKey] ?: -1
                 val hasBktr = ncaHasBktrMap[src.baseKey] == true
-                val mustStayUncompressedNca = lower.endsWith(".cnmt.nca") || ncaType == 1 || ncaType == 2 || ncaType == 3 || hasBktr
+                val mustStayUncompressedNca = lower.endsWith(".cnmt.nca") || ncaType == 1 || ncaType == 2 || ncaType == 3
                 val specificTicketKey = ncaRightsIdMap[src.baseKey]?.let { ticketKeysByRightsId[it] } ?: fallbackTicketKey
 
                 // Сжимаем в .ncz игровые разделы Program / Data / Manual (> 64 КБ).

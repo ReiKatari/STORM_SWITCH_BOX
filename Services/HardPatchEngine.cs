@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using System;
 using System.IO;
 using System.Linq;
@@ -287,6 +288,92 @@ namespace StormSwitchBox.Services
                 string? exefsPatchesMod = null;
                 var standaloneModFiles = new List<string>();
 
+                // Auto-extract .zip/.7z/.rar mod archives in inputFiles or input directories
+                var archivesToExtract = new List<string>();
+                foreach (var f in inputFiles.Where(File.Exists))
+                {
+                    string ext = System.IO.Path.GetExtension(f).ToLowerInvariant();
+                    if (ext is ".zip" or ".7z" or ".rar") archivesToExtract.Add(f);
+                }
+                foreach (var d in inputFiles.Where(Directory.Exists))
+                {
+                    try
+                    {
+                        var subArch = Directory.EnumerateFiles(d, "*.*", SearchOption.AllDirectories)
+                            .Where(f => {
+                                string ext = System.IO.Path.GetExtension(f).ToLowerInvariant();
+                                return ext is ".zip" or ".7z" or ".rar";
+                            });
+                        archivesToExtract.AddRange(subArch);
+                    }
+                    catch { }
+                }
+
+                int archIdx = 0;
+                string? sevenZipPath = ViewModels.TasksViewModel.GetSevenZipPath();
+                foreach (var arch in archivesToExtract.Distinct(StringComparer.OrdinalIgnoreCase))
+                {
+                    try
+                    {
+                        string extractDir = System.IO.Path.Combine(tempDir, "extracted_mod_" + archIdx++);
+                        Directory.CreateDirectory(extractDir);
+                        bool extracted = false;
+                        if (File.Exists(sevenZipPath))
+                        {
+                            var psi = new ProcessStartInfo
+                            {
+                                FileName = sevenZipPath,
+                                Arguments = $"x -y \"{arch}\" -o\"{extractDir}\"",
+                                UseShellExecute = false,
+                                CreateNoWindow = true
+                            };
+                            using var proc = Process.Start(psi);
+                            if (proc != null)
+                            {
+                                proc.WaitForExit(60000);
+                                extracted = (proc.ExitCode == 0);
+                            }
+                        }
+                        if (!extracted && System.IO.Path.GetExtension(arch).Equals(".zip", StringComparison.OrdinalIgnoreCase))
+                        {
+                            try
+                            {
+                                System.IO.Compression.ZipFile.ExtractToDirectory(arch, extractDir, overwriteFiles: true);
+                                extracted = true;
+                            }
+                            catch { }
+                        }
+
+                        if (extracted)
+                        {
+                            var nRomfs = Directory.GetDirectories(extractDir, "*romfs*", SearchOption.AllDirectories)
+                                .Where(sub => System.IO.Path.GetFileName(sub).Equals("romfs", StringComparison.OrdinalIgnoreCase) || System.IO.Path.GetFileName(sub).StartsWith("unlocker_romfs", StringComparison.OrdinalIgnoreCase));
+                            romfsMods.AddRange(nRomfs);
+
+                            var nExefs = Directory.GetDirectories(extractDir, "*exefs*", SearchOption.AllDirectories)
+                                .Where(sub => System.IO.Path.GetFileName(sub).Equals("exefs", StringComparison.OrdinalIgnoreCase));
+                            exefsMods.AddRange(nExefs);
+
+                            var nPatches = Directory.GetDirectories(extractDir, "exefs_patches", SearchOption.AllDirectories).FirstOrDefault();
+                            if (nPatches != null) exefsPatchesMod ??= nPatches;
+
+                            var nStandalone = Directory.GetFiles(extractDir, "*.*", SearchOption.AllDirectories)
+                                .Where(f => {
+                                    string fn = System.IO.Path.GetFileName(f).ToLowerInvariant();
+                                    string ext = System.IO.Path.GetExtension(f).ToLowerInvariant();
+                                    return (ext == ".pak" || ext == ".zs" || ext == ".sarc" || fn.EndsWith(".sarc.zs")) &&
+                                           !f.Contains("romfs", StringComparison.OrdinalIgnoreCase) &&
+                                           !f.Contains("exefs", StringComparison.OrdinalIgnoreCase);
+                                });
+                            standaloneModFiles.AddRange(nStandalone);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        App.Logger.Log($"[HardPatchEngine] Ошибка распаковки архива мода {arch}: {ex.Message}", Models.LogLevel.Warning);
+                    }
+                }
+
                 foreach (var f in inputFiles.Where(File.Exists))
                 {
                     string fn = System.IO.Path.GetFileName(f).ToLowerInvariant();
@@ -551,6 +638,7 @@ namespace StormSwitchBox.Services
                         {
                             InjectStandaloneModFile(sMod, targetRomFs, task);
                         }
+                        SynchronizeCrossRegionLocalization(targetRomFs, romfsMods, standaloneModFiles, task);
                     }
 
                     if (App.Settings.Current.AutoInject60FpsPatches)
@@ -2016,6 +2104,148 @@ namespace StormSwitchBox.Services
             }
         }
 
+
+        private static void SynchronizeCrossRegionLocalization(string targetRomFs, List<string> romfsMods, List<string> standaloneModFiles, Models.ProcessingTask task)
+        {
+            if (!Directory.Exists(targetRomFs)) return;
+            try
+            {
+                bool syncedAny = false;
+
+                var injectedRelativeFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var injectedFileNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                foreach (var rMod in romfsMods)
+                {
+                    if (!Directory.Exists(rMod)) continue;
+                    foreach (var f in Directory.EnumerateFiles(rMod, "*", SearchOption.AllDirectories))
+                    {
+                        string rel = System.IO.Path.GetRelativePath(rMod, f);
+                        injectedRelativeFiles.Add(rel);
+                        injectedFileNames.Add(System.IO.Path.GetFileName(f));
+                    }
+                }
+                foreach (var sMod in standaloneModFiles)
+                {
+                    if (File.Exists(sMod))
+                    {
+                        injectedFileNames.Add(System.IO.Path.GetFileName(sMod));
+                    }
+                }
+
+                var malsDirs = Directory.GetDirectories(targetRomFs, "*", SearchOption.AllDirectories)
+                    .Where(d => System.IO.Path.GetFileName(d).Equals("Mals", StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                foreach (var malsDir in malsDirs)
+                {
+                    var sarcFiles = Directory.GetFiles(malsDir, "*.sarc.zs", SearchOption.TopDirectoryOnly);
+                    var moddedMalsFiles = sarcFiles
+                        .Where(f => injectedFileNames.Contains(System.IO.Path.GetFileName(f)))
+                        .ToList();
+
+                    if (moddedMalsFiles.Count > 0)
+                    {
+                        string moddedMalsFile = moddedMalsFiles.First();
+                        string moddedFn = System.IO.Path.GetFileName(moddedMalsFile);
+
+                        foreach (var targetFile in sarcFiles)
+                        {
+                            string tFn = System.IO.Path.GetFileName(targetFile);
+                            if (tFn.StartsWith("EUen.Product.", StringComparison.OrdinalIgnoreCase) ||
+                                tFn.StartsWith("USen.Product.", StringComparison.OrdinalIgnoreCase) ||
+                                tFn.StartsWith("RUru.Product.", StringComparison.OrdinalIgnoreCase))
+                            {
+                                if (!string.Equals(targetFile, moddedMalsFile, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    File.Copy(moddedMalsFile, targetFile, overwrite: true);
+                                    syncedAny = true;
+                                }
+                            }
+                        }
+
+                        var mMatch = Regex.Match(moddedFn, @"^[A-Za-z]{2,4}\.(Product\.[^.]+\sarc\.zs)$", RegexOptions.IgnoreCase);
+                        if (mMatch.Success)
+                        {
+                            string rest = mMatch.Groups[1].Value;
+                            string usenTarget = System.IO.Path.Combine(malsDir, "USen." + rest);
+                            if (!File.Exists(usenTarget))
+                            {
+                                File.Copy(moddedMalsFile, usenTarget, overwrite: true);
+                                syncedAny = true;
+                            }
+                            string euenTarget = System.IO.Path.Combine(malsDir, "EUen." + rest);
+                            if (!File.Exists(euenTarget))
+                            {
+                                File.Copy(moddedMalsFile, euenTarget, overwrite: true);
+                                syncedAny = true;
+                            }
+                        }
+                    }
+                }
+
+                string[][] regionalPairs = new[]
+                {
+                    new[] { "EU_English", "US_English" },
+                    new[] { "EuEnglish", "UsEnglish" },
+                    new[] { "en-GB", "en-US" },
+                    new[] { "EUen", "USen" }
+                };
+
+                foreach (var relPath in injectedRelativeFiles)
+                {
+                    foreach (var pair in regionalPairs)
+                    {
+                        string rA = pair[0];
+                        string rB = pair[1];
+
+                        string? srcRegion = null;
+                        string? dstRegion = null;
+
+                        if (relPath.Contains(rA, StringComparison.OrdinalIgnoreCase))
+                        {
+                            srcRegion = rA;
+                            dstRegion = rB;
+                        }
+                        else if (relPath.Contains(rB, StringComparison.OrdinalIgnoreCase))
+                        {
+                            srcRegion = rB;
+                            dstRegion = rA;
+                        }
+
+                        if (srcRegion != null && dstRegion != null)
+                        {
+                            string counterpartRel = Regex.Replace(relPath, Regex.Escape(srcRegion), dstRegion, RegexOptions.IgnoreCase);
+                            if (!injectedRelativeFiles.Contains(counterpartRel))
+                            {
+                                string srcFull = System.IO.Path.Combine(targetRomFs, relPath);
+                                string dstFull = System.IO.Path.Combine(targetRomFs, counterpartRel);
+
+                                if (File.Exists(srcFull))
+                                {
+                                    string? dstDir = System.IO.Path.GetDirectoryName(dstFull);
+                                    if (dstDir != null && (Directory.Exists(dstDir) || File.Exists(dstFull)))
+                                    {
+                                        Directory.CreateDirectory(dstDir);
+                                        File.Copy(srcFull, dstFull, overwrite: true);
+                                        syncedAny = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (syncedAny)
+                {
+                    App.RunOnUI(() => task.LogDetails += "\n🌐 [Localization Sync] Выполнена кросс-региональная синхронизация локализации (EU ↔ US)...");
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Logger.Log($"[Localization Sync] Предупреждение: {ex.Message}", Models.LogLevel.Warning);
+            }
+        }
     }
 
     public class ProgressLogBuffer : IDisposable

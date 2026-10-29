@@ -58,6 +58,7 @@ namespace StormSwitchBox.Services
 
         public string Title { get; set; } = string.Empty;
         public string Url { get; set; } = string.Empty;
+        public List<string> MirrorUrls { get; set; } = new();
         public string Provider { get; set; } = string.Empty;
         public string PublishedDate { get; set; } = "25.10.2026 14:30";
         public string SourceLocation { get; set; } = "Шапка темы";
@@ -1210,6 +1211,7 @@ namespace StormSwitchBox.Services
                         catch { }
                     }
 
+                    AttachTopicMirrors(allLinks);
                     item.ExtractedModLinks = allLinks;
                 }
             }
@@ -1337,6 +1339,22 @@ namespace StormSwitchBox.Services
             return (role, fallback);
         }
 
+        public static int GetProviderReliabilityScore(string url)
+        {
+            if (string.IsNullOrWhiteSpace(url)) return 10;
+            string u = url.ToLowerInvariant();
+            if (u.Contains("pixeldrain.com/")) return 1;
+            if (u.Contains("disk.yandex.") || u.Contains("yadi.sk/")) return 2;
+            if (u.Contains("drive.google.com/") || u.Contains("drive.usercontent.google.com/")) return 3;
+            if (u.Contains("github.com/")) return 4;
+            if (u.Contains("mediafire.com/")) return 5;
+            if (u.Contains("cloud.mail.ru/")) return 6;
+            if (u.Contains("workupload.com/")) return 7;
+            if (u.Contains("mega.nz/") || u.Contains("mega.co.nz/")) return 8;
+            if (u.Contains("wdfiles.ru/")) return 9;
+            return 10;
+        }
+
         public static List<CloudModLinkItem> ExtractModLinksFromTopicHtml(string html, int pageNumber = 1)
         {
             var results = new List<CloudModLinkItem>();
@@ -1354,17 +1372,19 @@ namespace StormSwitchBox.Services
                     bool isFirstTopicPost = (pageNumber == 1 && idx == 0);
                     idx++;
 
-                    var authorMatch = Regex.Match(blockHtml, @"<p[^>]+class=""nick[^""]*""[^>]*>([\s\S]*?)</p>", RegexOptions.IgnoreCase);
+                    var authorMatch = Regex.Match(blockHtml, @"<p[^>]+class=""nick[^""*""[^>]*>([\s\S]*?)</p>", RegexOptions.IgnoreCase);
                     string author = authorMatch.Success ? WebUtility.HtmlDecode(Regex.Replace(authorMatch.Groups[1].Value, "<.*?>", "")).Trim() : string.Empty;
 
-                    var dateMatch = Regex.Match(blockHtml, @"<a[^>]+class=""p-link[^""]*""[^>]*>([^<]+)</a>", RegexOptions.IgnoreCase);
+                    var dateMatch = Regex.Match(blockHtml, @"<a[^>]+class=""p-link[^""*""[^>]*>([^<]+)</a>", RegexOptions.IgnoreCase);
                     string pubDate = dateMatch.Success ? NormalizeRuTrackerPostDate(dateMatch.Groups[1].Value) : "25.10.2026 14:30";
 
                     string sourceLocation = isFirstTopicPost
                         ? "Шапка темы"
                         : (!string.IsNullOrWhiteSpace(author) ? $"Обсуждение (стр. {pageNumber} • @{author})" : $"Обсуждение (стр. {pageNumber})");
 
-                    var linkMatches = Regex.Matches(blockHtml, @"<a[^>]+href=""(https?://[^""]+)""[^>]*>(.*?)</a>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
+                    var postUrls = new List<(string Url, string Anchor, string Role, string Label, string Provider, int Priority)>();
+
+                    var linkMatches = Regex.Matches(blockHtml, @"<a[^>]+href=""(https?://[^""\s<>]+)""[^>]*>(.*?)</a>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
                     foreach (Match m in linkMatches)
                     {
                         string url = WebUtility.HtmlDecode(m.Groups[1].Value).Trim();
@@ -1375,23 +1395,54 @@ namespace StormSwitchBox.Services
                         int ctxStart = Math.Max(0, m.Index - 120);
                         string ctx = blockHtml.Substring(ctxStart, m.Index - ctxStart);
                         var (role, label) = ClassifyRoleAndLabel(url, anchorText, ctx, provider);
+                        int prio = GetProviderReliabilityScore(url);
+                        postUrls.Add((url, anchorText, role, label, provider, prio));
+                    }
+
+                    var rawMatches = Regex.Matches(blockHtml, @"https?://[a-zA-Z0-9\.\-_/]+(?:\?[a-zA-Z0-9\.\-_=&%]*)?", RegexOptions.IgnoreCase);
+                    foreach (Match rm in rawMatches)
+                    {
+                        string url = rm.Value.Trim();
+                        string? provider = ClassifyCloudModProvider(url);
+                        if (provider == null || !seenUrls.Add(url)) continue;
+
+                        int ctxStart = Math.Max(0, rm.Index - 120);
+                        string ctx = blockHtml.Substring(ctxStart, rm.Index - ctxStart);
+                        var (role, label) = ClassifyRoleAndLabel(url, "", ctx, provider);
+                        int prio = GetProviderReliabilityScore(url);
+                        postUrls.Add((url, "", role, label, provider, prio));
+                    }
+
+                    var groupedByRole = postUrls.GroupBy(x => x.Role);
+                    foreach (var grp in groupedByRole)
+                    {
+                        var ordered = grp.OrderBy(x => x.Priority).ToList();
+                        var primary = ordered[0];
+                        var mirrorList = ordered.Select(x => x.Url).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                        string providerText = primary.Provider;
+                        if (ordered.Count > 1)
+                        {
+                            var distinctProviders = ordered.Select(x => x.Provider).Distinct().ToList();
+                            providerText = string.Join(" / ", distinctProviders);
+                        }
 
                         results.Add(new CloudModLinkItem
                         {
                             IsSelected = false,
-                            Title = label,
-                            Url = url,
-                            Provider = provider,
+                            Title = primary.Label,
+                            Url = primary.Url,
+                            MirrorUrls = mirrorList,
+                            Provider = providerText,
                             PublishedDate = pubDate,
                             SourceLocation = sourceLocation,
-                            RoleCategory = role
+                            RoleCategory = primary.Role
                         });
                     }
                 }
             }
             else
             {
-                var linkMatches = Regex.Matches(html, @"<a[^>]+href=""(https?://[^""]+)""[^>]*>(.*?)</a>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
+                var linkMatches = Regex.Matches(html, @"<a[^>]+href=""(https?://[^""\s<>]+)""[^>]*>(.*?)</a>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
                 foreach (Match m in linkMatches)
                 {
                     string url = WebUtility.HtmlDecode(m.Groups[1].Value).Trim();
@@ -1405,6 +1456,7 @@ namespace StormSwitchBox.Services
                         IsSelected = false,
                         Title = label,
                         Url = url,
+                        MirrorUrls = new List<string> { url },
                         Provider = provider,
                         PublishedDate = "25.10.2026 14:30",
                         SourceLocation = pageNumber == 1 ? "Шапка темы" : $"Обсуждение (стр. {pageNumber})",
@@ -1413,7 +1465,38 @@ namespace StormSwitchBox.Services
                 }
             }
 
+            AttachTopicMirrors(results);
             return results;
+        }
+
+        public static void AttachTopicMirrors(List<CloudModLinkItem> items)
+        {
+            if (items == null || items.Count <= 1) return;
+            var byRole = items.GroupBy(x => x.RoleCategory);
+            foreach (var grp in byRole)
+            {
+                var allGroupUrls = grp
+                    .SelectMany(x => (x.MirrorUrls != null && x.MirrorUrls.Count > 0) ? x.MirrorUrls : new List<string> { x.Url })
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(GetProviderReliabilityScore)
+                    .ToList();
+
+                if (allGroupUrls.Count > 1)
+                {
+                    foreach (var item in grp)
+                    {
+                        var set = new HashSet<string>(item.MirrorUrls ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
+                        set.Add(item.Url);
+                        foreach (var u in allGroupUrls)
+                        {
+                            if (set.Add(u))
+                            {
+                                item.MirrorUrls.Add(u);
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         public static List<CloudModLinkItem> BuildFallbackDiscussionLinks(string topicId, string topicTitle)
@@ -1432,6 +1515,10 @@ namespace StormSwitchBox.Services
             if (u.Contains("mega.nz/") || u.Contains("mega.co.nz/")) return "Mega.nz";
             if (u.Contains("mediafire.com/")) return "MediaFire";
             if (u.Contains("pixeldrain.com/")) return "PixelDrain";
+            if (u.Contains("cloud.mail.ru/")) return "Облако Mail.ru";
+            if (u.Contains("wdfiles.ru/")) return "WDfiles";
+            if (u.Contains("modsfire.com/")) return "ModsFire";
+            if (u.Contains("dropmefiles.com/")) return "DropMeFiles";
             if (u.Contains("1fichier.com/")) return "1Fichier";
             if (u.Contains("workupload.com/")) return "WorkUpload";
             if (u.Contains("gofile.io/")) return "GoFile";
@@ -1687,7 +1774,7 @@ namespace StormSwitchBox.Services
         {
             var links = rawLinks
                 .Select(l => l?.Trim() ?? "")
-                .Where(l => l.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || l.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                .Where(l => !string.IsNullOrEmpty(l))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
@@ -1702,64 +1789,87 @@ namespace StormSwitchBox.Services
             for (int i = 0; i < links.Count; i++)
             {
                 ct.ThrowIfCancellationRequested();
-                string link = links[i];
-                progress?.Report(((i * 100.0) / links.Count, $"Резолвинг облачной ссылки мода ({i + 1}/{links.Count}): {link}..."));
+                string linkGroup = links[i];
+                var candidateMirrors = linkGroup
+                    .Split(new[] { "|MIRROR|" }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Where(u => u.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || u.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
 
-                var (directUrl, suggestedName) = await ResolveCloudDownloadUrlAsync(client, link, ct).ConfigureAwait(false);
-                if (string.IsNullOrEmpty(directUrl))
-                    continue;
+                if (candidateMirrors.Count == 0) continue;
 
-                string safeFileName = SanitizeFileName(suggestedName);
-                if (string.IsNullOrEmpty(Path.GetExtension(safeFileName)))
-                    safeFileName += ".zip";
-
-                string archivePath = Path.Combine(modsRoot, safeFileName);
-                progress?.Report(((i * 100.0 + 25.0) / links.Count, $"Скачивание мода: {safeFileName}..."));
-
-                await DownloadFileWithProgressAsync(client, directUrl, archivePath, (dlPct) =>
+                for (int mIdx = 0; mIdx < candidateMirrors.Count; mIdx++)
                 {
-                    progress?.Report(((i + dlPct / 100.0) * 100.0 / links.Count, $"Скачивание мода {safeFileName}: {dlPct:F1}%"));
-                }, ct).ConfigureAwait(false);
-
-                if (!File.Exists(archivePath)) continue;
-
-                string ext = Path.GetExtension(archivePath).ToLowerInvariant();
-                if (ext is ".zip" or ".7z" or ".rar")
-                {
-                    string extractDir = Path.Combine(modsRoot, Path.GetFileNameWithoutExtension(safeFileName));
-                    Directory.CreateDirectory(extractDir);
-                    progress?.Report(((i + 0.85) * 100.0 / links.Count, $"Распаковка архива мода {safeFileName}..."));
-
-                    await ExtractArchiveWith7zAsync(archivePath, extractDir, ct).ConfigureAwait(false);
-                    try { File.Delete(archivePath); } catch { }
-                    foreach (var nestedRom in Directory.EnumerateFiles(extractDir, "*.*", SearchOption.AllDirectories))
+                    string mirrorUrl = candidateMirrors[mIdx];
+                    try
                     {
-                        string nExt = Path.GetExtension(nestedRom).ToLowerInvariant();
-                        if (nExt is ".nsp" or ".nsz" or ".xci" or ".xcz")
+                        using var mirrorCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                        mirrorCts.CancelAfter(TimeSpan.FromSeconds(20));
+
+                        progress?.Report(((i * 100.0) / links.Count, $"Резолвинг ссылки ({i + 1}/{links.Count}, зерк. {mIdx + 1}/{candidateMirrors.Count}): {mirrorUrl}..."));
+
+                        var (directUrl, suggestedName) = await ResolveCloudDownloadUrlAsync(client, mirrorUrl, mirrorCts.Token).ConfigureAwait(false);
+                        if (string.IsNullOrEmpty(directUrl)) continue;
+
+                        string safeFileName = SanitizeFileName(suggestedName);
+                        if (string.IsNullOrEmpty(Path.GetExtension(safeFileName)))
+                            safeFileName += ".zip";
+
+                        string archivePath = Path.Combine(modsRoot, safeFileName);
+                        progress?.Report(((i * 100.0 + 25.0) / links.Count, $"Скачивание мода: {safeFileName}..."));
+
+                        await DownloadFileWithProgressAsync(client, directUrl, archivePath, (dlPct) =>
                         {
-                            string promotedPath = Path.Combine(workDirectory, Path.GetFileName(nestedRom));
-                            if (!string.Equals(nestedRom, promotedPath, StringComparison.OrdinalIgnoreCase))
+                            progress?.Report(((i + dlPct / 100.0) * 100.0 / links.Count, $"Скачивание мода {safeFileName}: {dlPct:F1}%"));
+                        }, mirrorCts.Token).ConfigureAwait(false);
+
+                        if (!File.Exists(archivePath) || new FileInfo(archivePath).Length < 64) continue;
+
+                        string ext = Path.GetExtension(archivePath).ToLowerInvariant();
+                        if (ext is ".zip" or ".7z" or ".rar")
+                        {
+                            string extractDir = Path.Combine(modsRoot, Path.GetFileNameWithoutExtension(safeFileName));
+                            Directory.CreateDirectory(extractDir);
+                            progress?.Report(((i + 0.85) * 100.0 / links.Count, $"Распаковка архива мода {safeFileName}..."));
+
+                            await ExtractArchiveWith7zAsync(archivePath, extractDir, ct).ConfigureAwait(false);
+                            try { File.Delete(archivePath); } catch { }
+                            foreach (var nestedRom in Directory.EnumerateFiles(extractDir, "*.*", SearchOption.AllDirectories))
                             {
-                                try { File.Copy(nestedRom, promotedPath, overwrite: true); } catch { }
+                                string nExt = Path.GetExtension(nestedRom).ToLowerInvariant();
+                                if (nExt is ".nsp" or ".nsz" or ".xci" or ".xcz")
+                                {
+                                    string promotedPath = Path.Combine(workDirectory, Path.GetFileName(nestedRom));
+                                    if (!string.Equals(nestedRom, promotedPath, StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        try { File.Copy(nestedRom, promotedPath, overwrite: true); } catch { }
+                                    }
+                                    extractedModPaths.Add(promotedPath);
+                                }
+                            }
+                            var modFolders = DiscoverModPayloadsInDirectory(extractDir);
+                            extractedModPaths.AddRange(modFolders);
+                        }
+                        else if (ext is ".nsp" or ".nsz" or ".xci" or ".xcz")
+                        {
+                            string promotedPath = Path.Combine(workDirectory, Path.GetFileName(archivePath));
+                            if (!string.Equals(archivePath, promotedPath, StringComparison.OrdinalIgnoreCase))
+                            {
+                                try { File.Move(archivePath, promotedPath, overwrite: true); } catch { }
                             }
                             extractedModPaths.Add(promotedPath);
                         }
+                        else
+                        {
+                            extractedModPaths.Add(archivePath);
+                        }
+
+                        break;
                     }
-                    var modFolders = DiscoverModPayloadsInDirectory(extractDir);
-                    extractedModPaths.AddRange(modFolders);
-                }
-                else if (ext is ".nsp" or ".nsz" or ".xci" or ".xcz")
-                {
-                    string promotedPath = Path.Combine(workDirectory, Path.GetFileName(archivePath));
-                    if (!string.Equals(archivePath, promotedPath, StringComparison.OrdinalIgnoreCase))
+                    catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
                     {
-                        try { File.Move(archivePath, promotedPath, overwrite: true); } catch { }
+                        App.Logger?.Log($"[RuTracker Cloud] Зеркало {mirrorUrl} недоступно: {ex.Message}. Переход к следующему зеркалу...", LogLevel.Warning);
                     }
-                    extractedModPaths.Add(promotedPath);
-                }
-                else
-                {
-                    extractedModPaths.Add(archivePath);
                 }
             }
 
@@ -1771,7 +1881,37 @@ namespace StormSwitchBox.Services
         {
             string lower = url.ToLowerInvariant();
 
-            // 1. Яндекс.Диск (disk.yandex.ru / yadi.sk)
+            // 1. PixelDrain (pixeldrain.com/u/<ID> или pixeldrain.com/api/file/<ID>)
+            if (lower.Contains("pixeldrain.com/"))
+            {
+                var pdMatch = Regex.Match(url, @"pixeldrain\.com/(?:u|api/file)/([a-zA-Z0-9_-]+)", RegexOptions.IgnoreCase);
+                if (pdMatch.Success)
+                {
+                    string id = pdMatch.Groups[1].Value;
+                    string direct = $"https://pixeldrain.com/api/file/{id}?download";
+                    string pdFileName = $"PixelDrain_{id}.zip";
+                    try
+                    {
+                        using var infoCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                        infoCts.CancelAfter(TimeSpan.FromSeconds(6));
+                        using var infoResp = await client.GetAsync($"https://pixeldrain.com/api/file/{id}/info", infoCts.Token).ConfigureAwait(false);
+                        if (infoResp.IsSuccessStatusCode)
+                        {
+                            string json = await infoResp.Content.ReadAsStringAsync(infoCts.Token).ConfigureAwait(false);
+                            using var doc = JsonDocument.Parse(json);
+                            if (doc.RootElement.TryGetProperty("name", out var np))
+                            {
+                                string n = np.GetString() ?? "";
+                                if (!string.IsNullOrWhiteSpace(n)) pdFileName = n;
+                            }
+                        }
+                    }
+                    catch { }
+                    return (direct, pdFileName);
+                }
+            }
+
+            // 2. Яндекс.Диск (disk.yandex.ru / yadi.sk)
             if (lower.Contains("disk.yandex.") || lower.Contains("yadi.sk/"))
             {
                 string apiUrl = $"https://cloud-api.yandex.net/v1/disk/public/resources/download?public_key={Uri.EscapeDataString(url)}";
@@ -1789,7 +1929,7 @@ namespace StormSwitchBox.Services
                 }
             }
 
-            // 2. Google Drive (drive.google.com/file/d/<ID>/... или id=<ID>)
+            // 3. Google Drive (drive.google.com/file/d/<ID>/... или id=<ID>)
             if (lower.Contains("drive.google.com") || lower.Contains("drive.usercontent.google.com"))
             {
                 var idMatch = Regex.Match(url, @"(?:/file/d/|id=)([a-zA-Z0-9_-]{15,})");
@@ -1801,7 +1941,82 @@ namespace StormSwitchBox.Services
                 }
             }
 
-            // 3. GitHub Releases (github.com/<owner>/<repo>/releases...)
+            // 4. MediaFire (mediafire.com/file/...)
+            if (lower.Contains("mediafire.com/"))
+            {
+                try
+                {
+                    using var mfResp = await client.GetAsync(url, ct).ConfigureAwait(false);
+                    if (mfResp.IsSuccessStatusCode)
+                    {
+                        string html = await mfResp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                        var dlMatch = Regex.Match(html, @"href=""(https?://download\d*\.mediafire\.com/[^""]+)""", RegexOptions.IgnoreCase);
+                        if (dlMatch.Success)
+                        {
+                            string direct = dlMatch.Groups[1].Value;
+                            string fn = Path.GetFileName(new Uri(direct).LocalPath);
+                            if (string.IsNullOrWhiteSpace(fn)) fn = "MediaFire_Mod.zip";
+                            return (direct, fn);
+                        }
+                    }
+                }
+                catch { }
+            }
+
+            // 5. Облако Mail.ru (cloud.mail.ru/public/<key1>/<key2>)
+            if (lower.Contains("cloud.mail.ru/public/"))
+            {
+                var mrMatch = Regex.Match(url, @"cloud\.mail\.ru/public/([a-zA-Z0-9]+/[a-zA-Z0-9_-]+)", RegexOptions.IgnoreCase);
+                if (mrMatch.Success)
+                {
+                    string weblink = mrMatch.Groups[1].Value;
+                    try
+                    {
+                        using var dispResp = await client.GetAsync("https://cloud.mail.ru/api/v2/dispatcher", ct).ConfigureAwait(false);
+                        if (dispResp.IsSuccessStatusCode)
+                        {
+                            string dJson = await dispResp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                            using var dDoc = JsonDocument.Parse(dJson);
+                            if (dDoc.RootElement.TryGetProperty("body", out var bProp) &&
+                                bProp.TryGetProperty("weblink_get", out var wgProp) &&
+                                wgProp.GetArrayLength() > 0 &&
+                                wgProp[0].TryGetProperty("url", out var uProp))
+                            {
+                                string baseUrl = uProp.GetString() ?? "";
+                                if (!string.IsNullOrEmpty(baseUrl))
+                                {
+                                    string direct = baseUrl.TrimEnd('/') + "/" + weblink;
+                                    string fn = Path.GetFileName(weblink) + ".zip";
+                                    return (direct, fn);
+                                }
+                            }
+                        }
+                    }
+                    catch { }
+                }
+            }
+
+            // 6. WDfiles (wdfiles.ru/<id>)
+            if (lower.Contains("wdfiles.ru/"))
+            {
+                try
+                {
+                    using var wdResp = await client.GetAsync(url, ct).ConfigureAwait(false);
+                    if (wdResp.IsSuccessStatusCode)
+                    {
+                        string html = await wdResp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                        var dlMatch = Regex.Match(html, @"href=""(https?://[^""\s]*wdfiles\.ru/download/[^""]+)""", RegexOptions.IgnoreCase);
+                        if (dlMatch.Success)
+                        {
+                            string direct = dlMatch.Groups[1].Value;
+                            return (direct, "WDfiles_Mod.zip");
+                        }
+                    }
+                }
+                catch { }
+            }
+
+            // 7. GitHub Releases (github.com/<owner>/<repo>/releases...)
             if (lower.Contains("github.com/") && lower.Contains("/releases") && !lower.Contains("/releases/download/"))
             {
                 var ghMatch = Regex.Match(url, @"github\.com/([^/]+)/([^/]+)/releases(?:/tag/([^/?#]+))?", RegexOptions.IgnoreCase);
@@ -1839,7 +2054,7 @@ namespace StormSwitchBox.Services
                 }
             }
 
-            // 4. Прямая ссылка на файл
+            // 8. Прямая ссылка на файл
             string fileName = Path.GetFileName(new Uri(url).LocalPath);
             if (string.IsNullOrWhiteSpace(fileName)) fileName = "ModPackage.zip";
             return (url, fileName);
@@ -1863,11 +2078,25 @@ namespace StormSwitchBox.Services
             using var resp = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
             resp.EnsureSuccessStatusCode();
 
+            string? cdFileName = resp.Content.Headers.ContentDisposition?.FileNameStar ?? resp.Content.Headers.ContentDisposition?.FileName;
+            if (!string.IsNullOrWhiteSpace(cdFileName))
+            {
+                cdFileName = cdFileName.Trim('"', '\'');
+                string cdExt = Path.GetExtension(cdFileName).ToLowerInvariant();
+                if (cdExt is ".zip" or ".7z" or ".rar" or ".nsp" or ".nsz" or ".ips" or ".pchtxt")
+                {
+                    string curExt = Path.GetExtension(destPath).ToLowerInvariant();
+                    if (curExt != cdExt)
+                    {
+                        destPath = Path.ChangeExtension(destPath, cdExt);
+                    }
+                }
+            }
+
             string mediaType = resp.Content.Headers.ContentType?.MediaType?.ToLowerInvariant() ?? "";
             if (mediaType.Contains("text/html") || mediaType.Contains("text/plain"))
             {
                 string htmlContent = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-                // Проверяем страницу предупреждения Google Drive о сканировании на вирусы
                 if (htmlContent.Contains("download-form") || htmlContent.Contains("drive.usercontent.google.com") || htmlContent.Contains("confirm="))
                 {
                     var formMatch = Regex.Match(htmlContent, @"<form[^>]+id=[""']download-form[""'][^>]+action=[""']([^""']+)[""']");
@@ -1902,8 +2131,13 @@ namespace StormSwitchBox.Services
                         if (total2 > 0)
                             onProgress(readTotal2 * 100.0 / total2);
                     }
+                    await fileStream2.FlushAsync(ct).ConfigureAwait(false);
+                    fileStream2.Close();
+                    ValidateDownloadedFile(destPath);
                     return;
                 }
+
+                throw new InvalidOperationException($"Сервер вернул HTML-страницу вместо архива ({url})");
             }
 
             long total = resp.Content.Headers.ContentLength ?? -1;
@@ -1919,6 +2153,36 @@ namespace StormSwitchBox.Services
                 readTotal += read;
                 if (total > 0)
                     onProgress(readTotal * 100.0 / total);
+            }
+            await fileStream.FlushAsync(ct).ConfigureAwait(false);
+            fileStream.Close();
+            ValidateDownloadedFile(destPath);
+        }
+
+        private static void ValidateDownloadedFile(string destPath)
+        {
+            if (!File.Exists(destPath)) throw new FileNotFoundException("Файл не был записан на диск", destPath);
+            var fi = new FileInfo(destPath);
+            if (fi.Length < 64)
+            {
+                try { File.Delete(destPath); } catch { }
+                throw new InvalidOperationException("Скачанный файл повреждён или пуст (< 64 байт)");
+            }
+
+            byte[] header = new byte[64];
+            using (var fs = new FileStream(destPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            {
+                int r = fs.Read(header, 0, 64);
+                string hStr = Encoding.ASCII.GetString(header, 0, r);
+                if (hStr.StartsWith("<!DOCTYPE", StringComparison.OrdinalIgnoreCase) ||
+                    hStr.StartsWith("<html", StringComparison.OrdinalIgnoreCase) ||
+                    hStr.Contains("<head", StringComparison.OrdinalIgnoreCase) ||
+                    hStr.Contains("<body", StringComparison.OrdinalIgnoreCase))
+                {
+                    fs.Close();
+                    try { File.Delete(destPath); } catch { }
+                    throw new InvalidOperationException("Скачан HTML-документ вместо бинарного архива мода.");
+                }
             }
         }
 

@@ -55,6 +55,7 @@ namespace StormSwitchBox.Core.NSZ
             public ThreadCompressionWorkspace(int compressionLevel)
             {
                 ZstdCompressor = new Compressor(compressionLevel);
+                try { ZstdCompressor.SetParameter(ZstdSharp.Unsafe.ZSTD_cParameter.ZSTD_c_enableLongDistanceMatching, 1); } catch { }
             }
 
             public ICryptoTransform GetOrCreateEncryptor(SectionDecryptInfo sec)
@@ -278,32 +279,105 @@ namespace StormSwitchBox.Core.NSZ
                         nczCryptoType = encryptionType;
                         try
                         {
-                            nca.GetDecryptedKey(2).CopyTo((Span<byte>)cryptoKey);
+                            try
+                            {
+                                nca.GetDecryptedKey(2).CopyTo((Span<byte>)cryptoKey);
+                            }
+                            catch { }
 
                             bool isZeroKey = IsAllZero(cryptoKey);
-                            if (isZeroKey)
-                            {
-                                int keysetIndex = nca.Header.KeyGeneration;
-                                int keyAreaKeyIndex = nca.Header.KeyAreaKeyIndex;
+                            int keysetIndex = Math.Max(0, nca.Header.KeyGeneration - 1);
+                            int keyAreaKeyIndex = nca.Header.KeyAreaKeyIndex;
 
-                                if (keysetIndex >= 0 && keysetIndex < keyset.KeyAreaKeys.Length &&
-                                    keyAreaKeyIndex >= 0 && keyAreaKeyIndex < 3)
+                            byte[] encSlot = new byte[16];
+                            Array.Copy(decryptedHeader, 0x320, encSlot, 0, 16);
+                            if (IsAllZero(encSlot) && keyAreaKeyIndex >= 0 && keyAreaKeyIndex < 3)
+                            {
+                                Array.Copy(decryptedHeader, 0x300 + keyAreaKeyIndex * 16, encSlot, 0, 16);
+                            }
+
+                            var candidateKeyGens = new List<int> { keysetIndex, nca.Header.KeyGeneration };
+                            for (int g = 0; g <= 32; g++)
+                            {
+                                if (!candidateKeyGens.Contains(g)) candidateKeyGens.Add(g);
+                            }
+
+                            var candidateKeyIndices = new List<int>();
+                            if (keyAreaKeyIndex >= 0 && keyAreaKeyIndex < 3) candidateKeyIndices.Add(keyAreaKeyIndex);
+                            for (int ki = 0; ki < 3; ki++)
+                            {
+                                if (!candidateKeyIndices.Contains(ki)) candidateKeyIndices.Add(ki);
+                            }
+
+                            byte[]? bestKey = null;
+                            int lowestDistinctBytes = int.MaxValue;
+                            bool foundValidMagic = false;
+                            bool hasSample = !IsAllZero(startMagic);
+
+                            foreach (int kGen in candidateKeyGens)
+                            {
+                                if (kGen < 0 || kGen >= keyset.KeyAreaKeys.Length) continue;
+
+                                foreach (int kIdx in candidateKeyIndices)
                                 {
                                     byte[] areaKey = new byte[16];
-                                    ((ReadOnlySpan<byte>)keyset.KeyAreaKeys[keysetIndex][keyAreaKeyIndex]).CopyTo(areaKey);
+                                    ((ReadOnlySpan<byte>)keyset.KeyAreaKeys[kGen][kIdx]).CopyTo(areaKey);
+                                    if (IsAllZero(areaKey)) continue;
 
-                                    int keyOffset = 0x300 + keyAreaKeyIndex * 16;
-                                    byte[] encryptedKey = new byte[16];
-                                    Array.Copy(decryptedHeader, keyOffset, encryptedKey, 0, 16);
+                                    byte[] decKey = AesEcbDecrypt(encSlot, areaKey);
+                                    if (IsAllZero(decKey)) continue;
 
-                                    byte[] decryptedKey = AesEcbDecrypt(encryptedKey, areaKey);
-                                    decryptedKey.CopyTo((Span<byte>)cryptoKey);
+                                    bool isHacpackKey = true;
+                                    for (int b = 0; b < 16; b++)
+                                    {
+                                        if (decKey[b] != 0x04) { isHacpackKey = false; break; }
+                                    }
+                                    if (isHacpackKey)
+                                    {
+                                        bestKey = decKey;
+                                        foundValidMagic = true;
+                                        break;
+                                    }
+
+                                    if (hasSample)
+                                    {
+                                        byte[] testBlock = new byte[16];
+                                        Array.Copy(startMagic, testBlock, 16);
+                                        using var testAes = Aes.Create();
+                                        testAes.Mode = CipherMode.ECB;
+                                        testAes.Padding = PaddingMode.None;
+                                        testAes.Key = decKey;
+                                        using var enc = testAes.CreateEncryptor();
+                                        byte[] keystream = new byte[16];
+                                        enc.TransformBlock(cryptoCounter, 0, 16, keystream, 0);
+                                        for (int b = 0; b < 16; b++) testBlock[b] ^= keystream[b];
+
+                                        string magic4 = Encoding.ASCII.GetString(testBlock, 0, 4);
+                                        if (magic4 == "IVFC" || magic4 == "PFS0" || magic4 == "PFC0" || magic4 == "HFS0")
+                                        {
+                                            bestKey = decKey;
+                                            foundValidMagic = true;
+                                            break;
+                                        }
+
+                                        int distinct = testBlock.Distinct().Count();
+                                        if (distinct < lowestDistinctBytes)
+                                        {
+                                            lowestDistinctBytes = distinct;
+                                            bestKey ??= decKey;
+                                        }
+                                    }
+                                    else if (bestKey == null)
+                                    {
+                                        bestKey = decKey;
+                                    }
                                 }
-                                else
-                                {
-                                    string msg = $"Ключи шифрования KeyGeneration={keysetIndex} отсутствуют в prod.keys. Пожалуйста, обновите prod.keys до актуальной версии прошивки!";
-                                    App.Logger?.Log($"[Внимание] {msg}", LogLevel.Warning);
-                                }
+                                if (foundValidMagic) break;
+                            }
+
+                            if (bestKey != null && (isZeroKey || foundValidMagic))
+                            {
+                                bestKey.CopyTo((Span<byte>)cryptoKey);
                             }
                         }
                         catch { }

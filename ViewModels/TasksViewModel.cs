@@ -692,6 +692,35 @@ public partial class TasksViewModel : ObservableObject
 			{
 				try
 				{
+					bool hasGameContainers = false;
+					try {
+						hasGameContainers = Directory.EnumerateFiles(normalPath, "*", SearchOption.AllDirectories)
+							.Any(f => GameExtensions.Contains(Path.GetExtension(f).ToLowerInvariant()));
+					} catch { }
+
+					if (hasGameContainers)
+					{
+						var unextractedArchives = Directory.EnumerateFiles(normalPath, "*.*", SearchOption.AllDirectories)
+							.Where(f => {
+								string ext = Path.GetExtension(f).ToLowerInvariant();
+								return ext is ".zip" or ".7z" or ".rar";
+							}).ToList();
+
+						if (unextractedArchives.Count > 0)
+						{
+							var extractedDirs = await EnsureArchivesExtractedAsync(unextractedArchives);
+							foreach (var ed in extractedDirs)
+							{
+								if (Directory.Exists(ed) && !modDirs.Contains(ed, StringComparer.OrdinalIgnoreCase))
+								{
+									modDirs.Add(ed);
+								}
+							}
+						}
+					}
+				} catch { }
+				try
+				{
 					var childDirs = Directory.GetDirectories(normalPath);
 					foreach (var child in childDirs)
 					{

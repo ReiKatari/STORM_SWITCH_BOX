@@ -54,7 +54,7 @@ namespace StormSwitchBox.Models
         public bool RemoveDeltaNca { get; set; } = true;     // Удалить Delta NCA из обновлений
         public bool OptimizeModAssets { get; set; } = true;  // Оптимизация ассетов модов (Oxipng и очистка мусора)
         public bool SplitFat32 { get; set; } = false;        // Разделить >4GB для FAT32
-        public bool SolidCompression { get; set; } = false;  // Использовать внешний nsz.exe для Block NSZ сжатия (иначе нативный движок)
+        public bool SolidCompression { get; set; } = true;  // Использовать внешний nsz.exe для Block NSZ сжатия (иначе нативный движок)
         public bool AutoInject60FpsPatches { get; set; } = false; // Авто-инъекция патчей 60 FPS и твиков графики
         public bool EnableDlcCompletenessCheck { get; set; } = true; // Инспектор полноты дополнений (DLC Completeness)
         public List<string> KeepLanguages { get; set; } = new List<string> { "ru", "ru-RU", "en-US", "en-GB", "en" };

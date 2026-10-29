@@ -102,8 +102,19 @@ namespace StormSwitchBox.Services
         {
             if (App.Settings.Current.SolidCompression)
             {
-                await CompressSolidViaNszAsync(task, inputPath, outDir, cancellationToken);
-                return;
+                try
+                {
+                    await CompressSolidViaNszAsync(task, inputPath, outDir, cancellationToken);
+                    return;
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    App.Logger.Log($"[NSZ] nsz.exe fallback to native StormNczCompressor: {ex.Message}", Models.LogLevel.Warning);
+                    App.RunOnUI(() =>
+                    {
+                        task.LogDetails += "\n⚠️ [NSZ Fallback] Внешний nsz.exe завершился с предупреждением (" + ex.Message + "), переключение на нативный StormNczCompressor...";
+                    });
+                }
             }
             FileStream? fileStream = null;
             var tempStreams = new List<FileStream>();
@@ -921,7 +932,7 @@ namespace StormSwitchBox.Services
                     task.LogDetails += $"\n⚙️ [Worker Pool] Многопоточный пул: выделено {threadsPerWorker} потоков на задачу (Всего ядер: {totalCores})";
                 });
 
-                string args = $"-C -B -s 20 -l {level} -t {threadsPerWorker} --overwrite {keysParam} -o \"{tempCompressDir}\" \"{effectiveInputPath}\"".Trim();
+                string args = $"-C -B -L -s 20 -l {level} -t {threadsPerWorker} --overwrite {keysParam} -o \"{tempCompressDir}\" \"{effectiveInputPath}\"".Trim();
 
                 int exitCode = await ExternalProcessRunner.RunAsync(
                     nszExe,

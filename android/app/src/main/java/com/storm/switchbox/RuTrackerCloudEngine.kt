@@ -14,6 +14,7 @@ import java.net.ServerSocket
 import java.net.URL
 import java.net.URLEncoder
 import java.nio.charset.Charset
+import java.nio.charset.StandardCharsets
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 
@@ -581,7 +582,7 @@ object RuTrackerCloudEngine {
         val tidNum = (entry.titleId.takeLast(8).toLongOrNull(16) ?: 500000L)
         val topicId = (5200000L + (tidNum % 1399999L)).toString()
         val sha1 = java.security.MessageDigest.getInstance("SHA-1")
-            .digest("RUTRACKER_NSW_${entry.titleId}".toByteArray(Charsets.UTF_8))
+            .digest("RUTRACKER_NSW_${entry.titleId}".toByteArray(StandardCharsets.UTF_8))
             .joinToString("") { "%02X".format(it) }
         val dlcTag = if (entry.dlcCount > 0) " + ${entry.dlcCount} DLC" else ""
         val langTag = if (entry.ruSupport.contains("рус", ignoreCase = true)) "RUS / Multi" else "ENG / Multi"
@@ -766,7 +767,7 @@ object RuTrackerCloudEngine {
             try {
                 val conn = openConnection(feedUrl, proxyHost, proxyPort, timeoutMs = 1500)
                 if (conn.responseCode != 200) continue
-                val xml = conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+                val xml = conn.inputStream.bufferedReader(StandardCharsets.UTF_8).use { it.readText() }
                 val entryRegex = Regex("""<entry>(.*?)</entry>""", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
                 val titleRegex = Regex("""<title[^>]*><!\[CDATA\[(.*?)]]></title>|<title[^>]*>(.*?)</title>""", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
                 val linkRegex = Regex("""<link[^>]*href="([^"]*viewtopic\.php\?t=(\d+)[^"]*)" """, RegexOption.IGNORE_CASE)
@@ -1039,8 +1040,8 @@ object RuTrackerCloudEngine {
                         if (isProd || isTitle) {
                             val rawContent = zis.readBytes()
                             val finalBytes = if (isProd) {
-                                val header = "# STORM SWITCH KEYS: ${asset.version}\n".toByteArray(Charsets.UTF_8)
-                                keyCount = String(rawContent, Charsets.UTF_8).lines().count { it.contains("=") }
+                                val header = "# STORM SWITCH KEYS: ${asset.version}\n".toByteArray(StandardCharsets.UTF_8)
+                                keyCount = String(rawContent, StandardCharsets.UTF_8).lines().count { it.contains("=") }
                                 header + rawContent
                             } else {
                                 rawContent
@@ -1303,6 +1304,10 @@ object RuTrackerCloudEngine {
                 }
             } catch (_: Throwable) {}
         }
+        if (u.contains("pixeldrain.com/")) {
+            val id = Regex("""pixeldrain\.com/(?:u|api/file)/([A-Za-z0-9_-]+)""", RegexOption.IGNORE_CASE).find(u)?.groupValues?.get(1)
+            if (!id.isNullOrBlank()) return "https://pixeldrain.com/api/file/$id?download"
+        }
         if (u.contains("disk.yandex.", true) || u.contains("yadi.sk", true)) {
             val api = "https://cloud-api.yandex.net/v1/disk/public/resources/download?public_key=" + URLEncoder.encode(u, "UTF-8")
             val conn = openConnection(api)
@@ -1337,50 +1342,78 @@ object RuTrackerCloudEngine {
         modsRootDir: File,
         onProgress: (String) -> Unit
     ): CloudExtractedBundle {
-        onProgress("Разрешение прямой ссылки ($roleHint)...")
-        val directUrl = resolveCloudUrl(cloudUrl)
         romsDir.mkdirs()
         modsRootDir.mkdirs()
-
         val cleanTid = targetTitleId.replace(Regex("[^0-9A-Fa-f]"), "").uppercase().padEnd(16, '0').take(16)
-        val urlFileName = directUrl.substringBefore('?').substringAfterLast('/').ifBlank { "cloud_${roleHint.lowercase()}_${System.currentTimeMillis()}" }
-        val tempFile = File(modsRootDir, "dl_${System.currentTimeMillis()}_$urlFileName")
+        val candidateUrls = cloudUrl.split("|MIRROR|").map { it.trim() }.filter { it.isNotEmpty() }
+        var tempFile = File(modsRootDir, "dl_${System.currentTimeMillis()}_${roleHint.lowercase()}.zip")
+        var downloadedSuccessfully = false
 
-        onProgress("Скачивание ($roleHint)...")
-        var effectiveDlUrl = directUrl
-        var conn = openConnection(effectiveDlUrl)
-        conn.instanceFollowRedirects = true
+        for (candUrl in candidateUrls) {
+            try {
+                onProgress("?????????? ?????? ($roleHint): $candUrl...")
+                val directUrl = resolveCloudUrl(candUrl)
+                val urlFileName = directUrl.substringBefore('?').substringAfterLast('/').ifBlank { "cloud_${roleHint.lowercase()}_${System.currentTimeMillis()}" }
+                val candTempFile = File(modsRootDir, "dl_${System.currentTimeMillis()}_$urlFileName")
 
-        val cType = conn.contentType?.lowercase() ?: ""
-        if (cType.contains("text/html") || cType.contains("text/plain")) {
-            val html = conn.inputStream.bufferedReader().use { it.readText() }
-            if (html.contains("download-form") || html.contains("drive.usercontent.google.com") || html.contains("confirm=")) {
-                val actionMatch = Regex("""<form[^>]+id=["']download-form["'][^>]+action=["']([^"']+)["']""").find(html)
-                val formAction = actionMatch?.groupValues?.get(1) ?: "https://drive.usercontent.google.com/download"
-                val inputMatches = Regex("""<input[^>]+type=["']hidden["'][^>]+name=["']([^"']+)["'][^>]+value=["']([^"']*)["']""").findAll(html)
-                val qParams = mutableListOf<String>()
-                for (im in inputMatches) {
-                    qParams.add("${URLEncoder.encode(im.groupValues[1], "UTF-8")}=${URLEncoder.encode(im.groupValues[2], "UTF-8")}")
-                }
-                if (qParams.none { it.startsWith("confirm=") }) qParams.add("confirm=t")
-                effectiveDlUrl = formAction + (if (formAction.contains("?")) "&" else "?") + qParams.joinToString("&")
-                conn = openConnection(effectiveDlUrl)
+                onProgress("?????????? ($roleHint)...")
+                var effectiveDlUrl = directUrl
+                var conn = openConnection(effectiveDlUrl, timeoutMs = 20000)
                 conn.instanceFollowRedirects = true
-            }
+
+                val cType = conn.contentType?.lowercase() ?: ""
+                if (cType.contains("text/html") || cType.contains("text/plain")) {
+                    val html = conn.inputStream.bufferedReader().use { it.readText() }
+                    if (html.contains("download-form") || html.contains("drive.usercontent.google.com") || html.contains("confirm=")) {
+                        val actionMatch = Regex("""<form[^>]+id=["']download-form["'][^>]+action=["']([^"']+)["']""").find(html)
+                        val formAction = actionMatch?.groupValues?.get(1) ?: "https://drive.usercontent.google.com/download"
+                        val inputMatches = Regex("""<input[^>]+type=["']hidden["'][^>]+name=["']([^"']+)["'][^>]+value=["']([^"']*)["']""").findAll(html)
+                        val qParams = mutableListOf<String>()
+                        for (im in inputMatches) {
+                            qParams.add("${URLEncoder.encode(im.groupValues[1], "UTF-8")}=${URLEncoder.encode(im.groupValues[2], "UTF-8")}")
+                        }
+                        if (qParams.none { it.startsWith("confirm=") }) qParams.add("confirm=t")
+                        effectiveDlUrl = formAction + (if (formAction.contains("?")) "&" else "?") + qParams.joinToString("&")
+                        conn = openConnection(effectiveDlUrl, timeoutMs = 20000)
+                        conn.instanceFollowRedirects = true
+                    } else {
+                        continue
+                    }
+                }
+
+                conn.inputStream.use { input ->
+                    FileOutputStream(candTempFile).use { output ->
+                        val buf = ByteArray(64 * 1024)
+                        var total = 0L
+                        while (true) {
+                            val r = input.read(buf)
+                            if (r <= 0) break
+                            output.write(buf, 0, r)
+                            total += r
+                            onProgress("??????? ($roleHint): ${StormNczEngine.formatSize(total)}")
+                        }
+                    }
+                }
+
+                if (candTempFile.exists() && candTempFile.length() > 64) {
+                    val head = ByteArray(64)
+                    FileInputStream(candTempFile).use { it.read(head) }
+                    val headStr = String(head, StandardCharsets.US_ASCII)
+                    if (!headStr.startsWith("<!DOCTYPE", ignoreCase = true) && !headStr.startsWith("<html", ignoreCase = true)) {
+                        tempFile = candTempFile
+                        downloadedSuccessfully = true
+                        break
+                    } else {
+                        candTempFile.delete()
+                    }
+                } else {
+                    candTempFile.delete()
+                }
+            } catch (_: Exception) {}
         }
 
-        conn.inputStream.use { input ->
-            FileOutputStream(tempFile).use { output ->
-                val buf = ByteArray(64 * 1024)
-                var total = 0L
-                while (true) {
-                    val r = input.read(buf)
-                    if (r <= 0) break
-                    output.write(buf, 0, r)
-                    total += r
-                    onProgress("Скачано ($roleHint): ${StormNczEngine.formatSize(total)}")
-                }
-            }
+        if (!downloadedSuccessfully) {
+            return CloudExtractedBundle(emptyList(), emptyList(), 0)
         }
 
         val containerFiles = mutableListOf<File>()
@@ -1441,12 +1474,9 @@ object RuTrackerCloudEngine {
                                 extractedCount++
                             } else if (!rawPath.contains("__MACOSX") && lowerName !in setOf("thumbs.db", ".ds_store", "desktop.ini")) {
                                 val mappedSubPath = when {
-                                    rawPath.contains("romfs/", ignoreCase = true) ->
-                                        "romfs/" + rawPath.substringAfter("romfs/", rawPath.substringAfter("RomFS/", rawPath.substringAfter("ROMFS/", fName)))
-                                    rawPath.contains("exefs_patches/", ignoreCase = true) || ext == "pchtxt" ->
-                                        "exefs_patches/" + rawPath.substringAfter("exefs_patches/", fName)
-                                    rawPath.contains("exefs/", ignoreCase = true) || ext == "ips" || lowerName in setOf("main", "main.npdm", "rtld", "sdk") || lowerName.startsWith("subsdk") ->
-                                        "exefs/" + rawPath.substringAfter("exefs/", rawPath.substringAfter("ExeFS/", fName))
+                                    Regex("""(?:^|/)romfs/(.+)$""", RegexOption.IGNORE_CASE).find(rawPath) != null -> "romfs/" + Regex("""(?:^|/)romfs/(.+)$""", RegexOption.IGNORE_CASE).find(rawPath)!!.groupValues[1]
+                                    Regex("""(?:^|/)exefs_patches/(.+)$""", RegexOption.IGNORE_CASE).find(rawPath) != null || ext == "pchtxt" -> "exefs_patches/" + (Regex("""(?:^|/)exefs_patches/(.+)$""", RegexOption.IGNORE_CASE).find(rawPath)?.groupValues?.get(1) ?: fName)
+                                    Regex("""(?:^|/)exefs/(.+)$""", RegexOption.IGNORE_CASE).find(rawPath) != null || ext == "ips" || lowerName in setOf("main", "main.npdm", "rtld", "sdk") || lowerName.startsWith("subsdk") -> "exefs/" + (Regex("""(?:^|/)exefs/(.+)$""", RegexOption.IGNORE_CASE).find(rawPath)?.groupValues?.get(1) ?: fName)
                                     else -> "romfs/$rawPath"
                                 }
                                 val destMod = File(outAtmoDir, mappedSubPath)
@@ -1490,6 +1520,7 @@ object RuTrackerCloudEngine {
         }
 
         onProgress("Автоизвлечение завершено ($roleHint): файлов $extractedCount")
+        StormNczEngine.synchronizeCrossRegionLocalization(File(outAtmoDir, "romfs"))
         return CloudExtractedBundle(containerFiles, modDirs, extractedCount)
     }
 
@@ -1521,7 +1552,8 @@ object RuTrackerCloudEngine {
         val provider: String,
         val publishedDate: String, // dd.MM.yyyy HH:mm
         val sourceLocation: String, // "Шапка темы" / "Обсуждение (стр. N, @Автор)"
-        var selected: Boolean = false
+        var selected: Boolean = false,
+        var mirrorUrls: List<String> = emptyList()
     )
 
     private fun normalizeRuTrackerDate(rawDate: String): String {
@@ -1561,6 +1593,10 @@ object RuTrackerCloudEngine {
             u.contains("mega.nz") || u.contains("mega.co.nz") -> "Mega.nz"
             u.contains("mediafire.com") -> "MediaFire"
             u.contains("pixeldrain.com") -> "PixelDrain"
+            u.contains("cloud.mail.ru") -> "?????? Mail.ru"
+            u.contains("wdfiles.ru") -> "WDfiles"
+            u.contains("modsfire.com") -> "ModsFire"
+            u.contains("dropmefiles.com") -> "DropMeFiles"
             u.contains("1fichier.com") -> "1Fichier"
             u.contains("workupload.com") -> "WorkUpload"
             u.contains("gofile.io") -> "GoFile"
@@ -1889,7 +1925,7 @@ object RuTrackerCloudEngine {
                                 val raw4 = ByteArray(4)
                                 raf.seek(e.dataStartOffset + 0x200L)
                                 raf.readFully(raw4)
-                                val rawMagic = String(raw4, 0, 4, java.nio.charset.StandardCharsets.US_ASCII)
+                                val rawMagic = String(raw4, 0, 4, StandardCharsets.US_ASCII)
                                 val qMeta = StormNczEngine.readQuickNcaHeaderMeta(raf, e.dataStartOffset)
                                 if (rawMagic != "NCA3" && qMeta != null && qMeta.titleId.startsWith(tidPrefix13)) {
                                     isGenuineRetail = true
@@ -2828,7 +2864,7 @@ object RuTrackerCloudEngine {
                             filesArr.put(item)
                         }
                         tfl.put("files", filesArr)
-                        val body = tfl.toString().toByteArray(Charsets.UTF_8)
+                        val body = tfl.toString().toByteArray(StandardCharsets.UTF_8)
                         val hdr = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ${body.size}\r\n\r\n"
                         out.write(hdr.toByteArray())
                         out.write(body)
@@ -2839,7 +2875,7 @@ object RuTrackerCloudEngine {
                             sb.append("<li><a style='color:#00F0FF' href='/files/$enc'>${f.name}</a> (${StormNczEngine.formatSize(f.length())})</li>")
                         }
                         sb.append("</ul></body></html>")
-                        val body = sb.toString().toByteArray(Charsets.UTF_8)
+                        val body = sb.toString().toByteArray(StandardCharsets.UTF_8)
                         val hdr = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: ${body.size}\r\n\r\n"
                         out.write(hdr.toByteArray())
                         out.write(body)
