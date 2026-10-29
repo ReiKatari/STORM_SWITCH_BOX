@@ -108,7 +108,16 @@ class MainActivity : Activity() {
     private val settingsFile = File(stormRoot, "settings/settings.json")
 
     private var currentThemeIndex = 0
-    private var currentLangCode = "ru"
+    private fun detectDefaultLanguage(): String {
+        val sysLang = java.util.Locale.getDefault().language.lowercase()
+        return when (sysLang) {
+            "ru", "uk", "be", "kk" -> "ru"
+            "en", "de", "fr", "es", "it", "pt", "pl", "tr", "zh", "ja" -> sysLang
+            else -> "en"
+        }
+    }
+
+    private var currentLangCode = detectDefaultLanguage()
     private var activeTab = 0
     private var pendingRuTrackerSearchQuery: String = ""
     private var navScrollX = 0
@@ -214,13 +223,12 @@ class MainActivity : Activity() {
         ensureStormDirectories()
         loadSettings()
 
-        val sysLocale = Locale.getDefault().language.lowercase()
-        if (!settingsFile.exists() && languages.any { it.first == sysLocale }) {
-            currentLangCode = sysLocale
+        if (!settingsFile.exists()) {
+            currentLangCode = detectDefaultLanguage()
         }
 
         buildUserInterface()
-        appendLog("STORM SWITCH BOX ${"6.0.2"} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) готов к работе.")
+        appendLog("STORM SWITCH BOX ${"6.1.0"} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) готов к работе.")
 
         // Автоматическая проверка обновлений с GitHub при запуске
         if (autoCheckUpdatesOnStartup) {
@@ -361,7 +369,10 @@ class MainActivity : Activity() {
                 val themeId = json.optString("theme", "MIDNIGHT")
                 val idx = themes.indexOfFirst { it.id == themeId }
                 if (idx >= 0) currentThemeIndex = idx
-                currentLangCode = json.optString("lang", "ru")
+                val savedLang = json.optString("lang", "")
+                if (savedLang.isNotBlank() && languages.any { it.first == savedLang }) {
+                    currentLangCode = savedLang
+                }
                 selectedOperationMode = json.optInt("operationMode", 0).coerceIn(0, 4)
                 selectedCompressionMethod = json.optInt("compressionMethod", 0).coerceIn(0, 3)
                 selectedOutputFormat = json.optInt("outputFormat", 0).coerceIn(0, 6)
@@ -380,6 +391,16 @@ class MainActivity : Activity() {
                 if (savedOut.isNotBlank()) {
                     customOutputDir = File(savedOut)
                     customOutputDir.mkdirs()
+                }
+                val savedOutSwitch2 = json.optString("outputDirSwitch2", "")
+                if (savedOutSwitch2.isNotBlank()) {
+                    customSwitch2OutputDir = File(savedOutSwitch2)
+                    customSwitch2OutputDir.mkdirs()
+                }
+                val savedOut3ds = json.optString("outputDir3ds", "")
+                if (savedOut3ds.isNotBlank()) {
+                    custom3dsOutputDir = File(savedOut3ds)
+                    custom3dsOutputDir.mkdirs()
                 }
             }
         } catch (_: Exception) {}
@@ -645,11 +666,25 @@ class MainActivity : Activity() {
                 addView(popupCard, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
             }
 
+            val itemH = dp(38)
+            val maxPopupH = (items.size * itemH + dp(16)).coerceAtMost(dp(240))
             val popupWidth = (container.width + dp(8)).coerceAtLeast(dp(260))
+
+            val displayMetrics = resources.displayMetrics
+            val screenH = displayMetrics.heightPixels
+            val location = IntArray(2)
+            container.getLocationOnScreen(location)
+            val containerY = location[1]
+            val containerH = container.height
+
+            val spaceBelow = screenH - (containerY + containerH)
+            val spaceAbove = containerY
+            val openUpwards = spaceBelow < maxPopupH && spaceAbove > spaceBelow
+
             val popup = PopupWindow(
                 popupOuter,
                 popupWidth,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
+                maxPopupH,
                 true
             ).apply {
                 isOutsideTouchable = true
@@ -709,7 +744,11 @@ class MainActivity : Activity() {
                 listLinear.addView(itemRow)
             }
 
-            popup.showAsDropDown(container, 0, dp(4))
+            if (openUpwards) {
+                popup.showAsDropDown(container, 0, -(maxPopupH + containerH + dp(4)))
+            } else {
+                popup.showAsDropDown(container, 0, dp(4))
+            }
             hideSystemBars(window)
         }
 
@@ -752,7 +791,7 @@ class MainActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
         titleCol.addView(TextView(this).apply {
-            text = "STORM SWITCH BOX ${"6.0.2"}"
+            text = "STORM SWITCH BOX ${"6.1.0"}"
             setTextColor(th.textPrimary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
             typeface = Typeface.DEFAULT_BOLD
@@ -829,9 +868,10 @@ class MainActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
             isFillViewport = true
         }
+        val bottomPadding = if (activeTab == 0 || activeTab == 5) dp(110) else dp(32)
         contentContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), dp(10), dp(12), dp(14))
+            setPadding(dp(12), dp(10), dp(12), bottomPadding)
         }
 
         when (activeTab) {
@@ -866,12 +906,248 @@ class MainActivity : Activity() {
         mainScroll.addView(contentContainer)
         rootLayout.addView(mainScroll)
         setContentView(rootLayout)
+        translateUiTree(window.decorView, currentLangCode)
         hideSystemBars(window)
     }
 
     // =========================================================================
     // ВКЛАДКА 0: ОЧЕРЕДЬ ЗАДАЧ И КОНВЕРТЕР (ПАРИТЕТ С ПК)
     // =========================================================================
+
+    private fun getEffectiveOutputDirForFile(file: File): File {
+        val name = file.name
+        val path = file.absolutePath.replace('\\', '/')
+        // Switch 2: TitleID starting with 04, e.g. [04...] or in dump dir
+        val isSwitch2 = name.contains(Regex("""\[04[0-9a-fA-F]{14}\]""")) ||
+                path.contains("/roms_switch2/", ignoreCase = true) ||
+                file.nameWithoutExtension.startsWith("04")
+        if (isSwitch2) {
+            customSwitch2OutputDir.mkdirs()
+            return customSwitch2OutputDir
+        }
+
+        // 3DS: .3ds, .cia, .cxi, or roms_3ds
+        val ext = file.extension.lowercase()
+        val is3ds = ext in listOf("3ds", "cia", "cxi", "cci") || path.contains("/roms_3ds/", ignoreCase = true)
+        if (is3ds) {
+            custom3dsOutputDir.mkdirs()
+            return custom3dsOutputDir
+        }
+
+        customOutputDir.mkdirs()
+        return customOutputDir
+    }
+
+    private fun buildOutputFoldersCard(th: StormTheme): LinearLayout {
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = makeCardDrawable(th.bgCard, th.border)
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(10)
+            }
+        }
+
+        card.addView(makeSectionHeader(
+            "📁 Выходные папки сохранения по платформам",
+            "Настройте персональные целевые директории для Nintendo Switch, Nintendo Switch 2 и Nintendo 3DS",
+            th
+        ))
+
+        val platforms = listOf(
+            Triple(0, "🔴 Nintendo Switch", customOutputDir),
+            Triple(1, "🟣 Nintendo Switch 2", customSwitch2OutputDir),
+            Triple(2, "🔵 Nintendo 3DS", custom3dsOutputDir)
+        )
+
+        for ((mode, name, dir) in platforms) {
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                background = makeCardDrawable(th.bgElevated, th.border, radiusDp = 8)
+                setPadding(dp(10), dp(8), dp(10), dp(8))
+                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = dp(6)
+                }
+            }
+
+            val topTitle = TextView(this).apply {
+                text = name
+                setTextColor(th.accent)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
+                typeface = Typeface.DEFAULT_BOLD
+            }
+            row.addView(topTitle)
+
+            val pathTxt = TextView(this).apply {
+                text = dir.absolutePath
+                setTextColor(th.textPrimary)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+                maxLines = 2
+                ellipsize = TextUtils.TruncateAt.MIDDLE
+                setPadding(0, dp(2), 0, dp(6))
+            }
+            row.addView(pathTxt)
+
+            val btnRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+            }
+
+            btnRow.addView(makeButton("📂 Выбрать", th.accent) {
+                showSelectOutputFolderDialog(mode)
+            }.apply {
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    marginEnd = dp(6)
+                }
+            })
+
+            btnRow.addView(makeButton("🔄 Сброс", th.bgCard, th.textSecondary) {
+                when (mode) {
+                    1 -> { customSwitch2OutputDir = File(stormRoot, "roms_switch2"); customSwitch2OutputDir.mkdirs() }
+                    2 -> { custom3dsOutputDir = File(stormRoot, "roms_3ds"); custom3dsOutputDir.mkdirs() }
+                    else -> { customOutputDir = File(stormRoot, "output"); customOutputDir.mkdirs() }
+                }
+                saveSettings()
+                buildUserInterface()
+            }.apply {
+                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            })
+
+            row.addView(btnRow)
+            card.addView(row)
+        }
+
+        return card
+    }
+
+    private val TRANSLATION_MAP = mapOf(
+        "Очередь задач" to mapOf(
+            "en" to "Task Queue", "de" to "Aufgaben-Warteschlange", "fr" to "File de tâches",
+            "es" to "Cola de tareas", "it" to "Coda delle attività", "pt" to "Fila de tarefas",
+            "pl" to "Kolejka zadań", "tr" to "Görev Kuyruğu", "zh" to "任务队列", "ja" to "タスクキュー"
+        ),
+        "СБОРКА" to mapOf(
+            "en" to "BUILD", "de" to "ERSTELLEN", "fr" to "ASSEMBLAGE",
+            "es" to "COMPILAR", "it" to "ASSEMBLAGGIO", "pt" to "COMPILAÇÃO",
+            "pl" to "KOMPILACJA", "tr" to "DERLEME", "zh" to "构建", "ja" to "ビルド"
+        ),
+        "ИНСПЕКТОР" to mapOf(
+            "en" to "INSPECTOR", "de" to "INSPEKTOR", "fr" to "INSPECTEUR",
+            "es" to "INSPECTOR", "it" to "ISPETTORE", "pt" to "INSPETOR",
+            "pl" to "INSPEKTOR", "tr" to "DENETÇİ", "zh" to "检测器", "ja" to "インスペクター"
+        ),
+        "СЕТЬ / DBI" to mapOf(
+            "en" to "NETWORK / DBI", "de" to "NETZWERK / DBI", "fr" to "RÉSEAU / DBI",
+            "es" to "RED / DBI", "it" to "RETE / DBI", "pt" to "REDE / DBI",
+            "pl" to "SIEĆ / DBI", "tr" to "AĞ / DBI", "zh" to "网络 / DBI", "ja" to "ネットワーク / DBI"
+        ),
+        "НАСТРОЙКИ" to mapOf(
+            "en" to "SETTINGS", "de" to "EINSTELLUNGEN", "fr" to "PARAMÈTRES",
+            "es" to "AJUSTES", "it" to "IMPOSTAZIONI", "pt" to "CONFIGURAÇÕES",
+            "pl" to "USTAWIENIA", "tr" to "AYARLAR", "zh" to "设置", "ja" to "設定"
+        ),
+        "СПРАВКА" to mapOf(
+            "en" to "HELP", "de" to "HILFE", "fr" to "AIDE",
+            "es" to "AYUDA", "it" to "GUIDA", "pt" to "AJUDA",
+            "pl" to "POMOC", "tr" to "YARDIM", "zh" to "帮助", "ja" to "ヘルプ"
+        ),
+        "🔄 Обновить" to mapOf(
+            "en" to "🔄 Update", "de" to "🔄 Aktualisieren", "fr" to "🔄 Mettre à jour",
+            "es" to "🔄 Actualizar", "it" to "🔄 Aggiorna", "pt" to "🔄 Atualizar",
+            "pl" to "🔄 Aktualizuj", "tr" to "🔄 Güncelle", "zh" to "🔄 更新", "ja" to "🔄 更新"
+        ),
+        "Изменить папку" to mapOf(
+            "en" to "Change folder", "de" to "Ordner ändern", "fr" to "Changer de dossier",
+            "es" to "Cambiar carpeta", "it" to "Cambia cartella", "pt" to "Mudar pasta",
+            "pl" to "Zmień folder", "tr" to "Klasörü değiştir", "zh" to "更改文件夹", "ja" to "フォルダを変更"
+        ),
+        "📂 Выбрать" to mapOf(
+            "en" to "📂 Select", "de" to "📂 Auswählen", "fr" to "📂 Sélectionner",
+            "es" to "📂 Seleccionar", "it" to "📂 Seleziona", "pt" to "📂 Selecionar",
+            "pl" to "📂 Wybierz", "tr" to "📂 Seç", "zh" to "📂 选择", "ja" to "📂 選択"
+        ),
+        "🔄 Сброс" to mapOf(
+            "en" to "🔄 Reset", "de" to "🔄 Zurücksetzen", "fr" to "🔄 Réinitialiser",
+            "es" to "🔄 Restablecer", "it" to "🔄 Ripristina", "pt" to "🔄 Redefinir",
+            "pl" to "🔄 Reset", "tr" to "🔄 Sıfırla", "zh" to "🔄 重置", "ja" to "🔄 リセット"
+        ),
+        "Отмена" to mapOf(
+            "en" to "Cancel", "de" to "Abbrechen", "fr" to "Annuler",
+            "es" to "Cancelar", "it" to "Annulla", "pt" to "Cancelar",
+            "pl" to "Anuluj", "tr" to "İptal", "zh" to "取消", "ja" to "キャンセル"
+        ),
+        "По умолчанию" to mapOf(
+            "en" to "Default", "de" to "Standard", "fr" to "Par défaut",
+            "es" to "Por defecto", "it" to "Predefinito", "pt" to "Padrão",
+            "pl" to "Domyślne", "tr" to "Varsayılan", "zh" to "默认", "ja" to "デフォルト"
+        ),
+        "✅ Выбрать эту папку" to mapOf(
+            "en" to "✅ Select this folder", "de" to "✅ Diesen Ordner auswählen", "fr" to "✅ Choisir ce dossier",
+            "es" to "✅ Seleccionar esta carpeta", "it" to "✅ Seleziona questa cartella", "pt" to "✅ Selecionar esta pasta",
+            "pl" to "✅ Wybierz ten folder", "tr" to "✅ Bu klasörü seç", "zh" to "✅ 选择此文件夹", "ja" to "✅ このフォルダを選択"
+        ),
+        "Тема оформления:" to mapOf(
+            "en" to "Interface theme:", "de" to "Oberflächendesign:", "fr" to "Thème d'interface:",
+            "es" to "Tema de interfaz:", "it" to "Tema interfaccia:", "pt" to "Tema da interface:",
+            "pl" to "Motyw interfejsu:", "tr" to "Arayüz teması:", "zh" to "界面主题:", "ja" to "インターフェーステーマ:"
+        ),
+        "Язык интерфейса:" to mapOf(
+            "en" to "Interface language:", "de" to "Oberflächensprache:", "fr" to "Langue de l'interface:",
+            "es" to "Idioma de la interfaz:", "it" to "Lingua interfaccia:", "pt" to "Idioma da interface:",
+            "pl" to "Język interfejsu:", "tr" to "Arayüz dili:", "zh" to "界面语言:", "ja" to "インターフェース言語:"
+        ),
+        "📁 Выходные папки сохранения по платформам" to mapOf(
+            "en" to "📁 Output Folders by Platform", "de" to "📁 Ausgabeordner nach Plattform",
+            "fr" to "📁 Dossiers de sortie par plateforme", "es" to "📁 Carpetas de salida por plataforma",
+            "it" to "📁 Cartelle di destinazione per piattaforma", "pt" to "📁 Pastas de saída por plataforma",
+            "pl" to "📁 Foldery wyjściowe wg platform", "tr" to "📁 Platforma Göre Çıktı Klasörleri",
+            "zh" to "📁 按平台的输出文件夹", "ja" to "📁 プラットフォーム別出力フォルダ"
+        ),
+        "📋 Журнал операций и телеметрия" to mapOf(
+            "en" to "📋 Operation Log and Telemetry", "de" to "📋 Betriebsprotokoll und Telemetrie",
+            "fr" to "📋 Journal des opérations et télémétrie", "es" to "📋 Registro de operaciones y telemetría",
+            "it" to "📋 Registro delle operazioni e telemetria", "pt" to "📋 Registro de operações e telemetria",
+            "pl" to "📋 Dziennik operacji i telemetria", "tr" to "📋 İşlem Günlüğü ve Telemetri",
+            "zh" to "📋 操作日志与遥测", "ja" to "📋 操作ログとテレメトリ"
+        )
+    )
+
+    private fun translateText(src: String, lang: String): String {
+        if (lang == "ru" || src.isBlank()) return src
+        val trimmed = src.trim()
+        val direct = TRANSLATION_MAP[trimmed]?.get(lang)
+        if (direct != null) return if (src.startsWith(" ") || src.endsWith(" ")) src.replace(trimmed, direct) else direct
+        // Search inside map
+        for ((ruKey, trMap) in TRANSLATION_MAP) {
+            val trans = trMap[lang]
+            if (trans != null && trimmed.contains(ruKey)) {
+                return src.replace(ruKey, trans)
+            }
+        }
+        return src
+    }
+
+    private fun translateUiTree(view: View, lang: String) {
+        if (lang == "ru") return
+        when (view) {
+            is TextView -> {
+                val orig = view.text?.toString() ?: ""
+                if (orig.isNotEmpty()) {
+                    val tr = translateText(orig, lang)
+                    if (tr != orig) view.text = tr
+                }
+                val hint = view.hint?.toString() ?: ""
+                if (hint.isNotEmpty()) {
+                    val trHint = translateText(hint, lang)
+                    if (trHint != hint) view.hint = trHint
+                }
+            }
+            is ViewGroup -> {
+                for (i in 0 until view.childCount) {
+                    translateUiTree(view.getChildAt(i), lang)
+                }
+            }
+        }
+    }
 
     private fun buildConverterAndQueueTab(parent: LinearLayout, th: StormTheme) {
         // ГРУППА 1: Источники (Выбор множества отдельных файлов, папок, мульти-проводник и папка вывода)
@@ -926,25 +1202,8 @@ class MainActivity : Activity() {
         })
         sourceCard.addView(rowPick2)
 
-        // Папка сохранения (Выходная папка)
-        val outDirRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(8)
-            }
-        }
-        outDirRow.addView(TextView(this).apply {
-            text = "📂 Папка сохранения: ${customOutputDir.absolutePath}"
-            setTextColor(th.textSecondary)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        })
-        outDirRow.addView(makeButton("Изменить папку", th.bgElevated, th.textPrimary) {
-            showSelectOutputFolderDialog()
-        })
-        sourceCard.addView(outDirRow)
         parent.addView(sourceCard)
+        parent.addView(buildOutputFoldersCard(th))
 
         // ГРУППА 2: Умная очередь обработки (автоматическая группировка разных игр по TitleID и семействам как на ПК)
         val queueCard = LinearLayout(this).apply {
@@ -1776,7 +2035,8 @@ class MainActivity : Activity() {
                             val inFile = qItem.file
                             if (!inFile.exists()) continue
                             if (inFile.extension.equals("xci", ignoreCase = true)) {
-                                val trimmedCandidate = File(customOutputDir, "${inFile.nameWithoutExtension}.trimmed_tmp.xci")
+                                val targetOutDir = getEffectiveOutputDirForFile(inFile)
+                                val trimmedCandidate = File(targetOutDir, "${inFile.nameWithoutExtension}.trimmed_tmp.xci")
                                 val trimRes = StormNczEngine.smartShrinkRom(inFile, trimmedCandidate, cb)
                                 if (trimRes.compressedBytes in 1 until inFile.length()) {
                                     preparedInputs.add(trimmedCandidate)
@@ -1802,9 +2062,10 @@ class MainActivity : Activity() {
                             customIconPath = customIconImagePath,
                             iconBadgeText = if (selectedIconBadgeIndex > 0) iconBadgeOptions.getOrElse(selectedIconBadgeIndex) { "" } else ""
                         )
+                        val effectiveMultiOutDir = preparedInputs.firstOrNull()?.let { getEffectiveOutputDirForFile(it) } ?: customOutputDir
                         val res = StormNczEngine.buildSmartMultiContentPackage(
                             inputFiles = preparedInputs,
-                            outputDir = customOutputDir,
+                            outputDir = effectiveMultiOutDir,
                             targetFormatMode = selectedOutputFormat,
                             useBlockNcz = useBlockForFormat,
                             smartDedup = true,
@@ -1864,17 +2125,17 @@ class MainActivity : Activity() {
                         val res = when (selectedOperationMode) {
                             3 -> {
                                 val outExt = if (ext == "xcz" || ext == "xci") "xci" else "nsp"
-                                val outFile = File(customOutputDir, "${baseName}_unpacked.$outExt")
+                                val outFile = File(getEffectiveOutputDirForFile(inFile), "${baseName}_unpacked.$outExt")
                                 StormNczEngine.decompressNszOrXczToNsp(inFile, outFile, cb)
                             }
                             4 -> {
-                                val outFile = File(customOutputDir, "${baseName}_trimmed.$ext")
+                                val outFile = File(getEffectiveOutputDirForFile(inFile), "${baseName}_trimmed.$ext")
                                 StormNczEngine.smartShrinkRom(inFile, outFile, cb)
                             }
                             5 -> {
                                 val rep = StormNczEngine.extractGameRomfsAndExefs(
                                     inputFile = inFile,
-                                    targetBaseDir = customOutputDir,
+                                    targetBaseDir = getEffectiveOutputDirForFile(inFile),
                                     extractRomfs = extractRomfsEnabled,
                                     extractExefs = extractExefsEnabled,
                                     extractControl = extractControlEnabled,
@@ -2177,6 +2438,8 @@ class MainActivity : Activity() {
                 scanTargets.addAll(queuedFiles)
                 scanTargets.add(romsDir)
                 scanTargets.add(customOutputDir)
+                scanTargets.add(customSwitch2OutputDir)
+                scanTargets.add(custom3dsOutputDir)
                 val rep = StormNczEngine.auditLibraryFolder(scanTargets)
                 val text = buildString {
                     appendLine("📊 Результаты аудита коллекции:")
@@ -3352,7 +3615,7 @@ class MainActivity : Activity() {
                     "21. Nintendo Switch 2 (Ounce / NVN2)",
                     "Экосистемы",
                     "SWITCH 2",
-                    "STORM SWITCH BOX 6.0.2 включает полную поддержку следующего поколения игровых систем Nintendo — Nintendo Switch 2 (кодовое имя «Ounce» / API «NVN2»):\n" +
+                    "STORM SWITCH BOX 6.1.0 включает полную поддержку следующего поколения игровых систем Nintendo — Nintendo Switch 2 (кодовое имя «Ounce» / API «NVN2»):\n" +
                     "• Идентификация дампов: TitleID игр Switch 2 начинается с префикса «0400...» (в отличие от «0100...» у Switch 1), извлекаемый напрямую из main.npdm (заголовок META -> секция ACI0 + 0x10).\n" +
                     "• Авто-сборка из папок дампа: при перетаскивании каталога дампа Switch 2 (содержащего base/exefs/main.npdm, base/romfs, updates/<версия> и dlc/<tid>) программа автоматически объединяет базовую игру, самое свежее обновление, все DLC и моды в 1 монолитный контейнер (.nsp, .nsz, .xci, .xcz).\n" +
                     "• Авто-генерация Control NCA: создание control.nacp на 16 языках и получение официальной 256×256 обложки через Nintendo Europe Search API / Steam.\n" +
@@ -3365,7 +3628,7 @@ class MainActivity : Activity() {
                     "22. RuTracker: Чеклист ссылок обсуждения и DLC Unlocker",
                     "Сеть, Ключи и База",
                     "RUTRACKER",
-                    "В версии 6.0.2 усовершенствован модуль интеграции с RuTracker (#1605):\n" +
+                    "В версии 6.1.0 усовершенствован модуль интеграции с RuTracker (#1605):\n" +
                     "• Чеклист ссылок из темы обсуждения: все полезные ссылки (русификаторы, моды, патчи 60 FPS, читы), найденные в комментариях и шапке темы раздачи, отображаются с датами публикации сообщений.\n" +
                     "• Выборочная загрузка: можно отметить только нужные модификации чекбоксами перед стартом сборки.\n" +
                     "• DLC Unlocker: автоматическое управление анлокерами дополнений и синхронизация тикетов.",
@@ -3954,6 +4217,8 @@ class MainActivity : Activity() {
                         list.addAll(queuedFiles)
                         romsDir.listFiles()?.let { list.addAll(it) }
                         customOutputDir.listFiles()?.let { list.addAll(it) }
+                        customSwitch2OutputDir.listFiles()?.let { list.addAll(it) }
+                        custom3dsOutputDir.listFiles()?.let { list.addAll(it) }
                         list.distinctBy { it.canonicalPath }
                     },
                     onLog = { msg -> appendLog("[DBI HTTP] $msg") }
@@ -4104,6 +4369,7 @@ class MainActivity : Activity() {
         })
         keysCard.addView(localKeysRow)
         parent.addView(keysCard)
+        parent.addView(buildOutputFoldersCard(th))
 
         // ГРУППА 2: Автоматическое обновление приложения с GitHub
         val updCard = LinearLayout(this).apply {
@@ -4847,7 +5113,7 @@ class MainActivity : Activity() {
             Toast.makeText(this, "⏳ Проверка обновлений на GitHub и STORM GAMES WORLD...", Toast.LENGTH_SHORT).show()
         }
         val preferLegacy = (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) || Build.VERSION.SDK_INT < 26
-        val currentAppVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.0.2" } catch (_: Exception) { "6.0.2" }
+        val currentAppVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.1.0" } catch (_: Exception) { "6.1.0" }
         thread {
             val rel = RuTrackerCloudEngine.checkGitHubAppUpdate(currentAppVer, preferLegacy)
             mainHandler.post {
@@ -5765,6 +6031,8 @@ class MainActivity : Activity() {
                         list.addAll(queuedFiles)
                         romsDir.listFiles()?.let { list.addAll(it) }
                         customOutputDir.listFiles()?.let { list.addAll(it) }
+                        customSwitch2OutputDir.listFiles()?.let { list.addAll(it) }
+                        custom3dsOutputDir.listFiles()?.let { list.addAll(it) }
                         list.distinctBy { it.canonicalPath }
                     },
                     onLog = { msg -> appendLog("[3DS QR HTTP] $msg") }

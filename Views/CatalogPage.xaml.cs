@@ -199,9 +199,16 @@ namespace StormSwitchBox.Views
             ApplyCurrentFilter();
         }
 
-        private void ThreeDsPlatformButton_Click(object sender, RoutedEventArgs e)
+        private void Switch2PlatformButton_Click(object sender, RoutedEventArgs e)
         {
             _selectedPlatformFilter = 2;
+            UpdatePlatformButtons();
+            ApplyCurrentFilter();
+        }
+
+        private void ThreeDsPlatformButton_Click(object sender, RoutedEventArgs e)
+        {
+            _selectedPlatformFilter = 3;
             UpdatePlatformButtons();
             ApplyCurrentFilter();
         }
@@ -219,8 +226,11 @@ namespace StormSwitchBox.Views
             SwitchPlatformButton.Background = _selectedPlatformFilter == 1 ? accentBg : transparent;
             SwitchPlatformButton.Foreground = _selectedPlatformFilter == 1 ? accentFg : secondaryFg;
 
-            ThreeDsPlatformButton.Background = _selectedPlatformFilter == 2 ? accentBg : transparent;
-            ThreeDsPlatformButton.Foreground = _selectedPlatformFilter == 2 ? accentFg : secondaryFg;
+            Switch2PlatformButton.Background = _selectedPlatformFilter == 2 ? accentBg : transparent;
+            Switch2PlatformButton.Foreground = _selectedPlatformFilter == 2 ? accentFg : secondaryFg;
+
+            ThreeDsPlatformButton.Background = _selectedPlatformFilter == 3 ? accentBg : transparent;
+            ThreeDsPlatformButton.Foreground = _selectedPlatformFilter == 3 ? accentFg : secondaryFg;
         }
 
         private void ApplyCurrentFilter()
@@ -251,9 +261,13 @@ namespace StormSwitchBox.Views
                     // Filter by platform
                     if (_selectedPlatformFilter == 1) // Switch only
                     {
-                        itemsCopy = itemsCopy.Where(i => !i.Is3ds).ToList();
+                        itemsCopy = itemsCopy.Where(i => !i.Is3ds && !i.CheckIsSwitch2).ToList();
                     }
-                    else if (_selectedPlatformFilter == 2) // 3DS only
+                    else if (_selectedPlatformFilter == 2) // Switch 2 only
+                    {
+                        itemsCopy = itemsCopy.Where(i => i.CheckIsSwitch2).ToList();
+                    }
+                    else if (_selectedPlatformFilter == 3) // 3DS only
                     {
                         itemsCopy = itemsCopy.Where(i => i.Is3ds).ToList();
                     }

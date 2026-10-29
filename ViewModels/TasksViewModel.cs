@@ -66,6 +66,7 @@ public partial class TasksViewModel : ObservableObject
 			if (SetProperty(ref _selectedPlatform, value))
 			{
 				OnPropertyChanged(nameof(IsSwitchPlatformVisible));
+				OnPropertyChanged(nameof(IsSwitch2PlatformVisible));
 				OnPropertyChanged(nameof(Is3dsPlatformVisible));
 				OnPropertyChanged(nameof(CurrentPlatformLabel));
 				App.Settings.Current.SelectedPlatformIndex = value;
@@ -74,13 +75,19 @@ public partial class TasksViewModel : ObservableObject
 		}
 	}
 
-	public bool IsSwitchPlatformVisible => SelectedPlatform == 0;
-	public bool Is3dsPlatformVisible => SelectedPlatform == 1;
-	public string CurrentPlatformLabel => SelectedPlatform == 0 ? "Nintendo Switch" : "Nintendo 3DS";
+	public bool IsSwitchPlatformVisible => SelectedPlatform == 0 || SelectedPlatform == 1;
+	public bool IsSwitch2PlatformVisible => SelectedPlatform == 1;
+	public bool Is3dsPlatformVisible => SelectedPlatform == 2;
+	public string CurrentPlatformLabel => SelectedPlatform switch
+	{
+		1 => "🎮 Nintendo Switch 2",
+		2 => "🕹️ Nintendo 3DS",
+		_ => "🎮 Nintendo Switch"
+	};
 
 	public void TogglePlatform()
 	{
-		SelectedPlatform = SelectedPlatform == 0 ? 1 : 0;
+		SelectedPlatform = (SelectedPlatform + 1) % 3;
 	}
 
 	private string _currentPageType = "Multi";
@@ -1393,7 +1400,10 @@ public partial class TasksViewModel : ObservableObject
 							if (e) eFs = true;
 						}
 					}
-					bool isSwitch2 = (groupId?.StartsWith("0400") == true) || inputFiles.Any(f => Directory.Exists(f) && Switch2DumpHelper.IsSwitch2OrExtractedGameDumpDirectory(f));
+					bool isSwitch2 = (groupId?.StartsWith("04", StringComparison.OrdinalIgnoreCase) == true)
+						|| inputFiles.Any(f => (Directory.Exists(f) && Switch2DumpHelper.IsSwitch2OrExtractedGameDumpDirectory(f))
+							|| (File.Exists(f) && (Path.GetFileName(f).Contains("[04", StringComparison.OrdinalIgnoreCase)
+								|| System.Text.RegularExpressions.Regex.IsMatch(Path.GetFileName(f), @"\b04[0-9A-Fa-f]{14}\b"))));
 					string outFolder = isSwitch2
 						? (!string.IsNullOrEmpty(App.Settings.Current.OutputFolderSwitch2) ? App.Settings.Current.OutputFolderSwitch2 : (!string.IsNullOrEmpty(App.Settings.Current.LastOutPath_Switch2) ? App.Settings.Current.LastOutPath_Switch2 : App.Settings.Current.OutputFolder))
 						: (is3ds 
@@ -1416,6 +1426,7 @@ public partial class TasksViewModel : ObservableObject
 						GroupId = (groupId ?? ""),
 						Operation = _currentPageType,
 						SourceFormat = ext,
+						IsSwitch2Task = isSwitch2,
 						Is3dsTask = is3ds,
 						BuildMode = App.Settings.Current.MultiContentBuildMode,
 						TargetFormat = targetFmt,

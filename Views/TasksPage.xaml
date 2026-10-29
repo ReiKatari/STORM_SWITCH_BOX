@@ -49,7 +49,7 @@
             <AppBarElementContainer VerticalAlignment="Center" Margin="12,0">
                 <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                     <Button Click="PlatformToggle_Click" Height="34" Padding="10,0" CornerRadius="6"
-                            ToolTipService.ToolTip="Переключить платформу (Switch / 3DS)">
+                            ToolTipService.ToolTip="Переключить платформу (Switch / Switch 2 / 3DS)">
                         <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                             <FontIcon Glyph="&#xE7FC;" FontSize="12" Foreground="{ThemeResource SystemAccentColor}"/>
                             <TextBlock Text="{x:Bind ViewModel.CurrentPlatformLabel, Mode=OneWay}" FontWeight="SemiBold" FontSize="12"/>
@@ -57,7 +57,7 @@
                     </Button>
                     <ComboBox x:Name="FormatComboBox" SelectedIndex="{x:Bind ViewModel.SelectedFormatIndex, Mode=TwoWay}" Width="130" 
                               SelectionChanged="FormatComboBox_SelectionChanged"
-                              ToolTipService.ToolTip="Выходной формат для Switch"
+                              ToolTipService.ToolTip="Выходной формат для Switch / Switch 2"
                               Visibility="{x:Bind ViewModel.IsSwitchPlatformVisible, Mode=OneWay}">
                         <ComboBoxItem Content="NSP"/>
                         <ComboBoxItem Content="NSZ"/>

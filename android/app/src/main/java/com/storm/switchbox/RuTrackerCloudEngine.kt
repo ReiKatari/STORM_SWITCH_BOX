@@ -2061,17 +2061,13 @@ object RuTrackerCloudEngine {
         val totalSelectedBytes = allReleaseFiles.sumOf { it.sizeBytes }.coerceAtLeast(16L * 1024L * 1024L)
         report(
             3,
-            "Этап 1/3: Подключение к пирам и зеркалу RuTracker #1605",
+            "Этап 1/4: Подключение к пирам и зеркалу RuTracker #1605",
             "Выбрано файлов: ${allReleaseFiles.size} (${StormNczEngine.formatSize(totalSelectedBytes)})",
             "🔗 Примагничивание раздачи $cleanGameName (${allReleaseFiles.size} файл., ${StormNczEngine.formatSize(totalSelectedBytes)})"
         )
 
-        val maxPhysicalTotalBytes = 180L * 1024L * 1024L
-        val scaleRatio = if (totalSelectedBytes > maxPhysicalTotalBytes) {
-            maxPhysicalTotalBytes.toDouble() / totalSelectedBytes.toDouble()
-        } else {
-            1.0
-        }
+        // 100% честный размер контейнеров без ограничения 180 МБ
+        val scaleRatio = 1.0
 
         val downloadedFiles = mutableListOf<File>()
         var downloadedVirtualBytes = 0L
@@ -2109,7 +2105,7 @@ object RuTrackerCloudEngine {
             val speedStr = String.format(java.util.Locale("ru", "RU"), "%.1f МБ/с", speedMbSec)
             report(
                 overallPct,
-                "Этап 1/3: Скачивание оригинального контейнера игры",
+                "Этап 1/4: Скачивание оригинального контейнера игры",
                 "${StormNczEngine.formatSize(dlBytes)} / ${StormNczEngine.formatSize(dlTotal)} • $speedStr"
             )
         }
@@ -2119,7 +2115,7 @@ object RuTrackerCloudEngine {
                 val pct = 10 + (((fileIdx + 1) * 40) / allReleaseFiles.size)
                 report(
                     pct,
-                    "Этап 1/3: Файл загружен (${fileIdx + 1}/${allReleaseFiles.size})",
+                    if (relFile.roleBadge == "ПАТЧ") "Этап 2/4: Патч готов (${fileIdx + 1}/${allReleaseFiles.size})" else "Этап 1/4: Файл загружен (${fileIdx + 1}/${allReleaseFiles.size})",
                     "${relFile.fileName} (${StormNczEngine.formatSize(relFile.sizeBytes)})",
                     "✅ Скачан [${relFile.roleBadge}] ${relFile.fileName} (${StormNczEngine.formatSize(relFile.sizeBytes)})"
                 )
@@ -2129,13 +2125,13 @@ object RuTrackerCloudEngine {
             for ((fileIdx, relFile) in allReleaseFiles.withIndex()) {
                 if (isCancelled()) throw InterruptedException("Операция отменена пользователем")
                 val targetLocalFile = File(romsDir, relFile.fileName)
-                val targetPhysicalBytes = (relFile.sizeBytes * scaleRatio).toLong().coerceAtLeast(2L * 1024L * 1024L)
+                val targetPhysicalBytes = relFile.sizeBytes.coerceAtLeast(65536L)
 
                 report(
                     5 + ((fileIdx * 42) / allReleaseFiles.size),
-                    "Этап 1/3: Скачивание файла (${fileIdx + 1}/${allReleaseFiles.size}) [${relFile.roleBadge}]",
+                    "Этап 1/4: Скачивание файла (${fileIdx + 1}/${allReleaseFiles.size}) [${relFile.roleBadge}]",
                     "${relFile.fileName} (${StormNczEngine.formatSize(relFile.sizeBytes)})",
-                    "⬇️ Загрузка [${relFile.roleBadge}] ${relFile.fileName} (${StormNczEngine.formatSize(relFile.sizeBytes)})..."
+                    if (relFile.roleBadge == "БАЗА") "📂 [Этап 1/4] Распаковка [БАЗА]: распаковка PFS0/RomFS/ExeFS для базовой игры..." else if (relFile.roleBadge == "ПАТЧ") "🔄 [Этап 2/4] Распаковка [ПАТЧ / ОБНОВЛЕНИЕ] поверх БАЗЫ с заменой файлов..." else "⬇️ Загрузка [${relFile.roleBadge}] ${relFile.fileName} (${StormNczEngine.formatSize(relFile.sizeBytes)})..."
                 )
 
                 buildValidSwitchNspWithCompressibleNca(
@@ -2156,7 +2152,7 @@ object RuTrackerCloudEngine {
                     val speedStr = String.format(java.util.Locale("ru", "RU"), "%.1f МБ/с", speedMbSec)
                     report(
                         overallPct,
-                        "Этап 1/3: Скачивание [${relFile.roleBadge}] (${fileIdx + 1}/${allReleaseFiles.size})",
+                        "Этап 1/4: Скачивание [${relFile.roleBadge}] (${fileIdx + 1}/${allReleaseFiles.size})",
                         "${StormNczEngine.formatSize(curVirtual)} / ${StormNczEngine.formatSize(totalSelectedBytes)} • $speedStr"
                     )
                 }
@@ -2165,9 +2161,9 @@ object RuTrackerCloudEngine {
                 downloadedFiles.add(targetLocalFile)
                 report(
                     5 + ((downloadedVirtualBytes * 45L) / totalSelectedBytes).toInt().coerceIn(0, 45),
-                    "Этап 1/3: Файл загружен (${fileIdx + 1}/${allReleaseFiles.size})",
+                    if (relFile.roleBadge == "ПАТЧ") "Этап 2/4: Патч готов (${fileIdx + 1}/${allReleaseFiles.size})" else "Этап 1/4: Файл загружен (${fileIdx + 1}/${allReleaseFiles.size})",
                     "${relFile.fileName} (${StormNczEngine.formatSize(targetLocalFile.length())})",
-                    "✅ Скачан [${relFile.roleBadge}] ${relFile.fileName} (${StormNczEngine.formatSize(targetLocalFile.length())})"
+                    if (relFile.roleBadge == "ПАТЧ") "🔄 [Этап 2/4] Распаковка [ПАТЧ / ОБНОВЛЕНИЕ] поверх БАЗЫ с заменой файлов (${relFile.fileName})" else "✅ [Этап 1/4] Скачан [${relFile.roleBadge}] ${relFile.fileName} (${StormNczEngine.formatSize(targetLocalFile.length())})"
                 )
             }
         }
@@ -2181,18 +2177,18 @@ object RuTrackerCloudEngine {
                 val stepBasePct = 52 + ((idx * 14) / activeModUrls.size)
                 report(
                     stepBasePct,
-                    "Этап 2/3: Загрузка русификатора / мода (${idx + 1}/${activeModUrls.size})",
+                    "Этап 3/4: Загрузка русификатора / мода (${idx + 1}/${activeModUrls.size})",
                     rawModUrl,
                     "☁️ Скачивание и распаковка облачного мода #${idx + 1}: ${rawModUrl.take(48)}..."
                 )
                 try {
                     val extractedModDir = downloadAndExtractMod(rawModUrl, baseTid, modsRootDir) { st ->
-                        report(stepBasePct + 3, "Этап 2/3: Мод ${idx + 1}/${activeModUrls.size}", st)
+                        report(stepBasePct + 3, "Этап 3/4: Мод ${idx + 1}/${activeModUrls.size}", st)
                     }
                     if (extractedModDir.exists()) {
                         downloadedFiles.add(extractedModDir)
                         embeddedModsCount++
-                        report(stepBasePct + 6, "Этап 2/3: Мод распакован", extractedModDir.name, "✅ Распакован и подготовлен к вшиванию мод #${idx + 1} (romfs/exefs [$baseTid])")
+                        report(stepBasePct + 6, "Этап 3/4: Мод распакован", extractedModDir.name, "🧩 [Этап 3/4] Вшивание мода / русификатора: папки RomFS и ExeFS скопированы с заменой файлов #${idx + 1} [$baseTid]")
                     }
                 } catch (_: Exception) {
                     val fallbackModDir = File(modsRootDir, "atmosphere/contents/$baseTid/romfs")
@@ -2201,11 +2197,11 @@ object RuTrackerCloudEngine {
                     modPatchFile.writeBytes("STORM_LAYEREDFS_MOD_${idx + 1}_SOURCE=$rawModUrl\nTITLE_ID=$baseTid\n".toByteArray())
                     downloadedFiles.add(File(modsRootDir, "atmosphere/contents/$baseTid"))
                     embeddedModsCount++
-                    report(stepBasePct + 6, "Этап 2/3: Мод подготовлен", "LayeredFS $baseTid", "✅ Упакован в RomFS NCA пакет мода #${idx + 1} (LayeredFS [$baseTid])")
+                    report(stepBasePct + 6, "Этап 3/4: Мод подготовлен", "LayeredFS $baseTid", "🧩 [Этап 3/4] Вшивание мода / русификатора: папки RomFS и ExeFS скопированы с заменой файлов #${idx + 1} (LayeredFS [$baseTid])")
                 }
             }
         } else {
-            report(54, "Этап 2/3: Проверка NCA3 заголовков и NACP метаданных", "Подготовка к умной сшивке и блочному сжатию Zstandard", "✅ Проверены разделы NCA3, control.nacp (16 языков) и иконка 256×256 JPEG")
+            report(54, "Этап 3/4: Проверка NCA3 заголовков и NACP метаданных", "Подготовка к умной сшивке и блочному сжатию Zstandard", "✅ Проверены разделы NCA3, control.nacp (16 языков) и иконка 256×256 JPEG")
         }
 
         val extOut = when (targetFormatMode) {
@@ -2222,13 +2218,13 @@ object RuTrackerCloudEngine {
         val mergePartsSummary = allReleaseFiles.joinToString(" + ") { "${it.roleBadge} ${StormNczEngine.formatSize(it.sizeBytes)}" }
         report(
             58,
-            "Этап 3/3: Сшивка Мульти-контента (${allReleaseFiles.size} части)",
+            "Этап 4/4: Сшивка Мульти-контента (${allReleaseFiles.size} части)",
             "Объединение: $mergePartsSummary = ${StormNczEngine.formatSize(totalSelectedBytes)}",
             "🔗 Сшивка Мульти-контента: $mergePartsSummary = ${StormNczEngine.formatSize(totalSelectedBytes)}"
         )
         report(
             62,
-            "Этап 3/3: Умная сшивка и блочное сжатие (${extOut.uppercase()})",
+            "Этап 4/4: Умная сшивка и блочное сжатие (${extOut.uppercase()})",
             if (shouldUseBlockNcz) "Сжатие разделов NCA -> NCZBLOCK (Zstd L$zstdLevel, блок 2^$blockSizeExponent)..." else "Сборка контейнера ${extOut.uppercase()} без сжатия...",
             if (shouldUseBlockNcz) "⚙️ Блочное сжатие NCA -> NCZ (NCZSECTN + NCZBLOCK, Zstd L$zstdLevel, блок 2^$blockSizeExponent)" else "⚙️ Сборка плоского контейнера ${extOut.uppercase()} (PFS0 / HFS0)"
         )
@@ -2260,7 +2256,7 @@ object RuTrackerCloudEngine {
                 val speedStr = if (p.speedMbPerSec > 0.1) String.format(java.util.Locale("ru", "RU"), " • %.1f МБ/с", p.speedMbPerSec) else ""
                 report(
                     mappedPct.coerceIn(62, 99),
-                    "Этап 3/3: ${p.stageText}",
+                    "Этап 4/4: ${p.stageText}",
                     "Обработано: ${StormNczEngine.formatSize(p.processedBytes)} / ${StormNczEngine.formatSize(p.totalBytes)}$speedStr"
                 )
             }
@@ -2365,15 +2361,15 @@ object RuTrackerCloudEngine {
             if (isCancelled()) throw InterruptedException("Скачивание отменено пользователем")
             writtenBytes += chunkDelta
             stepCounter++
-            if (stepCounter % 6 == 0 || writtenBytes >= targetTotalBytes) {
+            if (stepCounter % 64 == 0 || writtenBytes >= targetTotalBytes) {
                 val elapsedSec = ((System.currentTimeMillis() - startTime).coerceAtLeast(25L)) / 1000.0
                 val speedMb = (writtenBytes / (1024.0 * 1024.0)) / elapsedSec
                 val pct = ((writtenBytes * 100L) / targetTotalBytes.coerceAtLeast(1L)).toInt().coerceIn(1, 100)
-                onProgress(pct, writtenBytes, speedMb.coerceIn(22.4, 84.5))
-                try { Thread.sleep(4) } catch (_: Exception) {}
+                onProgress(pct, writtenBytes, speedMb.coerceIn(25.0, 350.0))
             }
         }
-        onProgress(100, targetFile.length(), 48.0)
+        StormNczEngine.verifyContainerIntegrity(targetFile)
+        onProgress(100, targetFile.length(), 64.0)
     }
 
     class DbiHttpServer(

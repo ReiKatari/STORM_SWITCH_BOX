@@ -35,11 +35,24 @@ namespace StormSwitchBox.Models
         [NotifyPropertyChangedFor(nameof(FileFormat))]
         private string _platform = "Switch";
 
-        public string PlatformBadgeText => (Is3ds || Platform == "3DS" || Platform == "Nintendo 3DS") ? "Nintendo 3DS" : "Nintendo Switch";
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(PlatformBadgeText))]
+        [NotifyPropertyChangedFor(nameof(PlatformBadgeGlyph))]
+        [NotifyPropertyChangedFor(nameof(PlatformBadgeBackground))]
+        [NotifyPropertyChangedFor(nameof(FileFormat))]
+        private bool _isSwitch2 = false;
+
+        public bool CheckIsSwitch2 => IsSwitch2 || Platform == "Switch 2" || Platform == "Nintendo Switch 2" || (TitleId != null && TitleId.StartsWith("04", StringComparison.OrdinalIgnoreCase));
+
+        public string PlatformBadgeText => (Is3ds || Platform == "3DS" || Platform == "Nintendo 3DS") 
+            ? "Nintendo 3DS" 
+            : (CheckIsSwitch2 ? "Nintendo Switch 2" : "Nintendo Switch");
         public string PlatformBadgeGlyph => (Is3ds || Platform == "3DS" || Platform == "Nintendo 3DS") ? "\uE8EA" : "\uE7FC";
         public Microsoft.UI.Xaml.Media.SolidColorBrush PlatformBadgeBackground => (Is3ds || Platform == "3DS" || Platform == "Nintendo 3DS") 
             ? new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(230, 211, 47, 47))
-            : new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(230, 0, 120, 215));
+            : (CheckIsSwitch2 
+                ? new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(230, 142, 68, 173))
+                : new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(230, 0, 120, 215)));
 
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(RegionsVisibility))]

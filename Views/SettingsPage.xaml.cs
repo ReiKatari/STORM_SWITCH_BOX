@@ -851,7 +851,7 @@ namespace StormSwitchBox.Views
             }
         }
 
-        // ===== Переключение вкладок параметров (Общие / Switch / 3DS) =====
+        // ===== Переключение вкладок параметров (Общие / Switch / Switch 2 / 3DS) =====
         private void GeneralTabButton_Click(object sender, RoutedEventArgs e)
         {
             SelectTab(0);
@@ -862,9 +862,14 @@ namespace StormSwitchBox.Views
             SelectTab(1);
         }
 
-        private void ThreeDsTabButton_Click(object sender, RoutedEventArgs e)
+        private void Switch2TabButton_Click(object sender, RoutedEventArgs e)
         {
             SelectTab(2);
+        }
+
+        private void ThreeDsTabButton_Click(object sender, RoutedEventArgs e)
+        {
+            SelectTab(3);
         }
 
         private void SelectTab(int index)
@@ -873,7 +878,8 @@ namespace StormSwitchBox.Views
 
             GeneralSettingsPanel.Visibility = index == 0 ? Visibility.Visible : Visibility.Collapsed;
             SwitchSettingsPanel.Visibility = index == 1 ? Visibility.Visible : Visibility.Collapsed;
-            ThreeDsSettingsPanel.Visibility = index == 2 ? Visibility.Visible : Visibility.Collapsed;
+            Switch2SettingsPanel.Visibility = index == 2 ? Visibility.Visible : Visibility.Collapsed;
+            ThreeDsSettingsPanel.Visibility = index == 3 ? Visibility.Visible : Visibility.Collapsed;
 
             var accentBrush = Application.Current.Resources["SystemControlHighlightAccentBrush"] as Microsoft.UI.Xaml.Media.Brush 
                 ?? new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.DodgerBlue);
@@ -890,9 +896,13 @@ namespace StormSwitchBox.Views
             SwitchTabButton.BorderThickness = new Thickness(index == 1 ? 2 : 1);
             SwitchTabIcon.Foreground = index == 1 ? accentBrush : secondaryTextBrush;
 
-            ThreeDsTabButton.BorderBrush = index == 2 ? accentBrush : defaultBrush;
-            ThreeDsTabButton.BorderThickness = new Thickness(index == 2 ? 2 : 1);
-            ThreeDsTabIcon.Foreground = index == 2 ? accentBrush : secondaryTextBrush;
+            Switch2TabButton.BorderBrush = index == 2 ? accentBrush : defaultBrush;
+            Switch2TabButton.BorderThickness = new Thickness(index == 2 ? 2 : 1);
+            Switch2TabIcon.Foreground = index == 2 ? accentBrush : secondaryTextBrush;
+
+            ThreeDsTabButton.BorderBrush = index == 3 ? accentBrush : defaultBrush;
+            ThreeDsTabButton.BorderThickness = new Thickness(index == 3 ? 2 : 1);
+            ThreeDsTabIcon.Foreground = index == 3 ? accentBrush : secondaryTextBrush;
         }
 
         private async void LanguageCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -915,6 +925,7 @@ namespace StormSwitchBox.Views
             if (PageTitleText != null) PageTitleText.Text = loc["Settings_Title"];
             if (GeneralTabText != null) GeneralTabText.Text = loc["Settings_Tab_General"];
             if (SwitchTabText != null) SwitchTabText.Text = loc["Settings_Tab_Switch"];
+            if (Switch2TabText != null) Switch2TabText.Text = "Nintendo Switch 2";
             if (ThreeDsTabText != null) ThreeDsTabText.Text = loc["Settings_Tab_3ds"];
 
             // General Panel
