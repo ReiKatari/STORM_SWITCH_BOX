@@ -1418,59 +1418,8 @@ namespace StormSwitchBox.Services
 
         public static List<CloudModLinkItem> BuildFallbackDiscussionLinks(string topicId, string topicTitle)
         {
-            var list = new List<CloudModLinkItem>();
-            string slug = Regex.Replace(topicTitle ?? "switch-game", @"[^a-zA-Z0-9]+", "-").Trim('-').ToLowerInvariant();
-            if (slug.Length > 16) slug = slug.Substring(0, 16);
-            if (string.IsNullOrEmpty(slug)) slug = "switch-game";
-            string suffix = topicId.Length >= 4 ? topicId.Substring(topicId.Length - 4) : "1605";
-
-            list.Add(new CloudModLinkItem
-            {
-                IsSelected = false,
-                Title = "Отдельный патч / Обновление игры (Яндекс.Диск)",
-                Url = $"https://disk.yandex.ru/d/{slug}-upd-{suffix}",
-                Provider = "Яндекс.Диск",
-                PublishedDate = "24.10.2026 18:40",
-                SourceLocation = "Обсуждение (стр. 2 • @SwitchUpdater)",
-                RoleCategory = "ОБНОВЛЕНИЕ"
-            });
-            list.Add(new CloudModLinkItem
-            {
-                IsSelected = false,
-                Title = "Русификатор текста и мод RomFS / ExeFS (Google Drive)",
-                Url = $"https://drive.google.com/file/d/1{slug.Replace("-", "")}{suffix}/view",
-                Provider = "Google Drive",
-                PublishedDate = "21.10.2026 21:15",
-                SourceLocation = "Шапка темы",
-                RoleCategory = "МОД / РУСИФИКАТОР"
-            });
-            if (Regex.IsMatch(topicTitle ?? "", @"\b(DLC|All DLC|Season Pass)\b", RegexOptions.IgnoreCase))
-            {
-                list.Add(new CloudModLinkItem
-                {
-                    IsSelected = false,
-                    Title = "Набор дополнений DLC Pack (Mega.nz)",
-                    Url = $"https://mega.nz/file/{slug}DLC{suffix}",
-                    Provider = "Mega.nz",
-                    PublishedDate = "19.10.2026 14:10",
-                    SourceLocation = "Обсуждение (стр. 1 • @NintendoClub)",
-                    RoleCategory = "DLC"
-                });
-            }
-            if (Regex.IsMatch(topicTitle ?? "", @"\b(Unlocker|Анлокер|All DLC)\b", RegexOptions.IgnoreCase))
-            {
-                list.Add(new CloudModLinkItem
-                {
-                    IsSelected = false,
-                    Title = "DLC Unlocker — разблокировка всех дополнений (Яндекс.Диск)",
-                    Url = $"https://disk.yandex.ru/d/{slug}-unlocker-{suffix}",
-                    Provider = "Яндекс.Диск",
-                    PublishedDate = "18.10.2026 11:05",
-                    SourceLocation = "Обсуждение (стр. 1 • @ModMaker)",
-                    RoleCategory = "UNLOCKER"
-                });
-            }
-            return list;
+            // Возвращаем пустой список, чтобы исключить фиктивные ссылки-заглушки
+            return new List<CloudModLinkItem>();
         }
 
         public static string? ClassifyCloudModProvider(string url)
@@ -1914,6 +1863,49 @@ namespace StormSwitchBox.Services
             using var resp = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
             resp.EnsureSuccessStatusCode();
 
+            string mediaType = resp.Content.Headers.ContentType?.MediaType?.ToLowerInvariant() ?? "";
+            if (mediaType.Contains("text/html") || mediaType.Contains("text/plain"))
+            {
+                string htmlContent = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                // Проверяем страницу предупреждения Google Drive о сканировании на вирусы
+                if (htmlContent.Contains("download-form") || htmlContent.Contains("drive.usercontent.google.com") || htmlContent.Contains("confirm="))
+                {
+                    var formMatch = Regex.Match(htmlContent, @"<form[^>]+id=[""']download-form[""'][^>]+action=[""']([^""']+)[""']");
+                    string formAction = formMatch.Success ? System.Net.WebUtility.HtmlDecode(formMatch.Groups[1].Value) : "https://drive.usercontent.google.com/download";
+
+                    var inputs = Regex.Matches(htmlContent, @"<input[^>]+type=[""']hidden[""'][^>]+name=[""']([^""']+)[""'][^>]+value=[""']([^""']*)[""']");
+                    var queryParams = new List<string>();
+                    foreach (Match m in inputs)
+                    {
+                        queryParams.Add(Uri.EscapeDataString(m.Groups[1].Value) + "=" + Uri.EscapeDataString(System.Net.WebUtility.HtmlDecode(m.Groups[2].Value)));
+                    }
+                    if (!queryParams.Any(q => q.StartsWith("confirm=")))
+                    {
+                        queryParams.Add("confirm=t");
+                    }
+                    string finalDlUrl = formAction + (formAction.Contains("?") ? "&" : "?") + string.Join("&", queryParams);
+
+                    using var secondResp = await client.GetAsync(finalDlUrl, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+                    secondResp.EnsureSuccessStatusCode();
+
+                    long total2 = secondResp.Content.Headers.ContentLength ?? -1;
+                    await using var netStream2 = await secondResp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+                    await using var fileStream2 = new FileStream(destPath, FileMode.Create, FileAccess.Write, FileShare.None, 65536, useAsync: true);
+
+                    byte[] buffer2 = new byte[65536];
+                    long readTotal2 = 0;
+                    int read2;
+                    while ((read2 = await netStream2.ReadAsync(buffer2, ct).ConfigureAwait(false)) > 0)
+                    {
+                        await fileStream2.WriteAsync(buffer2.AsMemory(0, read2), ct).ConfigureAwait(false);
+                        readTotal2 += read2;
+                        if (total2 > 0)
+                            onProgress(readTotal2 * 100.0 / total2);
+                    }
+                    return;
+                }
+            }
+
             long total = resp.Content.Headers.ContentLength ?? -1;
             await using var netStream = await resp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
             await using var fileStream = new FileStream(destPath, FileMode.Create, FileAccess.Write, FileShare.None, 65536, useAsync: true);
@@ -1932,26 +1924,40 @@ namespace StormSwitchBox.Services
 
         private static async Task ExtractArchiveWith7zAsync(string archivePath, string extractDir, CancellationToken ct)
         {
-            string sevenZip = Path.Combine(AppContext.BaseDirectory, "tools", "7z", "7za.exe");
-            if (!File.Exists(sevenZip))
-            {
-                System.IO.Compression.ZipFile.ExtractToDirectory(archivePath, extractDir, overwriteFiles: true);
-                return;
-            }
-
-            var psi = new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = sevenZip,
-                Arguments = $"x \"{archivePath}\" -o\"{extractDir}\" -y",
-                CreateNoWindow = true,
-                UseShellExecute = false
+            string[] candidatePaths = {
+                Path.Combine(AppContext.BaseDirectory, "tools", "7z.exe"),
+                Path.Combine(AppContext.BaseDirectory, "tools", "7z", "7za.exe"),
+                Path.Combine(AppContext.BaseDirectory, "..", "tools", "7z.exe"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "7-Zip", "7z.exe"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "7-Zip", "7z.exe")
             };
 
-            using var proc = System.Diagnostics.Process.Start(psi);
-            if (proc != null)
+            string? sevenZip = candidatePaths.FirstOrDefault(File.Exists);
+
+            if (sevenZip != null)
             {
-                await proc.WaitForExitAsync(ct).ConfigureAwait(false);
+                var psi = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = sevenZip,
+                    Arguments = $"x \"{archivePath}\" -o\"{extractDir}\" -y",
+                    CreateNoWindow = true,
+                    UseShellExecute = false
+                };
+
+                using var proc = System.Diagnostics.Process.Start(psi);
+                if (proc != null)
+                {
+                    await proc.WaitForExitAsync(ct).ConfigureAwait(false);
+                    return;
+                }
             }
+
+            // Fallback: распаковка стандартным ZipFile
+            try
+            {
+                System.IO.Compression.ZipFile.ExtractToDirectory(archivePath, extractDir, overwriteFiles: true);
+            }
+            catch { }
         }
 
         /// <summary>

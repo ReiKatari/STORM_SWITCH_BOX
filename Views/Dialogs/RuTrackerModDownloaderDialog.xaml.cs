@@ -631,10 +631,49 @@ namespace StormSwitchBox.Views.Dialogs
                     {
                         newestTask.IsRuTrackerTask = true;
                         newestTask.DeleteSourceAfterVerify = deleteRtSource;
+
+                        // Гарантируем, что все найденные полезные нагрузки модов присутствуют в InputFiles
+                        foreach (var payload in discoveredModPayloads)
+                        {
+                            if (!newestTask.InputFiles.Contains(payload, StringComparer.OrdinalIgnoreCase))
+                            {
+                                newestTask.InputFiles.Add(payload);
+                                newestTask.FilesList.Add(Path.GetFileName(payload));
+                            }
+                        }
+
+                        bool hasRfs = newestTask.HasRomFs == "1" || newestTask.HasRomFs == "Да";
+                        bool hasEfs = newestTask.HasExeFs == "1" || newestTask.HasExeFs == "Да";
+
+                        foreach (var p in newestTask.InputFiles)
+                        {
+                            string fn = Path.GetFileName(p).ToLowerInvariant();
+                            if (fn == "romfs" || fn.EndsWith(".romfs") || fn == "romfs.bin" || fn.EndsWith(".pak") || fn.EndsWith(".sarc.zs") || fn.EndsWith(".sarc") || fn.EndsWith(".zs"))
+                                hasRfs = true;
+                            if (fn == "exefs" || fn == "exefs_patches" || fn.EndsWith(".ips") || fn.EndsWith(".pchtxt") || fn.EndsWith(".bps"))
+                                hasEfs = true;
+                        }
+
+                        if (hasRfs) newestTask.HasRomFs = "Да";
+                        if (hasEfs) newestTask.HasExeFs = "Да";
+
                         if (!string.IsNullOrWhiteSpace(customModTitle))
                         {
                             if (newestTask.HasRomFs == "Да") newestTask.ModNameRomFs = customModTitle;
                             if (newestTask.HasExeFs == "Да") newestTask.ModNameExeFs = customModTitle;
+                        }
+
+                        if (discoveredModPayloads.Count > 0 || newestTask.InputFiles.Count > 1 || hasRfs || hasEfs)
+                        {
+                            if (newestTask.Operation != "Homebrew" && newestTask.Operation != "Verify" && newestTask.Operation != "Unpack")
+                            {
+                                newestTask.Operation = "Multi";
+                                newestTask.SourceFormat = "MULTI";
+                            }
+                            string formattedName = MultiContentService.FormatOutputFileName(
+                                Path.Combine(newestTask.OutputFolder, newestTask.OutputFileName + newestTask.GetPrimaryExtension()), 
+                                newestTask.InputFiles);
+                            newestTask.OutputFileName = Path.GetFileNameWithoutExtension(formattedName);
                         }
                     }
 
@@ -683,7 +722,7 @@ namespace StormSwitchBox.Views.Dialogs
                 }
 
                 string name = Path.GetFileName(payload).ToLowerInvariant();
-                if (name == "romfs" || name.EndsWith(".romfs") || name == "romfs.bin")
+                if (name == "romfs" || name.EndsWith(".romfs") || name == "romfs.bin" || name.EndsWith(".pak") || name.EndsWith(".sarc.zs") || name.EndsWith(".sarc") || name.EndsWith(".zs"))
                     addedRomFs = true;
                 else if (name == "exefs" || name == "exefs_patches" || name.EndsWith(".ips") || name.EndsWith(".pchtxt") || name.EndsWith(".bps"))
                     addedExeFs = true;
@@ -727,9 +766,10 @@ namespace StormSwitchBox.Views.Dialogs
             }
 
             task.FilesCount = task.InputFiles.Count.ToString();
-            if (task.InputFiles.Count > 1 && task.Operation != "Homebrew")
+            if ((addedRomFs || addedExeFs || modPayloads.Count > 0 || task.InputFiles.Count > 1) && task.Operation != "Homebrew" && task.Operation != "Verify" && task.Operation != "Unpack")
             {
                 task.Operation = "Multi";
+                task.SourceFormat = "MULTI";
             }
 
             task.LogDetails += $"\n[CloudMod] Привязано элементов: {modPayloads.Count} из {downloadDir}";

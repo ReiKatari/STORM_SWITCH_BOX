@@ -146,17 +146,29 @@ namespace StormSwitchBox.Services
                 string listFile = System.IO.Path.Combine(tempDecompDir, $"list_conv_{Guid.NewGuid().ToString("N").Substring(0, 8)}.txt");
                 System.IO.File.WriteAllLines(listFile, finalInputFilesList, new System.Text.UTF8Encoding(false));
 
-                bool hasMods = finalInputFilesList.Any(d => Directory.Exists(d) && 
-                    (System.IO.Path.GetFileName(d).Equals("romfs", StringComparison.OrdinalIgnoreCase) || 
-                     System.IO.Path.GetFileName(d).Equals("exefs", StringComparison.OrdinalIgnoreCase) ||
-                     System.IO.Path.GetFileName(d).Equals("exefs_patches", StringComparison.OrdinalIgnoreCase) ||
-                     System.IO.Path.GetFileName(d).Equals("cheats", StringComparison.OrdinalIgnoreCase) ||
-                     d.Contains("romfs", StringComparison.OrdinalIgnoreCase) || 
-                     d.Contains("exefs", StringComparison.OrdinalIgnoreCase) ||
-                     d.Contains("cheat", StringComparison.OrdinalIgnoreCase) ||
-                     d.Contains("чит", StringComparison.OrdinalIgnoreCase) ||
-                     d.Contains("mod", StringComparison.OrdinalIgnoreCase) ||
-                     d.Contains("мод", StringComparison.OrdinalIgnoreCase)));
+                bool hasMods = (task.HasRomFs == "1" || task.HasRomFs == "Да" || task.HasExeFs == "1" || task.HasExeFs == "Да") ||
+                    finalInputFilesList.Any(d =>
+                        (Directory.Exists(d) && 
+                            (System.IO.Path.GetFileName(d).Equals("romfs", StringComparison.OrdinalIgnoreCase) || 
+                             System.IO.Path.GetFileName(d).Equals("exefs", StringComparison.OrdinalIgnoreCase) ||
+                             System.IO.Path.GetFileName(d).Equals("exefs_patches", StringComparison.OrdinalIgnoreCase) ||
+                             System.IO.Path.GetFileName(d).Equals("cheats", StringComparison.OrdinalIgnoreCase) ||
+                             d.Contains("romfs", StringComparison.OrdinalIgnoreCase) || 
+                             d.Contains("exefs", StringComparison.OrdinalIgnoreCase) ||
+                             d.Contains("cheat", StringComparison.OrdinalIgnoreCase) ||
+                             d.Contains("чит", StringComparison.OrdinalIgnoreCase) ||
+                             d.Contains("mod", StringComparison.OrdinalIgnoreCase) ||
+                             d.Contains("мод", StringComparison.OrdinalIgnoreCase)))
+                        ||
+                        (File.Exists(d) &&
+                            (d.EndsWith(".pak", StringComparison.OrdinalIgnoreCase) ||
+                             d.EndsWith(".sarc.zs", StringComparison.OrdinalIgnoreCase) ||
+                             d.EndsWith(".sarc", StringComparison.OrdinalIgnoreCase) ||
+                             d.EndsWith(".zs", StringComparison.OrdinalIgnoreCase) ||
+                             d.EndsWith(".ips", StringComparison.OrdinalIgnoreCase) ||
+                             d.EndsWith(".pchtxt", StringComparison.OrdinalIgnoreCase) ||
+                             d.EndsWith(".bps", StringComparison.OrdinalIgnoreCase)))
+                    );
 
                 string? savedBaseFile = null;
                 string? savedUpdateFile = null;
@@ -281,9 +293,19 @@ namespace StormSwitchBox.Services
                         var hpInput = new List<string> { baseFile };
                         if (!string.IsNullOrEmpty(updateFile)) hpInput.Add(updateFile);
                         
-                        // Add mod directories (romfs/exefs) and extracted unlocker directories to be processed
+                        // Add mod directories (romfs/exefs), standalone mod files and extracted unlocker directories to be processed
                         var modDirs = finalInputFilesList.Where(d => Directory.Exists(d)).ToList();
+                        var standaloneModFiles = finalInputFilesList.Where(f => File.Exists(f) && 
+                            (f.EndsWith(".pak", StringComparison.OrdinalIgnoreCase) ||
+                             f.EndsWith(".sarc.zs", StringComparison.OrdinalIgnoreCase) ||
+                             f.EndsWith(".sarc", StringComparison.OrdinalIgnoreCase) ||
+                             f.EndsWith(".zs", StringComparison.OrdinalIgnoreCase) ||
+                             f.EndsWith(".ips", StringComparison.OrdinalIgnoreCase) ||
+                             f.EndsWith(".pchtxt", StringComparison.OrdinalIgnoreCase) ||
+                             f.EndsWith(".bps", StringComparison.OrdinalIgnoreCase))).ToList();
+
                         hpInput.AddRange(modDirs);
+                        hpInput.AddRange(standaloneModFiles);
                         hpInput.AddRange(unlockerRomfsDirs);
 
                         bool hardPatchSuccess = false;
@@ -332,6 +354,7 @@ namespace StormSwitchBox.Services
                                     (!string.IsNullOrEmpty(baseFile) && string.Equals(f, baseFile, StringComparison.OrdinalIgnoreCase)) ||
                                     (!string.IsNullOrEmpty(updateFile) && string.Equals(f, updateFile, StringComparison.OrdinalIgnoreCase)) ||
                                     modDirs.Any(m => string.Equals(f, m, StringComparison.OrdinalIgnoreCase)) ||
+                                    standaloneModFiles.Any(m => string.Equals(f, m, StringComparison.OrdinalIgnoreCase)) ||
                                     unlockerRomfsDirs.Any(u => string.Equals(f, u, StringComparison.OrdinalIgnoreCase)));
                                 finalInputFilesList.Add(tempHardPatchedNsp);
                                 App.RunOnUI(() => task.LogDetails += "\n🔵 [HardPatch] Физическая пересборка успешно завершена. Ресурсы обновлены, дублирование исключено.");

@@ -2539,6 +2539,125 @@ object StormNczEngine {
         return nacp
     }
 
+    fun buildRomfsBinaryImageFromDir(romfsDir: File, outFile: File): Long {
+        if (!romfsDir.exists() || !romfsDir.isDirectory) return 0L
+        val allFiles = romfsDir.walkTopDown().filter { it.isFile }.toList()
+        if (allFiles.isEmpty()) return 0L
+
+        val relPaths = allFiles.map { it.relativeTo(romfsDir).path.replace('\\', '/') }
+        val fileNameBytesList = relPaths.map { it.toByteArray(StandardCharsets.UTF_8) }
+        val bucketCount = maxOf(3, relPaths.size / 2)
+        val dirHashTableSize = 4
+        val dirMetaTableSize = 24
+        val fileHashTableSize = bucketCount * 4
+
+        fun calcRomFsHash(parentOff: Int, nameBytes: ByteArray): Int {
+            var h = parentOff.toUInt() xor 123456789u
+            for (b in nameBytes) {
+                h = (h shr 5) or (h shl 27)
+                h = h xor (b.toInt() and 0xFF).toUInt()
+            }
+            return (h % bucketCount.toUInt()).toInt()
+        }
+
+        val fileMetaOffsets = IntArray(relPaths.size)
+        var curMetaOff = 0
+        for (i in relPaths.indices) {
+            fileMetaOffsets[i] = curMetaOff
+            val alignedNameLen = (fileNameBytesList[i].size + 3) and -4
+            curMetaOff += 32 + alignedNameLen
+        }
+        val fileMetaTableSize = curMetaOff
+
+        val headerAndMetaEnd = 0x50 + dirHashTableSize + dirMetaTableSize + fileHashTableSize + fileMetaTableSize
+        val filePartitionOffset = (headerAndMetaEnd + 0x1FF) and -0x200
+
+        val fileDataOffsets = LongArray(relPaths.size)
+        var curDataOff = 0L
+        for (i in relPaths.indices) {
+            curDataOff = (curDataOff + 0x0FL) and -0x10L
+            fileDataOffsets[i] = curDataOff
+            curDataOff += allFiles[i].length()
+        }
+
+        val totalRomFsSize = (filePartitionOffset.toLong() + curDataOff + 0x3FFFL) and -0x4000L
+
+        outFile.parentFile?.mkdirs()
+        RandomAccessFile(outFile, "rw").use { raf ->
+            raf.setLength(totalRomFsSize)
+            val metaHeaderBytes = ByteArray(filePartitionOffset)
+            val bb = ByteBuffer.wrap(metaHeaderBytes).order(ByteOrder.LITTLE_ENDIAN)
+
+            val dirHashOff = 0x50L
+            val dirMetaOff = dirHashOff + dirHashTableSize
+            val fileHashOff = dirMetaOff + dirMetaTableSize
+            val fileMetaOff = fileHashOff + fileHashTableSize
+
+            bb.putLong(0x00, 0x50L)
+            bb.putLong(0x08, dirHashOff)
+            bb.putLong(0x10, dirHashTableSize.toLong())
+            bb.putLong(0x18, dirMetaOff)
+            bb.putLong(0x20, dirMetaTableSize.toLong())
+            bb.putLong(0x28, fileHashOff)
+            bb.putLong(0x30, fileHashTableSize.toLong())
+            bb.putLong(0x38, fileMetaOff)
+            bb.putLong(0x40, fileMetaTableSize.toLong())
+            bb.putLong(0x48, filePartitionOffset.toLong())
+
+            bb.putInt(dirHashOff.toInt(), 0)
+
+            val dm = dirMetaOff.toInt()
+            bb.putInt(dm + 0x00, 0)
+            bb.putInt(dm + 0x04, -1)
+            bb.putInt(dm + 0x08, -1)
+            bb.putInt(dm + 0x0C, if (relPaths.isNotEmpty()) 0 else -1)
+            bb.putInt(dm + 0x10, -1)
+            bb.putInt(dm + 0x14, 0)
+
+            val fh = fileHashOff.toInt()
+            val bucketChains = IntArray(bucketCount) { -1 }
+            val fileHashNext = IntArray(relPaths.size) { -1 }
+            for (i in relPaths.indices) {
+                val bIdx = calcRomFsHash(0, fileNameBytesList[i])
+                fileHashNext[i] = bucketChains[bIdx]
+                bucketChains[bIdx] = fileMetaOffsets[i]
+            }
+            for (b in 0 until bucketCount) {
+                bb.putInt(fh + b * 4, bucketChains[b])
+            }
+
+            val fmBase = fileMetaOff.toInt()
+            for (i in relPaths.indices) {
+                val mOff = fmBase + fileMetaOffsets[i]
+                val nameBytes = fileNameBytesList[i]
+                val nextSibling = if (i + 1 < relPaths.size) fileMetaOffsets[i + 1] else -1
+                bb.putInt(mOff + 0x00, 0)
+                bb.putInt(mOff + 0x04, nextSibling)
+                bb.putLong(mOff + 0x08, fileDataOffsets[i])
+                bb.putLong(mOff + 0x10, allFiles[i].length())
+                bb.putInt(mOff + 0x18, fileHashNext[i])
+                bb.putInt(mOff + 0x1C, nameBytes.size)
+                System.arraycopy(nameBytes, 0, metaHeaderBytes, mOff + 0x20, nameBytes.size)
+            }
+
+            raf.seek(0L)
+            raf.write(metaHeaderBytes)
+
+            val copyBuf = ByteArray(64 * 1024)
+            for (i in relPaths.indices) {
+                val destOff = filePartitionOffset.toLong() + fileDataOffsets[i]
+                raf.seek(destOff)
+                FileInputStream(allFiles[i]).use { fis ->
+                    var r: Int
+                    while (fis.read(copyBuf).also { r = it } > 0) {
+                        raf.write(copyBuf, 0, r)
+                    }
+                }
+            }
+        }
+        return totalRomFsSize
+    }
+
     fun buildSwitchRomFsBytes(files: LinkedHashMap<String, ByteArray>): ByteArray {
         val entries = files.entries.toList()
         val bucketCount = 3
@@ -4477,53 +4596,75 @@ object StormNczEngine {
         val result = mutableListOf<File>()
         val ncaLen = ncaFile.length()
         var foundEmbeddedPfs0 = false
-        RandomAccessFile(ncaFile, "r").use { raf ->
-            val scanLimit = min(ncaLen, 4L * 1024L * 1024L).toInt()
-            val buf = ByteArray(scanLimit)
-            raf.seek(0L)
-            val r = raf.read(buf)
-            if (r > 0x400) {
-                var pos = 0x400
-                while (pos < r - 64) {
-                    if (buf[pos] == 'P'.code.toByte() && buf[pos + 1] == 'F'.code.toByte() &&
-                        buf[pos + 2] == 'S'.code.toByte() && buf[pos + 3] == '0'.code.toByte()
-                    ) {
-                        val bb = ByteBuffer.wrap(buf, pos, 16).order(ByteOrder.LITTLE_ENDIAN)
-                        bb.int
-                        val count = bb.int
-                        val strSize = bb.int
-                        if (count in 1..16 && strSize in 4..1024 && pos + 16 + count * 24 + strSize <= r) {
-                            val dataStart = pos.toLong() + 16L + count * 24L + strSize
-                            val strBase = pos + 16 + count * 24
-                            var validExefs = false
-                            for (i in 0 until count) {
-                                val ePos = pos + 16 + i * 24
-                                val eBuf = ByteBuffer.wrap(buf, ePos, 24).order(ByteOrder.LITTLE_ENDIAN)
-                                val dOff = eBuf.long
-                                val dSize = eBuf.long
-                                val sOff = eBuf.int
-                                if (sOff in 0 until strSize && dOff >= 0 && dataStart + dOff + dSize <= ncaLen) {
-                                    var endS = strBase + sOff
-                                    while (endS < strBase + strSize && buf[endS] != 0.toByte()) endS++
-                                    val name = String(buf, strBase + sOff, endS - (strBase + sOff), StandardCharsets.UTF_8)
-                                    if (name in listOf("main", "main.npdm", "rtld", "sdk", "subsdk0", "subsdk1")) {
-                                        validExefs = true
-                                        val outF = File(exefsDir, name)
-                                        copyFileRegionToFile(ncaFile, dataStart + dOff, dSize, outF)
-                                        result.add(outF)
+        val keysMap = loadSwitchKeysMap()
+
+        try {
+            RandomAccessFile(ncaFile, "r").use { raf ->
+                val hdrBuf = ByteArray(0xC00)
+                raf.seek(0L)
+                raf.readFully(hdrBuf)
+                val sections = parseNcaSectionsForCompression(hdrBuf, ncaLen, keysMap, null, raf, 0L)
+                val sec0 = sections.firstOrNull { it.offset in 0x400L..0x1000000L } ?: sections.firstOrNull()
+
+                if (sec0 != null && sec0.size > 0x100L) {
+                    val scanSize = minOf(sec0.size, 8L * 1024L * 1024L).toInt()
+                    val secBuf = ByteArray(scanSize)
+                    raf.seek(sec0.offset)
+                    raf.readFully(secBuf)
+                    if (sec0.cryptoType == 3L || sec0.cryptoType == 4L) {
+                        transformAesCtrInPlace(secBuf, 0, scanSize, sec0.offset, sec0.key, sec0.counter)
+                    }
+
+                    var pos = 0
+                    while (pos < scanSize - 64) {
+                        if (secBuf[pos] == 'P'.code.toByte() && secBuf[pos + 1] == 'F'.code.toByte() &&
+                            secBuf[pos + 2] == 'S'.code.toByte() && secBuf[pos + 3] == '0'.code.toByte()
+                        ) {
+                            val bb = ByteBuffer.wrap(secBuf, pos, 16).order(ByteOrder.LITTLE_ENDIAN)
+                            bb.int
+                            val count = bb.int
+                            val strSize = bb.int
+                            if (count in 1..32 && strSize in 4..4096 && pos + 16 + count * 24 + strSize <= scanSize) {
+                                val dataStart = sec0.offset + pos.toLong() + 16L + count * 24L + strSize
+                                val strBase = pos + 16 + count * 24
+                                var validExefs = false
+                                for (i in 0 until count) {
+                                    val ePos = pos + 16 + i * 24
+                                    val eBuf = ByteBuffer.wrap(secBuf, ePos, 24).order(ByteOrder.LITTLE_ENDIAN)
+                                    val dOff = eBuf.long
+                                    val dSize = eBuf.long
+                                    val sOff = eBuf.int
+                                    if (sOff in 0 until strSize && dOff >= 0 && dataStart + dOff + dSize <= ncaLen) {
+                                        var endS = strBase + sOff
+                                        while (endS < strBase + strSize && secBuf[endS] != 0.toByte()) endS++
+                                        val name = String(secBuf, strBase + sOff, endS - (strBase + sOff), StandardCharsets.UTF_8)
+                                        if (name in listOf("main", "main.npdm", "rtld", "sdk", "subsdk0", "subsdk1", "subsdk2", "subsdk3", "subsdk4", "subsdk5", "subsdk6", "subsdk7", "subsdk8", "subsdk9")) {
+                                            validExefs = true
+                                            val outF = File(exefsDir, name)
+                                            if (sec0.cryptoType == 3L || sec0.cryptoType == 4L) {
+                                                val fileBuf = ByteArray(minOf(dSize, 64L * 1024L * 1024L).toInt())
+                                                raf.seek(dataStart + dOff)
+                                                raf.readFully(fileBuf)
+                                                transformAesCtrInPlace(fileBuf, 0, fileBuf.size, dataStart + dOff, sec0.key, sec0.counter)
+                                                outF.writeBytes(fileBuf)
+                                            } else {
+                                                copyFileRegionToFile(ncaFile, dataStart + dOff, dSize, outF)
+                                            }
+                                            result.add(outF)
+                                        }
                                     }
                                 }
-                            }
-                            if (validExefs) {
-                                foundEmbeddedPfs0 = true
-                                break
+                                if (validExefs) {
+                                    foundEmbeddedPfs0 = true
+                                    break
+                                }
                             }
                         }
+                        pos += 16
                     }
-                    pos += 16
                 }
             }
-        }
+        } catch (_: Throwable) {}
 
         if (!foundEmbeddedPfs0) {
             val npdmFile = File(exefsDir, "main.npdm")
@@ -4565,6 +4706,93 @@ object StormNczEngine {
     ): List<File> {
         val result = mutableListOf<File>()
         val fileLen = sourceFile.length()
+        val keysMap = loadSwitchKeysMap()
+
+        // 1. Попытка дешифрования и извлечения реального RomFS (IVFC Level 6)
+        var extractedRealRomfs = false
+        try {
+            RandomAccessFile(sourceFile, "r").use { raf ->
+                val hdrBuf = ByteArray(0xC00)
+                raf.seek(0L)
+                raf.readFully(hdrBuf)
+                val sections = parseNcaSectionsForCompression(hdrBuf, fileLen, keysMap, null, raf, 0L)
+                val romfsSec = sections.firstOrNull { it.offset > 0x10000L && it.size > 0x1000L }
+
+                if (romfsSec != null) {
+                    val workHdr = decryptNcaHeader0C00(hdrBuf, keysMap)
+                    for (i in 0 until 4) {
+                        val fsOff = 0x400 + i * 0x200
+                        val magicIvfc = String(workHdr, fsOff + 8, 4, StandardCharsets.US_ASCII)
+                        if (magicIvfc == "IVFC") {
+                            val fbb = ByteBuffer.wrap(workHdr, fsOff, 0x200).order(ByteOrder.LITTLE_ENDIAN)
+                            val numLevels = fbb.getInt(0x14)
+                            if (numLevels >= 6) {
+                                val lv6RelOff = fbb.getLong(0x18 + 5 * 24)
+                                val lv6Size = fbb.getLong(0x18 + 5 * 24 + 8)
+                                val lv6AbsOff = romfsSec.offset + lv6RelOff
+
+                                if (lv6Size in 0x50L..(128L * 1024L * 1024L) && lv6AbsOff + lv6Size <= fileLen) {
+                                    val rHdrBytes = ByteArray(0x50)
+                                    raf.seek(lv6AbsOff)
+                                    raf.readFully(rHdrBytes)
+                                    if (romfsSec.cryptoType == 3L || romfsSec.cryptoType == 4L) {
+                                        transformAesCtrInPlace(rHdrBytes, 0, 0x50, lv6AbsOff, romfsSec.key, romfsSec.counter)
+                                    }
+                                    val rbb = ByteBuffer.wrap(rHdrBytes).order(ByteOrder.LITTLE_ENDIAN)
+                                    val hdrSize = rbb.getLong(0x00)
+                                    val fileMetaOff = rbb.getLong(0x38)
+                                    val fileMetaSize = rbb.getLong(0x40)
+                                    val dataOff = rbb.getLong(0x48)
+
+                                    if (hdrSize == 0x50L && dataOff in 0x50L..lv6Size && fileMetaSize in 0L..lv6Size) {
+                                        val metaBufSize = (fileMetaOff + fileMetaSize).toInt()
+                                        val metaBuf = ByteArray(metaBufSize)
+                                        raf.seek(lv6AbsOff)
+                                        raf.readFully(metaBuf)
+                                        if (romfsSec.cryptoType == 3L || romfsSec.cryptoType == 4L) {
+                                            transformAesCtrInPlace(metaBuf, 0, metaBufSize, lv6AbsOff, romfsSec.key, romfsSec.counter)
+                                        }
+
+                                        var curFilePos = fileMetaOff.toInt()
+                                        val endFilePos = curFilePos + fileMetaSize.toInt()
+                                        while (curFilePos < endFilePos - 32) {
+                                            val mbb = ByteBuffer.wrap(metaBuf, curFilePos, 32).order(ByteOrder.LITTLE_ENDIAN)
+                                            mbb.getInt()
+                                            val nextSib = mbb.getInt()
+                                            val fOff = mbb.getLong()
+                                            val fSz = mbb.getLong()
+                                            mbb.getInt()
+                                            val nameLen = mbb.getInt()
+                                            if (nameLen in 1..256 && curFilePos + 32 + nameLen <= metaBufSize) {
+                                                val fn = String(metaBuf, curFilePos + 32, nameLen, StandardCharsets.UTF_8)
+                                                val outRomFile = File(romfsDir, fn)
+                                                outRomFile.parentFile?.mkdirs()
+                                                val copyLen = minOf(fSz, 32L * 1024L * 1024L).toInt()
+                                                if (copyLen > 0) {
+                                                    val fData = ByteArray(copyLen)
+                                                    raf.seek(lv6AbsOff + dataOff + fOff)
+                                                    raf.readFully(fData)
+                                                    if (romfsSec.cryptoType == 3L || romfsSec.cryptoType == 4L) {
+                                                        transformAesCtrInPlace(fData, 0, copyLen, lv6AbsOff + dataOff + fOff, romfsSec.key, romfsSec.counter)
+                                                    }
+                                                    outRomFile.writeBytes(fData)
+                                                    outRomFile.copyTo(File(atmoRomfsDir, fn), overwrite = true)
+                                                    result.add(outRomFile)
+                                                }
+                                                extractedRealRomfs = true
+                                            }
+                                            val alignedMeta = 32 + ((nameLen + 3) and -4)
+                                            curFilePos += alignedMeta
+                                        }
+                                    }
+                                }
+                            }
+                            break
+                        }
+                    }
+                }
+            }
+        } catch (_: Throwable) {}
 
         val configIni = File(romfsDir, "config.ini")
         configIni.writeText(

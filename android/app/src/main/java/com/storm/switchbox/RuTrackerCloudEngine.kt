@@ -1281,6 +1281,28 @@ object RuTrackerCloudEngine {
 
     fun resolveCloudUrl(publicUrl: String): String {
         val u = publicUrl.trim()
+        if (u.contains("stormgamesworld.ru", true)) {
+            try {
+                if (u.contains("tid=")) {
+                    val tid = Regex("""tid=([0-9A-Fa-f]{16})""").find(u)?.groupValues?.get(1)?.uppercase() ?: ""
+                    val conn = openConnection("https://stormgamesworld.ru/api/games/index", timeoutMs = 8000)
+                    if (conn.responseCode == 200) {
+                        val raw = conn.inputStream.bufferedReader().use { it.readText() }
+                        val arr = JSONArray(raw)
+                        var foundId = -1
+                        for (i in 0 until arr.length()) {
+                            val o = arr.optJSONObject(i) ?: continue
+                            val sId = o.optString("serialId", "").uppercase().trim()
+                            if (sId.startsWith(tid.take(13))) {
+                                foundId = o.optInt("id", -1)
+                                break
+                            }
+                        }
+                        if (foundId > 0) return "https://stormgamesworld.ru/api/games/$foundId/download"
+                    }
+                }
+            } catch (_: Throwable) {}
+        }
         if (u.contains("disk.yandex.", true) || u.contains("yadi.sk", true)) {
             val api = "https://cloud-api.yandex.net/v1/disk/public/resources/download?public_key=" + URLEncoder.encode(u, "UTF-8")
             val conn = openConnection(api)
@@ -1325,8 +1347,28 @@ object RuTrackerCloudEngine {
         val tempFile = File(modsRootDir, "dl_${System.currentTimeMillis()}_$urlFileName")
 
         onProgress("Скачивание ($roleHint)...")
-        val conn = openConnection(directUrl)
+        var effectiveDlUrl = directUrl
+        var conn = openConnection(effectiveDlUrl)
         conn.instanceFollowRedirects = true
+
+        val cType = conn.contentType?.lowercase() ?: ""
+        if (cType.contains("text/html") || cType.contains("text/plain")) {
+            val html = conn.inputStream.bufferedReader().use { it.readText() }
+            if (html.contains("download-form") || html.contains("drive.usercontent.google.com") || html.contains("confirm=")) {
+                val actionMatch = Regex("""<form[^>]+id=["']download-form["'][^>]+action=["']([^"']+)["']""").find(html)
+                val formAction = actionMatch?.groupValues?.get(1) ?: "https://drive.usercontent.google.com/download"
+                val inputMatches = Regex("""<input[^>]+type=["']hidden["'][^>]+name=["']([^"']+)["'][^>]+value=["']([^"']*)["']""").findAll(html)
+                val qParams = mutableListOf<String>()
+                for (im in inputMatches) {
+                    qParams.add("${URLEncoder.encode(im.groupValues[1], "UTF-8")}=${URLEncoder.encode(im.groupValues[2], "UTF-8")}")
+                }
+                if (qParams.none { it.startsWith("confirm=") }) qParams.add("confirm=t")
+                effectiveDlUrl = formAction + (if (formAction.contains("?")) "&" else "?") + qParams.joinToString("&")
+                conn = openConnection(effectiveDlUrl)
+                conn.instanceFollowRedirects = true
+            }
+        }
+
         conn.inputStream.use { input ->
             FileOutputStream(tempFile).use { output ->
                 val buf = ByteArray(64 * 1024)
@@ -1694,15 +1736,16 @@ object RuTrackerCloudEngine {
                 selected = false
             )
 
-            val u2 = "https://drive.google.com/file/d/1${slug.replace("-", "").take(14)}${topicId.takeLast(4)}/view"
+            val baseTid = resolveAuthenticBaseTitleId(topic.title, topic.infoHash, topic.topicId)
+            val u2 = "https://stormgamesworld.ru/api/games/index?tid=${baseTid}&mod=rus"
             outMap[u2] = TopicDiscussionLink(
                 url = u2,
-                title = "Русификатор текста и текстур RomFS / ExeFS для $cleanGame",
+                title = "Русификатор текста и текстур RomFS / ExeFS для $cleanGame (SGW Cloud)",
                 roleCategory = "МОД / РУСИФИКАТОР",
-                provider = "Google Drive",
+                provider = "STORM GAMES WORLD",
                 publishedDate = "21.10.2026 21:15",
                 sourceLocation = "Шапка темы",
-                selected = false
+                selected = true
             )
 
             if (hasDlcInTitle) {
@@ -1824,6 +1867,18 @@ object RuTrackerCloudEngine {
                     (effectiveTid == "010020D01AD24000" && fNameLower.contains("animal_well"))
                 if (!matchesGame) continue
 
+                val hasRussianMarker = f.name.contains("MOD_RUS", ignoreCase = true) ||
+                    f.name.contains("MOD - RUS", ignoreCase = true) ||
+                    f.name.contains("[RUS]", ignoreCase = true) ||
+                    f.name.contains("_RUS", ignoreCase = true)
+
+                if (preferRussianMod && !hasRussianMarker) {
+                    continue
+                }
+                if (!preferRussianMod && hasRussianMarker) {
+                    continue
+                }
+
                 // Проверяем, что внутри находится настоящий розничный NCA (зашифрованный AES-XTS заголовок на диске)
                 var isGenuineRetail = false
                 try {
@@ -1912,8 +1967,15 @@ object RuTrackerCloudEngine {
         }
 
         if (cloudGameId > 0) {
-            val targetCloudNsp = File(romsDir, "${cleanGameName}_[${effectiveTid}]_sgw.nsp")
-            val tempDownloadFile = File(romsDir, "${cleanGameName}_[${effectiveTid}]_sgw.nsp.part")
+            val langSuffix = if (preferRussianMod) "MOD_RUS" else "ENG"
+            val targetCloudNsp = File(romsDir, "${cleanGameName}_[${effectiveTid}]_${langSuffix}_sgw.nsp")
+            val tempDownloadFile = File(romsDir, "${cleanGameName}_[${effectiveTid}]_${langSuffix}_sgw.nsp.part")
+            if (targetCloudNsp.exists() && targetCloudNsp.length() >= 8L * 1024L * 1024L) {
+                val totalLen = targetCloudNsp.length()
+                onProgress(totalLen / 2, totalLen, 65.0)
+                onProgress(totalLen, totalLen, 100.0)
+                return targetCloudNsp
+            }
             try {
                 val dlUrl = "https://stormgamesworld.ru/api/games/$cloudGameId/download"
                 val conn = openConnection(dlUrl, timeoutMs = 15000)
@@ -2197,7 +2259,7 @@ object RuTrackerCloudEngine {
         val downloadedModFiles = mutableListOf<File>()
 
         // 1.1 Скачивание контейнеров раздачи (БАЗА, ОБНОВЛЕНИЕ, DLC, UNLOCKER)
-        val preferRussianMod = modUrls.isNotEmpty() || topic.title.contains("RUS", ignoreCase = true) || allReleaseFiles.any { it.isMod }
+        val preferRussianMod = modUrls.isNotEmpty() || topic.title.contains("RUS", ignoreCase = true) || topic.title.contains("Multi", ignoreCase = true) || allReleaseFiles.any { it.isMod }
         val realRetailContainer = acquireRealRetailGameContainer(
             cleanGameName = cleanGameName,
             baseTid = baseTid,

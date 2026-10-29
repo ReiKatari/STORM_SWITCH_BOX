@@ -3368,10 +3368,14 @@ class MainActivity : Activity() {
                     }
                     updateDiscussionSummary()
                     discoveredDiscussionLinks.forEach { dLink ->
-                        dLink.selected = false
+                        val isRussianMod = dLink.roleCategory.contains("МОД", ignoreCase = true) ||
+                                           dLink.roleCategory.contains("РУСИФИКАТОР", ignoreCase = true) ||
+                                           dLink.title.contains("RUS", ignoreCase = true) ||
+                                           dLink.title.contains("РУС", ignoreCase = true)
+                        dLink.selected = isRussianMod
                         val cb = makeStormCheckBox(
                             "📅 ${dLink.publishedDate} • [${dLink.sourceLocation}]\n[${dLink.roleCategory}] ${dLink.title} (${dLink.provider})",
-                            false,
+                            isRussianMod,
                             th
                         ) { checked ->
                             dLink.selected = checked

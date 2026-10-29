@@ -287,6 +287,24 @@ namespace StormSwitchBox.Services
                 string? exefsPatchesMod = null;
                 var standaloneModFiles = new List<string>();
 
+                foreach (var f in inputFiles.Where(File.Exists))
+                {
+                    string fn = System.IO.Path.GetFileName(f).ToLowerInvariant();
+                    string ext = System.IO.Path.GetExtension(f).ToLowerInvariant();
+                    if (ext == ".pak" || ext == ".zs" || ext == ".sarc" || fn.EndsWith(".sarc.zs"))
+                    {
+                        standaloneModFiles.Add(f);
+                    }
+                    else if (ext == ".ips" || ext == ".pchtxt" || ext == ".bps")
+                    {
+                        string directPatchesDir = System.IO.Path.Combine(tempDir, "direct_exefs_patches");
+                        Directory.CreateDirectory(directPatchesDir);
+                        string destPath = System.IO.Path.Combine(directPatchesDir, System.IO.Path.GetFileName(f));
+                        try { File.Copy(f, destPath, true); } catch { }
+                        exefsPatchesMod = directPatchesDir;
+                    }
+                }
+
                 foreach (var d in inputFiles.Where(Directory.Exists))
                 {
                     string dName = System.IO.Path.GetFileName(d);

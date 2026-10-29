@@ -496,7 +496,7 @@ public partial class TasksViewModel : ObservableObject
 			foreach (var file in Directory.EnumerateFiles(dirPath, "*", SearchOption.AllDirectories))
 			{
 				string fn = Path.GetFileName(file).ToLowerInvariant();
-				if (fn == "romfs.bin") romFs = true;
+				if (fn == "romfs.bin" || fn.EndsWith(".pak") || fn.EndsWith(".sarc.zs") || fn.EndsWith(".sarc") || fn.EndsWith(".zs")) romFs = true;
 				if (fn == "code.bin" || fn == ".code" || fn.EndsWith(".ips") || fn.EndsWith(".bps") || fn.EndsWith(".pchtxt"))
 					exeFs = true;
 			}
@@ -553,6 +553,10 @@ public partial class TasksViewModel : ObservableObject
 			if (files.Any(f => f.EndsWith(".ips", StringComparison.OrdinalIgnoreCase) || 
 			                   f.EndsWith(".bps", StringComparison.OrdinalIgnoreCase) ||
 			                   f.EndsWith(".pchtxt", StringComparison.OrdinalIgnoreCase) ||
+			                   f.EndsWith(".pak", StringComparison.OrdinalIgnoreCase) ||
+			                   f.EndsWith(".sarc.zs", StringComparison.OrdinalIgnoreCase) ||
+			                   f.EndsWith(".sarc", StringComparison.OrdinalIgnoreCase) ||
+			                   f.EndsWith(".zs", StringComparison.OrdinalIgnoreCase) ||
 			                   Path.GetFileName(f).Equals("romfs.bin", StringComparison.OrdinalIgnoreCase) ||
 			                   Path.GetFileName(f).Equals("code.bin", StringComparison.OrdinalIgnoreCase) ||
 			                   Path.GetFileName(f).Equals("exheader.bin", StringComparison.OrdinalIgnoreCase) ||
@@ -852,6 +856,12 @@ public partial class TasksViewModel : ObservableObject
 						
 						task.HasRomFs = hasRomFs ? "1" : "-";
 						task.HasExeFs = hasExeFs ? "1" : "-";
+
+						if (task.Operation != "Homebrew" && task.Operation != "Verify" && task.Operation != "Unpack")
+						{
+							task.Operation = "Multi";
+							task.SourceFormat = "MULTI";
+						}
 
 						string formattedName = MultiContentService.FormatOutputFileName(
 							Path.Combine(task.OutputFolder, task.OutputFileName + task.GetPrimaryExtension()), 
@@ -1285,8 +1295,22 @@ public partial class TasksViewModel : ObservableObject
 								if (e) exeFs = true;
 							}
 						}
+						foreach (string f2 in existingTask.InputFiles)
+						{
+							if (File.Exists(f2))
+							{
+								string ext2 = Path.GetExtension(f2).ToLowerInvariant();
+								if (ext2 == ".pak" || ext2 == ".sarc" || ext2 == ".zs" || f2.EndsWith(".sarc.zs", StringComparison.OrdinalIgnoreCase)) romFs = true;
+								if (ext2 == ".ips" || ext2 == ".bps" || ext2 == ".pchtxt") exeFs = true;
+							}
+						}
 						existingTask.HasRomFs = (romFs ? "1" : "-");
 						existingTask.HasExeFs = (exeFs ? "1" : "-");
+						if ((romFs || exeFs || existingTask.InputFiles.Count > 1) && existingTask.Operation != "Verify" && existingTask.Operation != "Homebrew" && existingTask.Operation != "Unpack")
+						{
+							existingTask.Operation = "Multi";
+							existingTask.SourceFormat = "MULTI";
+						}
 						App.Logger.Log($"К задаче {existingTask.Id} добавлены новые файлы ({added} шт.)");
 					}
 					else
@@ -1399,6 +1423,12 @@ public partial class TasksViewModel : ObservableObject
 							if (r) rFs = true;
 							if (e) eFs = true;
 						}
+						else if (File.Exists(f3))
+						{
+							string ext3 = Path.GetExtension(f3).ToLowerInvariant();
+							if (ext3 == ".pak" || ext3 == ".sarc" || ext3 == ".zs" || f3.EndsWith(".sarc.zs", StringComparison.OrdinalIgnoreCase)) rFs = true;
+							if (ext3 == ".ips" || ext3 == ".bps" || ext3 == ".pchtxt") eFs = true;
+						}
 					}
 					bool isSwitch2 = (groupId?.StartsWith("04", StringComparison.OrdinalIgnoreCase) == true)
 						|| inputFiles.Any(f => (Directory.Exists(f) && Switch2DumpHelper.IsSwitch2OrExtractedGameDumpDirectory(f))
@@ -1420,12 +1450,19 @@ public partial class TasksViewModel : ObservableObject
 					}
 
 					ObservableCollection<ProcessingTask> targetList = _currentPageType == "Verify" ? VerifyTasks : Tasks;
+					string effectiveOp = _currentPageType;
+					string effectiveSrcFmt = ext;
+					if ((rFs || eFs || inputFiles.Count > 1) && _currentPageType != "Verify" && _currentPageType != "Homebrew" && _currentPageType != "Unpack")
+					{
+						effectiveOp = "Multi";
+						effectiveSrcFmt = "MULTI";
+					}
 					ProcessingTask task = new ProcessingTask
 					{
 						Id = $"T{targetList.Count + 1:D3}",
 						GroupId = (groupId ?? ""),
-						Operation = _currentPageType,
-						SourceFormat = ext,
+						Operation = effectiveOp,
+						SourceFormat = effectiveSrcFmt,
 						IsSwitch2Task = isSwitch2,
 						Is3dsTask = is3ds,
 						BuildMode = App.Settings.Current.MultiContentBuildMode,
@@ -2067,8 +2104,9 @@ public partial class TasksViewModel : ObservableObject
 			await App.MultiContent.BuildMultiContentAsync(task, inputFiles2, outPath, patchFirmware: false, cts.Token);
 			return;
 		}
-		if (task.Operation == "Multi")
+		if (task.Operation == "Multi" || (task.Operation != "Verify" && task.Operation != "Unpack" && task.Operation != "Pack" && task.Operation != "Homebrew" && (task.HasRomFs == "1" || task.HasRomFs == "Да" || task.HasExeFs == "1" || task.HasExeFs == "Да" || task.InputFiles.Count > 1 || task.InputFiles.Any(p => Directory.Exists(p)))))
 		{
+			task.Operation = "Multi";
 			task.IsRunning = true;
 			List<string> inputFiles3 = task.InputFiles;
 			string outPath2 = Path.Combine(task.OutputFolder, task.OutputFileName + task.GetPrimaryExtension());
