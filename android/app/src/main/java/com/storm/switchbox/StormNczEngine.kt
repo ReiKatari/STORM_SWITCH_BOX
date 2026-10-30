@@ -7958,8 +7958,12 @@ object StormNczEngine {
             if (hasRightsId) {
                 val oldCtrKey = sections.firstOrNull { it.key.any { b -> b != 0.toByte() } }?.key
                 for (i in 0x230 until 0x240) plainHdr[i] = 0.toByte()
+                for (i in 0x300 until 0x340) plainHdr[i] = 0.toByte()
+                plainHdr[0x206] = 0.toByte()
+                plainHdr[0x207] = 0.toByte()
+                plainHdr[0x220] = 0.toByte()
                 fillStandardNcaKeyArea(plainHdr, keysMap)
-                val stdCtrKey = ByteArray(16) { (it * 17 + 0x5A).toByte() }
+                val stdCtrKey = ByteArray(16) { 4.toByte() }
                 val pbb = ByteBuffer.wrap(plainHdr).order(ByteOrder.LITTLE_ENDIAN)
                 if (oldCtrKey != null) {
                     for (sIdx in 0 until 4) {
@@ -8250,13 +8254,13 @@ object StormNczEngine {
             progHdr0x4000[0x203] = '3'.code.toByte()
             progHdr0x4000[0x204] = 0.toByte() // DistributionType = Download
             progHdr0x4000[0x205] = 0.toByte() // ContentType = Program (0)
-            progHdr0x4000[0x206] = baseHdrPlain[0x206]
-            progHdr0x4000[0x207] = baseHdrPlain[0x207]
+            progHdr0x4000[0x206] = 0.toByte()
+            progHdr0x4000[0x207] = 0.toByte()
             hbb.putLong(0x208, totalProgramNcaSize)
             hbb.putLong(0x210, tidLong)
             hbb.putInt(0x218, 0)
             hbb.putInt(0x21C, bbb.getInt(0x21C))
-            progHdr0x4000[0x220] = baseHdrPlain[0x220]
+            progHdr0x4000[0x220] = 0.toByte()
 
             // Media entries: Section 0 (0x4000..sec1StartOff), Section 1 (sec1StartOff..totalProgramNcaSize)
             hbb.putInt(0x240, (sec0StartOff / 0x200L).toInt())
@@ -8268,7 +8272,7 @@ object StormNczEngine {
             progHdr0x4000[0x258] = 1.toByte()
 
             fillStandardNcaKeyArea(progHdr0x4000, keysMap)
-            val stdCtrKey = ByteArray(16) { (it * 17 + 0x5A).toByte() }
+            val stdCtrKey = ByteArray(16) { 4.toByte() }
 
             val tmpProgFile = File(tempDir, "tmp_hardpatched_program_${System.currentTimeMillis()}.nca")
             val lv4PaddedBytes = ByteArray(lv4PaddedSize.toInt())
