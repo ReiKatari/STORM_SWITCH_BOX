@@ -5867,6 +5867,8 @@ object StormNczEngine {
     }
 
     fun parseSwitchTitleVersionInt(versionStr: String, roleUp: String): Int {
+        val rawDirect = versionStr.trim().removePrefix("v").removePrefix("V").toIntOrNull()
+        if (rawDirect != null && rawDirect >= 65536) return rawDirect
         if (!roleUp.contains("ПАТЧ") && !roleUp.contains("UPD")) {
             return 0
         }
@@ -5997,6 +5999,7 @@ object StormNczEngine {
         hbb.putLong(fs0 + 0x48, rawPfs0.size.toLong())
         ncaHdr[fs0 + 0x140] = 2
 
+        fillStandardNcaKeyArea(ncaHdr, loadSwitchKeysMap())
         val fs0Sha = MessageDigest.getInstance("SHA-256").digest(ncaHdr.copyOfRange(fs0, fs0 + 0x200))
         System.arraycopy(fs0Sha, 0, ncaHdr, 0x280, 32)
         encryptNcaHeader0C00(ncaHdr)
@@ -7446,7 +7449,7 @@ object StormNczEngine {
                 }
                 val upper8 = patchCtrUpper8.copyOf(8)
                 if (matched != null) {
-                    ByteBuffer.wrap(upper8, 4, 4).order(ByteOrder.LITTLE_ENDIAN).putInt(matched.ctrVal)
+                    ByteBuffer.wrap(upper8, 4, 4).order(ByteOrder.BIG_ENDIAN).putInt(matched.ctrVal)
                 }
                 transformAesCtrInPlace(out, done, chunk, ncaRel, patchCtrKey, upper8)
                 done += chunk
@@ -7775,7 +7778,8 @@ object StormNczEngine {
         sliceOffset: Long,
         sliceSize: Long,
         keysMap: Map<String, ByteArray>,
-        externalTitleKey: ByteArray?
+        externalTitleKey: ByteArray? = null,
+        ticketKeysByRightsId: Map<String, ByteArray> = emptyMap()
     ): LinkedHashMap<String, ByteArray> {
         val out = LinkedHashMap<String, ByteArray>()
         if (sliceSize < 0x1000L) return out
@@ -7786,7 +7790,7 @@ object StormNczEngine {
                 raf.readFully(hdrBuf)
             }
             val workHdr = decryptNcaHeader0C00(hdrBuf.copyOf(), keysMap)
-            val sections = parseNcaSectionsForCompression(hdrBuf, sliceSize, keysMap, externalTitleKey, raf, sliceOffset)
+            val sections = parseNcaSectionsForCompression(hdrBuf, sliceSize, keysMap, externalTitleKey, raf, sliceOffset, ticketKeysByRightsId)
             val bb = ByteBuffer.wrap(workHdr).order(ByteOrder.LITTLE_ENDIAN)
 
             for (sIdx in 0 until 4) {
@@ -7800,8 +7804,8 @@ object StormNczEngine {
                 val fsType = workHdr[fsOff + 2].toInt() and 0xFF
                 val hashType = workHdr[fsOff + 3].toInt() and 0xFF
                 if (fsType == 1 && hashType == 2) {
-                    val pfs0RelOff = bb.getLong(fsOff + 0x38)
-                    val pfs0Size = bb.getLong(fsOff + 0x40)
+                    val pfs0RelOff = bb.getLong(fsOff + 0x40)
+                    val pfs0Size = bb.getLong(fsOff + 0x48)
                     val pfs0AbsInNca = rawSecStart + pfs0RelOff
                     if (pfs0Size <= 16L || pfs0AbsInNca + pfs0Size > sliceSize) continue
                     val secCrypto = sections.firstOrNull { rawSecStart in it.offset until (it.offset + it.size) }
@@ -7821,6 +7825,7 @@ object StormNczEngine {
                     val dataStartRel = 16L + count.toLong() * 24L + strTabSize.toLong()
                     if (count !in 1..64 || dataStartRel > hdrProbe.size) continue
                     val strBase = 16 + count * 24
+                    val candidateFiles = LinkedHashMap<String, ByteArray>()
                     for (i in 0 until count) {
                         val ePos = 16 + i * 24
                         val fOff = pbb.getLong(ePos)
@@ -7840,9 +7845,12 @@ object StormNczEngine {
                         if (secCrypto != null && (secCrypto.cryptoType == 3L || secCrypto.cryptoType == 4L) && secCrypto.key != null && secCrypto.counter != null) {
                             transformAesCtrInPlace(fBytes, 0, fBytes.size, fileAbsInNca, secCrypto.key, secCrypto.counter)
                         }
-                        out[fName] = fBytes
+                        candidateFiles[fName] = fBytes
                     }
-                    if (out.isNotEmpty()) return out
+                    if (candidateFiles.containsKey("main") || candidateFiles.containsKey("rtld") || candidateFiles.containsKey("main.npdm")) {
+                        out.putAll(candidateFiles)
+                        return out
+                    }
                 }
             }
         } catch (_: Throwable) {}
@@ -7859,7 +7867,7 @@ object StormNczEngine {
         fallbackTicketKey: ByteArray? = null
     ): LinkedHashMap<String, File> {
         val outFiles = LinkedHashMap<String, File>()
-        val rawMap = extractExefsFilesFromNcaSlice(raf, sliceOffset, sliceSize, keysMap, fallbackTicketKey)
+        val rawMap = extractExefsFilesFromNcaSlice(raf, sliceOffset, sliceSize, keysMap, fallbackTicketKey, ticketKeysByRightsId)
         if (rawMap.isNotEmpty()) {
             outDir.mkdirs()
             for ((name, bytes) in rawMap) {
@@ -7948,17 +7956,28 @@ object StormNczEngine {
             plainHdr[0x204] = 0.toByte()
 
             if (hasRightsId) {
+                val oldCtrKey = sections.firstOrNull { it.key.any { b -> b != 0.toByte() } }?.key
                 for (i in 0x230 until 0x240) plainHdr[i] = 0.toByte()
                 fillStandardNcaKeyArea(plainHdr, keysMap)
-                val newSections = parseNcaSectionsForCompression(encryptNcaHeader0C00(plainHdr.copyOf(), keysMap), cand.size, keysMap, null, null, 0L)
-                val newCtrKey = newSections.firstOrNull()?.key
-                for (sec in sections) {
-                    if ((sec.cryptoType == 3L || sec.cryptoType == 4L) && sec.key != null && sec.counter != null && newCtrKey != null) {
-                        val sOff = sec.offset.toInt()
-                        val sLen = minOf(sec.size, (rawBytes.size - sOff).toLong()).toInt()
-                        if (sOff >= 0xC00 && sLen > 0) {
-                            transformAesCtrInPlace(rawBytes, sOff, sLen, sec.offset, sec.key, sec.counter)
-                            transformAesCtrInPlace(rawBytes, sOff, sLen, sec.offset, newCtrKey, sec.counter)
+                val stdCtrKey = ByteArray(16) { (it * 17 + 0x5A).toByte() }
+                val pbb = ByteBuffer.wrap(plainHdr).order(ByteOrder.LITTLE_ENDIAN)
+                if (oldCtrKey != null) {
+                    for (sIdx in 0 until 4) {
+                        val eOff = 0x240 + sIdx * 16
+                        val stMedia = pbb.getInt(eOff).toLong() and 0xFFFFFFFFL
+                        val enMedia = pbb.getInt(eOff + 4).toLong() and 0xFFFFFFFFL
+                        if (pbb.getInt(eOff + 8) == 0 || enMedia <= stMedia) continue
+                        val fsOff = 0x400 + sIdx * 0x200
+                        val encType = plainHdr[fsOff + 4].toInt() and 0xFF
+                        if (encType == 3 || encType == 4) {
+                            val sOff = (stMedia * 0x200L).toInt()
+                            val sEnd = (enMedia * 0x200L).coerceAtMost(rawBytes.size.toLong()).toInt()
+                            val sLen = sEnd - sOff
+                            if (sOff >= 0xC00 && sLen > 0) {
+                                val secCounter = ByteArray(8) { b -> plainHdr[fsOff + 0x147 - b] }
+                                transformAesCtrInPlace(rawBytes, sOff, sLen, sOff.toLong(), oldCtrKey, secCounter)
+                                transformAesCtrInPlace(rawBytes, sOff, sLen, sOff.toLong(), stdCtrKey, secCounter)
+                            }
                         }
                     }
                 }
@@ -8003,9 +8022,9 @@ object StormNczEngine {
             }
 
             onProgress(makeProg(58, "Hard-Patch: слияние ExeFS модулей...", "exefs/main", 58L, 100L))
-            val mergedExefs = extractExefsFilesFromNcaSlice(baseRaf, refs.baseProgOffset, refs.baseProgSize, keysMap, baseExtKey)
+            val mergedExefs = extractExefsFilesFromNcaSlice(baseRaf, refs.baseProgOffset, refs.baseProgSize, keysMap, baseExtKey, ticketKeysByRightsId)
             if (updRaf != null) {
-                val updExefs = extractExefsFilesFromNcaSlice(updRaf, refs.updProgOffset, refs.updProgSize, keysMap, updExtKey)
+                val updExefs = extractExefsFilesFromNcaSlice(updRaf, refs.updProgOffset, refs.updProgSize, keysMap, updExtKey, ticketKeysByRightsId)
                 for ((k, v) in updExefs) {
                     mergedExefs[k] = v
                 }
@@ -8034,7 +8053,7 @@ object StormNczEngine {
             baseRaf.seek(refs.baseProgOffset)
             baseRaf.readFully(baseHdrRaw)
             val baseHdrPlain = decryptNcaHeader0C00(baseHdrRaw.copyOf(), keysMap)
-            val baseSections = parseNcaSectionsForCompression(baseHdrRaw, refs.baseProgSize, keysMap, baseExtKey, baseRaf, refs.baseProgOffset)
+            val baseSections = parseNcaSectionsForCompression(baseHdrRaw, refs.baseProgSize, keysMap, baseExtKey, baseRaf, refs.baseProgOffset, ticketKeysByRightsId)
             val bbb = ByteBuffer.wrap(baseHdrPlain).order(ByteOrder.LITTLE_ENDIAN)
 
             var baseRomfsReader: RomfsSectionReader? = null
@@ -8073,7 +8092,7 @@ object StormNczEngine {
                 updRaf.seek(refs.updProgOffset)
                 updRaf.readFully(updHdrRaw)
                 val updHdrPlain = decryptNcaHeader0C00(updHdrRaw.copyOf(), keysMap)
-                val updSections = parseNcaSectionsForCompression(updHdrRaw, refs.updProgSize, keysMap, updExtKey, updRaf, refs.updProgOffset)
+                val updSections = parseNcaSectionsForCompression(updHdrRaw, refs.updProgSize, keysMap, updExtKey, updRaf, refs.updProgOffset, ticketKeysByRightsId)
                 val ubb = ByteBuffer.wrap(updHdrPlain).order(ByteOrder.LITTLE_ENDIAN)
 
                 for (sIdx in 0 until 4) {
@@ -8135,22 +8154,24 @@ object StormNczEngine {
             if (modRomfsDir != null && modRomfsDir.exists() && modRomfsDir.isDirectory) {
                 // Синхронизируем версию .Product.<ver>.sarc.zs если у игры в обновлении сменился номер (например .100 -> .110)
                 val gameMalsVer = mergedRomfsMap.keys.firstNotNullOfOrNull { k ->
-                    Regex("^Mals/[A-Za-z]{4}\\\\.Product\\\\.([0-9A-Za-z_]+)\\\\.sarc\\\\.zs$", RegexOption.IGNORE_CASE).find(k)?.groupValues?.get(1)
+                    Regex("""^Mals/[A-Za-z]{4}\.Product\.([0-9A-Za-z_]+)\.sarc\.zs$""", RegexOption.IGNORE_CASE).find(k)?.groupValues?.get(1)
                 }
                 modRomfsDir.walkTopDown().filter { it.isFile && !isPoisonedFakeConfigIni(it) && !isJunkOrReadmeFile(it.name) }.forEach { mf ->
                     val rawRel = mf.relativeTo(modRomfsDir).path.replace('\\', '/').trim('/')
                     if (rawRel.startsWith("Mals/", ignoreCase = true) && rawRel.endsWith(".sarc.zs", ignoreCase = true) && gameMalsVer != null) {
-                        val mMatch = Regex("^Mals/([A-Za-z]{4})\\\\.Product\\\\.([0-9A-Za-z_]+)\\\\.sarc\\\\.zs$", RegexOption.IGNORE_CASE).find(rawRel)
+                        val mMatch = Regex("""^Mals/([A-Za-z]{4})\.Product\.([0-9A-Za-z_]+)\.sarc\.zs$""", RegexOption.IGNORE_CASE).find(rawRel)
                         if (mMatch != null) {
                             val langCode = mMatch.groupValues[1]
                             if (langCode.equals("RUru", ignoreCase = true)) {
                                 return@forEach
                             }
-                            for (targetLang in listOf(langCode, "EUen", "USen", "EUru")) {
+                            for (targetLang in listOf(langCode, "EUen", "USen", "EUru", "EUde", "EUfr", "EUes", "EUit", "EUnl", "USes", "USfr").distinct()) {
                                 val adjustedRel = "Mals/$targetLang.Product.$gameMalsVer.sarc.zs"
                                 val canonicalKey = caseInsensitiveLookup[adjustedRel.lowercase()] ?: adjustedRel
-                                mergedRomfsMap[canonicalKey] = VirtualRomfsSource.LocalFile(mf)
-                                caseInsensitiveLookup[canonicalKey.lowercase()] = canonicalKey
+                                if (targetLang in listOf("EUen", "USen", "EUru") || mergedRomfsMap.containsKey(canonicalKey)) {
+                                    mergedRomfsMap[canonicalKey] = VirtualRomfsSource.LocalFile(mf)
+                                    caseInsensitiveLookup[canonicalKey.lowercase()] = canonicalKey
+                                }
                             }
                             return@forEach
                         }
@@ -8256,7 +8277,7 @@ object StormNczEngine {
                 outRaf.setLength(totalProgramNcaSize)
                 // Стримим Lv5 (RomFS) в позицию sec1StartOff + lv5LogOff, попутно считая SHA-256 каждого 16-КБ блока для Lv4 и шифруя AES-CTR
                 val sec1Upper8 = ByteArray(8)
-                sec1Upper8[0] = 2.toByte() // Section 1 (RomFS) generation = 2
+                sec1Upper8[3] = 2.toByte() // Section 1 (RomFS) generation = 2 at fs1 + 0x144 (reverses to counter[3])
                 val batchBuf = ByteArray(262144)
                 var batchFill = 0
                 var curLv5RelOff = 0L
@@ -8349,7 +8370,7 @@ object StormNczEngine {
                 hbb.putLong(fs0 + 0x38, exefsHashTab.size.toLong())
                 hbb.putLong(fs0 + 0x40, exefsPfs0RelOff.toLong())
                 hbb.putLong(fs0 + 0x48, exefsPfs0Bytes.size.toLong())
-                progHdr0x4000[fs0 + 0x140] = 1.toByte() // Generation = 1
+                progHdr0x4000[fs0 + 0x144] = 1.toByte() // Generation = 1 (reverses to counter[3] = 1)
 
                 val fs1 = 0x600
                 hbb.putShort(fs1 + 0x00, 2)
@@ -8378,8 +8399,8 @@ object StormNczEngine {
                     hbb.putLong(lPos + 8, lvMeta[lvIdx].second)
                     hbb.putInt(lPos + 16, 14) // 2^14 = 0x4000
                 }
-                System.arraycopy(ivfcMasterHash, 0, progHdr0x4000, fs1 + 0xC0, 32)
-                progHdr0x4000[fs1 + 0x140] = 2.toByte() // Generation = 2
+                System.arraycopy(ivfcMasterHash, 0, progHdr0x4000, fs1 + 0xC8, 32)
+                progHdr0x4000[fs1 + 0x144] = 2.toByte() // Generation = 2 (reverses to counter[3] = 2)
 
                 val fs0Sha = MessageDigest.getInstance("SHA-256").digest(progHdr0x4000.copyOfRange(fs0, fs0 + 0x200))
                 val fs1Sha = MessageDigest.getInstance("SHA-256").digest(progHdr0x4000.copyOfRange(fs1, fs1 + 0x200))
@@ -8392,7 +8413,7 @@ object StormNczEngine {
                 outRaf.write(progHdr0x4000)
 
                 val sec0Upper8 = ByteArray(8)
-                sec0Upper8[0] = 1.toByte()
+                sec0Upper8[3] = 1.toByte()
                 val sec0Enc = sec0PlainBytes.copyOf()
                 transformAesCtrInPlace(sec0Enc, 0, sec0Enc.size, sec0StartOff, stdCtrKey, sec0Upper8)
                 outRaf.seek(sec0StartOff)
@@ -8408,19 +8429,24 @@ object StormNczEngine {
 
             // Выбираем актуальный Control NCA (предпочитаем из Update ...800) и Manual NCA
             val basePrefix13 = cleanTid.take(13)
+            fun isFromUpdate800(c: AuxNcaCandidate): Boolean =
+                c.titleId.endsWith("800", ignoreCase = true) ||
+                c.rightsId.startsWith(basePrefix13 + "800", ignoreCase = true) ||
+                c.parentFile.name.contains("800", ignoreCase = true)
+
             val ctrlCand = refs.auxCandidates.filter {
-                it.contentType == 2 && (it.titleId.isEmpty() || it.titleId.startsWith(basePrefix13))
-            }.maxByOrNull { if (it.titleId.endsWith("800")) 2 else 1 }
+                it.contentType == 2 && (it.titleId.isEmpty() || it.titleId.startsWith(basePrefix13, ignoreCase = true))
+            }.maxByOrNull { if (isFromUpdate800(it)) 2 else 1 }
 
             val finalCtrlFile = ctrlCand?.let {
                 standardizeAuxiliaryNcaToFile(it, cleanTid, tempDir, keysMap, ticketKeysByRightsId, fallbackTicketKey)
             }
 
             val manualCands = refs.auxCandidates.filter {
-                it.contentType == 3 && (it.titleId.isEmpty() || it.titleId.startsWith(basePrefix13))
+                it.contentType == 3 && (it.titleId.isEmpty() || it.titleId.startsWith(basePrefix13, ignoreCase = true))
             }
-            val preferUpdManuals = manualCands.any { it.titleId.endsWith("800") }
-            val selectedManualCands = if (preferUpdManuals) manualCands.filter { it.titleId.endsWith("800") } else manualCands
+            val preferUpdManuals = manualCands.any { isFromUpdate800(it) }
+            val selectedManualCands = if (preferUpdManuals) manualCands.filter { isFromUpdate800(it) } else manualCands
             val finalManualFiles = ArrayList<File>()
             for (mc in selectedManualCands) {
                 val mf = standardizeAuxiliaryNcaToFile(mc, cleanTid, tempDir, keysMap, ticketKeysByRightsId, fallbackTicketKey)
