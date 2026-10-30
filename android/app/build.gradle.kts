@@ -20,8 +20,8 @@ android {
     defaultConfig {
         applicationId = "com.storm.switchbox"
         targetSdk = 36
-        versionCode = 660
-        versionName = "6.6.0"
+        versionCode = 661
+        versionName = "6.7.0"
     }
 
     signingConfigs {
@@ -91,4 +91,6 @@ dependencies {
     implementation("org.libtorrent4j:libtorrent4j-android-arm:2.1.0-31")
     implementation("org.libtorrent4j:libtorrent4j-android-x86_64:2.1.0-31")
     implementation("org.libtorrent4j:libtorrent4j-android-x86:2.1.0-31")
+    // ?????????? ????????????? ? ??????? RAR4 / RAR5 / 7z (7-Zip 16.02, ??? ABI: armeabi-v7a, arm64-v8a, x86, x86_64)
+    implementation("com.github.omicronapps:7-Zip-JBinding-4Android:Release-16.02-2.02")
 }

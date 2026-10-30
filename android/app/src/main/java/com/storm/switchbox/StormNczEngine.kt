@@ -358,7 +358,7 @@ object StormNczEngine {
         val hasMultipleRolesInside = detectedSubParts.map { it.roleBadge }.distinct().size > 1
 
         val (roleBadge, roleOrder) = when {
-            ext in listOf("zip", "pchtxt", "ips", "bps") || file.isDirectory || lowerName.contains("mod") || lowerName.contains("rus") || lowerName.contains("русиф") ->
+            ext in listOf("zip", "rar", "7z", "tar", "gz", "tgz", "pchtxt", "ips", "bps") || file.isDirectory || lowerName.contains("mod") || lowerName.contains("rus") || lowerName.contains("русиф") ->
                 "МОД / РУС" to 4
             hasMultipleRolesInside -> {
                 val rolesStr = detectedSubParts.map { it.roleBadge }.distinct().joinToString("+")
@@ -3215,12 +3215,13 @@ object StormNczEngine {
         stagingDir.mkdirs()
         if (modSources.isEmpty()) return stagingDir to 0
         var modFilesCount = 0
+        lastModStagingErrors.clear()
 
         for (src in modSources) {
             if (!src.exists()) continue
-            if (src.isFile && src.extension.equals("zip", ignoreCase = true)) {
-                extractZipArchiveSafe(src) { rawEntryName, entryStream ->
-                    val relSub = normalizeModRelativeSubPath(rawEntryName) ?: return@extractZipArchiveSafe
+            if (src.isFile && isModArchiveFile(src)) {
+                val archRep = extractArchiveSafe(src) { rawEntryName, entryStream ->
+                    val relSub = normalizeModRelativeSubPath(rawEntryName) ?: return@extractArchiveSafe
                     val outStaged = File(stagingDir, relSub)
                     outStaged.parentFile?.mkdirs()
                     FileOutputStream(outStaged).use { fos -> entryStream.copyTo(fos) }
@@ -3230,6 +3231,7 @@ object StormNczEngine {
                         modFilesCount++
                     }
                 }
+                if (archRep.error != null) lastModStagingErrors.add("${src.name}: ${archRep.error}")
             } else if (src.isFile) {
                 if (!isPoisonedStubMainFile(src) && !isPoisonedFakeConfigIni(src)) {
                     val relSub = normalizeModRelativeSubPath(src.name)
@@ -3907,22 +3909,22 @@ object StormNczEngine {
         // если на вход подан архив с обновлением, DLC, анлокером или модами RomFS/ExeFS — распаковываем автоматически!
         val expandedInputFiles = mutableListOf<File>()
         for ((archIdx, inFile) in inputFiles.filter { it.exists() }.withIndex()) {
-            if (inFile.isFile && inFile.extension.equals("zip", ignoreCase = true)) {
+            if (inFile.isFile && isModArchiveFile(inFile)) {
                 val archOutDir = File(tempNormDir, "archive_unpack_$archIdx")
                 archOutDir.mkdirs()
                 var foundContainersInZip = false
                 try {
-                    extractZipArchiveSafe(inFile) { rawName, entryStream ->
+                    extractArchiveSafe(inFile) { rawName, entryStream ->
                         val relPath = rawName.replace('\\', '/').trimStart('/')
-                        if (relPath.isBlank() || relPath.contains("..") || relPath.contains("__MACOSX")) return@extractZipArchiveSafe
+                        if (relPath.isBlank() || relPath.contains("..") || relPath.contains("__MACOSX")) return@extractArchiveSafe
                         val leaf = relPath.substringAfterLast('/')
-                        if (isJunkOrReadmeFile(leaf)) return@extractZipArchiveSafe
+                        if (isJunkOrReadmeFile(leaf)) return@extractArchiveSafe
                         val destF = File(archOutDir, relPath)
                         destF.parentFile?.mkdirs()
                         FileOutputStream(destF).use { fos -> entryStream.copyTo(fos) }
                         if (isPoisonedStubMainFile(destF) || isPoisonedFakeConfigIni(destF)) {
                             destF.delete()
-                            return@extractZipArchiveSafe
+                            return@extractArchiveSafe
                         }
                         if (destF.extension.lowercase() in listOf("nsp", "nsz", "xci", "xcz")) {
                             expandedInputFiles.add(destF)
@@ -4138,7 +4140,7 @@ object StormNczEngine {
                 val lower = f.name.lowercase()
                 val key = if (smartDedup) lower.removeSuffix(".nca").removeSuffix(".ncz") else lower
                 collected[key] = SubSource(f, f.name, key, 0L, f.length())
-            } else if (embedMods && (ext in listOf("zip", "pchtxt", "ips", "bps") || f.isDirectory)) {
+            } else if (embedMods && (ext in listOf("zip", "rar", "7z", "tar", "gz", "tgz", "pchtxt", "ips", "bps") || f.isDirectory)) {
                 modInputSources.add(f)
             }
         }
@@ -4149,6 +4151,7 @@ object StormNczEngine {
         sanitizePoisonedAndroidModDirs(primaryTid)
         clearStaleAndroidEmulatorIconCache(primaryTid)
 
+        val explicitModInputs = modInputSources.toList()
         // Подхват локальных модов из папки mods/atmosphere/contents/<TitleID> (только если есть Базовая игра!)
         val hasBaseTitleInCollected = ncaTitleIdMap.values.any { it.endsWith("000") }
         if (embedMods && hasBaseTitleInCollected) {
@@ -4213,43 +4216,88 @@ object StormNczEngine {
                 ncaContentTypeMap[k] == 0 &&
                 ((ncaTitleIdMap[k]?.startsWith(baseTidPrefix13) == true && ncaTitleIdMap[k]?.endsWith("800") == true) || ncaHasBktrMap[k] == true)
             }
+            var hardPatchFailure: String? = null
+            var hardPatchApplied = false
+            var hardPatchSummary = ""
             if (baseProgEntry != null && (updProgEntry != null || (stagedModRoot != null && embeddedModsCount > 0))) {
-                val hpInputRefs = StandaloneHardPatchRefs(
-                    primaryTid = primaryTid,
-                    baseProgKey = baseProgEntry.key,
-                    baseProgParent = baseProgEntry.value.parentFile,
-                    baseProgOffset = baseProgEntry.value.offset,
-                    baseProgSize = baseProgEntry.value.size,
-                    baseProgRightsId = ncaRightsIdMap[baseProgEntry.key] ?: "",
-                    updProgKey = updProgEntry?.key,
-                    updProgParent = updProgEntry?.value?.parentFile,
-                    updProgOffset = updProgEntry?.value?.offset ?: 0L,
-                    updProgSize = updProgEntry?.value?.size ?: 0L,
-                    updProgRightsId = updProgEntry?.let { ncaRightsIdMap[it.key] } ?: "",
-                    stagedModDir = stagedModRoot,
-                    auxCandidates = collected.entries.map { (k, v) ->
-                        AuxNcaCandidate(
-                            mapKey = k,
-                            parentFile = v.parentFile,
-                            entryName = v.entryName,
-                            offset = v.offset,
-                            size = v.size,
-                            contentType = ncaContentTypeMap[k] ?: -1,
-                            titleId = ncaTitleIdMap[k] ?: "",
-                            rightsId = ncaRightsIdMap[k] ?: "",
-                            hasBktr = ncaHasBktrMap[k] == true
+                // Hard-Patch читает разделы NCA напрямую: сжатые NCZ (из NSZ / XCZ) сначала распаковываем во временный NCA
+                fun materializeNczEntry(src: SubSource, label: String): SubSource {
+                    if (!src.entryName.endsWith(".ncz", ignoreCase = true)) return src
+                    val outNca = File(tempDir, "hp_${label}_${src.entryName.substringBeforeLast('.')}.nca")
+                    if (!outNca.exists() || outNca.length() == 0L) {
+                        onProgress(makeProg(56, "Hard-Patch: распаковка NCZ ($label) в NCA...", src.entryName, 56L, 100L))
+                        RandomAccessFile(src.parentFile, "r").use { raf -> decompressNczSliceToNca(raf, src.offset, src.size, outNca) }
+                    }
+                    return SubSource(outNca, src.entryName.substringBeforeLast('.') + ".nca", src.baseKey, 0L, outNca.length())
+                }
+                var hpBase: SubSource? = null
+                var hpUpd: SubSource? = null
+                val hpAux = ArrayList<AuxNcaCandidate>()
+                try {
+                    hpBase = materializeNczEntry(baseProgEntry.value, "base")
+                    hpUpd = updProgEntry?.value?.let { materializeNczEntry(it, "update") }
+                    for ((k, v) in collected.entries) {
+                        val ct = ncaContentTypeMap[k] ?: -1
+                        val auxTid = ncaTitleIdMap[k] ?: ""
+                        val needsAux = (ct == 2 || ct == 3) && (auxTid.isEmpty() || auxTid.startsWith(baseTidPrefix13, ignoreCase = true))
+                        val src = if (needsAux && v.entryName.endsWith(".ncz", ignoreCase = true)) materializeNczEntry(v, "aux") else v
+                        hpAux.add(
+                            AuxNcaCandidate(
+                                mapKey = k,
+                                parentFile = src.parentFile,
+                                entryName = src.entryName,
+                                offset = src.offset,
+                                size = src.size,
+                                contentType = ct,
+                                titleId = auxTid,
+                                rightsId = ncaRightsIdMap[k] ?: "",
+                                hasBktr = ncaHasBktrMap[k] == true
+                            )
                         )
                     }
-                )
-                val hpOut = executeStandaloneHardPatchToTempNcas(
-                    refs = hpInputRefs,
-                    tempDir = tempDir,
-                    keysMap = keysMap,
-                    ticketKeysByRightsId = ticketKeysByRightsId,
-                    fallbackTicketKey = fallbackTicketKey,
-                    onProgress = onProgress
-                )
+                } catch (e: Throwable) {
+                    hardPatchFailure = "не удалось распаковать сжатый раздел NCZ для Hard-Patch: ${e.message ?: e.javaClass.simpleName}"
+                }
+                val hpOut = if (hpBase != null && hardPatchFailure == null) {
+                    val hpInputRefs = StandaloneHardPatchRefs(
+                        primaryTid = primaryTid,
+                        baseProgKey = baseProgEntry.key,
+                        baseProgParent = hpBase.parentFile,
+                        baseProgOffset = hpBase.offset,
+                        baseProgSize = hpBase.size,
+                        baseProgRightsId = ncaRightsIdMap[baseProgEntry.key] ?: "",
+                        updProgKey = updProgEntry?.key,
+                        updProgParent = hpUpd?.parentFile,
+                        updProgOffset = hpUpd?.offset ?: 0L,
+                        updProgSize = hpUpd?.size ?: 0L,
+                        updProgRightsId = updProgEntry?.let { ncaRightsIdMap[it.key] } ?: "",
+                        stagedModDir = stagedModRoot,
+                        auxCandidates = hpAux
+                    )
+                    executeStandaloneHardPatchToTempNcas(
+                        refs = hpInputRefs,
+                        tempDir = tempDir,
+                        keysMap = keysMap,
+                        ticketKeysByRightsId = ticketKeysByRightsId,
+                        fallbackTicketKey = fallbackTicketKey,
+                        onProgress = onProgress,
+                        onFailure = { reason -> hardPatchFailure = reason }
+                    )
+                } else null
+                if (hpOut == null && hardPatchFailure == null) hardPatchFailure = "Hard-Patch завершился без результата"
                 if (hpOut != null) {
+                    hardPatchApplied = true
+                    if (stagedModRoot != null && embeddedModsCount > 0) {
+                        val appliedTotal = hpOut.modRomfsReplaced + hpOut.modRomfsAdded + hpOut.modExefsApplied
+                        if (appliedTotal == 0) {
+                            throw java.io.IOException(
+                                "Русификатор/мод не удалось вшить: ни один файл мода не попал в игру" +
+                                    (if (hpOut.modSkippedNotes.isNotEmpty()) " (${hpOut.modSkippedNotes.joinToString("; ")})" else "")
+                            )
+                        }
+                        hardPatchSummary = " • Hard-Patch: RomFS заменено ${hpOut.modRomfsReplaced}, добавлено ${hpOut.modRomfsAdded}, ExeFS ${hpOut.modExefsApplied}" +
+                            (if (hpOut.modSkippedNotes.isNotEmpty()) " (пропущено: ${hpOut.modSkippedNotes.joinToString("; ")})" else "")
+                    }
                     // Удаляем устаревшие разделы Base и Update (...000 / ...800), кроме DLC (...001+)
                     val removedRightsIds = HashSet<String>()
                     val keysToRemove = collected.keys.filter { k ->
@@ -4315,6 +4363,22 @@ object StormNczEngine {
                         ncaTitleIdMap[manKey] = primaryTid
                     }
                 }
+            }
+
+            if (embeddedModsCount > 0 && !hardPatchApplied) {
+                val why = if (baseProgEntry == null) {
+                    "в пакете нет базовой игры (Program NCA с TitleID ${primaryTid.take(13)}000) — добавьте файл [БАЗА] этой игры"
+                } else {
+                    hardPatchFailure ?: "неизвестная ошибка Hard-Patch"
+                }
+                throw java.io.IOException("Русификатор/мод не удалось вшить: $why")
+            }
+            if (embedMods && explicitModInputs.isNotEmpty() && embeddedModsCount == 0) {
+                val errs = lastModStagingErrors.toList()
+                throw java.io.IOException(
+                    "Русификатор/мод не удалось вшить: в ${explicitModInputs.joinToString { it.name }} не найдено файлов RomFS/ExeFS" +
+                        (if (errs.isNotEmpty()) " (${errs.joinToString("; ")})" else "")
+                )
             }
 
             // Если пользователь явно изменил название, обложку или бейдж (PreBuildCustomization),
@@ -4585,7 +4649,7 @@ object StormNczEngine {
                 totalFilesCount = preparedFiles.size,
                 blockSizeExponent = blockSizeExponent,
                 zstdLevel = if (shouldCompressNca) zstdLevel else 0,
-                message = "Собран ${outputFile.name} (${formatSize(finalLen)}, сжато $compressedNcaCount NCZ, модов: $embeddedModsCount, экономия: ${formatSize(savedBytes)})"
+                message = "Собран ${outputFile.name} (${formatSize(finalLen)}, сжато $compressedNcaCount NCZ, модов: $embeddedModsCount$hardPatchSummary, экономия: ${formatSize(savedBytes)})"
             )
         } finally {
             tempDir.deleteRecursively()
@@ -7397,6 +7461,268 @@ object StormNczEngine {
         } catch (_: Throwable) {}
     }
 
+    // =========================================================================
+    // УНИВЕРСАЛЬНАЯ РАСПАКОВКА АРХИВОВ МОДОВ: ZIP / RAR4 / RAR5 / 7z / TAR / GZ (защита от zip-slip)
+    // =========================================================================
+
+    data class ArchiveExtractReport(
+        val format: String,
+        val entryCount: Int,
+        val error: String?
+    )
+
+    /** Определяет формат архива по сигнатуре (а не по расширению). Пустая строка — не архив. */
+    fun detectArchiveFormat(file: File): String {
+        if (!file.isFile || file.length() < 4L) return ""
+        val head = ByteArray(minOf(file.length(), 512L).toInt())
+        try {
+            RandomAccessFile(file, "r").use { it.readFully(head) }
+        } catch (_: Throwable) {
+            return ""
+        }
+        fun at(off: Int, vararg b: Int): Boolean =
+            head.size >= off + b.size && b.indices.all { head[off + it] == b[it].toByte() }
+        return when {
+            at(0, 0x50, 0x4B, 0x03, 0x04) || at(0, 0x50, 0x4B, 0x05, 0x06) || at(0, 0x50, 0x4B, 0x07, 0x08) -> "zip"
+            at(0, 0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x01, 0x00) -> "rar5"
+            at(0, 0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x00) -> "rar"
+            at(0, 0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C) -> "7z"
+            at(0, 0x1F, 0x8B) -> "gzip"
+            at(0, 0x42, 0x5A, 0x68) -> "bzip2"
+            at(0, 0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00) -> "xz"
+            head.size >= 262 && String(head, 257, 5, StandardCharsets.US_ASCII) == "ustar" -> "tar"
+            else -> ""
+        }
+    }
+
+    /** true — файл является архивом мода/русификатора (по сигнатуре или расширению). */
+    fun isModArchiveFile(file: File): Boolean {
+        if (!file.isFile) return false
+        if (detectArchiveFormat(file).isNotEmpty()) return true
+        return file.extension.lowercase() in setOf("zip", "rar", "7z", "tar", "gz", "tgz")
+    }
+
+    /** Нормализует путь записи архива и отбрасывает опасные пути (zip-slip: «..», абсолютные, «C:»). */
+    fun sanitizeArchiveEntryPath(raw: String): String? {
+        val parts = raw.replace('\\', '/').split('/').filter { it.isNotEmpty() && it != "." }
+        if (parts.isEmpty() || parts.any { it == ".." }) return null
+        if (parts.first().contains(':')) return null
+        return parts.joinToString("/")
+    }
+
+    /**
+     * Единая безопасная распаковка архивов модов: ZIP (UTF-8/CP866/CP1251), RAR4, RAR5, 7z (через 7-Zip-JBinding),
+     * TAR, TAR.GZ и GZ. В onEntry передаётся уже очищенный относительный путь (без «..» и абсолютных путей).
+     */
+    fun extractArchiveSafe(archive: File, onEntry: (String, java.io.InputStream) -> Unit): ArchiveExtractReport {
+        val fmt = detectArchiveFormat(archive).ifEmpty {
+            when (archive.extension.lowercase()) {
+                "tgz" -> "gzip"
+                "gz" -> "gzip"
+                else -> archive.extension.lowercase()
+            }
+        }
+        var count = 0
+        val wrapped: (String, java.io.InputStream) -> Unit = { rawName, stream ->
+            val safe = sanitizeArchiveEntryPath(rawName)
+            if (safe != null) {
+                count++
+                onEntry(safe, stream)
+            }
+        }
+        val label = when (fmt) {
+            "zip" -> "ZIP"
+            "rar" -> "RAR"
+            "rar5" -> "RAR5"
+            "7z" -> "7z"
+            "gzip" -> "GZIP"
+            else -> fmt.uppercase()
+        }
+        return try {
+            when (fmt) {
+                "zip" -> {
+                    extractZipArchiveSafe(archive, wrapped)
+                    ArchiveExtractReport(label, count, if (count == 0) "ZIP-архив пуст или повреждён" else null)
+                }
+                "tar" -> {
+                    BufferedInputStream(FileInputStream(archive), 256 * 1024).use { extractTarStream(it, wrapped) }
+                    ArchiveExtractReport(label, count, if (count == 0) "TAR-архив пуст или повреждён" else null)
+                }
+                "gzip" -> {
+                    java.util.zip.GZIPInputStream(BufferedInputStream(FileInputStream(archive), 256 * 1024)).use { gz ->
+                        val bis = BufferedInputStream(gz, 256 * 1024)
+                        bis.mark(1024)
+                        val probe = ByteArray(512)
+                        var got = 0
+                        while (got < 512) {
+                            val r = bis.read(probe, got, 512 - got)
+                            if (r <= 0) break
+                            got += r
+                        }
+                        bis.reset()
+                        if (got >= 262 && String(probe, 257, 5, StandardCharsets.US_ASCII) == "ustar") {
+                            extractTarStream(bis, wrapped)
+                        } else {
+                            val innerName = archive.name.replace(Regex("""(?i)\.(tgz|gz)$"""), "").ifBlank { "payload.bin" }
+                            wrapped(innerName, bis)
+                        }
+                    }
+                    ArchiveExtractReport(label, count, if (count == 0) "GZIP-архив пуст или повреждён" else null)
+                }
+                else -> extractWithSevenZipJBinding(archive, label, wrapped)
+            }
+        } catch (e: Throwable) {
+            ArchiveExtractReport(label, count, "ошибка распаковки $label: ${e.message ?: e.javaClass.simpleName}")
+        }
+    }
+
+    private fun extractTarStream(input: java.io.InputStream, onEntry: (String, java.io.InputStream) -> Unit) {
+        val hdr = ByteArray(512)
+        var longName: String? = null
+        fun readBlock(buf: ByteArray): Boolean {
+            var got = 0
+            while (got < buf.size) {
+                val r = input.read(buf, got, buf.size - got)
+                if (r <= 0) return false
+                got += r
+            }
+            return true
+        }
+        while (readBlock(hdr)) {
+            if (hdr.all { it == 0.toByte() }) break
+            val name0 = String(hdr, 0, 100, StandardCharsets.UTF_8).substringBefore('\u0000')
+            val prefix = String(hdr, 345, 155, StandardCharsets.UTF_8).substringBefore('\u0000')
+            val sizeStr = String(hdr, 124, 12, StandardCharsets.US_ASCII).trim { it <= ' ' || it == '\u0000' }
+            val size = sizeStr.toLongOrNull(8) ?: 0L
+            val type = hdr[156].toInt().toChar()
+            val name = longName ?: (if (prefix.isNotEmpty() && hdr[257] == 'u'.code.toByte()) "$prefix/$name0" else name0)
+            longName = null
+            var remaining = size
+            val bounded = object : java.io.InputStream() {
+                override fun read(): Int {
+                    if (remaining <= 0L) return -1
+                    val b = input.read()
+                    if (b >= 0) remaining--
+                    return b
+                }
+                override fun read(b: ByteArray, off: Int, len: Int): Int {
+                    if (remaining <= 0L) return -1
+                    val r = input.read(b, off, minOf(len.toLong(), remaining).toInt())
+                    if (r > 0) remaining -= r
+                    return r
+                }
+                override fun close() {}
+            }
+            when (type) {
+                'L' -> longName = String(bounded.readBytes(), StandardCharsets.UTF_8).trimEnd('\u0000')
+                '0', '\u0000', '7' -> onEntry(name, bounded)
+                else -> {}
+            }
+            val skipBuf = ByteArray(8192)
+            while (remaining > 0L) {
+                val r = bounded.read(skipBuf, 0, skipBuf.size)
+                if (r <= 0) break
+            }
+            val pad = ((512L - (size % 512L)) % 512L).toInt()
+            if (pad > 0) {
+                val padBuf = ByteArray(pad)
+                readBlock(padBuf)
+            }
+        }
+    }
+
+    private fun extractWithSevenZipJBinding(
+        archive: File,
+        label: String,
+        onEntry: (String, java.io.InputStream) -> Unit
+    ): ArchiveExtractReport {
+        val tmpDir = File(archive.parentFile ?: File("."), ".x7_${System.currentTimeMillis()}_${archive.name.hashCode().toUInt()}")
+        tmpDir.mkdirs()
+        var raf: RandomAccessFile? = null
+        var inArchive: net.sf.sevenzipjbinding.IInArchive? = null
+        val extracted = ArrayList<Pair<String, File>>()
+        val failures = ArrayList<String>()
+        var delivered = 0
+        try {
+            raf = RandomAccessFile(archive, "r")
+            inArchive = try {
+                net.sf.sevenzipjbinding.SevenZip.openInArchive(null, net.sf.sevenzipjbinding.impl.RandomAccessFileInStream(raf))
+            } catch (e: Throwable) {
+                val msg = (e.message ?: e.javaClass.simpleName)
+                val why = if (msg.contains("password", ignoreCase = true)) "архив защищён паролем" else "архив повреждён или формат не поддерживается ($msg)"
+                return ArchiveExtractReport(label, 0, "$label: $why")
+            }
+            val arc = inArchive!!
+            val total = arc.numberOfItems
+            val paths = arrayOfNulls<String>(total)
+            val indices = ArrayList<Int>()
+            for (i in 0 until total) {
+                val isFolder = (arc.getProperty(i, net.sf.sevenzipjbinding.PropID.IS_FOLDER) as? Boolean) ?: false
+                if (isFolder) continue
+                val p = (arc.getProperty(i, net.sf.sevenzipjbinding.PropID.PATH) as? String) ?: continue
+                paths[i] = p
+                indices.add(i)
+            }
+            var curOut: FileOutputStream? = null
+            var curIdx = -1
+            arc.extract(indices.toIntArray(), false, object : net.sf.sevenzipjbinding.IArchiveExtractCallback {
+                override fun getStream(index: Int, extractAskMode: net.sf.sevenzipjbinding.ExtractAskMode?): net.sf.sevenzipjbinding.ISequentialOutStream? {
+                    if (extractAskMode != net.sf.sevenzipjbinding.ExtractAskMode.EXTRACT) return null
+                    if (paths.getOrNull(index) == null) return null
+                    try { curOut?.close() } catch (_: Throwable) {}
+                    val out = FileOutputStream(File(tmpDir, "e$index.bin"))
+                    curOut = out
+                    curIdx = index
+                    return net.sf.sevenzipjbinding.ISequentialOutStream { data ->
+                        out.write(data)
+                        data.size
+                    }
+                }
+
+                override fun prepareOperation(extractAskMode: net.sf.sevenzipjbinding.ExtractAskMode?) {}
+
+                override fun setOperationResult(extractOperationResult: net.sf.sevenzipjbinding.ExtractOperationResult?) {
+                    try { curOut?.close() } catch (_: Throwable) {}
+                    curOut = null
+                    if (curIdx >= 0) {
+                        val p = paths.getOrNull(curIdx)
+                        val f = File(tmpDir, "e$curIdx.bin")
+                        if (extractOperationResult == net.sf.sevenzipjbinding.ExtractOperationResult.OK && p != null) {
+                            extracted.add(p to f)
+                        } else {
+                            failures.add("${p ?: curIdx}: ${extractOperationResult ?: "UNKNOWN"}")
+                            f.delete()
+                        }
+                    }
+                    curIdx = -1
+                }
+
+                override fun setTotal(total: Long) {}
+
+                override fun setCompleted(complete: Long) {}
+            })
+            for ((p, f) in extracted) {
+                FileInputStream(f).use { onEntry(p, it) }
+                delivered++
+                f.delete()
+            }
+            val err = when {
+                failures.any { it.contains("WRONG_PASSWORD") } -> "$label: архив защищён паролем (${failures.size} файл(ов) не извлечено)"
+                delivered == 0 && failures.isNotEmpty() -> "$label: не удалось извлечь файлы (${failures.take(3).joinToString("; ")})"
+                delivered == 0 -> "$label: архив пуст"
+                else -> null
+            }
+            return ArchiveExtractReport(label, delivered, err)
+        } finally {
+            try { inArchive?.close() } catch (_: Throwable) {}
+            try { raf?.close() } catch (_: Throwable) {}
+            try { tmpDir.deleteRecursively() } catch (_: Throwable) {}
+        }
+    }
+
+    /** Ошибки распаковки архивов модов из последнего вызова stageModFilesForHardPatch (для понятного отчёта пользователю). */
+    val lastModStagingErrors: MutableList<String> = java.util.Collections.synchronizedList(ArrayList())
+
     fun isPoisonedStubMainFile(file: File): Boolean {
         if (!file.exists() || !file.isFile) return false
         if (!file.name.equals("main", ignoreCase = true)) return false
@@ -8183,7 +8509,11 @@ object StormNczEngine {
         val cnmtFile: File,
         val controlFile: File?,
         val programFile: File,
-        val manualFiles: List<File>
+        val manualFiles: List<File>,
+        val modRomfsReplaced: Int = 0,
+        val modRomfsAdded: Int = 0,
+        val modExefsApplied: Int = 0,
+        val modSkippedNotes: List<String> = emptyList()
     )
 
     private fun standardizeAuxiliaryNcaToFile(
@@ -8266,11 +8596,22 @@ object StormNczEngine {
         keysMap: Map<String, ByteArray>,
         ticketKeysByRightsId: Map<String, ByteArray>,
         fallbackTicketKey: ByteArray?,
-        onProgress: (NczProgress) -> Unit
+        onProgress: (NczProgress) -> Unit,
+        onFailure: (String) -> Unit = {}
     ): StandaloneHardPatchOutput? {
-        if (!refs.baseProgParent.exists() || refs.baseProgSize < 0x4000L) return null
+        if (!refs.baseProgParent.exists() || refs.baseProgSize < 0x4000L) {
+            onFailure("файл базовой игры недоступен или раздел Program NCA повреждён (${refs.baseProgParent.name}, ${refs.baseProgSize} байт)")
+            return null
+        }
         val cleanTid = normalizeBaseTitleId(refs.primaryTid).ifEmpty { refs.primaryTid.uppercase() }
-        val tidLong = cleanTid.toULongOrNull(16)?.toLong() ?: return null
+        val tidLong = cleanTid.toULongOrNull(16)?.toLong() ?: run {
+            onFailure("некорректный TitleID игры: $cleanTid")
+            return null
+        }
+        var modExefsApplied = 0
+        var modRomfsReplaced = 0
+        var modRomfsAdded = 0
+        val modSkippedNotes = ArrayList<String>()
 
         val baseExtKey = if (refs.baseProgRightsId.isNotEmpty()) {
             ticketKeysByRightsId[refs.baseProgRightsId.uppercase()] ?: fallbackTicketKey
@@ -8301,10 +8642,16 @@ object StormNczEngine {
                     val ext = mf.extension.lowercase()
                     if (ext != "ips" && ext != "pchtxt") {
                         mergedExefs[mf.name] = mf.readBytes()
+                        modExefsApplied++
+                    } else {
+                        modSkippedNotes.add("${mf.name}: IPS/PCHTXT-патчи ExeFS не вшиваются в NCA")
                     }
                 }
             }
-            if (mergedExefs.isEmpty() || !mergedExefs.containsKey("main")) return null
+            if (mergedExefs.isEmpty() || !mergedExefs.containsKey("main")) {
+                onFailure("не удалось прочитать ExeFS (main) базовой игры — проверьте prod.keys / title.keys и целостность файла")
+                return null
+            }
             val npdmBytes = mergedExefs["main.npdm"]
             if (npdmBytes != null) {
                 val tmpNpdm = File(tempDir, "tmp_patch_main.npdm")
@@ -8348,7 +8695,10 @@ object StormNczEngine {
                     }
                 }
             }
-            if (baseRomfsReader == null) return null
+            if (baseRomfsReader == null) {
+                onFailure("в Program NCA базовой игры не найден раздел RomFS (IVFC)")
+                return null
+            }
 
             var activeRomfsReader: RomfsSectionReader = baseRomfsReader
             var activeLv6Off = baseLv6Off
@@ -8402,7 +8752,10 @@ object StormNczEngine {
             }
 
             val parsedRomfs = parseRomfsMetadataFromReader(activeRomfsReader, activeLv6Off)
-            if (parsedRomfs.files.isEmpty()) return null
+            if (parsedRomfs.files.isEmpty()) {
+                onFailure("RomFS игры пуст или не расшифрован — вероятно, нет ключа раздачи (title key) или устарели prod.keys")
+                return null
+            }
 
             val mergedRomfsMap = LinkedHashMap<String, VirtualRomfsSource>()
             val caseInsensitiveLookup = HashMap<String, String>()
@@ -8431,18 +8784,22 @@ object StormNczEngine {
                             if (langCode.equals("RUru", ignoreCase = true)) {
                                 return@forEach
                             }
+                            var replacedAny = false
                             for (targetLang in listOf(langCode, "EUen", "USen", "EUru", "EUde", "EUfr", "EUes", "EUit", "EUnl", "USes", "USfr").distinct()) {
                                 val adjustedRel = "Mals/$targetLang.Product.$gameMalsVer.sarc.zs"
                                 val canonicalKey = caseInsensitiveLookup[adjustedRel.lowercase()] ?: adjustedRel
                                 if (targetLang in listOf("EUen", "USen", "EUru") || mergedRomfsMap.containsKey(canonicalKey)) {
+                                    if (mergedRomfsMap.containsKey(canonicalKey)) replacedAny = true
                                     mergedRomfsMap[canonicalKey] = VirtualRomfsSource.LocalFile(mf)
                                     caseInsensitiveLookup[canonicalKey.lowercase()] = canonicalKey
                                 }
                             }
+                            if (replacedAny) modRomfsReplaced++ else modRomfsAdded++
                             return@forEach
                         }
                     }
                     val canonicalKey = caseInsensitiveLookup[rawRel.lowercase()] ?: rawRel
+                    if (mergedRomfsMap.containsKey(canonicalKey)) modRomfsReplaced++ else modRomfsAdded++
                     mergedRomfsMap[canonicalKey] = VirtualRomfsSource.LocalFile(mf)
                     caseInsensitiveLookup[canonicalKey.lowercase()] = canonicalKey
                 }
@@ -8739,10 +9096,15 @@ object StormNczEngine {
                 cnmtFile = cnmtFile,
                 controlFile = finalCtrlFile,
                 programFile = finalProgFile,
-                manualFiles = finalManualFiles
+                manualFiles = finalManualFiles,
+                modRomfsReplaced = modRomfsReplaced,
+                modRomfsAdded = modRomfsAdded,
+                modExefsApplied = modExefsApplied,
+                modSkippedNotes = modSkippedNotes
             )
         } catch (e: Throwable) {
             e.printStackTrace()
+            onFailure("ошибка Hard-Patch: ${e.javaClass.simpleName}: ${e.message ?: "без описания"}")
             return null
         } finally {
             try { baseRaf?.close() } catch (_: Throwable) {}

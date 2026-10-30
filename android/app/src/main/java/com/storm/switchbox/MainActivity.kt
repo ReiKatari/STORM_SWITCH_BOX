@@ -220,6 +220,7 @@ class MainActivity : Activity() {
         }
 
         StormNczEngine.initAppContext(applicationContext)
+        RuTrackerCloudEngine.appContext = applicationContext
         ensureStormDirectories()
         loadSettings()
 
@@ -228,7 +229,7 @@ class MainActivity : Activity() {
         }
 
         buildUserInterface()
-        appendLog("STORM SWITCH BOX ${"6.6.0"} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) готов к работе.")
+        appendLog("STORM SWITCH BOX ${"6.7.0"} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) готов к работе.")
 
         // Автоматическая проверка обновлений с GitHub при запуске
         if (autoCheckUpdatesOnStartup) {
@@ -791,7 +792,7 @@ class MainActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
         titleCol.addView(TextView(this).apply {
-            text = "STORM SWITCH BOX ${"6.6.0"}"
+            text = "STORM SWITCH BOX ${"6.7.0"}"
             setTextColor(th.textPrimary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
             typeface = Typeface.DEFAULT_BOLD
@@ -2513,6 +2514,8 @@ class MainActivity : Activity() {
     // =========================================================================
 
     private fun buildRuTrackerAndModsTab(parent: LinearLayout, th: StormTheme) {
+        RuTrackerCloudEngine.appContext = applicationContext
+        RuTrackerCloudEngine.cacheRootDir = filesDir
         RuTrackerCloudEngine.warmupSwitchForumCacheAsync()
 
         val rtCard = LinearLayout(this).apply {
@@ -2661,7 +2664,7 @@ class MainActivity : Activity() {
                     setPadding(0, dp(2), 0, dp(4))
                 })
                 itemBox.addView(TextView(this).apply {
-                    text = "📦 Размер: ${StormNczEngine.localizeSizeText(item.sizeText)}  •  🌱 Сиды: ▲${item.seeds}  •  🆔 TitleID: $resolvedTid"
+                    text = "📦 Размер: ${StormNczEngine.localizeSizeText(item.sizeText)}  •  🌱 Сиды: ${if (item.seeds > 0) "▲${item.seeds}" else "нет данных"}  •  🆔 TitleID: $resolvedTid"
                     setTextColor(th.accent)
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.2f)
                     typeface = Typeface.DEFAULT_BOLD
@@ -2882,7 +2885,7 @@ class MainActivity : Activity() {
                 })
 
                 bodyContent.addView(TextView(this).apply {
-                    text = "${details.forumSection}\nТема #${details.topicId} • Размер: ${details.totalSizeText} • Сиды: ▲${details.seeds} • Личи: ▼${details.leechers}\nBTIH: ${details.infoHash}"
+                    text = "${details.forumSection}\nТема #${details.topicId} • Размер: ${details.totalSizeText} • Сиды: ${if (details.seeds > 0) "▲${details.seeds}" else "нет данных"} • Личи: ${if (details.seeds > 0) "▼${details.leechers}" else "—"}\nBTIH: ${details.infoHash}"
                     setTextColor(th.textSecondary)
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.2f)
                     setPadding(0, 0, 0, dp(8))
@@ -2979,7 +2982,7 @@ class MainActivity : Activity() {
             maxLines = 2
         })
         topicMetaBanner.addView(TextView(this).apply {
-            text = "Тема RuTracker: t=${item.topicId} • Размер: ${StormNczEngine.localizeSizeText(item.sizeText)} • Сиды: ▲${item.seeds} • Папка: ${customOutputDir.name}/"
+            text = "Тема RuTracker: t=${item.topicId} • Размер: ${StormNczEngine.localizeSizeText(item.sizeText)} • Сиды: ${if (item.seeds > 0) "▲${item.seeds}" else "нет данных"} • Папка: ${customOutputDir.name}/"
             setTextColor(th.textSecondary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.6f)
             setPadding(0, dp(2), 0, 0)
@@ -3741,7 +3744,7 @@ class MainActivity : Activity() {
                     "21. Nintendo Switch 2 (Ounce / NVN2)",
                     "Экосистемы",
                     "SWITCH 2",
-                    "STORM SWITCH BOX 6.6.0 включает полную поддержку следующего поколения игровых систем Nintendo — Nintendo Switch 2 (кодовое имя «Ounce» / API «NVN2»):\n" +
+                    "STORM SWITCH BOX 6.7.0 включает полную поддержку следующего поколения игровых систем Nintendo — Nintendo Switch 2 (кодовое имя «Ounce» / API «NVN2»):\n" +
                     "• Идентификация дампов: TitleID игр Switch 2 начинается с префикса «0400...» (в отличие от «0100...» у Switch 1), извлекаемый напрямую из main.npdm (заголовок META -> секция ACI0 + 0x10).\n" +
                     "• Авто-сборка из папок дампа: при перетаскивании каталога дампа Switch 2 (содержащего base/exefs/main.npdm, base/romfs, updates/<версия> и dlc/<tid>) программа автоматически объединяет базовую игру, самое свежее обновление, все DLC и моды в 1 монолитный контейнер (.nsp, .nsz, .xci, .xcz).\n" +
                     "• Авто-генерация Control NCA: создание control.nacp на 16 языках и получение официальной 256×256 обложки через Nintendo Europe Search API / Steam.\n" +
@@ -3754,7 +3757,7 @@ class MainActivity : Activity() {
                     "22. RuTracker: Чеклист ссылок обсуждения и DLC Unlocker",
                     "Сеть, Ключи и База",
                     "RUTRACKER",
-                    "В версии 6.6.0 усовершенствован модуль интеграции с RuTracker (#1605):\n" +
+                    "В версии 6.7.0 усовершенствован модуль интеграции с RuTracker (#1605):\n" +
                     "• Чеклист ссылок из темы обсуждения: все полезные ссылки (русификаторы, моды, патчи 60 FPS, читы), найденные в комментариях и шапке темы раздачи, отображаются с датами публикации сообщений.\n" +
                     "• Выборочная загрузка: можно отметить только нужные модификации чекбоксами перед стартом сборки.\n" +
                     "• DLC Unlocker: автоматическое управление анлокерами дополнений и синхронизация тикетов.",
@@ -4509,7 +4512,7 @@ class MainActivity : Activity() {
         }
         updCard.addView(makeSectionHeader(
             "2. Обновление STORM SWITCH BOX (GitHub и STORM GAMES WORLD)",
-            "Текущая версия: ${try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.6.0" } catch (_: Exception) { "6.6.0" }} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) • Проверка на 2 официальных площадках",
+            "Текущая версия: ${try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.7.0" } catch (_: Exception) { "6.7.0" }} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) • Проверка на 2 официальных площадках",
             th
         ))
         updCard.addView(makeStormCheckBox(
@@ -4793,7 +4796,7 @@ class MainActivity : Activity() {
             }
             return 0
         }
-        val validExts = setOf("nsp", "nsz", "xci", "xcz", "nca", "ncz", "3ds", "cci", "cia", "cxi", "cfa", "3dsx", "nds", "zip", "ips", "pchtxt")
+        val validExts = setOf("nsp", "nsz", "xci", "xcz", "nca", "ncz", "3ds", "cci", "cia", "cxi", "cfa", "3dsx", "nds", "zip", "rar", "7z", "ips", "pchtxt")
         var added = 0
         folder.walkTopDown().maxDepth(4).forEach { f ->
             if (f.isFile && f.extension.lowercase() in validExts) {
@@ -4814,7 +4817,7 @@ class MainActivity : Activity() {
         val th = themes[currentThemeIndex]
         var currentDir = if (initialDir.exists() && initialDir.isDirectory) initialDir else File("/storage/emulated/0")
         val selectedPaths = LinkedHashSet<File>()
-        val validExts = setOf("nsp", "nsz", "xci", "xcz", "nca", "ncz", "3ds", "cci", "cia", "cxi", "cfa", "3dsx", "nds", "zip", "ips", "pchtxt")
+        val validExts = setOf("nsp", "nsz", "xci", "xcz", "nca", "ncz", "3ds", "cci", "cia", "cxi", "cfa", "3dsx", "nds", "zip", "rar", "7z", "ips", "pchtxt")
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -5240,7 +5243,7 @@ class MainActivity : Activity() {
             Toast.makeText(this, "⏳ Проверка обновлений на GitHub и STORM GAMES WORLD...", Toast.LENGTH_SHORT).show()
         }
         val preferLegacy = (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) || Build.VERSION.SDK_INT < 26
-        val currentAppVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.6.0" } catch (_: Exception) { "6.6.0" }
+        val currentAppVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.7.0" } catch (_: Exception) { "6.7.0" }
         thread {
             val rel = RuTrackerCloudEngine.checkGitHubAppUpdate(currentAppVer, preferLegacy)
             mainHandler.post {
@@ -5271,7 +5274,7 @@ class MainActivity : Activity() {
             typeface = Typeface.DEFAULT_BOLD
         })
         box.addView(TextView(this).apply {
-            val installedVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.6.0" } catch (_: Exception) { "6.6.0" }
+            val installedVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.7.0" } catch (_: Exception) { "6.7.0" }
             text = "Новая версия: ${release.version} (Установлена: $installedVer)\nИсточник: ${release.sourceName}\nПакет: ${release.apkName} (${StormNczEngine.formatSize(release.apkSizeBytes)})"
             setTextColor(th.textPrimary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)

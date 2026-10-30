@@ -1,5 +1,8 @@
 package com.storm.switchbox
 
+import android.content.Context
+import android.util.Log
+
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedInputStream
@@ -19,7 +22,7 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 
 /**
- * Поисковый и облачный движок RuTracker (ТОЛЬКО игры и русификаторы Nintendo Switch: разделы 1605 и 2481),
+ * Поисковый и облачный движок RuTracker (ТОЛЬКО игры и русификаторы Nintendo Switch: раздел 1605),
  * онлайн-загрузчик ключей prod.keys / title.keys (STORM SWITCH TOOLS), автообновление приложения с GitHub,
  * скачивание модов с Яндекс.Диска / Google Drive / GitHub и встроенный HTTP Range сервер для DBI / Tinfoil.
  */
@@ -97,75 +100,14 @@ object RuTrackerCloudEngine {
         "udp://exodus.desync.com:6969/announce"
     )
 
-    // Строго только игры и русификаторы Nintendo Switch из официального раздела RuTracker #1605 / #2481 (по 1 эталонной записи на игру)
+    // Каталог популярных игр Nintendo Switch. Номер темы, BTIH и сиды указаны ТОЛЬКО для раздач, подтверждённых API RuTracker
+    // (раздел #1605). Для остальных (topicId = "CAT-N") реальная раздача ищется при скачивании — без выдуманных хэшей и сидов.
     private val CURATED_SWITCH_DB = listOf(
         TopicItem("6479728", "[Nintendo Switch] Mario vs. Donkey Kong [v1.0.1 (65536) / 0100B99019412000] [NSP] [Multi / RUS]", "Nintendo Switch", "1,30 ГБ", 200, 14, "18034EA68DC5EBE094A061B95A04BB215D95A2A0", "", ""),
-        TopicItem("6504812", "[Nintendo Switch] Felix the Cat [v1.0.2 / 010079D01C6B6000] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "345,0 МБ", 94, 6, "7F3A9C1D5E8B2046193A7D5C8E2F4B109A6C3D8E", "", ""),
-        TopicItem("5794103", "[Nintendo Switch] Felix The Reaper [v1.0.3 / 010003B00D3A2000] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "4,31 ГБ", 52, 4, "3B8E1D4C7A9F2056183C5E7A9B2D4F608C1E3A5B", "", ""),
-        TopicItem("6438192", "[Nintendo Switch] Brotato [v1.1.15.4 (851968) + DLC / 01002EF01A316000] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "388,19 МБ", 142, 9, "7B4E2C198A0F5D3E6B9124C87E1A3F509D2B4C6E", "", ""),
-        TopicItem("6525297", "[Nintendo Switch] Animal Well [v1.0.10 (655360) / 010020D01AD24000] [NSP / NSZ] [RUS / Multi11]", "Nintendo Switch", "37,63 МБ", 54, 2, "0A996B997AA2B90DB658E4CA76D2989DD1F80F56", "", ""),
-        TopicItem("6589120", "[Nintendo Switch] Nine Sols [v1.0.5 + Русификатор] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "3,42 ГБ", 165, 12, "957ADC803EE75C916B735378F25406B4A4A7F1D5", "", ""),
-        TopicItem("5468910", "[Nintendo Switch] Celeste [v1.4.0.0] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "1,18 ГБ", 182, 6, "6EDC344625A26DCA0861F2ABE2FE2B98C0E83B1D", "", ""),
-        TopicItem("6381290", "[Nintendo Switch] Sea of Stars [v1.0.47958 + DLC + Русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "4,15 ГБ", 154, 9, "5054E8E6621522E2173D5AE817AFFAC8DABE50FE", "", ""),
-        TopicItem("6412098", "[Nintendo Switch] Dave the Diver [v1.0.2.918 + Godzilla & Dredge DLC] [NSP / NSZ] [RUS]", "Nintendo Switch", "3,28 ГБ", 179, 14, "488DA140F41B7A3E8A90F941315C4469F99E4C3D", "", ""),
-        TopicItem("6374120", "[Nintendo Switch] Blasphemous 2 [v1.2.0 + Mea Culpa DLC] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "3,10 ГБ", 141, 8, "2DDAAAC88356106B351677D4BB21B4F46969AB50", "", ""),
-        TopicItem("6241980", "[Nintendo Switch] Cult of the Lamb [v1.4.3 + Unholy Alliance + All DLC] [NSP / NSZ] [RUS]", "Nintendo Switch", "2,45 ГБ", 167, 11, "11223344556677889900AABBCCDDEEFF00112233", "", ""),
-        TopicItem("6328910", "[Nintendo Switch] Dredge [v1.5.1 + The Iron Rig & Pale Reach DLC] [NSP / NSZ] [RUS]", "Nintendo Switch", "1,12 ГБ", 153, 7, "223344556677889900AABBCCDDEEFF0011223344", "", ""),
-        TopicItem("6258914", "[Nintendo Switch] Tunic [v1.0.2] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "1,95 ГБ", 132, 6, "3344556677889900AABBCCDDEEFF001122334455", "", ""),
-        TopicItem("6549120", "[Nintendo Switch] Stray [v1.0.2] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "5,84 ГБ", 188, 16, "44556677889900AABBCCDDEEFF00112233445566", "", ""),
-        TopicItem("6438192", "[Nintendo Switch] Unicorn Overlord [v1.05 + Полный русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "6,42 ГБ", 174, 13, "556677889900AABBCCDDEEFF0011223344556677", "", ""),
-        TopicItem("6521890", "[Nintendo Switch] Shin Megami Tensei V: Vengeance [v1.0.2 + DLC + Русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "15,20 ГБ", 162, 15, "6677889900AABBCCDDEEFF001122334455667788", "", ""),
-        TopicItem("6578120", "[Nintendo Switch] Mario & Luigi: Brothership [v1.0.1 / 01006D0017F7A000] [RUS / Multi]", "Nintendo Switch", "9,85 ГБ", 215, 24, "77889900AABBCCDDEEFF00112233445566778899", "", ""),
-        TopicItem("6569102", "[Nintendo Switch] Super Mario Party Jamboree [v1.1.0] [NSP / NSZ] [RUS (Полный перевод)]", "Nintendo Switch", "5,34 ГБ", 248, 19, "889900AABBCCDDEEFF0011223344556677889900", "", ""),
-        TopicItem("6581024", "[Nintendo Switch] Dragon Quest III HD-2D Remake [v1.0.1 + Русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "7,45 ГБ", 181, 17, "9900AABBCCDDEEFF0011223344556677889900AA", "", ""),
-        TopicItem("6571920", "[Nintendo Switch] Sonic X Shadow Generations [v1.0.2 + DLC + Русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "13,10 ГБ", 176, 14, "00AABBCCDDEEFF0011223344556677889900AABB", "", ""),
-        TopicItem("5944816", "[Nintendo Switch] Hades [v1.0.38290 + DLC] [NSP / NSZ] [RUS / Multi10]", "Nintendo Switch", "10,31 ГБ", 142, 9, "50CE1151A4EA64913AB8E2AB118D1B90FC241E9E", "", ""),
-        TopicItem("6512044", "[Nintendo Switch] Hades II [v1.133066] [NSP / NSZ] [RUS / Multi15]", "Nintendo Switch", "8,44 ГБ", 95, 12, "7FF90903D9D4FB1AA818D716024CBF730F93883F", "", ""),
-        TopicItem("5392184", "[Nintendo Switch] The Legend of Zelda: Breath of the Wild [v1.6.0 + 2 DLC] [NSP / NSZ] [RUS (Озвучка + Текст)]", "Nintendo Switch", "16,12 ГБ", 318, 24, "8A3B9E74B45A9D3F12C64E81D0A5B79C34F12E88", "", ""),
-        TopicItem("6358910", "[Nintendo Switch] The Legend of Zelda: Tears of the Kingdom [v1.2.1 + Моды 60 FPS] [NSP / NSZ / XCI] [RUS]", "Nintendo Switch", "16,34 ГБ", 412, 37, "76E054C1B7EA40327523B4C535F593BEB088A569", "", ""),
-        TopicItem("6558120", "[Nintendo Switch] The Legend of Zelda: Echoes of Wisdom [v1.0.2] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "5,82 ГБ", 184, 15, "4B9E21C88F1A43D09A77E5C1B2D3E4F5A6B7C8D9", "", ""),
-        TopicItem("5778412", "[Nintendo Switch] The Legend of Zelda: Link's Awakening [v1.0.1 + Русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "5,94 ГБ", 152, 9, "5C8E12A99F2B54E10B88F6D2C3E4F5A6B7C8D9E0", "", ""),
-        TopicItem("6078192", "[Nintendo Switch] The Legend of Zelda: Skyward Sword HD [v1.0.1 + Русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "7,12 ГБ", 144, 8, "6D9F23B00A3C65F21C99A7E3D4F5A6B7C8D9E0F1", "", ""),
-        TopicItem("5481023", "[Nintendo Switch] Super Mario Odyssey [v1.3.0] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "5,59 ГБ", 245, 14, "3C7D8E9F0A1B2C3D4E5F6A7B8C9D0E1F2A3B4C5D", "", ""),
-        TopicItem("5401298", "[Nintendo Switch] Mario Kart 8 Deluxe [v3.0.3 + Booster Course Pass DLC] [NSP / NSZ] [RUS]", "Nintendo Switch", "11,24 ГБ", 289, 19, "9E8D7C6B5A4F3E2D1C0B9A8F7E6D5C4B3A2F1E0D", "", ""),
-        TopicItem("6429815", "[Nintendo Switch] Super Mario Bros. Wonder [v1.0.1] [NSP / NSZ] [RUS (Текст + Звук)]", "Nintendo Switch", "3,61 ГБ", 210, 11, "1A2B3C4D5E6F7A8B9C0D1E2F3A4B5C6D7E8F9A0B", "", ""),
-        TopicItem("5981240", "[Nintendo Switch] Super Mario 3D World + Bowser's Fury [v1.1.0] [NSP / NSZ] [RUS]", "Nintendo Switch", "2,92 ГБ", 174, 10, "7E0A34C11B4D76A32D00B8F4E5A6B7C8D9E0F1A2", "", ""),
-        TopicItem("6489120", "[Nintendo Switch] Paper Mario: The Thousand-Year Door [v1.0.1 + Русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "5,18 ГБ", 136, 9, "8F1B45D22C5E87B43E11C9A5F6B7C8D9E0F1A2B3", "", ""),
-        TopicItem("5791204", "[Nintendo Switch] The Witcher 3: Wild Hunt — Complete Edition [v4.04b + RUS Voice] [NSP / NSZ] [RUS]", "Nintendo Switch", "31,40 ГБ", 198, 22, "2B3C4D5E6F7A8B9C0D1E2F3A4B5C6D7E8F9A0B1C", "", ""),
-        TopicItem("5498211", "[Nintendo Switch] The Elder Scrolls V: Skyrim Anniversary Edition [v1.1.392 + 74 DLC] [NSP / NSZ] [RUS]", "Nintendo Switch", "15,85 ГБ", 176, 16, "3D4E5F6A7B8C9D0E1F2A3B4C5D6E7F8A9B0C1D2E", "", ""),
-        TopicItem("5572890", "[Nintendo Switch] Hollow Knight [v1.4.3.2 + 4 DLC] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "5,32 ГБ", 164, 8, "4E5F6A7B8C9D0E1F2A3B4C5D6E7F8A9B0C1D2E3F", "", ""),
-        TopicItem("6120945", "[Nintendo Switch] Metroid Dread [v2.1.0 + Русификатор] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "4,25 ГБ", 138, 7, "5F6A7B8C9D0E1F2A3B4C5D6E7F8A9B0C1D2E3F4A", "", ""),
-        TopicItem("6318490", "[Nintendo Switch] Metroid Prime Remastered [v1.0.0 + Русификатор] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "6,88 ГБ", 129, 6, "6A7B8C9D0E1F2A3B4C5D6E7F8A9B0C1D2E3F4A5B", "", ""),
-        TopicItem("6279104", "[Nintendo Switch] Persona 5 Royal [v1.0.2 + Полный русификатор текста] [NSP / NSZ] [RUS / ENG]", "Nintendo Switch", "14,18 ГБ", 225, 18, "7B8C9D0E1F2A3B4C5D6E7F8A9B0C1D2E3F4A5B6C", "", ""),
-        TopicItem("6245819", "[Nintendo Switch] Xenoblade Chronicles 3 [v2.2.0 + 4 DLC + Русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "18,92 ГБ", 156, 14, "8C9D0E1F2A3B4C5D6E7F8A9B0C1D2E3F4A5B6C7D", "", ""),
-        TopicItem("5892341", "[Nintendo Switch] Xenoblade Chronicles: Definitive Edition [v1.1.2 + Русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "13,65 ГБ", 118, 9, "9D0E1F2A3B4C5D6E7F8A9B0C1D2E3F4A5B6C7D8E", "", ""),
-        TopicItem("6284912", "[Nintendo Switch] Bayonetta 3 [v1.2.0 + Русификатор] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "14,40 ГБ", 112, 8, "0E1F2A3B4C5D6E7F8A9B0C1D2E3F4A5B6C7D8E9F", "", ""),
-        TopicItem("5761239", "[Nintendo Switch] Fire Emblem: Three Houses [v1.2.0 + 4 DLC + Русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "11,84 ГБ", 134, 11, "1F2A3B4C5D6E7F8A9B0C1D2E3F4A5B6C7D8E9F0A", "", ""),
-        TopicItem("5754312", "[Nintendo Switch] Astral Chain [v1.0.1] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "9,76 ГБ", 104, 6, "2A3B4C5D6E7F8A9B0C1D2E3F4A5B6C7D8E9F0A1B", "", ""),
-        TopicItem("5864120", "[Nintendo Switch] Animal Crossing: New Horizons [v2.0.6 + Happy Home Paradise] [NSP / NSZ] [RUS]", "Nintendo Switch", "10,42 ГБ", 203, 15, "3B4C5D6E7F8A9B0C1D2E3F4A5B6C7D8E9F0A1B2C", "", ""),
-        TopicItem("5798410", "[Nintendo Switch] Luigi's Mansion 3 [v1.4.0 + 2 DLC] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "7,45 ГБ", 149, 9, "4C5D6E7F8A9B0C1D2E3F4A5B6C7D8E9F0A1B2C3D", "", ""),
-        TopicItem("6194820", "[Nintendo Switch] Kirby and the Forgotten Land [v1.0.0 + Русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "5,85 ГБ", 131, 8, "5D6E7F8A9B0C1D2E3F4A5B6C7D8E9F0A1B2C3D4E", "", ""),
-        TopicItem("6168923", "[Nintendo Switch] Pokemon Legends: Arceus [v1.1.1 + Русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "6,22 ГБ", 142, 12, "6E7F8A9B0C1D2E3F4A5B6C7D8E9F0A1B2C3D4E5F", "", ""),
-        TopicItem("6394812", "[Nintendo Switch] Red Dead Redemption [v1.0.4 + Undead Nightmare] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "11,54 ГБ", 187, 14, "7F8A9B0C1D2E3F4A5B6C7D8E9F0A1B2C3D4E5F6A", "", ""),
-        TopicItem("6451208", "[Nintendo Switch] Hogwarts Legacy [v1.0.2 + DLC + Русская озвучка] [NSP / NSZ] [RUS]", "Nintendo Switch", "14,80 ГБ", 168, 17, "8A9B0C1D2E3F4A5B6C7D8E9F0A1B2C3D4E5F6A7B", "", ""),
-        TopicItem("6271049", "[Nintendo Switch] NieR:Automata The End of YoRHa Edition [v1.0.2 + Русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "10,88 ГБ", 146, 10, "9B0C1D2E3F4A5B6C7D8E9F0A1B2C3D4E5F6A7B8C", "", ""),
-        TopicItem("5621894", "[Nintendo Switch] Dark Souls: Remastered [v1.0.3] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "4,02 ГБ", 119, 6, "0C1D2E3F4A5B6C7D8E9F0A1B2C3D4E5F6A7B8C9D", "", ""),
-        TopicItem("6118420", "[Nintendo Switch] Diablo II: Resurrected [v1.0.28.0 + Offline Patch] [NSP / NSZ] [RUS (Звук + Текст)]", "Nintendo Switch", "8,64 ГБ", 154, 11, "1D2E3F4A5B6C7D8E9F0A1B2C3D4E5F6A7B8C9D0E", "", ""),
-        TopicItem("5640129", "[Nintendo Switch] Diablo III: Eternal Collection [v2.7.6 + RUS Pack] [NSP / NSZ] [RUS]", "Nintendo Switch", "21,30 ГБ", 137, 9, "2E3F4A5B6C7D8E9F0A1B2C3D4E5F6A7B8C9D0E1F", "", ""),
-        TopicItem("6478912", "[Nintendo Switch] Prince of Persia: The Lost Crown [v1.4.1 + DLC] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "6,92 ГБ", 128, 7, "3F4A5B6C7D8E9F0A1B2C3D4E5F6A7B8C9D0E1F2A", "", ""),
-        TopicItem("6492014", "[Nintendo Switch] Balatro [v1.0.1f + Русификатор] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "148 MB", 172, 5, "4A5B6C7D8E9F0A1B2C3D4E5F6A7B8C9D0E1F2A3B", "", ""),
-        TopicItem("5712840", "[Nintendo Switch] Cuphead [v1.3.4 + The Delicious Last Course DLC] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "3,48 ГБ", 139, 6, "5B6C7D8E9F0A1B2C3D4E5F6A7B8C9D0E1F2A3B4C", "", ""),
-        TopicItem("5941280", "[Nintendo Switch] Ori and the Will of the Wisps [v1.2.0] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "4,12 ГБ", 124, 5, "6C7D8E9F0A1B2C3D4E5F6A7B8C9D0E1F2A3B4C5D", "", ""),
-        TopicItem("5612940", "[Nintendo Switch] Dead Cells [v1.35.0 + All DLC + Return to Castlevania] [NSP / NSZ] [RUS]", "Nintendo Switch", "2,18 ГБ", 115, 4, "7D8E9F0A1B2C3D4E5F6A7B8C9D0E1F2A3B4C5D6E", "", ""),
-        TopicItem("5519284", "[Nintendo Switch] Stardew Valley [v1.6.9] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "1,58 ГБ", 162, 8, "8E9F0A1B2C3D4E5F6A7B8C9D0E1F2A3B4C5D6E7F", "", ""),
-        TopicItem("6590101", "[Nintendo Switch / Homebrew] RetroArch Switch + Набор ядер + NSP Forwarder [v1.19.1] [NRO / NSP] [RUS]", "Nintendo Switch (Homebrew #1605)", "485,00 МБ", 196, 12, "AA11BB22CC33DD44EE55FF660011223344556677", "", ""),
-        TopicItem("6590102", "[Nintendo Switch / Homebrew] DBI Installer (Русская версия) + NSP Forwarder [v715] [NRO / NSP] [RUS]", "Nintendo Switch (Homebrew #1605)", "4,20 МБ", 342, 18, "BB22CC33DD44EE55FF6600112233445566778899", "", ""),
-        TopicItem("6590103", "[Nintendo Switch / Homebrew] Heroes of Might and Magic III (VCMI Switch Port) [v1.5.7] [NRO + NSP Forwarder] [RUS]", "Nintendo Switch (Homebrew #1605)", "1,42 ГБ", 228, 15, "CC33DD44EE55FF660011223344556677889900AA", "", ""),
-        TopicItem("6590104", "[Nintendo Switch / Homebrew] Fallout 1 и 2 Community Edition (Switch Port) [v1.3.0] [NRO + NSP Forwarder] [RUS]", "Nintendo Switch (Homebrew #1605)", "1,15 ГБ", 175, 9, "DD44EE55FF660011223344556677889900AABBCC", "", ""),
-        TopicItem("6590105", "[Nintendo Switch / Homebrew] Moonlight-NX + Chiaki (Стриминг ПК и PS5 на Switch) [v1.4.2] [NRO + NSP Forwarder] [RUS]", "Nintendo Switch (Homebrew #1605)", "18,50 МБ", 154, 7, "EE55FF660011223344556677889900AABBCCDDEE", "", "")
+        TopicItem("6525297", "[Nintendo Switch] Animal Well [v1.0.10 (655360) / 010020D01AD24000] [NSP / NSZ] [RUS / Multi11]", "Nintendo Switch", "37,63 МБ", 54, 2, "0A996B997AA2B90DB658E4CA76D2989DD1F80F56", "", "")
     )
 
-    // Кэш официальных InfoHash раздела #1605 / #2481 RuTracker (infoHash -> Triple(topicId, sizeBytes, seeders))
+    // Кэш официальных InfoHash раздела #1605 RuTracker (infoHash -> Triple(topicId, sizeBytes, seeders))
     @Volatile
     private var cachedForum1605Hashes: Map<String, Triple<String, Long, Int>>? = null
     @Volatile
@@ -199,8 +141,176 @@ object RuTrackerCloudEngine {
         return conn
     }
 
+    /** Контекст приложения Android для доступа к ассетам (задаётся из MainActivity). */
+    @Volatile
+    var appContext: Context? = null
+
+    @Volatile
+    private var realIndexTopics: List<Map<String, Any>>? = null
+    private val realIndexLock = Any()
+
+    // Load real pre-built index from assets
+    private fun loadRealIndexFromAssets(context: Context): List<Map<String, Any>> {
+        return try {
+            val inputStream = context.assets.open("rutracker_switch_index.json.gz")
+            val gzipStream = java.util.zip.GZIPInputStream(inputStream)
+            val jsonStr = gzipStream.bufferedReader(Charsets.UTF_8).readText()
+            val jsonObj = org.json.JSONObject(jsonStr)
+            val topicsArr = jsonObj.getJSONArray("topics")
+            val result = mutableListOf<Map<String, Any>>()
+            for (i in 0 until topicsArr.length()) {
+                val t = topicsArr.getJSONObject(i)
+                result.add(mapOf(
+                    "t" to t.getInt("t"),
+                    "h" to t.getString("h"),
+                    "sd" to t.optInt("sd", 0),
+                    "sz" to t.optLong("sz", 0L),
+                    "rt" to t.optLong("rt", 0L),
+                    "n" to t.optString("n", "")
+                ))
+            }
+            result
+        } catch (e: Exception) {
+            Log.e("RuTracker", "Failed to load real index: ${e.message}")
+            emptyList()
+        }
+    }
+
+    fun getOrLoadRealIndex(context: Context? = appContext): List<Map<String, Any>> {
+        val existing = realIndexTopics
+        if (existing != null) return existing
+        synchronized(realIndexLock) {
+            realIndexTopics?.let { return it }
+            val ctx = context ?: appContext
+            val list = if (ctx != null) {
+                loadRealIndexFromAssets(ctx)
+            } else {
+                try {
+                    val fallbackFile = listOf(
+                        File("f:/STORM SWITCH BOX/android/app/src/main/assets/rutracker_switch_index.json.gz"),
+                        File("android/app/src/main/assets/rutracker_switch_index.json.gz"),
+                        File("app/src/main/assets/rutracker_switch_index.json.gz")
+                    ).firstOrNull { it.isFile }
+                    if (fallbackFile != null) {
+                        val gzipStream = java.util.zip.GZIPInputStream(fallbackFile.inputStream())
+                        val jsonStr = gzipStream.bufferedReader(Charsets.UTF_8).readText()
+                        val jsonObj = org.json.JSONObject(jsonStr)
+                        val topicsArr = jsonObj.getJSONArray("topics")
+                        val result = mutableListOf<Map<String, Any>>()
+                        for (i in 0 until topicsArr.length()) {
+                            val t = topicsArr.getJSONObject(i)
+                            result.add(mapOf(
+                                "t" to t.getInt("t"),
+                                "h" to t.getString("h"),
+                                "sd" to t.optInt("sd", 0),
+                                "sz" to t.optLong("sz", 0L),
+                                "rt" to t.optLong("rt", 0L),
+                                "n" to t.optString("n", "")
+                            ))
+                        }
+                        result
+                    } else emptyList()
+                } catch (e: Exception) {
+                    Log.e("RuTracker", "Failed to load real index fallback: ${e.message}")
+                    emptyList()
+                }
+            }
+            realIndexTopics = list
+            return list
+        }
+    }
+
+    /** Каталог дискового кэша карты раздач RuTracker (задаётся из MainActivity: filesDir). */
+    @Volatile
+    var cacheRootDir: File? = null
+
+    // topicId -> Triple(infoHash, sizeBytes, seeders) для мгновенной проверки реальных тем RuTracker
+    @Volatile
+    private var cachedForumTopicMap: Map<String, Triple<String, Long, Int>>? = null
+    private val forumMapsLock = Any()
+    private const val FORUM_CACHE_MAX_AGE_MS = 24L * 60L * 60L * 1000L
+
+    private fun parsePvcForumJson(
+        raw: String,
+        hashMap: MutableMap<String, Triple<String, Long, Int>>,
+        topicMap: MutableMap<String, Triple<String, Long, Int>>
+    ) {
+        val resObj = JSONObject(raw).optJSONObject("result") ?: return
+        val keys = resObj.keys()
+        while (keys.hasNext()) {
+            val tid = keys.next()
+            val arr = resObj.optJSONArray(tid) ?: continue
+            if (arr.length() < 8) continue
+            val seeds = arr.optInt(1, 0)
+            val sizeBytes = arr.optLong(3, 0L)
+            val hash = arr.optString(7, "").trim().uppercase()
+            if (hash.length == 40 && hash.all { it in '0'..'9' || it in 'A'..'F' }) {
+                hashMap[hash] = Triple(tid, sizeBytes, seeds)
+                topicMap[tid] = Triple(hash, sizeBytes, seeds)
+            }
+        }
+    }
+
     /**
-     * Асинхронная подгрузка карты хэшей официального раздела RuTracker Nintendo Switch (#1605 / #2481)
+     * Блокирующая загрузка карты реальных раздач RuTracker (#1605 Nintendo Switch) через api.rutracker.cc
+     * с дисковым кэшем (обновление не чаще 1 раза в 24 ч, при недоступности API используется устаревший кэш).
+     */
+    fun loadRuTrackerSwitchForumMapsBlocking(timeoutMs: Int = 12000): Boolean {
+        val ready = cachedForumTopicMap
+        if (ready != null && ready.isNotEmpty()) return true
+        synchronized(forumMapsLock) {
+            val again = cachedForumTopicMap
+            if (again != null && again.isNotEmpty()) return true
+            val dir = cacheRootDir ?: File(System.getProperty("java.io.tmpdir") ?: ".")
+            try { dir.mkdirs() } catch (_: Exception) {}
+            val hashMap = HashMap<String, Triple<String, Long, Int>>(16384)
+            val topicMap = HashMap<String, Triple<String, Long, Int>>(16384)
+            for (fid in listOf("1605")) {
+                val cacheFile = File(dir, "rutracker_pvc_f$fid.json")
+                var raw: String? = null
+                if (cacheFile.isFile && cacheFile.length() > 64L && System.currentTimeMillis() - cacheFile.lastModified() < FORUM_CACHE_MAX_AGE_MS) {
+                    raw = try { cacheFile.readText() } catch (_: Exception) { null }
+                }
+                if (raw == null) {
+                    try {
+                        val conn = openConnection("https://api.rutracker.cc/v1/static/pvc/f/$fid", timeoutMs = timeoutMs)
+                        if (conn.responseCode == 200) {
+                            val body = conn.inputStream.bufferedReader().use { it.readText() }
+                            if (body.contains("\"result\"")) {
+                                raw = body
+                                try { cacheFile.writeText(body) } catch (_: Exception) {}
+                            }
+                        }
+                    } catch (_: Exception) {}
+                }
+                if (raw == null && cacheFile.isFile) {
+                    raw = try { cacheFile.readText() } catch (_: Exception) { null }
+                }
+                if (raw != null) {
+                    try { parsePvcForumJson(raw, hashMap, topicMap) } catch (_: Exception) {}
+                }
+            }
+                        // Дополняем карту хэшей данными реального офлайн-индекса rutracker_switch_index.json.gz
+            val realList = getOrLoadRealIndex()
+            for (item in realList) {
+                val tid = item["t"]?.toString().orEmpty()
+                val hash = (item["h"] as? String).orEmpty().trim().uppercase()
+                val sd = (item["sd"] as? Number)?.toInt() ?: 0
+                val sz = (item["sz"] as? Number)?.toLong() ?: 0L
+                if (tid.isNotEmpty() && hash.length == 40) {
+                    if (!hashMap.containsKey(hash)) hashMap[hash] = Triple(tid, sz, sd)
+                    if (!topicMap.containsKey(tid)) topicMap[tid] = Triple(hash, sz, sd)
+                }
+            }
+            if (hashMap.isEmpty()) return false
+            cachedForum1605Hashes = hashMap
+            cachedForumTopicMap = topicMap
+            return true
+        }
+    }
+
+    /**
+     * Асинхронная подгрузка карты хэшей официального раздела RuTracker Nintendo Switch (#1605)
      * без блокировки поискового интерфейса.
      */
     fun warmupSwitchForumCacheAsync() {
@@ -208,36 +318,50 @@ object RuTrackerCloudEngine {
         isFetchingForumHashes = true
         Thread {
             try {
-                val map = HashMap<String, Triple<String, Long, Int>>(8192)
-                for (fid in listOf("1605", "2481")) {
-                    try {
-                        val conn = openConnection("https://api.rutracker.cc/v1/static/pvc/f/$fid", timeoutMs = 3200)
-                        if (conn.responseCode == 200) {
-                            val raw = conn.inputStream.bufferedReader().use { it.readText() }
-                            val resObj = JSONObject(raw).optJSONObject("result") ?: continue
-                            val keys = resObj.keys()
-                            while (keys.hasNext()) {
-                                val tid = keys.next()
-                                val arr = resObj.optJSONArray(tid) ?: continue
-                                if (arr.length() >= 6) {
-                                    val seeds = arr.optInt(1, 0)
-                                    val sizeBytes = arr.optLong(3, 0L)
-                                    val hash = arr.optString(7, "").trim().ifEmpty { arr.optString(5, "").trim() }.uppercase()
-                                    if (hash.length == 40) {
-                                        map[hash] = Triple(tid, sizeBytes, seeds)
-                                    }
-                                }
-                            }
-                        }
-                    } catch (_: Exception) {}
-                }
-                if (map.isNotEmpty()) {
-                    cachedForum1605Hashes = map
-                }
+                loadRuTrackerSwitchForumMapsBlocking()
+            } catch (_: Throwable) {
             } finally {
                 isFetchingForumHashes = false
             }
         }.start()
+    }
+
+    /** Реальные данные раздачи RuTracker по номеру темы: Triple(infoHash, sizeBytes, seeders) или null. */
+    fun liveTopicData(topicId: String): Triple<String, Long, Int>? = lookupRuTrackerTopic(topicId)
+
+    fun refreshAtomFeedTitles(): Boolean {
+        return try {
+            val conn = openConnection("https://feed.rutracker.cc/atom/f/1605.atom", timeoutMs = 5000)
+            if (conn.responseCode == 200) {
+                val xml = conn.inputStream.bufferedReader(StandardCharsets.UTF_8).use { it.readText() }
+                val entryRegex = Regex("""<entry>(.*?)</entry>""", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+                val titleRegex = Regex("""<title[^>]*><!\[CDATA\[(.*?)]]></title>|<title[^>]*>(.*?)</title>""", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+                val linkRegex = Regex("""<link[^>]*href="([^"*viewtopic\.php\?t=(\d+)[^"]*)" """, RegexOption.IGNORE_CASE)
+                val titlesMap = mutableMapOf<String, String>()
+                for (em in entryRegex.findAll(xml)) {
+                    val block = em.groupValues[1]
+                    val tm = titleRegex.find(block) ?: continue
+                    val rawTitle = (tm.groupValues[1].ifEmpty { tm.groupValues[2] }).trim()
+                    if (rawTitle.isEmpty()) continue
+                    val lm = linkRegex.find(block)
+                    val tid = lm?.groupValues?.get(2) ?: Regex("""t=(\d+)""").find(block)?.groupValues?.get(1) ?: continue
+                    titlesMap[tid] = rawTitle
+                }
+                if (titlesMap.isNotEmpty()) {
+                    RuTrackerSwitchIndex.registerAtomTitles(titlesMap)
+                    true
+                } else false
+            } else false
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    fun lookupRuTrackerTopic(topicId: String): Triple<String, Long, Int>? {
+        val tid = topicId.trim()
+        if (tid.isEmpty() || !tid.all { it.isDigit() }) return null
+        loadRuTrackerSwitchForumMapsBlocking()
+        return cachedForumTopicMap?.get(tid)
     }
 
     private fun getRuTrackerSwitchForumHashMap(): Map<String, Triple<String, Long, Int>> {
@@ -580,26 +704,41 @@ object RuTrackerCloudEngine {
     }
 
     private fun buildTopicItemFromTitleDbEntry(entry: StormNczEngine.TitleDbGameEntry, normMirror: String): TopicItem {
-        val tidNum = (entry.titleId.takeLast(8).toLongOrNull(16) ?: 500000L)
-        val topicId = (5200000L + (tidNum % 1399999L)).toString()
-        val sha1 = java.security.MessageDigest.getInstance("SHA-1")
-            .digest("RUTRACKER_NSW_${entry.titleId}".toByteArray(StandardCharsets.UTF_8))
-            .joinToString("") { "%02X".format(it) }
-        val dlcTag = if (entry.dlcCount > 0) " + ${entry.dlcCount} DLC" else ""
+        // Карточка каталога TitleDB: реальная раздача (BTIH, сиды) ищется при скачивании — никаких выдуманных номеров тем и хэшей
+        val dlcTag = if (entry.dlcCount > 0) " [+ ${entry.dlcCount} DLC]" else ""
         val langTag = if (entry.ruSupport.contains("рус", ignoreCase = true)) "RUS / Multi" else "ENG / Multi"
-        val displayTitle = "[Nintendo Switch] ${entry.name} [v1.0.0$dlcTag / ${entry.titleId}] [NSP / NSZ] [$langTag]"
-        val seeds = (18 + (tidNum % 95)).toInt()
-        val sz = StormNczEngine.localizeSizeText(entry.sizeText.ifBlank { "1,20 ГБ" })
+        val displayTitle = "[Nintendo Switch] ${entry.name} [${entry.titleId}]$dlcTag [$langTag]"
+        val sz = StormNczEngine.localizeSizeText(entry.sizeText.ifBlank { "нет данных" })
         return TopicItem(
-            topicId = topicId,
+            topicId = "TDB-${entry.titleId}",
             title = displayTitle,
             category = "Nintendo Switch",
             sizeText = sz,
-            seeds = seeds,
-            leechers = (seeds / 8).coerceAtLeast(1),
-            infoHash = sha1,
-            magnetUri = buildMagnet(sha1, displayTitle),
+            seeds = 0,
+            leechers = 0,
+            infoHash = "",
+            magnetUri = "",
             topicUrl = "$normMirror/forum/tracker.php?f=1605&nm=${URLEncoder.encode(entry.name, "UTF-8")}"
+        )
+    }
+
+    private fun curatedTopicUrl(item: TopicItem, normMirror: String): String =
+        if (item.topicId.isNotEmpty() && item.topicId.all { it.isDigit() }) {
+            "$normMirror/forum/viewtopic.php?t=${item.topicId}"
+        } else {
+            "$normMirror/forum/tracker.php?f=1605&nm=${URLEncoder.encode(StormNczEngine.extractCleanGameTitle(item.title), "UTF-8")}"
+        }
+
+    /** Подставляет живые данные RuTracker (сиды, размер, BTIH) для подтверждённых тем, если карта раздела уже загружена. */
+    private fun withLiveForumData(item: TopicItem, normMirror: String): TopicItem {
+        val live = cachedForumTopicMap?.get(item.topicId)
+        val hash = live?.first ?: item.infoHash
+        return item.copy(
+            sizeText = if (live != null && live.second > 0L) StormNczEngine.formatSize(live.second) else StormNczEngine.localizeSizeText(item.sizeText),
+            seeds = live?.third ?: item.seeds,
+            infoHash = hash,
+            magnetUri = if (hash.length == 40) buildMagnet(hash, item.title) else "",
+            topicUrl = curatedTopicUrl(item, normMirror)
         )
     }
 
@@ -613,57 +752,103 @@ object RuTrackerCloudEngine {
     ): List<TopicItem> {
         val normMirror = if (mirror.startsWith("http")) mirror.trimEnd('/') else "https://${mirror.trimEnd('/')}"
         val cleanQ = query.trim()
+        val normQ = cleanQ.lowercase().trim()
+
+        val realIndex = getOrLoadRealIndex()
 
         if (cleanQ.isEmpty() || cleanQ.equals("Nintendo Switch", true) || cleanQ.equals("Все хиты Switch", true)) {
-            return CURATED_SWITCH_DB.map { item ->
-                item.copy(
-                    sizeText = StormNczEngine.localizeSizeText(item.sizeText),
-                    magnetUri = buildMagnet(item.infoHash, item.title),
-                    topicUrl = "$normMirror/forum/viewtopic.php?t=${item.topicId}"
-                )
-            }
+            val curated = CURATED_SWITCH_DB.map { item -> withLiveForumData(item, normMirror) }.toMutableList()
+            val curatedTids = curated.map { it.topicId }.toSet()
+            val topReal = realIndex
+                .filter { (it["n"] as? String).orEmpty().isNotBlank() && it["t"].toString() !in curatedTids }
+                .sortedByDescending { (it["sd"] as? Number)?.toInt() ?: 0 }
+                .take(40)
+                .map { t ->
+                    val tid = t["t"].toString()
+                    val title = (t["n"] as? String).orEmpty()
+                    val szBytes = (t["sz"] as? Number)?.toLong() ?: 0L
+                    val seeds = (t["sd"] as? Number)?.toInt() ?: 0
+                    val hash = (t["h"] as? String).orEmpty()
+                    val sizeText = if (szBytes > 0L) StormNczEngine.formatSize(szBytes) else "нет данных"
+                    val magnet = if (hash.length == 40) buildMagnet(hash, title) else ""
+                    val topicUrl = "$normMirror/forum/viewtopic.php?t=$tid"
+                    TopicItem(tid, title, "Nintendo Switch", sizeText, seeds, 0, hash, magnet, topicUrl)
+                }
+            curated.addAll(topReal)
+            return curated
         }
 
-        val scored = ArrayList<Pair<TopicItem, Int>>()
-        val seenKeys = HashSet<String>()
-
-        fun normKey(t: String): String =
-            StormNczEngine.extractCleanGameTitle(t).lowercase().replace(Regex("""[^a-zа-яё0-9]+"""), "").trim()
+        val results = mutableListOf<TopicItem>()
+        val seenTids = HashSet<String>()
 
         // 1. Поиск по эталонному списку хитов CURATED_SWITCH_DB
         for (item in CURATED_SWITCH_DB) {
             val sc = scoreFuzzyGameMatch(cleanQ, item.title)
             if (sc > 0) {
-                val mapped = item.copy(
-                    sizeText = StormNczEngine.localizeSizeText(item.sizeText),
-                    magnetUri = buildMagnet(item.infoHash, item.title),
-                    topicUrl = "$normMirror/forum/viewtopic.php?t=${item.topicId}"
-                )
-                scored.add(mapped to (sc + 25))
-                seenKeys.add(normKey(item.title))
+                val mapped = withLiveForumData(item, normMirror)
+                results.add(mapped)
+                seenTids.add(item.topicId)
             }
         }
 
-        // 2. Поиск по ПОЛНОЙ базе всех 11 380+ игр Nintendo Switch (titledb_full.tsv.gz)
+        // 2. Поиск по реальному RuTracker-индексу по полю "n" (title)
+        // Нормализация: .lowercase().trim()
+        // Результаты сортируются по "sd" (seeders) по убыванию
+        val matchedReal = mutableListOf<Map<String, Any>>()
+        for (t in realIndex) {
+            val n = (t["n"] as? String).orEmpty()
+            if (n.isBlank()) continue
+            val normN = n.lowercase().trim()
+            if (normN.contains(normQ)) {
+                matchedReal.add(t)
+            } else {
+                val tokens = normQ.split(Regex("""\s+""")).filter { it.length >= 2 }
+                if (tokens.isNotEmpty() && tokens.all { tok -> normN.contains(tok) }) {
+                    matchedReal.add(t)
+                }
+            }
+        }
+        matchedReal.sortByDescending { (it["sd"] as? Number)?.toInt() ?: 0 }
+
+        for (t in matchedReal) {
+            val tid = t["t"].toString()
+            if (!seenTids.add(tid)) continue
+            val title = (t["n"] as? String).orEmpty()
+            val szBytes = (t["sz"] as? Number)?.toLong() ?: 0L
+            val seeds = (t["sd"] as? Number)?.toInt() ?: 0
+            val hash = (t["h"] as? String).orEmpty()
+            val sizeText = if (szBytes > 0L) StormNczEngine.formatSize(szBytes) else "нет данных"
+            val magnet = if (hash.length == 40) buildMagnet(hash, title) else ""
+            val topicUrl = "$normMirror/forum/viewtopic.php?t=$tid"
+            results.add(TopicItem(tid, title, "Nintendo Switch", sizeText, seeds, 0, hash, magnet, topicUrl))
+        }
+
+        // 3. Поиск по ПОЛНОЙ базе всех 11 380+ игр Nintendo Switch (titledb_full.tsv.gz) для игр, которых нет в индексе
+        val seenKeys = HashSet<String>()
+        results.forEach {
+            val k = StormNczEngine.extractCleanGameTitle(it.title).lowercase().replace(Regex("""[^a-zа-яё0-9]+"""), "").trim()
+            if (k.isNotEmpty()) seenKeys.add(k)
+        }
+
         val fullCatalog = StormNczEngine.loadFullTitleDbFromAssets()
+        val tdbScored = mutableListOf<Pair<TopicItem, Int>>()
         for (entry in fullCatalog) {
             if (!entry.platform.equals("Switch", ignoreCase = true)) continue
             val sc = scoreFuzzyGameMatch(cleanQ, entry.name, entry.titleId, entry.publisher, entry.genre)
             if (sc > 0) {
                 val k = entry.name.lowercase().replace(Regex("""[^a-zа-яё0-9]+"""), "").trim()
                 if (k.isNotEmpty() && !seenKeys.add(k)) continue
-                scored.add(buildTopicItemFromTitleDbEntry(entry, normMirror) to sc)
+                tdbScored.add(buildTopicItemFromTitleDbEntry(entry, normMirror) to sc)
             }
         }
+        tdbScored.sortByDescending { it.second }
+        results.addAll(tdbScored.take(40).map { it.first })
 
-        return scored
-            .sortedWith(compareByDescending<Pair<TopicItem, Int>> { it.second }.thenByDescending { it.first.seeds })
-            .take(80)
-            .map { it.first }
+        return results.take(80)
     }
 
     /**
-     * Полный параллельный поиск раздач по всем 11 380+ играм Nintendo Switch + живым зеркалам RuTracker (#1605 и #2481)
+     * Полный параллельный поиск раздач по всем 11 380+ играм Nintendo Switch + живым зеркалам RuTracker (#1605)
      * с защитой от опечаток, неверной раскладки и транслитерации.
      */
     fun searchTopics(
@@ -771,7 +956,7 @@ object RuTrackerCloudEngine {
     ): List<TopicItem> {
         val list = mutableListOf<TopicItem>()
         val hashMap = getRuTrackerSwitchForumHashMap()
-        for (feedUrl in listOf("https://feed.rutracker.cc/atom/f/1605.atom", "https://feed.rutracker.cc/atom/f/2481.atom")) {
+        for (feedUrl in listOf("https://feed.rutracker.cc/atom/f/1605.atom")) {
             try {
                 val conn = openConnection(feedUrl, proxyHost, proxyPort, timeoutMs = 1500)
                 if (conn.responseCode != 200) continue
@@ -790,14 +975,15 @@ object RuTrackerCloudEngine {
 
                     val lm = linkRegex.find(block)
                     val tid = lm?.groupValues?.get(2) ?: Regex("""t=(\d+)""").find(block)?.groupValues?.get(1) ?: continue
-                    val matchedHashEntry = hashMap.entries.firstOrNull { it.value.first == tid }
-                    val infoHash = matchedHashEntry?.key ?: ""
-                    val sz = if (matchedHashEntry != null && matchedHashEntry.value.second > 0) {
-                        StormNczEngine.formatSize(matchedHashEntry.value.second)
+                    val matchedTopic = cachedForumTopicMap?.get(tid)
+                        ?: hashMap.entries.firstOrNull { it.value.first == tid }?.let { Triple(it.key, it.value.second, it.value.third) }
+                    val infoHash = matchedTopic?.first ?: ""
+                    val sz = if (matchedTopic != null && matchedTopic.second > 0) {
+                        StormNczEngine.formatSize(matchedTopic.second)
                     } else {
-                        StormNczEngine.localizeSizeText(sizeRegex.find(rawTitle)?.groupValues?.get(1) ?: "75,00 МБ")
+                        StormNczEngine.localizeSizeText(sizeRegex.find(rawTitle)?.groupValues?.get(1) ?: "нет данных")
                     }
-                    val seeds = matchedHashEntry?.value?.third ?: 25
+                    val seeds = matchedTopic?.third ?: 0
                     val displayTitle = if (rawTitle.contains("Switch", true)) rawTitle else "[Nintendo Switch] $rawTitle"
 
                     list.add(
@@ -807,7 +993,7 @@ object RuTrackerCloudEngine {
                             category = "Nintendo Switch",
                             sizeText = sz,
                             seeds = seeds,
-                            leechers = 2,
+                            leechers = 0,
                             infoHash = infoHash,
                             magnetUri = if (infoHash.isNotEmpty()) buildMagnet(infoHash, displayTitle) else "",
                             topicUrl = "$mirror/forum/viewtopic.php?t=$tid"
@@ -846,8 +1032,8 @@ object RuTrackerCloudEngine {
             if (switchForumInfo == null && !isStrictSwitchRelease(name, "Nintendo Switch")) continue
 
             val sizeBytes = obj.optLong("size_bytes", switchForumInfo?.second ?: 0L)
-            val seeds = obj.optInt("seeders", switchForumInfo?.third ?: 10)
-            val leech = obj.optInt("leechers", 1)
+            val seeds = obj.optInt("seeders", switchForumInfo?.third ?: 0)
+            val leech = obj.optInt("leechers", 0)
             val tid = switchForumInfo?.first ?: "CSV-${hash.take(8)}"
             val topicLink = if (switchForumInfo != null) {
                 "$mirror/forum/viewtopic.php?t=${switchForumInfo.first}"
@@ -902,8 +1088,8 @@ object RuTrackerCloudEngine {
             if (switchForumInfo == null && !isStrictSwitchRelease(name, "", username)) continue
 
             val sizeBytes = obj.optLong("size", switchForumInfo?.second ?: 0L)
-            val seeds = obj.optInt("seeders", switchForumInfo?.third ?: 5)
-            val leech = obj.optInt("leechers", 1)
+            val seeds = obj.optInt("seeders", switchForumInfo?.third ?: 0)
+            val leech = obj.optInt("leechers", 0)
             val tid = switchForumInfo?.first ?: "TPB-$id"
             val topicLink = if (switchForumInfo != null) {
                 "$mirror/forum/viewtopic.php?t=${switchForumInfo.first}"
@@ -1299,54 +1485,480 @@ object RuTrackerCloudEngine {
     // ОБЛАЧНЫЕ МОДЫ И ВСТРОЕННЫЙ HTTP RANGE СЕРВЕР (DBI / TINFOIL)
     // =========================================================================
 
-    fun resolveCloudUrl(publicUrl: String): String {
-        val u = publicUrl.trim()
+    data class ResolvedCloudLink(
+        val directUrl: String,
+        val error: String? = null
+    )
 
-        if (u.contains("pixeldrain.com/")) {
-            val id = Regex("""pixeldrain\.com/(?:u|api/file)/([A-Za-z0-9_-]+)""", RegexOption.IGNORE_CASE).find(u)?.groupValues?.get(1)
-            if (!id.isNullOrBlank()) return "https://pixeldrain.com/api/file/$id?download"
+    private data class HttpTextResult(
+        val code: Int,
+        val body: String,
+        val finalUrl: String,
+        val contentType: String,
+        val cookies: String
+    )
+
+    private data class CloudDownloadOutcome(
+        val file: File?,
+        val error: String?
+    )
+
+    private val ARCHIVE_OR_CONTAINER_EXT_REGEX = Regex("""\.(zip|rar|7z|nsp|nsz|xci|xcz|tar|gz|tgz)$""", RegexOption.IGNORE_CASE)
+
+    private fun readLimitedText(stream: java.io.InputStream, limit: Int): String {
+        val bos = java.io.ByteArrayOutputStream()
+        val buf = ByteArray(16384)
+        while (bos.size() < limit) {
+            val r = stream.read(buf, 0, minOf(buf.size, limit - bos.size()))
+            if (r <= 0) break
+            bos.write(buf, 0, r)
         }
-        if (u.contains("disk.yandex.", true) || u.contains("yadi.sk", true)) {
-            val api = "https://cloud-api.yandex.net/v1/disk/public/resources/download?public_key=" + URLEncoder.encode(u, "UTF-8")
-            val conn = openConnection(api)
-            if (conn.responseCode == 200) {
-                val json = JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
-                val href = json.optString("href", "")
-                if (href.isNotEmpty()) return href
+        return String(bos.toByteArray(), StandardCharsets.UTF_8)
+    }
+
+    private fun collectCookies(conn: HttpURLConnection): String =
+        conn.headerFields.entries
+            .filter { it.key != null && it.key.equals("Set-Cookie", ignoreCase = true) }
+            .flatMap { it.value }
+            .joinToString("; ") { it.substringBefore(';') }
+
+    private fun mergeCookies(old: String, add: String): String {
+        val map = LinkedHashMap<String, String>()
+        for (part in (old.split(';') + add.split(';'))) {
+            val p = part.trim()
+            if (p.contains('=')) map[p.substringBefore('=')] = p
+        }
+        return map.values.joinToString("; ")
+    }
+
+    private fun httpGetText(
+        url: String,
+        timeoutMs: Int = 15000,
+        cookie: String = "",
+        postBody: String? = null,
+        referer: String = ""
+    ): HttpTextResult {
+        val conn = openConnection(url, cookie = cookie, timeoutMs = timeoutMs)
+        conn.instanceFollowRedirects = true
+        if (referer.isNotEmpty()) conn.setRequestProperty("Referer", referer)
+        if (postBody != null) {
+            conn.requestMethod = "POST"
+            conn.doOutput = true
+            conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+            conn.outputStream.use { it.write(postBody.toByteArray(StandardCharsets.UTF_8)) }
+        }
+        val code = conn.responseCode
+        val stream = if (code >= 400) conn.errorStream else conn.inputStream
+        val body = try { stream?.use { readLimitedText(it, 2 * 1024 * 1024) } ?: "" } catch (_: Exception) { "" }
+        return HttpTextResult(code, body, conn.url.toString(), conn.contentType ?: "", collectCookies(conn))
+    }
+
+    private fun absolutizeUrl(href: String, baseUrl: String): String? = try {
+        URL(URL(baseUrl), href.trim()).toString()
+    } catch (_: Exception) {
+        null
+    }
+
+    /** Ищет в HTML-странице прямую ссылку на архив/контейнер (.zip/.rar/.7z/.nsp/.nsz/.xci/...). */
+    private fun findDirectLinkInHtml(html: String, baseUrl: String): String? {
+        val cands = ArrayList<String>()
+        Regex("""(?:href|data-href|data-url)=["']([^"']+)["']""", RegexOption.IGNORE_CASE).findAll(html).forEach { cands.add(it.groupValues[1]) }
+        Regex("""https?://[^"'\s<>\\]+""", RegexOption.IGNORE_CASE).findAll(html).forEach { cands.add(it.value) }
+        for (c in cands) {
+            val abs = absolutizeUrl(c.replace("&amp;", "&"), baseUrl) ?: continue
+            if (!abs.startsWith("http", ignoreCase = true)) continue
+            val path = abs.substringBefore('?').substringBefore('#')
+            if (ARCHIVE_OR_CONTAINER_EXT_REGEX.containsMatchIn(path)) return abs
+            if (abs.contains("wdfiles", ignoreCase = true) && (abs.contains("?pt=") || Regex("""/(?:download|dl|get)/""", RegexOption.IGNORE_CASE).containsMatchIn(abs))) return abs
+            if (Regex("""download\d*\.mediafire\.com/""", RegexOption.IGNORE_CASE).containsMatchIn(abs)) return abs
+        }
+        return null
+    }
+
+    private fun jsonErrorReason(body: String): String? {
+        val tr = body.trim()
+        if (!tr.startsWith("{")) return null
+        return try {
+            val o = JSONObject(tr)
+            val failed = (o.has("success") && !o.optBoolean("success", true)) || o.has("error")
+            if (!failed) return null
+            val v = o.optString("value", "").ifBlank { o.optString("error", "") }
+            val msg = o.optString("message", "").ifBlank { o.optString("description", "") }
+            when {
+                v.contains("not_found", ignoreCase = true) || v.contains("NotFound", ignoreCase = true) -> "файл удалён или не найден ($v)"
+                v.contains("captcha", ignoreCase = true) || v.contains("rate_limit", ignoreCase = true) -> "сервер требует капчу или превышен лимит скачиваний ($v)"
+                else -> listOf(v, msg).filter { it.isNotBlank() }.joinToString(" — ").ifBlank { "сервер вернул ошибку JSON" }
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun describeHttpFailure(code: Int, body: String): String {
+        val j = jsonErrorReason(body)
+        if (j != null) return "$j (HTTP $code)"
+        return when (code) {
+            404, 410 -> "файл удалён или недоступен (HTTP $code)"
+            401, 403 -> "доступ к файлу запрещён (HTTP $code)"
+            429 -> "превышен лимит запросов (HTTP 429)"
+            in 500..599 -> "ошибка сервера (HTTP $code)"
+            else -> "ошибка HTTP $code"
+        }
+    }
+
+    /**
+     * Определяет реальный тип скачанного файла по сигнатуре: zip/rar/rar5/7z/gzip/tar/pfs0/xci/ips/zstd/sarc/html/json/text/binary.
+     */
+    fun detectCloudPayloadKind(file: File): String {
+        if (!file.isFile || file.length() == 0L) return "empty"
+        val arch = StormNczEngine.detectArchiveFormat(file)
+        if (arch.isNotEmpty()) return arch
+        val head = ByteArray(minOf(file.length(), 1024L).toInt())
+        FileInputStream(file).use { s ->
+            var got = 0
+            while (got < head.size) {
+                val r = s.read(head, got, head.size - got)
+                if (r <= 0) break
+                got += r
             }
         }
-        val gdMatch = Regex("""drive\.google\.com/file/d/([a-zA-Z0-9_-]+)""").find(u)
-        if (gdMatch != null) {
-            return "https://drive.google.com/uc?export=download&confirm=t&id=${gdMatch.groupValues[1]}"
+        fun ascii(off: Int, len: Int) = if (head.size >= off + len) String(head, off, len, StandardCharsets.US_ASCII) else ""
+        if (ascii(0, 4) == "PFS0") return "pfs0"
+        if (ascii(0x100, 4) == "HEAD") return "xci"
+        if (ascii(0, 5) == "PATCH" || ascii(0, 5) == "IPS32") return "ips"
+        if (head.size >= 4 && head[0] == 0x28.toByte() && head[1] == 0xB5.toByte() && head[2] == 0x2F.toByte() && head[3] == 0xFD.toByte()) return "zstd"
+        if (ascii(0, 4) == "SARC") return "sarc"
+        val txt = String(head, StandardCharsets.UTF_8).trimStart('\uFEFF', ' ', '\r', '\n', '\t')
+        val low = txt.lowercase()
+        if (low.startsWith("<!doctype") || low.startsWith("<html") || (low.startsWith("<") && (low.contains("<head") || low.contains("<body")))) return "html"
+        if (low.startsWith("{") || low.startsWith("[")) {
+            val printable = head.count { b -> val c = b.toInt() and 0xFF; c == 9 || c == 10 || c == 13 || c >= 32 }
+            if (printable >= head.size * 95 / 100) return "json"
         }
-        if (u.contains("wdfiles.ru/", ignoreCase = true)) {
+        val printable = head.count { b -> val c = b.toInt() and 0xFF; c == 9 || c == 10 || c == 13 || c >= 32 }
+        return if (printable >= head.size * 97 / 100) "text" else "binary"
+    }
+
+    private fun resolveYandexDisk(u: String): ResolvedCloudLink {
+        val m = Regex("""(https?://(?:disk\.yandex\.[a-z.]+|yadi\.sk|disk\.360\.yandex\.[a-z.]+)/(?:d|i|public|mail)/[^/?#]+)(/[^?#]*)?""", RegexOption.IGNORE_CASE).find(u)
+        val publicKey = m?.groupValues?.get(1) ?: u.substringBefore('?')
+        var path = m?.groupValues?.get(2).orEmpty()
+        Regex("""[?&]path=([^&#]+)""").find(u)?.let { path = it.groupValues[1] }
+        path = try { java.net.URLDecoder.decode(path, "UTF-8") } catch (_: Exception) { path }
+        val api = "https://cloud-api.yandex.net/v1/disk/public/resources/download?public_key=" +
+            URLEncoder.encode(publicKey, "UTF-8") +
+            (if (path.isNotBlank() && path != "/") "&path=" + URLEncoder.encode(path, "UTF-8") else "")
+        val r = httpGetText(api)
+        if (r.code == 200) {
+            val href = try { JSONObject(r.body).optString("href", "") } catch (_: Exception) { "" }
+            if (href.isNotEmpty()) return ResolvedCloudLink(href)
+        }
+        val desc = try {
+            JSONObject(r.body).let { it.optString("description").ifBlank { it.optString("message") }.ifBlank { it.optString("error") } }
+        } catch (_: Exception) { "" }
+        val reason = when (r.code) {
+            404 -> "файл или папка удалены, ссылка недействительна (HTTP 404)"
+            403 -> "доступ запрещён или превышен лимит скачиваний (HTTP 403)"
+            429 -> "превышен лимит запросов (HTTP 429)"
+            200 -> "API не вернуло ссылку на скачивание"
+            else -> "ошибка API (HTTP ${r.code})"
+        }
+        return ResolvedCloudLink(u, "Яндекс.Диск: $reason" + (if (desc.isNotBlank()) " — $desc" else ""))
+    }
+
+    private fun resolveMailRuCloud(u: String): ResolvedCloudLink {
+        val weblink = u.substringAfter("/public/").substringBefore('?').substringBefore('#').trimEnd('/')
+        if (weblink.isBlank()) return ResolvedCloudLink(u, "Облако Mail.ru: некорректная публичная ссылка")
+        val page = httpGetText(u)
+        if (page.code == 404 || page.body.contains("\"error\":\"not_exists\"") || page.body.contains("Ссылка заблокирована") || page.body.contains("Доступ к файлу ограничен")) {
+            return ResolvedCloudLink(u, "Облако Mail.ru: файл удалён или доступ ограничен (HTTP ${page.code})")
+        }
+        var server = Regex(""""weblink_get"\s*:\s*\[?\s*\{[^}]*?"url"\s*:\s*"([^"]+)"""").find(page.body)?.groupValues?.get(1)?.replace("\\/", "/").orEmpty()
+        if (server.isBlank()) {
             try {
-                val conn = openConnection(u, timeoutMs = 10000)
-                conn.instanceFollowRedirects = true
-                val ct = conn.contentType?.lowercase() ?: ""
-                if (conn.responseCode in 200..299 && (ct.contains("text/html") || ct.contains("text/plain"))) {
-                    val html = conn.inputStream.bufferedReader().use { it.readText() }
-                    val directMatch = Regex("""https?://[^"'\s<>]*wdfiles\.ru/[^"'\s<>]*(?:\?pt=|/download)[^"'\s<>]*""", RegexOption.IGNORE_CASE).find(html)
-                        ?: Regex("""href=["'](https?://[^"']+\?pt=[^"']+)["']""", RegexOption.IGNORE_CASE).find(html)
-                    if (directMatch != null) {
-                        val resolved = if (directMatch.groupValues.size > 1 && directMatch.groupValues[1].isNotBlank()) directMatch.groupValues[1] else directMatch.value
-                        return resolved.replace("&amp;", "&")
+                val disp = httpGetText("https://cloud.mail.ru/api/v2/dispatcher")
+                if (disp.code == 200) {
+                    server = JSONObject(disp.body).optJSONObject("body")?.optJSONArray("weblink_get")?.optJSONObject(0)?.optString("url", "").orEmpty()
+                }
+            } catch (_: Exception) {}
+        }
+        if (server.isBlank()) return ResolvedCloudLink(u, "Облако Mail.ru: не удалось получить сервер скачивания (dispatcher недоступен)")
+        val encoded = weblink.split('/').joinToString("/") {
+            URLEncoder.encode(try { java.net.URLDecoder.decode(it, "UTF-8") } catch (_: Exception) { it }, "UTF-8").replace("+", "%20")
+        }
+        return ResolvedCloudLink(server.trimEnd('/') + "/" + encoded)
+    }
+
+    private fun resolveGithubRelease(owner: String, repo: String, tag: String?): ResolvedCloudLink {
+        val api = if (tag.isNullOrBlank()) "https://api.github.com/repos/$owner/$repo/releases/latest"
+        else "https://api.github.com/repos/$owner/$repo/releases/tags/$tag"
+        val r = httpGetText(api)
+        if (r.code != 200) return ResolvedCloudLink(api, "GitHub: релиз не найден (HTTP ${r.code})")
+        val assets = JSONObject(r.body).optJSONArray("assets") ?: JSONArray()
+        for (i in 0 until assets.length()) {
+            val a = assets.optJSONObject(i) ?: continue
+            val name = a.optString("name", "")
+            if (ARCHIVE_OR_CONTAINER_EXT_REGEX.containsMatchIn(name)) return ResolvedCloudLink(a.optString("browser_download_url", ""))
+        }
+        return ResolvedCloudLink(api, "GitHub: в релизе нет архивов .zip/.rar/.7z/.nsp")
+    }
+
+    private fun resolveWdFiles(u: String): ResolvedCloudLink {
+        val page = try {
+            httpGetText(u, timeoutMs = 20000)
+        } catch (e: Exception) {
+            return ResolvedCloudLink(u, "WDfiles: сайт недоступен (${e.javaClass.simpleName}: ${e.message ?: "таймаут соединения"})")
+        }
+        val lowBody = page.body.lowercase()
+        if (page.code == 404 || lowBody.contains("file not found") || lowBody.contains("файл не найден") || lowBody.contains("file was removed") || lowBody.contains("файл удален")) {
+            return ResolvedCloudLink(u, "WDfiles: файл удалён (HTTP ${page.code})")
+        }
+        if (page.code >= 400) return ResolvedCloudLink(u, "WDfiles: " + describeHttpFailure(page.code, page.body))
+        if (!page.contentType.contains("html", ignoreCase = true) && !page.contentType.contains("text", ignoreCase = true)) return ResolvedCloudLink(page.finalUrl)
+        findDirectLinkInHtml(page.body, page.finalUrl)?.let { return ResolvedCloudLink(it) }
+        // Сценарий XFileSharing: форма op=download1/download2 (бесплатное скачивание) → страница с прямой ссылкой
+        var html = page.body
+        var cookies = page.cookies
+        var referer = page.finalUrl
+        for (step in 0 until 2) {
+            val formMatch = Regex("""<form[^>]*>([\s\S]*?)</form>""", RegexOption.IGNORE_CASE).findAll(html)
+                .firstOrNull { it.value.contains("name=\"op\"", ignoreCase = true) || it.value.contains("name='op'", ignoreCase = true) } ?: break
+            val formTag = Regex("""<form[^>]*>""", RegexOption.IGNORE_CASE).find(formMatch.value)?.value.orEmpty()
+            val action = Regex("""action=["']([^"']*)["']""", RegexOption.IGNORE_CASE).find(formTag)?.groupValues?.get(1)?.replace("&amp;", "&").orEmpty()
+            val fields = LinkedHashMap<String, String>()
+            Regex("""<input[^>]*>""", RegexOption.IGNORE_CASE).findAll(formMatch.value).forEach { inp ->
+                val n = Regex("""name=["']([^"']+)["']""", RegexOption.IGNORE_CASE).find(inp.value)?.groupValues?.get(1) ?: return@forEach
+                val v = Regex("""value=["']([^"']*)["']""", RegexOption.IGNORE_CASE).find(inp.value)?.groupValues?.get(1) ?: ""
+                if (!inp.value.contains("type=\"checkbox\"", ignoreCase = true)) fields[n] = v
+            }
+            if (!fields.containsKey("method_free")) fields["method_free"] = "Free Download"
+            val postUrl = absolutizeUrl(action.ifBlank { referer }, referer) ?: referer
+            val body = fields.entries.joinToString("&") { "${URLEncoder.encode(it.key, "UTF-8")}=${URLEncoder.encode(it.value, "UTF-8")}" }
+            val r = try {
+                httpGetText(postUrl, timeoutMs = 20000, cookie = cookies, postBody = body, referer = referer)
+            } catch (e: Exception) {
+                return ResolvedCloudLink(u, "WDfiles: ошибка при запросе ссылки (${e.message ?: e.javaClass.simpleName})")
+            }
+            if (r.code >= 400) return ResolvedCloudLink(u, "WDfiles: " + describeHttpFailure(r.code, r.body))
+            if (!r.contentType.contains("html", ignoreCase = true)) return ResolvedCloudLink(r.finalUrl)
+            findDirectLinkInHtml(r.body, r.finalUrl)?.let { return ResolvedCloudLink(it) }
+            if (r.body.contains("captcha", ignoreCase = true) || r.body.contains("recaptcha", ignoreCase = true)) {
+                return ResolvedCloudLink(u, "WDfiles: сайт требует капчу — скачайте файл вручную и добавьте архив во вкладке «Очередь»")
+            }
+            html = r.body
+            cookies = mergeCookies(cookies, r.cookies)
+            referer = r.finalUrl
+        }
+        return ResolvedCloudLink(u, "WDfiles: прямая ссылка на файл не найдена на странице")
+    }
+
+    fun resolveCloudUrl(publicUrl: String): String = resolveCloudUrlDetailed(publicUrl).directUrl
+
+    /**
+     * Преобразует публичную ссылку файлообменника в прямую ссылку на файл (или возвращает понятную причину ошибки):
+     * PixelDrain (файлы и списки), Google Drive, Яндекс.Диск (файлы, папки, файлы внутри папок), Облако Mail.ru,
+     * Dropbox, MediaFire, WDfiles, GitHub (blob → raw, релизы).
+     */
+    fun resolveCloudUrlDetailed(publicUrl: String): ResolvedCloudLink {
+        val u = publicUrl.trim().replace("&amp;", "&")
+        val lower = u.lowercase()
+        try {
+            if (lower.contains("pixeldrain.")) {
+                Regex("""pixeldrain\.[a-z]+/(?:u|api/file|d)/([A-Za-z0-9_-]+)""", RegexOption.IGNORE_CASE).find(u)?.let {
+                    return ResolvedCloudLink("https://pixeldrain.com/api/file/${it.groupValues[1]}?download")
+                }
+                Regex("""pixeldrain\.[a-z]+/(?:l|api/list)/([A-Za-z0-9_-]+)""", RegexOption.IGNORE_CASE).find(u)?.let {
+                    return ResolvedCloudLink("https://pixeldrain.com/api/list/${it.groupValues[1]}/zip")
+                }
+            }
+            if (lower.contains("disk.yandex.") || lower.contains("yadi.sk") || lower.contains("disk.360.yandex.")) {
+                if (lower.contains("downloader.disk.yandex") || lower.contains("cloud-api.yandex")) return ResolvedCloudLink(u)
+                return resolveYandexDisk(u)
+            }
+            if (lower.contains("drive.google.com") || lower.contains("docs.google.com") || lower.contains("drive.usercontent.google.com")) {
+                if (lower.contains("/folders/")) {
+                    return ResolvedCloudLink(u, "Google Drive: ссылка ведёт на папку — нужна ссылка на сам файл архива")
+                }
+                val id = Regex("""/(?:file/)?d/([A-Za-z0-9_-]{10,})""").find(u)?.groupValues?.get(1)
+                    ?: Regex("""[?&]id=([A-Za-z0-9_-]{10,})""").find(u)?.groupValues?.get(1)
+                if (id != null) return ResolvedCloudLink("https://drive.usercontent.google.com/download?id=$id&export=download&confirm=t")
+            }
+            if (lower.contains("cloud.mail.ru/public/")) return resolveMailRuCloud(u)
+            if (lower.contains("dropbox.com/")) {
+                val d = when {
+                    Regex("""[?&]dl=0""").containsMatchIn(u) -> u.replace(Regex("""([?&])dl=0"""), "$1dl=1")
+                    Regex("""[?&](dl|raw)=1""").containsMatchIn(u) -> u
+                    u.contains("?") -> "$u&dl=1"
+                    else -> "$u?dl=1"
+                }
+                return ResolvedCloudLink(d)
+            }
+            if (lower.contains("mediafire.com/")) {
+                if (Regex("""download\d*\.mediafire\.com/""").containsMatchIn(lower)) return ResolvedCloudLink(u)
+                val page = httpGetText(u)
+                if (page.code >= 400) return ResolvedCloudLink(u, "MediaFire: " + describeHttpFailure(page.code, page.body))
+                val m = Regex("""href=["'](https?://download\d*\.mediafire\.com/[^"']+)["']""", RegexOption.IGNORE_CASE).find(page.body)
+                    ?: Regex("""(https?://download\d*\.mediafire\.com/[^"'\s<>]+)""", RegexOption.IGNORE_CASE).find(page.body)
+                return if (m != null) ResolvedCloudLink(m.groupValues[1].replace("&amp;", "&"))
+                else ResolvedCloudLink(u, "MediaFire: прямая ссылка не найдена (файл удалён или требуется проверка)")
+            }
+            if (lower.contains("github.com/")) {
+                Regex("""github\.com/([^/]+)/([^/]+)/blob/(.+)""", RegexOption.IGNORE_CASE).find(u)?.let {
+                    return ResolvedCloudLink("https://raw.githubusercontent.com/${it.groupValues[1]}/${it.groupValues[2]}/${it.groupValues[3].substringBefore('?')}")
+                }
+                Regex("""github\.com/([^/]+)/([^/]+)/releases/(?:tag/([^/?#]+)|latest)/?$""", RegexOption.IGNORE_CASE).find(u.substringBefore('?'))?.let {
+                    return resolveGithubRelease(it.groupValues[1], it.groupValues[2], it.groupValues[3].ifBlank { null })
+                }
+            }
+            if (lower.contains("wdfiles.")) return resolveWdFiles(u)
+        } catch (e: Exception) {
+            return ResolvedCloudLink(u, "${classifyCloudProviderName(u) ?: "Ссылка"}: ошибка обработки — ${e.message ?: e.javaClass.simpleName}")
+        }
+        return ResolvedCloudLink(u)
+    }
+
+    /**
+     * Скачивает файл по прямой ссылке с проверкой HTTP-статуса, JSON-ошибок файлообменников, страниц подтверждения
+     * Google Drive и реального типа содержимого (HTML/JSON/текст вместо архива отклоняются с понятной причиной).
+     */
+    private fun downloadCloudPayload(
+        sourceUrl: String,
+        directUrl: String,
+        destDir: File,
+        roleHint: String,
+        onProgress: (String) -> Unit
+    ): CloudDownloadOutcome {
+        val provider = classifyCloudProviderName(sourceUrl) ?: "Ссылка"
+        var url = directUrl
+        var cookie = ""
+        var referer = sourceUrl
+        for (hop in 0 until 5) {
+            val conn = openConnection(url, cookie = cookie, timeoutMs = 30000)
+            conn.instanceFollowRedirects = true
+            if (referer.isNotEmpty() && referer != url) conn.setRequestProperty("Referer", referer)
+            val code = try {
+                conn.responseCode
+            } catch (e: java.net.SocketTimeoutException) {
+                return CloudDownloadOutcome(null, "$provider: сервер не отвечает (таймаут)")
+            } catch (e: java.net.UnknownHostException) {
+                return CloudDownloadOutcome(null, "$provider: сайт недоступен (DNS: ${e.message})")
+            } catch (e: java.io.IOException) {
+                return CloudDownloadOutcome(null, "$provider: ошибка соединения — ${e.message ?: e.javaClass.simpleName}")
+            }
+            if (code >= 400) {
+                val body = try { conn.errorStream?.use { readLimitedText(it, 65536) } ?: "" } catch (_: Exception) { "" }
+                return CloudDownloadOutcome(null, "$provider: " + describeHttpFailure(code, body))
+            }
+            val newCookies = collectCookies(conn)
+            if (newCookies.isNotEmpty()) cookie = mergeCookies(cookie, newCookies)
+            val ct = conn.contentType?.lowercase() ?: ""
+            val disposition = conn.getHeaderField("Content-Disposition") ?: ""
+            val isTextual = ct.startsWith("text/") || ct.contains("json") || ct.contains("javascript") || ct.contains("xml")
+            if (isTextual && !disposition.contains("attachment", ignoreCase = true)) {
+                val body = conn.inputStream.use { readLimitedText(it, 4 * 1024 * 1024) }
+                jsonErrorReason(body)?.let { return CloudDownloadOutcome(null, "$provider: $it") }
+                val gForm = Regex("""<form[^>]+id=["']download-form["'][^>]*>""", RegexOption.IGNORE_CASE).find(body)
+                if (gForm != null) {
+                    val action = Regex("""action=["']([^"']+)["']""").find(gForm.value)?.groupValues?.get(1)?.replace("&amp;", "&")
+                        ?: "https://drive.usercontent.google.com/download"
+                    val params = ArrayList<String>()
+                    Regex("""<input[^>]+type=["']hidden["'][^>]*>""", RegexOption.IGNORE_CASE).findAll(body).forEach { inp ->
+                        val n = Regex("""name=["']([^"']+)["']""").find(inp.value)?.groupValues?.get(1) ?: return@forEach
+                        val v = Regex("""value=["']([^"']*)["']""").find(inp.value)?.groupValues?.get(1) ?: ""
+                        params.add("${URLEncoder.encode(n, "UTF-8")}=${URLEncoder.encode(v, "UTF-8")}")
+                    }
+                    if (params.none { it.startsWith("confirm=") }) params.add("confirm=t")
+                    referer = conn.url.toString()
+                    url = action + (if (action.contains("?")) "&" else "?") + params.joinToString("&")
+                    continue
+                }
+                val lowBody = body.lowercase()
+                if (lowBody.contains("quota exceeded") || lowBody.contains("too many users have viewed or downloaded")) {
+                    return CloudDownloadOutcome(null, "Google Drive: превышена квота скачиваний файла — попробуйте позже или зеркало")
+                }
+                if (url.contains("google", ignoreCase = true) && (lowBody.contains("servicelogin") || lowBody.contains("accounts.google.com"))) {
+                    return CloudDownloadOutcome(null, "Google Drive: доступ к файлу закрыт (нужен вход в аккаунт или открытый доступ по ссылке)")
+                }
+                val direct = findDirectLinkInHtml(body, conn.url.toString())
+                if (direct != null && direct != url) {
+                    referer = conn.url.toString()
+                    url = direct
+                    continue
+                }
+                val trimmedBody = body.trimStart()
+                if (trimmedBody.startsWith("{") || trimmedBody.startsWith("[")) {
+                    return CloudDownloadOutcome(null, "$provider: вместо файла получен JSON-ответ сервера — ссылка не ведёт на файл")
+                }
+                val titleText = Regex("""<title[^>]*>([^<]{1,120})""", RegexOption.IGNORE_CASE).find(body)?.groupValues?.get(1)?.trim().orEmpty()
+                return CloudDownloadOutcome(
+                    null,
+                    "$provider: вместо файла получена веб-страница" + (if (titleText.isNotBlank()) " «$titleText»" else "") +
+                        " — файл удалён, нужна капча или ссылка не ведёт на файл"
+                )
+            }
+            val nameFromDisp = Regex("""filename\*=(?:UTF-8'')?([^;]+)""", RegexOption.IGNORE_CASE).find(disposition)?.groupValues?.get(1)
+                ?: Regex("""filename=["']?([^"';]+)""", RegexOption.IGNORE_CASE).find(disposition)?.groupValues?.get(1)
+            val rawName = (nameFromDisp?.let { try { java.net.URLDecoder.decode(it.trim('"', '\'', ' '), "UTF-8") } catch (_: Exception) { it } }
+                ?: conn.url.path.substringAfterLast('/'))
+            val fileName = rawName.map { if (it in "\\/:*?\"<>|") '_' else it }.joinToString("").trim().take(120)
+                .ifBlank { "cloud_${roleHint.lowercase()}.bin" }
+            val dest = File(destDir, "dl_${System.currentTimeMillis()}_$fileName")
+            val total = conn.contentLengthLong
+            var got = 0L
+            var lastReport = 0L
+            try {
+                conn.inputStream.use { input ->
+                    FileOutputStream(dest).use { out ->
+                        val buf = ByteArray(128 * 1024)
+                        while (true) {
+                            val r = input.read(buf)
+                            if (r <= 0) break
+                            out.write(buf, 0, r)
+                            got += r
+                            val now = System.currentTimeMillis()
+                            if (now - lastReport > 300L) {
+                                lastReport = now
+                                onProgress("Скачано ($roleHint): ${StormNczEngine.formatSize(got)}" + (if (total > 0) " / ${StormNczEngine.formatSize(total)}" else ""))
+                            }
+                        }
                     }
                 }
-            } catch (_: Throwable) {}
+            } catch (e: Exception) {
+                dest.delete()
+                return CloudDownloadOutcome(null, "$provider: загрузка прервана — ${e.message ?: e.javaClass.simpleName}")
+            }
+            if (total > 0 && got < total) {
+                dest.delete()
+                return CloudDownloadOutcome(null, "$provider: загрузка прервана (получено ${StormNczEngine.formatSize(got)} из ${StormNczEngine.formatSize(total)})")
+            }
+            if (got == 0L) {
+                dest.delete()
+                return CloudDownloadOutcome(null, "$provider: сервер вернул пустой файл")
+            }
+            val kind = detectCloudPayloadKind(dest)
+            if (kind == "html" || kind == "json" || (kind == "text" && !fileName.endsWith(".pchtxt", ignoreCase = true))) {
+                val txt = try { FileInputStream(dest).use { readLimitedText(it, 65536) } } catch (_: Exception) { "" }
+                dest.delete()
+                val jr = jsonErrorReason(txt)
+                return CloudDownloadOutcome(null, "$provider: " + (jr ?: "вместо архива получен ${kind.uppercase()}-ответ (файл удалён или ссылка не прямая)"))
+            }
+            return CloudDownloadOutcome(dest, null)
         }
-        return u
+        return CloudDownloadOutcome(null, "$provider: слишком много перенаправлений без файла")
     }
 
     data class CloudExtractedBundle(
         val containerFiles: List<File>,
         val modDirectories: List<File>,
-        val extractedFileCount: Int
+        val extractedFileCount: Int,
+        val failureReason: String? = null,
+        val attemptLog: List<String> = emptyList()
     )
 
     /**
-     * Универсальная загрузка и автоизвлечение облачных архивов (.zip / .tar / .gz) и контейнеров (.nsp / .nsz / .xci / .xcz)
-     * для Обновлений (Update), Дополнений (DLC / Unlocker) и Модов (RomFS / ExeFS / IPS).
+     * Универсальная загрузка и автоизвлечение облачных архивов (.zip / .rar / .7z / .tar / .gz) и контейнеров (.nsp / .nsz / .xci / .xcz)
+     * для Обновлений (Update), Дополнений (DLC / Unlocker) и Модов (RomFS / ExeFS / IPS). Перебирает все зеркала |MIRROR|
+     * и возвращает понятную причину отказа по каждой ссылке.
      */
     fun downloadAndExtractCloudResource(
         cloudUrl: String,
@@ -1359,139 +1971,97 @@ object RuTrackerCloudEngine {
         romsDir.mkdirs()
         modsRootDir.mkdirs()
         val cleanTid = targetTitleId.replace(Regex("[^0-9A-Fa-f]"), "").uppercase().padEnd(16, '0').take(16)
-        val candidateUrls = cloudUrl.split("|MIRROR|").map { it.trim() }.filter { it.isNotEmpty() }
-        var tempFile = File(modsRootDir, "dl_${System.currentTimeMillis()}_${roleHint.lowercase()}.zip")
-        var downloadedSuccessfully = false
+        val candidateUrls = cloudUrl.split("|MIRROR|").map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+        val attempts = ArrayList<String>()
+        if (candidateUrls.isEmpty()) return CloudExtractedBundle(emptyList(), emptyList(), 0, "пустая ссылка", attempts)
+        val isModRole = roleHint.equals("MOD", ignoreCase = true) || roleHint.contains("РУС", ignoreCase = true) || roleHint.contains("МОД", ignoreCase = true)
 
-        for (candUrl in candidateUrls) {
-            try {
-                onProgress("Подготовка ссылки ($roleHint): $candUrl...")
-                val directUrl = resolveCloudUrl(candUrl)
-                val urlFileName = directUrl.substringBefore('?').substringAfterLast('/').ifBlank { "cloud_${roleHint.lowercase()}_${System.currentTimeMillis()}" }
-                val candTempFile = File(modsRootDir, "dl_${System.currentTimeMillis()}_$urlFileName")
-
-                onProgress("Скачивание ($roleHint)...")
-                var effectiveDlUrl = directUrl
-                val connTimeout = if (effectiveDlUrl.contains("wdfiles.ru", ignoreCase = true)) 12000 else 20000
-                var conn = openConnection(effectiveDlUrl, timeoutMs = connTimeout)
-                conn.instanceFollowRedirects = true
-
-                val cType = conn.contentType?.lowercase() ?: ""
-                if (cType.contains("text/html") || cType.contains("text/plain")) {
-                    val html = conn.inputStream.bufferedReader().use { it.readText() }
-                    val wdDirect = Regex("""https?://[^"'\s<>]*wdfiles\.ru/[^"'\s<>]*\?pt=[^"'\s<>]*""", RegexOption.IGNORE_CASE).find(html)
-                    if (wdDirect != null) {
-                        effectiveDlUrl = wdDirect.value.replace("&amp;", "&")
-                        conn = openConnection(effectiveDlUrl, timeoutMs = 15000)
-                        conn.instanceFollowRedirects = true
-                    } else if (html.contains("download-form") || html.contains("drive.usercontent.google.com") || html.contains("confirm=")) {
-                        val actionMatch = Regex("""<form[^>]+id=["']download-form["'][^>]+action=["']([^"']+)["']""").find(html)
-                        val formAction = actionMatch?.groupValues?.get(1) ?: "https://drive.usercontent.google.com/download"
-                        val inputMatches = Regex("""<input[^>]+type=["']hidden["'][^>]+name=["']([^"']+)["'][^>]+value=["']([^"']*)["']""").findAll(html)
-                        val qParams = mutableListOf<String>()
-                        for (im in inputMatches) {
-                            qParams.add("${URLEncoder.encode(im.groupValues[1], "UTF-8")}=${URLEncoder.encode(im.groupValues[2], "UTF-8")}")
-                        }
-                        if (qParams.none { it.startsWith("confirm=") }) qParams.add("confirm=t")
-                        effectiveDlUrl = formAction + (if (formAction.contains("?")) "&" else "?") + qParams.joinToString("&")
-                        conn = openConnection(effectiveDlUrl, timeoutMs = 20000)
-                        conn.instanceFollowRedirects = true
-                    } else {
-                        continue
-                    }
-                }
-
-                conn.inputStream.use { input ->
-                    FileOutputStream(candTempFile).use { output ->
-                        val buf = ByteArray(64 * 1024)
-                        var total = 0L
-                        while (true) {
-                            val r = input.read(buf)
-                            if (r <= 0) break
-                            output.write(buf, 0, r)
-                            total += r
-                            onProgress("Скачано ($roleHint): ${StormNczEngine.formatSize(total)}")
-                        }
-                    }
-                }
-
-                if (candTempFile.exists() && candTempFile.length() > 64) {
-                    val head = ByteArray(64)
-                    FileInputStream(candTempFile).use { it.read(head) }
-                    val headStr = String(head, StandardCharsets.US_ASCII)
-                    if (!headStr.startsWith("<!DOCTYPE", ignoreCase = true) && !headStr.startsWith("<html", ignoreCase = true)) {
-                        tempFile = candTempFile
-                        downloadedSuccessfully = true
-                        break
-                    } else {
-                        candTempFile.delete()
-                    }
-                } else {
-                    candTempFile.delete()
-                }
-            } catch (_: Exception) {}
+        var payload: File? = null
+        for ((ci, candUrl) in candidateUrls.withIndex()) {
+            val provider = classifyCloudProviderName(candUrl) ?: "Ссылка"
+            onProgress("Подготовка ссылки ($roleHint, ${ci + 1}/${candidateUrls.size}, $provider): $candUrl")
+            val resolved = try {
+                resolveCloudUrlDetailed(candUrl)
+            } catch (e: Exception) {
+                ResolvedCloudLink(candUrl, "$provider: ${e.message ?: e.javaClass.simpleName}")
+            }
+            if (resolved.error != null) {
+                attempts.add("✗ $candUrl → ${resolved.error}")
+                continue
+            }
+            onProgress("Скачивание ($roleHint) с $provider...")
+            val out = try {
+                downloadCloudPayload(candUrl, resolved.directUrl, modsRootDir, roleHint, onProgress)
+            } catch (e: Exception) {
+                CloudDownloadOutcome(null, "$provider: ${e.javaClass.simpleName}: ${e.message}")
+            }
+            if (out.file == null) {
+                attempts.add("✗ $candUrl → ${out.error}")
+                continue
+            }
+            attempts.add("✓ $candUrl → ${out.file.name.replace(Regex("""^dl_\d+_"""), "")} (${StormNczEngine.formatSize(out.file.length())}, ${detectCloudPayloadKind(out.file).uppercase()})")
+            payload = out.file
+            break
         }
-
-        if (!downloadedSuccessfully) {
-            return CloudExtractedBundle(emptyList(), emptyList(), 0)
+        if (payload == null) {
+            return CloudExtractedBundle(emptyList(), emptyList(), 0, attempts.joinToString("; ").ifBlank { "нет рабочих ссылок" }, attempts)
         }
 
         val containerFiles = mutableListOf<File>()
         val modDirs = mutableListOf<File>()
         var extractedCount = 0
+        val origName = payload.name.replace(Regex("""^dl_\d+_"""), "")
+        val kind = detectCloudPayloadKind(payload)
 
-        val magic = ByteArray(4)
-        if (tempFile.length() >= 4) {
-            FileInputStream(tempFile).use { it.read(magic) }
-        }
-        val isZip = (magic[0] == 0x50.toByte() && magic[1] == 0x4B.toByte()) || tempFile.extension.equals("zip", true)
-        val isDirectContainer = (magic[0] == 'P'.code.toByte() && magic[1] == 'F'.code.toByte() && magic[2] == 'S'.code.toByte() && magic[3] == '0'.code.toByte()) ||
-            tempFile.extension.lowercase() in listOf("nsp", "nsz", "xci", "xcz")
-
-        if (isDirectContainer && !isZip) {
-            if (roleHint.equals("MOD", ignoreCase = true) || roleHint.contains("РУС", ignoreCase = true) || roleHint.contains("МОД", ignoreCase = true)) {
-                tempFile.delete()
-                return CloudExtractedBundle(emptyList(), emptyList(), 0)
+        if (kind == "pfs0" || kind == "xci") {
+            // Прямой контейнер (часто это переведённое обновление / DLC): сохраняем как вход сборки, роль определит analyzeQueuedFile
+            val ext = when {
+                kind == "xci" -> if (origName.endsWith(".xcz", ignoreCase = true)) "xcz" else "xci"
+                origName.endsWith(".nsz", ignoreCase = true) -> "nsz"
+                else -> "nsp"
             }
-            val ext = tempFile.extension.lowercase().takeIf { it in listOf("nsp", "nsz", "xci", "xcz") } ?: "nsp"
-            val tidSuffix = when (roleHint.uppercase()) {
-                "ПАТЧ", "UPDATE" -> cleanTid.take(13) + "800"
-                "DLC", "UNLOCKER" -> cleanTid.take(13) + "001"
-                else -> cleanTid
+            val finalContainer = if (isModRole) {
+                File(romsDir, "CLOUD_${System.currentTimeMillis()}_${origName.substringBeforeLast('.').take(80)}.$ext")
+            } else {
+                val tidSuffix = when (roleHint.uppercase()) {
+                    "ПАТЧ", "UPDATE", "ОБНОВЛЕНИЕ" -> cleanTid.take(13) + "800"
+                    "DLC", "UNLOCKER" -> cleanTid.take(13) + "001"
+                    else -> cleanTid
+                }
+                File(romsDir, "${roleHint}_[${tidSuffix}]_${System.currentTimeMillis()}.$ext")
             }
-            val finalContainer = File(romsDir, "${roleHint}_[${tidSuffix}]_${System.currentTimeMillis()}.$ext")
-            tempFile.copyTo(finalContainer, overwrite = true)
-            tempFile.delete()
+            payload.copyTo(finalContainer, overwrite = true)
+            payload.delete()
+            if (!StormNczEngine.isGenuineSwitchContainer(finalContainer)) {
+                finalContainer.delete()
+                attempts.add("✗ $origName: файл не является подлинным контейнером Nintendo Switch")
+                return CloudExtractedBundle(emptyList(), emptyList(), 0, "$origName: файл не является подлинным контейнером Nintendo Switch", attempts)
+            }
             containerFiles.add(finalContainer)
-            extractedCount = 1
             onProgress("Контейнер $roleHint готов: ${finalContainer.name}")
-            return CloudExtractedBundle(containerFiles, modDirs, extractedCount)
+            return CloudExtractedBundle(containerFiles, modDirs, 1, null, attempts)
         }
 
-        val outAtmoDir = File(modsRootDir, "staged_cloud_mods/$cleanTid")
+        val outAtmoDir = File(modsRootDir, "staged_cloud_mods/$cleanTid/${System.currentTimeMillis()}")
         if (outAtmoDir.exists()) outAtmoDir.deleteRecursively()
         outAtmoDir.mkdirs()
 
-        if (isZip) {
-            onProgress("Автоизвлечение архива ($roleHint)...")
-            StormNczEngine.extractZipArchiveSafe(tempFile) { rawEntryPath, entryStream ->
-                val rawPath = rawEntryPath.replace('\\', '/').trimStart('/')
+        val isArchive = kind in setOf("zip", "rar", "rar5", "7z", "gzip", "tar", "bzip2", "xz")
+        if (isArchive) {
+            onProgress("Автоизвлечение архива ${kind.uppercase()} ($roleHint)...")
+            val archRep = StormNczEngine.extractArchiveSafe(payload) { rawPath, entryStream ->
                 val fName = rawPath.substringAfterLast('/')
                 val lowerName = fName.lowercase()
                 val ext = fName.substringAfterLast('.', "").lowercase()
-                val buf = ByteArray(64 * 1024)
-
                 if (ext in listOf("nsp", "nsz", "xci", "xcz")) {
                     val destContainer = File(romsDir, fName)
-                    FileOutputStream(destContainer).use { fos ->
-                        while (true) {
-                            val r = entryStream.read(buf)
-                            if (r <= 0) break
-                            fos.write(buf, 0, r)
-                        }
+                    FileOutputStream(destContainer).use { fos -> entryStream.copyTo(fos, 128 * 1024) }
+                    if (StormNczEngine.isGenuineSwitchContainer(destContainer)) {
+                        containerFiles.add(destContainer)
+                        extractedCount++
+                    } else {
+                        destContainer.delete()
                     }
-                    containerFiles.add(destContainer)
-                    extractedCount++
                 } else if (!rawPath.contains("__MACOSX") && !StormNczEngine.isJunkOrReadmeFile(fName)) {
                     val romfsMatch = Regex("""(?:^|/)romfs/(.+)$""", RegexOption.IGNORE_CASE).find(rawPath)
                     val patchesMatch = Regex("""(?:^|/)exefs_patches/(.+)$""", RegexOption.IGNORE_CASE).find(rawPath)
@@ -1506,14 +2076,9 @@ object RuTrackerCloudEngine {
                         else -> "romfs/$strippedTidRel"
                     }
                     val destMod = File(outAtmoDir, mappedSubPath)
+                    if (!destMod.canonicalPath.startsWith(outAtmoDir.canonicalPath)) return@extractArchiveSafe
                     destMod.parentFile?.mkdirs()
-                    FileOutputStream(destMod).use { fos ->
-                        while (true) {
-                            val r = entryStream.read(buf)
-                            if (r <= 0) break
-                            fos.write(buf, 0, r)
-                        }
-                    }
+                    FileOutputStream(destMod).use { fos -> entryStream.copyTo(fos, 128 * 1024) }
                     if (destMod.name.equals("main", ignoreCase = true) && StormNczEngine.isPoisonedStubMainFile(destMod)) {
                         destMod.delete()
                     } else {
@@ -1521,28 +2086,48 @@ object RuTrackerCloudEngine {
                     }
                 }
             }
-            tempFile.delete()
-        } else {
-            val lowerName = tempFile.name.lowercase()
-            val subDir = when {
-                lowerName.endsWith(".pchtxt") -> "exefs_patches"
-                lowerName.endsWith(".ips") || lowerName.endsWith(".npdm") -> "exefs"
-                else -> "romfs"
+            payload.delete()
+            if (archRep.error != null && extractedCount == 0 && containerFiles.isEmpty()) {
+                attempts.add("✗ $origName: ${archRep.error}")
+                outAtmoDir.deleteRecursively()
+                return CloudExtractedBundle(emptyList(), emptyList(), 0, "$origName: ${archRep.error}", attempts)
             }
-            val destFile = File(outAtmoDir, "$subDir/${tempFile.name}")
+        } else {
+            val lowerName = origName.lowercase()
+            val subPath = when {
+                kind == "text" && lowerName.endsWith(".pchtxt") -> "exefs_patches/$origName"
+                kind == "ips" || lowerName.endsWith(".ips") || lowerName.endsWith(".npdm") -> "exefs/$origName"
+                kind == "zstd" || kind == "sarc" -> if (lowerName.contains(".product.")) "romfs/Mals/$origName" else "romfs/$origName"
+                else -> null
+            }
+            if (subPath == null) {
+                payload.delete()
+                outAtmoDir.deleteRecursively()
+                val why = "$origName: неизвестный формат файла (${kind.uppercase()}) — ожидался архив .zip/.rar/.7z или контейнер .nsp/.nsz/.xci"
+                attempts.add("✗ $why")
+                return CloudExtractedBundle(emptyList(), emptyList(), 0, why, attempts)
+            }
+            val destFile = File(outAtmoDir, subPath)
             destFile.parentFile?.mkdirs()
-            tempFile.copyTo(destFile, overwrite = true)
-            tempFile.delete()
+            payload.copyTo(destFile, overwrite = true)
+            payload.delete()
             extractedCount = 1
         }
 
-        if (outAtmoDir.walkTopDown().maxDepth(6).any { it.isFile }) {
+        if (outAtmoDir.walkTopDown().maxDepth(8).any { it.isFile }) {
             modDirs.add(outAtmoDir)
+        } else {
+            outAtmoDir.deleteRecursively()
+        }
+        if (modDirs.isEmpty() && containerFiles.isEmpty()) {
+            val why = "$origName: в архиве не найдено файлов мода (romfs/exefs) или контейнеров игры"
+            attempts.add("✗ $why")
+            return CloudExtractedBundle(emptyList(), emptyList(), 0, why, attempts)
         }
 
         onProgress("Автоизвлечение завершено ($roleHint): файлов $extractedCount")
-        StormNczEngine.synchronizeCrossRegionLocalization(File(outAtmoDir, "romfs"))
-        return CloudExtractedBundle(containerFiles, modDirs, extractedCount)
+        modDirs.firstOrNull()?.let { StormNczEngine.synchronizeCrossRegionLocalization(File(it, "romfs")) }
+        return CloudExtractedBundle(containerFiles, modDirs, extractedCount, null, attempts)
     }
 
     fun downloadAndExtractMod(
@@ -1613,15 +2198,17 @@ object RuTrackerCloudEngine {
             u.contains("drive.google.com") || u.contains("drive.usercontent.google.com") -> "Google Drive"
             u.contains("mega.nz") || u.contains("mega.co.nz") -> "Mega.nz"
             u.contains("mediafire.com") -> "MediaFire"
-            u.contains("pixeldrain.com") -> "PixelDrain"
+            u.contains("pixeldrain.") -> "PixelDrain"
             u.contains("cloud.mail.ru") -> "Облако Mail.ru"
-            u.contains("wdfiles.ru") -> "WDfiles"
+            u.contains("wdfiles.") -> "WDfiles"
+            u.contains("dropbox.com") -> "Dropbox"
             u.contains("modsfire.com") -> "ModsFire"
             u.contains("dropmefiles.com") -> "DropMeFiles"
             u.contains("1fichier.com") -> "1Fichier"
             u.contains("workupload.com") -> "WorkUpload"
             u.contains("gofile.io") -> "GoFile"
-            u.contains("github.com") && (u.contains("/releases") || u.endsWith(".zip") || u.endsWith(".7z") || u.endsWith(".nsp")) -> "GitHub Releases"
+            u.contains("github.com") && (u.contains("/releases") || u.contains("/blob/") || u.endsWith(".zip") || u.endsWith(".7z") || u.endsWith(".rar") || u.endsWith(".nsp")) -> "GitHub Releases"
+            u.contains("raw.githubusercontent.com") -> "GitHub"
             u.contains("gamebanana.com") -> "GameBanana"
             u.contains("boosty.to") -> "Boosty"
             u.endsWith(".nsp") || u.endsWith(".nsz") || u.endsWith(".xci") || u.endsWith(".xcz") ||
@@ -1657,7 +2244,7 @@ object RuTrackerCloudEngine {
     private fun parsePostsFromTopicHtml(html: String, pageNumber: Int, outMap: LinkedHashMap<String, TopicDiscussionLink>) {
         val postBlocks = Regex("""<tbody[^>]+id="post_\d+"[^>]*>([\s\S]*?)</tbody>""", RegexOption.IGNORE_CASE).findAll(html).toList()
         val urlAttrRegex = Regex("""<a[^>]+href="(https?://[^"\s<>]+)"[^>]*>(.*?)</a>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
-        val rawUrlRegex = Regex("""https?://(?:disk\.yandex\.(?:ru|com)|yadi\.sk|drive\.google\.com|mega\.nz|mediafire\.com|pixeldrain\.com|wdfiles\.ru|cloud\.mail\.ru|modsfire\.com|dropmefiles\.com|1fichier\.com|workupload\.com|gofile\.io|github\.com/[^"\s<>]+/releases)[^"\s<>'\)]*""", RegexOption.IGNORE_CASE)
+        val rawUrlRegex = Regex("""https?://(?:(?:www\.)?disk\.yandex\.(?:ru|com|kz|by|ua|com\.tr)|disk\.360\.yandex\.ru|yadi\.sk|drive\.google\.com|drive\.usercontent\.google\.com|docs\.google\.com|mega\.nz|(?:www\.)?mediafire\.com|pixeldrain\.(?:com|net)|wdfiles\.(?:ru|com)|cloud\.mail\.ru|(?:www\.)?dropbox\.com|modsfire\.com|dropmefiles\.com|1fichier\.com|workupload\.com|gofile\.io|github\.com/[^"\s<>]+/(?:releases|blob)/)[^"\s<>'\)]*""", RegexOption.IGNORE_CASE)
 
         if (postBlocks.isNotEmpty()) {
             postBlocks.forEachIndexed { idx, blockMatch ->
@@ -1730,10 +2317,29 @@ object RuTrackerCloudEngine {
         }
     }
 
+    /** Проверяет, что загруженная страница темы RuTracker действительно про эту игру (название или TitleID в заголовке). */
+    private fun isTopicPageAboutGame(html: String, topic: TopicItem): Boolean {
+        val pageTitle = (Regex("""<h1[^>]*class="maintitle"[^>]*>([\s\S]*?)</h1>""", RegexOption.IGNORE_CASE).find(html)?.groupValues?.get(1)
+            ?: Regex("""<title>([\s\S]*?)</title>""", RegexOption.IGNORE_CASE).find(html)?.groupValues?.get(1)
+            ?: "").replace(Regex("<.*?>"), " ")
+        if (pageTitle.isBlank()) return true
+        val tid = Regex("""[0-9A-Fa-f]{16}""").find(topic.title)?.value
+        if (tid != null && pageTitle.contains(tid.take(13), ignoreCase = true)) return true
+        val toks = significantNameTokens(StormNczEngine.extractCleanGameTitle(topic.title))
+        if (toks.isEmpty()) return true
+        val lt = pageTitle.lowercase()
+        val hit = toks.count { lt.contains(it) }
+        return hit > 0 && hit * 2 >= toks.size
+    }
+
     fun extractAllTopicAndDiscussionLinks(topic: TopicItem, mirror: String = "https://rutracker.org"): List<TopicDiscussionLink> {
         val outMap = LinkedHashMap<String, TopicDiscussionLink>()
         val topicId = topic.topicId.trim()
-        if (topicId.isNotBlank() && topicId.all { it.isDigit() }) {
+        // Ссылки берём только из РЕАЛЬНОЙ темы RuTracker (номер подтверждён API раздела #1605)
+        val forumMapsReady = loadRuTrackerSwitchForumMapsBlocking()
+        val isRealTopic = topicId.isNotBlank() && topicId.all { it.isDigit() } &&
+            (!forumMapsReady || cachedForumTopicMap?.containsKey(topicId) == true)
+        if (isRealTopic) {
             val mirrors = listOf(
                 if (mirror.startsWith("http")) mirror.trimEnd('/') else "https://${mirror.trimEnd('/')}",
                 "https://rutracker.org",
@@ -1746,6 +2352,7 @@ object RuTrackerCloudEngine {
                     val conn1 = openConnection("$mUrl/forum/viewtopic.php?t=$topicId", timeoutMs = 2500)
                     if (conn1.responseCode == 200) {
                         val html1 = String(conn1.inputStream.readBytes(), Charset.forName("windows-1251"))
+                        if (!isTopicPageAboutGame(html1, topic)) break
                         parsePostsFromTopicHtml(html1, 1, outMap)
 
                         val startOffsets = Regex("""viewtopic\.php\?t=$topicId&(?:amp;)?start=(\d+)""", RegexOption.IGNORE_CASE)
@@ -1869,6 +2476,194 @@ object RuTrackerCloudEngine {
         return "0100" + hashSeed.drop(4).padEnd(9, '0').take(9) + "000"
     }
 
+    // =========================================================================
+    // РЕАЛЬНЫЕ РАЗДАЧИ: проверка номера темы по API RuTracker и поиск подлинного BTIH (без выдуманных хэшей)
+    // =========================================================================
+
+    data class RealTorrentCandidate(
+        val infoHash: String,
+        val title: String,
+        val seeds: Int,
+        val sizeBytes: Long,
+        val source: String,
+        val topicId: String,
+        val trustedTopic: Boolean
+    )
+
+    private val SEARCH_STOP_WORDS = setOf("the", "of", "and", "a", "an", "for", "to", "in", "on", "nintendo", "switch")
+    private val SEARCH_NOISE_WORDS = setOf(
+        "nsp", "nsz", "xci", "xcz", "ns", "nsw", "switch", "update", "upd", "dlc", "multi", "eng", "rus", "jpn", "repack",
+        "base", "game", "full", "venom", "bigblueboxs", "suxxors", "gamer", "eshop", "cart", "trimmed", "incl", "all"
+    )
+    private val SEQUEL_TOKENS = setOf("2", "3", "4", "5", "6", "7", "8", "9", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x", "remake", "remastered", "hd")
+
+    private fun significantNameTokens(name: String): List<String> =
+        name.lowercase().replace(Regex("[^a-zа-яё0-9]+"), " ").split(' ')
+            .filter { it.isNotEmpty() && it !in SEARCH_STOP_WORDS && (it.length >= 2 || it.all { c -> c.isDigit() }) }
+
+    /** Строгое сравнение названия раздачи с игрой: совпадают все значимые слова, лишних слов (сиквелы, другие игры серии) нет. */
+    fun torrentNameMatchesGame(candidate: String, gameName: String, baseTid: String = ""): Boolean {
+        val c = candidate.lowercase()
+        if (baseTid.length == 16 && c.contains(baseTid.take(13).lowercase())) return true
+        val gameToks = significantNameTokens(gameName)
+        if (gameToks.isEmpty()) return false
+        val leading = c.substringAfter("[nintendo switch]").trim().split('[', '(', '{', '|').first()
+            .replace(Regex("""\bv\d[\d.]*\b"""), " ")
+        val candToks = significantNameTokens(leading).filter { it !in SEARCH_NOISE_WORDS && !Regex("""^\d{3,}$""").matches(it) }
+        if (!gameToks.all { it in candToks }) return false
+        // Лишние слова в названии раздачи означают другую игру (например «Hollow Knight Silksong» ≠ «Hollow Knight»)
+        val extra = candToks.filter { it !in gameToks }
+        return extra.isEmpty()
+    }
+
+    private fun searchRealSwitchTorrentsByName(name: String, baseTid: String): List<RealTorrentCandidate> {
+        val pvc = cachedForum1605Hashes ?: emptyMap()
+        val found = LinkedHashMap<String, RealTorrentCandidate>()
+        val lock = Any()
+        fun consider(hash0: String, title: String, seeds: Int, size: Long, source: String) {
+            val hash = hash0.trim().uppercase()
+            if (hash.length != 40 || !hash.all { it in '0'..'9' || it in 'A'..'F' }) return
+            val inPvc = pvc[hash]
+            if (inPvc == null && !isStrictSwitchRelease(title, "")) return
+            if (!torrentNameMatchesGame(title, name, baseTid)) return
+            val cand = if (inPvc != null) {
+                RealTorrentCandidate(hash, title, inPvc.third, if (inPvc.second > 0L) inPvc.second else size, "RuTracker #1605, тема t=${inPvc.first} (найдено через $source)", inPvc.first, false)
+            } else {
+                RealTorrentCandidate(hash, title, seeds, size, source, "", false)
+            }
+            synchronized(lock) {
+                val prev = found[hash]
+                if (prev == null || (cand.topicId.isNotEmpty() && prev.topicId.isEmpty()) || cand.seeds > prev.seeds) found[hash] = cand
+            }
+        }
+        val workers = ArrayList<Thread>()
+        for (q in listOf("$name nsp", "$name switch", "$name nsz", "$name xci").distinct()) {
+            workers.add(Thread {
+                try {
+                    val conn = openConnection("https://torrents-csv.com/service/search?q=${URLEncoder.encode(q, "UTF-8")}&size=50", timeoutMs = 9000)
+                    if (conn.responseCode == 200) {
+                        val arr = JSONObject(conn.inputStream.bufferedReader().use { it.readText() }).optJSONArray("torrents") ?: JSONArray()
+                        for (i in 0 until arr.length()) {
+                            val o = arr.optJSONObject(i) ?: continue
+                            consider(o.optString("infohash", ""), o.optString("name", ""), o.optInt("seeders", 0), o.optLong("size_bytes", 0L), "torrents-csv")
+                        }
+                    }
+                } catch (_: Exception) {}
+            })
+        }
+        for (q in listOf("$name switch", "$name nsp").distinct()) {
+            workers.add(Thread {
+                try {
+                    val conn = openConnection("https://apibay.org/q.php?q=${URLEncoder.encode(q, "UTF-8")}", timeoutMs = 9000)
+                    if (conn.responseCode == 200) {
+                        val arr = JSONArray(conn.inputStream.bufferedReader().use { it.readText() })
+                        for (i in 0 until arr.length()) {
+                            val o = arr.optJSONObject(i) ?: continue
+                            if (o.optString("id", "0") == "0") continue
+                            consider(o.optString("info_hash", ""), o.optString("name", ""), o.optInt("seeders", 0), o.optLong("size", 0L), "ApiBay")
+                        }
+                    }
+                } catch (_: Exception) {}
+            })
+        }
+        workers.add(Thread {
+            try {
+                val toks = significantNameTokens(name)
+                for (item in searchRuTrackerSwitchAtomFeed(toks, "https://rutracker.org", "", 0)) {
+                    if (item.infoHash.length == 40) consider(item.infoHash, item.title, item.seeds, StormNczEngine.parseSizeToBytes(item.sizeText), "лента RuTracker #1605")
+                }
+            } catch (_: Exception) {}
+        })
+        workers.forEach { it.start() }
+        val deadline = System.currentTimeMillis() + 15000L
+        for (w in workers) {
+            try { w.join((deadline - System.currentTimeMillis()).coerceAtLeast(1L)) } catch (_: Exception) {}
+        }
+        val all = synchronized(lock) { found.values.toList() }
+        val sorted = all.sortedWith(compareByDescending<RealTorrentCandidate> { it.topicId.isNotEmpty() }.thenByDescending { it.seeds })
+        return sorted.filter { it.seeds > 0 }.ifEmpty { sorted }
+    }
+
+    /**
+     * Находит РЕАЛЬНУЮ раздачу для выбранной карточки: (1) номер темы подтверждён API RuTracker #1605 → его BTIH;
+     * (2) BTIH из реального источника (torrents-csv / ApiBay / RuTracker); (3) поиск по названию игры / TitleID.
+     * Никогда не возвращает хэш, не полученный из реального источника.
+     */
+    fun resolveRealTorrentCandidates(topic: TopicItem, gameName: String, baseTid: String, reasons: MutableList<String>): List<RealTorrentCandidate> {
+        val mapsOk = loadRuTrackerSwitchForumMapsBlocking()
+        if (!mapsOk) reasons.add("API RuTracker (раздел #1605) недоступно — номер темы проверить нельзя")
+        val out = ArrayList<RealTorrentCandidate>()
+        val tid = topic.topicId.trim()
+        if (tid.isNotEmpty() && tid.all { it.isDigit() }) {
+            val real = cachedForumTopicMap?.get(tid)
+            if (real != null) {
+                out.add(RealTorrentCandidate(real.first, topic.title, real.third, real.second, "RuTracker #1605, тема t=$tid", tid, true))
+                return out
+            } else if (mapsOk) {
+                reasons.add("Раздача t=$tid не найдена в разделе RuTracker #1605 (тема удалена или номер неверный)")
+            }
+        }
+        val h = topic.infoHash.trim().uppercase()
+        if (h.length == 40) {
+            val inPvc = cachedForum1605Hashes?.get(h)
+            when {
+                inPvc != null -> {
+                    out.add(RealTorrentCandidate(h, topic.title, inPvc.third, inPvc.second, "RuTracker #1605, тема t=${inPvc.first}", inPvc.first, true))
+                    return out
+                }
+                tid.startsWith("CSV-") || tid.startsWith("TPB-") -> out.add(
+                    RealTorrentCandidate(h, topic.title, topic.seeds, StormNczEngine.parseSizeToBytes(topic.sizeText), if (tid.startsWith("CSV-")) "torrents-csv" else "ApiBay", "", false)
+                )
+                else -> reasons.add("BTIH ${h.take(10)}… из карточки не подтверждён реальными источниками — не используется")
+            }
+        }
+        val searchName = gameName.ifBlank { StormNczEngine.extractCleanGameTitle(topic.title) }.trim()
+        if (searchName.length < 2) {
+            reasons.add("Не удалось определить название игры для поиска раздачи")
+            return out
+        }
+        val found = searchRealSwitchTorrentsByName(searchName, baseTid)
+        if (found.isEmpty() && out.isEmpty()) {
+            reasons.add("Раздача «$searchName» для Nintendo Switch не найдена в открытых источниках (лента RuTracker #1605, torrents-csv, ApiBay)")
+        }
+        for (c in found) if (out.none { it.infoHash == c.infoHash }) out.add(c)
+        return out
+    }
+
+    private fun torrentFileRole(path: String): String? {
+        val n = path.replace('\\', '/').substringAfterLast('/').lowercase()
+        val tid = Regex("""(?<![0-9a-f])(01[0-9a-f]{14})(?![0-9a-f])""").find(n)?.groupValues?.get(1)
+        if (tid != null) return when {
+            tid.endsWith("800") -> "ПАТЧ"
+            tid.endsWith("000") -> "БАЗА"
+            else -> "DLC"
+        }
+        return when {
+            n.contains("update") || Regex("""\[v[1-9]\d*]""").containsMatchIn(n) -> "ПАТЧ"
+            n.contains("dlc") -> "DLC"
+            else -> null
+        }
+    }
+
+    private fun isWantedTorrentFile(path: String, wantedRoles: Set<String>): Boolean {
+        val ext = path.substringAfterLast('.', "").lowercase()
+        if (ext !in setOf("nsp", "nsz", "xci", "xcz")) return false
+        if (wantedRoles.isEmpty()) return true
+        val role = torrentFileRole(path) ?: return true
+        if (role == "БАЗА") return true
+        if (role == "DLC") return "DLC" in wantedRoles || "UNLOCKER" in wantedRoles
+        return role in wantedRoles
+    }
+
+    private fun checkTorrentMatchesGame(torrentName: String, files: List<Pair<String, Long>>, gameName: String, baseTid: String): String? {
+        val names = listOf(torrentName) + files.map { it.first.replace('\\', '/').substringAfterLast('/') }
+        if (names.any { torrentNameMatchesGame(it, gameName, baseTid) }) return null
+        val toks = significantNameTokens(gameName)
+        val blob = (listOf(torrentName) + files.map { it.first }).joinToString(" ").lowercase()
+        if (toks.isNotEmpty() && toks.all { blob.contains(it) } && toks.none { it in SEQUEL_TOKENS }) return null
+        return "раздача «$torrentName» не относится к игре «$gameName» — пропущена"
+    }
+
     /**
      * Ищет реальный розничный контейнер игры (.nsp / .xci) локально на устройстве
      * или скачивает его напрямую с облачного хранилища STORM GAMES WORLD (stormgamesworld.ru).
@@ -1881,6 +2676,9 @@ object RuTrackerCloudEngine {
         preferRussianMod: Boolean = true,
         hasExternalModsToApply: Boolean = false,
         isCancelled: () -> Boolean,
+        allowLocal: Boolean = true,
+        allowCloud: Boolean = true,
+        reasons: MutableList<String>? = null,
         onProgress: (downloadedBytes: Long, totalBytes: Long, speedMbSec: Double) -> Unit
     ): List<File> {
         val effectiveTid = if (baseTid == "0100C9801A8C2000" || cleanGameName.contains("Animal Well", ignoreCase = true)) {
@@ -1902,7 +2700,7 @@ object RuTrackerCloudEngine {
         ).distinctBy { it.absolutePath }
 
         val candidateFiles = mutableListOf<File>()
-        for (dir in searchDirs) {
+        for (dir in (if (allowLocal) searchDirs else emptyList())) {
             if (!dir.exists() || !dir.isDirectory) continue
             val files = dir.listFiles() ?: continue
             for (f in files) {
@@ -1957,7 +2755,18 @@ object RuTrackerCloudEngine {
             }
         }
 
-        // 2. Если локального файла нет, скачиваем настоящий контейнер с облачного сервера STORM GAMES WORLD (stormgamesworld.ru)
+        if (allowLocal) {
+            reasons?.add("Локальные файлы: подлинный контейнер «$cleanGameName» [$effectiveTid] не найден (roms, Download, Games/Switch)")
+        }
+        if (!allowCloud) return emptyList()
+
+        fun matchesGameTid(f: File): String? {
+            val info = try { StormNczEngine.analyzeQueuedFile(f) } catch (_: Throwable) { null }
+            val realTid = info?.baseTitleId.orEmpty()
+            return if (realTid.length >= 13 && !realTid.take(13).equals(tidPrefix13, ignoreCase = true)) realTid else null
+        }
+
+        // 2. Резерв: скачиваем настоящий контейнер с облачного сервера STORM GAMES WORLD (stormgamesworld.ru)
         fun normTitle(s: String) = s.lowercase()
             .replace("and", "")
             .replace("&", "")
@@ -1967,6 +2776,7 @@ object RuTrackerCloudEngine {
         if (cloudGameId <= 0) {
             try {
                 val conn = openConnection("https://stormgamesworld.ru/api/games/index", timeoutMs = 8000)
+                if (conn.responseCode != 200) reasons?.add("STORM GAMES WORLD: каталог недоступен (HTTP ${conn.responseCode})")
                 if (conn.responseCode == 200) {
                     val rawJson = conn.inputStream.bufferedReader().use { it.readText() }
                     val arr = JSONArray(rawJson)
@@ -2009,16 +2819,20 @@ object RuTrackerCloudEngine {
                                 .maxByOrNull { it.first }?.first
                                 ?: candidates.maxByOrNull { it.first }!!.first
                         }
+                    } else {
+                        reasons?.add("STORM GAMES WORLD: игра «$cleanGameName» [$effectiveTid] отсутствует в каталоге")
                     }
                 }
-            } catch (_: Throwable) {}
+            } catch (e: Throwable) {
+                reasons?.add("STORM GAMES WORLD: ошибка каталога — ${e.message ?: e.javaClass.simpleName}")
+            }
         }
 
         if (cloudGameId > 0) {
             val langSuffix = if (preferRussianMod) "MOD_RUS" else "ENG"
             val targetCloudNsp = File(romsDir, "${cleanGameName}_[${effectiveTid}]_${langSuffix}_sgw.nsp")
             val tempDownloadFile = File(romsDir, "${cleanGameName}_[${effectiveTid}]_${langSuffix}_sgw.nsp.part")
-            if (targetCloudNsp.exists() && targetCloudNsp.length() >= 8L * 1024L * 1024L && StormNczEngine.isGenuineSwitchContainer(targetCloudNsp, tidPrefix13)) {
+            if (targetCloudNsp.exists() && targetCloudNsp.length() >= 8L * 1024L * 1024L && StormNczEngine.isGenuineSwitchContainer(targetCloudNsp, tidPrefix13) && matchesGameTid(targetCloudNsp) == null) {
                 val totalLen = targetCloudNsp.length()
                 onProgress(totalLen / 2, totalLen, 65.0)
                 onProgress(totalLen, totalLen, 100.0)
@@ -2029,6 +2843,9 @@ object RuTrackerCloudEngine {
                 val conn = openConnection(dlUrl, timeoutMs = 15000)
                 conn.connectTimeout = 15000
                 conn.readTimeout = 30000
+                if (conn.responseCode !in 200..299) {
+                    reasons?.add("STORM GAMES WORLD: скачивание не удалось (HTTP ${conn.responseCode})")
+                }
                 if (conn.responseCode in 200..299) {
                     val totalLen = conn.contentLengthLong.coerceAtLeast(32L * 1024L * 1024L)
                     val startMs = System.currentTimeMillis()
@@ -2054,18 +2871,25 @@ object RuTrackerCloudEngine {
                             bos.flush()
                         }
                     }
-                    if (tempDownloadFile.exists() && tempDownloadFile.length() >= 8L * 1024L * 1024L && StormNczEngine.isGenuineSwitchContainer(tempDownloadFile, tidPrefix13)) {
+                    val genuine = tempDownloadFile.exists() && tempDownloadFile.length() >= 8L * 1024L * 1024L && StormNczEngine.isGenuineSwitchContainer(tempDownloadFile, tidPrefix13)
+                    val otherTid = if (genuine) matchesGameTid(tempDownloadFile) else null
+                    if (genuine && otherTid == null) {
                         if (targetCloudNsp.exists()) targetCloudNsp.delete()
                         tempDownloadFile.renameTo(targetCloudNsp)
                         return listOf(targetCloudNsp)
                     } else {
+                        reasons?.add(
+                            if (!genuine) "STORM GAMES WORLD: скачанный файл не является подлинным контейнером Switch"
+                            else "STORM GAMES WORLD: скачан контейнер другой игры (TitleID $otherTid вместо $effectiveTid) — отклонён"
+                        )
                         tempDownloadFile.delete()
                     }
                 }
             } catch (ie: InterruptedException) {
                 tempDownloadFile.delete()
                 throw ie
-            } catch (_: Throwable) {
+            } catch (e: Throwable) {
+                reasons?.add("STORM GAMES WORLD: ошибка скачивания — ${e.message ?: e.javaClass.simpleName}")
                 tempDownloadFile.delete()
             }
         }
@@ -2077,6 +2901,18 @@ object RuTrackerCloudEngine {
         val baseTid = resolveAuthenticBaseTitleId(topic.title, topic.infoHash, topic.topicId)
         val updTid = baseTid.dropLast(3) + "800"
         val dlcTid = baseTid.dropLast(3) + "001"
+
+        // Если метаданные раздачи уже получены (BitTorrent), показываем НАСТОЯЩИЙ список файлов с реальными размерами
+        val knownHash = (cachedForumTopicMap?.get(topic.topicId)?.first ?: topic.infoHash).uppercase()
+        val realFiles = realTorrentFilesCache[knownHash]
+        if (realFiles != null) {
+            val list = realFiles.filter { it.first.substringAfterLast('.', "").lowercase() in setOf("nsp", "nsz", "xci", "xcz") }.map { (path, size) ->
+                val role = torrentFileRole(path) ?: "БАЗА"
+                val tidInName = Regex("""(?<![0-9A-Fa-f])(01[0-9A-Fa-f]{14})(?![0-9A-Fa-f])""").find(path)?.groupValues?.get(1)?.uppercase()
+                ReleaseContentFile(path.substringAfterLast('/'), role, size, tidInName ?: if (role == "ПАТЧ") updTid else baseTid, true)
+            }
+            if (list.isNotEmpty()) return list
+        }
 
         val cleanGameName = StormNczEngine.extractCleanGameTitle(topic.title)
             .map { if (it in "\\/:*?\"<>|[]") '_' else it }.joinToString("")
@@ -2128,14 +2964,19 @@ object RuTrackerCloudEngine {
         var resolvedSeeds = topic.seeds
         var resolvedSizeText = StormNczEngine.localizeSizeText(topic.sizeText)
 
-        if (topic.topicId.all { it.isDigit() }) {
+        var apiStatus = "⚪ Тема не подтверждена API RuTracker #1605 — подлинная раздача будет найдена при скачивании"
+        if (topic.topicId.isNotEmpty() && topic.topicId.all { it.isDigit() }) {
             try {
-                val map = getRuTrackerSwitchForumHashMap()
-                val found = map.entries.firstOrNull { it.value.first == topic.topicId }
+                val found = lookupRuTrackerTopic(topic.topicId)
                 if (found != null) {
-                    resolvedHash = found.key
-                    if (found.value.second > 0L) resolvedSizeText = StormNczEngine.formatSize(found.value.second)
-                    if (found.value.third > 0) resolvedSeeds = found.value.third
+                    resolvedHash = found.first
+                    if (found.second > 0L) resolvedSizeText = StormNczEngine.formatSize(found.second)
+                    resolvedSeeds = found.third
+                    apiStatus = "🟢 Данные раздачи получены из API RuTracker (раздел #1605)"
+                } else if (cachedForumTopicMap != null) {
+                    resolvedHash = ""
+                    resolvedSeeds = 0
+                    apiStatus = "🔴 Тема t=${topic.topicId} не найдена в разделе RuTracker #1605"
                 }
             } catch (_: Exception) {}
         }
@@ -2162,70 +3003,136 @@ object RuTrackerCloudEngine {
             seeds = resolvedSeeds,
             leechers = topic.leechers,
             infoHash = resolvedHash,
-            cloudflareBypassStatus = "🟢 Проверка безопасности Cloudflare пройдена автоматически (Прямой шлюз RuTracker #1605)",
+            cloudflareBypassStatus = apiStatus,
             files = files,
             descriptionLines = desc
         )
     }
 
+    data class TorrentDownloadResult(
+        val files: List<File>,
+        val failureReason: String?,
+        val torrentName: String = "",
+        val infoHash: String = ""
+    )
+
+    // BTIH -> реальный список файлов раздачи (из метаданных BitTorrent)
+    private val realTorrentFilesCache = java.util.concurrent.ConcurrentHashMap<String, List<Pair<String, Long>>>()
+
     /**
-     * Полнофункциональный клиент BitTorrent P2P на базе libtorrent4j для скачивания раздач RuTracker.
+     * Полнофункциональный клиент BitTorrent P2P на базе libtorrent4j для скачивания раздач RuTracker:
+     * ожидание DHT, повторные попытки получения метаданных, проверка содержимого раздачи, скачивание только
+     * контейнеров Switch (.nsp/.nsz/.xci/.xcz) выбранных ролей, отчёт о пирах/сидах, отмена и понятная причина отказа.
      */
-    fun downloadTorrentOrMagnetWithLibTorrent(
+    fun downloadTorrentWithDiagnostics(
         magnetOrTorrent: String,
         saveDir: File,
         isCancelled: () -> Boolean,
-        onProgress: (dlBytes: Long, totalBytes: Long, speedMbSec: Double) -> Unit
-    ): List<File> {
+        acceptMetadata: (torrentName: String, files: List<Pair<String, Long>>) -> String? = { _, _ -> null },
+        wantFile: (path: String, size: Long) -> Boolean = { p, _ -> p.substringAfterLast('.', "").lowercase() in setOf("nsp", "nsz", "xci", "xcz") },
+        onStatus: (String) -> Unit = {},
+        dhtWaitSec: Int = 30,
+        metadataAttempts: Int = 3,
+        metadataTimeoutSec: Int = 60,
+        stallTimeoutSec: Int = 600,
+        onProgress: (dlBytes: Long, totalBytes: Long, speedMbSec: Double, peers: Int, seeds: Int) -> Unit
+    ): TorrentDownloadResult {
+        saveDir.mkdirs()
+        var session: org.libtorrent4j.SessionManager? = null
         try {
-            saveDir.mkdirs()
-            val session = org.libtorrent4j.SessionManager()
-            session.start()
-
-            val ti: org.libtorrent4j.TorrentInfo? = if (File(magnetOrTorrent).isFile) {
+            val sm = org.libtorrent4j.SessionManager()
+            session = sm
+            sm.start()
+            val ti: org.libtorrent4j.TorrentInfo = if (File(magnetOrTorrent).isFile) {
                 org.libtorrent4j.TorrentInfo(File(magnetOrTorrent))
             } else if (magnetOrTorrent.startsWith("magnet:", ignoreCase = true)) {
-                val data = session.fetchMagnet(magnetOrTorrent, 25, saveDir)
-                if (data != null && data.isNotEmpty()) {
-                    org.libtorrent4j.TorrentInfo.bdecode(data)
-                } else null
-            } else null
-
-            if (ti != null) {
-                session.download(ti, saveDir)
-                val th = session.find(ti.infoHash())
-                if (th != null) {
-                    var lastLogMs = 0L
-                    while (!isCancelled()) {
-                        val st = th.status()
-                        val total = st.totalWanted()
-                        val done = st.totalWantedDone()
-                        val speed = st.downloadRate().toDouble() / (1024.0 * 1024.0)
-                        val now = System.currentTimeMillis()
-                        if (now - lastLogMs > 300L) {
-                            lastLogMs = now
-                            onProgress(done, total.coerceAtLeast(1L), speed)
-                        }
-                        if (st.isFinished || st.state() == org.libtorrent4j.TorrentStatus.State.SEEDING) {
-                            val torrentName = th.name
-                            session.stop()
-                            val saveTarget = File(saveDir, torrentName)
-                            if (!saveTarget.exists()) return emptyList()
-                            return if (saveTarget.isFile) {
-                                listOf(saveTarget)
-                            } else {
-                                saveTarget.walkTopDown()
-                                    .filter { it.isFile && it.extension.lowercase() in setOf("nsp", "nsz", "xci", "xcz", "zip") }
-                                    .toList()
-                            }
-                        }
-                        Thread.sleep(500)
-                    }
+                val t0 = System.currentTimeMillis()
+                var nodes = sm.dhtNodes()
+                while (nodes < 10 && System.currentTimeMillis() - t0 < dhtWaitSec * 1000L) {
+                    if (isCancelled()) return TorrentDownloadResult(emptyList(), "Операция отменена пользователем")
+                    onStatus("Подключение к сети DHT… узлов: $nodes")
+                    Thread.sleep(1000)
+                    nodes = sm.dhtNodes()
                 }
+                var data: ByteArray? = null
+                var attempt = 0
+                while (attempt < metadataAttempts && (data == null || data.isEmpty())) {
+                    attempt++
+                    if (isCancelled()) return TorrentDownloadResult(emptyList(), "Операция отменена пользователем")
+                    onStatus("Получение метаданных раздачи (попытка $attempt/$metadataAttempts)… DHT-узлов: ${sm.dhtNodes()}")
+                    data = try { sm.fetchMagnet(magnetOrTorrent, metadataTimeoutSec, saveDir) } catch (_: Throwable) { null }
+                }
+                if (data == null || data.isEmpty()) {
+                    return TorrentDownloadResult(
+                        emptyList(),
+                        "Метаданные раздачи не получены за ${metadataAttempts * metadataTimeoutSec} с (DHT-узлов: ${sm.dhtNodes()}) — у раздачи нет активных сидов или сеть блокирует BitTorrent"
+                    )
+                }
+                org.libtorrent4j.TorrentInfo.bdecode(data)
+            } else {
+                return TorrentDownloadResult(emptyList(), "Некорректная magnet-ссылка или .torrent файл")
             }
-            session.stop()
-        } catch (_: Throwable) {}
-        return emptyList()
+
+            val fs = ti.files()
+            val fileList = (0 until fs.numFiles()).map { fs.filePath(it) to fs.fileSize(it) }
+            val hashHex = ti.infoHash().toHex().uppercase()
+            realTorrentFilesCache[hashHex] = fileList
+            acceptMetadata(ti.name(), fileList)?.let { return TorrentDownloadResult(emptyList(), it, ti.name(), hashHex) }
+
+            val priorities = Array(fileList.size) { i ->
+                if (wantFile(fileList[i].first, fileList[i].second)) org.libtorrent4j.Priority.DEFAULT else org.libtorrent4j.Priority.IGNORE
+            }
+            val wantedIdx = priorities.indices.filter { priorities[it] != org.libtorrent4j.Priority.IGNORE }
+            if (wantedIdx.isEmpty()) {
+                return TorrentDownloadResult(emptyList(), "В раздаче «${ti.name()}» нет файлов .nsp/.nsz/.xci/.xcz (всего файлов: ${fileList.size})", ti.name(), hashHex)
+            }
+            val wantedBytes = wantedIdx.sumOf { fileList[it].second }
+            onStatus("Раздача «${ti.name()}»: выбрано ${wantedIdx.size} из ${fileList.size} файлов (${StormNczEngine.formatSize(wantedBytes)})")
+
+            sm.download(ti, saveDir, null, priorities, null, org.libtorrent4j.swig.torrent_flags_t())
+            val th = sm.find(ti.infoHash()) ?: return TorrentDownloadResult(emptyList(), "libtorrent не смог добавить раздачу", ti.name(), hashHex)
+            th.prioritizeFiles(priorities)
+
+            var lastDone = -1L
+            var lastProgressMs = System.currentTimeMillis()
+            var lastReportMs = 0L
+            while (true) {
+                if (isCancelled()) {
+                    try { sm.remove(th) } catch (_: Throwable) {}
+                    return TorrentDownloadResult(emptyList(), "Операция отменена пользователем", ti.name(), hashHex)
+                }
+                val st = th.status()
+                val done = st.totalWantedDone()
+                val total = st.totalWanted().coerceAtLeast(1L)
+                val now = System.currentTimeMillis()
+                if (done > lastDone) {
+                    lastDone = done
+                    lastProgressMs = now
+                }
+                if (now - lastReportMs >= 700L) {
+                    lastReportMs = now
+                    onProgress(done, total, st.downloadRate().toDouble() / (1024.0 * 1024.0), st.numPeers(), st.numSeeds())
+                }
+                if (st.isFinished || done >= total || st.state() == org.libtorrent4j.TorrentStatus.State.SEEDING) break
+                if (now - lastProgressMs > stallTimeoutSec * 1000L) {
+                    return TorrentDownloadResult(
+                        emptyList(),
+                        "Скачивание остановилось: за $stallTimeoutSec с не получено данных (пиров: ${st.numPeers()}, сидов: ${st.numSeeds()}, скачано ${StormNczEngine.formatSize(done)} из ${StormNczEngine.formatSize(total)})",
+                        ti.name(), hashHex
+                    )
+                }
+                Thread.sleep(500)
+            }
+            val files = wantedIdx.map { File(saveDir, fs.filePath(it)) }.filter { it.isFile && it.length() > 0L }
+            if (files.isEmpty()) return TorrentDownloadResult(emptyList(), "Файлы раздачи не найдены после скачивания", ti.name(), hashHex)
+            return TorrentDownloadResult(files, null, ti.name(), hashHex)
+        } catch (ie: InterruptedException) {
+            throw ie
+        } catch (e: Throwable) {
+            return TorrentDownloadResult(emptyList(), "Ошибка BitTorrent: ${e.javaClass.simpleName}: ${e.message ?: "без описания"}")
+        } finally {
+            try { session?.stop() } catch (_: Throwable) {}
+        }
     }
 
     /**
@@ -2270,7 +3177,7 @@ object RuTrackerCloudEngine {
         val rawBaseTid = allReleaseFiles.firstOrNull { it.roleBadge == "БАЗА" }?.titleId
             ?: allReleaseFiles.firstOrNull()?.titleId
             ?: "0100000000010000"
-        val baseTid = if (rawBaseTid.length == 16 && !rawBaseTid.endsWith("000", ignoreCase = true)) {
+        var baseTid = if (rawBaseTid.length == 16 && !rawBaseTid.endsWith("000", ignoreCase = true)) {
             rawBaseTid.take(13) + "000"
         } else rawBaseTid
 
@@ -2316,20 +3223,67 @@ object RuTrackerCloudEngine {
         val downloadedFiles = mutableListOf<File>()
         val downloadedModFiles = mutableListOf<File>()
 
-        // 1.1 Скачивание подлинных контейнеров раздачи (БАЗА, ОБНОВЛЕНИЕ, DLC, UNLOCKER)
+        // 1.1 Сначала скачиваем ВСЕ выбранные МОДЫ / РУСИФИКАТОРЫ (быстро) — чтобы мёртвая ссылка выявилась до многогигабайтной загрузки игры
+        val activeModUrls = modUrls.map { it.trim() }.filter { it.isNotEmpty() }
+        if (activeModUrls.isNotEmpty()) {
+            val modLinkFailures = mutableListOf<String>()
+            var modLinksSucceeded = 0
+            for ((idx, rawModUrl) in activeModUrls.withIndex()) {
+                if (isCancelled()) throw InterruptedException("Операция отменена пользователем")
+                val shownUrl = rawModUrl.substringBefore("|MIRROR|").trim()
+                report(
+                    2,
+                    "Этап 1/5: Скачивание мода (${idx + 1}/${activeModUrls.size})",
+                    shownUrl,
+                    "⬇️ [Этап 1/5] Скачивание мода / русификатора ${idx + 1}/${activeModUrls.size}: ${shownUrl.take(80)}"
+                )
+                val bundle = try {
+                    downloadAndExtractCloudResource(
+                        cloudUrl = rawModUrl,
+                        roleHint = "MOD",
+                        targetTitleId = baseTid,
+                        romsDir = romsDir,
+                        modsRootDir = modsRootDir
+                    ) { st ->
+                        report(3, "Этап 1/5: Скачивание мода ${idx + 1}", st)
+                    }
+                } catch (e: Exception) {
+                    CloudExtractedBundle(emptyList(), emptyList(), 0, e.message ?: e.javaClass.simpleName)
+                }
+                for (line in bundle.attemptLog) stepLogs.add("   $line")
+                if (bundle.modDirectories.isEmpty() && bundle.containerFiles.isEmpty()) {
+                    val why = bundle.failureReason ?: "файлы мода не найдены"
+                    modLinkFailures.add("$shownUrl — $why")
+                    stepLogs.add("❌ Мод ${idx + 1}: не получен ($why)")
+                } else {
+                    modLinksSucceeded++
+                    downloadedModFiles.addAll(bundle.modDirectories)
+                    downloadedFiles.addAll(bundle.containerFiles)
+                    stepLogs.add(
+                        "✅ Мод ${idx + 1}: извлечено файлов ${bundle.extractedFileCount}" +
+                            (if (bundle.containerFiles.isNotEmpty()) ", контейнеров: ${bundle.containerFiles.joinToString { it.name }}" else "")
+                    )
+                }
+                report(4, "Этап 1/5: Скачивание модов", "Готово ${idx + 1}/${activeModUrls.size}")
+            }
+            if (modLinksSucceeded == 0) {
+                throw java.io.IOException(
+                    "Русификатор/мод не скачан ни по одной из выбранных ссылок — сборка остановлена, чтобы не выдать игру без перевода:\n• " +
+                        modLinkFailures.joinToString("\n• ")
+                )
+            }
+            if (modLinkFailures.isNotEmpty()) {
+                stepLogs.add("⚠️ Не сработало ссылок на моды: ${modLinkFailures.size} из ${activeModUrls.size} — сборка продолжится с остальными")
+            }
+        }
+
+        // 1.2 Получение подлинных контейнеров игры: локальные файлы → реальная раздача RuTracker (BitTorrent) → STORM GAMES WORLD (резерв)
         StormNczEngine.sanitizePoisonedAndroidModDirs(baseTid)
         val hasExternalMods = modUrls.any { it.isNotBlank() } || allReleaseFiles.any { it.isMod }
         val preferRussianMod = !hasExternalMods && (topic.title.contains("RUS", ignoreCase = true) || topic.title.contains("Multi", ignoreCase = true))
-        val realRetailContainers = acquireRealRetailGameContainers(
-            cleanGameName = cleanGameName,
-            baseTid = baseTid,
-            romsDir = romsDir,
-            outputDir = outputDir,
-            preferRussianMod = preferRussianMod,
-            hasExternalModsToApply = hasExternalMods,
-            isCancelled = isCancelled
-        ) { dlBytes, dlTotal, speedMbSec ->
-            val overallPct = 2 + ((dlBytes * 28L) / dlTotal.coerceAtLeast(1L)).toInt().coerceIn(0, 28)
+        val acquisitionReasons = mutableListOf<String>()
+        val acquireProgress: (Long, Long, Double) -> Unit = { dlBytes, dlTotal, speedMbSec ->
+            val overallPct = 5 + ((dlBytes * 25L) / dlTotal.coerceAtLeast(1L)).toInt().coerceIn(0, 25)
             val speedStr = String.format(java.util.Locale("ru", "RU"), "%.1f МБ/с", speedMbSec)
             report(
                 overallPct,
@@ -2337,35 +3291,113 @@ object RuTrackerCloudEngine {
                 "${StormNczEngine.formatSize(dlBytes)} / ${StormNczEngine.formatSize(dlTotal)} • $speedStr"
             )
         }
+        val gameContainersBefore = downloadedFiles.size
 
-        if (realRetailContainers.isNotEmpty()) {
-            downloadedFiles.addAll(realRetailContainers)
-            for (rf in realRetailContainers) {
-                stepLogs.add("✅ Найден подлинный контейнер: ${rf.name} (${StormNczEngine.formatSize(rf.length())})")
-            }
-        } else if (topic.magnetUri.isNotEmpty()) {
-            val torrentDownloadedFiles = downloadTorrentOrMagnetWithLibTorrent(
-                magnetOrTorrent = topic.magnetUri,
-                saveDir = romsDir,
-                isCancelled = isCancelled
-            ) { dlBytes, totalBytes, speedMbSec ->
-                val pct = 3 + ((dlBytes * 28L) / totalBytes.coerceAtLeast(1L)).toInt().coerceIn(0, 28)
-                report(
-                    pct.coerceIn(3, 30),
-                    "Этап 1/5: BitTorrent P2P скачивание раздачи",
-                    "${StormNczEngine.formatSize(dlBytes)} / ${StormNczEngine.formatSize(totalBytes)} • ${String.format(java.util.Locale("ru", "RU"), "%.1f МБ/с", speedMbSec)}"
-                )
-            }
-            for (tf in torrentDownloadedFiles) {
-                if (tf.exists() && (tf.extension.equals("zip", true) || StormNczEngine.isGenuineSwitchContainer(tf, baseTid.take(13)))) {
+        val localContainers = acquireRealRetailGameContainers(
+            cleanGameName = cleanGameName,
+            baseTid = baseTid,
+            romsDir = romsDir,
+            outputDir = outputDir,
+            preferRussianMod = preferRussianMod,
+            hasExternalModsToApply = hasExternalMods,
+            isCancelled = isCancelled,
+            allowLocal = true,
+            allowCloud = false,
+            reasons = acquisitionReasons,
+            onProgress = acquireProgress
+        )
+        for (rf in localContainers) {
+            if (downloadedFiles.none { it.absolutePath == rf.absolutePath }) downloadedFiles.add(rf)
+            stepLogs.add("✅ Найден подлинный контейнер: ${rf.name} (${StormNczEngine.formatSize(rf.length())})")
+        }
+
+        if (localContainers.isEmpty()) {
+            if (isCancelled()) throw InterruptedException("Операция отменена пользователем")
+            report(5, "Этап 1/5: Поиск подлинной раздачи", "Проверка по API RuTracker #1605...", "🔎 [Этап 1/5] Поиск подлинной раздачи (API RuTracker #1605 → torrents-csv → ApiBay)...")
+            val torrentCandidates = resolveRealTorrentCandidates(topic, cleanGameName, baseTid, acquisitionReasons)
+            val wantedRoles = allReleaseFiles.map { it.roleBadge.uppercase() }.toSet()
+            for (cand in torrentCandidates.take(2)) {
+                if (isCancelled()) throw InterruptedException("Операция отменена пользователем")
+                stepLogs.add("🧲 Раздача: ${cand.source} • BTIH ${cand.infoHash} • сидов: ${if (cand.seeds > 0) cand.seeds.toString() else "нет данных"} • ${cand.title.take(90)}")
+                val tr = downloadTorrentWithDiagnostics(
+                    magnetOrTorrent = buildMagnet(cand.infoHash, cand.title),
+                    saveDir = romsDir,
+                    isCancelled = isCancelled,
+                    acceptMetadata = { name, files -> if (cand.trustedTopic) null else checkTorrentMatchesGame(name, files, cleanGameName, baseTid) },
+                    wantFile = { path, _ -> isWantedTorrentFile(path, wantedRoles) },
+                    onStatus = { st -> report(6, "Этап 1/5: BitTorrent P2P", st) }
+                ) { dlBytes, totalBytes, speedMbSec, peers, seeds ->
+                    val pct = 6 + ((dlBytes * 24L) / totalBytes.coerceAtLeast(1L)).toInt().coerceIn(0, 24)
+                    report(
+                        pct,
+                        "Этап 1/5: BitTorrent P2P скачивание раздачи",
+                        "${StormNczEngine.formatSize(dlBytes)} / ${StormNczEngine.formatSize(totalBytes)} • ${String.format(java.util.Locale("ru", "RU"), "%.1f МБ/с", speedMbSec)} • пиров: $peers • сидов: $seeds"
+                    )
+                }
+                if (isCancelled()) throw InterruptedException("Операция отменена пользователем")
+                if (tr.failureReason != null) {
+                    acquisitionReasons.add("BitTorrent (${cand.source}, BTIH ${cand.infoHash.take(10)}…): ${tr.failureReason}")
+                    stepLogs.add("❌ ${tr.failureReason}")
+                    continue
+                }
+                val genuine = tr.files.filter { StormNczEngine.isGenuineSwitchContainer(it) }
+                if (genuine.isEmpty()) {
+                    acquisitionReasons.add("BitTorrent (${cand.source}): в раздаче «${tr.torrentName}» нет подлинных контейнеров .nsp/.nsz/.xci/.xcz")
+                    continue
+                }
+                val infos = genuine.map { it to StormNczEngine.analyzeQueuedFile(it) }
+                var chosen = infos.filter { (_, info) -> info.baseTitleId.take(13).equals(baseTid.take(13), ignoreCase = true) }.map { it.first }
+                if (chosen.isEmpty()) {
+                    // Реальный TitleID берём из содержимого раздачи (имя игры уже проверено по метаданным)
+                    val realBase = infos.firstOrNull { (_, i) -> i.roleBadge == "БАЗА" || i.subComponents.any { it.roleBadge == "БАЗА" } }?.second?.baseTitleId
+                    if (realBase != null && realBase.length == 16) {
+                        val normalized = StormNczEngine.normalizeBaseTitleId(realBase).ifEmpty { realBase.uppercase() }
+                        stepLogs.add("⚠️ TitleID уточнён по содержимому раздачи: $baseTid → $normalized")
+                        baseTid = normalized
+                        chosen = infos.filter { (_, i) -> i.baseTitleId.take(13).equals(baseTid.take(13), ignoreCase = true) }.map { it.first }
+                    }
+                }
+                if (chosen.isEmpty()) {
+                    acquisitionReasons.add("BitTorrent (${cand.source}): скачанные файлы не относятся к игре «$cleanGameName» (TitleID: ${infos.joinToString { it.second.baseTitleId }})")
+                    continue
+                }
+                for (tf in chosen) {
                     downloadedFiles.add(tf)
                     stepLogs.add("✅ Скачан файл раздачи: ${tf.name} (${StormNczEngine.formatSize(tf.length())})")
                 }
+                break
             }
         }
 
-        if (downloadedFiles.isEmpty()) {
-            throw java.io.IOException("Не удалось получить подлинный розничный контейнер игры ($cleanGameName [$baseTid]). Проверьте наличие файла или сидов раздачи.")
+        if (downloadedFiles.size == gameContainersBefore || downloadedFiles.none { f ->
+                f.isFile && f.extension.lowercase() in listOf("nsp", "nsz", "xci", "xcz") && !f.name.startsWith("CLOUD_")
+            }) {
+            if (isCancelled()) throw InterruptedException("Операция отменена пользователем")
+            val sgwContainers = acquireRealRetailGameContainers(
+                cleanGameName = cleanGameName,
+                baseTid = baseTid,
+                romsDir = romsDir,
+                outputDir = outputDir,
+                preferRussianMod = preferRussianMod,
+                hasExternalModsToApply = hasExternalMods,
+                isCancelled = isCancelled,
+                allowLocal = false,
+                allowCloud = true,
+                reasons = acquisitionReasons,
+                onProgress = acquireProgress
+            )
+            for (rf in sgwContainers) {
+                downloadedFiles.add(rf)
+                stepLogs.add("✅ STORM GAMES WORLD: ${rf.name} (${StormNczEngine.formatSize(rf.length())})")
+            }
+        }
+
+        val hasGameContainer = downloadedFiles.any { f -> f.isFile && f.extension.lowercase() in listOf("nsp", "nsz", "xci", "xcz") && !f.name.startsWith("CLOUD_") }
+        if (!hasGameContainer) {
+            throw java.io.IOException(
+                "Не удалось получить подлинный розничный контейнер игры «$cleanGameName» [$baseTid].\nПроверенные источники:\n• " +
+                    acquisitionReasons.ifEmpty { listOf("ни один источник не вернул файлов игры") }.joinToString("\n• ")
+            )
         }
 
         // 1.2 Скачивание cloud updateUrls и dlcUrls
@@ -2376,7 +3408,10 @@ object RuTrackerCloudEngine {
                     report(32, "Этап 1/5: Скачивание обновления", st)
                 }
                 cloudContainers.addAll(bundle.containerFiles)
-            } catch (_: Exception) {}
+                if (bundle.containerFiles.isEmpty()) stepLogs.add("⚠️ Обновление не получено: ${bundle.failureReason ?: "контейнер не найден"}")
+            } catch (e: Exception) {
+                stepLogs.add("⚠️ Обновление не получено: ${e.message ?: e.javaClass.simpleName}")
+            }
         }
         for (dUrl in dlcUrls.filter { it.isNotBlank() }) {
             try {
@@ -2384,39 +3419,12 @@ object RuTrackerCloudEngine {
                     report(35, "Этап 1/5: Скачивание DLC", st)
                 }
                 cloudContainers.addAll(bundle.containerFiles)
-            } catch (_: Exception) {}
-        }
-        downloadedFiles.addAll(cloudContainers)
-
-        // 1.3 Скачивание ВСЕХ МОДОВ / РУСИФИКАТОРОВ до начала распаковки
-        val activeModUrls = modUrls.map { it.trim() }.filter { it.isNotEmpty() }
-        if (activeModUrls.isNotEmpty()) {
-            for ((idx, rawModUrl) in activeModUrls.withIndex()) {
-                if (isCancelled()) throw InterruptedException("Операция отменена пользователем")
-                val stepModPct = 38 + ((idx * 6) / activeModUrls.size)
-                report(
-                    stepModPct,
-                    "Этап 1/5: Скачивание мода (${idx + 1}/${activeModUrls.size})",
-                    rawModUrl,
-                    "⬇️ [Этап 1/5] Скачивание архива мода / русификатора по ссылке: ${rawModUrl.take(64)}..."
-                )
-                try {
-                    val bundle = downloadAndExtractCloudResource(
-                        cloudUrl = rawModUrl,
-                        roleHint = "MOD",
-                        targetTitleId = baseTid,
-                        romsDir = romsDir,
-                        modsRootDir = modsRootDir
-                    ) { st ->
-                        report(stepModPct + 1, "Этап 1/5: Скачивание мода ${idx + 1}", st)
-                    }
-                    downloadedModFiles.addAll(bundle.modDirectories)
-                    downloadedFiles.addAll(bundle.containerFiles)
-                } catch (e: Exception) {
-                    stepLogs.add("⚠️ Не удалось скачать мод по ссылке ${rawModUrl.take(48)}: ${e.message ?: "ошибка сети"}")
-                }
+                if (bundle.containerFiles.isEmpty()) stepLogs.add("⚠️ DLC не получено: ${bundle.failureReason ?: "контейнер не найден"}")
+            } catch (e: Exception) {
+                stepLogs.add("⚠️ DLC не получено: ${e.message ?: e.javaClass.simpleName}")
             }
         }
+        downloadedFiles.addAll(cloudContainers)
 
         // =========================================================================
         // ШАГИ 2–4 (45–84%) — Проверка подлинных разделов БАЗЫ/ПАТЧА и подготовка чистого дерева МОДОВ
@@ -2433,7 +3441,7 @@ object RuTrackerCloudEngine {
         val baseFile = containerInputs.firstOrNull { f ->
             val info = StormNczEngine.analyzeQueuedFile(f)
             info.roleBadge == "БАЗА" || info.subComponents.any { it.roleBadge == "БАЗА" }
-        } ?: containerInputs.first()
+        } ?: containerInputs.firstOrNull { !it.name.startsWith("CLOUD_") } ?: containerInputs.first()
 
         val updateFiles = containerInputs.filter { f ->
             f.absolutePath != baseFile.absolutePath && StormNczEngine.analyzeQueuedFile(f).roleBadge == "ПАТЧ"
@@ -2461,7 +3469,7 @@ object RuTrackerCloudEngine {
         val modSourcesToScan = mutableListOf<File>()
         modSourcesToScan.addAll(downloadedModFiles)
         for (f in downloadedFiles) {
-            if (f.extension.lowercase() == "zip" || (f.isDirectory && f.absolutePath != unpackRootDir.absolutePath)) {
+            if ((f.isFile && StormNczEngine.isModArchiveFile(f)) || (f.isDirectory && f.absolutePath != unpackRootDir.absolutePath)) {
                 modSourcesToScan.add(f)
             }
         }
@@ -2478,7 +3486,7 @@ object RuTrackerCloudEngine {
                 val tempModDir = if (modSrc.isDirectory) modSrc else {
                     val outM = File(unpackRootDir, ".tmp_zip_$mIdx")
                     outM.mkdirs()
-                    StormNczEngine.extractZipArchiveSafe(modSrc) { entryPath, stream ->
+                    StormNczEngine.extractArchiveSafe(modSrc) { entryPath, stream ->
                         val cleanRel = entryPath.replace('\\', '/').trimStart('/')
                         val fName = cleanRel.substringAfterLast('/')
                         if (!cleanRel.contains("__MACOSX") && !StormNczEngine.isJunkOrReadmeFile(fName)) {
@@ -2626,6 +3634,7 @@ object RuTrackerCloudEngine {
         )
 
         val outFile = File(buildRes.outputPath)
+        if (modCopiedFilesCount > 0) stepLogs.add("🧩 ${buildRes.message}")
         val verifyRes = StormNczEngine.verifyContainerIntegrity(outFile)
         val isOutContainerValid = verifyRes.valid && outFile.exists() && outFile.length() > 0L
 
