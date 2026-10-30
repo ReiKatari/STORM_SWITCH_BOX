@@ -1285,6 +1285,8 @@ namespace StormSwitchBox.Services
                         var entries = pfs.EnumerateEntries().ToList();
                         long totalSize = Math.Max(1, entries.Sum(e => e.Size));
                         long processedSize = 0;
+                        bool containerHasBaseCnmt = entries.Any(e => e.Name.EndsWith(".cnmt.nca", StringComparison.OrdinalIgnoreCase) && (e.Name.Contains("000") || e.Name.Contains("base")));
+                        bool containerHasUpdateCnmt = entries.Any(e => e.Name.EndsWith(".cnmt.nca", StringComparison.OrdinalIgnoreCase) && (e.Name.Contains("800") || e.Name.Contains("patch") || e.Name.Contains("update")));
 
                         sbDetails.AppendLine($"[Контейнер] Всего объектов внутри архива: {entries.Count}");
 
@@ -1330,13 +1332,26 @@ namespace StormSwitchBox.Services
                                         sbDetails.AppendLine($"    * Раздел Code (ExeFS): {(cCode ? "Присутствует" : "Отсутствует")}");
                                         sbDetails.AppendLine($"    * Раздел Data (RomFS): {(cData ? "Присутствует" : "Отсутствует")}");
 
-                                        if (ncaTid.EndsWith("000"))
+                                        string rightsIdHex = nca.Header.HasRightsId ? BitConverter.ToString(nca.Header.RightsId.ToArray()).Replace("-", "").ToUpperInvariant() : "";
+                                        bool rightsIdIsUpdate = rightsIdHex.Length >= 16 && rightsIdHex.Substring(0, 16).EndsWith("800");
+
+                                        bool hasBktr = false;
+                                        for (int sIdx = 0; sIdx < 4; sIdx++)
                                         {
-                                            hasBaseProgram = true;
+                                            if (nca.Header.IsSectionEnabled(sIdx) && nca.Header.GetFsHeader(sIdx).EncryptionType == NcaEncryptionType.AesCtrEx)
+                                            {
+                                                hasBktr = true;
+                                                break;
+                                            }
+                                        }
+
+                                        if (!ncaTid.EndsWith("000") || rightsIdIsUpdate || hasBktr || (!containerHasBaseCnmt && containerHasUpdateCnmt))
+                                        {
+                                            hasUpdateProgram = true;
                                         }
                                         else
                                         {
-                                            hasUpdateProgram = true;
+                                            hasBaseProgram = true;
                                         }
                                     }
                                     else if (nca.Header.ContentType == NcaContentType.Control)

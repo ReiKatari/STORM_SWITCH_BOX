@@ -269,24 +269,73 @@ object StormNczEngine {
                 val keysMap = loadSwitchKeysMap()
                 val entries = inspectContainer(file)
                 val sizeByTid = LinkedHashMap<String, Long>()
+                val cnmtTids = mutableListOf<String>()
+                val ncaEntries = mutableListOf<Pair<Pfs0Entry, QuickNcaHeaderMeta>>()
+                val otherEntries = mutableListOf<Pfs0Entry>()
+
                 RandomAccessFile(file, "r").use { raf ->
                     for (e in entries) {
                         val cleanEntryName = e.name.substringAfterLast('/')
                         val lowEntry = cleanEntryName.lowercase()
                         if (lowEntry.endsWith(".tik") && cleanEntryName.length >= 16) {
-                            val cand = cleanEntryName.take(16).uppercase()
+                            val tikInfo = extractTicketRightsAndKey(raf, e.dataStartOffset, e.size, cleanEntryName)
+                            val cand = (tikInfo?.first ?: cleanEntryName.take(32)).take(16).uppercase()
                             if ((cand.startsWith("0100") || cand.startsWith("0400")) && cand.all { it in '0'..'9' || it in 'A'..'F' }) {
                                 if (foundTid.isEmpty()) foundTid = cand
                             }
+                            otherEntries.add(e)
                         } else if ((lowEntry.endsWith(".nca") || lowEntry.endsWith(".ncz")) && e.size >= 0x400L && e.dataStartOffset >= 0L) {
                             val qMeta = readQuickNcaHeaderMeta(raf, e.dataStartOffset, keysMap)
-                            if (qMeta != null && (qMeta.titleId.startsWith("0100") || qMeta.titleId.startsWith("0400"))) {
-                                if (foundTid.isEmpty()) foundTid = qMeta.titleId
-                                sizeByTid[qMeta.titleId] = (sizeByTid[qMeta.titleId] ?: 0L) + e.size
+                            if (qMeta != null) {
+                                if (qMeta.contentType == 1 || lowEntry.endsWith(".cnmt.nca")) {
+                                    if (qMeta.titleId.length == 16 && qMeta.titleId != "0000000000000000") {
+                                        cnmtTids.add(qMeta.titleId)
+                                    }
+                                }
+                                ncaEntries.add(Pair(e, qMeta))
                             }
+                        } else {
+                            otherEntries.add(e)
+                        }
+                    }
+
+                    val hasBaseCnmt = cnmtTids.any { it.endsWith("000") }
+                    val updCnmtTid = cnmtTids.firstOrNull { it.endsWith("800") }
+
+                    for ((e, qMeta) in ncaEntries) {
+                        val effTid = when {
+                            qMeta.hasRightsId && qMeta.rightsIdHex.length >= 16 && qMeta.rightsIdHex.take(16).any { it != '0' } ->
+                                qMeta.rightsIdHex.take(16).uppercase()
+                            qMeta.hasBktrSection && qMeta.titleId.endsWith("000") ->
+                                qMeta.titleId.take(13) + "800"
+                            qMeta.contentType != 1 && qMeta.titleId.endsWith("000") && !hasBaseCnmt && updCnmtTid != null ->
+                                updCnmtTid
+                            qMeta.contentType != 1 && qMeta.titleId.endsWith("000") && !hasBaseCnmt && foundTid.endsWith("800") ->
+                                foundTid
+                            else ->
+                                qMeta.titleId
+                        }
+                        if (effTid.length == 16 && effTid != "0000000000000000") {
+                            sizeByTid[effTid] = (sizeByTid[effTid] ?: 0L) + e.size
+                        }
+                    }
+
+                    for (oe in otherEntries) {
+                        val cleanName = oe.name.substringAfterLast('/')
+                        val cand16 = cleanName.take(16).uppercase()
+                        val matchedTid = if (sizeByTid.containsKey(cand16)) cand16 else (sizeByTid.keys.firstOrNull() ?: "")
+                        if (matchedTid.isNotEmpty()) {
+                            sizeByTid[matchedTid] = (sizeByTid[matchedTid] ?: 0L) + oe.size
                         }
                     }
                 }
+
+                if (sizeByTid.keys.size == 1) {
+                    foundTid = sizeByTid.keys.first()
+                } else if (foundTid.isEmpty() && sizeByTid.isNotEmpty()) {
+                    foundTid = sizeByTid.keys.first()
+                }
+
                 if (detectedSubParts.isEmpty() && sizeByTid.isNotEmpty()) {
                     for ((tid, sz) in sizeByTid) {
                         val pRole = when {
@@ -330,8 +379,8 @@ object StormNczEngine {
             detectedSubParts.add(QueuedSubComponent(singleRole, foundTid.ifEmpty { baseTid }, file.name, if (file.isFile) file.length() else 0L))
         }
 
-        // Проверяем прикреплённые моды в папке /storage/emulated/0/STORM SWITCH BOX/mods/<BaseTitleID>
-        if (baseTid.isNotEmpty()) {
+        // Проверяем прикреплённые моды в папке /storage/emulated/0/STORM SWITCH BOX/mods/<BaseTitleID> (только для Базы или Мульти!)
+        if (baseTid.isNotEmpty() && (roleBadge == "БАЗА" || roleBadge.startsWith("МУЛЬТИ"))) {
             val stormModsRoot = File("/storage/emulated/0/STORM SWITCH BOX/mods")
             val candidateModDirs = listOf(
                 File(stormModsRoot, "atmosphere/contents/$baseTid"),
@@ -398,7 +447,7 @@ object StormNczEngine {
             val sortedItems = list.sortedWith(compareBy<QueuedItemInfo> { it.roleOrder }.thenByDescending { it.file.length() })
             val bestTitle = sortedItems.firstOrNull { it.roleOrder == 0 }?.cleanGameName
                 ?: sortedItems.first().cleanGameName
-            val tid = sortedItems.firstOrNull { it.baseTitleId.isNotEmpty() }?.baseTitleId ?: ""
+            val tid = if (sortedItems.size == 1 && sortedItems[0].rawTitleId.isNotEmpty() && sortedItems[0].roleOrder != 0) sortedItems[0].rawTitleId else (sortedItems.firstOrNull { it.baseTitleId.isNotEmpty() }?.baseTitleId ?: "")
             val combinedSubs = mutableListOf<QueuedSubComponent>()
             val combinedMods = LinkedHashSet<String>()
             for (itItem in sortedItems) {
@@ -1163,6 +1212,46 @@ object StormNczEngine {
                 } catch (_: Exception) {}
             }
         }
+        // 4. Автоматическая деривация отсутствующих titlekek_XX и key_area_key_application_XX (00..1f)
+        val titlekekSrc = map["titlekek_source"] ?: hexToBytes("1edc7b3b60e6b4d878b81715985e629b")
+        val appSrc = map["key_area_key_application_source"] ?: hexToBytes("7f59971e629f36a13098066f2144c30d")
+        val kekSrc = map["aes_kek_generation_source"] ?: hexToBytes("4d870986c45d20722fba1053da92e8a9")
+        val keySrc = map["aes_key_generation_source"] ?: hexToBytes("89615ee05c31b6805fe58f3da24f7aa8")
+
+        for (i in 0..0x1F) {
+            val hexIdx = "%02x".format(i)
+            val mKey = map["master_key_$hexIdx"] ?: continue
+            val tkKey = "titlekek_$hexIdx"
+            if (!map.containsKey(tkKey) || map[tkKey]?.size != 16) {
+                try {
+                    val dec = Cipher.getInstance("AES/ECB/NoPadding").apply {
+                        init(Cipher.DECRYPT_MODE, SecretKeySpec(mKey, "AES"))
+                    }.doFinal(titlekekSrc)
+                    if (dec != null && dec.size == 16) map[tkKey] = dec
+                } catch (_: Exception) {}
+            }
+            val kakKey = "key_area_key_application_$hexIdx"
+            if (!map.containsKey(kakKey) || map[kakKey]?.size != 16) {
+                try {
+                    val cipher = Cipher.getInstance("AES/ECB/NoPadding")
+                    cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(mKey, "AES"))
+                    val kek = cipher.doFinal(kekSrc)
+                    cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(kek, "AES"))
+                    val srcKek = cipher.doFinal(appSrc)
+                    cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(srcKek, "AES"))
+                    val kak = cipher.doFinal(keySrc)
+                    if (kak != null && kak.size == 16) map[kakKey] = kak
+                } catch (_: Exception) {
+                    try {
+                        val dec = Cipher.getInstance("AES/ECB/NoPadding").apply {
+                            init(Cipher.DECRYPT_MODE, SecretKeySpec(mKey, "AES"))
+                        }.doFinal(appSrc)
+                        if (dec != null && dec.size == 16) map[kakKey] = dec
+                    } catch (_: Exception) {}
+                }
+            }
+        }
+
         cachedSwitchKeysMap = map
         return map
     }
@@ -1321,6 +1410,56 @@ object StormNczEngine {
         val hasBktrSection: Boolean = false
     )
 
+    fun extractTicketRightsAndKey(
+        raf: RandomAccessFile,
+        tikOffset: Long,
+        tikSize: Long,
+        fallbackName: String
+    ): Pair<String, ByteArray>? {
+        return try {
+            if (tikSize < 0x40L) return null
+            val peek = ByteArray(min(tikSize, 0x400L).toInt())
+            raf.seek(tikOffset)
+            raf.readFully(peek)
+            val bb = ByteBuffer.wrap(peek).order(ByteOrder.LITTLE_ENDIAN)
+            val sigType = bb.getInt(0)
+            val bodyOff = when (sigType) {
+                0x10000, 0x10003 -> 0x240
+                0x10001, 0x10004 -> 0x140
+                0x10002, 0x10005 -> 0x80
+                else -> 0x140
+            }
+            val titleKeyOff = bodyOff + 0x40
+            val rightsIdOff = bodyOff + 0x160
+            if (titleKeyOff + 16 > tikSize) return null
+            val tk = ByteArray(16)
+            if (titleKeyOff + 16 <= peek.size) {
+                System.arraycopy(peek, titleKeyOff, tk, 0, 16)
+            } else {
+                raf.seek(tikOffset + titleKeyOff)
+                raf.readFully(tk)
+            }
+            val rBytes = ByteArray(16)
+            if (rightsIdOff + 16 <= peek.size) {
+                System.arraycopy(peek, rightsIdOff, rBytes, 0, 16)
+            } else if (rightsIdOff + 16 <= tikSize) {
+                raf.seek(tikOffset + rightsIdOff)
+                raf.readFully(rBytes)
+            }
+            var rightsIdHex = rBytes.joinToString("") { "%02X".format(it) }
+            if (rightsIdHex.all { it == '0' }) {
+                val stem = fallbackName.substringBeforeLast('.').trim().uppercase()
+                val hexMatch = Regex("([0-9A-F]{32})").find(stem)?.groupValues?.get(1)
+                if (hexMatch != null) {
+                    rightsIdHex = hexMatch
+                }
+            }
+            Pair(rightsIdHex, tk)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     fun readQuickNcaHeaderMeta(raf: RandomAccessFile, ncaOffset: Long, keysMap: Map<String, ByteArray> = loadSwitchKeysMap()): QuickNcaHeaderMeta? {
         return try {
             val avail = (raf.length() - ncaOffset).coerceAtLeast(0L)
@@ -1407,8 +1546,10 @@ object StormNczEngine {
         }
         val rightsIdHexUpper = if (hasRightsId) rightsBytes.joinToString("") { "%02X".format(it) } else ""
 
-        val keyGen = maxOf(workHdr[0x206].toInt() and 0xFF, workHdr[0x220].toInt() and 0xFF)
-        val keyIdx = (keyGen - 1).coerceAtLeast(0)
+        val hdrKeyGen = maxOf(workHdr[0x206].toInt() and 0xFF, workHdr[0x220].toInt() and 0xFF)
+        val rightsKeyGen = if (hasRightsId && rightsBytes.size >= 16) (rightsBytes[15].toInt() and 0xFF) else 0
+        val effKeyGen = maxOf(hdrKeyGen, rightsKeyGen)
+        val keyIdx = (effKeyGen - 1).coerceAtLeast(0)
         val idxHex = String.format("%02x", keyIdx)
 
         val matchedEncTitleKey = if (hasRightsId) {
@@ -1549,31 +1690,109 @@ object StormNczEngine {
 
             val encOffset = secByteOffset
 
-            // Поддержка AES-128-CTR-EX (BKTR в секциях обновлений [ПАТЧ], как на ПК в StormNczCompressor.cs)
-            val aesCtrExOffset = bb.getLong(fsOff + 0x120)
-            val splitAbsOffset = secByteOffset + aesCtrExOffset
-            if (effCryptoType == 4L && aesCtrExOffset > 0L && splitAbsOffset in (encOffset + 1) until secByteEnd) {
-                val secondCounter = counter.copyOf(16)
-                val secondSecCounterVal = (splitAbsOffset / 0x200L) shl 32
-                ByteBuffer.wrap(secondCounter).order(ByteOrder.LITTLE_ENDIAN).putLong(8, secondSecCounterVal)
-                sections.add(
-                    NcaSectionCryptoMeta(
-                        offset = encOffset,
-                        size = splitAbsOffset - encOffset,
-                        cryptoType = 4L,
-                        key = resolvedCtrKey,
-                        counter = counter
+            // Полная официальная nsz 5.0.0 BKTR декомпозиция подсекций (cryptoType = 3L)
+            if (effCryptoType == 4L) {
+                val subRelOffset = bb.getLong(fsOff + 0x120)
+                val subSize = bb.getLong(fsOff + 0x128)
+                var expandedBktr = false
+
+                if (raf != null && subRelOffset >= 0L && subSize >= 0x4000L && subSize <= 64L * 1024L * 1024L && rawSecStart + subRelOffset + subSize <= secByteEnd) {
+                    try {
+                        val subBuf = ByteArray(subSize.toInt())
+                        raf.seek(sliceOffset + rawSecStart + subRelOffset)
+                        raf.readFully(subBuf)
+
+                        transformAesCtrInPlace(subBuf, 0, subBuf.size, rawSecStart + subRelOffset, resolvedCtrKey, counter)
+
+                        val subBb = ByteBuffer.wrap(subBuf).order(ByteOrder.LITTLE_ENDIAN)
+                        val bucketCount = subBb.getInt(4)
+
+                        if (bucketCount in 1..1000) {
+                            val subsectionEntries = mutableListOf<Triple<Long, Long, Int>>()
+                            var currentBucketCursor = 16L
+                            for (b in 0 until bucketCount) {
+                                val bOff = if (subSize >= 0x4000L * (1 + bucketCount)) (0x4000L + b * 0x4000L) else currentBucketCursor
+                                if (bOff + 16L > subBuf.size) break
+                                val entryCount = subBb.getInt(bOff.toInt() + 4)
+                                val bucketEnd = subBb.getLong(bOff.toInt() + 8)
+                                if (entryCount !in 1..1023) break
+                                val entriesEnd = bOff + 16L + entryCount * 16L
+                                if (entriesEnd > subBuf.size) break
+
+                                for (e in 0 until entryCount) {
+                                    val eOff = (bOff + 16L + e * 16L).toInt()
+                                    val vOff = subBb.getLong(eOff)
+                                    val ctrVal = subBb.getInt(eOff + 12)
+                                    val nextVOff = if (e + 1 < entryCount) subBb.getLong(eOff + 16) else bucketEnd
+                                    if (nextVOff > vOff) {
+                                        subsectionEntries.add(Triple(vOff, nextVOff, ctrVal))
+                                    }
+                                }
+                                currentBucketCursor = entriesEnd
+                            }
+
+                            if (subsectionEntries.isNotEmpty()) {
+                                expandedBktr = true
+                                val firstEntryAbsStart = (rawSecStart + subsectionEntries[0].first).coerceAtLeast(encOffset)
+                                if (encOffset < firstEntryAbsStart) {
+                                    sections.add(
+                                        NcaSectionCryptoMeta(
+                                            offset = encOffset,
+                                            size = firstEntryAbsStart - encOffset,
+                                            cryptoType = 3L,
+                                            key = resolvedCtrKey,
+                                            counter = counter.copyOf(16)
+                                        )
+                                    )
+                                }
+
+                                for ((vStart, nextVOff, ctrVal) in subsectionEntries) {
+                                    val absStart = (rawSecStart + vStart).coerceAtLeast(encOffset)
+                                    val absEnd = (rawSecStart + nextVOff).coerceAtMost(secByteEnd)
+                                    if (absEnd > absStart) {
+                                        val subCtr = counter.copyOf(16)
+                                        ByteBuffer.wrap(subCtr, 4, 4).order(ByteOrder.BIG_ENDIAN).putInt(ctrVal)
+                                        sections.add(
+                                            NcaSectionCryptoMeta(
+                                                offset = absStart,
+                                                size = absEnd - absStart,
+                                                cryptoType = 3L,
+                                                key = resolvedCtrKey,
+                                                counter = subCtr
+                                            )
+                                        )
+                                    }
+                                }
+
+                                val lastRawEnd = rawSecStart + subsectionEntries.last().second
+                                val trailStart = lastRawEnd.coerceAtLeast(encOffset)
+                                if (secByteEnd > trailStart) {
+                                    sections.add(
+                                        NcaSectionCryptoMeta(
+                                            offset = trailStart,
+                                            size = secByteEnd - trailStart,
+                                            cryptoType = 3L,
+                                            key = resolvedCtrKey,
+                                            counter = counter.copyOf(16)
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    } catch (_: Exception) {}
+                }
+
+                if (!expandedBktr) {
+                    sections.add(
+                        NcaSectionCryptoMeta(
+                            offset = encOffset,
+                            size = secByteEnd - encOffset,
+                            cryptoType = 3L,
+                            key = resolvedCtrKey,
+                            counter = counter.copyOf(16)
+                        )
                     )
-                )
-                sections.add(
-                    NcaSectionCryptoMeta(
-                        offset = splitAbsOffset,
-                        size = secByteEnd - splitAbsOffset,
-                        cryptoType = 4L,
-                        key = resolvedCtrKey,
-                        counter = secondCounter
-                    )
-                )
+                }
             } else {
                 sections.add(
                     NcaSectionCryptoMeta(
@@ -1933,7 +2152,7 @@ object StormNczEngine {
             return
         }
         mbb.position(8)
-        val sectionCount = mbb.long.toInt().coerceIn(0, 64)
+        val sectionCount = mbb.long.toInt().coerceIn(0, 4096)
         val sections = mutableListOf<NcaSectionCryptoMeta>()
         val secBytes = ByteArray(sectionCount * 64)
         raf.readFully(secBytes)
@@ -3773,6 +3992,33 @@ object StormNczEngine {
                     rawEntries.filter { !it.name.startsWith("update/", ignoreCase = true) && !it.name.startsWith("logo/", ignoreCase = true) }
                 }
                 RandomAccessFile(f, "r").use { raf ->
+                    val containerCnmtTids = mutableListOf<String>()
+                    for (e in entries) {
+                        val cleanEntryName = e.name.substringAfterLast('/')
+                        val lowEntry = cleanEntryName.lowercase()
+                        if (lowEntry.endsWith(".tik") && e.size >= 0x40L) {
+                            val tikInfo = extractTicketRightsAndKey(raf, e.dataStartOffset, e.size, cleanEntryName)
+                            if (tikInfo != null) {
+                                val (rId, tKey) = tikInfo
+                                if (tKey.any { it != 0.toByte() }) {
+                                    fallbackTicketKey = tKey
+                                    ticketKeysByRightsId[rId] = tKey
+                                }
+                                if (rId.length >= 16) {
+                                    detectedTitleIds.add(rId.take(16))
+                                }
+                            }
+                        } else if ((lowEntry.endsWith(".cnmt.nca") || lowEntry.endsWith(".cnmt.ncz")) && e.size >= 0x400L) {
+                            val qMeta = readQuickNcaHeaderMeta(raf, e.dataStartOffset, keysMap)
+                            if (qMeta != null && qMeta.titleId.length == 16 && qMeta.titleId != "0000000000000000") {
+                                containerCnmtTids.add(qMeta.titleId)
+                                detectedTitleIds.add(qMeta.titleId)
+                            }
+                        }
+                    }
+                    val containerHasBaseCnmt = containerCnmtTids.any { it.endsWith("000") }
+                    val containerUpdCnmtTid = containerCnmtTids.firstOrNull { it.endsWith("800") }
+
                     for ((entryOrderIdx, e) in entries.withIndex()) {
                         if (e.name.startsWith("[XCI HEAD]") || e.dataStartOffset < 0L || e.size <= 0L) continue
                         val cleanName = e.name.substringAfterLast('/')
@@ -3781,25 +4027,15 @@ object StormNczEngine {
                         if (smartDedup && lower.endsWith(".xml")) continue
 
                         // Читаем ключ тикета (.tik) и сохраняем связку RightsID -> TitleKey
-                        if (lower.endsWith(".tik") && e.size >= 0x2B0L) {
-                            try {
-                                raf.seek(e.dataStartOffset + 0x180L)
-                                val tk = ByteArray(16)
-                                raf.readFully(tk)
-                                raf.seek(e.dataStartOffset + 0x2A0L)
-                                val rBytes = ByteArray(16)
-                                raf.readFully(rBytes)
-                                val rHexFromBody = rBytes.joinToString("") { "%02X".format(it) }
-                                val rHexFromName = cleanName.substringBeforeLast('.').take(32).uppercase()
-                                if (tk.any { it != 0.toByte() }) {
-                                    fallbackTicketKey = tk
-                                    if (rHexFromBody.any { it != '0' }) ticketKeysByRightsId[rHexFromBody] = tk
-                                    if (rHexFromName.length == 32) ticketKeysByRightsId[rHexFromName] = tk
+                        if (lower.endsWith(".tik") && e.size >= 0x40L) {
+                            val tikInfo = extractTicketRightsAndKey(raf, e.dataStartOffset, e.size, cleanName)
+                            if (tikInfo != null) {
+                                val (rId, tKey) = tikInfo
+                                if (tKey.any { it != 0.toByte() }) {
+                                    fallbackTicketKey = tKey
+                                    ticketKeysByRightsId[rId] = tKey
                                 }
-                                if (rHexFromName.startsWith("0100") && rHexFromName.length >= 16) {
-                                    detectedTitleIds.add(rHexFromName.take(16))
-                                }
-                            } catch (_: Exception) {}
+                            }
                         }
 
                         var ncaHeaderTid = fileTid
@@ -3820,12 +4056,26 @@ object StormNczEngine {
                             }
                         }
 
+                        // Рассчитываем реальный TitleID раздела с учётом Update RightsID / BKTR / Patch CNMT
+                        val isCnmt = lower.endsWith(".cnmt.nca") || ncaContentType == 1
+                        val realNcaTid = when {
+                            rightsIdHex.length >= 16 && rightsIdHex.take(16).any { it != '0' } ->
+                                rightsIdHex.take(16).uppercase()
+                            hasBktrSec && ncaHeaderTid.endsWith("000") ->
+                                ncaHeaderTid.take(13) + "800"
+                            !isCnmt && ncaHeaderTid.endsWith("000") && !containerHasBaseCnmt && containerUpdCnmtTid != null ->
+                                containerUpdCnmtTid
+                            !isCnmt && ncaHeaderTid.endsWith("000") && !containerHasBaseCnmt && fileTid.endsWith("800") ->
+                                fileTid
+                            else ->
+                                ncaHeaderTid
+                        }
+
                         // Исключаем мусорные DeltaFragment NCA из обновлений (экономия сотен МБ/ГБ как в ПК-версии MultiContentService)
-                        if (smartDedup && ncaContentType == 5 && ncaHeaderTid.endsWith("800") && !lower.endsWith(".cnmt.nca")) {
+                        if (smartDedup && ncaContentType == 5 && realNcaTid.endsWith("800") && !isCnmt) {
                             continue
                         }
 
-                        val isCnmt = lower.endsWith(".cnmt.nca") || ncaContentType == 1
                         val stem = lower.removeSuffix(".nca").removeSuffix(".ncz").removeSuffix(".cnmt")
                         val extractedHex32 = Regex("([0-9a-f]{32})$").find(stem)?.groupValues?.get(1)
                             ?: if (stem.length >= 32 && stem.take(32).all { it in '0'..'9' || it in 'a'..'f' }) stem.take(32) else ""
@@ -3844,12 +4094,12 @@ object StormNczEngine {
                             !smartDedup -> "${fileOrderIdx}_${entryOrderIdx}_$canonicalEntryName"
                             isHex32Id -> "nca_$extractedHex32"
                             lower.endsWith(".tik") || lower.endsWith(".cert") -> lower
-                            else -> "${ncaHeaderTid.ifEmpty { "F$fileOrderIdx" }}_$lower"
+                            else -> "${realNcaTid.ifEmpty { "F$fileOrderIdx" }}_$lower"
                         }
 
                         // Рассчитываем приоритет сортировки разделов внутри контейнера (как в ПК MultiContentService.GetNcaPriority)
-                        val isBaseTid = ncaHeaderTid.endsWith("000")
-                        val isUpdTid = ncaHeaderTid.endsWith("800")
+                        val isUpdTid = realNcaTid.endsWith("800")
+                        val isBaseTid = !isUpdTid && realNcaTid.endsWith("000")
                         val sortPrio = when {
                             lower.endsWith(".tik") -> 0
                             lower.endsWith(".cert") -> 1
@@ -3864,7 +4114,7 @@ object StormNczEngine {
                         }
                         ncaSortPriorityMap[key] = minOf(ncaSortPriorityMap[key] ?: 99, sortPrio)
                         if (ncaContentType >= 0) ncaContentTypeMap[key] = ncaContentType
-                        if (ncaHeaderTid.isNotEmpty()) ncaTitleIdMap[key] = ncaHeaderTid
+                        if (realNcaTid.isNotEmpty()) ncaTitleIdMap[key] = realNcaTid
                         if (rightsIdHex.isNotEmpty()) ncaRightsIdMap[key] = rightsIdHex
                         if (hasBktrSec) ncaHasBktrMap[key] = true
 
@@ -3899,8 +4149,9 @@ object StormNczEngine {
         sanitizePoisonedAndroidModDirs(primaryTid)
         clearStaleAndroidEmulatorIconCache(primaryTid)
 
-        // Подхват локальных модов из папки mods/atmosphere/contents/<TitleID> (после очистки отравленных стабов!)
-        if (embedMods) {
+        // Подхват локальных модов из папки mods/atmosphere/contents/<TitleID> (только если есть Базовая игра!)
+        val hasBaseTitleInCollected = ncaTitleIdMap.values.any { it.endsWith("000") }
+        if (embedMods && hasBaseTitleInCollected) {
             val atmoModFolder = File("/storage/emulated/0/STORM SWITCH BOX/mods/atmosphere/contents/$primaryTid")
             if (atmoModFolder.exists() && atmoModFolder.isDirectory && modInputSources.none { it.absolutePath == atmoModFolder.absolutePath }) {
                 if (atmoModFolder.walkTopDown().maxDepth(4).any { it.isFile && !isPoisonedStubMainFile(it) && !isPoisonedFakeConfigIni(it) }) {
@@ -4119,6 +4370,7 @@ object StormNczEngine {
 
             require(collected.isNotEmpty()) { "Не найдено подходящих разделов NCA/NCZ для сборки мульти-контента" }
 
+            val hasBaseTitle = ncaTitleIdMap.values.any { it.endsWith("000") }
             val outputFile = if (preBuildCustomization.enabled && preBuildCustomization.customOutputFileName.isNotBlank()) {
                 val cleanCustomName = preBuildCustomization.customOutputFileName.trim()
                     .filter { it !in "\\/:*?\"<>|[]" }
@@ -4128,6 +4380,16 @@ object StormNczEngine {
                     "$cleanCustomName.$finalExt"
                 }
                 File(outputDir, withRightExt)
+            } else if (effectiveInputFiles.size == 1 && embeddedModsCount == 0 && !hasBaseTitle) {
+                val singleFile = effectiveInputFiles[0]
+                val singleStem = singleFile.nameWithoutExtension.replace(Regex("""\s*\(\d+(?:[.,]\d+)?\s*[GMK]i?B\)"""), "").trim()
+                val standaloneTid = ncaTitleIdMap.values.firstOrNull { it.endsWith("800") } ?: ncaTitleIdMap.values.firstOrNull() ?: primaryTid
+                val finalStem = if (singleStem.contains(standaloneTid, ignoreCase = true)) {
+                    singleStem
+                } else {
+                    "${singleStem}_[$standaloneTid]"
+                }
+                File(outputDir, "$finalStem.$finalExt")
             } else {
                 val displayClean = (if (preBuildCustomization.enabled && preBuildCustomization.customInternalTitle.isNotBlank()) {
                     preBuildCustomization.customInternalTitle.trim()
@@ -4153,7 +4415,7 @@ object StormNczEngine {
                 val isNcz = lower.endsWith(".ncz")
                 val ncaType = ncaContentTypeMap[src.baseKey] ?: -1
                 val hasBktr = ncaHasBktrMap[src.baseKey] == true
-                val mustStayUncompressedNca = lower.endsWith(".cnmt.nca") || ncaType == 1 || ncaType == 2 || ncaType == 3 || hasBktr
+                val mustStayUncompressedNca = lower.endsWith(".cnmt.nca") || ncaType == 1 || ncaType == 2
                 val specificTicketKey = ncaRightsIdMap[src.baseKey]?.let { ticketKeysByRightsId[it] } ?: fallbackTicketKey
 
                 // Сжимаем в .ncz игровые разделы Program / Data / Manual (> 64 КБ).

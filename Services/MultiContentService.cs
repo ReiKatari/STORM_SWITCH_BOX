@@ -1411,8 +1411,21 @@ namespace StormSwitchBox.Services
                 var type = nca.Header.ContentType;
                 ulong tid = nca.Header.TitleId;
 
-                bool isBaseTitle = (baseTitleId != 0 && tid == baseTitleId) || tid.ToString("X16").EndsWith("000");
-                bool isUpdateTitle = (baseTitleId != 0 && tid == (baseTitleId | 0x800)) || tid.ToString("X16").EndsWith("800");
+                string rightsIdHex = nca.Header.HasRightsId ? BitConverter.ToString(nca.Header.RightsId.ToArray()).Replace("-", "").ToUpperInvariant() : "";
+                bool hasRightsUpdate = rightsIdHex.Length >= 16 && rightsIdHex.Substring(0, 16).EndsWith("800");
+
+                bool hasBktr = false;
+                for (int sIdx = 0; sIdx < 4; sIdx++)
+                {
+                    if (nca.Header.IsSectionEnabled(sIdx) && nca.Header.GetFsHeader(sIdx).EncryptionType == NcaEncryptionType.AesCtrEx)
+                    {
+                        hasBktr = true;
+                        break;
+                    }
+                }
+
+                bool isUpdateTitle = (baseTitleId != 0 && tid == (baseTitleId | 0x800)) || tid.ToString("X16").EndsWith("800") || hasRightsUpdate || hasBktr;
+                bool isBaseTitle = !isUpdateTitle && ((baseTitleId != 0 && tid == baseTitleId) || tid.ToString("X16").EndsWith("000"));
 
                 if (type == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Meta) // CNMT
                 {

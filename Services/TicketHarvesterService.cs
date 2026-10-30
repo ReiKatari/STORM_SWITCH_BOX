@@ -217,25 +217,41 @@ namespace StormSwitchBox.Services
             try
             {
                 int masterKeyRev = Math.Max(0, (int)rIdBytes[15] - 1);
-                if (keyset != null && keyset.TitleKeks != null)
+                if (keyset != null)
                 {
-                    if (masterKeyRev >= keyset.TitleKeks.Length || keyset.TitleKeks[masterKeyRev].DataRo.Length < 16 || (keyset.TitleKeks[masterKeyRev].DataRo[0] == 0 && keyset.TitleKeks[masterKeyRev].DataRo[1] == 0))
+                    byte[]? titleKek = null;
+                    if (keyset.TitleKeks != null && masterKeyRev < keyset.TitleKeks.Length && keyset.TitleKeks[masterKeyRev].DataRo.Length >= 16)
                     {
-                        masterKeyRev = 0;
+                        var tkCandidate = keyset.TitleKeks[masterKeyRev].DataRo.ToArray();
+                        if (tkCandidate != null && tkCandidate.Length == 16 && (tkCandidate[0] != 0 || tkCandidate[1] != 0))
+                        {
+                            titleKek = tkCandidate;
+                        }
                     }
 
-                    if (masterKeyRev < keyset.TitleKeks.Length && keyset.TitleKeks[masterKeyRev].DataRo.Length >= 16)
+                    if (titleKek == null && keyset.MasterKeys != null && masterKeyRev < keyset.MasterKeys.Length && keyset.MasterKeys[masterKeyRev].DataRo.Length >= 16)
                     {
-                        byte[] titleKek = keyset.TitleKeks[masterKeyRev].DataRo.ToArray();
-                        if (titleKek != null && titleKek.Length == 16 && (titleKek[0] != 0 || titleKek[1] != 0))
+                        byte[] mKey = keyset.MasterKeys[masterKeyRev].DataRo.ToArray();
+                        if (mKey != null && mKey.Length == 16 && (mKey[0] != 0 || mKey[1] != 0))
                         {
-                            using var aes = System.Security.Cryptography.Aes.Create();
-                            aes.Mode = System.Security.Cryptography.CipherMode.ECB;
-                            aes.Padding = System.Security.Cryptography.PaddingMode.None;
-                            aes.Key = titleKek;
-                            using var dec = aes.CreateDecryptor();
-                            dec.TransformBlock(encKeyBytes, 0, 16, decryptedKey, 0);
+                            byte[] titleKekSource = Convert.FromHexString("1EDC7B3B60E6B4D878B81715985E629B");
+                            using var aesKek = System.Security.Cryptography.Aes.Create();
+                            aesKek.Mode = System.Security.Cryptography.CipherMode.ECB;
+                            aesKek.Padding = System.Security.Cryptography.PaddingMode.None;
+                            aesKek.Key = mKey;
+                            using var decKek = aesKek.CreateDecryptor();
+                            titleKek = decKek.TransformFinalBlock(titleKekSource, 0, 16);
                         }
+                    }
+
+                    if (titleKek != null && titleKek.Length == 16 && (titleKek[0] != 0 || titleKek[1] != 0))
+                    {
+                        using var aes = System.Security.Cryptography.Aes.Create();
+                        aes.Mode = System.Security.Cryptography.CipherMode.ECB;
+                        aes.Padding = System.Security.Cryptography.PaddingMode.None;
+                        aes.Key = titleKek;
+                        using var dec = aes.CreateDecryptor();
+                        dec.TransformBlock(encKeyBytes, 0, 16, decryptedKey, 0);
                     }
                 }
             }
