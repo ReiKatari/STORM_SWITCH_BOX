@@ -1934,19 +1934,28 @@ class MainActivity : Activity() {
         }
         editorBody.addView(outFileInput)
 
+        editorBody.visibility = View.GONE
+        val toggleEditorBtn = makeButton("🔽 Развернуть редактор NACP, обложки 256×256 и имени файла", th.bgElevated, th.accent) {
+            val nowVisible = editorBody.visibility != View.VISIBLE
+            editorBody.visibility = if (nowVisible) View.VISIBLE else View.GONE
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(6)
+            }
+        }
+        renameCard.addView(toggleEditorBtn)
         renameCard.addView(editorBody)
-        parent.addView(renameCard)
 
-        // ГРУППА 5: Панель запуска и телеметрия прогресса
+        // ГРУППА 3: Панель запуска, прогресса и отмены задачи (сразу под очередью игр!)
         val runCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = makeCardDrawable(th.bgCard, th.border)
+            background = makeCardDrawable(th.bgCard, th.accent)
             setPadding(dp(14), dp(12), dp(14), dp(12))
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 bottomMargin = dp(10)
             }
         }
-        runCard.addView(makeSectionHeader("5. Выполнение и прогресс", null, th))
+        runCard.addView(makeSectionHeader("3. Выполнение, прогресс и отмена задачи", "Всегда доступное управление очередью", th))
 
         val progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
             max = 100
@@ -1978,16 +1987,27 @@ class MainActivity : Activity() {
         }
         actionBtnsRow.addView(btnStart)
 
-        val btnStop = makeButton("⏹ Стоп", Color.parseColor("#DC2626")) {
+        val btnStop = makeButton("⏹ Отменить задачу", Color.parseColor("#DC2626")) {
+            cancelCurrentTaskRequested = true
             if (isTaskRunning) {
-                cancelCurrentTaskRequested = true
-                statusTxt.text = "Остановка после завершения текущей секции..."
+                statusTxt.text = "⏹ Задача отменена пользователем (остановка конвейера...)"
+                Toast.makeText(this, "⏹ Задача отменена пользователем", Toast.LENGTH_SHORT).show()
+            } else {
+                statusTxt.text = "⏹ Активных задач нет (очередь остановлена)"
+                Toast.makeText(this, "⏹ Активных выполняемых задач нет", Toast.LENGTH_SHORT).show()
             }
         }
         actionBtnsRow.addView(btnStop)
         runCard.addView(actionBtnsRow)
 
-        parent.addView(runCard)
+        // Размещаем панель запуска сразу после карточки очереди (queueCard)!
+        val queueIdx = parent.indexOfChild(queueCard)
+        if (queueIdx >= 0) {
+            parent.addView(runCard, queueIdx + 1)
+        } else {
+            parent.addView(runCard)
+        }
+        parent.addView(renameCard)
     }
 
     private fun executeQueueBatch(progressBar: ProgressBar, statusTxt: TextView) {
@@ -2677,7 +2697,7 @@ class MainActivity : Activity() {
             val mySeq = ++searchSeq
             val cleanQ = q.trim()
             val instantList = RuTrackerCloudEngine.searchTopicsInstant(cleanQ)
-            val needLiveNetwork = !immediateOnly && (cleanQ.isNotEmpty() && instantList.size < 3)
+            val needLiveNetwork = !immediateOnly && cleanQ.isNotEmpty()
 
             renderTopicList(instantList, cleanQ, needLiveNetwork)
 
@@ -2924,20 +2944,46 @@ class MainActivity : Activity() {
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = makeCardDrawable(th.bgCard, th.accent, 14)
-            setPadding(dp(16), dp(14), dp(16), dp(14))
+            setPadding(dp(14), dp(12), dp(14), dp(12))
         }
 
+        // Верхний заголовок окна
         card.addView(TextView(this).apply {
-            text = if (autoStartMagnet) "🧲 Примагничивание и сборка Мульти-контента" else "⬇️ Авто-загрузка и сборка Мульти-контента"
+            text = if (autoStartMagnet) "🧲 Примагничивание и сборка Мульти-контента" else "⬇️ Загрузка раздачи RuTracker и сборка Мульти-контента"
             setTextColor(th.accent)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14.5f)
             typeface = Typeface.DEFAULT_BOLD
         })
 
-        val scroll = ScrollView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(370)).apply {
+        // Компактная информационная шапка раздачи (всегда видна над прокруткой)
+        val topicMetaBanner = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = makeCardDrawable(th.bgPrimary, th.border, 8)
+            setPadding(dp(10), dp(6), dp(10), dp(6))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 topMargin = dp(6)
-                bottomMargin = dp(8)
+                bottomMargin = dp(6)
+            }
+        }
+        topicMetaBanner.addView(TextView(this).apply {
+            text = item.title
+            setTextColor(th.textPrimary)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
+            typeface = Typeface.DEFAULT_BOLD
+            maxLines = 2
+        })
+        topicMetaBanner.addView(TextView(this).apply {
+            text = "Тема RuTracker: t=${item.topicId} • Размер: ${StormNczEngine.localizeSizeText(item.sizeText)} • Сиды: ▲${item.seeds} • Папка: ${customOutputDir.name}/"
+            setTextColor(th.textSecondary)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.6f)
+            setPadding(0, dp(2), 0, 0)
+        })
+        card.addView(topicMetaBanner)
+
+        // Прокручиваемая область с 4 чёткими сгруппированными блоками
+        val scroll = ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(295)).apply {
+                bottomMargin = dp(6)
             }
         }
         val root = LinearLayout(this).apply {
@@ -2946,14 +2992,11 @@ class MainActivity : Activity() {
         scroll.addView(root)
         card.addView(scroll)
 
-        root.addView(TextView(this).apply {
-            text = "${item.title}\nОбщий размер раздачи: ${StormNczEngine.localizeSizeText(item.sizeText)} • Сиды: ▲${item.seeds} • Папка: ${customOutputDir.name}/"
-            setTextColor(th.textPrimary)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.8f)
-            setPadding(0, dp(2), 0, dp(8))
-        })
+        var syncUnlockerAutoState: () -> Unit = {}
 
-        // Блок списка файлов раздачи с чекбоксами и размерами
+        // =========================================================================
+        // ГРУППА 1: 📦 СОСТАВ РАЗДАЧИ (ФАЙЛЫ ТОРРЕНТА)
+        // =========================================================================
         val filesCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = makeCardDrawable(th.bgPrimary, th.border, 8)
@@ -2973,11 +3016,9 @@ class MainActivity : Activity() {
         fun updateFilesSummaryHeader() {
             val sel = releaseFiles.filter { it.selected }
             val sumBytes = sel.sumOf { it.sizeBytes }
-            filesSummaryTitle.text = "📂 Состав раздачи (выбрано файлов: ${sel.size} из ${releaseFiles.size} • ${StormNczEngine.formatSize(sumBytes)}):"
+            filesSummaryTitle.text = "1. 📦 Состав раздачи (выбрано: ${sel.size} из ${releaseFiles.size} • ${StormNczEngine.formatSize(sumBytes)})"
         }
         updateFilesSummaryHeader()
-
-        var syncUnlockerAutoState: () -> Unit = {}
 
         releaseFiles.forEach { rf ->
             val cbRow = makeStormCheckBox(
@@ -2993,10 +3034,128 @@ class MainActivity : Activity() {
         }
         root.addView(filesCard)
 
-        root.addView(TextView(this).apply {
-            text = "Конечный формат файла после сборки:"
+        // =========================================================================
+        // ГРУППА 2: 💬 СООБЩЕНИЯ С ФАЙЛАМИ В ТЕМЕ ИГРЫ (ПО УМОЛЧАНИЮ ВЫКЛЮЧЕНЫ)
+        // =========================================================================
+        val discoveredDiscussionLinks = mutableListOf<RuTrackerCloudEngine.TopicDiscussionLink>()
+        val discussionCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = makeCardDrawable(th.bgPrimary, th.accent, 8)
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(8)
+            }
+        }
+        val discHeaderRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val discussionTitleTv = TextView(this).apply {
+            text = "2. 💬 Сообщения с файлами в теме игры (по умолчанию выключены)"
+            setTextColor(th.accent)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.6f)
+            typeface = Typeface.DEFAULT_BOLD
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        discHeaderRow.addView(discussionTitleTv)
+
+        val discussionSubTv = TextView(this).apply {
+            text = "⏳ Сканирование сообщений темы RuTracker (шапка и комментарии)..."
             setTextColor(th.textSecondary)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.6f)
+            setPadding(0, dp(2), 0, dp(4))
+        }
+        val discussionListLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+
+        fun updateDiscussionSummary() {
+            val selCount = discoveredDiscussionLinks.count { it.selected }
+            discussionSubTv.text = "Найдено ссылок в теме: ${discoveredDiscussionLinks.size} (включено пользователем: $selCount) • По умолчанию все выключены:"
+        }
+
+        fun reloadDiscussionLinks() {
+            discussionSubTv.text = "⏳ Поиск ссылок на патчи, DLC и русификаторы в сообщениях темы t=${item.topicId}..."
+            discussionListLayout.removeAllViews()
+            thread {
+                val links = RuTrackerCloudEngine.extractAllTopicAndDiscussionLinks(item)
+                mainHandler.post {
+                    discoveredDiscussionLinks.clear()
+                    discoveredDiscussionLinks.addAll(links)
+                    discussionListLayout.removeAllViews()
+                    if (links.isEmpty()) {
+                        discussionSubTv.text = "В сообщениях темы внешних облачных ссылок не обнаружено (используются только файлы раздачи)."
+                    } else {
+                        // СТРОГО: по умолчанию ни одна внешняя ссылка не включается автоматически!
+                        discoveredDiscussionLinks.forEach { it.selected = false }
+                        updateDiscussionSummary()
+                        discoveredDiscussionLinks.forEach { dLink ->
+                            val itemBox = LinearLayout(this).apply {
+                                orientation = LinearLayout.VERTICAL
+                                background = makeCardDrawable(th.bgCard, th.border, 6)
+                                setPadding(dp(8), dp(6), dp(8), dp(6))
+                                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                                    topMargin = dp(4)
+                                }
+                            }
+                            val cb = makeStormCheckBox(
+                                "[${dLink.roleCategory}] ${dLink.title} (${dLink.provider})",
+                                false,
+                                th
+                            ) { checked ->
+                                dLink.selected = checked
+                                updateDiscussionSummary()
+                                syncUnlockerAutoState()
+                            }
+                            itemBox.addView(cb)
+                            itemBox.addView(TextView(this).apply {
+                                text = "📍 ${dLink.sourceLocation} • 📅 ${dLink.publishedDate} • ☁️ ${dLink.provider}"
+                                setTextColor(th.textSecondary)
+                                setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.2f)
+                                setPadding(dp(26), 0, 0, dp(2))
+                            })
+                            itemBox.addView(TextView(this).apply {
+                                text = "🔗 ${dLink.url}"
+                                setTextColor(th.accent)
+                                setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.2f)
+                                typeface = Typeface.MONOSPACE
+                                setPadding(dp(26), 0, 0, 0)
+                            })
+                            discussionListLayout.addView(itemBox)
+                        }
+                    }
+                    syncUnlockerAutoState()
+                }
+            }
+        }
+
+        discHeaderRow.addView(makeButton("🔄 Обновить", th.bgElevated, th.accent) {
+            reloadDiscussionLinks()
+        }.apply {
+            setPadding(dp(8), dp(4), dp(8), dp(4))
+        })
+        discussionCard.addView(discHeaderRow)
+        discussionCard.addView(discussionSubTv)
+        discussionCard.addView(discussionListLayout)
+        root.addView(discussionCard)
+        reloadDiscussionLinks()
+
+        // =========================================================================
+        // ГРУППА 3: ⚙️ ФОРМАТ КОНТЕЙНЕРА И ОПЦИИ СБОРКИ
+        // =========================================================================
+        val formatAndOptionsCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = makeCardDrawable(th.bgPrimary, th.border, 8)
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(8)
+            }
+        }
+        formatAndOptionsCard.addView(TextView(this).apply {
+            text = "3. ⚙️ Формат выходного контейнера и опции сборки"
+            setTextColor(th.accent)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.6f)
+            typeface = Typeface.DEFAULT_BOLD
             setPadding(0, 0, 0, dp(4))
         })
 
@@ -3011,8 +3170,8 @@ class MainActivity : Activity() {
         )
 
         val cleanDefaultTitle = StormNczEngine.extractCleanGameTitle(item.title)
-        val verMatch = Regex("""\b(v\d+(?:\.\d+)+)\b""", RegexOption.IGNORE_CASE).find(item.title)
-        val defaultVerStr = verMatch?.groupValues?.get(1)?.removePrefix("v")?.removePrefix("V") ?: "1.0.10"
+        val verMatch = Regex("\\b(v\\d+(?:\\.\\d+)+)\\b", RegexOption.IGNORE_CASE).find(item.title)
+        val defaultVerStr = verMatch?.groupValues?.get(1)?.removePrefix("v")?.removePrefix("V") ?: "1.0.1"
         fun extForMode(m: Int): String = when (m) {
             0 -> "nsz"
             1 -> "xcz"
@@ -3033,7 +3192,7 @@ class MainActivity : Activity() {
         var dlgBadgeIndex = 0
         var dlgOutNameEdit: EditText? = null
 
-        root.addView(makeStormDropdown(formatNames, dialogFormatMode, th) { pos ->
+        formatAndOptionsCard.addView(makeStormDropdown(formatNames, dialogFormatMode, th) { pos ->
             val oldExt = ".${extForMode(dialogFormatMode)}"
             dialogFormatMode = pos
             val newExt = ".${extForMode(dialogFormatMode)}"
@@ -3049,166 +3208,34 @@ class MainActivity : Activity() {
             }
         })
 
-        // Блок предварительного переименования внутри (control.nacp), смены иконки 256x256 и имени итогового файла
-        val dlgRenameBox = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            background = makeCardDrawable(th.bgPrimary, th.border, 8)
-            setPadding(dp(10), dp(8), dp(10), dp(8))
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(6)
-                bottomMargin = dp(4)
-            }
-        }
-        dlgRenameBox.addView(TextView(this).apply {
-            text = "✏️ Предварительное переименование (NACP), смена иконки 256×256 и имя файла:"
-            setTextColor(th.accent)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
-            typeface = Typeface.DEFAULT_BOLD
-            setPadding(0, 0, 0, dp(6))
-        })
-
-        val dlgIconRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                bottomMargin = dp(6)
-            }
-        }
-        val dlgIconPreview = ImageView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(dp(64), dp(64)).apply { marginEnd = dp(8) }
-            scaleType = ImageView.ScaleType.FIT_CENTER
-            background = null
-            setPadding(0, 0, 0, 0)
-        }
-        fun updateDlgIconPreview() {
-            val badge = iconBadgeOptions.getOrElse(dlgBadgeIndex) { "" }
-            val title = dlgInternalTitle.ifBlank { cleanDefaultTitle }
-            val iconPath = dlgCustomIconPath
-            kotlin.concurrent.thread {
-                try {
-                    val jpg = StormNczEngine.generateSwitchIconJpeg256(iconPath, title, badge)
-                    val bmp = BitmapFactory.decodeByteArray(jpg, 0, jpg.size)
-                    if (bmp != null) {
-                        mainHandler.post { dlgIconPreview.setImageBitmap(bmp) }
-                    }
-                } catch (_: Throwable) {}
-            }
-        }
-        updateDlgIconPreview()
-        dlgIconRow.addView(dlgIconPreview)
-
-        val dlgIconControls = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        }
-        dlgIconControls.addView(makeButton("🖼 Сменить иконку / обложку (256×256)", th.bgElevated, th.accent) {
-            openCustomIconImagePicker { path ->
-                dlgCustomIconPath = path
-                customIconImagePath = path
-                updateDlgIconPreview()
-            }
-        }.apply {
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                bottomMargin = dp(4)
-            }
-        })
-        dlgIconControls.addView(makeStormDropdown(iconBadgeOptions, dlgBadgeIndex, th) { pos ->
-            dlgBadgeIndex = pos
-            updateDlgIconPreview()
-        })
-        dlgIconRow.addView(dlgIconControls)
-        dlgRenameBox.addView(dlgIconRow)
-
-        dlgRenameBox.addView(TextView(this).apply {
-            text = "Название игры внутри приставки/эмулятора (control.nacp):"
-            setTextColor(th.textSecondary)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.8f)
-        })
-        val dlgTitleEdit = EditText(this).apply {
-            setText(dlgInternalTitle)
-            hint = "Внутреннее название игры..."
-            setTextColor(th.textPrimary)
-            setHintTextColor(th.textSecondary)
-            textSize = 11.5f
-            setSingleLine(true)
-            background = makeCardDrawable(th.bgCard, th.border, 6)
-            setPadding(dp(8), dp(5), dp(8), dp(5))
-            addTextChangedListener(object : android.text.TextWatcher {
-                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-                override fun afterTextChanged(s: android.text.Editable?) {
-                    dlgInternalTitle = s?.toString() ?: ""
-                    updateDlgIconPreview()
-                }
-            })
-        }
-        dlgRenameBox.addView(dlgTitleEdit)
-
-        dlgRenameBox.addView(TextView(this).apply {
-            text = "Имя итогового выходного файла:"
-            setTextColor(th.textSecondary)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.8f)
-            setPadding(0, dp(4), 0, 0)
-        })
-        dlgOutNameEdit = EditText(this).apply {
-            setText(dlgOutputFileName)
-            hint = "Имя выходного файла..."
-            setTextColor(th.textPrimary)
-            setHintTextColor(th.textSecondary)
-            textSize = 11.5f
-            setSingleLine(true)
-            background = makeCardDrawable(th.bgCard, th.border, 6)
-            setPadding(dp(8), dp(5), dp(8), dp(5))
-            addTextChangedListener(object : android.text.TextWatcher {
-                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-                override fun afterTextChanged(s: android.text.Editable?) {
-                    dlgOutputFileName = s?.toString() ?: ""
-                }
-            })
-        }
-        dlgRenameBox.addView(dlgOutNameEdit)
-        root.addView(dlgRenameBox)
-
-        var embedCloudUpdatesChecked = false
-        var embedCloudDlcsChecked = false
-        val discoveredDiscussionLinks = mutableListOf<RuTrackerCloudEngine.TopicDiscussionLink>()
         var embedDlcUnlockerChecked = releaseFiles.any {
             it.selected && (it.roleBadge.equals("UNLOCKER", ignoreCase = true) ||
                 it.fileName.contains("unlocker", ignoreCase = true) ||
                 it.fileName.contains("анлокер", ignoreCase = true))
         }
+        val dlcUnlockerCheckBox = makeStormCheckBox(
+            "Вшить DLC UNLOCKER (разблокировка дополнений в RomFS при наличии)",
+            embedDlcUnlockerChecked,
+            th
+        ) { checked ->
+            embedDlcUnlockerChecked = checked
+        }
+        formatAndOptionsCard.addView(dlcUnlockerCheckBox)
 
-        // Интерактивный список всех ссылок из темы и обсуждений RuTracker (по умолчанию отключены, с датами публикации)
-        val discussionCard = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            background = makeCardDrawable(th.bgPrimary, th.border, 8)
-            setPadding(dp(10), dp(8), dp(10), dp(8))
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(6)
-                bottomMargin = dp(6)
-            }
+        val rtDlgDeleteSourceCheck = makeStormCheckBox(
+            "Удалять временные исходные файлы после успешной проверки контейнера",
+            deleteRuTrackerSourceAfterSuccess,
+            th
+        ) { checked ->
+            deleteRuTrackerSourceAfterSuccess = checked
+            saveSettings()
         }
-        val discussionTitleTv = TextView(this).apply {
-            text = "💬 Ссылки из темы и обсуждений RuTracker (с датами публикации):"
-            setTextColor(th.accent)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
-            typeface = Typeface.DEFAULT_BOLD
-        }
-        val discussionSubTv = TextView(this).apply {
-            text = "⏳ Поиск ссылок на патчи, DLC, Unlocker и моды в теме и комментариях обсуждения..."
-            setTextColor(th.textSecondary)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.6f)
-            setPadding(0, dp(2), 0, dp(4))
-        }
-        val discussionListLayout = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-        }
-        discussionCard.addView(discussionTitleTv)
-        discussionCard.addView(discussionSubTv)
-        discussionCard.addView(discussionListLayout)
-        root.addView(discussionCard)
+        formatAndOptionsCard.addView(rtDlgDeleteSourceCheck)
+        root.addView(formatAndOptionsCard)
 
+        // =========================================================================
+        // ГРУППА 4: 🛠 ДОПОЛНИТЕЛЬНЫЕ ИНСТРУМЕНТЫ (СВОРАЧИВАЕМЫЕ ПАНЕЛИ)
+        // =========================================================================
         fun buildDynamicUrlSection(
             headerTitle: String,
             itemHintPrefix: String,
@@ -3219,8 +3246,8 @@ class MainActivity : Activity() {
             val secContainer = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 visibility = View.GONE
-                background = makeCardDrawable(th.bgPrimary, th.border, 8)
-                setPadding(dp(10), dp(8), dp(10), dp(8))
+                background = makeCardDrawable(th.bgCard, th.border, 6)
+                setPadding(dp(8), dp(6), dp(8), dp(6))
                 layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                     topMargin = dp(4)
                     bottomMargin = dp(4)
@@ -3229,7 +3256,7 @@ class MainActivity : Activity() {
             secContainer.addView(TextView(this).apply {
                 text = headerTitle
                 setTextColor(th.accent)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.4f)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.2f)
                 typeface = Typeface.DEFAULT_BOLD
                 setPadding(0, 0, 0, dp(4))
             })
@@ -3251,9 +3278,9 @@ class MainActivity : Activity() {
                     hint = "$itemHintPrefix #${editList.size + 1} (из $maxRows)..."
                     setTextColor(th.textPrimary)
                     setHintTextColor(th.textSecondary)
-                    textSize = 11.3f
-                    background = makeCardDrawable(th.bgCard, th.border, 6)
-                    setPadding(dp(8), dp(6), dp(8), dp(6))
+                    textSize = 11.2f
+                    background = makeCardDrawable(th.bgPrimary, th.border, 6)
+                    setPadding(dp(8), dp(5), dp(8), dp(5))
                     layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
                         marginEnd = dp(6)
                     }
@@ -3261,7 +3288,7 @@ class MainActivity : Activity() {
                 editList.add(edit)
                 row.addView(edit)
                 if (editList.size > 1) {
-                    row.addView(makeButton("✕", th.bgElevated, th.textSecondary) {
+                    row.addView(makeButton("✕", Color.parseColor("#DC2626")) {
                         editList.remove(edit)
                         inputsLayout.removeView(row)
                     })
@@ -3270,65 +3297,69 @@ class MainActivity : Activity() {
             }
             addUrlRow()
             secContainer.addView(inputsLayout)
-            val addBtn = makeButton(addBtnLabel, th.bgElevated, th.textPrimary) {
+            secContainer.addView(makeButton(addBtnLabel, th.bgElevated, th.accent) {
                 addUrlRow()
             }.apply {
                 layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                     topMargin = dp(6)
                 }
-            }
-            secContainer.addView(addBtn)
+            })
             return secContainer to ::addUrlRow
         }
 
-        // 1. Внешние ссылки на Обновления игры (до 3 строк — файл или архив)
+        var embedCloudUpdatesChecked = false
+        var embedCloudDlcsChecked = false
         val updateEditTexts = mutableListOf<EditText>()
+        val dlcEditTexts = mutableListOf<EditText>()
+        val modEditTexts = mutableListOf<EditText>()
+
+        val manualLinksWrapper = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            background = makeCardDrawable(th.bgPrimary, th.border, 8)
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(8)
+            }
+        }
         val (updatesContainer, _) = buildDynamicUrlSection(
-            headerTitle = "🔄 Внешние ссылки на Обновление игры (до 3 строк — .nsp / .nsz / .zip / .7z / .rar):",
-            itemHintPrefix = "Ссылка на обновление / патч",
+            headerTitle = "🔄 Внешние ссылки на Обновления / Update (до 3 строк):",
+            itemHintPrefix = "Ссылка на обновление",
             maxRows = 3,
-            addBtnLabel = "➕ Добавить ссылку на обновление (до 3 строк)",
+            addBtnLabel = "➕ Добавить строку обновления",
             editList = updateEditTexts
         )
-        val updatesCheckBox = makeStormCheckBox(
-            "Скачать и вшить отдельное Обновление (файл или архив — до 3 ссылок)",
-            embedCloudUpdatesChecked,
-            th
-        ) { checked ->
+        manualLinksWrapper.addView(makeStormCheckBox("Включить свои ссылки на Обновление (до 3 ссылок)", embedCloudUpdatesChecked, th) { checked ->
             embedCloudUpdatesChecked = checked
             updatesContainer.visibility = if (checked) View.VISIBLE else View.GONE
-        }
-        root.addView(updatesCheckBox)
-        root.addView(updatesContainer)
+        })
+        manualLinksWrapper.addView(updatesContainer)
 
-        // 2. Внешние ссылки на Дополнения / DLC (до 3 строк — файлы или архивы) + UNLOCKER
-        val dlcEditTexts = mutableListOf<EditText>()
         val (dlcsContainer, _) = buildDynamicUrlSection(
-            headerTitle = "🎁 Внешние ссылки на Дополнения / DLC (до 3 строк — файлы или архивы):",
-            itemHintPrefix = "Ссылка на дополнение / DLC",
+            headerTitle = "🎁 Внешние ссылки на Дополнения / DLC (до 3 строк):",
+            itemHintPrefix = "Ссылка на DLC",
             maxRows = 3,
-            addBtnLabel = "➕ Добавить ссылку на дополнение / DLC (до 3 строк)",
+            addBtnLabel = "➕ Добавить строку DLC",
             editList = dlcEditTexts
         )
-        val dlcsCheckBox = makeStormCheckBox(
-            "Скачать и вшить отдельные Дополнения / DLC (до 3 ссылок)",
-            embedCloudDlcsChecked,
-            th
-        ) { checked ->
+        manualLinksWrapper.addView(makeStormCheckBox("Включить свои ссылки на DLC (до 3 ссылок)", embedCloudDlcsChecked, th) { checked ->
             embedCloudDlcsChecked = checked
             dlcsContainer.visibility = if (checked) View.VISIBLE else View.GONE
-        }
-        root.addView(dlcsCheckBox)
-        root.addView(dlcsContainer)
+        })
+        manualLinksWrapper.addView(dlcsContainer)
 
-        val dlcUnlockerCheckBox = makeStormCheckBox(
-            "Вшить DLC UNLOCKER (автоизвлечение и разблокировка всех дополнений в RomFS — авто-режим)",
-            embedDlcUnlockerChecked,
-            th
-        ) { checked ->
-            embedDlcUnlockerChecked = checked
-        }
-        root.addView(dlcUnlockerCheckBox)
+        val (modsContainer, _) = buildDynamicUrlSection(
+            headerTitle = "☁️ Внешние ссылки на Русификаторы и Моды RomFS / ExeFS (до 5 строк):",
+            itemHintPrefix = "Ссылка на русификатор / мод",
+            maxRows = 5,
+            addBtnLabel = "➕ Добавить строку мода / русификатора",
+            editList = modEditTexts
+        )
+        manualLinksWrapper.addView(makeStormCheckBox("Включить свои ссылки на русификатор / мод (до 5 ссылок)", embedCloudModsChecked, th) { checked ->
+            embedCloudModsChecked = checked
+            modsContainer.visibility = if (checked) View.VISIBLE else View.GONE
+        })
+        manualLinksWrapper.addView(modsContainer)
 
         syncUnlockerAutoState = {
             val hasUnlockerInFiles = releaseFiles.any {
@@ -3352,87 +3383,149 @@ class MainActivity : Activity() {
             (dlcUnlockerCheckBox.tag as? (Boolean) -> Unit)?.invoke(shouldBeChecked)
         }
 
-        // Автоматическая подгрузка всех ссылок из темы и обсуждений с датами публикации (по умолчанию чекбоксы отключены)
-        thread {
-            val links = RuTrackerCloudEngine.extractAllTopicAndDiscussionLinks(item)
-            mainHandler.post {
-                discoveredDiscussionLinks.clear()
-                discoveredDiscussionLinks.addAll(links)
-                discussionListLayout.removeAllViews()
-                if (links.isEmpty()) {
-                    discussionSubTv.text = "В теме и обсуждениях внешних облачных ссылок не обнаружено."
-                } else {
-                    fun updateDiscussionSummary() {
-                        val selCount = discoveredDiscussionLinks.count { it.selected }
-                        discussionSubTv.text = "Найдено ссылок: ${discoveredDiscussionLinks.size} (выбрано в обработку: $selCount) • По умолчанию отключены:"
-                    }
-                    updateDiscussionSummary()
-                    discoveredDiscussionLinks.forEach { dLink ->
-                        val isRussianMod = dLink.roleCategory.contains("МОД", ignoreCase = true) ||
-                                           dLink.roleCategory.contains("РУСИФИКАТОР", ignoreCase = true) ||
-                                           dLink.title.contains("RUS", ignoreCase = true) ||
-                                           dLink.title.contains("РУС", ignoreCase = true)
-                        dLink.selected = isRussianMod
-                        val cb = makeStormCheckBox(
-                            "📅 ${dLink.publishedDate} • [${dLink.sourceLocation}]\n[${dLink.roleCategory}] ${dLink.title} (${dLink.provider})",
-                            isRussianMod,
-                            th
-                        ) { checked ->
-                            dLink.selected = checked
-                            updateDiscussionSummary()
-                            syncUnlockerAutoState()
-                        }
-                        discussionListLayout.addView(cb)
-                    }
-                }
-                syncUnlockerAutoState()
-            }
-        }
-
-        // 3. Внешние ссылки на Моды и Русификаторы (до 5 строк — автоизвлечение RomFS / ExeFS / IPS)
-        val modEditTexts = mutableListOf<EditText>()
-        val (modsContainer, _) = buildDynamicUrlSection(
-            headerTitle = "☁️ Ссылки на русификаторы и моды RomFS / ExeFS (до 5 строк — ручной ввод при необходимости):",
-            itemHintPrefix = "Ссылка на русификатор / мод",
-            maxRows = 5,
-            addBtnLabel = "➕ Добавить ссылку на мод / русификатор (до 5 строк)",
-            editList = modEditTexts
-        )
-        val modsCheckBox = makeStormCheckBox(
-            "Указать вручную дополнительные ссылки на русификатор / моды (до 5 ссылок)",
-            embedCloudModsChecked,
-            th
-        ) { checked ->
-            embedCloudModsChecked = checked
-            modsContainer.visibility = if (checked) View.VISIBLE else View.GONE
-        }
-        root.addView(modsCheckBox)
-        root.addView(modsContainer)
-
-        val rtDlgDeleteSourceCheck = makeStormCheckBox(
-            "Удалять исходные файлы после успешной проверки выходного контейнера",
-            deleteRuTrackerSourceAfterSuccess,
-            th
-        ) { checked ->
-            deleteRuTrackerSourceAfterSuccess = checked
-            saveSettings()
-        }
-        root.addView(rtDlgDeleteSourceCheck)
-
-        // Монитор живого процесса загрузки и сборки
-        val processBox = LinearLayout(this).apply {
+        // Сворачиваемый блок NACP и обложки 256x256
+        val dlgRenameBox = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
             background = makeCardDrawable(th.bgPrimary, th.border, 8)
             setPadding(dp(10), dp(8), dp(10), dp(8))
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(6)
+                bottomMargin = dp(8)
+            }
+        }
+        val dlgIconRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(6)
+            }
+        }
+        val dlgIconPreview = ImageView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(dp(56), dp(56)).apply { marginEnd = dp(8) }
+            scaleType = ImageView.ScaleType.FIT_CENTER
+        }
+        fun updateDlgIconPreview() {
+            val badge = iconBadgeOptions.getOrElse(dlgBadgeIndex) { "" }
+            val title = dlgInternalTitle.ifBlank { cleanDefaultTitle }
+            val iconPath = dlgCustomIconPath
+            kotlin.concurrent.thread {
+                try {
+                    val jpegBytes = StormNczEngine.generateSwitchIconJpeg256(iconPath, title, badge)
+                    val bmp = BitmapFactory.decodeByteArray(jpegBytes, 0, jpegBytes.size)
+                    if (bmp != null) {
+                        mainHandler.post { dlgIconPreview.setImageBitmap(bmp) }
+                    }
+                } catch (_: Throwable) {}
+            }
+        }
+        updateDlgIconPreview()
+        dlgIconRow.addView(dlgIconPreview)
+
+        val dlgIconControls = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        dlgIconControls.addView(makeButton("🖼 Сменить иконку (256×256)", th.bgElevated, th.accent) {
+            openCustomIconImagePicker { path ->
+                dlgCustomIconPath = path
+                customIconImagePath = path
+                updateDlgIconPreview()
+            }
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(4)
+            }
+        })
+        dlgIconControls.addView(makeStormDropdown(iconBadgeOptions, dlgBadgeIndex, th) { pos ->
+            dlgBadgeIndex = pos
+            updateDlgIconPreview()
+        })
+        dlgIconRow.addView(dlgIconControls)
+        dlgRenameBox.addView(dlgIconRow)
+
+        dlgRenameBox.addView(TextView(this).apply {
+            text = "Название игры в меню приставки (control.nacp):"
+            setTextColor(th.textSecondary)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.6f)
+        })
+        val dlgTitleEdit = EditText(this).apply {
+            setText(dlgInternalTitle)
+            setTextColor(th.textPrimary)
+            textSize = 11.3f
+            setSingleLine(true)
+            background = makeCardDrawable(th.bgCard, th.border, 6)
+            setPadding(dp(8), dp(5), dp(8), dp(5))
+            addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                override fun afterTextChanged(s: android.text.Editable?) {
+                    dlgInternalTitle = s?.toString() ?: ""
+                    updateDlgIconPreview()
+                }
+            })
+        }
+        dlgRenameBox.addView(dlgTitleEdit)
+
+        dlgRenameBox.addView(TextView(this).apply {
+            text = "Имя итогового выходного файла:"
+            setTextColor(th.textSecondary)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.6f)
+            setPadding(0, dp(4), 0, 0)
+        })
+        dlgOutNameEdit = EditText(this).apply {
+            setText(dlgOutputFileName)
+            setTextColor(th.textPrimary)
+            textSize = 11.3f
+            setSingleLine(true)
+            background = makeCardDrawable(th.bgCard, th.border, 6)
+            setPadding(dp(8), dp(5), dp(8), dp(5))
+            addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                override fun afterTextChanged(s: android.text.Editable?) {
+                    dlgOutputFileName = s?.toString() ?: ""
+                }
+            })
+        }
+        dlgRenameBox.addView(dlgOutNameEdit)
+
+        val advButtonsRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(6)
+            }
+        }
+        advButtonsRow.addView(makeButton("➕ Свои ссылки (Патч/Мод) ▼", th.bgElevated, th.textPrimary) {
+            manualLinksWrapper.visibility = if (manualLinksWrapper.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(4) }
+        })
+        advButtonsRow.addView(makeButton("✏️ Имя и обложка (NACP) ▼", th.bgElevated, th.textPrimary) {
+            dlgRenameBox.visibility = if (dlgRenameBox.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        })
+        root.addView(advButtonsRow)
+        root.addView(manualLinksWrapper)
+        root.addView(dlgRenameBox)
+
+        // =========================================================================
+        // НИЖНЯЯ ЗАКРЕПЛЁННАЯ ПАНЕЛЬ (ВНЕ SCROLLVIEW — ВСЕГДА НА ВИДУ!):
+        // Прогресс-бар + Кнопка «🚀 Скачать и собрать» + Кнопка «⏹ Отменить задачу» + «✖ Закрыть»
+        // =========================================================================
+        val processBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = makeCardDrawable(th.bgPrimary, th.border, 8)
+            setPadding(dp(10), dp(7), dp(10), dp(7))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(8)
             }
         }
 
         val stageHeaderTxt = TextView(this).apply {
-            text = "⏳ Ожидание запуска конвейера загрузки и сборки..."
+            text = "⏳ Готов к загрузке и сборке (внешние моды по умолчанию выключены)"
             setTextColor(th.accent)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.4f)
             typeface = Typeface.DEFAULT_BOLD
         }
         processBox.addView(stageHeaderTxt)
@@ -3440,33 +3533,36 @@ class MainActivity : Activity() {
         val progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
             max = 100
             progress = 0
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(14)).apply {
-                topMargin = dp(6)
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(12)).apply {
+                topMargin = dp(4)
                 bottomMargin = dp(4)
             }
         }
         processBox.addView(progressBar)
 
         val statusTxt = TextView(this).apply {
-            text = "Готов к автоматической загрузке и сборке в ${customOutputDir.name}/"
+            text = "Выходная папка: ${customOutputDir.name}/ • Нажмите «🚀 Скачать и собрать»"
             setTextColor(th.textPrimary)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.8f)
         }
         processBox.addView(statusTxt)
 
         val liveStepLogTxt = TextView(this).apply {
-            text = "• Нажмите «🚀 Скачать и собрать Мульти-контент» для старта"
+            text = ""
+            visibility = View.GONE
             setTextColor(th.textSecondary)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.8f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.0f)
             typeface = Typeface.MONOSPACE
-            setPadding(0, dp(6), 0, 0)
+            maxLines = 4
+            setPadding(0, dp(3), 0, 0)
         }
         processBox.addView(liveStepLogTxt)
-        root.addView(processBox)
+        card.addView(processBox)
 
         val btnRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.END
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         }
 
         val dlg = showImmersiveDialog(
@@ -3474,18 +3570,6 @@ class MainActivity : Activity() {
                 .setView(makeUnclippedDialogContainer(card))
                 .setCancelable(true)
         )
-
-        val closeBtn = makeButton("Закрыть", th.bgElevated, th.textPrimary) {
-            if (isRunningPipeline) {
-                cancelPipeline = true
-            }
-            dlg.dismiss()
-        }.apply {
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                marginEnd = dp(8)
-            }
-        }
-        btnRow.addView(closeBtn)
 
         fun triggerPipelineExecution() {
             if (isRunningPipeline) return
@@ -3496,6 +3580,7 @@ class MainActivity : Activity() {
             }
             isRunningPipeline = true
             cancelPipeline = false
+            liveStepLogTxt.visibility = View.VISIBLE
 
             val discUpdateUrls = discoveredDiscussionLinks.filter {
                 it.selected && (it.roleCategory.contains("ОБНОВЛ", ignoreCase = true) || it.roleCategory.contains("UPDATE", ignoreCase = true) || it.roleCategory.contains("ПАТЧ", ignoreCase = true))
@@ -3564,7 +3649,7 @@ class MainActivity : Activity() {
                                 stageHeaderTxt.text = "$stageTitle ($pct%)"
                                 statusTxt.text = detailText
                                 if (stepLines.isNotEmpty()) {
-                                    liveStepLogTxt.text = stepLines.joinToString("\n")
+                                    liveStepLogTxt.text = stepLines.takeLast(4).joinToString("\n")
                                 }
                             }
                         }
@@ -3582,10 +3667,10 @@ class MainActivity : Activity() {
                         Toast.makeText(this, "Готово: ${outFile.name} (${StormNczEngine.formatSize(res.compressedBytes)})", Toast.LENGTH_LONG).show()
                     }
                 } catch (e: Exception) {
-                    appendLog("❌ Ошибка авто-сборки: ${e.message}")
+                    appendLog("❌ Ошибка/отмена авто-сборки: ${e.message}")
                     mainHandler.post {
-                        stageHeaderTxt.text = "❌ Операция прервана"
-                        statusTxt.text = "❌ Ошибка: ${e.message}"
+                        stageHeaderTxt.text = if (cancelPipeline) "⏹ Задача отменена пользователем" else "❌ Операция прервана"
+                        statusTxt.text = if (cancelPipeline) "⏹ Выполнение остановлено по запросу пользователя." else "❌ Ошибка: ${e.message}"
                     }
                 } finally {
                     isRunningPipeline = false
@@ -3593,10 +3678,36 @@ class MainActivity : Activity() {
             }
         }
 
-        val startBtn = makeButton("🚀 Скачать и собрать Мульти-контент", th.accent) {
+        val startBtn = makeButton("🚀 Скачать и собрать", th.accent) {
             triggerPipelineExecution()
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.15f).apply {
+                marginEnd = dp(6)
+            }
         }
         btnRow.addView(startBtn)
+
+        // ВСЕГДА ВИДИМАЯ КНОПКА ОТМЕНЫ ЗАДАЧИ!
+        val cancelTaskBtn = makeButton("⏹ Отменить задачу", Color.parseColor("#DC2626")) {
+            cancelPipeline = true
+            cancelCurrentTaskRequested = true
+            stageHeaderTxt.text = "⏹ Задача отменена пользователем"
+            statusTxt.text = "⏹ Остановка загрузки и сборки..."
+            Toast.makeText(this, "⏹ Задача отменена", Toast.LENGTH_SHORT).show()
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginEnd = dp(6)
+            }
+        }
+        btnRow.addView(cancelTaskBtn)
+
+        val closeBtn = makeButton("✖ Закрыть", th.bgElevated, th.textPrimary) {
+            if (isRunningPipeline) {
+                cancelPipeline = true
+            }
+            dlg.dismiss()
+        }
+        btnRow.addView(closeBtn)
         card.addView(btnRow)
 
         if (autoStartMagnet) {
@@ -3604,8 +3715,7 @@ class MainActivity : Activity() {
         }
     }
 
-
-    // =========================================================================
+// =========================================================================
     // ВКЛАДКА 5: ПОЛНАЯ ИНСТРУКЦИЯ И БАЗА ЗНАНИЙ (24 РАЗДЕЛА ПК-ВЕРСИИ + СИМУЛЯТОР)
     // =========================================================================
 
@@ -4244,6 +4354,7 @@ class MainActivity : Activity() {
         build3dsFbiQrInstallCard(parent, th, ip)
         buildFtpConsoleSenderCard(parent, th, ip)
     }
+
 
     // =========================================================================
     // ВКЛАДКА 4: КЛЮЧИ (КАК В STORM SWITCH), АВТООБНОВЛЕНИЕ И ПАРАМЕТРЫ

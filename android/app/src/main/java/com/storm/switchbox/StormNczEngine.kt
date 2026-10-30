@@ -3929,6 +3929,29 @@ object StormNczEngine {
 
             // Полноценный потоковый Hard-Patching (Base + BKTR/Full Update + Mod RomFS/ExeFS -> единый автономный Program NCA 0x4000)
             val baseTidPrefix13 = primaryTid.take(13)
+            // Защита от дублирования базовых Program NCA (чтобы в один контейнер никогда не упаковались 2 копии игры > 2 ГБ)
+            val allBaseProgKeys = collected.keys.filter { k ->
+                ncaContentTypeMap[k] == 0 &&
+                (ncaTitleIdMap[k]?.endsWith("000") == true) &&
+                ncaHasBktrMap[k] != true
+            }
+            if (allBaseProgKeys.size > 1) {
+                val keepProgKey = allBaseProgKeys.first()
+                val keepParent = collected[keepProgKey]?.parentFile
+                val dupKeys = collected.keys.filter { k ->
+                    k != keepProgKey &&
+                    collected[k]?.parentFile != keepParent &&
+                    (ncaTitleIdMap[k]?.startsWith(baseTidPrefix13) == true && ncaTitleIdMap[k]?.endsWith("000") == true)
+                }
+                for (dk in dupKeys) {
+                    collected.remove(dk)
+                    ncaSortPriorityMap.remove(dk)
+                    ncaContentTypeMap.remove(dk)
+                    ncaTitleIdMap.remove(dk)
+                    ncaRightsIdMap.remove(dk)
+                    ncaHasBktrMap.remove(dk)
+                }
+            }
             val baseProgEntry = collected.entries.firstOrNull { (k, _) ->
                 ncaContentTypeMap[k] == 0 &&
                 (ncaTitleIdMap[k]?.endsWith("000") == true) &&
@@ -7099,6 +7122,14 @@ object StormNczEngine {
                 return
             } catch (_: Throwable) {}
         }
+        try {
+            val romsFolder = File("/storage/emulated/0/STORM SWITCH BOX/roms")
+            romsFolder.listFiles()?.forEach { rf ->
+                if (rf.isFile && rf.name.startsWith("MOD_[", ignoreCase = true)) {
+                    rf.delete()
+                }
+            }
+        } catch (_: Throwable) {}
     }
 
     fun isPoisonedStubMainFile(file: File): Boolean {

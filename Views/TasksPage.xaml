@@ -315,14 +315,12 @@
                                     </Button>
 
                                     <Button Click="CancelTask_Click" Tag="{Binding}" VerticalAlignment="Center"
-                                            Visibility="{Binding IsRunning, Mode=OneWay}"
                                             Padding="4,2" MinHeight="0" MinWidth="0" Background="Transparent" BorderThickness="0" 
                                             ToolTipService.ToolTip="Отменить задачу">
-                                        <FontIcon Glyph="&#xE71A;" FontSize="12" Foreground="#F59E0B"/>
+                                        <FontIcon Glyph="&#xE71A;" FontSize="12" Foreground="#EF4444"/>
                                     </Button>
 
                                     <Button Click="DeleteTask_Click" Tag="{Binding}" VerticalAlignment="Center"
-                                            Visibility="{Binding IsNotRunning, Mode=OneWay}"
                                             Padding="4,2" MinHeight="0" MinWidth="0" Background="Transparent" BorderThickness="0" 
                                             ToolTipService.ToolTip="Удалить задачу">
                                         <FontIcon Glyph="&#xE74D;" FontSize="12" Foreground="IndianRed"/>
@@ -528,13 +526,19 @@
                         </controls:DataGridTemplateColumn.CellTemplate>
                     </controls:DataGridTemplateColumn>
 
-                    <controls:DataGridTemplateColumn Width="45" MinWidth="40">
+                    <controls:DataGridTemplateColumn Width="72" MinWidth="60">
                         <controls:DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
-                                <Button Click="DeleteTask_Click" Tag="{Binding}" VerticalAlignment="Center" HorizontalAlignment="Center"
-                                        Padding="4,2" MinHeight="0" MinWidth="0" Background="Transparent" BorderThickness="0" ToolTipService.ToolTip="Удалить задачу">
-                                    <FontIcon Glyph="&#xE74D;" FontSize="12" Foreground="IndianRed"/>
-                                </Button>
+                                <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" HorizontalAlignment="Center">
+                                    <Button Click="CancelTask_Click" Tag="{Binding}" VerticalAlignment="Center"
+                                            Padding="4,2" MinHeight="0" MinWidth="0" Background="Transparent" BorderThickness="0" ToolTipService.ToolTip="Отменить задачу">
+                                        <FontIcon Glyph="&#xE71A;" FontSize="12" Foreground="#EF4444"/>
+                                    </Button>
+                                    <Button Click="DeleteTask_Click" Tag="{Binding}" VerticalAlignment="Center"
+                                            Padding="4,2" MinHeight="0" MinWidth="0" Background="Transparent" BorderThickness="0" ToolTipService.ToolTip="Удалить задачу">
+                                        <FontIcon Glyph="&#xE74D;" FontSize="12" Foreground="IndianRed"/>
+                                    </Button>
+                                </StackPanel>
                             </DataTemplate>
                         </controls:DataGridTemplateColumn.CellTemplate>
                     </controls:DataGridTemplateColumn>
@@ -698,13 +702,19 @@
                         </controls:DataGridTemplateColumn.CellTemplate>
                     </controls:DataGridTemplateColumn>
 
-                    <controls:DataGridTemplateColumn Width="45" MinWidth="40">
+                    <controls:DataGridTemplateColumn Width="72" MinWidth="60">
                         <controls:DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
-                                <Button Click="DeleteTask_Click" Tag="{Binding}" VerticalAlignment="Center" HorizontalAlignment="Center"
-                                        Padding="4,2" MinHeight="0" MinWidth="0" Background="Transparent" BorderThickness="0" ToolTipService.ToolTip="Удалить задачу">
-                                    <FontIcon Glyph="&#xE74D;" FontSize="12" Foreground="IndianRed"/>
-                                </Button>
+                                <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" HorizontalAlignment="Center">
+                                    <Button Click="CancelTask_Click" Tag="{Binding}" VerticalAlignment="Center"
+                                            Padding="4,2" MinHeight="0" MinWidth="0" Background="Transparent" BorderThickness="0" ToolTipService.ToolTip="Отменить задачу">
+                                        <FontIcon Glyph="&#xE71A;" FontSize="12" Foreground="#EF4444"/>
+                                    </Button>
+                                    <Button Click="DeleteTask_Click" Tag="{Binding}" VerticalAlignment="Center"
+                                            Padding="4,2" MinHeight="0" MinWidth="0" Background="Transparent" BorderThickness="0" ToolTipService.ToolTip="Удалить задачу">
+                                        <FontIcon Glyph="&#xE74D;" FontSize="12" Foreground="IndianRed"/>
+                                    </Button>
+                                </StackPanel>
                             </DataTemplate>
                         </controls:DataGridTemplateColumn.CellTemplate>
                     </controls:DataGridTemplateColumn>

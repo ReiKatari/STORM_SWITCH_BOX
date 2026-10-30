@@ -310,8 +310,7 @@ namespace StormSwitchBox.Views.Dialogs
             {
                 if (topic.ExtractedModLinks != null && topic.ExtractedModLinks.Count > 0)
                 {
-                    AppendCloudModLinks(topic.ExtractedModLinks.Select(m => m.Url));
-                    ModLinksHintText.Text = $"Найдено ссылок в теме: {topic.ExtractedModLinks.Count}";
+                    PopulateDiscussionLinks(topic.ExtractedModLinks);
                 }
 
                 // 1. Детальный парсинг темы (извлекает Magnet, InfoHash и ссылки на Яндекс.Диск / Google Drive / GitHub из шапки)
@@ -486,7 +485,9 @@ namespace StormSwitchBox.Views.Dialogs
             try
             {
                 _downloadCts?.Cancel();
-                StatusText.Text = "Остановка загрузки...";
+                StatusText.Text = "⏹ Задача отменена пользователем.";
+                SpeedPeersText.Text = "";
+                DownloadProgressBar.Value = 0;
             }
             catch { }
         }
@@ -786,7 +787,7 @@ namespace StormSwitchBox.Views.Dialogs
             StartFullDownloadBtn.IsEnabled = !busy;
             DownloadOnlyModsBtn.IsEnabled = !busy;
             SearchBtn.IsEnabled = !busy;
-            CancelDownloadBtn.IsEnabled = busy;
+            CancelDownloadBtn.IsEnabled = true;
         }
 
         private static string SanitizeFolderName(string name)

@@ -264,40 +264,46 @@
 
                         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
                             <StackPanel Spacing="6">
-                                <ListView x:Name="DiscussionLinksListView" SelectionMode="None" MaxHeight="125" Background="#0DFFFFFF" CornerRadius="6">
+                                <ListView x:Name="DiscussionLinksListView" SelectionMode="None" MaxHeight="195" Background="#0DFFFFFF" CornerRadius="6">
                                     <ListView.ItemTemplate>
                                         <DataTemplate>
-                                            <Grid Padding="4,2" ColumnSpacing="8">
+                                            <Grid Padding="6,4" ColumnSpacing="8">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="Auto"/>
                                                     <ColumnDefinition Width="*"/>
                                                     <ColumnDefinition Width="Auto"/>
-                                                    <ColumnDefinition Width="Auto"/>
                                                 </Grid.ColumnDefinitions>
-                                                <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected, Mode=TwoWay}" MinWidth="0"/>
-                                                <TextBlock Grid.Column="1" Text="{Binding Title}" FontSize="11" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
-                                                           ToolTipService.ToolTip="{Binding Url}"/>
-                                                <Border Grid.Column="2" Background="#1E293B" CornerRadius="4" Padding="6,1" VerticalAlignment="Center">
-                                                    <TextBlock Text="{Binding RoleCategory}" FontSize="10" Foreground="#38BDF8"/>
+                                                <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected, Mode=TwoWay}" MinWidth="0" VerticalAlignment="Center"/>
+                                                <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding Title}" FontSize="11.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
+                                                               ToolTipService.ToolTip="{Binding Url}"/>
+                                                    <TextBlock Text="{Binding Url}" FontSize="10" Foreground="#38BDF8" FontFamily="Consolas" TextTrimming="CharacterEllipsis"/>
+                                                    <TextBlock Text="{Binding DisplayMeta}" FontSize="10" Foreground="#94A3B8" TextTrimming="CharacterEllipsis"/>
+                                                </StackPanel>
+                                                <Border Grid.Column="2" Background="#1E293B" CornerRadius="4" Padding="6,2" VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding RoleCategory}" FontSize="10" Foreground="#38BDF8" FontWeight="SemiBold"/>
                                                 </Border>
-                                                <TextBlock Grid.Column="3" Text="{Binding DisplayMeta}" FontSize="10" Foreground="#94A3B8" VerticalAlignment="Center"/>
                                             </Grid>
                                         </DataTemplate>
                                     </ListView.ItemTemplate>
                                 </ListView>
-                                <TextBox x:Name="CloudUpdateLinksBox" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="52"
-                                         FontSize="11" CornerRadius="6"
-                                         Header="🔄 Ручной ввод ссылок на Обновление / Update (до 3 строк — файл или архив .zip/.7z/.rar):"
-                                         PlaceholderText="До 3 ссылок (по одной на строку) на скачивание обновления игры..."/>
-                                <TextBox x:Name="CloudDlcLinksBox" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="52"
-                                         FontSize="11" CornerRadius="6"
-                                         TextChanged="CloudDlcLinksBox_TextChanged"
-                                         Header="🎁 Ручной ввод ссылок на Дополнения / DLC и UNLOCKER (до 3 строк — файлы или архивы):"
-                                         PlaceholderText="До 3 ссылок (по одной на строку) на скачивание DLC или архива с дополнениями / Unlocker..."/>
-                                <TextBox x:Name="CloudModLinksBox" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="64"
-                                         FontSize="11" CornerRadius="6"
-                                         Header="🎭 Ручной ввод ссылок на Русификаторы и Моды RomFS / ExeFS (до 5 строк):"
-                                         PlaceholderText="До 5 ссылок (по одной на строку) на Яндекс.Диск, Google Drive, Mega, GitHub Releases..."/>
+                                <Expander Header="➕ Ручной ввод своих облачных ссылок (Обновления / DLC / Моды)" IsExpanded="False" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                                    <StackPanel Spacing="6">
+                                        <TextBox x:Name="CloudUpdateLinksBox" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="52"
+                                                 FontSize="11" CornerRadius="6"
+                                                 Header="🔄 Ручной ввод ссылок на Обновление / Update (до 3 строк — файл или архив .zip/.7z/.rar):"
+                                                 PlaceholderText="До 3 ссылок (по одной на строку) на скачивание обновления игры..."/>
+                                        <TextBox x:Name="CloudDlcLinksBox" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="52"
+                                                 FontSize="11" CornerRadius="6"
+                                                 TextChanged="CloudDlcLinksBox_TextChanged"
+                                                 Header="🎁 Ручной ввод ссылок на Дополнения / DLC и UNLOCKER (до 3 строк — файлы или архивы):"
+                                                 PlaceholderText="До 3 ссылок (по одной на строку) на скачивание DLC или архива с дополнениями / Unlocker..."/>
+                                        <TextBox x:Name="CloudModLinksBox" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="64"
+                                                 FontSize="11" CornerRadius="6"
+                                                 Header="🎭 Ручной ввод ссылок на Русификаторы и Моды RomFS / ExeFS (до 5 строк):"
+                                                 PlaceholderText="До 5 ссылок (по одной на строку) на Яндекс.Диск, Google Drive, Mega, GitHub Releases..."/>
+                                    </StackPanel>
+                                </Expander>
                             </StackPanel>
                         </ScrollViewer>
 
@@ -356,8 +362,8 @@
             <Button x:Name="OpenTopicBrowserBtn" Grid.Column="0" Content="🌍 Открыть тему в браузере" Click="OpenTopicInBrowser_Click"
                     HorizontalAlignment="Left" CornerRadius="6" Padding="12,7"/>
 
-            <Button x:Name="CancelDownloadBtn" Grid.Column="2" Content="⏹ Остановить" Click="CancelDownload_Click"
-                    IsEnabled="False" CornerRadius="6" Padding="12,7"/>
+            <Button x:Name="CancelDownloadBtn" Grid.Column="2" Content="⏹ Отменить задачу" Click="CancelDownload_Click"
+                    IsEnabled="True" Background="#DC2626" Foreground="White" FontWeight="SemiBold" CornerRadius="6" Padding="12,7"/>
 
             <Button x:Name="DownloadOnlyModsBtn" Grid.Column="3" Content="☁ Скачать только моды и привязать" Click="DownloadOnlyCloudMods_Click"
                     Background="#7C3AED" Foreground="White" FontWeight="SemiBold" CornerRadius="6" Padding="12,7"/>
