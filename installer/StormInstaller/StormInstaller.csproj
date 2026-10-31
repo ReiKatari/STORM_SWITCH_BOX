@@ -13,9 +13,9 @@
     <RootNamespace>StormSwitchBox.Installer</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <Version>6.7.0</Version>
-    <AssemblyVersion>6.7.0.0</AssemblyVersion>
-    <FileVersion>6.7.0.0</FileVersion>
+    <Version>6.7.1</Version>
+    <AssemblyVersion>6.7.1.0</AssemblyVersion>
+    <FileVersion>6.7.1.0</FileVersion>
     <Product>STORM SWITCH BOX</Product>
     <Company>STORM TEAM</Company>
     <Copyright>Copyright © 2026 STORM TEAM. All rights reserved.</Copyright>
