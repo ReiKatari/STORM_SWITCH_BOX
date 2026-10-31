@@ -68,7 +68,8 @@ object RuTrackerCloudEngine {
         val roleBadge: String,
         val sizeBytes: Long,
         val titleId: String,
-        var selected: Boolean = true
+        var selected: Boolean = true,
+        val isRealTorrentFile: Boolean = false
     ) {
         val isMod: Boolean get() = roleBadge.contains("MOD", ignoreCase = true) ||
             roleBadge.contains("РУС", ignoreCase = true) ||
@@ -194,11 +195,10 @@ object RuTrackerCloudEngine {
                     val dm = activity.resources.displayMetrics
                     val w = (360 * dm.density).toInt()
                     val h = (260 * dm.density).toInt()
-                    val off = (2000 * dm.density)
-                    layoutParams = android.widget.FrameLayout.LayoutParams(w, h).apply {
-                        translationX = -off
-                    }
+                    layoutParams = android.widget.FrameLayout.LayoutParams(w, h)
                     alpha = 0.01f
+                    isClickable = false
+                    isFocusable = false
                     visibility = android.view.View.VISIBLE
                     setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
                     onResume()
@@ -223,7 +223,7 @@ object RuTrackerCloudEngine {
                     }
                 }
                 val decor = activity.window?.decorView as? android.view.ViewGroup
-                decor?.addView(wv)
+                decor?.addView(wv, 0)
                 persistentBackgroundWv = wv
                 return wv
             } catch (e: Throwable) {
@@ -323,6 +323,25 @@ object RuTrackerCloudEngine {
     @Volatile
     private var isWarmingUpCloudflare = false
 
+    fun probeMirrorReachable(mirrorUrl: String, timeoutMs: Int = 2000): Boolean {
+        var conn: HttpURLConnection? = null
+        return try {
+            val url = URL("$mirrorUrl/forum/index.php")
+            conn = url.openConnection() as HttpURLConnection
+            conn.connectTimeout = timeoutMs
+            conn.readTimeout = timeoutMs
+            conn.instanceFollowRedirects = false
+            conn.requestMethod = "HEAD"
+            conn.setRequestProperty("User-Agent", activeBrowserUserAgent)
+            val code = conn.responseCode
+            code in 100..599
+        } catch (_: Throwable) {
+            false
+        } finally {
+            try { conn?.disconnect() } catch (_: Throwable) {}
+        }
+    }
+
     fun warmupCloudflareSessionAsync() {
         if (isWarmingUpCloudflare) return
         isWarmingUpCloudflare = true
@@ -332,8 +351,9 @@ object RuTrackerCloudEngine {
                 if (act != null) {
                     act.runOnUiThread { ensureBackgroundWebViewAttached(act) }
                 }
-                val mirrors = listOf(activeWorkingMirror, "https://rutracker.org", "https://rutracker.net")
+                val candidateMirrors = listOf(activeWorkingMirror, "https://rutracker.org", "https://rutracker.net")
                     .distinct().filter { !it.contains("rutracker.nl") }
+                val mirrors = candidateMirrors.filter { probeMirrorReachable(it, timeoutMs = 2000) }
 
                 for (m in mirrors) {
                     val forumUrl = "$m/forum/viewforum.php?f=1605"
@@ -466,6 +486,7 @@ object RuTrackerCloudEngine {
                     }
                 }
                 wv.loadUrl(targetUrl)
+                poller?.let { handler.postDelayed(it, 800) }
             }
 
             try { latch.await((timeoutSec + 2).toLong(), java.util.concurrent.TimeUnit.SECONDS) } catch (_: InterruptedException) {}
@@ -2991,11 +3012,17 @@ object RuTrackerCloudEngine {
         if (!isRealTopic) return TopicDiscussionResult(emptyList())
 
         val workingMirror = if (activeWorkingMirror.isNotBlank()) activeWorkingMirror else "https://rutracker.org"
-        val mirrors = listOf(
+        val candidateMirrors = listOf(
             workingMirror,
             "https://rutracker.org",
             "https://rutracker.net"
         ).distinct().filter { !it.contains("rutracker.nl") }
+
+        val mirrors = candidateMirrors.filter { probeMirrorReachable(it, timeoutMs = 2000) }
+        if (mirrors.isEmpty()) {
+            Log.w("RuTrackerCloudEngine", "Все зеркала RuTracker недоступны (блокировка ТСПУ без VPN)")
+            return TopicDiscussionResult(emptyList())
+        }
 
         var passedCf = false
         var cfNeeded = false
@@ -3377,7 +3404,8 @@ object RuTrackerCloudEngine {
                     roleBadge = role,
                     sizeBytes = size,
                     titleId = tidInName ?: if (role == "ПАТЧ") updTid else baseTid,
-                    selected = true
+                    selected = true,
+                    isRealTorrentFile = true
                 )
             }
             if (list.isNotEmpty()) return list
@@ -3516,7 +3544,7 @@ object RuTrackerCloudEngine {
         }
 
         val urls = listOf(
-            "http://itorrents.org/torrent/$hash.torrent",
+            "https://itorrents.org/torrent/$hash.torrent",
             "https://torrage.info/torrent.php?h=$hash"
         )
         for (u in urls) {
@@ -3643,7 +3671,8 @@ object RuTrackerCloudEngine {
             }
             val wantedIdx = priorities.indices.filter { priorities[it] != org.libtorrent4j.Priority.IGNORE }
             if (wantedIdx.isEmpty()) {
-                return TorrentDownloadResult(emptyList(), "В раздаче «${ti.name()}» нет файлов .nsp/.nsz/.xci/.xcz (всего файлов: ${fileList.size})", ti.name(), hashHex)
+                val sampleNames = fileList.take(3).joinToString { File(it.first).name }
+                return TorrentDownloadResult(emptyList(), "В раздаче «${ti.name()}» не выбраны файлы или нет файлов Switch/архивов (файлы в раздаче: $sampleNames, всего: ${fileList.size})", ti.name(), hashHex)
             }
             val wantedBytes = wantedIdx.sumOf { fileList[it].second }
             onStatus("Раздача «${ti.name()}»: выбрано ${wantedIdx.size} из ${fileList.size} файлов (${StormNczEngine.formatSize(wantedBytes)})")
@@ -3886,8 +3915,14 @@ object RuTrackerCloudEngine {
         if (isCancelled()) throw InterruptedException("Операция отменена пользователем")
         report(5, "Этап 1/5: Подключение к раздаче RuTracker #1605", "Проверка по API RuTracker #1605...", "🔎 [Этап 1/5] Подключение к раздаче RuTracker #1605 (t=${topic.topicId})...")
         val torrentCandidates = resolveRealTorrentCandidates(topic, cleanGameName, baseTid, acquisitionReasons)
-        val wantedRoles = allReleaseFiles.map { it.roleBadge.uppercase() }.toSet()
-        val selectedFileNames = allReleaseFiles.filter { it.selected }.map { it.fileName.lowercase() }.toSet()
+        val checkedItems = allReleaseFiles.filter { it.selected }
+        if (checkedItems.isEmpty()) {
+            throw IllegalArgumentException("Ни один файл раздачи не отмечен галочкой в блоке «1. Состав раздачи»")
+        }
+        val hasRealSelection = allReleaseFiles.any { it.isRealTorrentFile }
+        val wantedRoles = checkedItems.map { it.roleBadge.uppercase() }.toSet()
+        val selectedRealNames = if (hasRealSelection) checkedItems.filter { it.isRealTorrentFile }.map { File(it.fileName).name.lowercase() }.toSet() else emptySet()
+
         for (cand in torrentCandidates.take(2)) {
             if (isCancelled()) throw InterruptedException("Операция отменена пользователем")
             stepLogs.add("🧲 Раздача: ${cand.source} • BTIH ${cand.infoHash} • сидов: ${if (cand.seeds > 0) cand.seeds.toString() else "нет данных"} • ${cand.title.take(90)}")
@@ -3897,9 +3932,16 @@ object RuTrackerCloudEngine {
                 isCancelled = isCancelled,
                 acceptMetadata = { name, files -> if (cand.trustedTopic) null else checkTorrentMatchesGame(name, files, cleanGameName, baseTid) },
                 wantFile = { path, _ ->
-                    val fn = File(path).name.lowercase()
-                    val matchesSel = selectedFileNames.isEmpty() || selectedFileNames.any { fn == it || fn.contains(it) || it.contains(fn) }
-                    matchesSel && isWantedTorrentFile(path, wantedRoles)
+                    val ext = path.substringAfterLast('.', "").lowercase()
+                    val isSupportedExt = ext in setOf("nsp", "nsz", "xci", "xcz", "zip", "rar", "7z")
+                    if (!isSupportedExt) return@downloadTorrentWithDiagnostics false
+                    if (hasRealSelection) {
+                        val fn = File(path).name.lowercase()
+                        fn in selectedRealNames || selectedRealNames.any { path.replace('\\', '/').lowercase().endsWith(it) }
+                    } else {
+                        val allChecked = allReleaseFiles.all { it.selected }
+                        allChecked || isWantedTorrentFile(path, wantedRoles)
+                    }
                 },
                 onStatus = { st -> report(6, "Этап 1/5: BitTorrent P2P", st) }
             ) { dlBytes, totalBytes, speedMbSec, peers, seeds ->
@@ -3910,61 +3952,78 @@ object RuTrackerCloudEngine {
                         "${StormNczEngine.formatSize(dlBytes)} / ${StormNczEngine.formatSize(totalBytes)} • ${String.format(java.util.Locale("ru", "RU"), "%.1f МБ/с", speedMbSec)} • пиров: $peers • сидов: $seeds"
                     )
                 }
-                if (isCancelled()) throw InterruptedException("Операция отменена пользователем")
-                if (tr.failureReason != null) {
-                    acquisitionReasons.add("BitTorrent (${cand.source}, BTIH ${cand.infoHash.take(10)}…): ${tr.failureReason}")
-                    stepLogs.add("❌ ${tr.failureReason}")
-                    continue
-                }
-                val genuine = tr.files.filter { StormNczEngine.isGenuineSwitchContainer(it) }
-                if (genuine.isEmpty()) {
-                    acquisitionReasons.add("BitTorrent (${cand.source}): в раздаче «${tr.torrentName}» нет подлинных контейнеров .nsp/.nsz/.xci/.xcz")
-                    continue
-                }
-                val infos = genuine.map { it to StormNczEngine.analyzeQueuedFile(it) }
-                var chosen = infos.filter { (_, info) -> info.baseTitleId.take(13).equals(baseTid.take(13), ignoreCase = true) }.map { it.first }
-                if (chosen.isEmpty()) {
-                    // Реальный TitleID берём из содержимого раздачи (имя игры уже проверено по метаданным)
-                    val realBase = infos.firstOrNull { (_, i) -> i.roleBadge == "БАЗА" || i.subComponents.any { it.roleBadge == "БАЗА" } }?.second?.baseTitleId
-                    if (realBase != null && realBase.length == 16) {
-                        val normalized = StormNczEngine.normalizeBaseTitleId(realBase).ifEmpty { realBase.uppercase() }
-                        stepLogs.add("⚠️ TitleID уточнён по содержимому раздачи: $baseTid → $normalized")
-                        baseTid = normalized
-                        chosen = infos.filter { (_, i) -> i.baseTitleId.take(13).equals(baseTid.take(13), ignoreCase = true) }.map { it.first }
-                    }
-                }
-                if (chosen.isEmpty()) {
-                    acquisitionReasons.add("BitTorrent (${cand.source}): скачанные файлы не относятся к игре «$cleanGameName» (TitleID: ${infos.joinToString { it.second.baseTitleId }})")
-                    continue
-                }
-                for (tf in chosen) {
-                    downloadedFiles.add(tf)
-                    stepLogs.add("✅ Скачан файл раздачи: ${tf.name} (${StormNczEngine.formatSize(tf.length())})")
-                }
-                val downloadedArchives = tr.files.filter { it.extension.lowercase() in setOf("zip", "rar", "7z") }
-                for (arch in downloadedArchives) {
-                    stepLogs.add("📦 Распаковка архива мода/русификатора из состава торрента: ${arch.name}...")
-                    try {
-                        val extractedDir = File(modsRootDir, "TORRENT_MOD_${arch.nameWithoutExtension}")
-                        extractedDir.mkdirs()
-                        StormNczEngine.extractArchiveSafe(arch) { entryPath, stream ->
-                            val cleanRel = entryPath.replace('\\', '/').trimStart('/')
-                            val fName = cleanRel.substringAfterLast('/')
-                            if (!cleanRel.contains("__MACOSX") && !StormNczEngine.isJunkOrReadmeFile(fName)) {
-                                val dest = File(extractedDir, cleanRel)
-                                dest.parentFile?.mkdirs()
-                                FileOutputStream(dest).use { fos -> stream.copyTo(fos) }
-                            }
-                        }
-                        downloadedModFiles.add(extractedDir)
-                        stepLogs.add("✅ Мод из состава торрента успешно распакован: ${arch.name}")
-                    } catch (e: Exception) {
-                        stepLogs.add("⚠️ Ошибка распаковки архива мода ${arch.name}: ${e.message}")
-                    }
-                }
-                break
+            if (isCancelled()) throw InterruptedException("Операция отменена пользователем")
+            if (tr.failureReason != null) {
+                acquisitionReasons.add("BitTorrent (${cand.source}, BTIH ${cand.infoHash.take(10)}…): ${tr.failureReason}")
+                stepLogs.add("❌ ${tr.failureReason}")
+                continue
             }
 
+            val allCandidateFiles = tr.files.toMutableList()
+            val downloadedArchives = tr.files.filter { it.extension.lowercase() in setOf("zip", "rar", "7z") }
+            for (arch in downloadedArchives) {
+                stepLogs.add("📦 Распаковка архива из состава торрента: ${arch.name}...")
+                try {
+                    val extractedDir = File(modsRootDir, "TORRENT_ARCH_${arch.nameWithoutExtension}")
+                    extractedDir.mkdirs()
+                    val extractedGameFiles = mutableListOf<File>()
+                    var hasAtmosphereMod = false
+
+                    StormNczEngine.extractArchiveSafe(arch) { entryPath, stream ->
+                        val cleanRel = entryPath.replace('\\', '/').trimStart('/')
+                        val fName = cleanRel.substringAfterLast('/')
+                        if (!cleanRel.contains("__MACOSX") && !StormNczEngine.isJunkOrReadmeFile(fName)) {
+                            val dest = File(extractedDir, cleanRel)
+                            dest.parentFile?.mkdirs()
+                            FileOutputStream(dest).use { fos -> stream.copyTo(fos) }
+                            if (dest.extension.lowercase() in setOf("nsp", "nsz", "xci", "xcz")) {
+                                extractedGameFiles.add(dest)
+                            }
+                            if (cleanRel.contains("atmosphere/", ignoreCase = true) || cleanRel.contains("contents/", ignoreCase = true)) {
+                                hasAtmosphereMod = true
+                            }
+                        }
+                    }
+
+                    if (extractedGameFiles.isNotEmpty()) {
+                        allCandidateFiles.addAll(extractedGameFiles)
+                        stepLogs.add("✅ Из архива извлечено ${extractedGameFiles.size} контейнеров Switch: ${arch.name}")
+                    }
+                    if (hasAtmosphereMod || extractedGameFiles.isEmpty()) {
+                        downloadedModFiles.add(extractedDir)
+                        stepLogs.add("✅ Мод из состава торрента успешно распакован: ${arch.name}")
+                    }
+                } catch (e: Exception) {
+                    stepLogs.add("⚠️ Ошибка распаковки архива ${arch.name}: ${e.message}")
+                }
+            }
+
+            val genuine = allCandidateFiles.filter { StormNczEngine.isGenuineSwitchContainer(it) }
+            if (genuine.isEmpty()) {
+                acquisitionReasons.add("BitTorrent (${cand.source}): в раздаче «${tr.torrentName}» нет подлинных контейнеров .nsp/.nsz/.xci/.xcz")
+                continue
+            }
+            val infos = genuine.map { it to StormNczEngine.analyzeQueuedFile(it) }
+            var chosen = infos.filter { (_, info) -> info.baseTitleId.take(13).equals(baseTid.take(13), ignoreCase = true) }.map { it.first }
+            if (chosen.isEmpty()) {
+                val realBase = infos.firstOrNull { (_, i) -> i.roleBadge == "БАЗА" || i.subComponents.any { it.roleBadge == "БАЗА" } }?.second?.baseTitleId
+                if (realBase != null && realBase.length == 16) {
+                    val normalized = StormNczEngine.normalizeBaseTitleId(realBase).ifEmpty { realBase.uppercase() }
+                    stepLogs.add("⚠️ TitleID уточнён по содержимому раздачи: $baseTid → $normalized")
+                    baseTid = normalized
+                    chosen = infos.filter { (_, i) -> i.baseTitleId.take(13).equals(baseTid.take(13), ignoreCase = true) }.map { it.first }
+                }
+            }
+            if (chosen.isEmpty()) {
+                acquisitionReasons.add("BitTorrent (${cand.source}): скачанные файлы не относятся к игре «$cleanGameName» (TitleID: ${infos.joinToString { it.second.baseTitleId }})")
+                continue
+            }
+            for (tf in chosen) {
+                downloadedFiles.add(tf)
+                stepLogs.add("✅ Скачан файл раздачи: ${tf.name} (${StormNczEngine.formatSize(tf.length())})")
+            }
+            break
+        }
         val hasGameContainer = downloadedFiles.any { f -> f.isFile && f.extension.lowercase() in listOf("nsp", "nsz", "xci", "xcz") && !f.name.startsWith("CLOUD_") }
         if (!hasGameContainer) {
             throw java.io.IOException(

@@ -877,8 +877,13 @@ namespace StormSwitchBox.Views.Dialogs
 
                 _webViewReadyTcs.TrySetResult(true);
 
+                // Быстрая проверка ТСПУ (2 сек таймаут) перед навигацией
+                string responsiveMirror = await RuTrackerModService.ProbeAndGetActiveMirrorAsync(mirror).ConfigureAwait(true);
+                App.Settings.Current.RuTrackerMirror = responsiveMirror.Replace("https://", "").Replace("http://", "");
+                _ = App.Settings.SaveAsync();
+
                 // Проактивный прогрев viewforum.php?f=1605 (фоновый рендеринг Chromium без зависания)
-                string warmupUrl = $"{mirror}/forum/viewforum.php?f=1605";
+                string warmupUrl = $"{responsiveMirror}/forum/viewforum.php?f=1605";
                 CloudflareWebView.NavigationCompleted += OnWarmupNavigationCompleted;
                 CloudflareWebView.Source = new Uri(warmupUrl);
             }

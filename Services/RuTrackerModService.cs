@@ -48,6 +48,7 @@ namespace StormSwitchBox.Services
         public long Length { get; set; }
         public string SizeFormatted => ProcessingTask.FormatSize(Length);
         public string CategoryBadge { get; set; } = "ФАЙЛ";
+        public bool IsRealTorrentFile { get; set; } = false;
     }
 
     public sealed class CloudModLinkItem : CommunityToolkit.Mvvm.ComponentModel.ObservableObject
@@ -201,6 +202,43 @@ namespace StormSwitchBox.Services
             return DefaultMirrors[_activeMirrorIndex % DefaultMirrors.Length];
         }
 
+        public static async Task<string> ProbeAndGetActiveMirrorAsync(string? preferred = null, CancellationToken ct = default)
+        {
+            string[] mirrors = new[] { "https://rutracker.org", "https://rutracker.net" };
+            if (!string.IsNullOrWhiteSpace(preferred))
+            {
+                string norm = NormalizeMirrorUrl(preferred);
+                if (mirrors.Contains(norm, StringComparer.OrdinalIgnoreCase))
+                {
+                    mirrors = new[] { norm }.Concat(mirrors.Where(m => !m.Equals(norm, StringComparison.OrdinalIgnoreCase))).ToArray();
+                }
+            }
+
+            foreach (var m in mirrors)
+            {
+                try
+                {
+                    using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+                    using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
+                    var handler = new HttpClientHandler { AllowAutoRedirect = false };
+                    using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(2) };
+                    client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36");
+
+                    using var resp = await client.GetAsync($"{m}/forum/index.php", HttpCompletionOption.ResponseHeadersRead, linked.Token).ConfigureAwait(false);
+                    return m;
+                }
+                catch (OperationCanceledException)
+                {
+                    App.Logger?.Log($"[RuTracker TSPU] Таймаут соединения с {m} (>2с) — блокировка ТСПУ, переключение на резервное зеркало", LogLevel.Warning);
+                }
+                catch (Exception ex)
+                {
+                    App.Logger?.Log($"[RuTracker Probe] Ошибка {m}: {ex.Message}", LogLevel.Warning);
+                }
+            }
+
+            return "https://rutracker.net";
+        }
         public static void SwitchToNextMirror()
         {
             _activeMirrorIndex = (_activeMirrorIndex + 1) % DefaultMirrors.Length;
@@ -2019,7 +2057,7 @@ namespace StormSwitchBox.Services
                 {
                     string[] cacheUrls = new[]
                     {
-                        $"http://itorrents.org/torrent/{hash}.torrent",
+                        $"https://itorrents.org/torrent/{hash}.torrent",
                         $"https://torrage.info/torrent.php?h={hash}"
                     };
 
@@ -2027,8 +2065,14 @@ namespace StormSwitchBox.Services
                     {
                         try
                         {
-                            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(6) };
-                            http.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "STORM-SWITCH-BOX");
+                            var handler = new HttpClientHandler
+                            {
+                                AllowAutoRedirect = true,
+                                AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate
+                            };
+                            using var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(8) };
+                            http.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36");
+                            http.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "*/*");
                             using var resp = await http.GetAsync(cacheUrl, ct).ConfigureAwait(false);
                             if (resp.IsSuccessStatusCode)
                             {
@@ -2071,7 +2115,8 @@ namespace StormSwitchBox.Services
                     IsSelected = true,
                     RelativePath = f.Path,
                     Length = f.Length,
-                    CategoryBadge = ClassifyTorrentEntryBadge(f.Path)
+                    CategoryBadge = ClassifyTorrentEntryBadge(f.Path),
+                    IsRealTorrentFile = true
                 }).ToList();
             }
 
@@ -2235,7 +2280,44 @@ namespace StormSwitchBox.Services
                     if (f.Priority != Priority.DoNotDownload && f.BitField.AllTrue)
                     {
                         string fullPath = Path.Combine(saveDirectory, f.Path);
-                        if (File.Exists(fullPath)) downloadedPaths.Add(fullPath);
+                        if (File.Exists(fullPath))
+                        {
+                            string ext = Path.GetExtension(fullPath).ToLowerInvariant();
+                            if (ext is ".zip" or ".7z" or ".rar")
+                            {
+                                try
+                                {
+                                    string extractDir = Path.Combine(saveDirectory, Path.GetFileNameWithoutExtension(fullPath));
+                                    Directory.CreateDirectory(extractDir);
+                                    ExtractArchiveWith7zAsync(fullPath, extractDir, ct).GetAwaiter().GetResult();
+
+                                    var extractedContainers = Directory.EnumerateFiles(extractDir, "*.*", SearchOption.AllDirectories)
+                                        .Where(p => p.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) ||
+                                                    p.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) ||
+                                                    p.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) ||
+                                                    p.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase))
+                                        .ToList();
+
+                                    if (extractedContainers.Count > 0)
+                                    {
+                                        downloadedPaths.AddRange(extractedContainers);
+                                    }
+                                    else
+                                    {
+                                        downloadedPaths.Add(fullPath);
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    App.Logger?.Log($"[RuTracker Torrent] Ошибка распаковки архива {fullPath}: {ex.Message}", LogLevel.Warning);
+                                    downloadedPaths.Add(fullPath);
+                                }
+                            }
+                            else
+                            {
+                                downloadedPaths.Add(fullPath);
+                            }
+                        }
                     }
                 }
             }
@@ -2246,25 +2328,92 @@ namespace StormSwitchBox.Services
 
         private static async Task ApplyFilePrioritiesAsync(TorrentManager manager, IReadOnlyList<TorrentFileSelectionItem> fileSelections)
         {
-            var selLookup = fileSelections.ToDictionary(x => x.RelativePath.Replace('\\', '/'), x => x.IsSelected, StringComparer.OrdinalIgnoreCase);
-
-            foreach (var file in manager.Files)
+            if (fileSelections == null || fileSelections.Count == 0)
             {
-                string rel = file.Path.Replace('\\', '/');
-                bool want = false;
-                if (selLookup.TryGetValue(rel, out bool selected))
+                foreach (var file in manager.Files)
                 {
-                    want = selected;
+                    string ext = Path.GetExtension(file.Path).ToLowerInvariant();
+                    bool want = ext is ".nsp" or ".nsz" or ".xci" or ".xcz" or ".zip" or ".7z" or ".rar";
+                    await manager.SetFilePriorityAsync(file, want ? Priority.Normal : Priority.DoNotDownload).ConfigureAwait(false);
                 }
-                else
-                {
-                    string fn = Path.GetFileName(rel);
-                    var matched = selLookup.FirstOrDefault(kv => Path.GetFileName(kv.Key).Equals(fn, StringComparison.OrdinalIgnoreCase));
-                    if (!string.IsNullOrEmpty(matched.Key))
-                        want = matched.Value;
-                }
+                return;
+            }
 
-                await manager.SetFilePriorityAsync(file, want ? Priority.Normal : Priority.DoNotDownload).ConfigureAwait(false);
+            bool hasRealFiles = fileSelections.Any(x => x.IsRealTorrentFile);
+
+            if (hasRealFiles)
+            {
+                // Сопоставление строго по реальным путям/именам файлов
+                var selLookup = fileSelections
+                    .Where(x => x.IsRealTorrentFile)
+                    .ToDictionary(x => x.RelativePath.Replace('\\', '/'), x => x.IsSelected, StringComparer.OrdinalIgnoreCase);
+
+                foreach (var file in manager.Files)
+                {
+                    string rel = file.Path.Replace('\\', '/');
+                    bool want = false;
+                    if (selLookup.TryGetValue(rel, out bool selected))
+                    {
+                        want = selected;
+                    }
+                    else
+                    {
+                        string fn = Path.GetFileName(rel);
+                        var matched = selLookup.FirstOrDefault(kv => Path.GetFileName(kv.Key).Equals(fn, StringComparison.OrdinalIgnoreCase));
+                        if (!string.IsNullOrEmpty(matched.Key))
+                            want = matched.Value;
+                    }
+
+                    await manager.SetFilePriorityAsync(file, want ? Priority.Normal : Priority.DoNotDownload).ConfigureAwait(false);
+                }
+            }
+            else
+            {
+                // Переданы только синтетические заглушки или роли из индекса
+                bool allSelected = fileSelections.All(x => x.IsSelected);
+                var selectedRoles = fileSelections
+                    .Where(x => x.IsSelected)
+                    .Select(x => x.CategoryBadge.ToUpperInvariant())
+                    .ToHashSet();
+
+                var selectedTitleIds = fileSelections
+                    .Where(x => x.IsSelected)
+                    .Select(x => ExtractTitleId(x.RelativePath))
+                    .Where(tid => !string.IsNullOrEmpty(tid))
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+                foreach (var file in manager.Files)
+                {
+                    string ext = Path.GetExtension(file.Path).ToLowerInvariant();
+                    bool isSwitchOrArchive = ext is ".nsp" or ".nsz" or ".xci" or ".xcz" or ".zip" or ".7z" or ".rar";
+                    bool want = false;
+
+                    if (isSwitchOrArchive)
+                    {
+                        if (allSelected)
+                        {
+                            want = true;
+                        }
+                        else
+                        {
+                            string fileTid = ExtractTitleId(file.Path);
+                            if (!string.IsNullOrEmpty(fileTid) && selectedTitleIds.Contains(fileTid))
+                            {
+                                want = true;
+                            }
+                            else
+                            {
+                                string badge = ClassifyTorrentEntryBadge(file.Path).ToUpperInvariant();
+                                if (selectedRoles.Contains(badge) || selectedRoles.Contains("ФАЙЛ") || selectedRoles.Contains("MAGNET"))
+                                {
+                                    want = true;
+                                }
+                            }
+                        }
+                    }
+
+                    await manager.SetFilePriorityAsync(file, want ? Priority.Normal : Priority.DoNotDownload).ConfigureAwait(false);
+                }
             }
         }
 
