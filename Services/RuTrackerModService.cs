@@ -186,7 +186,12 @@ namespace StormSwitchBox.Services
             "http://bt.t-ru.org/ann",
             "udp://tracker.opentrackr.org:1337/announce",
             "udp://open.stealth.si:80/announce",
-            "udp://exodus.desync.com:6969/announce"
+            "udp://exodus.desync.com:6969/announce",
+            "udp://tracker.torrent.eu.org:451/announce",
+            "udp://open.demonii.com:1337/announce",
+            "udp://explodie.org:6969/announce",
+            "https://tracker.tamersunion.org:443/announce",
+            "https://tracker.gbitt.info:443/announce"
         };
 
         public static Func<string, string, CancellationToken, Task<string?>>? CloudflareChallengeHandler { get; set; }
@@ -442,7 +447,6 @@ namespace StormSwitchBox.Services
 
         private static bool _warmupStarted = false;
 
-        private ClientEngine? _torrentEngine;
         private TorrentManager? _activeManager;
         private byte[]? _loadedTorrentBytes;
         private MagnetLink? _loadedMagnet;
@@ -2176,12 +2180,10 @@ namespace StormSwitchBox.Services
         {
             Directory.CreateDirectory(saveDirectory);
 
-            var engineSettings = new EngineSettingsBuilder
-            {
-                CacheDirectory = Path.Combine(saveDirectory, ".storm_torrent_cache")
-            }.ToSettings();
+            string dhtCacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "STORM SWITCH BOX", "dht_cache");
+            Directory.CreateDirectory(dhtCacheDir);
 
-            _torrentEngine ??= new ClientEngine(engineSettings);
+            var engine = GetOrCreateEngine(dhtCacheDir);
 
             if (_activeManager != null)
             {
@@ -2189,18 +2191,35 @@ namespace StormSwitchBox.Services
                 _activeManager = null;
             }
 
+            var torrentSettings = new TorrentSettingsBuilder
+            {
+                MaximumConnections = 200,
+                UploadSlots = 24,
+                AllowDht = true,
+                AllowPeerExchange = true
+            }.ToSettings();
+
+            string currentHash = "";
             if (_loadedTorrentBytes != null)
             {
                 var torrent = await Torrent.LoadAsync(_loadedTorrentBytes).ConfigureAwait(false);
-                _activeManager = await _torrentEngine.AddAsync(torrent, saveDirectory).ConfigureAwait(false);
+                currentHash = torrent.InfoHashes.V1OrV2.ToHex();
+                _activeManager = await engine.AddAsync(torrent, saveDirectory, torrentSettings).ConfigureAwait(false);
             }
             else if (_loadedMagnet != null)
             {
-                _activeManager = await _torrentEngine.AddAsync(_loadedMagnet, saveDirectory).ConfigureAwait(false);
+                currentHash = _loadedMagnet.InfoHashes.V1OrV2.ToHex();
+                _activeManager = await engine.AddAsync(_loadedMagnet, saveDirectory, torrentSettings).ConfigureAwait(false);
             }
             else
             {
                 throw new InvalidOperationException("Не выбран .torrent файл или Magnet-ссылка для скачивания.");
+            }
+
+            // Запускаем параллельный Turbo BEP-5 UDP DHT Spider для мгновенного сбора пиров
+            if (!string.IsNullOrEmpty(currentHash))
+            {
+                _ = Task.Run(() => InjectPeersViaTurboDhtAsync(currentHash, _activeManager, ct));
             }
 
             // Принудительно подключаем все 8 публичных трекеров RuTracker
@@ -2326,6 +2345,240 @@ namespace StormSwitchBox.Services
             return downloadedPaths;
         }
 
+        private static ClientEngine? _sharedTorrentEngine;
+        private static readonly object _engineLock = new();
+
+        private static ClientEngine GetOrCreateEngine(string cacheDirectory)
+        {
+            if (_sharedTorrentEngine != null)
+                return _sharedTorrentEngine;
+
+            lock (_engineLock)
+            {
+                if (_sharedTorrentEngine != null)
+                    return _sharedTorrentEngine;
+
+                var encList = new List<MonoTorrent.Connections.EncryptionType>
+                {
+                    MonoTorrent.Connections.EncryptionType.RC4Full,
+                    MonoTorrent.Connections.EncryptionType.RC4Header,
+                    MonoTorrent.Connections.EncryptionType.PlainText
+                };
+
+                var engineSettings = new EngineSettingsBuilder
+                {
+                    CacheDirectory = cacheDirectory,
+                    AllowedEncryption = encList,
+                    AllowPortForwarding = true,
+                    AllowLocalPeerDiscovery = true,
+                    UsePartialFiles = false,
+                    MaximumConnections = 300,
+                    MaximumDownloadRate = 0,
+                    MaximumUploadRate = 0,
+                    MaximumHalfOpenConnections = 40,
+                    DhtEndPoint = new IPEndPoint(IPAddress.Any, 0),
+                    AutoSaveLoadDhtCache = true,
+                    AutoSaveLoadFastResume = true,
+                    AutoSaveLoadMagnetLinkMetadata = true
+                }.ToSettings();
+
+                _sharedTorrentEngine = new ClientEngine(engineSettings);
+                return _sharedTorrentEngine;
+            }
+        }
+
+        private static async Task InjectPeersViaTurboDhtAsync(string infoHash, TorrentManager manager, CancellationToken ct)
+        {
+            if (string.IsNullOrEmpty(infoHash) || infoHash.Length != 40) return;
+            try
+            {
+                byte[] targetHash = Convert.FromHexString(infoHash);
+                byte[] myNodeId = new byte[20];
+                Random.Shared.NextBytes(myNodeId);
+
+                var queryBytes = new byte[95];
+                int offset = 0;
+                void Copy(byte[] src) { Buffer.BlockCopy(src, 0, queryBytes, offset, src.Length); offset += src.Length; }
+                Copy(Encoding.ASCII.GetBytes("d1:ad2:id20:"));
+                Copy(myNodeId);
+                Copy(Encoding.ASCII.GetBytes("9:info_hash20:"));
+                Copy(targetHash);
+                Copy(Encoding.ASCII.GetBytes("e1:q9:get_peers1:t2:aa1:y1:qe"));
+
+                using var udp = new UdpClient(0);
+                udp.Client.ReceiveTimeout = 1000;
+
+                var bootstrapRouters = new (string Host, int Port)[]
+                {
+                    ("router.bittorrent.com", 6881),
+                    ("dht.transmissionbt.com", 6881),
+                    ("router.utorrent.com", 6881),
+                    ("dht.libtorrent.org", 25401),
+                    ("dht.aelitis.com", 6881)
+                };
+
+                var pendingEndpoints = new System.Collections.Concurrent.ConcurrentQueue<IPEndPoint>();
+                var visitedEndpoints = new System.Collections.Concurrent.ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase);
+                var discoveredPeers = new System.Collections.Concurrent.ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase);
+
+                foreach (var r in bootstrapRouters)
+                {
+                    try
+                    {
+                        var addresses = await Dns.GetHostAddressesAsync(r.Host).ConfigureAwait(false);
+                        foreach (var addr in addresses.Where(a => a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork))
+                        {
+                            var ep = new IPEndPoint(addr, r.Port);
+                            pendingEndpoints.Enqueue(ep);
+                        }
+                    }
+                    catch { }
+                }
+
+                using var spiderCts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+                using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, spiderCts.Token);
+
+                _ = Task.Run(async () =>
+                {
+                    while (!linked.Token.IsCancellationRequested)
+                    {
+                        int sent = 0;
+                        while (sent < 30 && pendingEndpoints.TryDequeue(out var targetEp))
+                        {
+                            string key = targetEp.ToString();
+                            if (visitedEndpoints.TryAdd(key, 0))
+                            {
+                                try
+                                {
+                                    await udp.SendAsync(queryBytes, queryBytes.Length, targetEp).ConfigureAwait(false);
+                                    sent++;
+                                }
+                                catch { }
+                            }
+                        }
+                        await Task.Delay(100, linked.Token).ConfigureAwait(false);
+                    }
+                }, linked.Token);
+
+                int totalPeersFound = 0;
+                var newPeersBatch = new List<PeerInfo>();
+
+                while (!linked.Token.IsCancellationRequested)
+                {
+                    try
+                    {
+                        var recvResult = await udp.ReceiveAsync(linked.Token).ConfigureAwait(false);
+                        byte[] buffer = recvResult.Buffer;
+                        if (buffer.Length < 10) continue;
+
+                        int valuesIdx = FindBytePattern(buffer, Encoding.ASCII.GetBytes("6:valuesl"));
+                        if (valuesIdx != -1)
+                        {
+                            int pos = valuesIdx + 9;
+                            while (pos + 8 <= buffer.Length && buffer[pos] == (byte)'6' && buffer[pos + 1] == (byte)':')
+                            {
+                                byte[] ipBytes = new byte[4];
+                                Buffer.BlockCopy(buffer, pos + 2, ipBytes, 0, 4);
+                                int port = (buffer[pos + 6] << 8) | buffer[pos + 7];
+                                var ipAddr = new IPAddress(ipBytes);
+                                string peerKey = $"{ipAddr}:{port}";
+
+                                if (port > 0 && port < 65536 && discoveredPeers.TryAdd(peerKey, 0))
+                                {
+                                    newPeersBatch.Add(new PeerInfo(new Uri($"ipv4://{ipAddr}:{port}")));
+                                    totalPeersFound++;
+                                }
+                                pos += 8;
+                            }
+
+                            if (newPeersBatch.Count > 0)
+                            {
+                                try
+                                {
+                                    await manager.AddPeersAsync(newPeersBatch).ConfigureAwait(false);
+                                }
+                                catch { }
+                                newPeersBatch.Clear();
+                            }
+                        }
+
+                        int nodesIdx = FindBytePattern(buffer, Encoding.ASCII.GetBytes("5:nodes"));
+                        if (nodesIdx != -1)
+                        {
+                            int colonIdx = Array.IndexOf(buffer, (byte)':', nodesIdx + 7);
+                            if (colonIdx != -1)
+                            {
+                                int dataStart = colonIdx + 1;
+                                int nodeDataLen = buffer.Length - dataStart;
+                                int nodeCount = nodeDataLen / 26;
+
+                                var candidateNodes = new List<(byte[] NodeId, IPEndPoint Ep)>();
+                                for (int i = 0; i < nodeCount; i++)
+                                {
+                                    int nPos = dataStart + i * 26;
+                                    byte[] nId = new byte[20];
+                                    Buffer.BlockCopy(buffer, nPos, nId, 0, 20);
+
+                                    byte[] nip = new byte[4];
+                                    Buffer.BlockCopy(buffer, nPos + 20, nip, 0, 4);
+                                    int nport = (buffer[nPos + 24] << 8) | buffer[nPos + 25];
+
+                                    if (nport > 0 && nport < 65536)
+                                    {
+                                        candidateNodes.Add((nId, new IPEndPoint(new IPAddress(nip), nport)));
+                                    }
+                                }
+
+                                var sortedNodes = candidateNodes
+                                    .OrderBy(n => XorDistanceMetric(n.NodeId, targetHash))
+                                    .Take(15);
+
+                                foreach (var (_, ep) in sortedNodes)
+                                {
+                                    pendingEndpoints.Enqueue(ep);
+                                }
+                            }
+                        }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break;
+                    }
+                    catch { }
+                }
+
+                App.Logger?.Log($"[RuTracker Turbo DHT] BEP-5 спайдер завершил сбор: найдено {totalPeersFound} пиров и передано в MonoTorrent", LogLevel.Info);
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[RuTracker Turbo DHT] Спайдер завершён: {ex.Message}", LogLevel.Info);
+            }
+        }
+
+        private static int FindBytePattern(byte[] src, byte[] pattern)
+        {
+            for (int i = 0; i <= src.Length - pattern.Length; i++)
+            {
+                bool match = true;
+                for (int j = 0; j < pattern.Length; j++)
+                {
+                    if (src[i + j] != pattern[j]) { match = false; break; }
+                }
+                if (match) return i;
+            }
+            return -1;
+        }
+
+        private static int XorDistanceMetric(byte[] a, byte[] b)
+        {
+            int minLen = Math.Min(a.Length, b.Length);
+            for (int i = 0; i < minLen; i++)
+            {
+                int diff = a[i] ^ b[i];
+                if (diff != 0) return (i * 256) + diff;
+            }
+            return 0;
+        }
         private static async Task ApplyFilePrioritiesAsync(TorrentManager manager, IReadOnlyList<TorrentFileSelectionItem> fileSelections)
         {
             if (fileSelections == null || fileSelections.Count == 0)
@@ -3171,11 +3424,7 @@ namespace StormSwitchBox.Services
                 try { _activeManager.StopAsync().Wait(1000); } catch { }
                 _activeManager = null;
             }
-            if (_torrentEngine != null)
-            {
-                try { _torrentEngine.Dispose(); } catch { }
-                _torrentEngine = null;
-            }
+            // Тёплый _sharedTorrentEngine сохраняется для поддержания маршрутной таблицы DHT
         }
     }
 }
