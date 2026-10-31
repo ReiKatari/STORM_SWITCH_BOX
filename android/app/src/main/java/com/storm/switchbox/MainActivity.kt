@@ -229,7 +229,7 @@ class MainActivity : Activity() {
         }
 
         buildUserInterface()
-        appendLog("STORM SWITCH BOX ${"6.7.1"} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) готов к работе.")
+        appendLog("STORM SWITCH BOX ${"6.7.2"} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) готов к работе.")
 
         // Автоматическая проверка обновлений с GitHub при запуске
         if (autoCheckUpdatesOnStartup) {
@@ -792,7 +792,7 @@ class MainActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
         titleCol.addView(TextView(this).apply {
-            text = "STORM SWITCH BOX ${"6.7.1"}"
+            text = "STORM SWITCH BOX ${"6.7.2"}"
             setTextColor(th.textPrimary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
             typeface = Typeface.DEFAULT_BOLD
@@ -2870,6 +2870,7 @@ class MainActivity : Activity() {
         })
         card.addView(btnRow)
 
+
         thread {
             val details = RuTrackerCloudEngine.fetchRuTrackerTopicDetailsWithBypass(item)
             mainHandler.post {
@@ -2934,6 +2935,111 @@ class MainActivity : Activity() {
     }
 
     /**
+     * Интерактивный 1-клик диалог обхода Cloudflare Turnstile:
+     * открывает реальный WebView на странице темы форума RuTracker;
+     * как только проверка пройдена (или обнаружен .post_body), сохраняет cf_clearance в CookieManager,
+     * автоматически закрывается и запускает обновление ссылок из сообщений.
+     */
+    private fun showCloudflareTurnstileBypassDialog(
+        item: RuTrackerCloudEngine.TopicItem,
+        topicUrl: String,
+        th: StormTheme,
+        onPassed: () -> Unit
+    ) {
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = makeCardDrawable(th.bgCard, th.accent, 14)
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+        }
+
+        card.addView(TextView(this).apply {
+            text = "🛡️ Проверка доступа к форуму RuTracker"
+            setTextColor(th.accent)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(0, 0, 0, dp(4))
+        })
+
+        card.addView(TextView(this).apply {
+            text = "Нажмите галочку Cloudflare на странице ниже. После прохождения проверки окно закроется автоматически, а куки сохранятся для всех остальных игр."
+            setTextColor(th.textSecondary)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+            setPadding(0, 0, 0, dp(8))
+        })
+
+        val wv = android.webkit.WebView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(380))
+            settings.javaScriptEnabled = true
+            settings.domStorageEnabled = true
+            val ua = try { android.webkit.WebSettings.getDefaultUserAgent(context) } catch (_: Throwable) { null }
+            if (ua != null) settings.userAgentString = ua
+        }
+        card.addView(wv)
+
+        val cm = android.webkit.CookieManager.getInstance()
+        cm.setAcceptCookie(true)
+        cm.setAcceptThirdPartyCookies(wv, true)
+
+        var isDismissed = false
+        var dialog: AlertDialog? = null
+
+        val btnRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.END
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(8)
+            }
+        }
+        btnRow.addView(makeButton("Закрыть", th.bgElevated, th.textPrimary) {
+            dialog?.dismiss()
+        })
+        card.addView(btnRow)
+
+        dialog = showImmersiveDialog(
+            AlertDialog.Builder(this)
+                .setView(makeUnclippedDialogContainer(card))
+                .setCancelable(true)
+        )
+        dialog.setOnDismissListener {
+            isDismissed = true
+            try { wv.destroy() } catch (_: Throwable) {}
+        }
+
+        val poller = object : Runnable {
+            override fun run() {
+                if (isDismissed) return
+                wv.evaluateJavascript(
+                    """
+                    (function() {
+                        return !!document.querySelector('.post_body, #topic_main');
+                    })()
+                    """.trimIndent()
+                ) { res ->
+                    if (res?.replace("\"", "")?.replace("'", "")?.trim() == "true") {
+                        if (!isDismissed) {
+                            isDismissed = true
+                            cm.flush()
+                            Toast.makeText(this@MainActivity, "✅ Доступ к RuTracker подтверждён!", Toast.LENGTH_SHORT).show()
+                            dialog.dismiss()
+                            onPassed()
+                        }
+                    } else {
+                        mainHandler.postDelayed(this, 750)
+                    }
+                }
+            }
+        }
+
+        wv.webViewClient = object : android.webkit.WebViewClient() {
+            override fun onPageFinished(view: android.webkit.WebView?, url: String?) {
+                mainHandler.postDelayed(poller, 750)
+            }
+        }
+        val target = if (topicUrl.isNotBlank()) topicUrl else "https://rutracker.org/forum/viewtopic.php?t=${item.topicId}"
+        wv.loadUrl(target)
+    }
+
+    /**
      * Автоматическое модальное окно скачивания релиза с RuTracker (или по Magnet),
      * выбора файлов раздачи (БАЗА / ПАТЧ / DLC), подключения облачных русификаторов / модов
      * и поэтапной сборки готового Мульти-контента с живым логом процесса.
@@ -2948,7 +3054,7 @@ class MainActivity : Activity() {
         var isRunningPipeline = false
         var cancelPipeline = false
 
-        val releaseFiles = RuTrackerCloudEngine.getReleaseFilesList(item)
+        var releaseFiles = RuTrackerCloudEngine.getReleaseFilesList(item).toMutableList()
 
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -3034,17 +3140,39 @@ class MainActivity : Activity() {
         }
         updateFilesSummaryHeader()
 
-        releaseFiles.forEach { rf ->
-            val cbRow = makeStormCheckBox(
-                "[${rf.roleBadge}] ${rf.fileName} — ${StormNczEngine.formatSize(rf.sizeBytes)}",
-                rf.selected,
-                th
-            ) { checked ->
-                rf.selected = checked
-                updateFilesSummaryHeader()
-                syncUnlockerAutoState()
+        val filesItemsLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        filesCard.addView(filesItemsLayout)
+
+        fun renderFilesCheckboxes() {
+            filesItemsLayout.removeAllViews()
+            updateFilesSummaryHeader()
+            releaseFiles.forEach { rf ->
+                val cbRow = makeStormCheckBox(
+                    "[${rf.roleBadge}] ${rf.fileName} — ${StormNczEngine.formatSize(rf.sizeBytes)}",
+                    rf.selected,
+                    th
+                ) { checked ->
+                    rf.selected = checked
+                    updateFilesSummaryHeader()
+                    syncUnlockerAutoState()
+                }
+                filesItemsLayout.addView(cbRow)
             }
-            filesCard.addView(cbRow)
+        }
+        renderFilesCheckboxes()
+
+        // Асинхронно предзагружаем .torrent файл для мгновенного отображения реального состава
+        thread {
+            val realPrefetched = RuTrackerCloudEngine.prefetchRealTorrentFiles(item)
+            if (realPrefetched.isNotEmpty()) {
+                mainHandler.post {
+                    releaseFiles = realPrefetched.toMutableList()
+                    renderFilesCheckboxes()
+                    syncUnlockerAutoState()
+                }
+            }
         }
         root.addView(filesCard)
 
@@ -3092,13 +3220,28 @@ class MainActivity : Activity() {
             discussionSubTv.text = "⏳ Поиск ссылок на патчи, DLC и русификаторы в сообщениях темы t=${item.topicId}..."
             discussionListLayout.removeAllViews()
             thread {
-                val links = RuTrackerCloudEngine.extractAllTopicAndDiscussionLinks(item)
+                val res = RuTrackerCloudEngine.extractAllTopicAndDiscussionLinksDetailed(item)
+                val links = res.links
                 mainHandler.post {
                     discoveredDiscussionLinks.clear()
                     discoveredDiscussionLinks.addAll(links)
                     discussionListLayout.removeAllViews()
                     if (links.isEmpty()) {
-                        discussionSubTv.text = "В сообщениях темы внешних облачных ссылок не обнаружено (используются только файлы раздачи)."
+                        if (res.cloudflareChallengeRequired) {
+                            discussionSubTv.text = "🛡️ Доступ к сообщениям темы защищён проверкой Cloudflare Turnstile."
+                            val cfBtn = makeButton("🛡️ Проверить доступ к форуму RuTracker (1 клик) и загрузить файлы из сообщений", th.bgElevated, th.accent) {
+                                showCloudflareTurnstileBypassDialog(item, res.targetTopicUrl, th) {
+                                    reloadDiscussionLinks()
+                                }
+                            }.apply {
+                                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                                    topMargin = dp(6)
+                                }
+                            }
+                            discussionListLayout.addView(cfBtn)
+                        } else {
+                            discussionSubTv.text = "В сообщениях темы внешних облачных ссылок не обнаружено (используются только файлы раздачи)."
+                        }
                     } else {
                         // СТРОГО: по умолчанию ни одна внешняя ссылка не включается автоматически!
                         discoveredDiscussionLinks.forEach { it.selected = false }
@@ -3749,7 +3892,7 @@ class MainActivity : Activity() {
                     "21. Nintendo Switch 2 (Ounce / NVN2)",
                     "Экосистемы",
                     "SWITCH 2",
-                    "STORM SWITCH BOX 6.7.1 включает полную поддержку следующего поколения игровых систем Nintendo — Nintendo Switch 2 (кодовое имя «Ounce» / API «NVN2»):\n" +
+                    "STORM SWITCH BOX 6.7.2 включает полную поддержку следующего поколения игровых систем Nintendo — Nintendo Switch 2 (кодовое имя «Ounce» / API «NVN2»):\n" +
                     "• Идентификация дампов: TitleID игр Switch 2 начинается с префикса «0400...» (в отличие от «0100...» у Switch 1), извлекаемый напрямую из main.npdm (заголовок META -> секция ACI0 + 0x10).\n" +
                     "• Авто-сборка из папок дампа: при перетаскивании каталога дампа Switch 2 (содержащего base/exefs/main.npdm, base/romfs, updates/<версия> и dlc/<tid>) программа автоматически объединяет базовую игру, самое свежее обновление, все DLC и моды в 1 монолитный контейнер (.nsp, .nsz, .xci, .xcz).\n" +
                     "• Авто-генерация Control NCA: создание control.nacp на 16 языках и получение официальной 256×256 обложки через Nintendo Europe Search API / Steam.\n" +
@@ -3762,7 +3905,7 @@ class MainActivity : Activity() {
                     "22. RuTracker: Чеклист ссылок обсуждения и DLC Unlocker",
                     "Сеть, Ключи и База",
                     "RUTRACKER",
-                    "В версии 6.7.1 усовершенствован модуль интеграции с RuTracker (#1605):\n" +
+                    "В версии 6.7.2 усовершенствован модуль интеграции с RuTracker (#1605):\n" +
                     "• Чеклист ссылок из темы обсуждения: все полезные ссылки (русификаторы, моды, патчи 60 FPS, читы), найденные в комментариях и шапке темы раздачи, отображаются с датами публикации сообщений.\n" +
                     "• Выборочная загрузка: можно отметить только нужные модификации чекбоксами перед стартом сборки.\n" +
                     "• DLC Unlocker: автоматическое управление анлокерами дополнений и синхронизация тикетов.",
@@ -4517,7 +4660,7 @@ class MainActivity : Activity() {
         }
         updCard.addView(makeSectionHeader(
             "2. Обновление STORM SWITCH BOX (GitHub и STORM GAMES WORLD)",
-            "Текущая версия: ${try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.7.1" } catch (_: Exception) { "6.7.1" }} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) • Проверка на 2 официальных площадках",
+            "Текущая версия: ${try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.7.2" } catch (_: Exception) { "6.7.2" }} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) • Проверка на 2 официальных площадках",
             th
         ))
         updCard.addView(makeStormCheckBox(
@@ -5248,7 +5391,7 @@ class MainActivity : Activity() {
             Toast.makeText(this, "⏳ Проверка обновлений на GitHub и STORM GAMES WORLD...", Toast.LENGTH_SHORT).show()
         }
         val preferLegacy = (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) || Build.VERSION.SDK_INT < 26
-        val currentAppVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.7.1" } catch (_: Exception) { "6.7.1" }
+        val currentAppVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.7.2" } catch (_: Exception) { "6.7.2" }
         thread {
             val rel = RuTrackerCloudEngine.checkGitHubAppUpdate(currentAppVer, preferLegacy)
             mainHandler.post {
@@ -5279,7 +5422,7 @@ class MainActivity : Activity() {
             typeface = Typeface.DEFAULT_BOLD
         })
         box.addView(TextView(this).apply {
-            val installedVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.7.1" } catch (_: Exception) { "6.7.1" }
+            val installedVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.7.2" } catch (_: Exception) { "6.7.2" }
             text = "Новая версия: ${release.version} (Установлена: $installedVer)\nИсточник: ${release.sourceName}\nПакет: ${release.apkName} (${StormNczEngine.formatSize(release.apkSizeBytes)})"
             setTextColor(th.textPrimary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)

@@ -2,7 +2,7 @@
 $ErrorActionPreference = "Stop"
 
 $baseDir = $PSScriptRoot
-if (-not $baseDir) { $baseDir = "E:\STORM SWITCH BOX" }
+if (-not $baseDir) { $baseDir = "F:\STORM SWITCH BOX" }
 $sourcesDir = $baseDir
 $appProjDir = $baseDir
 $installerProjDir = Join-Path $baseDir "installer\StormInstaller"
@@ -14,11 +14,11 @@ if (-not (Test-Path $assemblingDir)) { New-Item -ItemType Directory -Path $assem
 if (-not (Test-Path $filesDir)) { New-Item -ItemType Directory -Path $filesDir | Out-Null }
 if (-not (Test-Path $outputDir)) { New-Item -ItemType Directory -Path $outputDir | Out-Null }
 
-$appVersion = "6.4.0"
+$appVersion = "6.7.2"
 try {
     [xml]$appProjXml = Get-Content (Join-Path $appProjDir "StormSwitchBox.csproj")
-    $verFromProj = $appProjXml.Project.PropertyGroup.Version
-    if ($verFromProj) { $appVersion = $verFromProj }
+    $verFromProj = ($appProjXml.Project.PropertyGroup | ForEach-Object { $_.Version } | Where-Object { $_ } | Select-Object -First 1)
+    if ($verFromProj) { $appVersion = [string]$verFromProj }
 } catch { }
 
 Write-Host "============================================================" -ForegroundColor Cyan
@@ -52,7 +52,7 @@ if (Test-Path $outputSetupExePath) { Remove-Item $outputSetupExePath -Force -Err
 # Step 2: Build App to Assembling and Publish folder
 Write-Host "[2/6] Building StormSwitchBox (.NET 8 WinUI 3 win-x64)..." -ForegroundColor Yellow
 $publishDir = Join-Path $appProjDir "bin\Release\net8.0-windows10.0.19041.0\win-x64"
-dotnet build "$appProjDir\StormSwitchBox.csproj" -c Release
+dotnet build "$appProjDir\StormSwitchBox.csproj" -c Release -m:2
 
 if (-not (Test-Path "$publishDir\StormSwitchBox.exe")) {
     throw "Error: Build failed - StormSwitchBox.exe was not created in $publishDir!"
@@ -60,7 +60,10 @@ if (-not (Test-Path "$publishDir\StormSwitchBox.exe")) {
 
 # Step 3: Digital Signature with STORM TEAM Master Certificate and RFC 3161 Timestamp
 Write-Host "[3/6] Applying digital signature (STORM TEAM Authenticode SHA-256 + RFC 3161)..." -ForegroundColor Yellow
-$signtool = "C:\Program Files (x86)\Windows Kits\10\bin\10.0.28000.0\x64\signtool.exe"
+$signtool = (Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" -ErrorAction SilentlyContinue | Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName)
+if (-not $signtool -or -not (Test-Path $signtool)) {
+    $signtool = "C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe"
+}
 $tsUrl = "http://timestamp.digicert.com"
 
 # Strictly enforce STORM TEAM Master Certificate (Publisher displayed in UAC: STORM TEAM)
@@ -134,7 +137,7 @@ Copy-Item "$publishDir\*" $assemblingDir -Recurse -Force
 Write-Host "  -> Packaging Portable ZIP..." -ForegroundColor Yellow
 if (Test-Path $portableZipPath) { Remove-Item $portableZipPath -Force -ErrorAction SilentlyContinue }
 if (Test-Path "$baseDir\tools\7z.exe") {
-    & "$baseDir\tools\7z.exe" a -tzip -mx=7 -mmt=on $portableZipPath "$publishDir\*"
+    & "$baseDir\tools\7z.exe" a -tzip -mx=7 -mmt=2 $portableZipPath "$publishDir\*"
 } else {
     Compress-Archive -Path "$publishDir\*" -DestinationPath $portableZipPath -Force
 }
@@ -144,7 +147,7 @@ Copy-Item $portableZipPath (Join-Path $filesDir "STORM_SWITCH_BOX_${appVersion}.
 
 # Step 4: Build Custom StormInstaller
 Write-Host "[5/6] Building and Signing StormInstaller (Cyber Dark UI)..." -ForegroundColor Yellow
-dotnet publish "$installerProjDir\StormInstaller.csproj" -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true
+dotnet publish "$installerProjDir\StormInstaller.csproj" -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -m:2
 
 $publishedInstaller = "$installerProjDir\bin\Release\net8.0-windows\win-x64\publish\StormInstaller.exe"
 if (-not (Test-Path $publishedInstaller)) {
@@ -172,7 +175,7 @@ if (Test-Path "$baseDir\tools\7z.exe") {
     $unblockFiles = Get-ChildItem -Path $filesDir -Filter "*.bat" | Select-Object -ExpandProperty FullName
     $bundleItems = @($outputSetupExePath, $cerOutput)
     if ($unblockFiles) { $bundleItems += $unblockFiles }
-    & "$baseDir\tools\7z.exe" a -tzip -mx=7 -mmt=on $bundleZipPath @bundleItems
+    & "$baseDir\tools\7z.exe" a -tzip -mx=7 -mmt=2 $bundleZipPath @bundleItems
     Copy-Item $bundleZipPath $filesDir -Force
 }
 

@@ -371,5 +371,26 @@
             <Button x:Name="StartFullDownloadBtn" Grid.Column="4" Content="🚀 Скачать раздачу + моды и создать задачу" Click="StartFullDownload_Click"
                     Background="#0284C7" Foreground="White" FontWeight="Bold" CornerRadius="6" Padding="14,7"/>
         </Grid>
+    
+        <!-- Встроенная панель обхода Cloudflare Challenge при необходимости -->
+        <Border x:Name="CloudflareBypassPanel" Grid.Row="0" Grid.RowSpan="6" Visibility="Collapsed"
+                Background="#F50F172A" BorderBrush="#0284C7" BorderThickness="1.5" CornerRadius="8"
+                Margin="4" Padding="12" Canvas.ZIndex="1000">
+            <Grid RowDefinitions="Auto,*">
+                <Grid Grid.Row="0" Margin="0,0,0,8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" Orientation="Vertical" Spacing="2">
+                        <TextBlock Text="🛡️ RuTracker: автоматический обход Cloudflare Challenge" FontWeight="Bold" FontSize="13" Foreground="#38BDF8"/>
+                        <TextBlock x:Name="CloudflareStatusText" Text="Загрузка страницы темы для получения ссылок на моды... Подтвердите проверку при появлении." FontSize="11" Foreground="#94A3B8"/>
+                    </StackPanel>
+                    <Button Grid.Column="1" x:Name="CloseCloudflareBypassBtn" Content="✕ Скрыть" Click="CloseCloudflareBypass_Click" Padding="10,4" FontSize="11" CornerRadius="4"/>
+                </Grid>
+                <WebView2 x:Name="CloudflareWebView" Grid.Row="1" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" MinHeight="420"/>
+            </Grid>
+        </Border>
+
     </Grid>
 </ContentDialog>

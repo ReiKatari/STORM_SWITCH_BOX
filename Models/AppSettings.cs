@@ -138,6 +138,8 @@ namespace StormSwitchBox.Models
         public string RuTrackerDownloadFolder { get; set; } = "";
         public bool RuTrackerAutoBuildTask { get; set; } = false;
         public bool RuTrackerDeleteSourceOnSuccess { get; set; } = true;
+        public string RuTrackerCfClearance { get; set; } = "";
+        public string RuTrackerUserAgent { get; set; } = "";
     }
 }
 

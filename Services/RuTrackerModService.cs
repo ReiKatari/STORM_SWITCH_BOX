@@ -2,15 +2,18 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Xml;
 using MonoTorrent;
 using MonoTorrent.Client;
 using StormSwitchBox.Models;
@@ -75,10 +78,94 @@ namespace StormSwitchBox.Services
         public string StatusText { get; set; } = string.Empty;
     }
 
+    public sealed class RuTrackerIndexFile
+    {
+        public string Path { get; set; } = string.Empty;
+        public long Size { get; set; }
+        public string TitleId { get; set; } = string.Empty;
+        public string Role { get; set; } = string.Empty;
+        public string Version { get; set; } = string.Empty;
+        public string FileName => Path.Contains('/') ? Path.Substring(Path.LastIndexOf('/') + 1) : Path;
+    }
+
+    public sealed class RuTrackerIndexTopic
+    {
+        public string TopicId { get; set; } = string.Empty;
+        public string InfoHash { get; set; } = string.Empty;
+        public int Seeds { get; set; }
+        public long SizeBytes { get; set; }
+        public long RegTime { get; set; }
+        public string TorrentName { get; set; } = string.Empty;
+        public string TopicTitle { get; set; } = string.Empty;
+        public string GameName { get; set; } = string.Empty;
+        public string TitleId { get; set; } = string.Empty;
+        public List<RuTrackerIndexFile> Files { get; set; } = new();
+
+        internal string GameKey = "";
+        internal string GameKeyPadded = "";
+        internal string BlobPadded = "";
+        internal string[] Words = Array.Empty<string>();
+        internal int GameWordCount;
+        internal string Skeleton = "";
+        internal string TidBlob = "";
+
+        public void RebuildKeys()
+        {
+            string baseName = !string.IsNullOrWhiteSpace(GameName)
+                ? GameName
+                : (!string.IsNullOrWhiteSpace(TopicTitle) ? TopicTitle : TorrentName);
+
+            GameKey = RuTrackerModService.NormalizeSearchKey(baseName);
+            GameKeyPadded = " " + GameKey;
+
+            var blob = new StringBuilder(GameKey.Length * 4);
+            blob.Append(GameKey).Append(' ')
+                .Append(RuTrackerModService.NormalizeSearchKey(TopicTitle)).Append(' ')
+                .Append(RuTrackerModService.NormalizeSearchKey(TorrentName));
+
+            foreach (var f in Files)
+            {
+                int dot = f.FileName.LastIndexOf('.');
+                string stem = dot > 0 ? f.FileName.Substring(0, dot) : f.FileName;
+                blob.Append(' ').Append(RuTrackerModService.NormalizeSearchKey(stem));
+            }
+
+            string blobStr = blob.ToString();
+            BlobPadded = " " + blobStr;
+
+            var gw = GameKey.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            var rest = blobStr.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            var all = new HashSet<string>(gw, StringComparer.OrdinalIgnoreCase);
+            foreach (var r in rest) all.Add(r);
+            Words = all.ToArray();
+            GameWordCount = gw.Length;
+            Skeleton = RuTrackerModService.PhoneticSkeleton(GameKey);
+
+            var tids = new StringBuilder();
+            if (!string.IsNullOrEmpty(TitleId)) tids.Append(TitleId.ToLowerInvariant()).Append(' ');
+            foreach (var f in Files)
+            {
+                if (!string.IsNullOrEmpty(f.TitleId)) tids.Append(f.TitleId.ToLowerInvariant()).Append(' ');
+            }
+            TidBlob = tids.ToString();
+        }
+
+        public void UpdateTopicTitle(string newTitle)
+        {
+            if (string.IsNullOrWhiteSpace(newTitle) || newTitle == TopicTitle) return;
+            TopicTitle = newTitle;
+            if (string.IsNullOrWhiteSpace(GameName))
+                GameName = RuTrackerModService.CleanTitleToGame(newTitle);
+            if (string.IsNullOrWhiteSpace(TitleId))
+                TitleId = RuTrackerModService.ExtractTitleId(newTitle);
+            RebuildKeys();
+        }
+    }
+
     /// <summary>
-    /// Комплексный сервис интеграции с RuTracker.org (поиск, парсинг тем, обход блокировок через зеркала/DoH/Proxy,
-    /// встроенный BitTorrent-движок MonoTorrent с выборочной загрузкой файлов) и облачный загрузчик модификаций
-    /// и русификаторов (Яндекс.Диск, Google Drive, GitHub Releases, GameBanana, прямые архивы) с автопривязкой к задачам.
+    /// Комплексный сервис интеграции с RuTracker.org (поиск по всем 7 275 темам раздела #1605,
+    /// обход Cloudflare через WebView2, прямое MonoTorrent P2P скачивание с кэшированием .torrent,
+    /// и облачный загрузчик модификаций с поддержкой PixelDrain, Yandex, GDrive, MEGA, Mail.ru, MediaFire, Dropbox, WDfiles, GitHub, Workupload).
     /// </summary>
     public sealed class RuTrackerModService : IDisposable
     {
@@ -95,10 +182,50 @@ namespace StormSwitchBox.Services
             "http://bt2.t-ru.org/ann?magnet",
             "http://bt3.t-ru.org/ann?magnet",
             "http://bt4.t-ru.org/ann?magnet",
+            "http://bt.t-ru.org/ann",
             "udp://tracker.opentrackr.org:1337/announce",
             "udp://open.stealth.si:80/announce",
             "udp://exodus.desync.com:6969/announce"
         };
+
+        public static Func<string, string, CancellationToken, Task<string?>>? CloudflareChallengeHandler { get; set; }
+
+        public static string? SharedCfClearance
+        {
+            get => App.Settings.Current.RuTrackerCfClearance;
+            set { App.Settings.Current.RuTrackerCfClearance = value ?? ""; }
+        }
+
+        public static string? SharedUserAgent
+        {
+            get => !string.IsNullOrEmpty(App.Settings.Current.RuTrackerUserAgent)
+                ? App.Settings.Current.RuTrackerUserAgent
+                : "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+            set { App.Settings.Current.RuTrackerUserAgent = value ?? ""; }
+        }
+
+        // 10 проверенных эталонных тем раздела #1605 (стартовый список хитов)
+        private static readonly (string Tid, string Title, string Size, int Seeds, string Hash)[] CuratedVerifiedHits = new[]
+        {
+            ("5757941", "[Nintendo Switch] Celeste [0100FBA009218000] [NSP]", "931.55 MB", 118, "C59FE53E33D2BB4BD030E30ED796B99CFAC63F83"),
+            ("6479728", "[Nintendo Switch] Mario vs. Donkey Kong [0100B99019412000] [NSP]", "1.30 GB", 189, "18034EA68DC5EBE094A061B95A04BB215D95A2A0"),
+            ("6525297", "[Nintendo Switch] Animal Well [010020D01AD24000] [NSZ]", "73.35 MB", 62, "0A996B997AA2B90DB658E4CA76D2989DD1F80F56"),
+            ("6702315", "[Nintendo Switch] The Legend of Zelda: Breath of the Wild (BOTW) + The Master Trials and The Champions Ballad [01007EF00011E000]", "10.66 GB", 807, "D4C50D5F7AB7EC78B589DA7A836BB98529F646D7"),
+            ("6358526", "[Nintendo Switch] The Legend of Zelda: Tears of the Kingdom [0100F2C0115B6000]", "16.79 GB", 781, "EDC9BE013621189954A1E7D4EA514A804739EBB1"),
+            ("6702276", "[Nintendo Switch] Super Mario Odyssey [0100000000010000]", "3.79 GB", 684, "8765CC4BF631C506A0F54F58F9A376D011BC7D95"),
+            ("5720134", "[Nintendo Switch] Cuphead + The Delicious Last Course DLC [010086800CE34000]", "4.16 GB", 452, "92F42203820F0877BFCF46268DD066DFD51A69C0"),
+            ("5943382", "[Nintendo Switch] Hades [0100535012974000]", "5.76 GB", 297, "55811895F3091DB7D207446AF805CE3D644DE8E0"),
+            ("5677506", "[Nintendo Switch] Stardew Valley [0100E65002F3A000]", "935.46 MB", 326, "F35418F5C46E0D6F654E54CCF9C7B3DBCD031BBC"),
+            ("6118930", "[Nintendo Switch] Metroid Dread [010093801237C000]", "3.23 GB", 409, "CD78BC876E0B45DCC4A610BD21C3BDA9B920B617")
+        };
+
+        // Локальный индекс всех 7 275 тем раздела #1605
+        private static readonly List<RuTrackerIndexTopic> _indexTopics = new();
+        private static readonly Dictionary<string, RuTrackerIndexTopic> _topicsById = new(StringComparer.OrdinalIgnoreCase);
+        private static readonly Dictionary<string, RuTrackerIndexTopic> _topicsByHash = new(StringComparer.OrdinalIgnoreCase);
+        private static bool _indexLoaded = false;
+        private static readonly object _indexLock = new();
+        private static bool _warmupStarted = false;
 
         private ClientEngine? _torrentEngine;
         private TorrentManager? _activeManager;
@@ -109,6 +236,12 @@ namespace StormSwitchBox.Services
         static RuTrackerModService()
         {
             Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        }
+
+        public RuTrackerModService()
+        {
+            EnsureIndexLoaded();
+            WarmupIndexAndLiveFeedsAsync();
         }
 
         public static string NormalizeMirrorUrl(string? mirror)
@@ -176,16 +309,30 @@ namespace StormSwitchBox.Services
             }
 
             var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
-            client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36");
+            string ua = !string.IsNullOrEmpty(SharedUserAgent) ? SharedUserAgent : "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+            client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", ua);
             client.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
             client.DefaultRequestHeaders.TryAddWithoutValidation("Accept-Language", "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7");
 
+            var cookieParts = new List<string>();
             string activeCookie = !string.IsNullOrWhiteSpace(cookieHeader) ? cookieHeader : settings.RuTrackerCookie;
             if (!string.IsNullOrWhiteSpace(activeCookie))
             {
                 if (!activeCookie.Contains('='))
-                    activeCookie = "bb_session=" + activeCookie.Trim();
-                client.DefaultRequestHeaders.TryAddWithoutValidation("Cookie", activeCookie);
+                    cookieParts.Add("bb_session=" + activeCookie.Trim());
+                else
+                    cookieParts.Add(activeCookie.Trim());
+            }
+            if (!string.IsNullOrWhiteSpace(SharedCfClearance))
+            {
+                if (!SharedCfClearance.Contains('='))
+                    cookieParts.Add("cf_clearance=" + SharedCfClearance.Trim());
+                else
+                    cookieParts.Add(SharedCfClearance.Trim());
+            }
+            if (cookieParts.Count > 0)
+            {
+                client.DefaultRequestHeaders.TryAddWithoutValidation("Cookie", string.Join("; ", cookieParts));
             }
 
             return client;
@@ -198,39 +345,42 @@ namespace StormSwitchBox.Services
 
             lock (_dohCache)
             {
-                if (_dohCache.TryGetValue(host, out var cached))
-                    return cached;
+                if (_dohCache.TryGetValue(host, out var cachedIp))
+                    return cachedIp;
             }
 
-            string[] dohEndpoints =
+            string[] dohEndpoints = new[]
             {
                 $"https://cloudflare-dns.com/dns-query?name={Uri.EscapeDataString(host)}&type=A",
                 $"https://dns.google/resolve?name={Uri.EscapeDataString(host)}&type=A"
             };
 
-            using var dohClient = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
-            dohClient.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/dns-json");
-
-            foreach (var endpoint in dohEndpoints)
+            foreach (var ep in dohEndpoints)
             {
                 try
                 {
-                    using var resp = await dohClient.GetAsync(endpoint, ct).ConfigureAwait(false);
+                    using var handler = new SocketsHttpHandler { ConnectTimeout = TimeSpan.FromSeconds(3) };
+                    using var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(4) };
+                    http.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/dns-json");
+
+                    using var resp = await http.GetAsync(ep, ct).ConfigureAwait(false);
                     if (!resp.IsSuccessStatusCode) continue;
 
                     string json = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
                     using var doc = JsonDocument.Parse(json);
-                    if (doc.RootElement.TryGetProperty("Answer", out var answers) && answers.ValueKind == JsonValueKind.Array)
+                    if (doc.RootElement.TryGetProperty("Answer", out var answer) && answer.ValueKind == JsonValueKind.Array)
                     {
-                        foreach (var ans in answers.EnumerateArray())
+                        foreach (var ans in answer.EnumerateArray())
                         {
-                            if (ans.TryGetProperty("type", out var tProp) && tProp.GetInt32() == 1 &&
-                                ans.TryGetProperty("data", out var dProp))
+                            if (ans.TryGetProperty("data", out var dataProp))
                             {
-                                string ipStr = dProp.GetString() ?? "";
+                                string ipStr = dataProp.GetString() ?? "";
                                 if (IPAddress.TryParse(ipStr, out var ip))
                                 {
-                                    lock (_dohCache) { _dohCache[host] = ip; }
+                                    lock (_dohCache)
+                                    {
+                                        _dohCache[host] = ip;
+                                    }
                                     return ip;
                                 }
                             }
@@ -240,132 +390,363 @@ namespace StormSwitchBox.Services
                 catch { }
             }
 
+            try
+            {
+                var ips = await Dns.GetHostAddressesAsync(host, ct).ConfigureAwait(false);
+                var ip = ips.FirstOrDefault(x => x.AddressFamily == AddressFamily.InterNetwork);
+                if (ip != null)
+                {
+                    lock (_dohCache) { _dohCache[host] = ip; }
+                    return ip;
+                }
+            }
+            catch { }
+
             return null;
         }
 
-        /// <summary>
-        /// Авторизация на RuTracker по логину и паролю с получением сессионной куки bb_session.
-        /// </summary>
         public async Task<(bool Success, string CookieOrError)> LoginAsync(string username, string password, CancellationToken ct)
         {
-            if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
-                return (false, "Введите логин и пароль учётной записи RuTracker.");
-
             string mirror = NormalizeMirrorUrl(App.Settings.Current.RuTrackerMirror);
+            string loginUrl = $"{mirror}/forum/login.php";
+
             Encoding cp1251 = Encoding.GetEncoding(1251);
 
             try
             {
-                using var client = CreateHttpClient(cookieHeader: "", allowAutoRedirect: false);
-                string loginUrl = $"{mirror}/forum/login.php";
+                using var client = CreateHttpClient(allowAutoRedirect: false);
 
-                string bodyStr = $"login_username={UrlEncodeCp1251(username, cp1251)}&login_password={UrlEncodeCp1251(password, cp1251)}&login=%C2%F5%EE%E4";
-                using var content = new ByteArrayContent(Encoding.ASCII.GetBytes(bodyStr));
-                content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/x-www-form-urlencoded");
+                var postData = $"login_username={UrlEncodeCp1251(username, cp1251)}&login_password={UrlEncodeCp1251(password, cp1251)}&login=%C2%F5%EE%E4";
+                using var content = new StringContent(postData, cp1251, "application/x-www-form-urlencoded");
 
                 using var resp = await client.PostAsync(loginUrl, content, ct).ConfigureAwait(false);
+
                 if (resp.Headers.TryGetValues("Set-Cookie", out var cookies))
                 {
                     foreach (var c in cookies)
                     {
-                        var m = Regex.Match(c, @"bb_session=([^;\s]+)");
+                        var m = Regex.Match(c, @"bb_session=([a-zA-Z0-9_\-]+)");
                         if (m.Success)
                         {
-                            string sessionCookie = "bb_session=" + m.Groups[1].Value;
+                            string sessionVal = m.Groups[1].Value;
                             App.Settings.Current.RuTrackerUsername = username;
-                            App.Settings.Current.RuTrackerCookie = sessionCookie;
-                            await App.Settings.SaveAsync();
-                            return (true, sessionCookie);
+                            App.Settings.Current.RuTrackerCookie = sessionVal;
+                            _ = App.Settings.SaveAsync();
+                            return (true, sessionVal);
                         }
                     }
                 }
 
-                return (false, "Не удалось получить bb_session (проверьте логин/пароль или введите куку bb_session вручную, если трекер запрашивает капчу).");
+                byte[] bytes = await resp.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
+                string html = DecodeRuTrackerHtml(bytes, resp.Content.Headers.ContentType?.CharSet);
+
+                if (html.Contains("Неверное имя пользователя или пароль") || html.Contains("Вы ввели неверное"))
+                    return (false, "Неверный логин или пароль RuTracker.");
+
+                if (html.Contains("Превышено число попыток"))
+                    return (false, "Превышено число попыток входа (требуется капча). Войдите через браузер и вставьте Cookie bb_session.");
+
+                return (false, "Авторизация не удалась (сессия bb_session не получена). Проверьте зеркало или используйте Cookie.");
             }
             catch (Exception ex)
             {
-                return (false, $"Ошибка подключения к {mirror}: {ex.Message}");
+                return (false, $"Ошибка сети при входе: {ex.Message}");
             }
         }
 
         private static string UrlEncodeCp1251(string value, Encoding cp1251)
         {
             byte[] bytes = cp1251.GetBytes(value);
-            var sb = new StringBuilder(bytes.Length * 3);
+            var sb = new StringBuilder();
             foreach (byte b in bytes)
             {
-                if ((b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '-' || b == '_' || b == '.')
+                if ((b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '-' || b == '_' || b == '.' || b == '~')
+                {
                     sb.Append((char)b);
-                else if (b == ' ')
-                    sb.Append('+');
+                }
                 else
-                    sb.Append($"%{b:X2}");
+                {
+                    sb.Append('%').Append(b.ToString("X2"));
+                }
             }
             return sb.ToString();
         }
 
-        /// <summary>
-        /// Поиск раздач Nintendo Switch и Nintendo 3DS на RuTracker (или разбор прямой ссылки на тему viewtopic.php?t=...).
-        /// </summary>
-        public async Task<List<RuTrackerTopicItem>> SearchTopicsAsync(string query, string categoryFilter, CancellationToken ct)
+        #region Локальный индекс всех 7 275 тем RuTracker (#1605) и мгновенный поиск
+
+        public static void EnsureIndexLoaded()
         {
-            query = (query ?? "").Trim();
-
-            // Если вставлена прямая ссылка на тему viewtopic.php?t=1234567 или просто ID темы
-            var topicIdMatch = Regex.Match(query, @"(?:viewtopic\.php\?t=|^\s*)(\d{5,10})(?:\s*$|[&#])", RegexOptions.IgnoreCase);
-            if (topicIdMatch.Success)
+            if (_indexLoaded) return;
+            lock (_indexLock)
             {
-                var single = await FetchTopicDetailsAsync(topicIdMatch.Groups[1].Value, ct).ConfigureAwait(false);
-                return single != null ? new List<RuTrackerTopicItem> { single } : new List<RuTrackerTopicItem>();
+                if (_indexLoaded) return;
+                LoadIndexInternal();
+                _indexLoaded = true;
             }
+        }
 
-            string mirror = NormalizeMirrorUrl(App.Settings.Current.RuTrackerMirror);
-            Encoding cp1251 = Encoding.GetEncoding(1251);
-            var results = new List<RuTrackerTopicItem>();
+        private static void LoadIndexInternal()
+        {
+            string? assetPath = LocateIndexAssetFile();
+            if (string.IsNullOrEmpty(assetPath) || !File.Exists(assetPath))
+                return;
 
-            // Профильные разделы Nintendo Switch на RuTracker:
-            // 1605 = Nintendo Switch (Игры), 2481 = Nintendo Switch (Русификаторы / Патчи / Моды)
-            string forums = categoryFilter switch
+            try
             {
-                "SWITCH_GAMES" => "1605",
-                "SWITCH_MODS" => "2481",
-                _ => "1605,2481"
+                using var fs = File.OpenRead(assetPath);
+                using var gz = new GZipStream(fs, CompressionMode.Decompress);
+                using var doc = JsonDocument.Parse(gz);
+
+                if (doc.RootElement.TryGetProperty("topics", out var arr) && arr.ValueKind == JsonValueKind.Array)
+                {
+                    _indexTopics.Clear();
+                    _topicsById.Clear();
+                    _topicsByHash.Clear();
+
+                    foreach (var el in arr.EnumerateArray())
+                    {
+                        string tid = "";
+                        if (el.TryGetProperty("t", out var tp))
+                        {
+                            tid = tp.ValueKind == JsonValueKind.Number ? tp.GetInt64().ToString() : (tp.GetString() ?? "");
+                        }
+                        if (string.IsNullOrEmpty(tid)) continue;
+
+                        string h = el.TryGetProperty("h", out var hp) ? (hp.GetString() ?? "").Trim().ToUpperInvariant() : "";
+                        int sd = el.TryGetProperty("sd", out var sdp) && sdp.ValueKind == JsonValueKind.Number ? sdp.GetInt32() : 0;
+                        long sz = el.TryGetProperty("sz", out var szp) && szp.ValueKind == JsonValueKind.Number ? szp.GetInt64() : 0L;
+                        long rt = el.TryGetProperty("rt", out var rtp) && rtp.ValueKind == JsonValueKind.Number ? rtp.GetInt64() : 0L;
+                        string n = el.TryGetProperty("n", out var np) ? (np.GetString() ?? "") : "";
+                        string tt = el.TryGetProperty("tt", out var ttp) ? (ttp.GetString() ?? "") : "";
+                        string g = el.TryGetProperty("g", out var gp) ? (gp.GetString() ?? "") : "";
+                        string tidHex = el.TryGetProperty("tid", out var tidp) ? (tidp.GetString() ?? "").ToUpperInvariant() : "";
+
+                        var filesList = new List<RuTrackerIndexFile>();
+                        if (el.TryGetProperty("f", out var fp) && fp.ValueKind == JsonValueKind.Array)
+                        {
+                            foreach (var fArr in fp.EnumerateArray())
+                            {
+                                if (fArr.ValueKind == JsonValueKind.Array && fArr.GetArrayLength() >= 2)
+                                {
+                                    string p = fArr[0].GetString() ?? "";
+                                    long fsz = fArr[1].GetInt64();
+                                    string ftid = fArr.GetArrayLength() > 2 ? (fArr[2].GetString() ?? "") : "";
+                                    string frole = fArr.GetArrayLength() > 3 ? (fArr[3].GetString() ?? "") : "";
+                                    string fver = fArr.GetArrayLength() > 4 ? (fArr[4].GetString() ?? "") : "";
+                                    filesList.Add(new RuTrackerIndexFile
+                                    {
+                                        Path = p.Replace('\\', '/'),
+                                        Size = fsz,
+                                        TitleId = ftid,
+                                        Role = frole,
+                                        Version = fver
+                                    });
+                                }
+                            }
+                        }
+
+                        if (string.IsNullOrWhiteSpace(g))
+                            g = CleanTitleToGame(!string.IsNullOrWhiteSpace(tt) ? tt : n);
+                        if (string.IsNullOrWhiteSpace(tidHex))
+                            tidHex = ExtractTitleId(!string.IsNullOrWhiteSpace(tt) ? tt : n);
+
+                        var topic = new RuTrackerIndexTopic
+                        {
+                            TopicId = tid,
+                            InfoHash = h,
+                            Seeds = sd,
+                            SizeBytes = sz,
+                            RegTime = rt,
+                            TorrentName = n,
+                            TopicTitle = tt,
+                            GameName = g,
+                            TitleId = tidHex,
+                            Files = filesList
+                        };
+                        topic.RebuildKeys();
+
+                        _indexTopics.Add(topic);
+                        _topicsById[tid] = topic;
+                        if (!string.IsNullOrEmpty(h) && h.Length == 40)
+                            _topicsByHash[h] = topic;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[RuTracker Index] Ошибка чтения индекса: {ex.Message}", LogLevel.Warning);
+            }
+        }
+
+        private static string? LocateIndexAssetFile()
+        {
+            string[] candidates = new[]
+            {
+                Path.Combine(AppContext.BaseDirectory, "Assets", "rutracker_switch_index.json.gz"),
+                Path.Combine(Environment.CurrentDirectory, "Assets", "rutracker_switch_index.json.gz"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "STORM SWITCH BOX", "cache", "rutracker_switch_index.json.gz"),
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "rutracker_switch_index.json.gz"),
+                Path.Combine("Assets", "rutracker_switch_index.json.gz")
             };
 
-            string searchQuery = string.IsNullOrWhiteSpace(query) ? "Nintendo Switch" : query;
+            foreach (var c in candidates)
+            {
+                if (File.Exists(c) && new FileInfo(c).Length > 64)
+                    return c;
+            }
+            return null;
+        }
 
-            // 1. Если есть авторизация (bb_session), выполняем живой поиск через tracker.php
-            if (!string.IsNullOrWhiteSpace(App.Settings.Current.RuTrackerCookie))
+        private static void WarmupIndexAndLiveFeedsAsync()
+        {
+            if (_warmupStarted) return;
+            _warmupStarted = true;
+
+            Task.Run(async () =>
             {
                 try
                 {
-                    using var client = CreateHttpClient();
-                    foreach (int startOffset in new[] { 0, 50, 100, 150 })
+                    EnsureIndexLoaded();
+                    await RefreshAtomFeedAsync().ConfigureAwait(false);
+                    await RefreshPvcMapAsync().ConfigureAwait(false);
+                }
+                catch { }
+            });
+        }
+
+        public static async Task RefreshAtomFeedAsync(CancellationToken ct = default)
+        {
+            try
+            {
+                using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+                client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "STORM-SWITCH-BOX");
+                string xml = await client.GetStringAsync("https://feed.rutracker.cc/atom/f/1605.atom", ct).ConfigureAwait(false);
+                if (string.IsNullOrWhiteSpace(xml)) return;
+
+                var entries = Regex.Matches(xml, @"<entry>(.*?)</entry>", RegexOptions.Singleline);
+                foreach (Match entry in entries)
+                {
+                    string content = entry.Groups[1].Value;
+                    var linkMatch = Regex.Match(content, @"viewtopic\.php\?t=(\d+)");
+                    var titleMatch = Regex.Match(content, @"<title[^>]*>(.*?)</title>", RegexOptions.Singleline);
+                    if (linkMatch.Success && titleMatch.Success)
                     {
-                        string url = $"{mirror}/forum/tracker.php?f={forums}&nm={UrlEncodeCp1251(searchQuery, cp1251)}&start={startOffset}";
-                        using var resp = await client.GetAsync(url, ct).ConfigureAwait(false);
-                        if (!resp.IsSuccessStatusCode) break;
-                        byte[] bytes = await resp.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
-                        string html = DecodeRuTrackerHtml(bytes, resp.Content.Headers.ContentType?.CharSet);
-                        var pageItems = ParseTrackerSearchHtml(html, mirror);
-                        if (pageItems.Count == 0) break;
-                        results.AddRange(pageItems);
-                        if (pageItems.Count < 45) break;
+                        string tid = linkMatch.Groups[1].Value;
+                        string rawTitle = WebUtility.HtmlDecode(titleMatch.Groups[1].Value).Trim();
+                        lock (_indexLock)
+                        {
+                            if (_topicsById.TryGetValue(tid, out var topic))
+                            {
+                                topic.UpdateTopicTitle(rawTitle);
+                            }
+                        }
                     }
                 }
-                catch (Exception ex)
+            }
+            catch { }
+        }
+
+        public static async Task RefreshPvcMapAsync(CancellationToken ct = default)
+        {
+            try
+            {
+                using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(12) };
+                client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "STORM-SWITCH-BOX");
+                string json = await client.GetStringAsync("https://api.rutracker.cc/v1/static/pvc/f/1605", ct).ConfigureAwait(false);
+                if (string.IsNullOrWhiteSpace(json)) return;
+
+                using var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.ValueKind == JsonValueKind.Object)
                 {
-                    App.Logger?.Log($"[RuTracker] Ошибка поиска tracker.php: {ex.Message}", LogLevel.Warning);
+                    lock (_indexLock)
+                    {
+                        foreach (var prop in doc.RootElement.EnumerateObject())
+                        {
+                            string tid = prop.Name;
+                            if (prop.Value.ValueKind == JsonValueKind.Array && prop.Value.GetArrayLength() >= 3)
+                            {
+                                string h = prop.Value[0].GetString() ?? "";
+                                long sz = prop.Value[1].GetInt64();
+                                int sd = prop.Value[2].GetInt32();
+
+                                if (_topicsById.TryGetValue(tid, out var topic))
+                                {
+                                    if (sd > 0) topic.Seeds = sd;
+                                    if (sz > 0) topic.SizeBytes = sz;
+                                    if (!string.IsNullOrEmpty(h) && h.Length == 40) topic.InfoHash = h.ToUpperInvariant();
+                                }
+                            }
+                        }
+                    }
                 }
             }
+            catch { }
+        }
 
-            // 2. Если поиск без авторизации или tracker.php ничего не вернул — ищем через публичный индекс/гостевой поиск
-            if (results.Count == 0)
+        #endregion
+
+        public async Task<List<RuTrackerTopicItem>> SearchTopicsAsync(string query, string categoryFilter, CancellationToken ct)
+        {
+            EnsureIndexLoaded();
+
+            string mirror = NormalizeMirrorUrl(App.Settings.Current.RuTrackerMirror);
+            string cleanQ = query?.Trim() ?? "";
+
+            // 1. Прямой переход по номеру темы
+            var topicIdMatch = Regex.Match(cleanQ, @"(?:t=|viewtopic\.php\?t=|^)(\d{5,8})$");
+            if (topicIdMatch.Success)
             {
-                results.AddRange(await SearchPublicTopicsFallbackAsync(searchQuery, categoryFilter, mirror, ct).ConfigureAwait(false));
+                string directTid = topicIdMatch.Groups[1].Value;
+                lock (_indexLock)
+                {
+                    if (_topicsById.TryGetValue(directTid, out var indexedTopic))
+                    {
+                        return new List<RuTrackerTopicItem> { BuildTopicItem(indexedTopic, mirror) };
+                    }
+                }
+                var single = await FetchTopicDetailsAsync(directTid, ct).ConfigureAwait(false);
+                if (single != null) return new List<RuTrackerTopicItem> { single };
             }
 
-            return results;
+            // 2. Если есть авторизация (bb_session), пробуем живой tracker.php
+            var trackerResults = new List<RuTrackerTopicItem>();
+            if (!string.IsNullOrWhiteSpace(App.Settings.Current.RuTrackerCookie) && !string.IsNullOrWhiteSpace(cleanQ))
+            {
+                try
+                {
+                    Encoding cp1251 = Encoding.GetEncoding(1251);
+                    using var client = CreateHttpClient();
+                    string url = $"{mirror}/forum/tracker.php?f=1605&nm={UrlEncodeCp1251(cleanQ, cp1251)}";
+                    using var resp = await client.GetAsync(url, ct).ConfigureAwait(false);
+                    if (resp.IsSuccessStatusCode)
+                    {
+                        byte[] bytes = await resp.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
+                        string html = DecodeRuTrackerHtml(bytes, resp.Content.Headers.ContentType?.CharSet);
+                        trackerResults = ParseTrackerSearchHtml(html, mirror);
+                    }
+                }
+                catch { }
+            }
+
+            // 3. Мгновенный поиск по локальному индексу всех 7 275 тем
+            var indexResults = SearchIndex(cleanQ, categoryFilter, mirror, 80);
+
+            var combined = new List<RuTrackerTopicItem>();
+            var seenTids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var item in trackerResults)
+            {
+                if (seenTids.Add(item.TopicId))
+                    combined.Add(item);
+            }
+
+            foreach (var item in indexResults)
+            {
+                if (seenTids.Add(item.TopicId))
+                    combined.Add(item);
+            }
+
+            return combined.Take(80).ToList();
         }
 
         private static List<RuTrackerTopicItem> ParseTrackerSearchHtml(string html, string mirror)
@@ -386,749 +767,529 @@ namespace StormSwitchBox.Services
                 }
                 if (string.IsNullOrEmpty(title)) continue;
 
-                string category = "Nintendo";
-                var catMatch = Regex.Match(inner, @"class=""f-name""[^>]*>.*?<a[^>]*>(.*?)</a>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
-                if (catMatch.Success)
+                int seeds = 0;
+                var seedMatch = Regex.Match(inner, @"class=""[^""]*seedmed[^""]*""[^>]*><b>(\d+)</b>|class=""[^""]*seedmed[^""]*""[^>]*>(\d+)", RegexOptions.IgnoreCase);
+                if (seedMatch.Success)
                 {
-                    category = WebUtility.HtmlDecode(Regex.Replace(catMatch.Groups[1].Value, "<.*?>", "")).Trim();
+                    string sVal = !string.IsNullOrEmpty(seedMatch.Groups[1].Value) ? seedMatch.Groups[1].Value : seedMatch.Groups[2].Value;
+                    int.TryParse(sVal, out seeds);
                 }
 
-                string sizeText = "";
-                var sizeMatch = Regex.Match(inner, @"class=""[^""]*tor-size[^""]*""[^>]*>.*?<a[^>]*>(.*?)</a>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
-                if (!sizeMatch.Success)
-                    sizeMatch = Regex.Match(inner, @"data-ts_text=""\d+""[^>]*>(.*?)</td>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
+                int leechs = 0;
+                var leechMatch = Regex.Match(inner, @"class=""[^""]*leechmed[^""]*""[^>]*><b>(\d+)</b>|class=""[^""]*leechmed[^""]*""[^>]*>(\d+)", RegexOptions.IgnoreCase);
+                if (leechMatch.Success)
+                {
+                    string lVal = !string.IsNullOrEmpty(leechMatch.Groups[1].Value) ? leechMatch.Groups[1].Value : leechMatch.Groups[2].Value;
+                    int.TryParse(lVal, out leechs);
+                }
+
+                string sizeText = "нет данных";
+                var sizeMatch = Regex.Match(inner, @"data-ts_text=""(\d+)""|<a[^>]+class=""small tr-dl""[^>]*>.*?([\d.]+\s*(?:GB|MB|KB|ГБ|МБ|КБ))", RegexOptions.IgnoreCase);
                 if (sizeMatch.Success)
                 {
-                    sizeText = WebUtility.HtmlDecode(Regex.Replace(sizeMatch.Groups[1].Value, "<.*?>", "")).Replace("&nbsp;", " ").Trim();
+                    if (long.TryParse(sizeMatch.Groups[1].Value, out long szBytes) && szBytes > 0)
+                        sizeText = ProcessingTask.FormatSize(szBytes);
+                    else if (!string.IsNullOrEmpty(sizeMatch.Groups[2].Value))
+                        sizeText = sizeMatch.Groups[2].Value.Trim();
                 }
-
-                int seeds = 0;
-                var seedMatch = Regex.Match(inner, @"class=""[^""]*seedmed[^""]*""[^>]*><b>(\d+)</b>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
-                if (seedMatch.Success) int.TryParse(seedMatch.Groups[1].Value, out seeds);
-
-                int leech = 0;
-                var leechMatch = Regex.Match(inner, @"class=""[^""]*leechmed[^""]*""[^>]*><b>(\d+)</b>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
-                if (leechMatch.Success) int.TryParse(leechMatch.Groups[1].Value, out leech);
 
                 list.Add(new RuTrackerTopicItem
                 {
                     TopicId = tid,
                     Title = title,
-                    Category = category,
+                    Category = "Nintendo Switch",
                     SizeText = sizeText,
                     Seeds = seeds,
-                    Leechers = leech,
-                    TopicUrl = $"{mirror}/forum/viewtopic.php?t={tid}"
+                    Leechers = leechs,
+                    TopicUrl = $"{mirror}/forum/viewtopic.php?t={tid}",
+                    DirectTorrentUrl = $"{mirror}/forum/dl.php?t={tid}"
                 });
             }
 
             return list;
         }
 
-        private async Task<List<RuTrackerTopicItem>> SearchPublicTopicsFallbackAsync(string query, string categoryFilter, string mirror, CancellationToken ct)
+        private static List<RuTrackerTopicItem> SearchIndex(string query, string categoryFilter, string mirror, int limit)
         {
-            var combined = new List<RuTrackerTopicItem>();
-            var seenHashes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var seenTitles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            string q = query.Trim();
 
-            void AddUniqueRange(IEnumerable<RuTrackerTopicItem> items)
+            // Если запрос пустой — возвращаем только проверенные эталонные темы + топ раздач по сидам
+            if (string.IsNullOrEmpty(q) || q.Equals("nintendo switch", StringComparison.OrdinalIgnoreCase) || q.Equals("все хиты switch", StringComparison.OrdinalIgnoreCase))
             {
-                foreach (var it in items)
+                var starterResults = new List<RuTrackerTopicItem>();
+                var seenTids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                foreach (var cur in CuratedVerifiedHits)
                 {
-                    if (string.IsNullOrWhiteSpace(it.Title)) continue;
-                    if (!string.IsNullOrWhiteSpace(it.InfoHash) && !seenHashes.Add(it.InfoHash)) continue;
-                    string normTitle = Regex.Replace(it.Title, @"\s+", " ").Trim();
-                    if (!seenTitles.Add(normTitle)) continue;
-                    combined.Add(it);
-                }
-            }
-
-            // 1. Встроенная база проверенных раздач RuTracker Nintendo Switch и 3DS (мгновенный отклик 0 мс + ссылки на русификаторы)
-            AddUniqueRange(SearchCuratedSwitchAnd3dsDatabase(query, categoryFilter, mirror));
-
-            // 2. Параллельный живой опрос публичных торрент-индексов (ApiBay, Rutor, TheRarbg, TorrentsCSV, RuTracker Forum)
-            var tForum = SearchRuTrackerForumGuestAsync(query, categoryFilter, mirror, ct);
-            var tApiBay = SearchApiBayPublicAsync(query, categoryFilter, mirror, ct);
-            var tRutor = SearchRutorPublicAsync(query, categoryFilter, ct);
-            var tRarbg = SearchTheRarbgPublicAsync(query, categoryFilter, mirror, ct);
-            var tCsv = SearchTorrentsCsvPublicAsync(query, categoryFilter, mirror, ct);
-
-            try
-            {
-                await Task.WhenAll(tForum, tApiBay, tRutor, tRarbg, tCsv).ConfigureAwait(false);
-            }
-            catch { }
-
-            if (tForum.IsCompletedSuccessfully) AddUniqueRange(tForum.Result);
-            if (tApiBay.IsCompletedSuccessfully) AddUniqueRange(tApiBay.Result);
-            if (tRutor.IsCompletedSuccessfully) AddUniqueRange(tRutor.Result);
-            if (tRarbg.IsCompletedSuccessfully) AddUniqueRange(tRarbg.Result);
-            if (tCsv.IsCompletedSuccessfully) AddUniqueRange(tCsv.Result);
-
-            return combined
-                .Where(x => IsNintendoSpecificTitle(x.Title, x.Category))
-                .OrderByDescending(x => x.Seeds)
-                .Take(80)
-                .ToList();
-        }
-
-        private static bool IsNintendoSpecificTitle(string title, string category)
-        {
-            string t = (title + " " + category).ToLowerInvariant();
-            return t.Contains("switch") || t.Contains("nsp") || t.Contains("nsz") || t.Contains("xci") ||
-                   t.Contains("xcz") || t.Contains("3ds") || t.Contains("cia") || t.Contains("nintendo") ||
-                   t.Contains("[ns]");
-        }
-
-        private static List<RuTrackerTopicItem> SearchCuratedSwitchAnd3dsDatabase(string query, string categoryFilter, string mirror)
-        {
-            var db = new (string Tid, string Title, string Cat, string Size, int Seeds, int Leech, string Hash)[]
-            {
-                ("6479728", "[Nintendo Switch] Mario vs. Donkey Kong [v1.0.1 (65536) / 0100B99019412000] [NSP] [Multi / RUS]", "Nintendo Switch", "1.30 GB", 200, 14, "18034EA68DC5EBE094A061B95A04BB215D95A2A0"),
-                ("6525297", "[Nintendo Switch] Animal Well [v1.0.2 / 010020D01AD24000] [NSZ] [RUS / Multi11]", "Nintendo Switch", "73.35 MB", 54, 2, "0A996B997AA2B90DB658E4CA76D2989DD1F80F56"),
-                ("6589120", "[Nintendo Switch] Nine Sols [v1.0.5 + Русификатор] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "3.42 GB", 165, 12, "957ADC803EE75C916B735378F25406B4A4A7F1D5"),
-                ("6438192", "[Nintendo Switch] Brotato [v1.1.15.4 (851968) + DLC / 01002EF01A316000] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "388.19 MB", 142, 9, "7B4E2C198A0F5D3E6B9124C87E1A3F509D2B4C6E"),
-                ("6525297", "[Nintendo Switch] Animal Well [v1.0.10 (655360) / 010020D01AD24000] [NSP / NSZ] [RUS / Multi11]", "Nintendo Switch", "37.63 MB", 54, 2, "0A996B997AA2B90DB658E4CA76D2989DD1F80F56"),
-                ("5468910", "[Nintendo Switch] Celeste [v1.4.0.0] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "1.18 GB", 182, 6, "6EDC344625A26DCA0861F2ABE2FE2B98C0E83B1D"),
-                ("6381290", "[Nintendo Switch] Sea of Stars [v1.0.47958 + DLC + Русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "4.15 GB", 154, 9, "5054E8E6621522E2173D5AE817AFFAC8DABE50FE"),
-                ("6412098", "[Nintendo Switch] Dave the Diver [v1.0.2.918 + Godzilla & Dredge DLC] [NSP / NSZ] [RUS]", "Nintendo Switch", "3.28 GB", 179, 14, "488DA140F41B7A3E8A90F941315C4469F99E4C3D"),
-                ("6374120", "[Nintendo Switch] Blasphemous 2 [v1.2.0 + Mea Culpa DLC] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "3.10 GB", 141, 8, "2DDAAAC88356106B351677D4BB21B4F46969AB50"),
-                ("6549120", "[Nintendo Switch] Stray [v1.0.2] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "5.84 GB", 188, 16, "44556677889900AABBCCDDEEFF00112233445566"),
-                ("6438192", "[Nintendo Switch] Unicorn Overlord [v1.05 + Полный русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "6.42 GB", 174, 13, "556677889900AABBCCDDEEFF0011223344556677"),
-                ("6521890", "[Nintendo Switch] Shin Megami Tensei V: Vengeance [v1.0.2 + DLC + Русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "15.20 GB", 162, 15, "6677889900AABBCCDDEEFF001122334455667788"),
-                ("6578120", "[Nintendo Switch] Mario & Luigi: Brothership [v1.0.0 + Русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "9.85 GB", 215, 24, "77889900AABBCCDDEEFF00112233445566778899"),
-                ("6569102", "[Nintendo Switch] Super Mario Party Jamboree [v1.1.0] [NSP / NSZ] [RUS (Полный перевод)]", "Nintendo Switch", "5.34 GB", 248, 19, "889900AABBCCDDEEFF0011223344556677889900"),
-                ("6581024", "[Nintendo Switch] Dragon Quest III HD-2D Remake [v1.0.1 + Русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "7.45 GB", 181, 17, "9900AABBCCDDEEFF0011223344556677889900AA"),
-                ("5944816", "[Nintendo Switch] Hades [v1.0.38290 + DLC] [NSP / NSZ] [RUS / Multi10]", "Nintendo Switch", "10.31 GB", 142, 9, "50CE1151A4EA64913AB8E2AB118D1B90FC241E9E"),
-                ("6512044", "[Nintendo Switch] Hades II [v1.133066] [NSP / NSZ] [RUS / Multi15]", "Nintendo Switch", "8.44 GB", 95, 12, "7FF90903D9D4FB1AA818D716024CBF730F93883F"),
-                ("5392184", "[Nintendo Switch] The Legend of Zelda: Breath of the Wild [v1.6.0 + 2 DLC] [NSP / NSZ] [RUS (Полная русская озвучка + текст)]", "Nintendo Switch", "16.12 GB", 318, 24, "8A3B9E74B45A9D3F12C64E81D0A5B79C34F12E88"),
-                ("6358910", "[Nintendo Switch] The Legend of Zelda: Tears of the Kingdom [v1.2.1 + Моды 60 FPS] [NSP / NSZ / XCI] [RUS]", "Nintendo Switch", "16.34 GB", 412, 37, "76E054C1B7EA40327523B4C535F593BEB088A569"),
-                ("6558120", "[Nintendo Switch] The Legend of Zelda: Echoes of Wisdom [v1.0.2] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "5.82 GB", 184, 15, "4B9E21C88F1A43D09A77E5C1B2D3E4F5A6B7C8D9"),
-                ("5481023", "[Nintendo Switch] Super Mario Odyssey [v1.3.0] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "5.59 GB", 245, 14, "3C7D8E9F0A1B2C3D4E5F6A7B8C9D0E1F2A3B4C5D"),
-                ("5401298", "[Nintendo Switch] Mario Kart 8 Deluxe [v3.0.3 + Booster Course Pass DLC] [NSP / NSZ] [RUS]", "Nintendo Switch", "11.24 GB", 289, 19, "9E8D7C6B5A4F3E2D1C0B9A8F7E6D5C4B3A2F1E0D"),
-                ("6429815", "[Nintendo Switch] Super Mario Bros. Wonder [v1.0.1] [NSP / NSZ] [RUS (Локализация текста и звука)]", "Nintendo Switch", "3.61 GB", 210, 11, "1A2B3C4D5E6F7A8B9C0D1E2F3A4B5C6D7E8F9A0B"),
-                ("5791204", "[Nintendo Switch] The Witcher 3: Wild Hunt — Complete Edition [v3.7 / v4.04b + RUS Voice] [NSP / NSZ] [RUS]", "Nintendo Switch", "31.40 GB", 198, 22, "2B3C4D5E6F7A8B9C0D1E2F3A4B5C6D7E8F9A0B1C"),
-                ("5498211", "[Nintendo Switch] The Elder Scrolls V: Skyrim Anniversary Edition [v1.1.392 + 74 DLC] [NSP / NSZ] [RUS]", "Nintendo Switch", "15.85 GB", 176, 16, "3D4E5F6A7B8C9D0E1F2A3B4C5D6E7F8A9B0C1D2E"),
-                ("5572890", "[Nintendo Switch] Hollow Knight [v1.4.3.2 + 4 DLC] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "5.32 GB", 164, 8, "4E5F6A7B8C9D0E1F2A3B4C5D6E7F8A9B0C1D2E3F"),
-                ("6120945", "[Nintendo Switch] Metroid Dread [v2.1.0 + Русификатор] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "4.25 GB", 138, 7, "5F6A7B8C9D0E1F2A3B4C5D6E7F8A9B0C1D2E3F4A"),
-                ("6318490", "[Nintendo Switch] Metroid Prime Remastered [v1.0.0 + Русификатор] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "6.88 GB", 129, 6, "6A7B8C9D0E1F2A3B4C5D6E7F8A9B0C1D2E3F4A5B"),
-                ("6279104", "[Nintendo Switch] Persona 5 Royal [v1.0.2 + Полный русификатор текста] [NSP / NSZ] [RUS / ENG]", "Nintendo Switch", "14.18 GB", 225, 18, "7B8C9D0E1F2A3B4C5D6E7F8A9B0C1D2E3F4A5B6C"),
-                ("6245819", "[Nintendo Switch] Xenoblade Chronicles 3 [v2.2.0 + 4 DLC + Русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "18.92 GB", 156, 14, "8C9D0E1F2A3B4C5D6E7F8A9B0C1D2E3F4A5B6C7D"),
-                ("5892341", "[Nintendo Switch] Xenoblade Chronicles: Definitive Edition [v1.1.2 + Русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "13.65 GB", 118, 9, "9D0E1F2A3B4C5D6E7F8A9B0C1D2E3F4A5B6C7D8E"),
-                ("6284912", "[Nintendo Switch] Bayonetta 3 [v1.2.0 + Русификатор] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "14.40 GB", 112, 8, "0E1F2A3B4C5D6E7F8A9B0C1D2E3F4A5B6C7D8E9F"),
-                ("5761239", "[Nintendo Switch] Fire Emblem: Three Houses [v1.2.0 + 4 DLC + Русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "11.84 GB", 134, 11, "1F2A3B4C5D6E7F8A9B0C1D2E3F4A5B6C7D8E9F0A"),
-                ("5754312", "[Nintendo Switch] Astral Chain [v1.0.1] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "9.76 GB", 104, 6, "2A3B4C5D6E7F8A9B0C1D2E3F4A5B6C7D8E9F0A1B"),
-                ("5864120", "[Nintendo Switch] Animal Crossing: New Horizons [v2.0.6 + Happy Home Paradise] [NSP / NSZ] [RUS]", "Nintendo Switch", "10.42 GB", 203, 15, "3B4C5D6E7F8A9B0C1D2E3F4A5B6C7D8E9F0A1B2C"),
-                ("5798410", "[Nintendo Switch] Luigi's Mansion 3 [v1.4.0 + 2 DLC] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "7.45 GB", 149, 9, "4C5D6E7F8A9B0C1D2E3F4A5B6C7D8E9F0A1B2C3D"),
-                ("6194820", "[Nintendo Switch] Kirby and the Forgotten Land [v1.0.0 + Русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "5.85 GB", 131, 8, "5D6E7F8A9B0C1D2E3F4A5B6C7D8E9F0A1B2C3D4E"),
-                ("6168923", "[Nintendo Switch] Pokemon Legends: Arceus [v1.1.1 + Русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "6.22 GB", 142, 12, "6E7F8A9B0C1D2E3F4A5B6C7D8E9F0A1B2C3D4E5F"),
-                ("6394812", "[Nintendo Switch] Red Dead Redemption [v1.0.4 + Undead Nightmare] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "11.54 GB", 187, 14, "7F8A9B0C1D2E3F4A5B6C7D8E9F0A1B2C3D4E5F6A"),
-                ("6451208", "[Nintendo Switch] Hogwarts Legacy [v1.0.2 + DLC + Русская озвучка] [NSP / NSZ] [RUS]", "Nintendo Switch", "14.80 GB", 168, 17, "8A9B0C1D2E3F4A5B6C7D8E9F0A1B2C3D4E5F6A7B"),
-                ("6271049", "[Nintendo Switch] NieR:Automata The End of YoRHa Edition [v1.0.2 + Русификатор] [NSP / NSZ] [RUS]", "Nintendo Switch", "10.88 GB", 146, 10, "9B0C1D2E3F4A5B6C7D8E9F0A1B2C3D4E5F6A7B8C"),
-                ("5621894", "[Nintendo Switch] Dark Souls: Remastered [v1.0.3] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "4.02 GB", 119, 6, "0C1D2E3F4A5B6C7D8E9F0A1B2C3D4E5F6A7B8C9D"),
-                ("6118420", "[Nintendo Switch] Diablo II: Resurrected [v1.0.28.0 + Offline Patch] [NSP / NSZ] [RUS (Звук + Текст)]", "Nintendo Switch", "8.64 GB", 154, 11, "1D2E3F4A5B6C7D8E9F0A1B2C3D4E5F6A7B8C9D0E"),
-                ("5640129", "[Nintendo Switch] Diablo III: Eternal Collection [v2.7.6 + RUS Pack] [NSP / NSZ] [RUS]", "Nintendo Switch", "21.30 GB", 137, 9, "2E3F4A5B6C7D8E9F0A1B2C3D4E5F6A7B8C9D0E1F"),
-                ("6478912", "[Nintendo Switch] Prince of Persia: The Lost Crown [v1.4.1 + DLC] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "6.92 GB", 128, 7, "3F4A5B6C7D8E9F0A1B2C3D4E5F6A7B8C9D0E1F2A"),
-                ("6492014", "[Nintendo Switch] Balatro [v1.0.1f + Русификатор] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "148 MB", 172, 5, "4A5B6C7D8E9F0A1B2C3D4E5F6A7B8C9D0E1F2A3B"),
-                ("5712840", "[Nintendo Switch] Cuphead [v1.3.4 + The Delicious Last Course DLC] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "3.48 GB", 139, 6, "5B6C7D8E9F0A1B2C3D4E5F6A7B8C9D0E1F2A3B4C"),
-                ("5941280", "[Nintendo Switch] Ori and the Will of the Wisps [v1.2.0] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "4.12 GB", 124, 5, "6C7D8E9F0A1B2C3D4E5F6A7B8C9D0E1F2A3B4C5D"),
-                ("5612940", "[Nintendo Switch] Dead Cells [v1.25.0 + All DLC + Return to Castlevania] [NSP / NSZ] [RUS]", "Nintendo Switch", "2.18 GB", 115, 4, "7D8E9F0A1B2C3D4E5F6A7B8C9D0E1F2A3B4C5D6E"),
-                ("5519284", "[Nintendo Switch] Stardew Valley [v1.6.9] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "1.58 GB", 162, 8, "8E9F0A1B2C3D4E5F6A7B8C9D0E1F2A3B4C5D6E7F"),
-                ("5210489", "[Nintendo 3DS] The Legend of Zelda: Ocarina of Time 3D [v1.1] [CIA / 3DS] [RUS]", "Nintendo 3DS", "512 MB", 94, 4, "9F0A1B2C3D4E5F6A7B8C9D0E1F2A3B4C5D6E7F8A"),
-                ("5381920", "[Nintendo 3DS] The Legend of Zelda: Majora's Mask 3D [v1.1 + Project Restoration] [CIA / 3DS] [RUS]", "Nintendo 3DS", "684 MB", 88, 3, "0A1B2C3D4E5F6A7B8C9D0E1F2A3B4C5D6E7F8A9B"),
-                ("5194821", "[Nintendo 3DS] Super Mario 3D Land [EUR] [CIA / 3DS] [RUS]", "Nintendo 3DS", "320 MB", 79, 2, "1B2C3D4E5F6A7B8C9D0E1F2A3B4C5D6E7F8A9B0C"),
-                ("5419280", "[Nintendo 3DS] Metroid: Samus Returns [EUR + Русификатор] [CIA / 3DS] [RUS]", "Nintendo 3DS", "742 MB", 71, 3, "2C3D4E5F6A7B8C9D0E1F2A3B4C5D6E7F8A9B0C1D"),
-                ("5329481", "[Nintendo 3DS] Fire Emblem Awakening [EUR + DLC + Русификатор] [CIA / 3DS] [RUS]", "Nintendo 3DS", "1.34 GB", 83, 4, "3D4E5F6A7B8C9D0E1F2A3B4C5D6E7F8A9B0C1D2E")
-            };
-
-            string q = (query ?? "").Trim();
-            if (q.Equals("Nintendo Switch", StringComparison.OrdinalIgnoreCase) || q.Equals("Nintendo 3DS", StringComparison.OrdinalIgnoreCase))
-                q = "";
-
-            var queryVariants = GenerateSmartSearchVariants(q);
-            var scoredResults = new List<(RuTrackerTopicItem Item, int Score)>();
-            var seenTitles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            foreach (var entry in db)
-            {
-                if (categoryFilter == "SWITCH" && !entry.Cat.Contains("Switch", StringComparison.OrdinalIgnoreCase))
-                    continue;
-                if (categoryFilter == "3DS" && !entry.Cat.Contains("3DS", StringComparison.OrdinalIgnoreCase))
-                    continue;
-
-                int score = string.IsNullOrEmpty(q) ? 500 : ScoreFuzzyTitleMatch(entry.Title, queryVariants);
-                if (score <= 0) continue;
-
-                seenTitles.Add(NormalizeTitleKey(entry.Title));
-                scoredResults.Add((new RuTrackerTopicItem
-                {
-                    TopicId = entry.Tid,
-                    Title = entry.Title,
-                    Category = entry.Cat,
-                    SizeText = entry.Size,
-                    Seeds = entry.Seeds,
-                    Leechers = entry.Leech,
-                    TopicUrl = $"{mirror}/forum/viewtopic.php?t={entry.Tid}",
-                    MagnetUri = BuildMagnetUri(entry.Hash, entry.Title)
-                }, score + 25));
-            }
-
-            // Поиск по полной базе всех 11 380+ игр Nintendo Switch (Assets/titledb_full.tsv.gz)
-            if (!string.IsNullOrEmpty(q) && categoryFilter != "3DS")
-            {
-                foreach (var tdb in LoadFullSwitchCatalogForSearch())
-                {
-                    int score = ScoreFuzzyTitleMatch($"{tdb.Name} {tdb.TitleId}", queryVariants);
-                    if (score <= 0) continue;
-                    string normKey = NormalizeTitleKey(tdb.Name);
-                    if (!string.IsNullOrEmpty(normKey) && !seenTitles.Add(normKey)) continue;
-
-                    long tidSeed = 500000L;
-                    if (tdb.TitleId.Length >= 8)
-                        long.TryParse(tdb.TitleId.Substring(tdb.TitleId.Length - 8), System.Globalization.NumberStyles.HexNumber, null, out tidSeed);
-                    string synTopicId = (5200000L + (Math.Abs(tidSeed) % 1399999L)).ToString();
-                    byte[] hashBytes = System.Security.Cryptography.SHA1.HashData(Encoding.UTF8.GetBytes("RUTRACKER_NSW_" + tdb.TitleId));
-                    string hexHash = Convert.ToHexString(hashBytes);
-                    string displayTitle = $"[Nintendo Switch] {tdb.Name} [v{tdb.Version} / {tdb.TitleId}] [NSP / NSZ] [RUS / Multi]";
-                    int seeds = (int)(18 + (Math.Abs(tidSeed) % 95));
-
-                    scoredResults.Add((new RuTrackerTopicItem
+                    if (seenTids.Add(cur.Tid))
                     {
-                        TopicId = synTopicId,
-                        Title = displayTitle,
-                        Category = "Nintendo Switch",
-                        SizeText = tdb.SizeText,
-                        Seeds = seeds,
-                        Leechers = Math.Max(1, seeds / 8),
-                        TopicUrl = $"{mirror}/forum/tracker.php?f=1605&nm={Uri.EscapeDataString(tdb.Name)}",
-                        MagnetUri = BuildMagnetUri(hexHash, displayTitle)
-                    }, score));
-                }
-            }
+                        RuTrackerIndexTopic? indexed = null;
+                        lock (_indexLock) { _topicsById.TryGetValue(cur.Tid, out indexed); }
 
-            return scoredResults
-                .OrderByDescending(x => x.Score)
-                .ThenByDescending(x => x.Item.Seeds)
-                .Take(80)
-                .Select(x => x.Item)
-                .ToList();
-        }
-
-        private sealed record SwitchSearchCatalogEntry(string TitleId, string Name, string SizeText, string Version);
-        private static List<SwitchSearchCatalogEntry>? _cachedFullSwitchCatalog;
-
-        private static List<SwitchSearchCatalogEntry> LoadFullSwitchCatalogForSearch()
-        {
-            if (_cachedFullSwitchCatalog != null && _cachedFullSwitchCatalog.Count > 100)
-                return _cachedFullSwitchCatalog;
-
-            var list = new List<SwitchSearchCatalogEntry>();
-            try
-            {
-                string gzPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "titledb_full.tsv.gz");
-                if (!File.Exists(gzPath))
-                    gzPath = Path.Combine(AppContext.BaseDirectory, "Assets", "titledb_full.tsv.gz");
-                if (File.Exists(gzPath))
-                {
-                    using var fs = File.OpenRead(gzPath);
-                    using var gz = new System.IO.Compression.GZipStream(fs, System.IO.Compression.CompressionMode.Decompress);
-                    using var sr = new StreamReader(gz, Encoding.UTF8);
-                    string? line;
-                    while ((line = sr.ReadLine()) != null)
-                    {
-                        string[] parts = line.Split('\t');
-                        if (parts.Length >= 6)
+                        if (indexed != null)
                         {
-                            list.Add(new SwitchSearchCatalogEntry(
-                                parts[0].Trim(),
-                                parts[1].Trim(),
-                                parts[4].Trim(),
-                                parts[5].Trim()
-                            ));
+                            starterResults.Add(BuildTopicItem(indexed, mirror));
+                        }
+                        else
+                        {
+                            starterResults.Add(new RuTrackerTopicItem
+                            {
+                                TopicId = cur.Tid,
+                                Title = cur.Title,
+                                Category = "Nintendo Switch",
+                                SizeText = cur.Size,
+                                Seeds = cur.Seeds,
+                                Leechers = Math.Max(1, cur.Seeds / 8),
+                                TopicUrl = $"{mirror}/forum/viewtopic.php?t={cur.Tid}",
+                                InfoHash = cur.Hash,
+                                MagnetUri = BuildMagnetUri(cur.Hash, cur.Title),
+                                DirectTorrentUrl = $"{mirror}/forum/dl.php?t={cur.Tid}"
+                            });
                         }
                     }
                 }
-            }
-            catch { }
-            if (list.Count > 100) _cachedFullSwitchCatalog = list;
-            return list;
-        }
 
-        private static string NormalizeTitleKey(string raw)
-        {
-            string s = Regex.Replace(raw ?? "", @"\[.*?\]|\(.*?\)", " ");
-            return Regex.Replace(s.ToLowerInvariant(), @"[^a-zа-яё0-9]+", "").Trim();
-        }
-
-        private static List<string> GenerateSmartSearchVariants(string rawQuery)
-        {
-            string clean = (rawQuery ?? "").Trim().ToLowerInvariant();
-            if (string.IsNullOrEmpty(clean)) return new List<string>();
-            var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { clean };
-
-            var aliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-            {
-                ["бротато"] = "brotato", ["братато"] = "brotato", ["бротата"] = "brotato",
-                ["анимал велл"] = "animal well", ["энимал велл"] = "animal well", ["анимал вел"] = "animal well",
-                ["зельда"] = "zelda", ["марио"] = "mario", ["ведьмак"] = "witcher",
-                ["холлоу найт"] = "hollow knight", ["полый рыцарь"] = "hollow knight", ["силксонг"] = "silksong",
-                ["капхед"] = "cuphead", ["балатро"] = "balatro", ["дум"] = "doom", ["скайрим"] = "skyrim",
-                ["стардю"] = "stardew valley", ["стардью"] = "stardew valley", ["террария"] = "terraria",
-                ["майнкрафт"] = "minecraft", ["персона"] = "persona", ["покемон"] = "pokemon",
-                ["байонетта"] = "bayonetta", ["ксеноблейд"] = "xenoblade", ["дарк соулс"] = "dark souls",
-                ["хейдес"] = "hades", ["аид"] = "hades", ["факторио"] = "factorio", ["сабнавтика"] = "subnautica",
-                ["дейв"] = "dave the diver", ["дредж"] = "dredge", ["туник"] = "tunic",
-                ["бласфемос"] = "blasphemous", ["пицца"] = "pizza tower", ["найн солс"] = "nine sols",
-                ["дед селлс"] = "dead cells", ["селеста"] = "celeste", ["ори"] = "ori",
-                ["соник"] = "sonic", ["кирби"] = "kirby", ["сплатун"] = "splatoon", ["метроид"] = "metroid",
-                ["резидент"] = "resident evil", ["ассасин"] = "assassin", ["киберпанк"] = "cyberpunk",
-                ["дьябло"] = "diablo", ["мортал комбат"] = "mortal kombat", ["луиджи"] = "luigi",
-                ["вампир"] = "vampire survivors", ["даркест данджен"] = "darkest dungeon", ["стрей"] = "stray"
-            };
-
-            foreach (var kv in aliases)
-            {
-                if (clean.Contains(kv.Key, StringComparison.OrdinalIgnoreCase))
+                // Дополняем топ-раздачами по числу сидов из полного индекса
+                lock (_indexLock)
                 {
-                    set.Add(clean.Replace(kv.Key, kv.Value, StringComparison.OrdinalIgnoreCase).Trim());
-                    set.Add(kv.Value);
+                    var topSeedTopics = _indexTopics
+                        .Where(t => !seenTids.Contains(t.TopicId) && !string.IsNullOrEmpty(t.InfoHash) && t.Seeds > 0)
+                        .OrderByDescending(t => t.Seeds)
+                        .Take(limit - starterResults.Count);
+
+                    foreach (var t in topSeedTopics)
+                    {
+                        if (seenTids.Add(t.TopicId))
+                            starterResults.Add(BuildTopicItem(t, mirror));
+                    }
+                }
+
+                return starterResults;
+            }
+
+            // Полнотекстовый и нечёткий поиск по 7 275 темам
+            var qNorm = NormalizeSearchKey(q);
+            string hexOnly = qNorm.Replace(" ", "");
+            string? tidQuery = (hexOnly.Length >= 6 && hexOnly.All(c => (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) && hexOnly.Any(char.IsDigit))
+                ? hexOnly
+                : null;
+            string? topicNumber = (qNorm.Length >= 5 && qNorm.All(char.IsDigit)) ? qNorm : null;
+
+            var variants = BuildQueryVariants(q);
+            var scored = new List<(RuTrackerIndexTopic Topic, int Score)>();
+
+            lock (_indexLock)
+            {
+                foreach (var t in _indexTopics)
+                {
+                    if (topicNumber != null && t.TopicId == topicNumber)
+                    {
+                        scored.Add((t, 1400));
+                        continue;
+                    }
+
+                    int sc = ScoreTopic(t, variants, tidQuery);
+                    if (sc > 0)
+                    {
+                        scored.Add((t, sc));
+                    }
                 }
             }
 
-            const string enLayout = "qwertyuiop[]asdfghjkl;'zxcvbnm,./`";
-            const string ruLayout = "йцукенгшщзхъфывапролджэячсмитьбю.ё";
-            var sbEn = new StringBuilder(clean.Length);
-            foreach (char c in clean)
-            {
-                int idx = ruLayout.IndexOf(c);
-                sbEn.Append(idx >= 0 ? enLayout[idx] : c);
-            }
-            set.Add(sbEn.ToString());
-
-            var trMap = new Dictionary<char, string>
-            {
-                ['а']="a",['б']="b",['в']="v",['г']="g",['д']="d",['е']="e",['ё']="e",['ж']="zh",['з']="z",
-                ['и']="i",['й']="y",['к']="k",['л']="l",['м']="m",['н']="n",['о']="o",['п']="p",['р']="r",
-                ['с']="s",['т']="t",['у']="u",['ф']="f",['х']="h",['ц']="c",['ч']="ch",['ш']="sh",['щ']="shch",
-                ['ы']="y",['э']="e",['ю']="yu",['я']="ya"
-            };
-            var sbTr = new StringBuilder();
-            foreach (char c in clean)
-            {
-                if (trMap.TryGetValue(c, out string? rep)) sbTr.Append(rep);
-                else if (c != 'ъ' && c != 'ь') sbTr.Append(c);
-            }
-            set.Add(sbTr.ToString());
-
-            return set.Where(x => !string.IsNullOrWhiteSpace(x)).ToList();
+            return scored
+                .OrderByDescending(x => x.Score)
+                .ThenByDescending(x => x.Topic.Seeds)
+                .Take(limit)
+                .Select(x => BuildTopicItem(x.Topic, mirror))
+                .ToList();
         }
 
-        private static readonly HashSet<string> EnglishStopWords = new(StringComparer.OrdinalIgnoreCase)
+        private static RuTrackerTopicItem BuildTopicItem(RuTrackerIndexTopic t, string mirror)
         {
-            "the", "and", "for", "with", "from", "into", "edition", "switch", "nintendo"
+            string title = !string.IsNullOrWhiteSpace(t.TopicTitle)
+                ? t.TopicTitle
+                : (!string.IsNullOrWhiteSpace(t.TorrentName) ? t.TorrentName : $"[Nintendo Switch] {t.GameName}");
+
+            string sizeText = t.SizeBytes > 0 ? ProcessingTask.FormatSize(t.SizeBytes) : "нет данных";
+
+            return new RuTrackerTopicItem
+            {
+                TopicId = t.TopicId,
+                Title = title,
+                Category = "Nintendo Switch",
+                SizeText = sizeText,
+                Seeds = t.Seeds,
+                Leechers = Math.Max(1, t.Seeds / 8),
+                TopicUrl = $"{mirror}/forum/viewtopic.php?t={t.TopicId}",
+                InfoHash = t.InfoHash,
+                MagnetUri = BuildMagnetUri(t.InfoHash, title),
+                DirectTorrentUrl = $"{mirror}/forum/dl.php?t={t.TopicId}"
+            };
+        }
+
+        #region Алгоритмы поиска (раскладка, опечатки, Soundex, синонимы)
+
+        private sealed class QVariant
+        {
+            public string Text { get; }
+            public string Padded { get; }
+            public string[] Words { get; }
+            public string Skeleton { get; }
+
+            public QVariant(string text, string padded, string[] words, string skeleton)
+            {
+                Text = text;
+                Padded = padded;
+                Words = words;
+                Skeleton = skeleton;
+            }
+        }
+
+        private static readonly HashSet<string> StopWords = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "the", "and", "for", "of", "a", "an", "nintendo", "switch", "edition", "deluxe"
         };
 
-        private static bool IsWordFuzzyMatch(string qw, string gw, out int dist)
+        private static readonly Dictionary<string, string> RuGameAliases = new(StringComparer.OrdinalIgnoreCase)
         {
-            dist = 99;
-            if (string.Equals(qw, gw, StringComparison.OrdinalIgnoreCase)) { dist = 0; return true; }
-            if (qw.Length >= 3 && gw.StartsWith(qw, StringComparison.OrdinalIgnoreCase)) { dist = 0; return true; }
-            if (qw.Length < 4 || gw.Length < 4) return false;
-            if (Math.Abs(qw.Length - gw.Length) > 2) return false;
-            bool sameStart = (qw[0] == gw[0]) || (qw.Length >= 2 && gw.Length >= 2 && qw[0] == gw[1] && qw[1] == gw[0]);
-            if (!sameStart) return false;
-            int maxDist = qw.Length <= 5 ? 1 : 2;
-            int d = CalcEditDistance(qw, gw);
-            if (d <= maxDist) { dist = d; return true; }
-            if (gw.Length > qw.Length && qw.Length >= 4)
+            ["бротато"] = "brotato", ["братато"] = "brotato", ["бротата"] = "brotato", ["картошка"] = "brotato",
+            ["анимал велл"] = "animal well", ["энимал велл"] = "animal well", ["анимал вел"] = "animal well", ["энимал вел"] = "animal well",
+            ["зельда"] = "zelda", ["зельды"] = "zelda", ["линк"] = "zelda", ["хайрул"] = "hyrule",
+            ["марио"] = "mario", ["супер марио"] = "super mario", ["марио карт"] = "mario kart",
+            ["ведьмак"] = "witcher", ["витчер"] = "witcher", ["геральт"] = "witcher",
+            ["холлоу найт"] = "hollow knight", ["полый рыцарь"] = "hollow knight", ["холоу найт"] = "hollow knight",
+            ["силксонг"] = "silksong", ["хорнет"] = "silksong",
+            ["капхед"] = "cuphead", ["чашкоhead"] = "cuphead",
+            ["балатро"] = "balatro", ["покер"] = "balatro",
+            ["дум"] = "doom", ["дум этернал"] = "doom eternal",
+            ["скайрим"] = "skyrim", ["элдер скроллс"] = "elder scrolls",
+            ["стардю"] = "stardew valley", ["стардью"] = "stardew valley", ["долина стардью"] = "stardew valley",
+            ["террария"] = "terraria", ["терария"] = "terraria",
+            ["майнкрафт"] = "minecraft", ["майн"] = "minecraft",
+            ["персона"] = "persona", ["покемон"] = "pokemon", ["покемоны"] = "pokemon",
+            ["байонетта"] = "bayonetta", ["ксеноблейд"] = "xenoblade", ["зеноблейд"] = "xenoblade",
+            ["дарк соулс"] = "dark souls", ["дарк соулз"] = "dark souls",
+            ["хейдес"] = "hades", ["гадес"] = "hades", ["аид"] = "hades",
+            ["факторио"] = "factorio", ["сабнавтика"] = "subnautica", ["сабнатика"] = "subnautica",
+            ["дейв"] = "dave the diver", ["дайвер"] = "dave the diver",
+            ["дредж"] = "dredge", ["туник"] = "tunic",
+            ["бласфемос"] = "blasphemous", ["бласфемус"] = "blasphemous",
+            ["пицца тауэр"] = "pizza tower", ["пицца"] = "pizza tower",
+            ["найн солс"] = "nine sols", ["девять солнц"] = "nine sols",
+            ["дед селлс"] = "dead cells", ["мертвые клетки"] = "dead cells", ["дэд селлс"] = "dead cells",
+            ["селеста"] = "celeste", ["селест"] = "celeste",
+            ["ори"] = "ori", ["крэш"] = "crash bandicoot", ["краш"] = "crash bandicoot",
+            ["спайро"] = "spyro", ["соник"] = "sonic", ["кирби"] = "kirby",
+            ["сплатун"] = "splatoon", ["пикмин"] = "pikmin",
+            ["файр эмблем"] = "fire emblem", ["огненная эмблема"] = "fire emblem",
+            ["монстер хантер"] = "monster hunter", ["монхан"] = "monster hunter",
+            ["резидент"] = "resident evil", ["обитель зла"] = "resident evil",
+            ["ассасин"] = "assassins creed",
+            ["донки конг"] = "donkey kong", ["донкиконг"] = "donkey kong",
+            ["кастлвания"] = "castlevania", ["кастлевания"] = "castlevania",
+            ["мегамен"] = "mega man", ["астрал чейн"] = "astral chain",
+            ["октопат"] = "octopath traveler", ["якудза"] = "yakuza"
+        };
+
+        private static List<QVariant> BuildQueryVariants(string rawQuery)
+        {
+            string clean = rawQuery.Trim().ToLowerInvariant();
+            var raw = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { clean };
+
+            foreach (var (ruKey, enVal) in RuGameAliases)
             {
-                int dPref = CalcEditDistance(qw, gw.Substring(0, qw.Length));
-                if (dPref <= 1) { dist = dPref; return true; }
+                if (clean == ruKey || clean.Contains(ruKey))
+                {
+                    raw.Add(clean.Replace(ruKey, enVal).Trim());
+                    raw.Add(enVal);
+                }
             }
-            return false;
+
+            string swappedEn = SwapKeyboardLayout(clean, ruToEn: true);
+            if (swappedEn != clean) raw.Add(swappedEn);
+
+            string swappedRu = SwapKeyboardLayout(clean, ruToEn: false);
+            if (swappedRu != clean)
+            {
+                raw.Add(swappedRu);
+                foreach (var (ruKey, enVal) in RuGameAliases)
+                {
+                    if (swappedRu == ruKey || swappedRu.Contains(ruKey))
+                        raw.Add(enVal);
+                }
+            }
+
+            string translit = TransliterateRuToEn(clean);
+            if (translit != clean)
+            {
+                raw.Add(translit);
+                raw.Add(translit.Replace('v', 'w'));
+                raw.Add(translit.Replace('k', 'c'));
+            }
+
+            var outList = new List<QVariant>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var r in raw)
+            {
+                string n = NormalizeSearchKey(r);
+                if (string.IsNullOrEmpty(n) || !seen.Add(n)) continue;
+
+                var ws = n.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                var sig = ws.Where(w => !StopWords.Contains(w)).ToArray();
+                if (sig.Length == 0) sig = ws;
+
+                outList.Add(new QVariant(n, " " + n, sig, n.Length >= 4 ? PhoneticSkeleton(n) : ""));
+            }
+
+            return outList;
         }
 
-        private static int ScoreFuzzyTitleMatch(string title, List<string> variants)
+        private static int ScoreTopic(RuTrackerIndexTopic t, List<QVariant> variants, string? tidQuery)
         {
-            if (variants.Count == 0) return 500;
-            string lowerTitle = (title ?? "").ToLowerInvariant();
-            string cleanTitle = Regex.Replace(lowerTitle, @"\[.*?\]|\(.*?\)", " ").Trim();
-            string[] titleWords = Regex.Split(cleanTitle, @"[^a-zа-яё0-9]+").Where(w => w.Length > 0).ToArray();
-            if (titleWords.Length == 0) return 0;
+            if (!string.IsNullOrEmpty(tidQuery) && t.TidBlob.Contains(tidQuery))
+                return 1300;
 
-            for (int idx = 0; idx < variants.Count; idx++)
+            int best = 0;
+            for (int i = 0; i < variants.Count; i++)
             {
-                string v = variants[idx];
-                int penalty = idx == 0 ? 0 : 35;
-                if (cleanTitle.Equals(v, StringComparison.OrdinalIgnoreCase)) return 1200 - penalty;
-                if (cleanTitle.StartsWith(v, StringComparison.OrdinalIgnoreCase)) return 1120 - penalty;
-                if (v.Length >= 4 && cleanTitle.Contains(v, StringComparison.OrdinalIgnoreCase)) return 1050 - penalty;
-
-                string[] allQWords = Regex.Split(v, @"[^a-zа-яё0-9]+").Where(w => w.Length > 0).ToArray();
-                if (allQWords.Length == 0) continue;
-
-                var sigWords = allQWords.Where(w => w.Length >= 2 && !EnglishStopWords.Contains(w)).ToArray();
-                if (sigWords.Length == 0) sigWords = allQWords;
-                var stopWords = allQWords.Where(w => EnglishStopWords.Contains(w)).ToArray();
-
-                bool allMatched = true;
-                int totalDist = 0;
-                foreach (string qw in sigWords)
+                var v = variants[i];
+                if (t.GameKey == v.Text)
                 {
-                    int bestD = 99;
-                    bool matchedWord = false;
-                    foreach (string gw in titleWords)
+                    best = Math.Max(best, 1100 - i * 10);
+                    continue;
+                }
+
+                if (t.GameKey.StartsWith(v.Text, StringComparison.Ordinal))
+                {
+                    best = Math.Max(best, 1020 - i * 10);
+                    continue;
+                }
+
+                if (t.GameKeyPadded.Contains(v.Padded, StringComparison.Ordinal))
+                {
+                    best = Math.Max(best, 990 - i * 10);
+                    continue;
+                }
+
+                int ws = WordScore(t, v);
+                if (ws > best) best = ws;
+
+                if (!string.IsNullOrEmpty(v.Skeleton) && t.Skeleton.Contains(v.Skeleton, StringComparison.Ordinal))
+                {
+                    best = Math.Max(best, 680 - i * 10);
+                }
+            }
+
+            return best;
+        }
+
+        private static int WordScore(RuTrackerIndexTopic t, QVariant v)
+        {
+            if (v.Words.Length == 0) return 0;
+            int total = 0;
+            int inGame = 0;
+
+            foreach (var qw in v.Words)
+            {
+                int best = 99;
+                bool bestInGame = false;
+
+                for (int wi = 0; wi < t.Words.Length; wi++)
+                {
+                    int d = WordMatch(qw, t.Words[wi]);
+                    if (d < best || (d == best && wi < t.GameWordCount && !bestInGame))
                     {
-                        if (IsWordFuzzyMatch(qw, gw, out int d) && d < bestD)
-                        {
-                            matchedWord = true;
-                            bestD = d;
-                            if (d == 0) break;
-                        }
+                        best = d;
+                        bestInGame = wi < t.GameWordCount;
+                        if (d == 0 && bestInGame) break;
                     }
-                    if (!matchedWord) { allMatched = false; break; }
-                    totalDist += bestD;
                 }
 
-                if (allMatched)
-                {
-                    int stopBonus = 0;
-                    foreach (string sw in stopWords)
-                        stopBonus += titleWords.Any(tw => tw.Equals(sw, StringComparison.OrdinalIgnoreCase) || tw.StartsWith(sw, StringComparison.OrdinalIgnoreCase)) ? 45 : -25;
-                    int baseScore = totalDist == 0 ? 960 : (800 - totalDist * 55);
-                    return Math.Max(600, baseScore + stopBonus - penalty);
-                }
+                if (best >= 99) return 0;
+                total += best;
+                if (bestInGame) inGame++;
             }
-            return 0;
+
+            int scoreBase = total == 0 ? 980 : (840 - total * 60);
+            int gameBonus = inGame == v.Words.Length ? 40 : 0;
+            return Math.Max(600, scoreBase + gameBonus);
         }
 
-        private static int CalcEditDistance(string a, string b)
+        private static int WordMatch(string qw, string gw)
         {
-            if (a == b) return 0;
-            if (Math.Abs(a.Length - b.Length) > 3) return 99;
-            int[,] dp = new int[a.Length + 1, b.Length + 1];
-            for (int i = 0; i <= a.Length; i++) dp[i, 0] = i;
-            for (int j = 0; j <= b.Length; j++) dp[0, j] = j;
-            for (int i = 1; i <= a.Length; i++)
+            if (qw == gw) return 0;
+            if (qw.Length >= 2 && gw.StartsWith(qw, StringComparison.Ordinal) && !qw.All(char.IsDigit)) return 0;
+            if (qw.Length < 4 || gw.Length < 4) return 99;
+            if (Math.Abs(qw.Length - gw.Length) > 2 && gw.Length < qw.Length) return 99;
+            bool sameStart = qw[0] == gw[0] || (qw.Length > 1 && gw.Length > 1 && qw[0] == gw[1] && qw[1] == gw[0]);
+            if (!sameStart) return 99;
+            int maxDist = qw.Length <= 5 ? 1 : 2;
+            if (Math.Abs(qw.Length - gw.Length) <= 2)
             {
-                for (int j = 1; j <= b.Length; j++)
+                int d = DamerauLevenshtein(qw, gw);
+                if (d <= maxDist) return d;
+            }
+            if (gw.Length > qw.Length)
+            {
+                int dp = DamerauLevenshtein(qw, gw.Substring(0, qw.Length));
+                if (dp <= 1) return dp + 1;
+            }
+            return 99;
+        }
+
+        public static string NormalizeSearchKey(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return "";
+            var sb = new StringBuilder(s.Length);
+            bool space = true;
+            foreach (char c0 in s)
+            {
+                char c = char.ToLowerInvariant(c0);
+                if (c == 'ё') c = 'е';
+                if (char.IsLetterOrDigit(c))
+                {
+                    sb.Append(c);
+                    space = false;
+                }
+                else if (!space)
+                {
+                    sb.Append(' ');
+                    space = true;
+                }
+            }
+            if (sb.Length > 0 && sb[^1] == ' ')
+                sb.Length--;
+            return sb.ToString();
+        }
+
+        public static string SwapKeyboardLayout(string input, bool ruToEn)
+        {
+            const string ru = "йцукенгшщзхъфывапролджэячсмитьбю.ё";
+            const string en = "qwertyuiop[]asdfghjkl;'zxcvbnm,./`";
+            var sb = new StringBuilder(input.Length);
+            foreach (char c in input.ToLowerInvariant())
+            {
+                if (ruToEn)
+                {
+                    int idx = ru.IndexOf(c);
+                    sb.Append(idx >= 0 && idx < en.Length ? en[idx] : c);
+                }
+                else
+                {
+                    int idx = en.IndexOf(c);
+                    sb.Append(idx >= 0 && idx < ru.Length ? ru[idx] : c);
+                }
+            }
+            return sb.ToString();
+        }
+
+        public static string TransliterateRuToEn(string input)
+        {
+            var map = new Dictionary<string, string>
+            {
+                ["щ"] = "shch", ["ш"] = "sh", ["ч"] = "ch", ["ц"] = "ts", ["ж"] = "zh",
+                ["э"] = "e", ["ю"] = "yu", ["я"] = "ya", ["а"] = "a", ["б"] = "b",
+                ["в"] = "v", ["г"] = "g", ["д"] = "d", ["е"] = "e", ["ё"] = "yo",
+                ["з"] = "z", ["и"] = "i", ["й"] = "y", ["к"] = "k", ["л"] = "l",
+                ["м"] = "m", ["н"] = "n", ["о"] = "o", ["п"] = "p", ["р"] = "r",
+                ["с"] = "s", ["т"] = "t", ["у"] = "u", ["ф"] = "f", ["х"] = "kh",
+                ["ъ"] = "", ["ы"] = "y", ["ь"] = ""
+            };
+            var sb = new StringBuilder(input.Length * 2);
+            foreach (char c in input.ToLowerInvariant())
+            {
+                string s = c.ToString();
+                if (map.TryGetValue(s, out var tr))
+                    sb.Append(tr);
+                else
+                    sb.Append(c);
+            }
+            return sb.ToString();
+        }
+
+        public static string PhoneticSkeleton(string input)
+        {
+            var sb = new StringBuilder();
+            char prev = ' ';
+            foreach (char c in input.ToLowerInvariant())
+            {
+                char outChar = c switch
+                {
+                    'c' or 'k' or 'q' => 'k',
+                    's' or 'z' => 's',
+                    'f' or 'v' or 'w' => 'f',
+                    'b' or 'p' => 'p',
+                    'd' or 't' => 't',
+                    'g' or 'j' => 'j',
+                    'm' or 'n' => 'n',
+                    'l' or 'r' => 'r',
+                    _ => (c >= '0' && c <= '9') ? c : ' '
+                };
+                if (outChar != ' ' && outChar != prev)
+                {
+                    sb.Append(outChar);
+                    prev = outChar;
+                }
+            }
+            return sb.ToString();
+        }
+
+        public static int DamerauLevenshtein(string a, string b)
+        {
+            int lenA = a.Length;
+            int lenB = b.Length;
+            if (lenA == 0) return lenB;
+            if (lenB == 0) return lenA;
+
+            int[,] dp = new int[lenA + 1, lenB + 1];
+            for (int i = 0; i <= lenA; i++) dp[i, 0] = i;
+            for (int j = 0; j <= lenB; j++) dp[0, j] = j;
+
+            for (int i = 1; i <= lenA; i++)
+            {
+                for (int j = 1; j <= lenB; j++)
                 {
                     int cost = a[i - 1] == b[j - 1] ? 0 : 1;
-                    int val = Math.Min(Math.Min(dp[i - 1, j] + 1, dp[i, j - 1] + 1), dp[i - 1, j - 1] + cost);
+                    int v = Math.Min(
+                        Math.Min(dp[i - 1, j] + 1, dp[i, j - 1] + 1),
+                        dp[i - 1, j - 1] + cost);
+
                     if (i > 1 && j > 1 && a[i - 1] == b[j - 2] && a[i - 2] == b[j - 1])
-                        val = Math.Min(val, dp[i - 2, j - 2] + 1);
-                    dp[i, j] = val;
-                }
-            }
-            return dp[a.Length, b.Length];
-        }
-
-
-        private async Task<List<RuTrackerTopicItem>> SearchRuTrackerForumGuestAsync(string query, string categoryFilter, string mirror, CancellationToken ct)
-        {
-            var list = new List<RuTrackerTopicItem>();
-            try
-            {
-                string[] forumIds = categoryFilter switch
-                {
-                    "SWITCH" => new[] { "1605" },
-                    "3DS" => new[] { "2188" },
-                    _ => new[] { "1605", "2188" }
-                };
-
-                using var client = CreateHttpClient();
-                foreach (var fid in forumIds)
-                {
-                    string forumUrl = $"{mirror}/forum/viewforum.php?f={fid}";
-                    using var resp = await client.GetAsync(forumUrl, ct).ConfigureAwait(false);
-                    if (!resp.IsSuccessStatusCode) continue;
-
-                    byte[] bytes = await resp.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
-                    string html = DecodeRuTrackerHtml(bytes, resp.Content.Headers.ContentType?.CharSet);
-
-                    var matches = Regex.Matches(html, @"<a[^>]+href=""viewtopic\.php\?t=(\d+)""[^>]+class=""[^""]*torTopic[^""]*""[^>]*>(.*?)</a>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
-                    foreach (Match m in matches)
                     {
-                        string tid = m.Groups[1].Value;
-                        string title = WebUtility.HtmlDecode(Regex.Replace(m.Groups[2].Value, "<.*?>", "")).Trim();
-                        if (string.IsNullOrWhiteSpace(title)) continue;
-
-                        if (!string.IsNullOrWhiteSpace(query) &&
-                            !query.Equals("Nintendo Switch", StringComparison.OrdinalIgnoreCase) &&
-                            !title.Contains(query, StringComparison.OrdinalIgnoreCase))
-                        {
-                            continue;
-                        }
-
-                        list.Add(new RuTrackerTopicItem
-                        {
-                            TopicId = tid,
-                            Title = title,
-                            Category = fid == "2188" ? "Nintendo 3DS" : "Nintendo Switch",
-                            SizeText = "Открыть тему",
-                            Seeds = 10,
-                            Leechers = 1,
-                            TopicUrl = $"{mirror}/forum/viewtopic.php?t={tid}"
-                        });
-
-                        if (list.Count >= 40) break;
+                        v = Math.Min(v, dp[i - 2, j - 2] + 1);
                     }
+                    dp[i, j] = v;
                 }
             }
-            catch { }
-
-            return list;
+            return dp[lenA, lenB];
         }
 
-        private async Task<List<RuTrackerTopicItem>> SearchApiBayPublicAsync(string query, string categoryFilter, string mirror, CancellationToken ct)
+        public static string CleanTitleToGame(string title)
         {
-            var list = new List<RuTrackerTopicItem>();
-            try
-            {
-                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
-                http.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/131.0.0.0 Safari/537.36");
-
-                string cleanQ = string.IsNullOrWhiteSpace(query) ? "Nintendo Switch" : query.Trim();
-                string platformSuffix = categoryFilter == "3DS" ? "3DS" : "Switch";
-                string[] queries = cleanQ.Contains("Switch", StringComparison.OrdinalIgnoreCase) || cleanQ.Contains("3DS", StringComparison.OrdinalIgnoreCase)
-                    ? new[] { cleanQ }
-                    : new[] { $"{cleanQ} {platformSuffix}", cleanQ };
-
-                foreach (var q in queries)
-                {
-                    string url = $"https://apibay.org/q.php?q={Uri.EscapeDataString(q)}&cat=400";
-                    using var resp = await http.GetAsync(url, ct).ConfigureAwait(false);
-                    if (!resp.IsSuccessStatusCode) continue;
-
-                    string json = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-                    using var doc = JsonDocument.Parse(json);
-                    if (doc.RootElement.ValueKind != JsonValueKind.Array) continue;
-
-                    foreach (var el in doc.RootElement.EnumerateArray())
-                    {
-                        string id = el.TryGetProperty("id", out var idP) ? (idP.GetString() ?? "") : "";
-                        string name = el.TryGetProperty("name", out var nP) ? WebUtility.HtmlDecode(nP.GetString() ?? "") : "";
-                        string infoHash = el.TryGetProperty("info_hash", out var hP) ? (hP.GetString() ?? "").Trim().ToUpperInvariant() : "";
-                        if (string.IsNullOrWhiteSpace(name) || id == "0" || name.Equals("No results returned", StringComparison.OrdinalIgnoreCase))
-                            continue;
-                        if (infoHash.Length != 40 || infoHash.All(c => c == '0'))
-                            continue;
-
-                        long.TryParse(el.TryGetProperty("size", out var szP) ? szP.GetString() : "0", out long sizeBytes);
-                        int.TryParse(el.TryGetProperty("seeders", out var sdP) ? sdP.GetString() : "0", out int seeds);
-                        int.TryParse(el.TryGetProperty("leechers", out var lcP) ? lcP.GetString() : "0", out int leech);
-                        string catCode = el.TryGetProperty("category", out var cP) ? (cP.GetString() ?? "") : "";
-                        string username = el.TryGetProperty("username", out var uP) ? (uP.GetString() ?? "") : "";
-
-                        bool isSwitchOr3ds = IsNintendoSpecificTitle(name, "") ||
-                                             catCode == "405" || catCode == "406" ||
-                                             username.Equals("dauphong", StringComparison.OrdinalIgnoreCase);
-
-                        string catLabel = isSwitchOr3ds
-                            ? (categoryFilter == "3DS" || name.Contains("3DS", StringComparison.OrdinalIgnoreCase) ? "Nintendo 3DS" : "Nintendo Switch")
-                            : "Игры / P2P Индекс";
-
-                        list.Add(new RuTrackerTopicItem
-                        {
-                            TopicId = $"TPB-{id}",
-                            Title = isSwitchOr3ds && !name.Contains("Switch", StringComparison.OrdinalIgnoreCase) && !name.Contains("3DS", StringComparison.OrdinalIgnoreCase)
-                                ? $"[Nintendo Switch] {name}"
-                                : name,
-                            Category = catLabel,
-                            SizeText = sizeBytes > 0 ? ProcessingTask.FormatSize(sizeBytes) : "Magnet",
-                            Seeds = seeds,
-                            Leechers = leech,
-                            InfoHash = infoHash,
-                            MagnetUri = BuildMagnetUri(infoHash, name),
-                            TopicUrl = $"{mirror}/forum/tracker.php?nm={Uri.EscapeDataString(name)}"
-                        });
-
-                        if (list.Count >= 35) break;
-                    }
-
-                    if (list.Count >= 10) break;
-                }
-            }
-            catch { }
-
-            return list;
+            string s = Regex.Replace(title, @"^\s*\[[^\]]*Switch[^\]]*\]\s*", "", RegexOptions.IgnoreCase);
+            s = Regex.Replace(s, @"\[[^\]]*\]|\([^)]*\)|\{[^}]*\}", " ");
+            s = Regex.Replace(s, @"[vV]\d[\d.]*", " ");
+            s = Regex.Replace(s, @"(NSP|NSZ|XCI|XCZ|RUS|ENG|Multi\d*)", " ", RegexOptions.IgnoreCase);
+            s = s.Replace('_', ' ');
+            s = Regex.Replace(s, @"\s+", " ").Trim().Trim('-', '/', '|', '.', ',', ' ');
+            return s;
         }
 
-        private async Task<List<RuTrackerTopicItem>> SearchRutorPublicAsync(string query, string categoryFilter, CancellationToken ct)
+        private static readonly Regex TidRegex = new(@"(?<![0-9A-Fa-f])(01[0-9A-Fa-f]{14})(?![0-9A-Fa-f])", RegexOptions.Compiled);
+
+        public static string ExtractTitleId(string s)
         {
-            var list = new List<RuTrackerTopicItem>();
-            try
-            {
-                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
-                http.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/131.0.0.0 Safari/537.36");
-
-                string cleanQ = string.IsNullOrWhiteSpace(query) ? "Nintendo Switch" : query.Trim();
-                string url = $"https://rutor.is/search/0/0/000/0/{Uri.EscapeDataString(cleanQ)}";
-                using var resp = await http.GetAsync(url, ct).ConfigureAwait(false);
-                if (!resp.IsSuccessStatusCode) return list;
-
-                string html = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-                var rowMatches = Regex.Matches(html, @"<tr class=""(?:gai|tum)"">(.*?)</tr>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
-
-                foreach (Match row in rowMatches)
-                {
-                    string inner = row.Groups[1].Value;
-                    var magMatch = Regex.Match(inner, @"href=""(magnet:\?xt=urn:btih:([0-9A-Fa-f]{40})[^""]*)""", RegexOptions.IgnoreCase);
-                    var titleMatch = Regex.Match(inner, @"href=""(/torrent/(\d+)/[^""]*)""[^>]*>([^<]+)</a>", RegexOptions.IgnoreCase);
-                    if (!magMatch.Success || !titleMatch.Success) continue;
-
-                    string magnet = WebUtility.HtmlDecode(magMatch.Groups[1].Value);
-                    string hash = magMatch.Groups[2].Value.ToUpperInvariant();
-                    string relUrl = titleMatch.Groups[1].Value;
-                    string rutorId = titleMatch.Groups[2].Value;
-                    string title = WebUtility.HtmlDecode(titleMatch.Groups[3].Value).Trim();
-
-                    // Исключаем музыку/фильмы при поиске игр
-                    if (Regex.IsMatch(title, @"\b(MP3|FLAC|BDRip|WEB-DL|HDRip|BDRemux|1080p|2160p|720p)\b", RegexOptions.IgnoreCase))
-                        continue;
-
-                    string sizeText = "Magnet";
-                    var sizeMatch = Regex.Match(inner, @"<td align=""right"">(\d+(?:[\.,]\d+)?&nbsp;(?:GB|MB|ГБ|МБ))</td>", RegexOptions.IgnoreCase);
-                    if (sizeMatch.Success)
-                        sizeText = WebUtility.HtmlDecode(sizeMatch.Groups[1].Value).Replace("\u00A0", " ").Trim();
-
-                    int seeds = 0, leech = 0;
-                    var seedMatch = Regex.Match(inner, @"alt=""S""\s*/>(?:&nbsp;|\s)*(\d+)", RegexOptions.IgnoreCase);
-                    if (seedMatch.Success) int.TryParse(seedMatch.Groups[1].Value, out seeds);
-                    var leechMatch = Regex.Match(inner, @"<span class=""red"">(?:&nbsp;|\s)*(\d+)</span>", RegexOptions.IgnoreCase);
-                    if (leechMatch.Success) int.TryParse(leechMatch.Groups[1].Value, out leech);
-
-                    list.Add(new RuTrackerTopicItem
-                    {
-                        TopicId = $"RTR-{rutorId}",
-                        Title = title,
-                        Category = IsNintendoSpecificTitle(title, "") ? "Nintendo Switch / 3DS" : "Rutor (Игры / Моды)",
-                        SizeText = sizeText,
-                        Seeds = seeds,
-                        Leechers = leech,
-                        InfoHash = hash,
-                        MagnetUri = magnet,
-                        DirectTorrentUrl = $"https://d.rutor.info/download/{rutorId}",
-                        TopicUrl = $"https://rutor.is{relUrl}"
-                    });
-
-                    if (list.Count >= 25) break;
-                }
-            }
-            catch { }
-
-            return list;
+            var m = TidRegex.Match(s);
+            if (!m.Success) return "";
+            string hex = m.Groups[1].Value.ToUpperInvariant();
+            if (hex.EndsWith("800"))
+                return hex.Substring(0, 13) + "000";
+            return hex;
         }
 
-        private async Task<List<RuTrackerTopicItem>> SearchTheRarbgPublicAsync(string query, string categoryFilter, string mirror, CancellationToken ct)
-        {
-            var list = new List<RuTrackerTopicItem>();
-            try
-            {
-                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
-                http.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/131.0.0.0 Safari/537.36");
+        #endregion
 
-                string cleanQ = string.IsNullOrWhiteSpace(query) ? "Nintendo Switch" : query.Trim();
-                string url = $"https://therarbg.to/get-posts/keywords:{Uri.EscapeDataString(cleanQ)}:format:json/";
-                using var resp = await http.GetAsync(url, ct).ConfigureAwait(false);
-                if (!resp.IsSuccessStatusCode) return list;
-
-                string json = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-                using var doc = JsonDocument.Parse(json);
-                if (!doc.RootElement.TryGetProperty("results", out var resArr) || resArr.ValueKind != JsonValueKind.Array)
-                    return list;
-
-                foreach (var el in resArr.EnumerateArray())
-                {
-                    string cat = el.TryGetProperty("c", out var cP) ? (cP.GetString() ?? "") : "";
-                    if (!cat.Equals("Games", StringComparison.OrdinalIgnoreCase)) continue;
-
-                    string name = el.TryGetProperty("n", out var nP) ? WebUtility.HtmlDecode(nP.GetString() ?? "") : "";
-                    string hash = el.TryGetProperty("h", out var hP) ? (hP.GetString() ?? "").Trim().ToUpperInvariant() : "";
-                    if (string.IsNullOrWhiteSpace(name) || hash.Length != 40) continue;
-
-                    long sizeBytes = el.TryGetProperty("s", out var sP) && sP.ValueKind == JsonValueKind.Number ? sP.GetInt64() : 0;
-                    int seeds = el.TryGetProperty("se", out var seP) && seP.ValueKind == JsonValueKind.Number ? seP.GetInt32() : 0;
-                    int leech = el.TryGetProperty("le", out var leP) && leP.ValueKind == JsonValueKind.Number ? leP.GetInt32() : 0;
-                    string pk = el.TryGetProperty("pk", out var pkP) ? (pkP.GetString() ?? "") : "";
-
-                    list.Add(new RuTrackerTopicItem
-                    {
-                        TopicId = $"RBG-{pk}",
-                        Title = name,
-                        Category = IsNintendoSpecificTitle(name, "") ? "Nintendo Switch / 3DS" : "Игры / Релизы",
-                        SizeText = sizeBytes > 0 ? ProcessingTask.FormatSize(sizeBytes) : "Magnet",
-                        Seeds = seeds,
-                        Leechers = leech,
-                        InfoHash = hash,
-                        MagnetUri = BuildMagnetUri(hash, name),
-                        TopicUrl = $"{mirror}/forum/tracker.php?nm={Uri.EscapeDataString(name)}"
-                    });
-
-                    if (list.Count >= 20) break;
-                }
-            }
-            catch { }
-
-            return list;
-        }
-
-        private async Task<List<RuTrackerTopicItem>> SearchTorrentsCsvPublicAsync(string query, string categoryFilter, string mirror, CancellationToken ct)
-        {
-            var list = new List<RuTrackerTopicItem>();
-            try
-            {
-                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
-                http.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/131.0.0.0 Safari/537.36");
-
-                string cleanQ = string.IsNullOrWhiteSpace(query) ? "Nintendo Switch" : query.Trim();
-                string url = $"https://torrents-csv.com/service/search?q={Uri.EscapeDataString(cleanQ)}&size=25";
-                using var resp = await http.GetAsync(url, ct).ConfigureAwait(false);
-                if (!resp.IsSuccessStatusCode) return list;
-
-                string json = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-                using var doc = JsonDocument.Parse(json);
-                if (!doc.RootElement.TryGetProperty("torrents", out var arr) || arr.ValueKind != JsonValueKind.Array)
-                    return list;
-
-                foreach (var el in arr.EnumerateArray())
-                {
-                    string name = el.TryGetProperty("name", out var nP) ? (nP.GetString() ?? "") : "";
-                    string hash = el.TryGetProperty("infohash", out var hP) ? (hP.GetString() ?? "").Trim().ToUpperInvariant() : "";
-                    if (string.IsNullOrWhiteSpace(name) || hash.Length != 40) continue;
-                    if (Regex.IsMatch(name, @"\b(1080p|2160p|720p|WEB-DL|BDRip|HDRip|MP3|FLAC)\b", RegexOptions.IgnoreCase))
-                        continue;
-
-                    long sizeBytes = el.TryGetProperty("size_bytes", out var sP) && sP.ValueKind == JsonValueKind.Number ? sP.GetInt64() : 0;
-                    int seeds = el.TryGetProperty("seeders", out var seP) && seP.ValueKind == JsonValueKind.Number ? seP.GetInt32() : 0;
-                    int leech = el.TryGetProperty("leechers", out var leP) && leP.ValueKind == JsonValueKind.Number ? leP.GetInt32() : 0;
-                    int id = el.TryGetProperty("id", out var idP) && idP.ValueKind == JsonValueKind.Number ? idP.GetInt32() : 0;
-
-                    list.Add(new RuTrackerTopicItem
-                    {
-                        TopicId = $"DHT-{id}",
-                        Title = name,
-                        Category = IsNintendoSpecificTitle(name, "") ? "Nintendo Switch / 3DS" : "DHT Индекс",
-                        SizeText = sizeBytes > 0 ? ProcessingTask.FormatSize(sizeBytes) : "Magnet",
-                        Seeds = seeds,
-                        Leechers = leech,
-                        InfoHash = hash,
-                        MagnetUri = BuildMagnetUri(hash, name),
-                        TopicUrl = $"{mirror}/forum/tracker.php?nm={Uri.EscapeDataString(name)}"
-                    });
-
-                    if (list.Count >= 20) break;
-                }
-            }
-            catch { }
-
-            return list;
-        }
-
-        /// <summary>
-        /// Загружает страницу темы viewtopic.php?t=..., извлекает Magnet-ссылку / InfoHash
-        /// и автоматически парсит все ссылки на моды и русификаторы (Яндекс.Диск, Google Drive, GitHub, GameBanana) из шапки!
-        /// </summary>
         public async Task<RuTrackerTopicItem?> FetchTopicDetailsAsync(string topicIdOrUrl, CancellationToken ct)
         {
             string tid = topicIdOrUrl.Trim();
@@ -1145,10 +1306,25 @@ namespace StormSwitchBox.Services
             {
                 TopicId = tid,
                 Title = $"Раздача RuTracker #{tid}",
-                Category = "Nintendo Switch / 3DS",
+                Category = "Nintendo Switch",
                 TopicUrl = topicUrl
             };
 
+            lock (_indexLock)
+            {
+                if (_topicsById.TryGetValue(tid, out var indexedTopic))
+                {
+                    item.Title = !string.IsNullOrEmpty(indexedTopic.TopicTitle) ? indexedTopic.TopicTitle : indexedTopic.TorrentName;
+                    item.InfoHash = indexedTopic.InfoHash;
+                    item.MagnetUri = BuildMagnetUri(indexedTopic.InfoHash, item.Title);
+                    item.SizeText = indexedTopic.SizeBytes > 0 ? ProcessingTask.FormatSize(indexedTopic.SizeBytes) : "";
+                    item.Seeds = indexedTopic.Seeds;
+                }
+            }
+
+            string? topicHtml = null;
+
+            // 1. Попытка прочитать тему через прямой HttpClient
             try
             {
                 using var client = CreateHttpClient();
@@ -1156,82 +1332,90 @@ namespace StormSwitchBox.Services
                 if (resp.IsSuccessStatusCode)
                 {
                     byte[] bytes = await resp.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
-                    string html = DecodeRuTrackerHtml(bytes, resp.Content.Headers.ContentType?.CharSet);
-
-                    var titleMatch = Regex.Match(html, @"<a[^>]+id=""topic-title""[^>]*>(.*?)</a>|<title>(.*?)</title>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
-                    if (titleMatch.Success)
+                    string h = DecodeRuTrackerHtml(bytes, resp.Content.Headers.ContentType?.CharSet);
+                    if (!h.Contains("Just a moment...") && !h.Contains("cf-turnstile") && !h.Contains("challenge-running"))
                     {
-                        string rawTitle = !string.IsNullOrEmpty(titleMatch.Groups[1].Value) ? titleMatch.Groups[1].Value : titleMatch.Groups[2].Value;
-                        item.Title = WebUtility.HtmlDecode(Regex.Replace(rawTitle, "<.*?>", "")).Replace(":: RuTracker.org", "").Trim();
+                        topicHtml = h;
                     }
+                }
+            }
+            catch { }
 
-                    // Извлекаем Magnet-ссылку со страницы темы (доступна даже гостям!)
-                    var magnetMatch = Regex.Match(html, @"href=""(magnet:\?xt=urn:btih:[^""]+)""", RegexOptions.IgnoreCase);
-                    if (magnetMatch.Success)
+            // 2. Если прямой HttpClient получил 403/503 (Cloudflare challenge) — запускаем обход через WebView2
+            if (topicHtml == null && CloudflareChallengeHandler != null)
+            {
+                try
+                {
+                    topicHtml = await CloudflareChallengeHandler(topicUrl, tid, ct).ConfigureAwait(false);
+                }
+                catch { }
+            }
+
+            if (!string.IsNullOrEmpty(topicHtml))
+            {
+                var titleMatch = Regex.Match(topicHtml, @"<a[^>]+id=""topic-title""[^>]*>(.*?)</a>|<title>(.*?)</title>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
+                if (titleMatch.Success)
+                {
+                    string rawTitle = !string.IsNullOrEmpty(titleMatch.Groups[1].Value) ? titleMatch.Groups[1].Value : titleMatch.Groups[2].Value;
+                    item.Title = WebUtility.HtmlDecode(Regex.Replace(rawTitle, "<.*?>", "")).Replace(":: RuTracker.org", "").Trim();
+                }
+
+                var magnetMatch = Regex.Match(topicHtml, @"href=""(magnet:\?xt=urn:btih:[^""]+)""", RegexOptions.IgnoreCase);
+                if (magnetMatch.Success)
+                {
+                    item.MagnetUri = WebUtility.HtmlDecode(magnetMatch.Groups[1].Value);
+                }
+
+                var hashMatch = Regex.Match(topicHtml, @"btih:([0-9A-Fa-f]{40})|id=""tor-hash""[^>]*>([0-9A-Fa-f]{40})<", RegexOptions.IgnoreCase);
+                if (hashMatch.Success)
+                {
+                    item.InfoHash = (!string.IsNullOrEmpty(hashMatch.Groups[1].Value) ? hashMatch.Groups[1].Value : hashMatch.Groups[2].Value).ToUpperInvariant();
+                }
+
+                // Извлекаем все облачные ссылки на моды и русификаторы из 1-й страницы темы
+                var allLinks = new List<CloudModLinkItem>();
+                allLinks.AddRange(ExtractModLinksFromTopicHtml(topicHtml, 1));
+
+                // Считываем последние 2 страницы комментариев (start=offset)
+                var startMatches = Regex.Matches(topicHtml, $@"viewtopic\.php\?t={tid}&(?:amp;)?start=(\d+)", RegexOptions.IgnoreCase);
+                var offsets = startMatches.Cast<Match>()
+                    .Select(m => int.TryParse(m.Groups[1].Value, out int v) ? v : 0)
+                    .Where(v => v > 0)
+                    .Distinct()
+                    .OrderBy(v => v)
+                    .TakeLast(2)
+                    .ToList();
+
+                foreach (int offset in offsets)
+                {
+                    try
                     {
-                        item.MagnetUri = WebUtility.HtmlDecode(magnetMatch.Groups[1].Value);
-                    }
-
-                    // Извлекаем info_hash из атрибута или текста
-                    var hashMatch = Regex.Match(html, @"btih:([0-9A-Fa-f]{40})|id=""tor-hash""[^>]*>([0-9A-Fa-f]{40})<", RegexOptions.IgnoreCase);
-                    if (hashMatch.Success)
-                    {
-                        item.InfoHash = (!string.IsNullOrEmpty(hashMatch.Groups[1].Value) ? hashMatch.Groups[1].Value : hashMatch.Groups[2].Value).ToUpperInvariant();
-                    }
-
-                    // Извлекаем все облачные ссылки на моды и русификаторы из тела темы
-                    var allLinks = new List<CloudModLinkItem>();
-                    allLinks.AddRange(ExtractModLinksFromTopicHtml(html, 1));
-
-                    var startMatches = Regex.Matches(html, $@"viewtopic\.php\?t={tid}&(?:amp;)?start=(\d+)", RegexOptions.IgnoreCase);
-                    var offsets = startMatches.Cast<Match>()
-                        .Select(m => int.TryParse(m.Groups[1].Value, out int v) ? v : 0)
-                        .Where(v => v > 0)
-                        .Distinct()
-                        .OrderBy(v => v)
-                        .TakeLast(2)
-                        .ToList();
-
-                    foreach (int offset in offsets)
-                    {
-                        try
+                        int pageNum = (offset / 30) + 1;
+                        using var client = CreateHttpClient();
+                        using var pageResp = await client.GetAsync($"{topicUrl}&start={offset}", ct).ConfigureAwait(false);
+                        if (pageResp.IsSuccessStatusCode)
                         {
-                            int pageNum = (offset / 30) + 1;
-                            using var pageResp = await client.GetAsync($"{topicUrl}&start={offset}", ct).ConfigureAwait(false);
-                            if (pageResp.IsSuccessStatusCode)
+                            byte[] pBytes = await pageResp.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
+                            string pHtml = DecodeRuTrackerHtml(pBytes, pageResp.Content.Headers.ContentType?.CharSet);
+                            foreach (var dLink in ExtractModLinksFromTopicHtml(pHtml, pageNum))
                             {
-                                byte[] pBytes = await pageResp.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
-                                string pHtml = DecodeRuTrackerHtml(pBytes, pageResp.Content.Headers.ContentType?.CharSet);
-                                foreach (var dLink in ExtractModLinksFromTopicHtml(pHtml, pageNum))
-                                {
-                                    if (!allLinks.Any(x => string.Equals(x.Url, dLink.Url, StringComparison.OrdinalIgnoreCase)))
-                                        allLinks.Add(dLink);
-                                }
+                                if (!allLinks.Any(x => string.Equals(x.Url, dLink.Url, StringComparison.OrdinalIgnoreCase)))
+                                    allLinks.Add(dLink);
                             }
                         }
-                        catch { }
                     }
-
-                    AttachTopicMirrors(allLinks);
-                    item.ExtractedModLinks = allLinks;
+                    catch { }
                 }
-            }
-            catch (Exception ex)
-            {
-                App.Logger?.Log($"[RuTracker] Ошибка чтения темы #{tid}: {ex.Message}", LogLevel.Warning);
+
+                AttachTopicMirrors(allLinks);
+                item.ExtractedModLinks = allLinks;
             }
 
-            // Если Magnet-ссылка не найдена в HTML, запрашиваем info_hash через публичный API RuTracker (api.rutracker.cc / api.t-ru.org)
-            if (string.IsNullOrEmpty(item.MagnetUri))
+            if (string.IsNullOrEmpty(item.MagnetUri) && !string.IsNullOrEmpty(item.InfoHash))
             {
-                string? apiHash = await FetchInfoHashFromPublicApiAsync(tid, ct).ConfigureAwait(false);
-                if (!string.IsNullOrEmpty(apiHash))
-                {
-                    item.InfoHash = apiHash;
-                    item.MagnetUri = BuildMagnetUri(apiHash, item.Title);
-                }
+                item.MagnetUri = BuildMagnetUri(item.InfoHash, item.Title);
             }
-            else if (string.IsNullOrEmpty(item.InfoHash))
+            else if (string.IsNullOrEmpty(item.InfoHash) && !string.IsNullOrEmpty(item.MagnetUri))
             {
                 var hm = Regex.Match(item.MagnetUri, @"btih:([0-9A-Fa-f]{40})", RegexOptions.IgnoreCase);
                 if (hm.Success) item.InfoHash = hm.Groups[1].Value.ToUpperInvariant();
@@ -1243,30 +1427,6 @@ namespace StormSwitchBox.Services
             }
 
             return item;
-        }
-
-        private async Task<string?> FetchInfoHashFromPublicApiAsync(string topicId, CancellationToken ct)
-        {
-            string[] apiUrls =
-            {
-                $"https://api.rutracker.cc/v1/get_tor_hash?by=topic_id&val={topicId}",
-                $"http://api.t-ru.org/v1/get_tor_hash?by=topic_id&val={topicId}"
-            };
-
-            using var client = CreateHttpClient();
-            foreach (var url in apiUrls)
-            {
-                try
-                {
-                    using var resp = await client.GetAsync(url, ct).ConfigureAwait(false);
-                    if (!resp.IsSuccessStatusCode) continue;
-                    string json = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-                    var m = Regex.Match(json, @"""([0-9A-Fa-f]{40})""");
-                    if (m.Success) return m.Groups[1].Value.ToUpperInvariant();
-                }
-                catch { }
-            }
-            return null;
         }
 
         public static string BuildMagnetUri(string infoHash, string displayName)
@@ -1283,9 +1443,6 @@ namespace StormSwitchBox.Services
             return sb.ToString();
         }
 
-        /// <summary>
-        /// Сканирует HTML первого поста темы RuTracker и находит внешние ссылки на русификаторы, озвучки и моды.
-        /// </summary>
         public static string NormalizeRuTrackerPostDate(string rawDate)
         {
             if (string.IsNullOrWhiteSpace(rawDate)) return "25.10.2026 14:30";
@@ -1299,184 +1456,189 @@ namespace StormSwitchBox.Services
                 ["may"] = "05", ["jun"] = "06", ["jul"] = "07", ["aug"] = "08",
                 ["sep"] = "09", ["oct"] = "10", ["nov"] = "11", ["dec"] = "12"
             };
+
             var m = Regex.Match(clean, @"(\d{1,2})[-.\s]+([А-Яа-яA-Za-z]{3})[-.\s]+(\d{2,4})(?:\s+(\d{1,2}:\d{2}))?");
             if (m.Success)
             {
                 string day = m.Groups[1].Value.PadLeft(2, '0');
-                string monKey = m.Groups[2].Value.Length >= 3 ? m.Groups[2].Value.Substring(0, 3) : m.Groups[2].Value;
-                string mon = months.TryGetValue(monKey, out var mv) ? mv : "10";
-                string yr = m.Groups[3].Value.Length == 2 ? "20" + m.Groups[3].Value : m.Groups[3].Value;
-                string tm = m.Groups[4].Success && !string.IsNullOrWhiteSpace(m.Groups[4].Value) ? m.Groups[4].Value.PadLeft(5, '0') : "12:00";
-                return $"{day}.{mon}.{yr} {tm}";
+                string monKey = m.Groups[2].Value.ToLowerInvariant().Substring(0, Math.Min(3, m.Groups[2].Value.Length));
+                string mon = months.TryGetValue(monKey, out var val) ? val : "10";
+                string yrRaw = m.Groups[3].Value;
+                string yr = yrRaw.Length == 2 ? "20" + yrRaw : yrRaw;
+                string time = !string.IsNullOrEmpty(m.Groups[4].Value) ? m.Groups[4].Value : "12:00";
+                return $"{day}.{mon}.{yr} {time}";
             }
+
+            var iso = Regex.Match(clean, @"(\d{2}\.\d{2}\.\d{4})(?:\s+(\d{2}:\d{2}))?");
+            if (iso.Success)
+            {
+                string d = iso.Groups[1].Value;
+                string t = !string.IsNullOrEmpty(iso.Groups[2].Value) ? iso.Groups[2].Value : "12:00";
+                return $"{d} {t}";
+            }
+
             return "25.10.2026 14:30";
         }
 
-        private static (string Role, string Label) ClassifyRoleAndLabel(string url, string anchorText, string contextText, string provider)
+        private static (string Role, string Label) ClassifyRoleAndLabel(string url, string anchorText, string postContext)
         {
-            string combined = $"{anchorText} {contextText} {url}".ToLowerInvariant();
+            string combined = (anchorText + " " + postContext + " " + url).ToLowerInvariant();
+
             string role;
             if (combined.Contains("unlocker") || combined.Contains("анлокер") || combined.Contains("разблокировк"))
                 role = "UNLOCKER";
-            else if (combined.Contains("dlc") || combined.Contains("дополнен") || combined.Contains("season pass") || combined.Contains("add-on"))
+            else if (combined.Contains("dlc") || combined.Contains("дополнен") || combined.Contains("add-on") || combined.Contains("season pass"))
                 role = "DLC";
-            else if (combined.Contains("update") || combined.Contains("обновлен") || combined.Contains("патч") || combined.Contains("patch"))
+            else if (combined.Contains("update") || combined.Contains("обновлен") || combined.Contains("патч") || combined.Contains("patch") || (Regex.IsMatch(combined, @"v\d+\.\d+") && (combined.Contains("nsp") || combined.Contains("nsz"))))
                 role = "ОБНОВЛЕНИЕ";
             else
                 role = "МОД / РУСИФИКАТОР";
 
-            string cleanAnchor = WebUtility.HtmlDecode(Regex.Replace(anchorText ?? "", "<.*?>", "")).Trim();
-            if (!string.IsNullOrWhiteSpace(cleanAnchor) && !cleanAnchor.StartsWith("http", StringComparison.OrdinalIgnoreCase) && cleanAnchor.Length >= 3)
+            string cleanAnchor = WebUtility.HtmlDecode(Regex.Replace(anchorText, "<.*?>", "")).Trim();
+            string defaultLabel = role switch
             {
-                return (role, $"{cleanAnchor} ({provider})");
-            }
-            string fallback = role switch
-            {
-                "UNLOCKER" => $"DLC Unlocker — разблокировка дополнений ({provider})",
-                "DLC" => $"Набор дополнений DLC Pack ({provider})",
-                "ОБНОВЛЕНИЕ" => $"Отдельное обновление / патч ({provider})",
-                _ => $"Модификация / Русификатор ({provider})"
+                "UNLOCKER" => "DLC Unlocker (разблокировка дополнений)",
+                "DLC" => "Набор дополнений (DLC Pack)",
+                "ОБНОВЛЕНИЕ" => "Отдельное обновление игры (Update)",
+                _ => "Русификатор / Модификация RomFS и ExeFS"
             };
-            return (role, fallback);
+
+            string label = (!string.IsNullOrWhiteSpace(cleanAnchor) && cleanAnchor.Length >= 4 && !cleanAnchor.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+                ? cleanAnchor
+                : defaultLabel;
+
+            return (role, label);
         }
 
         public static int GetProviderReliabilityScore(string url)
         {
-            if (string.IsNullOrWhiteSpace(url)) return 10;
-            string u = url.ToLowerInvariant();
-            if (u.Contains("pixeldrain.com/")) return 1;
-            if (u.Contains("disk.yandex.") || u.Contains("yadi.sk/")) return 2;
-            if (u.Contains("drive.google.com/") || u.Contains("drive.usercontent.google.com/")) return 3;
-            if (u.Contains("github.com/")) return 4;
-            if (u.Contains("mediafire.com/")) return 5;
-            if (u.Contains("cloud.mail.ru/")) return 6;
-            if (u.Contains("workupload.com/")) return 7;
-            if (u.Contains("mega.nz/") || u.Contains("mega.co.nz/")) return 8;
-            if (u.Contains("wdfiles.ru/")) return 9;
-            return 10;
+            string lower = url.ToLowerInvariant();
+            if (lower.Contains("pixeldrain.com")) return 100;
+            if (lower.Contains("disk.yandex.") || lower.Contains("yadi.sk")) return 95;
+            if (lower.Contains("drive.google.com") || lower.Contains("drive.usercontent.google.com")) return 90;
+            if (lower.Contains("mega.nz") || lower.Contains("mega.co.nz")) return 88;
+            if (lower.Contains("mediafire.com")) return 85;
+            if (lower.Contains("cloud.mail.ru")) return 82;
+            if (lower.Contains("wdfiles.ru") || lower.Contains("wdfiles.com")) return 80;
+            if (lower.Contains("dropbox.com")) return 78;
+            if (lower.Contains("workupload.com")) return 75;
+            if (lower.Contains("github.com")) return 70;
+            if (lower.EndsWith(".zip") || lower.EndsWith(".7z") || lower.EndsWith(".rar") || lower.EndsWith(".nsp") || lower.EndsWith(".nsz")) return 65;
+            return 50;
         }
 
         public static List<CloudModLinkItem> ExtractModLinksFromTopicHtml(string html, int pageNumber = 1)
         {
-            var results = new List<CloudModLinkItem>();
-            if (string.IsNullOrEmpty(html)) return results;
+            var list = new List<CloudModLinkItem>();
+            var postMatches = Regex.Matches(html, @"<tbody[^>]*id=""post_(\d+)""[^>]*>(.*?)</tbody>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
 
-            var seenUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var postBlocks = Regex.Matches(html, @"<tbody[^>]+id=""post_\d+""[^>]*>([\s\S]*?)</tbody>", RegexOptions.IgnoreCase);
-
-            if (postBlocks.Count > 0)
+            int postIndex = 0;
+            foreach (Match post in postMatches)
             {
-                int idx = 0;
-                foreach (Match block in postBlocks)
+                postIndex++;
+                string postBody = post.Groups[2].Value;
+
+                string postDate = "25.10.2026 14:30";
+                var dateMatch = Regex.Match(postBody, @"class=""p-link""[^>]*>(.*?)</a>|class=""post-time""[^>]*>(.*?)</span>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
+                if (dateMatch.Success)
                 {
-                    string blockHtml = block.Groups[1].Value;
-                    bool isFirstTopicPost = (pageNumber == 1 && idx == 0);
-                    idx++;
-
-                    var authorMatch = Regex.Match(blockHtml, @"<p[^>]+class=""nick[^""*""[^>]*>([\s\S]*?)</p>", RegexOptions.IgnoreCase);
-                    string author = authorMatch.Success ? WebUtility.HtmlDecode(Regex.Replace(authorMatch.Groups[1].Value, "<.*?>", "")).Trim() : string.Empty;
-
-                    var dateMatch = Regex.Match(blockHtml, @"<a[^>]+class=""p-link[^""*""[^>]*>([^<]+)</a>", RegexOptions.IgnoreCase);
-                    string pubDate = dateMatch.Success ? NormalizeRuTrackerPostDate(dateMatch.Groups[1].Value) : "25.10.2026 14:30";
-
-                    string sourceLocation = isFirstTopicPost
-                        ? "Шапка темы"
-                        : (!string.IsNullOrWhiteSpace(author) ? $"Обсуждение (стр. {pageNumber} • @{author})" : $"Обсуждение (стр. {pageNumber})");
-
-                    var postUrls = new List<(string Url, string Anchor, string Role, string Label, string Provider, int Priority)>();
-
-                    var linkMatches = Regex.Matches(blockHtml, @"<a[^>]+href=""(https?://[^""\s<>]+)""[^>]*>(.*?)</a>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
-                    foreach (Match m in linkMatches)
-                    {
-                        string url = WebUtility.HtmlDecode(m.Groups[1].Value).Trim();
-                        string anchorText = m.Groups[2].Value;
-                        string? provider = ClassifyCloudModProvider(url);
-                        if (provider == null || !seenUrls.Add(url)) continue;
-
-                        int ctxStart = Math.Max(0, m.Index - 120);
-                        string ctx = blockHtml.Substring(ctxStart, m.Index - ctxStart);
-                        var (role, label) = ClassifyRoleAndLabel(url, anchorText, ctx, provider);
-                        int prio = GetProviderReliabilityScore(url);
-                        postUrls.Add((url, anchorText, role, label, provider, prio));
-                    }
-
-                    var rawMatches = Regex.Matches(blockHtml, @"https?://[a-zA-Z0-9\.\-_/]+(?:\?[a-zA-Z0-9\.\-_=&%]*)?", RegexOptions.IgnoreCase);
-                    foreach (Match rm in rawMatches)
-                    {
-                        string url = rm.Value.Trim();
-                        string? provider = ClassifyCloudModProvider(url);
-                        if (provider == null || !seenUrls.Add(url)) continue;
-
-                        int ctxStart = Math.Max(0, rm.Index - 120);
-                        string ctx = blockHtml.Substring(ctxStart, rm.Index - ctxStart);
-                        var (role, label) = ClassifyRoleAndLabel(url, "", ctx, provider);
-                        int prio = GetProviderReliabilityScore(url);
-                        postUrls.Add((url, "", role, label, provider, prio));
-                    }
-
-                    var allPostMirrorUrls = postUrls.Select(x => x.Url).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-                    foreach (var entry in postUrls)
-                    {
-                        results.Add(new CloudModLinkItem
-                        {
-                            IsSelected = false,
-                            Title = $"{entry.Label} [{entry.Provider}]",
-                            Url = entry.Url,
-                            MirrorUrls = allPostMirrorUrls,
-                            Provider = entry.Provider,
-                            PublishedDate = pubDate,
-                            SourceLocation = sourceLocation,
-                            RoleCategory = entry.Role
-                        });
-                    }
+                    string rawDate = !string.IsNullOrEmpty(dateMatch.Groups[1].Value) ? dateMatch.Groups[1].Value : dateMatch.Groups[2].Value;
+                    postDate = NormalizeRuTrackerPostDate(rawDate);
                 }
-            }
-            else
-            {
-                var linkMatches = Regex.Matches(html, @"<a[^>]+href=""(https?://[^""\s<>]+)""[^>]*>(.*?)</a>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
-                foreach (Match m in linkMatches)
-                {
-                    string url = WebUtility.HtmlDecode(m.Groups[1].Value).Trim();
-                    string anchorText = m.Groups[2].Value;
-                    string? provider = ClassifyCloudModProvider(url);
-                    if (provider == null || !seenUrls.Add(url)) continue;
 
-                    var (role, label) = ClassifyRoleAndLabel(url, anchorText, "", provider);
-                    results.Add(new CloudModLinkItem
+                string author = "Участник";
+                var authorMatch = Regex.Match(postBody, @"class=""nick[^""]*""[^>]*>(.*?)</a>|class=""b-nick""[^>]*>(.*?)</b>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
+                if (authorMatch.Success)
+                {
+                    string rawNick = !string.IsNullOrEmpty(authorMatch.Groups[1].Value) ? authorMatch.Groups[1].Value : authorMatch.Groups[2].Value;
+                    author = WebUtility.HtmlDecode(Regex.Replace(rawNick, "<.*?>", "")).Trim();
+                }
+
+                string sourceLocation = (pageNumber == 1 && postIndex == 1)
+                    ? "Шапка темы"
+                    : $"Обсуждение (стр. {pageNumber}, @{author})";
+
+                var linkMatches = Regex.Matches(postBody, @"<a\s+[^>]*href=[""'](https?://[^""'\s<>]+)[""'][^>]*>(.*?)</a>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
+
+                foreach (Match lm in linkMatches)
+                {
+                    string rawUrl = WebUtility.HtmlDecode(lm.Groups[1].Value).Trim();
+                    string anchor = WebUtility.HtmlDecode(Regex.Replace(lm.Groups[2].Value, "<.*?>", "")).Trim();
+
+                    string? provider = ClassifyCloudModProvider(rawUrl);
+                    if (provider == null) continue;
+
+                    if (list.Any(x => string.Equals(x.Url, rawUrl, StringComparison.OrdinalIgnoreCase)))
+                        continue;
+
+                    int contextStart = Math.Max(0, lm.Index - 200);
+                    int contextLen = Math.Min(postBody.Length - contextStart, lm.Length + 400);
+                    string contextSnippet = postBody.Substring(contextStart, contextLen);
+
+                    var (role, label) = ClassifyRoleAndLabel(rawUrl, anchor, contextSnippet);
+
+                    list.Add(new CloudModLinkItem
                     {
-                        IsSelected = false,
+                        Url = rawUrl,
                         Title = label,
-                        Url = url,
-                        MirrorUrls = new List<string> { url },
                         Provider = provider,
-                        PublishedDate = "25.10.2026 14:30",
-                        SourceLocation = pageNumber == 1 ? "Шапка темы" : $"Обсуждение (стр. {pageNumber})",
-                        RoleCategory = role
+                        PublishedDate = postDate,
+                        SourceLocation = sourceLocation,
+                        RoleCategory = role,
+                        IsSelected = false
                     });
                 }
             }
 
-            AttachTopicMirrors(results);
-            return results;
+            // Дополнительный поиск ссылок в тексте вне тегов <a>
+            if (list.Count == 0)
+            {
+                var textLinkMatches = Regex.Matches(html, @"(https?://(?:drive\.google\.com|disk\.yandex\.[a-z]+|yadi\.sk|pixeldrain\.[a-z]+|wdfiles\.[a-z]+|cloud\.mail\.ru|mega\.nz|mega\.co\.nz|mediafire\.com|dropbox\.com|workupload\.com)/[^\s""'<>]+)", RegexOptions.IgnoreCase);
+                foreach (Match tm in textLinkMatches)
+                {
+                    string rawUrl = WebUtility.HtmlDecode(tm.Groups[1].Value).Trim();
+                    string? provider = ClassifyCloudModProvider(rawUrl);
+                    if (provider == null) continue;
+
+                    if (!list.Any(x => string.Equals(x.Url, rawUrl, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        list.Add(new CloudModLinkItem
+                        {
+                            Url = rawUrl,
+                            Title = "Облачный ресурс / Модификация",
+                            Provider = provider,
+                            PublishedDate = "25.10.2026 14:30",
+                            SourceLocation = pageNumber == 1 ? "Шапка темы" : $"Обсуждение (стр. {pageNumber})",
+                            RoleCategory = "МОД / РУСИФИКАТОР",
+                            IsSelected = false
+                        });
+                    }
+                }
+            }
+
+            return list;
         }
 
         public static void AttachTopicMirrors(List<CloudModLinkItem> items)
         {
             if (items == null || items.Count <= 1) return;
-            var byRole = items.GroupBy(x => x.RoleCategory);
-            foreach (var grp in byRole)
+
+            var groupedByMeta = items.GroupBy(x => $"{x.SourceLocation}|{x.RoleCategory}|{x.Title}").ToList();
+
+            foreach (var grp in groupedByMeta)
             {
                 var allGroupUrls = grp
-                    .SelectMany(x => (x.MirrorUrls != null && x.MirrorUrls.Count > 0) ? x.MirrorUrls : new List<string> { x.Url })
+                    .OrderByDescending(x => GetProviderReliabilityScore(x.Url))
+                    .Select(x => x.Url)
                     .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .OrderBy(GetProviderReliabilityScore)
                     .ToList();
 
                 if (allGroupUrls.Count > 1)
                 {
                     foreach (var item in grp)
                     {
-                        var set = new HashSet<string>(item.MirrorUrls ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
+                        item.MirrorUrls ??= new List<string>();
+                        var set = new HashSet<string>(item.MirrorUrls, StringComparer.OrdinalIgnoreCase);
                         set.Add(item.Url);
                         foreach (var u in allGroupUrls)
                         {
@@ -1493,59 +1655,41 @@ namespace StormSwitchBox.Services
         public static List<CloudModLinkItem> BuildFallbackDiscussionLinks(string topicId, string topicTitle)
         {
             var list = new List<CloudModLinkItem>();
-            string t = (topicTitle ?? string.Empty).ToLowerInvariant();
-            if (topicId == "6479728" || t.Contains("0100b99019412000") || (t.Contains("mario") && t.Contains("donkey kong")))
+
+            if (topicId == "6479728" || topicTitle.Contains("Mario vs. Donkey Kong", StringComparison.OrdinalIgnoreCase))
             {
-                var mirrors = new List<string> { "https://pixeldrain.com/u/SBMmwyvg", "https://wdfiles.ru/1sqsX" };
                 list.Add(new CloudModLinkItem
                 {
-                    IsSelected = false,
-                    Title = "Русификатор Mario vs. Donkey Kong (LayeredFS RomFS) — PixelDrain",
                     Url = "https://pixeldrain.com/u/SBMmwyvg",
-                    MirrorUrls = mirrors,
+                    Title = "Русификатор текста от CaXaP (версия 1) — Основная ссылка",
                     Provider = "PixelDrain",
-                    PublishedDate = "19.02.2024 19:58",
-                    SourceLocation = "Обсуждение (стр. 1 • @Musolini01031979)",
-                    RoleCategory = "МОД / РУСИФИКАТОР"
-                });
-                list.Add(new CloudModLinkItem
-                {
-                    IsSelected = false,
-                    Title = "Русификатор Mario vs. Donkey Kong (Зеркало — полная озвучка и текст) — WDfiles",
-                    Url = "https://wdfiles.ru/1sqsX",
-                    MirrorUrls = mirrors,
-                    Provider = "WDfiles",
-                    PublishedDate = "19.02.2024 19:58",
-                    SourceLocation = "Обсуждение (стр. 1 • @Musolini01031979)",
-                    RoleCategory = "МОД / РУСИФИКАТОР"
+                    PublishedDate = "19.02.2024 18:40",
+                    SourceLocation = "Шапка темы",
+                    RoleCategory = "МОД / РУСИФИКАТОР",
+                    MirrorUrls = new List<string> { "https://wdfiles.ru/1sqsX" },
+                    IsSelected = false
                 });
             }
+
             return list;
         }
 
         public static string? ClassifyCloudModProvider(string url)
         {
-            if (string.IsNullOrWhiteSpace(url)) return null;
-            string u = url.ToLowerInvariant();
-
-            if (u.Contains("disk.yandex.") || u.Contains("yadi.sk/")) return "Яндекс.Диск";
-            if (u.Contains("drive.google.com/") || u.Contains("drive.usercontent.google.com/")) return "Google Drive";
-            if (u.Contains("mega.nz/") || u.Contains("mega.co.nz/")) return "Mega.nz";
-            if (u.Contains("mediafire.com/")) return "MediaFire";
-            if (u.Contains("pixeldrain.com/")) return "PixelDrain";
-            if (u.Contains("cloud.mail.ru/")) return "Облако Mail.ru";
-            if (u.Contains("wdfiles.ru/")) return "WDfiles";
-            if (u.Contains("modsfire.com/")) return "ModsFire";
-            if (u.Contains("dropmefiles.com/")) return "DropMeFiles";
-            if (u.Contains("1fichier.com/")) return "1Fichier";
-            if (u.Contains("workupload.com/")) return "WorkUpload";
-            if (u.Contains("gofile.io/")) return "GoFile";
-            if (u.Contains("github.com/") && (u.Contains("/releases") || u.EndsWith(".zip") || u.EndsWith(".7z") || u.EndsWith(".nsp"))) return "GitHub Releases";
-            if (u.Contains("gamebanana.com/mods/") || u.Contains("gamebanana.com/dl/")) return "GameBanana";
-            if (u.Contains("boosty.to/")) return "Boosty";
-            if (u.EndsWith(".nsp") || u.EndsWith(".nsz") || u.EndsWith(".xci") || u.EndsWith(".xcz") ||
-                u.EndsWith(".zip") || u.EndsWith(".7z") || u.EndsWith(".rar") || u.EndsWith(".ips") || u.EndsWith(".pchtxt") || u.EndsWith(".bps")) return "Прямой архив";
-
+            string lower = url.ToLowerInvariant();
+            if (lower.Contains("disk.yandex.") || lower.Contains("yadi.sk")) return "Яндекс.Диск";
+            if (lower.Contains("drive.google.com") || lower.Contains("drive.usercontent.google.com")) return "Google Drive";
+            if (lower.Contains("mega.nz") || lower.Contains("mega.co.nz")) return "Mega.nz";
+            if (lower.Contains("mediafire.com")) return "MediaFire";
+            if (lower.Contains("pixeldrain.")) return "PixelDrain";
+            if (lower.Contains("cloud.mail.ru")) return "Облако Mail.ru";
+            if (lower.Contains("wdfiles.")) return "WDfiles";
+            if (lower.Contains("dropbox.com")) return "Dropbox";
+            if (lower.Contains("workupload.com")) return "WorkUpload";
+            if (lower.Contains("github.com") && (lower.Contains("/releases") || lower.Contains("/blob/") || lower.EndsWith(".zip") || lower.EndsWith(".7z") || lower.EndsWith(".rar") || lower.EndsWith(".nsp"))) return "GitHub Releases";
+            if (lower.Contains("raw.githubusercontent.com")) return "GitHub";
+            if (lower.EndsWith(".nsp") || lower.EndsWith(".nsz") || lower.EndsWith(".xci") || lower.EndsWith(".xcz") ||
+                lower.EndsWith(".zip") || lower.EndsWith(".7z") || lower.EndsWith(".rar") || lower.EndsWith(".ips") || lower.EndsWith(".pchtxt")) return "Прямой архив";
             return null;
         }
 
@@ -1553,19 +1697,25 @@ namespace StormSwitchBox.Services
         {
             try
             {
-                if (!string.IsNullOrEmpty(charset) && charset.Contains("utf", StringComparison.OrdinalIgnoreCase))
-                    return Encoding.UTF8.GetString(bytes);
-                return Encoding.GetEncoding(1251).GetString(bytes);
+                if (!string.IsNullOrEmpty(charset) && charset.Contains("1251", StringComparison.OrdinalIgnoreCase))
+                {
+                    return Encoding.GetEncoding(1251).GetString(bytes);
+                }
+                string utf8 = Encoding.UTF8.GetString(bytes);
+                if (utf8.Contains("charset=windows-1251", StringComparison.OrdinalIgnoreCase) ||
+                    utf8.Contains("charset=\"windows-1251\"", StringComparison.OrdinalIgnoreCase) ||
+                    utf8.Contains("charset=cp1251", StringComparison.OrdinalIgnoreCase))
+                {
+                    return Encoding.GetEncoding(1251).GetString(bytes);
+                }
+                return utf8;
             }
             catch
             {
-                return Encoding.UTF8.GetString(bytes);
+                return Encoding.GetEncoding(1251).GetString(bytes);
             }
         }
 
-        /// <summary>
-        /// Скачивает .torrent файл с RuTracker (при наличии bb_session) или загружает список файлов по Magnet-ссылке.
-        /// </summary>
         public async Task<List<TorrentFileSelectionItem>> InspectTorrentFilesAsync(RuTrackerTopicItem topic, string? localTorrentFilePath, CancellationToken ct)
         {
             _loadedTorrentBytes = null;
@@ -1575,13 +1725,12 @@ namespace StormSwitchBox.Services
             {
                 _loadedTorrentBytes = await File.ReadAllBytesAsync(localTorrentFilePath, ct).ConfigureAwait(false);
             }
-            else if (!string.IsNullOrWhiteSpace(topic.DirectTorrentUrl))
+            else if (!string.IsNullOrWhiteSpace(topic.DirectTorrentUrl) && !string.IsNullOrWhiteSpace(App.Settings.Current.RuTrackerCookie))
             {
                 try
                 {
-                    using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
-                    http.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/131.0.0.0 Safari/537.36");
-                    using var resp = await http.GetAsync(topic.DirectTorrentUrl, ct).ConfigureAwait(false);
+                    using var client = CreateHttpClient();
+                    using var resp = await client.GetAsync(topic.DirectTorrentUrl, ct).ConfigureAwait(false);
                     if (resp.IsSuccessStatusCode)
                     {
                         byte[] bytes = await resp.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
@@ -1591,25 +1740,79 @@ namespace StormSwitchBox.Services
                 }
                 catch { }
             }
-            else if (!string.IsNullOrWhiteSpace(topic.TopicId) && topic.TopicId.All(char.IsDigit) && !string.IsNullOrWhiteSpace(App.Settings.Current.RuTrackerCookie))
+
+            string hash = (topic.InfoHash ?? "").Trim().ToUpperInvariant();
+            if (string.IsNullOrEmpty(hash) && !string.IsNullOrEmpty(topic.MagnetUri))
             {
-                try
+                var hm = Regex.Match(topic.MagnetUri, @"btih:([0-9A-Fa-f]{40})", RegexOptions.IgnoreCase);
+                if (hm.Success) hash = hm.Groups[1].Value.ToUpperInvariant();
+            }
+
+            if (_loadedTorrentBytes == null && hash.Length == 40 && hash.All(c => (c >= '0' && c <= '9') || (c >= 'A' && c <= 'F')))
+            {
+                string torrentCacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "STORM SWITCH BOX", "cache", "torrents");
+                Directory.CreateDirectory(torrentCacheDir);
+                string cachedTorrentPath = Path.Combine(torrentCacheDir, $"{hash}.torrent");
+
+                if (File.Exists(cachedTorrentPath) && new FileInfo(cachedTorrentPath).Length > 64)
                 {
-                    string mirror = NormalizeMirrorUrl(App.Settings.Current.RuTrackerMirror);
-                    using var client = CreateHttpClient();
-                    string dlUrl = $"{mirror}/forum/dl.php?t={topic.TopicId}";
-                    using var resp = await client.GetAsync(dlUrl, ct).ConfigureAwait(false);
-                    if (resp.IsSuccessStatusCode)
+                    try
                     {
-                        byte[] bytes = await resp.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
-                        // Проверяем, что это действительно Bencode .torrent (начинается с 'd')
-                        if (bytes.Length > 32 && bytes[0] == (byte)'d')
+                        byte[] cachedBytes = await File.ReadAllBytesAsync(cachedTorrentPath, ct).ConfigureAwait(false);
+                        if (cachedBytes.Length > 64 && cachedBytes[0] == (byte)'d')
                         {
-                            _loadedTorrentBytes = bytes;
+                            _loadedTorrentBytes = cachedBytes;
                         }
                     }
+                    catch { }
                 }
-                catch { }
+
+                if (_loadedTorrentBytes == null)
+                {
+                    string[] cacheUrls = new[]
+                    {
+                        $"http://itorrents.org/torrent/{hash}.torrent",
+                        $"https://torrage.info/torrent.php?h={hash}"
+                    };
+
+                    foreach (var cacheUrl in cacheUrls)
+                    {
+                        try
+                        {
+                            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(6) };
+                            http.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "STORM-SWITCH-BOX");
+                            using var resp = await http.GetAsync(cacheUrl, ct).ConfigureAwait(false);
+                            if (resp.IsSuccessStatusCode)
+                            {
+                                byte[] bytes = await resp.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
+                                if (bytes.Length > 2 && bytes[0] == 0x1F && bytes[1] == 0x8B)
+                                {
+                                    try
+                                    {
+                                        using var gzStream = new GZipStream(new MemoryStream(bytes), CompressionMode.Decompress);
+                                        using var ms = new MemoryStream();
+                                        await gzStream.CopyToAsync(ms, ct).ConfigureAwait(false);
+                                        bytes = ms.ToArray();
+                                    }
+                                    catch { }
+                                }
+
+                                if (bytes.Length > 64 && bytes[0] == (byte)'d')
+                                {
+                                    if (Torrent.TryLoad(bytes, out var loadedTor) &&
+                                        (string.Equals(loadedTor.InfoHashes.V1OrV2.ToHex(), hash, StringComparison.OrdinalIgnoreCase) ||
+                                         string.Equals(loadedTor.InfoHashes.V1?.ToHex(), hash, StringComparison.OrdinalIgnoreCase)))
+                                    {
+                                        _loadedTorrentBytes = bytes;
+                                        try { await File.WriteAllBytesAsync(cachedTorrentPath, bytes, ct).ConfigureAwait(false); } catch { }
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        catch { }
+                    }
+                }
             }
 
             if (_loadedTorrentBytes != null)
@@ -1622,6 +1825,22 @@ namespace StormSwitchBox.Services
                     Length = f.Length,
                     CategoryBadge = ClassifyTorrentEntryBadge(f.Path)
                 }).ToList();
+            }
+
+            if (!string.IsNullOrEmpty(topic.TopicId))
+            {
+                RuTrackerIndexTopic? indexed = null;
+                lock (_indexLock) { _topicsById.TryGetValue(topic.TopicId, out indexed); }
+                if (indexed != null && indexed.Files.Count > 0)
+                {
+                    return indexed.Files.Select(f => new TorrentFileSelectionItem
+                    {
+                        IsSelected = true,
+                        RelativePath = f.Path,
+                        Length = f.Size,
+                        CategoryBadge = !string.IsNullOrEmpty(f.Role) ? f.Role : ClassifyTorrentEntryBadge(f.Path)
+                    }).ToList();
+                }
             }
 
             if (!string.IsNullOrWhiteSpace(topic.MagnetUri) && MagnetLink.TryParse(topic.MagnetUri, out var magnet))
@@ -1651,15 +1870,11 @@ namespace StormSwitchBox.Services
                 return "ОБНОВЛЕНИЕ";
             if (lower.Contains("dlc") || lower.Contains("addon"))
                 return "DLC";
-            if (lower.EndsWith(".nsp") || lower.EndsWith(".nsz") || lower.EndsWith(".xci") || lower.EndsWith(".xcz") ||
-                lower.EndsWith(".3ds") || lower.EndsWith(".cia") || lower.EndsWith(".cci"))
+            if (lower.EndsWith(".nsp") || lower.EndsWith(".nsz") || lower.EndsWith(".xci") || lower.EndsWith(".xcz"))
                 return "ИГРА";
             return "ФАЙЛ";
         }
 
-        /// <summary>
-        /// Запускает прямое скачивание выбранных файлов торрента/Magnet через встроенный движок MonoTorrent.
-        /// </summary>
         public async Task<List<string>> DownloadTorrentAsync(
             string saveDirectory,
             IReadOnlyList<TorrentFileSelectionItem> fileSelections,
@@ -1695,7 +1910,15 @@ namespace StormSwitchBox.Services
                 throw new InvalidOperationException("Не выбран .torrent файл или Magnet-ссылка для скачивания.");
             }
 
-            // Применяем выборочный фильтр файлов, если метаданные уже загружены
+            // Принудительно подключаем все 8 публичных трекеров RuTracker
+            foreach (var tr in PublicTrackers)
+            {
+                if (Uri.TryCreate(tr, UriKind.Absolute, out var trUri))
+                {
+                    try { await _activeManager.TrackerManager.AddTrackerAsync(trUri).ConfigureAwait(false); } catch { }
+                }
+            }
+
             if (_activeManager.HasMetadata && fileSelections.Count > 0)
             {
                 await ApplyFilePrioritiesAsync(_activeManager, fileSelections).ConfigureAwait(false);
@@ -1734,56 +1957,70 @@ namespace StormSwitchBox.Services
                     StatusText = stateStr
                 });
 
-                // Если выбрана только часть файлов, проверяем их индивидуальную готовность
                 if (_activeManager.HasMetadata && _activeManager.Files.Count > 0)
                 {
                     bool allSelectedDone = _activeManager.Files
                         .Where(f => f.Priority != Priority.DoNotDownload)
                         .All(f => f.BitField.AllTrue);
-                    if (allSelectedDone && pct > 0)
+
+                    if (allSelectedDone && fileSelections.Any(x => x.IsSelected))
+                    {
                         break;
+                    }
                 }
 
                 await Task.Delay(500, ct).ConfigureAwait(false);
             }
 
-            ct.ThrowIfCancellationRequested();
+            if (ct.IsCancellationRequested)
+            {
+                try { await _activeManager.StopAsync(); } catch { }
+                ct.ThrowIfCancellationRequested();
+            }
 
-            var downloadedFiles = new List<string>();
+            var downloadedPaths = new List<string>();
             if (_activeManager.HasMetadata)
             {
                 foreach (var f in _activeManager.Files)
                 {
-                    if (f.Priority != Priority.DoNotDownload && File.Exists(f.FullPath))
+                    if (f.Priority != Priority.DoNotDownload && f.BitField.AllTrue)
                     {
-                        downloadedFiles.Add(f.FullPath);
+                        string fullPath = Path.Combine(saveDirectory, f.Path);
+                        if (File.Exists(fullPath)) downloadedPaths.Add(fullPath);
                     }
                 }
             }
 
-            try { await _activeManager.StopAsync(TimeSpan.FromSeconds(2)); } catch { }
-            return downloadedFiles;
+            try { await _activeManager.StopAsync(); } catch { }
+            return downloadedPaths;
         }
 
-        private static async Task ApplyFilePrioritiesAsync(TorrentManager manager, IReadOnlyList<TorrentFileSelectionItem> selections)
+        private static async Task ApplyFilePrioritiesAsync(TorrentManager manager, IReadOnlyList<TorrentFileSelectionItem> fileSelections)
         {
-            var selectedPaths = new HashSet<string>(
-                selections.Where(s => s.IsSelected).Select(s => s.RelativePath),
-                StringComparer.OrdinalIgnoreCase);
-
-            if (selectedPaths.Count == 0) return;
+            var selLookup = fileSelections.ToDictionary(x => x.RelativePath.Replace('\\', '/'), x => x.IsSelected, StringComparer.OrdinalIgnoreCase);
 
             foreach (var file in manager.Files)
             {
-                bool shouldDownload = selectedPaths.Contains(file.Path);
-                await manager.SetFilePriorityAsync(file, shouldDownload ? Priority.Normal : Priority.DoNotDownload).ConfigureAwait(false);
+                string rel = file.Path.Replace('\\', '/');
+                bool want = true;
+                if (selLookup.TryGetValue(rel, out bool selected))
+                {
+                    want = selected;
+                }
+                else
+                {
+                    string fn = Path.GetFileName(rel);
+                    var matched = selLookup.FirstOrDefault(kv => Path.GetFileName(kv.Key).Equals(fn, StringComparison.OrdinalIgnoreCase));
+                    if (!string.IsNullOrEmpty(matched.Key))
+                        want = matched.Value;
+                }
+
+                await manager.SetFilePriorityAsync(file, want ? Priority.Normal : Priority.DoNotDownload).ConfigureAwait(false);
             }
         }
 
-        /// <summary>
-        /// Скачивает архивы модов и русификаторов по облачным ссылкам (Яндекс.Диск, Google Drive, GitHub Releases, прямые URL),
-        /// распаковывает их через 7za.exe и возвращает пути к папкам модов (romfs/exefs/ips) или патчам для привязки к задаче.
-        /// </summary>
+        #region Облачный загрузчик модификаций и патчей (MEGA, PixelDrain, Yandex, GDrive, Mail.ru, MediaFire, Dropbox, WDfiles, GitHub, Workupload)
+
         public async Task<List<string>> DownloadAndExtractCloudModsAsync(
             IEnumerable<string> rawLinks,
             string workDirectory,
@@ -1822,11 +2059,11 @@ namespace StormSwitchBox.Services
                     try
                     {
                         using var mirrorCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                        mirrorCts.CancelAfter(TimeSpan.FromSeconds(20));
+                        mirrorCts.CancelAfter(TimeSpan.FromSeconds(60));
 
-                        progress?.Report(((i * 100.0) / links.Count, $"Резолвинг ссылки ({i + 1}/{links.Count}, зерк. {mIdx + 1}/{candidateMirrors.Count}): {mirrorUrl}..."));
+                        progress?.Report(((i * 100.0) / links.Count, $"Подготовка ссылки ({i + 1}/{links.Count}, зерк. {mIdx + 1}/{candidateMirrors.Count}): {mirrorUrl}..."));
 
-                        var (directUrl, suggestedName) = await ResolveCloudDownloadUrlAsync(client, mirrorUrl, mirrorCts.Token).ConfigureAwait(false);
+                        var (directUrl, suggestedName, megaKey) = await ResolveCloudDownloadUrlAsync(client, mirrorUrl, mirrorCts.Token).ConfigureAwait(false);
                         if (string.IsNullOrEmpty(directUrl)) continue;
 
                         string safeFileName = SanitizeFileName(suggestedName);
@@ -1834,12 +2071,18 @@ namespace StormSwitchBox.Services
                             safeFileName += ".zip";
 
                         string archivePath = Path.Combine(modsRoot, safeFileName);
-                        progress?.Report(((i * 100.0 + 25.0) / links.Count, $"Скачивание мода: {safeFileName}..."));
+                        progress?.Report(((i * 100.0 + 10.0) / links.Count, $"Скачивание: {safeFileName}..."));
 
-                        await DownloadFileWithProgressAsync(client, directUrl, archivePath, (dlPct) =>
+                        await DownloadFileWithProgressAsync(client, directUrl, archivePath, (info) =>
                         {
-                            progress?.Report(((i + dlPct / 100.0) * 100.0 / links.Count, $"Скачивание мода {safeFileName}: {dlPct:F1}%"));
-                        }, mirrorCts.Token).ConfigureAwait(false);
+                            double currentStepPct = (i + info.Percent / 100.0) * 100.0 / links.Count;
+                            double dlMb = info.DownloadedBytes / (1024.0 * 1024.0);
+                            double totalMb = info.TotalBytes / (1024.0 * 1024.0);
+                            string stat = totalMb > 0
+                                ? $"Скачивание {safeFileName}: {info.Percent:F1}% ({info.SpeedMb:F2} МБ/с | {dlMb:F1} / {totalMb:F1} МБ)"
+                                : $"Скачивание {safeFileName}: {dlMb:F1} МБ ({info.SpeedMb:F2} МБ/с)";
+                            progress?.Report((currentStepPct, stat));
+                        }, mirrorCts.Token, megaKey).ConfigureAwait(false);
 
                         if (!File.Exists(archivePath) || new FileInfo(archivePath).Length < 64) continue;
 
@@ -1848,10 +2091,11 @@ namespace StormSwitchBox.Services
                         {
                             string extractDir = Path.Combine(modsRoot, Path.GetFileNameWithoutExtension(safeFileName));
                             Directory.CreateDirectory(extractDir);
-                            progress?.Report(((i + 0.85) * 100.0 / links.Count, $"Распаковка архива мода {safeFileName}..."));
+                            progress?.Report(((i + 0.85) * 100.0 / links.Count, $"Распаковка архива {safeFileName}..."));
 
                             await ExtractArchiveWith7zAsync(archivePath, extractDir, ct).ConfigureAwait(false);
                             try { File.Delete(archivePath); } catch { }
+
                             foreach (var nestedRom in Directory.EnumerateFiles(extractDir, "*.*", SearchOption.AllDirectories))
                             {
                                 string nExt = Path.GetExtension(nestedRom).ToLowerInvariant();
@@ -1886,52 +2130,57 @@ namespace StormSwitchBox.Services
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
                     {
-                        App.Logger?.Log($"[RuTracker Cloud] Зеркало {mirrorUrl} недоступно: {ex.Message}. Переход к следующему зеркалу...", LogLevel.Warning);
+                        App.Logger?.Log($"[RuTracker Cloud] Зеркало {mirrorUrl} недоступно: {ex.Message}. Переход к следующему...", LogLevel.Warning);
                     }
                 }
             }
 
-            progress?.Report((100, $"Готово! Подготовлено модификаций для автопривязки: {extractedModPaths.Count}."));
+            progress?.Report((100, $"Готово! Подготовлено модификаций и файлов: {extractedModPaths.Count}."));
             return extractedModPaths;
         }
 
-        private async Task<(string DirectUrl, string FileName)> ResolveCloudDownloadUrlAsync(HttpClient client, string url, CancellationToken ct)
+        private async Task<(string DirectUrl, string FileName, string? MegaKey)> ResolveCloudDownloadUrlAsync(HttpClient client, string url, CancellationToken ct)
         {
             string lower = url.ToLowerInvariant();
 
-            // 1. PixelDrain (pixeldrain.com/u/<ID> или pixeldrain.com/api/file/<ID>)
-            if (lower.Contains("pixeldrain.com/"))
+            // 1. PixelDrain
+            if (lower.Contains("pixeldrain."))
             {
-                var pdMatch = Regex.Match(url, @"pixeldrain\.com/(?:u|api/file)/([a-zA-Z0-9_-]+)", RegexOptions.IgnoreCase);
-                if (pdMatch.Success)
+                var pdFile = Regex.Match(url, @"pixeldrain\.[a-z]+/(?:u|api/file|d)/([a-zA-Z0-9_-]+)", RegexOptions.IgnoreCase);
+                if (pdFile.Success)
                 {
-                    string id = pdMatch.Groups[1].Value;
+                    string id = pdFile.Groups[1].Value;
                     string direct = $"https://pixeldrain.com/api/file/{id}?download";
-                    string pdFileName = $"PixelDrain_{id}.zip";
+                    string fn = $"PixelDrain_{id}.zip";
                     try
                     {
-                        using var infoCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                        infoCts.CancelAfter(TimeSpan.FromSeconds(6));
-                        using var infoResp = await client.GetAsync($"https://pixeldrain.com/api/file/{id}/info", infoCts.Token).ConfigureAwait(false);
+                        using var infoResp = await client.GetAsync($"https://pixeldrain.com/api/file/{id}/info", ct).ConfigureAwait(false);
                         if (infoResp.IsSuccessStatusCode)
                         {
-                            string json = await infoResp.Content.ReadAsStringAsync(infoCts.Token).ConfigureAwait(false);
+                            string json = await infoResp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
                             using var doc = JsonDocument.Parse(json);
                             if (doc.RootElement.TryGetProperty("name", out var np))
-                            {
-                                string n = np.GetString() ?? "";
-                                if (!string.IsNullOrWhiteSpace(n)) pdFileName = n;
-                            }
+                                fn = np.GetString() ?? fn;
                         }
                     }
                     catch { }
-                    return (direct, pdFileName);
+                    return (direct, fn, null);
+                }
+
+                var pdList = Regex.Match(url, @"pixeldrain\.[a-z]+/(?:l|api/list)/([a-zA-Z0-9_-]+)", RegexOptions.IgnoreCase);
+                if (pdList.Success)
+                {
+                    string id = pdList.Groups[1].Value;
+                    return ($"https://pixeldrain.com/api/list/{id}/zip", $"PixelDrain_List_{id}.zip", null);
                 }
             }
 
-            // 2. Яндекс.Диск (disk.yandex.ru / yadi.sk)
-            if (lower.Contains("disk.yandex.") || lower.Contains("yadi.sk/"))
+            // 2. Яндекс.Диск
+            if (lower.Contains("disk.yandex.") || lower.Contains("yadi.sk") || lower.Contains("disk.360.yandex."))
             {
+                if (lower.Contains("downloader.disk.yandex") || lower.Contains("cloud-api.yandex"))
+                    return (url, "YandexDisk_Mod.zip", null);
+
                 string apiUrl = $"https://cloud-api.yandex.net/v1/disk/public/resources/download?public_key={Uri.EscapeDataString(url)}";
                 using var resp = await client.GetAsync(apiUrl, ct).ConfigureAwait(false);
                 if (resp.IsSuccessStatusCode)
@@ -1942,24 +2191,79 @@ namespace StormSwitchBox.Services
                     {
                         string href = hrefProp.GetString() ?? "";
                         string fn = ExtractQueryParam(href, "filename") ?? $"YandexDisk_Mod_{DateTime.Now:HHmmss}.zip";
-                        return (href, fn);
+                        return (href, fn, null);
                     }
                 }
             }
 
-            // 3. Google Drive (drive.google.com/file/d/<ID>/... или id=<ID>)
-            if (lower.Contains("drive.google.com") || lower.Contains("drive.usercontent.google.com"))
+            // 3. Google Drive
+            if (lower.Contains("drive.google.com") || lower.Contains("drive.usercontent.google.com") || lower.Contains("docs.google.com"))
             {
-                var idMatch = Regex.Match(url, @"(?:/file/d/|id=)([a-zA-Z0-9_-]{15,})");
+                var idMatch = Regex.Match(url, @"(?:/file/d/|id=)([a-zA-Z0-9_-]{10,})");
                 if (idMatch.Success)
                 {
                     string fileId = idMatch.Groups[1].Value;
                     string directGDrive = $"https://drive.usercontent.google.com/download?id={fileId}&export=download&confirm=t";
-                    return (directGDrive, $"GDrive_Mod_{fileId.Substring(0, 8)}.zip");
+                    return (directGDrive, $"GDrive_Mod_{fileId.Substring(0, 8)}.zip", null);
                 }
             }
 
-            // 4. MediaFire (mediafire.com/file/...)
+            // 4. MEGA (mega.nz/file/<id>#<key> или mega.nz/#!<id>!<key>)
+            if (lower.Contains("mega.nz") || lower.Contains("mega.co.nz"))
+            {
+                var megaMatch = Regex.Match(url, @"mega\.(?:nz|co\.nz)/(?:file/|#!)?([a-zA-Z0-9_-]+)(?:#|!)([a-zA-Z0-9_-]{40,})", RegexOptions.IgnoreCase);
+                if (megaMatch.Success)
+                {
+                    string fileId = megaMatch.Groups[1].Value;
+                    string keyStr = megaMatch.Groups[2].Value;
+
+                    try
+                    {
+                        var (aesKey, iv) = DeriveMegaKey(keyStr);
+                        long randId = Random.Shared.Next(1000000, 9999999);
+                        string apiPost = $"[{{\"a\":\"g\",\"g\":1,\"p\":\"{fileId}\"}}]";
+                        using var apiContent = new StringContent(apiPost, Encoding.UTF8, "application/json");
+                        using var apiResp = await client.PostAsync($"https://g.api.mega.co.nz/cs?id={randId}", apiContent, ct).ConfigureAwait(false);
+                        if (apiResp.IsSuccessStatusCode)
+                        {
+                            string resJson = await apiResp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                            using var doc = JsonDocument.Parse(resJson);
+                            if (doc.RootElement.ValueKind == JsonValueKind.Array && doc.RootElement.GetArrayLength() > 0)
+                            {
+                                var item = doc.RootElement[0];
+                                string directUrl = item.TryGetProperty("g", out var gp) ? (gp.GetString() ?? "") : "";
+                                string atBase64 = item.TryGetProperty("at", out var atp) ? (atp.GetString() ?? "") : "";
+                                string realName = $"Mega_Mod_{fileId}.zip";
+
+                                if (!string.IsNullOrEmpty(atBase64))
+                                {
+                                    try { realName = DecryptMegaAttributes(aesKey, atBase64); } catch { }
+                                }
+
+                                if (!string.IsNullOrEmpty(directUrl))
+                                    return (directUrl, realName, keyStr);
+                            }
+                        }
+                    }
+                    catch { }
+                }
+            }
+
+            // 5. Dropbox
+            if (lower.Contains("dropbox.com/"))
+            {
+                string d = url;
+                if (Regex.IsMatch(d, @"[?&]dl=0"))
+                    d = Regex.Replace(d, @"([?&])dl=0", "$1dl=1");
+                else if (!Regex.IsMatch(d, @"[?&](dl|raw)=1"))
+                    d = d.Contains('?') ? d + "&dl=1" : d + "?dl=1";
+
+                string fn = Path.GetFileName(new Uri(d.Split('?')[0]).LocalPath);
+                if (string.IsNullOrWhiteSpace(fn)) fn = "Dropbox_Mod.zip";
+                return (d, fn, null);
+            }
+
+            // 6. MediaFire
             if (lower.Contains("mediafire.com/"))
             {
                 try
@@ -1974,14 +2278,14 @@ namespace StormSwitchBox.Services
                             string direct = dlMatch.Groups[1].Value;
                             string fn = Path.GetFileName(new Uri(direct).LocalPath);
                             if (string.IsNullOrWhiteSpace(fn)) fn = "MediaFire_Mod.zip";
-                            return (direct, fn);
+                            return (direct, fn, null);
                         }
                     }
                 }
                 catch { }
             }
 
-            // 5. Облако Mail.ru (cloud.mail.ru/public/<key1>/<key2>)
+            // 7. Облако Mail.ru
             if (lower.Contains("cloud.mail.ru/public/"))
             {
                 var mrMatch = Regex.Match(url, @"cloud\.mail\.ru/public/([a-zA-Z0-9]+/[a-zA-Z0-9_-]+)", RegexOptions.IgnoreCase);
@@ -2005,7 +2309,7 @@ namespace StormSwitchBox.Services
                                 {
                                     string direct = baseUrl.TrimEnd('/') + "/" + weblink;
                                     string fn = Path.GetFileName(weblink) + ".zip";
-                                    return (direct, fn);
+                                    return (direct, fn, null);
                                 }
                             }
                         }
@@ -2014,8 +2318,8 @@ namespace StormSwitchBox.Services
                 }
             }
 
-            // 6. WDfiles (wdfiles.ru/<id>)
-            if (lower.Contains("wdfiles.ru/"))
+            // 8. WDfiles
+            if (lower.Contains("wdfiles."))
             {
                 try
                 {
@@ -2023,18 +2327,44 @@ namespace StormSwitchBox.Services
                     if (wdResp.IsSuccessStatusCode)
                     {
                         string html = await wdResp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-                        var dlMatch = Regex.Match(html, @"href=""(https?://[^""\s]*wdfiles\.ru/download/[^""]+)""", RegexOptions.IgnoreCase);
+                        var dlMatch = Regex.Match(html, @"href=""(https?://[^""\s]*wdfiles\.(?:ru|com)/download/[^""]+)""", RegexOptions.IgnoreCase);
                         if (dlMatch.Success)
                         {
                             string direct = dlMatch.Groups[1].Value;
-                            return (direct, "WDfiles_Mod.zip");
+                            return (direct, "WDfiles_Mod.zip", null);
                         }
                     }
                 }
                 catch { }
             }
 
-            // 7. GitHub Releases (github.com/<owner>/<repo>/releases...)
+            // 9. WorkUpload
+            if (lower.Contains("workupload.com/"))
+            {
+                var wuMatch = Regex.Match(url, @"workupload\.com/(?:file|archive)/([a-zA-Z0-9]+)", RegexOptions.IgnoreCase);
+                if (wuMatch.Success)
+                {
+                    string id = wuMatch.Groups[1].Value;
+                    try
+                    {
+                        using var wuApi = await client.GetAsync($"https://workupload.com/api/file/getDownloadServer/{id}", ct).ConfigureAwait(false);
+                        if (wuApi.IsSuccessStatusCode)
+                        {
+                            string j = await wuApi.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                            using var d = JsonDocument.Parse(j);
+                            if (d.RootElement.TryGetProperty("data", out var dp) && dp.TryGetProperty("url", out var up))
+                            {
+                                string dl = up.GetString() ?? "";
+                                if (!string.IsNullOrEmpty(dl))
+                                    return (dl, $"WorkUpload_{id}.zip", null);
+                            }
+                        }
+                    }
+                    catch { }
+                }
+            }
+
+            // 10. GitHub Releases
             if (lower.Contains("github.com/") && lower.Contains("/releases") && !lower.Contains("/releases/download/"))
             {
                 var ghMatch = Regex.Match(url, @"github\.com/([^/]+)/([^/]+)/releases(?:/tag/([^/?#]+))?", RegexOptions.IgnoreCase);
@@ -2061,10 +2391,10 @@ namespace StormSwitchBox.Services
                                 if (!string.IsNullOrEmpty(dl) && (name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) ||
                                     name.EndsWith(".7z", StringComparison.OrdinalIgnoreCase) ||
                                     name.EndsWith(".rar", StringComparison.OrdinalIgnoreCase) ||
-                                    name.EndsWith(".ips", StringComparison.OrdinalIgnoreCase) ||
-                                    name.EndsWith(".pchtxt", StringComparison.OrdinalIgnoreCase)))
+                                    name.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) ||
+                                    name.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase)))
                                 {
-                                    return (dl, name);
+                                    return (dl, name, null);
                                 }
                             }
                         }
@@ -2072,218 +2402,382 @@ namespace StormSwitchBox.Services
                 }
             }
 
-            // 8. Прямая ссылка на файл
-            string fileName = Path.GetFileName(new Uri(url).LocalPath);
-            if (string.IsNullOrWhiteSpace(fileName)) fileName = "ModPackage.zip";
-            return (url, fileName);
+            // Прямая ссылка на файл
+            string fallbackName = Path.GetFileName(new Uri(url).LocalPath);
+            if (string.IsNullOrWhiteSpace(fallbackName)) fallbackName = "ModPackage.zip";
+            return (url, fallbackName, null);
         }
 
         private static string? ExtractQueryParam(string url, string paramName)
         {
-            var m = Regex.Match(url, $@"[?&]{Regex.Escape(paramName)}=([^&#]+)", RegexOptions.IgnoreCase);
-            return m.Success ? Uri.UnescapeDataString(m.Groups[1].Value) : null;
+            try
+            {
+                var uri = new Uri(url);
+                var query = uri.Query.TrimStart('?');
+                foreach (var part in query.Split('&'))
+                {
+                    var kv = part.Split('=');
+                    if (kv.Length == 2 && string.Equals(kv[0], paramName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return Uri.UnescapeDataString(kv[1]);
+                    }
+                }
+            }
+            catch { }
+            return null;
         }
 
         private static string SanitizeFileName(string name)
         {
-            foreach (char c in Path.GetInvalidFileNameChars())
-                name = name.Replace(c, '_');
-            return name.Trim();
+            var invalid = Path.GetInvalidFileNameChars();
+            var sb = new StringBuilder(name.Length);
+            foreach (char c in name)
+            {
+                sb.Append(invalid.Contains(c) ? '_' : c);
+            }
+            return sb.ToString().Trim();
         }
 
-        private static async Task DownloadFileWithProgressAsync(HttpClient client, string url, string destPath, Action<double> onProgress, CancellationToken ct)
+        private static async Task DownloadFileWithProgressAsync(
+            HttpClient client,
+            string url,
+            string destPath,
+            Action<(double Percent, double SpeedMb, long DownloadedBytes, long TotalBytes)>? progress,
+            CancellationToken ct,
+            string? megaKey = null)
         {
-            using var resp = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
-            resp.EnsureSuccessStatusCode();
+            string targetUrl = url;
+            string? cookieHeader = null;
 
-            string? cdFileName = resp.Content.Headers.ContentDisposition?.FileNameStar ?? resp.Content.Headers.ContentDisposition?.FileName;
-            if (!string.IsNullOrWhiteSpace(cdFileName))
+            // Проверка Google Drive: если возвращается HTML страница подтверждения больших файлов
+            for (int hop = 0; hop < 3; hop++)
             {
-                cdFileName = cdFileName.Trim('"', '\'');
-                string cdExt = Path.GetExtension(cdFileName).ToLowerInvariant();
-                if (cdExt is ".zip" or ".7z" or ".rar" or ".nsp" or ".nsz" or ".ips" or ".pchtxt")
+                using var req = new HttpRequestMessage(HttpMethod.Get, targetUrl);
+                if (!string.IsNullOrEmpty(cookieHeader))
+                    req.Headers.TryAddWithoutValidation("Cookie", cookieHeader);
+
+                using var headResp = await client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+                headResp.EnsureSuccessStatusCode();
+
+                if (headResp.Headers.TryGetValues("Set-Cookie", out var setCookies))
                 {
-                    string curExt = Path.GetExtension(destPath).ToLowerInvariant();
-                    if (curExt != cdExt)
-                    {
-                        destPath = Path.ChangeExtension(destPath, cdExt);
-                    }
-                }
-            }
-
-            string mediaType = resp.Content.Headers.ContentType?.MediaType?.ToLowerInvariant() ?? "";
-            if (mediaType.Contains("text/html") || mediaType.Contains("text/plain"))
-            {
-                string htmlContent = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-                if (htmlContent.Contains("download-form") || htmlContent.Contains("drive.usercontent.google.com") || htmlContent.Contains("confirm="))
-                {
-                    var formMatch = Regex.Match(htmlContent, @"<form[^>]+id=[""']download-form[""'][^>]+action=[""']([^""']+)[""']");
-                    string formAction = formMatch.Success ? System.Net.WebUtility.HtmlDecode(formMatch.Groups[1].Value) : "https://drive.usercontent.google.com/download";
-
-                    var inputs = Regex.Matches(htmlContent, @"<input[^>]+type=[""']hidden[""'][^>]+name=[""']([^""']+)[""'][^>]+value=[""']([^""']*)[""']");
-                    var queryParams = new List<string>();
-                    foreach (Match m in inputs)
-                    {
-                        queryParams.Add(Uri.EscapeDataString(m.Groups[1].Value) + "=" + Uri.EscapeDataString(System.Net.WebUtility.HtmlDecode(m.Groups[2].Value)));
-                    }
-                    if (!queryParams.Any(q => q.StartsWith("confirm=")))
-                    {
-                        queryParams.Add("confirm=t");
-                    }
-                    string finalDlUrl = formAction + (formAction.Contains("?") ? "&" : "?") + string.Join("&", queryParams);
-
-                    using var secondResp = await client.GetAsync(finalDlUrl, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
-                    secondResp.EnsureSuccessStatusCode();
-
-                    long total2 = secondResp.Content.Headers.ContentLength ?? -1;
-                    await using var netStream2 = await secondResp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
-                    await using var fileStream2 = new FileStream(destPath, FileMode.Create, FileAccess.Write, FileShare.None, 65536, useAsync: true);
-
-                    byte[] buffer2 = new byte[65536];
-                    long readTotal2 = 0;
-                    int read2;
-                    while ((read2 = await netStream2.ReadAsync(buffer2, ct).ConfigureAwait(false)) > 0)
-                    {
-                        await fileStream2.WriteAsync(buffer2.AsMemory(0, read2), ct).ConfigureAwait(false);
-                        readTotal2 += read2;
-                        if (total2 > 0)
-                            onProgress(readTotal2 * 100.0 / total2);
-                    }
-                    await fileStream2.FlushAsync(ct).ConfigureAwait(false);
-                    fileStream2.Close();
-                    ValidateDownloadedFile(destPath);
-                    return;
+                    cookieHeader = string.Join("; ", setCookies.Select(c => c.Split(';')[0]));
                 }
 
-                throw new InvalidOperationException($"Сервер вернул HTML-страницу вместо архива ({url})");
+                string ctHeader = headResp.Content.Headers.ContentType?.MediaType?.ToLowerInvariant() ?? "";
+                string dispHeader = headResp.Content.Headers.ContentDisposition?.DispositionType?.ToLowerInvariant() ?? "";
+
+                if (ctHeader.Contains("text/html") && !dispHeader.Contains("attachment"))
+                {
+                    string html = await headResp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                    var gForm = Regex.Match(html, @"<form[^>]+id=[""']download-form[""'][^>]*action=[""']([^""']+)[""']", RegexOptions.IgnoreCase);
+                    if (gForm.Success)
+                    {
+                        string actionUrl = WebUtility.HtmlDecode(gForm.Groups[1].Value);
+                        var inputs = Regex.Matches(html, @"<input[^>]+type=[""']hidden[""'][^>]*name=[""']([^""']+)[""'][^>]*value=[""']([^""']*)[""']", RegexOptions.IgnoreCase);
+                        var qParams = new List<string>();
+                        foreach (Match inp in inputs)
+                        {
+                            qParams.Add($"{Uri.EscapeDataString(inp.Groups[1].Value)}={Uri.EscapeDataString(inp.Groups[2].Value)}");
+                        }
+                        targetUrl = actionUrl + (actionUrl.Contains('?') ? "&" : "?") + string.Join("&", qParams);
+                        continue;
+                    }
+                }
+
+                long totalBytes = headResp.Content.Headers.ContentLength ?? -1L;
+                using var stream = await headResp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+                using var fileStream = new FileStream(destPath, FileMode.Create, FileAccess.Write, FileShare.None, 65536, useAsync: true);
+
+                if (!string.IsNullOrEmpty(megaKey))
+                {
+                    var (aesKey, iv) = DeriveMegaKey(megaKey);
+                    DecryptMegaStreamCtr(aesKey, iv, stream, fileStream, totalBytes, progress, ct);
+                }
+                else
+                {
+                    byte[] buffer = new byte[65536];
+                    long totalRead = 0;
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    long lastReportTicks = 0;
+
+                    int bytesRead;
+                    while ((bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length, ct).ConfigureAwait(false)) > 0)
+                    {
+                        await fileStream.WriteAsync(buffer, 0, bytesRead, ct).ConfigureAwait(false);
+                        totalRead += bytesRead;
+
+                        if (sw.ElapsedTicks - lastReportTicks > System.Diagnostics.Stopwatch.Frequency / 4)
+                        {
+                            lastReportTicks = sw.ElapsedTicks;
+                            double pct = totalBytes > 0 ? (totalRead * 100.0) / totalBytes : 0;
+                            double speed = sw.Elapsed.TotalSeconds > 0 ? (totalRead / (1024.0 * 1024.0)) / sw.Elapsed.TotalSeconds : 0;
+                            progress?.Invoke((pct, speed, totalRead, totalBytes));
+                        }
+                    }
+                    double finalSpeed = sw.Elapsed.TotalSeconds > 0 ? (totalRead / (1024.0 * 1024.0)) / sw.Elapsed.TotalSeconds : 0;
+                    progress?.Invoke((100, finalSpeed, totalRead, totalBytes));
+                }
+
+                break;
             }
 
-            long total = resp.Content.Headers.ContentLength ?? -1;
-            await using var netStream = await resp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
-            await using var fileStream = new FileStream(destPath, FileMode.Create, FileAccess.Write, FileShare.None, 65536, useAsync: true);
-
-            byte[] buffer = new byte[65536];
-            long readTotal = 0;
-            int read;
-            while ((read = await netStream.ReadAsync(buffer, ct).ConfigureAwait(false)) > 0)
-            {
-                await fileStream.WriteAsync(buffer.AsMemory(0, read), ct).ConfigureAwait(false);
-                readTotal += read;
-                if (total > 0)
-                    onProgress(readTotal * 100.0 / total);
-            }
-            await fileStream.FlushAsync(ct).ConfigureAwait(false);
-            fileStream.Close();
             ValidateDownloadedFile(destPath);
         }
 
-        private static void ValidateDownloadedFile(string destPath)
+        #region MEGA Криптография (AES-128-CTR стриминг и AES-CBC метаданные)
+
+        public static (byte[] AesKey, byte[] Iv) DeriveMegaKey(string keyString)
         {
-            if (!File.Exists(destPath)) throw new FileNotFoundException("Файл не был записан на диск", destPath);
-            var fi = new FileInfo(destPath);
-            if (fi.Length < 64)
+            string padded = keyString.Replace('-', '+').Replace('_', '/');
+            padded += new string('=', (4 - padded.Length % 4) % 4);
+            byte[] keyBytes = Convert.FromBase64String(padded);
+            if (keyBytes.Length < 32)
+                throw new ArgumentException("Неверная длина ключа MEGA");
+
+            uint[] k = new uint[8];
+            for (int i = 0; i < 8; i++)
             {
-                try { File.Delete(destPath); } catch { }
-                throw new InvalidOperationException("Скачанный файл повреждён или пуст (< 64 байт)");
+                k[i] = ((uint)keyBytes[i * 4] << 24) |
+                       ((uint)keyBytes[i * 4 + 1] << 16) |
+                       ((uint)keyBytes[i * 4 + 2] << 8) |
+                       ((uint)keyBytes[i * 4 + 3]);
             }
 
-            byte[] header = new byte[64];
-            using (var fs = new FileStream(destPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            byte[] aesKey = new byte[16];
+            for (int i = 0; i < 4; i++)
             {
-                int r = fs.Read(header, 0, 64);
-                string hStr = Encoding.ASCII.GetString(header, 0, r);
-                if (hStr.StartsWith("<!DOCTYPE", StringComparison.OrdinalIgnoreCase) ||
-                    hStr.StartsWith("<html", StringComparison.OrdinalIgnoreCase) ||
-                    hStr.Contains("<head", StringComparison.OrdinalIgnoreCase) ||
-                    hStr.Contains("<body", StringComparison.OrdinalIgnoreCase))
+                uint val = k[i] ^ k[i + 4];
+                aesKey[i * 4] = (byte)(val >> 24);
+                aesKey[i * 4 + 1] = (byte)(val >> 16);
+                aesKey[i * 4 + 2] = (byte)(val >> 8);
+                aesKey[i * 4 + 3] = (byte)val;
+            }
+
+            byte[] iv = new byte[16];
+            for (int i = 0; i < 2; i++)
+            {
+                uint val = k[i + 4];
+                iv[i * 4] = (byte)(val >> 24);
+                iv[i * 4 + 1] = (byte)(val >> 16);
+                iv[i * 4 + 2] = (byte)(val >> 8);
+                iv[i * 4 + 3] = (byte)val;
+            }
+            return (aesKey, iv);
+        }
+
+        public static string DecryptMegaAttributes(byte[] aesKey, string atBase64)
+        {
+            string padded = atBase64.Replace('-', '+').Replace('_', '/');
+            padded += new string('=', (4 - padded.Length % 4) % 4);
+            byte[] cipher = Convert.FromBase64String(padded);
+
+            using var aes = Aes.Create();
+            aes.Mode = CipherMode.CBC;
+            aes.Padding = PaddingMode.None;
+            aes.Key = aesKey;
+            aes.IV = new byte[16];
+
+            using var decryptor = aes.CreateDecryptor();
+            byte[] plain = decryptor.TransformFinalBlock(cipher, 0, cipher.Length);
+            string text = Encoding.UTF8.GetString(plain);
+            int idx = text.IndexOf("MEGA{");
+            if (idx >= 0)
+            {
+                string json = text.Substring(idx + 4);
+                int end = json.LastIndexOf('}');
+                if (end > 0)
                 {
-                    fs.Close();
-                    try { File.Delete(destPath); } catch { }
-                    throw new InvalidOperationException("Скачан HTML-документ вместо бинарного архива мода.");
+                    json = json.Substring(0, end + 1);
+                    using var doc = JsonDocument.Parse(json);
+                    if (doc.RootElement.TryGetProperty("n", out var np))
+                        return np.GetString() ?? "MegaFile.zip";
+                }
+            }
+            return "MegaFile.zip";
+        }
+
+        public static void DecryptMegaStreamCtr(
+            byte[] aesKey,
+            byte[] iv,
+            Stream input,
+            Stream output,
+            long total,
+            Action<(double Percent, double SpeedMb, long DownloadedBytes, long TotalBytes)>? progress,
+            CancellationToken ct)
+        {
+            using var aes = Aes.Create();
+            aes.Mode = CipherMode.ECB;
+            aes.Padding = PaddingMode.None;
+            aes.Key = aesKey;
+            using var encryptor = aes.CreateEncryptor();
+
+            byte[] counterBlock = new byte[16];
+            Buffer.BlockCopy(iv, 0, counterBlock, 0, 8);
+
+            ulong counter = 0;
+            byte[] keyStream = new byte[16];
+            byte[] buffer = new byte[65536];
+            long downloaded = 0;
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            long lastReportTicks = 0;
+
+            int read;
+            while ((read = input.Read(buffer, 0, buffer.Length)) > 0)
+            {
+                ct.ThrowIfCancellationRequested();
+                for (int i = 0; i < read; i += 16)
+                {
+                    for (int b = 7; b >= 0; b--)
+                    {
+                        counterBlock[8 + b] = (byte)(counter >> ((7 - b) * 8));
+                    }
+                    encryptor.TransformBlock(counterBlock, 0, 16, keyStream, 0);
+                    counter++;
+
+                    int count = Math.Min(16, read - i);
+                    for (int j = 0; j < count; j++)
+                        buffer[i + j] ^= keyStream[j];
+                }
+                output.Write(buffer, 0, read);
+                downloaded += read;
+
+                if (sw.ElapsedTicks - lastReportTicks > System.Diagnostics.Stopwatch.Frequency / 4)
+                {
+                    lastReportTicks = sw.ElapsedTicks;
+                    double pct = total > 0 ? (downloaded * 100.0) / total : 0;
+                    double speed = sw.Elapsed.TotalSeconds > 0 ? (downloaded / (1024.0 * 1024.0)) / sw.Elapsed.TotalSeconds : 0;
+                    progress?.Invoke((pct, speed, downloaded, total));
+                }
+            }
+            double fSpeed = sw.Elapsed.TotalSeconds > 0 ? (downloaded / (1024.0 * 1024.0)) / sw.Elapsed.TotalSeconds : 0;
+            progress?.Invoke((100, fSpeed, downloaded, total));
+        }
+
+        #endregion
+
+        private static void ValidateDownloadedFile(string destPath)
+        {
+            if (!File.Exists(destPath))
+                throw new FileNotFoundException("Файл не был сохранён на диск.", destPath);
+
+            var fi = new FileInfo(destPath);
+            if (fi.Length == 0)
+            {
+                File.Delete(destPath);
+                throw new InvalidOperationException("Сервер вернул пустой файл (0 байт). Возможно, ссылка устарела или квота скачивания превышена.");
+            }
+
+            if (fi.Length < 1024 * 100)
+            {
+                byte[] head = new byte[Math.Min(1024, fi.Length)];
+                using (var fs = File.OpenRead(destPath))
+                {
+                    fs.Read(head, 0, head.Length);
+                }
+                string headStr = Encoding.UTF8.GetString(head).ToLowerInvariant();
+                if (headStr.Contains("<html") || headStr.Contains("<!doctype html") || headStr.Contains("{\"error\"") || headStr.Contains("404 not found") || headStr.Contains("quota exceeded"))
+                {
+                    File.Delete(destPath);
+                    throw new InvalidOperationException("Вместо архива сервер вернул HTML-страницу ошибки или ограничение квоты скачивания.");
                 }
             }
         }
 
         private static async Task ExtractArchiveWith7zAsync(string archivePath, string extractDir, CancellationToken ct)
         {
-            string[] candidatePaths = {
-                Path.Combine(AppContext.BaseDirectory, "tools", "7z.exe"),
-                Path.Combine(AppContext.BaseDirectory, "tools", "7z", "7za.exe"),
-                Path.Combine(AppContext.BaseDirectory, "..", "tools", "7z.exe"),
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "7-Zip", "7z.exe"),
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "7-Zip", "7z.exe")
-            };
-
-            string? sevenZip = candidatePaths.FirstOrDefault(File.Exists);
-
-            if (sevenZip != null)
+            string tools7z = Path.Combine(AppContext.BaseDirectory, "tools", "7z", "7za.exe");
+            if (!File.Exists(tools7z))
             {
-                var psi = new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = sevenZip,
-                    Arguments = $"x \"{archivePath}\" -o\"{extractDir}\" -y",
-                    CreateNoWindow = true,
-                    UseShellExecute = false
-                };
+                tools7z = Path.Combine(Environment.CurrentDirectory, "tools", "7z", "7za.exe");
+            }
 
-                using var proc = System.Diagnostics.Process.Start(psi);
-                if (proc != null)
+            if (!File.Exists(tools7z))
+            {
+                if (archivePath.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
                 {
-                    await proc.WaitForExitAsync(ct).ConfigureAwait(false);
+                    System.IO.Compression.ZipFile.ExtractToDirectory(archivePath, extractDir, overwriteFiles: true);
                     return;
                 }
+                throw new FileNotFoundException($"Архиватор 7za.exe не найден по пути: {tools7z}");
             }
 
-            // Fallback: распаковка стандартным ZipFile
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = tools7z,
+                Arguments = $"x \"{archivePath}\" -o\"{extractDir}\" -y -aoa",
+                CreateNoWindow = true,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+
+            using var proc = new System.Diagnostics.Process { StartInfo = psi };
+            proc.Start();
+
             try
             {
-                System.IO.Compression.ZipFile.ExtractToDirectory(archivePath, extractDir, overwriteFiles: true);
+                proc.PriorityClass = System.Diagnostics.ProcessPriorityClass.BelowNormal;
             }
             catch { }
+
+            await proc.WaitForExitAsync(ct).ConfigureAwait(false);
+
+            if (proc.ExitCode != 0)
+            {
+                string err = await proc.StandardError.ReadToEndAsync(ct).ConfigureAwait(false);
+                throw new InvalidOperationException($"Ошибка 7z распаковки (код {proc.ExitCode}): {err}");
+            }
         }
 
-        /// <summary>
-        /// Находит внутри распакованного архива мода папки romfs, exefs, exefs_patches, atmosphere/contents/<TID> или luma/titles/<TID>.
-        /// </summary>
         public static List<string> DiscoverModPayloadsInDirectory(string rootDir)
         {
-            var found = new List<string>();
-            if (!Directory.Exists(rootDir)) return found;
+            var results = new List<string>();
+            if (!Directory.Exists(rootDir)) return results;
 
-            foreach (var dir in Directory.GetDirectories(rootDir, "*", SearchOption.AllDirectories))
+            foreach (var dir in Directory.EnumerateDirectories(rootDir, "*", SearchOption.AllDirectories))
             {
-                string name = Path.GetFileName(dir).ToLowerInvariant();
-                if (name is "romfs" or "exefs" or "exefs_patches")
+                string dName = Path.GetFileName(dir).ToLowerInvariant();
+                if (dName is "romfs" or "exefs" or "exefs_patches" or "cheats")
                 {
-                    found.Add(dir);
+                    string parent = Path.GetDirectoryName(dir) ?? rootDir;
+                    if (!results.Contains(parent, StringComparer.OrdinalIgnoreCase))
+                    {
+                        results.Add(parent);
+                    }
                 }
             }
 
-            if (found.Count > 0) return found;
-
-            foreach (var file in Directory.GetFiles(rootDir, "*.*", SearchOption.AllDirectories))
+            foreach (var f in Directory.EnumerateFiles(rootDir, "*.*", SearchOption.AllDirectories))
             {
-                string ext = Path.GetExtension(file).ToLowerInvariant();
-                string fn = Path.GetFileName(file).ToLowerInvariant();
-                if (ext is ".nsp" or ".nsz" or ".xci" or ".xcz" or ".ips" or ".pchtxt" or ".bps" or ".cia" or ".3ds" or ".pak" or ".zs" or ".sarc" || fn.EndsWith(".sarc.zs"))
+                string ext = Path.GetExtension(f).ToLowerInvariant();
+                if (ext is ".ips" or ".pchtxt")
                 {
-                    found.Add(file);
+                    string parent = Path.GetDirectoryName(f) ?? rootDir;
+                    if (!results.Contains(parent, StringComparer.OrdinalIgnoreCase))
+                    {
+                        results.Add(parent);
+                    }
                 }
             }
 
-            if (found.Count == 0)
-                found.Add(rootDir);
-
-            return found;
+            return results;
         }
+
+        #endregion
 
         public void Dispose()
         {
-            try
+            if (_activeManager != null)
             {
-                _activeManager?.StopAsync(TimeSpan.FromSeconds(1)).GetAwaiter().GetResult();
+                try { _activeManager.StopAsync().Wait(1000); } catch { }
+                _activeManager = null;
             }
-            catch { }
+            if (_torrentEngine != null)
+            {
+                try { _torrentEngine.Dispose(); } catch { }
+                _torrentEngine = null;
+            }
         }
     }
 }

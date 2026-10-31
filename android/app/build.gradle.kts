@@ -20,8 +20,8 @@ android {
     defaultConfig {
         applicationId = "com.storm.switchbox"
         targetSdk = 36
-        versionCode = 662
-        versionName = "6.7.1"
+        versionCode = 663
+        versionName = "6.7.2"
     }
 
     signingConfigs {
@@ -66,6 +66,10 @@ android {
         debug {
             signingConfig = signingConfigs.getByName("stormUnifiedRelease")
         }
+    }
+
+    androidResources {
+        noCompress += listOf("gz")
     }
 
     packaging {
