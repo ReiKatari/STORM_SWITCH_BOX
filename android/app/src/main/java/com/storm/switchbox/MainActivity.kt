@@ -2982,7 +2982,12 @@ class MainActivity : Activity() {
             maxLines = 2
         })
         topicMetaBanner.addView(TextView(this).apply {
-            text = "Тема RuTracker: t=${item.topicId} • Размер: ${StormNczEngine.localizeSizeText(item.sizeText)} • Сиды: ${if (item.seeds > 0) "▲${item.seeds}" else "нет данных"} • Папка: ${customOutputDir.name}/"
+            val topicInfo = when {
+                item.topicId.startsWith("TDB-") -> "Каталог Nintendo Switch"
+                item.topicId.all { it.isDigit() } -> "Тема RuTracker: t=${item.topicId}"
+                else -> "Источник: ${item.topicId}"
+            }
+            text = "$topicInfo • Размер: ${StormNczEngine.localizeSizeText(item.sizeText)} • Сиды: ${if (item.seeds > 0) "▲${item.seeds}" else "нет данных"} • Папка: ${customOutputDir.name}/"
             setTextColor(th.textSecondary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.6f)
             setPadding(0, dp(2), 0, 0)

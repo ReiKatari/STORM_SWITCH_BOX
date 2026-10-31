@@ -104,7 +104,8 @@ object RuTrackerCloudEngine {
     // (раздел #1605). Для остальных (topicId = "CAT-N") реальная раздача ищется при скачивании — без выдуманных хэшей и сидов.
     private val CURATED_SWITCH_DB = listOf(
         TopicItem("6479728", "[Nintendo Switch] Mario vs. Donkey Kong [v1.0.1 (65536) / 0100B99019412000] [NSP] [Multi / RUS]", "Nintendo Switch", "1,30 ГБ", 200, 14, "18034EA68DC5EBE094A061B95A04BB215D95A2A0", "", ""),
-        TopicItem("6525297", "[Nintendo Switch] Animal Well [v1.0.10 (655360) / 010020D01AD24000] [NSP / NSZ] [RUS / Multi11]", "Nintendo Switch", "37,63 МБ", 54, 2, "0A996B997AA2B90DB658E4CA76D2989DD1F80F56", "", "")
+        TopicItem("6525297", "[Nintendo Switch] Animal Well [v1.0.10 (655360) / 010020D01AD24000] [NSP / NSZ] [RUS / Multi11]", "Nintendo Switch", "37,63 МБ", 54, 2, "0A996B997AA2B90DB658E4CA76D2989DD1F80F56", "", ""),
+        TopicItem("5468910", "[Nintendo Switch] Celeste [v1.4.0.0 / 01002B30028F6000] [NSP / NSZ] [RUS / Multi]", "Nintendo Switch", "1,18 ГБ", 45, 4, "B7A8FE9A9B26359122F49EEFC0C159C6408BC71E", "", "")
     )
 
     // Кэш официальных InfoHash раздела #1605 RuTracker (infoHash -> Triple(topicId, sizeBytes, seeders))
@@ -2537,7 +2538,7 @@ object RuTrackerCloudEngine {
             }
         }
         val workers = ArrayList<Thread>()
-        for (q in listOf("$name nsp", "$name switch", "$name nsz", "$name xci").distinct()) {
+        for (q in listOf(name, "$name nsp", "$name switch", "$name nsz", "$name xci").distinct()) {
             workers.add(Thread {
                 try {
                     val conn = openConnection("https://torrents-csv.com/service/search?q=${URLEncoder.encode(q, "UTF-8")}&size=50", timeoutMs = 9000)
@@ -2766,133 +2767,7 @@ object RuTrackerCloudEngine {
             return if (realTid.length >= 13 && !realTid.take(13).equals(tidPrefix13, ignoreCase = true)) realTid else null
         }
 
-        // 2. Резерв: скачиваем настоящий контейнер с облачного сервера STORM GAMES WORLD (stormgamesworld.ru)
-        fun normTitle(s: String) = s.lowercase()
-            .replace("and", "")
-            .replace("&", "")
-            .replace(Regex("[^a-zа-яё0-9]+"), "")
-
-        var cloudGameId = if (effectiveTid == "010020D01AD24000" || cleanLower.contains("animal well")) 1217 else -1
-        if (cloudGameId <= 0) {
-            try {
-                val conn = openConnection("https://stormgamesworld.ru/api/games/index", timeoutMs = 8000)
-                if (conn.responseCode != 200) reasons?.add("STORM GAMES WORLD: каталог недоступен (HTTP ${conn.responseCode})")
-                if (conn.responseCode == 200) {
-                    val rawJson = conn.inputStream.bufferedReader().use { it.readText() }
-                    val arr = JSONArray(rawJson)
-                    val candidates = mutableListOf<Pair<Int, String>>()
-                    val normClean = normTitle(cleanLower)
-
-                    for (i in 0 until arr.length()) {
-                        val obj = arr.optJSONObject(i) ?: continue
-                        if (obj.optInt("platformId", 0) != 18) continue
-                        val sId = obj.optString("serialId", "").uppercase().trim()
-                        val gTitle = obj.optString("title", "").trim()
-                        val gCorrect = obj.optString("correctTitle", "").trim()
-                        val gRel = (obj.optString("finalTitle", "") + " " +
-                                    obj.optString("correctTitle", "") + " " +
-                                    obj.optJSONArray("textLangs")?.toString().orEmpty() + " " +
-                                    obj.optJSONArray("mods")?.toString().orEmpty()).uppercase()
-                        val id = obj.optInt("id", -1)
-                        if (id <= 0) continue
-
-                        val matchesSerial = sId.isNotEmpty() && sId.startsWith(tidPrefix13)
-                        val matchesTitle = normClean.length >= 4 && (
-                            normTitle(gTitle) == normClean ||
-                            normTitle(gCorrect) == normClean ||
-                            normTitle(gTitle).contains(normClean) ||
-                            normClean.contains(normTitle(gTitle))
-                        )
-
-                        if (matchesSerial || matchesTitle) {
-                            candidates.add(Pair(id, gRel))
-                        }
-                    }
-
-                    if (candidates.isNotEmpty()) {
-                        cloudGameId = if (preferRussianMod) {
-                            candidates.filter { it.second.contains("MOD - RUS") || it.second.contains("RUS") }
-                                .maxByOrNull { it.first }?.first
-                                ?: candidates.maxByOrNull { it.first }!!.first
-                        } else {
-                            candidates.filter { !it.second.contains("MOD - RUS") }
-                                .maxByOrNull { it.first }?.first
-                                ?: candidates.maxByOrNull { it.first }!!.first
-                        }
-                    } else {
-                        reasons?.add("STORM GAMES WORLD: игра «$cleanGameName» [$effectiveTid] отсутствует в каталоге")
-                    }
-                }
-            } catch (e: Throwable) {
-                reasons?.add("STORM GAMES WORLD: ошибка каталога — ${e.message ?: e.javaClass.simpleName}")
-            }
-        }
-
-        if (cloudGameId > 0) {
-            val langSuffix = if (preferRussianMod) "MOD_RUS" else "ENG"
-            val targetCloudNsp = File(romsDir, "${cleanGameName}_[${effectiveTid}]_${langSuffix}_sgw.nsp")
-            val tempDownloadFile = File(romsDir, "${cleanGameName}_[${effectiveTid}]_${langSuffix}_sgw.nsp.part")
-            if (targetCloudNsp.exists() && targetCloudNsp.length() >= 8L * 1024L * 1024L && StormNczEngine.isGenuineSwitchContainer(targetCloudNsp, tidPrefix13) && matchesGameTid(targetCloudNsp) == null) {
-                val totalLen = targetCloudNsp.length()
-                onProgress(totalLen / 2, totalLen, 65.0)
-                onProgress(totalLen, totalLen, 100.0)
-                return listOf(targetCloudNsp)
-            }
-            try {
-                val dlUrl = "https://stormgamesworld.ru/api/games/$cloudGameId/download"
-                val conn = openConnection(dlUrl, timeoutMs = 15000)
-                conn.connectTimeout = 15000
-                conn.readTimeout = 30000
-                if (conn.responseCode !in 200..299) {
-                    reasons?.add("STORM GAMES WORLD: скачивание не удалось (HTTP ${conn.responseCode})")
-                }
-                if (conn.responseCode in 200..299) {
-                    val totalLen = conn.contentLengthLong.coerceAtLeast(32L * 1024L * 1024L)
-                    val startMs = System.currentTimeMillis()
-                    var downloaded = 0L
-                    BufferedInputStream(conn.inputStream, 256 * 1024).use { bis ->
-                        BufferedOutputStream(FileOutputStream(tempDownloadFile), 256 * 1024).use { bos ->
-                            val buf = ByteArray(131072)
-                            var lastReportMs = 0L
-                            while (true) {
-                                if (isCancelled()) throw InterruptedException("Операция отменена пользователем")
-                                val r = bis.read(buf)
-                                if (r <= 0) break
-                                bos.write(buf, 0, r)
-                                downloaded += r
-                                val now = System.currentTimeMillis()
-                                if (now - lastReportMs >= 120L || downloaded >= totalLen) {
-                                    lastReportMs = now
-                                    val elapsedSec = ((now - startMs).coerceAtLeast(50L)) / 1000.0
-                                    val speed = (downloaded / (1024.0 * 1024.0)) / elapsedSec
-                                    onProgress(downloaded, totalLen.coerceAtLeast(downloaded), speed)
-                                }
-                            }
-                            bos.flush()
-                        }
-                    }
-                    val genuine = tempDownloadFile.exists() && tempDownloadFile.length() >= 8L * 1024L * 1024L && StormNczEngine.isGenuineSwitchContainer(tempDownloadFile, tidPrefix13)
-                    val otherTid = if (genuine) matchesGameTid(tempDownloadFile) else null
-                    if (genuine && otherTid == null) {
-                        if (targetCloudNsp.exists()) targetCloudNsp.delete()
-                        tempDownloadFile.renameTo(targetCloudNsp)
-                        return listOf(targetCloudNsp)
-                    } else {
-                        reasons?.add(
-                            if (!genuine) "STORM GAMES WORLD: скачанный файл не является подлинным контейнером Switch"
-                            else "STORM GAMES WORLD: скачан контейнер другой игры (TitleID $otherTid вместо $effectiveTid) — отклонён"
-                        )
-                        tempDownloadFile.delete()
-                    }
-                }
-            } catch (ie: InterruptedException) {
-                tempDownloadFile.delete()
-                throw ie
-            } catch (e: Throwable) {
-                reasons?.add("STORM GAMES WORLD: ошибка скачивания — ${e.message ?: e.javaClass.simpleName}")
-                tempDownloadFile.delete()
-            }
-        }
+// Резервные облачные скачивания исключены (STORM GAMES WORLD удален)
         return emptyList()
     }
 
@@ -3031,9 +2906,9 @@ object RuTrackerCloudEngine {
         acceptMetadata: (torrentName: String, files: List<Pair<String, Long>>) -> String? = { _, _ -> null },
         wantFile: (path: String, size: Long) -> Boolean = { p, _ -> p.substringAfterLast('.', "").lowercase() in setOf("nsp", "nsz", "xci", "xcz") },
         onStatus: (String) -> Unit = {},
-        dhtWaitSec: Int = 30,
-        metadataAttempts: Int = 3,
-        metadataTimeoutSec: Int = 60,
+        dhtWaitSec: Int = 15,
+        metadataAttempts: Int = 2,
+        metadataTimeoutSec: Int = 25,
         stallTimeoutSec: Int = 600,
         onProgress: (dlBytes: Long, totalBytes: Long, speedMbSec: Double, peers: Int, seeds: Int) -> Unit
     ): TorrentDownloadResult {
@@ -3277,7 +3152,7 @@ object RuTrackerCloudEngine {
             }
         }
 
-        // 1.2 Получение подлинных контейнеров игры: локальные файлы → реальная раздача RuTracker (BitTorrent) → STORM GAMES WORLD (резерв)
+        // 1.2 Получение подлинных контейнеров игры: локальные файлы → реальная раздача RuTracker (BitTorrent)
         StormNczEngine.sanitizePoisonedAndroidModDirs(baseTid)
         val hasExternalMods = modUrls.any { it.isNotBlank() } || allReleaseFiles.any { it.isMod }
         val preferRussianMod = !hasExternalMods && (topic.title.contains("RUS", ignoreCase = true) || topic.title.contains("Multi", ignoreCase = true))
@@ -3366,29 +3241,6 @@ object RuTrackerCloudEngine {
                     stepLogs.add("✅ Скачан файл раздачи: ${tf.name} (${StormNczEngine.formatSize(tf.length())})")
                 }
                 break
-            }
-        }
-
-        if (downloadedFiles.size == gameContainersBefore || downloadedFiles.none { f ->
-                f.isFile && f.extension.lowercase() in listOf("nsp", "nsz", "xci", "xcz") && !f.name.startsWith("CLOUD_")
-            }) {
-            if (isCancelled()) throw InterruptedException("Операция отменена пользователем")
-            val sgwContainers = acquireRealRetailGameContainers(
-                cleanGameName = cleanGameName,
-                baseTid = baseTid,
-                romsDir = romsDir,
-                outputDir = outputDir,
-                preferRussianMod = preferRussianMod,
-                hasExternalModsToApply = hasExternalMods,
-                isCancelled = isCancelled,
-                allowLocal = false,
-                allowCloud = true,
-                reasons = acquisitionReasons,
-                onProgress = acquireProgress
-            )
-            for (rf in sgwContainers) {
-                downloadedFiles.add(rf)
-                stepLogs.add("✅ STORM GAMES WORLD: ${rf.name} (${StormNczEngine.formatSize(rf.length())})")
             }
         }
 
