@@ -76,6 +76,7 @@ namespace StormSwitchBox.Services
         public double SpeedMbPerSec { get; set; }
         public int Seeds { get; set; }
         public int Peers { get; set; }
+        public int SwarmTotal { get; set; }
         public string StatusText { get; set; } = string.Empty;
     }
 
@@ -446,11 +447,13 @@ namespace StormSwitchBox.Services
         }
 
         private static bool _warmupStarted = false;
+        private static int _lastSwarmTotalPeers = 0;
 
         private TorrentManager? _activeManager;
         private byte[]? _loadedTorrentBytes;
         private MagnetLink? _loadedMagnet;
         private string _activeTopicId = string.Empty;
+        private int _activeTopicSeeds = 0;
         private readonly Dictionary<string, IPAddress> _dohCache = new(StringComparer.OrdinalIgnoreCase);
 
         static RuTrackerModService()
@@ -2010,6 +2013,8 @@ namespace StormSwitchBox.Services
             _loadedTorrentBytes = null;
             _loadedMagnet = null;
             _activeTopicId = topic.TopicId ?? string.Empty;
+            _activeTopicSeeds = topic.Seeds;
+            _lastSwarmTotalPeers = 0;
 
             if (!string.IsNullOrWhiteSpace(localTorrentFilePath) && File.Exists(localTorrentFilePath))
             {
@@ -2193,8 +2198,8 @@ namespace StormSwitchBox.Services
 
             var torrentSettings = new TorrentSettingsBuilder
             {
-                MaximumConnections = 200,
-                UploadSlots = 24,
+                MaximumConnections = 250,
+                UploadSlots = 32,
                 AllowDht = true,
                 AllowPeerExchange = true
             }.ToSettings();
@@ -2256,10 +2261,13 @@ namespace StormSwitchBox.Services
                 int seeds = _activeManager.Peers.Seeds;
                 int leechs = _activeManager.Peers.Leechs;
 
+                int swarmTotal = Math.Max(_activeTopicSeeds, Math.Max(_lastSwarmTotalPeers, seeds + leechs));
+                string seedsStr = swarmTotal > seeds ? $"Сиды: {seeds} (в рое: {swarmTotal})" : $"Сиды: {seeds}";
+
                 string topicLabel = !string.IsNullOrEmpty(_activeTopicId) ? $"RuTracker #1605 (t={_activeTopicId})" : "RuTracker #1605";
                 string stateStr = _activeManager.State == TorrentState.Metadata
                     ? $"{topicLabel}: получение метаданных Magnet от пиров (DHT)..."
-                    : $"{topicLabel}: скачивание {pct:F1}% ({speedMb:F2} МБ/с | Сиды: {seeds}, Пиры: {leechs})";
+                    : $"{topicLabel}: скачивание {pct:F1}% ({speedMb:F2} МБ/с | {seedsStr}, Пиры: {leechs})";
 
                 progress?.Report(new TorrentDownloadProgress
                 {
@@ -2267,6 +2275,7 @@ namespace StormSwitchBox.Services
                     SpeedMbPerSec = speedMb,
                     Seeds = seeds,
                     Peers = leechs,
+                    SwarmTotal = swarmTotal,
                     StatusText = stateStr
                 });
 
@@ -2372,10 +2381,13 @@ namespace StormSwitchBox.Services
                     AllowPortForwarding = true,
                     AllowLocalPeerDiscovery = true,
                     UsePartialFiles = false,
-                    MaximumConnections = 300,
+                    MaximumConnections = 350,
                     MaximumDownloadRate = 0,
                     MaximumUploadRate = 0,
-                    MaximumHalfOpenConnections = 40,
+                    MaximumHalfOpenConnections = 50,
+                    MaximumDiskReadRate = 0,
+                    MaximumDiskWriteRate = 0,
+                    DiskCacheBytes = 32 * 1024 * 1024,
                     DhtEndPoint = new IPEndPoint(IPAddress.Any, 0),
                     AutoSaveLoadDhtCache = true,
                     AutoSaveLoadFastResume = true,
@@ -2396,14 +2408,25 @@ namespace StormSwitchBox.Services
                 byte[] myNodeId = new byte[20];
                 Random.Shared.NextBytes(myNodeId);
 
-                var queryBytes = new byte[95];
+                // get_peers запрос (95 байт)
+                var getPeersBytes = new byte[95];
                 int offset = 0;
-                void Copy(byte[] src) { Buffer.BlockCopy(src, 0, queryBytes, offset, src.Length); offset += src.Length; }
-                Copy(Encoding.ASCII.GetBytes("d1:ad2:id20:"));
-                Copy(myNodeId);
-                Copy(Encoding.ASCII.GetBytes("9:info_hash20:"));
-                Copy(targetHash);
-                Copy(Encoding.ASCII.GetBytes("e1:q9:get_peers1:t2:aa1:y1:qe"));
+                void CopyGp(byte[] src) { Buffer.BlockCopy(src, 0, getPeersBytes, offset, src.Length); offset += src.Length; }
+                CopyGp(Encoding.ASCII.GetBytes("d1:ad2:id20:"));
+                CopyGp(myNodeId);
+                CopyGp(Encoding.ASCII.GetBytes("9:info_hash20:"));
+                CopyGp(targetHash);
+                CopyGp(Encoding.ASCII.GetBytes("e1:q9:get_peers1:t2:aa1:y1:qe"));
+
+                // find_node запрос (92 байт) для предпрогрева и обхода rate-limit
+                var findNodeBytes = new byte[92];
+                offset = 0;
+                void CopyFn(byte[] src) { Buffer.BlockCopy(src, 0, findNodeBytes, offset, src.Length); offset += src.Length; }
+                CopyFn(Encoding.ASCII.GetBytes("d1:ad2:id20:"));
+                CopyFn(myNodeId);
+                CopyFn(Encoding.ASCII.GetBytes("6:target20:"));
+                CopyFn(targetHash);
+                CopyFn(Encoding.ASCII.GetBytes("e1:q9:find_node1:t2:aa1:y1:qe"));
 
                 using var udp = new UdpClient(0);
                 udp.Client.ReceiveTimeout = 1000;
@@ -2417,10 +2440,16 @@ namespace StormSwitchBox.Services
                     ("dht.aelitis.com", 6881)
                 };
 
-                var pendingEndpoints = new System.Collections.Concurrent.ConcurrentQueue<IPEndPoint>();
                 var visitedEndpoints = new System.Collections.Concurrent.ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase);
                 var discoveredPeers = new System.Collections.Concurrent.ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase);
+                var allDiscoveredPeers = new List<PeerInfo>();
+                var allPeersLock = new object();
 
+                var candidateNodes = new List<(byte[] NodeId, IPEndPoint EndPoint)>();
+                var candidateKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var candidatesLock = new object();
+
+                // 1. Предпрогрев: на 5 бутстрап-роутеров отправляем find_node и get_peers
                 foreach (var r in bootstrapRouters)
                 {
                     try
@@ -2429,34 +2458,92 @@ namespace StormSwitchBox.Services
                         foreach (var addr in addresses.Where(a => a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork))
                         {
                             var ep = new IPEndPoint(addr, r.Port);
-                            pendingEndpoints.Enqueue(ep);
+                            string epKey = ep.ToString();
+                            if (visitedEndpoints.TryAdd(epKey, 0))
+                            {
+                                try
+                                {
+                                    await udp.SendAsync(findNodeBytes, findNodeBytes.Length, ep).ConfigureAwait(false);
+                                    await udp.SendAsync(getPeersBytes, getPeersBytes.Length, ep).ConfigureAwait(false);
+                                }
+                                catch { }
+                            }
                         }
                     }
                     catch { }
                 }
 
-                using var spiderCts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+                using var spiderCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
                 using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, spiderCts.Token);
 
+                // Фоновый наблюдатель: повторная подача DHT-пиров через 3 секунды после перехода в Downloading
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        while (!ct.IsCancellationRequested && manager.State != TorrentState.Downloading && manager.State != TorrentState.Seeding)
+                        {
+                            await Task.Delay(500, ct).ConfigureAwait(false);
+                        }
+
+                        if (manager.State == TorrentState.Downloading && !ct.IsCancellationRequested)
+                        {
+                            await Task.Delay(3000, ct).ConfigureAwait(false);
+                            List<PeerInfo> snapshot;
+                            lock (allPeersLock)
+                            {
+                                snapshot = allDiscoveredPeers.ToList();
+                            }
+                            if (snapshot.Count > 0)
+                            {
+                                await manager.AddPeersAsync(snapshot).ConfigureAwait(false);
+                                App.Logger?.Log($"[RuTracker Turbo DHT] Повторно инжектировано {snapshot.Count} DHT-пиров в состоянии Downloading", LogLevel.Info);
+                            }
+                        }
+                    }
+                    catch { }
+                }, ct);
+
+                // 2. Потокобезопасная отправка каждые 180 мс: выбираем до 35 узлов с минимальным 160-битным XOR-расстоянием
                 _ = Task.Run(async () =>
                 {
                     while (!linked.Token.IsCancellationRequested)
                     {
-                        int sent = 0;
-                        while (sent < 30 && pendingEndpoints.TryDequeue(out var targetEp))
+                        List<IPEndPoint> batchToSend = new();
+                        lock (candidatesLock)
+                        {
+                            candidateNodes.RemoveAll(c => visitedEndpoints.ContainsKey(c.EndPoint.ToString()));
+                            candidateNodes.Sort((a, b) => CompareXorDistance(a.NodeId, b.NodeId, targetHash));
+
+                            int takeCount = Math.Min(35, candidateNodes.Count);
+                            for (int i = 0; i < takeCount; i++)
+                            {
+                                batchToSend.Add(candidateNodes[i].EndPoint);
+                            }
+                            candidateNodes.RemoveRange(0, takeCount);
+                        }
+
+                        foreach (var targetEp in batchToSend)
                         {
                             string key = targetEp.ToString();
                             if (visitedEndpoints.TryAdd(key, 0))
                             {
                                 try
                                 {
-                                    await udp.SendAsync(queryBytes, queryBytes.Length, targetEp).ConfigureAwait(false);
-                                    sent++;
+                                    await udp.SendAsync(getPeersBytes, getPeersBytes.Length, targetEp).ConfigureAwait(false);
                                 }
                                 catch { }
                             }
                         }
-                        await Task.Delay(100, linked.Token).ConfigureAwait(false);
+
+                        try
+                        {
+                            await Task.Delay(180, linked.Token).ConfigureAwait(false);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            break;
+                        }
                     }
                 }, linked.Token);
 
@@ -2485,8 +2572,14 @@ namespace StormSwitchBox.Services
 
                                 if (port > 0 && port < 65536 && discoveredPeers.TryAdd(peerKey, 0))
                                 {
-                                    newPeersBatch.Add(new PeerInfo(new Uri($"ipv4://{ipAddr}:{port}")));
+                                    var peerInfo = new PeerInfo(new Uri($"ipv4://{ipAddr}:{port}"));
+                                    newPeersBatch.Add(peerInfo);
+                                    lock (allPeersLock)
+                                    {
+                                        allDiscoveredPeers.Add(peerInfo);
+                                    }
                                     totalPeersFound++;
+                                    _lastSwarmTotalPeers = totalPeersFound;
                                 }
                                 pos += 8;
                             }
@@ -2512,7 +2605,6 @@ namespace StormSwitchBox.Services
                                 int nodeDataLen = buffer.Length - dataStart;
                                 int nodeCount = nodeDataLen / 26;
 
-                                var candidateNodes = new List<(byte[] NodeId, IPEndPoint Ep)>();
                                 for (int i = 0; i < nodeCount; i++)
                                 {
                                     int nPos = dataStart + i * 26;
@@ -2525,17 +2617,24 @@ namespace StormSwitchBox.Services
 
                                     if (nport > 0 && nport < 65536)
                                     {
-                                        candidateNodes.Add((nId, new IPEndPoint(new IPAddress(nip), nport)));
+                                        var ep = new IPEndPoint(new IPAddress(nip), nport);
+                                        string epKey = ep.ToString();
+                                        if (!visitedEndpoints.ContainsKey(epKey))
+                                        {
+                                            lock (candidatesLock)
+                                            {
+                                                if (candidateKeys.Add(epKey))
+                                                {
+                                                    candidateNodes.Add((nId, ep));
+                                                    if (candidateNodes.Count > 500)
+                                                    {
+                                                        candidateNodes.Sort((a, b) => CompareXorDistance(a.NodeId, b.NodeId, targetHash));
+                                                        candidateNodes.RemoveRange(350, candidateNodes.Count - 350);
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
-                                }
-
-                                var sortedNodes = candidateNodes
-                                    .OrderBy(n => XorDistanceMetric(n.NodeId, targetHash))
-                                    .Take(15);
-
-                                foreach (var (_, ep) in sortedNodes)
-                                {
-                                    pendingEndpoints.Enqueue(ep);
                                 }
                             }
                         }
@@ -2547,6 +2646,7 @@ namespace StormSwitchBox.Services
                     catch { }
                 }
 
+                _lastSwarmTotalPeers = Math.Max(_lastSwarmTotalPeers, totalPeersFound);
                 App.Logger?.Log($"[RuTracker Turbo DHT] BEP-5 спайдер завершил сбор: найдено {totalPeersFound} пиров и передано в MonoTorrent", LogLevel.Info);
             }
             catch (Exception ex)
@@ -2569,16 +2669,19 @@ namespace StormSwitchBox.Services
             return -1;
         }
 
-        private static int XorDistanceMetric(byte[] a, byte[] b)
+        private static int CompareXorDistance(byte[] a, byte[] b, byte[] target)
         {
-            int minLen = Math.Min(a.Length, b.Length);
-            for (int i = 0; i < minLen; i++)
+            int len = Math.Min(20, Math.Min(a.Length, Math.Min(b.Length, target.Length)));
+            for (int i = 0; i < len; i++)
             {
-                int diff = a[i] ^ b[i];
-                if (diff != 0) return (i * 256) + diff;
+                int da = a[i] ^ target[i];
+                int db = b[i] ^ target[i];
+                if (da != db)
+                    return da.CompareTo(db);
             }
             return 0;
         }
+
         private static async Task ApplyFilePrioritiesAsync(TorrentManager manager, IReadOnlyList<TorrentFileSelectionItem> fileSelections)
         {
             if (fileSelections == null || fileSelections.Count == 0)

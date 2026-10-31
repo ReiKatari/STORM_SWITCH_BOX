@@ -587,7 +587,7 @@ namespace StormSwitchBox.Views.Dialogs
                         {
                             DownloadProgressBar.Value = Math.Clamp(p.Percent, 0, 100);
                             StatusText.Text = p.StatusText;
-                            SpeedPeersText.Text = $"{p.SpeedMbPerSec:F2} МБ/с | Сиды: {p.Seeds} | Пиры: {p.Peers}";
+                            SpeedPeersText.Text = p.SwarmTotal > p.Seeds ? $"{p.SpeedMbPerSec:F2} МБ/с | Сиды: {p.Seeds} (в рое: {p.SwarmTotal}) | Пиры: {p.Peers}" : $"{p.SpeedMbPerSec:F2} МБ/с | Сиды: {p.Seeds} | Пиры: {p.Peers}";
                         });
                     });
 

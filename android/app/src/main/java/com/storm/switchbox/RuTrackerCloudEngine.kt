@@ -3525,6 +3525,9 @@ object RuTrackerCloudEngine {
     // BTIH -> реальный список файлов раздачи (из метаданных BitTorrent)
     private val realTorrentFilesCache = java.util.concurrent.ConcurrentHashMap<String, List<Pair<String, Long>>>()
 
+    // BTIH -> размер роя сидов/пиров, обнаруженных Turbo BEP-5 UDP DHT Spider
+    val turboDhtSwarmCount = java.util.concurrent.ConcurrentHashMap<String, Int>()
+
     /**
      * Загружает и кэширует .torrent файл по 40-символьному InfoHash (диск -> itorrents.org -> torrage.info).
      * Проверяет соответствие хэша через org.libtorrent4j.TorrentInfo.bdecode и наполняет realTorrentFilesCache.
@@ -3637,8 +3640,8 @@ object RuTrackerCloudEngine {
             warmTorrentSession?.let { if (it.isRunning) return it }
             val sp = org.libtorrent4j.SettingsPack()
 
-            // 1. Обязательное шифрование протокола против DPI ТСПУ
-            sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.out_enc_policy.swigValue(), org.libtorrent4j.swig.settings_pack.enc_policy.pe_forced.swigValue())
+            // 1. Обязательное шифрование протокола против DPI ТСПУ (MSE/PE RC4 для TCP без отклонения uTP сидов)
+            sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.out_enc_policy.swigValue(), org.libtorrent4j.swig.settings_pack.enc_policy.pe_enabled.swigValue())
             sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.in_enc_policy.swigValue(), org.libtorrent4j.swig.settings_pack.enc_policy.pe_enabled.swigValue())
             sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.allowed_enc_level.swigValue(), org.libtorrent4j.swig.settings_pack.enc_level.pe_both.swigValue())
             sp.setBoolean(org.libtorrent4j.swig.settings_pack.bool_types.prefer_rc4.swigValue(), true)
@@ -3655,16 +3658,32 @@ object RuTrackerCloudEngine {
             sp.setBoolean(org.libtorrent4j.swig.settings_pack.bool_types.enable_outgoing_tcp.swigValue(), true)
             sp.setBoolean(org.libtorrent4j.swig.settings_pack.bool_types.enable_incoming_tcp.swigValue(), true)
 
-            // 3. Высокоскоростные очереди и слоты
-            sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.connections_limit.swigValue(), 300)
-            sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.max_peerlist_size.swigValue(), 4000)
-            sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.unchoke_slots_limit.swigValue(), 32)
-            sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.active_downloads.swigValue(), 10)
-            sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.active_limit.swigValue(), 20)
-            sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.download_rate_limit.swigValue(), 0)
-            sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.upload_rate_limit.swigValue(), 0)
-            sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.max_out_request_queue.swigValue(), 1500)
-            sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.aio_threads.swigValue(), 4)
+            // 3. Сглаживание джиттера Wi-Fi/LTE и защита TCP от удушения uTP LEDBAT
+            try {
+                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.mixed_mode_algorithm.swigValue(), org.libtorrent4j.swig.settings_pack.bandwidth_mixed_algo_t.prefer_tcp.swigValue())
+                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.utp_target_delay.swigValue(), 400)
+                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.utp_gain_factor.swigValue(), 3000)
+                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.utp_min_timeout.swigValue(), 500)
+            } catch (_: Throwable) {}
+
+            // 4. Высокоскоростной конвейер блоков и Android дисковый кэш
+            try {
+                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.connections_limit.swigValue(), 300)
+                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.max_peerlist_size.swigValue(), 4000)
+                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.unchoke_slots_limit.swigValue(), 32)
+                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.active_downloads.swigValue(), 10)
+                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.active_limit.swigValue(), 20)
+                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.download_rate_limit.swigValue(), 0)
+                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.upload_rate_limit.swigValue(), 0)
+                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.request_queue_time.swigValue(), 10)
+                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.max_out_request_queue.swigValue(), 2000)
+                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.whole_pieces_threshold.swigValue(), 5)
+                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.max_queued_disk_bytes.swigValue(), 32 * 1024 * 1024)
+                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.send_buffer_watermark.swigValue(), 16 * 1024 * 1024)
+                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.send_buffer_watermark_factor.swigValue(), 150)
+                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.recv_socket_buffer_size.swigValue(), 2 * 1024 * 1024)
+                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.aio_threads.swigValue(), 4)
+            } catch (_: Throwable) {}
 
             val sm = org.libtorrent4j.SessionManager()
             sm.start(org.libtorrent4j.SessionParams(sp))
@@ -3689,6 +3708,8 @@ object RuTrackerCloudEngine {
             ByteArray(20) { i -> h.substring(i * 2, i * 2 + 2).toInt(16).toByte() }
         } catch (_: Throwable) { return }
 
+        val hashKey = infoHashHex.trim().uppercase()
+
         kotlin.concurrent.thread(name = "turbo-dht-spider", isDaemon = true) {
             var socket: java.net.DatagramSocket? = null
             try {
@@ -3704,6 +3725,14 @@ object RuTrackerCloudEngine {
                     write("e1:q9:get_peers1:t2:gp1:y1:qe".toByteArray(Charsets.ISO_8859_1))
                 }.toByteArray()
 
+                val findNodePacket = java.io.ByteArrayOutputStream().apply {
+                    write("d1:ad2:id20:".toByteArray(Charsets.ISO_8859_1))
+                    write(myId)
+                    write("6:target20:".toByteArray(Charsets.ISO_8859_1))
+                    write(ih)
+                    write("e1:q9:find_node1:t2:fn1:y1:qe".toByteArray(Charsets.ISO_8859_1))
+                }.toByteArray()
+
                 val bootstrapHosts = listOf(
                     "router.bittorrent.com" to 6881,
                     "dht.transmissionbt.com" to 6881,
@@ -3715,21 +3744,45 @@ object RuTrackerCloudEngine {
                 val knownNodes = java.util.concurrent.ConcurrentHashMap<String, ByteArray>()
                 val contacted = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
                 val connectedPeers = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
+                val allDiscoveredPeers = java.util.concurrent.CopyOnWriteArrayList<Pair<String, Int>>()
 
                 for ((host, port) in bootstrapHosts) {
                     try {
                         for (addr in java.net.InetAddress.getAllByName(host)) {
                             socket.send(java.net.DatagramPacket(queryPacket, queryPacket.size, addr, port))
+                            socket.send(java.net.DatagramPacket(findNodePacket, findNodePacket.size, addr, port))
                             contacted.add("${addr.hostAddress}:$port")
                         }
                     } catch (_: Throwable) {}
                 }
 
                 val t0 = System.currentTimeMillis()
+                var refeed25Done = false
+                var refeed55Done = false
                 val buf = ByteArray(2048)
                 val packet = java.net.DatagramPacket(buf, buf.size)
 
                 while (System.currentTimeMillis() - t0 < 8000L && !isCancelled()) {
+                    val elapsed = System.currentTimeMillis() - t0
+                    if (!refeed25Done && elapsed >= 2500L) {
+                        refeed25Done = true
+                        for ((ip, port) in allDiscoveredPeers) {
+                            try {
+                                val ep = org.libtorrent4j.TcpEndpoint(ip, port)
+                                th.swig().connect_peer(ep.swig())
+                            } catch (_: Throwable) {}
+                        }
+                    }
+                    if (!refeed55Done && elapsed >= 5500L) {
+                        refeed55Done = true
+                        for ((ip, port) in allDiscoveredPeers) {
+                            try {
+                                val ep = org.libtorrent4j.TcpEndpoint(ip, port)
+                                th.swig().connect_peer(ep.swig())
+                            } catch (_: Throwable) {}
+                        }
+                    }
+
                     try {
                         socket.receive(packet)
                         val len = packet.length
@@ -3750,6 +3803,8 @@ object RuTrackerCloudEngine {
                                     val ipStr = "$b0.$b1.$b2.$b3"
                                     val peerKey = "$ipStr:$port"
                                     if (connectedPeers.add(peerKey)) {
+                                        allDiscoveredPeers.add(ipStr to port)
+                                        turboDhtSwarmCount[hashKey] = connectedPeers.size
                                         try {
                                             val ep = org.libtorrent4j.TcpEndpoint(ipStr, port)
                                             th.swig().connect_peer(ep.swig())
@@ -3786,16 +3841,13 @@ object RuTrackerCloudEngine {
                     } catch (_: java.net.SocketTimeoutException) {
                     } catch (_: Throwable) {}
 
-                    // Сортировка узлов по XOR расстоянию до ih
+                    // Сортировка узлов по честному 160-битному Big-Endian Kademlia XOR расстоянию до ih
                     val uncontacted = knownNodes.entries
                         .filter { it.key !in contacted }
                         .map { entry ->
                             val nId = entry.value
-                            var dist = 0
-                            for (i in 0 until 20) {
-                                dist += (nId[i].toInt() xor ih[i].toInt()) and 0xFF
-                            }
-                            entry.key to dist
+                            val xorDist = java.math.BigInteger(1, ByteArray(20) { i -> (nId[i].toInt() xor ih[i].toInt()).toByte() })
+                            entry.key to xorDist
                         }
                         .sortedBy { it.second }
                         .take(25)
@@ -3810,6 +3862,7 @@ object RuTrackerCloudEngine {
                         } catch (_: Throwable) {}
                     }
                 }
+                turboDhtSwarmCount[hashKey] = connectedPeers.size
             } catch (_: Throwable) {
             } finally {
                 try { socket?.close() } catch (_: Throwable) {}
@@ -3984,13 +4037,15 @@ object RuTrackerCloudEngine {
 
                 if (now - lastReportMs >= 800L) {
                     lastReportMs = now
-                    onProgress(done, total, st.downloadRate().toDouble() / (1024.0 * 1024.0), st.numPeers(), st.numSeeds())
+                    val effectiveSeeds = maxOf(st.numSeeds(), st.listSeeds().coerceAtLeast(0))
+                    onProgress(done, total, st.downloadRate().toDouble() / (1024.0 * 1024.0), st.numPeers(), effectiveSeeds)
                 }
                 if (st.isFinished || done >= total || st.state() == org.libtorrent4j.TorrentStatus.State.SEEDING) break
                 if (now - lastProgressMs > stallTimeoutSec * 1000L) {
+                    val effectiveSeeds = maxOf(st.numSeeds(), st.listSeeds().coerceAtLeast(0))
                     return TorrentDownloadResult(
                         emptyList(),
-                        "Скачивание остановилось: за $stallTimeoutSec с не получено данных (пиров: ${st.numPeers()}, сидов: ${st.numSeeds()}, скачано ${StormNczEngine.formatSize(done)} из ${StormNczEngine.formatSize(total)})",
+                        "Скачивание остановилось: за $stallTimeoutSec с не получено данных (пиров: ${st.numPeers()}, сидов: $effectiveSeeds, скачано ${StormNczEngine.formatSize(done)} из ${StormNczEngine.formatSize(total)})",
                         ti.name(), hashHex
                     )
                 }
@@ -4203,10 +4258,12 @@ object RuTrackerCloudEngine {
                 onStatus = { st -> report(6, "Этап 1/5: BitTorrent P2P", st) }
             ) { dlBytes, totalBytes, speedMbSec, peers, seeds ->
                     val pct = 6 + ((dlBytes * 24L) / totalBytes.coerceAtLeast(1L)).toInt().coerceIn(0, 24)
+                    val swarmTotal = maxOf(topic.seeds, cand.seeds, turboDhtSwarmCount[cand.infoHash.uppercase()] ?: 0, seeds)
+                    val seedStat = if (swarmTotal > seeds && swarmTotal > 0) "пиров: $peers • сидов: $seeds (в рое: $swarmTotal)" else "пиров: $peers • сидов: $seeds"
                     report(
                         pct,
                         "Этап 1/5: BitTorrent P2P скачивание раздачи",
-                        "${StormNczEngine.formatSize(dlBytes)} / ${StormNczEngine.formatSize(totalBytes)} • ${String.format(java.util.Locale("ru", "RU"), "%.1f МБ/с", speedMbSec)} • пиров: $peers • сидов: $seeds"
+                        "${StormNczEngine.formatSize(dlBytes)} / ${StormNczEngine.formatSize(totalBytes)} • ${String.format(java.util.Locale("ru", "RU"), "%.1f МБ/с", speedMbSec)} • $seedStat"
                     )
                 }
             if (isCancelled()) throw InterruptedException("Операция отменена пользователем")
