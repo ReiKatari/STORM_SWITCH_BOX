@@ -221,6 +221,9 @@ class MainActivity : Activity() {
 
         StormNczEngine.initAppContext(applicationContext)
         RuTrackerCloudEngine.appContext = applicationContext
+        RuTrackerCloudEngine.cacheRootDir = filesDir
+        RuTrackerCloudEngine.attachHostActivity(this)
+        RuTrackerCloudEngine.warmupCloudflareSessionAsync()
         ensureStormDirectories()
         loadSettings()
 
@@ -229,7 +232,7 @@ class MainActivity : Activity() {
         }
 
         buildUserInterface()
-        appendLog("STORM SWITCH BOX ${"6.7.2"} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) готов к работе.")
+        appendLog("STORM SWITCH BOX ${"6.7.3"} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) готов к работе.")
 
         // Автоматическая проверка обновлений с GitHub при запуске
         if (autoCheckUpdatesOnStartup) {
@@ -239,6 +242,7 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        RuTrackerCloudEngine.attachHostActivity(this)
         hideSystemBars(window)
 
         // Если пользователь только что выдал разрешение на установку APK из неизвестных источников
@@ -792,7 +796,7 @@ class MainActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
         titleCol.addView(TextView(this).apply {
-            text = "STORM SWITCH BOX ${"6.7.2"}"
+            text = "STORM SWITCH BOX ${"6.7.3"}"
             setTextColor(th.textPrimary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
             typeface = Typeface.DEFAULT_BOLD
@@ -2516,6 +2520,8 @@ class MainActivity : Activity() {
     private fun buildRuTrackerAndModsTab(parent: LinearLayout, th: StormTheme) {
         RuTrackerCloudEngine.appContext = applicationContext
         RuTrackerCloudEngine.cacheRootDir = filesDir
+        RuTrackerCloudEngine.attachHostActivity(this)
+        RuTrackerCloudEngine.warmupCloudflareSessionAsync()
         RuTrackerCloudEngine.warmupSwitchForumCacheAsync()
 
         val rtCard = LinearLayout(this).apply {
@@ -3101,8 +3107,9 @@ class MainActivity : Activity() {
         card.addView(topicMetaBanner)
 
         // Прокручиваемая область с 4 чёткими сгруппированными блоками
+        val scrollHeight = (resources.displayMetrics.heightPixels * 0.46f).toInt().coerceIn(dp(295), dp(460))
         val scroll = ScrollView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(295)).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, scrollHeight).apply {
                 bottomMargin = dp(6)
             }
         }
@@ -3168,6 +3175,12 @@ class MainActivity : Activity() {
             val realPrefetched = RuTrackerCloudEngine.prefetchRealTorrentFiles(item)
             if (realPrefetched.isNotEmpty()) {
                 mainHandler.post {
+                    val oldSel = releaseFiles.filter { it.selected }.map { it.fileName.lowercase() }.toSet()
+                    if (oldSel.isNotEmpty()) {
+                        for (rf in realPrefetched) {
+                            rf.selected = (rf.fileName.lowercase() in oldSel)
+                        }
+                    }
                     releaseFiles = realPrefetched.toMutableList()
                     renderFilesCheckboxes()
                     syncUnlockerAutoState()
@@ -3727,6 +3740,7 @@ class MainActivity : Activity() {
                 .setView(makeUnclippedDialogContainer(card))
                 .setCancelable(true)
         )
+        scroll.post { scroll.scrollTo(0, 0) }
 
         fun triggerPipelineExecution() {
             if (isRunningPipeline) return
@@ -3892,7 +3906,7 @@ class MainActivity : Activity() {
                     "21. Nintendo Switch 2 (Ounce / NVN2)",
                     "Экосистемы",
                     "SWITCH 2",
-                    "STORM SWITCH BOX 6.7.2 включает полную поддержку следующего поколения игровых систем Nintendo — Nintendo Switch 2 (кодовое имя «Ounce» / API «NVN2»):\n" +
+                    "STORM SWITCH BOX 6.7.3 включает полную поддержку следующего поколения игровых систем Nintendo — Nintendo Switch 2 (кодовое имя «Ounce» / API «NVN2»):\n" +
                     "• Идентификация дампов: TitleID игр Switch 2 начинается с префикса «0400...» (в отличие от «0100...» у Switch 1), извлекаемый напрямую из main.npdm (заголовок META -> секция ACI0 + 0x10).\n" +
                     "• Авто-сборка из папок дампа: при перетаскивании каталога дампа Switch 2 (содержащего base/exefs/main.npdm, base/romfs, updates/<версия> и dlc/<tid>) программа автоматически объединяет базовую игру, самое свежее обновление, все DLC и моды в 1 монолитный контейнер (.nsp, .nsz, .xci, .xcz).\n" +
                     "• Авто-генерация Control NCA: создание control.nacp на 16 языках и получение официальной 256×256 обложки через Nintendo Europe Search API / Steam.\n" +
@@ -3905,7 +3919,7 @@ class MainActivity : Activity() {
                     "22. RuTracker: Чеклист ссылок обсуждения и DLC Unlocker",
                     "Сеть, Ключи и База",
                     "RUTRACKER",
-                    "В версии 6.7.2 усовершенствован модуль интеграции с RuTracker (#1605):\n" +
+                    "В версии 6.7.3 усовершенствован модуль интеграции с RuTracker (#1605):\n" +
                     "• Чеклист ссылок из темы обсуждения: все полезные ссылки (русификаторы, моды, патчи 60 FPS, читы), найденные в комментариях и шапке темы раздачи, отображаются с датами публикации сообщений.\n" +
                     "• Выборочная загрузка: можно отметить только нужные модификации чекбоксами перед стартом сборки.\n" +
                     "• DLC Unlocker: автоматическое управление анлокерами дополнений и синхронизация тикетов.",
@@ -4660,7 +4674,7 @@ class MainActivity : Activity() {
         }
         updCard.addView(makeSectionHeader(
             "2. Обновление STORM SWITCH BOX (GitHub и STORM GAMES WORLD)",
-            "Текущая версия: ${try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.7.2" } catch (_: Exception) { "6.7.2" }} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) • Проверка на 2 официальных площадках",
+            "Текущая версия: ${try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.7.3" } catch (_: Exception) { "6.7.3" }} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) • Проверка на 2 официальных площадках",
             th
         ))
         updCard.addView(makeStormCheckBox(
@@ -5391,7 +5405,7 @@ class MainActivity : Activity() {
             Toast.makeText(this, "⏳ Проверка обновлений на GitHub и STORM GAMES WORLD...", Toast.LENGTH_SHORT).show()
         }
         val preferLegacy = (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) || Build.VERSION.SDK_INT < 26
-        val currentAppVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.7.2" } catch (_: Exception) { "6.7.2" }
+        val currentAppVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.7.3" } catch (_: Exception) { "6.7.3" }
         thread {
             val rel = RuTrackerCloudEngine.checkGitHubAppUpdate(currentAppVer, preferLegacy)
             mainHandler.post {
@@ -5422,7 +5436,7 @@ class MainActivity : Activity() {
             typeface = Typeface.DEFAULT_BOLD
         })
         box.addView(TextView(this).apply {
-            val installedVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.7.2" } catch (_: Exception) { "6.7.2" }
+            val installedVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.7.3" } catch (_: Exception) { "6.7.3" }
             text = "Новая версия: ${release.version} (Установлена: $installedVer)\nИсточник: ${release.sourceName}\nПакет: ${release.apkName} (${StormNczEngine.formatSize(release.apkSizeBytes)})"
             setTextColor(th.textPrimary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)

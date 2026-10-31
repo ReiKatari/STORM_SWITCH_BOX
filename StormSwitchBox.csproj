@@ -17,9 +17,9 @@
     <PublishReadyToRun>false</PublishReadyToRun>
     <TieredCompilation>true</TieredCompilation>
     <SuppressNETCoreSdkPreviewMessage>true</SuppressNETCoreSdkPreviewMessage>
-    <Version>6.7.2</Version>
-    <AssemblyVersion>6.7.2.0</AssemblyVersion>
-    <FileVersion>6.7.2.0</FileVersion>
+    <Version>6.7.3</Version>
+    <AssemblyVersion>6.7.3.0</AssemblyVersion>
+    <FileVersion>6.7.3.0</FileVersion>
     <ApplicationIcon>storm_switch_box.ico</ApplicationIcon>
     <DefaultItemExcludes>$(DefaultItemExcludes);obj\**;bin\**;installer\**;Assembling\**;Files\**;publish\**;temp\**;*.bmp;*.zip;*.cer;*.pfx;*.log</DefaultItemExcludes>
   </PropertyGroup>

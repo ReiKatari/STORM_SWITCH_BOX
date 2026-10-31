@@ -1,5 +1,6 @@
 # STORM SWITCH BOX - Automated Production Build and Release Pipeline (STORM ALL PROJECTS FORMAT)
 $ErrorActionPreference = "Stop"
+[System.Diagnostics.Process]::GetCurrentProcess().PriorityClass = [System.Diagnostics.ProcessPriorityClass]::BelowNormal
 
 $baseDir = $PSScriptRoot
 if (-not $baseDir) { $baseDir = "F:\STORM SWITCH BOX" }
@@ -14,7 +15,7 @@ if (-not (Test-Path $assemblingDir)) { New-Item -ItemType Directory -Path $assem
 if (-not (Test-Path $filesDir)) { New-Item -ItemType Directory -Path $filesDir | Out-Null }
 if (-not (Test-Path $outputDir)) { New-Item -ItemType Directory -Path $outputDir | Out-Null }
 
-$appVersion = "6.7.2"
+$appVersion = "6.7.3"
 try {
     [xml]$appProjXml = Get-Content (Join-Path $appProjDir "StormSwitchBox.csproj")
     $verFromProj = ($appProjXml.Project.PropertyGroup | ForEach-Object { $_.Version } | Where-Object { $_ } | Select-Object -First 1)

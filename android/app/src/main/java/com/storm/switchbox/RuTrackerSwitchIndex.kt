@@ -329,10 +329,11 @@ object RuTrackerSwitchIndex {
         }
     }
 
-    /** Регистрирует тему раздела #1605, найденную по реальному BTIH (torrents-csv / ApiBay совпал с API pvc). */
+    /** Регистрирует тему раздела #1605, найденную по реальному BTIH раздачи RuTracker #1605. */
     fun registerExternalTopic(tid: String, torrentName: String) {
         if (tid.isBlank() || torrentName.isBlank()) return
-        if (data?.byId?.containsKey(tid) == true || extraTopics.containsKey(tid)) return
+        val existing = extraTopics[tid] ?: data?.byId?.get(tid)
+        if (existing != null && existing.torrentName.isNotBlank()) return
         val live = RuTrackerCloudEngine.liveTopicData(tid) ?: return
         val et = IndexTopic(tid, live.first, live.third, live.second, 0L, torrentName, atomTitles[tid].orEmpty(), cleanTitleToGame(torrentName), extractTid(torrentName), emptyList(), false)
         et.rebuildKeys()

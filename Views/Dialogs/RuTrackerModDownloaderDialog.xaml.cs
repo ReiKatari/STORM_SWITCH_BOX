@@ -50,6 +50,8 @@ namespace StormSwitchBox.Views.Dialogs
             LoadSavedSettings();
             ActiveInstance = this;
             RuTrackerModService.CloudflareChallengeHandler = SolveCloudflareChallengeInDialogAsync;
+            RuTrackerModService.SameOriginFetchHandler = FetchViaSameOriginInDialogAsync;
+            _ = InitBackgroundWebViewAsync();
 
             if (_targetTask != null)
             {
@@ -541,7 +543,13 @@ namespace StormSwitchBox.Views.Dialogs
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            bool hasTorrentSource = downloadTorrent && _torrentFiles.Count > 0;
+            if (downloadTorrent && _torrentFiles.Count > 0 && !_torrentFiles.Any(f => f.IsSelected))
+            {
+                StatusText.Text = "Выберите хотя бы один файл из раздачи (отметьте галочкой) или скачайте только моды.";
+                return;
+            }
+
+            bool hasTorrentSource = downloadTorrent && _torrentFiles.Count > 0 && _torrentFiles.Any(f => f.IsSelected);
 
             if (!hasTorrentSource && cloudLinks.Count == 0)
             {
@@ -812,10 +820,208 @@ namespace StormSwitchBox.Views.Dialogs
         }
 
         
+        private readonly TaskCompletionSource<bool> _webViewReadyTcs = new();
+
+        private async Task InitBackgroundWebViewAsync()
+        {
+            try
+            {
+                await CloudflareWebView.EnsureCoreWebView2Async();
+                CloudflareWebView.CoreWebView2.Settings.IsStatusBarEnabled = false;
+                CloudflareWebView.CoreWebView2.Settings.AreDevToolsEnabled = false;
+
+                // Синхронизация User-Agent
+                string currentUa = App.Settings.Current.RuTrackerUserAgent;
+                if (!string.IsNullOrWhiteSpace(currentUa))
+                {
+                    CloudflareWebView.CoreWebView2.Settings.UserAgent = currentUa;
+                    RuTrackerModService.SharedUserAgent = currentUa;
+                }
+                else
+                {
+                    string rawUa = await CloudflareWebView.ExecuteScriptAsync("navigator.userAgent");
+                    string cleanUa = rawUa.Trim('"');
+                    if (!string.IsNullOrEmpty(cleanUa) && cleanUa != "null")
+                    {
+                        CloudflareWebView.CoreWebView2.Settings.UserAgent = cleanUa;
+                        RuTrackerModService.SharedUserAgent = cleanUa;
+                        App.Settings.Current.RuTrackerUserAgent = cleanUa;
+                        _ = App.Settings.SaveAsync();
+                    }
+                }
+
+                // Синхронизация куки cf_clearance и bb_session в WebView2
+                string mirror = RuTrackerModService.NormalizeMirrorUrl(App.Settings.Current.RuTrackerMirror);
+                if (!string.IsNullOrWhiteSpace(App.Settings.Current.RuTrackerCfClearance))
+                {
+                    RuTrackerModService.SharedCfClearance = App.Settings.Current.RuTrackerCfClearance;
+                    try
+                    {
+                        var cfCookie = CloudflareWebView.CoreWebView2.CookieManager.CreateCookie(
+                            "cf_clearance", App.Settings.Current.RuTrackerCfClearance, ".rutracker.org", "/");
+                        CloudflareWebView.CoreWebView2.CookieManager.AddOrUpdateCookie(cfCookie);
+                    }
+                    catch { }
+                }
+
+                if (!string.IsNullOrWhiteSpace(App.Settings.Current.RuTrackerCookie))
+                {
+                    try
+                    {
+                        var bbCookie = CloudflareWebView.CoreWebView2.CookieManager.CreateCookie(
+                            "bb_session", App.Settings.Current.RuTrackerCookie, ".rutracker.org", "/");
+                        CloudflareWebView.CoreWebView2.CookieManager.AddOrUpdateCookie(bbCookie);
+                    }
+                    catch { }
+                }
+
+                _webViewReadyTcs.TrySetResult(true);
+
+                // Проактивный прогрев viewforum.php?f=1605 (фоновый рендеринг Chromium без зависания)
+                string warmupUrl = $"{mirror}/forum/viewforum.php?f=1605";
+                CloudflareWebView.NavigationCompleted += OnWarmupNavigationCompleted;
+                CloudflareWebView.Source = new Uri(warmupUrl);
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[RuTracker WebView2] Ошибка инициализации фонового обхода: {ex.Message}", LogLevel.Warning);
+                _webViewReadyTcs.TrySetResult(false);
+            }
+        }
+
+        private int _warmupNavCount = 0;
+        private async void OnWarmupNavigationCompleted(object? sender, Microsoft.Web.WebView2.Core.CoreWebView2NavigationCompletedEventArgs e)
+        {
+            try
+            {
+                _warmupNavCount++;
+                string currentUrl = CloudflareWebView.Source?.ToString() ?? "";
+                var cookieList = await CloudflareWebView.CoreWebView2.CookieManager.GetCookiesAsync(currentUrl);
+                var cfCookie = cookieList.FirstOrDefault(c => c.Name == "cf_clearance");
+                if (cfCookie != null)
+                {
+                    RuTrackerModService.SharedCfClearance = cfCookie.Value;
+                    App.Settings.Current.RuTrackerCfClearance = cfCookie.Value;
+                    _ = App.Settings.SaveAsync();
+                }
+
+                string htmlRaw = await CloudflareWebView.ExecuteScriptAsync("document.documentElement.outerHTML");
+                string html = System.Text.RegularExpressions.Regex.Unescape(htmlRaw.Trim('"'));
+
+                bool hasForumTopics = html.Contains("viewtopic.php?t=");
+                if (hasForumTopics)
+                {
+                    RuTrackerModService.ParseAndMergeForumTopicsHtml(html);
+                }
+
+                // Отписываемся ТОЛЬКО когда форум действительно загружен, либо получен cf_clearance и нет капчи, либо прошло более 6 навигаций
+                if (hasForumTopics || (cfCookie != null && !html.Contains("Just a moment...") && !html.Contains("cf-turnstile")) || _warmupNavCount >= 6)
+                {
+                    CloudflareWebView.NavigationCompleted -= OnWarmupNavigationCompleted;
+                }
+            }
+            catch { }
+        }
+
+        private void ShowCloudflareBypassUi(string message)
+        {
+            App.RunOnUI(() =>
+            {
+                CloudflareStatusText.Text = message;
+                CloudflareBypassPanel.Opacity = 1.0;
+                CloudflareBypassPanel.IsHitTestVisible = true;
+            });
+        }
+
+        private void HideCloudflareBypassUi()
+        {
+            App.RunOnUI(() =>
+            {
+                CloudflareBypassPanel.Opacity = 0.01;
+                CloudflareBypassPanel.IsHitTestVisible = false;
+            });
+        }
+
         private void CloseCloudflareBypass_Click(object sender, RoutedEventArgs e)
         {
-            CloudflareBypassPanel.Visibility = Visibility.Collapsed;
+            HideCloudflareBypassUi();
             try { _cfTcs?.TrySetResult(null); } catch { }
+        }
+
+        private async Task<string?> FetchViaSameOriginInDialogAsync(string url, CancellationToken ct)
+        {
+            await _webViewReadyTcs.Task.ConfigureAwait(false);
+
+            var tcs = new TaskCompletionSource<string?>();
+            App.RunOnUI(async () =>
+            {
+                try
+                {
+                    string escapedUrl = url.Replace("'", "\\'");
+                    string jsCode = "(async () => {" +
+                        " try {" +
+                        "   if (!location.hostname.includes('rutracker.')) return 'NEED_NAV';" +
+                        $"   const parsed = new URL('{escapedUrl}', location.origin);" +
+                        "   const sameUrl = location.origin + parsed.pathname + parsed.search;" +
+                        "   const resp = await fetch(sameUrl, { credentials: 'include' });" +
+                        "   if (!resp.ok) return 'HTTP_STATUS:' + resp.status;" +
+                        "   const buf = await resp.arrayBuffer();" +
+                        "   const decoder = new TextDecoder('windows-1251');" +
+                        "   return decoder.decode(buf);" +
+                        " } catch (e) {" +
+                        "   return 'FETCH_ERR:' + e.message;" +
+                        " }" +
+                        "})()";
+
+                    var evalParams = new
+                    {
+                        expression = jsCode,
+                        awaitPromise = true,
+                        returnByValue = true
+                    };
+                    string evalParamsJson = System.Text.Json.JsonSerializer.Serialize(evalParams);
+                    string cdpResultJson = await CloudflareWebView.CoreWebView2.CallDevToolsProtocolMethodAsync("Runtime.evaluate", evalParamsJson);
+
+                    string fetchedText = "";
+                    if (!string.IsNullOrEmpty(cdpResultJson))
+                    {
+                        using var doc = System.Text.Json.JsonDocument.Parse(cdpResultJson);
+                        if (doc.RootElement.TryGetProperty("result", out var resObj) &&
+                            resObj.TryGetProperty("value", out var valProp) &&
+                            valProp.ValueKind == System.Text.Json.JsonValueKind.String)
+                        {
+                            fetchedText = valProp.GetString() ?? "";
+                        }
+                    }
+
+                    if (!string.IsNullOrEmpty(fetchedText) &&
+                        !fetchedText.Equals("NEED_NAV", StringComparison.OrdinalIgnoreCase) &&
+                        !fetchedText.StartsWith("HTTP_STATUS:") &&
+                        !fetchedText.StartsWith("FETCH_ERR:") &&
+                        !fetchedText.Contains("Just a moment...") &&
+                        !fetchedText.Contains("cf-turnstile"))
+                    {
+                        tcs.TrySetResult(fetchedText);
+                        return;
+                    }
+
+                    // Если Same-Origin fetch вернул NEED_NAV, 403, ошибку или проверку — переходим в режим обхода страницы
+                    string tid = "";
+                    var tm = System.Text.RegularExpressions.Regex.Match(url, @"t=(\d+)");
+                    if (tm.Success) tid = tm.Groups[1].Value;
+
+                    var solvedHtml = await SolveCloudflareChallengeInDialogAsync(url, tid, ct);
+                    tcs.TrySetResult(solvedHtml);
+                }
+                catch (Exception ex)
+                {
+                    App.Logger?.Log($"[SameOrigin Fetch CDP] Ошибка: {ex.Message}", LogLevel.Warning);
+                    tcs.TrySetResult(null);
+                }
+            });
+
+            using var reg = ct.Register(() => tcs.TrySetCanceled());
+            return await tcs.Task.ConfigureAwait(false);
         }
 
         private async Task<string?> SolveCloudflareChallengeInDialogAsync(string url, string topicId, CancellationToken ct)
@@ -827,11 +1033,96 @@ namespace StormSwitchBox.Views.Dialogs
             {
                 try
                 {
-                    CloudflareBypassPanel.Visibility = Visibility.Visible;
-                    CloudflareStatusText.Text = $"Загрузка темы #{topicId}... Проверка Cloudflare (подождите несколько секунд)...";
-
                     await CloudflareWebView.EnsureCoreWebView2Async();
-                    CloudflareWebView.CoreWebView2.Settings.IsStatusBarEnabled = false;
+                    CloudflareStatusText.Text = $"Подключение к теме #{topicId}... Проверка Cloudflare...";
+
+                    CancellationTokenSource? timeoutCts = new CancellationTokenSource();
+                    var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
+
+                    // Аппаратный CDP-клик по Turnstile через 1.5 секунды
+                    _ = Task.Run(async () =>
+                    {
+                        await Task.Delay(1500, linkedCts.Token);
+                        App.RunOnUI(async () =>
+                        {
+                            try
+                            {
+                                string getCoordsScript = @"(() => {
+                                    try {
+                                        const ifr = document.querySelector('iframe[src*=""challenges.cloudflare.com""]');
+                                        if (!ifr) return null;
+                                        const rect = ifr.getBoundingClientRect();
+                                        return JSON.stringify({
+                                            x: Math.round(rect.left + 28),
+                                            y: Math.round(rect.top + (rect.height > 0 ? rect.height / 2 : 30))
+                                        });
+                                    } catch {
+                                        return null;
+                                    }
+                                })()";
+
+                                string coordsJson = await CloudflareWebView.ExecuteScriptAsync(getCoordsScript);
+                                if (!string.IsNullOrEmpty(coordsJson) && coordsJson != "null")
+                                {
+                                    string unescaped = System.Text.Json.JsonSerializer.Deserialize<string>(coordsJson) ?? coordsJson;
+                                    using var doc = System.Text.Json.JsonDocument.Parse(unescaped);
+                                    if (doc.RootElement.TryGetProperty("x", out var xp) && doc.RootElement.TryGetProperty("y", out var yp))
+                                    {
+                                        double clickX = xp.GetDouble();
+                                        double clickY = yp.GetDouble();
+
+                                        string pressParams = System.Text.Json.JsonSerializer.Serialize(new
+                                        {
+                                            type = "mousePressed",
+                                            x = clickX,
+                                            y = clickY,
+                                            button = "left",
+                                            clickCount = 1
+                                        });
+                                        await CloudflareWebView.CoreWebView2.CallDevToolsProtocolMethodAsync("Input.dispatchMouseEvent", pressParams);
+
+                                        await Task.Delay(80);
+
+                                        string releaseParams = System.Text.Json.JsonSerializer.Serialize(new
+                                        {
+                                            type = "mouseReleased",
+                                            x = clickX,
+                                            y = clickY,
+                                            button = "left",
+                                            clickCount = 1
+                                        });
+                                        await CloudflareWebView.CoreWebView2.CallDevToolsProtocolMethodAsync("Input.dispatchMouseEvent", releaseParams);
+                                    }
+                                }
+                            }
+                            catch { }
+                        });
+
+                        // Если через 3.5 секунды проверка не снята — плавно показываем компактный виджет
+                        await Task.Delay(2000, linkedCts.Token);
+                        App.RunOnUI(async () =>
+                        {
+                            try
+                            {
+                                string htmlCheck = await CloudflareWebView.ExecuteScriptAsync("document.documentElement.outerHTML");
+                                if (htmlCheck.Contains("challenges.cloudflare.com") || htmlCheck.Contains("cf-turnstile") || htmlCheck.Contains("Just a moment..."))
+                                {
+                                    ShowCloudflareBypassUi($"🛡️ Подтвердите проверку Cloudflare Turnstile для раздачи #{topicId}...");
+                                }
+                            }
+                            catch { }
+                        });
+
+                        // Если прошло 8 секунд — напоминаем пользователю
+                        await Task.Delay(4500, linkedCts.Token);
+                        App.RunOnUI(() =>
+                        {
+                            if (CloudflareBypassPanel.Opacity > 0.5)
+                            {
+                                CloudflareStatusText.Text = "Нажмите на чекбокс проверки Cloudflare в окне справа...";
+                            }
+                        });
+                    }, linkedCts.Token);
 
                     async void OnNavCompleted(object? sender, Microsoft.Web.WebView2.Core.CoreWebView2NavigationCompletedEventArgs e)
                     {
@@ -859,11 +1150,8 @@ namespace StormSwitchBox.Views.Dialogs
                             if (html.Contains("topic-title") || html.Contains("viewtopic.php") || (cfCookie != null && !html.Contains("cf-turnstile") && !html.Contains("Just a moment...")))
                             {
                                 CloudflareWebView.NavigationCompleted -= OnNavCompleted;
-                                App.RunOnUI(() =>
-                                {
-                                    CloudflareStatusText.Text = "✅ Проверка успешно пройдена!";
-                                    CloudflareBypassPanel.Visibility = Visibility.Collapsed;
-                                });
+                                timeoutCts.Cancel();
+                                HideCloudflareBypassUi();
                                 tcs.TrySetResult(html);
                             }
                         }
@@ -878,7 +1166,7 @@ namespace StormSwitchBox.Views.Dialogs
                 }
                 catch (Exception ex)
                 {
-                    CloudflareBypassPanel.Visibility = Visibility.Collapsed;
+                    HideCloudflareBypassUi();
                     tcs.TrySetResult(null);
                 }
             });
@@ -889,7 +1177,12 @@ namespace StormSwitchBox.Views.Dialogs
 
         private void Dialog_Closed(ContentDialog sender, ContentDialogClosedEventArgs args)
         {
-            if (ActiveInstance == this) { ActiveInstance = null; RuTrackerModService.CloudflareChallengeHandler = null; }
+            if (ActiveInstance == this)
+            {
+                ActiveInstance = null;
+                RuTrackerModService.CloudflareChallengeHandler = null;
+                RuTrackerModService.SameOriginFetchHandler = null;
+            }
             try { _cfTcs?.TrySetResult(null); } catch { }
             try { _downloadCts?.Cancel(); } catch { }
             try { _service.Dispose(); } catch { }

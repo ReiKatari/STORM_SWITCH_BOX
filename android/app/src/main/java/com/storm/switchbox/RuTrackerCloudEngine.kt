@@ -135,10 +135,9 @@ object RuTrackerCloudEngine {
         conn.connectTimeout = timeoutMs
         conn.readTimeout = timeoutMs
         conn.instanceFollowRedirects = true
-        conn.setRequestProperty(
-            "User-Agent",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
-        )
+        val defaultUa = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+        val effectiveUa = if (urlStr.contains("rutracker")) activeBrowserUserAgent else defaultUa
+        conn.setRequestProperty("User-Agent", effectiveUa)
         conn.setRequestProperty("Accept-Language", "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7")
         if (cookie.isNotBlank()) {
             conn.setRequestProperty("Cookie", cookie)
@@ -149,6 +148,486 @@ object RuTrackerCloudEngine {
     /** Контекст приложения Android для доступа к ассетам (задаётся из MainActivity). */
     @Volatile
     var appContext: Context? = null
+
+    @Volatile
+    var activeWorkingMirror: String = "https://rutracker.org"
+
+    @Volatile
+    var activeBrowserUserAgent: String = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36"
+
+    @Volatile
+    private var hostActivityRef: java.lang.ref.WeakReference<android.app.Activity>? = null
+
+    @Volatile
+    private var persistentBackgroundWv: android.webkit.WebView? = null
+    private val backgroundWvLock = Any()
+    private val wvNavLock = java.util.concurrent.locks.ReentrantLock()
+    @Volatile var lastBypassedPageHtml: String? = null
+
+    private val pendingWvFetches = java.util.concurrent.ConcurrentHashMap<String, (String) -> Unit>()
+
+    private class StormWvFetchBridge(private val callbacks: java.util.concurrent.ConcurrentHashMap<String, (String) -> Unit>) {
+        @android.webkit.JavascriptInterface
+        fun onFetchDone(reqId: String, jsonPayload: String) {
+            try {
+                callbacks.remove(reqId)?.invoke(jsonPayload)
+            } catch (t: Throwable) {
+                Log.e("RuTrackerCloudEngine", "StormWvFetchBridge error: ${t.message}")
+            }
+        }
+    }
+
+    fun attachHostActivity(activity: android.app.Activity) {
+        hostActivityRef = java.lang.ref.WeakReference(activity)
+        activity.runOnUiThread {
+            ensureBackgroundWebViewAttached(activity)
+        }
+    }
+
+    fun ensureBackgroundWebViewAttached(activity: android.app.Activity): android.webkit.WebView? {
+        if (activity.isFinishing || (android.os.Build.VERSION.SDK_INT >= 17 && activity.isDestroyed)) return null
+        synchronized(backgroundWvLock) {
+            persistentBackgroundWv?.let { return it }
+            try {
+                val wv = android.webkit.WebView(activity).apply {
+                    addJavascriptInterface(StormWvFetchBridge(pendingWvFetches), "StormWvBridge")
+                    val dm = activity.resources.displayMetrics
+                    val w = (360 * dm.density).toInt()
+                    val h = (260 * dm.density).toInt()
+                    val off = (2000 * dm.density)
+                    layoutParams = android.widget.FrameLayout.LayoutParams(w, h).apply {
+                        translationX = -off
+                    }
+                    alpha = 0.01f
+                    visibility = android.view.View.VISIBLE
+                    setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+                    onResume()
+                    resumeTimers()
+
+                    val cm = android.webkit.CookieManager.getInstance()
+                    cm.setAcceptCookie(true)
+                    cm.setAcceptThirdPartyCookies(this, true)
+
+                    settings.apply {
+                        javaScriptEnabled = true
+                        domStorageEnabled = true
+                        databaseEnabled = true
+                        javaScriptCanOpenWindowsAutomatically = true
+                        val rawUa = userAgentString
+                        val cleanUa = rawUa
+                            .replace("; wv)", ")")
+                            .replace("; wv", "")
+                            .replace(Regex("""\s*Version/\d+\.\d+"""), "")
+                        userAgentString = cleanUa
+                        activeBrowserUserAgent = cleanUa
+                    }
+                }
+                val decor = activity.window?.decorView as? android.view.ViewGroup
+                decor?.addView(wv)
+                persistentBackgroundWv = wv
+                return wv
+            } catch (e: Throwable) {
+                Log.e("RuTrackerCloudEngine", "Error attaching background WebView: ${e.message}")
+                return null
+            }
+        }
+    }
+
+    fun fetchPagesViaWebViewBlocking(urls: List<String>, timeoutMs: Long = 10000L): Map<String, String> {
+        if (urls.isEmpty()) return emptyMap()
+        val results = java.util.concurrent.ConcurrentHashMap<String, String>()
+        val latch = java.util.concurrent.CountDownLatch(1)
+        val act = hostActivityRef?.get() ?: return emptyMap()
+        val reqId = "fetch_${System.nanoTime()}"
+
+        pendingWvFetches[reqId] = { jsonPayload ->
+            try {
+                if (!jsonPayload.isNullOrBlank() && jsonPayload != "null") {
+                    val arr = org.json.JSONArray(jsonPayload)
+                    for (i in 0 until arr.length()) {
+                        val obj = arr.getJSONObject(i)
+                        val u = obj.optString("url", "")
+                        val h = obj.optString("html", "")
+                        if (u.isNotEmpty() && h.isNotEmpty()) {
+                            results[u] = h
+                        }
+                    }
+                }
+            } catch (t: Throwable) {
+                Log.e("RuTrackerCloudEngine", "fetchPagesViaWebView parse error: ${t.message}")
+            } finally {
+                latch.countDown()
+            }
+        }
+
+        act.runOnUiThread {
+            val wv = ensureBackgroundWebViewAttached(act)
+            if (wv == null) {
+                latch.countDown()
+                return@runOnUiThread
+            }
+            val curUrl = wv.url ?: ""
+            if (!curUrl.contains("rutracker.")) {
+                Log.d("RuTrackerCloudEngine", "fetchPagesViaWebViewBlocking aborted: current WebView url '$curUrl' is not a RuTracker origin")
+                latch.countDown()
+                return@runOnUiThread
+            }
+            val jsonUrls = org.json.JSONArray(urls).toString()
+            val jsCode = """
+            (function() {
+                var urls = $jsonUrls;
+                Promise.all(urls.map(function(u) {
+                    try {
+                        var parsed = new URL(u, window.location.origin);
+                        var sameUrl = window.location.origin + parsed.pathname + parsed.search;
+                        return fetch(sameUrl, { credentials: 'include' })
+                            .then(function(r) { return r.arrayBuffer(); })
+                            .then(function(b) {
+                                var dec = new TextDecoder('windows-1251');
+                                return { url: u, html: dec.decode(b) };
+                            })
+                            .catch(function(e) {
+                                return { url: u, error: e.toString() };
+                            });
+                    } catch(e) {
+                        return Promise.resolve({ url: u, error: e.toString() });
+                    }
+                })).then(function(res) {
+                    if (window.StormWvBridge) {
+                        window.StormWvBridge.onFetchDone('$reqId', JSON.stringify(res));
+                    }
+                }).catch(function(err) {
+                    if (window.StormWvBridge) {
+                        window.StormWvBridge.onFetchDone('$reqId', JSON.stringify([]));
+                    }
+                });
+            })()
+            """.trimIndent()
+            try {
+                wv.evaluateJavascript(jsCode, null)
+            } catch (t: Throwable) {
+                Log.e("RuTrackerCloudEngine", "fetchPagesViaWebView evaluate error: ${t.message}")
+                latch.countDown()
+            }
+        }
+
+        try {
+            latch.await(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+        } catch (_: InterruptedException) {
+        } finally {
+            pendingWvFetches.remove(reqId)
+        }
+        return results
+    }
+
+    @Volatile
+    private var isWarmingUpCloudflare = false
+
+    fun warmupCloudflareSessionAsync() {
+        if (isWarmingUpCloudflare) return
+        isWarmingUpCloudflare = true
+        kotlin.concurrent.thread(name = "cf-warmup", isDaemon = true) {
+            try {
+                val act = hostActivityRef?.get()
+                if (act != null) {
+                    act.runOnUiThread { ensureBackgroundWebViewAttached(act) }
+                }
+                val mirrors = listOf(activeWorkingMirror, "https://rutracker.org", "https://rutracker.net")
+                    .distinct().filter { !it.contains("rutracker.nl") }
+
+                for (m in mirrors) {
+                    val forumUrl = "$m/forum/viewforum.php?f=1605"
+                    val success = bypassCloudflareForUrlBlocking(forumUrl, timeoutSec = 12)
+                    if (success) {
+                        activeWorkingMirror = m
+                        val bypassedHtml = lastBypassedPageHtml
+                        if (!bypassedHtml.isNullOrBlank()) {
+                            parseAndRegisterTopicsFromForumHtml(bypassedHtml)
+                        }
+                        val pages = fetchPagesViaWebViewBlocking(listOf(
+                            "$m/forum/viewforum.php?f=1605&start=50"
+                        ))
+                        for ((_, html) in pages) {
+                            parseAndRegisterTopicsFromForumHtml(html)
+                        }
+                        break
+                    }
+                }
+                refreshAtomFeedTitles()
+                syncMissingTopicNamesFromMetadataAsync()
+            } catch (t: Throwable) {
+                Log.e("RuTrackerCloudEngine", "warmupCloudflareSessionAsync error: ${t.message}")
+            } finally {
+                isWarmingUpCloudflare = false
+            }
+        }
+    }
+
+    fun bypassCloudflareForUrlBlocking(targetUrl: String, timeoutSec: Int = 12): Boolean {
+        val act = hostActivityRef?.get() ?: return false
+        wvNavLock.lock()
+        try {
+            lastBypassedPageHtml = null
+            val latch = java.util.concurrent.CountDownLatch(1)
+            var passed = false
+            val handler = android.os.Handler(android.os.Looper.getMainLooper())
+
+            act.runOnUiThread {
+                val wv = ensureBackgroundWebViewAttached(act)
+                if (wv == null) {
+                    latch.countDown()
+                    return@runOnUiThread
+                }
+                var ticks = 0
+                val maxTicks = (timeoutSec * 1000) / 600
+                var poller: Runnable? = null
+
+                poller = object : Runnable {
+                    override fun run() {
+                        ticks++
+                        if (passed || ticks > maxTicks) {
+                            latch.countDown()
+                            return
+                        }
+                        wv.evaluateJavascript(
+                            """
+                            (function() {
+                                var hasContent = !!document.querySelector('.post_body, #topic_main, #vf-main, #forum-table, .forumline');
+                                if (hasContent) {
+                                    return JSON.stringify({
+                                        status: 'READY',
+                                        html: (document.documentElement ? document.documentElement.outerHTML : '')
+                                    });
+                                }
+                                var iframe = document.querySelector('iframe[src*="challenges.cloudflare.com"], .cf-turnstile, #turnstile-wrapper');
+                                if (iframe) {
+                                    var r = iframe.getBoundingClientRect();
+                                    var dpr = window.devicePixelRatio || 1;
+                                    return JSON.stringify({
+                                        status: 'TURNSTILE',
+                                        x: (r.left + 28) * dpr,
+                                        y: (r.top + (r.height / 2)) * dpr,
+                                        w: r.width * dpr,
+                                        h: r.height * dpr
+                                    });
+                                }
+                                var title = document.title || '';
+                                if (title.indexOf('Just a moment') !== -1 || title.indexOf('Один момент') !== -1) {
+                                    return JSON.stringify({ status: 'WAIT' });
+                                }
+                                return JSON.stringify({ status: 'WAIT' });
+                            })()
+                            """.trimIndent()
+                        ) { res ->
+                            try {
+                                val cleanRes = res?.let { org.json.JSONTokener(it).nextValue().toString() } ?: "{}"
+                                val json = org.json.JSONObject(cleanRes)
+                                val st = json.optString("status", "WAIT")
+                                if (st == "READY") {
+                                    val pageHtml = json.optString("html", "")
+                                    if (pageHtml.isNotBlank()) {
+                                        lastBypassedPageHtml = pageHtml
+                                    }
+                                    passed = true
+                                    android.webkit.CookieManager.getInstance().flush()
+                                    latch.countDown()
+                                } else {
+                                    if (st == "TURNSTILE" && ticks >= 6) {
+                                        val cx = json.optDouble("x", 40.0).toFloat()
+                                        val cy = json.optDouble("y", 40.0).toFloat()
+                                        val downTime = android.os.SystemClock.uptimeMillis()
+                                        val down = android.view.MotionEvent.obtain(downTime, downTime, android.view.MotionEvent.ACTION_DOWN, cx, cy, 0)
+                                        val up = android.view.MotionEvent.obtain(downTime, downTime + 50, android.view.MotionEvent.ACTION_UP, cx, cy, 0)
+                                        wv.dispatchTouchEvent(down)
+                                        wv.dispatchTouchEvent(up)
+                                        down.recycle()
+                                        up.recycle()
+                                    }
+                                    poller?.let { handler.postDelayed(it, 600) }
+                                }
+                            } catch (e: Throwable) {
+                                Log.e("RuTrackerCloudEngine", "Error checking bypass status: ${e.message}")
+                                poller?.let { handler.postDelayed(it, 600) }
+                            }
+                        }
+                    }
+                }
+
+                wv.webViewClient = object : android.webkit.WebViewClient() {
+                    override fun onPageFinished(view: android.webkit.WebView?, url: String?) {
+                        if (!passed) {
+                            poller?.let { handler.postDelayed(it, 600) }
+                        }
+                    }
+                    override fun onReceivedError(view: android.webkit.WebView?, errorCode: Int, description: String?, failingUrl: String?) {
+                        if (failingUrl?.contains("rutracker.org") == true) {
+                            view?.loadUrl(failingUrl.replace("rutracker.org", "rutracker.net"))
+                        }
+                    }
+                }
+                wv.loadUrl(targetUrl)
+            }
+
+            try { latch.await((timeoutSec + 2).toLong(), java.util.concurrent.TimeUnit.SECONDS) } catch (_: InterruptedException) {}
+            return passed
+        } finally {
+            wvNavLock.unlock()
+        }
+    }
+
+    fun parseAndRegisterTopicsFromForumHtml(html: String) {
+        val topicRegex = Regex("""viewtopic\.php\?t=(\d+)["'][^>]*>(.*?)</a>""", RegexOption.IGNORE_CASE)
+        for (m in topicRegex.findAll(html)) {
+            val tid = m.groupValues[1]
+            val rawTitle = m.groupValues[2].replace(Regex("<[^>]*>"), "").trim()
+            if (rawTitle.isNotEmpty() && !rawTitle.startsWith("След.") && !rawTitle.startsWith("Пред.")) {
+                val liveData = lookupRuTrackerTopic(tid)
+                val hash = liveData?.first ?: ""
+                val size = liveData?.second ?: 0L
+                val seeds = liveData?.third ?: 0
+                Dynamic1605DeltaManager.registerTopic(tid, hash, rawTitle, size, seeds)
+            }
+        }
+    }
+
+    fun syncMissingTopicNamesFromMetadataAsync() {
+        kotlin.concurrent.thread(name = "pvc-sync", isDaemon = true) {
+            val pvc = cachedForumTopicMap ?: return@thread
+            val realIndex = getOrLoadRealIndex()
+            val knownTidsWithNames = realIndex.filter { (it["n"] as? String)?.isNotBlank() == true }.map { it["t"].toString() }.toSet()
+            val missing = pvc.entries
+                .filter { it.key !in knownTidsWithNames }
+                .sortedByDescending { it.key.toLongOrNull() ?: 0L }
+                .take(30)
+
+            for (entry in missing) {
+                val tid = entry.key
+                val hash = entry.value.first
+                val size = entry.value.second
+                val seeds = entry.value.third
+                try {
+                    val torrentBytes = fetchCachedTorrentBytes(hash, timeoutMs = 3000)
+                    if (torrentBytes != null) {
+                        val ti = org.libtorrent4j.TorrentInfo.bdecode(torrentBytes)
+                        val tName = ti.name()
+                        if (tName.isNotBlank()) {
+                            Dynamic1605DeltaManager.registerTopic(tid, hash, tName, size, seeds)
+                        }
+                    }
+                } catch (_: Throwable) {}
+            }
+        }
+    }
+
+    object Dynamic1605DeltaManager {
+        private val deltaLock = Any()
+        private val memoryDelta = java.util.concurrent.ConcurrentHashMap<String, Map<String, Any>>()
+
+        fun getDeltaFile(): File? {
+            val dir = cacheRootDir ?: appContext?.filesDir ?: return null
+            return File(dir, "rutracker_1605_dynamic_delta.json")
+        }
+
+        fun loadFromDisk(): List<Map<String, Any>> {
+            val file = getDeltaFile() ?: return memoryDelta.values.toList()
+            if (!file.exists() || !file.isFile) return memoryDelta.values.toList()
+            synchronized(deltaLock) {
+                try {
+                    val jsonStr = file.readText(Charsets.UTF_8)
+                    val root = JSONObject(jsonStr)
+                    val arr = root.optJSONArray("topics") ?: return memoryDelta.values.toList()
+                    for (i in 0 until arr.length()) {
+                        val o = arr.optJSONObject(i) ?: continue
+                        val tid = o.opt("t")?.toString() ?: continue
+                        val hash = o.optString("h", "").uppercase()
+                        val sd = o.optInt("sd", 0)
+                        val sz = o.optLong("sz", 0L)
+                        val rt = o.optLong("rt", 0L)
+                        val n = o.optString("n", "")
+                        if (tid.isNotEmpty()) {
+                            memoryDelta[tid] = mapOf(
+                                "t" to (tid.toIntOrNull() ?: tid),
+                                "h" to hash,
+                                "sd" to sd,
+                                "sz" to sz,
+                                "rt" to rt,
+                                "n" to n
+                            )
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("RuTrackerDelta", "Failed to load delta: ${e.message}")
+                }
+                return memoryDelta.values.toList()
+            }
+        }
+
+        fun registerTopic(tid: String, hash: String, title: String, sizeBytes: Long, seeds: Int, regTime: Long = 0L) {
+            val cleanTid = tid.trim()
+            val cleanHash = hash.trim().uppercase()
+            val cleanTitle = title.trim()
+            if (cleanTid.isEmpty()) return
+            synchronized(deltaLock) {
+                val existing = memoryDelta[cleanTid]
+                val effectiveHash = if (cleanHash.length == 40) cleanHash else (existing?.get("h") as? String ?: "")
+                val effectiveTitle = if (cleanTitle.isNotEmpty()) cleanTitle else (existing?.get("n") as? String ?: "")
+                val effectiveSeeds = if (seeds > 0) seeds else ((existing?.get("sd") as? Number)?.toInt() ?: 0)
+                val effectiveSize = if (sizeBytes > 0) sizeBytes else ((existing?.get("sz") as? Number)?.toLong() ?: 0L)
+
+                val entry = mapOf(
+                    "t" to (cleanTid.toIntOrNull() ?: cleanTid),
+                    "h" to effectiveHash,
+                    "sd" to effectiveSeeds,
+                    "sz" to effectiveSize,
+                    "rt" to regTime,
+                    "n" to effectiveTitle
+                )
+                memoryDelta[cleanTid] = entry
+
+                RuTrackerSwitchIndex.registerExternalTopic(cleanTid, effectiveTitle)
+
+                val cur = realIndexTopics
+                if (cur != null) {
+                    val updated = cur.toMutableList()
+                    val idx = updated.indexOfFirst { it["t"]?.toString() == cleanTid }
+                    if (idx >= 0) {
+                        updated[idx] = entry
+                    } else {
+                        updated.add(entry)
+                    }
+                    realIndexTopics = updated
+                }
+
+                val file = getDeltaFile() ?: return
+                try {
+                    val root = JSONObject()
+                    root.put("updated_at", System.currentTimeMillis())
+                    val arr = JSONArray()
+                    for (item in memoryDelta.values) {
+                        val o = JSONObject()
+                        o.put("t", item["t"])
+                        o.put("h", item["h"])
+                        o.put("sd", item["sd"])
+                        o.put("sz", item["sz"])
+                        o.put("rt", item["rt"])
+                        o.put("n", item["n"])
+                        arr.put(o)
+                    }
+                    root.put("topics", arr)
+                    file.writeText(root.toString(2), Charsets.UTF_8)
+                } catch (e: Exception) {
+                    Log.e("RuTrackerDelta", "Failed to save delta: ${e.message}")
+                }
+            }
+        }
+
+        fun getAllDeltaTopics(): List<Map<String, Any>> {
+            if (memoryDelta.isEmpty()) {
+                loadFromDisk()
+            }
+            return memoryDelta.values.toList()
+        }
+    }
 
     @Volatile
     private var realIndexTopics: List<Map<String, Any>>? = null
@@ -227,8 +706,28 @@ object RuTrackerCloudEngine {
                     emptyList()
                 }
             }
-            realIndexTopics = list
-            return list
+            val delta = Dynamic1605DeltaManager.getAllDeltaTopics()
+            val merged = if (delta.isNotEmpty()) {
+                val mapByTid = LinkedHashMap<String, Map<String, Any>>()
+                for (item in list) {
+                    val tid = item["t"]?.toString() ?: ""
+                    if (tid.isNotEmpty()) mapByTid[tid] = item
+                }
+                for (d in delta) {
+                    val tid = d["t"]?.toString() ?: ""
+                    if (tid.isNotEmpty()) {
+                        val prev = mapByTid[tid]
+                        if (prev == null || (d["n"] as? String).isNullOrEmpty().not()) {
+                            mapByTid[tid] = d
+                        }
+                    }
+                }
+                mapByTid.values.toList()
+            } else {
+                list
+            }
+            realIndexTopics = merged
+            return merged
         }
     }
 
@@ -777,6 +1276,22 @@ object RuTrackerCloudEngine {
 
         val realIndex = getOrLoadRealIndex()
 
+        val directTid = Regex("""(?:viewtopic\.php\?t=|^t=|^)(\d{5,10})$""").find(normQ)?.groupValues?.get(1)
+        if (directTid != null) {
+            val live = lookupRuTrackerTopic(directTid)
+            val existing = realIndex.firstOrNull { it["t"].toString() == directTid }
+            val title = (existing?.get("n") as? String)?.ifBlank { null }
+                ?: "[Nintendo Switch] Раздача RuTracker #1605 (t=$directTid)"
+            val szBytes = (existing?.get("sz") as? Number)?.toLong() ?: (live?.second ?: 0L)
+            val seeds = (existing?.get("sd") as? Number)?.toInt() ?: (live?.third ?: 0)
+            val hash = (existing?.get("h") as? String) ?: (live?.first ?: "")
+            val sizeText = if (szBytes > 0L) StormNczEngine.formatSize(szBytes) else "нет данных"
+            val magnet = if (hash.length == 40) buildMagnet(hash, title) else ""
+            val topicUrl = "$normMirror/forum/viewtopic.php?t=$directTid"
+            val item = TopicItem(directTid, title, "Nintendo Switch", sizeText, seeds, 0, hash, magnet, topicUrl)
+            return listOf(item)
+        }
+
         if (cleanQ.isEmpty() || cleanQ.equals("Nintendo Switch", true) || cleanQ.equals("Все хиты Switch", true)) {
             val curated = CURATED_SWITCH_DB.map { item -> withLiveForumData(item, normMirror) }.toMutableList()
             val curatedTids = curated.map { it.topicId }.toSet()
@@ -929,41 +1444,46 @@ object RuTrackerCloudEngine {
         else resolvedSearchQuery.split(' ', '-', ':', '.', ',').filter { it.isNotBlank() }
 
         val atomResults = mutableListOf<TopicItem>()
-        val csvResults = mutableListOf<TopicItem>()
-        val tpbResults = mutableListOf<TopicItem>()
+        val liveWvResults = mutableListOf<TopicItem>()
 
         val tAtom = Thread {
             try {
                 atomResults.addAll(searchRuTrackerSwitchAtomFeed(tokens, normMirror, proxyHost, proxyPort))
             } catch (_: Exception) {}
         }
-        val tCsv = Thread {
-            if (tokens.isNotEmpty()) {
-                try {
-                    csvResults.addAll(searchTorrentsCsvSwitchOnly(resolvedSearchQuery, tokens, normMirror, proxyHost, proxyPort))
-                } catch (_: Exception) {}
-            }
-        }
-        val tTpb = Thread {
-            if (tokens.isNotEmpty()) {
-                try {
-                    tpbResults.addAll(searchApibaySwitchOnly(resolvedSearchQuery, tokens, normMirror, proxyHost, proxyPort))
-                } catch (_: Exception) {}
-            }
-        }
-
         tAtom.start()
-        tCsv.start()
-        tTpb.start()
+
+        if (tokens.isNotEmpty() && resolvedSearchQuery.length >= 3) {
+            try {
+                val trackerUrl = "$normMirror/forum/tracker.php?f=1605&nm=${URLEncoder.encode(resolvedSearchQuery, "windows-1251")}"
+                val fetched = fetchPagesViaWebViewBlocking(listOf(trackerUrl), timeoutMs = 2500L)
+                val trHtml = fetched[trackerUrl]
+                if (!trHtml.isNullOrBlank()) {
+                    parseAndRegisterTopicsFromForumHtml(trHtml)
+                    val trRegex = Regex("""viewtopic\.php\?t=(\d+)["'][^>]*>(.*?)</a>""", RegexOption.IGNORE_CASE)
+                    for (m in trRegex.findAll(trHtml)) {
+                        val tid = m.groupValues[1]
+                        val rawT = m.groupValues[2].replace(Regex("<[^>]*>"), "").trim()
+                        if (rawT.isNotBlank() && !rawT.startsWith("След.") && !rawT.startsWith("Пред.")) {
+                            val live = lookupRuTrackerTopic(tid)
+                            val szBytes = live?.second ?: 0L
+                            val seeds = live?.third ?: 0
+                            val hash = live?.first ?: ""
+                            val sizeText = if (szBytes > 0L) StormNczEngine.formatSize(szBytes) else "нет данных"
+                            val magnet = if (hash.length == 40) buildMagnet(hash, rawT) else ""
+                            val topicUrl = "$normMirror/forum/viewtopic.php?t=$tid"
+                            liveWvResults.add(TopicItem(tid, rawT, "Nintendo Switch", sizeText, seeds, 0, hash, magnet, topicUrl))
+                        }
+                    }
+                }
+            } catch (_: Throwable) {}
+        }
 
         try { tAtom.join(1400) } catch (_: Exception) {}
-        try { tCsv.join(1500) } catch (_: Exception) {}
-        try { tTpb.join(1100) } catch (_: Exception) {}
 
-        // Приоритет у настоящих сетевых раздач RuTracker (#1605), TorrentsCSV и ApiBay перед синтетическим каталогом TitleDB
+        // Приоритет у настоящих сетевых раздач RuTracker (#1605) перед синтетическим каталогом TitleDB
+        addUnique(liveWvResults)
         addUnique(atomResults)
-        addUnique(csvResults)
-        addUnique(tpbResults)
         addUnique(syntheticTitleDbMatches)
 
         return results.take(80)
@@ -1022,117 +1542,6 @@ object RuTrackerCloudEngine {
                     )
                 }
             } catch (_: Exception) {}
-        }
-        return list
-    }
-
-    private fun searchTorrentsCsvSwitchOnly(
-        query: String,
-        tokens: List<String>,
-        mirror: String,
-        proxyHost: String,
-        proxyPort: Int
-    ): List<TopicItem> {
-        val list = mutableListOf<TopicItem>()
-        val switchForumMap = getRuTrackerSwitchForumHashMap()
-        val searchQ = if (query.lowercase().contains("switch")) query else "$query switch"
-        val url = "https://torrents-csv.com/service/search?q=${URLEncoder.encode(searchQ, "UTF-8")}&size=25"
-        val conn = openConnection(url, proxyHost, proxyPort, timeoutMs = 1400)
-        if (conn.responseCode != 200) return emptyList()
-        val raw = conn.inputStream.bufferedReader().use { it.readText() }
-        val arr = JSONObject(raw).optJSONArray("torrents") ?: return emptyList()
-
-        for (i in 0 until arr.length()) {
-            val obj = arr.getJSONObject(i)
-            val name = obj.optString("name", "")
-            val hash = obj.optString("infohash", "").uppercase()
-            if (name.isEmpty() || hash.isEmpty()) continue
-            if (tokens.isNotEmpty() && !tokens.all { name.contains(it, ignoreCase = true) }) continue
-
-            val switchForumInfo = switchForumMap[hash]
-            if (switchForumInfo == null && !isStrictSwitchRelease(name, "Nintendo Switch")) continue
-
-            val sizeBytes = obj.optLong("size_bytes", switchForumInfo?.second ?: 0L)
-            val seeds = obj.optInt("seeders", switchForumInfo?.third ?: 0)
-            val leech = obj.optInt("leechers", 0)
-            val tid = switchForumInfo?.first ?: "CSV-${hash.take(8)}"
-            val topicLink = if (switchForumInfo != null) {
-                "$mirror/forum/viewtopic.php?t=${switchForumInfo.first}"
-            } else {
-                "$mirror/forum/tracker.php?f=1605&nm=${URLEncoder.encode(query, "UTF-8")}"
-            }
-            val displayTitle = if (name.contains("Switch", true)) name else "[Nintendo Switch] $name"
-
-            list.add(
-                TopicItem(
-                    topicId = tid,
-                    title = displayTitle,
-                    category = "Nintendo Switch",
-                    sizeText = StormNczEngine.formatSize(sizeBytes),
-                    seeds = seeds,
-                    leechers = leech,
-                    infoHash = hash,
-                    magnetUri = buildMagnet(hash, displayTitle),
-                    topicUrl = topicLink
-                )
-            )
-        }
-        return list
-    }
-
-    private fun searchApibaySwitchOnly(
-        query: String,
-        tokens: List<String>,
-        mirror: String,
-        proxyHost: String,
-        proxyPort: Int
-    ): List<TopicItem> {
-        val list = mutableListOf<TopicItem>()
-        val switchForumMap = getRuTrackerSwitchForumHashMap()
-        val searchQ = if (query.lowercase().contains("switch")) query else "$query switch"
-        val url = "https://apibay.org/q.php?q=${URLEncoder.encode(searchQ, "UTF-8")}"
-        val conn = openConnection(url, proxyHost, proxyPort, timeoutMs = 1200)
-        if (conn.responseCode != 200) return emptyList()
-        val raw = conn.inputStream.bufferedReader().use { it.readText() }
-        val arr = JSONArray(raw)
-        for (i in 0 until arr.length()) {
-            val obj = arr.getJSONObject(i)
-            val id = obj.optString("id", "0")
-            if (id == "0") continue
-            val name = obj.optString("name", "")
-            val hash = obj.optString("info_hash", "").uppercase()
-            val username = obj.optString("username", "")
-            if (name.isEmpty() || hash.length != 40) continue
-            if (tokens.isNotEmpty() && !tokens.all { name.contains(it, ignoreCase = true) }) continue
-
-            val switchForumInfo = switchForumMap[hash]
-            if (switchForumInfo == null && !isStrictSwitchRelease(name, "", username)) continue
-
-            val sizeBytes = obj.optLong("size", switchForumInfo?.second ?: 0L)
-            val seeds = obj.optInt("seeders", switchForumInfo?.third ?: 0)
-            val leech = obj.optInt("leechers", 0)
-            val tid = switchForumInfo?.first ?: "TPB-$id"
-            val topicLink = if (switchForumInfo != null) {
-                "$mirror/forum/viewtopic.php?t=${switchForumInfo.first}"
-            } else {
-                "$mirror/forum/tracker.php?f=1605&nm=${URLEncoder.encode(query, "UTF-8")}"
-            }
-            val displayTitle = if (name.contains("Switch", true)) name else "[Nintendo Switch] $name"
-
-            list.add(
-                TopicItem(
-                    topicId = tid,
-                    title = displayTitle,
-                    category = "Nintendo Switch",
-                    sizeText = StormNczEngine.formatSize(sizeBytes),
-                    seeds = seeds,
-                    leechers = leech,
-                    infoHash = hash,
-                    magnetUri = buildMagnet(hash, displayTitle),
-                    topicUrl = topicLink
-                )
-            )
-            if (list.size >= 25) break
         }
         return list
     }
@@ -2581,177 +2990,79 @@ object RuTrackerCloudEngine {
             (!forumMapsReady || cachedForumTopicMap?.containsKey(topicId) == true)
         if (!isRealTopic) return TopicDiscussionResult(emptyList())
 
-        val primaryMirror = if (mirror.startsWith("http")) mirror.trimEnd('/') else "https://${mirror.trimEnd('/')}"
+        val workingMirror = if (activeWorkingMirror.isNotBlank()) activeWorkingMirror else "https://rutracker.org"
         val mirrors = listOf(
-            primaryMirror,
+            workingMirror,
             "https://rutracker.org",
-            "https://rutracker.net",
-            "https://rutracker.nl"
-        ).distinct()
-
-        val ctx = appContext
-        val cm = try { android.webkit.CookieManager.getInstance() } catch (_: Throwable) { null }
-        val webViewUa = ctx?.let {
-            try { android.webkit.WebSettings.getDefaultUserAgent(it) } catch (_: Throwable) { null }
-        } ?: "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36"
+            "https://rutracker.net"
+        ).distinct().filter { !it.contains("rutracker.nl") }
 
         var passedCf = false
         var cfNeeded = false
-        var lastAttemptedUrl = "$primaryMirror/forum/viewtopic.php?t=$topicId"
+        var lastAttemptedUrl = "$workingMirror/forum/viewtopic.php?t=$topicId"
+        var topicHtml: String? = null
 
-        // 1) Быстрый путь с CookieManager + WebView User-Agent
-        for (mUrl in mirrors) {
-            val targetUrl = "$mUrl/forum/viewtopic.php?t=$topicId"
-            lastAttemptedUrl = targetUrl
-            val cookies = cm?.getCookie(mUrl) ?: ""
-            try {
-                val conn = openConnection(targetUrl, cookie = cookies, timeoutMs = 3500)
-                conn.setRequestProperty("User-Agent", webViewUa)
-                val code = conn.responseCode
-                if (code == 200) {
-                    val rawBytes = conn.inputStream.readBytes()
-                    val html1 = String(rawBytes, Charset.forName("windows-1251"))
-                    if (html1.contains("post_body") || html1.contains("topic_main")) {
-                        passedCf = true
-                        parsePostsFromTopicHtml(html1, 1, outMap)
-                        val startOffsets = Regex("""viewtopic\.php\?t=$topicId&(?:amp;)?start=(\d+)""", RegexOption.IGNORE_CASE)
-                            .findAll(html1)
-                            .mapNotNull { it.groupValues[1].toIntOrNull() }
-                            .filter { it > 0 }
-                            .distinct()
-                            .sorted()
-                            .toList()
-
-                        for (offset in startOffsets.takeLast(2)) {
-                            try {
-                                val pageNum = (offset / 30) + 1
-                                val connPage = openConnection("$mUrl/forum/viewtopic.php?t=$topicId&start=$offset", cookie = cookies, timeoutMs = 2500)
-                                connPage.setRequestProperty("User-Agent", webViewUa)
-                                if (connPage.responseCode == 200) {
-                                    val htmlPage = String(connPage.inputStream.readBytes(), Charset.forName("windows-1251"))
-                                    parsePostsFromTopicHtml(htmlPage, pageNum, outMap)
-                                }
-                            } catch (_: Exception) {}
+        // 1. Попытка Same-Origin fetch прямо через прогретый Chromium WebView
+        val targetUrls = listOf("$workingMirror/forum/viewtopic.php?t=$topicId")
+        val webPages = fetchPagesViaWebViewBlocking(targetUrls, timeoutMs = 4500L)
+        val fetchedHtml = webPages[targetUrls.first()]
+        if (!fetchedHtml.isNullOrBlank() && (fetchedHtml.contains("post_body") || fetchedHtml.contains("topic_main"))) {
+            passedCf = true
+            topicHtml = fetchedHtml
+            activeWorkingMirror = workingMirror
+        } else {
+            // 2. Если страница не загрузилась или на ней Cloudflare — запускаем фоновый обход через прикреплённый аппаратный WebView
+            for (mUrl in mirrors) {
+                val candidateUrl = "$mUrl/forum/viewtopic.php?t=$topicId"
+                lastAttemptedUrl = candidateUrl
+                val ok = bypassCloudflareForUrlBlocking(candidateUrl, timeoutSec = 12)
+                if (ok) {
+                    passedCf = true
+                    activeWorkingMirror = mUrl
+                    val bypassedHtml = lastBypassedPageHtml
+                    if (!bypassedHtml.isNullOrBlank() && (bypassedHtml.contains("post_body") || bypassedHtml.contains("topic_main"))) {
+                        topicHtml = bypassedHtml
+                    } else {
+                        val secondFetch = fetchPagesViaWebViewBlocking(listOf(candidateUrl), timeoutMs = 4500L)
+                        val h = secondFetch[candidateUrl]
+                        if (!h.isNullOrBlank() && (h.contains("post_body") || h.contains("topic_main"))) {
+                            topicHtml = h
                         }
-                        if (outMap.isNotEmpty()) break
-                    } else if (html1.contains("Just a moment") || html1.contains("Один момент") || html1.contains("cf-turnstile")) {
-                        cfNeeded = true
                     }
-                } else if (code == 403 || code == 503) {
+                    break
+                } else {
                     cfNeeded = true
                 }
-            } catch (_: Exception) {
-                cfNeeded = true
             }
         }
 
-        // 2) Автоматический фоновый WebView обход JS-проверки Cloudflare
-        if (!passedCf && ctx != null && cm != null) {
-            var wvHtml: String? = null
-            var turnstileDetected = false
-            val latch = java.util.concurrent.CountDownLatch(1)
-            val handler = android.os.Handler(android.os.Looper.getMainLooper())
+        if (topicHtml != null && (topicHtml.contains("post_body") || topicHtml.contains("topic_main"))) {
+            passedCf = true
+            parsePostsFromTopicHtml(topicHtml, 1, outMap)
+            val startOffsets = Regex("""viewtopic\.php\?t=$topicId&(?:amp;)?start=(\d+)""", RegexOption.IGNORE_CASE)
+                .findAll(topicHtml)
+                .mapNotNull { it.groupValues[1].toIntOrNull() }
+                .filter { it > 0 }
+                .distinct()
+                .sorted()
+                .toList()
 
-            handler.post {
-                var wv: android.webkit.WebView? = null
-                try {
-                    wv = android.webkit.WebView(ctx).apply {
-                        settings.javaScriptEnabled = true
-                        settings.domStorageEnabled = true
-                        settings.userAgentString = webViewUa
+            val lastOffsets = startOffsets.takeLast(2)
+            if (lastOffsets.isNotEmpty()) {
+                val pageUrls = lastOffsets.map { "$activeWorkingMirror/forum/viewtopic.php?t=$topicId&start=$it" }
+                val pagesMap = fetchPagesViaWebViewBlocking(pageUrls, timeoutMs = 5000L)
+                for (offset in lastOffsets) {
+                    val pUrl = "$activeWorkingMirror/forum/viewtopic.php?t=$topicId&start=$offset"
+                    val pHtml = pagesMap[pUrl]
+                    if (!pHtml.isNullOrBlank()) {
+                        parsePostsFromTopicHtml(pHtml, (offset / 30) + 1, outMap)
                     }
-                    cm.setAcceptCookie(true)
-                    cm.setAcceptThirdPartyCookies(wv, true)
-
-                    var finished = false
-                    val poller = object : Runnable {
-                        var ticks = 0
-                        override fun run() {
-                            if (finished) return
-                            ticks++
-                            wv?.evaluateJavascript(
-                                """
-                                (function() {
-                                    var hasPosts = !!document.querySelector('.post_body, #topic_main');
-                                    var title = document.title || '';
-                                    var isCf = title.indexOf('Just a moment') !== -1 || title.indexOf('Один момент') !== -1 || !!document.querySelector('#challenge-running, #challenge-stage, .cf-turnstile');
-                                    if (hasPosts) return 'READY';
-                                    if (isCf) return 'CF';
-                                    return 'WAIT';
-                                })()
-                                """.trimIndent()
-                            ) { res ->
-                                val r = res?.replace("\"", "")?.replace("'", "")?.trim() ?: ""
-                                if (r == "READY") {
-                                    finished = true
-                                    wv?.evaluateJavascript("document.documentElement.outerHTML") { rawHtml ->
-                                        try {
-                                            wvHtml = org.json.JSONTokener(rawHtml ?: "\"\"").nextValue().toString()
-                                        } catch (_: Throwable) {
-                                            wvHtml = rawHtml
-                                        }
-                                        cm.flush()
-                                        try { wv?.destroy() } catch (_: Throwable) {}
-                                        latch.countDown()
-                                    }
-                                } else {
-                                    if (r == "CF") turnstileDetected = true
-                                    if (ticks >= 20) { // 20 * 600 ms = 12 sec
-                                        finished = true
-                                        try { wv?.destroy() } catch (_: Throwable) {}
-                                        latch.countDown()
-                                    } else {
-                                        handler.postDelayed(this, 600)
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    wv.webViewClient = object : android.webkit.WebViewClient() {
-                        override fun onPageFinished(view: android.webkit.WebView?, url: String?) {
-                            handler.postDelayed(poller, 600)
-                        }
-                    }
-                    wv.loadUrl(lastAttemptedUrl)
-                } catch (e: Throwable) {
-                    try { wv?.destroy() } catch (_: Throwable) {}
-                    latch.countDown()
                 }
-            }
-
-            try { latch.await(14, java.util.concurrent.TimeUnit.SECONDS) } catch (_: InterruptedException) {}
-
-            val bgHtml = wvHtml
-            if (bgHtml != null && (bgHtml.contains("post_body") || bgHtml.contains("topic_main"))) {
-                passedCf = true
-                parsePostsFromTopicHtml(bgHtml, 1, outMap)
-                val cookies = cm.getCookie(primaryMirror) ?: ""
-                val startOffsets = Regex("""viewtopic\.php\?t=$topicId&(?:amp;)?start=(\d+)""", RegexOption.IGNORE_CASE)
-                    .findAll(bgHtml)
-                    .mapNotNull { it.groupValues[1].toIntOrNull() }
-                    .filter { it > 0 }
-                    .distinct()
-                    .sorted()
-                    .toList()
-                for (offset in startOffsets.takeLast(2)) {
-                    try {
-                        val pageNum = (offset / 30) + 1
-                        val connP = openConnection("$primaryMirror/forum/viewtopic.php?t=$topicId&start=$offset", cookie = cookies, timeoutMs = 2500)
-                        connP.setRequestProperty("User-Agent", webViewUa)
-                        if (connP.responseCode == 200) {
-                            val htmlP = String(connP.inputStream.readBytes(), Charset.forName("windows-1251"))
-                            parsePostsFromTopicHtml(htmlP, pageNum, outMap)
-                        }
-                    } catch (_: Throwable) {}
-                }
-            } else if (turnstileDetected) {
-                cfNeeded = true
             }
         }
 
         // Если прямой доступ к viewtopic.php ограничен Cloudflare (403), подгружаем реальные сообщения со ссылками из темы RuTracker (строго selected = false по умолчанию, без STORM GAMES WORLD и без фейковых ссылок!)
-        if (outMap.isEmpty()) {
+        if (outMap.isEmpty() && !passedCf) {
             val baseTid = resolveAuthenticBaseTitleId(topic.title, topic.infoHash, topic.topicId)
             val lowerTitle = topic.title.lowercase()
             if (topicId == "6479728" || baseTid == "0100B99019412000" || (lowerTitle.contains("mario vs") && lowerTitle.contains("donkey kong"))) {
@@ -2934,50 +3245,14 @@ object RuTrackerCloudEngine {
             return sorted
         }
 
-        // 2. Лишь как резерв опрашиваем torrents-csv / ApiBay / ленту
-        val workers = ArrayList<Thread>()
-        for (q in listOf(name, "$name nsp", "$name switch", "$name nsz", "$name xci").distinct()) {
-            workers.add(Thread {
-                try {
-                    val conn = openConnection("https://torrents-csv.com/service/search?q=${URLEncoder.encode(q, "UTF-8")}&size=50", timeoutMs = 9000)
-                    if (conn.responseCode == 200) {
-                        val arr = JSONObject(conn.inputStream.bufferedReader().use { it.readText() }).optJSONArray("torrents") ?: JSONArray()
-                        for (i in 0 until arr.length()) {
-                            val o = arr.optJSONObject(i) ?: continue
-                            consider(o.optString("infohash", ""), o.optString("name", ""), o.optInt("seeders", 0), o.optLong("size_bytes", 0L), "torrents-csv")
-                        }
-                    }
-                } catch (_: Exception) {}
-            })
-        }
-        for (q in listOf("$name switch", "$name nsp").distinct()) {
-            workers.add(Thread {
-                try {
-                    val conn = openConnection("https://apibay.org/q.php?q=${URLEncoder.encode(q, "UTF-8")}", timeoutMs = 9000)
-                    if (conn.responseCode == 200) {
-                        val arr = JSONArray(conn.inputStream.bufferedReader().use { it.readText() })
-                        for (i in 0 until arr.length()) {
-                            val o = arr.optJSONObject(i) ?: continue
-                            if (o.optString("id", "0") == "0") continue
-                            consider(o.optString("info_hash", ""), o.optString("name", ""), o.optInt("seeders", 0), o.optLong("size", 0L), "ApiBay")
-                        }
-                    }
-                } catch (_: Exception) {}
-            })
-        }
-        workers.add(Thread {
-            try {
-                val toks = significantNameTokens(name)
-                for (item in searchRuTrackerSwitchAtomFeed(toks, "https://rutracker.org", "", 0)) {
-                    if (item.infoHash.length == 40) consider(item.infoHash, item.title, item.seeds, StormNczEngine.parseSizeToBytes(item.sizeText), "лента RuTracker #1605")
-                }
-            } catch (_: Exception) {}
-        })
-        workers.forEach { it.start() }
-        val deadline = System.currentTimeMillis() + 15000L
-        for (w in workers) {
-            try { w.join((deadline - System.currentTimeMillis()).coerceAtLeast(1L)) } catch (_: Exception) {}
-        }
+        // 2. Лишь как резерв опрашиваем живую atom-ленту RuTracker #1605
+        try {
+            val toks = significantNameTokens(name)
+            for (item in searchRuTrackerSwitchAtomFeed(toks, activeWorkingMirror, "", 0)) {
+                if (item.infoHash.length == 40) consider(item.infoHash, item.title, item.seeds, StormNczEngine.parseSizeToBytes(item.sizeText), "лента RuTracker #1605", item.topicId)
+            }
+        } catch (_: Exception) {}
+
         val all = synchronized(lock) { found.values.toList() }
         val sorted = all.sortedWith(compareByDescending<RealTorrentCandidate> { it.topicId.isNotEmpty() }.thenByDescending { it.seeds })
         return sorted.filter { it.seeds > 0 }.ifEmpty { sorted }
@@ -2985,7 +3260,7 @@ object RuTrackerCloudEngine {
 
     /**
      * Находит РЕАЛЬНУЮ раздачу для выбранной карточки: (1) номер темы подтверждён API RuTracker #1605 → его BTIH;
-     * (2) BTIH из реального источника (torrents-csv / ApiBay / RuTracker); (3) поиск по названию игры / TitleID.
+     * (2) BTIH из реального источника RuTracker #1605; (3) поиск по названию игры / TitleID.
      * Никогда не возвращает хэш, не полученный из реального источника.
      */
     fun resolveRealTorrentCandidates(topic: TopicItem, gameName: String, baseTid: String, reasons: MutableList<String>): List<RealTorrentCandidate> {
@@ -3005,15 +3280,11 @@ object RuTrackerCloudEngine {
         val h = topic.infoHash.trim().uppercase()
         if (h.length == 40) {
             val inPvc = cachedForum1605Hashes?.get(h)
-            when {
-                inPvc != null -> {
-                    out.add(RealTorrentCandidate(h, topic.title, inPvc.third, inPvc.second, "RuTracker #1605, тема t=${inPvc.first}", inPvc.first, true))
-                    return out
-                }
-                tid.startsWith("CSV-") || tid.startsWith("TPB-") -> out.add(
-                    RealTorrentCandidate(h, topic.title, topic.seeds, StormNczEngine.parseSizeToBytes(topic.sizeText), if (tid.startsWith("CSV-")) "torrents-csv" else "ApiBay", "", false)
-                )
-                else -> reasons.add("BTIH ${h.take(10)}… из карточки не подтверждён реальными источниками — не используется")
+            if (inPvc != null) {
+                out.add(RealTorrentCandidate(h, topic.title, inPvc.third, inPvc.second, "RuTracker #1605, тема t=${inPvc.first}", inPvc.first, true))
+                return out
+            } else {
+                reasons.add("BTIH ${h.take(10)}… из карточки не подтверждён реальными источниками — не используется")
             }
         }
         val searchName = gameName.ifBlank { StormNczEngine.extractCleanGameTitle(topic.title) }.trim()
@@ -3023,7 +3294,7 @@ object RuTrackerCloudEngine {
         }
         val found = searchRealSwitchTorrentsByName(searchName, baseTid)
         if (found.isEmpty() && out.isEmpty()) {
-            reasons.add("Раздача «$searchName» для Nintendo Switch не найдена в открытых источниках (лента RuTracker #1605, torrents-csv, ApiBay)")
+            reasons.add("Раздача «$searchName» для Nintendo Switch не найдена в источниках RuTracker #1605")
         }
         for (c in found) if (out.none { it.infoHash == c.infoHash }) out.add(c)
         return out
@@ -3072,111 +3343,6 @@ object RuTrackerCloudEngine {
         return "раздача «$torrentName» не относится к игре «$gameName» — пропущена"
     }
 
-    /**
-     * Ищет реальный розничный контейнер игры (.nsp / .xci) локально на устройстве
-     * или скачивает его напрямую с облачного хранилища STORM GAMES WORLD (stormgamesworld.ru).
-     */
-    private fun acquireRealRetailGameContainers(
-        cleanGameName: String,
-        baseTid: String,
-        romsDir: File,
-        outputDir: File,
-        preferRussianMod: Boolean = true,
-        hasExternalModsToApply: Boolean = false,
-        isCancelled: () -> Boolean,
-        allowLocal: Boolean = true,
-        allowCloud: Boolean = true,
-        reasons: MutableList<String>? = null,
-        onProgress: (downloadedBytes: Long, totalBytes: Long, speedMbSec: Double) -> Unit
-    ): List<File> {
-        val effectiveTid = if (baseTid == "0100C9801A8C2000" || cleanGameName.contains("Animal Well", ignoreCase = true)) {
-            "010020D01AD24000"
-        } else {
-            baseTid
-        }
-        val tidPrefix13 = effectiveTid.take(13).uppercase()
-        val cleanLower = cleanGameName.lowercase().trim()
-
-        // 1. Проверяем локальные директории на наличие подлинных розничных контейнеров (.nsp / .nsz / .xci / .xcz без фейкового STORM_NSO0)
-        val searchDirs = listOf(
-            romsDir,
-            File("/storage/emulated/0/Download"),
-            File("/storage/emulated/0/STORM SWITCH/roms"),
-            File("/storage/emulated/0/Games/Switch"),
-            File("/storage/emulated/0/GAMES/CONSOLES/Nintendo Switch"),
-            outputDir
-        ).distinctBy { it.absolutePath }
-
-        val candidateFiles = mutableListOf<File>()
-        for (dir in (if (allowLocal) searchDirs else emptyList())) {
-            if (!dir.exists() || !dir.isDirectory) continue
-            val files = dir.listFiles() ?: continue
-            for (f in files) {
-                if (!f.isFile || f.length() < 128L * 1024L) continue
-                val ext = f.extension.lowercase()
-                if (ext !in listOf("nsp", "nsz", "xci", "xcz")) continue
-                val fNameLower = f.name.lowercase()
-                val matchesGame = f.name.uppercase().contains(tidPrefix13) ||
-                    (cleanLower.length >= 4 && fNameLower.contains(cleanLower)) ||
-                    (effectiveTid == "010020D01AD24000" && fNameLower.contains("animal_well"))
-                if (!matchesGame || f.name.startsWith("MOD_[", ignoreCase = true)) continue
-
-                if (StormNczEngine.isGenuineSwitchContainer(f, tidPrefix13)) {
-                    candidateFiles.add(f)
-                }
-            }
-        }
-
-        if (candidateFiles.isNotEmpty()) {
-            // Разделяем на чистые исходники (БАЗА, ПАТЧ, DLC) и уже собранные мульти-контейнеры
-            val unmodded = candidateFiles.filter {
-                !it.name.contains("MOD - RUS", ignoreCase = true) &&
-                !it.name.contains("MOD_RUS", ignoreCase = true) &&
-                !it.name.contains("_[Multi]", ignoreCase = true)
-            }
-            val pool = if (hasExternalModsToApply && unmodded.any { it.length() >= 8L * 1024L * 1024L }) unmodded else candidateFiles
-            val baseCands = pool.filter { f ->
-                val info = StormNczEngine.analyzeQueuedFile(f)
-                info.roleBadge == "БАЗА" || info.subComponents.any { it.roleBadge == "БАЗА" }
-            }
-            val bestBase = baseCands.firstOrNull { !it.extension.equals("nsz", true) && !it.extension.equals("xcz", true) }
-                ?: baseCands.firstOrNull()
-            if (bestBase != null) {
-                val chosen = mutableListOf(bestBase)
-                val baseInfo = StormNczEngine.analyzeQueuedFile(bestBase)
-                val baseAlreadyHasPatch = baseInfo.subComponents.any { it.roleBadge == "ПАТЧ" }
-                if (!baseAlreadyHasPatch) {
-                    val updCands = candidateFiles.filter { f ->
-                        f.absolutePath != bestBase.absolutePath && StormNczEngine.analyzeQueuedFile(f).roleBadge == "ПАТЧ"
-                    }
-                    updCands.maxByOrNull { it.length() }?.let { chosen.add(it) }
-                }
-                val dlcCands = candidateFiles.filter { f ->
-                    f.absolutePath != bestBase.absolutePath && StormNczEngine.analyzeQueuedFile(f).roleBadge in setOf("DLC", "UNLOCKER")
-                }.distinctBy { StormNczEngine.analyzeQueuedFile(it).rawTitleId }
-                chosen.addAll(dlcCands)
-
-                val totalLen = chosen.sumOf { it.length() }
-                onProgress(totalLen / 2, totalLen, 65.0)
-                onProgress(totalLen, totalLen, 85.0)
-                return chosen
-            }
-        }
-
-        if (allowLocal) {
-            reasons?.add("Локальные файлы: подлинный контейнер «$cleanGameName» [$effectiveTid] не найден (roms, Download, Games/Switch)")
-        }
-        if (!allowCloud) return emptyList()
-
-        fun matchesGameTid(f: File): String? {
-            val info = try { StormNczEngine.analyzeQueuedFile(f) } catch (_: Throwable) { null }
-            val realTid = info?.baseTitleId.orEmpty()
-            return if (realTid.length >= 13 && !realTid.take(13).equals(tidPrefix13, ignoreCase = true)) realTid else null
-        }
-
-// Резервные облачные скачивания исключены (STORM GAMES WORLD удален)
-        return emptyList()
-    }
 
     fun getReleaseFilesList(topic: TopicItem): List<ReleaseContentFile> {
         val totalBytes = StormNczEngine.parseSizeToBytes(topic.sizeText).coerceAtLeast(32L * 1024L * 1024L)
@@ -3717,40 +3883,26 @@ object RuTrackerCloudEngine {
         }
         val gameContainersBefore = downloadedFiles.size
 
-        val localContainers = acquireRealRetailGameContainers(
-            cleanGameName = cleanGameName,
-            baseTid = baseTid,
-            romsDir = romsDir,
-            outputDir = outputDir,
-            preferRussianMod = preferRussianMod,
-            hasExternalModsToApply = hasExternalMods,
-            isCancelled = isCancelled,
-            allowLocal = true,
-            allowCloud = false,
-            reasons = acquisitionReasons,
-            onProgress = acquireProgress
-        )
-        for (rf in localContainers) {
-            if (downloadedFiles.none { it.absolutePath == rf.absolutePath }) downloadedFiles.add(rf)
-            stepLogs.add("✅ Найден подлинный контейнер: ${rf.name} (${StormNczEngine.formatSize(rf.length())})")
-        }
-
-        if (localContainers.isEmpty()) {
+        if (isCancelled()) throw InterruptedException("Операция отменена пользователем")
+        report(5, "Этап 1/5: Подключение к раздаче RuTracker #1605", "Проверка по API RuTracker #1605...", "🔎 [Этап 1/5] Подключение к раздаче RuTracker #1605 (t=${topic.topicId})...")
+        val torrentCandidates = resolveRealTorrentCandidates(topic, cleanGameName, baseTid, acquisitionReasons)
+        val wantedRoles = allReleaseFiles.map { it.roleBadge.uppercase() }.toSet()
+        val selectedFileNames = allReleaseFiles.filter { it.selected }.map { it.fileName.lowercase() }.toSet()
+        for (cand in torrentCandidates.take(2)) {
             if (isCancelled()) throw InterruptedException("Операция отменена пользователем")
-            report(5, "Этап 1/5: Поиск подлинной раздачи", "Проверка по API RuTracker #1605...", "🔎 [Этап 1/5] Поиск подлинной раздачи (API RuTracker #1605 → torrents-csv → ApiBay)...")
-            val torrentCandidates = resolveRealTorrentCandidates(topic, cleanGameName, baseTid, acquisitionReasons)
-            val wantedRoles = allReleaseFiles.map { it.roleBadge.uppercase() }.toSet()
-            for (cand in torrentCandidates.take(2)) {
-                if (isCancelled()) throw InterruptedException("Операция отменена пользователем")
-                stepLogs.add("🧲 Раздача: ${cand.source} • BTIH ${cand.infoHash} • сидов: ${if (cand.seeds > 0) cand.seeds.toString() else "нет данных"} • ${cand.title.take(90)}")
-                val tr = downloadTorrentWithDiagnostics(
-                    magnetOrTorrent = buildMagnet(cand.infoHash, cand.title),
-                    saveDir = romsDir,
-                    isCancelled = isCancelled,
-                    acceptMetadata = { name, files -> if (cand.trustedTopic) null else checkTorrentMatchesGame(name, files, cleanGameName, baseTid) },
-                    wantFile = { path, _ -> isWantedTorrentFile(path, wantedRoles) },
-                    onStatus = { st -> report(6, "Этап 1/5: BitTorrent P2P", st) }
-                ) { dlBytes, totalBytes, speedMbSec, peers, seeds ->
+            stepLogs.add("🧲 Раздача: ${cand.source} • BTIH ${cand.infoHash} • сидов: ${if (cand.seeds > 0) cand.seeds.toString() else "нет данных"} • ${cand.title.take(90)}")
+            val tr = downloadTorrentWithDiagnostics(
+                magnetOrTorrent = buildMagnet(cand.infoHash, cand.title),
+                saveDir = romsDir,
+                isCancelled = isCancelled,
+                acceptMetadata = { name, files -> if (cand.trustedTopic) null else checkTorrentMatchesGame(name, files, cleanGameName, baseTid) },
+                wantFile = { path, _ ->
+                    val fn = File(path).name.lowercase()
+                    val matchesSel = selectedFileNames.isEmpty() || selectedFileNames.any { fn == it || fn.contains(it) || it.contains(fn) }
+                    matchesSel && isWantedTorrentFile(path, wantedRoles)
+                },
+                onStatus = { st -> report(6, "Этап 1/5: BitTorrent P2P", st) }
+            ) { dlBytes, totalBytes, speedMbSec, peers, seeds ->
                     val pct = 6 + ((dlBytes * 24L) / totalBytes.coerceAtLeast(1L)).toInt().coerceIn(0, 24)
                     report(
                         pct,
@@ -3812,7 +3964,6 @@ object RuTrackerCloudEngine {
                 }
                 break
             }
-        }
 
         val hasGameContainer = downloadedFiles.any { f -> f.isFile && f.extension.lowercase() in listOf("nsp", "nsz", "xci", "xcz") && !f.name.startsWith("CLOUD_") }
         if (!hasGameContainer) {
