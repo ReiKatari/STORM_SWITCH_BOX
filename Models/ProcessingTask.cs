@@ -70,6 +70,9 @@ namespace StormSwitchBox.Models
 
         [System.Text.Json.Serialization.JsonIgnore]
         public RuTrackerTaskPayload? RuTrackerPayload { get; set; }
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public bool HasActiveWorker { get; set; }
         
         [System.Text.Json.Serialization.JsonIgnore]
         public string FinishedAtDisplay => FinishedAt.ToString("dd.MM.yyyy HH:mm");
@@ -295,7 +298,7 @@ namespace StormSwitchBox.Models
             if (!IsRunning || IsPaused) return;
             IsPaused = true;
             PauseEvent.Reset();
-            Status = "Пауза";
+            Status = "⏸ Сохранено на паузе";
             Speed = string.Empty;
             try
             {
@@ -384,6 +387,55 @@ namespace StormSwitchBox.Models
         public string CustomModTitle { get; set; } = string.Empty;
         public bool AutoBuild { get; set; } = true;
         public bool HasTorrentSource { get; set; } = true;
+    }
+
+    public sealed class PersistedTaskSnapshot
+    {
+        public string Id { get; set; } = string.Empty;
+        public string GameName { get; set; } = string.Empty;
+        public string Operation { get; set; } = string.Empty;
+        public string SourceFormat { get; set; } = string.Empty;
+        public string TargetFormat { get; set; } = "NSP";
+        public string Status { get; set; } = "⏸ Сохранено на паузе";
+        public double Progress { get; set; }
+        public string SourceSize { get; set; } = string.Empty;
+        public string TargetSize { get; set; } = string.Empty;
+        public string OutputFolder { get; set; } = string.Empty;
+        public string OutputFileName { get; set; } = string.Empty;
+        public string LogDetails { get; set; } = string.Empty;
+        public string GroupId { get; set; } = string.Empty;
+        public List<string> InputFiles { get; set; } = new();
+        public List<string> FilesList { get; set; } = new();
+        public bool IsRuTrackerTask { get; set; }
+        public bool DeleteSourceAfterVerify { get; set; }
+        public RuTrackerTaskSnapshot? RuTrackerSnapshot { get; set; }
+    }
+
+    public sealed class RuTrackerTaskSnapshot
+    {
+        public string TopicId { get; set; } = string.Empty;
+        public string TopicTitle { get; set; } = string.Empty;
+        public string Category { get; set; } = string.Empty;
+        public int Seeds { get; set; }
+        public string MagnetUri { get; set; } = string.Empty;
+        public string InfoHash { get; set; } = string.Empty;
+        public string DirectTorrentUrl { get; set; } = string.Empty;
+        public byte[]? TorrentBytes { get; set; }
+        public List<PersistedTorrentFileItem> TorrentFiles { get; set; } = new();
+        public List<string> CloudLinks { get; set; } = new();
+        public string TargetReleaseDir { get; set; } = string.Empty;
+        public string CustomModTitle { get; set; } = string.Empty;
+        public bool AutoBuild { get; set; } = true;
+        public bool HasTorrentSource { get; set; } = true;
+    }
+
+    public sealed class PersistedTorrentFileItem
+    {
+        public string RelativePath { get; set; } = string.Empty;
+        public long Length { get; set; }
+        public bool IsSelected { get; set; }
+        public string CategoryBadge { get; set; } = "ФАЙЛ";
+        public bool IsRealTorrentFile { get; set; }
     }
 
 }

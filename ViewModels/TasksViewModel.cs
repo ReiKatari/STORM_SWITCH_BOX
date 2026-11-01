@@ -188,6 +188,7 @@ public partial class TasksViewModel : ObservableObject
 		_selectedFormatIndex3ds = Math.Clamp(App.Settings.Current.SelectedFormatIndex3ds, 0, FormatNames3ds.Length - 1);
 		_selectedPlatform = Math.Clamp(App.Settings.Current.SelectedPlatformIndex, 0, 1);
 		
+		int autoSaveTicks = 0;
 		DispatcherTimer dispatcherTimer = new DispatcherTimer
 		{
 			Interval = TimeSpan.FromMilliseconds(500.0)
@@ -195,8 +196,15 @@ public partial class TasksViewModel : ObservableObject
 		dispatcherTimer.Tick += delegate
 		{
 			OnPropertyChanged("IsAnyTaskRunning");
+			autoSaveTicks++;
+			if (autoSaveTicks % 10 == 0) // Каждые 5 секунд автосохранение состояния
+			{
+				SavePersistedTasks();
+			}
 		};
 		dispatcherTimer.Start();
+
+		LoadPersistedTasks();
 	}
 
 	public void SetPageType(string pageType)
@@ -1823,8 +1831,258 @@ public partial class TasksViewModel : ObservableObject
 		return false;
 	}
 
+	private static string GetPersistedTasksPath()
+	{
+		string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "STORM SWITCH BOX");
+		Directory.CreateDirectory(dir);
+		return Path.Combine(dir, "persisted_tasks.json");
+	}
+
+	public void SavePersistedTasks()
+	{
+		try
+		{
+			var unfinishedTasks = Tasks.Where(t => 
+				t.IsRunning || t.IsPaused || 
+				(t.Status != "Успешно" && t.Status != "Готово" && t.Status != "Отменено" && t.Status != "Отменен")
+			).ToList();
+
+			string p = GetPersistedTasksPath();
+			if (unfinishedTasks.Count == 0)
+			{
+				if (File.Exists(p)) File.Delete(p);
+				return;
+			}
+
+			var snapshots = unfinishedTasks.Select(t =>
+			{
+				var snap = new PersistedTaskSnapshot
+				{
+					Id = t.Id,
+					GameName = t.GameName,
+					Operation = t.Operation,
+					SourceFormat = t.SourceFormat,
+					TargetFormat = t.TargetFormat,
+					Status = t.Status,
+					Progress = t.Progress,
+					SourceSize = t.SourceSize,
+					TargetSize = t.TargetSize,
+					OutputFolder = t.OutputFolder,
+					OutputFileName = t.OutputFileName,
+					LogDetails = t.LogDetails,
+					GroupId = t.GroupId,
+					InputFiles = new List<string>(t.InputFiles ?? new List<string>()),
+					FilesList = new List<string>(t.FilesList ?? new List<string>()),
+					IsRuTrackerTask = t.IsRuTrackerTask,
+					DeleteSourceAfterVerify = t.DeleteSourceAfterVerify
+				};
+
+				if (t.IsRuTrackerTask && t.RuTrackerPayload != null)
+				{
+					var payload = t.RuTrackerPayload;
+					snap.RuTrackerSnapshot = new RuTrackerTaskSnapshot
+					{
+						TopicId = payload.Topic?.TopicId ?? "",
+						TopicTitle = payload.Topic?.Title ?? t.GameName,
+						Category = payload.Topic?.Category ?? "",
+						Seeds = payload.Topic?.Seeds ?? 0,
+						MagnetUri = payload.MagnetLink?.ToV1String() ?? payload.MagnetLink?.ToString() ?? payload.Topic?.MagnetUri ?? "",
+						InfoHash = payload.Topic?.InfoHash ?? "",
+						DirectTorrentUrl = payload.Topic?.DirectTorrentUrl ?? "",
+						TorrentBytes = payload.TorrentBytes,
+						TorrentFiles = payload.TorrentFiles.Select(tf => new PersistedTorrentFileItem
+						{
+							RelativePath = tf.RelativePath,
+							Length = tf.Length,
+							IsSelected = tf.IsSelected,
+							CategoryBadge = tf.CategoryBadge,
+							IsRealTorrentFile = tf.IsRealTorrentFile
+						}).ToList(),
+						CloudLinks = new List<string>(payload.CloudLinks ?? new List<string>()),
+						TargetReleaseDir = payload.TargetReleaseDir,
+						CustomModTitle = payload.CustomModTitle,
+						AutoBuild = payload.AutoBuild,
+						HasTorrentSource = payload.HasTorrentSource
+					};
+				}
+				return snap;
+			}).ToList();
+
+			string json = System.Text.Json.JsonSerializer.Serialize(snapshots, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+			File.WriteAllText(p, json);
+		}
+		catch (Exception ex)
+		{
+			App.Logger?.Log($"[Задачник] Ошибка сохранения задач: {ex.Message}", LogLevel.Warning);
+		}
+	}
+
+	public void SaveTasksOnExit()
+	{
+		try
+		{
+			foreach (var task in Tasks)
+			{
+				if (task.IsRunning && !task.IsPaused)
+				{
+					task.Pause();
+					task.Status = "⏸ Сохранено на паузе";
+				}
+			}
+			SavePersistedTasks();
+		}
+		catch { }
+	}
+
+	public void LoadPersistedTasks()
+	{
+		try
+		{
+			string p = GetPersistedTasksPath();
+			if (!File.Exists(p)) return;
+
+			string json = File.ReadAllText(p);
+			var snapshots = System.Text.Json.JsonSerializer.Deserialize<List<PersistedTaskSnapshot>>(json);
+			if (snapshots == null || snapshots.Count == 0) return;
+
+			foreach (var snap in snapshots)
+			{
+				var task = new ProcessingTask
+				{
+					Id = !string.IsNullOrEmpty(snap.Id) ? snap.Id : Guid.NewGuid().ToString("N").Substring(0, 8),
+					GameName = snap.GameName,
+					Operation = snap.Operation,
+					SourceFormat = snap.SourceFormat,
+					TargetFormat = snap.TargetFormat,
+					Status = "⏸ Сохранено на паузе",
+					Progress = snap.Progress,
+					SourceSize = snap.SourceSize,
+					TargetSize = snap.TargetSize,
+					OutputFolder = snap.OutputFolder,
+					OutputFileName = snap.OutputFileName,
+					LogDetails = snap.LogDetails + "\n[Восстановление] Задача восстановлена с паузы при запуске приложения.",
+					GroupId = snap.GroupId,
+					InputFiles = snap.InputFiles ?? new List<string>(),
+					FilesList = snap.FilesList ?? new List<string>(),
+					IsRuTrackerTask = snap.IsRuTrackerTask,
+					DeleteSourceAfterVerify = snap.DeleteSourceAfterVerify,
+					IsRunning = true,
+					IsPaused = true,
+					HasActiveWorker = false
+				};
+				task.PauseEvent.Reset();
+
+				if (snap.IsRuTrackerTask && snap.RuTrackerSnapshot != null)
+				{
+					var rtSnap = snap.RuTrackerSnapshot;
+					MonoTorrent.MagnetLink? magnet = null;
+					if (!string.IsNullOrEmpty(rtSnap.MagnetUri))
+					{
+						try { magnet = MonoTorrent.MagnetLink.Parse(rtSnap.MagnetUri); } catch { }
+					}
+
+					var payload = new RuTrackerTaskPayload
+					{
+						Topic = new RuTrackerTopicItem
+						{
+							TopicId = rtSnap.TopicId,
+							Title = rtSnap.TopicTitle,
+							Category = rtSnap.Category,
+							Seeds = rtSnap.Seeds,
+							MagnetUri = rtSnap.MagnetUri,
+							InfoHash = rtSnap.InfoHash,
+							DirectTorrentUrl = rtSnap.DirectTorrentUrl
+						},
+						TorrentBytes = rtSnap.TorrentBytes,
+						MagnetLink = magnet,
+						TorrentFiles = rtSnap.TorrentFiles.Select(tf => new TorrentFileSelectionItem
+						{
+							RelativePath = tf.RelativePath,
+							Length = tf.Length,
+							IsSelected = tf.IsSelected,
+							CategoryBadge = tf.CategoryBadge,
+							IsRealTorrentFile = tf.IsRealTorrentFile
+						}).ToList(),
+						CloudLinks = rtSnap.CloudLinks ?? new List<string>(),
+						TargetReleaseDir = rtSnap.TargetReleaseDir,
+						CustomModTitle = rtSnap.CustomModTitle,
+						AutoBuild = rtSnap.AutoBuild,
+						HasTorrentSource = rtSnap.HasTorrentSource
+					};
+					task.RuTrackerPayload = payload;
+				}
+
+				Tasks.Add(task);
+			}
+			App.Logger?.Log($"[Задачник] Восстановлено незавершенных задач с паузы: {snapshots.Count}", LogLevel.Info);
+		}
+		catch (Exception ex)
+		{
+			App.Logger?.Log($"[Задачник] Ошибка загрузки сохраненных задач: {ex.Message}", LogLevel.Warning);
+		}
+	}
+
+	public void PauseTask(ProcessingTask task)
+	{
+		task.Pause();
+		SavePersistedTasks();
+	}
+
+	public void ResumeTask(ProcessingTask task)
+	{
+		if (!task.HasActiveWorker)
+		{
+			task.HasActiveWorker = true;
+			task.IsPaused = false;
+			task.IsRunning = true;
+			task.PauseEvent.Set();
+			task.Status = "Возобновление...";
+			var cts = new CancellationTokenSource();
+			task.Cts = cts;
+
+			task.OnPauseRequested = () =>
+			{
+				task.Pause();
+				SavePersistedTasks();
+			};
+			task.OnResumeRequested = () =>
+			{
+				task.Resume();
+				SavePersistedTasks();
+			};
+			task.OnCancelRequested = () =>
+			{
+				task.Cancel();
+				SavePersistedTasks();
+			};
+
+			if (task.IsRuTrackerTask && task.RuTrackerPayload != null)
+			{
+				_ = Task.Run(async () =>
+				{
+					await Views.Dialogs.RuTrackerModDownloaderDialog.ExecuteRuTrackerPipelineAsync(task, task.RuTrackerPayload, this, App.RuTrackerMod);
+					SavePersistedTasks();
+				});
+			}
+			else
+			{
+				_ = Task.Run(async () =>
+				{
+					await ExecuteTaskSafelyAsync(task);
+					SavePersistedTasks();
+				});
+			}
+		}
+		else
+		{
+			task.Resume();
+		}
+		SavePersistedTasks();
+	}
+
 	private async Task ExecuteTaskSafelyAsync(ProcessingTask task)
 	{
+		task.HasActiveWorker = true;
 		try
 		{
 			await ExecuteTaskAsync(task);
@@ -2438,6 +2696,8 @@ public partial class TasksViewModel : ObservableObject
 		}
 		finally
 		{
+			task.HasActiveWorker = false;
+			SavePersistedTasks();
 			if (task.Operation == "Convert" && !string.IsNullOrEmpty(tempDecompDirConvert))
 			{
 				TempCleanupService.ForceDeleteDirectory(tempDecompDirConvert);

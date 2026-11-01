@@ -227,9 +227,9 @@ object RuTrackerCloudEngine {
                     val w = (360 * dm.density).toInt()
                     val h = (260 * dm.density).toInt()
                     layoutParams = android.widget.FrameLayout.LayoutParams(w, h)
-                    alpha = 0.01f
-                    isClickable = false
-                    isFocusable = false
+                    alpha = 0.02f
+                    isClickable = true
+                    isFocusable = true
                     visibility = android.view.View.VISIBLE
                     setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
                     onResume()
@@ -491,15 +491,18 @@ object RuTrackerCloudEngine {
                                     latch.countDown()
                                 } else {
                                     val curElapsed = System.currentTimeMillis() - startMs
-                                    if (st == "TURNSTILE" && curElapsed >= 3600L) {
+                                    if (st == "TURNSTILE" && curElapsed >= 1200L) {
                                         val cx = json.optDouble("x", 40.0).toFloat()
                                         val cy = json.optDouble("y", 40.0).toFloat()
                                         val downTime = android.os.SystemClock.uptimeMillis()
                                         val down = android.view.MotionEvent.obtain(downTime, downTime, android.view.MotionEvent.ACTION_DOWN, cx, cy, 0)
-                                        val up = android.view.MotionEvent.obtain(downTime, downTime + 50, android.view.MotionEvent.ACTION_UP, cx, cy, 0)
+                                        val move = android.view.MotionEvent.obtain(downTime, downTime + 30, android.view.MotionEvent.ACTION_MOVE, cx + 1f, cy + 1f, 0)
+                                        val up = android.view.MotionEvent.obtain(downTime, downTime + 80, android.view.MotionEvent.ACTION_UP, cx + 1f, cy + 1f, 0)
                                         wv.dispatchTouchEvent(down)
+                                        wv.dispatchTouchEvent(move)
                                         wv.dispatchTouchEvent(up)
                                         down.recycle()
+                                        move.recycle()
                                         up.recycle()
                                     }
                                     schedulePoller(700L)
@@ -514,6 +517,7 @@ object RuTrackerCloudEngine {
 
                 wv.webViewClient = object : android.webkit.WebViewClient() {
                     override fun onPageFinished(view: android.webkit.WebView?, url: String?) {
+                        view?.evaluateJavascript("Object.defineProperty(navigator, 'webdriver', {get: () => undefined});", null)
                         if (!passed) {
                             schedulePoller(700L)
                         }
@@ -3043,6 +3047,130 @@ object RuTrackerCloudEngine {
         val targetTopicUrl: String = ""
     )
 
+    fun getTopicLinksCacheFile(): File? {
+        val root = cacheRootDir ?: appContext?.filesDir ?: return null
+        return File(root, "rutracker_topic_links_cache.json")
+    }
+
+    fun loadCachedTopicDiscussionLinks(topicId: String): List<TopicDiscussionLink>? {
+        try {
+            val file = getTopicLinksCacheFile() ?: return null
+            if (!file.exists() || file.length() < 10) return null
+            val json = org.json.JSONObject(file.readText(Charsets.UTF_8))
+            if (!json.has(topicId)) return null
+            val arr = json.getJSONArray(topicId)
+            val list = mutableListOf<TopicDiscussionLink>()
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                val mirrors = mutableListOf<String>()
+                val mArr = obj.optJSONArray("mirrorUrls")
+                if (mArr != null) {
+                    for (j in 0 until mArr.length()) mirrors.add(mArr.getString(j))
+                }
+                list.add(
+                    TopicDiscussionLink(
+                        url = obj.getString("url"),
+                        title = obj.getString("title"),
+                        roleCategory = obj.getString("roleCategory"),
+                        provider = obj.getString("provider"),
+                        publishedDate = obj.optString("publishedDate", ""),
+                        sourceLocation = obj.optString("sourceLocation", ""),
+                        selected = obj.optBoolean("selected", false),
+                        mirrorUrls = mirrors
+                    )
+                )
+            }
+            return if (list.isNotEmpty()) list else null
+        } catch (_: Throwable) {
+            return null
+        }
+    }
+
+    fun saveCachedTopicDiscussionLinks(topicId: String, links: List<TopicDiscussionLink>) {
+        if (links.isEmpty()) return
+        try {
+            val file = getTopicLinksCacheFile() ?: return
+            val json = if (file.exists() && file.length() > 5) {
+                try { org.json.JSONObject(file.readText(Charsets.UTF_8)) } catch (_: Throwable) { org.json.JSONObject() }
+            } else {
+                org.json.JSONObject()
+            }
+            val arr = org.json.JSONArray()
+            for (l in links) {
+                val obj = org.json.JSONObject().apply {
+                    put("url", l.url)
+                    put("title", l.title)
+                    put("roleCategory", l.roleCategory)
+                    put("provider", l.provider)
+                    put("publishedDate", l.publishedDate)
+                    put("sourceLocation", l.sourceLocation)
+                    put("selected", l.selected)
+                    put("mirrorUrls", org.json.JSONArray(l.mirrorUrls))
+                }
+                arr.put(obj)
+            }
+            json.put(topicId, arr)
+            val tmp = File(file.parentFile, "${file.name}.tmp")
+            tmp.writeText(json.toString(2), Charsets.UTF_8)
+            if (tmp.exists() && tmp.length() > 0) tmp.renameTo(file)
+        } catch (_: Throwable) {}
+    }
+
+    fun fetchTopicHtmlFastChannels(topicId: String): String? {
+        val candidateUrls = listOf(
+            "https://rutracker.org/forum/viewtopic.php?t=$topicId",
+            "https://rutracker.net/forum/viewtopic.php?t=$topicId",
+            "https://r.jina.ai/https://rutracker.net/forum/viewtopic.php?t=$topicId",
+            "https://api.allorigins.win/raw?url=" + java.net.URLEncoder.encode("https://rutracker.net/forum/viewtopic.php?t=$topicId", "UTF-8"),
+            "https://api.codetabs.com/v1/proxy?quest=https://rutracker.net/forum/viewtopic.php?t=$topicId"
+        )
+        val pool = java.util.concurrent.Executors.newFixedThreadPool(4)
+        val completion = java.util.concurrent.ExecutorCompletionService<String?>(pool)
+        for (u in candidateUrls) {
+            completion.submit(java.util.concurrent.Callable {
+                var conn: java.net.HttpURLConnection? = null
+                try {
+                    val urlObj = java.net.URL(u)
+                    conn = urlObj.openConnection() as java.net.HttpURLConnection
+                    conn.connectTimeout = 4500
+                    conn.readTimeout = 4500
+                    conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                    conn.setRequestProperty("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                    conn.setRequestProperty("Accept-Language", "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7")
+                    if (u.contains("jina.ai")) {
+                        conn.setRequestProperty("X-Return-Format", "html")
+                    }
+                    val code = conn.responseCode
+                    if (code in 200..299) {
+                        val body = conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+                        if (body.contains("post_body") || body.contains("topic_main") || body.contains("forumline")) {
+                            return@Callable body
+                        }
+                    }
+                } catch (_: Throwable) {
+                } finally {
+                    try { conn?.disconnect() } catch (_: Throwable) {}
+                }
+                null
+            })
+        }
+
+        var result: String? = null
+        try {
+            for (i in candidateUrls.indices) {
+                val future = completion.poll(5500, java.util.concurrent.TimeUnit.MILLISECONDS) ?: break
+                val res = try { future.get() } catch (_: Throwable) { null }
+                if (!res.isNullOrBlank()) {
+                    result = res
+                    break
+                }
+            }
+        } finally {
+            pool.shutdownNow()
+        }
+        return result
+    }
+
     fun extractAllTopicAndDiscussionLinks(topic: TopicItem, mirror: String = "https://rutracker.org"): List<TopicDiscussionLink> {
         return extractAllTopicAndDiscussionLinksDetailed(topic, mirror).links
     }
@@ -3061,6 +3189,23 @@ object RuTrackerCloudEngine {
             (!forumMapsReady || cachedForumTopicMap?.containsKey(topicId) == true)
         if (!isRealTopic) return TopicDiscussionResult(emptyList())
 
+        // 0. Мгновенная загрузка из дискового кэша ссылок темы
+        val cached = loadCachedTopicDiscussionLinks(topicId)
+        if (cached != null && cached.isNotEmpty()) {
+            return TopicDiscussionResult(cached)
+        }
+
+        // 1. Быстрые облачные каналы (proxy race + прямые зеркала)
+        val fastHtml = fetchTopicHtmlFastChannels(topicId)
+        if (fastHtml != null) {
+            parsePostsFromTopicHtml(fastHtml, 1, outMap)
+            if (outMap.isNotEmpty()) {
+                val resList = outMap.values.toList()
+                saveCachedTopicDiscussionLinks(topicId, resList)
+                return TopicDiscussionResult(resList)
+            }
+        }
+
         val workingMirror = if (activeWorkingMirror.isNotBlank()) activeWorkingMirror else "https://rutracker.org"
         val candidateMirrors = listOf(
             workingMirror,
@@ -3068,11 +3213,7 @@ object RuTrackerCloudEngine {
             "https://rutracker.net"
         ).distinct().filter { !it.contains("rutracker.nl") }
 
-        val mirrors = candidateMirrors.filter { probeMirrorReachable(it, timeoutMs = 2000) }
-        if (mirrors.isEmpty()) {
-            Log.w("RuTrackerCloudEngine", "Все зеркала RuTracker недоступны (блокировка ТСПУ без VPN)")
-            return TopicDiscussionResult(emptyList())
-        }
+        val mirrors = candidateMirrors.filter { probeMirrorReachable(it, timeoutMs = 2000) }.ifEmpty { candidateMirrors }
 
         var passedCf = false
         var cfNeeded = false
@@ -3135,6 +3276,9 @@ object RuTrackerCloudEngine {
                         parsePostsFromTopicHtml(pHtml, (offset / 30) + 1, outMap)
                     }
                 }
+            }
+            if (outMap.isNotEmpty()) {
+                saveCachedTopicDiscussionLinks(topicId, outMap.values.toList())
             }
         }
 
@@ -3707,23 +3851,29 @@ object RuTrackerCloudEngine {
                 sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.utp_min_timeout.swigValue(), 500)
             } catch (_: Throwable) {}
 
-            // 4. Высокоскоростной конвейер блоков и Android дисковый кэш
+            // 4. Высокоскоростной конвейер блоков, Swarm Boost и Android дисковый кэш
             try {
-                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.connections_limit.swigValue(), 300)
+                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.connections_limit.swigValue(), 500)
                 sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.max_peerlist_size.swigValue(), 4000)
-                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.unchoke_slots_limit.swigValue(), 32)
-                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.active_downloads.swigValue(), 10)
-                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.active_limit.swigValue(), 20)
+                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.unchoke_slots_limit.swigValue(), 100)
+                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.active_downloads.swigValue(), 20)
+                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.active_limit.swigValue(), 40)
                 sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.download_rate_limit.swigValue(), 0)
                 sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.upload_rate_limit.swigValue(), 0)
                 sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.request_queue_time.swigValue(), 10)
-                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.max_out_request_queue.swigValue(), 2000)
+                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.max_out_request_queue.swigValue(), 2500)
                 sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.whole_pieces_threshold.swigValue(), 5)
-                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.max_queued_disk_bytes.swigValue(), 32 * 1024 * 1024)
-                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.send_buffer_watermark.swigValue(), 16 * 1024 * 1024)
+                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.max_queued_disk_bytes.swigValue(), 64 * 1024 * 1024)
+                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.send_buffer_watermark.swigValue(), 32 * 1024 * 1024)
+                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.send_buffer_low_watermark.swigValue(), 8 * 1024 * 1024)
                 sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.send_buffer_watermark_factor.swigValue(), 150)
-                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.recv_socket_buffer_size.swigValue(), 2 * 1024 * 1024)
+                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.recv_socket_buffer_size.swigValue(), 4 * 1024 * 1024)
                 sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.aio_threads.swigValue(), 4)
+                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.torrent_connect_boost.swigValue(), 255)
+                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.connection_speed.swigValue(), 250)
+                sp.setBoolean(org.libtorrent4j.swig.settings_pack.bool_types.allow_multiple_connections_per_ip.swigValue(), true)
+                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.min_reconnect_time.swigValue(), 2)
+                sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.max_failcount.swigValue(), 10)
             } catch (_: Throwable) {}
 
             val sm = org.libtorrent4j.SessionManager()
@@ -3738,6 +3888,187 @@ object RuTrackerCloudEngine {
      * опрашивает бутстрап-роутеры по UDP BEP 5 get_peers, сортирует обнаруженные узлы по XOR-расстоянию
      * до целевого info_hash, парсит 6-байтные пиры и мгновенно подключает их напрямую через th.swig().connect_peer().
      */
+    val discoveredSwarmEndpoints = java.util.concurrent.ConcurrentHashMap<String, Pair<String, Int>>()
+
+    val PUBLIC_TRACKERS = listOf(
+        "http://bt.t-ru.org/ann?magnet",
+        "http://bt2.t-ru.org/ann?magnet",
+        "http://bt3.t-ru.org/ann?magnet",
+        "http://bt4.t-ru.org/ann?magnet",
+        "http://retracker.local/announce",
+        "udp://tracker.opentrackr.org:1337/announce",
+        "https://tracker.opentrackr.org:443/announce",
+        "udp://open.stealth.si:80/announce",
+        "udp://exodus.desync.com:6969/announce",
+        "udp://tracker.torrent.eu.org:451/announce",
+        "udp://open.demonii.com:1337/announce",
+        "udp://explodie.org:6969/announce",
+        "https://tracker.tamersunion.org:443/announce",
+        "https://tracker.gbitt.info:443/announce",
+        "udp://tracker.gbitt.info:80/announce",
+        "http://tracker.dler.org:6969/announce",
+        "https://tr.burnabyhighstar.com:443/announce",
+        "http://open.acgnxtracker.com:80/announce",
+        "http://tracker.mywaifu.best:6969/announce",
+        "http://tracker.bt4g.com:2095/announce",
+        "udp://tracker.moeking.me:6969/announce",
+        "udp://opentracker.i2p.rocks:6969/announce",
+        "udp://tracker.therarbg.com:6969/announce",
+        "udp://tracker.srv00.com:6969/announce",
+        "udp://retracker.lanta-net.ru:2710/announce",
+        "udp://tracker.0x.tf:6969/announce",
+        "udp://bt1.archive.org:6969/announce",
+        "udp://bt2.archive.org:6969/announce",
+        "udp://tracker.pomf.se:80/announce",
+        "udp://p4p.arenabg.com:1337/announce",
+        "udp://open.doko.moe:6969/announce",
+        "udp://movies.zsw.ca:6969/announce"
+    )
+
+    fun parseAndInjectBencodedPeers(raw: ByteArray, hashKey: String, th: org.libtorrent4j.TorrentHandle) {
+        if (raw.size < 10) return
+        val str = String(raw, Charsets.ISO_8859_1)
+
+        // 1. 5:peers<len>:<compact 6-byte IPv4 peers>
+        val pIdx = str.indexOf("5:peers")
+        if (pIdx != -1) {
+            val colonIdx = str.indexOf(':', pIdx + 7)
+            if (colonIdx != -1) {
+                val len = str.substring(pIdx + 7, colonIdx).toIntOrNull() ?: 0
+                var off = colonIdx + 1
+                val endOff = (off + len).coerceAtMost(raw.size)
+                while (off + 6 <= endOff) {
+                    val b0 = raw[off].toInt() and 0xFF
+                    val b1 = raw[off + 1].toInt() and 0xFF
+                    val b2 = raw[off + 2].toInt() and 0xFF
+                    val b3 = raw[off + 3].toInt() and 0xFF
+                    val port = ((raw[off + 4].toInt() and 0xFF) shl 8) or (raw[off + 5].toInt() and 0xFF)
+                    if (b0 != 0 && port in 1..65535) {
+                        val ipStr = "$b0.$b1.$b2.$b3"
+                        val key = "$ipStr:$port"
+                        discoveredSwarmEndpoints[key] = ipStr to port
+                        try {
+                            val ep = org.libtorrent4j.TcpEndpoint(ipStr, port)
+                            th.swig().connect_peer(ep.swig())
+                        } catch (_: Throwable) {}
+                    }
+                    off += 6
+                }
+            }
+        }
+
+        // 2. 7:peers6<len>:<compact 18-byte IPv6 peers>
+        val p6Idx = str.indexOf("7:peers6")
+        if (p6Idx != -1) {
+            val colonIdx = str.indexOf(':', p6Idx + 8)
+            if (colonIdx != -1) {
+                val len = str.substring(p6Idx + 8, colonIdx).toIntOrNull() ?: 0
+                var off = colonIdx + 1
+                val endOff = (off + len).coerceAtMost(raw.size)
+                while (off + 18 <= endOff) {
+                    val port = ((raw[off + 16].toInt() and 0xFF) shl 8) or (raw[off + 17].toInt() and 0xFF)
+                    if (port in 1..65535) {
+                        try {
+                            val ipBytes = raw.copyOfRange(off, off + 16)
+                            val inet6 = java.net.Inet6Address.getByAddress(ipBytes)
+                            val ipStr = inet6.hostAddress ?: ""
+                            if (ipStr.isNotEmpty()) {
+                                val key = "[$ipStr]:$port"
+                                discoveredSwarmEndpoints[key] = ipStr to port
+                                val ep = org.libtorrent4j.TcpEndpoint(ipStr, port)
+                                th.swig().connect_peer(ep.swig())
+                            }
+                        } catch (_: Throwable) {}
+                    }
+                    off += 18
+                }
+            }
+        }
+    }
+
+    /**
+     * Прямой HTTP/HTTPS Tracker Harvester:
+     * опрашивает открытые трекеры RuTracker (bt.t-ru.org) и глобальные swarm-трекеры,
+     * парсит компактные бинарные списки пиров и мгновенно подключает их к торрент-сессии.
+     */
+    fun harvestPeersFromHttpTrackersAsync(
+        infoHashHex: String,
+        th: org.libtorrent4j.TorrentHandle,
+        isCancelled: () -> Boolean
+    ) {
+        val h = infoHashHex.trim().uppercase()
+        if (h.length != 40) return
+        val rawBytes = try {
+            ByteArray(20) { i -> h.substring(i * 2, i * 2 + 2).toInt(16).toByte() }
+        } catch (_: Throwable) { return }
+
+        val urlEncodedHash = rawBytes.joinToString("") { b ->
+            val v = b.toInt() and 0xFF
+            if (v in 0x30..0x39 || v in 0x41..0x5A || v in 0x61..0x7A || v == 0x2D || v == 0x2E || v == 0x5F || v == 0x7E) {
+                v.toChar().toString()
+            } else {
+                String.format("%%%02X", v)
+            }
+        }
+        val peerId = "-qB4600-" + (100000000000L + (Math.random() * 899999999999L).toLong()).toString()
+        val urlEncodedPeerId = try { java.net.URLEncoder.encode(peerId, "UTF-8") } catch (_: Throwable) { peerId }
+        val queryParams = "info_hash=$urlEncodedHash&peer_id=$urlEncodedPeerId&port=6881&uploaded=0&downloaded=0&left=1073741824&compact=1&numwant=200&event=started"
+
+        val announceUrls = listOf(
+            "http://bt.t-ru.org/ann?magnet&$queryParams",
+            "http://bt2.t-ru.org/ann?magnet&$queryParams",
+            "http://bt3.t-ru.org/ann?magnet&$queryParams",
+            "http://bt4.t-ru.org/ann?magnet&$queryParams",
+            "http://retracker.local/announce?$queryParams",
+            "https://tracker.opentrackr.org:443/announce?$queryParams",
+            "https://tracker.gbitt.info:443/announce?$queryParams",
+            "http://tracker.dler.org:6969/announce?$queryParams",
+            "https://tr.burnabyhighstar.com:443/announce?$queryParams",
+            "http://open.acgnxtracker.com:80/announce?$queryParams",
+            "http://tracker.mywaifu.best:6969/announce?$queryParams",
+            "https://tracker.tamersunion.org:443/announce?$queryParams",
+            "http://tracker.bt4g.com:2095/announce?$queryParams",
+            "https://api.allorigins.win/raw?url=" + java.net.URLEncoder.encode("http://bt.t-ru.org/ann?magnet&$queryParams", "UTF-8"),
+            "https://corsproxy.io/?" + java.net.URLEncoder.encode("http://bt.t-ru.org/ann?magnet&$queryParams", "UTF-8")
+        )
+
+        kotlin.concurrent.thread(name = "http-tracker-harvester", isDaemon = true) {
+            val pool = java.util.concurrent.Executors.newFixedThreadPool(6)
+            try {
+                for (annUrl in announceUrls) {
+                    if (isCancelled()) break
+                    pool.execute {
+                        if (isCancelled()) return@execute
+                        var conn: java.net.HttpURLConnection? = null
+                        try {
+                            val u = java.net.URL(annUrl)
+                            conn = u.openConnection() as java.net.HttpURLConnection
+                            conn.connectTimeout = 4000
+                            conn.readTimeout = 4000
+                            conn.setRequestProperty("User-Agent", "qBittorrent/4.6.0")
+                            conn.setRequestProperty("Accept-Encoding", "gzip, deflate")
+                            conn.instanceFollowRedirects = true
+
+                            val inStream = if ("gzip".equals(conn.contentEncoding, ignoreCase = true)) {
+                                java.util.zip.GZIPInputStream(conn.inputStream)
+                            } else {
+                                conn.inputStream
+                            }
+                            val respBytes = inStream.readBytes()
+                            parseAndInjectBencodedPeers(respBytes, h, th)
+                        } catch (_: Throwable) {
+                        } finally {
+                            try { conn?.disconnect() } catch (_: Throwable) {}
+                        }
+                    }
+                }
+            } finally {
+                pool.shutdown()
+                try { pool.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS) } catch (_: Throwable) {}
+            }
+        }
+    }
+
     fun injectPeersViaTurboDhtAsync(
         infoHashHex: String,
         th: org.libtorrent4j.TorrentHandle,
@@ -4002,17 +4333,7 @@ object RuTrackerCloudEngine {
             handle.prioritizeFiles(priorities)
             try { handle.swig().set_max_connections(200) } catch (_: Throwable) {}
 
-            val defaultTrackers = listOf(
-                "http://bt.t-ru.org/ann?magnet",
-                "udp://tracker.opentrackr.org:1337/announce",
-                "udp://open.stealth.si:80/announce",
-                "udp://exodus.desync.com:6969/announce",
-                "udp://tracker.torrent.eu.org:451/announce",
-                "udp://open.demonii.com:1337/announce",
-                "udp://explodie.org:6969/announce",
-                "https://tracker.tamersunion.org:443/announce",
-                "https://tracker.gbitt.info:443/announce"
-            )
+            val defaultTrackers = PUBLIC_TRACKERS
             val magnetTrackers = Regex("""[&?]tr=([^&]+)""").findAll(magnetOrTorrent).mapNotNull {
                 try { java.net.URLDecoder.decode(it.groupValues[1], "UTF-8") } catch (_: Exception) { null }
             }.toList()
@@ -4026,7 +4347,8 @@ object RuTrackerCloudEngine {
                 handle.forceLSDAnnounce()
             } catch (_: Throwable) {}
 
-            // Запускаем Turbo BEP-5 UDP DHT Spider параллельно
+            // Запускаем параллельный сбор пиров: HTTP/HTTPS Tracker Harvester и Turbo BEP-5 UDP DHT Spider
+            harvestPeersFromHttpTrackersAsync(hashHex, handle, isCancelled)
             injectPeersViaTurboDhtAsync(hashHex, handle, isCancelled)
 
             var lastDone = -1L
@@ -4085,12 +4407,22 @@ object RuTrackerCloudEngine {
                     dhtCrossed60 = true
                     try { handle.forceDHTAnnounce() } catch (_: Throwable) {}
                 }
-                if (now - lastAnnounceMs >= 20000L && st.numSeeds() < 10) {
+                if (now - lastAnnounceMs >= 20000L) {
                     lastAnnounceMs = now
                     try {
                         handle.forceDHTAnnounce()
                         handle.forceReannounce()
+                        harvestPeersFromHttpTrackersAsync(hashHex, handle, isCancelled)
+                        injectPeersViaTurboDhtAsync(hashHex, handle, isCancelled)
                     } catch (_: Throwable) {}
+                    if (st.numPeers() < 60) {
+                        for ((_, endpoint) in discoveredSwarmEndpoints) {
+                            try {
+                                val ep = org.libtorrent4j.TcpEndpoint(endpoint.first, endpoint.second)
+                                handle.swig().connect_peer(ep.swig())
+                            } catch (_: Throwable) {}
+                        }
+                    }
                 }
 
                 // Динамическое ослабление шифрования до pe_enabled, если через 25 сек пиров нет

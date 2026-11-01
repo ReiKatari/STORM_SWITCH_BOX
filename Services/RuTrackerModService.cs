@@ -185,14 +185,32 @@ namespace StormSwitchBox.Services
             "http://bt3.t-ru.org/ann?magnet",
             "http://bt4.t-ru.org/ann?magnet",
             "http://bt.t-ru.org/ann",
+            "http://retracker.local/announce",
+            "https://tracker.opentrackr.org:443/announce",
+            "https://tracker.gbitt.info:443/announce",
+            "http://tracker.dler.org:6969/announce",
+            "https://tr.burnabyhighstar.com:443/announce",
+            "http://open.acgnxtracker.com:80/announce",
+            "http://tracker.mywaifu.best:6969/announce",
+            "https://tracker.tamersunion.org:443/announce",
+            "http://tracker.bt4g.com:2095/announce",
             "udp://tracker.opentrackr.org:1337/announce",
             "udp://open.stealth.si:80/announce",
             "udp://exodus.desync.com:6969/announce",
             "udp://tracker.torrent.eu.org:451/announce",
             "udp://open.demonii.com:1337/announce",
             "udp://explodie.org:6969/announce",
-            "https://tracker.tamersunion.org:443/announce",
-            "https://tracker.gbitt.info:443/announce"
+            "udp://tracker.moeking.me:6969/announce",
+            "udp://opentracker.i2p.rocks:6969/announce",
+            "udp://tracker.openbittorrent.com:6969/announce",
+            "udp://tracker.theoks.net:6969/announce",
+            "udp://tracker.bittor.pw:1337/announce",
+            "udp://bt1.archive.org:6969/announce",
+            "udp://bt2.archive.org:6969/announce",
+            "udp://p4p.arenabg.com:1337/announce",
+            "udp://retracker.hotplug.ru:2710/announce",
+            "udp://opentor.org:2710/announce",
+            "udp://tracker.zerobytes.xyz:1337/announce"
         };
 
         public static Func<string, string, CancellationToken, Task<string?>>? CloudflareChallengeHandler { get; set; }
@@ -465,6 +483,7 @@ namespace StormSwitchBox.Services
         static RuTrackerModService()
         {
             Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+            LoadTopicLinksCache();
         }
 
         public RuTrackerModService()
@@ -1584,7 +1603,23 @@ namespace StormSwitchBox.Services
 
             string? topicHtml = null;
 
-            // 0. Приоритетная загрузка через Same-Origin fetch внутри скрытого WebView2 (настоящий Chromium TLS JA3 отпечаток)
+            // 0. Проверка локального дискового кэша ссылок тем (%APPDATA%\STORM SWITCH BOX\rutracker_topic_links_cache.json)
+            if (_topicLinksCache.TryGetValue(tid, out var cachedHtml) && !string.IsNullOrEmpty(cachedHtml))
+            {
+                topicHtml = cachedHtml;
+            }
+
+            // 0.1. Параллельная гонка через облачные Cloud-рендеры и прокси (Jina AI Headless Chrome, CodeTabs, AllOrigins, CorsProxy)
+            if (topicHtml == null)
+            {
+                try
+                {
+                    topicHtml = await FetchTopicHtmlViaCloudRaceAsync(tid, ct).ConfigureAwait(false);
+                }
+                catch { }
+            }
+
+            // 0.2. Приоритетная загрузка через Same-Origin fetch внутри скрытого WebView2 (настоящий Chromium TLS JA3 отпечаток)
             if (SameOriginFetchHandler != null)
             {
                 try
@@ -2205,8 +2240,8 @@ namespace StormSwitchBox.Services
 
             var torrentSettings = new TorrentSettingsBuilder
             {
-                MaximumConnections = 250,
-                UploadSlots = 32,
+                MaximumConnections = 350,
+                UploadSlots = 64,
                 AllowDht = true,
                 AllowPeerExchange = true
             }.ToSettings();
@@ -2239,10 +2274,11 @@ namespace StormSwitchBox.Services
             _activeManager = manager; // для обратной совместимости
             onManagerCreated?.Invoke(manager);
 
-            // Запускаем параллельный Turbo BEP-5 UDP DHT Spider для мгновенного сбора пиров
+            // Запускаем параллельный Turbo BEP-5 UDP DHT Spider и HTTP/HTTPS Tracker Harvester
             if (!string.IsNullOrEmpty(currentHash))
             {
                 _ = Task.Run(() => InjectPeersViaTurboDhtAsync(currentHash, manager, ct));
+                _ = Task.Run(() => HarvestPeersFromHttpTrackersAsync(currentHash, manager, ct));
             }
 
             // Принудительно подключаем все 8 публичных трекеров RuTracker
@@ -2263,12 +2299,25 @@ namespace StormSwitchBox.Services
 
             bool prioritiesAppliedAfterMetadata = manager.HasMetadata;
             long lastProgressTicks = System.Diagnostics.Stopwatch.GetTimestamp();
+            long lastHarvestTicks = System.Diagnostics.Stopwatch.GetTimestamp();
             double lastProgressRatio = -1;
 
             try
             {
                 while (!manager.Complete && manager.State != TorrentState.Seeding && !ct.IsCancellationRequested)
                 {
+                    // Каждые 20 секунд непрерывно подтягиваем свежую волну сидов из трекеров и DHT
+                    double elapsedHarvest = (System.Diagnostics.Stopwatch.GetTimestamp() - lastHarvestTicks) / (double)System.Diagnostics.Stopwatch.Frequency;
+                    if (elapsedHarvest >= 20.0)
+                    {
+                        lastHarvestTicks = System.Diagnostics.Stopwatch.GetTimestamp();
+                        if (!string.IsNullOrEmpty(currentHash))
+                        {
+                            _ = Task.Run(() => HarvestPeersFromHttpTrackersAsync(currentHash, manager, ct));
+                            _ = Task.Run(() => InjectPeersViaTurboDhtAsync(currentHash, manager, ct));
+                        }
+                    }
+
                     // Поддержка паузы (Pause Token)
                     if (pauseEvent != null && !pauseEvent.IsSet)
                     {
@@ -2440,13 +2489,14 @@ namespace StormSwitchBox.Services
                     AllowPortForwarding = true,
                     AllowLocalPeerDiscovery = true,
                     UsePartialFiles = false,
-                    MaximumConnections = 350,
+                    MaximumConnections = 500,
                     MaximumDownloadRate = 0,
                     MaximumUploadRate = 0,
-                    MaximumHalfOpenConnections = 50,
+                    MaximumHalfOpenConnections = 100,
+                    MaximumOpenFiles = 256,
                     MaximumDiskReadRate = 0,
                     MaximumDiskWriteRate = 0,
-                    DiskCacheBytes = 32 * 1024 * 1024,
+                    DiskCacheBytes = 64 * 1024 * 1024,
                     DhtEndPoint = new IPEndPoint(IPAddress.Any, 0),
                     AutoSaveLoadDhtCache = true,
                     AutoSaveLoadFastResume = true,
@@ -3598,5 +3648,267 @@ namespace StormSwitchBox.Services
             _activeManager = null;
             // Тёплый _sharedTorrentEngine сохраняется для поддержания маршрутной таблицы DHT
         }
+
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _discoveredHttpPeers = new(StringComparer.OrdinalIgnoreCase);
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _topicLinksCache = new(StringComparer.OrdinalIgnoreCase);
+        private static readonly string _topicCachePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "STORM SWITCH BOX", "rutracker_topic_links_cache.json");
+
+        private static void LoadTopicLinksCache()
+        {
+            try
+            {
+                if (File.Exists(_topicCachePath))
+                {
+                    var dict = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(_topicCachePath));
+                    if (dict != null)
+                    {
+                        foreach (var kvp in dict) _topicLinksCache[kvp.Key] = kvp.Value;
+                    }
+                }
+            }
+            catch { }
+        }
+
+        private static void SaveTopicLinksCache()
+        {
+            try
+            {
+                string? dir = Path.GetDirectoryName(_topicCachePath);
+                if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+                var dict = new Dictionary<string, string>(_topicLinksCache);
+                File.WriteAllText(_topicCachePath, System.Text.Json.JsonSerializer.Serialize(dict, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+            }
+            catch { }
+        }
+
+        public static async Task<string?> FetchTopicHtmlViaCloudRaceAsync(string tid, CancellationToken ct)
+        {
+            if (_topicLinksCache.TryGetValue(tid, out var cached) && !string.IsNullOrEmpty(cached))
+            {
+                return cached;
+            }
+
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            linkedCts.CancelAfter(TimeSpan.FromSeconds(15));
+            var lct = linkedCts.Token;
+
+            var tasks = new List<Task<string?>>();
+
+            // 1. Jina AI Cloud Reader (обходит Cloudflare и возвращает чистый HTML раздачи)
+            tasks.Add(Task.Run(async () =>
+            {
+                try
+                {
+                    using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+                    client.DefaultRequestHeaders.Add("X-Return-Format", "html");
+                    string url = $"https://r.jina.ai/https://rutracker.org/forum/viewtopic.php?t={tid}";
+                    string html = await client.GetStringAsync(url, lct).ConfigureAwait(false);
+                    if (!string.IsNullOrEmpty(html) && (html.Contains("post_body") || html.Contains("topic-title") || html.Contains("viewtopic.php")))
+                    {
+                        return html;
+                    }
+                }
+                catch { }
+                return null;
+            }));
+
+            // 2. CodeTabs Proxy
+            tasks.Add(Task.Run(async () =>
+            {
+                try
+                {
+                    using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+                    string url = $"https://api.codetabs.com/v1/proxy?quest=https://rutracker.org/forum/viewtopic.php?t={tid}";
+                    string html = await client.GetStringAsync(url, lct).ConfigureAwait(false);
+                    if (!string.IsNullOrEmpty(html) && (html.Contains("post_body") || html.Contains("topic-title") || html.Contains("viewtopic.php")))
+                    {
+                        return html;
+                    }
+                }
+                catch { }
+                return null;
+            }));
+
+            // 3. AllOrigins Proxy
+            tasks.Add(Task.Run(async () =>
+            {
+                try
+                {
+                    using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+                    string url = $"https://api.allorigins.win/raw?url={Uri.EscapeDataString($"https://rutracker.org/forum/viewtopic.php?t={tid}")}";
+                    string html = await client.GetStringAsync(url, lct).ConfigureAwait(false);
+                    if (!string.IsNullOrEmpty(html) && (html.Contains("post_body") || html.Contains("topic-title") || html.Contains("viewtopic.php")))
+                    {
+                        return html;
+                    }
+                }
+                catch { }
+                return null;
+            }));
+
+            // 4. CorsProxy.io
+            tasks.Add(Task.Run(async () =>
+            {
+                try
+                {
+                    using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+                    string url = $"https://corsproxy.io/?{Uri.EscapeDataString($"https://rutracker.org/forum/viewtopic.php?t={tid}")}";
+                    string html = await client.GetStringAsync(url, lct).ConfigureAwait(false);
+                    if (!string.IsNullOrEmpty(html) && (html.Contains("post_body") || html.Contains("topic-title") || html.Contains("viewtopic.php")))
+                    {
+                        return html;
+                    }
+                }
+                catch { }
+                return null;
+            }));
+
+            // Ожидаем первого успешного ответа
+            while (tasks.Count > 0 && !lct.IsCancellationRequested)
+            {
+                var finished = await Task.WhenAny(tasks).ConfigureAwait(false);
+                tasks.Remove(finished);
+                try
+                {
+                    string? result = await finished.ConfigureAwait(false);
+                    if (!string.IsNullOrEmpty(result))
+                    {
+                        _topicLinksCache[tid] = result;
+                        SaveTopicLinksCache();
+                        return result;
+                    }
+                }
+                catch { }
+            }
+
+            return null;
+        }
+
+        public static async Task HarvestPeersFromHttpTrackersAsync(string infoHashHex, TorrentManager manager, CancellationToken ct)
+        {
+            if (string.IsNullOrEmpty(infoHashHex) || infoHashHex.Length != 40) return;
+
+            try
+            {
+                byte[] hashBytes = Convert.FromHexString(infoHashHex);
+                var sbHash = new StringBuilder();
+                foreach (byte b in hashBytes)
+                {
+                    if ((b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '-' || b == '_' || b == '.' || b == '~')
+                    {
+                        sbHash.Append((char)b);
+                    }
+                    else
+                    {
+                        sbHash.Append($"%{b:X2}");
+                    }
+                }
+                string encodedHash = sbHash.ToString();
+                string peerId = "-ST6790-" + Guid.NewGuid().ToString("N").Substring(0, 12);
+
+                var announceUrls = new List<string>
+                {
+                    "http://bt.t-ru.org/ann?magnet",
+                    "http://bt2.t-ru.org/ann?magnet",
+                    "http://bt3.t-ru.org/ann?magnet",
+                    "http://bt4.t-ru.org/ann?magnet",
+                    "https://tracker.opentrackr.org:443/announce",
+                    "https://tracker.gbitt.info:443/announce",
+                    "http://tracker.dler.org:6969/announce",
+                    "https://tr.burnabyhighstar.com:443/announce",
+                    "http://open.acgnxtracker.com:80/announce",
+                    "http://tracker.mywaifu.best:6969/announce",
+                    "https://tracker.tamersunion.org:443/announce",
+                    "http://tracker.bt4g.com:2095/announce",
+                    "http://retracker.local/announce"
+                };
+
+                using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
+                client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36");
+
+                var newPeers = new List<PeerInfo>();
+
+                var queryTasks = announceUrls.Select(async announceUrl =>
+                {
+                    string sep = announceUrl.Contains('?') ? "&" : "?";
+                    string reqUrl = $"{announceUrl}{sep}info_hash={encodedHash}&peer_id={peerId}&port=6881&uploaded=0&downloaded=0&left=1073741824&compact=1&numwant=200&event=started";
+
+                    byte[]? data = null;
+                    try
+                    {
+                        data = await client.GetByteArrayAsync(reqUrl, ct).ConfigureAwait(false);
+                    }
+                    catch
+                    {
+                        try
+                        {
+                            string encodedReq = Uri.EscapeDataString(reqUrl);
+                            string[] proxyUrls = {
+                                $"https://api.allorigins.win/raw?url={encodedReq}",
+                                $"https://corsproxy.io/?{encodedReq}",
+                                $"https://api.codetabs.com/v1/proxy?quest={encodedReq}"
+                            };
+                            foreach (var pUrl in proxyUrls)
+                            {
+                                try
+                                {
+                                    data = await client.GetByteArrayAsync(pUrl, ct).ConfigureAwait(false);
+                                    if (data != null && data.Length > 20) break;
+                                }
+                                catch { }
+                            }
+                        }
+                        catch { }
+                    }
+
+                    if (data == null || data.Length == 0) return;
+
+                    int pIdx = FindBytePattern(data, Encoding.ASCII.GetBytes("5:peers"));
+                    if (pIdx >= 0)
+                    {
+                        int colonIdx = Array.IndexOf(data, (byte)':', pIdx + 7);
+                        if (colonIdx > 0 && colonIdx < data.Length - 1)
+                        {
+                            string lenStr = Encoding.ASCII.GetString(data, pIdx + 7, colonIdx - (pIdx + 7));
+                            if (int.TryParse(lenStr, out int peersLen) && peersLen > 0)
+                            {
+                                int peerDataStart = colonIdx + 1;
+                                int peerDataEnd = Math.Min(data.Length, peerDataStart + peersLen);
+                                for (int pos = peerDataStart; pos + 6 <= peerDataEnd; pos += 6)
+                                {
+                                    byte[] ipBytes = new byte[4];
+                                    Buffer.BlockCopy(data, pos, ipBytes, 0, 4);
+                                    int port = (data[pos + 4] << 8) | data[pos + 5];
+                                    if (port > 0 && port < 65536)
+                                    {
+                                        var ip = new IPAddress(ipBytes);
+                                        string pKey = $"{ip}:{port}";
+                                        if (_discoveredHttpPeers.TryAdd(pKey, 0))
+                                        {
+                                            var peer = new PeerInfo(new Uri($"ipv4://{ip}:{port}"));
+                                            lock (newPeers)
+                                            {
+                                                newPeers.Add(peer);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+
+                await Task.WhenAll(queryTasks).ConfigureAwait(false);
+
+                if (newPeers.Count > 0)
+                {
+                    await manager.AddPeersAsync(newPeers).ConfigureAwait(false);
+                    _lastSwarmTotalPeers = Math.Max(_lastSwarmTotalPeers, _discoveredHttpPeers.Count);
+                    App.Logger?.Log($"[RuTracker HTTP Harvester] Найдено и добавлено новых пиров/сидов: {newPeers.Count} (всего в пуле: {_discoveredHttpPeers.Count})", LogLevel.Info);
+                }
+            }
+            catch { }
+        }
+
     }
 }

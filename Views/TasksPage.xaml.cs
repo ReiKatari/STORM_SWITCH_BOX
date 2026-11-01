@@ -604,7 +604,7 @@ namespace StormSwitchBox.Views
             var task = GetTargetTask(sender);
             if (task != null)
             {
-                task.Pause();
+                (DataContext as TasksViewModel ?? App.TasksVM)?.PauseTask(task);
                 App.Logger.Log($"[Задачник] Задача поставлена на паузу: {task.GameName}", LogLevel.Info);
             }
         }
@@ -615,7 +615,7 @@ namespace StormSwitchBox.Views
             var task = GetTargetTask(sender);
             if (task != null)
             {
-                task.Resume();
+                (DataContext as TasksViewModel ?? App.TasksVM)?.ResumeTask(task);
                 App.Logger.Log($"[Задачник] Задача возобновлена: {task.GameName}", LogLevel.Info);
             }
         }

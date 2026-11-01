@@ -39,6 +39,7 @@ namespace StormSwitchBox
         public static NintendoLibraryService NintendoLibrary { get; } = new NintendoLibraryService();
         public static DbiInstallService DbiInstall { get; } = new DbiInstallService();
         public static GraphicsPatchService GraphicsPatch { get; } = new GraphicsPatchService();
+        public static RuTrackerModService RuTrackerMod { get; } = new RuTrackerModService();
         public static LocalizationService Localization => LocalizationService.Instance;
         private static StormSwitchBox.ViewModels.TasksViewModel? _tasksVM;
         public static StormSwitchBox.ViewModels.TasksViewModel TasksVM => _tasksVM ??= new StormSwitchBox.ViewModels.TasksViewModel();

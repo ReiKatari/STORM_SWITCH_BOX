@@ -177,6 +177,15 @@ class MainActivity : Activity() {
         val stepLogs: MutableList<String> = java.util.Collections.synchronizedList(mutableListOf()),
         var resultFile: File? = null,
         var failureReason: String? = null,
+        var dialogFormatMode: Int = 0,
+        var selectedReleaseFiles: List<RuTrackerCloudEngine.ReleaseContentFile> = emptyList(),
+        var collectedModUrls: List<String> = emptyList(),
+        var collectedUpdateUrls: List<String> = emptyList(),
+        var collectedDlcUrls: List<String> = emptyList(),
+        var embedDlcUnlocker: Boolean = false,
+        var deleteSourceAfterVerify: Boolean = true,
+        var preBuildCustomization: StormNczEngine.PreBuildCustomization = StormNczEngine.PreBuildCustomization(),
+        @Volatile var isThreadAlive: Boolean = false,
         var onUpdateListener: ((BgPipelineTask) -> Unit)? = null
     ) {
         fun update(
@@ -193,7 +202,7 @@ class MainActivity : Activity() {
         }
     }
 
-    val bgPipelineTasks = java.util.concurrent.CopyOnWriteArrayList<BgPipelineTask>()
+
     private var taskManagerContainerView: LinearLayout? = null
     private var activeTasksBadgeView: TextView? = null
 
@@ -307,6 +316,271 @@ class MainActivity : Activity() {
         } catch (_: Throwable) {}
     }
 
+    fun persistBgTasksToDisk() {
+        try {
+            val file = File(filesDir, "bg_tasks_state.json")
+            val jsonArray = org.json.JSONArray()
+            for (task in bgPipelineTasks) {
+                val obj = org.json.JSONObject()
+                obj.put("id", task.id)
+                obj.put("title", task.title)
+                obj.put("titleId", task.titleId)
+                obj.put("targetFormat", task.targetFormat)
+                val savedState = if (task.state == BgTaskState.RUNNING) BgTaskState.PAUSED.name else task.state.name
+                obj.put("state", savedState)
+                obj.put("stageTitle", if (task.state == BgTaskState.RUNNING) "⏸ Сохранено на паузе — нажмите ▶️ Продолжить" else task.stageTitle)
+                obj.put("progressPct", task.progressPct)
+                obj.put("detailText", task.detailText)
+                obj.put("resultFilePath", task.resultFile?.absolutePath ?: "")
+                obj.put("failureReason", task.failureReason ?: "")
+                obj.put("dialogFormatMode", task.dialogFormatMode)
+                obj.put("embedDlcUnlocker", task.embedDlcUnlocker)
+                obj.put("deleteSourceAfterVerify", task.deleteSourceAfterVerify)
+
+                val tObj = org.json.JSONObject().apply {
+                    put("topicId", task.topicItem.topicId)
+                    put("title", task.topicItem.title)
+                    put("sizeText", task.topicItem.sizeText)
+                    put("seeds", task.topicItem.seeds)
+                    put("leechers", task.topicItem.leechers)
+                    put("magnetUri", task.topicItem.magnetUri)
+                    put("infoHash", task.topicItem.infoHash)
+                    put("category", task.topicItem.category)
+                    put("topicUrl", task.topicItem.topicUrl)
+                }
+                obj.put("topicItem", tObj)
+
+                val logsArr = org.json.JSONArray()
+                synchronized(task.stepLogs) {
+                    task.stepLogs.takeLast(10).forEach { logsArr.put(it) }
+                }
+                obj.put("stepLogs", logsArr)
+
+                val rfArr = org.json.JSONArray()
+                for (rf in task.selectedReleaseFiles) {
+                    val rfObj = org.json.JSONObject().apply {
+                        put("fileName", rf.fileName)
+                        put("sizeBytes", rf.sizeBytes)
+                        put("titleId", rf.titleId)
+                        put("roleBadge", rf.roleBadge)
+                        put("selected", rf.selected)
+                        put("isRealTorrentFile", rf.isRealTorrentFile)
+                    }
+                    rfArr.put(rfObj)
+                }
+                obj.put("selectedReleaseFiles", rfArr)
+
+                obj.put("collectedModUrls", org.json.JSONArray(task.collectedModUrls))
+                obj.put("collectedUpdateUrls", org.json.JSONArray(task.collectedUpdateUrls))
+                obj.put("collectedDlcUrls", org.json.JSONArray(task.collectedDlcUrls))
+
+                val pbObj = org.json.JSONObject().apply {
+                    put("enabled", task.preBuildCustomization.enabled)
+                    put("customInternalTitle", task.preBuildCustomization.customInternalTitle)
+                    put("customPublisher", task.preBuildCustomization.customPublisher)
+                    put("customDisplayVersion", task.preBuildCustomization.customDisplayVersion)
+                    put("customOutputFileName", task.preBuildCustomization.customOutputFileName)
+                    put("customIconPath", task.preBuildCustomization.customIconPath)
+                    put("iconBadgeText", task.preBuildCustomization.iconBadgeText)
+                }
+                obj.put("preBuildCustomization", pbObj)
+
+                jsonArray.put(obj)
+            }
+            val tmp = File(filesDir, "bg_tasks_state.json.tmp")
+            tmp.writeText(jsonArray.toString(2), Charsets.UTF_8)
+            if (tmp.exists() && tmp.length() > 0) {
+                tmp.renameTo(file)
+            }
+        } catch (_: Throwable) {}
+    }
+
+    private fun loadPersistedBgTasks(context: Context) {
+        try {
+            val file = File(context.filesDir, "bg_tasks_state.json")
+            if (!file.exists() || file.length() < 10) return
+            val jsonArray = org.json.JSONArray(file.readText(Charsets.UTF_8))
+            val existingIds = bgPipelineTasks.map { it.id }.toSet()
+
+            for (i in 0 until jsonArray.length()) {
+                val obj = jsonArray.getJSONObject(i)
+                val id = obj.optString("id", "")
+                if (id.isEmpty() || id in existingIds) continue
+
+                val tObj = obj.getJSONObject("topicItem")
+                val topicItem = RuTrackerCloudEngine.TopicItem(
+                    topicId = tObj.getString("topicId"),
+                    title = tObj.getString("title"),
+                    category = tObj.optString("category", ""),
+                    sizeText = tObj.getString("sizeText"),
+                    seeds = tObj.optInt("seeds", 0),
+                    leechers = tObj.optInt("leechers", 0),
+                    infoHash = tObj.optString("infoHash", ""),
+                    magnetUri = tObj.optString("magnetUri", ""),
+                    topicUrl = tObj.optString("topicUrl", "")
+                )
+
+                val rawStateStr = obj.optString("state", "PAUSED")
+                val state = when (rawStateStr) {
+                    "COMPLETED" -> BgTaskState.COMPLETED
+                    "CANCELLED" -> BgTaskState.CANCELLED
+                    "FAILED" -> BgTaskState.FAILED
+                    else -> BgTaskState.PAUSED
+                }
+
+                val rfList = mutableListOf<RuTrackerCloudEngine.ReleaseContentFile>()
+                val rfArr = obj.optJSONArray("selectedReleaseFiles")
+                if (rfArr != null) {
+                    for (j in 0 until rfArr.length()) {
+                        val rfo = rfArr.getJSONObject(j)
+                        rfList.add(
+                            RuTrackerCloudEngine.ReleaseContentFile(
+                                fileName = rfo.getString("fileName"),
+                                roleBadge = rfo.optString("roleBadge", "ФАЙЛ"),
+                                sizeBytes = rfo.getLong("sizeBytes"),
+                                titleId = rfo.optString("titleId", ""),
+                                selected = rfo.optBoolean("selected", true),
+                                isRealTorrentFile = rfo.optBoolean("isRealTorrentFile", false)
+                            )
+                        )
+                    }
+                }
+
+                fun jsonArrayToStringList(arr: org.json.JSONArray?): List<String> {
+                    if (arr == null) return emptyList()
+                    val l = mutableListOf<String>()
+                    for (k in 0 until arr.length()) l.add(arr.getString(k))
+                    return l
+                }
+
+                val pbObj = obj.optJSONObject("preBuildCustomization")
+                val preBuild = if (pbObj != null) {
+                    StormNczEngine.PreBuildCustomization(
+                        enabled = pbObj.optBoolean("enabled", false),
+                        customInternalTitle = pbObj.optString("customInternalTitle", ""),
+                        customPublisher = pbObj.optString("customPublisher", ""),
+                        customDisplayVersion = pbObj.optString("customDisplayVersion", ""),
+                        customOutputFileName = pbObj.optString("customOutputFileName", ""),
+                        customIconPath = pbObj.optString("customIconPath", ""),
+                        iconBadgeText = pbObj.optString("iconBadgeText", "")
+                    )
+                } else StormNczEngine.PreBuildCustomization()
+
+                val resultFilePath = obj.optString("resultFilePath", "")
+                val failureReason = obj.optString("failureReason", "").ifEmpty { null }
+
+                val task = BgPipelineTask(
+                    id = id,
+                    topicItem = topicItem,
+                    title = obj.optString("title", topicItem.title),
+                    titleId = obj.optString("titleId", ""),
+                    targetFormat = obj.optString("targetFormat", "NSZ"),
+                    controller = RuTrackerCloudEngine.TaskExecutionController(),
+                    state = state,
+                    stageTitle = obj.optString("stageTitle", "⏸ Сохранено на паузе"),
+                    progressPct = obj.optInt("progressPct", 0),
+                    detailText = obj.optString("detailText", "Нажмите ▶️ Продолжить для возобновления"),
+                    resultFile = if (resultFilePath.isNotEmpty()) File(resultFilePath) else null,
+                    failureReason = failureReason,
+                    dialogFormatMode = obj.optInt("dialogFormatMode", 0),
+                    selectedReleaseFiles = rfList,
+                    collectedModUrls = jsonArrayToStringList(obj.optJSONArray("collectedModUrls")),
+                    collectedUpdateUrls = jsonArrayToStringList(obj.optJSONArray("collectedUpdateUrls")),
+                    collectedDlcUrls = jsonArrayToStringList(obj.optJSONArray("collectedDlcUrls")),
+                    embedDlcUnlocker = obj.optBoolean("embedDlcUnlocker", false),
+                    deleteSourceAfterVerify = obj.optBoolean("deleteSourceAfterVerify", true),
+                    preBuildCustomization = preBuild,
+                    isThreadAlive = false
+                )
+
+                val logsArr = obj.optJSONArray("stepLogs")
+                if (logsArr != null) {
+                    for (m in 0 until logsArr.length()) task.stepLogs.add(logsArr.getString(m))
+                }
+
+                bgPipelineTasks.add(task)
+            }
+        } catch (_: Throwable) {}
+    }
+
+    private fun launchOrResumePipelineWorker(task: BgPipelineTask, th: StormTheme) {
+        task.isThreadAlive = true
+        task.state = BgTaskState.RUNNING
+        task.controller.resume()
+        acquireBgLocks()
+        updateBgTaskNotification()
+        persistBgTasksToDisk()
+
+        thread(name = "bg-pipeline-${task.topicItem.topicId}", isDaemon = true) {
+            try {
+                val useBlock = (task.dialogFormatMode == 0 || task.dialogFormatMode == 1)
+                val res = RuTrackerCloudEngine.downloadTopicAndBuildMultiContent(
+                    topic = task.topicItem,
+                    modUrls = task.collectedModUrls,
+                    targetFormatMode = task.dialogFormatMode,
+                    useBlockNcz = useBlock,
+                    zstdLevel = zstdLevel,
+                    blockSizeExponent = blockSizeExpo,
+                    threads = cpuThreads,
+                    romsDir = romsDir,
+                    modsRootDir = modsDir,
+                    outputDir = customOutputDir,
+                    isCancelled = { task.controller.isCancelled },
+                    onProgress = { _, _ -> },
+                    selectedReleaseFiles = task.selectedReleaseFiles,
+                    preBuildCustomization = task.preBuildCustomization,
+                    deleteSourceAfterVerify = task.deleteSourceAfterVerify,
+                    updateUrls = task.collectedUpdateUrls,
+                    dlcUrls = task.collectedDlcUrls,
+                    embedDlcUnlocker = task.embedDlcUnlocker,
+                    taskController = task.controller,
+                    onDetailedProgress = { pct, stageTitle, detailText, stepLines ->
+                        task.update(
+                            pct = pct,
+                            stage = stageTitle,
+                            detail = detailText,
+                            log = stepLines.lastOrNull()
+                        )
+                        updateBgTaskNotification()
+                    }
+                )
+                val outFile = File(res.outputPath)
+                if (outFile.exists() && queuedFiles.none { it.absolutePath == outFile.absolutePath }) {
+                    queuedFiles.add(outFile)
+                    selectedInputFile = outFile
+                }
+                task.state = BgTaskState.COMPLETED
+                task.resultFile = outFile
+                task.update(
+                    pct = 100,
+                    stage = "✅ Сборка завершена (100%)",
+                    detail = "✅ Готово: ${outFile.name} (${StormNczEngine.formatSize(res.compressedBytes)})"
+                )
+                appendLog("✅ Авто-сборка RuTracker завершена: ${outFile.name} (${StormNczEngine.formatSize(res.compressedBytes)})")
+                mainHandler.post {
+                    Toast.makeText(this@MainActivity, "Готово: ${outFile.name} (${StormNczEngine.formatSize(res.compressedBytes)})", Toast.LENGTH_LONG).show()
+                }
+            } catch (e: Exception) {
+                if (task.controller.isCancelled) {
+                    task.state = BgTaskState.CANCELLED
+                    task.update(stage = "⏹ Отменено", detail = "Задача отменена пользователем")
+                    appendLog("⏹ Задача отменена пользователем: ${task.title.take(40)}")
+                } else {
+                    task.state = BgTaskState.FAILED
+                    task.failureReason = e.message
+                    task.update(stage = "❌ Ошибка", detail = "Ошибка: ${e.message}")
+                    appendLog("❌ Ошибка авто-сборки: ${e.message}")
+                }
+            } finally {
+                task.isThreadAlive = false
+                releaseBgLocksIfIdle()
+                updateBgTaskNotification()
+                persistBgTasksToDisk()
+                refreshTaskManagerUI(th)
+            }
+        }
+    }
+
     fun refreshTaskManagerUI(th: StormTheme = themes.getOrElse(currentThemeIndex) { themes[0] }) {
         mainHandler.post {
             val container = taskManagerContainerView ?: return@post
@@ -417,7 +691,9 @@ class MainActivity : Activity() {
                         actionsRow.addView(makeButton("⏸ Пауза", th.bgElevated, th.textPrimary) {
                             task.controller.pause()
                             task.state = BgTaskState.PAUSED
+                            task.stageTitle = "⏸ На паузе"
                             task.update(detail = "Задача поставлена на паузу")
+                            persistBgTasksToDisk()
                             releaseBgLocksIfIdle()
                             updateBgTaskNotification()
                             refreshTaskManagerUI(th)
@@ -428,6 +704,7 @@ class MainActivity : Activity() {
                             task.controller.cancel()
                             task.state = BgTaskState.CANCELLED
                             task.update(stage = "⏹ Отменено", detail = "Задача отменена пользователем")
+                            persistBgTasksToDisk()
                             releaseBgLocksIfIdle()
                             updateBgTaskNotification()
                             refreshTaskManagerUI(th)
@@ -437,11 +714,16 @@ class MainActivity : Activity() {
                     }
                     BgTaskState.PAUSED -> {
                         actionsRow.addView(makeButton("▶️ Продолжить", th.accent) {
-                            task.controller.resume()
-                            task.state = BgTaskState.RUNNING
-                            task.update(detail = "Возобновление задачи...")
-                            acquireBgLocks()
-                            updateBgTaskNotification()
+                            if (task.isThreadAlive) {
+                                task.controller.resume()
+                                task.state = BgTaskState.RUNNING
+                                task.update(detail = "Возобновление задачи...")
+                                acquireBgLocks()
+                                updateBgTaskNotification()
+                            } else {
+                                launchOrResumePipelineWorker(task, th)
+                            }
+                            persistBgTasksToDisk()
                             refreshTaskManagerUI(th)
                         }.apply {
                             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(4) }
@@ -450,6 +732,7 @@ class MainActivity : Activity() {
                             task.controller.cancel()
                             task.state = BgTaskState.CANCELLED
                             task.update(stage = "⏹ Отменено", detail = "Задача отменена пользователем")
+                            persistBgTasksToDisk()
                             releaseBgLocksIfIdle()
                             updateBgTaskNotification()
                             refreshTaskManagerUI(th)
@@ -460,6 +743,7 @@ class MainActivity : Activity() {
                     BgTaskState.COMPLETED -> {
                         actionsRow.addView(makeButton("🗑 Убрать", th.bgElevated, th.textSecondary) {
                             bgPipelineTasks.remove(task)
+                            persistBgTasksToDisk()
                             refreshTaskManagerUI(th)
                         }.apply {
                             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(4) }
@@ -468,6 +752,7 @@ class MainActivity : Activity() {
                     BgTaskState.CANCELLED, BgTaskState.FAILED -> {
                         actionsRow.addView(makeButton("🔄 Повторить", th.accent) {
                             bgPipelineTasks.remove(task)
+                            persistBgTasksToDisk()
                             showAutomatedTorrentAndMultiBuildDialog(task.topicItem, th, autoStartMagnet = true)
                             refreshTaskManagerUI(th)
                         }.apply {
@@ -475,6 +760,7 @@ class MainActivity : Activity() {
                         })
                         actionsRow.addView(makeButton("🗑 Убрать", th.bgElevated, th.textSecondary) {
                             bgPipelineTasks.remove(task)
+                            persistBgTasksToDisk()
                             refreshTaskManagerUI(th)
                         }.apply {
                             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(4) }
@@ -541,6 +827,8 @@ class MainActivity : Activity() {
     private var selectedFtpFileIndex = 0
 
     companion object {
+        val bgPipelineTasks = java.util.concurrent.CopyOnWriteArrayList<BgPipelineTask>()
+        @Volatile var activeMainActivity: MainActivity? = null
         private const val REQ_PICK_MULTIPLE_FILES = 1001
         private const val REQ_PICK_FOLDER_TREE = 1002
         private const val REQ_PICK_KEYS_FILE = 1003
@@ -549,18 +837,47 @@ class MainActivity : Activity() {
         private const val REQ_PICK_CUSTOM_ICON = 1006
     }
 
+    override fun onPause() {
+        super.onPause()
+        persistBgTasksToDisk()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        val anyRunning = bgPipelineTasks.any { it.state == BgTaskState.RUNNING }
+        if (anyRunning) {
+            acquireBgLocks()
+            updateBgTaskNotification()
+        }
+        persistBgTasksToDisk()
+    }
+
     override fun onDestroy() {
         super.onDestroy()
-        try { if (wakeLock?.isHeld == true) wakeLock?.release() } catch (_: Throwable) {}
-        try { if (wifiLock?.isHeld == true) wifiLock?.release() } catch (_: Throwable) {}
-        try {
-            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
-            nm?.cancel(NOTIF_ID)
-        } catch (_: Throwable) {}
+        if (isFinishing) {
+            for (t in bgPipelineTasks) {
+                if (t.state == BgTaskState.RUNNING) {
+                    t.controller.pause()
+                    t.state = BgTaskState.PAUSED
+                    t.stageTitle = "⏸ Сохранено на паузе"
+                }
+            }
+            persistBgTasksToDisk()
+            try { if (wakeLock?.isHeld == true) wakeLock?.release() } catch (_: Throwable) {}
+            try { if (wifiLock?.isHeld == true) wifiLock?.release() } catch (_: Throwable) {}
+            try {
+                val nm = getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
+                nm?.cancel(NOTIF_ID)
+            } catch (_: Throwable) {}
+        } else {
+            persistBgTasksToDisk()
+        }
+        if (activeMainActivity == this) activeMainActivity = null
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        activeMainActivity = this
         requestWindowFeature(Window.FEATURE_NO_TITLE)
         hideSystemBars(window)
 
@@ -575,13 +892,14 @@ class MainActivity : Activity() {
         RuTrackerCloudEngine.warmupCloudflareSessionAsync()
         ensureStormDirectories()
         loadSettings()
+        loadPersistedBgTasks(this)
 
         if (!settingsFile.exists()) {
             currentLangCode = detectDefaultLanguage()
         }
 
         buildUserInterface()
-        appendLog("STORM SWITCH BOX ${"6.7.8"} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) готов к работе.")
+        appendLog("STORM SWITCH BOX ${"6.7.9"} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) готов к работе.")
 
         // Автоматическая проверка обновлений с GitHub при запуске
         if (autoCheckUpdatesOnStartup) {
@@ -1145,7 +1463,7 @@ class MainActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
         titleCol.addView(TextView(this).apply {
-            text = "STORM SWITCH BOX ${"6.7.8"}"
+            text = "STORM SWITCH BOX ${"6.7.9"}"
             setTextColor(th.textPrimary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
             typeface = Typeface.DEFAULT_BOLD
@@ -3648,6 +3966,53 @@ class MainActivity : Activity() {
             discussionSubTv.text = "Найдено ссылок в теме: ${discoveredDiscussionLinks.size} (включено пользователем: $selCount) • По умолчанию все выключены:"
         }
 
+        fun renderDiscussionItems(links: List<RuTrackerCloudEngine.TopicDiscussionLink>) {
+            discoveredDiscussionLinks.clear()
+            discoveredDiscussionLinks.addAll(links)
+            discussionListLayout.removeAllViews()
+            if (links.isEmpty()) {
+                discussionSubTv.text = "В сообщениях темы внешних облачных ссылок не обнаружено (используются только файлы раздачи)."
+            } else {
+                discoveredDiscussionLinks.forEach { it.selected = false }
+                updateDiscussionSummary()
+                discoveredDiscussionLinks.forEach { dLink ->
+                    val itemBox = LinearLayout(this).apply {
+                        orientation = LinearLayout.VERTICAL
+                        background = makeCardDrawable(th.bgCard, th.border, 6)
+                        setPadding(dp(8), dp(6), dp(8), dp(6))
+                        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                            topMargin = dp(4)
+                        }
+                    }
+                    val cb = makeStormCheckBox(
+                        "[${dLink.roleCategory}] ${dLink.title} (${dLink.provider})",
+                        false,
+                        th
+                    ) { checked ->
+                        dLink.selected = checked
+                        updateDiscussionSummary()
+                        syncUnlockerAutoState()
+                    }
+                    itemBox.addView(cb)
+                    itemBox.addView(TextView(this).apply {
+                        text = "📍 ${dLink.sourceLocation} • 📅 ${dLink.publishedDate} • ☁️ ${dLink.provider}"
+                        setTextColor(th.textSecondary)
+                        setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.2f)
+                        setPadding(dp(26), 0, 0, dp(2))
+                    })
+                    itemBox.addView(TextView(this).apply {
+                        text = "🔗 ${dLink.url}"
+                        setTextColor(th.accent)
+                        setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.2f)
+                        typeface = Typeface.MONOSPACE
+                        setPadding(dp(26), 0, 0, 0)
+                    })
+                    discussionListLayout.addView(itemBox)
+                }
+            }
+            syncUnlockerAutoState()
+        }
+
         fun reloadDiscussionLinks() {
             discussionSubTv.text = "⏳ Поиск ссылок на патчи, DLC и русификаторы в сообщениях темы t=${item.topicId}..."
             discussionListLayout.removeAllViews()
@@ -3655,65 +4020,18 @@ class MainActivity : Activity() {
                 val res = RuTrackerCloudEngine.extractAllTopicAndDiscussionLinksDetailed(item)
                 val links = res.links
                 mainHandler.post {
-                    discoveredDiscussionLinks.clear()
-                    discoveredDiscussionLinks.addAll(links)
-                    discussionListLayout.removeAllViews()
-                    if (links.isEmpty()) {
-                        if (res.cloudflareChallengeRequired) {
-                            discussionSubTv.text = "🛡️ Доступ к сообщениям темы защищён проверкой Cloudflare Turnstile."
-                            val cfBtn = makeButton("🛡️ Проверить доступ к форуму RuTracker (1 клик) и загрузить файлы из сообщений", th.bgElevated, th.accent) {
-                                showCloudflareTurnstileBypassDialog(item, res.targetTopicUrl, th) {
-                                    reloadDiscussionLinks()
-                                }
-                            }.apply {
-                                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                                    topMargin = dp(6)
-                                }
+                    if (links.isEmpty() && res.cloudflareChallengeRequired) {
+                        discussionSubTv.text = "⏳ Автоматический обход проверки Cloudflare и загрузка ссылок..."
+                        thread {
+                            val ok = RuTrackerCloudEngine.bypassCloudflareForUrlBlocking(res.targetTopicUrl, timeoutSec = 16)
+                            val secondRes = if (ok) RuTrackerCloudEngine.extractAllTopicAndDiscussionLinksDetailed(item) else res
+                            mainHandler.post {
+                                renderDiscussionItems(secondRes.links)
                             }
-                            discussionListLayout.addView(cfBtn)
-                        } else {
-                            discussionSubTv.text = "В сообщениях темы внешних облачных ссылок не обнаружено (используются только файлы раздачи)."
                         }
                     } else {
-                        // СТРОГО: по умолчанию ни одна внешняя ссылка не включается автоматически!
-                        discoveredDiscussionLinks.forEach { it.selected = false }
-                        updateDiscussionSummary()
-                        discoveredDiscussionLinks.forEach { dLink ->
-                            val itemBox = LinearLayout(this).apply {
-                                orientation = LinearLayout.VERTICAL
-                                background = makeCardDrawable(th.bgCard, th.border, 6)
-                                setPadding(dp(8), dp(6), dp(8), dp(6))
-                                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                                    topMargin = dp(4)
-                                }
-                            }
-                            val cb = makeStormCheckBox(
-                                "[${dLink.roleCategory}] ${dLink.title} (${dLink.provider})",
-                                false,
-                                th
-                            ) { checked ->
-                                dLink.selected = checked
-                                updateDiscussionSummary()
-                                syncUnlockerAutoState()
-                            }
-                            itemBox.addView(cb)
-                            itemBox.addView(TextView(this).apply {
-                                text = "📍 ${dLink.sourceLocation} • 📅 ${dLink.publishedDate} • ☁️ ${dLink.provider}"
-                                setTextColor(th.textSecondary)
-                                setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.2f)
-                                setPadding(dp(26), 0, 0, dp(2))
-                            })
-                            itemBox.addView(TextView(this).apply {
-                                text = "🔗 ${dLink.url}"
-                                setTextColor(th.accent)
-                                setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.2f)
-                                typeface = Typeface.MONOSPACE
-                                setPadding(dp(26), 0, 0, 0)
-                            })
-                            discussionListLayout.addView(itemBox)
-                        }
+                        renderDiscussionItems(links)
                     }
-                    syncUnlockerAutoState()
                 }
             }
         }
@@ -4197,11 +4515,16 @@ class MainActivity : Activity() {
             val existing = currentTask ?: bgPipelineTasks.firstOrNull { it.topicItem.topicId == item.topicId && (it.state == BgTaskState.RUNNING || it.state == BgTaskState.PAUSED) }
             if (existing != null) {
                 if (existing.state == BgTaskState.PAUSED) {
-                    existing.controller.resume()
-                    existing.state = BgTaskState.RUNNING
-                    existing.update(detail = "Возобновление выполнения...")
-                    acquireBgLocks()
-                    updateBgTaskNotification()
+                    if (existing.isThreadAlive) {
+                        existing.controller.resume()
+                        existing.state = BgTaskState.RUNNING
+                        existing.update(detail = "Возобновление выполнения...")
+                        acquireBgLocks()
+                        updateBgTaskNotification()
+                    } else {
+                        launchOrResumePipelineWorker(existing, th)
+                    }
+                    persistBgTasksToDisk()
                     updateDialogButtons(BgTaskState.RUNNING)
                     refreshTaskManagerUI(th)
                 }
@@ -4225,26 +4548,6 @@ class MainActivity : Activity() {
                 ?: releaseFiles.firstOrNull { it.titleId.isNotBlank() }?.titleId
                 ?: Regex("""\b(0100[0-9A-Fa-f]{12})\b""").find(item.title)?.groupValues?.get(1)
                 ?: ""
-            val task = BgPipelineTask(
-                topicItem = item,
-                title = item.title,
-                titleId = detectedTid,
-                targetFormat = fmtExt,
-                controller = controller,
-                state = BgTaskState.RUNNING,
-                stageTitle = "Этап 1/5: Запуск...",
-                detailText = "Подключение к рою BitTorrent P2P..."
-            )
-            currentTask = task
-            bgPipelineTasks.add(task)
-            attachTaskListener(task)
-            acquireBgLocks()
-            updateBgTaskNotification()
-            refreshTaskManagerUI(th)
-
-            liveStepLogTxt.visibility = View.VISIBLE
-            updateDialogButtons(BgTaskState.RUNNING)
-
             val discUpdateUrls = discoveredDiscussionLinks.filter {
                 it.selected && (it.roleCategory.contains("ОБНОВЛ", ignoreCase = true) || it.roleCategory.contains("UPDATE", ignoreCase = true) || it.roleCategory.contains("ПАТЧ", ignoreCase = true))
             }.map { (listOf(it.url) + it.mirrorUrls).distinct().joinToString("|MIRROR|") }
@@ -4275,81 +4578,44 @@ class MainActivity : Activity() {
             val collectedDlcUrls = (discDlcUrls + manualDlcUrls).distinct().take(6)
             val collectedModUrls = (discModUrls + manualModUrls).distinct().take(8)
 
-            thread(name = "bg-pipeline-${item.topicId}", isDaemon = true) {
-                try {
-                    val useBlock = (dialogFormatMode == 0 || dialogFormatMode == 1)
-                    val dlgPreBuild = StormNczEngine.PreBuildCustomization(
-                        enabled = dlgCustomRenameEnabled,
-                        customInternalTitle = dlgInternalTitle.ifBlank { cleanDefaultTitle },
-                        customPublisher = dlgPublisher,
-                        customDisplayVersion = dlgDisplayVer,
-                        customOutputFileName = dlgOutputFileName,
-                        customIconPath = dlgCustomIconPath,
-                        iconBadgeText = if (dlgBadgeIndex > 0) iconBadgeOptions.getOrElse(dlgBadgeIndex) { "" } else ""
-                    )
-                    val res = RuTrackerCloudEngine.downloadTopicAndBuildMultiContent(
-                        topic = item,
-                        modUrls = collectedModUrls,
-                        targetFormatMode = dialogFormatMode,
-                        useBlockNcz = useBlock,
-                        zstdLevel = zstdLevel,
-                        blockSizeExponent = blockSizeExpo,
-                        threads = cpuThreads,
-                        romsDir = romsDir,
-                        modsRootDir = modsDir,
-                        outputDir = customOutputDir,
-                        isCancelled = { controller.isCancelled },
-                        onProgress = { _, _ -> },
-                        selectedReleaseFiles = activeSelection,
-                        preBuildCustomization = dlgPreBuild,
-                        deleteSourceAfterVerify = deleteRuTrackerSourceAfterSuccess,
-                        updateUrls = collectedUpdateUrls,
-                        dlcUrls = collectedDlcUrls,
-                        embedDlcUnlocker = embedDlcUnlockerChecked,
-                        taskController = controller,
-                        onDetailedProgress = { pct, stageTitle, detailText, stepLines ->
-                            task.update(
-                                pct = pct,
-                                stage = stageTitle,
-                                detail = detailText,
-                                log = stepLines.lastOrNull()
-                            )
-                            updateBgTaskNotification()
-                        }
-                    )
-                    val outFile = File(res.outputPath)
-                    if (outFile.exists() && queuedFiles.none { it.absolutePath == outFile.absolutePath }) {
-                        queuedFiles.add(outFile)
-                        selectedInputFile = outFile
-                    }
-                    task.state = BgTaskState.COMPLETED
-                    task.resultFile = outFile
-                    task.update(
-                        pct = 100,
-                        stage = "✅ Сборка завершена (100%)",
-                        detail = "✅ Готово: ${outFile.name} (${StormNczEngine.formatSize(res.compressedBytes)})"
-                    )
-                    appendLog("✅ Авто-сборка RuTracker завершена: ${outFile.name} (${StormNczEngine.formatSize(res.compressedBytes)})")
-                    mainHandler.post {
-                        Toast.makeText(this@MainActivity, "Готово: ${outFile.name} (${StormNczEngine.formatSize(res.compressedBytes)})", Toast.LENGTH_LONG).show()
-                    }
-                } catch (e: Exception) {
-                    if (controller.isCancelled) {
-                        task.state = BgTaskState.CANCELLED
-                        task.update(stage = "⏹ Отменено", detail = "Задача отменена пользователем")
-                        appendLog("⏹ Задача отменена пользователем: ${item.title.take(40)}")
-                    } else {
-                        task.state = BgTaskState.FAILED
-                        task.failureReason = e.message
-                        task.update(stage = "❌ Ошибка", detail = "Ошибка: ${e.message}")
-                        appendLog("❌ Ошибка авто-сборки: ${e.message}")
-                    }
-                } finally {
-                    releaseBgLocksIfIdle()
-                    updateBgTaskNotification()
-                    refreshTaskManagerUI(th)
-                }
-            }
+            val dlgPreBuild = StormNczEngine.PreBuildCustomization(
+                enabled = dlgCustomRenameEnabled,
+                customInternalTitle = dlgInternalTitle.ifBlank { cleanDefaultTitle },
+                customPublisher = dlgPublisher,
+                customDisplayVersion = dlgDisplayVer,
+                customOutputFileName = dlgOutputFileName,
+                customIconPath = dlgCustomIconPath,
+                iconBadgeText = if (dlgBadgeIndex > 0) iconBadgeOptions.getOrElse(dlgBadgeIndex) { "" } else ""
+            )
+
+            val task = BgPipelineTask(
+                topicItem = item,
+                title = item.title,
+                titleId = detectedTid,
+                targetFormat = fmtExt,
+                controller = controller,
+                state = BgTaskState.RUNNING,
+                stageTitle = "Этап 1/5: Запуск...",
+                detailText = "Подключение к рою BitTorrent P2P...",
+                dialogFormatMode = dialogFormatMode,
+                selectedReleaseFiles = activeSelection,
+                collectedModUrls = collectedModUrls,
+                collectedUpdateUrls = collectedUpdateUrls,
+                collectedDlcUrls = collectedDlcUrls,
+                embedDlcUnlocker = embedDlcUnlockerChecked,
+                deleteSourceAfterVerify = deleteRuTrackerSourceAfterSuccess,
+                preBuildCustomization = dlgPreBuild
+            )
+            currentTask = task
+            bgPipelineTasks.add(task)
+            attachTaskListener(task)
+            persistBgTasksToDisk()
+            refreshTaskManagerUI(th)
+
+            liveStepLogTxt.visibility = View.VISIBLE
+            updateDialogButtons(BgTaskState.RUNNING)
+
+            launchOrResumePipelineWorker(task, th)
         }
 
         val startBtn = makeButton("🚀 Скачать и собрать", th.accent) {
@@ -4469,7 +4735,7 @@ class MainActivity : Activity() {
                     "21. Nintendo Switch 2 (Ounce / NVN2)",
                     "Экосистемы",
                     "SWITCH 2",
-                    "STORM SWITCH BOX 6.7.8 включает полную поддержку следующего поколения игровых систем Nintendo — Nintendo Switch 2 (кодовое имя «Ounce» / API «NVN2»):\n" +
+                    "STORM SWITCH BOX 6.7.9 включает полную поддержку следующего поколения игровых систем Nintendo — Nintendo Switch 2 (кодовое имя «Ounce» / API «NVN2»):\n" +
                     "• Идентификация дампов: TitleID игр Switch 2 начинается с префикса «0400...» (в отличие от «0100...» у Switch 1), извлекаемый напрямую из main.npdm (заголовок META -> секция ACI0 + 0x10).\n" +
                     "• Авто-сборка из папок дампа: при перетаскивании каталога дампа Switch 2 (содержащего base/exefs/main.npdm, base/romfs, updates/<версия> и dlc/<tid>) программа автоматически объединяет базовую игру, самое свежее обновление, все DLC и моды в 1 монолитный контейнер (.nsp, .nsz, .xci, .xcz).\n" +
                     "• Авто-генерация Control NCA: создание control.nacp на 16 языках и получение официальной 256×256 обложки через Nintendo Europe Search API / Steam.\n" +
@@ -4482,7 +4748,7 @@ class MainActivity : Activity() {
                     "22. RuTracker: Чеклист ссылок обсуждения и DLC Unlocker",
                     "Сеть, Ключи и База",
                     "RUTRACKER",
-                    "В версии 6.7.8 усовершенствован модуль интеграции с RuTracker (#1605):\n" +
+                    "В версии 6.7.9 усовершенствован модуль интеграции с RuTracker (#1605):\n" +
                     "• Чеклист ссылок из темы обсуждения: все полезные ссылки (русификаторы, моды, патчи 60 FPS, читы), найденные в комментариях и шапке темы раздачи, отображаются с датами публикации сообщений.\n" +
                     "• Выборочная загрузка: можно отметить только нужные модификации чекбоксами перед стартом сборки.\n" +
                     "• DLC Unlocker: автоматическое управление анлокерами дополнений и синхронизация тикетов.",
@@ -5237,7 +5503,7 @@ class MainActivity : Activity() {
         }
         updCard.addView(makeSectionHeader(
             "2. Обновление STORM SWITCH BOX (GitHub и STORM GAMES WORLD)",
-            "Текущая версия: ${try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.7.8" } catch (_: Exception) { "6.7.8" }} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) • Проверка на 2 официальных площадках",
+            "Текущая версия: ${try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.7.9" } catch (_: Exception) { "6.7.9" }} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) • Проверка на 2 официальных площадках",
             th
         ))
         updCard.addView(makeStormCheckBox(
@@ -5968,7 +6234,7 @@ class MainActivity : Activity() {
             Toast.makeText(this, "⏳ Проверка обновлений на GitHub и STORM GAMES WORLD...", Toast.LENGTH_SHORT).show()
         }
         val preferLegacy = (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) || Build.VERSION.SDK_INT < 26
-        val currentAppVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.7.8" } catch (_: Exception) { "6.7.8" }
+        val currentAppVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.7.9" } catch (_: Exception) { "6.7.9" }
         thread {
             val rel = RuTrackerCloudEngine.checkGitHubAppUpdate(currentAppVer, preferLegacy)
             mainHandler.post {
@@ -5999,7 +6265,7 @@ class MainActivity : Activity() {
             typeface = Typeface.DEFAULT_BOLD
         })
         box.addView(TextView(this).apply {
-            val installedVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.7.8" } catch (_: Exception) { "6.7.8" }
+            val installedVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.7.9" } catch (_: Exception) { "6.7.9" }
             text = "Новая версия: ${release.version} (Установлена: $installedVer)\nИсточник: ${release.sourceName}\nПакет: ${release.apkName} (${StormNczEngine.formatSize(release.apkSizeBytes)})"
             setTextColor(th.textPrimary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)

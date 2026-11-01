@@ -763,6 +763,7 @@ namespace StormSwitchBox.Views.Dialogs
             Action<(double Percent, string Status)>? onModProgress = null)
         {
             var ct = task.Cts?.Token ?? CancellationToken.None;
+            task.HasActiveWorker = true;
             task.IsRunning = true;
             task.IsPaused = false;
 
@@ -895,6 +896,11 @@ namespace StormSwitchBox.Views.Dialogs
                 task.Speed = string.Empty;
                 task.LogDetails += $"\n❌ Ошибка: {ex.Message}";
                 App.Logger?.Log($"[RuTracker Task Pipeline] Ошибка: {ex.Message}", LogLevel.Error);
+            }
+            finally
+            {
+                task.HasActiveWorker = false;
+                viewModel.SavePersistedTasks();
             }
         }
 
@@ -1225,89 +1231,117 @@ private static string SanitizeFolderName(string name)
                     CancellationTokenSource? timeoutCts = new CancellationTokenSource();
                     var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
 
-                    // Аппаратный CDP-клик по Turnstile через 1.5 секунды
+                    // Внедрение stealth-скриптов обхода анти-автоматизации Turnstile
+                    try
+                    {
+                        await CloudflareWebView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(@"
+                            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+                            window.chrome = { runtime: {} };
+                            Object.defineProperty(navigator, 'languages', { get: () => ['ru-RU', 'ru', 'en-US', 'en'] });
+                            Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+                        ");
+                    }
+                    catch { }
+
+                    // Полностью автоматический аппаратный CDP-кликер Turnstile в фоне (без показа окна пользователю)
                     _ = Task.Run(async () =>
                     {
-                        await Task.Delay(1500, linkedCts.Token);
-                        App.RunOnUI(async () =>
+                        for (int attempt = 0; attempt < 12 && !linkedCts.IsCancellationRequested; attempt++)
                         {
-                            try
-                            {
-                                string getCoordsScript = @"(() => {
-                                    try {
-                                        const ifr = document.querySelector('iframe[src*=""challenges.cloudflare.com""]');
-                                        if (!ifr) return null;
-                                        const rect = ifr.getBoundingClientRect();
-                                        return JSON.stringify({
-                                            x: Math.round(rect.left + 28),
-                                            y: Math.round(rect.top + (rect.height > 0 ? rect.height / 2 : 30))
-                                        });
-                                    } catch {
-                                        return null;
-                                    }
-                                })()";
+                            await Task.Delay(1500, linkedCts.Token);
+                            if (tcs.Task.IsCompleted) break;
 
-                                string coordsJson = await CloudflareWebView.ExecuteScriptAsync(getCoordsScript);
-                                if (!string.IsNullOrEmpty(coordsJson) && coordsJson != "null")
+                            App.RunOnUI(async () =>
+                            {
+                                try
                                 {
-                                    string unescaped = System.Text.Json.JsonSerializer.Deserialize<string>(coordsJson) ?? coordsJson;
-                                    using var doc = System.Text.Json.JsonDocument.Parse(unescaped);
-                                    if (doc.RootElement.TryGetProperty("x", out var xp) && doc.RootElement.TryGetProperty("y", out var yp))
+                                    string checkScript = @"(() => {
+                                        try {
+                                            const body = document.body ? document.body.innerHTML : '';
+                                            if (body.includes('post_body') || body.includes('topic-title')) {
+                                                return JSON.stringify({ passed: true });
+                                            }
+                                            const ifr = document.querySelector('iframe[src*=""challenges.cloudflare.com""], .cf-turnstile iframe, iframe[src*=""turnstile""], #turnstile-wrapper iframe');
+                                            if (!ifr) return JSON.stringify({ passed: false, found: false });
+                                            const rect = ifr.getBoundingClientRect();
+                                            return JSON.stringify({
+                                                passed: false,
+                                                found: true,
+                                                x: Math.round(rect.left + 28),
+                                                y: Math.round(rect.top + (rect.height > 0 ? rect.height / 2 : 30))
+                                            });
+                                        } catch {
+                                            return null;
+                                        }
+                                    })()";
+
+                                    string resJson = await CloudflareWebView.ExecuteScriptAsync(checkScript);
+                                    if (!string.IsNullOrEmpty(resJson) && resJson != "null")
                                     {
-                                        double clickX = xp.GetDouble();
-                                        double clickY = yp.GetDouble();
-
-                                        string pressParams = System.Text.Json.JsonSerializer.Serialize(new
+                                        string unescaped = System.Text.Json.JsonSerializer.Deserialize<string>(resJson) ?? resJson;
+                                        using var doc = System.Text.Json.JsonDocument.Parse(unescaped);
+                                        if (doc.RootElement.TryGetProperty("passed", out var pPassed) && pPassed.GetBoolean())
                                         {
-                                            type = "mousePressed",
-                                            x = clickX,
-                                            y = clickY,
-                                            button = "left",
-                                            clickCount = 1
-                                        });
-                                        await CloudflareWebView.CoreWebView2.CallDevToolsProtocolMethodAsync("Input.dispatchMouseEvent", pressParams);
+                                            string html = await CloudflareWebView.ExecuteScriptAsync("document.documentElement.outerHTML");
+                                            tcs.TrySetResult(System.Text.Json.JsonSerializer.Deserialize<string>(html) ?? html);
+                                            return;
+                                        }
 
-                                        await Task.Delay(80);
-
-                                        string releaseParams = System.Text.Json.JsonSerializer.Serialize(new
+                                        if (doc.RootElement.TryGetProperty("found", out var pFound) && pFound.GetBoolean())
                                         {
-                                            type = "mouseReleased",
-                                            x = clickX,
-                                            y = clickY,
-                                            button = "left",
-                                            clickCount = 1
-                                        });
-                                        await CloudflareWebView.CoreWebView2.CallDevToolsProtocolMethodAsync("Input.dispatchMouseEvent", releaseParams);
+                                            double clickX = doc.RootElement.GetProperty("x").GetDouble();
+                                            double clickY = doc.RootElement.GetProperty("y").GetDouble();
+
+                                            // 1. Имитация движения мыши (mouseMoved)
+                                            string moveParams = System.Text.Json.JsonSerializer.Serialize(new
+                                            {
+                                                type = "mouseMoved",
+                                                x = clickX,
+                                                y = clickY
+                                            });
+                                            await CloudflareWebView.CoreWebView2.CallDevToolsProtocolMethodAsync("Input.dispatchMouseEvent", moveParams);
+
+                                            await Task.Delay(60);
+
+                                            // 2. Нажатие (mousePressed)
+                                            string pressParams = System.Text.Json.JsonSerializer.Serialize(new
+                                            {
+                                                type = "mousePressed",
+                                                x = clickX,
+                                                y = clickY,
+                                                button = "left",
+                                                clickCount = 1
+                                            });
+                                            await CloudflareWebView.CoreWebView2.CallDevToolsProtocolMethodAsync("Input.dispatchMouseEvent", pressParams);
+
+                                            await Task.Delay(80);
+
+                                            // 3. Отпускание (mouseReleased)
+                                            string releaseParams = System.Text.Json.JsonSerializer.Serialize(new
+                                            {
+                                                type = "mouseReleased",
+                                                x = clickX,
+                                                y = clickY,
+                                                button = "left",
+                                                clickCount = 1
+                                            });
+                                            await CloudflareWebView.CoreWebView2.CallDevToolsProtocolMethodAsync("Input.dispatchMouseEvent", releaseParams);
+                                        }
                                     }
                                 }
-                            }
-                            catch { }
-                        });
+                                catch { }
+                            });
+                        }
 
-                        // Если через 3.5 секунды проверка не снята — плавно показываем компактный виджет
+                        // Только если прошло более 18 секунд и авто-кликер не пробил защиту (например, появилась капча с выбором картинок) — показываем интерфейс для ручной помощи
                         await Task.Delay(2000, linkedCts.Token);
-                        App.RunOnUI(async () =>
+                        if (!tcs.Task.IsCompleted)
                         {
-                            try
+                            App.RunOnUI(() =>
                             {
-                                string htmlCheck = await CloudflareWebView.ExecuteScriptAsync("document.documentElement.outerHTML");
-                                if (htmlCheck.Contains("challenges.cloudflare.com") || htmlCheck.Contains("cf-turnstile") || htmlCheck.Contains("Just a moment..."))
-                                {
-                                    ShowCloudflareBypassUi($"🛡️ Подтвердите проверку Cloudflare Turnstile для раздачи #{topicId}...");
-                                }
-                            }
-                            catch { }
-                        });
-
-                        // Если прошло 8 секунд — напоминаем пользователю
-                        await Task.Delay(4500, linkedCts.Token);
-                        App.RunOnUI(() =>
-                        {
-                            if (CloudflareBypassPanel.Opacity > 0.5)
-                            {
-                                CloudflareStatusText.Text = "Нажмите на чекбокс проверки Cloudflare в окне справа...";
-                            }
-                        });
+                                ShowCloudflareBypassUi($"🛡️ Требуется подтверждение капчи Cloudflare для раздачи #{topicId}...");
+                            });
+                        }
                     }, linkedCts.Token);
 
                     async void OnNavCompleted(object? sender, Microsoft.Web.WebView2.Core.CoreWebView2NavigationCompletedEventArgs e)
