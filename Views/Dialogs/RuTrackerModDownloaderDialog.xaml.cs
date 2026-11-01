@@ -24,6 +24,7 @@ namespace StormSwitchBox.Views.Dialogs
         private readonly TasksViewModel _viewModel;
         private readonly ProcessingTask? _targetTask;
         private readonly RuTrackerModService _service = new();
+        private ProcessingTask? _activeTask;
 
         private readonly ObservableCollection<RuTrackerTopicItem> _topics = new();
         private readonly ObservableCollection<TorrentFileSelectionItem> _torrentFiles = new();
@@ -486,14 +487,35 @@ namespace StormSwitchBox.Views.Dialogs
             catch { }
         }
 
+        private void PauseResumeDownload_Click(object sender, RoutedEventArgs e)
+        {
+            if (_activeTask == null) return;
+            if (_activeTask.IsPaused)
+            {
+                _activeTask.Resume();
+                PauseResumeDownloadBtn.Content = "⏸ Пауза";
+                StatusText.Text = "Возобновление загрузки...";
+            }
+            else
+            {
+                _activeTask.Pause();
+                PauseResumeDownloadBtn.Content = "▶️ Продолжить";
+                StatusText.Text = "⏸ Загрузка приостановлена (Пауза)";
+                SpeedPeersText.Text = string.Empty;
+            }
+        }
+
         private void CancelDownload_Click(object sender, RoutedEventArgs e)
         {
             try
             {
+                _activeTask?.Cancel();
                 _downloadCts?.Cancel();
                 StatusText.Text = "⏹ Задача отменена пользователем.";
                 SpeedPeersText.Text = "";
                 DownloadProgressBar.Value = 0;
+                SetUiBusy(false);
+                PauseResumeDownloadBtn.Visibility = Visibility.Collapsed;
             }
             catch { }
         }
@@ -570,55 +592,235 @@ namespace StormSwitchBox.Views.Dialogs
             string targetReleaseDir = Path.Combine(baseDownloadDir, safeSubFolder);
             Directory.CreateDirectory(targetReleaseDir);
 
+            string customModTitle = CustomModNameBox.Text?.Trim() ?? string.Empty;
+            bool deleteRtSource = DeleteRuTrackerSourceCheckBox.IsChecked == true;
+            bool autoBuild = AutoBuildCheckBox.IsChecked == true;
+
+            RuTrackerTopicItem? currentTopic = null;
+            if (!string.IsNullOrEmpty(_service.ActiveTopicId))
+            {
+                currentTopic = _topics.FirstOrDefault(t => t.TopicId == _service.ActiveTopicId) ?? new RuTrackerTopicItem
+                {
+                    TopicId = _service.ActiveTopicId,
+                    Title = _currentTopicTitle,
+                    Seeds = _service.ActiveTopicSeeds
+                };
+            }
+
+            var payload = new RuTrackerTaskPayload
+            {
+                Topic = currentTopic,
+                TorrentBytes = _service.LoadedTorrentBytes,
+                MagnetLink = _service.LoadedMagnet,
+                TorrentFiles = _torrentFiles.Where(f => f.IsSelected).ToList(),
+                CloudLinks = cloudLinks,
+                TargetReleaseDir = targetReleaseDir,
+                CustomModTitle = customModTitle,
+                AutoBuild = autoBuild,
+                HasTorrentSource = hasTorrentSource
+            };
+
+            ProcessingTask task;
+            if (_targetTask != null)
+            {
+                task = _targetTask;
+                task.IsRuTrackerTask = true;
+                task.DeleteSourceAfterVerify = deleteRtSource;
+                task.RuTrackerPayload = payload;
+            }
+            else
+            {
+                task = new ProcessingTask
+                {
+                    Id = Guid.NewGuid().ToString("N").Substring(0, 8),
+                    GameName = !string.IsNullOrWhiteSpace(_currentTopicTitle) ? _currentTopicTitle : "RuTracker Загрузка",
+                    Operation = "Multi",
+                    SourceFormat = "MULTI",
+                    Status = hasTorrentSource ? "Загрузка торрента..." : "Скачивание модов...",
+                    Progress = 0,
+                    IsRunning = true,
+                    IsRuTrackerTask = true,
+                    DeleteSourceAfterVerify = deleteRtSource,
+                    OutputFolder = baseDownloadDir,
+                    OutputFileName = SanitizeFolderName(!string.IsNullOrWhiteSpace(_currentTopicTitle) ? _currentTopicTitle : "Game"),
+                    FilesCount = $"{_torrentFiles.Count(f => f.IsSelected)} файл(ов)",
+                    LogDetails = $"[RuTracker] Старт задачи: {_currentTopicTitle}\nЦелевая папка: {targetReleaseDir}",
+                    RuTrackerPayload = payload
+                };
+                _viewModel.Tasks.Add(task);
+            }
+
+            _activeTask = task;
             _downloadCts?.Cancel();
             _downloadCts = new CancellationTokenSource();
-            var ct = _downloadCts.Token;
+            task.Cts = _downloadCts;
+
+            PauseResumeDownloadBtn.Visibility = Visibility.Visible;
+            PauseResumeDownloadBtn.Content = "⏸ Пауза";
+
+            task.OnPauseRequested = () =>
+            {
+                App.RunOnUI(() =>
+                {
+                    if (ActiveInstance == this)
+                    {
+                        PauseResumeDownloadBtn.Content = "▶️ Продолжить";
+                        StatusText.Text = "⏸ Загрузка приостановлена (Пауза)";
+                        SpeedPeersText.Text = string.Empty;
+                    }
+                });
+            };
+
+            task.OnResumeRequested = () =>
+            {
+                App.RunOnUI(() =>
+                {
+                    if (ActiveInstance == this)
+                    {
+                        PauseResumeDownloadBtn.Content = "⏸ Пауза";
+                        StatusText.Text = "Возобновление загрузки...";
+                    }
+                });
+            };
+
+            task.OnCancelRequested = () =>
+            {
+                App.RunOnUI(() =>
+                {
+                    if (ActiveInstance == this)
+                    {
+                        StatusText.Text = "⏹ Задача отменена пользователем.";
+                        SpeedPeersText.Text = string.Empty;
+                        SetUiBusy(false);
+                        PauseResumeDownloadBtn.Visibility = Visibility.Collapsed;
+                    }
+                });
+            };
 
             SetUiBusy(true);
 
-            try
+            _ = Task.Run(async () =>
             {
-                // 1. Скачивание торрента / Magnet (если запрошено)
-                if (hasTorrentSource)
-                {
-                    var torrentProgress = new Progress<TorrentDownloadProgress>(p =>
+                await ExecuteRuTrackerPipelineAsync(task, payload, _viewModel, _service,
+                    p =>
                     {
                         App.RunOnUI(() =>
                         {
-                            DownloadProgressBar.Value = Math.Clamp(p.Percent, 0, 100);
-                            StatusText.Text = p.StatusText;
-                            SpeedPeersText.Text = p.SwarmTotal > p.Seeds ? $"{p.SpeedMbPerSec:F2} МБ/с | Сиды: {p.Seeds} (в рое: {p.SwarmTotal}) | Пиры: {p.Peers}" : $"{p.SpeedMbPerSec:F2} МБ/с | Сиды: {p.Seeds} | Пиры: {p.Peers}";
-                        });
-                    });
-
-                    await _service.DownloadTorrentAsync(
-                        targetReleaseDir,
-                        _torrentFiles.ToList(),
-                        torrentProgress,
-                        ct);
-                }
-
-                // 2. Скачивание и автораспаковка всех облачных модов / русификаторов
-                var discoveredModPayloads = new List<string>();
-                if (cloudLinks.Count > 0)
-                {
-                    var modProg = new Progress<(double Percent, string Status)>(mp =>
-                    {
-                        App.RunOnUI(() =>
-                        {
-                            DownloadProgressBar.Value = Math.Clamp(mp.Percent, 0, 100);
-                            StatusText.Text = mp.Status;
-                            if (mp.Status.Contains("МБ/с"))
+                            if (ActiveInstance == this)
                             {
-                                int sIdx = mp.Status.IndexOf('(');
-                                int eIdx = mp.Status.IndexOf(')');
-                                if (sIdx >= 0 && eIdx > sIdx)
-                                    SpeedPeersText.Text = mp.Status.Substring(sIdx + 1, eIdx - sIdx - 1);
+                                DownloadProgressBar.Value = Math.Clamp(p.Percent, 0, 100);
+                                StatusText.Text = p.StatusText;
+                                SpeedPeersText.Text = p.SwarmTotal > p.Seeds
+                                    ? $"{p.SpeedMbPerSec:F2} МБ/с | Сиды: {p.Seeds} (в рое: {p.SwarmTotal}) | Пиры: {p.Peers}"
+                                    : $"{p.SpeedMbPerSec:F2} МБ/с | Сиды: {p.Seeds} | Пиры: {p.Peers}";
+                            }
+                        });
+                    },
+                    mp =>
+                    {
+                        App.RunOnUI(() =>
+                        {
+                            if (ActiveInstance == this)
+                            {
+                                DownloadProgressBar.Value = Math.Clamp(mp.Percent, 0, 100);
+                                StatusText.Text = mp.Status;
+                                if (mp.Status.Contains("МБ/с"))
+                                {
+                                    int sIdx = mp.Status.IndexOf('(');
+                                    int eIdx = mp.Status.IndexOf(')');
+                                    if (sIdx >= 0 && eIdx > sIdx)
+                                        SpeedPeersText.Text = mp.Status.Substring(sIdx + 1, eIdx - sIdx - 1);
+                                }
                             }
                         });
                     });
 
-                    var extractedPaths = await _service.DownloadAndExtractCloudModsAsync(cloudLinks, targetReleaseDir, modProg, ct);
+                App.RunOnUI(() =>
+                {
+                    if (ActiveInstance == this)
+                    {
+                        SetUiBusy(false);
+                        PauseResumeDownloadBtn.Visibility = Visibility.Collapsed;
+                        if (task.Status == "Успешно" || task.Status == "Готово")
+                        {
+                            DownloadProgressBar.Value = 100;
+                            SpeedPeersText.Text = "Готово";
+                            StatusText.Text = $"✅ Загрузка завершена! Задача добавлена в список ({targetReleaseDir}).";
+                        }
+                    }
+                });
+            });
+
+            await Task.CompletedTask;
+        }
+
+        public static async Task ExecuteRuTrackerPipelineAsync(
+            ProcessingTask task,
+            RuTrackerTaskPayload payload,
+            TasksViewModel viewModel,
+            RuTrackerModService service,
+            Action<TorrentDownloadProgress>? onTorrentProgress = null,
+            Action<(double Percent, string Status)>? onModProgress = null)
+        {
+            var ct = task.Cts?.Token ?? CancellationToken.None;
+            task.IsRunning = true;
+            task.IsPaused = false;
+
+            try
+            {
+                // 1. Скачивание торрента / Magnet
+                if (payload.HasTorrentSource)
+                {
+                    task.Status = "Загрузка торрента...";
+                    var torrentProg = new Progress<TorrentDownloadProgress>(p =>
+                    {
+                        task.Progress = Math.Clamp(p.Percent, 0, 100);
+                        task.Status = p.StatusText;
+                        task.Speed = p.SwarmTotal > p.Seeds
+                            ? $"{p.SpeedMbPerSec:F2} МБ/с | Сиды: {p.Seeds} (в рое: {p.SwarmTotal})"
+                            : $"{p.SpeedMbPerSec:F2} МБ/с | Сиды: {p.Seeds}";
+                        onTorrentProgress?.Invoke(p);
+                    });
+
+                    await service.DownloadTorrentAsync(
+                        payload.TargetReleaseDir,
+                        payload.TorrentFiles,
+                        torrentProg,
+                        ct,
+                        payload.TorrentBytes,
+                        payload.MagnetLink,
+                        payload.Topic?.TopicId,
+                        payload.Topic?.Seeds ?? 0,
+                        task.PauseEvent,
+                        mgr => task.ActiveTorrentManager = mgr).ConfigureAwait(false);
+                }
+
+                // 2. Скачивание и автораспаковка всех облачных модов / русификаторов
+                var discoveredModPayloads = new List<string>();
+                if (payload.CloudLinks.Count > 0)
+                {
+                    task.Status = "Скачивание облачных модов...";
+                    var modProg = new Progress<(double Percent, string Status)>(mp =>
+                    {
+                        task.Progress = Math.Clamp(mp.Percent, 0, 100);
+                        task.Status = mp.Status;
+                        if (mp.Status.Contains("МБ/с"))
+                        {
+                            int sIdx = mp.Status.IndexOf('(');
+                            int eIdx = mp.Status.IndexOf(')');
+                            if (sIdx >= 0 && eIdx > sIdx)
+                                task.Speed = mp.Status.Substring(sIdx + 1, eIdx - sIdx - 1);
+                        }
+                        onModProgress?.Invoke(mp);
+                    });
+
+                    var extractedPaths = await service.DownloadAndExtractCloudModsAsync(
+                        payload.CloudLinks,
+                        payload.TargetReleaseDir,
+                        modProg,
+                        ct,
+                        task.PauseEvent).ConfigureAwait(false);
+
                     foreach (var ep in extractedPaths)
                     {
                         if (!discoveredModPayloads.Contains(ep, StringComparer.OrdinalIgnoreCase))
@@ -626,106 +828,73 @@ namespace StormSwitchBox.Views.Dialogs
                     }
                 }
 
-                // Также проверяем сам каталог релиза на наличие распакованных папок romfs / exefs / exefs_patches
-                foreach (var p in RuTrackerModService.DiscoverModPayloadsInDirectory(targetReleaseDir))
+                // Сканируем каталог релиза на наличие распакованных romfs / exefs
+                foreach (var p in RuTrackerModService.DiscoverModPayloadsInDirectory(payload.TargetReleaseDir))
                 {
                     if (!discoveredModPayloads.Contains(p, StringComparer.OrdinalIgnoreCase))
                         discoveredModPayloads.Add(p);
                 }
 
-                // 3. Интеграция в задачу (привязка к существующей задаче или создание новой комплектной задачи)
-                string customModTitle = CustomModNameBox.Text?.Trim() ?? string.Empty;
+                // 3. Привязка файлов к задаче
+                BindDownloadedFilesToExistingTask(task, payload.TargetReleaseDir, discoveredModPayloads, payload.CustomModTitle);
 
-                SaveCurrentSettings();
-                bool deleteRtSource = DeleteRuTrackerSourceCheckBox.IsChecked == true;
-
-                if (_targetTask != null)
+                // 4. Автоматическая сборка мульти-контента
+                if (payload.AutoBuild)
                 {
-                    _targetTask.IsRuTrackerTask = true;
-                    _targetTask.DeleteSourceAfterVerify = deleteRtSource;
-                    BindDownloadedFilesToExistingTask(_targetTask, targetReleaseDir, discoveredModPayloads, customModTitle);
-                    StatusText.Text = $"✅ Модификации и файлы успешно привязаны к задаче «{_targetTask.GameName}»!";
-                }
-                else
-                {
-                    StatusText.Text = "Формирование задачи в STORM SWITCH BOX...";
-                    await _viewModel.AddDroppedFilesBatchAsync(new List<string> { targetReleaseDir });
+                    task.Status = "Сборка мульти-контента...";
+                    task.Speed = string.Empty;
+                    task.Progress = 0;
 
-                    var newestTask = _viewModel.Tasks.LastOrDefault();
-                    if (newestTask != null)
+                    string outExt = task.GetPrimaryExtension();
+                    string outDir = string.IsNullOrWhiteSpace(task.OutputFolder)
+                        ? (string.IsNullOrWhiteSpace(App.Settings.Current.OutputFolder) ? payload.TargetReleaseDir : App.Settings.Current.OutputFolder)
+                        : task.OutputFolder;
+                    Directory.CreateDirectory(outDir);
+                    string outPath = Path.Combine(outDir, task.OutputFileName + outExt);
+
+                    await App.MultiContent.BuildMultiContentAsync(
+                        task,
+                        task.InputFiles,
+                        outPath,
+                        patchFirmware: App.Settings.Current.ForceMultiRebuild,
+                        ct).ConfigureAwait(false);
+
+                    if (task.DeleteSourceAfterVerify && (task.Status == "Успешно" || task.Status == "Готово"))
                     {
-                        newestTask.IsRuTrackerTask = true;
-                        newestTask.DeleteSourceAfterVerify = deleteRtSource;
-
-                        // Гарантируем, что все найденные полезные нагрузки модов присутствуют в InputFiles
-                        foreach (var payload in discoveredModPayloads)
+                        try
                         {
-                            if (!newestTask.InputFiles.Contains(payload, StringComparer.OrdinalIgnoreCase))
+                            if (Directory.Exists(payload.TargetReleaseDir))
                             {
-                                newestTask.InputFiles.Add(payload);
-                                newestTask.FilesList.Add(Path.GetFileName(payload));
+                                Directory.Delete(payload.TargetReleaseDir, recursive: true);
+                                App.Logger?.Log($"[RuTracker] Исходный каталог очищен после успешной сборки: {payload.TargetReleaseDir}", LogLevel.Info);
                             }
                         }
-
-                        bool hasRfs = newestTask.HasRomFs == "1" || newestTask.HasRomFs == "Да";
-                        bool hasEfs = newestTask.HasExeFs == "1" || newestTask.HasExeFs == "Да";
-
-                        foreach (var p in newestTask.InputFiles)
-                        {
-                            string fn = Path.GetFileName(p).ToLowerInvariant();
-                            if (fn == "romfs" || fn.EndsWith(".romfs") || fn == "romfs.bin" || fn.EndsWith(".pak") || fn.EndsWith(".sarc.zs") || fn.EndsWith(".sarc") || fn.EndsWith(".zs"))
-                                hasRfs = true;
-                            if (fn == "exefs" || fn == "exefs_patches" || fn.EndsWith(".ips") || fn.EndsWith(".pchtxt") || fn.EndsWith(".bps"))
-                                hasEfs = true;
-                        }
-
-                        if (hasRfs) newestTask.HasRomFs = "Да";
-                        if (hasEfs) newestTask.HasExeFs = "Да";
-
-                        if (!string.IsNullOrWhiteSpace(customModTitle))
-                        {
-                            if (newestTask.HasRomFs == "Да") newestTask.ModNameRomFs = customModTitle;
-                            if (newestTask.HasExeFs == "Да") newestTask.ModNameExeFs = customModTitle;
-                        }
-
-                        if (discoveredModPayloads.Count > 0 || newestTask.InputFiles.Count > 1 || hasRfs || hasEfs)
-                        {
-                            if (newestTask.Operation != "Homebrew" && newestTask.Operation != "Verify" && newestTask.Operation != "Unpack")
-                            {
-                                newestTask.Operation = "Multi";
-                                newestTask.SourceFormat = "MULTI";
-                            }
-                            string formattedName = MultiContentService.FormatOutputFileName(
-                                Path.Combine(newestTask.OutputFolder, newestTask.OutputFileName + newestTask.GetPrimaryExtension()), 
-                                newestTask.InputFiles);
-                            newestTask.OutputFileName = Path.GetFileNameWithoutExtension(formattedName);
-                        }
-                    }
-
-                    StatusText.Text = $"✅ Загрузка завершена! Задача добавлена в список ({targetReleaseDir}).";
-
-                    if (AutoBuildCheckBox.IsChecked == true && _viewModel.StartAllTasksCommand.CanExecute(null))
-                    {
-                        _viewModel.StartAllTasksCommand.Execute(null);
+                        catch { }
                     }
                 }
 
-                DownloadProgressBar.Value = 100;
-                SpeedPeersText.Text = "Готово";
+                task.Status = "Успешно";
+                task.Progress = 100;
+                task.IsRunning = false;
+                task.IsPaused = false;
+                task.Speed = string.Empty;
+                task.FinishedAt = DateTime.Now;
             }
             catch (OperationCanceledException)
             {
-                StatusText.Text = "⏹ Загрузка остановлена пользователем.";
-                SpeedPeersText.Text = string.Empty;
+                task.Status = "Отменено";
+                task.IsRunning = false;
+                task.IsPaused = false;
+                task.Speed = string.Empty;
             }
             catch (Exception ex)
             {
-                StatusText.Text = $"❌ Ошибка загрузки: {ex.Message}";
-                App.Logger.Log($"[RuTracker/CloudMod] Ошибка: {ex.Message}", LogLevel.Error);
-            }
-            finally
-            {
-                SetUiBusy(false);
+                task.Status = "Ошибка";
+                task.IsRunning = false;
+                task.IsPaused = false;
+                task.Speed = string.Empty;
+                task.LogDetails += $"\n❌ Ошибка: {ex.Message}";
+                App.Logger?.Log($"[RuTracker Task Pipeline] Ошибка: {ex.Message}", LogLevel.Error);
             }
         }
 
@@ -749,59 +918,71 @@ namespace StormSwitchBox.Views.Dialogs
                 string name = Path.GetFileName(payload).ToLowerInvariant();
                 if (name == "romfs" || name.EndsWith(".romfs") || name == "romfs.bin" || name.EndsWith(".pak") || name.EndsWith(".sarc.zs") || name.EndsWith(".sarc") || name.EndsWith(".zs"))
                     addedRomFs = true;
-                else if (name == "exefs" || name == "exefs_patches" || name.EndsWith(".ips") || name.EndsWith(".pchtxt") || name.EndsWith(".bps"))
+                if (name == "exefs" || name == "exefs_patches" || name.EndsWith(".ips") || name.EndsWith(".pchtxt") || name.EndsWith(".bps"))
                     addedExeFs = true;
             }
 
             if (Directory.Exists(downloadDir))
             {
-                var gameFiles = Directory.GetFiles(downloadDir, "*.*", SearchOption.AllDirectories)
-                    .Where(f =>
-                    {
-                        string ext = Path.GetExtension(f).ToLowerInvariant();
-                        return ext == ".nsp" || ext == ".nsz" || ext == ".xci" || ext == ".xcz" || ext == ".cia" || ext == ".3ds";
-                    });
+                var discoveredFiles = Directory.EnumerateFiles(downloadDir, "*.*", SearchOption.AllDirectories)
+                    .Where(p => p.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) ||
+                                p.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) ||
+                                p.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) ||
+                                p.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase))
+                    .ToList();
 
-                foreach (var gf in gameFiles)
+                foreach (var f in discoveredFiles)
                 {
-                    if (!task.InputFiles.Contains(gf, StringComparer.OrdinalIgnoreCase))
+                    if (!task.InputFiles.Contains(f, StringComparer.OrdinalIgnoreCase))
                     {
-                        task.InputFiles.Add(gf);
-                        task.FilesList.Add(Path.GetFileName(gf));
+                        task.InputFiles.Add(f);
+                        task.FilesList.Add(Path.GetFileName(f));
                     }
                 }
             }
 
-            if (addedRomFs)
+            task.FilesCount = $"{task.InputFiles.Count} файл(ов)";
+
+            long totalBytes = 0;
+            foreach (var f in task.InputFiles)
             {
-                task.HasRomFs = "Да";
-                if (!string.IsNullOrWhiteSpace(customModTitle))
-                    task.ModNameRomFs = customModTitle;
-                else if (string.IsNullOrWhiteSpace(task.ModNameRomFs))
-                    task.ModNameRomFs = "Cloud Mod (RomFS)";
+                try
+                {
+                    if (File.Exists(f)) totalBytes += new FileInfo(f).Length;
+                    else if (Directory.Exists(f))
+                    {
+                        totalBytes += Directory.EnumerateFiles(f, "*.*", SearchOption.AllDirectories)
+                            .Sum(fi => new FileInfo(fi).Length);
+                    }
+                }
+                catch { }
+            }
+            task.SourceSizeBytes = totalBytes;
+
+            if (addedRomFs) task.HasRomFs = "Да";
+            if (addedExeFs) task.HasExeFs = "Да";
+
+            if (!string.IsNullOrWhiteSpace(customModTitle))
+            {
+                if (task.HasRomFs == "Да") task.ModNameRomFs = customModTitle;
+                if (task.HasExeFs == "Да") task.ModNameExeFs = customModTitle;
             }
 
-            if (addedExeFs)
+            if (modPayloads.Count > 0 || task.InputFiles.Count > 1 || addedRomFs || addedExeFs)
             {
-                task.HasExeFs = "Да";
-                if (!string.IsNullOrWhiteSpace(customModTitle))
-                    task.ModNameExeFs = customModTitle;
-                else if (string.IsNullOrWhiteSpace(task.ModNameExeFs))
-                    task.ModNameExeFs = "Cloud Patch (ExeFS/IPS)";
+                if (task.Operation != "Homebrew" && task.Operation != "Verify" && task.Operation != "Unpack")
+                {
+                    task.Operation = "Multi";
+                    task.SourceFormat = "MULTI";
+                }
+                string formattedName = MultiContentService.FormatOutputFileName(
+                    Path.Combine(task.OutputFolder, task.OutputFileName + task.GetPrimaryExtension()), 
+                    task.InputFiles);
+                task.OutputFileName = Path.GetFileNameWithoutExtension(formattedName);
             }
-
-            task.FilesCount = task.InputFiles.Count.ToString();
-            if ((addedRomFs || addedExeFs || modPayloads.Count > 0 || task.InputFiles.Count > 1) && task.Operation != "Homebrew" && task.Operation != "Verify" && task.Operation != "Unpack")
-            {
-                task.Operation = "Multi";
-                task.SourceFormat = "MULTI";
-            }
-
-            task.LogDetails += $"\n[CloudMod] Привязано элементов: {modPayloads.Count} из {downloadDir}";
-            App.Logger.Log($"[CloudMod] К задаче «{task.GameName}» привязано {modPayloads.Count} модификаций (RomFS: {task.HasRomFs}, ExeFS: {task.HasExeFs}).", LogLevel.Success);
         }
 
-        private void SetUiBusy(bool busy)
+                private void SetUiBusy(bool busy)
         {
             StartFullDownloadBtn.IsEnabled = !busy;
             DownloadOnlyModsBtn.IsEnabled = !busy;
@@ -809,7 +990,7 @@ namespace StormSwitchBox.Views.Dialogs
             CancelDownloadBtn.IsEnabled = true;
         }
 
-        private static string SanitizeFolderName(string name)
+private static string SanitizeFolderName(string name)
         {
             foreach (char c in Path.GetInvalidFileNameChars())
                 name = name.Replace(c, '_');
@@ -1189,8 +1370,8 @@ namespace StormSwitchBox.Views.Dialogs
                 RuTrackerModService.SameOriginFetchHandler = null;
             }
             try { _cfTcs?.TrySetResult(null); } catch { }
-            try { _downloadCts?.Cancel(); } catch { }
-            try { _service.Dispose(); } catch { }
+            // ВАЖНО: Не отменяем _downloadCts и не глушим сервис!
+            // Задача продолжает выполняться в главном задачнике TasksViewModel.Tasks!
         }
     }
 }

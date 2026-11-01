@@ -1,3 +1,4 @@
+using StormSwitchBox.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
@@ -46,10 +47,29 @@ namespace StormSwitchBox.Models
 
         [ObservableProperty] private double _progress;
         [ObservableProperty] private bool _isRunning;
+        [ObservableProperty] private bool _isPaused;
         [ObservableProperty] private DateTime _finishedAt = DateTime.Now;
 
         [System.Text.Json.Serialization.JsonIgnore]
         public System.Threading.CancellationTokenSource? Cts { get; set; }
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public Action? OnPauseRequested { get; set; }
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public Action? OnResumeRequested { get; set; }
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public Action? OnCancelRequested { get; set; }
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public System.Threading.ManualResetEventSlim PauseEvent { get; } = new(true);
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public MonoTorrent.Client.TorrentManager? ActiveTorrentManager { get; set; }
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public RuTrackerTaskPayload? RuTrackerPayload { get; set; }
         
         [System.Text.Json.Serialization.JsonIgnore]
         public string FinishedAtDisplay => FinishedAt.ToString("dd.MM.yyyy HH:mm");
@@ -61,7 +81,21 @@ namespace StormSwitchBox.Models
         {
             OnPropertyChanged(nameof(IsNotRunning));
             OnPropertyChanged(nameof(CanChangeFormat));
+            OnPropertyChanged(nameof(PauseButtonVisibility));
+            OnPropertyChanged(nameof(ResumeButtonVisibility));
         }
+
+        partial void OnIsPausedChanged(bool value)
+        {
+            OnPropertyChanged(nameof(PauseButtonVisibility));
+            OnPropertyChanged(nameof(ResumeButtonVisibility));
+        }
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public Visibility PauseButtonVisibility => IsRunning && !IsPaused ? Visibility.Visible : Visibility.Collapsed;
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public Visibility ResumeButtonVisibility => IsRunning && IsPaused ? Visibility.Visible : Visibility.Collapsed;
 
         [ObservableProperty] private int _buildMode = 0;
         [ObservableProperty] private bool _isSwitch2Task;
@@ -256,15 +290,58 @@ namespace StormSwitchBox.Models
         [System.Text.Json.Serialization.JsonIgnore]
         public GameMetadataEditModel? CustomMetadata { get; set; }
 
+        public void Pause()
+        {
+            if (!IsRunning || IsPaused) return;
+            IsPaused = true;
+            PauseEvent.Reset();
+            Status = "Пауза";
+            Speed = string.Empty;
+            try
+            {
+                OnPauseRequested?.Invoke();
+                if (ActiveTorrentManager != null && ActiveTorrentManager.State == MonoTorrent.Client.TorrentState.Downloading)
+                {
+                    _ = ActiveTorrentManager.PauseAsync();
+                }
+            }
+            catch { }
+        }
+
+        public void Resume()
+        {
+            if (!IsRunning || !IsPaused) return;
+            IsPaused = false;
+            PauseEvent.Set();
+            Status = "Возобновление...";
+            try
+            {
+                OnResumeRequested?.Invoke();
+                if (ActiveTorrentManager != null && ActiveTorrentManager.State == MonoTorrent.Client.TorrentState.Paused)
+                {
+                    _ = ActiveTorrentManager.StartAsync();
+                }
+            }
+            catch { }
+        }
+
         public void Cancel()
         {
             try
             {
+                OnCancelRequested?.Invoke();
+                PauseEvent.Set();
+                if (ActiveTorrentManager != null)
+                {
+                    _ = ActiveTorrentManager.StopAsync();
+                }
                 Cts?.Cancel();
             }
             catch { }
             Status = "Отменено";
+            Speed = string.Empty;
             IsRunning = false;
+            IsPaused = false;
         }
 
         [System.Text.Json.Serialization.JsonIgnore]
@@ -276,6 +353,7 @@ namespace StormSwitchBox.Models
                     return new SolidColorBrush(Windows.UI.Color.FromArgb(255, 46, 204, 113)); // Emerald Green
                 if (Status == "Ошибка" || Status == "Поврежден" || Status.StartsWith("Нет") || Status.Contains("ошибка") || Status.Contains("Ошибка")) 
                     return new SolidColorBrush(Windows.UI.Color.FromArgb(255, 231, 76, 60)); // Alizarin Red
+                if (Status == "Пауза") return new SolidColorBrush(Windows.UI.Color.FromArgb(255, 245, 158, 11)); // Amber/Orange for Pause
                 if (Status == "Отменен" || Status == "Отменено" || Status.Contains("Предупреждение")) 
                     return new SolidColorBrush(Windows.UI.Color.FromArgb(255, 243, 156, 18)); // Orange
                 if (Status == "Ожидание") 
@@ -295,4 +373,17 @@ namespace StormSwitchBox.Models
             OnPropertyChanged(nameof(FormatSelectableVisibility));
         }
     }
+    public sealed class RuTrackerTaskPayload
+    {
+        public RuTrackerTopicItem? Topic { get; set; }
+        public byte[]? TorrentBytes { get; set; }
+        public MonoTorrent.MagnetLink? MagnetLink { get; set; }
+        public List<TorrentFileSelectionItem> TorrentFiles { get; set; } = new();
+        public List<string> CloudLinks { get; set; } = new();
+        public string TargetReleaseDir { get; set; } = string.Empty;
+        public string CustomModTitle { get; set; } = string.Empty;
+        public bool AutoBuild { get; set; } = true;
+        public bool HasTorrentSource { get; set; } = true;
+    }
+
 }

@@ -352,6 +352,7 @@
         <Grid Grid.Row="5" ColumnSpacing="8">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="Auto"/>
@@ -361,13 +362,16 @@
             <Button x:Name="OpenTopicBrowserBtn" Grid.Column="0" Content="🌍 Открыть тему в браузере" Click="OpenTopicInBrowser_Click"
                     HorizontalAlignment="Left" CornerRadius="6" Padding="12,7"/>
 
-            <Button x:Name="CancelDownloadBtn" Grid.Column="2" Content="⏹ Отменить задачу" Click="CancelDownload_Click"
+            <Button x:Name="PauseResumeDownloadBtn" Grid.Column="1" Content="⏸ Пауза" Click="PauseResumeDownload_Click"
+                    Visibility="Collapsed" Background="#F59E0B" Foreground="White" FontWeight="SemiBold" CornerRadius="6" Padding="12,7"/>
+
+            <Button x:Name="CancelDownloadBtn" Grid.Column="3" Content="⏹ Отменить задачу" Click="CancelDownload_Click"
                     IsEnabled="True" Background="#DC2626" Foreground="White" FontWeight="SemiBold" CornerRadius="6" Padding="12,7"/>
 
-            <Button x:Name="DownloadOnlyModsBtn" Grid.Column="3" Content="☁ Скачать только моды и привязать" Click="DownloadOnlyCloudMods_Click"
+            <Button x:Name="DownloadOnlyModsBtn" Grid.Column="4" Content="☁ Скачать только моды и привязать" Click="DownloadOnlyCloudMods_Click"
                     Background="#7C3AED" Foreground="White" FontWeight="SemiBold" CornerRadius="6" Padding="12,7"/>
 
-            <Button x:Name="StartFullDownloadBtn" Grid.Column="4" Content="🚀 Скачать раздачу + моды и создать задачу" Click="StartFullDownload_Click"
+            <Button x:Name="StartFullDownloadBtn" Grid.Column="5" Content="🚀 Скачать раздачу + моды и создать задачу" Click="StartFullDownload_Click"
                     Background="#0284C7" Foreground="White" FontWeight="Bold" CornerRadius="6" Padding="14,7"/>
         </Grid>
     

@@ -155,6 +155,345 @@ class MainActivity : Activity() {
     @Volatile private var isTaskRunning = false
     @Volatile private var cancelCurrentTaskRequested = false
 
+    enum class BgTaskState {
+        RUNNING,
+        PAUSED,
+        COMPLETED,
+        CANCELLED,
+        FAILED
+    }
+
+    class BgPipelineTask(
+        val id: String = java.util.UUID.randomUUID().toString(),
+        val topicItem: RuTrackerCloudEngine.TopicItem,
+        val title: String,
+        val titleId: String,
+        val targetFormat: String,
+        val controller: RuTrackerCloudEngine.TaskExecutionController,
+        var state: BgTaskState = BgTaskState.RUNNING,
+        var stageTitle: String = "Подготовка...",
+        var progressPct: Int = 0,
+        var detailText: String = "Инициализация задачи...",
+        val stepLogs: MutableList<String> = java.util.Collections.synchronizedList(mutableListOf()),
+        var resultFile: File? = null,
+        var failureReason: String? = null,
+        var onUpdateListener: ((BgPipelineTask) -> Unit)? = null
+    ) {
+        fun update(
+            pct: Int? = null,
+            stage: String? = null,
+            detail: String? = null,
+            log: String? = null
+        ) {
+            if (pct != null) progressPct = pct
+            if (stage != null) stageTitle = stage
+            if (detail != null) detailText = detail
+            if (log != null && log.isNotBlank()) stepLogs.add(log)
+            onUpdateListener?.invoke(this)
+        }
+    }
+
+    val bgPipelineTasks = java.util.concurrent.CopyOnWriteArrayList<BgPipelineTask>()
+    private var taskManagerContainerView: LinearLayout? = null
+    private var activeTasksBadgeView: TextView? = null
+
+    private var wakeLock: android.os.PowerManager.WakeLock? = null
+    private var wifiLock: android.net.wifi.WifiManager.WifiLock? = null
+
+    private fun acquireBgLocks() {
+        try {
+            if (wakeLock == null) {
+                val pm = getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+                wakeLock = pm?.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "StormSwitchBox:BgTaskManager")?.apply {
+                    setReferenceCounted(false)
+                }
+            }
+            if (wakeLock?.isHeld != true) {
+                wakeLock?.acquire(12 * 3600 * 1000L)
+            }
+        } catch (_: Throwable) {}
+
+        try {
+            if (wifiLock == null) {
+                val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
+                @Suppress("DEPRECATION")
+                val mode = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                    android.net.wifi.WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+                } else {
+                    android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF
+                }
+                wifiLock = wm?.createWifiLock(mode, "StormSwitchBox:BgWifiLock")?.apply {
+                    setReferenceCounted(false)
+                }
+            }
+            if (wifiLock?.isHeld != true) {
+                wifiLock?.acquire()
+            }
+        } catch (_: Throwable) {}
+    }
+
+    private fun releaseBgLocksIfIdle() {
+        val anyActive = bgPipelineTasks.any { it.state == BgTaskState.RUNNING }
+        if (!anyActive) {
+            try {
+                if (wakeLock?.isHeld == true) wakeLock?.release()
+            } catch (_: Throwable) {}
+            try {
+                if (wifiLock?.isHeld == true) wifiLock?.release()
+            } catch (_: Throwable) {}
+        }
+    }
+
+    private val NOTIF_CHANNEL_ID = "storm_bg_tasks"
+    private val NOTIF_ID = 7001
+
+    private fun updateBgTaskNotification() {
+        try {
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager ?: return
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                val channel = android.app.NotificationChannel(
+                    NOTIF_CHANNEL_ID,
+                    "Фоновые задачи STORM SWITCH BOX",
+                    android.app.NotificationManager.IMPORTANCE_LOW
+                ).apply {
+                    description = "Фоновая загрузка и сборка мульти-контента"
+                    setShowBadge(false)
+                }
+                nm.createNotificationChannel(channel)
+            }
+
+            val activeTasks = bgPipelineTasks.filter { it.state == BgTaskState.RUNNING || it.state == BgTaskState.PAUSED }
+            if (activeTasks.isEmpty()) {
+                nm.cancel(NOTIF_ID)
+                return
+            }
+
+            val first = activeTasks.first()
+            val runningCount = activeTasks.count { it.state == BgTaskState.RUNNING }
+            val title = if (activeTasks.size > 1) {
+                "Фоновые задачи (${activeTasks.size}): ${first.title.take(30)}…"
+            } else {
+                "${if (first.state == BgTaskState.PAUSED) "⏸ Пауза: " else "⬇️ "}${first.title.take(40)}"
+            }
+            val content = "${first.stageTitle} • ${first.detailText}"
+
+            val intent = android.content.Intent(this, MainActivity::class.java).apply {
+                flags = android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP or android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            val pi = android.app.PendingIntent.getActivity(
+                this,
+                0,
+                intent,
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT else android.app.PendingIntent.FLAG_UPDATE_CURRENT
+            )
+
+            val notifBuilder = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                android.app.Notification.Builder(this, NOTIF_CHANNEL_ID)
+            } else {
+                @Suppress("DEPRECATION")
+                android.app.Notification.Builder(this)
+            }
+
+            notifBuilder
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .setContentTitle(title)
+                .setContentText(content)
+                .setContentIntent(pi)
+                .setOngoing(runningCount > 0)
+                .setProgress(100, first.progressPct.coerceIn(0, 100), false)
+                .setOnlyAlertOnce(true)
+
+            nm.notify(NOTIF_ID, notifBuilder.build())
+        } catch (_: Throwable) {}
+    }
+
+    fun refreshTaskManagerUI(th: StormTheme = themes.getOrElse(currentThemeIndex) { themes[0] }) {
+        mainHandler.post {
+            val container = taskManagerContainerView ?: return@post
+            container.removeAllViews()
+
+            val activeCount = bgPipelineTasks.count { it.state == BgTaskState.RUNNING || it.state == BgTaskState.PAUSED }
+            activeTasksBadgeView?.text = if (activeCount > 0) "Активных задач: $activeCount" else "Все задачи завершены"
+            activeTasksBadgeView?.setTextColor(if (activeCount > 0) th.accent else th.textSecondary)
+
+            if (bgPipelineTasks.isEmpty()) {
+                container.addView(TextView(this).apply {
+                    text = "Нет активных задач загрузки. Выберите раздачу в каталоге ниже и нажмите «⬇️ Скачать и собрать»."
+                    setTextColor(th.textSecondary)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.2f)
+                    setPadding(0, dp(4), 0, dp(4))
+                })
+                return@post
+            }
+
+            for (task in bgPipelineTasks) {
+                val card = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    background = makeCardDrawable(th.bgPrimary, when (task.state) {
+                        BgTaskState.RUNNING -> th.accent
+                        BgTaskState.PAUSED -> Color.parseColor("#F59E0B")
+                        BgTaskState.COMPLETED -> Color.parseColor("#10B981")
+                        BgTaskState.CANCELLED -> th.border
+                        BgTaskState.FAILED -> Color.parseColor("#EF4444")
+                    }, 8)
+                    setPadding(dp(10), dp(8), dp(10), dp(8))
+                    layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        bottomMargin = dp(8)
+                    }
+                }
+
+                val r1 = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                }
+                r1.addView(TextView(this).apply {
+                    text = task.title
+                    setTextColor(th.textPrimary)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                    typeface = Typeface.DEFAULT_BOLD
+                    maxLines = 1
+                    ellipsize = android.text.TextUtils.TruncateAt.END
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                })
+                r1.addView(TextView(this).apply {
+                    text = when (task.state) {
+                        BgTaskState.RUNNING -> " ⚡ В работе "
+                        BgTaskState.PAUSED -> " ⏸ Пауза "
+                        BgTaskState.COMPLETED -> " ✅ Готово "
+                        BgTaskState.CANCELLED -> " ⏹ Отменено "
+                        BgTaskState.FAILED -> " ❌ Ошибка "
+                    }
+                    val bgCol = when (task.state) {
+                        BgTaskState.RUNNING -> th.accent
+                        BgTaskState.PAUSED -> Color.parseColor("#F59E0B")
+                        BgTaskState.COMPLETED -> Color.parseColor("#10B981")
+                        BgTaskState.CANCELLED -> Color.parseColor("#4B5563")
+                        BgTaskState.FAILED -> Color.parseColor("#EF4444")
+                    }
+                    background = makeCardDrawable(bgCol, bgCol, 4)
+                    setTextColor(Color.WHITE)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 9.5f)
+                    typeface = Typeface.DEFAULT_BOLD
+                    setPadding(dp(4), dp(1), dp(4), dp(1))
+                })
+                card.addView(r1)
+
+                val subTxt = TextView(this).apply {
+                    val tidStr = if (task.titleId.isNotBlank()) "TID: ${task.titleId} • " else ""
+                    text = "$tidStr[${task.targetFormat}] • ${task.stageTitle} (${task.progressPct}%)"
+                    setTextColor(th.accent)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.6f)
+                    setPadding(0, dp(2), 0, dp(2))
+                }
+                card.addView(subTxt)
+
+                val pBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+                    max = 100
+                    progress = task.progressPct
+                    layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(8)).apply {
+                        topMargin = dp(2)
+                        bottomMargin = dp(4)
+                    }
+                }
+                card.addView(pBar)
+
+                val detTxt = TextView(this).apply {
+                    text = task.detailText
+                    setTextColor(th.textSecondary)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.2f)
+                }
+                card.addView(detTxt)
+
+                val actionsRow = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        topMargin = dp(6)
+                    }
+                }
+
+                when (task.state) {
+                    BgTaskState.RUNNING -> {
+                        actionsRow.addView(makeButton("⏸ Пауза", th.bgElevated, th.textPrimary) {
+                            task.controller.pause()
+                            task.state = BgTaskState.PAUSED
+                            task.update(detail = "Задача поставлена на паузу")
+                            releaseBgLocksIfIdle()
+                            updateBgTaskNotification()
+                            refreshTaskManagerUI(th)
+                        }.apply {
+                            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(4) }
+                        })
+                        actionsRow.addView(makeButton("⏹ Отмена", Color.parseColor("#DC2626")) {
+                            task.controller.cancel()
+                            task.state = BgTaskState.CANCELLED
+                            task.update(stage = "⏹ Отменено", detail = "Задача отменена пользователем")
+                            releaseBgLocksIfIdle()
+                            updateBgTaskNotification()
+                            refreshTaskManagerUI(th)
+                        }.apply {
+                            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(4) }
+                        })
+                    }
+                    BgTaskState.PAUSED -> {
+                        actionsRow.addView(makeButton("▶️ Продолжить", th.accent) {
+                            task.controller.resume()
+                            task.state = BgTaskState.RUNNING
+                            task.update(detail = "Возобновление задачи...")
+                            acquireBgLocks()
+                            updateBgTaskNotification()
+                            refreshTaskManagerUI(th)
+                        }.apply {
+                            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(4) }
+                        })
+                        actionsRow.addView(makeButton("⏹ Отмена", Color.parseColor("#DC2626")) {
+                            task.controller.cancel()
+                            task.state = BgTaskState.CANCELLED
+                            task.update(stage = "⏹ Отменено", detail = "Задача отменена пользователем")
+                            releaseBgLocksIfIdle()
+                            updateBgTaskNotification()
+                            refreshTaskManagerUI(th)
+                        }.apply {
+                            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(4) }
+                        })
+                    }
+                    BgTaskState.COMPLETED -> {
+                        actionsRow.addView(makeButton("🗑 Убрать", th.bgElevated, th.textSecondary) {
+                            bgPipelineTasks.remove(task)
+                            refreshTaskManagerUI(th)
+                        }.apply {
+                            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(4) }
+                        })
+                    }
+                    BgTaskState.CANCELLED, BgTaskState.FAILED -> {
+                        actionsRow.addView(makeButton("🔄 Повторить", th.accent) {
+                            bgPipelineTasks.remove(task)
+                            showAutomatedTorrentAndMultiBuildDialog(task.topicItem, th, autoStartMagnet = true)
+                            refreshTaskManagerUI(th)
+                        }.apply {
+                            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(4) }
+                        })
+                        actionsRow.addView(makeButton("🗑 Убрать", th.bgElevated, th.textSecondary) {
+                            bgPipelineTasks.remove(task)
+                            refreshTaskManagerUI(th)
+                        }.apply {
+                            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(4) }
+                        })
+                    }
+                }
+
+                actionsRow.addView(makeButton("🔍 Открыть окно", th.bgElevated, th.accent) {
+                    showAutomatedTorrentAndMultiBuildDialog(task.topicItem, th)
+                }.apply {
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.15f)
+                })
+
+                card.addView(actionsRow)
+                container.addView(card)
+            }
+        }
+    }
+
     // Онлайн-каталог ключей STORM SWITCH TOOLS
     private var onlineKeysCatalog: List<RuTrackerCloudEngine.OnlineKeysAsset> = RuTrackerCloudEngine.getDefaultOnlineKeysCatalog()
     private var selectedOnlineKeyIndex = 0
@@ -210,6 +549,16 @@ class MainActivity : Activity() {
         private const val REQ_PICK_CUSTOM_ICON = 1006
     }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        try { if (wakeLock?.isHeld == true) wakeLock?.release() } catch (_: Throwable) {}
+        try { if (wifiLock?.isHeld == true) wifiLock?.release() } catch (_: Throwable) {}
+        try {
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
+            nm?.cancel(NOTIF_ID)
+        } catch (_: Throwable) {}
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         requestWindowFeature(Window.FEATURE_NO_TITLE)
@@ -232,7 +581,7 @@ class MainActivity : Activity() {
         }
 
         buildUserInterface()
-        appendLog("STORM SWITCH BOX ${"6.7.6"} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) готов к работе.")
+        appendLog("STORM SWITCH BOX ${"6.7.7"} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) готов к работе.")
 
         // Автоматическая проверка обновлений с GitHub при запуске
         if (autoCheckUpdatesOnStartup) {
@@ -796,7 +1145,7 @@ class MainActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
         titleCol.addView(TextView(this).apply {
-            text = "STORM SWITCH BOX ${"6.7.6"}"
+            text = "STORM SWITCH BOX ${"6.7.7"}"
             setTextColor(th.textPrimary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
             typeface = Typeface.DEFAULT_BOLD
@@ -2527,6 +2876,54 @@ class MainActivity : Activity() {
             try { RuTrackerCloudEngine.getOrStartWarmTorrentSession() } catch (_: Throwable) {}
         }
 
+        // =========================================================================
+        // КАРТОЧКА: 📋 МЕНЕДЖЕР ФОНОВЫХ ЗАДАЧ ЗАГРУЗКИ И СБОРКИ
+        // =========================================================================
+        val taskManagerCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = makeCardDrawable(th.bgCard, th.border)
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(10)
+            }
+        }
+        val tmHeaderRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        tmHeaderRow.addView(TextView(this).apply {
+            text = "📋 Менеджер фоновых задач загрузки и сборки"
+            setTextColor(th.accent)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13.5f)
+            typeface = Typeface.DEFAULT_BOLD
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        })
+        val tmBadge = TextView(this).apply {
+            val activeCount = bgPipelineTasks.count { it.state == BgTaskState.RUNNING || it.state == BgTaskState.PAUSED }
+            text = if (activeCount > 0) "Активных задач: $activeCount" else "Все задачи завершены"
+            setTextColor(if (activeCount > 0) th.accent else th.textSecondary)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+            typeface = Typeface.DEFAULT_BOLD
+        }
+        activeTasksBadgeView = tmBadge
+        tmHeaderRow.addView(tmBadge)
+        taskManagerCard.addView(tmHeaderRow)
+
+        taskManagerCard.addView(TextView(this).apply {
+            text = "Каждая загрузка выполняется в отдельном фоновом потоке. Задачи продолжают работу в фоне при закрытии окна или переключении вкладок."
+            setTextColor(th.textSecondary)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.8f)
+            setPadding(0, dp(2), 0, dp(6))
+        })
+
+        val tmCardsContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        taskManagerContainerView = tmCardsContainer
+        taskManagerCard.addView(tmCardsContainer)
+        parent.addView(taskManagerCard)
+        refreshTaskManagerUI(th)
+
         val rtCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = makeCardDrawable(th.bgCard, th.border)
@@ -2564,6 +2961,16 @@ class MainActivity : Activity() {
             queryEdit.setText("")
         }
         searchInputRow.addView(clearQueryBtn)
+
+        val showTasksBtn = makeButton("📋 Задачи", th.accent) {
+            refreshTaskManagerUI(th)
+            taskManagerCard.requestFocus()
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                marginStart = dp(4)
+            }
+        }
+        searchInputRow.addView(showTasksBtn)
         rtCard.addView(searchInputRow)
 
         val rtDeleteSourceCheck = makeStormCheckBox(
@@ -3062,6 +3469,8 @@ class MainActivity : Activity() {
         var embedCloudModsChecked = false
         var isRunningPipeline = false
         var cancelPipeline = false
+
+        var currentTask: BgPipelineTask? = bgPipelineTasks.firstOrNull { it.topicItem.topicId == item.topicId && (it.state == BgTaskState.RUNNING || it.state == BgTaskState.PAUSED) }
 
         var releaseFiles = RuTrackerCloudEngine.getReleaseFilesList(item).toMutableList()
 
@@ -3752,16 +4161,89 @@ class MainActivity : Activity() {
         )
         scroll.post { scroll.scrollTo(0, 0) }
 
+        if (currentTask != null) {
+            progressBar.progress = currentTask?.progressPct ?: 0
+            stageHeaderTxt.text = "${currentTask?.stageTitle} (${currentTask?.progressPct}%)"
+            statusTxt.text = currentTask?.detailText ?: ""
+            if (currentTask?.stepLogs?.isNotEmpty() == true) {
+                liveStepLogTxt.visibility = View.VISIBLE
+                liveStepLogTxt.text = currentTask?.stepLogs?.takeLast(4)?.joinToString("\n") ?: ""
+            }
+        }
+
+        var updateDialogButtons: (BgTaskState?) -> Unit = {}
+
+        fun attachTaskListener(task: BgPipelineTask) {
+            task.onUpdateListener = { t ->
+                mainHandler.post {
+                    progressBar.progress = t.progressPct
+                    stageHeaderTxt.text = "${t.stageTitle} (${t.progressPct}%)"
+                    statusTxt.text = t.detailText
+                    if (t.stepLogs.isNotEmpty()) {
+                        liveStepLogTxt.visibility = View.VISIBLE
+                        liveStepLogTxt.text = t.stepLogs.takeLast(4).joinToString("\n")
+                    }
+                    updateDialogButtons(t.state)
+                }
+            }
+        }
+        currentTask?.let { attachTaskListener(it) }
+
+        dlg.setOnDismissListener {
+            currentTask?.onUpdateListener = null
+        }
+
         fun triggerPipelineExecution() {
-            if (isRunningPipeline) return
+            val existing = currentTask ?: bgPipelineTasks.firstOrNull { it.topicItem.topicId == item.topicId && (it.state == BgTaskState.RUNNING || it.state == BgTaskState.PAUSED) }
+            if (existing != null) {
+                if (existing.state == BgTaskState.PAUSED) {
+                    existing.controller.resume()
+                    existing.state = BgTaskState.RUNNING
+                    existing.update(detail = "Возобновление выполнения...")
+                    acquireBgLocks()
+                    updateBgTaskNotification()
+                    updateDialogButtons(BgTaskState.RUNNING)
+                    refreshTaskManagerUI(th)
+                }
+                return
+            }
+
             val activeSelection = releaseFiles.filter { it.selected }
             if (activeSelection.isEmpty()) {
                 Toast.makeText(this, "Отметьте хотя бы один файл раздачи для скачивания!", Toast.LENGTH_SHORT).show()
                 return
             }
-            isRunningPipeline = true
-            cancelPipeline = false
+
+            val fmtExt = when (dialogFormatMode) {
+                0 -> "NSZ"
+                1 -> "XCZ"
+                2 -> "NSP"
+                else -> "XCI"
+            }
+            val controller = RuTrackerCloudEngine.TaskExecutionController()
+            val detectedTid = releaseFiles.firstOrNull { it.roleBadge == "БАЗА" }?.titleId
+                ?: releaseFiles.firstOrNull { it.titleId.isNotBlank() }?.titleId
+                ?: Regex("""\b(0100[0-9A-Fa-f]{12})\b""").find(item.title)?.groupValues?.get(1)
+                ?: ""
+            val task = BgPipelineTask(
+                topicItem = item,
+                title = item.title,
+                titleId = detectedTid,
+                targetFormat = fmtExt,
+                controller = controller,
+                state = BgTaskState.RUNNING,
+                stageTitle = "Этап 1/5: Запуск...",
+                detailText = "Подключение к рою BitTorrent P2P..."
+            )
+            currentTask = task
+            bgPipelineTasks.add(task)
+            attachTaskListener(task)
+            acquireBgLocks()
+            updateBgTaskNotification()
+            refreshTaskManagerUI(th)
+
             liveStepLogTxt.visibility = View.VISIBLE
+            updateDialogButtons(BgTaskState.RUNNING)
 
             val discUpdateUrls = discoveredDiscussionLinks.filter {
                 it.selected && (it.roleCategory.contains("ОБНОВЛ", ignoreCase = true) || it.roleCategory.contains("UPDATE", ignoreCase = true) || it.roleCategory.contains("ПАТЧ", ignoreCase = true))
@@ -3793,7 +4275,7 @@ class MainActivity : Activity() {
             val collectedDlcUrls = (discDlcUrls + manualDlcUrls).distinct().take(6)
             val collectedModUrls = (discModUrls + manualModUrls).distinct().take(8)
 
-            thread {
+            thread(name = "bg-pipeline-${item.topicId}", isDaemon = true) {
                 try {
                     val useBlock = (dialogFormatMode == 0 || dialogFormatMode == 1)
                     val dlgPreBuild = StormNczEngine.PreBuildCustomization(
@@ -3816,7 +4298,7 @@ class MainActivity : Activity() {
                         romsDir = romsDir,
                         modsRootDir = modsDir,
                         outputDir = customOutputDir,
-                        isCancelled = { cancelPipeline },
+                        isCancelled = { controller.isCancelled },
                         onProgress = { _, _ -> },
                         selectedReleaseFiles = activeSelection,
                         preBuildCustomization = dlgPreBuild,
@@ -3824,15 +4306,15 @@ class MainActivity : Activity() {
                         updateUrls = collectedUpdateUrls,
                         dlcUrls = collectedDlcUrls,
                         embedDlcUnlocker = embedDlcUnlockerChecked,
+                        taskController = controller,
                         onDetailedProgress = { pct, stageTitle, detailText, stepLines ->
-                            mainHandler.post {
-                                progressBar.progress = pct
-                                stageHeaderTxt.text = "$stageTitle ($pct%)"
-                                statusTxt.text = detailText
-                                if (stepLines.isNotEmpty()) {
-                                    liveStepLogTxt.text = stepLines.takeLast(4).joinToString("\n")
-                                }
-                            }
+                            task.update(
+                                pct = pct,
+                                stage = stageTitle,
+                                detail = detailText,
+                                log = stepLines.lastOrNull()
+                            )
+                            updateBgTaskNotification()
                         }
                     )
                     val outFile = File(res.outputPath)
@@ -3840,27 +4322,61 @@ class MainActivity : Activity() {
                         queuedFiles.add(outFile)
                         selectedInputFile = outFile
                     }
+                    task.state = BgTaskState.COMPLETED
+                    task.resultFile = outFile
+                    task.update(
+                        pct = 100,
+                        stage = "✅ Сборка завершена (100%)",
+                        detail = "✅ Готово: ${outFile.name} (${StormNczEngine.formatSize(res.compressedBytes)})"
+                    )
                     appendLog("✅ Авто-сборка RuTracker завершена: ${outFile.name} (${StormNczEngine.formatSize(res.compressedBytes)})")
                     mainHandler.post {
-                        progressBar.progress = 100
-                        stageHeaderTxt.text = "✅ Сборка завершена (100%)"
-                        statusTxt.text = "✅ Готово! Файл создан: ${outFile.name} (${StormNczEngine.formatSize(res.compressedBytes)})"
-                        Toast.makeText(this, "Готово: ${outFile.name} (${StormNczEngine.formatSize(res.compressedBytes)})", Toast.LENGTH_LONG).show()
+                        Toast.makeText(this@MainActivity, "Готово: ${outFile.name} (${StormNczEngine.formatSize(res.compressedBytes)})", Toast.LENGTH_LONG).show()
                     }
                 } catch (e: Exception) {
-                    appendLog("❌ Ошибка/отмена авто-сборки: ${e.message}")
-                    mainHandler.post {
-                        stageHeaderTxt.text = if (cancelPipeline) "⏹ Задача отменена пользователем" else "❌ Операция прервана"
-                        statusTxt.text = if (cancelPipeline) "⏹ Выполнение остановлено по запросу пользователя." else "❌ Ошибка: ${e.message}"
+                    if (controller.isCancelled) {
+                        task.state = BgTaskState.CANCELLED
+                        task.update(stage = "⏹ Отменено", detail = "Задача отменена пользователем")
+                        appendLog("⏹ Задача отменена пользователем: ${item.title.take(40)}")
+                    } else {
+                        task.state = BgTaskState.FAILED
+                        task.failureReason = e.message
+                        task.update(stage = "❌ Ошибка", detail = "Ошибка: ${e.message}")
+                        appendLog("❌ Ошибка авто-сборки: ${e.message}")
                     }
                 } finally {
-                    isRunningPipeline = false
+                    releaseBgLocksIfIdle()
+                    updateBgTaskNotification()
+                    refreshTaskManagerUI(th)
                 }
             }
         }
 
         val startBtn = makeButton("🚀 Скачать и собрать", th.accent) {
-            triggerPipelineExecution()
+            val task = currentTask
+            if (task?.state == BgTaskState.RUNNING) {
+                task.controller.pause()
+                task.state = BgTaskState.PAUSED
+                task.update(detail = "Задача поставлена на паузу")
+                releaseBgLocksIfIdle()
+                updateBgTaskNotification()
+                updateDialogButtons(BgTaskState.PAUSED)
+                refreshTaskManagerUI(th)
+            } else if (task?.state == BgTaskState.PAUSED) {
+                task.controller.resume()
+                task.state = BgTaskState.RUNNING
+                task.update(detail = "Возобновление выполнения...")
+                acquireBgLocks()
+                updateBgTaskNotification()
+                updateDialogButtons(BgTaskState.RUNNING)
+                refreshTaskManagerUI(th)
+            } else if (task?.state == BgTaskState.CANCELLED || task?.state == BgTaskState.FAILED) {
+                bgPipelineTasks.remove(task)
+                currentTask = null
+                triggerPipelineExecution()
+            } else {
+                triggerPipelineExecution()
+            }
         }.apply {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.15f).apply {
                 marginEnd = dp(6)
@@ -3868,13 +4384,18 @@ class MainActivity : Activity() {
         }
         btnRow.addView(startBtn)
 
-        // ВСЕГДА ВИДИМАЯ КНОПКА ОТМЕНЫ ЗАДАЧИ!
         val cancelTaskBtn = makeButton("⏹ Отменить задачу", Color.parseColor("#DC2626")) {
-            cancelPipeline = true
-            cancelCurrentTaskRequested = true
-            stageHeaderTxt.text = "⏹ Задача отменена пользователем"
-            statusTxt.text = "⏹ Остановка загрузки и сборки..."
-            Toast.makeText(this, "⏹ Задача отменена", Toast.LENGTH_SHORT).show()
+            val task = currentTask
+            if (task != null) {
+                task.controller.cancel()
+                task.state = BgTaskState.CANCELLED
+                task.update(stage = "⏹ Отменено", detail = "Задача остановлена по запросу пользователя")
+                releaseBgLocksIfIdle()
+                updateBgTaskNotification()
+                updateDialogButtons(BgTaskState.CANCELLED)
+                refreshTaskManagerUI(th)
+                Toast.makeText(this@MainActivity, "⏹ Задача отменена", Toast.LENGTH_SHORT).show()
+            }
         }.apply {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
                 marginEnd = dp(6)
@@ -3882,16 +4403,48 @@ class MainActivity : Activity() {
         }
         btnRow.addView(cancelTaskBtn)
 
-        val closeBtn = makeButton("✖ Закрыть", th.bgElevated, th.textPrimary) {
-            if (isRunningPipeline) {
-                cancelPipeline = true
+        val closeBtn = makeButton("✖ В фон / Закрыть", th.bgElevated, th.textPrimary) {
+            val task = currentTask
+            if (task?.state == BgTaskState.RUNNING || task?.state == BgTaskState.PAUSED) {
+                Toast.makeText(this@MainActivity, "📥 Задача «${item.title.take(30)}…» продолжает работу в фоне", Toast.LENGTH_SHORT).show()
             }
             dlg.dismiss()
         }
         btnRow.addView(closeBtn)
         card.addView(btnRow)
 
-        if (autoStartMagnet) {
+        updateDialogButtons = { state ->
+            when (state) {
+                BgTaskState.RUNNING -> {
+                    startBtn.text = "⏸ Пауза"
+                    startBtn.background = makeCardDrawable(Color.parseColor("#F59E0B"), Color.parseColor("#F59E0B"), 8)
+                    cancelTaskBtn.visibility = View.VISIBLE
+                }
+                BgTaskState.PAUSED -> {
+                    startBtn.text = "▶️ Продолжить"
+                    startBtn.background = makeCardDrawable(Color.parseColor("#10B981"), Color.parseColor("#10B981"), 8)
+                    cancelTaskBtn.visibility = View.VISIBLE
+                }
+                BgTaskState.COMPLETED -> {
+                    startBtn.text = "✅ Завершено"
+                    startBtn.background = makeCardDrawable(Color.parseColor("#10B981"), Color.parseColor("#10B981"), 8)
+                    cancelTaskBtn.visibility = View.GONE
+                }
+                BgTaskState.CANCELLED, BgTaskState.FAILED -> {
+                    startBtn.text = "🔄 Повторить сборку"
+                    startBtn.background = makeCardDrawable(th.accent, th.accent, 8)
+                    cancelTaskBtn.visibility = View.GONE
+                }
+                else -> {
+                    startBtn.text = "🚀 Скачать и собрать"
+                    startBtn.background = makeCardDrawable(th.accent, th.accent, 8)
+                    cancelTaskBtn.visibility = View.GONE
+                }
+            }
+        }
+        updateDialogButtons(currentTask?.state)
+
+        if (autoStartMagnet && currentTask == null) {
             mainHandler.postDelayed({ triggerPipelineExecution() }, 180L)
         }
     }
@@ -3916,7 +4469,7 @@ class MainActivity : Activity() {
                     "21. Nintendo Switch 2 (Ounce / NVN2)",
                     "Экосистемы",
                     "SWITCH 2",
-                    "STORM SWITCH BOX 6.7.6 включает полную поддержку следующего поколения игровых систем Nintendo — Nintendo Switch 2 (кодовое имя «Ounce» / API «NVN2»):\n" +
+                    "STORM SWITCH BOX 6.7.7 включает полную поддержку следующего поколения игровых систем Nintendo — Nintendo Switch 2 (кодовое имя «Ounce» / API «NVN2»):\n" +
                     "• Идентификация дампов: TitleID игр Switch 2 начинается с префикса «0400...» (в отличие от «0100...» у Switch 1), извлекаемый напрямую из main.npdm (заголовок META -> секция ACI0 + 0x10).\n" +
                     "• Авто-сборка из папок дампа: при перетаскивании каталога дампа Switch 2 (содержащего base/exefs/main.npdm, base/romfs, updates/<версия> и dlc/<tid>) программа автоматически объединяет базовую игру, самое свежее обновление, все DLC и моды в 1 монолитный контейнер (.nsp, .nsz, .xci, .xcz).\n" +
                     "• Авто-генерация Control NCA: создание control.nacp на 16 языках и получение официальной 256×256 обложки через Nintendo Europe Search API / Steam.\n" +
@@ -3929,7 +4482,7 @@ class MainActivity : Activity() {
                     "22. RuTracker: Чеклист ссылок обсуждения и DLC Unlocker",
                     "Сеть, Ключи и База",
                     "RUTRACKER",
-                    "В версии 6.7.6 усовершенствован модуль интеграции с RuTracker (#1605):\n" +
+                    "В версии 6.7.7 усовершенствован модуль интеграции с RuTracker (#1605):\n" +
                     "• Чеклист ссылок из темы обсуждения: все полезные ссылки (русификаторы, моды, патчи 60 FPS, читы), найденные в комментариях и шапке темы раздачи, отображаются с датами публикации сообщений.\n" +
                     "• Выборочная загрузка: можно отметить только нужные модификации чекбоксами перед стартом сборки.\n" +
                     "• DLC Unlocker: автоматическое управление анлокерами дополнений и синхронизация тикетов.",
@@ -4684,7 +5237,7 @@ class MainActivity : Activity() {
         }
         updCard.addView(makeSectionHeader(
             "2. Обновление STORM SWITCH BOX (GitHub и STORM GAMES WORLD)",
-            "Текущая версия: ${try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.7.6" } catch (_: Exception) { "6.7.6" }} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) • Проверка на 2 официальных площадках",
+            "Текущая версия: ${try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.7.7" } catch (_: Exception) { "6.7.7" }} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) • Проверка на 2 официальных площадках",
             th
         ))
         updCard.addView(makeStormCheckBox(
@@ -5415,7 +5968,7 @@ class MainActivity : Activity() {
             Toast.makeText(this, "⏳ Проверка обновлений на GitHub и STORM GAMES WORLD...", Toast.LENGTH_SHORT).show()
         }
         val preferLegacy = (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) || Build.VERSION.SDK_INT < 26
-        val currentAppVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.7.6" } catch (_: Exception) { "6.7.6" }
+        val currentAppVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.7.7" } catch (_: Exception) { "6.7.7" }
         thread {
             val rel = RuTrackerCloudEngine.checkGitHubAppUpdate(currentAppVer, preferLegacy)
             mainHandler.post {
@@ -5446,7 +5999,7 @@ class MainActivity : Activity() {
             typeface = Typeface.DEFAULT_BOLD
         })
         box.addView(TextView(this).apply {
-            val installedVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.7.6" } catch (_: Exception) { "6.7.6" }
+            val installedVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.7.7" } catch (_: Exception) { "6.7.7" }
             text = "Новая версия: ${release.version} (Установлена: $installedVer)\nИсточник: ${release.sourceName}\nПакет: ${release.apkName} (${StormNczEngine.formatSize(release.apkSizeBytes)})"
             setTextColor(th.textPrimary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)

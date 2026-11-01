@@ -598,7 +598,29 @@ namespace StormSwitchBox.Views
             }
         }
 
-        // ===== Отмена задачи =====
+                // ===== Пауза задачи =====
+        private void PauseTask_Click(object sender, RoutedEventArgs e)
+        {
+            var task = GetTargetTask(sender);
+            if (task != null)
+            {
+                task.Pause();
+                App.Logger.Log($"[Задачник] Задача поставлена на паузу: {task.GameName}", LogLevel.Info);
+            }
+        }
+
+        // ===== Возобновление задачи =====
+        private void ResumeTask_Click(object sender, RoutedEventArgs e)
+        {
+            var task = GetTargetTask(sender);
+            if (task != null)
+            {
+                task.Resume();
+                App.Logger.Log($"[Задачник] Задача возобновлена: {task.GameName}", LogLevel.Info);
+            }
+        }
+
+// ===== Отмена задачи =====
         private void CancelTask_Click(object sender, RoutedEventArgs e)
         {
             var task = GetTargetTask(sender);

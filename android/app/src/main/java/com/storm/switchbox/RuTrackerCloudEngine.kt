@@ -95,6 +95,37 @@ object RuTrackerCloudEngine {
         val descriptionLines: List<String>
     )
 
+    /**
+     * Полноценный контроллер выполнения задачи загрузки и сборки мульти-контента:
+     * поддерживает безопасную паузу, возобновление и отмену на любом этапе (BitTorrent P2P, облако HTTP, сжатие).
+     */
+    class TaskExecutionController(
+        val taskId: String = java.util.UUID.randomUUID().toString()
+    ) {
+        @Volatile var isPaused: Boolean = false
+        @Volatile var isCancelled: Boolean = false
+        @Volatile var activeTorrentHandle: org.libtorrent4j.TorrentHandle? = null
+
+        fun pause() {
+            isPaused = true
+            try { activeTorrentHandle?.pause() } catch (_: Throwable) {}
+        }
+
+        fun resume() {
+            isPaused = false
+            try {
+                activeTorrentHandle?.resume()
+                activeTorrentHandle?.forceReannounce()
+            } catch (_: Throwable) {}
+        }
+
+        fun cancel() {
+            isCancelled = true
+            isPaused = false
+            try { activeTorrentHandle?.pause() } catch (_: Throwable) {}
+        }
+    }
+
     private val TRACKERS = listOf(
         "http://bt.t-ru.org/ann?magnet",
         "http://bt2.t-ru.org/ann?magnet",
@@ -2479,7 +2510,8 @@ object RuTrackerCloudEngine {
         destDir: File,
         roleHint: String,
         onProgress: (String) -> Unit,
-        onDetailedProgress: ((dlBytes: Long, totalBytes: Long, speedMbSec: Double) -> Unit)? = null
+        onDetailedProgress: ((dlBytes: Long, totalBytes: Long, speedMbSec: Double) -> Unit)? = null,
+        taskController: TaskExecutionController? = null
     ): CloudDownloadOutcome {
         val lowerSource = sourceUrl.lowercase()
         if (lowerSource.contains("mega.nz") || lowerSource.contains("mega.co.nz")) {
@@ -2569,6 +2601,14 @@ object RuTrackerCloudEngine {
                     FileOutputStream(dest).use { out ->
                         val buf = ByteArray(128 * 1024)
                         while (true) {
+                            if (taskController != null) {
+                                while (taskController.isPaused && !taskController.isCancelled) {
+                                    Thread.sleep(300)
+                                }
+                                if (taskController.isCancelled) {
+                                    throw InterruptedException("Операция отменена пользователем")
+                                }
+                            }
                             val r = input.read(buf)
                             if (r <= 0) break
                             out.write(buf, 0, r)
@@ -2628,7 +2668,8 @@ object RuTrackerCloudEngine {
         romsDir: File,
         modsRootDir: File,
         onProgress: (String) -> Unit,
-        onDetailedProgress: ((dlBytes: Long, totalBytes: Long, speedMbSec: Double) -> Unit)? = null
+        onDetailedProgress: ((dlBytes: Long, totalBytes: Long, speedMbSec: Double) -> Unit)? = null,
+        taskController: TaskExecutionController? = null
     ): CloudExtractedBundle {
         romsDir.mkdirs()
         modsRootDir.mkdirs()
@@ -2653,7 +2694,7 @@ object RuTrackerCloudEngine {
             }
             onProgress("Скачивание ($roleHint) с $provider...")
             val out = try {
-                downloadCloudPayload(candUrl, resolved.directUrl, modsRootDir, roleHint, onProgress, onDetailedProgress)
+                downloadCloudPayload(candUrl, resolved.directUrl, modsRootDir, roleHint, onProgress, onDetailedProgress, taskController)
             } catch (e: Exception) {
                 CloudDownloadOutcome(null, "$provider: ${e.javaClass.simpleName}: ${e.message}")
             }
@@ -3881,6 +3922,7 @@ object RuTrackerCloudEngine {
         metadataAttempts: Int = 2,
         metadataTimeoutSec: Int = 25,
         stallTimeoutSec: Int = 600,
+        taskController: TaskExecutionController? = null,
         onProgress: (dlBytes: Long, totalBytes: Long, speedMbSec: Double, peers: Int, seeds: Int) -> Unit
     ): TorrentDownloadResult {
         saveDir.mkdirs()
@@ -3956,6 +3998,7 @@ object RuTrackerCloudEngine {
             sm.download(ti, saveDir, null, priorities, null, org.libtorrent4j.swig.torrent_flags_t())
             val handle = sm.find(ti.infoHash()) ?: return TorrentDownloadResult(emptyList(), "libtorrent не смог добавить раздачу", ti.name(), hashHex)
             th = handle
+            taskController?.activeTorrentHandle = handle
             handle.prioritizeFiles(priorities)
             try { handle.swig().set_max_connections(200) } catch (_: Throwable) {}
 
@@ -3993,12 +4036,37 @@ object RuTrackerCloudEngine {
             var dhtCrossed15 = false
             var dhtCrossed60 = false
             var encPolicySoftened = false
+            var wasPausedInLoop = false
 
             while (true) {
-                if (isCancelled()) {
+                if (isCancelled() || taskController?.isCancelled == true) {
                     try { th?.let { sm.remove(it) } } catch (_: Throwable) {}
                     return TorrentDownloadResult(emptyList(), "Операция отменена пользователем", ti.name(), hashHex)
                 }
+
+                if (taskController?.isPaused == true) {
+                    if (!wasPausedInLoop) {
+                        wasPausedInLoop = true
+                        try { handle.pause() } catch (_: Throwable) {}
+                    }
+                    val st = handle.status()
+                    val done = st.totalWantedDone()
+                    val total = st.totalWanted().coerceAtLeast(1L)
+                    val effectiveSeeds = maxOf(st.numSeeds(), st.listSeeds().coerceAtLeast(0))
+                    onProgress(done, total, 0.0, st.numPeers(), effectiveSeeds)
+                    lastProgressMs = System.currentTimeMillis() // Замораживаем таймаут стагнации во время паузы!
+                    lastAnnounceMs = System.currentTimeMillis()
+                    Thread.sleep(400)
+                    continue
+                } else if (wasPausedInLoop) {
+                    wasPausedInLoop = false
+                    try {
+                        handle.resume()
+                        handle.forceReannounce()
+                    } catch (_: Throwable) {}
+                    lastProgressMs = System.currentTimeMillis()
+                }
+
                 val st = handle.status()
                 val done = st.totalWantedDone()
                 val total = st.totalWanted().coerceAtLeast(1L)
@@ -4059,6 +4127,7 @@ object RuTrackerCloudEngine {
         } catch (e: Throwable) {
             return TorrentDownloadResult(emptyList(), "Ошибка BitTorrent: ${e.javaClass.simpleName}: ${e.message ?: "без описания"}")
         } finally {
+            try { taskController?.activeTorrentHandle = null } catch (_: Throwable) {}
             try { th?.let { sm.remove(it) } } catch (_: Throwable) {}
         }
     }
@@ -4089,7 +4158,8 @@ object RuTrackerCloudEngine {
         updateUrls: List<String> = emptyList(),
         dlcUrls: List<String> = emptyList(),
         embedDlcUnlocker: Boolean = true,
-        onDetailedProgress: ((pct: Int, stageTitle: String, detailText: String, stepLogLines: List<String>) -> Unit)? = null
+        onDetailedProgress: ((pct: Int, stageTitle: String, detailText: String, stepLogLines: List<String>) -> Unit)? = null,
+        taskController: TaskExecutionController = TaskExecutionController()
     ): StormNczEngine.CompressionResult {
         romsDir.mkdirs()
         modsRootDir.mkdirs()
@@ -4114,6 +4184,13 @@ object RuTrackerCloudEngine {
             .ifBlank { "Switch_Game_${topic.topicId}" }
 
         val stepLogs = mutableListOf<String>()
+        fun waitIfPaused() {
+            while (taskController.isPaused && !taskController.isCancelled && !isCancelled()) {
+                Thread.sleep(300)
+            }
+            if (taskController.isCancelled || isCancelled()) throw InterruptedException("Операция отменена пользователем")
+        }
+
         fun report(pct: Int, stage: String, detail: String, addLog: String? = null) {
             if (!addLog.isNullOrBlank() && (stepLogs.isEmpty() || stepLogs.last() != addLog)) {
                 stepLogs.add(addLog)
@@ -4255,7 +4332,8 @@ object RuTrackerCloudEngine {
                         allChecked || isWantedTorrentFile(path, wantedRoles)
                     }
                 },
-                onStatus = { st -> report(6, "Этап 1/5: BitTorrent P2P", st) }
+                onStatus = { st -> report(6, "Этап 1/5: BitTorrent P2P", st) },
+                taskController = taskController
             ) { dlBytes, totalBytes, speedMbSec, peers, seeds ->
                     val pct = 6 + ((dlBytes * 24L) / totalBytes.coerceAtLeast(1L)).toInt().coerceIn(0, 24)
                     val swarmTotal = maxOf(topic.seeds, cand.seeds, turboDhtSwarmCount[cand.infoHash.uppercase()] ?: 0, seeds)
@@ -4353,6 +4431,7 @@ object RuTrackerCloudEngine {
                 val bundle = downloadAndExtractCloudResource(
                     cloudUrl = uUrl,
                     roleHint = "ОБНОВЛЕНИЕ",
+                    taskController = taskController,
                     targetTitleId = baseTid,
                     romsDir = romsDir,
                     modsRootDir = modsRootDir,
@@ -4374,6 +4453,7 @@ object RuTrackerCloudEngine {
                 val bundle = downloadAndExtractCloudResource(
                     cloudUrl = dUrl,
                     roleHint = "DLC",
+                    taskController = taskController,
                     targetTitleId = baseTid,
                     romsDir = romsDir,
                     modsRootDir = modsRootDir,
@@ -4413,6 +4493,7 @@ object RuTrackerCloudEngine {
             f.absolutePath != baseFile.absolutePath && StormNczEngine.analyzeQueuedFile(f).roleBadge == "ПАТЧ"
         }
 
+        waitIfPaused()
         report(
             52,
             "Этап 2/5: Проверка разделов БАЗЫ",
@@ -4420,6 +4501,7 @@ object RuTrackerCloudEngine {
             "📂 [Этап 2/5] Подготовлен оригинальный базовый контейнер: ${baseFile.name}"
         )
 
+        waitIfPaused()
         if (updateFiles.isNotEmpty()) {
             report(
                 64,
@@ -4440,6 +4522,7 @@ object RuTrackerCloudEngine {
             }
         }
 
+        waitIfPaused()
         if (modSourcesToScan.isNotEmpty()) {
             report(
                 74,
@@ -4552,6 +4635,7 @@ object RuTrackerCloudEngine {
             report(78, "Этап 4/5: Пропуск модов", "Моды не выбраны", "🧩 [Этап 4/5] Моды и русификаторы не выбраны.")
         }
 
+        waitIfPaused()
         // =========================================================================
         // ШАГ 5 (84–100%) — Монолитное слияние (Base + BKTR Update + Mod Hard-Patch) и блочное сжатие NSZ
         // =========================================================================
@@ -4589,6 +4673,7 @@ object RuTrackerCloudEngine {
             smartSizeGuard = true,
             preBuildCustomization = preBuildCustomization,
             onProgress = { p ->
+                waitIfPaused()
                 val mappedPct = 84 + ((p.percent * 15) / 100)
                 val speedStr = if (p.speedMbPerSec > 0.1) String.format(java.util.Locale("ru", "RU"), " • %.1f МБ/с", p.speedMbPerSec) else ""
                 report(

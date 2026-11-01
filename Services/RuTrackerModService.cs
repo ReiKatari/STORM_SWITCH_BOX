@@ -448,12 +448,18 @@ namespace StormSwitchBox.Services
 
         private static bool _warmupStarted = false;
         private static int _lastSwarmTotalPeers = 0;
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, TorrentManager> _activeManagers = new();
 
         private TorrentManager? _activeManager;
         private byte[]? _loadedTorrentBytes;
         private MagnetLink? _loadedMagnet;
         private string _activeTopicId = string.Empty;
         private int _activeTopicSeeds = 0;
+
+        public byte[]? LoadedTorrentBytes => _loadedTorrentBytes;
+        public MagnetLink? LoadedMagnet => _loadedMagnet;
+        public string ActiveTopicId => _activeTopicId;
+        public int ActiveTopicSeeds => _activeTopicSeeds;
         private readonly Dictionary<string, IPAddress> _dohCache = new(StringComparer.OrdinalIgnoreCase);
 
         static RuTrackerModService()
@@ -2181,7 +2187,14 @@ namespace StormSwitchBox.Services
             string saveDirectory,
             IReadOnlyList<TorrentFileSelectionItem> fileSelections,
             IProgress<TorrentDownloadProgress>? progress,
-            CancellationToken ct)
+            CancellationToken ct,
+            byte[]? torrentBytes = null,
+            MagnetLink? magnetLink = null,
+            string? topicId = null,
+            int topicSeeds = 0,
+            ManualResetEventSlim? pauseEvent = null,
+            Action<TorrentManager>? onManagerCreated = null,
+            int stallTimeoutSec = 600)
         {
             Directory.CreateDirectory(saveDirectory);
 
@@ -2189,12 +2202,6 @@ namespace StormSwitchBox.Services
             Directory.CreateDirectory(dhtCacheDir);
 
             var engine = GetOrCreateEngine(dhtCacheDir);
-
-            if (_activeManager != null)
-            {
-                try { await _activeManager.StopAsync(); } catch { }
-                _activeManager = null;
-            }
 
             var torrentSettings = new TorrentSettingsBuilder
             {
@@ -2204,27 +2211,38 @@ namespace StormSwitchBox.Services
                 AllowPeerExchange = true
             }.ToSettings();
 
+            byte[]? rawTorrent = torrentBytes ?? _loadedTorrentBytes;
+            MagnetLink? rawMagnet = magnetLink ?? _loadedMagnet;
+            string effectiveTopicId = !string.IsNullOrEmpty(topicId) ? topicId : _activeTopicId;
+            int effectiveTopicSeeds = topicSeeds > 0 ? topicSeeds : _activeTopicSeeds;
+
+            TorrentManager manager;
             string currentHash = "";
-            if (_loadedTorrentBytes != null)
+            if (rawTorrent != null)
             {
-                var torrent = await Torrent.LoadAsync(_loadedTorrentBytes).ConfigureAwait(false);
+                var torrent = await Torrent.LoadAsync(rawTorrent).ConfigureAwait(false);
                 currentHash = torrent.InfoHashes.V1OrV2.ToHex();
-                _activeManager = await engine.AddAsync(torrent, saveDirectory, torrentSettings).ConfigureAwait(false);
+                manager = await engine.AddAsync(torrent, saveDirectory, torrentSettings).ConfigureAwait(false);
             }
-            else if (_loadedMagnet != null)
+            else if (rawMagnet != null)
             {
-                currentHash = _loadedMagnet.InfoHashes.V1OrV2.ToHex();
-                _activeManager = await engine.AddAsync(_loadedMagnet, saveDirectory, torrentSettings).ConfigureAwait(false);
+                currentHash = rawMagnet.InfoHashes.V1OrV2.ToHex();
+                manager = await engine.AddAsync(rawMagnet, saveDirectory, torrentSettings).ConfigureAwait(false);
             }
             else
             {
                 throw new InvalidOperationException("Не выбран .torrent файл или Magnet-ссылка для скачивания.");
             }
 
+            string mgrKey = Guid.NewGuid().ToString("N");
+            _activeManagers[mgrKey] = manager;
+            _activeManager = manager; // для обратной совместимости
+            onManagerCreated?.Invoke(manager);
+
             // Запускаем параллельный Turbo BEP-5 UDP DHT Spider для мгновенного сбора пиров
             if (!string.IsNullOrEmpty(currentHash))
             {
-                _ = Task.Run(() => InjectPeersViaTurboDhtAsync(currentHash, _activeManager, ct));
+                _ = Task.Run(() => InjectPeersViaTurboDhtAsync(currentHash, manager, ct));
             }
 
             // Принудительно подключаем все 8 публичных трекеров RuTracker
@@ -2232,126 +2250,167 @@ namespace StormSwitchBox.Services
             {
                 if (Uri.TryCreate(tr, UriKind.Absolute, out var trUri))
                 {
-                    try { await _activeManager.TrackerManager.AddTrackerAsync(trUri).ConfigureAwait(false); } catch { }
+                    try { await manager.TrackerManager.AddTrackerAsync(trUri).ConfigureAwait(false); } catch { }
                 }
             }
 
-            if (_activeManager.HasMetadata && fileSelections.Count > 0)
+            if (manager.HasMetadata && fileSelections.Count > 0)
             {
-                await ApplyFilePrioritiesAsync(_activeManager, fileSelections).ConfigureAwait(false);
+                await ApplyFilePrioritiesAsync(manager, fileSelections).ConfigureAwait(false);
             }
 
-            await _activeManager.StartAsync().ConfigureAwait(false);
+            await manager.StartAsync().ConfigureAwait(false);
 
-            bool prioritiesAppliedAfterMetadata = _activeManager.HasMetadata;
+            bool prioritiesAppliedAfterMetadata = manager.HasMetadata;
+            long lastProgressTicks = System.Diagnostics.Stopwatch.GetTimestamp();
+            double lastProgressRatio = -1;
 
-            while (!_activeManager.Complete && _activeManager.State != TorrentState.Seeding && !ct.IsCancellationRequested)
+            try
             {
-                if (!prioritiesAppliedAfterMetadata && _activeManager.HasMetadata)
+                while (!manager.Complete && manager.State != TorrentState.Seeding && !ct.IsCancellationRequested)
                 {
-                    prioritiesAppliedAfterMetadata = true;
-                    if (fileSelections.Count > 0)
+                    // Поддержка паузы (Pause Token)
+                    if (pauseEvent != null && !pauseEvent.IsSet)
                     {
-                        await ApplyFilePrioritiesAsync(_activeManager, fileSelections).ConfigureAwait(false);
-                    }
-                }
-
-                double pct = _activeManager.Progress;
-                double speedMb = _activeManager.Monitor.DownloadRate / (1024.0 * 1024.0);
-                int seeds = _activeManager.Peers.Seeds;
-                int leechs = _activeManager.Peers.Leechs;
-
-                int swarmTotal = Math.Max(_activeTopicSeeds, Math.Max(_lastSwarmTotalPeers, seeds + leechs));
-                string seedsStr = swarmTotal > seeds ? $"Сиды: {seeds} (в рое: {swarmTotal})" : $"Сиды: {seeds}";
-
-                string topicLabel = !string.IsNullOrEmpty(_activeTopicId) ? $"RuTracker #1605 (t={_activeTopicId})" : "RuTracker #1605";
-                string stateStr = _activeManager.State == TorrentState.Metadata
-                    ? $"{topicLabel}: получение метаданных Magnet от пиров (DHT)..."
-                    : $"{topicLabel}: скачивание {pct:F1}% ({speedMb:F2} МБ/с | {seedsStr}, Пиры: {leechs})";
-
-                progress?.Report(new TorrentDownloadProgress
-                {
-                    Percent = pct,
-                    SpeedMbPerSec = speedMb,
-                    Seeds = seeds,
-                    Peers = leechs,
-                    SwarmTotal = swarmTotal,
-                    StatusText = stateStr
-                });
-
-                if (_activeManager.HasMetadata && _activeManager.Files.Count > 0)
-                {
-                    bool allSelectedDone = _activeManager.Files
-                        .Where(f => f.Priority != Priority.DoNotDownload)
-                        .All(f => f.BitField.AllTrue);
-
-                    if (allSelectedDone && fileSelections.Any(x => x.IsSelected))
-                    {
-                        break;
-                    }
-                }
-
-                await Task.Delay(500, ct).ConfigureAwait(false);
-            }
-
-            if (ct.IsCancellationRequested)
-            {
-                try { await _activeManager.StopAsync(); } catch { }
-                ct.ThrowIfCancellationRequested();
-            }
-
-            var downloadedPaths = new List<string>();
-            if (_activeManager.HasMetadata)
-            {
-                foreach (var f in _activeManager.Files)
-                {
-                    if (f.Priority != Priority.DoNotDownload && f.BitField.AllTrue)
-                    {
-                        string fullPath = Path.Combine(saveDirectory, f.Path);
-                        if (File.Exists(fullPath))
+                        while (!pauseEvent.IsSet && !ct.IsCancellationRequested)
                         {
-                            string ext = Path.GetExtension(fullPath).ToLowerInvariant();
-                            if (ext is ".zip" or ".7z" or ".rar")
+                            await Task.Delay(250, ct).ConfigureAwait(false);
+                        }
+                        // Сброс таймера застревания (stall timer) при возобновлении
+                        lastProgressTicks = System.Diagnostics.Stopwatch.GetTimestamp();
+                    }
+
+                    if (!prioritiesAppliedAfterMetadata && manager.HasMetadata)
+                    {
+                        prioritiesAppliedAfterMetadata = true;
+                        if (fileSelections.Count > 0)
+                        {
+                            await ApplyFilePrioritiesAsync(manager, fileSelections).ConfigureAwait(false);
+                        }
+                    }
+
+                    double pct = manager.Progress;
+                    double speedMb = manager.Monitor.DownloadRate / (1024.0 * 1024.0);
+                    int seeds = manager.Peers.Seeds;
+                    int leechs = manager.Peers.Leechs;
+
+                    int swarmTotal = Math.Max(effectiveTopicSeeds, Math.Max(_lastSwarmTotalPeers, seeds + leechs));
+                    string seedsStr = swarmTotal > seeds ? $"Сиды: {seeds} (в рое: {swarmTotal})" : $"Сиды: {seeds}";
+
+                    string topicLabel = !string.IsNullOrEmpty(effectiveTopicId) ? $"RuTracker #1605 (t={effectiveTopicId})" : "RuTracker #1605";
+                    string stateStr = manager.State == TorrentState.Metadata
+                        ? $"{topicLabel}: получение метаданных Magnet от пиров (DHT)..."
+                        : (pauseEvent != null && !pauseEvent.IsSet
+                            ? $"{topicLabel}: пауза ({pct:F1}% | {seedsStr}, Пиры: {leechs})"
+                            : $"{topicLabel}: скачивание {pct:F1}% ({speedMb:F2} МБ/с | {seedsStr}, Пиры: {leechs})");
+
+                    progress?.Report(new TorrentDownloadProgress
+                    {
+                        Percent = pct,
+                        SpeedMbPerSec = speedMb,
+                        Seeds = seeds,
+                        Peers = leechs,
+                        SwarmTotal = swarmTotal,
+                        StatusText = stateStr
+                    });
+
+                    if (pct > lastProgressRatio || speedMb > 0.05)
+                    {
+                        lastProgressRatio = pct;
+                        lastProgressTicks = System.Diagnostics.Stopwatch.GetTimestamp();
+                    }
+                    else
+                    {
+                        // Проверка таймера застревания только когда задача НЕ на паузе
+                        if (pauseEvent == null || pauseEvent.IsSet)
+                        {
+                            double elapsedSec = (System.Diagnostics.Stopwatch.GetTimestamp() - lastProgressTicks) / (double)System.Diagnostics.Stopwatch.Frequency;
+                            if (elapsedSec > stallTimeoutSec)
                             {
-                                try
+                                throw new TimeoutException($"Скачивание остановилось: за {stallTimeoutSec} с не получено данных (пиров: {leechs}, сидов: {seeds})");
+                            }
+                        }
+                    }
+
+                    if (manager.HasMetadata && manager.Files.Count > 0)
+                    {
+                        bool allSelectedDone = manager.Files
+                            .Where(f => f.Priority != Priority.DoNotDownload)
+                            .All(f => f.BitField.AllTrue);
+
+                        if (allSelectedDone && fileSelections.Any(x => x.IsSelected))
+                        {
+                            break;
+                        }
+                    }
+
+                    await Task.Delay(500, ct).ConfigureAwait(false);
+                }
+
+                if (ct.IsCancellationRequested)
+                {
+                    try { await manager.StopAsync().ConfigureAwait(false); } catch { }
+                    ct.ThrowIfCancellationRequested();
+                }
+
+                var downloadedPaths = new List<string>();
+                if (manager.HasMetadata)
+                {
+                    foreach (var f in manager.Files)
+                    {
+                        if (f.Priority != Priority.DoNotDownload && f.BitField.AllTrue)
+                        {
+                            string fullPath = Path.Combine(saveDirectory, f.Path);
+                            if (File.Exists(fullPath))
+                            {
+                                string ext = Path.GetExtension(fullPath).ToLowerInvariant();
+                                if (ext is ".zip" or ".7z" or ".rar")
                                 {
-                                    string extractDir = Path.Combine(saveDirectory, Path.GetFileNameWithoutExtension(fullPath));
-                                    Directory.CreateDirectory(extractDir);
-                                    ExtractArchiveWith7zAsync(fullPath, extractDir, ct).GetAwaiter().GetResult();
-
-                                    var extractedContainers = Directory.EnumerateFiles(extractDir, "*.*", SearchOption.AllDirectories)
-                                        .Where(p => p.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) ||
-                                                    p.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) ||
-                                                    p.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) ||
-                                                    p.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase))
-                                        .ToList();
-
-                                    if (extractedContainers.Count > 0)
+                                    try
                                     {
-                                        downloadedPaths.AddRange(extractedContainers);
+                                        string extractDir = Path.Combine(saveDirectory, Path.GetFileNameWithoutExtension(fullPath));
+                                        Directory.CreateDirectory(extractDir);
+                                        ExtractArchiveWith7zAsync(fullPath, extractDir, ct).GetAwaiter().GetResult();
+
+                                        var extractedContainers = Directory.EnumerateFiles(extractDir, "*.*", SearchOption.AllDirectories)
+                                            .Where(p => p.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) ||
+                                                        p.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) ||
+                                                        p.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) ||
+                                                        p.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase))
+                                            .ToList();
+
+                                        if (extractedContainers.Count > 0)
+                                        {
+                                            downloadedPaths.AddRange(extractedContainers);
+                                        }
+                                        else
+                                        {
+                                            downloadedPaths.Add(fullPath);
+                                        }
                                     }
-                                    else
+                                    catch (Exception ex)
                                     {
+                                        App.Logger?.Log($"[RuTracker Torrent] Ошибка распаковки архива {fullPath}: {ex.Message}", LogLevel.Warning);
                                         downloadedPaths.Add(fullPath);
                                     }
                                 }
-                                catch (Exception ex)
+                                else
                                 {
-                                    App.Logger?.Log($"[RuTracker Torrent] Ошибка распаковки архива {fullPath}: {ex.Message}", LogLevel.Warning);
                                     downloadedPaths.Add(fullPath);
                                 }
-                            }
-                            else
-                            {
-                                downloadedPaths.Add(fullPath);
                             }
                         }
                     }
                 }
-            }
 
-            try { await _activeManager.StopAsync(); } catch { }
-            return downloadedPaths;
+                return downloadedPaths;
+            }
+            finally
+            {
+                try { await manager.StopAsync().ConfigureAwait(false); } catch { }
+                _activeManagers.TryRemove(mgrKey, out _);
+                if (_activeManager == manager) _activeManager = null;
+            }
         }
 
         private static ClientEngine? _sharedTorrentEngine;
@@ -2779,7 +2838,8 @@ namespace StormSwitchBox.Services
             IEnumerable<string> rawLinks,
             string workDirectory,
             IProgress<(double Percent, string Status)>? progress,
-            CancellationToken ct)
+            CancellationToken ct,
+            ManualResetEventSlim? pauseEvent = null)
         {
             var links = rawLinks
                 .Select(l => l?.Trim() ?? "")
@@ -2836,7 +2896,7 @@ namespace StormSwitchBox.Services
                                 ? $"Скачивание {safeFileName}: {info.Percent:F1}% ({info.SpeedMb:F2} МБ/с | {dlMb:F1} / {totalMb:F1} МБ)"
                                 : $"Скачивание {safeFileName}: {dlMb:F1} МБ ({info.SpeedMb:F2} МБ/с)";
                             progress?.Report((currentStepPct, stat));
-                        }, mirrorCts.Token, megaKey).ConfigureAwait(false);
+                        }, mirrorCts.Token, megaKey, pauseEvent).ConfigureAwait(false);
 
                         if (!File.Exists(archivePath) || new FileInfo(archivePath).Length < 64) continue;
 
@@ -3198,7 +3258,8 @@ namespace StormSwitchBox.Services
             string destPath,
             Action<(double Percent, double SpeedMb, long DownloadedBytes, long TotalBytes)>? progress,
             CancellationToken ct,
-            string? megaKey = null)
+            string? megaKey = null,
+            ManualResetEventSlim? pauseEvent = null)
         {
             string targetUrl = url;
             string? cookieHeader = null;
@@ -3258,6 +3319,13 @@ namespace StormSwitchBox.Services
                     int bytesRead;
                     while ((bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length, ct).ConfigureAwait(false)) > 0)
                     {
+                        if (pauseEvent != null && !pauseEvent.IsSet)
+                        {
+                            while (!pauseEvent.IsSet && !ct.IsCancellationRequested)
+                            {
+                                await Task.Delay(200, ct).ConfigureAwait(false);
+                            }
+                        }
                         await fileStream.WriteAsync(buffer, 0, bytesRead, ct).ConfigureAwait(false);
                         totalRead += bytesRead;
 
@@ -3522,11 +3590,12 @@ namespace StormSwitchBox.Services
 
         public void Dispose()
         {
-            if (_activeManager != null)
+            foreach (var kvp in _activeManagers)
             {
-                try { _activeManager.StopAsync().Wait(1000); } catch { }
-                _activeManager = null;
+                try { kvp.Value.StopAsync().Wait(500); } catch { }
             }
+            _activeManagers.Clear();
+            _activeManager = null;
             // Тёплый _sharedTorrentEngine сохраняется для поддержания маршрутной таблицы DHT
         }
     }

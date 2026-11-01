@@ -314,6 +314,20 @@
                                         <FontIcon Glyph="&#xE70F;" FontSize="12" Foreground="#82B1FF"/>
                                     </Button>
 
+                                    <Button Click="PauseTask_Click" Tag="{Binding}" VerticalAlignment="Center"
+                                            Visibility="{Binding PauseButtonVisibility, Mode=OneWay}"
+                                            Padding="4,2" MinHeight="0" MinWidth="0" Background="Transparent" BorderThickness="0" 
+                                            ToolTipService.ToolTip="Приостановить задачу (⏸ Пауза)">
+                                        <FontIcon Glyph="&#xE769;" FontSize="12" Foreground="#F59E0B"/>
+                                    </Button>
+
+                                    <Button Click="ResumeTask_Click" Tag="{Binding}" VerticalAlignment="Center"
+                                            Visibility="{Binding ResumeButtonVisibility, Mode=OneWay}"
+                                            Padding="4,2" MinHeight="0" MinWidth="0" Background="Transparent" BorderThickness="0" 
+                                            ToolTipService.ToolTip="Возобновить задачу (▶️ Продолжить)">
+                                        <FontIcon Glyph="&#xE768;" FontSize="12" Foreground="#10B981"/>
+                                    </Button>
+
                                     <Button Click="CancelTask_Click" Tag="{Binding}" VerticalAlignment="Center"
                                             Padding="4,2" MinHeight="0" MinWidth="0" Background="Transparent" BorderThickness="0" 
                                             ToolTipService.ToolTip="Отменить задачу">
@@ -372,6 +386,18 @@
                         <MenuFlyoutItem Text="Редактировать иконку и название..." Click="EditMetadata_Click" MinWidth="300">
                             <MenuFlyoutItem.Icon>
                                 <FontIcon Glyph="&#xE70F;" Foreground="#82B1FF"/>
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem Text="⏸ Приостановить выполнение задачи" Click="PauseTask_Click" MinWidth="300"
+                                        Visibility="{Binding PauseButtonVisibility, Mode=OneWay}">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE769;" Foreground="#F59E0B"/>
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem Text="▶️ Возобновить выполнение задачи" Click="ResumeTask_Click" MinWidth="300"
+                                        Visibility="{Binding ResumeButtonVisibility, Mode=OneWay}">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE768;" Foreground="#10B981"/>
                             </MenuFlyoutItem.Icon>
                         </MenuFlyoutItem>
                         <MenuFlyoutItem Text="Отменить выполнение задачи" Click="CancelTask_Click" MinWidth="300">
@@ -585,6 +611,18 @@
                         <MenuFlyoutItem Text="Редактировать иконку и название..." Click="EditMetadata_Click" MinWidth="300">
                             <MenuFlyoutItem.Icon>
                                 <FontIcon Glyph="&#xE70F;"/>
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem Text="⏸ Приостановить выполнение задачи" Click="PauseTask_Click" MinWidth="300"
+                                        Visibility="{Binding PauseButtonVisibility, Mode=OneWay}">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE769;" Foreground="#F59E0B"/>
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem Text="▶️ Возобновить выполнение задачи" Click="ResumeTask_Click" MinWidth="300"
+                                        Visibility="{Binding ResumeButtonVisibility, Mode=OneWay}">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE768;" Foreground="#10B981"/>
                             </MenuFlyoutItem.Icon>
                         </MenuFlyoutItem>
                         <MenuFlyoutItem Text="Отменить выполнение задачи" Click="CancelTask_Click" MinWidth="300">
