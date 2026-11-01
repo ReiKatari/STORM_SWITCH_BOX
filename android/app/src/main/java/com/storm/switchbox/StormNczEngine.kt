@@ -3850,6 +3850,106 @@ object StormNczEngine {
      * Приводит любой входной контейнер (.nsz, .xci, .xcz) к единому промежуточному формату .nsp (PFS0 с чистыми .nca, .tik, .cert).
      * Если файл уже является .nsp или папкой мода — возвращает его без лишнего копирования.
      */
+    private fun extractDecryptedKeyFromNczSlice(raf: RandomAccessFile, sliceOffset: Long, sliceSize: Long): ByteArray? {
+        try {
+            val magicOffset = sliceOffset + 0x4000L
+            if (magicOffset + 16L > raf.length()) return null
+            raf.seek(magicOffset)
+            val magicBuf = ByteArray(16)
+            raf.readFully(magicBuf)
+            if (String(magicBuf, 0, 8, StandardCharsets.US_ASCII) != "NCZSECTN") return null
+            val mbb = ByteBuffer.wrap(magicBuf).order(ByteOrder.LITTLE_ENDIAN)
+            mbb.position(8)
+            val sectionCount = mbb.long.toInt().coerceIn(0, 4096)
+            if (sectionCount <= 0) return null
+            val secBytes = ByteArray(sectionCount * 64)
+            raf.readFully(secBytes)
+            val sbb = ByteBuffer.wrap(secBytes).order(ByteOrder.LITTLE_ENDIAN)
+            for (i in 0 until sectionCount) {
+                sbb.position(i * 64)
+                val off = sbb.long
+                val sz = sbb.long
+                val cType = sbb.long
+                sbb.long // pad
+                val k = ByteArray(16)
+                sbb.get(k)
+                val ctr = ByteArray(16)
+                sbb.get(ctr)
+                if ((cType == 3L || cType == 4L) && k.any { it != 0.toByte() }) {
+                    return k
+                }
+            }
+        } catch (_: Exception) {}
+        return null
+    }
+
+    private fun buildValidCommonTicketBytes(
+        rightsIdBytes: ByteArray,
+        masterKeyGen: Int,
+        decryptedTitleKey: ByteArray,
+        keysMap: Map<String, ByteArray>
+    ): ByteArray? {
+        if (rightsIdBytes.size < 16 || decryptedTitleKey.size < 16) return null
+        val keyIdx = (masterKeyGen - 1).coerceAtLeast(0)
+        val idxHex = String.format("%02x", keyIdx)
+        val titlekek = keysMap["titlekek_$idxHex"]
+            ?: keysMap["titlekek_00"]
+            ?: run {
+                val masterKey = keysMap["master_key_$idxHex"] ?: keysMap["master_key_00"] ?: return null
+                val titlekekSrc = keysMap["titlekek_source"] ?: hexToBytes("1edc7b3b60e6b4d878b81715985e629b")
+                try {
+                    Cipher.getInstance("AES/ECB/NoPadding").apply {
+                        init(Cipher.DECRYPT_MODE, SecretKeySpec(masterKey, "AES"))
+                    }.doFinal(titlekekSrc)
+                } catch (_: Exception) { null }
+            } ?: return null
+
+        val encryptedTitleKey = try {
+            Cipher.getInstance("AES/ECB/NoPadding").apply {
+                init(Cipher.ENCRYPT_MODE, SecretKeySpec(titlekek, "AES"))
+            }.doFinal(decryptedTitleKey.copyOf(16))
+        } catch (_: Exception) { return null }
+
+        val tik = ByteArray(0x2C0) // 704 bytes
+        // 0x00..0x03: 0x04, 0x00, 0x01, 0x00 (LE 0x00010004 = RSA_2048_SHA256)
+        tik[0] = 0x04.toByte()
+        tik[1] = 0x00.toByte()
+        tik[2] = 0x01.toByte()
+        tik[3] = 0x00.toByte()
+
+        // 0x140..0x17F: "Root-CA00000003-XS00000020"
+        val issuer = "Root-CA00000003-XS00000020".toByteArray(StandardCharsets.US_ASCII)
+        System.arraycopy(issuer, 0, tik, 0x140, minOf(issuer.size, 64))
+
+        // 0x180..0x18F: encryptedTitleKey (16 bytes)
+        System.arraycopy(encryptedTitleKey, 0, tik, 0x180, 16)
+
+        // 0x280: 0x02 (ticket version 2)
+        tik[0x280] = 0x02.toByte()
+        // 0x281: 0x00 (Common title key type)
+        tik[0x281] = 0x00.toByte()
+        // 0x285: (masterKeyGen and 0xFF).toByte()
+        tik[0x285] = (masterKeyGen and 0xFF).toByte()
+        // 0x286: (masterKeyGen and 0xFF).toByte()
+        tik[0x286] = (masterKeyGen and 0xFF).toByte()
+
+        // 0x2A0..0x2AF: rightsIdBytes (16 bytes)
+        System.arraycopy(rightsIdBytes, 0, tik, 0x2A0, 16)
+
+        return tik
+    }
+
+    private fun buildValidCommonCertBytes(): ByteArray {
+        val cert = ByteArray(0x700) // 1792 bytes
+        cert[0] = 0x03.toByte() // RSA_4096_SHA256
+        cert[1] = 0x00.toByte()
+        cert[2] = 0x01.toByte()
+        cert[3] = 0x00.toByte()
+        val issuer = "Root-CA00000003-XS00000020".toByteArray(StandardCharsets.US_ASCII)
+        System.arraycopy(issuer, 0, cert, 0x140, minOf(issuer.size, 64))
+        return cert
+    }
+
     private fun normalizeContainerToTempNsp(
         inputFile: File,
         tempNormDir: File,
@@ -3874,6 +3974,33 @@ object StormNczEngine {
         }
 
         val extractedPairs = mutableListOf<Pair<String, File>>()
+        val effectiveTicketKeys = HashMap<String, ByteArray>()
+        val existingTikRightsIds = HashSet<String>()
+        val existingCertRightsIds = HashSet<String>()
+
+        // 1-й предварительный проход: сбор существующих тикетов и сертификатов
+        RandomAccessFile(inputFile, "r").use { raf ->
+            for (e in entries) {
+                if (e.name.startsWith("[XCI HEAD]") || e.dataStartOffset < 0L || e.size <= 0L) continue
+                val cleanName = e.name.substringAfterLast('/')
+                val lower = cleanName.lowercase()
+                if (lower.endsWith(".tik") && e.size >= 0x40L) {
+                    val tikInfo = extractTicketRightsAndKey(raf, e.dataStartOffset, e.size, cleanName)
+                    if (tikInfo != null) {
+                        val (rId, tKey) = tikInfo
+                        if (tKey.any { it != 0.toByte() }) {
+                            effectiveTicketKeys[rId.uppercase()] = tKey
+                        }
+                        existingTikRightsIds.add(rId.lowercase())
+                    }
+                } else if (lower.endsWith(".cert")) {
+                    val rId = lower.removeSuffix(".cert").lowercase()
+                    existingCertRightsIds.add(rId)
+                }
+            }
+        }
+
+        // 2-й проход: извлечение и декомпрессия NCZ -> NCA с синтезом тикетов при rights_id != 0
         RandomAccessFile(inputFile, "r").use { raf ->
             for ((eIdx, e) in entries.withIndex()) {
                 if (e.name.startsWith("[XCI HEAD]") || e.dataStartOffset < 0L || e.size <= 0L) continue
@@ -3904,6 +4031,47 @@ object StormNczEngine {
                 if (lower.endsWith(".ncz")) {
                     val ncaName = cleanName.dropLast(4) + ".nca"
                     val outNca = File(itemWorkDir, "${eIdx}_$ncaName")
+
+                    // Проверяем наличие RightsID в заголовке NCA
+                    var nczRightsBytes: ByteArray? = null
+                    var nczMasterKeyGen = 0
+                    if (e.size >= 0xC00L) {
+                        val rawHdr = ByteArray(0xC00)
+                        raf.seek(e.dataStartOffset)
+                        raf.readFully(rawHdr)
+                        val plainHdr = decryptNcaHeader0C00(rawHdr, keysMap)
+                        val rBytes = plainHdr.copyOfRange(0x230, 0x240)
+                        if (rBytes.any { it != 0.toByte() }) {
+                            nczRightsBytes = rBytes
+                            nczMasterKeyGen = maxOf(plainHdr[0x206].toInt() and 0xFF, maxOf(plainHdr[0x220].toInt() and 0xFF, rBytes[15].toInt() and 0xFF))
+                        }
+                    }
+
+                    if (nczRightsBytes != null) {
+                        val rHex = nczRightsBytes.joinToString("") { "%02x".format(it) }
+                        val decKey = extractDecryptedKeyFromNczSlice(raf, e.dataStartOffset, e.size)
+                            ?: effectiveTicketKeys[rHex.uppercase()]
+                            ?: keysMap[rHex.lowercase()]
+                        if (decKey != null && decKey.any { it != 0.toByte() }) {
+                            effectiveTicketKeys[rHex.uppercase()] = decKey
+                            if (!existingTikRightsIds.contains(rHex.lowercase())) {
+                                val tikBytes = buildValidCommonTicketBytes(nczRightsBytes, nczMasterKeyGen, decKey, keysMap)
+                                if (tikBytes != null) {
+                                    val outTik = File(itemWorkDir, "$rHex.tik")
+                                    outTik.writeBytes(tikBytes)
+                                    extractedPairs.add("$rHex.tik" to outTik)
+                                    existingTikRightsIds.add(rHex.lowercase())
+                                }
+                            }
+                            if (!existingCertRightsIds.contains(rHex.lowercase())) {
+                                val outCert = File(itemWorkDir, "$rHex.cert")
+                                outCert.writeBytes(buildValidCommonCertBytes())
+                                extractedPairs.add("$rHex.cert" to outCert)
+                                existingCertRightsIds.add(rHex.lowercase())
+                            }
+                        }
+                    }
+
                     decompressNczSliceToNca(raf, e.dataStartOffset, e.size, outNca)
                     extractedPairs.add(ncaName to outNca)
                 } else if (lower.endsWith(".nca") || lower.endsWith(".tik") || lower.endsWith(".cert") || lower.endsWith(".cnmt")) {
@@ -4317,7 +4485,8 @@ object StormNczEngine {
                         val stem = lower.removeSuffix(".nca").removeSuffix(".ncz").removeSuffix(".cnmt")
                         val extractedHex32 = Regex("([0-9a-f]{32})$").find(stem)?.groupValues?.get(1)
                             ?: if (stem.length >= 32 && stem.take(32).all { it in '0'..'9' || it in 'a'..'f' }) stem.take(32) else ""
-                        val isHex32Id = extractedHex32.length == 32
+                        val isTicketOrCert = lower.endsWith(".tik") || lower.endsWith(".cert")
+                        val isHex32Id = !isTicketOrCert && extractedHex32.length == 32
 
                         // ВАЖНО: Никогда не меняем 32-символьное hex-имя NCA (например на 0100xxx_<hash>.nca),
                         // так как CNMT и эмуляторы (Eden/Yuzu/Ryujinx) ищут NCA строго по его 16-байтному ContentId (<32-hex>.nca)!
@@ -4330,8 +4499,8 @@ object StormNczEngine {
 
                         val key = when {
                             !smartDedup -> "${fileOrderIdx}_${entryOrderIdx}_$canonicalEntryName"
+                            isTicketOrCert -> lower
                             isHex32Id -> "nca_$extractedHex32"
-                            lower.endsWith(".tik") || lower.endsWith(".cert") -> lower
                             else -> "${realNcaTid.ifEmpty { "F$fileOrderIdx" }}_$lower"
                         }
 
@@ -4377,7 +4546,8 @@ object StormNczEngine {
                 }
             } else if (ext in listOf("nca", "ncz", "tik", "cert", "cnmt")) {
                 val lower = f.name.lowercase()
-                val key = if (smartDedup) lower.removeSuffix(".nca").removeSuffix(".ncz") else lower
+                val isTikCert = lower.endsWith(".tik") || lower.endsWith(".cert")
+                val key = if (isTikCert) lower else if (smartDedup) lower.removeSuffix(".nca").removeSuffix(".ncz") else lower
                 collected[key] = SubSource(f, f.name, key, 0L, f.length())
             } else if (embedMods && (ext in listOf("zip", "rar", "7z", "tar", "gz", "tgz", "pchtxt", "ips", "bps") || f.isDirectory)) {
                 modInputSources.add(f)
@@ -4830,6 +5000,85 @@ object StormNczEngine {
                         stageText = "Подготовка разделов (${idx + 1}/${sourceList.size}): ${src.entryName}"
                     )
                 )
+            }
+
+            // Финальный аудит: синтезируем и сохраняем валидные .tik и .cert для каждого раздела с rights_id != 0
+            val existingTikRightsIdsInPrepared = preparedFiles.mapNotNull { (name, f) ->
+                val lower = name.lowercase()
+                if (lower.endsWith(".tik") && f.length() >= 0x2C0L) {
+                    val b = ByteArray(0x2C0)
+                    try {
+                        RandomAccessFile(f, "r").use { it.readFully(b) }
+                        val hasIssuer = (0x140 until 0x160).any { b[it] != 0.toByte() }
+                        val hasBlock = (0x180 until 0x190).any { b[it] != 0.toByte() }
+                        val rId = b.copyOfRange(0x2A0, 0x2B0).joinToString("") { "%02x".format(it) }
+                        if (hasIssuer && hasBlock && rId.any { it != '0' }) rId.lowercase() else null
+                    } catch (_: Exception) { null }
+                } else null
+            }.toMutableSet()
+
+            val existingCertRightsIdsInPrepared = preparedFiles.mapNotNull { (name, f) ->
+                val lower = name.lowercase()
+                if (lower.endsWith(".cert") && f.length() >= 0x700L) {
+                    lower.removeSuffix(".cert").lowercase()
+                } else null
+            }.toMutableSet()
+
+            for ((pName, pFile) in preparedFiles.toList()) {
+                val lower = pName.lowercase()
+                if ((lower.endsWith(".nca") || lower.endsWith(".ncz")) && pFile.length() >= 0xC00L) {
+                    val rawHdr = ByteArray(0xC00)
+                    try {
+                        RandomAccessFile(pFile, "r").use { it.readFully(rawHdr) }
+                        val plainHdr = decryptNcaHeader0C00(rawHdr, keysMap)
+                        val rightsBytes = plainHdr.copyOfRange(0x230, 0x240)
+                        if (rightsBytes.any { it != 0.toByte() }) {
+                            val rightsIdHex = rightsBytes.joinToString("") { "%02x".format(it) }
+                            val rightsIdHexUpper = rightsIdHex.uppercase()
+                            val masterKeyGen = maxOf(plainHdr[0x206].toInt() and 0xFF, maxOf(plainHdr[0x220].toInt() and 0xFF, rightsBytes[15].toInt() and 0xFF))
+
+                            if (!existingTikRightsIdsInPrepared.contains(rightsIdHex.lowercase())) {
+                                var decKey: ByteArray? = null
+                                if (lower.endsWith(".ncz")) {
+                                    RandomAccessFile(pFile, "r").use { raf ->
+                                        decKey = extractDecryptedKeyFromNczSlice(raf, 0L, pFile.length())
+                                    }
+                                }
+                                if (decKey == null) {
+                                    decKey = ticketKeysByRightsId[rightsIdHexUpper]
+                                        ?: keysMap[rightsIdHex.lowercase()]
+                                        ?: fallbackTicketKey
+                                }
+                                if (decKey == null) {
+                                    val parsed = parseNcaSectionsForCompression(rawHdr, pFile.length(), keysMap, null, null, 0L, ticketKeysByRightsId)
+                                    decKey = parsed.firstOrNull { (it.cryptoType == 3L || it.cryptoType == 4L) && it.key.any { b -> b != 0.toByte() } }?.key
+                                        ?: parsed.firstOrNull { it.key.any { b -> b != 0.toByte() } }?.key
+                                }
+                                if (decKey == null && rightsBytes.any { it != 0.toByte() }) {
+                                    decKey = rightsBytes
+                                }
+
+                                if (decKey != null) {
+                                    val tikBytes = buildValidCommonTicketBytes(rightsBytes, masterKeyGen, decKey!!, keysMap)
+                                    if (tikBytes != null) {
+                                        val outTik = File(tempDir, "$rightsIdHex.tik")
+                                        outTik.writeBytes(tikBytes)
+                                        preparedFiles.add(0, "$rightsIdHex.tik" to outTik)
+                                        existingTikRightsIdsInPrepared.add(rightsIdHex.lowercase())
+                                    }
+                                }
+                            }
+
+                            if (!existingCertRightsIdsInPrepared.contains(rightsIdHex.lowercase())) {
+                                val outCert = File(tempDir, "$rightsIdHex.cert")
+                                outCert.writeBytes(buildValidCommonCertBytes())
+                                val insertIdx = preparedFiles.indexOfFirst { it.first.endsWith(".tik", ignoreCase = true) }.let { if (it >= 0) it + 1 else 0 }
+                                preparedFiles.add(insertIdx, "$rightsIdHex.cert" to outCert)
+                                existingCertRightsIdsInPrepared.add(rightsIdHex.lowercase())
+                            }
+                        }
+                    } catch (_: Exception) {}
+                }
             }
 
             onProgress(
@@ -8247,53 +8496,63 @@ object StormNczEngine {
             if (subSize >= 0x4000L && relocSize >= 0x4000L) {
                 val subRaw = readRawPatchEncrypted(subOff, subSize.toInt())
                 val sbb = ByteBuffer.wrap(subRaw).order(ByteOrder.LITTLE_ENDIAN)
-                val numSubNodes = ((subSize - 0x4000L) / 0x4000L).toInt()
-                val tmpSub = ArrayList<Pair<Long, Int>>()
+                val hdrCountSub = if (subRaw.size >= 8) sbb.getInt(4) else 0
+                val maxBucketsSub = ((subSize - 0x4000L) / 0x4000L).toInt()
+                val useBucketHeaderSub = subSize >= 0x8000L && hdrCountSub in 1..maxBucketsSub
+                val numSubNodes = if (useBucketHeaderSub) hdrCountSub else maxOf(1, (subSize / 0x4000L).toInt())
+                val tempSubs = ArrayList<Pair<Long, Int>>()
+                var totalSubEnd = 0L
                 for (n in 0 until numSubNodes) {
-                    val nodeBase = 0x4000 + n * 0x4000
+                    val nodeBase = if (useBucketHeaderSub) (0x4000 + n * 0x4000) else if (subSize >= 0x8000L) (0x4000 + n * 0x4000) else (16 + n * 0x4000)
+                    if (nodeBase + 16 > subRaw.size) break
                     val cnt = sbb.getInt(nodeBase + 4)
+                    if (cnt <= 0 || cnt > 1024) continue
                     val nodeEndOff = sbb.getLong(nodeBase + 8)
+                    if (nodeEndOff > totalSubEnd) totalSubEnd = nodeEndOff
+                    var pos = nodeBase + 16
                     for (i in 0 until cnt) {
-                        val ePos = nodeBase + 0x10 + i * 16
-                        if (ePos + 16 <= subRaw.size) {
-                            val pOff = sbb.getLong(ePos)
-                            val ctr = sbb.getInt(ePos + 12)
-                            tmpSub.add(pOff to ctr)
-                        }
+                        if (pos + 16 > subRaw.size) break
+                        val vOff = sbb.getLong(pos)
+                        val ctrVal = sbb.getInt(pos + 12)
+                        tempSubs.add(Pair(vOff, ctrVal))
+                        pos += 16
                     }
-                    if (n == numSubNodes - 1 && tmpSub.isNotEmpty()) {
-                        for (k in 0 until tmpSub.size) {
-                            val st = tmpSub[k].first
-                            val en = if (k + 1 < tmpSub.size) tmpSub[k + 1].first else nodeEndOff
-                            if (en > st) subRuns.add(SubRun(st, en, tmpSub[k].second))
-                        }
-                    }
+                }
+                for (k in 0 until tempSubs.size) {
+                    val st = tempSubs[k].first
+                    val en = if (k + 1 < tempSubs.size) tempSubs[k + 1].first else (if (totalSubEnd > st) totalSubEnd else Long.MAX_VALUE)
+                    if (en > st) subRuns.add(SubRun(st, en, tempSubs[k].second))
                 }
 
                 val relRaw = readRawPatchEncrypted(relocOff, relocSize.toInt())
                 val rbb = ByteBuffer.wrap(relRaw).order(ByteOrder.LITTLE_ENDIAN)
-                val numRelNodes = ((relocSize - 0x4000L) / 0x4000L).toInt()
-                val tmpRel = ArrayList<Triple<Long, Long, Boolean>>()
+                val hdrCountRel = if (relRaw.size >= 8) rbb.getInt(4) else 0
+                val maxBucketsRel = ((relocSize - 0x4000L) / 0x4000L).toInt()
+                val useBucketHeaderRel = relocSize >= 0x8000L && hdrCountRel in 1..maxBucketsRel
+                val numRelNodes = if (useBucketHeaderRel) hdrCountRel else maxOf(1, (relocSize / 0x4000L).toInt())
+                val tempRels = ArrayList<Triple<Long, Long, Boolean>>()
                 var totalVirtEnd = 0L
                 for (n in 0 until numRelNodes) {
-                    val nodeBase = 0x4000 + n * 0x4000
+                    val nodeBase = if (useBucketHeaderRel) (0x4000 + n * 0x4000) else if (relocSize >= 0x8000L) (0x4000 + n * 0x4000) else (16 + n * 0x4000)
+                    if (nodeBase + 16 > relRaw.size) break
                     val cnt = rbb.getInt(nodeBase + 4)
+                    if (cnt <= 0 || cnt > 819) continue
                     val nodeEndVirt = rbb.getLong(nodeBase + 8)
                     if (nodeEndVirt > totalVirtEnd) totalVirtEnd = nodeEndVirt
+                    var pos = nodeBase + 16
                     for (i in 0 until cnt) {
-                        val ePos = nodeBase + 0x10 + i * 20
-                        if (ePos + 20 <= relRaw.size) {
-                            val vOff = rbb.getLong(ePos)
-                            val pOff = rbb.getLong(ePos + 8)
-                            val isP = rbb.getInt(ePos + 16) != 0
-                            tmpRel.add(Triple(vOff, pOff, isP))
-                        }
+                        if (pos + 20 > relRaw.size) break
+                        val vOff = rbb.getLong(pos)
+                        val pOff = rbb.getLong(pos + 8)
+                        val isPatch = rbb.getInt(pos + 16) != 0
+                        tempRels.add(Triple(vOff, pOff, isPatch))
+                        pos += 20
                     }
                 }
-                for (k in 0 until tmpRel.size) {
-                    val st = tmpRel[k].first
-                    val en = if (k + 1 < tmpRel.size) tmpRel[k + 1].first else totalVirtEnd
-                    if (en > st) relocRuns.add(RelocRun(st, en, tmpRel[k].second, tmpRel[k].third))
+                for (k in 0 until tempRels.size) {
+                    val st = tempRels[k].first
+                    val en = if (k + 1 < tempRels.size) tempRels[k + 1].first else (if (totalVirtEnd > st) totalVirtEnd else Long.MAX_VALUE)
+                    if (en > st) relocRuns.add(RelocRun(st, en, tempRels[k].second, tempRels[k].third))
                 }
             }
         }
@@ -8685,6 +8944,8 @@ object StormNczEngine {
                     val pfs0AbsInNca = rawSecStart + pfs0RelOff
                     if (pfs0Size <= 16L || pfs0AbsInNca + pfs0Size > sliceSize) continue
                     val secCrypto = sections.firstOrNull { rawSecStart in it.offset until (it.offset + it.size) }
+                        ?: sections.firstOrNull { (it.cryptoType == 3L || it.cryptoType == 4L) && it.key.any { b -> b != 0.toByte() } }
+                        ?: sections.firstOrNull { it.key.any { b -> b != 0.toByte() } }
                         ?: sections.firstOrNull()
                     val hdrProbe = ByteArray(minOf(pfs0Size, 4096L).toInt())
                     synchronized(raf) {
@@ -8838,7 +9099,8 @@ object StormNczEngine {
             plainHdr[0x204] = 0.toByte()
 
             if (hasRightsId) {
-                val oldCtrKey = sections.firstOrNull { it.key.any { b -> b != 0.toByte() } }?.key
+                val oldCtrKey = sections.firstOrNull { (it.cryptoType == 3L || it.cryptoType == 4L) && it.key.any { b -> b != 0.toByte() } }?.key
+                    ?: sections.firstOrNull { it.key.any { b -> b != 0.toByte() } }?.key
                     ?: extKey
                     ?: (if (cand.rightsId.length == 32 && cand.rightsId.any { it != '0' }) hexToBytes(cand.rightsId) else null)
                 for (i in 0x230 until 0x240) plainHdr[i] = 0.toByte()
@@ -8975,17 +9237,23 @@ object StormNczEngine {
                 val secStart = stMedia * 0x200L
                 val fsOff = 0x400 + sIdx * 0x200
                 if (String(baseHdrPlain, fsOff + 8, 4, StandardCharsets.US_ASCII) == "IVFC") {
+                    val encType = baseHdrPlain[fsOff + 4].toInt() and 0xFF
                     val romSec = baseSections.firstOrNull { secStart in it.offset until (it.offset + it.size) }
                         ?: baseSections.firstOrNull { it.offset >= secStart }
                     if (romSec != null) {
                         baseLv6Off = bbb.getLong(fsOff + 0x18 + 5 * 24)
+                        val rawBaseFsUpper8 = ByteArray(8) { b -> baseHdrPlain[fsOff + 0x147 - b] }
+                        val resolvedBaseKey = (if (romSec.key.any { it != 0.toByte() }) romSec.key else null)
+                            ?: baseSections.firstOrNull { it.cryptoType >= 3L && it.key.any { b -> b != 0.toByte() } }?.key
+                            ?: baseSections.firstOrNull { it.key.any { b -> b != 0.toByte() } }?.key
+                            ?: romSec.key
                         baseRomfsReader = DirectNcaRomfsSectionReader(
                             raf = baseRaf,
                             sliceOffset = refs.baseProgOffset,
                             secAbsStart = secStart,
-                            cryptoType = romSec.cryptoType,
-                            ctrKey = romSec.key,
-                            ctrUpper8 = romSec.counter
+                            cryptoType = if (encType == 3) 3L else 1L,
+                            ctrKey = if (encType == 3) resolvedBaseKey else null,
+                            ctrUpper8 = rawBaseFsUpper8
                         )
                         break
                     }
@@ -8998,6 +9266,7 @@ object StormNczEngine {
 
             var activeRomfsReader: RomfsSectionReader = baseRomfsReader
             var activeLv6Off = baseLv6Off
+            var updSdkAddonVer = 0
 
             if (updRaf != null) {
                 val updHdrRaw = ByteArray(0xC00)
@@ -9006,6 +9275,7 @@ object StormNczEngine {
                 val updHdrPlain = decryptNcaHeader0C00(updHdrRaw.copyOf(), keysMap)
                 val updSections = parseNcaSectionsForCompression(updHdrRaw, refs.updProgSize, keysMap, updExtKey, updRaf, refs.updProgOffset, ticketKeysByRightsId)
                 val ubb = ByteBuffer.wrap(updHdrPlain).order(ByteOrder.LITTLE_ENDIAN)
+                updSdkAddonVer = ubb.getInt(0x21C)
 
                 for (sIdx in 0 until 4) {
                     val eOff = 0x240 + sIdx * 16
@@ -9019,29 +9289,32 @@ object StormNczEngine {
                         val uLv6Off = ubb.getLong(fsOff + 0x18 + 5 * 24)
                         val romSec = updSections.firstOrNull { secStart in it.offset until (it.offset + it.size) }
                             ?: updSections.firstOrNull { it.offset >= secStart }
-                        if (romSec != null && romSec.key != null && romSec.counter != null) {
-                            activeRomfsReader = if (encType == 4) {
-                                BktrRomfsSectionReader(
-                                    baseReader = baseRomfsReader,
-                                    patchRaf = updRaf,
-                                    patchSliceOffset = refs.updProgOffset,
-                                    patchSecAbsStart = secStart,
-                                    patchCtrKey = romSec.key,
-                                    patchCtrUpper8 = romSec.counter,
-                                    fsHeaderBytes = updHdrPlain.copyOfRange(fsOff, fsOff + 0x200)
-                                )
-                            } else {
-                                DirectNcaRomfsSectionReader(
-                                    raf = updRaf,
-                                    sliceOffset = refs.updProgOffset,
-                                    secAbsStart = secStart,
-                                    cryptoType = romSec.cryptoType,
-                                    ctrKey = romSec.key,
-                                    ctrUpper8 = romSec.counter
-                                )
-                            }
-                            activeLv6Off = uLv6Off
+                        val rawUpdFsUpper8 = ByteArray(8) { b -> updHdrPlain[fsOff + 0x147 - b] }
+                        val resolvedUpdKey = (if (romSec != null && romSec.key.any { it != 0.toByte() }) romSec.key else null)
+                            ?: updSections.firstOrNull { it.cryptoType >= 3L && it.key.any { b -> b != 0.toByte() } }?.key
+                            ?: updSections.firstOrNull { it.key.any { b -> b != 0.toByte() } }?.key
+
+                        activeRomfsReader = if (encType == 4) {
+                            BktrRomfsSectionReader(
+                                baseReader = baseRomfsReader,
+                                patchRaf = updRaf,
+                                patchSliceOffset = refs.updProgOffset,
+                                patchSecAbsStart = secStart,
+                                patchCtrKey = resolvedUpdKey ?: romSec?.key ?: ByteArray(16),
+                                patchCtrUpper8 = rawUpdFsUpper8,
+                                fsHeaderBytes = updHdrPlain.copyOfRange(fsOff, fsOff + 0x200)
+                            )
+                        } else {
+                            DirectNcaRomfsSectionReader(
+                                raf = updRaf,
+                                sliceOffset = refs.updProgOffset,
+                                secAbsStart = secStart,
+                                cryptoType = if (encType == 3) 3L else 1L,
+                                ctrKey = if (encType == 3) resolvedUpdKey else null,
+                                ctrUpper8 = rawUpdFsUpper8
+                            )
                         }
+                        activeLv6Off = uLv6Off
                         break
                     }
                 }
@@ -9174,7 +9447,7 @@ object StormNczEngine {
             hbb.putLong(0x208, totalProgramNcaSize)
             hbb.putLong(0x210, tidLong)
             hbb.putInt(0x218, 0)
-            hbb.putInt(0x21C, bbb.getInt(0x21C))
+            hbb.putInt(0x21C, maxOf(bbb.getInt(0x21C), maxOf(updSdkAddonVer, 0x000E0000)))
             progHdr0x4000[0x220] = 0.toByte()
 
             // Media entries: Section 0 (0x4000..sec1StartOff), Section 1 (sec1StartOff..totalProgramNcaSize)

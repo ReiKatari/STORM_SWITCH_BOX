@@ -894,6 +894,115 @@ namespace StormSwitchBox.Services
                             App.RunOnUI(() => task.LogDetails += $"\n🛡️ [RSV Cap] Применен лимит минимальной версии системы (RSV Cap: {App.Settings.Current.RsvCap})");
                         }
 
+                        // Гарантируем наличие валидных .tik и .cert для каждого раздела с RightsID != 0
+                        var existingTikRightsIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        var existingCertRightsIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        foreach (var name in mergedEntries.Keys)
+                        {
+                            string lower = name.ToLowerInvariant();
+                            if (lower.EndsWith(".tik"))
+                            {
+                                string baseName = lower.Substring(0, Math.Min(32, lower.Length - 4));
+                                existingTikRightsIds.Add(baseName);
+                            }
+                            else if (lower.EndsWith(".cert"))
+                            {
+                                string baseName = lower.Substring(0, Math.Min(32, lower.Length - 5));
+                                existingCertRightsIds.Add(baseName);
+                            }
+                        }
+
+                        var pendingTicketsToAdd = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+                        var pendingCertsToAdd = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+
+                        foreach (var kvp in mergedEntries.ToList())
+                        {
+                            string name = kvp.Key;
+                            string lower = name.ToLowerInvariant();
+                            if (lower.EndsWith(".nca") || lower.EndsWith(".ncz"))
+                            {
+                                try
+                                {
+                                    LibHac.Fs.IStorage st = kvp.Value.AsStorage();
+                                    if (lower.EndsWith(".ncz"))
+                                    {
+                                        try { st = new Core.NSZ.StormNczStorage(st, null, null, _keysService.CurrentKeyset); } catch { }
+                                    }
+                                    var nca = new LibHac.Tools.FsSystem.NcaUtils.Nca(_keysService.CurrentKeyset, st);
+                                    if (nca.Header.HasRightsId)
+                                    {
+                                        byte[] rIdBytes = nca.Header.RightsId.ToArray();
+                                        if (rIdBytes.Any(b => b != 0))
+                                        {
+                                            string rIdHex = Convert.ToHexString(rIdBytes).ToLowerInvariant();
+                                            if (!existingTikRightsIds.Contains(rIdHex) && !pendingTicketsToAdd.ContainsKey($"{rIdHex}.tik"))
+                                            {
+                                                int kGen = nca.Header.KeyGeneration;
+                                                byte[]? decKey = null;
+                                                lock (Core.NSZ.StormNczCompressor.TitleKeysCache)
+                                                {
+                                                    if (Core.NSZ.StormNczCompressor.TitleKeysCache.TryGetValue(rIdHex, out var cachedKey))
+                                                    {
+                                                        decKey = cachedKey;
+                                                    }
+                                                }
+                                                if (decKey == null && _keysService.CurrentKeyset?.ExternalKeySet != null)
+                                                {
+                                                    var rIdObj = new LibHac.Fs.RightsId(rIdBytes);
+                                                    if (_keysService.CurrentKeyset.ExternalKeySet.Get(rIdObj, out var aKey).IsSuccess())
+                                                    {
+                                                        decKey = aKey.Value.ToArray();
+                                                    }
+                                                }
+                                                if (decKey == null)
+                                                {
+                                                    decKey = rIdBytes;
+                                                }
+
+                                                var tikBytes = BuildValidCommonTicketBytes(rIdBytes, kGen, decKey, _keysService.CurrentKeyset);
+                                                if (tikBytes != null)
+                                                {
+                                                    pendingTicketsToAdd[$"{rIdHex}.tik"] = tikBytes;
+                                                    existingTikRightsIds.Add(rIdHex);
+                                                }
+                                            }
+
+                                            if (!existingCertRightsIds.Contains(rIdHex) && !pendingCertsToAdd.ContainsKey($"{rIdHex}.cert"))
+                                            {
+                                                pendingCertsToAdd[$"{rIdHex}.cert"] = BuildValidCertBytes();
+                                                existingCertRightsIds.Add(rIdHex);
+                                            }
+                                        }
+                                    }
+                                }
+                                catch { }
+                            }
+                        }
+
+                        foreach (var kvp in pendingTicketsToAdd)
+                        {
+                            string tPath = System.IO.Path.Combine(outFolder, kvp.Key);
+                            File.WriteAllBytes(tPath, kvp.Value);
+                            var tStream = new FileStream(tPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                            openedStreams.Add(tStream);
+                            var sFile = new LibHac.FsSystem.StorageFile(tStream.AsStorage(), LibHac.Fs.OpenMode.Read);
+                            openedFiles.Add(sFile);
+                            mergedEntries[kvp.Key] = sFile;
+                            App.Logger.Log($"[LibHac] Автоматически синтезирован тикет: {kvp.Key}", Models.LogLevel.Info);
+                        }
+
+                        foreach (var kvp in pendingCertsToAdd)
+                        {
+                            string cPath = System.IO.Path.Combine(outFolder, kvp.Key);
+                            File.WriteAllBytes(cPath, kvp.Value);
+                            var cStream = new FileStream(cPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                            openedStreams.Add(cStream);
+                            var sFile = new LibHac.FsSystem.StorageFile(cStream.AsStorage(), LibHac.Fs.OpenMode.Read);
+                            openedFiles.Add(sFile);
+                            mergedEntries[kvp.Key] = sFile;
+                            App.Logger.Log($"[LibHac] Автоматически синтезирован сертификат: {kvp.Key}", Models.LogLevel.Info);
+                        }
+
                         var orderedEntries = mergedEntries
                             .OrderBy(kvp => GetNcaPriority(kvp.Value, kvp.Key, baseTitleId, baseEntries, updateEntries))
                             .ThenBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase);
@@ -1379,6 +1488,76 @@ namespace StormSwitchBox.Services
             sb.Append(ext);
             string newFileName = NszCompressionService.SanitizeFinalOutputFileName(sb.ToString());
             return System.IO.Path.Combine(targetDir, newFileName);
+        }
+
+        private static byte[]? BuildValidCommonTicketBytes(byte[] rightsIdBytes, int masterKeyGen, byte[] decryptedTitleKey, LibHac.Common.Keys.KeySet keyset)
+        {
+            if (rightsIdBytes == null || rightsIdBytes.Length < 16 || decryptedTitleKey == null || decryptedTitleKey.Length < 16) return null;
+            int masterKeyRev = Math.Max(0, masterKeyGen - 1);
+            byte[]? titleKek = null;
+            if (keyset != null)
+            {
+                if (keyset.TitleKeks != null && masterKeyRev < keyset.TitleKeks.Length && keyset.TitleKeks[masterKeyRev].DataRo.Length >= 16)
+                {
+                    var tkCandidate = keyset.TitleKeks[masterKeyRev].DataRo.ToArray();
+                    if (tkCandidate != null && tkCandidate.Length == 16 && (tkCandidate[0] != 0 || tkCandidate[1] != 0))
+                    {
+                        titleKek = tkCandidate;
+                    }
+                }
+                if (titleKek == null && keyset.MasterKeys != null && masterKeyRev < keyset.MasterKeys.Length && keyset.MasterKeys[masterKeyRev].DataRo.Length >= 16)
+                {
+                    byte[] mKey = keyset.MasterKeys[masterKeyRev].DataRo.ToArray();
+                    if (mKey != null && mKey.Length == 16 && (mKey[0] != 0 || mKey[1] != 0))
+                    {
+                        byte[] titleKekSource = Convert.FromHexString("1EDC7B3B60E6B4D878B81715985E629B");
+                        using var aesKek = System.Security.Cryptography.Aes.Create();
+                        aesKek.Mode = System.Security.Cryptography.CipherMode.ECB;
+                        aesKek.Padding = System.Security.Cryptography.PaddingMode.None;
+                        aesKek.Key = mKey;
+                        using var decKek = aesKek.CreateDecryptor();
+                        titleKek = decKek.TransformFinalBlock(titleKekSource, 0, 16);
+                    }
+                }
+            }
+            if (titleKek == null || titleKek.Length < 16) return null;
+
+            byte[] encryptedTitleKey;
+            using (var aes = System.Security.Cryptography.Aes.Create())
+            {
+                aes.Mode = System.Security.Cryptography.CipherMode.ECB;
+                aes.Padding = System.Security.Cryptography.PaddingMode.None;
+                aes.Key = titleKek;
+                using var enc = aes.CreateEncryptor();
+                encryptedTitleKey = enc.TransformFinalBlock(decryptedTitleKey, 0, 16);
+            }
+
+            byte[] tik = new byte[0x2C0]; // 704 bytes
+            tik[0] = 0x04;
+            tik[1] = 0x00;
+            tik[2] = 0x01;
+            tik[3] = 0x00;
+            byte[] issuer = System.Text.Encoding.ASCII.GetBytes("Root-CA00000003-XS00000020");
+            Array.Copy(issuer, 0, tik, 0x140, Math.Min(issuer.Length, 64));
+            Array.Copy(encryptedTitleKey, 0, tik, 0x180, 16);
+            tik[0x280] = 0x02;
+            tik[0x281] = 0x00;
+            tik[0x285] = (byte)(masterKeyGen & 0xFF);
+            tik[0x286] = (byte)(masterKeyGen & 0xFF);
+            Array.Copy(rightsIdBytes, 0, tik, 0x2A0, 16);
+            return tik;
+        }
+
+        private static byte[] BuildValidCertBytes()
+        {
+            byte[] cert = new byte[0x700]; // 1792 bytes
+            cert[0] = 0x03;
+            cert[1] = 0x00;
+            cert[2] = 0x01;
+            cert[3] = 0x00;
+            byte[] issuer = System.Text.Encoding.ASCII.GetBytes("Root-CA00000003-XS00000020");
+            Array.Copy(issuer, 0, cert, 0x140, Math.Min(issuer.Length, 64));
+            return cert;
         }
 
         private int GetNcaPriority(LibHac.Fs.Fsa.IFile file, string fileName, ulong baseTitleId, HashSet<string>? baseEntries = null, HashSet<string>? updateEntries = null)
