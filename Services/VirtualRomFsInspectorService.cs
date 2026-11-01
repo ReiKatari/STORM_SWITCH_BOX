@@ -153,6 +153,7 @@ namespace StormSwitchBox.Services
         private static void InspectSingleNca(IStorage ncaStorage, string ncaName, List<VirtualArchiveEntry> results, CancellationToken ct)
         {
             var nca = new Nca(App.Keys.CurrentKeyset, ncaStorage);
+            KeysService.RegisterRightsIdFallback(App.Keys.CurrentKeyset, nca);
             string tid = nca.Header.TitleId.ToString("X16");
             string cType = nca.Header.ContentType.ToString();
 
@@ -514,6 +515,7 @@ namespace StormSwitchBox.Services
                 if (ext == ".nca")
                 {
                     var nca = new Nca(App.Keys.CurrentKeyset, storage);
+                    KeysService.RegisterRightsIdFallback(App.Keys.CurrentKeyset, nca);
                     var secFs = OpenNcaSectionFileSystem(nca, entry.NcaSectionIndex);
                     return ReadFromFileSystem(secFs, entry.FullPath, maxBytes);
                 }
@@ -556,6 +558,7 @@ namespace StormSwitchBox.Services
                     }
 
                     var nca = new Nca(App.Keys.CurrentKeyset, ncaStorage);
+            KeysService.RegisterRightsIdFallback(App.Keys.CurrentKeyset, nca);
                     var secFs = OpenNcaSectionFileSystem(nca, entry.NcaSectionIndex);
                     return ReadFromFileSystem(secFs, entry.FullPath, maxBytes);
                 }

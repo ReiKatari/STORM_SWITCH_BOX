@@ -115,6 +115,11 @@ namespace StormSwitchBox.Core.NSZ
                 return;
             }
 
+            if (nca.Header.HasRightsId)
+            {
+                Services.KeysService.RegisterRightsIdFallback(keyset, nca);
+            }
+
             using var fsOut = new FileStream(outputNczPath, FileMode.Create, FileAccess.ReadWrite, FileShare.None, 4 * 1024 * 1024);
 
             // 1. NCA Header
@@ -268,10 +273,18 @@ namespace StormSwitchBox.Core.NSZ
                         nczCryptoType = encryptionType;
                         try
                         {
-                            byte[] tKey = GetTitleKeyFromKeyset(keyset, nca.Header.RightsId.ToArray(), externalTitleKeys);
-                            if (tKey != null)
+                            byte[] rIdBytes = nca.Header.RightsId.ToArray();
+                            byte[] tKey = GetTitleKeyFromKeyset(keyset, rIdBytes, externalTitleKeys);
+                            if (tKey != null && !IsAllZero(tKey))
                             {
                                 tKey.CopyTo((Span<byte>)cryptoKey);
+                            }
+                            else if (!IsAllZero(rIdBytes))
+                            {
+                                // Eden direct dump TitleKey fallback:
+                                // Fall back to raw 16-byte RightsId as TitleKey for direct dumps without tickets/external keys
+                                rIdBytes.CopyTo((Span<byte>)cryptoKey);
+                                Services.KeysService.RegisterRightsIdFallback(keyset, (ReadOnlySpan<byte>)nca.Header.RightsId);
                             }
                         }
                         catch { }
@@ -838,7 +851,7 @@ namespace StormSwitchBox.Core.NSZ
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static bool IsAllZero(ReadOnlySpan<byte> bytes)
+        internal static bool IsAllZero(ReadOnlySpan<byte> bytes)
         {
             for (int i = 0; i < bytes.Length; i++)
             {
@@ -1086,6 +1099,15 @@ namespace StormSwitchBox.Core.NSZ
                     if (TitleKeysCache.TryGetValue(targetRightsIdHex, out var cachedKey) && cachedKey != null && cachedKey.Length == 16)
                     {
                         return cachedKey;
+                    }
+                }
+
+                if (keyset != null && keyset.ExternalKeySet != null)
+                {
+                    var rId = new RightsId(targetRightsIdBytes);
+                    if (keyset.ExternalKeySet.Get(rId, out var accessKey).IsSuccess())
+                    {
+                        return accessKey.Value.ToArray();
                     }
                 }
 

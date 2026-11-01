@@ -15,7 +15,7 @@ if (-not (Test-Path $assemblingDir)) { New-Item -ItemType Directory -Path $assem
 if (-not (Test-Path $filesDir)) { New-Item -ItemType Directory -Path $filesDir | Out-Null }
 if (-not (Test-Path $outputDir)) { New-Item -ItemType Directory -Path $outputDir | Out-Null }
 
-$appVersion = "6.7.9"
+$appVersion = "6.8.0"
 try {
     [xml]$appProjXml = Get-Content (Join-Path $appProjDir "StormSwitchBox.csproj")
     $verFromProj = ($appProjXml.Project.PropertyGroup | ForEach-Object { $_.Version } | Where-Object { $_ } | Select-Object -First 1)
@@ -53,7 +53,7 @@ if (Test-Path $outputSetupExePath) { Remove-Item $outputSetupExePath -Force -Err
 # Step 2: Build App to Assembling and Publish folder
 Write-Host "[2/6] Building StormSwitchBox (.NET 8 WinUI 3 win-x64)..." -ForegroundColor Yellow
 $publishDir = Join-Path $appProjDir "bin\Release\net8.0-windows10.0.19041.0\win-x64"
-dotnet build "$appProjDir\StormSwitchBox.csproj" -c Release -m:2
+dotnet build "$appProjDir\StormSwitchBox.csproj" -c Release -m:1 /nr:false
 
 if (-not (Test-Path "$publishDir\StormSwitchBox.exe")) {
     throw "Error: Build failed - StormSwitchBox.exe was not created in $publishDir!"
@@ -114,10 +114,39 @@ if (Test-Path $pfxSource) {
 Get-ChildItem $publishDir -Recurse | Unblock-File -ErrorAction SilentlyContinue
 
 function Invoke-StormSign([string]$FilePath) {
-    if (Test-Path $signtool) {
-        & $signtool sign /fd SHA256 /tr $tsUrl /td SHA256 /d "STORM SWITCH BOX" /du "https://github.com/ReiKatari/STORM_SWITCH_BOX" /sha1 $certThumb $FilePath
-    } else {
-        Set-AuthenticodeSignature -FilePath $FilePath -Certificate $cert -HashAlgorithm SHA256 -TimestampServer $tsUrl | Out-Null
+    $tsUrls = @(
+        "http://timestamp.digicert.com",
+        "http://timestamp.sectigo.com",
+        "http://tsa.starfieldtech.com",
+        "http://timestamp.entrust.net/TSS/RFC3161sha2TS"
+    )
+    $signed = $false
+    foreach ($ts in $tsUrls) {
+        for ($attempt = 1; $attempt -le 3; $attempt++) {
+            if (Test-Path $signtool) {
+                & $signtool sign /fd SHA256 /tr $ts /td SHA256 /d "STORM SWITCH BOX" /du "https://github.com/ReiKatari/STORM_SWITCH_BOX" /sha1 $certThumb $FilePath
+                if ($LASTEXITCODE -eq 0) {
+                    $signed = $true
+                    break
+                }
+            } else {
+                $res = Set-AuthenticodeSignature -FilePath $FilePath -Certificate $cert -HashAlgorithm SHA256 -TimestampServer $ts
+                if ($res.Status -eq [System.Management.Automation.SignatureStatus]::Valid) {
+                    $signed = $true
+                    break
+                }
+            }
+            Start-Sleep -Milliseconds 800
+        }
+        if ($signed) { break }
+    }
+    if (-not $signed) {
+        Write-Warning "Failed to sign $FilePath with timestamp, signing without timestamp as fallback..."
+        if (Test-Path $signtool) {
+            & $signtool sign /fd SHA256 /d "STORM SWITCH BOX" /du "https://github.com/ReiKatari/STORM_SWITCH_BOX" /sha1 $certThumb $FilePath
+        } else {
+            Set-AuthenticodeSignature -FilePath $FilePath -Certificate $cert -HashAlgorithm SHA256 | Out-Null
+        }
     }
 }
 
@@ -148,7 +177,7 @@ Copy-Item $portableZipPath (Join-Path $filesDir "STORM_SWITCH_BOX_${appVersion}.
 
 # Step 4: Build Custom StormInstaller
 Write-Host "[5/6] Building and Signing StormInstaller (Cyber Dark UI)..." -ForegroundColor Yellow
-dotnet publish "$installerProjDir\StormInstaller.csproj" -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -m:2
+dotnet publish "$installerProjDir\StormInstaller.csproj" -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -m:1 /nr:false
 
 $publishedInstaller = "$installerProjDir\bin\Release\net8.0-windows\win-x64\publish\StormInstaller.exe"
 if (-not (Test-Path $publishedInstaller)) {

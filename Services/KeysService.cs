@@ -4,6 +4,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using LibHac.Common.Keys;
+using LibHac.Tools.FsSystem.NcaUtils;
 using StormSwitchBox.Models;
 
 namespace StormSwitchBox.Services
@@ -11,6 +12,51 @@ namespace StormSwitchBox.Services
     public class KeysService
     {
         private static readonly SemaphoreSlim _semaphore = new(1, 1);
+
+        /// <summary>
+        /// Eden TitleKey fallback: Registers RightsId as TitleKey into ExternalKeySet for direct dumps without tickets/external keys.
+        /// </summary>
+        public static void RegisterRightsIdFallback(KeySet? keyset, ReadOnlySpan<byte> rIdBytes)
+        {
+            if (keyset?.ExternalKeySet == null || rIdBytes.Length < 16) return;
+            try
+            {
+                bool isZero = true;
+                for (int i = 0; i < 16; i++)
+                {
+                    if (rIdBytes[i] != 0) { isZero = false; break; }
+                }
+                if (isZero) return;
+
+                var rId = new LibHac.Fs.RightsId(rIdBytes.Slice(0, 16));
+                if (!keyset.ExternalKeySet.Contains(rId))
+                {
+                    var aKey = new LibHac.Spl.AccessKey(rIdBytes.Slice(0, 16));
+                    keyset.ExternalKeySet.Add(rId, aKey);
+                }
+            }
+            catch { }
+        }
+
+        public static void RegisterRightsIdFallback(KeySet? keyset, LibHac.Fs.RightsId rId)
+        {
+            if (keyset?.ExternalKeySet == null) return;
+            try
+            {
+                if (!keyset.ExternalKeySet.Contains(rId))
+                {
+                    var aKey = new LibHac.Spl.AccessKey(rId.Value);
+                    keyset.ExternalKeySet.Add(rId, aKey);
+                }
+            }
+            catch { }
+        }
+
+        public static void RegisterRightsIdFallback(KeySet? keyset, Nca? nca)
+        {
+            if (keyset == null || nca == null || !nca.Header.HasRightsId) return;
+            RegisterRightsIdFallback(keyset, (ReadOnlySpan<byte>)nca.Header.RightsId);
+        }
 
         public KeySet CurrentKeyset { get; set; }
         public bool IsLoaded { get; private set; }

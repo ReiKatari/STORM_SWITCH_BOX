@@ -96,6 +96,7 @@ namespace StormSwitchBox.Services
                             using var ncaFile = OpenFileSafe(pfs, "/" + name);
                             var ncaStorage = ncaFile.AsStorage();
                             var nca = new Nca(App.Keys.CurrentKeyset, ncaStorage);
+                            KeysService.RegisterRightsIdFallback(App.Keys.CurrentKeyset, nca);
 
                             if (nca.Header.ContentType == NcaContentType.Control)
                             {
@@ -321,6 +322,7 @@ namespace StormSwitchBox.Services
                             {
                                 using var ef = OpenFileSafe(srcPfs, "/" + name);
                                 var nca = new Nca(App.Keys.CurrentKeyset, ef.AsStorage());
+                                KeysService.RegisterRightsIdFallback(App.Keys.CurrentKeyset, nca);
                                 string ncaTid = nca.Header.TitleId.ToString("X16");
 
                                 if (nca.Header.ContentType == NcaContentType.Meta && ncaTid.Equals(titleId, StringComparison.OrdinalIgnoreCase))

@@ -1558,15 +1558,185 @@ object StormNczEngine {
                 ?: ticketTitleKey
         } else null
 
-        val resolvedCtrKey = if (hasRightsId && matchedEncTitleKey != null && matchedEncTitleKey.size == 16) {
+        // Разрешение CTR ключа по стандарту Eden (fbfe0c95fa30ab9def9e33fd9fb97dd4bd9851dd):
+        // Fall back to RightsId as TitleKey for direct dumps.
+        // Для прямых дампов без тикетов 16 сырых байт rights_id используются напрямую как TitleKey (CTR key) без titlekek AES-ECB дешифровки.
+        // При наличии открытого доступа к потоку (raf != null) выполняется валидация кандидатов по сигнатурам (PFS0, IVFC, RomFS 0x50L).
+        val resolvedCtrKey = if (hasRightsId) {
             val tkek = keysMap["titlekek_$idxHex"] ?: keysMap["titlekek_00"]
-            if (tkek != null && tkek.size == 16) {
+            val decryptedTkekKey = if (matchedEncTitleKey != null && matchedEncTitleKey.size == 16 && tkek != null && tkek.size == 16) {
                 try {
                     Cipher.getInstance("AES/ECB/NoPadding").apply {
                         init(Cipher.DECRYPT_MODE, SecretKeySpec(tkek, "AES"))
                     }.doFinal(matchedEncTitleKey)
-                } catch (_: Exception) { matchedEncTitleKey }
-            } else matchedEncTitleKey
+                } catch (_: Exception) { null }
+            } else null
+
+            val tkekRightsKey = if (tkek != null && tkek.size == 16 && rightsBytes.size == 16) {
+                try {
+                    Cipher.getInstance("AES/ECB/NoPadding").apply {
+                        init(Cipher.DECRYPT_MODE, SecretKeySpec(tkek, "AES"))
+                    }.doFinal(rightsBytes)
+                } catch (_: Exception) { null }
+            } else null
+
+            // Список ключей-кандидатов для проверки по сигнатуре секции
+            val candidateKeys = mutableListOf<ByteArray>()
+            if (matchedEncTitleKey != null && matchedEncTitleKey.size == 16) {
+                if (decryptedTkekKey != null && decryptedTkekKey.size == 16 && decryptedTkekKey.any { it != 0.toByte() }) {
+                    candidateKeys.add(decryptedTkekKey)
+                }
+                if (matchedEncTitleKey.any { it != 0.toByte() } && !candidateKeys.any { it.contentEquals(matchedEncTitleKey) }) {
+                    candidateKeys.add(matchedEncTitleKey)
+                }
+            }
+            // Eden стандарт: 16 сырых байт rights_id напрямую в TitleKey (direct dumps)
+            if (rightsBytes.size == 16 && rightsBytes.any { it != 0.toByte() } && !candidateKeys.any { it.contentEquals(rightsBytes) }) {
+                candidateKeys.add(rightsBytes)
+            }
+            if (tkekRightsKey != null && tkekRightsKey.size == 16 && tkekRightsKey.any { it != 0.toByte() } && !candidateKeys.any { it.contentEquals(tkekRightsKey) }) {
+                candidateKeys.add(tkekRightsKey)
+            }
+
+            // Кандидат KeyArea на случай модифицированных/конвертированных дампов
+            val kakType = workHdr[0x207].toInt() and 0xFF
+            val kakName = when (kakType) {
+                1 -> "ocean"
+                2 -> "system"
+                else -> "application"
+            }
+            var encSlot2 = workHdr.copyOfRange(0x320, 0x330)
+            if (encSlot2.all { it == 0.toByte() }) {
+                encSlot2 = workHdr.copyOfRange(0x300, 0x310)
+            }
+            if (encSlot2.any { it != 0.toByte() }) {
+                val candidateKaks = mutableListOf<ByteArray>()
+                keysMap["key_area_key_${kakName}_$idxHex"]?.let { candidateKaks.add(it) }
+                keysMap["key_area_key_application_$idxHex"]?.let { candidateKaks.add(it) }
+                keysMap["key_area_key_${kakName}_00"]?.let { candidateKaks.add(it) }
+                keysMap["key_area_key_application_00"]?.let { candidateKaks.add(it) }
+                for (kak in candidateKaks) {
+                    if (kak.size != 16) continue
+                    try {
+                        val testKey = Cipher.getInstance("AES/ECB/NoPadding").apply {
+                            init(Cipher.DECRYPT_MODE, SecretKeySpec(kak, "AES"))
+                        }.doFinal(encSlot2)
+                        if (testKey != null && testKey.size == 16 && testKey.any { it != 0.toByte() }) {
+                            if (!candidateKeys.any { it.contentEquals(testKey) }) {
+                                candidateKeys.add(testKey)
+                            }
+                            break
+                        }
+                    } catch (_: Exception) {}
+                }
+            }
+
+            // Дефолтный ключ при отсутствии raf или неудаче проверки по сигнатурам:
+            // Если есть matchedEncTitleKey (бинарный тикет) - используем расшифрованный или сырой ключ тикета.
+            // Если matchedEncTitleKey нет (прямой дамп) - строго используем сырые 16 байт rights_id без дешифровки titlekek!
+            val defaultFallbackKey = if (matchedEncTitleKey != null && matchedEncTitleKey.size == 16) {
+                decryptedTkekKey ?: matchedEncTitleKey
+            } else {
+                rightsBytes
+            }
+
+            var verifiedCandidateKey: ByteArray? = null
+            if (raf != null && candidateKeys.isNotEmpty()) {
+                val testBb = ByteBuffer.wrap(workHdr).order(ByteOrder.LITTLE_ENDIAN)
+                for (sIdx in 0..3) {
+                    if (verifiedCandidateKey != null) break
+                    val entryOff = 0x240 + sIdx * 16
+                    testBb.position(entryOff)
+                    val startMedia = testBb.int.toLong() and 0xFFFFFFFFL
+                    val endMedia = testBb.int.toLong() and 0xFFFFFFFFL
+                    val enabled = testBb.int != 0
+                    if (!enabled || endMedia <= startMedia) continue
+                    val secByteOffset = (startMedia * 0x200L).coerceAtLeast(NCA_HEADER_SIZE)
+                    val secByteEnd = (endMedia * 0x200L).coerceAtMost(totalNcaSize)
+                    if (secByteEnd <= secByteOffset) continue
+
+                    val fsOff = 0x400 + sIdx * 0x200
+                    val rawCryptoType = (workHdr[fsOff + 0x04].toInt() and 0xFF).toLong()
+                    if (rawCryptoType == 1L) continue
+
+                    val counter = ByteArray(16)
+                    for (b in 0..7) {
+                        counter[b] = workHdr[fsOff + 0x147 - b]
+                    }
+                    val rawSecStart = startMedia * 0x200L
+                    val hashType = workHdr[fsOff + 0x03].toInt() and 0xFF
+
+                    try {
+                        val peekRaw = ByteArray(minOf(64, (secByteEnd - secByteOffset).toInt()))
+                        synchronized(raf) {
+                            raf.seek(sliceOffset + secByteOffset)
+                            raf.readFully(peekRaw)
+                        }
+                        val m0 = String(peekRaw, 0, 4, StandardCharsets.US_ASCII)
+                        val m8 = if (peekRaw.size >= 12) String(peekRaw, 8, 4, StandardCharsets.US_ASCII) else ""
+                        if (m0 == "PFS0" || m0 == "IVFC" || m8 == "PFS0" || m8 == "IVFC") {
+                            verifiedCandidateKey = defaultFallbackKey
+                            break
+                        }
+
+                        val layer1Rel = if (hashType == 2) testBb.getLong(fsOff + 0x40) else -1L
+                        val lv5Rel = if (hashType == 3) testBb.getLong(fsOff + 0x90) else -1L
+
+                        val pfs0Raw = if (layer1Rel > 0L && rawSecStart + layer1Rel + 16L <= secByteEnd) {
+                            val buf = ByteArray(16)
+                            synchronized(raf) {
+                                raf.seek(sliceOffset + rawSecStart + layer1Rel)
+                                raf.readFully(buf)
+                            }
+                            buf
+                        } else null
+
+                        val romfsRaw = if (lv5Rel >= 0L && rawSecStart + lv5Rel + 16L <= secByteEnd) {
+                            val buf = ByteArray(16)
+                            synchronized(raf) {
+                                raf.seek(sliceOffset + rawSecStart + lv5Rel)
+                                raf.readFully(buf)
+                            }
+                            buf
+                        } else null
+
+                        for (cand in candidateKeys) {
+                            // Проверка 1: начало секции
+                            val testBuf = peekRaw.copyOf()
+                            transformAesCtrInPlace(testBuf, 0, testBuf.size, rawSecStart, cand, counter)
+                            val tm0 = String(testBuf, 0, 4, StandardCharsets.US_ASCII)
+                            val tm8 = if (testBuf.size >= 12) String(testBuf, 8, 4, StandardCharsets.US_ASCII) else ""
+                            if (tm0 == "PFS0" || tm0 == "IVFC" || tm8 == "PFS0" || tm8 == "IVFC") {
+                                verifiedCandidateKey = cand
+                                break
+                            }
+
+                            // Проверка 2: смещение Layer1 PFS0
+                            if (pfs0Raw != null) {
+                                val testPfs = pfs0Raw.copyOf()
+                                transformAesCtrInPlace(testPfs, 0, testPfs.size, rawSecStart + layer1Rel, cand, counter)
+                                if (String(testPfs, 0, 4, StandardCharsets.US_ASCII) == "PFS0") {
+                                    verifiedCandidateKey = cand
+                                    break
+                                }
+                            }
+
+                            // Проверка 3: заголовок RomFS размером 0x50L
+                            if (romfsRaw != null) {
+                                val testRom = romfsRaw.copyOf()
+                                transformAesCtrInPlace(testRom, 0, testRom.size, rawSecStart + lv5Rel, cand, counter)
+                                val rSz = ByteBuffer.wrap(testRom).order(ByteOrder.LITTLE_ENDIAN).long
+                                if (rSz == 0x50L) {
+                                    verifiedCandidateKey = cand
+                                    break
+                                }
+                            }
+                        }
+                    } catch (_: Exception) {}
+                }
+            }
+
+            verifiedCandidateKey ?: defaultFallbackKey
         } else {
             val kakType = workHdr[0x207].toInt() and 0xFF
             val kakName = when (kakType) {
@@ -4569,7 +4739,11 @@ object StormNczEngine {
                 val ncaType = ncaContentTypeMap[src.baseKey] ?: -1
                 val hasBktr = ncaHasBktrMap[src.baseKey] == true
                 val mustStayUncompressedNca = lower.endsWith(".cnmt.nca") || ncaType == 1 || ncaType == 2
-                val specificTicketKey = ncaRightsIdMap[src.baseKey]?.let { ticketKeysByRightsId[it] } ?: fallbackTicketKey
+                val specificTicketKey = ncaRightsIdMap[src.baseKey]?.let { rId ->
+                    ticketKeysByRightsId[rId.uppercase()]
+                        ?: ticketKeysByRightsId[rId]
+                        ?: (if (rId.length == 32 && rId.any { it != '0' }) hexToBytes(rId) else null)
+                } ?: fallbackTicketKey
 
                 // Сжимаем в .ncz игровые разделы Program / Data / Manual (> 64 КБ).
                 // Разделы Meta (.cnmt.nca), Control (иконка 256x256 и control.nacp) и BKTR-патчи оставляем несжатыми .nca,
@@ -8650,11 +8824,13 @@ object StormNczEngine {
             if (String(plainHdr, 0x200, 4, StandardCharsets.US_ASCII) != "NCA3") return null
 
             val extKey = if (cand.rightsId.isNotEmpty()) {
-                ticketKeysByRightsId[cand.rightsId.uppercase()] ?: fallbackTicketKey
-            } else null
+                ticketKeysByRightsId[cand.rightsId.uppercase()]
+                    ?: (if (cand.rightsId.length == 32 && cand.rightsId.any { it != '0' }) hexToBytes(cand.rightsId) else null)
+                    ?: fallbackTicketKey
+            } else fallbackTicketKey
 
             val sections = RandomAccessFile(cand.parentFile, "r").use { raf ->
-                parseNcaSectionsForCompression(hdr0C00, cand.size, keysMap, extKey, raf, cand.offset)
+                parseNcaSectionsForCompression(hdr0C00, cand.size, keysMap, extKey, raf, cand.offset, ticketKeysByRightsId)
             }
             val hasRightsId = (0x230 until 0x240).any { plainHdr[it] != 0.toByte() }
             val tidLong = primaryTidHex.toULongOrNull(16)?.toLong() ?: 0L
@@ -8663,6 +8839,8 @@ object StormNczEngine {
 
             if (hasRightsId) {
                 val oldCtrKey = sections.firstOrNull { it.key.any { b -> b != 0.toByte() } }?.key
+                    ?: extKey
+                    ?: (if (cand.rightsId.length == 32 && cand.rightsId.any { it != '0' }) hexToBytes(cand.rightsId) else null)
                 for (i in 0x230 until 0x240) plainHdr[i] = 0.toByte()
                 for (i in 0x300 until 0x340) plainHdr[i] = 0.toByte()
                 plainHdr[0x206] = 0.toByte()
@@ -8728,11 +8906,15 @@ object StormNczEngine {
         val modSkippedNotes = ArrayList<String>()
 
         val baseExtKey = if (refs.baseProgRightsId.isNotEmpty()) {
-            ticketKeysByRightsId[refs.baseProgRightsId.uppercase()] ?: fallbackTicketKey
-        } else null
+            ticketKeysByRightsId[refs.baseProgRightsId.uppercase()]
+                ?: (if (refs.baseProgRightsId.length == 32 && refs.baseProgRightsId.any { it != '0' }) hexToBytes(refs.baseProgRightsId) else null)
+                ?: fallbackTicketKey
+        } else fallbackTicketKey
         val updExtKey = if (refs.updProgRightsId.isNotEmpty()) {
-            ticketKeysByRightsId[refs.updProgRightsId.uppercase()] ?: fallbackTicketKey
-        } else null
+            ticketKeysByRightsId[refs.updProgRightsId.uppercase()]
+                ?: (if (refs.updProgRightsId.length == 32 && refs.updProgRightsId.any { it != '0' }) hexToBytes(refs.updProgRightsId) else null)
+                ?: fallbackTicketKey
+        } else fallbackTicketKey
 
         var baseRaf: RandomAccessFile? = null
         var updRaf: RandomAccessFile? = null

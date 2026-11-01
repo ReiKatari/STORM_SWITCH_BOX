@@ -115,6 +115,7 @@ namespace StormSwitchBox.Services
                     IStorage ncaStorage = ncaFile.AsStorage();
                     
                     var nca = new Nca(_keysService.CurrentKeyset, ncaStorage);
+                    KeysService.RegisterRightsIdFallback(_keysService.CurrentKeyset, nca);
                     
                     if (nca.Header.ContentType == NcaContentType.Meta)
                     {
@@ -304,6 +305,7 @@ namespace StormSwitchBox.Services
                         }
                         
                         var nca = new Nca(_keysService.CurrentKeyset, entryStorage);
+                        KeysService.RegisterRightsIdFallback(_keysService.CurrentKeyset, nca);
                         
                         if (nca.Header.ContentType == NcaContentType.Program)
                         {
@@ -1029,6 +1031,7 @@ namespace StormSwitchBox.Services
                             using (var fs = new FileStream(ncaPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
                             {
                                 var nca = new Nca(_keysService.CurrentKeyset, fs.AsStorage());
+                                KeysService.RegisterRightsIdFallback(_keysService.CurrentKeyset, nca);
                                 if (nca.Header.ContentType == NcaContentType.Control && string.IsNullOrEmpty(controlNca))
                                 {
                                     controlNca = ncaPath;
@@ -1315,6 +1318,7 @@ namespace StormSwitchBox.Services
                                 try 
                                 {
                                     var nca = new Nca(_keysService.CurrentKeyset, ncaStorage);
+                    KeysService.RegisterRightsIdFallback(_keysService.CurrentKeyset, nca);
                                     string ncaTid = nca.Header.TitleId.ToString("X16").ToUpper();
                                     titleId = ncaTid;
 

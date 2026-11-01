@@ -179,6 +179,7 @@ namespace StormSwitchBox.Services
                     if (!pfs.OpenFile(ref ncaFile.Ref, in path, OpenMode.Read).IsSuccess()) continue;
 
                     var nca = new Nca(keySet, ncaFile.Release().AsStorage());
+                    KeysService.RegisterRightsIdFallback(keySet, nca);
                     if (nca.Header.ContentType != NcaContentType.Meta || !nca.CanOpenSection(0)) continue;
 
                     IFileSystem? cnmtFs = null;
@@ -289,6 +290,7 @@ namespace StormSwitchBox.Services
                 {
                     using var fs = new FileStream(cnmtNcaPath, FileMode.Open, FileAccess.Read, FileShare.Read);
                     var nca = new Nca(keySet, fs.AsStorage());
+                    KeysService.RegisterRightsIdFallback(keySet, nca);
                     if (nca.Header.ContentType != NcaContentType.Meta || !nca.CanOpenSection(0)) continue;
 
                     IFileSystem? cnmtFs = null;

@@ -1421,6 +1421,7 @@ namespace StormSwitchBox.Services
                 }
 
                 var nca = new LibHac.Tools.FsSystem.NcaUtils.Nca(_keysService.CurrentKeyset, storage);
+                KeysService.RegisterRightsIdFallback(_keysService.CurrentKeyset, nca);
                 var type = nca.Header.ContentType;
                 ulong tid = nca.Header.TitleId;
 
@@ -1592,6 +1593,7 @@ namespace StormSwitchBox.Services
                             pfs.OpenFile(ref ncaFile.Ref, in entryPath, OpenMode.Read).ThrowIfFailure();
                             
                             var nca = new LibHac.Tools.FsSystem.NcaUtils.Nca(_keysService.CurrentKeyset, ncaFile.Release().AsStorage());
+                            KeysService.RegisterRightsIdFallback(_keysService.CurrentKeyset, nca);
                             
                             for (int sec = 0; sec < 2; sec++)
                             {

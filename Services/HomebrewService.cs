@@ -1253,6 +1253,7 @@ namespace StormSwitchBox.Services
                         {
                             var ncaStorage = ncaFileRef.Release().AsStorage();
                             var nca = new Nca(_keysService.CurrentKeyset, ncaStorage);
+                            KeysService.RegisterRightsIdFallback(_keysService.CurrentKeyset, nca);
 
                             if (nca.Header.ContentType == NcaContentType.Control)
                             {
@@ -1381,6 +1382,7 @@ namespace StormSwitchBox.Services
                         {
                             var ncaStorage = ncaFileRef.Release().AsStorage();
                             var nca = new Nca(_keysService.CurrentKeyset, ncaStorage);
+                            KeysService.RegisterRightsIdFallback(_keysService.CurrentKeyset, nca);
                             if (nca.Header.ContentType == NcaContentType.Program)
                             {
                                 // 1. Извлекаем ExeFS (Section 0)

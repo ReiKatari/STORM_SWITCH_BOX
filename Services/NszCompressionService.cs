@@ -289,6 +289,7 @@ namespace StormSwitchBox.Services
                         {
                             using var probeFile = OpenFileSafe(pfs, entry.FullPath);
                             var probeNca = new Nca(App.Keys.CurrentKeyset, probeFile.AsStorage());
+                            KeysService.RegisterRightsIdFallback(App.Keys.CurrentKeyset, probeNca);
                             var cType = probeNca.Header.ContentType;
                             // Сохраняем Meta, Control и Manual NCA несжатыми .nca для 100% совместимости иконок и метаданных во всех эмуляторах
                             if (cType == NcaContentType.Meta || cType == NcaContentType.Control || cType == NcaContentType.Manual)

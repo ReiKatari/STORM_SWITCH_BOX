@@ -380,6 +380,7 @@ namespace StormSwitchBox.Services
                         {
                             // Быстрая проверка заголовка NCA (первые 0x4000 байт не сжаты даже в NCZ)
                             nca = new Nca(_keysService.CurrentKeyset, entryStorage);
+                            KeysService.RegisterRightsIdFallback(_keysService.CurrentKeyset, nca);
                         }
                         catch
                         {
@@ -403,6 +404,7 @@ namespace StormSwitchBox.Services
                                 entryStorage = nczStorage;
                                 toDispose = nczStorage;
                                 nca = new Nca(_keysService.CurrentKeyset, entryStorage);
+                                KeysService.RegisterRightsIdFallback(_keysService.CurrentKeyset, nca);
                             }
                             catch (Exception ex)
                             {

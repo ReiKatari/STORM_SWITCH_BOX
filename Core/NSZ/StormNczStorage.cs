@@ -261,6 +261,7 @@ namespace StormSwitchBox.Core.NSZ
                     {
                         ncaRightsIdHex = BitConverter.ToString(rightsId).Replace("-", "").ToLowerInvariant();
                         Console.WriteLine($"[StormNczStorage Debug] Found RightsId in NCA header: {ncaRightsIdHex}");
+                        Services.KeysService.RegisterRightsIdFallback(_keyset, rightsId);
                     }
                     
                     if (ncaRightsIdHex != null)
@@ -409,6 +410,23 @@ namespace StormSwitchBox.Core.NSZ
                             if (expectedKey == null && _titleKeys != null && _titleKeys.Count > 0)
                             {
                                 expectedKey = _titleKeys.Values.First();
+                            }
+
+                            // Eden direct dump TitleKey fallback:
+                            // If expectedKey is still null and ncaRightsIdHex is present (32 hex characters),
+                            // fall back to raw RightsId 16-byte value as the TitleKey and register in keyset.ExternalKeySet
+                            if (expectedKey == null && ncaRightsIdHex.Length == 32)
+                            {
+                                try
+                                {
+                                    byte[] rIdBytes = Convert.FromHexString(ncaRightsIdHex);
+                                    if (rIdBytes.Length == 16 && !StormNczCompressor.IsAllZero(rIdBytes))
+                                    {
+                                        expectedKey = rIdBytes;
+                                        Services.KeysService.RegisterRightsIdFallback(_keyset, rIdBytes);
+                                    }
+                                }
+                                catch { }
                             }
                         }
                         else
@@ -1245,6 +1263,28 @@ namespace StormSwitchBox.Core.NSZ
         {
             try
             {
+                lock (StormNczCompressor.TitleKeysCache)
+                {
+                    if (StormNczCompressor.TitleKeysCache.TryGetValue(targetRightsIdHex, out var cachedKey) && cachedKey != null && cachedKey.Length == 16)
+                    {
+                        return cachedKey;
+                    }
+                }
+
+                if (App.Keys?.CurrentKeyset?.ExternalKeySet != null && targetRightsIdHex.Length == 32)
+                {
+                    try
+                    {
+                        byte[] rIdBytes = Convert.FromHexString(targetRightsIdHex);
+                        var rId = new RightsId(rIdBytes);
+                        if (App.Keys.CurrentKeyset.ExternalKeySet.Get(rId, out var accKey).IsSuccess())
+                        {
+                            return accKey.Value.ToArray();
+                        }
+                    }
+                    catch { }
+                }
+
                 string titleKeysPath1 = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "title.keys");
                 string titleKeysPath2 = "title.keys"; // Current directory fallback
                 string? titleKeysPath3 = null;
