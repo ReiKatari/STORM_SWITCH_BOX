@@ -706,6 +706,7 @@ namespace StormSwitchBox.Services
                         }
 
                         var baseEntries = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        var updateEntries = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                         var deltaNcaNamesToExclude = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
                         if (App.Settings.Current.RemoveDeltaNca)
@@ -726,6 +727,12 @@ namespace StormSwitchBox.Services
                             openedFs.Add(fs);
 
                             bool isMainGame = (scanIdx == 0);
+                            bool isUpdateContainer = !isMainGame && (
+                                (!string.IsNullOrEmpty(patchApp) && string.Equals(nspPath, patchApp, StringComparison.OrdinalIgnoreCase)) ||
+                                nspPath.Contains("update", StringComparison.OrdinalIgnoreCase) ||
+                                nspPath.Contains("patch", StringComparison.OrdinalIgnoreCase) ||
+                                (nspPath.Contains("[v") && !nspPath.Contains("[v0]"))
+                            );
                             
                             foreach (var entry in fs.EnumerateEntries())
                             {
@@ -735,6 +742,10 @@ namespace StormSwitchBox.Services
                                 if (isMainGame)
                                 {
                                     baseEntries.Add(name);
+                                }
+                                else if (isUpdateContainer)
+                                {
+                                    updateEntries.Add(name);
                                 }
 
                                 if (App.Settings.Current.RemoveDeltaNca && deltaNcaNamesToExclude.Contains(name))
@@ -797,6 +808,7 @@ namespace StormSwitchBox.Services
                                             }
                                             else if (isPatchCnmt)
                                             {
+                                                updateEntries.Add(name);
                                                 App.Logger.Log($"[LibHac] Вшит Update Patch CNMT: {name}", Models.LogLevel.Info);
                                             }
                                         }
@@ -883,7 +895,7 @@ namespace StormSwitchBox.Services
                         }
 
                         var orderedEntries = mergedEntries
-                            .OrderBy(kvp => GetNcaPriority(kvp.Value, kvp.Key, baseTitleId, baseEntries))
+                            .OrderBy(kvp => GetNcaPriority(kvp.Value, kvp.Key, baseTitleId, baseEntries, updateEntries))
                             .ThenBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase);
 
                         foreach (var kvp in orderedEntries)
@@ -1369,7 +1381,7 @@ namespace StormSwitchBox.Services
             return System.IO.Path.Combine(targetDir, newFileName);
         }
 
-        private int GetNcaPriority(LibHac.Fs.Fsa.IFile file, string fileName, ulong baseTitleId, HashSet<string>? baseEntries = null)
+        private int GetNcaPriority(LibHac.Fs.Fsa.IFile file, string fileName, ulong baseTitleId, HashSet<string>? baseEntries = null, HashSet<string>? updateEntries = null)
         {
             string lower = fileName.ToLowerInvariant();
 
@@ -1377,21 +1389,22 @@ namespace StormSwitchBox.Services
             if (lower.EndsWith(".cert")) return 1;
 
             bool isFromBase = baseEntries != null && baseEntries.Contains(fileName);
+            bool isFromUpdate = updateEntries != null && updateEntries.Contains(fileName);
 
             if (lower.EndsWith(".cnmt.xml"))
             {
                 if (isFromBase || lower.Contains("000") || lower.Contains("base")) return 2;
-                if (lower.Contains("800") || lower.Contains("update") || lower.Contains("patch")) return 10;
+                if (isFromUpdate || lower.Contains("800") || lower.Contains("update") || lower.Contains("patch")) return 10;
                 return 20;
             }
 
             if (lower.EndsWith(".cnmt.nca"))
             {
                 if (isFromBase) return 3; // Base/Patched Game CNMT is top priority among NCAs
-                if (lower.Contains("000") || lower.Contains("base")) return 3;
-                if (lower.Contains("800") || lower.Contains("update") || lower.Contains("patch")) return 11; // Update Patch CNMT
-                if (baseTitleId != 0 && lower.Contains(baseTitleId.ToString("x16"))) return 3;
+                if (isFromUpdate || lower.Contains("800") || lower.Contains("update") || lower.Contains("patch")) return 11; // Update Patch CNMT
                 if (baseTitleId != 0 && lower.Contains((baseTitleId + 0x800).ToString("x16"))) return 11;
+                if (baseTitleId != 0 && lower.Contains(baseTitleId.ToString("x16"))) return 3;
+                if (lower.Contains("000") || lower.Contains("base")) return 3;
                 return 21; // DLC / Mod CNMT
             }
 
@@ -1424,8 +1437,40 @@ namespace StormSwitchBox.Services
                     }
                 }
 
-                bool isUpdateTitle = (baseTitleId != 0 && tid == (baseTitleId | 0x800)) || tid.ToString("X16").EndsWith("800") || hasRightsUpdate || hasBktr;
-                bool isBaseTitle = !isUpdateTitle && ((baseTitleId != 0 && tid == baseTitleId) || tid.ToString("X16").EndsWith("000"));
+                bool isUpdateTitle = isFromUpdate || (baseTitleId != 0 && tid == (baseTitleId | 0x800)) || tid.ToString("X16").EndsWith("800") || hasRightsUpdate || hasBktr;
+
+                // Инспекция типа CNMT (TitleType == Patch / 0x81) если это Meta NCA
+                if (type == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Meta)
+                {
+                    try
+                    {
+                        var metaFs = nca.OpenFileSystem(NcaSectionType.Data, IntegrityCheckLevel.None);
+                        foreach (var entry in metaFs.EnumerateEntries("/", "*.cnmt"))
+                        {
+                            using var cnmtFile = new UniqueRef<LibHac.Fs.Fsa.IFile>();
+                            using var cPath = new LibHac.Fs.Path();
+                            cPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(entry.FullPath))).ThrowIfFailure();
+                            if (metaFs.OpenFile(ref cnmtFile.Ref, in cPath, OpenMode.Read).IsSuccess())
+                            {
+                                var cnmt = new LibHac.Tools.Ncm.Cnmt(cnmtFile.Release().AsStream());
+                                if (cnmt.Type == LibHac.Ncm.ContentMetaType.Patch || (byte)cnmt.Type == 0x81)
+                                {
+                                    isUpdateTitle = true;
+                                }
+                                break;
+                            }
+                        }
+                    }
+                    catch { }
+                }
+
+                // Защита от коллизии Full Program NCA: исполняемый код из контейнера обновления или не из базы — это ВСЕГДА Update Program, а не Base
+                if (type == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Program && (isFromUpdate || (!isFromBase && baseEntries != null && baseEntries.Count > 0)))
+                {
+                    isUpdateTitle = true;
+                }
+
+                bool isBaseTitle = !isUpdateTitle && (baseEntries == null || isFromBase) && ((baseTitleId != 0 && tid == baseTitleId) || tid.ToString("X16").EndsWith("000"));
 
                 if (type == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Meta) // CNMT
                 {
@@ -1470,6 +1515,14 @@ namespace StormSwitchBox.Services
                     }
                     catch { }
                     return 5;
+                }
+
+                if (isFromUpdate)
+                {
+                    if (lower.EndsWith(".cnmt.nca")) return 11;
+                    if (lower.Contains("control")) return 12;
+                    if (lower.Contains("program")) return 13;
+                    return 13;
                 }
 
                 if (lower.EndsWith(".cnmt.nca"))

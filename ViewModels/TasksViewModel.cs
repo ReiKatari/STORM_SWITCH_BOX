@@ -2220,6 +2220,7 @@ public partial class TasksViewModel : ObservableObject
 				{
 					expectedOutPath += ".nsp";
 				}
+				task.PauseEvent.Wait(cts.Token);
 				await App.SwitchFormat.PackContainerAsync(task, inputFolder ?? "", outBaseFolder2, task.OutputFileName, cts.Token);
 				bool isPackTargetXci = task.TargetFormat.Equals("XCI", StringComparison.OrdinalIgnoreCase) || 
 				                       task.TargetFormat.Equals("XCZ", StringComparison.OrdinalIgnoreCase) ||
@@ -2230,10 +2231,12 @@ public partial class TasksViewModel : ObservableObject
 
 				if (isPackTargetXci)
 				{
+					task.PauseEvent.Wait(cts.Token);
 					await App.SwitchFormat.ConvertContainerAsync(task, expectedOutPath, outBaseFolder2, "XCI", cts.Token);
 					string expectedXci = Path.ChangeExtension(expectedOutPath, ".xci");
 					if ((task.TargetFormat.Equals("XCZ", StringComparison.OrdinalIgnoreCase) || task.TargetFormat.Equals("XCI + XCZ", StringComparison.OrdinalIgnoreCase)) && File.Exists(expectedXci))
 					{
+						task.PauseEvent.Wait(cts.Token);
 						await App.NszCompression.CompressToNszAsync(task, expectedXci, outBaseFolder2, cts.Token);
 						string finalXcz = Path.ChangeExtension(expectedXci, ".xcz");
 						string generatedNsz = Path.ChangeExtension(expectedXci, ".nsz");
@@ -2241,20 +2244,23 @@ public partial class TasksViewModel : ObservableObject
 						{
 							finalXcz = await StormSwitchBox.Services.SafeFileOperations.SafeMoveOrReplaceFileAsync(generatedNsz, finalXcz, task, cts.Token);
 						}
-						if (!isPackDual)
+						if (!isPackDual && File.Exists(finalXcz) && new FileInfo(finalXcz).Length > 0)
 						{
 							try { File.Delete(expectedXci); } catch { }
 						}
 					}
-					if (!task.TargetFormat.Equals("NSP + NSZ", StringComparison.OrdinalIgnoreCase) && !task.TargetFormat.Equals("NSP", StringComparison.OrdinalIgnoreCase))
+					if (!task.TargetFormat.Equals("NSP + NSZ", StringComparison.OrdinalIgnoreCase) && !task.TargetFormat.Equals("NSP", StringComparison.OrdinalIgnoreCase) &&
+					    File.Exists(expectedXci) && new FileInfo(expectedXci).Length > 0)
 					{
 						try { File.Delete(expectedOutPath); } catch { }
 					}
 				}
 				else if (task.TargetFormat.Equals("NSZ", StringComparison.OrdinalIgnoreCase) || task.TargetFormat.Equals("NSP + NSZ", StringComparison.OrdinalIgnoreCase))
 				{
+					task.PauseEvent.Wait(cts.Token);
 					await App.NszCompression.CompressToNszAsync(task, expectedOutPath, outBaseFolder2, cts.Token);
-					if (task.TargetFormat.Equals("NSZ", StringComparison.OrdinalIgnoreCase))
+					string expectedNsz = Path.ChangeExtension(expectedOutPath, ".nsz");
+					if (task.TargetFormat.Equals("NSZ", StringComparison.OrdinalIgnoreCase) && File.Exists(expectedNsz) && new FileInfo(expectedNsz).Length > 0)
 					{
 						try { File.Delete(expectedOutPath); } catch { }
 					}
@@ -2305,6 +2311,7 @@ public partial class TasksViewModel : ObservableObject
 				tempDecompDirConvert = Path.Combine(Path.GetTempPath(), "StormDecomp_" + Guid.NewGuid().ToString("N").Substring(0, 8));
 				Directory.CreateDirectory(tempDecompDirConvert);
 				TempCleanupService.RegisterActiveTempDirectory(tempDecompDirConvert);
+				task.PauseEvent.Wait(cts.Token);
 				string? decompResult = await App.NszCompression.DecompressNszAsync(task, inputPath2, tempDecompDirConvert, cts.Token);
 				if (!string.IsNullOrEmpty(decompResult) && File.Exists(decompResult))
 				{
@@ -2320,6 +2327,7 @@ public partial class TasksViewModel : ObservableObject
 
 			if (isConvertTargetXci)
 			{
+				task.PauseEvent.Wait(cts.Token);
 				await App.SwitchFormat.ConvertContainerAsync(task, workingInput, task.OutputFolder, "XCI", cts.Token);
 				if (!task.TargetFormat.Equals("XCZ", StringComparison.OrdinalIgnoreCase) && !task.TargetFormat.Equals("XCI + XCZ", StringComparison.OrdinalIgnoreCase))
 				{
@@ -2330,6 +2338,7 @@ public partial class TasksViewModel : ObservableObject
 				{
 					return;
 				}
+				task.PauseEvent.Wait(cts.Token);
 				await App.NszCompression.CompressToNszAsync(task, expectedXci2, task.OutputFolder, cts.Token);
 				string finalXcz2 = Path.ChangeExtension(expectedXci2, ".xcz");
 				string generatedNsz2 = Path.ChangeExtension(expectedXci2, ".nsz");
@@ -2337,7 +2346,9 @@ public partial class TasksViewModel : ObservableObject
 				{
 					finalXcz2 = await StormSwitchBox.Services.SafeFileOperations.SafeMoveOrReplaceFileAsync(generatedNsz2, finalXcz2, task, cts.Token);
 				}
-				if (!isConvertDual)
+				// Удаляем промежуточный XCI только если выходной XCZ 100% верифицирован и XCI не является исходным файлом пользователя
+				if (!isConvertDual && File.Exists(finalXcz2) && new FileInfo(finalXcz2).Length > 0 &&
+				    !string.Equals(Path.GetFullPath(expectedXci2), Path.GetFullPath(inputPath2), StringComparison.OrdinalIgnoreCase))
 				{
 					try { File.Delete(expectedXci2); } catch { }
 				}
@@ -2348,20 +2359,27 @@ public partial class TasksViewModel : ObservableObject
 				string intermediateNsp = workingInput;
 				if (!workingInput.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase))
 				{
+					task.PauseEvent.Wait(cts.Token);
 					await App.SwitchFormat.ConvertContainerAsync(task, workingInput, task.OutputFolder, "NSP", cts.Token);
 					intermediateNsp = Path.ChangeExtension(Path.Combine(task.OutputFolder, Path.GetFileName(workingInput)), ".nsp");
 				}
 				else
 				{
 					string destNsp = Path.Combine(task.OutputFolder, Path.GetFileName(workingInput));
-					if (workingInput != destNsp)
+					if (!string.Equals(Path.GetFullPath(workingInput), Path.GetFullPath(destNsp), StringComparison.OrdinalIgnoreCase))
 					{
+						task.PauseEvent.Wait(cts.Token);
 						File.Copy(workingInput, destNsp, overwrite: true);
 						intermediateNsp = destNsp;
 					}
 				}
+				task.PauseEvent.Wait(cts.Token);
 				await App.NszCompression.CompressToNszAsync(task, intermediateNsp, task.OutputFolder, cts.Token);
-				if (task.TargetFormat.Equals("NSZ", StringComparison.OrdinalIgnoreCase))
+				string expectedNsz = Path.ChangeExtension(intermediateNsp, ".nsz");
+				// Удаляем промежуточный NSP только если целевой NSZ 100% создан, размер > 0 и intermediateNsp не совпадает с оригинальным входом
+				if (task.TargetFormat.Equals("NSZ", StringComparison.OrdinalIgnoreCase) &&
+				    File.Exists(expectedNsz) && new FileInfo(expectedNsz).Length > 0 &&
+				    !string.Equals(Path.GetFullPath(intermediateNsp), Path.GetFullPath(inputPath2), StringComparison.OrdinalIgnoreCase))
 				{
 					try { File.Delete(intermediateNsp); } catch { }
 				}
@@ -2381,12 +2399,14 @@ public partial class TasksViewModel : ObservableObject
 				}
 				if (!workingInput.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase))
 				{
+					task.PauseEvent.Wait(cts.Token);
 					await App.SwitchFormat.ConvertContainerAsync(task, workingInput, task.OutputFolder, "NSP", cts.Token);
 					return;
 				}
 				string destPath = Path.Combine(task.OutputFolder, Path.GetFileName(workingInput));
-				if (workingInput != destPath)
+				if (!string.Equals(Path.GetFullPath(workingInput), Path.GetFullPath(destPath), StringComparison.OrdinalIgnoreCase))
 				{
+					task.PauseEvent.Wait(cts.Token);
 					App.RunOnUI(delegate
 					{
 						task.LogDetails += "\nКопирование в выходную директорию (с 16MB буферизацией)...";

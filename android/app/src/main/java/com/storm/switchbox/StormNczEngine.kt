@@ -3831,6 +3831,58 @@ object StormNczEngine {
         }
     }
 
+    /**
+     * Проверяет, требуется ли пересжатие NCZ-разделов внутри контейнера (.nsz или .xcz).
+     * Если целевой формат требует блочное сжатие (targetUseBlockNcz = true), а внутри находится Solid NCZ
+     * (потоковый Zstandard без заголовка NCZBLOCK), либо наоборот — возвращает true.
+     */
+    private fun containerNeedsNczRecompression(file: File, targetUseBlockNcz: Boolean): Boolean {
+        if (!file.exists() || file.length() < 0x4010L) return false
+        val entries = inspectContainer(file)
+        val nczEntries = entries.filter {
+            it.name.substringAfterLast('/').lowercase().endsWith(".ncz") &&
+            it.size > 0x4010L &&
+            it.dataStartOffset >= 0L
+        }
+        if (nczEntries.isEmpty()) return false
+
+        try {
+            RandomAccessFile(file, "r").use { raf ->
+                for (e in nczEntries) {
+                    val magicOffset = e.dataStartOffset + 0x4000L
+                    if (magicOffset + 16L > file.length()) continue
+                    raf.seek(magicOffset)
+                    val magicBuf = ByteArray(16)
+                    raf.readFully(magicBuf)
+                    val magicStr = String(magicBuf, 0, 8, StandardCharsets.US_ASCII)
+                    if (magicStr != "NCZSECTN") continue
+
+                    val mbb = ByteBuffer.wrap(magicBuf).order(ByteOrder.LITTLE_ENDIAN)
+                    mbb.position(8)
+                    val sectionCount = mbb.long.toInt().coerceIn(0, 4096)
+                    val blockMagicOffset = magicOffset + 16L + (sectionCount * 64L)
+                    if (blockMagicOffset + 8L > file.length() || blockMagicOffset + 8L > e.dataStartOffset + e.size) {
+                        val isBlock = false
+                        if (isBlock != targetUseBlockNcz) return true
+                        continue
+                    }
+
+                    raf.seek(blockMagicOffset)
+                    val blockBuf = ByteArray(8)
+                    raf.readFully(blockBuf)
+                    val isBlock = String(blockBuf, 0, 8, StandardCharsets.US_ASCII) == "NCZBLOCK"
+
+                    if (isBlock != targetUseBlockNcz) {
+                        return true
+                    }
+                }
+            }
+        } catch (_: Exception) {
+            // Игнорируем ошибки чтения заголовков
+        }
+        return false
+    }
+
     fun buildSmartMultiContentPackage(
         inputFiles: List<File>,
         outputDir: File,
@@ -3948,7 +4000,8 @@ object StormNczEngine {
         val normalizedInputFiles = try {
             expandedInputFiles.filter { it.exists() }.mapIndexed { idx, origFile ->
                 val ext = origFile.extension.lowercase()
-                val step1File = if (ext in listOf("nsz", "xci", "xcz") && (expandedInputFiles.size > 1 || embedMods || !shouldCompressNca || ext in listOf("xci", "xcz"))) {
+                val needsRecompression = (ext == "nsz" && shouldCompressNca && containerNeedsNczRecompression(origFile, useBlockNcz))
+                val step1File = if (ext in listOf("nsz", "xci", "xcz") && (expandedInputFiles.size > 1 || embedMods || !shouldCompressNca || ext in listOf("xci", "xcz") || needsRecompression)) {
                     normalizeContainerToTempNsp(origFile, tempNormDir, idx, keysMap, onProgress)
                 } else {
                     origFile
@@ -3973,11 +4026,16 @@ object StormNczEngine {
             } else true
         }.map { it.file }
 
+        val patchFileCanonicalPaths = analyzedInputs.filter {
+            it.roleBadge == "ПАТЧ" || it.subComponents.any { sc -> sc.roleBadge == "ПАТЧ" }
+        }.map { try { it.file.canonicalPath } catch (_: Exception) { it.file.absolutePath } }.toSet()
+
         val ncaSortPriorityMap = HashMap<String, Int>()
         val ncaContentTypeMap = HashMap<String, Int>()
         val ncaTitleIdMap = HashMap<String, String>()
         val ncaRightsIdMap = HashMap<String, String>()
         val ncaHasBktrMap = HashMap<String, Boolean>()
+        val ncaIsUpdateMap = HashMap<String, Boolean>()
 
         for ((fileOrderIdx, f) in effectiveInputFiles.withIndex()) {
             if (!f.exists()) continue
@@ -4018,8 +4076,14 @@ object StormNczEngine {
                             }
                         }
                     }
+                    val fileCanPath = try { f.canonicalPath } catch (_: Exception) { f.absolutePath }
                     val containerHasBaseCnmt = containerCnmtTids.any { it.endsWith("000") }
                     val containerUpdCnmtTid = containerCnmtTids.firstOrNull { it.endsWith("800") }
+                    val isPatchContainer = (fileCanPath in patchFileCanonicalPaths) ||
+                        fileTid.endsWith("800") ||
+                        f.name.contains("800") ||
+                        Regex("""(?i)\b(upd|update|patch)\b""").containsMatchIn(f.name) ||
+                        (!containerHasBaseCnmt && containerUpdCnmtTid != null)
 
                     for ((entryOrderIdx, e) in entries.withIndex()) {
                         if (e.name.startsWith("[XCI HEAD]") || e.dataStartOffset < 0L || e.size <= 0L) continue
@@ -4069,6 +4133,8 @@ object StormNczEngine {
                                 containerUpdCnmtTid
                             !isCnmt && ncaHeaderTid.endsWith("000") && !containerHasBaseCnmt && fileTid.endsWith("800") ->
                                 fileTid
+                            !isCnmt && ncaHeaderTid.endsWith("000") && isPatchContainer ->
+                                if (containerUpdCnmtTid != null) containerUpdCnmtTid else (ncaHeaderTid.take(13) + "800")
                             else ->
                                 ncaHeaderTid
                         }
@@ -4119,6 +4185,9 @@ object StormNczEngine {
                         if (realNcaTid.isNotEmpty()) ncaTitleIdMap[key] = realNcaTid
                         if (rightsIdHex.isNotEmpty()) ncaRightsIdMap[key] = rightsIdHex
                         if (hasBktrSec) ncaHasBktrMap[key] = true
+                        if (isPatchContainer || hasBktrSec || realNcaTid.endsWith("800")) {
+                            ncaIsUpdateMap[key] = true
+                        }
 
                         val existing = collected[key]
                         if (existing == null) {
@@ -4165,6 +4234,7 @@ object StormNczEngine {
 
         val tempDir = File(outputDir, ".tmp_multi_${System.currentTimeMillis()}")
         tempDir.mkdirs()
+        var tempPackFile: File? = null
 
         try {
             var embeddedModsCount = 0
@@ -4183,11 +4253,27 @@ object StormNczEngine {
 
             // Полноценный потоковый Hard-Patching (Base + BKTR/Full Update + Mod RomFS/ExeFS -> единый автономный Program NCA 0x4000)
             val baseTidPrefix13 = primaryTid.take(13)
+
+            val isUpdateProg = { k: String ->
+                ncaIsUpdateMap[k] == true ||
+                ncaHasBktrMap[k] == true ||
+                (ncaTitleIdMap[k]?.endsWith("800") == true) ||
+                (collected[k]?.let { src ->
+                    val pPath = try { src.parentFile.canonicalPath } catch (_: Exception) { src.parentFile.absolutePath }
+                    pPath in patchFileCanonicalPaths ||
+                    src.parentFile.name.contains(baseTidPrefix13 + "800", ignoreCase = true) ||
+                    Regex("""(?i)\b(upd|update|patch)\b""").containsMatchIn(src.parentFile.name)
+                } == true)
+            }
+
             // Защита от дублирования базовых Program NCA (чтобы в один контейнер никогда не упаковались 2 копии игры > 2 ГБ)
+            // ВАЖНО: Разделы Program NCA из обновлений (включая Full Replacement Program без BKTR, как в Celeste)
+            // никогда не считаются дубликатами базы и не удаляются!
             val allBaseProgKeys = collected.keys.filter { k ->
                 ncaContentTypeMap[k] == 0 &&
                 (ncaTitleIdMap[k]?.endsWith("000") == true) &&
-                ncaHasBktrMap[k] != true
+                ncaHasBktrMap[k] != true &&
+                !isUpdateProg(k)
             }
             if (allBaseProgKeys.size > 1) {
                 val keepProgKey = allBaseProgKeys.first()
@@ -4195,7 +4281,8 @@ object StormNczEngine {
                 val dupKeys = collected.keys.filter { k ->
                     k != keepProgKey &&
                     collected[k]?.parentFile != keepParent &&
-                    (ncaTitleIdMap[k]?.startsWith(baseTidPrefix13) == true && ncaTitleIdMap[k]?.endsWith("000") == true)
+                    (ncaTitleIdMap[k]?.startsWith(baseTidPrefix13) == true && ncaTitleIdMap[k]?.endsWith("000") == true) &&
+                    !isUpdateProg(k)
                 }
                 for (dk in dupKeys) {
                     collected.remove(dk)
@@ -4204,17 +4291,19 @@ object StormNczEngine {
                     ncaTitleIdMap.remove(dk)
                     ncaRightsIdMap.remove(dk)
                     ncaHasBktrMap.remove(dk)
+                    ncaIsUpdateMap.remove(dk)
                 }
             }
             val baseProgEntry = collected.entries.firstOrNull { (k, _) ->
                 ncaContentTypeMap[k] == 0 &&
                 (ncaTitleIdMap[k]?.endsWith("000") == true) &&
-                ncaHasBktrMap[k] != true
+                ncaHasBktrMap[k] != true &&
+                !isUpdateProg(k)
             }
             val updProgEntry = collected.entries.firstOrNull { (k, _) ->
                 k != baseProgEntry?.key &&
                 ncaContentTypeMap[k] == 0 &&
-                ((ncaTitleIdMap[k]?.startsWith(baseTidPrefix13) == true && ncaTitleIdMap[k]?.endsWith("800") == true) || ncaHasBktrMap[k] == true)
+                (isUpdateProg(k) || ((ncaTitleIdMap[k]?.startsWith(baseTidPrefix13) == true && ncaTitleIdMap[k]?.endsWith("800") == true) || ncaHasBktrMap[k] == true))
             }
             var hardPatchFailure: String? = null
             var hardPatchApplied = false
@@ -4582,10 +4671,34 @@ object StormNczEngine {
                 )
             )
 
-            if (useCartFormat) {
-                packXciOrXczContainer(preparedFiles, outputFile)
-            } else {
-                packPfs0Container(preparedFiles, outputFile)
+            var packSucceeded = false
+            val buildingPackFile = File(outputDir, "${outputFile.name}.building_${System.currentTimeMillis()}.tmp")
+            tempPackFile = buildingPackFile
+            try {
+                if (useCartFormat) {
+                    packXciOrXczContainer(preparedFiles, buildingPackFile)
+                } else {
+                    packPfs0Container(preparedFiles, buildingPackFile)
+                }
+
+                if (!buildingPackFile.exists() || buildingPackFile.length() < 16L) {
+                    throw java.io.IOException("Сборка контейнера завершилась с ошибкой: результирующий файл пуст или повреждён")
+                }
+
+                // Безопасная атомарная замена целевого файла (защита от коллизий чтения/записи при совпадении путей)
+                if (outputFile.exists()) {
+                    outputFile.delete()
+                }
+                val renamed = buildingPackFile.renameTo(outputFile)
+                if (!renamed) {
+                    buildingPackFile.copyTo(outputFile, overwrite = true)
+                    buildingPackFile.delete()
+                }
+                packSucceeded = true
+            } finally {
+                if (!packSucceeded && buildingPackFile.exists()) {
+                    buildingPackFile.delete()
+                }
             }
 
             // Записываем полный паспорт собранной задачи (все обработанные файлы Базы, Патчей, DLC, Анлокеров и Модов)
@@ -4652,6 +4765,7 @@ object StormNczEngine {
                 message = "Собран ${outputFile.name} (${formatSize(finalLen)}, сжато $compressedNcaCount NCZ, модов: $embeddedModsCount$hardPatchSummary, экономия: ${formatSize(savedBytes)})"
             )
         } finally {
+            tempPackFile?.let { if (it.exists()) it.delete() }
             tempDir.deleteRecursively()
             tempNormDir.deleteRecursively()
         }

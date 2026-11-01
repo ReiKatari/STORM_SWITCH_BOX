@@ -120,6 +120,7 @@ namespace StormSwitchBox.Services
             var tempStreams = new List<FileStream>();
             var openedFiles = new List<IFile>();
             string tempDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "StormCompress_" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            string? tempOutNszPath = null;
 
             try
             {
@@ -259,6 +260,7 @@ namespace StormSwitchBox.Services
 
                 foreach (var entry in entries)
                 {
+                    task.PauseEvent.Wait(cancellationToken);
                     cancellationToken.ThrowIfCancellationRequested();
                     entryIdx++;
 
@@ -352,18 +354,14 @@ namespace StormSwitchBox.Services
                     }
                 }
 
-                if (File.Exists(outNszPath))
-                {
-                    try { File.Delete(outNszPath); } catch { }
-                }
-
                 App.RunOnUI(() =>
                 {
                     task.Status = "Финальная упаковка...";
                     task.LogDetails += "\nФинальная сборка сжатого контейнера...";
                 });
 
-                string targetPfsPath = isXci ? System.IO.Path.Combine(tempDir, "temp_packed.nsz") : outNszPath;
+                tempOutNszPath = outNszPath + $".building_{Guid.NewGuid():N}.tmp";
+                string targetPfsPath = isXci ? System.IO.Path.Combine(tempDir, "temp_packed.nsz") : tempOutNszPath;
 
                 using (var builtPfs = pfsBuilder.Build(PartitionFileSystemType.Standard))
                 {
@@ -380,6 +378,7 @@ namespace StormSwitchBox.Services
 
                             while (remaining > 0)
                             {
+                                task.PauseEvent.Wait(cancellationToken);
                                 cancellationToken.ThrowIfCancellationRequested();
                                 int toRead = (int)Math.Min(PackBufferSize, remaining);
                                 builtPfs.Read(offset, buffer.AsSpan(0, toRead)).ThrowIfFailure();
@@ -404,8 +403,29 @@ namespace StormSwitchBox.Services
 
                 if (isXci)
                 {
-                    Core.NCA.StormXciBuilder.BuildXciFromPfs0(targetPfsPath, outNszPath, App.Keys.CurrentKeyset);
+                    Core.NCA.StormXciBuilder.BuildXciFromPfs0(targetPfsPath, tempOutNszPath, App.Keys.CurrentKeyset);
                     try { File.Delete(targetPfsPath); } catch { }
+                }
+
+                // Освобождаем все файловые блокировки исходного файла перед атомарной заменой (на случай совпадения inputPath и outNszPath)
+                if (fileStream != null)
+                {
+                    try { fileStream.Dispose(); fileStream = null; } catch { }
+                }
+                foreach (var fs in tempStreams)
+                {
+                    try { fs.Dispose(); } catch { }
+                }
+                tempStreams.Clear();
+                foreach (var f in openedFiles)
+                {
+                    try { f.Dispose(); } catch { }
+                }
+                openedFiles.Clear();
+
+                if (File.Exists(tempOutNszPath))
+                {
+                    File.Move(tempOutNszPath, outNszPath, overwrite: true);
                 }
 
                 long finalSize = new FileInfo(outNszPath).Length;
@@ -458,6 +478,14 @@ namespace StormSwitchBox.Services
                 {
                     try { f.Dispose(); } catch { }
                 }
+                try
+                {
+                    if (!string.IsNullOrEmpty(tempOutNszPath) && File.Exists(tempOutNszPath))
+                    {
+                        File.Delete(tempOutNszPath);
+                    }
+                }
+                catch { }
                 try
                 {
                     if (Directory.Exists(tempDir))
@@ -698,6 +726,7 @@ namespace StormSwitchBox.Services
                 {
                     foreach (var entry in sortedEntries)
                     {
+                        task.PauseEvent.Wait(cancellationToken);
                         cancellationToken.ThrowIfCancellationRequested();
                         entryIdx++;
                         string entryName = entry.Name;
@@ -741,6 +770,7 @@ namespace StormSwitchBox.Services
                     System.Diagnostics.Stopwatch uiSw = System.Diagnostics.Stopwatch.StartNew();
                     while (remaining > 0)
                     {
+                        task.PauseEvent.Wait(cancellationToken);
                         cancellationToken.ThrowIfCancellationRequested();
                         int toRead = (int)Math.Min(buffer.Length, remaining);
                         builtPfs.Read(offset, buffer.AsSpan(0, toRead)).ThrowIfFailure();
