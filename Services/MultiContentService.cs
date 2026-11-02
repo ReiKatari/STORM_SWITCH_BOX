@@ -793,7 +793,7 @@ namespace StormSwitchBox.Services
 
                                     // Извлекаем тикеты (.tik), сертификаты (.cert) и Patch CNMT (.cnmt.nca)
                                     bool isTicketOrCert = lower.EndsWith(".tik") || lower.EndsWith(".cert");
-                                    bool isPatchCnmt = !hasPatchedBase && lower.EndsWith(".cnmt.nca");
+                                    bool isPatchCnmt = lower.EndsWith(".cnmt.nca");
 
                                     if (isTicketOrCert || isPatchCnmt)
                                     {

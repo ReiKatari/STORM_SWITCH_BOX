@@ -1809,6 +1809,50 @@ object StormNczEngine {
 
             val rawSecStart = startMedia * 0x200L
 
+            val sparseGen = (workHdr[fsOff + 0x170].toInt() and 0xFF) or ((workHdr[fsOff + 0x171].toInt() and 0xFF) shl 8)
+            val bktRelOff = bb.getLong(fsOff + 0x148)
+            val bktSize = bb.getLong(fsOff + 0x150)
+            val sparsePhysOff = bb.getLong(fsOff + 0x168)
+
+            if (sparseGen != 0) {
+                val effSparseCryptoType = if (resolvedCtrKey.all { it == 0.toByte() }) 1L else (if (rawCryptoType in 1L..4L) rawCryptoType else 3L)
+                if (bktSize >= 0x4000L && sparsePhysOff + bktRelOff <= totalNcaSize) {
+                    val dataStart = maxOf(NCA_HEADER_SIZE, sparsePhysOff)
+                    val dataEnd = minOf(totalNcaSize, sparsePhysOff + bktRelOff)
+                    if (dataEnd > dataStart) {
+                        sections.add(
+                            NcaSectionCryptoMeta(
+                                offset = dataStart,
+                                size = dataEnd - dataStart,
+                                cryptoType = effSparseCryptoType,
+                                key = if (effSparseCryptoType == 1L || resolvedCtrKey.all { it == 0.toByte() }) ByteArray(16) else resolvedCtrKey,
+                                counter = if (effSparseCryptoType == 1L || resolvedCtrKey.all { it == 0.toByte() }) ByteArray(16) else counter.copyOf(16)
+                            )
+                        )
+                    }
+                    val bktStart = sparsePhysOff + bktRelOff
+                    val bktEnd = minOf(totalNcaSize, bktStart + bktSize)
+                    if (bktEnd > bktStart) {
+                        val sparseCounter = counter.copyOf(16).also {
+                            it[4] = ((sparseGen ushr 8) and 0xFF).toByte()
+                            it[5] = (sparseGen and 0xFF).toByte()
+                            it[6] = 0
+                            it[7] = 0
+                        }
+                        sections.add(
+                            NcaSectionCryptoMeta(
+                                offset = bktStart,
+                                size = bktEnd - bktStart,
+                                cryptoType = 3L,
+                                key = resolvedCtrKey,
+                                counter = sparseCounter
+                            )
+                        )
+                    }
+                }
+                continue
+            }
+
             // Проверяем, не является ли секция уже расшифрованной (PFS0 в ExeFS или заголовок 0x50 в RomFS)
             var isAlreadyPlaintext = (rawCryptoType == 1L)
             if (!isAlreadyPlaintext && raf != null && secByteEnd - secByteOffset >= 16L) {
@@ -2322,7 +2366,7 @@ object StormNczEngine {
             return
         }
         mbb.position(8)
-        val sectionCount = mbb.long.toInt().coerceIn(0, 4096)
+        val sectionCount = mbb.long.toInt().coerceIn(0, 262144)
         val sections = mutableListOf<NcaSectionCryptoMeta>()
         val secBytes = ByteArray(sectionCount * 64)
         raf.readFully(secBytes)
@@ -2368,16 +2412,21 @@ object StormNczEngine {
                 fos.write(ncaHeader)
                 var currentVirtualOffset = NCA_HEADER_SIZE
                 val dstBuf = ByteArray(256 * 1024)
+                val sortedSecs = sections.sortedBy { it.offset }
+                var secCursor = 0
                 com.github.luben.zstd.ZstdInputStream(BufferedInputStream(boundedIn, 128 * 1024)).use { zis ->
                     while (true) {
                         val r = zis.read(dstBuf)
                         if (r <= 0) break
-                        for (sec in sections) {
+                        val blkStart = currentVirtualOffset
+                        val blkEnd = currentVirtualOffset + r
+                        while (secCursor < sortedSecs.size && sortedSecs[secCursor].offset + sortedSecs[secCursor].size <= blkStart) secCursor++
+                        for (i in secCursor until sortedSecs.size) {
+                            val sec = sortedSecs[i]
+                            if (sec.offset >= blkEnd) break
                             if ((sec.cryptoType == 3L || sec.cryptoType == 4L) && sec.key.any { it != 0.toByte() }) {
                                 val secStart = sec.offset
                                 val secEnd = sec.offset + sec.size
-                                val blkStart = currentVirtualOffset
-                                val blkEnd = currentVirtualOffset + r
                                 val overlapStart = maxOf(secStart, blkStart)
                                 val overlapEnd = minOf(secEnd, blkEnd)
                                 if (overlapEnd > overlapStart) {
@@ -2415,6 +2464,8 @@ object StormNczEngine {
             var remaining = decompressedSize
             var currentVirtualOffset = NCA_HEADER_SIZE
             val dstBuf = ByteArray(blockSize)
+            val sortedSecs = sections.sortedBy { it.offset }
+            var secCursor = 0
 
             for (cSize in compSizes) {
                 val expectedDecomp = min(blockSize.toLong(), remaining).toInt()
@@ -2432,13 +2483,16 @@ object StormNczEngine {
                     dLen.toInt()
                 }
 
-                // Ре-шифруем секции AES-128-CTR / BKTR обратно при распаковке в NCA
-                for (sec in sections) {
+                // Ре-шифруем секции AES-128-CTR / BKTR обратно при распаковке в NCA (O(1) курсор)
+                val blkStart = currentVirtualOffset
+                val blkEnd = currentVirtualOffset + outLen
+                while (secCursor < sortedSecs.size && sortedSecs[secCursor].offset + sortedSecs[secCursor].size <= blkStart) secCursor++
+                for (i in secCursor until sortedSecs.size) {
+                    val sec = sortedSecs[i]
+                    if (sec.offset >= blkEnd) break
                     if ((sec.cryptoType == 3L || sec.cryptoType == 4L) && sec.key.any { it != 0.toByte() }) {
                         val secStart = sec.offset
                         val secEnd = sec.offset + sec.size
-                        val blkStart = currentVirtualOffset
-                        val blkEnd = currentVirtualOffset + outLen
                         val overlapStart = maxOf(secStart, blkStart)
                         val overlapEnd = minOf(secEnd, blkEnd)
                         if (overlapEnd > overlapStart) {
@@ -3860,7 +3914,7 @@ object StormNczEngine {
             if (String(magicBuf, 0, 8, StandardCharsets.US_ASCII) != "NCZSECTN") return null
             val mbb = ByteBuffer.wrap(magicBuf).order(ByteOrder.LITTLE_ENDIAN)
             mbb.position(8)
-            val sectionCount = mbb.long.toInt().coerceIn(0, 4096)
+            val sectionCount = mbb.long.toInt().coerceIn(0, 262144)
             if (sectionCount <= 0) return null
             val secBytes = ByteArray(sectionCount * 64)
             raf.readFully(secBytes)
@@ -4197,7 +4251,7 @@ object StormNczEngine {
 
                     val mbb = ByteBuffer.wrap(magicBuf).order(ByteOrder.LITTLE_ENDIAN)
                     mbb.position(8)
-                    val sectionCount = mbb.long.toInt().coerceIn(0, 4096)
+                    val sectionCount = mbb.long.toInt().coerceIn(0, 262144)
                     val blockMagicOffset = magicOffset + 16L + (sectionCount * 64L)
                     if (blockMagicOffset + 8L > file.length() || blockMagicOffset + 8L > e.dataStartOffset + e.size) {
                         val isBlock = false
@@ -4768,6 +4822,14 @@ object StormNczEngine {
                     ncaSortPriorityMap[cnmtKey] = 2
                     ncaContentTypeMap[cnmtKey] = 1
                     ncaTitleIdMap[cnmtKey] = primaryTid
+
+                    if (hpOut.patchCnmtFile != null) {
+                        val patchKey = "nca_${hpOut.patchCnmtFile.name.substringBefore('.')}"
+                        collected[patchKey] = SubSource(hpOut.patchCnmtFile, hpOut.patchCnmtFile.name, patchKey, 0L, hpOut.patchCnmtFile.length())
+                        ncaSortPriorityMap[patchKey] = 10
+                        ncaContentTypeMap[patchKey] = 1
+                        ncaTitleIdMap[patchKey] = primaryTid.take(13) + "800"
+                    }
 
                     if (hpOut.controlFile != null) {
                         val ctrlKey = "nca_${hpOut.controlFile.name.substringBefore('.')}"
@@ -8461,6 +8523,132 @@ object StormNczEngine {
     // HierarchicalRomfsPlan, and extractExefsFilesFromNcaSlice
     // =========================================================================
 
+    class SparseNcaRomfsSectionReader(
+        private val raf: RandomAccessFile,
+        private val ncaOffset: Long,
+        private val secAbsStart: Long,
+        private val sparsePhysOff: Long,
+        bktRelOff: Long,
+        bktSize: Long,
+        private val ctrKey: ByteArray?,
+        private val ctrUpper8: ByteArray?,
+        sparseUpper8: ByteArray
+    ) : RomfsSectionReader {
+        private data class SparseRun(val vStart: Long, val vEnd: Long, val pOff: Long, val isSparseZero: Boolean)
+        private val sparseRuns = ArrayList<SparseRun>()
+
+        init {
+            if (bktSize >= 0x4000L && ctrKey != null && ctrKey.any { it != 0.toByte() }) {
+                try {
+                    val bktRaw = ByteArray(bktSize.toInt())
+                    synchronized(raf) {
+                        raf.seek(ncaOffset + sparsePhysOff + bktRelOff)
+                        raf.readFully(bktRaw)
+                    }
+                    transformAesCtrInPlace(bktRaw, 0, bktRaw.size, sparsePhysOff + bktRelOff, ctrKey, sparseUpper8)
+
+                    val sbb = ByteBuffer.wrap(bktRaw).order(ByteOrder.LITTLE_ENDIAN)
+                    val hdrCount = if (bktRaw.size >= 8) sbb.getInt(4) else 0
+                    val maxBuckets = ((bktSize - 0x4000L) / 0x4000L).toInt()
+                    val useBucketHeader = bktSize >= 0x8000L && hdrCount in 1..maxBuckets
+                    val numNodes = if (useBucketHeader) hdrCount else maxOf(1, (bktSize / 0x4000L).toInt())
+                    val tempRuns = ArrayList<Triple<Long, Long, Boolean>>()
+                    var totalVirtEnd = 0L
+
+                    for (n in 0 until numNodes) {
+                        val nodeBase = if (useBucketHeader) (0x4000 + n * 0x4000) else if (bktSize >= 0x8000L) (0x4000 + n * 0x4000) else (16 + n * 0x4000)
+                        if (nodeBase + 16 > bktRaw.size) break
+                        val cnt = sbb.getInt(nodeBase + 4)
+                        if (cnt <= 0 || cnt > 819) continue
+                        val nodeEndVirt = sbb.getLong(nodeBase + 8)
+                        if (nodeEndVirt > totalVirtEnd) totalVirtEnd = nodeEndVirt
+                        var pos = nodeBase + 16
+                        for (i in 0 until cnt) {
+                            if (pos + 20 > bktRaw.size) break
+                            val vOff = sbb.getLong(pos)
+                            val pOff = sbb.getLong(pos + 8)
+                            val isSparseZero = sbb.getInt(pos + 16) != 0
+                            tempRuns.add(Triple(vOff, pOff, isSparseZero))
+                            pos += 20
+                        }
+                    }
+                    tempRuns.sortBy { it.first }
+                    for (k in 0 until tempRuns.size) {
+                        val st = tempRuns[k].first
+                        val en = if (k + 1 < tempRuns.size) tempRuns[k + 1].first else (if (totalVirtEnd > st) totalVirtEnd else Long.MAX_VALUE)
+                        if (en > st) sparseRuns.add(SparseRun(st, en, tempRuns[k].second, tempRuns[k].third))
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+
+        override fun readBytes(sectionRelOffset: Long, length: Int): ByteArray {
+            if (length <= 0) return ByteArray(0)
+            val dst = ByteArray(length)
+            readSectionRelative(sectionRelOffset, dst, 0, length)
+            return dst
+        }
+
+        private fun readSectionRelative(secRelOff: Long, dst: ByteArray, dstOff: Int, len: Int) {
+            if (sparseRuns.isEmpty()) {
+                synchronized(raf) {
+                    raf.seek(ncaOffset + secAbsStart + secRelOff)
+                    raf.readFully(dst, dstOff, len)
+                }
+                if (ctrKey != null && ctrUpper8 != null) {
+                    transformAesCtrInPlace(dst, dstOff, len, secAbsStart + secRelOff, ctrKey, ctrUpper8)
+                }
+                return
+            }
+
+            var curRel = secRelOff
+            var curDst = dstOff
+            var rem = len
+
+            while (rem > 0) {
+                val runIdx = findRunIndex(curRel)
+                if (runIdx < 0 || runIdx >= sparseRuns.size) {
+                    dst.fill(0, curDst, curDst + rem)
+                    break
+                }
+                val run = sparseRuns[runIdx]
+                val chunk = minOf(rem.toLong(), run.vEnd - curRel).toInt()
+                if (chunk <= 0) break
+                if (run.isSparseZero) {
+                    dst.fill(0, curDst, curDst + chunk)
+                } else {
+                    val fileOffset = ncaOffset + sparsePhysOff + run.pOff + (curRel - run.vStart)
+                    synchronized(raf) {
+                        raf.seek(fileOffset)
+                        raf.readFully(dst, curDst, chunk)
+                    }
+                    if (ctrKey != null && ctrUpper8 != null) {
+                        transformAesCtrInPlace(dst, curDst, chunk, secAbsStart + curRel, ctrKey, ctrUpper8)
+                    }
+                }
+                curRel += chunk
+                curDst += chunk
+                rem -= chunk
+            }
+        }
+
+        private fun findRunIndex(relOff: Long): Int {
+            var low = 0
+            var high = sparseRuns.size - 1
+            var ans = -1
+            while (low <= high) {
+                val mid = (low + high) ushr 1
+                if (sparseRuns[mid].vStart <= relOff) {
+                    ans = mid
+                    low = mid + 1
+                } else {
+                    high = mid - 1
+                }
+            }
+            return ans
+        }
+    }
+
     class BktrRomfsSectionReader(
         private val baseReader: RomfsSectionReader,
         private val patchRaf: RandomAccessFile,
@@ -8939,6 +9127,10 @@ object StormNczEngine {
                 val fsType = workHdr[fsOff + 2].toInt() and 0xFF
                 val hashType = workHdr[fsOff + 3].toInt() and 0xFF
                 if (fsType == 1 && hashType == 2) {
+                    val sparseGen = bb.getShort(fsOff + 0x170).toInt() and 0xFFFF
+                    val bktSize = bb.getLong(fsOff + 0x150)
+                    if (sparseGen != 0 && bktSize == 0L) continue
+
                     val pfs0RelOff = bb.getLong(fsOff + 0x40)
                     val pfs0Size = bb.getLong(fsOff + 0x48)
                     val pfs0AbsInNca = rawSecStart + pfs0RelOff
@@ -9056,6 +9248,7 @@ object StormNczEngine {
 
     data class StandaloneHardPatchOutput(
         val cnmtFile: File,
+        val patchCnmtFile: File? = null,
         val controlFile: File?,
         val programFile: File,
         val manualFiles: List<File>,
@@ -9247,14 +9440,39 @@ object StormNczEngine {
                             ?: baseSections.firstOrNull { it.cryptoType >= 3L && it.key.any { b -> b != 0.toByte() } }?.key
                             ?: baseSections.firstOrNull { it.key.any { b -> b != 0.toByte() } }?.key
                             ?: romSec.key
-                        baseRomfsReader = DirectNcaRomfsSectionReader(
-                            raf = baseRaf,
-                            sliceOffset = refs.baseProgOffset,
-                            secAbsStart = secStart,
-                            cryptoType = if (encType == 3) 3L else 1L,
-                            ctrKey = if (encType == 3) resolvedBaseKey else null,
-                            ctrUpper8 = rawBaseFsUpper8
-                        )
+
+                        val baseSparseGen = bbb.getShort(fsOff + 0x170).toInt() and 0xFFFF
+                        baseRomfsReader = if (baseSparseGen != 0) {
+                            val bktRelOff = bbb.getLong(fsOff + 0x148)
+                            val bktSize = bbb.getLong(fsOff + 0x150)
+                            val sparsePhysOff = bbb.getLong(fsOff + 0x168)
+                            val sparseUpper8 = rawBaseFsUpper8.copyOf().also {
+                                it[4] = ((baseSparseGen ushr 8) and 0xFF).toByte()
+                                it[5] = (baseSparseGen and 0xFF).toByte()
+                                it[6] = 0
+                                it[7] = 0
+                            }
+                            SparseNcaRomfsSectionReader(
+                                raf = baseRaf,
+                                ncaOffset = refs.baseProgOffset,
+                                secAbsStart = secStart,
+                                sparsePhysOff = sparsePhysOff,
+                                bktRelOff = bktRelOff,
+                                bktSize = bktSize,
+                                ctrKey = resolvedBaseKey,
+                                ctrUpper8 = rawBaseFsUpper8,
+                                sparseUpper8 = sparseUpper8
+                            )
+                        } else {
+                            DirectNcaRomfsSectionReader(
+                                raf = baseRaf,
+                                sliceOffset = refs.baseProgOffset,
+                                secAbsStart = secStart,
+                                cryptoType = if (encType == 3) 3L else 1L,
+                                ctrKey = if (encType == 3) resolvedBaseKey else null,
+                                ctrUpper8 = rawBaseFsUpper8
+                            )
+                        }
                         break
                     }
                 }
@@ -9646,7 +9864,12 @@ object StormNczEngine {
             }
 
             val ctrlSha = finalCtrlFile?.let { sha256FileBytes(it) }
-            val verStr = if (updRaf != null) "65536" else "0"
+            val detectedUpdateVer = refs.auxCandidates
+                .mapNotNull { extractDisplayVersionFromFileName(it.parentFile.name) }
+                .lastOrNull()
+                ?: refs.updProgParent?.name?.let { extractDisplayVersionFromFileName(it) }
+                ?: "1.0.10"
+            val verStr = if (updRaf != null) detectedUpdateVer else "0"
             val cnmtFile = buildBinaryCnmtNca(
                 workDir = tempDir,
                 tidHex = cleanTid,
@@ -9661,8 +9884,27 @@ object StormNczEngine {
                 controlSize = finalCtrlFile?.length() ?: 0L
             )
 
+            val patchCnmtFile = if (updRaf != null) {
+                val patchTidHex = cleanTid.take(13) + "800"
+                val patchTidLong = patchTidHex.toULongOrNull(16)?.toLong() ?: (tidLong + 0x800L)
+                buildBinaryCnmtNca(
+                    workDir = tempDir,
+                    tidHex = patchTidHex,
+                    tidLong = patchTidLong,
+                    roleUp = "ПАТЧ",
+                    versionStr = detectedUpdateVer,
+                    progSha256 = progSha256,
+                    progNcaIdBytes = progSha256.copyOfRange(0, 16),
+                    progSize = finalProgFile.length(),
+                    controlSha256 = ctrlSha,
+                    controlNcaIdBytes = ctrlSha?.copyOfRange(0, 16),
+                    controlSize = finalCtrlFile?.length() ?: 0L
+                )
+            } else null
+
             return StandaloneHardPatchOutput(
                 cnmtFile = cnmtFile,
+                patchCnmtFile = patchCnmtFile,
                 controlFile = finalCtrlFile,
                 programFile = finalProgFile,
                 manualFiles = finalManualFiles,
