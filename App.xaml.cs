@@ -96,6 +96,7 @@ namespace StormSwitchBox
             {
                 try
                 {
+                    try { Settings?.Save(); } catch { }
                     JobObjectManager.KillAllToolProcesses();
                     TempCleanupService.PurgeActiveTempDirectories();
                     var ex = ev.ExceptionObject as Exception;
@@ -204,6 +205,7 @@ namespace StormSwitchBox
             JobObjectManager.InitializeJobForCurrentProcess();
             AppDomain.CurrentDomain.ProcessExit += (s, e) =>
             {
+                try { Settings?.Save(); } catch { }
                 JobObjectManager.KillAllToolProcesses();
                 TempCleanupService.PurgeActiveTempDirectories();
             };
@@ -463,6 +465,7 @@ namespace StormSwitchBox
         private void App_UnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)
         {
             e.Handled = true;
+            try { Settings?.Save(); } catch { }
             Logger?.Log($"[Перехвачено UI исключение] {e.Exception?.Message}\n{e.Exception?.StackTrace}", Models.LogLevel.Error);
             try
             {

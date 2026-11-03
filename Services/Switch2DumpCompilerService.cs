@@ -29,6 +29,18 @@ namespace StormSwitchBox.Services
 
     public static class Switch2DumpHelper
     {
+                public static string GenerateCanonicalSwitch2Name(Switch2DumpInfo sw2Info)
+        {
+            string baseVer = "1.0.0";
+            string versionPart = !string.IsNullOrEmpty(sw2Info.MaxUpdateVersion)
+                ? $"{baseVer} - {sw2Info.MaxUpdateVersion} - {sw2Info.TitleId}"
+                : $"{baseVer} - {sw2Info.TitleId}";
+            var compParts = new List<string> { "1G" };
+            if (!string.IsNullOrEmpty(sw2Info.MaxUpdateVersion)) compParts.Add("1U");
+            if (sw2Info.DlcCount > 0) compParts.Add($"{sw2Info.DlcCount}D");
+            return $"{sw2Info.GameName} [WW] [RUS] ({versionPart}) ({string.Join("+", compParts)})";
+        }
+
         public static bool IsSwitch2OrExtractedGameDumpDirectory(string dirPath)
         {
             if (string.IsNullOrWhiteSpace(dirPath) || !Directory.Exists(dirPath))
@@ -405,12 +417,13 @@ namespace StormSwitchBox.Services
             if (string.IsNullOrEmpty(outDir)) outDir = Directory.GetCurrentDirectory();
             Directory.CreateDirectory(outDir);
 
+            DateTime startTime = DateTime.Now;
             string targetFormat = !string.IsNullOrEmpty(task.TargetFormat) ? task.TargetFormat.ToUpperInvariant() : (!string.IsNullOrEmpty(App.Settings.Current.Switch2DefaultFormat) ? App.Settings.Current.Switch2DefaultFormat.ToUpperInvariant() : "NSZ");
 
-            string baseFileName = sw2Info.GameName;
-            if (!string.IsNullOrEmpty(sw2Info.MaxUpdateVersion))
-                baseFileName += $" [v{sw2Info.MaxUpdateVersion}]";
-            baseFileName += $" [{sw2Info.TitleId}] {sw2Info.CompositionDescription}";
+            string canonicalName = GenerateCanonicalSwitch2Name(sw2Info);
+            string baseFileName = !string.IsNullOrWhiteSpace(task.OutputFileName) && !task.OutputFileName.Contains("[БАЗА")
+                ? task.OutputFileName
+                : canonicalName;
 
             App.RunOnUI(() => { task.OutputFileName = baseFileName; });
 
@@ -555,14 +568,65 @@ namespace StormSwitchBox.Services
                     }
                 }
 
+                string finalOutPath = finalNspPath;
+                if (targetFormat == "NSZ")
+                {
+                    string nsz = Path.Combine(outDir, baseFileName + ".nsz");
+                    if (File.Exists(nsz)) finalOutPath = nsz;
+                }
+                else if (targetFormat == "XCZ")
+                {
+                    string xcz = Path.Combine(outDir, baseFileName + ".xcz");
+                    if (File.Exists(xcz)) finalOutPath = xcz;
+                }
+                else if (targetFormat.Contains("XCI"))
+                {
+                    string xci = Path.Combine(outDir, baseFileName + ".xci");
+                    if (File.Exists(xci)) finalOutPath = xci;
+                }
+                else if (targetFormat == "NUP")
+                {
+                    string nup = Path.Combine(outDir, baseFileName + ".nup");
+                    if (File.Exists(nup)) finalOutPath = nup;
+                }
+                if (!File.Exists(finalOutPath))
+                {
+                    var candidates = Directory.GetFiles(outDir, baseFileName + ".*")
+                        .Where(f => !f.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase))
+                        .OrderByDescending(f => new FileInfo(f).Length)
+                        .ToList();
+                    if (candidates.Count > 0) finalOutPath = candidates[0];
+                }
+
+                long outSize = File.Exists(finalOutPath) ? new FileInfo(finalOutPath).Length : 0;
+                string formattedTargetSize = outSize > 0 ? ProcessingTask.FormatSize(outSize) : "-";
+
                 App.RunOnUI(() =>
                 {
+                    task.OutputFolder = Path.GetDirectoryName(finalOutPath) ?? outDir;
+                    task.OutputFileName = Path.GetFileNameWithoutExtension(finalOutPath);
+                    task.TargetSize = formattedTargetSize;
+                    if (task.SourceSizeBytes > 0 && outSize > 0)
+                    {
+                        long diff = task.SourceSizeBytes - outSize;
+                        double percent = (double)diff / task.SourceSizeBytes * 100.0;
+                        task.SizeDifference = $"{(diff > 0 ? "-" : "+")}{ProcessingTask.FormatSize(Math.Abs(diff))} ({Math.Abs(percent):F1}%)";
+                    }
+                    TimeSpan elapsed = DateTime.Now - startTime;
+                    if (elapsed.TotalSeconds > 0 && task.SourceSizeBytes > 0)
+                    {
+                        double mbPerSec = (task.SourceSizeBytes / (1024.0 * 1024.0)) / elapsed.TotalSeconds;
+                        task.Speed = $"{mbPerSec:F1} МБ/с";
+                    }
                     task.Progress = 100;
                     task.Status = "Успешно";
                     task.IsRunning = false;
                     task.FinishedAt = DateTime.Now;
+                    task.LogDetails += $"► Выходной файл: {finalOutPath} ({formattedTargetSize})\n";
                     task.LogDetails += $"✅ Сборка Nintendo Switch 2 успешно завершена!\n   Выходная папка: {outDir}\n";
+                    HistoryService.AddToHistory(task);
                 });
+                App.Logger.Log($"[Switch 2] Сборка успешно завершена: {Path.GetFileName(finalOutPath)} ({formattedTargetSize})", LogLevel.Success);
             }
             finally
             {
@@ -710,7 +774,7 @@ namespace StormSwitchBox.Services
                 byte[] ncaHdr = new byte[0x4000];
                 Encoding.ASCII.GetBytes("NCA3").CopyTo(ncaHdr, 0x200);
                 ncaHdr[0x204] = 0; // Download
-                ncaHdr[0x205] = 1; // Program
+                ncaHdr[0x205] = 0; // Program
                 ncaHdr[0x206] = 0; // Crypto None
                 ncaHdr[0x207] = 0;
                 BitConverter.GetBytes(totalNcaSize).CopyTo(ncaHdr, 0x208);
@@ -832,7 +896,7 @@ namespace StormSwitchBox.Services
             byte[] ncaHdr = new byte[0x4000];
             Encoding.ASCII.GetBytes("NCA3").CopyTo(ncaHdr, 0x200);
             ncaHdr[0x204] = 0; // Download
-            ncaHdr[0x205] = 0; // Meta
+            ncaHdr[0x205] = 1; // Meta
             ncaHdr[0x206] = 0; // None
             BitConverter.GetBytes(totalNcaSize).CopyTo(ncaHdr, 0x208);
             BitConverter.GetBytes(tidVal).CopyTo(ncaHdr, 0x210);

@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Collections.Generic;
 using System.Text.Json;
 using System.Threading.Tasks;
 using StormSwitchBox.Models;
@@ -24,6 +25,7 @@ namespace StormSwitchBox.Services
 
         private static readonly string SettingsPath = GetSettingsFilePath();
         private static readonly string LegacySettingsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "ssb.settings");
+        private static readonly object _saveLock = new object();
 
         public static SettingsService Instance { get; set; } = new SettingsService();
 
@@ -64,6 +66,14 @@ namespace StormSwitchBox.Services
                             settings.Language = new AppSettings().Language;
                             isDirty = true;
                         }
+
+                        // Миграция / защита уровня сжатия Switch 2: по умолчанию 18
+                        if (!settings.Switch2CompressionLevelInitialized || settings.Switch2CompressionLevel <= 1)
+                        {
+                            settings.Switch2CompressionLevel = 18;
+                            settings.Switch2CompressionLevelInitialized = true;
+                            isDirty = true;
+                        }
                         
                         Current = settings;
                         if (isDirty) await SaveAsync();
@@ -78,15 +88,33 @@ namespace StormSwitchBox.Services
             }
         }
 
+        public void Save()
+        {
+            lock (_saveLock)
+            {
+                try
+                {
+                    var options = new JsonSerializerOptions { WriteIndented = true };
+                    var json = JsonSerializer.Serialize(Current, options);
+                    string dir = Path.GetDirectoryName(SettingsPath) ?? "";
+                    if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+                    string tmpPath = SettingsPath + ".tmp";
+                    using (var fs = new FileStream(tmpPath, FileMode.Create, FileAccess.Write, FileShare.None))
+                    using (var sw = new StreamWriter(fs, new System.Text.UTF8Encoding(false)))
+                    {
+                        sw.Write(json);
+                        sw.Flush();
+                        fs.Flush(true);
+                    }
+                    File.Move(tmpPath, SettingsPath, true);
+                }
+                catch { }
+            }
+        }
+
         public async Task SaveAsync()
         {
-            try
-            {
-                var options = new JsonSerializerOptions { WriteIndented = true };
-                var json = JsonSerializer.Serialize(Current, options);
-                await File.WriteAllTextAsync(SettingsPath, json);
-            }
-            catch { }
+            await Task.Run(() => Save());
         }
 
         private void MigrateLegacySettings()
@@ -121,4 +149,3 @@ namespace StormSwitchBox.Services
         }
     }
 }
-

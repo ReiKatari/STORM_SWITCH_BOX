@@ -201,6 +201,52 @@ namespace StormSwitchBox.Services
                                 iconFile.AsStream().CopyTo(iconStream);
                                 info.IconBytes = iconStream.ToArray();
                             }
+
+                            var nacpEntry = fs.EnumerateEntries("/", "control.nacp").FirstOrDefault();
+                            if (nacpEntry != null)
+                            {
+                                try
+                                {
+                                    using var nacpFileRef = new UniqueRef<IFile>();
+                                    using var nacpPath = new LibHac.Fs.Path();
+                                    nacpPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(nacpEntry.FullPath))).ThrowIfFailure();
+                                    fs.OpenFile(ref nacpFileRef.Ref, in nacpPath, OpenMode.Read).ThrowIfFailure();
+                                    
+                                    IFile nacpFile = nacpFileRef.Release();
+                                    using var nacpStream = new MemoryStream();
+                                    nacpFile.AsStream().CopyTo(nacpStream);
+                                    byte[] nacpData = nacpStream.ToArray();
+                                    if (nacpData.Length >= 0x3080)
+                                    {
+                                        string ReadNacpString(int offset, int maxLen)
+                                        {
+                                            if (offset >= nacpData.Length) return "";
+                                            int len = 0;
+                                            while (len < maxLen && offset + len < nacpData.Length && nacpData[offset + len] != 0) len++;
+                                            return len > 0 ? System.Text.Encoding.UTF8.GetString(nacpData, offset, len).Trim() : "";
+                                        }
+
+                                        string ruTitle = ReadNacpString(11 * 0x300, 0x200);
+                                        string enTitle = ReadNacpString(0, 0x200);
+                                        string title = !string.IsNullOrEmpty(ruTitle) ? ruTitle : (!string.IsNullOrEmpty(enTitle) ? enTitle : "");
+                                        if (string.IsNullOrEmpty(title))
+                                        {
+                                            for (int i = 0; i < 16; i++)
+                                            {
+                                                title = ReadNacpString(i * 0x300, 0x200);
+                                                if (!string.IsNullOrEmpty(title)) break;
+                                            }
+                                        }
+                                        if (!string.IsNullOrEmpty(title)) info.GameName = title;
+
+                                        string ruPub = ReadNacpString(11 * 0x300 + 0x200, 0x100);
+                                        string enPub = ReadNacpString(0x200, 0x100);
+                                        string pub = !string.IsNullOrEmpty(ruPub) ? ruPub : (!string.IsNullOrEmpty(enPub) ? enPub : "");
+                                        if (!string.IsNullOrEmpty(pub)) info.Publisher = pub;
+                                    }
+                                }
+                                catch { }
+                            }
                         }
                     }
                 }

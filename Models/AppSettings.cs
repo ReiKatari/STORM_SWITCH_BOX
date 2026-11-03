@@ -71,6 +71,7 @@ namespace StormSwitchBox.Models
         public int Switch2SelectedFormatIndex { get; set; } = 0; // 0 = NSZ, 1 = NSP, 2 = XCI, 3 = XCZ
         public bool Switch2BlockCompression { get; set; } = true;
         public int Switch2CompressionLevel { get; set; } = 18;
+        public bool Switch2CompressionLevelInitialized { get; set; } = false;
         public int Switch2BlockSizeIndex { get; set; } = 2; // 0 = 256 КБ, 1 = 512 КБ, 2 = 1 МБ (Рекомендуется), 3 = 2 МБ, 4 = 4 МБ
         public int Switch2ThreadsIndex { get; set; } = 0; // 0 = Авто (Оптимально), 1 = 2 потока, 2 = 4 потока, 3 = 8 потоков, 4 = Максимум
         public bool Switch2SmartShrink { get; set; } = true;

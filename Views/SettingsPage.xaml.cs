@@ -13,6 +13,7 @@ namespace StormSwitchBox.Views
         public Visibility KeysSelectedVisibility => string.IsNullOrEmpty(App.Settings.Current.KeysPath) ? Visibility.Collapsed : Visibility.Visible;
         public Visibility Keys3dsSelectedVisibility => string.IsNullOrEmpty(App.Settings.Current.KeysPath3ds) ? Visibility.Collapsed : Visibility.Visible;
         private System.Collections.ObjectModel.ObservableCollection<string> _emulatorDirs = new();
+        private bool _isSettingsPageLoaded = false;
 
         public SettingsPage()
         {
@@ -132,6 +133,7 @@ namespace StormSwitchBox.Views
 
             ApplyLocalization();
             App.Localization.LanguageChanged += () => App.RunOnUI(ApplyLocalization);
+            _isSettingsPageLoaded = true;
         }
 
         private void UpdateWatchFolderUiState()
@@ -1403,6 +1405,7 @@ namespace StormSwitchBox.Views
 
         private async void Switch2DefaultFormatCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
+            if (!_isSettingsPageLoaded) return;
             if (Switch2DefaultFormatCombo.SelectedItem is ComboBoxItem item && item.Tag is string tag)
             {
                 App.Settings.Current.Switch2DefaultFormat = tag;
@@ -1413,6 +1416,7 @@ namespace StormSwitchBox.Views
 
         private async void Switch2CompressionSlider_ValueChanged(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
         {
+            if (!_isSettingsPageLoaded) return;
             int val = (int)e.NewValue;
             App.Settings.Current.Switch2CompressionLevel = val;
             if (Switch2CompressionValTxt != null)
@@ -1424,12 +1428,14 @@ namespace StormSwitchBox.Views
 
         private async void Switch2BlockSizeCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
+            if (!_isSettingsPageLoaded) return;
             App.Settings.Current.Switch2BlockSizeIndex = Switch2BlockSizeCombo.SelectedIndex;
             await App.Settings.SaveAsync();
         }
 
         private async void Switch2ThreadsCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
+            if (!_isSettingsPageLoaded) return;
             App.Settings.Current.Switch2ThreadsIndex = Switch2ThreadsCombo.SelectedIndex;
             await App.Settings.SaveAsync();
         }

@@ -985,14 +985,54 @@ public partial class TasksViewModel : ObservableObject
 					var sw2Info = await Switch2DumpHelper.InspectSwitch2DumpDirectoryAsync(sw2Root);
 					if (sw2Info != null)
 					{
-						string outName = sw2Info.GameName;
-						if (!string.IsNullOrEmpty(sw2Info.MaxUpdateVersion)) outName += $" [v{sw2Info.MaxUpdateVersion}]";
-						outName += $" [{sw2Info.TitleId}] {sw2Info.CompositionDescription}";
+						string canonicalName = Switch2DumpHelper.GenerateCanonicalSwitch2Name(sw2Info);
 
 						string sw2OutFolder = !string.IsNullOrEmpty(App.Settings.Current.OutputFolderSwitch2) ? App.Settings.Current.OutputFolderSwitch2 : App.Settings.Current.OutputFolder;
 						if (string.IsNullOrEmpty(sw2OutFolder)) sw2OutFolder = Path.GetDirectoryName(sw2Root) ?? sw2Root;
 
 						long sz = CalculateSize(sw2Root);
+
+						var filesList = new List<string>();
+						var inputFiles = new List<string>();
+
+						// 1. Базовая игра
+						ulong baseTid = 0;
+						ulong.TryParse(sw2Info.TitleId, System.Globalization.NumberStyles.HexNumber, null, out baseTid);
+						filesList.Add($"[ИГРА] base ({sw2Info.TitleId} • v0)");
+						inputFiles.Add(sw2Info.BaseDir);
+
+						// 2. Обновление (патч)
+						if (!string.IsNullOrEmpty(sw2Info.MaxUpdateVersion) && sw2Info.UpdateDir != null)
+						{
+							ulong patchTid = baseTid | 0x800UL;
+							string patchTidStr = $"{patchTid:X16}";
+							string relUpd = Path.GetFileName(sw2Info.UpdateDir);
+							filesList.Add($"[ОБНОВЛЕНИЕ] updates\\{relUpd} ({patchTidStr} • v{sw2Info.MaxUpdateVersion})");
+							inputFiles.Add(sw2Info.UpdateDir);
+						}
+
+						// 3. Дополнения (DLC)
+						if (sw2Info.DlcFolders.Count > 0)
+						{
+							for (int d = 0; d < sw2Info.DlcFolders.Count; d++)
+							{
+								string dlcPath = sw2Info.DlcFolders[d];
+								string dlcName = Path.GetFileName(dlcPath);
+								string dlcTidStr = dlcName;
+								if (!System.Text.RegularExpressions.Regex.IsMatch(dlcTidStr, @"^[0-9A-Fa-f]{16}$"))
+								{
+									ulong dlcTid = (baseTid & ~0xFFFFUL) | 0x1000UL | (ulong)(d + 1);
+									dlcTidStr = $"{dlcTid:X16}";
+								}
+								else
+								{
+									dlcTidStr = dlcTidStr.ToUpperInvariant();
+								}
+								filesList.Add($"[ДОПОЛНЕНИЕ] dlc\\{dlcName} ({dlcTidStr})");
+								inputFiles.Add(dlcPath);
+							}
+						}
+
 						var sw2Task = new ProcessingTask
 						{
 							GroupId = sw2Info.TitleId,
@@ -1007,10 +1047,10 @@ public partial class TasksViewModel : ObservableObject
 							SourceSize = ProcessingTask.FormatSize(sz),
 							TargetSize = "-",
 							SizeDifference = "-",
-							CompressionLevel = App.Settings.Current.CompressionLevel.ToString(),
-							FilesCount = "1",
-							InputFiles = new List<string> { sw2Info.GameRootDir },
-							FilesList = new List<string> { Path.GetFileName(sw2Info.GameRootDir) },
+							CompressionLevel = App.Settings.Current.Switch2CompressionLevel.ToString(),
+							FilesCount = filesList.Count.ToString(),
+							InputFiles = inputFiles,
+							FilesList = filesList,
 							HasRomFs = "1",
 							HasExeFs = "1",
 							VerifyTitleId = sw2Info.TitleId,
@@ -1019,7 +1059,7 @@ public partial class TasksViewModel : ObservableObject
 							Progress = 0.0,
 							InputFolders = sw2Info.GameRootDir,
 							OutputFolder = sw2OutFolder,
-							OutputFileName = outName,
+							OutputFileName = canonicalName,
 							LogDetails = $"Готов к обработке... [Nintendo Switch 2: {sw2Info.GameName} {sw2Info.CompositionDescription}]"
 						};
 
@@ -1041,7 +1081,8 @@ public partial class TasksViewModel : ObservableObject
 						{
 							bool alreadyExists = Tasks.Any(t =>
 								(t.GroupId == sw2Info.TitleId || t.TitleId == sw2Info.TitleId) &&
-								t.InputFiles != null && t.InputFiles.Contains(sw2Info.GameRootDir, StringComparer.OrdinalIgnoreCase));
+								((t.InputFiles != null && (t.InputFiles.Contains(sw2Info.BaseDir, StringComparer.OrdinalIgnoreCase) || t.InputFiles.Contains(sw2Info.GameRootDir, StringComparer.OrdinalIgnoreCase))) ||
+								 (t.InputFolders != null && t.InputFolders.Equals(sw2Info.GameRootDir, StringComparison.OrdinalIgnoreCase))));
 							if (alreadyExists)
 							{
 								App.Logger.Log($"[Switch 2] Задача уже существует в очереди: {sw2Info.GameName} [{sw2Info.TitleId}]", LogLevel.Info);

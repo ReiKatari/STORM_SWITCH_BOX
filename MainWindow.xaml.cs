@@ -257,6 +257,7 @@ namespace StormSwitchBox
                 _notifyIcon.Dispose();
                 SaveWindowState();
                 try { App.TasksVM?.SaveTasksOnExit(); } catch { }
+                try { App.Settings?.Save(); } catch { }
                 Services.JobObjectManager.KillAllToolProcesses();
                 Services.TempCleanupService.PurgeActiveTempDirectories();
                 System.Environment.Exit(0);
@@ -449,6 +450,7 @@ namespace StormSwitchBox
             }
             
             try { App.TasksVM?.SaveTasksOnExit(); } catch { }
+            try { App.Settings?.Save(); } catch { }
             
             // Жестко завершаем процесс и все утилиты при закрытии
             Services.JobObjectManager.KillAllToolProcesses();

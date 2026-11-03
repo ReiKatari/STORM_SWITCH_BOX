@@ -65,7 +65,30 @@ namespace StormSwitchBox.Services
                     task.LogDetails += $"\n📋 [Настройки] Файлов: {inputFiles.Count} | HardPatch: {(patchFirmware ? "Да" : "Нет")}";
                 });
 
-                string? sw2Dir = inputFiles.FirstOrDefault(f => Directory.Exists(f) && Switch2DumpHelper.IsSwitch2OrExtractedGameDumpDirectory(f));
+                string? sw2Dir = null;
+                if (task.IsSwitch2Task && !string.IsNullOrEmpty(task.InputFolders) && Directory.Exists(task.InputFolders))
+                {
+                    sw2Dir = task.InputFolders;
+                }
+                else
+                {
+                    sw2Dir = inputFiles.FirstOrDefault(f => Directory.Exists(f) && Switch2DumpHelper.IsSwitch2OrExtractedGameDumpDirectory(f));
+                    if (sw2Dir == null)
+                    {
+                        foreach (var f in inputFiles)
+                        {
+                            if (Directory.Exists(f))
+                            {
+                                var p = Directory.GetParent(f)?.FullName;
+                                if (p != null && Switch2DumpHelper.IsSwitch2OrExtractedGameDumpDirectory(p))
+                                {
+                                    sw2Dir = p;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
                 if (sw2Dir != null)
                 {
                     await Switch2DumpHelper.CompileSwitch2DumpToContainerAsync(task, sw2Dir, inputFiles, outPath, cancellationToken);
