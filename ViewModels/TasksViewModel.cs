@@ -2773,14 +2773,18 @@ public partial class TasksViewModel : ObservableObject
 						string tid = (info.TitleId ?? "").Trim().ToUpperInvariant();
 						string ver = info.Version ?? "?";
 						
-						// Классификация
-						string typeLabel = type switch
-						{
-							"Application" => "🎮 ИГРА",
-							"Patch" => "🔄 ОБНОВЛЕНИЕ",
-							"AddOnContent" => "📦 DLC",
-							_ => $"❓ {type}"
-						};
+						// Классификация с точным распознаванием монолитов и мультиконтента
+						string typeLabel = info.IsMonolithicHardPatch
+							? $"🎮 ИГРА (Monolithic Hard-Patch v{info.EmbeddedPatchVersion})"
+							: (info.HasBaseCnmt && info.HasPatchCnmt)
+								? $"🎮 ИГРА (Multi-Content v{info.EmbeddedPatchVersion})"
+								: (type switch
+								{
+									"Application" => "🎮 ИГРА",
+									"Patch" => "🔄 ОБНОВЛЕНИЕ",
+									"AddOnContent" => "📦 DLC",
+									_ => $"❓ {type}"
+								});
 						
 						sb.AppendLine($"\n{typeLabel}  {fileName}");
 						sb.AppendLine($"  ├ TitleID: {tid}");

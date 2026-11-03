@@ -268,6 +268,160 @@ namespace StormSwitchBox.Services
         /// <summary>
         /// Анализирует папку с распакованными файлами NCA/NCZ перед упаковкой в NSP/XCI и возвращает список избыточных файлов.
         /// </summary>
+        
+        /// <summary>
+        /// Обнаруживает все файлы устаревшего обновления (Patch CNMT, Program NCA, Control NCA, Delta) внутри контейнера.
+        /// </summary>
+        public static HashSet<string> DetectUpdateEntriesInFileSystem(IFileSystem pfs, KeySet? keySet, bool isMonolithic = false)
+        {
+            var updateFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (keySet == null) return updateFiles;
+
+            HarvestTicketsFromFileSystem(pfs, keySet);
+
+            foreach (var entry in pfs.EnumerateEntries("/", "*.cnmt.nca"))
+            {
+                try
+                {
+                    using var ncaFile = new UniqueRef<IFile>();
+                    using var path = new LibHac.Fs.Path();
+                    path.Initialize(new U8Span(Encoding.UTF8.GetBytes(entry.FullPath))).ThrowIfFailure();
+                    if (!pfs.OpenFile(ref ncaFile.Ref, in path, OpenMode.Read).IsSuccess()) continue;
+
+                    var nca = new Nca(keySet, ncaFile.Release().AsStorage());
+                    KeysService.RegisterRightsIdFallback(keySet, nca);
+                    if (nca.Header.ContentType != NcaContentType.Meta || !nca.CanOpenSection(0)) continue;
+
+                    IFileSystem? cnmtFs = null;
+                    try { cnmtFs = nca.OpenFileSystem(0, IntegrityCheckLevel.None); } catch { }
+                    if (cnmtFs == null)
+                    {
+                        try { cnmtFs = nca.OpenFileSystem(0, IntegrityCheckLevel.IgnoreOnInvalid); } catch { }
+                    }
+                    if (cnmtFs == null) continue;
+
+                    foreach (var cnmtEntry in cnmtFs.EnumerateEntries("/", "*.cnmt"))
+                    {
+                        using var cnmtFile = new UniqueRef<IFile>();
+                        using var cPath = new LibHac.Fs.Path();
+                        cPath.Initialize(new U8Span(Encoding.UTF8.GetBytes(cnmtEntry.FullPath))).ThrowIfFailure();
+                        if (!cnmtFs.OpenFile(ref cnmtFile.Ref, in cPath, OpenMode.Read).IsSuccess()) continue;
+
+                        var cnmt = new Cnmt(cnmtFile.Release().AsStream());
+                        if (cnmt.Type == ContentMetaType.Patch || cnmt.TitleId.ToString("X16").EndsWith("800", StringComparison.OrdinalIgnoreCase))
+                        {
+                            updateFiles.Add(entry.Name);
+                            if (!isMonolithic)
+                            {
+                                foreach (var contentEntry in cnmt.ContentEntries)
+                                {
+                                    string hexId = BitConverter.ToString(contentEntry.NcaId).Replace("-", "").ToLowerInvariant();
+                                    updateFiles.Add(hexId + ".nca");
+                                    updateFiles.Add(hexId + ".ncz");
+                                }
+                            }
+                        }
+                    }
+                }
+                catch { }
+            }
+
+            if (!isMonolithic)
+            {
+                foreach (var entry in pfs.EnumerateEntries("/", "*.nca"))
+                {
+                    if (entry.Name.EndsWith(".cnmt.nca", StringComparison.OrdinalIgnoreCase)) continue;
+                    try
+                    {
+                        using var ncaFile = new UniqueRef<IFile>();
+                        using var path = new LibHac.Fs.Path();
+                        path.Initialize(new U8Span(Encoding.UTF8.GetBytes(entry.FullPath))).ThrowIfFailure();
+                        if (pfs.OpenFile(ref ncaFile.Ref, in path, OpenMode.Read).IsSuccess())
+                        {
+                            var nca = new Nca(keySet, ncaFile.Release().AsStorage());
+                            if (nca.Header.TitleId.ToString("X16").EndsWith("800", StringComparison.OrdinalIgnoreCase))
+                            {
+                                updateFiles.Add(entry.Name);
+                            }
+                        }
+                    }
+                    catch { }
+                }
+            }
+
+            return updateFiles;
+        }
+
+        /// <summary>
+        /// Обнаруживает устаревшие DLC внутри контейнера базы, для которых предоставлены более новые версии.
+        /// </summary>
+        public static HashSet<string> DetectSupersededDlcEntriesInFileSystem(
+            IFileSystem pfs,
+            KeySet? keySet,
+            IEnumerable<(string Path, string DlcTid, uint Version)> newDlcs)
+        {
+            var supersededDlcFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (keySet == null) return supersededDlcFiles;
+
+            var newDlcMap = new Dictionary<string, uint>(StringComparer.OrdinalIgnoreCase);
+            foreach (var d in newDlcs)
+            {
+                if (!string.IsNullOrEmpty(d.DlcTid))
+                {
+                    if (!newDlcMap.TryGetValue(d.DlcTid, out uint cur) || d.Version > cur)
+                        newDlcMap[d.DlcTid] = d.Version;
+                }
+            }
+            if (newDlcMap.Count == 0) return supersededDlcFiles;
+
+            foreach (var entry in pfs.EnumerateEntries("/", "*.cnmt.nca"))
+            {
+                try
+                {
+                    using var ncaFile = new UniqueRef<IFile>();
+                    using var path = new LibHac.Fs.Path();
+                    path.Initialize(new U8Span(Encoding.UTF8.GetBytes(entry.FullPath))).ThrowIfFailure();
+                    if (!pfs.OpenFile(ref ncaFile.Ref, in path, OpenMode.Read).IsSuccess()) continue;
+
+                    var nca = new Nca(keySet, ncaFile.Release().AsStorage());
+                    KeysService.RegisterRightsIdFallback(keySet, nca);
+                    if (nca.Header.ContentType != NcaContentType.Meta || !nca.CanOpenSection(0)) continue;
+
+                    IFileSystem? cnmtFs = null;
+                    try { cnmtFs = nca.OpenFileSystem(0, IntegrityCheckLevel.None); } catch { }
+                    if (cnmtFs == null) continue;
+
+                    foreach (var cnmtEntry in cnmtFs.EnumerateEntries("/", "*.cnmt"))
+                    {
+                        using var cnmtFile = new UniqueRef<IFile>();
+                        using var cPath = new LibHac.Fs.Path();
+                        cPath.Initialize(new U8Span(Encoding.UTF8.GetBytes(cnmtEntry.FullPath))).ThrowIfFailure();
+                        if (!cnmtFs.OpenFile(ref cnmtFile.Ref, in cPath, OpenMode.Read).IsSuccess()) continue;
+
+                        var cnmt = new Cnmt(cnmtFile.Release().AsStream());
+                        if (cnmt.Type == ContentMetaType.AddOnContent)
+                        {
+                            string dlcTidStr = cnmt.TitleId.ToString("X16").ToUpperInvariant();
+                            uint oldVer = cnmt.TitleVersion?.Version ?? 0;
+                            if (newDlcMap.TryGetValue(dlcTidStr, out uint newVer) && newVer >= oldVer)
+                            {
+                                supersededDlcFiles.Add(entry.Name);
+                                foreach (var contentEntry in cnmt.ContentEntries)
+                                {
+                                    string hexId = BitConverter.ToString(contentEntry.NcaId).Replace("-", "").ToLowerInvariant();
+                                    supersededDlcFiles.Add(hexId + ".nca");
+                                    supersededDlcFiles.Add(hexId + ".ncz");
+                                }
+                            }
+                        }
+                    }
+                }
+                catch { }
+            }
+
+            return supersededDlcFiles;
+        }
+
         public static HashSet<string> AnalyzeRedundantEntriesInDirectory(
             string directoryPath,
             KeySet? keySet,

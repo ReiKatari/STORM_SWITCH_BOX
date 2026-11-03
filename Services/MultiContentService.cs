@@ -632,6 +632,49 @@ namespace StormSwitchBox.Services
                     else dlcs.Add(f);
                 }
 
+                // Дедупликация DLC: если передано несколько версий одного и того же DLC TitleID, оставляем только самую свежую версию
+                var dlcCandidates = new List<(string Path, string DlcTid, uint Version)>();
+                foreach (var dlcFile in dlcs)
+                {
+                    string dtid = "";
+                    uint dver = 0;
+                    try
+                    {
+                        var dinfo = App.SwitchFormat.ParseNsp(dlcFile);
+                        dtid = (dinfo.TitleId ?? "").Trim().ToUpperInvariant();
+                        if (!string.IsNullOrEmpty(dinfo.Version)) uint.TryParse(dinfo.Version.TrimStart('v', 'V'), out dver);
+                    }
+                    catch { }
+                    if (string.IsNullOrEmpty(dtid))
+                    {
+                        var m = System.Text.RegularExpressions.Regex.Match(dlcFile, @"\[([0-9A-Fa-f]{16})\]");
+                        if (m.Success) dtid = m.Groups[1].Value.ToUpperInvariant();
+                    }
+                    if (dver == 0)
+                    {
+                        var vm = System.Text.RegularExpressions.Regex.Match(dlcFile, @"\[v(\d+)\]", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                        if (vm.Success) uint.TryParse(vm.Groups[1].Value, out dver);
+                    }
+                    dlcCandidates.Add((dlcFile, dtid, dver));
+                }
+
+                var deduplicatedDlcs = new List<string>();
+                foreach (var grp in dlcCandidates.GroupBy(d => string.IsNullOrEmpty(d.DlcTid) ? d.Path : d.DlcTid, StringComparer.OrdinalIgnoreCase))
+                {
+                    var orderedDlc = grp.OrderByDescending(d => d.Version).ToList();
+                    var newestDlc = orderedDlc[0];
+                    deduplicatedDlcs.Add(newestDlc.Path);
+                    if (orderedDlc.Count > 1)
+                    {
+                        foreach (var olderDlc in orderedDlc.Skip(1))
+                        {
+                            App.Logger.Log($"[SmartShrink] Исключен устаревший DLC {Path.GetFileName(olderDlc.Path)} (v{olderDlc.Version}) в пользу более нового (v{newestDlc.Version})", LogLevel.Info);
+                            App.RunOnUI(() => task.LogDetails += $"\n🧹 [SmartShrink] Пропущен устаревший DLC: {Path.GetFileName(olderDlc.Path)} (оставлен свежий v{newestDlc.Version})");
+                        }
+                    }
+                }
+                dlcs = deduplicatedDlcs;
+
                 if (!string.IsNullOrEmpty(mainApp)) sortedList.Add(mainApp);
                 if (!string.IsNullOrEmpty(patchApp)) sortedList.Add(patchApp);
                 sortedList.AddRange(dlcs);
@@ -715,6 +758,31 @@ namespace StormSwitchBox.Services
                             deltaNcaNamesToExclude = DetectDeltaNcasToExclude(allScanFiles);
                         }
 
+                        var supersededFromBase = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        if (!string.IsNullOrEmpty(mainApp) && System.IO.File.Exists(mainApp))
+                        {
+                            try
+                            {
+                                using var bStream = new FileStream(mainApp, FileMode.Open, FileAccess.Read, FileShare.Read);
+                                var bPfs = new PartitionFileSystem(bStream.AsStorage());
+                                bool isMonolith = false;
+                                try { isMonolith = App.SwitchFormat.ParseNsp(mainApp).IsMonolithicHardPatch; } catch { }
+
+                                if (!string.IsNullOrEmpty(patchApp) && System.IO.File.Exists(patchApp))
+                                {
+                                    var oldUpdateFiles = SmartShrinkService.DetectUpdateEntriesInFileSystem(bPfs, _keysService.CurrentKeyset, isMonolith);
+                                    foreach (var f in oldUpdateFiles) supersededFromBase.Add(f);
+                                }
+
+                                if (dlcCandidates.Count > 0)
+                                {
+                                    var oldDlcFiles = SmartShrinkService.DetectSupersededDlcEntriesInFileSystem(bPfs, _keysService.CurrentKeyset, dlcCandidates);
+                                    foreach (var f in oldDlcFiles) supersededFromBase.Add(f);
+                                }
+                            }
+                            catch { }
+                        }
+
                         // 1. Сканируем основные файлы сборки (Base/Patched Base + DLCs + Unlockers)
                         for (int scanIdx = 0; scanIdx < processedScanList.Count; scanIdx++)
                         {
@@ -741,6 +809,12 @@ namespace StormSwitchBox.Services
                                 
                                 if (isMainGame)
                                 {
+                                    if (supersededFromBase.Contains(name))
+                                    {
+                                        App.Logger.Log($"[SmartShrink] Пропущен устаревший компонент из базы: {name}", Models.LogLevel.Info);
+                                        App.RunOnUI(() => task.LogDetails += $"\n🧹 [SmartShrink] Исключен устаревший компонент из базы: {name}");
+                                        continue;
+                                    }
                                     baseEntries.Add(name);
                                 }
                                 else if (isUpdateContainer)

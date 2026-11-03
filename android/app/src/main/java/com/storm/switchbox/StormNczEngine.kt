@@ -114,7 +114,9 @@ object StormNczEngine {
         val roleOrder: Int,
         val cleanGameName: String,
         val subComponents: List<QueuedSubComponent> = emptyList(),
-        val embeddedModNames: List<String> = emptyList()
+        val embeddedModNames: List<String> = emptyList(),
+        val embeddedPatchVersion: Int = 0,
+        val isMonolithicHardPatch: Boolean = false
     ) {
         val titleId: String get() = rawTitleId
         val attachedMods: List<String> get() = embeddedModNames
@@ -129,6 +131,15 @@ object StormNczEngine {
         val allSubComponents: List<QueuedSubComponent> = emptyList(),
         val allAttachedMods: List<String> = emptyList()
     )
+
+    @Volatile
+    var cancelRequested: Boolean = false
+
+    fun checkCancelled() {
+        if (cancelRequested || Thread.currentThread().isInterrupted) {
+            throw java.util.concurrent.CancellationException("Задача отменена пользователем")
+        }
+    }
 
     @Volatile
     private var appContextRef: android.content.Context? = null
@@ -223,6 +234,26 @@ object StormNczEngine {
         return stripped.ifBlank { noExt.replace("[", "").replace("]", "").trim().take(32) }
     }
 
+    fun extractVersionFromCnmtNca(
+        raf: RandomAccessFile,
+        sliceOffset: Long,
+        sliceSize: Long,
+        keysMap: Map<String, ByteArray> = loadSwitchKeysMap()
+    ): Int {
+        return try {
+            val files = extractExefsFilesFromNcaSlice(raf, sliceOffset, sliceSize, keysMap)
+            for ((name, data) in files) {
+                if (name.endsWith(".cnmt", ignoreCase = true) && data.size >= 0x10) {
+                    val v = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN).getInt(0x08)
+                    if (v >= 0) return v
+                }
+            }
+            0
+        } catch (_: Exception) {
+            0
+        }
+    }
+
     val strictTid16Regex = Regex("""(?<![0-9A-Fa-f])((?:0100|0400|0004)[0-9A-Fa-f]{12})(?![0-9A-Fa-f])""")
     private val unlockerKeywordRegex = Regex("""(?i)\b(unlocker|unlock|custom\s*unlock|анлокер|разблокировщик|разблокировка|анлок|все\s*персонажи|all\s*dlc)\b""")
 
@@ -263,6 +294,13 @@ object StormNczEngine {
             }
         }
 
+        var detectedPatchVer = 0
+        var isMonolithicHardPatch = false
+        var hasBaseProg = false
+        var hasUpdProg = false
+        var baseProgTid = ""
+        var patchCnmtEntry: Pair<Pfs0Entry, QuickNcaHeaderMeta>? = null
+
         // Инспектируем внутренние NCA/TIK разделы контейнера (с дешифровкой заголовков NCA3 через header_key)
         if (file.exists() && file.isFile && ext in listOf("nsp", "nsz", "xci", "xcz")) {
             try {
@@ -272,6 +310,7 @@ object StormNczEngine {
                 val cnmtTids = mutableListOf<String>()
                 val ncaEntries = mutableListOf<Pair<Pfs0Entry, QuickNcaHeaderMeta>>()
                 val otherEntries = mutableListOf<Pfs0Entry>()
+                var updCnmtTid: String? = null
 
                 RandomAccessFile(file, "r").use { raf ->
                     for (e in entries) {
@@ -290,6 +329,9 @@ object StormNczEngine {
                                 if (qMeta.contentType == 1 || lowEntry.endsWith(".cnmt.nca")) {
                                     if (qMeta.titleId.length == 16 && qMeta.titleId != "0000000000000000") {
                                         cnmtTids.add(qMeta.titleId)
+                                        if (qMeta.titleId.endsWith("800")) {
+                                            patchCnmtEntry = Pair(e, qMeta)
+                                        }
                                     }
                                 }
                                 ncaEntries.add(Pair(e, qMeta))
@@ -299,8 +341,22 @@ object StormNczEngine {
                         }
                     }
 
+                    if (patchCnmtEntry != null) {
+                        detectedPatchVer = extractVersionFromCnmtNca(raf, patchCnmtEntry.first.dataStartOffset, patchCnmtEntry.first.size, keysMap)
+                    }
+
                     val hasBaseCnmt = cnmtTids.any { it.endsWith("000") }
-                    val updCnmtTid = cnmtTids.firstOrNull { it.endsWith("800") }
+                    updCnmtTid = cnmtTids.firstOrNull { it.endsWith("800") }
+
+                    for ((e, qMeta) in ncaEntries) {
+                        if (qMeta.contentType == 0 && qMeta.titleId.endsWith("000") && !qMeta.hasBktrSection) {
+                            hasBaseProg = true
+                            if (baseProgTid.isEmpty()) baseProgTid = qMeta.titleId
+                        }
+                        if (qMeta.contentType == 0 && (qMeta.hasBktrSection || qMeta.titleId.endsWith("800"))) {
+                            hasUpdProg = true
+                        }
+                    }
 
                     for ((e, qMeta) in ncaEntries) {
                         val effTid = when {
@@ -330,7 +386,19 @@ object StormNczEngine {
                     }
                 }
 
-                if (sizeByTid.keys.size == 1) {
+                if (detectedPatchVer == 0) {
+                    val sem = extractDisplayVersionFromFileName(name)
+                    if (sem != null) detectedPatchVer = parseSwitchTitleVersionInt(sem, "ПАТЧ")
+                }
+                val hasBaseAny = hasBaseProg || cnmtTids.any { it.endsWith("000") }
+                if (hasBaseAny && updCnmtTid != null && !hasUpdProg) {
+                    isMonolithicHardPatch = true
+                }
+
+                val primaryBaseTid = if (baseProgTid.isNotEmpty()) baseProgTid else (cnmtTids.firstOrNull { it.endsWith("000") } ?: "")
+                if (primaryBaseTid.isNotEmpty()) {
+                    foundTid = primaryBaseTid
+                } else if (sizeByTid.keys.size == 1) {
                     foundTid = sizeByTid.keys.first()
                 } else if (foundTid.isEmpty() && sizeByTid.isNotEmpty()) {
                     foundTid = sizeByTid.keys.first()
@@ -340,7 +408,7 @@ object StormNczEngine {
                     for ((tid, sz) in sizeByTid) {
                         val pRole = when {
                             tid.endsWith("000") -> "БАЗА"
-                            tid.endsWith("800") -> "ПАТЧ"
+                            tid.endsWith("800") -> if (isMonolithicHardPatch) "ПАТЧ [Hard-Patch v$detectedPatchVer]" else "ПАТЧ"
                             sz <= 25L * 1024L * 1024L || unlockerKeywordRegex.containsMatchIn(name) -> "UNLOCKER"
                             else -> "DLC"
                         }
@@ -356,10 +424,19 @@ object StormNczEngine {
         val isSmallDlcUnlocker = isDlcTid && file.exists() && file.isFile && file.length() in 1L..(25L * 1024L * 1024L)
 
         val hasMultipleRolesInside = detectedSubParts.map { it.roleBadge }.distinct().size > 1
+        val hasBaseAny = hasBaseProg || detectedSubParts.any { it.roleBadge == "БАЗА" || it.titleId.endsWith("000") }
 
         val (roleBadge, roleOrder) = when {
             ext in listOf("zip", "rar", "7z", "tar", "gz", "tgz", "pchtxt", "ips", "bps") || file.isDirectory || lowerName.contains("mod") || lowerName.contains("rus") || lowerName.contains("русиф") ->
                 "МОД / РУС" to 4
+            hasBaseAny -> {
+                if (hasMultipleRolesInside && !isMonolithicHardPatch) {
+                    val rolesStr = detectedSubParts.map { it.roleBadge }.distinct().joinToString("+")
+                    "МУЛЬТИ ($rolesStr)" to 0
+                } else {
+                    "БАЗА" to 0
+                }
+            }
             hasMultipleRolesInside -> {
                 val rolesStr = detectedSubParts.map { it.roleBadge }.distinct().joinToString("+")
                 "МУЛЬТИ ($rolesStr)" to 0
@@ -410,7 +487,9 @@ object StormNczEngine {
             roleOrder = roleOrder,
             cleanGameName = cleanName,
             subComponents = detectedSubParts,
-            embeddedModNames = detectedMods
+            embeddedModNames = detectedMods,
+            embeddedPatchVersion = detectedPatchVer,
+            isMonolithicHardPatch = isMonolithicHardPatch
         )
     }
 
@@ -841,8 +920,10 @@ object StormNczEngine {
             writePfs0HeaderForSizes(fos, items)
             val buf = ByteArray(256 * 1024)
             for ((_, f) in inputFiles) {
+                checkCancelled()
                 FileInputStream(f).use { fis ->
                     while (true) {
+                        checkCancelled()
                         val r = fis.read(buf)
                         if (r <= 0) break
                         fos.write(buf, 0, r)
@@ -1041,9 +1122,11 @@ object StormNczEngine {
             val copyBuf = ByteArray(256 * 1024)
             val padBuf = ByteArray(0x200)
             for ((_, f) in inputFiles) {
+                checkCancelled()
                 val fLen = f.length()
                 FileInputStream(f).use { fis ->
                     while (true) {
+                        checkCancelled()
                         val r = fis.read(copyBuf)
                         if (r <= 0) break
                         bos.write(copyBuf, 0, r)
@@ -2163,6 +2246,7 @@ object StormNczEngine {
 
                 var batchStart = 0
                 while (batchStart < totalBlocks) {
+                    checkCancelled()
                     val countInBatch = minOf(batchSize, totalBlocks - batchStart)
                     val batchInputs = Array(countInBatch) { ByteArray(0) }
                     val batchVirtOffsets = LongArray(countInBatch)
@@ -2416,6 +2500,7 @@ object StormNczEngine {
                 var secCursor = 0
                 com.github.luben.zstd.ZstdInputStream(BufferedInputStream(boundedIn, 128 * 1024)).use { zis ->
                     while (true) {
+                        checkCancelled()
                         val r = zis.read(dstBuf)
                         if (r <= 0) break
                         val blkStart = currentVirtualOffset
@@ -2468,6 +2553,7 @@ object StormNczEngine {
             var secCursor = 0
 
             for (cSize in compSizes) {
+                checkCancelled()
                 val expectedDecomp = min(blockSize.toLong(), remaining).toInt()
                 val compChunk = ByteArray(cSize)
                 raf.readFully(compChunk)
@@ -2517,6 +2603,7 @@ object StormNczEngine {
             val buf = ByteArray(256 * 1024)
             var rem = size
             while (rem > 0) {
+                checkCancelled()
                 val toRead = min(buf.size.toLong(), rem).toInt()
                 val r = raf.read(buf, 0, toRead)
                 if (r <= 0) break
@@ -4057,6 +4144,7 @@ object StormNczEngine {
         // 2-й проход: извлечение и декомпрессия NCZ -> NCA с синтезом тикетов при rights_id != 0
         RandomAccessFile(inputFile, "r").use { raf ->
             for ((eIdx, e) in entries.withIndex()) {
+                checkCancelled()
                 if (e.name.startsWith("[XCI HEAD]") || e.dataStartOffset < 0L || e.size <= 0L) continue
                 val cleanName = e.name.substringAfterLast('/')
                 val lower = cleanName.lowercase()
@@ -4386,6 +4474,26 @@ object StormNczEngine {
             }
         }
 
+        // Проверяем наличие реальных модов в папке или архиве перед принудительной распаковкой одиночного .nsz
+        val hasExplicitMods = expandedInputFiles.any { f ->
+            val e = f.extension.lowercase()
+            f.isDirectory || e in listOf("zip", "rar", "7z", "tar", "gz", "tgz", "pchtxt", "ips", "bps")
+        }
+        fun hasActiveFolderMods(f: File): Boolean {
+            val candTid = strictTid16Regex.find(f.name)?.groupValues?.get(1)?.uppercase() ?: ""
+            val bTid = if (candTid.isNotEmpty()) normalizeBaseTitleId(candTid) else ""
+            if (bTid.isEmpty()) return false
+            val atmoModFolder = File("/storage/emulated/0/STORM SWITCH BOX/mods/atmosphere/contents/$bTid")
+            val directModFolder = File("/storage/emulated/0/STORM SWITCH BOX/mods/$bTid")
+            for (mDir in listOf(atmoModFolder, directModFolder)) {
+                if (mDir.exists() && mDir.isDirectory) {
+                    if (mDir.walkTopDown().maxDepth(5).any { it.isFile && !isPoisonedStubMainFile(it) && !isPoisonedFakeConfigIni(it) }) return true
+                }
+            }
+            return false
+        }
+        val hasActiveMods = embedMods && (hasExplicitMods || expandedInputFiles.any { hasActiveFolderMods(it) })
+
         // Этап 1 (как в ПК-версии MultiContentService.cs):
         // Если входные файлы имеют разные форматы (.nsz, .xci, .xcz) или выполняется сборка мульти-контента,
         // сначала приводим все не-NSP контейнеры к единому стандарту .nsp (PFS0 с распакованными .nca, .tik, .cert).
@@ -4393,7 +4501,7 @@ object StormNczEngine {
             expandedInputFiles.filter { it.exists() }.mapIndexed { idx, origFile ->
                 val ext = origFile.extension.lowercase()
                 val needsRecompression = (ext == "nsz" && shouldCompressNca && containerNeedsNczRecompression(origFile, useBlockNcz))
-                val step1File = if (ext in listOf("nsz", "xci", "xcz") && (expandedInputFiles.size > 1 || embedMods || !shouldCompressNca || ext in listOf("xci", "xcz") || needsRecompression)) {
+                val step1File = if (ext in listOf("nsz", "xci", "xcz") && (expandedInputFiles.size > 1 || hasActiveMods || !shouldCompressNca || ext in listOf("xci", "xcz") || needsRecompression)) {
                     normalizeContainerToTempNsp(origFile, tempNormDir, idx, keysMap, onProgress)
                 } else {
                     origFile
@@ -4419,7 +4527,7 @@ object StormNczEngine {
         }.map { it.file }
 
         val patchFileCanonicalPaths = analyzedInputs.filter {
-            it.roleBadge == "ПАТЧ" || it.subComponents.any { sc -> sc.roleBadge == "ПАТЧ" }
+            it.roleBadge == "ПАТЧ"
         }.map { try { it.file.canonicalPath } catch (_: Exception) { it.file.absolutePath } }.toSet()
 
         val ncaSortPriorityMap = HashMap<String, Int>()
@@ -4472,10 +4580,7 @@ object StormNczEngine {
                     val containerHasBaseCnmt = containerCnmtTids.any { it.endsWith("000") }
                     val containerUpdCnmtTid = containerCnmtTids.firstOrNull { it.endsWith("800") }
                     val isPatchContainer = (fileCanPath in patchFileCanonicalPaths) ||
-                        fileTid.endsWith("800") ||
-                        f.name.contains("800") ||
-                        Regex("""(?i)\b(upd|update|patch)\b""").containsMatchIn(f.name) ||
-                        (!containerHasBaseCnmt && containerUpdCnmtTid != null)
+                        (!containerHasBaseCnmt && containerUpdCnmtTid != null && !f.name.contains("000"))
 
                     for ((entryOrderIdx, e) in entries.withIndex()) {
                         if (e.name.startsWith("[XCI HEAD]") || e.dataStartOffset < 0L || e.size <= 0L) continue
@@ -4660,6 +4765,62 @@ object StormNczEngine {
                 } == true)
             }
 
+            val baseItemInfo = analyzedInputs.firstOrNull { it.roleBadge == "БАЗА" || it.subComponents.any { sc -> sc.roleBadge == "БАЗА" } }
+            val isMonolithContainer = baseItemInfo?.isMonolithicHardPatch == true
+            val monolithEmbeddedPatchVer = baseItemInfo?.embeddedPatchVersion ?: 0
+
+            val updItemInfo = analyzedInputs.firstOrNull { it.roleBadge == "ПАТЧ" }
+            val newPatchVer = updItemInfo?.embeddedPatchVersion ?: 0
+
+            // Ветка 1: Обычный мульти-контентный контейнер + Новое обновление (vNew > vOld) / Новые DLC
+            val allUpdProgEntries = collected.entries.filter { (k, _) -> ncaContentTypeMap[k] == 0 && isUpdateProg(k) }
+            if (allUpdProgEntries.size > 1 && updItemInfo != null) {
+                val keepUpd = allUpdProgEntries.firstOrNull { (_, src) ->
+                    try { src.parentFile.canonicalPath == updItemInfo.file.canonicalPath } catch (_: Exception) { false }
+                } ?: allUpdProgEntries.maxByOrNull { it.value.size }!!
+                for (other in allUpdProgEntries) {
+                    if (other.key != keepUpd.key) {
+                        val oldParent = other.value.parentFile
+                        collected.remove(other.key)
+                        ncaSortPriorityMap.remove(other.key)
+                        ncaContentTypeMap.remove(other.key)
+                        ncaTitleIdMap.remove(other.key)
+                        ncaRightsIdMap.remove(other.key)
+                        ncaHasBktrMap.remove(other.key)
+                        ncaIsUpdateMap.remove(other.key)
+                        val oldPatchCnmts = collected.keys.filter { ck ->
+                            ncaContentTypeMap[ck] == 1 && ncaTitleIdMap[ck]?.endsWith("800") == true && collected[ck]?.parentFile == oldParent
+                        }.toList()
+                        for (opk in oldPatchCnmts) {
+                            collected.remove(opk)
+                            ncaSortPriorityMap.remove(opk)
+                            ncaContentTypeMap.remove(opk)
+                            ncaTitleIdMap.remove(opk)
+                        }
+                    }
+                }
+            }
+
+            // Дедупликация DLC с одинаковым TitleID (оставляем с наибольшим размером/версией)
+            val dlcEntriesByTid = collected.entries.filter { (k, _) ->
+                val t = ncaTitleIdMap[k] ?: ""
+                t.length == 16 && !t.endsWith("000") && !t.endsWith("800")
+            }.groupBy { ncaTitleIdMap[it.key]!! }
+            for ((_, dlcList) in dlcEntriesByTid) {
+                if (dlcList.size > 1) {
+                    val keepDlc = dlcList.maxByOrNull { it.value.size }!!
+                    for (other in dlcList) {
+                        if (other.key != keepDlc.key) {
+                            collected.remove(other.key)
+                            ncaSortPriorityMap.remove(other.key)
+                            ncaContentTypeMap.remove(other.key)
+                            ncaTitleIdMap.remove(other.key)
+                            ncaRightsIdMap.remove(other.key)
+                        }
+                    }
+                }
+            }
+
             // Защита от дублирования базовых Program NCA (чтобы в один контейнер никогда не упаковались 2 копии игры > 2 ГБ)
             // ВАЖНО: Разделы Program NCA из обновлений (включая Full Replacement Program без BKTR, как в Celeste)
             // никогда не считаются дубликатами базы и не удаляются!
@@ -4702,7 +4863,14 @@ object StormNczEngine {
             var hardPatchFailure: String? = null
             var hardPatchApplied = false
             var hardPatchSummary = ""
-            if (baseProgEntry != null && (updProgEntry != null || (stagedModRoot != null && embeddedModsCount > 0))) {
+
+            val shouldRunHardPatch = baseProgEntry != null && (
+                updProgEntry != null ||
+                (stagedModRoot != null && embeddedModsCount > 0) ||
+                (isMonolithContainer && (stagedModRoot != null && embeddedModsCount > 0))
+            )
+
+            if (shouldRunHardPatch && baseProgEntry != null) {
                 // Hard-Patch читает разделы NCA напрямую: сжатые NCZ (из NSZ / XCZ) сначала распаковываем во временный NCA
                 fun materializeNczEntry(src: SubSource, label: String): SubSource {
                     if (!src.entryName.endsWith(".ncz", ignoreCase = true)) return src
@@ -4742,6 +4910,7 @@ object StormNczEngine {
                     hardPatchFailure = "не удалось распаковать сжатый раздел NCZ для Hard-Patch: ${e.message ?: e.javaClass.simpleName}"
                 }
                 val hpOut = if (hpBase != null && hardPatchFailure == null) {
+                    val isMonolithUpgrade = isMonolithContainer && (updProgEntry != null)
                     val hpInputRefs = StandaloneHardPatchRefs(
                         primaryTid = primaryTid,
                         baseProgKey = baseProgEntry.key,
@@ -4755,7 +4924,10 @@ object StormNczEngine {
                         updProgSize = hpUpd?.size ?: 0L,
                         updProgRightsId = updProgEntry?.let { ncaRightsIdMap[it.key] } ?: "",
                         stagedModDir = stagedModRoot,
-                        auxCandidates = hpAux
+                        auxCandidates = hpAux,
+                        isMonolithUpgrade = isMonolithUpgrade,
+                        existingPatchVersion = monolithEmbeddedPatchVer,
+                        newPatchVersion = newPatchVer
                     )
                     executeStandaloneHardPatchToTempNcas(
                         refs = hpInputRefs,
@@ -5549,6 +5721,7 @@ object StormNczEngine {
     )
 
     private fun makeProg(pct: Int, stage: String, curFile: String = "", done: Long = 0L, total: Long = 100L): NczProgress {
+        checkCancelled()
         return NczProgress(
             currentFile = curFile,
             fileIndex = 1,
@@ -6985,6 +7158,7 @@ object StormNczEngine {
         BufferedInputStream(FileInputStream(file), 256 * 1024).use { bis ->
             val buf = ByteArray(256 * 1024)
             while (true) {
+                checkCancelled()
                 val r = bis.read(buf)
                 if (r <= 0) break
                 md.update(buf, 0, r)
@@ -8649,6 +8823,12 @@ object StormNczEngine {
         }
     }
 
+    enum class BktrSourceType {
+        ALL_PATCH,
+        ALL_BASE,
+        MIXED
+    }
+
     class BktrRomfsSectionReader(
         private val baseReader: RomfsSectionReader,
         private val patchRaf: RandomAccessFile,
@@ -8663,6 +8843,59 @@ object StormNczEngine {
 
         private val relocRuns = ArrayList<RelocRun>()
         private val subRuns = ArrayList<SubRun>()
+
+        fun classifyRangeSource(virtStart: Long, length: Long): BktrSourceType {
+            if (length <= 0L || relocRuns.isEmpty()) return BktrSourceType.ALL_PATCH
+            val virtEnd = virtStart + length
+            var hasPatch = false
+            var hasBase = false
+            for (r in relocRuns) {
+                if (r.virtEnd <= virtStart) continue
+                if (r.virtOff >= virtEnd) break
+                if (r.isPatch) hasPatch = true else hasBase = true
+                if (hasPatch && hasBase) return BktrSourceType.MIXED
+            }
+            return when {
+                hasPatch && !hasBase -> BktrSourceType.ALL_PATCH
+                !hasPatch && hasBase -> BktrSourceType.ALL_BASE
+                else -> BktrSourceType.ALL_PATCH
+            }
+        }
+
+        fun readHybridBytes(virtOffset: Long, length: Int, monoBaseReader: RomfsSectionReader, monoFileAbsStart: Long): ByteArray {
+            if (length <= 0) return ByteArray(0)
+            if (relocRuns.isEmpty()) return monoBaseReader.readBytes(monoFileAbsStart, length)
+            val out = ByteArray(length)
+            var done = 0
+            while (done < length) {
+                val curVirt = virtOffset + done
+                var lo = 0
+                var hi = relocRuns.size - 1
+                var matched: RelocRun? = null
+                while (lo <= hi) {
+                    val mid = (lo + hi) ushr 1
+                    val r = relocRuns[mid]
+                    if (curVirt < r.virtOff) hi = mid - 1
+                    else if (curVirt >= r.virtEnd) lo = mid + 1
+                    else { matched = r; break }
+                }
+                if (matched == null) {
+                    val fallback = monoBaseReader.readBytes(monoFileAbsStart + done, length - done)
+                    System.arraycopy(fallback, 0, out, done, fallback.size)
+                    break
+                }
+                val chunk = minOf((length - done).toLong(), matched.virtEnd - curVirt).toInt()
+                val part = if (matched.isPatch) {
+                    val srcPhys = matched.physOff + (curVirt - matched.virtOff)
+                    readPatchPhysical(srcPhys, chunk)
+                } else {
+                    monoBaseReader.readBytes(monoFileAbsStart + done, chunk)
+                }
+                System.arraycopy(part, 0, out, done, chunk)
+                done += chunk
+            }
+            return out
+        }
 
         init {
             val fbb = ByteBuffer.wrap(fsHeaderBytes).order(ByteOrder.LITTLE_ENDIAN)
@@ -8850,10 +9083,33 @@ object StormNczEngine {
                 var rem = size
                 var cur = sectionRelOffset
                 while (rem > 0L) {
+                    checkCancelled()
                     val chunk = minOf(rem, 262144L).toInt()
                     val data = reader.readBytes(cur, chunk)
                     sink(data, data.size)
                     cur += chunk
+                    rem -= chunk
+                }
+            }
+        }
+
+        class MonolithHybridRomfsSource(
+            val bktrReader: BktrRomfsSectionReader,
+            val patchFileVirtStart: Long,
+            val baseReader: RomfsSectionReader,
+            val monoFileRealStart: Long,
+            override val size: Long
+        ) : VirtualRomfsSource() {
+            override fun copyToSink(sink: (ByteArray, Int) -> Unit) {
+                var rem = size
+                var curRel = 0L
+                while (rem > 0L) {
+                    checkCancelled()
+                    val chunk = minOf(rem, 262144L).toInt()
+                    val virtPos = patchFileVirtStart + curRel
+                    val chunkBytes = bktrReader.readHybridBytes(virtPos, chunk, baseReader, monoFileRealStart + curRel)
+                    sink(chunkBytes, chunkBytes.size)
+                    curRel += chunk
                     rem -= chunk
                 }
             }
@@ -8920,6 +9176,7 @@ object StormNczEngine {
         }
 
         for (rel in sortedRelPaths) {
+            checkCancelled()
             val src = sourceByClean[rel] ?: continue
             val parts = rel.split('/').filter { it.isNotEmpty() }
             if (parts.isEmpty()) continue
@@ -9068,6 +9325,7 @@ object StormNczEngine {
             written += plan.headerAndMetaBytes.size.toLong()
         }
         for ((targetAbsOff, expectedSize, src) in plan.fileSchedule) {
+            checkCancelled()
             while (written < targetAbsOff) {
                 val gap = minOf(targetAbsOff - written, zeroPad.size.toLong()).toInt()
                 writeChunk(zeroPad, gap)
@@ -9243,7 +9501,10 @@ object StormNczEngine {
         val updProgSize: Long,
         val updProgRightsId: String,
         val stagedModDir: File?,
-        val auxCandidates: List<AuxNcaCandidate>
+        val auxCandidates: List<AuxNcaCandidate>,
+        val isMonolithUpgrade: Boolean = false,
+        val existingPatchVersion: Int = 0,
+        val newPatchVersion: Int = 0
     )
 
     data class StandaloneHardPatchOutput(
@@ -9538,22 +9799,78 @@ object StormNczEngine {
                 }
             }
 
-            val parsedRomfs = parseRomfsMetadataFromReader(activeRomfsReader, activeLv6Off)
-            if (parsedRomfs.files.isEmpty()) {
-                onFailure("RomFS игры пуст или не расшифрован — вероятно, нет ключа раздачи (title key) или устарели prod.keys")
-                return null
-            }
-
             val mergedRomfsMap = LinkedHashMap<String, VirtualRomfsSource>()
             val caseInsensitiveLookup = HashMap<String, String>()
-            for ((relPath, metaPair) in parsedRomfs.files) {
-                val cleanRel = relPath.replace('\\', '/').trim('/')
-                mergedRomfsMap[cleanRel] = VirtualRomfsSource.ReaderSlice(
-                    reader = activeRomfsReader,
-                    sectionRelOffset = activeLv6Off + parsedRomfs.dataOffset + metaPair.first,
-                    size = metaPair.second
-                )
-                caseInsensitiveLookup[cleanRel.lowercase()] = cleanRel
+
+            if (refs.isMonolithUpgrade && updRaf != null) {
+                // Путь Б: Файловый апгрейд RomFS для Монолитного контейнера
+                val monolithFileMap = parseRomfsMetadataFromReader(baseRomfsReader, baseLv6Off)
+                val caseInsensitiveMono = HashMap<String, Pair<Long, Long>>()
+                for ((k, v) in monolithFileMap.files) {
+                    caseInsensitiveMono[k.lowercase()] = v
+                }
+
+                val patchFileMap = parseRomfsMetadataFromReader(activeRomfsReader, activeLv6Off)
+                if (patchFileMap.files.isEmpty()) {
+                    onFailure("RomFS нового обновления пуст или не расшифрован")
+                    return null
+                }
+
+                val bktrReader = activeRomfsReader as? BktrRomfsSectionReader
+
+                for ((relPath, patchPair) in patchFileMap.files) {
+                    val cleanRel = relPath.replace('\\', '/').trim('/')
+                    val patchRelOff = patchPair.first
+                    val patchSize = patchPair.second
+                    val virtStart = activeLv6Off + patchFileMap.dataOffset + patchRelOff
+
+                    val monoPair = monolithFileMap.files[cleanRel] ?: caseInsensitiveMono[cleanRel.lowercase()]
+                    val sourceType = bktrReader?.classifyRangeSource(virtStart, patchSize) ?: BktrSourceType.ALL_PATCH
+
+                    when {
+                        sourceType == BktrSourceType.ALL_BASE && monoPair != null -> {
+                            val monoRealStart = baseLv6Off + monolithFileMap.dataOffset + monoPair.first
+                            mergedRomfsMap[cleanRel] = VirtualRomfsSource.ReaderSlice(
+                                reader = baseRomfsReader,
+                                sectionRelOffset = monoRealStart,
+                                size = monoPair.second
+                            )
+                        }
+                        sourceType == BktrSourceType.MIXED && monoPair != null && bktrReader != null -> {
+                            val monoRealStart = baseLv6Off + monolithFileMap.dataOffset + monoPair.first
+                            mergedRomfsMap[cleanRel] = VirtualRomfsSource.MonolithHybridRomfsSource(
+                                bktrReader = bktrReader,
+                                patchFileVirtStart = virtStart,
+                                baseReader = baseRomfsReader,
+                                monoFileRealStart = monoRealStart,
+                                size = patchSize
+                            )
+                        }
+                        else -> {
+                            mergedRomfsMap[cleanRel] = VirtualRomfsSource.ReaderSlice(
+                                reader = activeRomfsReader,
+                                sectionRelOffset = virtStart,
+                                size = patchSize
+                            )
+                        }
+                    }
+                    caseInsensitiveLookup[cleanRel.lowercase()] = cleanRel
+                }
+            } else {
+                val parsedRomfs = parseRomfsMetadataFromReader(activeRomfsReader, activeLv6Off)
+                if (parsedRomfs.files.isEmpty()) {
+                    onFailure("RomFS игры пуст или не расшифрован — вероятно, нет ключа раздачи (title key) или устарели prod.keys")
+                    return null
+                }
+                for ((relPath, metaPair) in parsedRomfs.files) {
+                    val cleanRel = relPath.replace('\\', '/').trim('/')
+                    mergedRomfsMap[cleanRel] = VirtualRomfsSource.ReaderSlice(
+                        reader = activeRomfsReader,
+                        sectionRelOffset = activeLv6Off + parsedRomfs.dataOffset + metaPair.first,
+                        size = metaPair.second
+                    )
+                    caseInsensitiveLookup[cleanRel.lowercase()] = cleanRel
+                }
             }
 
             val modRomfsDir = refs.stagedModDir?.let { File(it, "romfs") }
@@ -9868,8 +10185,19 @@ object StormNczEngine {
                 .mapNotNull { extractDisplayVersionFromFileName(it.parentFile.name) }
                 .lastOrNull()
                 ?: refs.updProgParent?.name?.let { extractDisplayVersionFromFileName(it) }
-                ?: "1.0.10"
-            val verStr = if (updRaf != null) detectedUpdateVer else "0"
+                ?: (if (refs.newPatchVersion > 0) refs.newPatchVersion.toString() else if (refs.existingPatchVersion > 0) refs.existingPatchVersion.toString() else "1.0.10")
+
+            val effPatchVerStr = if (refs.newPatchVersion > 0) {
+                refs.newPatchVersion.toString()
+            } else if (updRaf != null) {
+                detectedUpdateVer
+            } else if (refs.existingPatchVersion > 0) {
+                refs.existingPatchVersion.toString()
+            } else {
+                detectedUpdateVer
+            }
+
+            val verStr = if (updRaf != null || refs.existingPatchVersion > 0) effPatchVerStr else "0"
             val cnmtFile = buildBinaryCnmtNca(
                 workDir = tempDir,
                 tidHex = cleanTid,
@@ -9884,7 +10212,7 @@ object StormNczEngine {
                 controlSize = finalCtrlFile?.length() ?: 0L
             )
 
-            val patchCnmtFile = if (updRaf != null) {
+            val patchCnmtFile = if (updRaf != null || refs.existingPatchVersion > 0) {
                 val patchTidHex = cleanTid.take(13) + "800"
                 val patchTidLong = patchTidHex.toULongOrNull(16)?.toLong() ?: (tidLong + 0x800L)
                 buildBinaryCnmtNca(
@@ -9892,7 +10220,7 @@ object StormNczEngine {
                     tidHex = patchTidHex,
                     tidLong = patchTidLong,
                     roleUp = "ПАТЧ",
-                    versionStr = detectedUpdateVer,
+                    versionStr = effPatchVerStr,
                     progSha256 = progSha256,
                     progNcaIdBytes = progSha256.copyOfRange(0, 16),
                     progSize = finalProgFile.length(),

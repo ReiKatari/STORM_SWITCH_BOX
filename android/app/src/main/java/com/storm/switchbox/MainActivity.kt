@@ -154,6 +154,7 @@ class MainActivity : Activity() {
 
     @Volatile private var isTaskRunning = false
     @Volatile private var cancelCurrentTaskRequested = false
+    @Volatile private var activeQueueThread: Thread? = null
 
     enum class BgTaskState {
         RUNNING,
@@ -899,7 +900,7 @@ class MainActivity : Activity() {
         }
 
         buildUserInterface()
-        appendLog("STORM SWITCH BOX ${"6.8.2"} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) готов к работе.")
+        appendLog("STORM SWITCH BOX ${"6.8.3"} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) готов к работе.")
         // Автоматическая проверка обновлений с GitHub при запуске
         if (autoCheckUpdatesOnStartup) {
             checkForUpdatesFromGitHub(isManualClick = false)
@@ -1463,7 +1464,7 @@ class MainActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
         titleCol.addView(TextView(this).apply {
-            text = "STORM SWITCH BOX ${"6.8.2"}"
+            text = "STORM SWITCH BOX ${"6.8.3"}"
             setTextColor(th.textPrimary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
             typeface = Typeface.DEFAULT_BOLD
@@ -2667,6 +2668,8 @@ class MainActivity : Activity() {
 
         val btnStop = makeButton("⏹ Отменить задачу", Color.parseColor("#DC2626")) {
             cancelCurrentTaskRequested = true
+            StormNczEngine.cancelRequested = true
+            activeQueueThread?.interrupt()
             if (isTaskRunning) {
                 statusTxt.text = "⏹ Задача отменена пользователем (остановка конвейера...)"
                 Toast.makeText(this, "⏹ Задача отменена пользователем", Toast.LENGTH_SHORT).show()
@@ -2691,10 +2694,11 @@ class MainActivity : Activity() {
     private fun executeQueueBatch(progressBar: ProgressBar, statusTxt: TextView) {
         isTaskRunning = true
         cancelCurrentTaskRequested = false
+        StormNczEngine.cancelRequested = false
         val snapshot = queuedFiles.toList()
         customOutputDir.mkdirs()
 
-        thread {
+        activeQueueThread = thread {
             try {
                 val useBlockForFormat = (selectedOutputFormat == 0 || selectedOutputFormat == 1)
                 val effectiveLevel = when (selectedOperationMode) {
@@ -2723,9 +2727,14 @@ class MainActivity : Activity() {
                         val tempTrimmedFiles = mutableListOf<File>()
 
                         val cb: (StormNczEngine.NczProgress) -> Unit = { p ->
+                            if (cancelCurrentTaskRequested || StormNczEngine.cancelRequested) {
+                                throw java.util.concurrent.CancellationException("Задача отменена пользователем")
+                            }
                             mainHandler.post {
-                                progressBar.progress = p.percent
-                                statusTxt.text = "$prefix ${p.stageText} (${p.percent}%)"
+                                if (!cancelCurrentTaskRequested && !StormNczEngine.cancelRequested) {
+                                    progressBar.progress = p.percent
+                                    statusTxt.text = "$prefix ${p.stageText} (${p.percent}%)"
+                                }
                             }
                         }
 
@@ -2814,9 +2823,14 @@ class MainActivity : Activity() {
                         val prefix = "[${idx + 1}/${snapshot.size}]"
 
                         val cb: (StormNczEngine.NczProgress) -> Unit = { p ->
+                            if (cancelCurrentTaskRequested || StormNczEngine.cancelRequested) {
+                                throw java.util.concurrent.CancellationException("Задача отменена пользователем")
+                            }
                             mainHandler.post {
-                                progressBar.progress = p.percent
-                                statusTxt.text = "$prefix ${p.stageText} (${p.percent}%)"
+                                if (!cancelCurrentTaskRequested && !StormNczEngine.cancelRequested) {
+                                    progressBar.progress = p.percent
+                                    statusTxt.text = "$prefix ${p.stageText} (${p.percent}%)"
+                                }
                             }
                         }
 
@@ -2936,6 +2950,12 @@ class MainActivity : Activity() {
                         statusTxt.text = "✅ Обработано файлов: $successCount/${snapshot.size} • Сэкономлено: ${StormNczEngine.formatSize(saved)}"
                     }
                 }
+            } catch (e: java.util.concurrent.CancellationException) {
+                appendLog("⏹ Задача отменена пользователем")
+                mainHandler.post {
+                    progressBar.progress = 0
+                    statusTxt.text = "⏹ Задача отменена пользователем"
+                }
             } catch (e: Exception) {
                 appendLog("❌ Ошибка пакетной очереди: ${e.message}")
                 mainHandler.post {
@@ -2943,6 +2963,9 @@ class MainActivity : Activity() {
                 }
             } finally {
                 isTaskRunning = false
+                cancelCurrentTaskRequested = false
+                StormNczEngine.cancelRequested = false
+                activeQueueThread = null
             }
         }
     }
@@ -4735,7 +4758,7 @@ class MainActivity : Activity() {
                     "21. Nintendo Switch 2 (Ounce / NVN2)",
                     "Экосистемы",
                     "SWITCH 2",
-                    "STORM SWITCH BOX 6.8.2 включает полную поддержку следующего поколения игровых систем Nintendo — Nintendo Switch 2 (кодовое имя «Ounce» / API «NVN2»):\n" +
+                    "STORM SWITCH BOX 6.8.3 включает полную поддержку следующего поколения игровых систем Nintendo — Nintendo Switch 2 (кодовое имя «Ounce» / API «NVN2»):\n" +
                     "• Идентификация дампов: TitleID игр Switch 2 начинается с префикса «0400...» (в отличие от «0100...» у Switch 1), извлекаемый напрямую из main.npdm (заголовок META -> секция ACI0 + 0x10).\n" +
                     "• Авто-сборка из папок дампа: при перетаскивании каталога дампа Switch 2 (содержащего base/exefs/main.npdm, base/romfs, updates/<версия> и dlc/<tid>) программа автоматически объединяет базовую игру, самое свежее обновление, все DLC и моды в 1 монолитный контейнер (.nsp, .nsz, .xci, .xcz).\n" +
                     "• Авто-генерация Control NCA: создание control.nacp на 16 языках и получение официальной 256×256 обложки через Nintendo Europe Search API / Steam.\n" +
@@ -4748,7 +4771,7 @@ class MainActivity : Activity() {
                     "22. RuTracker: Чеклист ссылок обсуждения и DLC Unlocker",
                     "Сеть, Ключи и База",
                     "RUTRACKER",
-                    "В версии 6.8.2 усовершенствован модуль интеграции с RuTracker (#1605):\n" +
+                    "В версии 6.8.3 усовершенствован модуль интеграции с RuTracker (#1605):\n" +
                     "• Чеклист ссылок из темы обсуждения: все полезные ссылки (русификаторы, моды, патчи 60 FPS, читы), найденные в комментариях и шапке темы раздачи, отображаются с датами публикации сообщений.\n" +
                     "• Выборочная загрузка: можно отметить только нужные модификации чекбоксами перед стартом сборки.\n" +
                     "• DLC Unlocker: автоматическое управление анлокерами дополнений и синхронизация тикетов.",
@@ -5503,7 +5526,7 @@ class MainActivity : Activity() {
         }
         updCard.addView(makeSectionHeader(
             "2. Обновление STORM SWITCH BOX (GitHub и STORM GAMES WORLD)",
-            "Текущая версия: ${try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.8.2" } catch (_: Exception) { "6.8.2" }} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) • Проверка на 2 официальных площадках",
+            "Текущая версия: ${try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.8.3" } catch (_: Exception) { "6.8.3" }} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) • Проверка на 2 официальных площадках",
             th
         ))
         updCard.addView(makeStormCheckBox(
@@ -6234,7 +6257,7 @@ class MainActivity : Activity() {
             Toast.makeText(this, "⏳ Проверка обновлений на GitHub и STORM GAMES WORLD...", Toast.LENGTH_SHORT).show()
         }
         val preferLegacy = (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) || Build.VERSION.SDK_INT < 26
-        val currentAppVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.8.2" } catch (_: Exception) { "6.8.2" }
+        val currentAppVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.8.3" } catch (_: Exception) { "6.8.3" }
         thread {
             val rel = RuTrackerCloudEngine.checkGitHubAppUpdate(currentAppVer, preferLegacy)
             mainHandler.post {
@@ -6265,7 +6288,7 @@ class MainActivity : Activity() {
             typeface = Typeface.DEFAULT_BOLD
         })
         box.addView(TextView(this).apply {
-            val installedVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.8.2" } catch (_: Exception) { "6.8.2" }
+            val installedVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.8.3" } catch (_: Exception) { "6.8.3" }
             text = "Новая версия: ${release.version} (Установлена: $installedVer)\nИсточник: ${release.sourceName}\nПакет: ${release.apkName} (${StormNczEngine.formatSize(release.apkSizeBytes)})"
             setTextColor(th.textPrimary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)

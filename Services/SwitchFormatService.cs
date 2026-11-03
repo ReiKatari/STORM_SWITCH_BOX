@@ -104,6 +104,12 @@ namespace StormSwitchBox.Services
 
                 SmartShrinkService.HarvestTicketsFromFileSystem(fileSystem, _keysService.CurrentKeyset);
 
+                var baseCnmts = new List<(string Tid, uint Ver)>();
+                var patchCnmts = new List<(string Tid, uint Ver)>();
+                var dlcCnmts = new List<(string Tid, uint Ver)>();
+                var programNcas = new List<(string NcaName, ulong Tid)>();
+                var allContainedTids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
                 foreach (var entry in fileSystem.EnumerateEntries().Where(e => e.Name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase)))
                 {
                     using var ncaFileRef = new UniqueRef<IFile>();
@@ -144,19 +150,21 @@ namespace StormSwitchBox.Services
                                 ulong titleId = BitConverter.ToUInt64(cnmtBytes, 0x00);
                                 uint version = BitConverter.ToUInt32(cnmtBytes, 0x08);
                                 byte typeByte = cnmtBytes[0x0C];
+                                string tidStr = titleId.ToString("X16");
+                                allContainedTids.Add(tidStr);
 
-                                info.TitleId = titleId.ToString("X16");
-                                info.Version = version.ToString();
-                                
-                                if (typeByte == 0x80) info.ContentType = "Application";
-                                else if (typeByte == 0x81) info.ContentType = "Patch";
-                                else if (typeByte == 0x82) info.ContentType = "AddOnContent";
-                                else info.ContentType = "Unknown";
-                                
-                                App.Logger.Log($"[LibHac] Распознан контент: {info.TitleId} | Тип: {info.ContentType} | v{info.Version}", Models.LogLevel.Debug);
-                                // Не возвращаем info сразу, чтобы дождаться парсинга Control NCA
+                                if (typeByte == 0x80) baseCnmts.Add((tidStr, version));
+                                else if (typeByte == 0x81) patchCnmts.Add((tidStr, version));
+                                else if (typeByte == 0x82) dlcCnmts.Add((tidStr, version));
+
+                                App.Logger.Log($"[LibHac] Запись CNMT: {tidStr} | Тип: {typeByte:X2} | v{version}", Models.LogLevel.Debug);
                             }
                         }
+                    }
+                    else if (nca.Header.ContentType == NcaContentType.Program)
+                    {
+                        programNcas.Add((entry.Name, nca.Header.TitleId));
+                        if (nca.Header.TitleId != 0) allContainedTids.Add(nca.Header.TitleId.ToString("X16"));
                     }
                     else if (nca.Header.ContentType == NcaContentType.Control)
                     {
@@ -180,6 +188,65 @@ namespace StormSwitchBox.Services
                             }
                         }
                     }
+                }
+
+                info.ContainedTitleIds = allContainedTids.ToList();
+                info.HasBaseCnmt = baseCnmts.Count > 0;
+                info.HasPatchCnmt = patchCnmts.Count > 0;
+                info.HasProgramNca = programNcas.Count > 0;
+
+                bool hasSeparatePatchProg = programNcas.Any(p => p.Tid.ToString("X16").EndsWith("800", StringComparison.OrdinalIgnoreCase)) ||
+                                            (programNcas.Count >= 2 && patchCnmts.Count > 0);
+                info.HasPatchProgramNca = hasSeparatePatchProg;
+
+                if (baseCnmts.Count > 0 && patchCnmts.Count > 0)
+                {
+                    // Содержит И Base CNMT/NCA (...000), И Patch CNMT (...800)
+                    // ОБЯЗАНО распознаваться как Base/Monolith донор (...000) с EmbeddedPatchVersion = vOld
+                    // и IsMonolithicHardPatch = true/false (содержит ...000 Program NCA + ...800 CNMT без отдельного ...800 Program NCA)
+                    // и НИКОГДА не классифицироваться как standalone Patch (...800) или пропускаться!
+                    var b = baseCnmts[0];
+                    var p = patchCnmts.OrderByDescending(x => x.Ver).First();
+
+                    info.TitleId = b.Tid.ToUpperInvariant();
+                    info.ContentType = "Application";
+                    info.EmbeddedPatchVersion = p.Ver;
+                    info.Version = p.Ver > 0 ? p.Ver.ToString() : b.Ver.ToString();
+                    info.IsMonolithicHardPatch = !hasSeparatePatchProg;
+                    info.BaseTitleId = b.Tid.ToUpperInvariant();
+                    info.PatchTitleId = p.Tid.ToUpperInvariant();
+                    App.Logger.Log($"[LibHac] Контейнер распознан: {info.TitleId} | Монолит: {info.IsMonolithicHardPatch} | Base v{b.Ver} | Embedded Patch v{info.EmbeddedPatchVersion}", Models.LogLevel.Info);
+                }
+                else if (baseCnmts.Count > 0)
+                {
+                    var b = baseCnmts[0];
+                    info.TitleId = b.Tid.ToUpperInvariant();
+                    info.ContentType = "Application";
+                    info.Version = b.Ver.ToString();
+                    info.EmbeddedPatchVersion = 0;
+                    info.IsMonolithicHardPatch = false;
+                    info.BaseTitleId = b.Tid.ToUpperInvariant();
+                    App.Logger.Log($"[LibHac] Распознан чистый Base контент: {info.TitleId} | v{info.Version}", Models.LogLevel.Info);
+                }
+                else if (patchCnmts.Count > 0)
+                {
+                    var p = patchCnmts.OrderByDescending(x => x.Ver).First();
+                    info.TitleId = p.Tid.ToUpperInvariant();
+                    info.ContentType = "Patch";
+                    info.Version = p.Ver.ToString();
+                    info.EmbeddedPatchVersion = p.Ver;
+                    info.IsMonolithicHardPatch = false;
+                    info.PatchTitleId = p.Tid.ToUpperInvariant();
+                    App.Logger.Log($"[LibHac] Распознано обновление: {info.TitleId} | v{info.Version}", Models.LogLevel.Info);
+                }
+                else if (dlcCnmts.Count > 0)
+                {
+                    var d = dlcCnmts[0];
+                    info.TitleId = d.Tid.ToUpperInvariant();
+                    info.ContentType = "AddOnContent";
+                    info.Version = d.Ver.ToString();
+                    info.IsMonolithicHardPatch = false;
+                    App.Logger.Log($"[LibHac] Распознано дополнение: {info.TitleId} | v{info.Version}", Models.LogLevel.Info);
                 }
             }
             catch (Exception ex)

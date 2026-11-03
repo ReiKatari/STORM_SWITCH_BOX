@@ -12,6 +12,8 @@ using LibHac.Fs;
 using LibHac.Fs.Fsa;
 using LibHac.FsSystem;
 using LibHac.Tools.FsSystem;
+using LibHac.Tools.FsSystem.NcaUtils;
+using LibHac.Tools.FsSystem.RomFs;
 
 namespace StormSwitchBox.Services
 {
@@ -25,7 +27,7 @@ namespace StormSwitchBox.Services
             _keysService = keysService;
         }
 
-        public async Task PatchUpdateAsync(Models.ProcessingTask task, List<string> inputFiles, string outPath, CancellationToken cancellationToken, bool isMultiContent = false, string explicitBaseFile = "", string explicitUpdateFile = "")
+        public async Task PatchUpdateAsync(Models.ProcessingTask task, List<string> inputFiles, string outPath, CancellationToken cancellationToken, bool isMultiContent = false, string explicitBaseFile = "", string explicitUpdateFile = "", bool? isMonolithUpgrade = null)
         {
             App.RunOnUI(() =>
             {
@@ -483,8 +485,203 @@ namespace StormSwitchBox.Services
                 bool yanuUpdateSuccess = false;
                 long baseSize = (!string.IsNullOrEmpty(baseFile) && File.Exists(baseFile)) ? new FileInfo(baseFile).Length : 0;
 
+                // Распознавание монолитного Hard-Patch образа и извлечение 4 KB Patch CNMT (...800.cnmt.nca)
+                var baseInfo = App.SwitchFormat.ParseNsp(baseFile);
+                bool isMonolithicBase = baseInfo.IsMonolithicHardPatch;
+                bool isUpgrade = isMonolithUpgrade ?? (isMonolithicBase && !string.IsNullOrEmpty(updateFile));
+
+                byte[]? patchCnmtNcaBytes = null;
+                string? patchCnmtFileName = null;
+
+                if (!string.IsNullOrEmpty(updateFile) && File.Exists(updateFile))
+                {
+                    try
+                    {
+                        using var uFs = new FileStream(updateFile, FileMode.Open, FileAccess.Read, FileShare.Read);
+                        var uPfs = new PartitionFileSystem(uFs.AsStorage());
+                        foreach (var uEntry in uPfs.EnumerateEntries().Where(e => e.Name.EndsWith(".cnmt.nca", StringComparison.OrdinalIgnoreCase)))
+                        {
+                            var uFile = OpenFileSafe(uPfs, uEntry.FullPath);
+                            using var ms = new MemoryStream();
+                            uFile.AsStream().CopyTo(ms);
+                            patchCnmtNcaBytes = ms.ToArray();
+                            patchCnmtFileName = uEntry.Name;
+                            break;
+                        }
+                    }
+                    catch { }
+                }
+                else if (isMonolithicBase && !string.IsNullOrEmpty(baseFile) && File.Exists(baseFile))
+                {
+                    try
+                    {
+                        using var bFs = new FileStream(baseFile, FileMode.Open, FileAccess.Read, FileShare.Read);
+                        var bPfs = new PartitionFileSystem(bFs.AsStorage());
+                        foreach (var bEntry in bPfs.EnumerateEntries().Where(e => e.Name.EndsWith(".cnmt.nca", StringComparison.OrdinalIgnoreCase)))
+                        {
+                            var bFile = OpenFileSafe(bPfs, bEntry.FullPath);
+                            var nca = new Nca(_keysService.CurrentKeyset, bFile.AsStorage());
+                            if (nca.Header.TitleId.ToString("X16").EndsWith("800", StringComparison.OrdinalIgnoreCase))
+                            {
+                                using var ms = new MemoryStream();
+                                bFile.AsStream().Position = 0;
+                                bFile.AsStream().CopyTo(ms);
+                                patchCnmtNcaBytes = ms.ToArray();
+                                patchCnmtFileName = bEntry.Name;
+                                break;
+                            }
+                        }
+                    }
+                    catch { }
+                }
+
+                // СЦЕНАРИЙ 0: «Путь Б» (Файловый апгрейд RomFS для монолитных образов)
+                if (isUpgrade)
+                {
+                    App.RunOnUI(() => task.LogDetails += "\n🟣 [Путь Б] Обнаружен монолитный Hard-Patch образ. Запуск файлового апгрейда RomFS (File-Level Upgrade)...");
+                    string tempUnpack = System.IO.Path.Combine(tempDir, "unpack_monolith_upgrade");
+                    Directory.CreateDirectory(tempUnpack);
+                    string targetRomFs = System.IO.Path.Combine(tempUnpack, "romfs");
+                    string targetExeFs = System.IO.Path.Combine(tempUnpack, "exefs");
+                    Directory.CreateDirectory(targetRomFs);
+                    Directory.CreateDirectory(targetExeFs);
+
+                    // 1. Извлечение RomFS из существующего монолита
+                    App.RunOnUI(() => task.LogDetails += "\n[1/4] Извлечение RomFS из существующего монолита...");
+                    bool romfsExtracted = false;
+                    Nca? baseProgNca = null;
+                    try
+                    {
+                        using var bFs = new FileStream(baseFile, FileMode.Open, FileAccess.Read, FileShare.Read);
+                        var bPfs = new PartitionFileSystem(bFs.AsStorage());
+                        var progEntry = bPfs.EnumerateEntries().FirstOrDefault(e => e.Name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase) && !e.Name.EndsWith(".cnmt.nca", StringComparison.OrdinalIgnoreCase));
+                        if (progEntry != null)
+                        {
+                            var progFile = OpenFileSafe(bPfs, progEntry.FullPath);
+                            baseProgNca = new Nca(_keysService.CurrentKeyset, progFile.AsStorage());
+                            KeysService.RegisterRightsIdFallback(_keysService.CurrentKeyset, baseProgNca);
+                            if (baseProgNca.CanOpenSection(1))
+                            {
+                                var rFs = baseProgNca.OpenFileSystem(1, IntegrityCheckLevel.None);
+                                ExtractAllEntriesFromRomFs(rFs, targetRomFs, cancellationToken);
+                                romfsExtracted = Directory.EnumerateFileSystemEntries(targetRomFs).Any();
+                            }
+                        }
+                    }
+                    catch (Exception exLib)
+                    {
+                        App.Logger.Log($"[Путь Б] LibHac RomFS extract: {exLib.Message}", Models.LogLevel.Info);
+                    }
+                    if (!romfsExtracted)
+                    {
+                        ExtractRomFsWithHactoolnet(baseFile, null, targetRomFs, keysPath, isolatedUserProfile);
+                    }
+
+                    // 2. Извлечение ExeFS и Control NCA из нового обновления
+                    App.RunOnUI(() => task.LogDetails += "\n[2/4] Извлечение ExeFS и Control NCA из нового обновления...");
+                    using var uFs = new FileStream(updateFile, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    var uPfs = new PartitionFileSystem(uFs.AsStorage());
+                    Nca? updProgNca = null;
+
+                    foreach (var uEntry in uPfs.EnumerateEntries().Where(e => e.Name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        var uFile = OpenFileSafe(uPfs, uEntry.FullPath);
+                        var uNca = new Nca(_keysService.CurrentKeyset, uFile.AsStorage());
+                        KeysService.RegisterRightsIdFallback(_keysService.CurrentKeyset, uNca);
+
+                        if (uNca.Header.ContentType == NcaContentType.Program)
+                        {
+                            updProgNca = uNca;
+                            break;
+                        }
+                    }
+
+                    if (updProgNca == null)
+                        throw new InvalidOperationException("В файле обновления не найден Program NCA.");
+
+                    if (updProgNca.CanOpenSection(0))
+                    {
+                        var exefs = updProgNca.OpenFileSystem(0, IntegrityCheckLevel.None);
+                        ExtractAllEntriesFromRomFs(exefs, targetExeFs, cancellationToken);
+                    }
+
+                    ulong npdmBaseTid = 0;
+                    if (ulong.TryParse(titleId, System.Globalization.NumberStyles.HexNumber, null, out ulong parsedTid))
+                    {
+                        npdmBaseTid = (parsedTid & ~0xFFFUL);
+                    }
+                    if (npdmBaseTid > 0)
+                    {
+                        string npdmFile = System.IO.Path.Combine(targetExeFs, "main.npdm");
+                        if (File.Exists(npdmFile)) PatchNpdmTitleId(npdmFile, npdmBaseTid);
+                    }
+
+                    string controlNca = ExtractControlNcaIfMissing(baseFile, updateFile, tempUnpack, _keysService);
+
+                    // 3. Файловый апгрейд RomFS
+                    App.RunOnUI(() => task.LogDetails += "\n[3/4] Файловый апгрейд RomFS по таблице BKTR...");
+                    await UpgradeMonolithicRomFsAsync(targetRomFs, baseFile, updateFile, baseProgNca, updProgNca, _keysService, keysPath, isolatedUserProfile, task, cancellationToken);
+
+                    // Применение модов
+                    if (hasModsToApply)
+                    {
+                        App.RunOnUI(() => task.LogDetails += "\n  Инъекция пользовательских модов...");
+                        foreach (var rMod in romfsMods) CopyDirectoryContentFiltered(rMod, targetRomFs);
+                        foreach (var eMod in exefsMods) CopyDirectoryContentFiltered(eMod, targetExeFs);
+                        if (!string.IsNullOrEmpty(exefsPatchesMod)) ApplyExeFsPatches(exefsPatchesMod, targetExeFs, task);
+                        foreach (var sMod in standaloneModFiles) InjectStandaloneModFile(sMod, targetRomFs, task);
+                        SynchronizeCrossRegionLocalization(targetRomFs, romfsMods, standaloneModFiles, task);
+                    }
+                    if (App.Settings.Current.AutoInject60FpsPatches)
+                    {
+                        App.GraphicsPatch.TryInjectGraphicsPatches(titleId, targetExeFs, task);
+                    }
+
+                    ModOptimizerService.CleanJunkFiles(targetRomFs, task);
+                    ModOptimizerService.CleanJunkFiles(targetExeFs, task);
+
+                    // 4. Сборка нового монолитного Program NCA
+                    App.RunOnUI(() => task.LogDetails += "\n[4/4] Монолитная сборка (yanu-cli pack)...");
+                    string packArgs = $"{keyfileFlag}pack --titleid {titleId} --controlnca \"{controlNca}\" --romfsdir \"{targetRomFs}\" --exefsdir \"{targetExeFs}\" -o \"{yanuOutDir}\" {keepLangsArg} {titleVersionArg}".TrimEnd();
+
+                    var packPsi = new ProcessStartInfo
+                    {
+                        FileName = yanuCliPath,
+                        Arguments = packArgs,
+                        WorkingDirectory = tempUnpack,
+                        UseShellExecute = false,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        CreateNoWindow = true,
+                        StandardOutputEncoding = System.Text.Encoding.UTF8,
+                        StandardErrorEncoding = System.Text.Encoding.UTF8
+                    };
+                    packPsi.EnvironmentVariables["USERPROFILE"] = isolatedUserProfile;
+                    packPsi.EnvironmentVariables["LOCALAPPDATA"] = isolatedLocalAppData;
+                    packPsi.EnvironmentVariables["APPDATA"] = isolatedLocalAppData;
+                    packPsi.EnvironmentVariables["TEMP"] = tempDir;
+                    packPsi.EnvironmentVariables["TMP"] = tempDir;
+
+                    using (var packProc = Process.Start(packPsi))
+                    {
+                        if (packProc == null) throw new Exception("Не удалось запустить yanu-cli pack");
+                        var packStderr = new System.Text.StringBuilder();
+                        using (var logBuffer = new ProgressLogBuffer(task))
+                        {
+                            packProc.OutputDataReceived += (s, e) => { if (e.Data != null) logBuffer.AppendLine(e.Data); };
+                            packProc.ErrorDataReceived += (s, e) => { if (e.Data != null) packStderr.AppendLine(e.Data); };
+                            packProc.BeginOutputReadLine();
+                            packProc.BeginErrorReadLine();
+                            await packProc.WaitForExitAsync(cancellationToken);
+                        }
+                        if (packProc.ExitCode != 0) throw new Exception($"Ошибка yanu-cli pack:\n{packStderr}");
+                    }
+
+                    yanuUpdateSuccess = true;
+                }
+
                 // СЦЕНАРИЙ 1: Если модов нет и передан файл обновления — сначала пробуем прямой и быстрый yanu-cli update
-                if (!hasModsToApply && !string.IsNullOrEmpty(updateFile))
+                if (!yanuUpdateSuccess && !hasModsToApply && !string.IsNullOrEmpty(updateFile))
                 {
                     App.RunOnUI(() => task.LogDetails += $"\n[1/2] Интеграция обновления (yanu-cli update)...");
 
@@ -721,7 +918,7 @@ namespace StormSwitchBox.Services
                     // Нормализация Program NCA (Section[0] 0x0C00 -> 0x4000 +26 блоков) и точной десятичной версии CNMT
                     if (File.Exists(genFile))
                     {
-                        NormalizeMergedNspSectionOffsetsTo0x4000(genFile, _keysService, targetTitleVersion, task);
+                        NormalizeMergedNspSectionOffsetsTo0x4000(genFile, _keysService, targetTitleVersion, task, patchCnmtNcaBytes, patchCnmtFileName);
                     }
 
                     // Применяем кастомные метаданные / иконку при необходимости
@@ -2269,7 +2466,81 @@ namespace StormSwitchBox.Services
             return null;
         }
 
-        public static void NormalizeMergedNspSectionOffsetsTo0x4000(string nspPath, KeysService keysService, uint? expectedTitleVersion = null, Models.ProcessingTask? task = null)
+        private static async Task UpgradeMonolithicRomFsAsync(
+            string targetRomFs,
+            string baseFile,
+            string updateFile,
+            Nca? baseProgNca,
+            Nca updProgNca,
+            KeysService keysService,
+            string keysPath,
+            string isolatedUserProfile,
+            Models.ProcessingTask task,
+            CancellationToken ct)
+        {
+            await Task.Run(() =>
+            {
+                bool upgraded = false;
+                // 1. Попытка нативного слияния через LibHac OpenFileSystemWithPatch
+                if (baseProgNca != null)
+                {
+                    try
+                    {
+                        App.RunOnUI(() => task.LogDetails += "\n  Применение BKTR RomFS обновления через LibHac...");
+                        var patchedFs = baseProgNca.OpenFileSystemWithPatch(updProgNca, 1, IntegrityCheckLevel.None);
+                        if (patchedFs != null)
+                        {
+                            ExtractAllEntriesFromRomFs(patchedFs, targetRomFs, ct);
+                            upgraded = Directory.EnumerateFileSystemEntries(targetRomFs).Any();
+                        }
+                    }
+                    catch (Exception exLib)
+                    {
+                        App.Logger.Log($"[Путь Б] LibHac OpenFileSystemWithPatch: {exLib.Message}", Models.LogLevel.Info);
+                    }
+                }
+
+                // 2. Если LibHac выбросил исключение — используем надежный hactoolnet с --basenca
+                if (!upgraded)
+                {
+                    App.RunOnUI(() => task.LogDetails += "\n  Применение BKTR RomFS обновления через hactoolnet...");
+                    ExtractRomFsWithHactoolnet(baseFile, updateFile, targetRomFs, keysPath, isolatedUserProfile);
+                }
+            }, ct);
+        }
+
+        private static void ExtractAllEntriesFromRomFs(IFileSystem romfs, string targetDir, CancellationToken ct)
+        {
+            Directory.CreateDirectory(targetDir);
+            foreach (var entry in romfs.EnumerateEntries("/", "*", SearchOptions.RecurseSubdirectories))
+            {
+                ct.ThrowIfCancellationRequested();
+                string relativePath = entry.FullPath.TrimStart('/');
+                string targetFilePath = System.IO.Path.Combine(targetDir, relativePath.Replace('/', System.IO.Path.DirectorySeparatorChar));
+
+                if (entry.Type == DirectoryEntryType.Directory)
+                {
+                    Directory.CreateDirectory(targetFilePath);
+                }
+                else
+                {
+                    string? parentDir = System.IO.Path.GetDirectoryName(targetFilePath);
+                    if (!string.IsNullOrEmpty(parentDir)) Directory.CreateDirectory(parentDir);
+
+                    using var fRef = new UniqueRef<IFile>();
+                    using var path = new LibHac.Fs.Path();
+                    path.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(entry.FullPath))).ThrowIfFailure();
+                    if (romfs.OpenFile(ref fRef.Ref, in path, OpenMode.Read).IsSuccess())
+                    {
+                        using var inStream = fRef.Release().AsStream();
+                        using var outStream = new FileStream(targetFilePath, FileMode.Create, FileAccess.Write, FileShare.None, 65536);
+                        inStream.CopyTo(outStream);
+                    }
+                }
+            }
+        }
+
+        public static void NormalizeMergedNspSectionOffsetsTo0x4000(string nspPath, KeysService keysService, uint? expectedTitleVersion = null, Models.ProcessingTask? task = null, byte[]? extraPatchCnmtBytes = null, string? extraPatchCnmtName = null)
         {
             if (string.IsNullOrEmpty(nspPath) || !File.Exists(nspPath) || keysService?.CurrentKeyset == null)
                 return;
@@ -2345,8 +2616,28 @@ namespace StormSwitchBox.Services
                             if (eb > sb && sb < minStartBlk) minStartBlk = sb;
                         }
 
-                        if (minStartBlk == uint.MaxValue || minStartBlk >= 0x20 || minStartBlk < 0x06)
+                        if (minStartBlk == uint.MaxValue || minStartBlk < 0x06)
                             continue;
+
+                        if (minStartBlk >= 0x20)
+                        {
+                            // Секция[0] уже выровнена на 0x4000 (или выше). Хешируем существующий Program NCA для Pass 2.
+                            fsIn.Seek(ent.AbsOffset, SeekOrigin.Begin);
+                            using var shaExisting = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
+                            byte[] eBuf = new byte[65536];
+                            long remE = ent.Size;
+                            while (remE > 0)
+                            {
+                                int gotE = fsIn.Read(eBuf, 0, (int)Math.Min(eBuf.Length, remE));
+                                if (gotE <= 0) break;
+                                shaExisting.AppendData(eBuf, 0, gotE);
+                                remE -= gotE;
+                            }
+                            byte[] existingProgHash = shaExisting.GetHashAndReset();
+                            string progNcaId = ent.Name.Split('.')[0].ToLowerInvariant();
+                            progReplacements[progNcaId] = (existingProgHash, ent.Size, ent.Name, "");
+                            continue;
+                        }
 
                         uint padBlocks = 0x20 - minStartBlk;
                         long padBytes = (long)padBlocks * 0x200L;
@@ -2626,6 +2917,149 @@ namespace StormSwitchBox.Services
                         App.Logger?.Log($"[HardPatchEngine] Updated Meta NCA {ent.Name} -> {newMetaName}", Models.LogLevel.Info);
                     }
 
+                    // Обновление внедряемого 4 KB Patch CNMT (...800.cnmt.nca) при наличии
+                    string? extraCnmtRebuiltName = null;
+                    string? extraCnmtRebuiltPath = null;
+                    long extraCnmtRebuiltSize = 0;
+
+                    if (extraPatchCnmtBytes != null && extraPatchCnmtBytes.Length >= 0x1000 && progReplacements.Count > 0)
+                    {
+                        try
+                        {
+                            byte[] rawNca = (byte[])extraPatchCnmtBytes.Clone();
+                            byte[] rawHdr = new byte[0xC00];
+                            Buffer.BlockCopy(rawNca, 0, rawHdr, 0, 0xC00);
+                            byte[] decHdr = (rawHdr[0x200] == 'N' && rawHdr[0x201] == 'C' && rawHdr[0x202] == 'A' && rawHdr[0x203] == '3')
+                                ? (byte[])rawHdr.Clone()
+                                : NcaXtsCryptHeader0xC00(rawHdr, headerKey, decrypt: true);
+
+                            if (decHdr[0x200] == 'N' && decHdr[0x201] == 'C' && decHdr[0x202] == 'A' && decHdr[0x203] == '3')
+                            {
+                                uint sb = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(decHdr.AsSpan(0x240, 4));
+                                uint eb = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(decHdr.AsSpan(0x244, 4));
+                                if (eb > sb)
+                                {
+                                    int secStart = (int)(sb * 0x200);
+                                    int secLen = (int)((eb - sb) * 0x200);
+                                    if (secStart + secLen <= rawNca.Length)
+                                    {
+                                        byte encType = decHdr[0x404];
+                                        byte[] gensec = new byte[8];
+                                        Buffer.BlockCopy(decHdr, 0x540, gensec, 0, 8);
+                                        byte[]? ctrKey = (encType == 3) ? ResolveNcaCtrKey(decHdr, keysService.CurrentKeyset) : null;
+
+                                        byte[] secPlain = new byte[secLen];
+                                        Buffer.BlockCopy(rawNca, secStart, secPlain, 0, secLen);
+                                        if (encType == 3 && ctrKey != null)
+                                            AesCtrCryptInPlace(secPlain, 0, secLen, ctrKey, gensec, secStart);
+
+                                        // Обновляем версию патча если задана
+                                        if (expectedTitleVersion.HasValue && expectedTitleVersion.Value > 0)
+                                        {
+                                            for (int pOff = 0; pOff <= secLen - 16; pOff += 4)
+                                            {
+                                                if (secPlain[pOff] == 'P' && secPlain[pOff + 1] == 'F' && secPlain[pOff + 2] == 'S' && secPlain[pOff + 3] == '0')
+                                                {
+                                                    int cOff = pOff + 0x40;
+                                                    while (cOff <= secLen - 0x20)
+                                                    {
+                                                        if (cOff + 12 <= secLen)
+                                                        {
+                                                            uint curV = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(secPlain.AsSpan(cOff + 8, 4));
+                                                            if (curV > 0 && curV != expectedTitleVersion.Value)
+                                                            {
+                                                                System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(secPlain.AsSpan(cOff + 8, 4), expectedTitleVersion.Value);
+                                                                break;
+                                                            }
+                                                        }
+                                                        cOff += 4;
+                                                    }
+                                                    break;
+                                                }
+                                            }
+                                        }
+
+                                        // Обновляем хеш Program NCA
+                                        var repProg = progReplacements.Values.First();
+                                        for (int pOff = 0; pOff <= secLen - 0x20; pOff++)
+                                        {
+                                            for (int i = 0; i < 16; i++)
+                                            {
+                                                if (secPlain[pOff + i] == repProg.NewHash[i])
+                                                {
+                                                    if (i == 15)
+                                                    {
+                                                        Buffer.BlockCopy(repProg.NewHash, 0, secPlain, pOff, 32);
+                                                        if (pOff + 32 + 6 <= secLen)
+                                                        {
+                                                            ulong sz48 = (ulong)repProg.NewSize;
+                                                            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(secPlain.AsSpan(pOff + 32, 4), (uint)(sz48 & 0xFFFFFFFFUL));
+                                                            System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(secPlain.AsSpan(pOff + 36, 2), (ushort)((sz48 >> 32) & 0xFFFFUL));
+                                                        }
+                                                        break;
+                                                    }
+                                                }
+                                                else break;
+                                            }
+                                        }
+
+                                        // Регенерация PFS0 хешей
+                                        long pfsOff = -1, pfsSize = -1, htOff = -1, htSize = -1;
+                                        int effBlk = 0;
+                                        for (int pOff = 0; pOff <= secLen - 16; pOff += 4)
+                                        {
+                                            if (secPlain[pOff] == 'P' && secPlain[pOff + 1] == 'F' && secPlain[pOff + 2] == 'S' && secPlain[pOff + 3] == '0')
+                                            {
+                                                pfsOff = pOff;
+                                                pfsSize = secLen - pOff;
+                                                htOff = 0;
+                                                htSize = pOff;
+                                                effBlk = (int)(1L << decHdr[0x403]);
+                                                break;
+                                            }
+                                        }
+
+                                        if (pfsOff >= 0 && effBlk > 0)
+                                        {
+                                            int bIdx = 0;
+                                            for (long off = 0; off < pfsSize; off += effBlk)
+                                            {
+                                                int chunkLen = (int)Math.Min(effBlk, pfsSize - off);
+                                                byte[] bh = System.Security.Cryptography.SHA256.HashData(secPlain.AsSpan((int)(pfsOff + off), chunkLen));
+                                                if (htOff + (bIdx + 1) * 32 <= secLen)
+                                                    bh.CopyTo(secPlain.AsSpan((int)htOff + bIdx * 32, 32));
+                                                bIdx++;
+                                            }
+
+                                            byte[] mHash = System.Security.Cryptography.SHA256.HashData(secPlain.AsSpan((int)htOff, (int)htSize));
+                                            mHash.CopyTo(decHdr.AsSpan(0x408, 32));
+                                            byte[] fHash = System.Security.Cryptography.SHA256.HashData(decHdr.AsSpan(0x400, 0x200));
+                                            fHash.CopyTo(decHdr.AsSpan(0x280, 32));
+
+                                            byte[] secEnc = (byte[])secPlain.Clone();
+                                            if (encType == 3 && ctrKey != null)
+                                                AesCtrCryptInPlace(secEnc, 0, secLen, ctrKey, gensec, secStart);
+
+                                            byte[] newMetaHdr = NcaXtsCryptHeader0xC00(decHdr, headerKey, decrypt: false);
+                                            byte[] newMetaNca = (byte[])rawNca.Clone();
+                                            Buffer.BlockCopy(newMetaHdr, 0, newMetaNca, 0, 0xC00);
+                                            Buffer.BlockCopy(secEnc, 0, newMetaNca, secStart, secLen);
+
+                                            byte[] newMetaSha = System.Security.Cryptography.SHA256.HashData(newMetaNca);
+                                            extraCnmtRebuiltName = Convert.ToHexString(newMetaSha, 0, 16).ToLowerInvariant() + ".cnmt.nca";
+                                            Directory.CreateDirectory(workDir);
+                                            extraCnmtRebuiltPath = System.IO.Path.Combine(workDir, extraCnmtRebuiltName);
+                                            File.WriteAllBytes(extraCnmtRebuiltPath, newMetaNca);
+                                            extraCnmtRebuiltSize = newMetaNca.Length;
+                                            App.Logger?.Log($"[HardPatchEngine] Embedded 4 KB Patch CNMT -> {extraCnmtRebuiltName}", Models.LogLevel.Info);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        catch { }
+                    }
+
                     if (entryOverrides.Count == 0) return;
 
                     // Пересборка внешнего PFS0 (.nsp)
@@ -2637,6 +3071,12 @@ namespace StormSwitchBox.Services
                             finalItems.Add((ov.NewName, ov.NewSize, idx, ov.TempPath));
                         else
                             finalItems.Add((pfsEntries[idx].Name, pfsEntries[idx].Size, idx, null));
+                    }
+
+                    if (!string.IsNullOrEmpty(extraCnmtRebuiltPath) && File.Exists(extraCnmtRebuiltPath))
+                    {
+                        // Внедряем 4 KB Patch CNMT (...800.cnmt.nca) рядом с Base CNMT (...000.cnmt.nca)
+                        finalItems.Add((extraCnmtRebuiltName!, extraCnmtRebuiltSize, -1, extraCnmtRebuiltPath));
                     }
 
                     using var strMs = new MemoryStream();
