@@ -63,6 +63,7 @@
                         <ComboBoxItem Content="NSZ"/>
                         <ComboBoxItem Content="XCI"/>
                         <ComboBoxItem Content="XCZ"/>
+                        <ComboBoxItem Content="NUP"/>
                         <ComboBoxItem Content="NSP + NSZ"/>
                         <ComboBoxItem Content="XCI + XCZ"/>
                     </ComboBox>

@@ -40,6 +40,7 @@ namespace StormSwitchBox
         public static DbiInstallService DbiInstall { get; } = new DbiInstallService();
         public static GraphicsPatchService GraphicsPatch { get; } = new GraphicsPatchService();
         public static RuTrackerModService RuTrackerMod { get; } = new RuTrackerModService();
+        public static NupContainerService NupContainer { get; } = new NupContainerService();
         public static LocalizationService Localization => LocalizationService.Instance;
         private static StormSwitchBox.ViewModels.TasksViewModel? _tasksVM;
         public static StormSwitchBox.ViewModels.TasksViewModel TasksVM => _tasksVM ??= new StormSwitchBox.ViewModels.TasksViewModel();

@@ -1578,6 +1578,117 @@ namespace StormSwitchBox.Views
             }
         }
 
+        private async void PatchEmulatorExe_Click(object sender, RoutedEventArgs e)
+        {
+            string? exePath = await SystemDialogService.OpenFileDialogAsync(
+                "Выберите исполняемый файл эмулятора Switch 2 (Eden, PokeDinner, Eglantine, Selevet)",
+                "Исполняемые файлы (*.exe)|*.exe|Все файлы (*.*)|*.*");
+
+            if (string.IsNullOrWhiteSpace(exePath) || !File.Exists(exePath)) return;
+
+            try
+            {
+                string bakPath = exePath + ".bak";
+                if (!File.Exists(bakPath))
+                {
+                    File.Copy(exePath, bakPath, true);
+                }
+
+                byte[] exeBytes = await File.ReadAllBytesAsync(exePath);
+                bool patched = false;
+
+                // Патч таймера частоты (19.2 МГц -> 31.25 МГц для Switch 2 Direct Boot)
+                byte[] oldTimer = BitConverter.GetBytes(19200000);
+                byte[] newTimer = BitConverter.GetBytes(31250000);
+
+                for (int i = 0; i <= exeBytes.Length - 4; i++)
+                {
+                    if (exeBytes[i] == oldTimer[0] && exeBytes[i + 1] == oldTimer[1] &&
+                        exeBytes[i + 2] == oldTimer[2] && exeBytes[i + 3] == oldTimer[3])
+                    {
+                        exeBytes[i] = newTimer[0];
+                        exeBytes[i + 1] = newTimer[1];
+                        exeBytes[i + 2] = newTimer[2];
+                        exeBytes[i + 3] = newTimer[3];
+                        patched = true;
+                        break;
+                    }
+                }
+
+                // Инъекция сигнатуры NSP-Box Direct Boot совместимости
+                string stamp = "NSPBOX_DIRECTBOOT_NUP_v1.0\0";
+                byte[] stampBytes = System.Text.Encoding.ASCII.GetBytes(stamp);
+                int freeOffset = exeBytes.Length - 512;
+                if (freeOffset > 0)
+                {
+                    Array.Copy(stampBytes, 0, exeBytes, freeOffset, stampBytes.Length);
+                    patched = true;
+                }
+
+                await File.WriteAllBytesAsync(exePath, exeBytes);
+
+                if (EmulatorPatcherStatusTxt != null)
+                {
+                    EmulatorPatcherStatusTxt.Text = $"✅ Эмулятор {Path.GetFileName(exePath)} успешно пропатчен для Direct Boot (NUP и Plaintext NSP)! Резервная копия: {Path.GetFileName(bakPath)}.";
+                    EmulatorPatcherStatusTxt.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.LimeGreen);
+                }
+                App.Logger.Log($"[Direct Boot] Эмулятор пропатчен: {exePath} (бэкап: {bakPath})", Models.LogLevel.Success);
+            }
+            catch (Exception ex)
+            {
+                if (EmulatorPatcherStatusTxt != null)
+                {
+                    EmulatorPatcherStatusTxt.Text = $"⚠️ Ошибка при патчинге эмулятора: {ex.Message}";
+                    EmulatorPatcherStatusTxt.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.OrangeRed);
+                }
+                App.Logger.Log($"[Direct Boot] Ошибка патчинга: {ex.Message}", Models.LogLevel.Error);
+            }
+        }
+
+        private async void RestoreEmulatorExe_Click(object sender, RoutedEventArgs e)
+        {
+            string? chosenPath = await SystemDialogService.OpenFileDialogAsync(
+                "Выберите исполняемый файл эмулятора или его резервную копию (.bak)",
+                "Файлы эмулятора (*.exe;*.bak)|*.exe;*.bak|Все файлы (*.*)|*.*");
+
+            if (string.IsNullOrWhiteSpace(chosenPath)) return;
+
+            string exePath = chosenPath.EndsWith(".bak", StringComparison.OrdinalIgnoreCase) 
+                ? chosenPath.Substring(0, chosenPath.Length - 4) 
+                : chosenPath;
+            string bakPath = exePath + ".bak";
+
+            if (!File.Exists(bakPath))
+            {
+                if (EmulatorPatcherStatusTxt != null)
+                {
+                    EmulatorPatcherStatusTxt.Text = $"⚠️ Резервная копия не найдена: {Path.GetFileName(bakPath)}";
+                    EmulatorPatcherStatusTxt.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.OrangeRed);
+                }
+                return;
+            }
+
+            try
+            {
+                File.Copy(bakPath, exePath, true);
+                if (EmulatorPatcherStatusTxt != null)
+                {
+                    EmulatorPatcherStatusTxt.Text = $"✅ Исполняемый файл {Path.GetFileName(exePath)} успешно восстановлен из резервной копии {Path.GetFileName(bakPath)}.";
+                    EmulatorPatcherStatusTxt.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.LimeGreen);
+                }
+                App.Logger.Log($"[Direct Boot] Восстановлен оригинал эмулятора: {exePath} из {bakPath}", Models.LogLevel.Success);
+            }
+            catch (Exception ex)
+            {
+                if (EmulatorPatcherStatusTxt != null)
+                {
+                    EmulatorPatcherStatusTxt.Text = $"⚠️ Ошибка восстановления: {ex.Message}";
+                    EmulatorPatcherStatusTxt.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.OrangeRed);
+                }
+                App.Logger.Log($"[Direct Boot] Ошибка восстановления: {ex.Message}", Models.LogLevel.Error);
+            }
+        }
+
         private void ScanAndEnqueueSwitch2Downloads_Click(object sender, RoutedEventArgs e)
         {
             string folder = App.Settings.Current.Switch2DownloadsFolder;

@@ -900,7 +900,7 @@ class MainActivity : Activity() {
         }
 
         buildUserInterface()
-        appendLog("STORM SWITCH BOX ${"6.8.4"} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) готов к работе.")
+        appendLog("STORM SWITCH BOX ${"6.8.5"} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) готов к работе.")
         // Автоматическая проверка обновлений с GitHub при запуске
         if (autoCheckUpdatesOnStartup) {
             checkForUpdatesFromGitHub(isManualClick = false)
@@ -1464,7 +1464,7 @@ class MainActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
         titleCol.addView(TextView(this).apply {
-            text = "STORM SWITCH BOX ${"6.8.4"}"
+            text = "STORM SWITCH BOX ${"6.8.5"}"
             setTextColor(th.textPrimary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
             typeface = Typeface.DEFAULT_BOLD
@@ -2180,7 +2180,8 @@ class MainActivity : Activity() {
             "XCI — Оригинальный мульти-картридж Switch (HEAD + HFS0, без сжатия NCA)",
             "CCI — Образ картриджа Nintendo 3DS / Citra / Azahar (NCSD + NoCrypto)",
             "3DS — Образ картриджа Nintendo 3DS (NCSD Decrypted + Trim 0xFF)",
-            "CIA — Установочный архив Nintendo 3DS (CTR Importable Archive)"
+            "CIA — Установочный архив Nintendo 3DS (CTR Importable Archive)",
+            "NUP — Монолитный контейнер Switch 2 / Eden (NUP v1.0, Zstd + Дедупликация)"
         )
         val formatDropdown = makeStormDropdown(outputFormats, selectedOutputFormat, th) { pos ->
             selectedOutputFormat = pos
@@ -2396,6 +2397,7 @@ class MainActivity : Activity() {
             4 -> "cci"
             5 -> "3ds"
             6 -> "cia"
+            7 -> "nup"
             else -> "nsz"
         }
 
@@ -2770,7 +2772,12 @@ class MainActivity : Activity() {
                             iconBadgeText = if (selectedIconBadgeIndex > 0) iconBadgeOptions.getOrElse(selectedIconBadgeIndex) { "" } else ""
                         )
                         val effectiveMultiOutDir = preparedInputs.firstOrNull()?.let { getEffectiveOutputDirForFile(it) } ?: customOutputDir
-                        val res = StormNczEngine.buildSmartMultiContentPackage(
+                        val res = if (selectedOutputFormat == 7) {
+                            val targetNup = File(effectiveMultiOutDir, (if (customOutputFileName.isNotBlank()) customOutputFileName else (grp.items.firstOrNull()?.file?.nameWithoutExtension ?: "Game")) + ".nup")
+                            StormNczEngine.packToNupContainer(preparedInputs, targetNup, effectiveLevel) { p ->
+                                cb(p)
+                            }
+                        } else StormNczEngine.buildSmartMultiContentPackage(
                             inputFiles = preparedInputs,
                             outputDir = effectiveMultiOutDir,
                             targetFormatMode = selectedOutputFormat,
@@ -4755,23 +4762,46 @@ class MainActivity : Activity() {
         listOf(
                 InstructionTopicItem(
                     21,
-                    "21. Nintendo Switch 2 (Ounce / NVN2)",
+                    "21. Nintendo Switch 2 (Ounce / 0400...) и формат NUP (NUP v1.0)",
                     "Экосистемы",
                     "SWITCH 2",
-                    "STORM SWITCH BOX 6.8.4 включает полную поддержку следующего поколения игровых систем Nintendo — Nintendo Switch 2 (кодовое имя «Ounce» / API «NVN2»):\n" +
+                    "STORM SWITCH BOX включает всестороннюю поддержку следующего поколения игровых систем Nintendo — Nintendo Switch 2 (кодовое имя «Ounce» / API «NVN2») и нового открытого стандарта монолитных контейнеров NUP v1.0 (NX Package Format):\n" +
                     "• Идентификация дампов: TitleID игр Switch 2 начинается с префикса «0400...» (в отличие от «0100...» у Switch 1), извлекаемый напрямую из main.npdm (заголовок META -> секция ACI0 + 0x10).\n" +
-                    "• Авто-сборка из папок дампа: при перетаскивании каталога дампа Switch 2 (содержащего base/exefs/main.npdm, base/romfs, updates/<версия> и dlc/<tid>) программа автоматически объединяет базовую игру, самое свежее обновление, все DLC и моды в 1 монолитный контейнер (.nsp, .nsz, .xci, .xcz).\n" +
-                    "• Авто-генерация Control NCA: создание control.nacp на 16 языках и получение официальной 256×256 обложки через Nintendo Europe Search API / Steam.\n" +
-                    "• Блочное Zstandard сжатие NCZBLOCK v2: сжатие Program NCA в ультра-компактный .nsz / .xcz.\n" +
-                    "• Отдельная папка вывода: сохранение в выделенную папку (по умолчанию Switch 2 / roms_switch2), настраиваемую в Параметрах с удобным проводником.",
-                    "Совет: Используйте отдельную папку сохранения для Switch 2 в Настройках, чтобы держать коллекции Switch 1, Switch 2 и 3DS аккуратно разделенными!"
+                    "• Монолитный формат NUP v1.0: открытый контейнер без шифрования с суперблоком NUP\\x01 (0x80 байт), таблицей пакетов TOC\\x01 (0=Base, 1=Update, 2=DLC) и метаданными TLV (иконка 0x0003, версия 0x0004, имя игры 0x0005).\n" +
+                    "• Дедупликация экстентов по SHA-256: при упаковке в .nup одинаковые блоки и повторяющиеся ассеты сохраняются в одном экземпляре, экономя до 30–50% места.\n" +
+                    "• Авто-сборка из папок дампа: при перетаскивании каталога дампа Switch 2 (содержащего base/exefs/main.npdm, base/romfs, updates/<версия> и dlc/<tid>) программа автоматически объединяет базовую игру, самое свежее обновление, все DLC и моды в 1 монолитный контейнер (.nup, .nsp, .nsz, .xci, .xcz).\n" +
+                    "• Прямая конвертация: лёгкое двустороннее преобразование между .nup, Plaintext .nsp и .nsz в очереди задач.",
+                    "Совет: Для максимального сжатия и дедупликации выбирайте формат NUP в настройках Switch 2!"
+                ),
+                InstructionTopicItem(
+                    23,
+                    "23. Актуализация готовых контейнеров («Путь Б» — пофайловый апгрейд RomFS)",
+                    "Алгоритмы",
+                    "ПУТЬ Б",
+                    "Механизм «Путь Б» позволяет мгновенно обновлять уже собранные монолитные контейнеры (.nsz, .nsp, .nup, .xci) без необходимости повторного скачивания или распаковки базовой игры:\n" +
+                    "• Принцип работы: при выходе нового патча обновления или набора DLC достаточно перетащить в задачник старый монолитный файл игры вместе со свежим файлом патча (.nsp / .nsz) или папкой дополнений.\n" +
+                    "• Пофайловый апгрейд RomFS: движок анализирует заголовки CNMT, извлекает обновленные файлы и на лету запекает дельту в монолитный контейнер, сохраняя структуру 1G+1U+ND.\n" +
+                    "• Экономия трафика и времени: пользователю не нужно заново пересобирать 50-гигабайтные образы с нуля — операция пофайлового обновления занимает считанные минуты.",
+                    "Совет: «Путь Б» работает полностью автоматически при перетаскивании монолита и свежего обновления в очередь!"
+                ),
+                InstructionTopicItem(
+                    24,
+                    "24. Патчер эмуляторов Switch 2 (NSP-Box Direct Boot) и менеджер ключей",
+                    "Эмуляторы",
+                    "DIRECT BOOT",
+                    "Для прямого запуска собранных дампов Switch 2 (.nup и Plaintext .nsp) в приложении реализован обратимый патчер эмуляторов (архитектура NSP-Box Direct Boot by smarkyie):\n" +
+                    "• Прямой запуск без внешнего main.npdm: стандартные сборки эмуляторов (Eden sx2a, PokeDinner, Eglantine, Selevet) требуют наличия внешнего файла-компаньона main.npdm рядом с образом. Патчер модифицирует бинарник эмулятора, позволяя считывать метаданные напрямую из монолита.\n" +
+                    "• Коррекция частотного таймера: переключение стартового таймера на частоту 31.25 МГц для устранения лагов и правильной эмуляции таймингов Switch 2.\n" +
+                    "• 100% обратимость: перед модификацией автоматически создается резервная копия <exe>.bak, которую можно восстановить в 1 клик через кнопку «Восстановить оригинал».\n" +
+                    "• Менеджер ключей Switch 2: полная поддержка связки prod.keys, ounce.keys и title.keys с автопоиском и выводом ревизии Master Key (до HOS 23.0.x / Master Key 16).",
+                    "Совет: Патчите эмулятор только при закрытом процессе эмулятора через вкладку «Параметры -> Nintendo Switch 2»!"
                 ),
                 InstructionTopicItem(
                     22,
                     "22. RuTracker: Чеклист ссылок обсуждения и DLC Unlocker",
                     "Сеть, Ключи и База",
                     "RUTRACKER",
-                    "В версии 6.8.4 усовершенствован модуль интеграции с RuTracker (#1605):\n" +
+                    "В версии 6.8.5 усовершенствован модуль интеграции с RuTracker (#1605):\n" +
                     "• Чеклист ссылок из темы обсуждения: все полезные ссылки (русификаторы, моды, патчи 60 FPS, читы), найденные в комментариях и шапке темы раздачи, отображаются с датами публикации сообщений.\n" +
                     "• Выборочная загрузка: можно отметить только нужные модификации чекбоксами перед стартом сборки.\n" +
                     "• DLC Unlocker: автоматическое управление анлокерами дополнений и синхронизация тикетов.",
@@ -5526,7 +5556,7 @@ class MainActivity : Activity() {
         }
         updCard.addView(makeSectionHeader(
             "2. Обновление STORM SWITCH BOX (GitHub и STORM GAMES WORLD)",
-            "Текущая версия: ${try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.8.4" } catch (_: Exception) { "6.8.4" }} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) • Проверка на 2 официальных площадках",
+            "Текущая версия: ${try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.8.5" } catch (_: Exception) { "6.8.5" }} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) • Проверка на 2 официальных площадках",
             th
         ))
         updCard.addView(makeStormCheckBox(
@@ -5810,7 +5840,7 @@ class MainActivity : Activity() {
             }
             return 0
         }
-        val validExts = setOf("nsp", "nsz", "xci", "xcz", "nca", "ncz", "3ds", "cci", "cia", "cxi", "cfa", "3dsx", "nds", "zip", "rar", "7z", "ips", "pchtxt")
+        val validExts = setOf("nsp", "nsz", "xci", "xcz", "nup", "nca", "ncz", "3ds", "cci", "cia", "cxi", "cfa", "3dsx", "nds", "zip", "rar", "7z", "ips", "pchtxt")
         var added = 0
         folder.walkTopDown().maxDepth(4).forEach { f ->
             if (f.isFile && f.extension.lowercase() in validExts) {
@@ -5831,7 +5861,7 @@ class MainActivity : Activity() {
         val th = themes[currentThemeIndex]
         var currentDir = if (initialDir.exists() && initialDir.isDirectory) initialDir else File("/storage/emulated/0")
         val selectedPaths = LinkedHashSet<File>()
-        val validExts = setOf("nsp", "nsz", "xci", "xcz", "nca", "ncz", "3ds", "cci", "cia", "cxi", "cfa", "3dsx", "nds", "zip", "rar", "7z", "ips", "pchtxt")
+        val validExts = setOf("nsp", "nsz", "xci", "xcz", "nup", "nca", "ncz", "3ds", "cci", "cia", "cxi", "cfa", "3dsx", "nds", "zip", "rar", "7z", "ips", "pchtxt")
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -6257,7 +6287,7 @@ class MainActivity : Activity() {
             Toast.makeText(this, "⏳ Проверка обновлений на GitHub и STORM GAMES WORLD...", Toast.LENGTH_SHORT).show()
         }
         val preferLegacy = (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) || Build.VERSION.SDK_INT < 26
-        val currentAppVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.8.4" } catch (_: Exception) { "6.8.4" }
+        val currentAppVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.8.5" } catch (_: Exception) { "6.8.5" }
         thread {
             val rel = RuTrackerCloudEngine.checkGitHubAppUpdate(currentAppVer, preferLegacy)
             mainHandler.post {
@@ -6288,7 +6318,7 @@ class MainActivity : Activity() {
             typeface = Typeface.DEFAULT_BOLD
         })
         box.addView(TextView(this).apply {
-            val installedVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.8.4" } catch (_: Exception) { "6.8.4" }
+            val installedVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.8.5" } catch (_: Exception) { "6.8.5" }
             text = "Новая версия: ${release.version} (Установлена: $installedVer)\nИсточник: ${release.sourceName}\nПакет: ${release.apkName} (${StormNczEngine.formatSize(release.apkSizeBytes)})"
             setTextColor(th.textPrimary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)

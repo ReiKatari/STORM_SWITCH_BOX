@@ -436,6 +436,7 @@ namespace StormSwitchBox.Views
                 picker.FileTypeFilter.Add(".nacp");
                 picker.FileTypeFilter.Add(".nca");
                 picker.FileTypeFilter.Add(".ncz");
+                picker.FileTypeFilter.Add(".nup");
 
                 InitializePicker(picker);
 

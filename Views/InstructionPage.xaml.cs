@@ -88,20 +88,53 @@ namespace StormSwitchBox.Views
             {
                 new TopicItem
                 {
-                    Title = "Nintendo Switch 2 (Ounce / NVN2)",
+                    Title = "Nintendo Switch 2 (Ounce / 0400...) и формат NUP (NUP v1.0)",
                     Category = "Экосистемы",
                     Icon = "\uE7FC",
-                    DescriptionText = "STORM SWITCH BOX 6.4.0 включает полную поддержку следующего поколения игровых систем Nintendo — Nintendo Switch 2 (кодовое имя «Ounce» / API «NVN2»):\n\n" +
+                    DescriptionText = "STORM SWITCH BOX включает всестороннюю поддержку следующего поколения игровых систем Nintendo — Nintendo Switch 2 (кодовое имя «Ounce» / API «NVN2») и нового открытого стандарта монолитных контейнеров NUP v1.0 (NX Package Format):\n\n" +
                                       "• Идентификация дампов: TitleID игр Switch 2 начинается с префикса «0400...» (в отличие от «0100...» у Switch 1), извлекаемый напрямую из main.npdm (заголовок META -> секция ACI0 + 0x10).\n" +
-                                      "• Авто-сборка из папок дампа: при перетаскивании каталога дампа Switch 2 (содержащего base/exefs/main.npdm, base/romfs, updates/<версия> и dlc/<tid>) программа автоматически объединяет базовую игру, самое свежее обновление, все DLC и моды в 1 монолитный контейнер (.nsp, .nsz, .xci, .xcz).\n" +
-                                      "• Авто-генерация Control NCA: создание control.nacp на 16 языках и получение официальной 256×256 обложки через Nintendo Europe Search API / Steam.\n" +
-                                      "• Блочное Zstandard сжатие NCZBLOCK v2: сжатие Program NCA в ультра-компактный .nsz / .xcz.\n" +
-                                      "• Отдельная папка вывода: сохранение в выделенную папку (по умолчанию Switch 2 / roms_switch2), настраиваемую в Параметрах с удобным проводником.",
-                    Tip = "Используйте отдельную папку сохранения для Switch 2 в Настройках, чтобы держать коллекции Switch 1, Switch 2 и 3DS аккуратно разделенными!",
+                                      "• Монолитный формат NUP v1.0: открытый контейнер без шифрования с суперблоком NUP\\x01 (0x80 байт), таблицей пакетов TOC\\x01 (0=Base, 1=Update, 2=DLC) и метаданными TLV (иконка 0x0003, версия 0x0004, имя игры 0x0005).\n" +
+                                      "• Дедупликация экстентов по SHA-256: при упаковке в .nup одинаковые блоки и повторяющиеся ассеты сохраняются в одном экземпляре, экономя до 30–50% места.\n" +
+                                      "• Авто-сборка из папок дампа: при перетаскивании каталога дампа Switch 2 (содержащего base/exefs/main.npdm, base/romfs, updates/<версия> и dlc/<tid>) программа автоматически объединяет базовую игру, самое свежее обновление, все DLC и моды в 1 монолитный контейнер (.nup, .nsp, .nsz, .xci, .xcz).\n" +
+                                      "• Прямая конвертация: лёгкое двустороннее преобразование между .nup, Plaintext .nsp и .nsz в очереди задач.",
+                    Tip = "Для максимального сжатия и дедупликации выбирайте формат NUP в настройках Switch 2!",
                     SetupPreview = container =>
                     {
-                        container.Children.Add(new TextBlock { Text = "🚀 Поддержка Nintendo Switch 2 (Ounce)", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.Bold });
-                        container.Children.Add(new TextBlock { Text = "• TitleID 0400... из main.npdm (ACI0 + 0x10)\n• Слияние base + updates + dlc + mods в единый NSP/NSZ\n• Официальные обложки Nintendo eShop 256×256\n• Отдельная выходная папка с проводником для Switch 2", Foreground = GetSecondaryBrush() });
+                        container.Children.Add(new TextBlock { Text = "🚀 Nintendo Switch 2 и формат NUP v1.0", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.Bold });
+                        container.Children.Add(new TextBlock { Text = "• TitleID 0400... из main.npdm (ACI0 + 0x10)\n• Монолитный контейнер NUP v1.0 с суперблоком NUP\\x01 и TOC\\x01\n• Дедупликация экстентов по SHA-256 + блочное сжатие Zstandard\n• Полная поддержка дампов base + updates + dlc", Foreground = GetSecondaryBrush() });
+                    }
+                },
+                new TopicItem
+                {
+                    Title = "Актуализация готовых контейнеров («Путь Б» — пофайловый апгрейд RomFS)",
+                    Category = "Алгоритмы",
+                    Icon = "\uE895",
+                    DescriptionText = "Механизм «Путь Б» позволяет мгновенно обновлять уже собранные монолитные контейнеры (.nsz, .nsp, .nup, .xci) без необходимости повторного скачивания или распаковки базовой игры:\n\n" +
+                                      "• Принцип работы: при выходе нового патча обновления или набора DLC достаточно перетащить в задачник старый монолитный файл игры вместе со свежим файлом патча (.nsp / .nsz) или папкой дополнений.\n" +
+                                      "• Пофайловый апгрейд RomFS: движок анализирует заголовки CNMT, извлекает обновленные файлы и на лету запекает дельту в монолитный контейнер, сохраняя структуру 1G+1U+ND.\n" +
+                                      "• Экономия трафика и времени: пользователю не нужно заново пересобирать 50-гигабайтные образы с нуля — операция пофайлового обновления занимает считанные минуты.",
+                    Tip = "«Путь Б» работает полностью автоматически при перетаскивании монолита и свежего обновления в очередь!",
+                    SetupPreview = container =>
+                    {
+                        container.Children.Add(new TextBlock { Text = "⚡ Актуализация готовых контейнеров («Путь Б»)", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.Bold });
+                        container.Children.Add(new TextBlock { Text = "• Пофайловое вшивание свежих обновлений в готовый монолит\n• Авто-распознавание CNMT и дельт RomFS\n• Мгновенное получение 1G+1U+ND без повторного дампа базы", Foreground = GetSecondaryBrush() });
+                    }
+                },
+                new TopicItem
+                {
+                    Title = "Патчер эмуляторов Switch 2 (NSP-Box Direct Boot) и менеджер ключей",
+                    Category = "Эмуляторы",
+                    Icon = "\uE768",
+                    DescriptionText = "Для прямого запуска собранных дампов Switch 2 (.nup и Plaintext .nsp) в приложении реализован обратимый патчер эмуляторов (архитектура NSP-Box Direct Boot by smarkyie):\n\n" +
+                                      "• Прямой запуск без внешнего main.npdm: стандартные сборки эмуляторов (Eden sx2a, PokeDinner, Eglantine, Selevet) требуют наличия внешнего файла-компаньона main.npdm рядом с образом. Патчер модифицирует бинарник эмулятора, позволяя считывать метаданные напрямую из монолита.\n" +
+                                      "• Коррекция частотного таймера: переключение стартового таймера на частоту 31.25 МГц для устранения лагов и правильной эмуляции таймингов Switch 2.\n" +
+                                      "• 100% обратимость: перед модификацией автоматически создается резервная копия <exe>.bak, которую можно восстановить в 1 клик через кнопку «Восстановить оригинал».\n" +
+                                      "• Менеджер ключей Switch 2: полная поддержка связки prod.keys, ounce.keys и title.keys с автопоиском и выводом ревизии Master Key (до HOS 23.0.x / Master Key 16).",
+                    Tip = "Патчите эмулятор только при закрытом процессе эмулятора через вкладку «Параметры -> Nintendo Switch 2»!",
+                    SetupPreview = container =>
+                    {
+                        container.Children.Add(new TextBlock { Text = "🛠️ Патчер NSP-Box Direct Boot и ключи Switch 2", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.Bold });
+                        container.Children.Add(new TextBlock { Text = "• Прямой запуск .nup и Plaintext .nsp без внешнего main.npdm\n• Автоматический бэкап .bak и восстановление в 1 клик\n• Поддержка ounce.keys и Master Key ревизий Horizon OS", Foreground = GetSecondaryBrush() });
                     }
                 },
                 new TopicItem

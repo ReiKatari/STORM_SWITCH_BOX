@@ -538,6 +538,22 @@ namespace StormSwitchBox.Services
                         try { File.Delete(finalNspPath); } catch { }
                     }
                 }
+                else if (targetFormat == "NUP")
+                {
+                    string finalNupPath = Path.Combine(outDir, baseFileName + ".nup");
+                    App.RunOnUI(() =>
+                    {
+                        task.Progress = 90;
+                        task.Status = "Сборка контейнера NUP v1.0...";
+                        task.LogDetails += "📦 [NUP v1.0] Упаковка в контейнер Switch 2 .nup (Zstd + SHA256 дедупликация)...\n";
+                    });
+                    var nupProg = new Progress<(double pct, string status)>(p => App.RunOnUI(() => { task.Progress = 90 + (p.pct * 0.10); }));
+                    await NupContainerService.PackSwitchDumpToNupAsync(sw2Dir, finalNupPath, App.Settings.Current.CompressionLevel, nupProg, ct);
+                    if (File.Exists(finalNspPath))
+                    {
+                        try { File.Delete(finalNspPath); } catch { }
+                    }
+                }
 
                 App.RunOnUI(() =>
                 {

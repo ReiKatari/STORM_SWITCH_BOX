@@ -743,6 +743,7 @@
                                 </StackPanel>
                                 <ComboBox x:Name="Switch2DefaultFormatCombo" HorizontalAlignment="Right" Width="280" SelectionChanged="Switch2DefaultFormatCombo_SelectionChanged" VerticalAlignment="Center">
                                     <ComboBoxItem Content="NSZ (Блочный NCZBLOCK, рекомендуется)" Tag="NSZ"/>
+                                    <ComboBoxItem Content="NUP — Монолитный контейнер Switch 2 (NUP v1.0, Zstandard + Дедупликация)" Tag="NUP"/>
                                     <ComboBoxItem Content="NSP (Чистый контейнер PFS0)" Tag="NSP"/>
                                     <ComboBoxItem Content="XCI (Картридж Switch 2)" Tag="XCI"/>
                                     <ComboBoxItem Content="XCZ (Сжатый картридж)" Tag="XCZ"/>
@@ -897,6 +898,40 @@
                                 </StackPanel>
                                 <ToggleSwitch HorizontalAlignment="Right" IsOn="{x:Bind Settings.Switch2DlcUnlocker, Mode=TwoWay}" Toggled="Toggle_Changed" VerticalAlignment="Center"/>
                             </Grid>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <!-- БЛОК: Патчер эмуляторов Switch 2 и поддержка NUP / Plaintext NSP (NSP-Box Direct Boot) -->
+                <StackPanel Spacing="8">
+                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <FontIcon Glyph="&#xE768;" Foreground="{ThemeResource SystemAccentColor}" FontSize="16"/>
+                        <TextBlock Text="🛠️ Патчер эмуляторов Switch 2 и поддержка NUP / Plaintext NSP (NSP-Box Direct Boot)" FontWeight="SemiBold" FontSize="15" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                    </StackPanel>
+                    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="20">
+                        <StackPanel Spacing="14">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel VerticalAlignment="Center" Spacing="4" Margin="0,0,16,0">
+                                    <TextBlock Text="Обратимая модификация исполняемого файла эмулятора" FontWeight="Medium" TextWrapping="Wrap"/>
+                                    <TextBlock Text="Обратимая модификация исполняемого файла эмулятора (Eden sx2a, PokeDinner, Eglantine, Selevet) для прямого запуска упакованных .nup и Plaintext .nsp без внешнего main.npdm (с авто-резервной копией .bak)" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                    <Button x:Name="PatchEmulatorExeBtn" Content="⚡ Пропатчить .exe эмулятора" Click="PatchEmulatorExe_Click" Style="{StaticResource AccentButtonStyle}" VerticalAlignment="Center" CornerRadius="6" ToolTipService.ToolTip="Выбрать .exe эмулятора для применения обратимого патча Direct Boot"/>
+                                    <Button x:Name="RestoreEmulatorExeBtn" Content="↩ Восстановить оригинал (.bak)" Click="RestoreEmulatorExe_Click" VerticalAlignment="Center" CornerRadius="6" ToolTipService.ToolTip="Восстановить исходный исполняемый файл эмулятора из резервной копии .bak"/>
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- Status panel -->
+                            <Border Background="{ThemeResource LayerFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6" Padding="12">
+                                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                    <FontIcon Glyph="&#xE946;" FontSize="14" Foreground="{ThemeResource SystemAccentColor}" VerticalAlignment="Center"/>
+                                    <TextBlock x:Name="EmulatorPatcherStatusTxt" Text="Статус: Патчер готов к работе. Выберите исполняемый файл эмулятора Switch 2 (.exe)" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </Border>
                         </StackPanel>
                     </Border>
                 </StackPanel>

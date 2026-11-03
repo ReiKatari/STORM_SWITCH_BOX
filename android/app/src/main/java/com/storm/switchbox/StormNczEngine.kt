@@ -301,6 +301,28 @@ object StormNczEngine {
         var baseProgTid = ""
         var patchCnmtEntry: Pair<Pfs0Entry, QuickNcaHeaderMeta>? = null
 
+        // Инспектируем монолитные контейнеры NUP v1.0 (NX Package Format)
+        if (file.exists() && file.isFile && ext == "nup") {
+            val nup = inspectNupFile(file)
+            if (nup != null) {
+                foundTid = nup.titleId
+                isMonolithicHardPatch = true
+                if (nup.hasBase) {
+                    detectedSubParts.add(QueuedSubComponent("БАЗА [NUP v1.0]", nup.titleId, "${nup.titleName} (Base)", file.length()))
+                }
+                if (nup.hasUpdate) {
+                    val updTid = if (nup.titleId.length == 16) nup.titleId.substring(0, 13) + "800" else nup.titleId
+                    detectedSubParts.add(QueuedSubComponent("ПАТЧ [NUP v1.0]", updTid, "Update v${nup.version}", 0L))
+                }
+                if (nup.dlcCount > 0) {
+                    for (i in 1..nup.dlcCount) {
+                        val dlcTid = if (nup.titleId.length == 16) nup.titleId.substring(0, 13) + "%03X".format(i) else nup.titleId
+                        detectedSubParts.add(QueuedSubComponent("DLC [NUP v1.0]", dlcTid, "DLC Package #$i", 0L))
+                    }
+                }
+            }
+        }
+
         // Инспектируем внутренние NCA/TIK разделы контейнера (с дешифровкой заголовков NCA3 через header_key)
         if (file.exists() && file.isFile && ext in listOf("nsp", "nsz", "xci", "xcz")) {
             try {
@@ -10249,6 +10271,351 @@ object StormNczEngine {
             try { baseRaf?.close() } catch (_: Throwable) {}
             try { updRaf?.close() } catch (_: Throwable) {}
         }
+    }
+
+
+    // =========================================================================
+    // NUP (NX PACKAGE FORMAT v1.0) SPECIFICATION & ENGINE
+    // =========================================================================
+
+    data class NupPackage(
+        val type: Int, // 0 = Base, 1 = Update, 2 = DLC
+        val titleId: String,
+        val version: Long,
+        val name: String,
+        val offset: Long,
+        val size: Long
+    )
+
+    data class NupFileInfo(
+        val titleId: String,
+        val titleName: String,
+        val version: String,
+        val hasBase: Boolean,
+        val hasUpdate: Boolean,
+        val dlcCount: Int,
+        val iconBytes: ByteArray?,
+        val packages: List<NupPackage>
+    )
+
+    fun inspectNupFile(file: File): NupFileInfo? {
+        if (!file.exists() || !file.isFile || file.length() < 0x80) return null
+        try {
+            RandomAccessFile(file, "r").use { raf ->
+                val magic = ByteArray(4)
+                raf.readFully(magic)
+                // Magic: NUP\x01 (0x4E, 0x55, 0x50, 0x01)
+                if (magic[0] != 0x4E.toByte() || magic[1] != 0x55.toByte() ||
+                    magic[2] != 0x50.toByte() || magic[3] != 0x01.toByte()) {
+                    return null
+                }
+
+                val sbBuf = ByteArray(0x7C)
+                raf.readFully(sbBuf)
+                val bb = ByteBuffer.wrap(sbBuf).order(ByteOrder.LITTLE_ENDIAN)
+
+                val version = bb.int
+                val tidLong = bb.long
+                val titleId = "%016X".format(tidLong)
+                val tocOffset = bb.long
+                val tocSize = bb.long
+                val metaOffset = bb.long
+                val metaSize = bb.long
+                val dataOffset = bb.long
+
+                val packages = mutableListOf<NupPackage>()
+                var hasBase = false
+                var hasUpd = false
+                var dlcCount = 0
+
+                // Read TOC
+                if (tocOffset > 0 && tocOffset < file.length()) {
+                    raf.seek(tocOffset)
+                    val tocMagic = ByteArray(4)
+                    raf.readFully(tocMagic)
+                    // Magic: TOC\x01 (0x54, 0x4F, 0x43, 0x01)
+                    if (tocMagic[0] == 0x54.toByte() && tocMagic[1] == 0x4F.toByte() &&
+                        tocMagic[2] == 0x43.toByte() && tocMagic[3] == 0x01.toByte()) {
+                        val count = raf.readInt()
+                        for (i in 0 until min(count, 256)) {
+                            val pkgType = raf.readByte().toInt() and 0xFF
+                            val pkgTid = "%016X".format(raf.readLong())
+                            val pkgVer = raf.readLong()
+                            val nameLen = raf.readShort().toInt() and 0xFFFF
+                            val nameBytes = ByteArray(min(nameLen, 256))
+                            raf.readFully(nameBytes)
+                            val pkgName = String(nameBytes, StandardCharsets.UTF_8)
+                            val pkgOff = raf.readLong()
+                            val pkgSz = raf.readLong()
+
+                            when (pkgType) {
+                                0 -> hasBase = true
+                                1 -> hasUpd = true
+                                2 -> dlcCount++
+                            }
+                            packages.add(NupPackage(pkgType, pkgTid, pkgVer, pkgName, pkgOff, pkgSz))
+                        }
+                    }
+                }
+
+                // Read TLV Metadata
+                var titleName = "Nintendo Switch 2 Game"
+                var displayVer = "1.0.0"
+                var iconBytes: ByteArray? = null
+
+                if (metaOffset > 0 && metaOffset < file.length() && metaSize > 0) {
+                    raf.seek(metaOffset)
+                    val metaBytes = ByteArray(min(metaSize.toInt(), 512 * 1024))
+                    raf.readFully(metaBytes)
+                    var pos = 0
+                    while (pos + 6 <= metaBytes.size) {
+                        val tag = ByteBuffer.wrap(metaBytes, pos, 2).order(ByteOrder.LITTLE_ENDIAN).short.toInt() and 0xFFFF
+                        val len = ByteBuffer.wrap(metaBytes, pos + 2, 4).order(ByteOrder.LITTLE_ENDIAN).int
+                        pos += 6
+                        if (pos + len <= metaBytes.size) {
+                            when (tag) {
+                                0x0003 -> iconBytes = metaBytes.copyOfRange(pos, pos + len)
+                                0x0004 -> displayVer = String(metaBytes, pos, len, StandardCharsets.UTF_8).trim()
+                                0x0005 -> titleName = String(metaBytes, pos, len, StandardCharsets.UTF_8).trim()
+                            }
+                            pos += len
+                        } else {
+                            break
+                        }
+                    }
+                }
+
+                return NupFileInfo(
+                    titleId = titleId,
+                    titleName = titleName,
+                    version = displayVer,
+                    hasBase = hasBase,
+                    hasUpdate = hasUpd,
+                    dlcCount = dlcCount,
+                    iconBytes = iconBytes,
+                    packages = packages
+                )
+            }
+        } catch (_: Exception) {
+            return null
+        }
+    }
+
+    fun packToNupContainer(
+        inputFiles: List<File>,
+        outputFile: File,
+        zstdLevel: Int = 18,
+        onProgress: ((NczProgress) -> Unit)? = null
+    ): CompressionResult {
+        val startMs = System.currentTimeMillis()
+        outputFile.parentFile?.mkdirs()
+
+        // 1. Сбор метаданных
+        var tid = "0400000000000000"
+        var gameTitle = "Nintendo Switch 2 Game"
+        var displayVer = "1.0.0"
+        var coverBytes: ByteArray? = null
+
+        for (f in inputFiles) {
+            if (f.isDirectory && isSwitch2DumpDirectory(f)) {
+                val sw2 = inspectSwitch2DumpDirectory(f)
+                if (sw2 != null) {
+                    tid = sw2.titleId
+                    gameTitle = sw2.gameName
+                    if (sw2.maxUpdateVersion.isNotEmpty()) displayVer = sw2.maxUpdateVersion
+                    coverBytes = sw2.coverBytes
+                    break
+                }
+            } else if (f.isFile) {
+                val meta = readContainerMetadata(f)
+                if (meta != null && meta.titleId.isNotEmpty()) {
+                    tid = meta.titleId
+                    if (meta.internalTitle.isNotEmpty()) gameTitle = meta.internalTitle
+                    if (meta.displayVersion.isNotEmpty()) displayVer = meta.displayVersion
+                    coverBytes = meta.embeddedIconBytes
+                    break
+                }
+            }
+        }
+
+        if (coverBytes == null) {
+            coverBytes = generateSwitchIconJpeg256("", gameTitle, "RUS")
+        }
+
+        onProgress?.invoke(NczProgress(gameTitle, 1, 1, 15L, 100L, 0.0, 15, "Дедупликация экстентов SHA-256..."))
+
+        // 2. Хэш-таблица экстентов и дедупликация
+        val extentHashMap = LinkedHashMap<String, Long>() // SHA-256 -> File Offset in Data Stream
+        val extentRecords = mutableListOf<Triple<String, Long, Long>>() // Name, Data Offset, Data Size
+        val dataTmp = File(outputFile.parentFile, "nup_data_${System.currentTimeMillis()}.tmp")
+
+        var totalOriginal = 0L
+        var totalCompressed = 0L
+
+        FileOutputStream(dataTmp).use { fos ->
+            BufferedOutputStream(fos, 1024 * 1024).use { bos ->
+                var currentDataOffset = 0L
+                for ((idx, file) in inputFiles.withIndex()) {
+                    if (!file.exists()) continue
+                    val pct = 20 + ((idx.toFloat() / inputFiles.size) * 50).toInt()
+                    onProgress?.invoke(NczProgress(gameTitle, 1, 1, pct.toLong(), 100L, 0.0, pct, "Сжатие Zstandard: ${file.name}..."))
+
+                    val fileBytes = if (file.isFile) file.readBytes() else ByteArray(0)
+                    totalOriginal += fileBytes.size
+                    val sha = java.security.MessageDigest.getInstance("SHA-256").digest(fileBytes)
+                    val shaHex = sha.joinToString("") { "%02x".format(it) }
+
+                    if (extentHashMap.containsKey(shaHex)) {
+                        val existingOffset = extentHashMap[shaHex]!!
+                        extentRecords.add(Triple(file.name, existingOffset, fileBytes.size.toLong()))
+                    } else {
+                        val compressed = Zstd.compress(fileBytes, zstdLevel)
+                        bos.write(compressed)
+                        extentHashMap[shaHex] = currentDataOffset
+                        extentRecords.add(Triple(file.name, currentDataOffset, compressed.size.toLong()))
+                        currentDataOffset += compressed.size
+                        totalCompressed += compressed.size
+                    }
+                }
+            }
+        }
+
+        onProgress?.invoke(NczProgress(gameTitle, 1, 1, 80L, 100L, 0.0, 80, "Запись суперблока NUP v1.0 и TOC..."))
+
+        // 3. Формирование суперблока NUP\x01, TOC\x01 и TLV
+        RandomAccessFile(outputFile, "rw").use { raf ->
+            raf.setLength(0)
+
+            // Superblock 0x80 bytes
+            val sb = ByteBuffer.allocate(0x80).order(ByteOrder.LITTLE_ENDIAN)
+            sb.put(byteArrayOf(0x4E, 0x55, 0x50, 0x01)) // NUP\x01
+            sb.putInt(1) // version
+            val tidLong = try { BigInteger(tid, 16).toLong() } catch (_: Exception) { 0L }
+            sb.putLong(tidLong)
+
+            // Placeholders for offsets
+            val tocOffset = 0x80L
+            val tocBytes = ByteArrayOutputStream()
+            tocBytes.write(byteArrayOf(0x54, 0x4F, 0x43, 0x01)) // TOC\x01
+            val tocCountBuf = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(extentRecords.size).array()
+            tocBytes.write(tocCountBuf)
+
+            for ((name, off, sz) in extentRecords) {
+                val pkgType = if (name.contains("update", ignoreCase = true) || name.contains("[v")) 1 else if (name.contains("dlc", ignoreCase = true)) 2 else 0
+                tocBytes.write(pkgType)
+                val pTidBuf = ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).putLong(tidLong).array()
+                tocBytes.write(pTidBuf)
+                val pVerBuf = ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).putLong(0L).array()
+                tocBytes.write(pVerBuf)
+                val nameBytes = name.toByteArray(StandardCharsets.UTF_8)
+                val pNameLenBuf = ByteBuffer.allocate(2).order(ByteOrder.LITTLE_ENDIAN).putShort(nameBytes.size.toShort()).array()
+                tocBytes.write(pNameLenBuf)
+                tocBytes.write(nameBytes)
+                val pOffBuf = ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).putLong(off).array()
+                tocBytes.write(pOffBuf)
+                val pSzBuf = ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).putLong(sz).array()
+                tocBytes.write(pSzBuf)
+            }
+            val tocArray = tocBytes.toByteArray()
+            val metaOffset = tocOffset + tocArray.size
+
+            // TLV Metadata
+            val metaBytes = ByteArrayOutputStream()
+            // 0x0003 Icon
+            if (coverBytes != null && coverBytes.isNotEmpty()) {
+                val tBuf = ByteBuffer.allocate(6).order(ByteOrder.LITTLE_ENDIAN).putShort(0x0003.toShort()).putInt(coverBytes.size).array()
+                metaBytes.write(tBuf)
+                metaBytes.write(coverBytes)
+            }
+            // 0x0004 DisplayVersion
+            val verBytes = displayVer.toByteArray(StandardCharsets.UTF_8)
+            val vBuf = ByteBuffer.allocate(6).order(ByteOrder.LITTLE_ENDIAN).putShort(0x0004.toShort()).putInt(verBytes.size).array()
+            metaBytes.write(vBuf)
+            metaBytes.write(verBytes)
+            // 0x0005 TitleName
+            val nameBytes = gameTitle.toByteArray(StandardCharsets.UTF_8)
+            val nBuf = ByteBuffer.allocate(6).order(ByteOrder.LITTLE_ENDIAN).putShort(0x0005.toShort()).putInt(nameBytes.size).array()
+            metaBytes.write(nBuf)
+            metaBytes.write(nameBytes)
+
+            val metaArray = metaBytes.toByteArray()
+            val dataOffset = metaOffset + metaArray.size
+
+            sb.putLong(tocOffset)
+            sb.putLong(tocArray.size.toLong())
+            sb.putLong(metaOffset)
+            sb.putLong(metaArray.size.toLong())
+            sb.putLong(dataOffset)
+
+            raf.write(sb.array())
+            raf.write(tocArray)
+            raf.write(metaArray)
+
+            // Copy data stream
+            FileInputStream(dataTmp).use { dis ->
+                val buffer = ByteArray(1024 * 1024)
+                var bytes: Int
+                while (dis.read(buffer).also { bytes = it } != -1) {
+                    raf.write(buffer, 0, bytes)
+                }
+            }
+        }
+        dataTmp.delete()
+
+        onProgress?.invoke(NczProgress(gameTitle, 1, 1, 100L, 100L, 0.0, 100, "Сборка NUP v1.0 завершена!"))
+        return CompressionResult(
+            success = true,
+            inputPath = inputFiles.firstOrNull()?.absolutePath ?: "",
+            outputPath = outputFile.absolutePath,
+            originalBytes = totalOriginal,
+            compressedBytes = outputFile.length(),
+            elapsedMs = System.currentTimeMillis() - startMs,
+            compressedNcaCount = inputFiles.size,
+            totalFilesCount = inputFiles.size,
+            blockSizeExponent = 18,
+            zstdLevel = zstdLevel,
+            message = "Сборка NUP v1.0 завершена успешно"
+        )
+    }
+
+    fun extractNupToTempNspOrDir(
+        nupFile: File,
+        outputDir: File,
+        onProgress: ((NczProgress) -> Unit)? = null
+    ): File {
+        val nup = inspectNupFile(nupFile) ?: throw Exception("Неверный формат или поврежденный суперблок NUP v1.0")
+        outputDir.mkdirs()
+        val outGameDir = File(outputDir, nup.titleName.replace(Regex("""[\\/:*?"<>|]"""), "_"))
+        outGameDir.mkdirs()
+
+        RandomAccessFile(nupFile, "r").use { raf ->
+            val sb = ByteBuffer.allocate(0x80).order(ByteOrder.LITTLE_ENDIAN)
+            raf.readFully(sb.array())
+            sb.position(0x1C) // dataOffset
+            val dataOffset = sb.long
+
+            for ((idx, pkg) in nup.packages.withIndex()) {
+                val pct = ((idx.toFloat() / nup.packages.size) * 100).toInt()
+                onProgress?.invoke(NczProgress(nup.titleName, 1, 1, pct.toLong(), 100L, 0.0, pct, "Распаковка NUP: ${pkg.name}..."))
+
+                val targetFile = File(outGameDir, pkg.name)
+                raf.seek(dataOffset + pkg.offset)
+                val compData = ByteArray(pkg.size.toInt())
+                raf.readFully(compData)
+
+                try {
+                    val decompSize = Zstd.decompressedSize(compData)
+                    val decomp = ByteArray(decompSize.toInt())
+                    Zstd.decompress(decomp, compData)
+                    targetFile.writeBytes(decomp)
+                } catch (_: Exception) {
+                    targetFile.writeBytes(compData)
+                }
+            }
+        }
+
+        onProgress?.invoke(NczProgress(nup.titleName, 1, 1, 100L, 100L, 0.0, 100, "Распаковка NUP завершена!"))
+        return outGameDir
     }
 
 }

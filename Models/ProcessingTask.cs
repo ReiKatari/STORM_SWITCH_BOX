@@ -127,7 +127,7 @@ namespace StormSwitchBox.Models
             }
         }
 
-        [ObservableProperty] private List<string> _availableTargetFormats = new() { "NSP", "NSZ", "XCI", "XCZ", "NSP + NSZ", "XCI + XCZ" };
+        [ObservableProperty] private List<string> _availableTargetFormats = new() { "NSP", "NSZ", "XCI", "XCZ", "NUP", "NSP + NSZ", "XCI + XCZ" };
 
         [System.Text.Json.Serialization.JsonIgnore]
         public bool IsDualFormat =>
@@ -146,6 +146,7 @@ namespace StormSwitchBox.Models
                 "NSZ" => ".nsz",
                 "XCI" => ".xci",
                 "XCZ" => ".xcz",
+                "NUP" => ".nup",
                 "3DS" => ".3ds",
                 "CIA" => ".cia",
                 "CXI" => ".cxi",

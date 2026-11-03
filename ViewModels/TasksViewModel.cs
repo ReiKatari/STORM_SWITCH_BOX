@@ -27,12 +27,12 @@ namespace StormSwitchBox.ViewModels;
 
 public partial class TasksViewModel : ObservableObject
 {
-	public static readonly string[] FormatNames = new string[] { "NSP", "NSZ", "XCI", "XCZ", "NSP + NSZ", "XCI + XCZ" };
+	public static readonly string[] FormatNames = new string[] { "NSP", "NSZ", "XCI", "XCZ", "NUP", "NSP + NSZ", "XCI + XCZ" };
 	public static readonly string[] FormatNames3ds = new string[] { "3DS", "CIA", "CXI", "3DS + CIA" };
 
 	private static readonly HashSet<string> GameExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) 
 	{ 
-		".NSP", ".XCI", ".NSZ", ".XCZ",
+		".NSP", ".XCI", ".NSZ", ".XCZ", ".NUP",
 		".3DS", ".CCI", ".CIA", ".CXI", ".CFA",
 		".NPDM", ".NSO", ".NACP", ".NCA", ".NCZ" 
 	};
@@ -218,6 +218,27 @@ public partial class TasksViewModel : ObservableObject
 	{
 		return await Task.Run(delegate
 		{
+			if (string.Equals(Path.GetExtension(filePath), ".nup", StringComparison.OrdinalIgnoreCase) || NupContainerService.IsNupFile(filePath))
+			{
+				try
+				{
+					var nupInfo = NupContainerService.InspectNupFile(filePath);
+					if (nupInfo != null)
+					{
+						return new SwitchFormatInfo
+						{
+							TitleId = nupInfo.TitleId,
+							ContentType = nupInfo.ContentType,
+							Version = nupInfo.Version,
+							GameName = nupInfo.GameName,
+							Publisher = nupInfo.Publisher,
+							IconBytes = nupInfo.IconBytes
+						};
+					}
+				}
+				catch { }
+			}
+
 			if (Nintendo3dsService.Is3dsExtension(Path.GetExtension(filePath)))
 			{
 				try
@@ -2686,6 +2707,12 @@ public partial class TasksViewModel : ObservableObject
 				}
 				return;
 			}
+			if (task.TargetFormat.Equals("NUP", StringComparison.OrdinalIgnoreCase))
+			{
+				task.PauseEvent.Wait(cts.Token);
+				await App.NupContainer.ConvertContainerToNupAsync(task, workingInput, task.OutputFolder, cts.Token);
+				return;
+			}
 			if (task.TargetFormat.Equals("NSZ", StringComparison.OrdinalIgnoreCase) || task.TargetFormat.Equals("NSP + NSZ", StringComparison.OrdinalIgnoreCase))
 			{
 				string intermediateNsp = workingInput;
@@ -2833,6 +2860,25 @@ public partial class TasksViewModel : ObservableObject
 						sb.AppendLine($"  ├ ProductCode: {info3ds.ProductCode}");
 						sb.AppendLine($"  └ Версия:      {ver3ds}  Размер: {ProcessingTask.FormatSize(new FileInfo(filePath).Length)}");
 						if (!string.IsNullOrEmpty(tid3ds)) allTitleIds.Add(tid3ds);
+						continue;
+					}
+					if (ext == ".nup" || NupContainerService.IsNupFile(filePath))
+					{
+						totalNspFiles++;
+						string fileNameNup = Path.GetFileName(filePath);
+						var nupInfo = NupContainerService.InspectNupFile(filePath);
+						string typeLabelNup = nupInfo.ContentType switch
+						{
+							"Application" => "🎮 ИГРА (NUP)",
+							"Patch" => "🔄 ОБНОВЛЕНИЕ (NUP)",
+							"AddOnContent" => "📦 DLC (NUP)",
+							_ => $"📦 NUP ({nupInfo.ContentType})"
+						};
+						sb.AppendLine($"\n{typeLabelNup}  {fileNameNup}");
+						sb.AppendLine($"  ├ TitleID:     {nupInfo.TitleId}");
+						sb.AppendLine($"  ├ Версия:      {nupInfo.Version}  Размер: {ProcessingTask.FormatSize(new FileInfo(filePath).Length)}");
+						sb.AppendLine($"  └ Пакетов:     {nupInfo.Packages.Count}  Файлов: {nupInfo.FileCount}");
+						if (!string.IsNullOrEmpty(nupInfo.TitleId)) allTitleIds.Add(nupInfo.TitleId);
 						continue;
 					}
 					if (ext != ".nsp" && ext != ".nsz" && ext != ".xci" && ext != ".xcz") continue;

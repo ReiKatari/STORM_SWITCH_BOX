@@ -70,6 +70,21 @@ namespace StormSwitchBox.Services
         {
             var info = new Models.SwitchFormatInfo { SizeBytes = new FileInfo(filePath).Length };
 
+            if (filePath.EndsWith(".nup", StringComparison.OrdinalIgnoreCase) || NupContainerService.IsNupFile(filePath))
+            {
+                var nupMeta = NupContainerService.InspectNupFile(filePath);
+                return new Models.SwitchFormatInfo
+                {
+                    SizeBytes = new FileInfo(filePath).Length,
+                    TitleId = nupMeta.TitleId,
+                    ContentType = nupMeta.ContentType,
+                    Version = nupMeta.Version,
+                    GameName = nupMeta.GameName,
+                    Publisher = nupMeta.Publisher,
+                    IconBytes = nupMeta.IconBytes
+                };
+            }
+
             if (!_keysService.IsLoaded) return info;
 
             try
@@ -398,6 +413,64 @@ namespace StormSwitchBox.Services
 
         public async Task ConvertContainerAsync(ProcessingTask task, string inputPath, string outDir, string targetFormat, CancellationToken cancellationToken)
         {
+            if (targetFormat.Equals("NUP", StringComparison.OrdinalIgnoreCase))
+            {
+                await App.NupContainer.ConvertContainerToNupAsync(task, inputPath, outDir, cancellationToken);
+                return;
+            }
+
+            if (inputPath.EndsWith(".nup", StringComparison.OrdinalIgnoreCase) || NupContainerService.IsNupFile(inputPath))
+            {
+                App.RunOnUI(() =>
+                {
+                    task.LogDetails += "\n[NUP] Распаковка контейнера NUP v1.0 перед конвертацией...";
+                    task.Status = "Распаковка NUP...";
+                });
+                string tempDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "StormNupExtract_" + Guid.NewGuid().ToString("N"));
+                System.IO.Directory.CreateDirectory(tempDir);
+                TempCleanupService.RegisterActiveTempDirectory(tempDir);
+                try
+                {
+                    var prog = new Progress<(double pct, string status)>(p => App.RunOnUI(() =>
+                    {
+                        task.Progress = p.pct * 0.5;
+                        task.Status = p.status;
+                    }));
+                    await NupContainerService.ExtractNupToDirectoryAsync(inputPath, tempDir, prog, cancellationToken);
+                    var ncaFiles = System.IO.Directory.GetFiles(tempDir, "*.nc*", System.IO.SearchOption.AllDirectories);
+                    if (ncaFiles.Length > 0)
+                    {
+                        string tempNsp = System.IO.Path.Combine(tempDir, System.IO.Path.GetFileNameWithoutExtension(inputPath) + ".nsp");
+                        var pfsBuilder = new PartitionFileSystemBuilder();
+                        foreach (var nca in ncaFiles)
+                        {
+                            pfsBuilder.AddFile(System.IO.Path.GetFileName(nca), new LocalFile(nca, OpenMode.Read));
+                        }
+                        using (var built = pfsBuilder.Build(PartitionFileSystemType.Standard))
+                        using (var outStream = new FileStream(tempNsp, FileMode.Create, FileAccess.Write, FileShare.None, 16 * 1024 * 1024))
+                        {
+                            built.AsStream().CopyTo(outStream);
+                        }
+                        await ConvertContainerAsync(task, tempNsp, outDir, targetFormat, cancellationToken);
+                        return;
+                    }
+                    else
+                    {
+                        App.RunOnUI(() =>
+                        {
+                            task.LogDetails += "\n[NUP] Контейнер распакован в " + tempDir;
+                            task.Progress = 100;
+                            task.Status = "Успешно";
+                        });
+                        return;
+                    }
+                }
+                finally
+                {
+                    TempCleanupService.ForceDeleteDirectory(tempDir);
+                }
+            }
+
             string targetExt = targetFormat.ToLower() == "xci" || targetFormat.ToLower() == "xcz" ? ".xci" : ".nsp";
             bool isInputXci = inputPath.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) || inputPath.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase);
             
