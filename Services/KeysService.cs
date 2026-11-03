@@ -210,5 +210,198 @@ namespace StormSwitchBox.Services
                 _semaphore.Release();
             }
         }
+
+        #region Nintendo Switch 2 (Ounce / NVN2) Keys & Firmware Inspection
+
+        public static Switch2KeyInfo AnalyzeSwitch2KeysFile(string? keysPath, string? titleKeysPath = null)
+        {
+            var result = new Switch2KeyInfo();
+            if (string.IsNullOrWhiteSpace(keysPath) || !File.Exists(keysPath))
+            {
+                result.IsLoaded = false;
+                result.FirmwareDescription = "Ключи не выбраны";
+                return result;
+            }
+
+            try
+            {
+                result.FilePath = keysPath;
+                int keyCount = 0;
+                int maxRev = -1;
+                string highestKey = string.Empty;
+                bool hasOunce = false;
+
+                foreach (var line in File.ReadLines(keysPath))
+                {
+                    string trimmed = line.Trim();
+                    if (string.IsNullOrEmpty(trimmed) || trimmed.StartsWith("#") || trimmed.StartsWith("//"))
+                        continue;
+
+                    int eqIdx = trimmed.IndexOf('=');
+                    if (eqIdx <= 0) continue;
+
+                    keyCount++;
+                    string keyName = trimmed.Substring(0, eqIdx).Trim().ToLowerInvariant();
+                    if (keyName.Contains("ounce"))
+                    {
+                        hasOunce = true;
+                    }
+
+                    if (keyName.StartsWith("master_key_") || keyName.StartsWith("ounce_master_key_"))
+                    {
+                        string[] parts = keyName.Split('_');
+                        string hexRev = parts[parts.Length - 1];
+                        if (int.TryParse(hexRev, System.Globalization.NumberStyles.HexNumber, null, out int rev))
+                        {
+                            if (rev > maxRev)
+                            {
+                                maxRev = rev;
+                                highestKey = keyName;
+                            }
+                        }
+                    }
+                }
+
+                result.KeyCount = keyCount;
+                result.MaxMasterKeyRevision = maxRev;
+                result.HighestKeyName = highestKey;
+                result.HasOunceKeys = hasOunce;
+                result.IsLoaded = keyCount > 0;
+
+                // Build human-readable firmware description
+                if (maxRev >= 0)
+                {
+                    string hosFw = GetFirmwareByMasterKeyRevision(maxRev);
+                    string ounceTag = hasOunce ? "Ounce / " : (maxRev >= 0x13 ? "Ounce / " : "");
+                    string revHex = maxRev.ToString("X2");
+                    result.FirmwareDescription = $"Horizon OS {hosFw} ({ounceTag}Master Key {revHex})";
+                }
+                else if (hasOunce)
+                {
+                    result.FirmwareDescription = "Horizon OS 20.x–23.x (Ounce / NVN2)";
+                }
+                else
+                {
+                    result.FirmwareDescription = keyCount > 0 ? "Horizon OS (пользовательский набор ключей)" : "Ключи не обнаружены";
+                }
+
+                // Analyze title keys if available
+                string? effectiveTitleKeys = titleKeysPath;
+                if (string.IsNullOrWhiteSpace(effectiveTitleKeys) || !File.Exists(effectiveTitleKeys))
+                {
+                    string? dir = Path.GetDirectoryName(keysPath);
+                    if (!string.IsNullOrEmpty(dir))
+                    {
+                        string candidate = Path.Combine(dir, "title.keys");
+                        if (File.Exists(candidate)) effectiveTitleKeys = candidate;
+                    }
+                }
+                if (string.IsNullOrWhiteSpace(effectiveTitleKeys) || !File.Exists(effectiveTitleKeys))
+                {
+                    string userHome = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "title.keys");
+                    if (File.Exists(userHome)) effectiveTitleKeys = userHome;
+                }
+
+                if (!string.IsNullOrWhiteSpace(effectiveTitleKeys) && File.Exists(effectiveTitleKeys))
+                {
+                    result.TitleKeysFilePath = effectiveTitleKeys;
+                    int tCount = 0;
+                    foreach (var tLine in File.ReadLines(effectiveTitleKeys))
+                    {
+                        string t = tLine.Trim();
+                        if (!string.IsNullOrEmpty(t) && !t.StartsWith("#") && t.Contains('='))
+                            tCount++;
+                    }
+                    result.TitleKeyCount = tCount;
+                }
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                result.IsLoaded = false;
+                result.FirmwareDescription = $"Ошибка анализа: {ex.Message}";
+                return result;
+            }
+        }
+
+        public static string? AutoSearchSwitch2Keys()
+        {
+            var candidates = new List<string>
+            {
+                @"Q:\CONSOLES\Nintendo Switch 2\prod.keys",
+                @"Q:\CONSOLES\Nintendo Switch 2\ounce.keys",
+                @"Q:\CONSOLES\Nintendo Switch 2\keys.txt",
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "prod.keys"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "keys.txt"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "StormSwitchBox", "keys", "prod.keys"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Ryujinx", "system", "prod.keys"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Eden", "keys", "prod.keys"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Citron", "keys", "prod.keys"),
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tools", "keys.dat"),
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "keys", "prod.keys")
+            };
+
+            if (!string.IsNullOrEmpty(App.Settings.Current.KeysPath) && File.Exists(App.Settings.Current.KeysPath))
+            {
+                candidates.Add(App.Settings.Current.KeysPath);
+            }
+
+            foreach (var cand in candidates)
+            {
+                if (File.Exists(cand))
+                {
+                    try
+                    {
+                        var info = AnalyzeSwitch2KeysFile(cand);
+                        if (info.IsLoaded && info.KeyCount > 0)
+                        {
+                            return cand;
+                        }
+                    }
+                    catch { }
+                }
+            }
+
+            return null;
+        }
+
+        public static string? AutoSearchSwitch2TitleKeys(string? keysPath)
+        {
+            var candidates = new List<string>();
+            if (!string.IsNullOrEmpty(keysPath))
+            {
+                string? dir = Path.GetDirectoryName(keysPath);
+                if (!string.IsNullOrEmpty(dir))
+                {
+                    candidates.Add(Path.Combine(dir, "title.keys"));
+                    candidates.Add(Path.Combine(dir, "title.keys.txt"));
+                }
+            }
+            candidates.Add(@"Q:\CONSOLES\Nintendo Switch 2\title.keys");
+            candidates.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "title.keys"));
+            candidates.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "StormSwitchBox", "keys", "title.keys"));
+
+            foreach (var cand in candidates)
+            {
+                if (File.Exists(cand)) return cand;
+            }
+            return null;
+        }
+
+        #endregion
+    }
+
+    public class Switch2KeyInfo
+    {
+        public bool IsLoaded { get; set; }
+        public string FilePath { get; set; } = string.Empty;
+        public int KeyCount { get; set; }
+        public int MaxMasterKeyRevision { get; set; } = -1;
+        public string HighestKeyName { get; set; } = string.Empty;
+        public string FirmwareDescription { get; set; } = "Не определена";
+        public bool HasOunceKeys { get; set; }
+        public int TitleKeyCount { get; set; }
+        public string? TitleKeysFilePath { get; set; }
     }
 }

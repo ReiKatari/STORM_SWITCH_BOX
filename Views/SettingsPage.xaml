@@ -676,59 +676,293 @@
                         <TextBlock Text="Криптографические ключи Nintendo Switch 2 (Ounce / NVN2)" FontWeight="SemiBold" FontSize="15" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
                     </StackPanel>
                     <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="20">
-                        <StackPanel Spacing="14">
-                            <Grid AllowDrop="True" DragOver="KeysFile_DragOver" Drop="KeysFile_Drop" Padding="4" CornerRadius="6">
+                        <StackPanel Spacing="16">
+                            <!-- prod.keys row -->
+                            <Grid AllowDrop="True" DragOver="KeysFileSwitch2_DragOver" Drop="KeysFileSwitch2_Drop" Padding="4" CornerRadius="6">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
                                 <StackPanel VerticalAlignment="Center" Spacing="4" Margin="0,0,16,0">
                                     <TextBlock Text="Файл криптографических ключей Switch 2 (prod.keys / ounce.keys)" FontWeight="Medium" VerticalAlignment="Center" TextWrapping="Wrap"/>
-                                    <TextBlock Text="Поддерживает мастер-ключи Horizon OS 2.x для Nintendo Switch 2. Можно перетащить файл сюда" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                    <TextBlock Text="Мастер-ключи Horizon OS и спецификация Ounce для расшифровки и сборки дампов Switch 2. Поддерживается перетаскивание (Drag и Drop)" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
                                 </StackPanel>
-                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
-                                    <Button Content="📂 Выбрать файл" Click="SelectKeysButton_Click" VerticalAlignment="Center" CornerRadius="6"/>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                    <Button x:Name="AutoDetectSwitch2KeysBtn" Content="🔍 Авто-поиск" Click="AutoDetectSwitch2Keys_Click" VerticalAlignment="Center" CornerRadius="6" ToolTipService.ToolTip="Автоматический поиск ключей Switch 2 в системных папках"/>
+                                    <Button x:Name="SelectSwitch2KeysBtn" Content="📁 Выбрать файл" Click="SelectSwitch2Keys_Click" Style="{StaticResource AccentButtonStyle}" VerticalAlignment="Center" CornerRadius="6"/>
+                                    <Button x:Name="ClearSwitch2KeysBtn" Content="✕ Сбросить" Click="ClearSwitch2Keys_Click" VerticalAlignment="Center" CornerRadius="6" ToolTipService.ToolTip="Сбросить выбранный путь"/>
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- Status Card -->
+                            <Border Background="{ThemeResource LayerFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6" Padding="14">
+                                <StackPanel Spacing="6">
+                                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                        <TextBlock x:Name="Switch2KeysStatusBadge" Text="⚠️ Ключи не загружены" FontWeight="Bold" FontSize="13" Foreground="#E74C3C"/>
+                                        <TextBlock x:Name="Switch2KeysVersionBadge" Text="• Версия прошивки: Ожидание ключей" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                    </StackPanel>
+                                    <TextBlock x:Name="Switch2KeysCountTxt" Text="Загружено ключей: 0 шт." FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                    <TextBlock x:Name="Switch2KeysPathTxt" Text="Активный файл: Не указан (нажмите «Авто-поиск» или «Выбрать файл»)" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextTrimming="CharacterEllipsis"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
+
+                            <!-- title.keys row -->
+                            <Grid Padding="4" CornerRadius="6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel VerticalAlignment="Center" Spacing="4" Margin="0,0,16,0">
+                                    <TextBlock Text="Файл ключей тайтлов Switch 2 (title.keys)" FontWeight="Medium" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                    <TextBlock x:Name="Switch2TitleKeysStatusTxt" Text="Опционально: загружается автоматически, если файл лежит рядом с prod.keys" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                    <Button x:Name="SelectSwitch2TitleKeysBtn" Content="📁 Выбрать файл" Click="SelectSwitch2TitleKeys_Click" VerticalAlignment="Center" CornerRadius="6"/>
+                                    <Button x:Name="ClearSwitch2TitleKeysBtn" Content="✕ Сбросить" Click="ClearSwitch2TitleKeys_Click" VerticalAlignment="Center" CornerRadius="6"/>
                                 </StackPanel>
                             </Grid>
                         </StackPanel>
                     </Border>
                 </StackPanel>
 
-                <!-- БЛОК 2: Сборка и сжатие дампов Switch 2 -->
+                <!-- БЛОК 2: Формат контейнера и параметры сжатия Nintendo Switch 2 -->
                 <StackPanel Spacing="8">
                     <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                         <FontIcon Glyph="&#xE768;" Foreground="{ThemeResource SystemAccentColor}" FontSize="16"/>
-                        <TextBlock Text="Сборка, компиляция и сжатие дампов Nintendo Switch 2" FontWeight="SemiBold" FontSize="15" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                        <TextBlock Text="Формат контейнера и параметры сжатия Nintendo Switch 2" FontWeight="SemiBold" FontSize="15" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
                     </StackPanel>
                     <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="20">
                         <StackPanel Spacing="16">
+                            <!-- Формат контейнера по умолчанию -->
+                            <Grid>
+                                <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock Text="Формат выходного контейнера Switch 2 по умолчанию" FontWeight="Medium"/>
+                                    <TextBlock Text="Целевой контейнер сборки: NSZ (блочный NCZBLOCK, рекомендуется), чистый NSP, картридж XCI или XCZ" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <ComboBox x:Name="Switch2DefaultFormatCombo" HorizontalAlignment="Right" Width="280" SelectionChanged="Switch2DefaultFormatCombo_SelectionChanged" VerticalAlignment="Center">
+                                    <ComboBoxItem Content="NSZ (Блочный NCZBLOCK, рекомендуется)" Tag="NSZ"/>
+                                    <ComboBoxItem Content="NSP (Чистый контейнер PFS0)" Tag="NSP"/>
+                                    <ComboBoxItem Content="XCI (Картридж Switch 2)" Tag="XCI"/>
+                                    <ComboBoxItem Content="XCZ (Сжатый картридж)" Tag="XCZ"/>
+                                </ComboBox>
+                            </Grid>
+
+                            <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
+
+                            <!-- Блочное сжатие Zstandard -->
                             <Grid>
                                 <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
                                     <TextBlock Text="Блочное сжатие Zstandard для Switch 2 (NSZ / XCZ)" FontWeight="Medium"/>
-                                    <TextBlock Text="Сжимать результирующие дампы Switch 2 по спецификации NCZBLOCK v2" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                    <TextBlock Text="Сжимать результирующие дампы Switch 2 по спецификации NCZBLOCK v2 с произвольным доступом блоков" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
                                 </StackPanel>
-                                <ToggleSwitch HorizontalAlignment="Right" IsOn="{x:Bind Settings.SolidCompression, Mode=TwoWay}" Toggled="Toggle_Changed" VerticalAlignment="Center"/>
+                                <ToggleSwitch HorizontalAlignment="Right" IsOn="{x:Bind Settings.Switch2BlockCompression, Mode=TwoWay}" Toggled="Toggle_Changed" VerticalAlignment="Center"/>
                             </Grid>
+
                             <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
+
+                            <!-- Уровень сжатия Zstandard (1-22) -->
                             <Grid>
                                 <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
-                                    <TextBlock Text="SmartShrink для Switch 2" FontWeight="Medium"/>
-                                    <TextBlock Text="Автоматическое удаление dummy-паддингов и выравнивание секторов" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                    <TextBlock Text="Уровень сжатия Zstandard (1–22)" FontWeight="Medium"/>
+                                    <TextBlock Text="Степень сжатия Zstd (по умолчанию: 18). Уровни 19–22 обеспечивают сверхплотную упаковку при повышенной нагрузке" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
                                 </StackPanel>
-                                <ToggleSwitch HorizontalAlignment="Right" IsOn="{x:Bind Settings.TrimXci, Mode=TwoWay}" Toggled="Toggle_Changed" VerticalAlignment="Center"/>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Spacing="12">
+                                    <Slider x:Name="Switch2CompressionSlider" Width="200" Minimum="1" Maximum="22" StepFrequency="1"
+                                            Value="{x:Bind Settings.Switch2CompressionLevel, Mode=TwoWay}" ValueChanged="Switch2CompressionSlider_ValueChanged" VerticalAlignment="Center"/>
+                                    <TextBlock x:Name="Switch2CompressionValTxt" Text="18" Width="36" TextAlignment="Center" FontWeight="Bold" FontSize="14" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Grid>
+
+                            <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
+
+                            <!-- Размер блока NCZBLOCK -->
+                            <Grid>
+                                <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock Text="Размер блока NCZBLOCK" FontWeight="Medium"/>
+                                    <TextBlock Text="Размер блока сжатия при упаковке NCZ. 1 МБ обеспечивает идеальный баланс скорости распаковки и сжатия" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <ComboBox x:Name="Switch2BlockSizeCombo" HorizontalAlignment="Right" Width="220" SelectedIndex="{x:Bind Settings.Switch2BlockSizeIndex, Mode=TwoWay}" SelectionChanged="Switch2BlockSizeCombo_SelectionChanged" VerticalAlignment="Center">
+                                    <ComboBoxItem Content="256 КБ"/>
+                                    <ComboBoxItem Content="512 КБ"/>
+                                    <ComboBoxItem Content="1 МБ (Рекомендуется)"/>
+                                    <ComboBoxItem Content="2 МБ"/>
+                                    <ComboBoxItem Content="4 МБ"/>
+                                </ComboBox>
+                            </Grid>
+
+                            <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
+
+                            <!-- Потоки процессора при сборке и сжатии -->
+                            <Grid>
+                                <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock Text="Потоки процессора при сборке и сжатии" FontWeight="Medium"/>
+                                    <TextBlock Text="Количество параллельных потоков ЦП для многопоточного сжатия Zstandard без зависаний системы" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <ComboBox x:Name="Switch2ThreadsCombo" HorizontalAlignment="Right" Width="220" SelectedIndex="{x:Bind Settings.Switch2ThreadsIndex, Mode=TwoWay}" SelectionChanged="Switch2ThreadsCombo_SelectionChanged" VerticalAlignment="Center">
+                                    <ComboBoxItem Content="Авто (Оптимально)"/>
+                                    <ComboBoxItem Content="2 потока (Пониженная нагрузка)"/>
+                                    <ComboBoxItem Content="4 потока (Рекомендуется)"/>
+                                    <ComboBoxItem Content="8 потоков"/>
+                                    <ComboBoxItem Content="Максимум"/>
+                                </ComboBox>
                             </Grid>
                         </StackPanel>
                     </Border>
                 </StackPanel>
 
-                <!-- БЛОК 3: Выходная папка Nintendo Switch 2 -->
+                <!-- БЛОК 3: Умная сшивка, оптимизация и модификации (SmartShrink и Hard-Patch) -->
                 <StackPanel Spacing="8">
                     <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                        <FontIcon Glyph="&#xE8B7;" Foreground="{ThemeResource SystemAccentColor}" FontSize="16"/>
-                        <TextBlock Text="Папка сохранения Nintendo Switch 2" FontWeight="SemiBold" FontSize="15" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                        <FontIcon Glyph="&#xE945;" Foreground="{ThemeResource SystemAccentColor}" FontSize="16"/>
+                        <TextBlock Text="Умная сшивка, оптимизация и модификации (SmartShrink и Hard-Patch)" FontWeight="SemiBold" FontSize="15" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
                     </StackPanel>
                     <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="20">
                         <StackPanel Spacing="16">
+                            <!-- SmartShrink для Switch 2 -->
+                            <Grid>
+                                <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock Text="SmartShrink для Switch 2 (удаление 0xFF/0x00 паддингов и выравнивание секторов)" FontWeight="Medium"/>
+                                    <TextBlock Text="Автоматическое удаление пустых областей 0xFF/0x00 и нормализация смещений секторов PFS0 для экономии места" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <ToggleSwitch HorizontalAlignment="Right" IsOn="{x:Bind Settings.Switch2SmartShrink, Mode=TwoWay}" Toggled="Toggle_Changed" VerticalAlignment="Center"/>
+                            </Grid>
+
+                            <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
+
+                            <!-- Авто-сшивка Мульти-контента -->
+                            <Grid>
+                                <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock Text="Авто-сшивка Мульти-контента (База + Обновления + DLC в единый монолитный файл)" FontWeight="Medium"/>
+                                    <TextBlock Text="Автоматически объединять базовую игру, обновления и все DLC в единый монолитный файл формата 1G+1U+ND" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <ToggleSwitch HorizontalAlignment="Right" IsOn="{x:Bind Settings.Switch2AutoStitchMultiContent, Mode=TwoWay}" Toggled="Toggle_Changed" VerticalAlignment="Center"/>
+                            </Grid>
+
+                            <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
+
+                            <!-- Режим прямого вшивания обновлений в RomFS (Hard-Patch) -->
+                            <Grid>
+                                <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock Text="Режим прямого вшивания обновлений в RomFS (Hard-Patch + 4 КБ Patch CNMT)" FontWeight="Medium"/>
+                                    <TextBlock Text="Распаковывает дельту обновления и запекает чистый RomFS в единый монолитный контейнер для гарантированной совместимости" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <ToggleSwitch HorizontalAlignment="Right" IsOn="{x:Bind Settings.Switch2HardPatchRomFs, Mode=TwoWay}" Toggled="Toggle_Changed" VerticalAlignment="Center"/>
+                            </Grid>
+
+                            <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
+
+                            <!-- Распаковка и перепаковка потоковых архивов (.zs / Zstandard RomFS) -->
+                            <Grid>
+                                <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock Text="Распаковка и перепаковка потоковых архивов (.zs / Zstandard RomFS)" FontWeight="Medium"/>
+                                    <TextBlock Text="Автоматическая распаковка и обратная перепаковка сжатых архивов .zs внутри RomFS при сшивке и внедрении локализаций" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <ToggleSwitch HorizontalAlignment="Right" IsOn="{x:Bind Settings.Switch2ZstdRomFsHandling, Mode=TwoWay}" Toggled="Toggle_Changed" VerticalAlignment="Center"/>
+                            </Grid>
+
+                            <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
+
+                            <!-- Авто-вшивание модов, русификаторов и читов -->
+                            <StackPanel Spacing="10">
+                                <Grid>
+                                    <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                                        <TextBlock Text="Авто-вшивание модов, русификаторов и читов (base/romfs, exefs)" FontWeight="Medium"/>
+                                        <TextBlock Text="Автоматическая интеграция модификаций, переводов и графических патчей из указанной папки при сборке контейнера" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                    <ToggleSwitch HorizontalAlignment="Right" IsOn="{x:Bind Settings.Switch2AutoInjectMods, Mode=TwoWay}" Toggled="Toggle_Changed" VerticalAlignment="Center"/>
+                                </Grid>
+                                <Grid AllowDrop="True" DragOver="Switch2ModsFolder_DragOver" Drop="Switch2ModsFolder_Drop">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox x:Name="Switch2ModsFolderBox" HorizontalAlignment="Stretch" Margin="0,0,12,0" PlaceholderText="Папка модов и русификаторов Switch 2 (не указана)"
+                                             Text="{x:Bind Settings.Switch2ModsFolder, Mode=TwoWay}" IsReadOnly="True" VerticalAlignment="Center"
+                                             AllowDrop="True" DragOver="Switch2ModsFolder_DragOver" Drop="Switch2ModsFolder_Drop"/>
+                                    <Button x:Name="SelectSwitch2ModsFolderBtn" Grid.Column="1" Content="Обзор..." Click="SelectSwitch2ModsFolder_Click" VerticalAlignment="Center" Margin="0,0,8,0" CornerRadius="6"/>
+                                    <Button x:Name="ClearSwitch2ModsFolderBtn" Grid.Column="2" Content="✕ Очистить" Click="ClearSwitch2ModsFolder_Click" VerticalAlignment="Center" CornerRadius="6"/>
+                                </Grid>
+                            </StackPanel>
+
+                            <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
+
+                            <!-- Авто-разблокировка дополнений (DLC Unlocker) -->
+                            <Grid>
+                                <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock Text="Авто-разблокировка дополнений (Switch 2 DLC Unlocker)" FontWeight="Medium"/>
+                                    <TextBlock Text="Генерация универсальных билетов и снятие консольных ограничений для мгновенного доступа ко всем установленным DLC" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <ToggleSwitch HorizontalAlignment="Right" IsOn="{x:Bind Settings.Switch2DlcUnlocker, Mode=TwoWay}" Toggled="Toggle_Changed" VerticalAlignment="Center"/>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <!-- БЛОК 4: Безопасность, совместимость и верификация -->
+                <StackPanel Spacing="8">
+                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <FontIcon Glyph="&#xE72E;" Foreground="{ThemeResource SystemAccentColor}" FontSize="16"/>
+                        <TextBlock Text="Безопасность, совместимость и верификация Switch 2" FontWeight="SemiBold" FontSize="15" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                    </StackPanel>
+                    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="20">
+                        <StackPanel Spacing="16">
+                            <!-- Очистка персональных билетов и подписей аккаунта -->
+                            <Grid>
+                                <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock Text="Очистка персональных билетов и подписей аккаунта (Strip Personalized Tickets)" FontWeight="Medium"/>
+                                    <TextBlock Text="Удаление персональных сертификатов консоли, аккаунтных подписей и привязок билетов (чистый Ticketless контейнер)" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <ToggleSwitch HorizontalAlignment="Right" IsOn="{x:Bind Settings.Switch2StripPersonalizedTickets, Mode=TwoWay}" Toggled="Toggle_Changed" VerticalAlignment="Center"/>
+                            </Grid>
+
+                            <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
+
+                            <!-- Патч минимальной требуемой версии прошивки -->
+                            <Grid>
+                                <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock Text="Патч минимальной требуемой версии прошивки (MasterKey / Min OS Version)" FontWeight="Medium"/>
+                                    <TextBlock Text="Коррекция полей RequiredSystemVersion в метаданных CNMT для предотвращения ложных ошибок устаревшей прошивки" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <ToggleSwitch HorizontalAlignment="Right" IsOn="{x:Bind Settings.Switch2PatchMinRequiredOs, Mode=TwoWay}" Toggled="Toggle_Changed" VerticalAlignment="Center"/>
+                            </Grid>
+
+                            <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
+
+                            <!-- Автоматическая проверка целостности после сборки -->
+                            <Grid>
+                                <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock Text="Автоматическая проверка целостности (SHA-256 / NSO0 / NPDM / PFS0) после сборки" FontWeight="Medium"/>
+                                    <TextBlock Text="Комплексная верификация хэшей всех блоков NCA, заголовков NPDM и структуры PFS0 сразу по завершении компиляции" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <ToggleSwitch HorizontalAlignment="Right" IsOn="{x:Bind Settings.Switch2VerifyIntegrityAfterBuild, Mode=TwoWay}" Toggled="Toggle_Changed" VerticalAlignment="Center"/>
+                            </Grid>
+
+                            <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
+
+                            <!-- Удалять исходные архивы и временные дампы после сборки -->
+                            <Grid>
+                                <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                                    <TextBlock Text="Удалять исходные архивы (.zip / .7z) и временные дампы после успешной сборки" FontWeight="Medium"/>
+                                    <TextBlock Text="Автоматическое освобождение дискового пространства: удаление входных архивов и дампов строго при 100% успехе" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <ToggleSwitch HorizontalAlignment="Right" IsOn="{x:Bind Settings.Switch2DeleteSourceOnSuccess, Mode=TwoWay}" Toggled="Toggle_Changed" VerticalAlignment="Center"/>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <!-- БЛОК 5: Папка сохранения и библиотека Nintendo Switch 2 -->
+                <StackPanel Spacing="8">
+                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <FontIcon Glyph="&#xED25;" Foreground="{ThemeResource SystemAccentColor}" FontSize="16"/>
+                        <TextBlock Text="Папка сохранения и библиотека Nintendo Switch 2" FontWeight="SemiBold" FontSize="15" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                    </StackPanel>
+                    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="20">
+                        <StackPanel Spacing="16">
+                            <!-- Выходная папка по умолчанию -->
                             <Grid AllowDrop="True" DragOver="OutputFolderBoxSwitch2_DragOver" Drop="OutputFolderBoxSwitch2_Drop">
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto"/>
@@ -736,7 +970,7 @@
                                 </Grid.RowDefinitions>
                                 <StackPanel Grid.Row="0" Margin="0,0,0,8" Spacing="2">
                                     <TextBlock x:Name="Switch2OutFolderTitleTxt" Text="Выходная папка Nintendo Switch 2 по умолчанию" FontWeight="Medium" VerticalAlignment="Center"/>
-                                    <TextBlock x:Name="Switch2OutFolderDescTxt" Text="Папка для сохранения обработанных файлов Nintendo Switch 2 (.nsp / .nsz / .xci / .xcz). Можно перетащить папку сюда" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                    <TextBlock x:Name="Switch2OutFolderDescTxt" Text="Папка для сохранения обработанных файлов Nintendo Switch 2 (.nsp / .nsz / .xci / .xcz). По умолчанию: Q:\CONSOLES\Nintendo Switch 2\GAMES" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
                                 </StackPanel>
                                 <Grid Grid.Row="1" AllowDrop="True" DragOver="OutputFolderBoxSwitch2_DragOver" Drop="OutputFolderBoxSwitch2_Drop">
                                     <Grid.ColumnDefinitions>
@@ -744,11 +978,39 @@
                                         <ColumnDefinition Width="Auto"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBox x:Name="OutputFolderBoxSwitch2" HorizontalAlignment="Stretch" Margin="0,0,12,0" PlaceholderText="Не указана (сохранять в папку с исходным файлом)" 
+                                    <TextBox x:Name="OutputFolderBoxSwitch2" HorizontalAlignment="Stretch" Margin="0,0,12,0" PlaceholderText="Не указана (по умолчанию Q:\CONSOLES\Nintendo Switch 2\GAMES)" 
                                              Text="{x:Bind Settings.OutputFolderSwitch2, Mode=TwoWay}" IsReadOnly="True" VerticalAlignment="Center"
                                              AllowDrop="True" DragOver="OutputFolderBoxSwitch2_DragOver" Drop="OutputFolderBoxSwitch2_Drop"/>
                                     <Button x:Name="SelectOutputFolderSwitch2Button" Grid.Column="1" Content="Обзор..." Click="SelectOutputFolderSwitch2_Click" VerticalAlignment="Center" CornerRadius="6" Margin="0,0,8,0"/>
                                     <Button x:Name="ClearOutputFolderSwitch2Button" Grid.Column="2" Content="✕ Очистить" Click="ClearOutputFolderSwitch2_Click" VerticalAlignment="Center" CornerRadius="6" ToolTipService.ToolTip="Очистить выходную папку Switch 2"/>
+                                </Grid>
+                            </Grid>
+
+                            <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
+
+                            <!-- Папка загрузок и распаковки дампов Switch 2 -->
+                            <Grid AllowDrop="True" DragOver="DownloadsFolderBoxSwitch2_DragOver" Drop="DownloadsFolderBoxSwitch2_Drop">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <StackPanel Grid.Row="0" Margin="0,0,0,8" Spacing="2">
+                                    <TextBlock Text="Папка загрузок и распаковки дампов Switch 2" FontWeight="Medium" VerticalAlignment="Center"/>
+                                    <TextBlock Text="Каталог распакованных дампов Switch 2 (exefs/romfs) или архивов. По умолчанию: Q:\CONSOLES\Nintendo Switch 2\DOWNLOADS" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <Grid Grid.Row="1" AllowDrop="True" DragOver="DownloadsFolderBoxSwitch2_DragOver" Drop="DownloadsFolderBoxSwitch2_Drop">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox x:Name="DownloadsFolderBoxSwitch2" HorizontalAlignment="Stretch" Margin="0,0,12,0" PlaceholderText="Не указана (по умолчанию Q:\CONSOLES\Nintendo Switch 2\DOWNLOADS)" 
+                                             Text="{x:Bind Settings.Switch2DownloadsFolder, Mode=TwoWay}" IsReadOnly="True" VerticalAlignment="Center"
+                                             AllowDrop="True" DragOver="DownloadsFolderBoxSwitch2_DragOver" Drop="DownloadsFolderBoxSwitch2_Drop"/>
+                                    <Button x:Name="SelectDownloadsFolderSwitch2Button" Grid.Column="1" Content="Обзор..." Click="SelectDownloadsFolderSwitch2_Click" VerticalAlignment="Center" CornerRadius="6" Margin="0,0,8,0"/>
+                                    <Button x:Name="ClearDownloadsFolderSwitch2Button" Grid.Column="2" Content="✕ Очистить" Click="ClearDownloadsFolderSwitch2_Click" VerticalAlignment="Center" CornerRadius="6" Margin="0,0,8,0" ToolTipService.ToolTip="Очистить папку загрузок"/>
+                                    <Button x:Name="ScanAndEnqueueSwitch2DownloadsBtn" Grid.Column="3" Content="🔍 Сканировать и добавить в задачник" Click="ScanAndEnqueueSwitch2Downloads_Click" Style="{StaticResource AccentButtonStyle}" VerticalAlignment="Center" CornerRadius="6" ToolTipService.ToolTip="Сканировать папку на наличие дампов Switch 2 и отправить их в обработку"/>
                                 </Grid>
                             </Grid>
                         </StackPanel>

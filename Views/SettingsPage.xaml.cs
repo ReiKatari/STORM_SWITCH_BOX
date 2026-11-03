@@ -125,6 +125,7 @@ namespace StormSwitchBox.Views
 
             InitializeLanguages();
             PopulateKeysVersion(App.Settings.Current.KeysVersion ?? "");
+            InitializeSwitch2Settings();
 
             // По умолчанию всегда открывается вкладка "Общие" (индекс 0)
             SelectTab(0);
@@ -881,6 +882,11 @@ namespace StormSwitchBox.Views
             Switch2SettingsPanel.Visibility = index == 2 ? Visibility.Visible : Visibility.Collapsed;
             ThreeDsSettingsPanel.Visibility = index == 3 ? Visibility.Visible : Visibility.Collapsed;
 
+            if (index == 2)
+            {
+                UpdateSwitch2KeysUi();
+            }
+
             var accentBrush = Application.Current.Resources["SystemControlHighlightAccentBrush"] as Microsoft.UI.Xaml.Media.Brush 
                 ?? new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.DodgerBlue);
             var defaultBrush = Application.Current.Resources["CardStrokeColorDefaultBrush"] as Microsoft.UI.Xaml.Media.Brush 
@@ -1133,6 +1139,349 @@ namespace StormSwitchBox.Views
             App.Logger.Log("[Settings] Выходная папка Switch по умолчанию очищена (сохранение в папку с исходником)", Models.LogLevel.Info);
         }
 
+        #region Nintendo Switch 2 (Ounce / NVN2) Settings & Keys Handlers
+
+        private void InitializeSwitch2Settings()
+        {
+            // 1. Авто-поиск ключей Switch 2, если путь не задан
+            if (string.IsNullOrWhiteSpace(App.Settings.Current.Switch2KeysPath) || !File.Exists(App.Settings.Current.Switch2KeysPath))
+            {
+                string? autoKeys = KeysService.AutoSearchSwitch2Keys();
+                if (!string.IsNullOrEmpty(autoKeys))
+                {
+                    App.Settings.Current.Switch2KeysPath = autoKeys;
+                    string? autoTitleKeys = KeysService.AutoSearchSwitch2TitleKeys(autoKeys);
+                    if (!string.IsNullOrEmpty(autoTitleKeys))
+                    {
+                        App.Settings.Current.Switch2TitleKeysPath = autoTitleKeys;
+                    }
+                    _ = App.Settings.SaveAsync();
+                }
+            }
+
+            // 2. Стандартные папки по умолчанию (если существуют на диске)
+            if (string.IsNullOrWhiteSpace(App.Settings.Current.OutputFolderSwitch2) && Directory.Exists(@"Q:\CONSOLES\Nintendo Switch 2\GAMES"))
+            {
+                App.Settings.Current.OutputFolderSwitch2 = @"Q:\CONSOLES\Nintendo Switch 2\GAMES";
+            }
+            if (string.IsNullOrWhiteSpace(App.Settings.Current.Switch2DownloadsFolder) && Directory.Exists(@"Q:\CONSOLES\Nintendo Switch 2\DOWNLOADS"))
+            {
+                App.Settings.Current.Switch2DownloadsFolder = @"Q:\CONSOLES\Nintendo Switch 2\DOWNLOADS";
+            }
+
+            // 3. Синхронизация селекторов UI
+            if (Switch2DefaultFormatCombo != null)
+            {
+                int fmtIdx = App.Settings.Current.Switch2SelectedFormatIndex;
+                if (fmtIdx >= 0 && fmtIdx < Switch2DefaultFormatCombo.Items.Count)
+                {
+                    Switch2DefaultFormatCombo.SelectedIndex = fmtIdx;
+                }
+            }
+
+            if (Switch2CompressionSlider != null)
+            {
+                int compLevel = App.Settings.Current.Switch2CompressionLevel;
+                if (compLevel < 1) compLevel = 18;
+                Switch2CompressionSlider.Value = compLevel;
+                if (Switch2CompressionValTxt != null) Switch2CompressionValTxt.Text = compLevel.ToString();
+            }
+
+            if (Switch2BlockSizeCombo != null)
+            {
+                int blkIdx = App.Settings.Current.Switch2BlockSizeIndex;
+                if (blkIdx >= 0 && blkIdx < Switch2BlockSizeCombo.Items.Count)
+                {
+                    Switch2BlockSizeCombo.SelectedIndex = blkIdx;
+                }
+            }
+
+            if (Switch2ThreadsCombo != null)
+            {
+                int thIdx = App.Settings.Current.Switch2ThreadsIndex;
+                if (thIdx >= 0 && thIdx < Switch2ThreadsCombo.Items.Count)
+                {
+                    Switch2ThreadsCombo.SelectedIndex = thIdx;
+                }
+            }
+
+            UpdateSwitch2KeysUi();
+        }
+
+        private void UpdateSwitch2KeysUi()
+        {
+            string keysPath = App.Settings.Current.Switch2KeysPath;
+            if (string.IsNullOrEmpty(keysPath) || !File.Exists(keysPath))
+            {
+                // Fallback to loaded Switch 1 keys if available
+                if (!string.IsNullOrEmpty(App.Settings.Current.KeysPath) && File.Exists(App.Settings.Current.KeysPath))
+                {
+                    keysPath = App.Settings.Current.KeysPath;
+                }
+            }
+
+            var info = KeysService.AnalyzeSwitch2KeysFile(keysPath, App.Settings.Current.Switch2TitleKeysPath);
+            if (info.IsLoaded && info.KeyCount > 0)
+            {
+                if (Switch2KeysStatusBadge != null)
+                {
+                    Switch2KeysStatusBadge.Text = "✅ Ключи активны";
+                    Switch2KeysStatusBadge.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.LimeGreen);
+                }
+                if (Switch2KeysVersionBadge != null)
+                {
+                    Switch2KeysVersionBadge.Text = $"• {info.FirmwareDescription}";
+                }
+                if (Switch2KeysCountTxt != null)
+                {
+                    string ounceText = info.HasOunceKeys ? " • Спецификация Ounce / NVN2: Поддерживается" : "";
+                    Switch2KeysCountTxt.Text = $"Загружено ключей: {info.KeyCount} шт.{ounceText}";
+                }
+                if (Switch2KeysPathTxt != null)
+                {
+                    Switch2KeysPathTxt.Text = $"Активный файл: {info.FilePath}";
+                }
+            }
+            else
+            {
+                if (Switch2KeysStatusBadge != null)
+                {
+                    Switch2KeysStatusBadge.Text = "⚠️ Ключи не загружены";
+                    Switch2KeysStatusBadge.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.OrangeRed);
+                }
+                if (Switch2KeysVersionBadge != null)
+                {
+                    Switch2KeysVersionBadge.Text = "• Версия прошивки: Ожидание ключей";
+                }
+                if (Switch2KeysCountTxt != null)
+                {
+                    Switch2KeysCountTxt.Text = "Загружено ключей: 0 шт.";
+                }
+                if (Switch2KeysPathTxt != null)
+                {
+                    Switch2KeysPathTxt.Text = "Активный файл: Не указан (нажмите «Авто-поиск» или «Выбрать файл»)";
+                }
+            }
+
+            // Title keys info
+            if (Switch2TitleKeysStatusTxt != null)
+            {
+                if (info.TitleKeyCount > 0)
+                {
+                    Switch2TitleKeysStatusTxt.Text = $"✅ Загружено title-ключей: {info.TitleKeyCount} шт. ({info.TitleKeysFilePath})";
+                    Switch2TitleKeysStatusTxt.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.LimeGreen);
+                }
+                else
+                {
+                    Switch2TitleKeysStatusTxt.Text = "Опционально: загружается автоматически, если файл лежит рядом с prod.keys";
+                    Switch2TitleKeysStatusTxt.Foreground = Application.Current.Resources["TextFillColorTertiaryBrush"] as Microsoft.UI.Xaml.Media.Brush;
+                }
+            }
+        }
+
+        private async void AutoDetectSwitch2Keys_Click(object sender, RoutedEventArgs e)
+        {
+            string? autoFound = KeysService.AutoSearchSwitch2Keys();
+            if (!string.IsNullOrEmpty(autoFound))
+            {
+                App.Settings.Current.Switch2KeysPath = autoFound;
+                string? titleKeys = KeysService.AutoSearchSwitch2TitleKeys(autoFound);
+                if (!string.IsNullOrEmpty(titleKeys))
+                {
+                    App.Settings.Current.Switch2TitleKeysPath = titleKeys;
+                }
+                await App.Settings.SaveAsync();
+                UpdateSwitch2KeysUi();
+                var info = KeysService.AnalyzeSwitch2KeysFile(autoFound, App.Settings.Current.Switch2TitleKeysPath);
+                App.Logger.Log($"[Switch 2] Ключи автоматически обнаружены: {autoFound} ({info.KeyCount} ключей, {info.FirmwareDescription})", Models.LogLevel.Success);
+            }
+            else
+            {
+                App.Logger.Log("[Switch 2] Авто-поиск не обнаружил файлов prod.keys / ounce.keys в системных каталогах. Укажите файл вручную.", Models.LogLevel.Warning);
+            }
+        }
+
+        private async void SelectSwitch2Keys_Click(object sender, RoutedEventArgs e)
+        {
+            string? initialDir = null;
+            if (!string.IsNullOrEmpty(App.Settings.Current.Switch2KeysPath) && File.Exists(App.Settings.Current.Switch2KeysPath))
+            {
+                initialDir = Path.GetDirectoryName(App.Settings.Current.Switch2KeysPath);
+            }
+            else if (Directory.Exists(@"Q:\CONSOLES\Nintendo Switch 2"))
+            {
+                initialDir = @"Q:\CONSOLES\Nintendo Switch 2";
+            }
+
+            string? filePath = await SystemDialogService.OpenFileDialogAsync(
+                "Выберите файл ключей Nintendo Switch 2 (prod.keys / ounce.keys / keys.txt)",
+                "Файлы ключей (*.keys;*.txt;*.dat;*.bin)|*.keys;*.txt;*.dat;*.bin|Все файлы (*.*)|*.*",
+                initialDir);
+
+            if (!string.IsNullOrWhiteSpace(filePath) && File.Exists(filePath))
+            {
+                App.Settings.Current.Switch2KeysPath = filePath;
+                string? titleKeys = KeysService.AutoSearchSwitch2TitleKeys(filePath);
+                if (!string.IsNullOrEmpty(titleKeys))
+                {
+                    App.Settings.Current.Switch2TitleKeysPath = titleKeys;
+                }
+                await App.Settings.SaveAsync();
+                UpdateSwitch2KeysUi();
+                var info = KeysService.AnalyzeSwitch2KeysFile(filePath, App.Settings.Current.Switch2TitleKeysPath);
+                App.Logger.Log($"[Switch 2] Файл ключей успешно применен: {filePath} ({info.KeyCount} ключей, {info.FirmwareDescription})", Models.LogLevel.Success);
+            }
+        }
+
+        private async void ClearSwitch2Keys_Click(object sender, RoutedEventArgs e)
+        {
+            App.Settings.Current.Switch2KeysPath = string.Empty;
+            await App.Settings.SaveAsync();
+            UpdateSwitch2KeysUi();
+            App.Logger.Log("[Switch 2] Путь к ключам Switch 2 сброшен", Models.LogLevel.Info);
+        }
+
+        private void KeysFileSwitch2_DragOver(object sender, DragEventArgs e)
+        {
+            e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
+            e.DragUIOverride.Caption = "Выбрать как файл ключей Nintendo Switch 2";
+            e.DragUIOverride.IsCaptionVisible = true;
+            e.DragUIOverride.IsContentVisible = true;
+            e.Handled = true;
+        }
+
+        private async void KeysFileSwitch2_Drop(object sender, DragEventArgs e)
+        {
+            e.Handled = true;
+            if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+            {
+                var items = await e.DataView.GetStorageItemsAsync();
+                var file = items.FirstOrDefault(i => i.IsOfType(Windows.Storage.StorageItemTypes.File));
+                if (file != null)
+                {
+                    App.Settings.Current.Switch2KeysPath = file.Path;
+                    string? titleKeys = KeysService.AutoSearchSwitch2TitleKeys(file.Path);
+                    if (!string.IsNullOrEmpty(titleKeys))
+                    {
+                        App.Settings.Current.Switch2TitleKeysPath = titleKeys;
+                    }
+                    await App.Settings.SaveAsync();
+                    UpdateSwitch2KeysUi();
+                    var info = KeysService.AnalyzeSwitch2KeysFile(file.Path, App.Settings.Current.Switch2TitleKeysPath);
+                    App.Logger.Log($"[Switch 2] Файл ключей перетащен и применен: {file.Path} ({info.KeyCount} ключей, {info.FirmwareDescription})", Models.LogLevel.Success);
+                }
+            }
+        }
+
+        private async void SelectSwitch2TitleKeys_Click(object sender, RoutedEventArgs e)
+        {
+            string? initialDir = !string.IsNullOrEmpty(App.Settings.Current.Switch2TitleKeysPath)
+                ? Path.GetDirectoryName(App.Settings.Current.Switch2TitleKeysPath)
+                : Path.GetDirectoryName(App.Settings.Current.Switch2KeysPath);
+
+            string? filePath = await SystemDialogService.OpenFileDialogAsync(
+                "Выберите файл ключей тайтлов Switch 2 (title.keys / keys.txt)",
+                "Файлы ключей (*.keys;*.txt;*.dat)|*.keys;*.txt;*.dat|Все файлы (*.*)|*.*",
+                initialDir);
+
+            if (!string.IsNullOrWhiteSpace(filePath) && File.Exists(filePath))
+            {
+                App.Settings.Current.Switch2TitleKeysPath = filePath;
+                await App.Settings.SaveAsync();
+                UpdateSwitch2KeysUi();
+                App.Logger.Log($"[Switch 2] Файл title.keys применен: {filePath}", Models.LogLevel.Success);
+            }
+        }
+
+        private async void ClearSwitch2TitleKeys_Click(object sender, RoutedEventArgs e)
+        {
+            App.Settings.Current.Switch2TitleKeysPath = string.Empty;
+            await App.Settings.SaveAsync();
+            UpdateSwitch2KeysUi();
+            App.Logger.Log("[Switch 2] Путь к title.keys сброшен", Models.LogLevel.Info);
+        }
+
+        private async void Switch2DefaultFormatCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (Switch2DefaultFormatCombo.SelectedItem is ComboBoxItem item && item.Tag is string tag)
+            {
+                App.Settings.Current.Switch2DefaultFormat = tag;
+                App.Settings.Current.Switch2SelectedFormatIndex = Switch2DefaultFormatCombo.SelectedIndex;
+                await App.Settings.SaveAsync();
+            }
+        }
+
+        private async void Switch2CompressionSlider_ValueChanged(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
+        {
+            int val = (int)e.NewValue;
+            App.Settings.Current.Switch2CompressionLevel = val;
+            if (Switch2CompressionValTxt != null)
+            {
+                Switch2CompressionValTxt.Text = val.ToString();
+            }
+            await App.Settings.SaveAsync();
+        }
+
+        private async void Switch2BlockSizeCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            App.Settings.Current.Switch2BlockSizeIndex = Switch2BlockSizeCombo.SelectedIndex;
+            await App.Settings.SaveAsync();
+        }
+
+        private async void Switch2ThreadsCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            App.Settings.Current.Switch2ThreadsIndex = Switch2ThreadsCombo.SelectedIndex;
+            await App.Settings.SaveAsync();
+        }
+
+        private async void SelectSwitch2ModsFolder_Click(object sender, RoutedEventArgs e)
+        {
+            string? folder = await SystemDialogService.OpenFolderDialogAsync(
+                "Выберите папку модов и русификаторов Nintendo Switch 2",
+                !string.IsNullOrEmpty(App.Settings.Current.Switch2ModsFolder) ? App.Settings.Current.Switch2ModsFolder : null);
+
+            if (!string.IsNullOrWhiteSpace(folder) && Directory.Exists(folder))
+            {
+                App.Settings.Current.Switch2ModsFolder = folder;
+                Switch2ModsFolderBox.Text = folder;
+                await App.Settings.SaveAsync();
+                App.Logger.Log($"Папка модов Switch 2: {folder}", Models.LogLevel.Success);
+            }
+        }
+
+        private async void ClearSwitch2ModsFolder_Click(object sender, RoutedEventArgs e)
+        {
+            App.Settings.Current.Switch2ModsFolder = string.Empty;
+            Switch2ModsFolderBox.Text = string.Empty;
+            await App.Settings.SaveAsync();
+            App.Logger.Log("[Settings] Папка модов Switch 2 очищена", Models.LogLevel.Info);
+        }
+
+        private void Switch2ModsFolder_DragOver(object sender, DragEventArgs e)
+        {
+            e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
+            e.DragUIOverride.Caption = "Выбрать как папку модов Switch 2";
+            e.DragUIOverride.IsCaptionVisible = true;
+            e.DragUIOverride.IsContentVisible = true;
+            e.Handled = true;
+        }
+
+        private async void Switch2ModsFolder_Drop(object sender, DragEventArgs e)
+        {
+            e.Handled = true;
+            if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+            {
+                var items = await e.DataView.GetStorageItemsAsync();
+                if (items.Count > 0 && items[0] is Windows.Storage.StorageFolder folder)
+                {
+                    App.Settings.Current.Switch2ModsFolder = folder.Path;
+                    Switch2ModsFolderBox.Text = folder.Path;
+                    await App.Settings.SaveAsync();
+                    App.Logger.Log($"Папка модов Switch 2: {folder.Path}", Models.LogLevel.Success);
+                }
+            }
+        }
+
         private async void SelectOutputFolderSwitch2_Click(object sender, RoutedEventArgs e)
         {
             string? folder = await SystemDialogService.OpenFolderDialogAsync(
@@ -1180,6 +1529,116 @@ namespace StormSwitchBox.Views
                 }
             }
         }
+
+        private async void SelectDownloadsFolderSwitch2_Click(object sender, RoutedEventArgs e)
+        {
+            string? folder = await SystemDialogService.OpenFolderDialogAsync(
+                "Выберите папку загрузок и дампов Nintendo Switch 2",
+                !string.IsNullOrEmpty(App.Settings.Current.Switch2DownloadsFolder) ? App.Settings.Current.Switch2DownloadsFolder : null);
+
+            if (!string.IsNullOrWhiteSpace(folder) && Directory.Exists(folder))
+            {
+                App.Settings.Current.Switch2DownloadsFolder = folder;
+                DownloadsFolderBoxSwitch2.Text = folder;
+                await App.Settings.SaveAsync();
+                App.Logger.Log($"Папка загрузок Nintendo Switch 2: {folder}", Models.LogLevel.Success);
+            }
+        }
+
+        private async void ClearDownloadsFolderSwitch2_Click(object sender, RoutedEventArgs e)
+        {
+            App.Settings.Current.Switch2DownloadsFolder = string.Empty;
+            DownloadsFolderBoxSwitch2.Text = string.Empty;
+            await App.Settings.SaveAsync();
+            App.Logger.Log("[Settings] Папка загрузок Nintendo Switch 2 очищена", Models.LogLevel.Info);
+        }
+
+        private void DownloadsFolderBoxSwitch2_DragOver(object sender, DragEventArgs e)
+        {
+            e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
+            e.DragUIOverride.Caption = "Выбрать как папку загрузок Switch 2";
+            e.DragUIOverride.IsCaptionVisible = true;
+            e.DragUIOverride.IsContentVisible = true;
+            e.Handled = true;
+        }
+
+        private async void DownloadsFolderBoxSwitch2_Drop(object sender, DragEventArgs e)
+        {
+            e.Handled = true;
+            if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+            {
+                var items = await e.DataView.GetStorageItemsAsync();
+                if (items.Count > 0 && items[0] is Windows.Storage.StorageFolder folder)
+                {
+                    App.Settings.Current.Switch2DownloadsFolder = folder.Path;
+                    DownloadsFolderBoxSwitch2.Text = folder.Path;
+                    await App.Settings.SaveAsync();
+                    App.Logger.Log($"Папка загрузок Nintendo Switch 2: {folder.Path}", Models.LogLevel.Success);
+                }
+            }
+        }
+
+        private void ScanAndEnqueueSwitch2Downloads_Click(object sender, RoutedEventArgs e)
+        {
+            string folder = App.Settings.Current.Switch2DownloadsFolder;
+            if (string.IsNullOrEmpty(folder) || !Directory.Exists(folder))
+            {
+                folder = @"Q:\CONSOLES\Nintendo Switch 2\DOWNLOADS";
+            }
+
+            if (!Directory.Exists(folder))
+            {
+                App.Logger.Log($"[Switch 2] Папка загрузок не найдена: {folder}. Пожалуйста, укажите существующую папку.", Models.LogLevel.Warning);
+                return;
+            }
+
+            var foundDumps = new List<string>();
+
+            // Check if the directory itself is a Switch 2 dump
+            if (Switch2DumpHelper.IsSwitch2OrExtractedGameDumpDirectory(folder))
+            {
+                foundDumps.Add(folder);
+            }
+            else
+            {
+                try
+                {
+                    var subDirs = Directory.GetDirectories(folder);
+                    foreach (var sub in subDirs)
+                    {
+                        if (Switch2DumpHelper.IsSwitch2OrExtractedGameDumpDirectory(sub))
+                        {
+                            foundDumps.Add(sub);
+                        }
+                    }
+
+                    // Also check for archives (.zip, .7z) containing Switch 2 dumps
+                    var archiveFiles = Directory.GetFiles(folder, "*.*")
+                        .Where(f => f.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".7z", StringComparison.OrdinalIgnoreCase))
+                        .ToList();
+                    foundDumps.AddRange(archiveFiles);
+                }
+                catch (Exception ex)
+                {
+                    App.Logger.Log($"[Switch 2] Ошибка при сканировании папки: {ex.Message}", Models.LogLevel.Error);
+                }
+            }
+
+            if (foundDumps.Count > 0)
+            {
+                App.Logger.Log($"[Switch 2] Обнаружено {foundDumps.Count} дампов Switch 2 в {folder}. Отправка в задачник...", Models.LogLevel.Success);
+                if (App.MainWindow is MainWindow mainWin)
+                {
+                    mainWin.NavigateToAction("multi", foundDumps.ToArray(), App.Settings.Current.Switch2DefaultFormat);
+                }
+            }
+            else
+            {
+                App.Logger.Log($"[Switch 2] В каталоге {folder} не обнаружено дампов Switch 2 (exefs/main.npdm или архивов).", Models.LogLevel.Warning);
+            }
+        }
+
+        #endregion
 
         private async void CompressionCombo_Changed(object sender, SelectionChangedEventArgs e)
         {

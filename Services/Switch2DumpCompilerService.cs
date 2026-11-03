@@ -23,6 +23,8 @@ namespace StormSwitchBox.Services
         public List<string> DlcFolders { get; set; } = new();
         public int DlcCount => DlcFolders.Count;
         public byte[]? CoverBytes { get; set; }
+        public string CompositionDescription { get; set; } = string.Empty;
+        public string DisplayVersion => !string.IsNullOrEmpty(MaxUpdateVersion) ? $"v{MaxUpdateVersion}" : "v0";
     }
 
     public static class Switch2DumpHelper
@@ -32,27 +34,135 @@ namespace StormSwitchBox.Services
             if (string.IsNullOrWhiteSpace(dirPath) || !Directory.Exists(dirPath))
                 return false;
 
-            if (File.Exists(Path.Combine(dirPath, "base", "exefs", "main.npdm")) ||
-                File.Exists(Path.Combine(dirPath, "exefs", "main.npdm")))
-            {
-                return true;
-            }
-
             try
             {
-                var subDirs = Directory.GetDirectories(dirPath);
-                foreach (var sub in subDirs)
+                // Strict check: component directories (base, exefs, romfs, updates, dlc) are not dump roots
+                string dirName = Path.GetFileName(dirPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+                if (dirName.Equals("base", StringComparison.OrdinalIgnoreCase) ||
+                    dirName.Equals("exefs", StringComparison.OrdinalIgnoreCase) ||
+                    dirName.Equals("romfs", StringComparison.OrdinalIgnoreCase) ||
+                    dirName.Equals("updates", StringComparison.OrdinalIgnoreCase) ||
+                    dirName.Equals("dlc", StringComparison.OrdinalIgnoreCase))
                 {
-                    if (File.Exists(Path.Combine(sub, "base", "exefs", "main.npdm")) ||
-                        File.Exists(Path.Combine(sub, "exefs", "main.npdm")))
-                    {
-                        return true;
-                    }
+                    return false;
+                }
+
+                // Direct dump root must contain base/exefs or exefs with main.npdm or main
+                if (File.Exists(Path.Combine(dirPath, "base", "exefs", "main.npdm")) ||
+                    File.Exists(Path.Combine(dirPath, "base", "exefs", "main")))
+                {
+                    return true;
+                }
+
+                if (File.Exists(Path.Combine(dirPath, "exefs", "main.npdm")) ||
+                    File.Exists(Path.Combine(dirPath, "exefs", "main")))
+                {
+                    return true;
+                }
+
+                // Strict structure check: base/exefs AND base/romfs
+                if (Directory.Exists(Path.Combine(dirPath, "base", "exefs")) &&
+                    Directory.Exists(Path.Combine(dirPath, "base", "romfs")))
+                {
+                    return true;
                 }
             }
             catch { }
 
             return false;
+        }
+
+        public static List<string> FindAllSwitch2DumpRootDirectories(string inputPath, int maxDepth = 5)
+        {
+            var results = new List<string>();
+            if (string.IsNullOrWhiteSpace(inputPath)) return results;
+
+            // 1. If inputPath is a file: check ancestor directories up to 4 levels
+            if (File.Exists(inputPath))
+            {
+                var cur = Directory.GetParent(inputPath);
+                int depth = 0;
+                while (cur != null && depth < 4)
+                {
+                    if (IsSwitch2OrExtractedGameDumpDirectory(cur.FullName))
+                    {
+                        results.Add(cur.FullName);
+                        return results;
+                    }
+                    cur = cur.Parent;
+                    depth++;
+                }
+                return results;
+            }
+
+            // 2. If inputPath is a directory
+            if (Directory.Exists(inputPath))
+            {
+                // Check if inputPath is a subfolder inside a dump root (e.g. base, exefs, romfs, updates, dlc, 0)
+                string dName = Path.GetFileName(inputPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)).ToLowerInvariant();
+                if (dName is "base" or "exefs" or "romfs" or "dlc" or "updates" or "0")
+                {
+                    var cur = Directory.GetParent(inputPath);
+                    int depth = 0;
+                    while (cur != null && depth < 4)
+                    {
+                        if (IsSwitch2OrExtractedGameDumpDirectory(cur.FullName))
+                        {
+                            results.Add(cur.FullName);
+                            return results;
+                        }
+                        cur = cur.Parent;
+                        depth++;
+                    }
+                }
+
+                // If inputPath itself is a direct dump root
+                if (IsSwitch2OrExtractedGameDumpDirectory(inputPath))
+                {
+                    results.Add(inputPath);
+                    return results;
+                }
+
+                // Recursively traverse subdirectories up to maxDepth
+                void ScanSubDirectories(string currentDir, int currentDepth)
+                {
+                    if (currentDepth > maxDepth) return;
+                    string[] subDirs;
+                    try
+                    {
+                        subDirs = Directory.GetDirectories(currentDir);
+                    }
+                    catch
+                    {
+                        return;
+                    }
+
+                    foreach (var sub in subDirs)
+                    {
+                        if (IsSwitch2OrExtractedGameDumpDirectory(sub))
+                        {
+                            if (!results.Contains(sub, StringComparer.OrdinalIgnoreCase))
+                            {
+                                results.Add(sub);
+                            }
+                            // CRITICAL: Once a dump root directory is found, do NOT recurse inside its base/, updates/, or dlc/
+                            continue;
+                        }
+
+                        string name = Path.GetFileName(sub).ToLowerInvariant();
+                        if (name is ".git" or "bin" or "obj" or "node_modules" or "romfs" or "exefs")
+                        {
+                            continue;
+                        }
+
+                        ScanSubDirectories(sub, currentDepth + 1);
+                    }
+                }
+
+                ScanSubDirectories(inputPath, 1);
+            }
+
+            return results;
         }
 
         public static string CleanGameTitle(string raw)
@@ -69,30 +179,22 @@ namespace StormSwitchBox.Services
 
         public static async Task<Switch2DumpInfo?> InspectSwitch2DumpDirectoryAsync(string dirPath)
         {
-            if (!Directory.Exists(dirPath)) return null;
+            if (string.IsNullOrWhiteSpace(dirPath)) return null;
 
             string targetDir = dirPath;
+            if (!IsSwitch2OrExtractedGameDumpDirectory(targetDir))
+            {
+                var roots = FindAllSwitch2DumpRootDirectories(dirPath);
+                if (roots.Count > 0)
+                {
+                    targetDir = roots[0];
+                }
+            }
+
+            if (!Directory.Exists(targetDir)) return null;
+
             string npdmPath = Path.Combine(targetDir, "base", "exefs", "main.npdm");
             if (!File.Exists(npdmPath)) npdmPath = Path.Combine(targetDir, "exefs", "main.npdm");
-
-            if (!File.Exists(npdmPath))
-            {
-                try
-                {
-                    foreach (var sub in Directory.GetDirectories(dirPath))
-                    {
-                        string p1 = Path.Combine(sub, "base", "exefs", "main.npdm");
-                        string p2 = Path.Combine(sub, "exefs", "main.npdm");
-                        if (File.Exists(p1) || File.Exists(p2))
-                        {
-                            targetDir = sub;
-                            npdmPath = File.Exists(p1) ? p1 : p2;
-                            break;
-                        }
-                    }
-                }
-                catch { }
-            }
 
             if (!File.Exists(npdmPath)) return null;
 
@@ -125,10 +227,16 @@ namespace StormSwitchBox.Services
                 foreach (var vDir in Directory.GetDirectories(updDir))
                 {
                     string vName = Path.GetFileName(vDir);
-                    if (int.TryParse(vName, out int vi) && vi > maxVerInt)
+                    string vClean = vName.TrimStart('v', 'V', 'p', 'P');
+                    if (int.TryParse(vClean, out int vi) && vi > maxVerInt)
                     {
                         maxVerInt = vi;
-                        maxVer = vName;
+                        maxVer = vClean;
+                        maxUpdPath = vDir;
+                    }
+                    else if (string.IsNullOrEmpty(maxVer) && !string.IsNullOrWhiteSpace(vClean))
+                    {
+                        maxVer = vClean;
                         maxUpdPath = vDir;
                     }
                 }
@@ -140,12 +248,27 @@ namespace StormSwitchBox.Services
             {
                 foreach (var d in Directory.GetDirectories(dlcDir))
                 {
-                    if (Directory.GetFileSystemEntries(d).Length > 0)
+                    try
                     {
-                        dlcFolders.Add(d);
+                        if (Directory.EnumerateFileSystemEntries(d).Any())
+                        {
+                            dlcFolders.Add(d);
+                        }
                     }
+                    catch { }
                 }
             }
+
+            string compDesc = "[БАЗА";
+            if (!string.IsNullOrEmpty(maxVer))
+            {
+                compDesc += $" + ПАТЧ v{maxVer}";
+            }
+            if (dlcFolders.Count > 0)
+            {
+                compDesc += $" + {dlcFolders.Count} DLC";
+            }
+            compDesc += "]";
 
             string cleanName = CleanGameTitle(Path.GetFileName(targetDir));
             byte[]? cover = await FetchCoverAsync(cleanName);
@@ -159,9 +282,19 @@ namespace StormSwitchBox.Services
                 UpdateDir = maxUpdPath,
                 MaxUpdateVersion = maxVer,
                 DlcFolders = dlcFolders,
-                CoverBytes = cover
+                CoverBytes = cover,
+                CompositionDescription = compDesc
             };
         }
+
+        public static Task<Switch2DumpInfo?> AnalyzeDumpDirectory(string dirPath) => InspectSwitch2DumpDirectoryAsync(dirPath);
+        public static Task<Switch2DumpInfo?> AnalyzeDumpDirectoryAsync(string dirPath) => InspectSwitch2DumpDirectoryAsync(dirPath);
+        public static Task CompileSwitch2DumpAsync(
+            ProcessingTask task,
+            string sw2Dir,
+            List<string> inputFiles,
+            string outPath,
+            CancellationToken ct) => CompileSwitch2DumpToContainerAsync(task, sw2Dir, inputFiles, outPath, ct);
 
         public static async Task<byte[]?> FetchCoverAsync(string gameTitle)
         {
@@ -272,14 +405,12 @@ namespace StormSwitchBox.Services
             if (string.IsNullOrEmpty(outDir)) outDir = Directory.GetCurrentDirectory();
             Directory.CreateDirectory(outDir);
 
-            string targetFormat = task.TargetFormat?.ToUpperInvariant() ?? "NSP";
+            string targetFormat = !string.IsNullOrEmpty(task.TargetFormat) ? task.TargetFormat.ToUpperInvariant() : (!string.IsNullOrEmpty(App.Settings.Current.Switch2DefaultFormat) ? App.Settings.Current.Switch2DefaultFormat.ToUpperInvariant() : "NSZ");
 
             string baseFileName = sw2Info.GameName;
             if (!string.IsNullOrEmpty(sw2Info.MaxUpdateVersion))
                 baseFileName += $" [v{sw2Info.MaxUpdateVersion}]";
-            baseFileName += $" [{sw2Info.TitleId}] (1G+1U";
-            if (sw2Info.DlcCount > 0) baseFileName += $"+{sw2Info.DlcCount}D";
-            baseFileName += ")";
+            baseFileName += $" [{sw2Info.TitleId}] {sw2Info.CompositionDescription}";
 
             App.RunOnUI(() => { task.OutputFileName = baseFileName; });
 
@@ -1241,5 +1372,39 @@ namespace StormSwitchBox.Services
             placeholder[3] = 0xE0;
             return placeholder;
         }
+    }
+
+    public static class Switch2DumpCompilerService
+    {
+        public static bool IsSwitch2OrExtractedGameDumpDirectory(string dirPath)
+            => Switch2DumpHelper.IsSwitch2OrExtractedGameDumpDirectory(dirPath);
+
+        public static List<string> FindAllSwitch2DumpRootDirectories(string inputPath, int maxDepth = 5)
+            => Switch2DumpHelper.FindAllSwitch2DumpRootDirectories(inputPath, maxDepth);
+
+        public static Task<Switch2DumpInfo?> InspectSwitch2DumpDirectoryAsync(string dirPath)
+            => Switch2DumpHelper.InspectSwitch2DumpDirectoryAsync(dirPath);
+
+        public static Task<Switch2DumpInfo?> AnalyzeDumpDirectory(string dirPath)
+            => Switch2DumpHelper.InspectSwitch2DumpDirectoryAsync(dirPath);
+
+        public static Task<Switch2DumpInfo?> AnalyzeDumpDirectoryAsync(string dirPath)
+            => Switch2DumpHelper.InspectSwitch2DumpDirectoryAsync(dirPath);
+
+        public static Task CompileSwitch2DumpToContainerAsync(
+            ProcessingTask task,
+            string sw2Dir,
+            List<string> inputFiles,
+            string outPath,
+            CancellationToken ct)
+            => Switch2DumpHelper.CompileSwitch2DumpToContainerAsync(task, sw2Dir, inputFiles, outPath, ct);
+
+        public static Task CompileSwitch2DumpAsync(
+            ProcessingTask task,
+            string sw2Dir,
+            List<string> inputFiles,
+            string outPath,
+            CancellationToken ct)
+            => Switch2DumpHelper.CompileSwitch2DumpToContainerAsync(task, sw2Dir, inputFiles, outPath, ct);
     }
 }

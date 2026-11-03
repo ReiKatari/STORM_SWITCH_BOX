@@ -13,6 +13,13 @@ namespace StormSwitchBox.Models
         [ObservableProperty]
         [property: System.Text.Json.Serialization.JsonIgnore]
         private Microsoft.UI.Xaml.Media.Imaging.BitmapImage? _gameIcon;
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public Microsoft.UI.Xaml.Media.Imaging.BitmapImage? IconBitmap
+        {
+            get => GameIcon;
+            set => GameIcon = value;
+        }
         [ObservableProperty] private string _gameName = string.Empty;
         [ObservableProperty] private string _operation = string.Empty;
         [ObservableProperty] private string _sourceFormat = string.Empty;

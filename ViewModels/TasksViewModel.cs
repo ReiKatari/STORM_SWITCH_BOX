@@ -33,7 +33,8 @@ public partial class TasksViewModel : ObservableObject
 	private static readonly HashSet<string> GameExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) 
 	{ 
 		".NSP", ".XCI", ".NSZ", ".XCZ",
-		".3DS", ".CCI", ".CIA", ".CXI", ".CFA" 
+		".3DS", ".CCI", ".CIA", ".CXI", ".CFA",
+		".NPDM", ".NSO", ".NACP", ".NCA", ".NCZ" 
 	};
 
 	private string _selectedFormat = "NSP";
@@ -525,6 +526,10 @@ public partial class TasksViewModel : ObservableObject
 		if (Switch2DumpHelper.IsSwitch2OrExtractedGameDumpDirectory(dirPath))
 			return false;
 
+		// If this directory or any ancestor belongs to a Switch 2 dump, it is NOT a mod directory
+		if (Switch2DumpHelper.FindAllSwitch2DumpRootDirectories(dirPath).Count > 0)
+			return false;
+
 		var parentDir = Directory.GetParent(dirPath);
 		if (parentDir != null && (Switch2DumpHelper.IsSwitch2OrExtractedGameDumpDirectory(parentDir.FullName) ||
 		    (parentDir.Parent != null && Switch2DumpHelper.IsSwitch2OrExtractedGameDumpDirectory(parentDir.Parent.FullName))))
@@ -676,13 +681,38 @@ public partial class TasksViewModel : ObservableObject
 			}
 		}
 
+		// 0. Check for Switch 2 dumps upfront so that their base/romfs/exefs folders are NEVER touched by modDirs scanner
+		var remainingPaths = new List<string>();
+		var processedSw2Roots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+		foreach (var path in paths)
+		{
+			if (string.IsNullOrWhiteSpace(path)) continue;
+
+			var sw2Roots = Switch2DumpHelper.FindAllSwitch2DumpRootDirectories(path);
+			if (sw2Roots != null && sw2Roots.Count > 0)
+			{
+				foreach (var sw2Root in sw2Roots)
+				{
+					if (processedSw2Roots.Add(sw2Root))
+					{
+						await AddDroppedFileAsync(sw2Root);
+					}
+				}
+				// All Switch 2 dumps found in this path were added, do NOT process this path as modDirs or normalPath!
+				continue;
+			}
+
+			remainingPaths.Add(path);
+		}
+
 		// 1. Separate mod and save directories from other paths
-		var modDirs = paths.Where(p => Directory.Exists(p) && IsModOrCheatDirectory(p)).ToList();
+		var modDirs = remainingPaths.Where(p => Directory.Exists(p) && IsModOrCheatDirectory(p)).ToList();
 
 
 
 
-		var saveDirs = paths.Where(p => Directory.Exists(p) &&
+		var saveDirs = remainingPaths.Where(p => Directory.Exists(p) &&
 			(Path.GetFileName(p).Equals("save", StringComparison.OrdinalIgnoreCase) ||
 			 Path.GetFileName(p).Equals("saves", StringComparison.OrdinalIgnoreCase) ||
 			 Path.GetFileName(p).Equals("savedata", StringComparison.OrdinalIgnoreCase) ||
@@ -691,13 +721,15 @@ public partial class TasksViewModel : ObservableObject
 			 Path.GetFileName(p).Equals("jksv", StringComparison.OrdinalIgnoreCase) ||
 			 Path.GetFileName(p).Equals("edizon", StringComparison.OrdinalIgnoreCase))).ToList();
 
-		var normalPaths = paths.Except(modDirs).Except(saveDirs).ToList();
+		var normalPaths = remainingPaths.Except(modDirs).Except(saveDirs).ToList();
 
 		// Also scan normal paths (if they are directories) to find nested romfs/exefs/saves folders
 		foreach (var normalPath in normalPaths)
 		{
 			if (Directory.Exists(normalPath))
 			{
+				if (Switch2DumpHelper.FindAllSwitch2DumpRootDirectories(normalPath).Count > 0)
+					continue;
 				try
 				{
 					bool hasGameContainers = false;
@@ -924,66 +956,108 @@ public partial class TasksViewModel : ObservableObject
 			if (string.IsNullOrWhiteSpace(path)) return;
 
 			bool isDirectory = Directory.Exists(path);
-			if (isDirectory && Switch2DumpHelper.IsSwitch2OrExtractedGameDumpDirectory(path))
+			var sw2Roots = Switch2DumpHelper.FindAllSwitch2DumpRootDirectories(path);
+			if (sw2Roots != null && sw2Roots.Count > 0)
 			{
-				var sw2Info = await Switch2DumpHelper.InspectSwitch2DumpDirectoryAsync(path);
-				if (sw2Info != null)
+				foreach (var sw2Root in sw2Roots)
 				{
-					string outName = sw2Info.GameName;
-					if (!string.IsNullOrEmpty(sw2Info.MaxUpdateVersion)) outName += $" [v{sw2Info.MaxUpdateVersion}]";
-					outName += $" [{sw2Info.TitleId}] (1G+1U";
-					if (sw2Info.DlcCount > 0) outName += $"+{sw2Info.DlcCount}D";
-					outName += ")";
-
-					string sw2OutFolder = !string.IsNullOrEmpty(App.Settings.Current.OutputFolderSwitch2) ? App.Settings.Current.OutputFolderSwitch2 : App.Settings.Current.OutputFolder;
-					if (string.IsNullOrEmpty(sw2OutFolder)) sw2OutFolder = Path.GetDirectoryName(path) ?? path;
-
-					long sz = CalculateSize(path);
-					var sw2Task = new ProcessingTask
+					var sw2Info = await Switch2DumpHelper.InspectSwitch2DumpDirectoryAsync(sw2Root);
+					if (sw2Info != null)
 					{
-						Id = $"T{Tasks.Count + 1:D3}",
-						GroupId = sw2Info.TitleId,
-						TitleId = sw2Info.TitleId,
-						GameName = $"[SWITCH 2] {sw2Info.GameName}",
-						Operation = _currentPageType == "Verify" ? "Verify" : "Multi",
-						SourceFormat = "DIR",
-						IsSwitch2Task = true,
-						Is3dsTask = false,
-						TargetFormat = SelectedFormat,
-						SourceSizeBytes = sz,
-						SourceSize = ProcessingTask.FormatSize(sz),
-						TargetSize = "-",
-						SizeDifference = "-",
-						CompressionLevel = App.Settings.Current.CompressionLevel.ToString(),
-						FilesCount = "1",
-						InputFiles = new List<string> { sw2Info.GameRootDir },
-						FilesList = new List<string> { Path.GetFileName(sw2Info.GameRootDir) },
-						HasRomFs = "1",
-						HasExeFs = "1",
-						Status = "Ожидание",
-						Progress = 0.0,
-						InputFolders = sw2Info.GameRootDir,
-						OutputFolder = sw2OutFolder,
-						OutputFileName = outName,
-						LogDetails = $"Готов к обработке... [Nintendo Switch 2: {sw2Info.GameName}]"
-					};
+						string outName = sw2Info.GameName;
+						if (!string.IsNullOrEmpty(sw2Info.MaxUpdateVersion)) outName += $" [v{sw2Info.MaxUpdateVersion}]";
+						outName += $" [{sw2Info.TitleId}] {sw2Info.CompositionDescription}";
 
-					if (sw2Info.CoverBytes != null && sw2Info.CoverBytes.Length > 0)
-					{
-						try
+						string sw2OutFolder = !string.IsNullOrEmpty(App.Settings.Current.OutputFolderSwitch2) ? App.Settings.Current.OutputFolderSwitch2 : App.Settings.Current.OutputFolder;
+						if (string.IsNullOrEmpty(sw2OutFolder)) sw2OutFolder = Path.GetDirectoryName(sw2Root) ?? sw2Root;
+
+						long sz = CalculateSize(sw2Root);
+						var sw2Task = new ProcessingTask
 						{
-							using var ms = new MemoryStream(sw2Info.CoverBytes);
-							var bmp = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
-							await bmp.SetSourceAsync(ms.AsRandomAccessStream());
-							sw2Task.GameIcon = bmp;
-						}
-						catch { }
-					}
+							GroupId = sw2Info.TitleId,
+							TitleId = sw2Info.TitleId,
+							GameName = $"[SWITCH 2] {sw2Info.GameName} {(!string.IsNullOrEmpty(sw2Info.MaxUpdateVersion) ? $"v{sw2Info.MaxUpdateVersion}" : "")}".Trim(),
+							Operation = _currentPageType == "Verify" ? "Verify" : "Multi",
+							SourceFormat = "DIR",
+							IsSwitch2Task = true,
+							Is3dsTask = false,
+							TargetFormat = SelectedFormat,
+							SourceSizeBytes = sz,
+							SourceSize = ProcessingTask.FormatSize(sz),
+							TargetSize = "-",
+							SizeDifference = "-",
+							CompressionLevel = App.Settings.Current.CompressionLevel.ToString(),
+							FilesCount = "1",
+							InputFiles = new List<string> { sw2Info.GameRootDir },
+							FilesList = new List<string> { Path.GetFileName(sw2Info.GameRootDir) },
+							HasRomFs = "1",
+							HasExeFs = "1",
+							VerifyTitleId = sw2Info.TitleId,
+							VerifyVersion = !string.IsNullOrEmpty(sw2Info.MaxUpdateVersion) ? $"v{sw2Info.MaxUpdateVersion}" : "v0",
+							Status = "Ожидание",
+							Progress = 0.0,
+							InputFolders = sw2Info.GameRootDir,
+							OutputFolder = sw2OutFolder,
+							OutputFileName = outName,
+							LogDetails = $"Готов к обработке... [Nintendo Switch 2: {sw2Info.GameName} {sw2Info.CompositionDescription}]"
+						};
 
-					Tasks.Add(sw2Task);
-					App.Logger.Log($"Добавлена задача Nintendo Switch 2: {sw2Info.GameName} [{sw2Info.TitleId}]");
-					return;
+						byte[]? coverBytes = sw2Info.CoverBytes;
+						string? resolvedIconPath = null;
+						if (coverBytes != null && coverBytes.Length > 0)
+						{
+							try
+							{
+								string iconsDir = HistoryService.GetIconsDirectory();
+								Directory.CreateDirectory(iconsDir);
+								resolvedIconPath = Path.Combine(iconsDir, $"{sw2Info.TitleId}.png");
+								File.WriteAllBytes(resolvedIconPath, coverBytes);
+							}
+							catch { }
+						}
+
+						App.RunOnUI(() =>
+						{
+							bool alreadyExists = Tasks.Any(t =>
+								(t.GroupId == sw2Info.TitleId || t.TitleId == sw2Info.TitleId) &&
+								t.InputFiles != null && t.InputFiles.Contains(sw2Info.GameRootDir, StringComparer.OrdinalIgnoreCase));
+							if (alreadyExists)
+							{
+								App.Logger.Log($"[Switch 2] Задача уже существует в очереди: {sw2Info.GameName} [{sw2Info.TitleId}]", LogLevel.Info);
+								return;
+							}
+
+							if (coverBytes != null && coverBytes.Length > 0)
+							{
+								try
+								{
+									var bmp = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
+									using var ms = new MemoryStream(coverBytes);
+									bmp.SetSource(ms.AsRandomAccessStream());
+									sw2Task.GameIcon = bmp;
+									sw2Task.IconBitmap = bmp;
+								}
+								catch { }
+							}
+							else if (!string.IsNullOrEmpty(resolvedIconPath) && File.Exists(resolvedIconPath))
+							{
+								try
+								{
+									var bmp = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(resolvedIconPath));
+									sw2Task.GameIcon = bmp;
+									sw2Task.IconBitmap = bmp;
+								}
+								catch { }
+							}
+
+							sw2Task.Id = $"T{Tasks.Count + 1:D3}";
+							Tasks.Add(sw2Task);
+							RecalculateStats();
+							App.Logger.Log($"Добавлена задача Nintendo Switch 2: {sw2Info.GameName} [{sw2Info.TitleId}]", LogLevel.Success);
+						});
+					}
 				}
+				return;
 			}
 
 			if (!isDirectory)
@@ -2894,5 +2968,10 @@ public partial class TasksViewModel : ObservableObject
 				App.Logger.Log($"[PreAnalysis] Ошибка: {ex.Message}", LogLevel.Warning);
 			}
 		});
+	}
+
+	public void RecalculateStats()
+	{
+		OnPropertyChanged(nameof(IsAnyTaskRunning));
 	}
 }

@@ -63,6 +63,29 @@ namespace StormSwitchBox.Models
         public string KeysVersion { get; set; } = "";
         public string KeysPath { get; set; } = "";
 
+        // Настройки Nintendo Switch 2 (Ounce / NVN2)
+        public string Switch2KeysPath { get; set; } = "";
+        public string Switch2TitleKeysPath { get; set; } = "";
+        public string Switch2KeysVersion { get; set; } = "";
+        public string Switch2DefaultFormat { get; set; } = "NSZ"; // NSZ, NSP, XCI, XCZ
+        public int Switch2SelectedFormatIndex { get; set; } = 0; // 0 = NSZ, 1 = NSP, 2 = XCI, 3 = XCZ
+        public bool Switch2BlockCompression { get; set; } = true;
+        public int Switch2CompressionLevel { get; set; } = 18;
+        public int Switch2BlockSizeIndex { get; set; } = 2; // 0 = 256 КБ, 1 = 512 КБ, 2 = 1 МБ (Рекомендуется), 3 = 2 МБ, 4 = 4 МБ
+        public int Switch2ThreadsIndex { get; set; } = 0; // 0 = Авто (Оптимально), 1 = 2 потока, 2 = 4 потока, 3 = 8 потоков, 4 = Максимум
+        public bool Switch2SmartShrink { get; set; } = true;
+        public bool Switch2AutoStitchMultiContent { get; set; } = true;
+        public bool Switch2HardPatchRomFs { get; set; } = true;
+        public bool Switch2ZstdRomFsHandling { get; set; } = true;
+        public bool Switch2AutoInjectMods { get; set; } = true;
+        public string Switch2ModsFolder { get; set; } = "";
+        public bool Switch2DlcUnlocker { get; set; } = true;
+        public bool Switch2StripPersonalizedTickets { get; set; } = true;
+        public bool Switch2PatchMinRequiredOs { get; set; } = true;
+        public bool Switch2VerifyIntegrityAfterBuild { get; set; } = true;
+        public bool Switch2DeleteSourceOnSuccess { get; set; } = false;
+        public string Switch2DownloadsFolder { get; set; } = "";
+
         // Настройки Nintendo 3DS
         public string KeysPath3ds { get; set; } = "";
         public string DefaultFormat3ds { get; set; } = "3DS"; // 3DS (CCI), CIA, CXI
