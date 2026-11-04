@@ -378,10 +378,10 @@
         <!-- Постоянный фоновый / интерактивный WebView2 для обхода Cloudflare Turnstile и Same-Origin Fetch -->
         <Border x:Name="CloudflareBypassPanel" Grid.Row="0" Grid.RowSpan="6"
                 HorizontalAlignment="Right" VerticalAlignment="Bottom"
-                Width="360" Height="260" Margin="0,0,16,16"
-                Background="#F50F172A" BorderBrush="#0284C7" BorderThickness="1.5" CornerRadius="8"
-                Padding="10" Canvas.ZIndex="1000"
-                Opacity="0.01" IsHitTestVisible="False">
+                Width="1" Height="1" Margin="0"
+                Background="#F50F172A" BorderBrush="#0284C7" BorderThickness="0" CornerRadius="8"
+                Padding="0" Canvas.ZIndex="1000"
+                Opacity="0" IsHitTestVisible="False">
             <Grid RowDefinitions="Auto,*">
                 <Grid Grid.Row="0" Margin="0,0,0,6">
                     <Grid.ColumnDefinitions>

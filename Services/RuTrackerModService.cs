@@ -117,8 +117,8 @@ namespace StormSwitchBox.Services
         {
             "nintendo", "switch", "nsw", "nsw2", "nsp", "nsz", "xci", "xcz", "nup", "nro",
             "rus", "eng", "jpn", "multi", "update", "upd", "dlc", "unlocker", "patched",
-            "repack", "gb", "mb", "??", "??", "?????????", "????", "???????", "homebrew",
-            "mod", "mods", "???????????"
+            "repack", "gb", "mb", "гб", "мб", "обновлено", "порт", "хоумбрю", "homebrew",
+            "mod", "mods", "русификатор"
         };
 
         public void RebuildKeys()
@@ -335,9 +335,7 @@ namespace StormSwitchBox.Services
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "STORM SWITCH BOX",
             "rutracker_1605_dynamic_delta.json");
-
         private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, RuTrackerIndexTopic> _deltaTopics = new(StringComparer.OrdinalIgnoreCase);
-
         public static void LoadDeltaCache()
         {
             try
@@ -380,7 +378,7 @@ namespace StormSwitchBox.Services
                                 GameName = g,
                                 TitleId = tidHex
                             };
-                            topic.RebuildKeys();
+                            try { topic.RebuildKeys(); } catch { }
 
                             _deltaTopics[tid] = topic;
                             _topicsById[tid] = topic;
@@ -681,18 +679,14 @@ namespace StormSwitchBox.Services
         {
             string mirror = NormalizeMirrorUrl(App.Settings.Current.RuTrackerMirror);
             string loginUrl = $"{mirror}/forum/login.php";
-
             Encoding cp1251 = Encoding.GetEncoding(1251);
-
             try
             {
                 using var client = CreateHttpClient(allowAutoRedirect: false);
 
                 var postData = $"login_username={UrlEncodeCp1251(username, cp1251)}&login_password={UrlEncodeCp1251(password, cp1251)}&login=%C2%F5%EE%E4";
                 using var content = new StringContent(postData, cp1251, "application/x-www-form-urlencoded");
-
                 using var resp = await client.PostAsync(loginUrl, content, ct).ConfigureAwait(false);
-
                 if (resp.Headers.TryGetValues("Set-Cookie", out var cookies))
                 {
                     foreach (var c in cookies)
@@ -743,9 +737,7 @@ namespace StormSwitchBox.Services
             }
             return sb.ToString();
         }
-
         #region Локальный индекс всех 7 275 тем RuTracker (#1605) и мгновенный поиск
-
         public static void EnsureIndexLoaded()
         {
             if (_indexLoaded) return;
@@ -836,7 +828,7 @@ namespace StormSwitchBox.Services
                             TitleId = tidHex,
                             Files = filesList
                         };
-                        topic.RebuildKeys();
+                        try { topic.RebuildKeys(); } catch { }
 
                         _indexTopics.Add(topic);
                         _topicsById[tid] = topic;
@@ -1003,9 +995,7 @@ namespace StormSwitchBox.Services
             }
             catch { }
         }
-
         #endregion
-
         public async Task<List<RuTrackerTopicItem>> SearchTopicsAsync(string query, string categoryFilter, CancellationToken ct)
         {
             EnsureIndexLoaded();
@@ -1230,9 +1220,7 @@ namespace StormSwitchBox.Services
             string title = !string.IsNullOrWhiteSpace(t.TopicTitle)
                 ? t.TopicTitle
                 : (!string.IsNullOrWhiteSpace(t.TorrentName) ? t.TorrentName : $"[Nintendo Switch] {t.GameName}");
-
             string sizeText = t.SizeBytes > 0 ? ProcessingTask.FormatSize(t.SizeBytes) : "нет данных";
-
             return new RuTrackerTopicItem
             {
                 TopicId = t.TopicId,
@@ -1247,412 +1235,410 @@ namespace StormSwitchBox.Services
                 DirectTorrentUrl = $"{mirror}/forum/dl.php?t={t.TopicId}"
             };
         }
-
         #region Алгоритмы поиска (раскладка, опечатки, Soundex, синонимы)
+        private sealed class QVariant
+        {
+            public string Text { get; }
+            public string Padded { get; }
+            public string[] Words { get; }
+            public bool AllowTypo { get; }
 
-        private sealed class QVariant
-        {
-            public string Text { get; }
-            public string Padded { get; }
-            public string[] Words { get; }
-            public bool AllowTypo { get; }
-
-            public QVariant(string text, string padded, string[] words, bool allowTypo)
-            {
-                Text = text;
-                Padded = padded;
-                Words = words;
-                AllowTypo = allowTypo;
-            }
-        }
-
-        private static readonly HashSet<string> StopWords = new(StringComparer.OrdinalIgnoreCase)
-        {
-            "the", "and", "for", "of", "a", "an", "nintendo", "switch", "edition", "deluxe"
-        };
-
-        private static readonly Dictionary<string, string> RuGameAliases = new(StringComparer.OrdinalIgnoreCase)
-        {
-            ["???????"] = "brotato", ["???????"] = "brotato", ["???????"] = "brotato", ["????????"] = "brotato",
-            ["?????? ????"] = "animal well", ["?????? ????"] = "animal well", ["?????? ???"] = "animal well", ["?????? ???"] = "animal well",
-            ["??????"] = "zelda", ["??????"] = "zelda", ["????"] = "zelda", ["??????"] = "hyrule",
-            ["?????"] = "mario", ["????? ?????"] = "super mario", ["????? ????"] = "mario kart",
-            ["???????"] = "witcher", ["??????"] = "witcher", ["???????"] = "witcher",
-            ["?????? ????"] = "hollow knight", ["????? ??????"] = "hollow knight", ["????? ????"] = "hollow knight",
-            ["????????"] = "silksong", ["??????"] = "silksong",
-            ["??????"] = "cuphead", ["?????head"] = "cuphead",
-            ["???????"] = "balatro", ["?????"] = "balatro",
-            ["???"] = "doom", ["??? ???????"] = "doom eternal",
-            ["???????"] = "skyrim", ["????? ???????"] = "elder scrolls",
-            ["??????"] = "stardew valley", ["???????"] = "stardew valley", ["?????? ???????"] = "stardew valley",
-            ["????????"] = "terraria", ["???????"] = "terraria",
-            ["?????????"] = "minecraft", ["????"] = "minecraft",
-            ["???????"] = "persona", ["???????"] = "pokemon", ["????????"] = "pokemon",
-            ["?????????"] = "bayonetta", ["??????????"] = "xenoblade", ["?????????"] = "xenoblade",
-            ["???? ?????"] = "dark souls", ["???? ?????"] = "dark souls",
-            ["??????"] = "hades", ["?????"] = "hades", ["???"] = "hades",
-            ["????????"] = "factorio", ["??????????"] = "subnautica", ["?????????"] = "subnautica",
-            ["????"] = "dave the diver", ["??????"] = "dave the diver",
-            ["?????"] = "dredge", ["?????"] = "tunic",
-            ["?????????"] = "blasphemous", ["?????????"] = "blasphemous",
-            ["????? ?????"] = "pizza tower", ["?????"] = "pizza tower",
-            ["???? ????"] = "nine sols", ["?????? ?????"] = "nine sols",
-            ["??? ?????"] = "dead cells", ["??????? ??????"] = "dead cells", ["??? ?????"] = "dead cells",
-            ["???????"] = "celeste", ["??????"] = "celeste",
-            ["???"] = "ori", ["????"] = "crash bandicoot", ["????"] = "crash bandicoot",
-            ["??????"] = "spyro", ["?????"] = "sonic", ["?????"] = "kirby",
-            ["???????"] = "splatoon", ["??????"] = "pikmin",
-            ["???? ??????"] = "fire emblem", ["???????? ???????"] = "fire emblem",
-            ["??????? ??????"] = "monster hunter", ["??????"] = "monster hunter",
-            ["????????"] = "resident evil", ["??????? ???"] = "resident evil",
-            ["???????"] = "assassins creed",
-            ["????? ????"] = "donkey kong", ["?????????"] = "donkey kong",
-            ["??????????"] = "castlevania", ["???????????"] = "castlevania",
-            ["???????"] = "mega man", ["?????? ????"] = "astral chain",
-            ["???????"] = "octopath traveler", ["??????"] = "yakuza",
-            ["???????"] = "aggelos"
-        };
-
-        private static bool ContainsWholePhrase(string paddedText, string phrase)
-        {
-            if (string.IsNullOrWhiteSpace(phrase)) return false;
-            return paddedText.Contains(" " + phrase + " ", StringComparison.OrdinalIgnoreCase);
-        }
-
-        private static List<QVariant> BuildQueryVariants(string rawQuery)
-        {
-            string clean = NormalizeSearchKey(rawQuery);
-            string paddedClean = " " + clean + " ";
-            var raw = new List<(string Text, bool AllowTypo)>();
-            if (!string.IsNullOrEmpty(clean))
-                raw.Add((clean, true));
-
-            foreach (var (ruKey, enVal) in RuGameAliases)
-            {
-                if (clean.Equals(ruKey, StringComparison.OrdinalIgnoreCase) || ContainsWholePhrase(paddedClean, ruKey))
-                {
-                    string replaced = (" " + clean + " ").Replace(" " + ruKey + " ", " " + enVal + " ", StringComparison.OrdinalIgnoreCase).Trim();
-                    raw.Add((replaced, true));
-                    raw.Add((enVal, true));
-                }
-            }
-
-            bool hasCyrillic = clean.Any(c => c >= '?' && c <= '?');
-            bool hasLatin = clean.Any(c => c >= 'a' && c <= 'z');
-
-            if (hasCyrillic)
-            {
-                string translit = TransliterateRuToEn(clean);
-                if (translit != clean)
-                {
-                    raw.Add((translit, true));
-                    raw.Add((translit.Replace('v', 'w'), false));
-                    raw.Add((translit.Replace('k', 'c'), false));
-                }
-
-                string swappedEn = SwapKeyboardLayout(rawQuery.Trim().ToLowerInvariant(), ruToEn: true);
-                if (swappedEn != clean)
-                    raw.Add((swappedEn, false));
-            }
-
-            if (hasLatin)
-            {
-                string swappedRu = NormalizeSearchKey(SwapKeyboardLayout(rawQuery.Trim().ToLowerInvariant(), ruToEn: false));
-                if (!string.IsNullOrEmpty(swappedRu) && swappedRu != clean)
-                {
-                    raw.Add((swappedRu, false));
-                    string paddedSwapped = " " + swappedRu + " ";
-                    foreach (var (ruKey, enVal) in RuGameAliases)
-                    {
-                        if (swappedRu.Equals(ruKey, StringComparison.OrdinalIgnoreCase) || ContainsWholePhrase(paddedSwapped, ruKey))
-                            raw.Add((enVal, true));
-                    }
-                }
-            }
-
-            var outList = new List<QVariant>();
-            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            foreach (var (r, allowTypo) in raw)
-            {
-                string n = NormalizeSearchKey(r);
-                if (string.IsNullOrEmpty(n) || !seen.Add(n)) continue;
-
-                var ws = n.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-                var sig = ws.Where(w => !StopWords.Contains(w)).ToArray();
-                if (sig.Length == 0) sig = ws;
-
-                outList.Add(new QVariant(n, " " + n + " ", sig, allowTypo));
-            }
-
-            return outList;
-        }
-
-        private static int ScoreTopic(RuTrackerIndexTopic t, List<QVariant> variants, string? tidQuery)
-        {
-            if (string.IsNullOrWhiteSpace(t.GameKey) && string.IsNullOrWhiteSpace(t.TitleKey))
-                return 0;
-
-            if (!string.IsNullOrEmpty(tidQuery) && t.TidBlob.Contains(tidQuery, StringComparison.OrdinalIgnoreCase))
-                return 1300;
-
-            int best = 0;
-            for (int i = 0; i < variants.Count; i++)
-            {
-                var v = variants[i];
-                int penalty = i * 15;
-
-                if (t.GameKey.Equals(v.Text, StringComparison.Ordinal))
-                {
-                    best = Math.Max(best, 1200 - penalty);
-                    continue;
-                }
-
-                if (t.GameKey.StartsWith(v.Text + " ", StringComparison.Ordinal))
-                {
-                    best = Math.Max(best, 1140 - penalty);
-                    continue;
-                }
-
-                if (v.Text.Length >= 4 && t.GameKey.StartsWith(v.Text, StringComparison.Ordinal))
-                {
-                    best = Math.Max(best, 1080 - penalty);
-                    continue;
-                }
-
-                if (t.GameKeyPadded.Contains(v.Padded, StringComparison.Ordinal))
-                {
-                    best = Math.Max(best, 1050 - penalty);
-                    continue;
-                }
-
-                if (!string.IsNullOrEmpty(t.TitleKeyPadded) && t.TitleKeyPadded.Contains(v.Padded, StringComparison.Ordinal))
-                {
-                    best = Math.Max(best, 1020 - penalty);
-                    continue;
-                }
-
-                int ws = WordScore(t, v) - penalty;
-                if (ws > best) best = ws;
-            }
-
-            return best;
-        }
-
-        private static int WordScore(RuTrackerIndexTopic t, QVariant v)
-        {
-            if (v.Words.Length == 0 || t.Words.Length == 0) return 0;
-            int totalTypos = 0;
-            int inGame = 0;
-
-            foreach (var qw in v.Words)
-            {
-                int best = 99;
-                bool bestInGame = false;
-
-                for (int wi = 0; wi < t.Words.Length; wi++)
-                {
-                    int d = WordMatch(qw, t.Words[wi], v.AllowTypo);
-                    if (d < best || (d == best && wi < t.GameWordCount && !bestInGame))
-                    {
-                        best = d;
-                        bestInGame = wi < t.GameWordCount;
-                        if (d == 0 && bestInGame) break;
-                    }
-                }
-
-                if (best >= 99) return 0;
-                totalTypos += best;
-                if (bestInGame) inGame++;
-            }
-
-            int scoreBase = totalTypos == 0 ? 980 : (880 - totalTypos * 60);
-            int gameBonus = inGame == v.Words.Length ? 40 : (inGame > 0 ? 15 : 0);
-            return Math.Max(650, scoreBase + gameBonus);
-        }
-
-        /// <summary>
-        /// ?????????, ?????????? ?? ??? ????? ?????????? ????? ????? ????? ????????????? ???? ???? (???????? ??? ????? ????).
-        /// </summary>
-        public static bool IsSingleLetterSwap(string a, string b)
-        {
-            if (a.Length != b.Length || a.Length < 3) return false;
-            int p1 = -1, p2 = -1;
-            for (int i = 0; i < a.Length; i++)
-            {
-                if (a[i] != b[i])
-                {
-                    if (p1 < 0) p1 = i;
-                    else if (p2 < 0) p2 = i;
-                    else return false;
-                }
-            }
-            if (p1 < 0 || p2 < 0) return false;
-            if (p2 - p1 > 2) return false;
-            if (a.Length == 3 && p1 == 0) return false;
-            return a[p1] == b[p2] && a[p2] == b[p1];
-        }
-
-        /// <summary>
-        /// ?????? ???? ????? ? ???????? ????? 1 ???????? (?????????? 2 ????? ??? 1 ????????????/???????????/?????? ?????).
-        /// </summary>
-        private static int WordMatch(string qw, string gw, bool allowTypo)
-        {
-            if (qw.Equals(gw, StringComparison.Ordinal)) return 0;
-
-            // ?????? ??????? ???????? ????? (??? ????????? ????)
-            if (!qw.All(char.IsDigit) && gw.StartsWith(qw, StringComparison.Ordinal))
-            {
-                if (qw.Length >= 5 || (qw.Length == 4 && gw.Length <= 7) || (qw.Length == 3 && gw.Length <= 5))
-                    return 1;
-            }
-
-            if (!allowTypo) return 99;
-
-            // ?????????? 2 ????? ??????? (????????, zedla -> zelda, mairo -> mario, aggleos -> aggelos)
-            if (IsSingleLetterSwap(qw, gw))
-                return 1;
-
-            if (qw.Length < 4 || gw.Length < 4) return 99;
-            if (Math.Abs(qw.Length - gw.Length) > 1) return 99;
-
-            // ?????? ????? ?????? ?????????, ???? (??? ???? >= 5 ????) ??? ????????? ????? ????????? 1-?-1
-            bool firstOk = qw[0] == gw[0] ||
-                           (qw.Length == gw.Length && qw.Length >= 5 && qw.AsSpan(1).SequenceEqual(gw.AsSpan(1)));
-            if (!firstOk) return 99;
-
-            // ?????? ?? ????? 1 ?????? (1 ???????????? ?????, 1 ??????????? ??? 1 ??????)
-            int d = DamerauLevenshtein(qw, gw);
-            return d <= 1 ? 1 : 99;
-        }
-
-        public static string NormalizeSearchKey(string s)
-        {
-            if (string.IsNullOrEmpty(s)) return "";
-            var sb = new StringBuilder(s.Length);
-            bool space = true;
-            foreach (char c0 in s)
-            {
-                char c = char.ToLowerInvariant(c0);
-                if (c == '?') c = '?';
-                if (char.IsLetterOrDigit(c))
-                {
-                    sb.Append(c);
-                    space = false;
-                }
-                else if (!space)
-                {
-                    sb.Append(' ');
-                    space = true;
-                }
-            }
-            if (sb.Length > 0 && sb[^1] == ' ')
-                sb.Length--;
-            return sb.ToString();
-        }
-
-        public static string SwapKeyboardLayout(string input, bool ruToEn)
-        {
-            const string ru = "????????????????????????????????.?";
-            const string en = "qwertyuiop[]asdfghjkl;'zxcvbnm,./`";
-            var sb = new StringBuilder(input.Length);
-            foreach (char c in input.ToLowerInvariant())
-            {
-                if (ruToEn)
-                {
-                    int idx = ru.IndexOf(c);
-                    sb.Append(idx >= 0 && idx < en.Length ? en[idx] : c);
-                }
-                else
-                {
-                    int idx = en.IndexOf(c);
-                    sb.Append(idx >= 0 && idx < ru.Length ? ru[idx] : c);
-                }
-            }
-            return sb.ToString();
-        }
-
-        public static string TransliterateRuToEn(string input)
-        {
-            var map = new Dictionary<string, string>
-            {
-                ["?"] = "shch", ["?"] = "sh", ["?"] = "ch", ["?"] = "ts", ["?"] = "zh",
-                ["?"] = "e", ["?"] = "yu", ["?"] = "ya", ["?"] = "a", ["?"] = "b",
-                ["?"] = "v", ["?"] = "g", ["?"] = "d", ["?"] = "e", ["?"] = "yo",
-                ["?"] = "z", ["?"] = "i", ["?"] = "y", ["?"] = "k", ["?"] = "l",
-                ["?"] = "m", ["?"] = "n", ["?"] = "o", ["?"] = "p", ["?"] = "r",
-                ["?"] = "s", ["?"] = "t", ["?"] = "u", ["?"] = "f", ["?"] = "kh",
-                ["?"] = "", ["?"] = "y", ["?"] = ""
-            };
-            var sb = new StringBuilder(input.Length * 2);
-            foreach (char c in input.ToLowerInvariant())
-            {
-                string s = c.ToString();
-                if (map.TryGetValue(s, out var tr))
-                    sb.Append(tr);
-                else
-                    sb.Append(c);
-            }
-            return sb.ToString();
-        }
-
-        public static string PhoneticSkeleton(string input) => string.Empty;
-
-        public static int DamerauLevenshtein(string a, string b)
-        {
-            int lenA = a.Length;
-            int lenB = b.Length;
-            if (Math.Abs(lenA - lenB) > 2) return 99;
-            if (lenA == 0) return lenB;
-            if (lenB == 0) return lenA;
-
-            int[,] dp = new int[lenA + 1, lenB + 1];
-            for (int i = 0; i <= lenA; i++) dp[i, 0] = i;
-            for (int j = 0; j <= lenB; j++) dp[0, j] = j;
-
-            for (int i = 1; i <= lenA; i++)
-            {
-                for (int j = 1; j <= lenB; j++)
-                {
-                    int cost = a[i - 1] == b[j - 1] ? 0 : 1;
-                    int v = Math.Min(
-                        Math.Min(dp[i - 1, j] + 1, dp[i, j - 1] + 1),
-                        dp[i - 1, j - 1] + cost);
-
-                    if (i > 1 && j > 1 && a[i - 1] == b[j - 2] && a[i - 2] == b[j - 1])
-                    {
-                        v = Math.Min(v, dp[i - 2, j - 2] + 1);
-                    }
-                    dp[i, j] = v;
-                }
-            }
-            return dp[lenA, lenB];
-        }
-
-        public static string CleanTitleToGame(string title)
-        {
-            string s = Regex.Replace(title, @"^\s*\[[^\]]*Switch[^\]]*\]\s*", "", RegexOptions.IgnoreCase);
-            s = Regex.Replace(s, @"\[[^\]]*\]|\([^)]*\)|\{[^}]*\}", " ");
-            s = Regex.Replace(s, @" [vV]\d[\d.]* ", " ");
-            s = Regex.Replace(s, @" (NSP|NSZ|XCI|XCZ|NUP|NRO|RUS|ENG|Multi\d*) ", " ", RegexOptions.IgnoreCase);
-            s = s.Replace('_', ' ');
-            s = Regex.Replace(s, @"\s+", " ").Trim().Trim('-', '/', '|', '.', ',', ' ');
-            return s;
-        }
-
-        public static string CleanTitleKeepAltNames(string title)
-        {
-            string s = Regex.Replace(title, @"\[[^\]]*\]|\{[^}]*\}", " ");
-            s = Regex.Replace(s, @"\((?:????|???????|homebrew[^)]*|update[^)]*|dlc[^)]*|v\d[^)]*|mod[^)]*)\)", " ", RegexOptions.IgnoreCase);
-            s = Regex.Replace(s, @" [vV]\d[\d.]* ", " ");
-            s = Regex.Replace(s, @" (NSP|NSZ|XCI|XCZ|NUP|NRO|RUS|ENG|Multi\d*) ", " ", RegexOptions.IgnoreCase);
-            s = s.Replace('_', ' ').Replace('(', ' ').Replace(')', ' ');
-            s = Regex.Replace(s, @"\s+", " ").Trim().Trim('-', '/', '|', '.', ',', ' ');
-            return s;
-        }
-
+
+
+            public QVariant(string text, string padded, string[] words, bool allowTypo)
+            {
+                Text = text;
+                Padded = padded;
+                Words = words;
+                AllowTypo = allowTypo;
+            }
+        }
+
+
+
+        private static readonly HashSet<string> StopWords = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "the", "and", "for", "of", "a", "an", "nintendo", "switch", "edition", "deluxe"
+        };
+
+
+
+        private static readonly Dictionary<string, string> RuGameAliases = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["бротато"] = "brotato", ["братато"] = "brotato", ["бротата"] = "brotato", ["картошка"] = "brotato",
+            ["анимал велл"] = "animal well", ["энимал велл"] = "animal well", ["анимал вел"] = "animal well", ["энимал вел"] = "animal well",
+            ["зельда"] = "zelda", ["зельды"] = "zelda", ["линк"] = "zelda", ["хайрул"] = "hyrule",
+            ["марио"] = "mario", ["супер марио"] = "super mario", ["марио карт"] = "mario kart",
+            ["ведьмак"] = "witcher", ["витчер"] = "witcher", ["геральт"] = "witcher",
+            ["холлоу найт"] = "hollow knight", ["полый рыцарь"] = "hollow knight", ["холоу найт"] = "hollow knight",
+            ["силксонг"] = "silksong", ["хорнет"] = "silksong",
+            ["капхед"] = "cuphead", ["чашкоhead"] = "cuphead",
+            ["балатро"] = "balatro", ["покер"] = "balatro",
+            ["дум"] = "doom", ["дум этернал"] = "doom eternal",
+            ["скайрим"] = "skyrim", ["элдер скроллс"] = "elder scrolls",
+            ["стардю"] = "stardew valley", ["стардью"] = "stardew valley", ["долина стардью"] = "stardew valley",
+            ["террария"] = "terraria", ["терария"] = "terraria",
+            ["майнкрафт"] = "minecraft", ["майн"] = "minecraft",
+            ["персона"] = "persona", ["покемон"] = "pokemon", ["покемоны"] = "pokemon",
+            ["байонетта"] = "bayonetta", ["ксеноблейд"] = "xenoblade", ["зеноблейд"] = "xenoblade",
+            ["дарк соулс"] = "dark souls", ["дарк соулз"] = "dark souls",
+            ["хейдес"] = "hades", ["гадес"] = "hades", ["аид"] = "hades",
+            ["факторио"] = "factorio", ["сабнавтика"] = "subnautica", ["сабнатика"] = "subnautica",
+            ["дейв"] = "dave the diver", ["дайвер"] = "dave the diver",
+            ["дредж"] = "dredge", ["туник"] = "tunic",
+            ["бласфемос"] = "blasphemous", ["бласфемус"] = "blasphemous",
+            ["пицца тауэр"] = "pizza tower", ["пицца"] = "pizza tower",
+            ["найн солс"] = "nine sols", ["девять солнц"] = "nine sols",
+            ["дед селлс"] = "dead cells", ["мертвые клетки"] = "dead cells", ["дэд селлс"] = "dead cells",
+            ["селеста"] = "celeste", ["селест"] = "celeste",
+            ["ори"] = "ori", ["крэш"] = "crash bandicoot", ["краш"] = "crash bandicoot",
+            ["спайро"] = "spyro", ["соник"] = "sonic", ["кирби"] = "kirby",
+            ["сплатун"] = "splatoon", ["пикмин"] = "pikmin",
+            ["файр эмблем"] = "fire emblem", ["огненная эмблема"] = "fire emblem",
+            ["монстер хантер"] = "monster hunter", ["монхан"] = "monster hunter",
+            ["резидент"] = "resident evil", ["обитель зла"] = "resident evil",
+            ["ассасин"] = "assassins creed",
+            ["донки конг"] = "donkey kong", ["донкиконг"] = "donkey kong",
+            ["кастлвания"] = "castlevania", ["кастлевания"] = "castlevania",
+            ["мегамен"] = "mega man", ["астрал чейн"] = "astral chain",
+            ["октопат"] = "octopath traveler", ["якудза"] = "yakuza",
+            ["аггелос"] = "aggelos"
+        };
+
+        private static bool ContainsWholePhrase(string paddedText, string phrase)
+        {
+            if (string.IsNullOrWhiteSpace(phrase)) return false;
+            return paddedText.Contains(" " + phrase + " ", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static List<QVariant> BuildQueryVariants(string rawQuery)
+        {
+            string clean = NormalizeSearchKey(rawQuery);
+            string paddedClean = " " + clean + " ";
+            var raw = new List<(string Text, bool AllowTypo)>();
+            if (!string.IsNullOrEmpty(clean))
+                raw.Add((clean, true));
+
+            foreach (var (ruKey, enVal) in RuGameAliases)
+            {
+                if (clean.Equals(ruKey, StringComparison.OrdinalIgnoreCase) || ContainsWholePhrase(paddedClean, ruKey))
+                {
+                    string replaced = (" " + clean + " ").Replace(" " + ruKey + " ", " " + enVal + " ", StringComparison.OrdinalIgnoreCase).Trim();
+                    raw.Add((replaced, true));
+                    raw.Add((enVal, true));
+                }
+            }
+
+            bool hasCyrillic = clean.Any(c => c >= 'а' && c <= 'я');
+            bool hasLatin = clean.Any(c => c >= 'a' && c <= 'z');
+
+            if (hasCyrillic)
+            {
+                string translit = TransliterateRuToEn(clean);
+                if (translit != clean)
+                {
+                    raw.Add((translit, true));
+                    raw.Add((translit.Replace('v', 'w'), false));
+                    raw.Add((translit.Replace('k', 'c'), false));
+                }
+
+                string swappedEn = SwapKeyboardLayout(rawQuery.Trim().ToLowerInvariant(), ruToEn: true);
+                if (swappedEn != clean)
+                    raw.Add((swappedEn, false));
+            }
+
+            if (hasLatin)
+            {
+                string swappedRu = NormalizeSearchKey(SwapKeyboardLayout(rawQuery.Trim().ToLowerInvariant(), ruToEn: false));
+                if (!string.IsNullOrEmpty(swappedRu) && swappedRu != clean)
+                {
+                    raw.Add((swappedRu, false));
+                    string paddedSwapped = " " + swappedRu + " ";
+                    foreach (var (ruKey, enVal) in RuGameAliases)
+                    {
+                        if (swappedRu.Equals(ruKey, StringComparison.OrdinalIgnoreCase) || ContainsWholePhrase(paddedSwapped, ruKey))
+                            raw.Add((enVal, true));
+                    }
+                }
+            }
+
+            var outList = new List<QVariant>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var (r, allowTypo) in raw)
+            {
+                string n = NormalizeSearchKey(r);
+                if (string.IsNullOrEmpty(n) || !seen.Add(n)) continue;
+
+                var ws = n.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                var sig = ws.Where(w => !StopWords.Contains(w)).ToArray();
+                if (sig.Length == 0) sig = ws;
+
+                outList.Add(new QVariant(n, " " + n + " ", sig, allowTypo));
+            }
+
+            return outList;
+        }
+
+        private static int ScoreTopic(RuTrackerIndexTopic t, List<QVariant> variants, string? tidQuery)
+        {
+            if (string.IsNullOrWhiteSpace(t.GameKey) && string.IsNullOrWhiteSpace(t.TitleKey))
+                return 0;
+
+            if (!string.IsNullOrEmpty(tidQuery) && t.TidBlob.Contains(tidQuery, StringComparison.OrdinalIgnoreCase))
+                return 1300;
+
+            int best = 0;
+            for (int i = 0; i < variants.Count; i++)
+            {
+                var v = variants[i];
+                int penalty = i * 15;
+
+                if (t.GameKey.Equals(v.Text, StringComparison.Ordinal))
+                {
+                    best = Math.Max(best, 1200 - penalty);
+                    continue;
+                }
+
+                if (t.GameKey.StartsWith(v.Text + " ", StringComparison.Ordinal))
+                {
+                    best = Math.Max(best, 1140 - penalty);
+                    continue;
+                }
+
+                if (v.Text.Length >= 4 && t.GameKey.StartsWith(v.Text, StringComparison.Ordinal))
+                {
+                    best = Math.Max(best, 1080 - penalty);
+                    continue;
+                }
+
+                if (t.GameKeyPadded.Contains(v.Padded, StringComparison.Ordinal))
+                {
+                    best = Math.Max(best, 1050 - penalty);
+                    continue;
+                }
+
+                if (!string.IsNullOrEmpty(t.TitleKeyPadded) && t.TitleKeyPadded.Contains(v.Padded, StringComparison.Ordinal))
+                {
+                    best = Math.Max(best, 1020 - penalty);
+                    continue;
+                }
+
+                int ws = WordScore(t, v) - penalty;
+                if (ws > best) best = ws;
+            }
+
+            return best;
+        }
+
+        private static int WordScore(RuTrackerIndexTopic t, QVariant v)
+        {
+            if (v.Words.Length == 0 || t.Words.Length == 0) return 0;
+            int totalTypos = 0;
+            int inGame = 0;
+
+            foreach (var qw in v.Words)
+            {
+                int best = 99;
+                bool bestInGame = false;
+
+                for (int wi = 0; wi < t.Words.Length; wi++)
+                {
+                    int d = WordMatch(qw, t.Words[wi], v.AllowTypo);
+                    if (d < best || (d == best && wi < t.GameWordCount && !bestInGame))
+                    {
+                        best = d;
+                        bestInGame = wi < t.GameWordCount;
+                        if (d == 0 && bestInGame) break;
+                    }
+                }
+
+                if (best >= 99) return 0;
+                totalTypos += best;
+                if (bestInGame) inGame++;
+            }
+
+            int scoreBase = totalTypos == 0 ? 980 : (880 - totalTypos * 60);
+            int gameBonus = inGame == v.Words.Length ? 40 : (inGame > 0 ? 15 : 0);
+            return Math.Max(650, scoreBase + gameBonus);
+        }
+
+        /// <summary>
+        /// Проверяет, отличаются ли два слова перестановкой ровно одной пары букв (соседних или через одну).
+        /// </summary>
+        public static bool IsSingleLetterSwap(string a, string b)
+        {
+            if (a.Length != b.Length || a.Length < 3) return false;
+            int p1 = -1, p2 = -1;
+            for (int i = 0; i < a.Length; i++)
+            {
+                if (a[i] != b[i])
+                {
+                    if (p1 < 0) p1 = i;
+                    else if (p2 < 0) p2 = i;
+                    else return false;
+                }
+            }
+            if (p1 < 0 || p2 < 0) return false;
+            if (p2 - p1 > 2) return false;
+            if (a.Length == 3 && p1 == 0) return false;
+            return a[p1] == b[p2] && a[p2] == b[p1];
+        }
+
+        /// <summary>
+        /// Точный матч слова с допуском ровно 1 опечатки (перепутаны 2 буквы или 1 неправильная/пропущенная/лишняя буква).
+        /// </summary>
+        private static int WordMatch(string qw, string gw, bool allowTypo)
+        {
+            if (qw.Equals(gw, StringComparison.Ordinal)) return 0;
+
+            // Точный префикс длинного слова (без искажения букв)
+            if (!qw.All(char.IsDigit) && gw.StartsWith(qw, StringComparison.Ordinal))
+            {
+                if (qw.Length >= 5 || (qw.Length == 4 && gw.Length <= 7) || (qw.Length == 3 && gw.Length <= 5))
+                    return 1;
+            }
+            if (!allowTypo) return 99;
+            // Перепутаны 2 буквы местами (например, zedla -> zelda, mairo -> mario, aggleos -> aggelos)
+            if (IsSingleLetterSwap(qw, gw))
+                return 1;
+
+            if (qw.Length < 4 || gw.Length < 4) return 99;
+            if (Math.Abs(qw.Length - gw.Length) > 1) return 99;
+
+            // Первая буква должна совпадать, либо (для слов >= 5 букв) все остальные буквы совпадают 1-в-1
+            bool firstOk = qw[0] == gw[0] ||
+                           (qw.Length == gw.Length && qw.Length >= 5 && qw.AsSpan(1).SequenceEqual(gw.AsSpan(1)));
+            if (!firstOk) return 99;
+
+            // Строго не более 1 ошибки (1 неправильная буква, 1 пропущенная или 1 лишняя)
+            int d = DamerauLevenshtein(qw, gw);
+            return d <= 1 ? 1 : 99;
+        }
+
+        public static string NormalizeSearchKey(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return "";
+            var sb = new StringBuilder(s.Length);
+            bool space = true;
+            foreach (char c0 in s)
+            {
+                char c = char.ToLowerInvariant(c0);
+                if (c == 'ё') c = 'е';
+                if (char.IsLetterOrDigit(c))
+                {
+                    sb.Append(c);
+                    space = false;
+                }
+                else if (!space)
+                {
+                    sb.Append(' ');
+                    space = true;
+                }
+            }
+            if (sb.Length > 0 && sb[^1] == ' ')
+                sb.Length--;
+            return sb.ToString();
+        }
+
+        public static string SwapKeyboardLayout(string input, bool ruToEn)
+        {
+            const string ru = "йцукенгшщзхъфывапролджэячсмитьбю.ё";
+            const string en = "qwertyuiop[]asdfghjkl;'zxcvbnm,./`";
+            var sb = new StringBuilder(input.Length);
+            foreach (char c in input.ToLowerInvariant())
+            {
+                if (ruToEn)
+                {
+                    int idx = ru.IndexOf(c);
+                    sb.Append(idx >= 0 && idx < en.Length ? en[idx] : c);
+                }
+                else
+                {
+                    int idx = en.IndexOf(c);
+                    sb.Append(idx >= 0 && idx < ru.Length ? ru[idx] : c);
+                }
+            }
+            return sb.ToString();
+        }
+
+        public static string TransliterateRuToEn(string input)
+        {
+            var map = new Dictionary<string, string>
+            {
+                ["щ"] = "shch", ["ш"] = "sh", ["ч"] = "ch", ["ц"] = "ts", ["ж"] = "zh",
+                ["э"] = "e", ["ю"] = "yu", ["я"] = "ya", ["а"] = "a", ["б"] = "b",
+                ["в"] = "v", ["г"] = "g", ["д"] = "d", ["е"] = "e", ["ё"] = "yo",
+                ["з"] = "z", ["и"] = "i", ["й"] = "y", ["к"] = "k", ["л"] = "l",
+                ["м"] = "m", ["н"] = "n", ["о"] = "o", ["п"] = "p", ["р"] = "r",
+                ["с"] = "s", ["т"] = "t", ["у"] = "u", ["ф"] = "f", ["х"] = "kh",
+                ["ъ"] = "", ["ы"] = "y", ["ь"] = ""
+            };
+            var sb = new StringBuilder(input.Length * 2);
+            foreach (char c in input.ToLowerInvariant())
+            {
+                string s = c.ToString();
+                if (map.TryGetValue(s, out var tr))
+                    sb.Append(tr);
+                else
+                    sb.Append(c);
+            }
+            return sb.ToString();
+        }
+        public static string PhoneticSkeleton(string input) => string.Empty;
+        public static int DamerauLevenshtein(string a, string b)
+        {
+            int lenA = a.Length;
+            int lenB = b.Length;
+            if (Math.Abs(lenA - lenB) > 2) return 99;
+            if (lenA == 0) return lenB;
+            if (lenB == 0) return lenA;
+
+            int[,] dp = new int[lenA + 1, lenB + 1];
+            for (int i = 0; i <= lenA; i++) dp[i, 0] = i;
+            for (int j = 0; j <= lenB; j++) dp[0, j] = j;
+
+            for (int i = 1; i <= lenA; i++)
+            {
+                for (int j = 1; j <= lenB; j++)
+                {
+                    int cost = a[i - 1] == b[j - 1] ? 0 : 1;
+                    int v = Math.Min(
+                        Math.Min(dp[i - 1, j] + 1, dp[i, j - 1] + 1),
+                        dp[i - 1, j - 1] + cost);
+
+                    if (i > 1 && j > 1 && a[i - 1] == b[j - 2] && a[i - 2] == b[j - 1])
+                    {
+                        v = Math.Min(v, dp[i - 2, j - 2] + 1);
+                    }
+                    dp[i, j] = v;
+                }
+            }
+            return dp[lenA, lenB];
+        }
+
+        public static string CleanTitleToGame(string title)
+        {
+            string s = Regex.Replace(title, @"^\s*\[[^\]]*Switch[^\]]*\]\s*", "", RegexOptions.IgnoreCase);
+            s = Regex.Replace(s, @"\[[^\]]*\]|\([^)]*\)|\{[^}]*\}", " ");
+            s = Regex.Replace(s, @" [vV]\d[\d.]* ", " ");
+            s = Regex.Replace(s, @" (NSP|NSZ|XCI|XCZ|NUP|NRO|RUS|ENG|Multi\d*) ", " ", RegexOptions.IgnoreCase);
+            s = s.Replace('_', ' ');
+            s = Regex.Replace(s, @"\s+", " ").Trim().Trim('-', '/', '|', '.', ',', ' ');
+            return s;
+        }
+
+        public static string CleanTitleKeepAltNames(string title)
+        {
+            string s = Regex.Replace(title, @"\[[^\]]*\]|\{[^}]*\}", " ");
+            s = Regex.Replace(s, @"\((?:порт|хоумбрю|homebrew[^)]*|update[^)]*|dlc[^)]*|v\d[^)]*|mod[^)]*)\)", " ", RegexOptions.IgnoreCase);
+            s = Regex.Replace(s, @" [vV]\d[\d.]* ", " ");
+            s = Regex.Replace(s, @" (NSP|NSZ|XCI|XCZ|NUP|NRO|RUS|ENG|Multi\d*) ", " ", RegexOptions.IgnoreCase);
+            s = s.Replace('_', ' ').Replace('(', ' ').Replace(')', ' ');
+            s = Regex.Replace(s, @"\s+", " ").Trim().Trim('-', '/', '|', '.', ',', ' ');
+            return s;
+        }
         private static readonly Regex TidRegex = new(@"(?<![0-9A-Fa-f])(01[0-9A-Fa-f]{14})(?![0-9A-Fa-f])", RegexOptions.Compiled);
-
         public static string ExtractTitleId(string s)
         {
             var m = TidRegex.Match(s);
@@ -1662,9 +1648,7 @@ namespace StormSwitchBox.Services
                 return hex.Substring(0, 13) + "000";
             return hex;
         }
-
         #endregion
-
         public async Task<RuTrackerTopicItem?> FetchTopicDetailsAsync(string topicIdOrUrl, CancellationToken ct)
         {
             string tid = topicIdOrUrl.Trim();
@@ -1696,9 +1680,7 @@ namespace StormSwitchBox.Services
                     item.Seeds = indexedTopic.Seeds;
                 }
             }
-
             string? topicHtml = null;
-
             // 0. Проверка локального дискового кэша ссылок тем (%APPDATA%\STORM SWITCH BOX\rutracker_topic_links_cache.json)
             if (_topicLinksCache.TryGetValue(tid, out var cachedHtml) && !string.IsNullOrEmpty(cachedHtml))
             {
@@ -1986,9 +1968,7 @@ namespace StormSwitchBox.Services
                 string sourceLocation = (pageNumber == 1 && postIndex == 1)
                     ? "Шапка темы"
                     : $"Обсуждение (стр. {pageNumber}, @{author})";
-
                 var linkMatches = Regex.Matches(postBody, @"<a\s+[^>]*href=[""'](https?://[^""'\s<>]+)[""'][^>]*>(.*?)</a>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
-
                 foreach (Match lm in linkMatches)
                 {
                     string rawUrl = WebUtility.HtmlDecode(lm.Groups[1].Value).Trim();
@@ -2003,9 +1983,7 @@ namespace StormSwitchBox.Services
                     int contextStart = Math.Max(0, lm.Index - 200);
                     int contextLen = Math.Min(postBody.Length - contextStart, lm.Length + 400);
                     string contextSnippet = postBody.Substring(contextStart, contextLen);
-
                     var (role, label) = ClassifyRoleAndLabel(rawUrl, anchor, contextSnippet);
-
                     list.Add(new CloudModLinkItem
                     {
                         Url = rawUrl,
@@ -2051,9 +2029,7 @@ namespace StormSwitchBox.Services
         public static void AttachTopicMirrors(List<CloudModLinkItem> items)
         {
             if (items == null || items.Count <= 1) return;
-
             var groupedByMeta = items.GroupBy(x => $"{x.SourceLocation}|{x.RoleCategory}|{x.Title}").ToList();
-
             foreach (var grp in groupedByMeta)
             {
                 var allGroupUrls = grp
@@ -2331,9 +2307,7 @@ namespace StormSwitchBox.Services
 
             string dhtCacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "STORM SWITCH BOX", "dht_cache");
             Directory.CreateDirectory(dhtCacheDir);
-
             var engine = GetOrCreateEngine(dhtCacheDir);
-
             var torrentSettings = new TorrentSettingsBuilder
             {
                 MaximumConnections = 350,
@@ -2390,9 +2364,7 @@ namespace StormSwitchBox.Services
             {
                 await ApplyFilePrioritiesAsync(manager, fileSelections).ConfigureAwait(false);
             }
-
             await manager.StartAsync().ConfigureAwait(false);
-
             bool prioritiesAppliedAfterMetadata = manager.HasMetadata;
             long lastProgressTicks = System.Diagnostics.Stopwatch.GetTimestamp();
             long lastHarvestTicks = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -2899,9 +2871,7 @@ namespace StormSwitchBox.Services
                 }
                 return;
             }
-
             bool hasRealFiles = fileSelections.Any(x => x.IsRealTorrentFile);
-
             if (hasRealFiles)
             {
                 // Сопоставление строго по реальным путям/именам файлов
@@ -2977,9 +2947,7 @@ namespace StormSwitchBox.Services
                 }
             }
         }
-
         #region Облачный загрузчик модификаций и патчей (MEGA, PixelDrain, Yandex, GDrive, Mail.ru, MediaFire, Dropbox, WDfiles, GitHub, Workupload)
-
         public async Task<List<string>> DownloadAndExtractCloudModsAsync(
             IEnumerable<string> rawLinks,
             string workDirectory,
@@ -2998,9 +2966,7 @@ namespace StormSwitchBox.Services
 
             string modsRoot = Path.Combine(workDirectory, "_DownloadedMods");
             Directory.CreateDirectory(modsRoot);
-
             using var client = CreateHttpClient();
-
             for (int i = 0; i < links.Count; i++)
             {
                 ct.ThrowIfCancellationRequested();
@@ -3010,9 +2976,7 @@ namespace StormSwitchBox.Services
                     .Where(u => u.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || u.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .ToList();
-
                 if (candidateMirrors.Count == 0) continue;
-
                 for (int mIdx = 0; mIdx < candidateMirrors.Count; mIdx++)
                 {
                     string mirrorUrl = candidateMirrors[mIdx];
@@ -3020,9 +2984,7 @@ namespace StormSwitchBox.Services
                     {
                         using var mirrorCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                         mirrorCts.CancelAfter(TimeSpan.FromSeconds(60));
-
                         progress?.Report(((i * 100.0) / links.Count, $"Подготовка ссылки ({i + 1}/{links.Count}, зерк. {mIdx + 1}/{candidateMirrors.Count}): {mirrorUrl}..."));
-
                         var (directUrl, suggestedName, megaKey) = await ResolveCloudDownloadUrlAsync(client, mirrorUrl, mirrorCts.Token).ConfigureAwait(false);
                         if (string.IsNullOrEmpty(directUrl)) continue;
 
@@ -3043,9 +3005,7 @@ namespace StormSwitchBox.Services
                                 : $"Скачивание {safeFileName}: {dlMb:F1} МБ ({info.SpeedMb:F2} МБ/с)";
                             progress?.Report((currentStepPct, stat));
                         }, mirrorCts.Token, megaKey, pauseEvent).ConfigureAwait(false);
-
                         if (!File.Exists(archivePath) || new FileInfo(archivePath).Length < 64) continue;
-
                         string ext = Path.GetExtension(archivePath).ToLowerInvariant();
                         if (ext is ".zip" or ".7z" or ".rar")
                         {
@@ -3492,9 +3452,7 @@ namespace StormSwitchBox.Services
 
             ValidateDownloadedFile(destPath);
         }
-
         #region MEGA Криптография (AES-128-CTR стриминг и AES-CBC метаданные)
-
         public static (byte[] AesKey, byte[] Iv) DeriveMegaKey(string keyString)
         {
             string padded = keyString.Replace('-', '+').Replace('_', '/');
@@ -3621,9 +3579,7 @@ namespace StormSwitchBox.Services
             double fSpeed = sw.Elapsed.TotalSeconds > 0 ? (downloaded / (1024.0 * 1024.0)) / sw.Elapsed.TotalSeconds : 0;
             progress?.Invoke((100, fSpeed, downloaded, total));
         }
-
         #endregion
-
         private static void ValidateDownloadedFile(string destPath)
         {
             if (!File.Exists(destPath))
@@ -3688,9 +3644,7 @@ namespace StormSwitchBox.Services
                 proc.PriorityClass = System.Diagnostics.ProcessPriorityClass.BelowNormal;
             }
             catch { }
-
             await proc.WaitForExitAsync(ct).ConfigureAwait(false);
-
             if (proc.ExitCode != 0)
             {
                 string err = await proc.StandardError.ReadToEndAsync(ct).ConfigureAwait(false);
@@ -3731,9 +3685,7 @@ namespace StormSwitchBox.Services
 
             return results;
         }
-
         #endregion
-
         public void Dispose()
         {
             foreach (var kvp in _activeManagers)
@@ -3787,9 +3739,7 @@ namespace StormSwitchBox.Services
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             linkedCts.CancelAfter(TimeSpan.FromSeconds(15));
             var lct = linkedCts.Token;
-
             var tasks = new List<Task<string?>>();
-
             // 1. Jina AI Cloud Reader (обходит Cloudflare и возвращает чистый HTML раздачи)
             tasks.Add(Task.Run(async () =>
             {
@@ -3921,9 +3871,7 @@ namespace StormSwitchBox.Services
 
                 using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
                 client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36");
-
                 var newPeers = new List<PeerInfo>();
-
                 var queryTasks = announceUrls.Select(async announceUrl =>
                 {
                     string sep = announceUrl.Contains('?') ? "&" : "?";
@@ -3956,9 +3904,7 @@ namespace StormSwitchBox.Services
                         }
                         catch { }
                     }
-
                     if (data == null || data.Length == 0) return;
-
                     int pIdx = FindBytePattern(data, Encoding.ASCII.GetBytes("5:peers"));
                     if (pIdx >= 0)
                     {
@@ -3993,9 +3939,7 @@ namespace StormSwitchBox.Services
                         }
                     }
                 });
-
                 await Task.WhenAll(queryTasks).ConfigureAwait(false);
-
                 if (newPeers.Count > 0)
                 {
                     await manager.AddPeersAsync(newPeers).ConfigureAwait(false);
