@@ -1647,7 +1647,7 @@ namespace StormSwitchBox.Services
             // Всегда извлекаем и пересобираем Control NCA из обновления (updateFile), если он присутствует,
             // чтобы гарантировать актуальную DisplayVersion (напр. 1.0.2 вместо 1.0.0) и чистый StandardCrypto без TitleRights
             if (string.IsNullOrEmpty(controlNca) || !File.Exists(controlNca) ||
-                (!string.IsNullOrEmpty(updateFile) && File.Exists(updateFile) && !controlNca.Contains("patchdata", StringComparison.OrdinalIgnoreCase)))
+                (!string.IsNullOrEmpty(updateFile) && File.Exists(updateFile)))
             {
                 string extractedControl = ExtractControlNcaIfMissing(baseFile, updateFile, tempUnpack, keysService);
                 if (!string.IsNullOrEmpty(extractedControl) && File.Exists(extractedControl))
@@ -3073,7 +3073,34 @@ namespace StormSwitchBox.Services
                         App.Logger?.Log($"[HardPatchEngine] Normalized Program NCA {ent.Name} -> {newProgName} (Section[0] 0x{firstSecByteOff:X} -> 0x4000, +{padBytes} B)", Models.LogLevel.Info);
                     }
 
-                    // Второй проход: обновляем .cnmt.nca (хеш/размер Program NCA и десятичную версию TitleVersion)
+                    // Находим актуальный Control NCA (ContentType == 2) для синхронизации хеша в CNMT (чтобы эмуляторы читали DisplayVersion 4.0.0 вместо v0.22.0 / 1.0.0)
+                    byte[]? activeCtrlHash = null;
+                    long activeCtrlSize = 0;
+                    for (int idx = 0; idx < pfsEntries.Count; idx++)
+                    {
+                        var ent = pfsEntries[idx];
+                        if (!ent.Name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase) || ent.Name.EndsWith(".cnmt.nca", StringComparison.OrdinalIgnoreCase) || ent.Size < 0x1000 || ent.Size > 32 * 1024 * 1024)
+                            continue;
+                        fsIn.Seek(ent.AbsOffset, SeekOrigin.Begin);
+                        byte[] cHdrRaw = new byte[0xC00];
+                        if (fsIn.Read(cHdrRaw, 0, 0xC00) != 0xC00) continue;
+                        byte[] cHdrDec = (cHdrRaw[0x200] == 'N' && cHdrRaw[0x201] == 'C' && cHdrRaw[0x202] == 'A' && cHdrRaw[0x203] == '3')
+                            ? cHdrRaw
+                            : NcaXtsCryptHeader0xC00(cHdrRaw, headerKey, decrypt: true);
+                        if (cHdrDec[0x200] == 'N' && cHdrDec[0x201] == 'C' && cHdrDec[0x202] == 'A' && cHdrDec[0x203] == '3' && cHdrDec[0x205] == 2)
+                        {
+                            fsIn.Seek(ent.AbsOffset, SeekOrigin.Begin);
+                            byte[] rawCtrl = new byte[(int)ent.Size];
+                            if (fsIn.Read(rawCtrl, 0, rawCtrl.Length) == rawCtrl.Length)
+                            {
+                                activeCtrlHash = System.Security.Cryptography.SHA256.HashData(rawCtrl);
+                                activeCtrlSize = ent.Size;
+                                break;
+                            }
+                        }
+                    }
+
+                    // Второй проход: обновляем .cnmt.nca (хеш/размер Program NCA, Control NCA и десятичную версию TitleVersion)
                     for (int idx = 0; idx < pfsEntries.Count; idx++)
                     {
                         var ent = pfsEntries[idx];
@@ -3178,6 +3205,15 @@ namespace StormSwitchBox.Services
                                     System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(secPlain.AsSpan(rPos + 0x34, 2), (ushort)((sz48 >> 32) & 0xFFFFUL));
                                     metaChanged = true;
                                 }
+                                else if (recType == 3 && activeCtrlHash != null && activeCtrlSize > 0)
+                                {
+                                    activeCtrlHash.CopyTo(secPlain.AsSpan(rPos, 32));
+                                    activeCtrlHash.AsSpan(0, 16).CopyTo(secPlain.AsSpan(rPos + 0x20, 16));
+                                    ulong sz48 = (ulong)activeCtrlSize;
+                                    System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(secPlain.AsSpan(rPos + 0x30, 4), (uint)(sz48 & 0xFFFFFFFFUL));
+                                    System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(secPlain.AsSpan(rPos + 0x34, 2), (ushort)((sz48 >> 32) & 0xFFFFUL));
+                                    metaChanged = true;
+                                }
                             }
                         }
 
@@ -3259,53 +3295,59 @@ namespace StormSwitchBox.Services
                                         if (encType == 3 && ctrKey != null)
                                             AesCtrCryptInPlace(secPlain, 0, secLen, ctrKey, gensec, secStart);
 
-                                        // Обновляем версию патча если задана
-                                        if (expectedTitleVersion.HasValue && expectedTitleVersion.Value > 0)
-                                        {
-                                            for (int pOff = 0; pOff <= secLen - 16; pOff += 4)
-                                            {
-                                                if (secPlain[pOff] == 'P' && secPlain[pOff + 1] == 'F' && secPlain[pOff + 2] == 'S' && secPlain[pOff + 3] == '0')
-                                                {
-                                                    int cOff = pOff + 0x40;
-                                                    while (cOff <= secLen - 0x20)
-                                                    {
-                                                        if (cOff + 12 <= secLen)
-                                                        {
-                                                            uint curV = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(secPlain.AsSpan(cOff + 8, 4));
-                                                            if (curV > 0 && curV != expectedTitleVersion.Value)
-                                                            {
-                                                                System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(secPlain.AsSpan(cOff + 8, 4), expectedTitleVersion.Value);
-                                                                break;
-                                                            }
-                                                        }
-                                                        cOff += 4;
-                                                    }
-                                                    break;
-                                                }
-                                            }
-                                        }
-
-                                        // Обновляем хеш Program NCA
+                                        // Точное обновление CNMT-записей (TitleVersion, Program NCA recType==1 и Control NCA recType==3) внутри 4 KB Patch CNMT
                                         var repProg = progReplacements.Values.First();
-                                        for (int pOff = 0; pOff <= secLen - 0x20; pOff++)
+                                        long cPfsOff = System.Buffers.Binary.BinaryPrimitives.ReadInt64LittleEndian(decHdr.AsSpan(0x440, 8));
+                                        long cPfsSize = System.Buffers.Binary.BinaryPrimitives.ReadInt64LittleEndian(decHdr.AsSpan(0x448, 8));
+                                        if (cPfsOff >= 0 && cPfsOff + cPfsSize <= secLen && secPlain[cPfsOff] == 'P' && secPlain[cPfsOff + 1] == 'F' && secPlain[cPfsOff + 2] == 'S' && secPlain[cPfsOff + 3] == '0')
                                         {
-                                            for (int i = 0; i < 16; i++)
+                                            int mNum = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(secPlain.AsSpan((int)cPfsOff + 4, 4));
+                                            int mStrSz = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(secPlain.AsSpan((int)cPfsOff + 8, 4));
+                                            int mDataBase = (int)cPfsOff + 16 + mNum * 24 + mStrSz;
+                                            for (int m = 0; m < mNum; m++)
                                             {
-                                                if (secPlain[pOff + i] == repProg.NewHash[i])
+                                                long mRelOff = System.Buffers.Binary.BinaryPrimitives.ReadInt64LittleEndian(secPlain.AsSpan((int)cPfsOff + 16 + m * 24, 8));
+                                                long mSz = System.Buffers.Binary.BinaryPrimitives.ReadInt64LittleEndian(secPlain.AsSpan((int)cPfsOff + 16 + m * 24 + 8, 8));
+                                                int mSOff = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(secPlain.AsSpan((int)cPfsOff + 16 + m * 24 + 16, 4));
+                                                int mSEnd = mSOff;
+                                                while (mSEnd < mStrSz && secPlain[(int)cPfsOff + 16 + mNum * 24 + mSEnd] != 0) mSEnd++;
+                                                string mName = System.Text.Encoding.UTF8.GetString(secPlain, (int)cPfsOff + 16 + mNum * 24 + mSOff, mSEnd - mSOff);
+                                                if (!mName.EndsWith(".cnmt", StringComparison.OrdinalIgnoreCase)) continue;
+
+                                                int cnmtPos = mDataBase + (int)mRelOff;
+                                                if (cnmtPos + 0x20 > secLen) continue;
+
+                                                if (expectedTitleVersion.HasValue && expectedTitleVersion.Value > 0)
                                                 {
-                                                    if (i == 15)
+                                                    System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(secPlain.AsSpan(cnmtPos + 0x08, 4), expectedTitleVersion.Value);
+                                                }
+
+                                                ushort tableOffset = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(secPlain.AsSpan(cnmtPos + 0x0E, 2));
+                                                ushort contentCount = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(secPlain.AsSpan(cnmtPos + 0x10, 2));
+                                                int recBase = cnmtPos + 0x20 + tableOffset;
+
+                                                for (int r = 0; r < contentCount; r++)
+                                                {
+                                                    int rPos = recBase + r * 56;
+                                                    if (rPos + 56 > cnmtPos + mSz || rPos + 56 > secLen) break;
+                                                    byte recType = secPlain[rPos + 0x36];
+                                                    if (recType == 1 && repProg.NewHash != null)
                                                     {
-                                                        Buffer.BlockCopy(repProg.NewHash, 0, secPlain, pOff, 32);
-                                                        if (pOff + 32 + 6 <= secLen)
-                                                        {
-                                                            ulong sz48 = (ulong)repProg.NewSize;
-                                                            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(secPlain.AsSpan(pOff + 32, 4), (uint)(sz48 & 0xFFFFFFFFUL));
-                                                            System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(secPlain.AsSpan(pOff + 36, 2), (ushort)((sz48 >> 32) & 0xFFFFUL));
-                                                        }
-                                                        break;
+                                                        repProg.NewHash.CopyTo(secPlain.AsSpan(rPos, 32));
+                                                        repProg.NewHash.AsSpan(0, 16).CopyTo(secPlain.AsSpan(rPos + 0x20, 16));
+                                                        ulong sz48 = (ulong)repProg.NewSize;
+                                                        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(secPlain.AsSpan(rPos + 0x30, 4), (uint)(sz48 & 0xFFFFFFFFUL));
+                                                        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(secPlain.AsSpan(rPos + 0x34, 2), (ushort)((sz48 >> 32) & 0xFFFFUL));
+                                                    }
+                                                    else if (recType == 3 && activeCtrlHash != null && activeCtrlSize > 0)
+                                                    {
+                                                        activeCtrlHash.CopyTo(secPlain.AsSpan(rPos, 32));
+                                                        activeCtrlHash.AsSpan(0, 16).CopyTo(secPlain.AsSpan(rPos + 0x20, 16));
+                                                        ulong sz48 = (ulong)activeCtrlSize;
+                                                        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(secPlain.AsSpan(rPos + 0x30, 4), (uint)(sz48 & 0xFFFFFFFFUL));
+                                                        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(secPlain.AsSpan(rPos + 0x34, 2), (ushort)((sz48 >> 32) & 0xFFFFUL));
                                                     }
                                                 }
-                                                else break;
                                             }
                                         }
 

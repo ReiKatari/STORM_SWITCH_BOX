@@ -145,11 +145,14 @@ namespace StormSwitchBox.Services
                 await Task.WhenAll(decompTasks);
                 var finalInputFilesList = finalInputFiles.ToList();
 
-                string formattedOut = FormatOutputFileName(outPath, inputFiles);
-                if (!string.IsNullOrEmpty(formattedOut))
+                if (!task.KeepExactOutputFileName)
                 {
-                    outPath = formattedOut;
-                    App.RunOnUI(() => { task.OutputFileName = System.IO.Path.GetFileNameWithoutExtension(outPath); });
+                    string formattedOut = FormatOutputFileName(outPath, inputFiles);
+                    if (!string.IsNullOrEmpty(formattedOut))
+                    {
+                        outPath = formattedOut;
+                        App.RunOnUI(() => { task.OutputFileName = System.IO.Path.GetFileNameWithoutExtension(outPath); });
+                    }
                 }
 
                 string baseNameClean = System.IO.Path.GetFileNameWithoutExtension(outPath);
@@ -890,7 +893,7 @@ namespace StormSwitchBox.Services
 
                                     // Извлекаем тикеты (.tik), сертификаты (.cert) и Patch CNMT (.cnmt.nca)
                                     bool isTicketOrCert = lower.EndsWith(".tik") || lower.EndsWith(".cert");
-                                    bool isPatchCnmt = lower.EndsWith(".cnmt.nca");
+                                    bool isPatchCnmt = !hasPatchedBase && lower.EndsWith(".cnmt.nca") && string.Equals(extraPath, savedUpdateFile, StringComparison.OrdinalIgnoreCase);
 
                                     if (isTicketOrCert || isPatchCnmt)
                                     {
@@ -1201,12 +1204,15 @@ namespace StormSwitchBox.Services
                     .OrderByDescending(f => new System.IO.FileInfo(f).Length)
                     .FirstOrDefault();
 
-                string formattedPath = FormatOutputFileName(outPath, inputFiles);
-                if (!string.IsNullOrEmpty(formattedPath) && !formattedPath.Equals(outPath, StringComparison.OrdinalIgnoreCase))
+                if (!task.KeepExactOutputFileName)
                 {
-                    if (intermediatePath.Equals(outPath, StringComparison.OrdinalIgnoreCase))
-                        intermediatePath = formattedPath;
-                    outPath = formattedPath;
+                    string formattedPath = FormatOutputFileName(outPath, inputFiles);
+                    if (!string.IsNullOrEmpty(formattedPath) && !formattedPath.Equals(outPath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (intermediatePath.Equals(outPath, StringComparison.OrdinalIgnoreCase))
+                            intermediatePath = formattedPath;
+                        outPath = formattedPath;
+                    }
                 }
 
                 if (System.IO.File.Exists(generatedFile) && !generatedFile.Equals(intermediatePath, StringComparison.OrdinalIgnoreCase))

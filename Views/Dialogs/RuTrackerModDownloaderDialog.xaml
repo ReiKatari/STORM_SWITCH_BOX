@@ -216,28 +216,43 @@
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <TextBlock Text="🎮 Игры / Части в раздаче (отдельные задачи)" FontWeight="Bold" FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
-                                       ToolTipService.ToolTip="Каждая отмеченная часть создаст отдельную задачу со своим итоговым именем, набором файлов, русификатором и ссылками (поддерживается от 1 до 10+ игр в одной раздаче)"/>
+                                       ToolTipService.ToolTip="Каждая отмеченная часть создаст отдельную задачу со своим итоговым именем, форматом (NSP/NSZ/XCI/XCZ), набором файлов, русификатором и ссылками"/>
                             <TextBlock x:Name="GameSlotsCountText" Grid.Column="1" Text="1 игра" Foreground="#38BDF8" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,4,0"/>
-                            <Button Grid.Column="2" Content="🪄 Авто" Click="AutoSplitGames_Click" Padding="8,3" FontSize="11" CornerRadius="4"
+                            <ComboBox x:Name="GlobalSlotFormatCombo" Grid.Column="2" SelectedIndex="0" SelectionChanged="GlobalSlotFormatCombo_SelectionChanged"
+                                      FontSize="11" Height="26" MinHeight="26" Width="106" Padding="8,0,6,0"
+                                      VerticalAlignment="Center" VerticalContentAlignment="Center" CornerRadius="4"
+                                      ToolTipService.ToolTip="Общий формат выходного файла (NSP, NSZ, XCI, XCZ) для всех игр в раздаче">
+                                <ComboBoxItem Content="NSP"/>
+                                <ComboBoxItem Content="NSZ"/>
+                                <ComboBoxItem Content="XCI"/>
+                                <ComboBoxItem Content="XCZ"/>
+                                <ComboBoxItem Content="NSP + NSZ"/>
+                                <ComboBoxItem Content="XCI + XCZ"/>
+                            </ComboBox>
+                            <Button Grid.Column="3" Content="🪄 Авто" Click="AutoSplitGames_Click" Padding="8,3" FontSize="11" CornerRadius="4"
                                     ToolTipService.ToolTip="Автоматически распознать части/игры из файлов раздачи и названия темы"/>
-                            <Button Grid.Column="3" Content="➕ Игра" Click="AddGameSlot_Click" Padding="8,3" FontSize="11" CornerRadius="4"
+                            <Button Grid.Column="4" Content="➕ Игра" Click="AddGameSlot_Click" Padding="8,3" FontSize="11" CornerRadius="4"
                                     ToolTipService.ToolTip="Добавить ещё одну часть / игру (до 10+ отдельных задач из одной раздачи)"/>
-                            <Button Grid.Column="4" Content="➖" Click="RemoveGameSlot_Click" Padding="8,3" FontSize="11" CornerRadius="4"
+                            <Button Grid.Column="5" Content="➖" Click="RemoveGameSlot_Click" Padding="8,3" FontSize="11" CornerRadius="4"
                                     ToolTipService.ToolTip="Удалить последнюю часть из списка"/>
                         </Grid>
 
                         <Grid Grid.Row="1" ColumnSpacing="6" Padding="10,0,10,0">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="96"/>
-                                <ColumnDefinition Width="1.25*"/>
-                                <ColumnDefinition Width="0.95*"/>
+                                <ColumnDefinition Width="1.20*"/>
+                                <ColumnDefinition Width="108"/>
+                                <ColumnDefinition Width="0.85*"/>
                             </Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="Задача / часть" FontSize="10.5" Foreground="#94A3B8" FontWeight="SemiBold"/>
                             <TextBlock Grid.Column="1" Text="✏️ Итоговое имя игры / выходного файла:" FontSize="10.5" Foreground="#38BDF8" FontWeight="SemiBold"
-                                       ToolTipService.ToolTip="Укажите желаемое итоговое имя прямо здесь для каждой игры (теги [TitleID][vXXX](1G+1U) подставятся автоматически) или измените позже в очереди задач"/>
-                            <TextBlock Grid.Column="2" Text="Имя русификатора / мода:" FontSize="10.5" Foreground="#94A3B8" FontWeight="SemiBold"/>
+                                       ToolTipService.ToolTip="Укажите желаемое итоговое имя файла для каждой игры (сохраняется один-в-один без лишних тегов, если не включена галочка добавления тегов)"/>
+                            <TextBlock Grid.Column="2" Text="Кон. формат:" FontSize="10.5" Foreground="#22C55E" FontWeight="SemiBold"
+                                       ToolTipService.ToolTip="Выберите итоговое расширение контейнера для этой игры (NSP, NSZ, XCI, XCZ)"/>
+                            <TextBlock Grid.Column="3" Text="Имя русификатора / мода:" FontSize="10.5" Foreground="#94A3B8" FontWeight="SemiBold"/>
                         </Grid>
 
                         <ListView x:Name="GameSlotsListView" Grid.Row="2" SelectionMode="None" Background="#0DFFFFFF" CornerRadius="6" Padding="2">
@@ -256,8 +271,9 @@
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="Auto"/>
                                                     <ColumnDefinition Width="Auto"/>
-                                                    <ColumnDefinition Width="1.25*"/>
-                                                    <ColumnDefinition Width="0.95*"/>
+                                                    <ColumnDefinition Width="1.20*"/>
+                                                    <ColumnDefinition Width="108"/>
+                                                    <ColumnDefinition Width="0.85*"/>
                                                 </Grid.ColumnDefinitions>
                                                 <CheckBox Grid.Column="0" IsChecked="{Binding IsEnabled, Mode=TwoWay}" MinWidth="0" VerticalAlignment="Center"
                                                           ToolTipService.ToolTip="Создать отдельную задачу для этой игры / части"/>
@@ -268,9 +284,14 @@
                                                          PlaceholderText="Итоговое имя игры / файла (напр. Aggelos)" FontSize="11.5"
                                                          Height="30" MinHeight="30" Padding="8,0,8,0"
                                                          VerticalAlignment="Center" VerticalContentAlignment="Center"
-                                                         ToolTipService.ToolTip="Итоговое имя игры и выходного контейнера для этой задачи (теги [TitleID][vXXX](1G+1U) добавятся автоматически). Также можно переименовать в очереди задач через ПКМ → Редактировать иконку и название..."
+                                                         ToolTipService.ToolTip="Итоговое имя игры и выходного файла для этой задачи (напр. Aggelos -> Aggelos.nsz / Aggelos.nsp)"
                                                          Loaded="CenteredInput_Loaded" CornerRadius="5"/>
-                                                <TextBox Grid.Column="3" Text="{Binding CustomModTitle, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                <ComboBox Grid.Column="3" ItemsSource="{Binding AvailableTargetFormats}" SelectedItem="{Binding TargetFormat, Mode=TwoWay}"
+                                                          FontSize="11.5" FontWeight="Bold" Foreground="#22C55E"
+                                                          Height="30" MinHeight="30" Padding="8,0,6,0"
+                                                          VerticalAlignment="Center" VerticalContentAlignment="Center" HorizontalAlignment="Stretch" CornerRadius="5"
+                                                          ToolTipService.ToolTip="Итоговый формат (расширение) выходного файла для этой игры (NSP, NSZ, XCI, XCZ)"/>
+                                                <TextBox Grid.Column="4" Text="{Binding CustomModTitle, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                          PlaceholderText="Имя русификатора / мода" FontSize="11"
                                                          Height="30" MinHeight="30" Padding="8,0,8,0"
                                                          VerticalAlignment="Center" VerticalContentAlignment="Center"
@@ -538,6 +559,11 @@
                                      Loaded="CenteredInput_Loaded" CornerRadius="6"/>
                             <CheckBox x:Name="AutoBuildCheckBox" Grid.Column="1" Content="Сразу запустить сборку" IsChecked="True" FontSize="11" VerticalAlignment="Center"/>
                         </Grid>
+                        <CheckBox x:Name="AppendAutoTagsCheckBox"
+                                  Content="Добавлять технические теги [TitleID] [vXXX] (1G+1U) к итоговому имени файла"
+                                  IsChecked="False"
+                                  FontSize="11"
+                                  ToolTipService.ToolTip="Если выключено — сохраняется ровно то имя выходного файла, которое указано в поле «Итоговое имя игры / выходного файла»"/>
                         <CheckBox x:Name="StitchDlcUnlockerCheckBox"
                                   Content="Вшить DLC UNLOCKER (автоизвлечение и разблокировка всех дополнений в RomFS — авто-режим)"
                                   IsChecked="False"

@@ -2010,6 +2010,7 @@ public partial class TasksViewModel : ObservableObject
 					InputFiles = new List<string>(t.InputFiles ?? new List<string>()),
 					FilesList = new List<string>(t.FilesList ?? new List<string>()),
 					IsRuTrackerTask = t.IsRuTrackerTask,
+					KeepExactOutputFileName = t.KeepExactOutputFileName,
 					DeleteSourceAfterVerify = t.DeleteSourceAfterVerify
 				};
 
@@ -2038,7 +2039,9 @@ public partial class TasksViewModel : ObservableObject
 						TargetReleaseDir = payload.TargetReleaseDir,
 						CustomModTitle = payload.CustomModTitle,
 						AutoBuild = payload.AutoBuild,
-						HasTorrentSource = payload.HasTorrentSource
+						HasTorrentSource = payload.HasTorrentSource,
+						SharedReleaseDir = payload.SharedReleaseDir,
+						AppendAutoTags = payload.AppendAutoTags
 					};
 				}
 				return snap;
@@ -2101,6 +2104,7 @@ public partial class TasksViewModel : ObservableObject
 					InputFiles = snap.InputFiles ?? new List<string>(),
 					FilesList = snap.FilesList ?? new List<string>(),
 					IsRuTrackerTask = snap.IsRuTrackerTask,
+					KeepExactOutputFileName = snap.KeepExactOutputFileName,
 					DeleteSourceAfterVerify = snap.DeleteSourceAfterVerify,
 					IsRunning = true,
 					IsPaused = true,
@@ -2143,7 +2147,9 @@ public partial class TasksViewModel : ObservableObject
 						TargetReleaseDir = rtSnap.TargetReleaseDir,
 						CustomModTitle = rtSnap.CustomModTitle,
 						AutoBuild = rtSnap.AutoBuild,
-						HasTorrentSource = rtSnap.HasTorrentSource
+						HasTorrentSource = rtSnap.HasTorrentSource,
+						SharedReleaseDir = rtSnap.SharedReleaseDir,
+						AppendAutoTags = rtSnap.AppendAutoTags
 					};
 					task.RuTrackerPayload = payload;
 				}
@@ -2265,6 +2271,33 @@ public partial class TasksViewModel : ObservableObject
 						{
 							App.Logger.Log($"[Очистка] Не удалось удалить исходный файл {System.IO.Path.GetFileName(file)}: {delEx.Message}", LogLevel.Warning);
 						}
+					}
+
+					// Если у задачи RuTracker остались временные папки раздачи (Part_... или общая папка релиза), удаляем их
+					if (task.RuTrackerPayload != null)
+					{
+						try
+						{
+							string outDirFull = !string.IsNullOrWhiteSpace(task.OutputFolder) ? Path.GetFullPath(task.OutputFolder).TrimEnd('\\', '/') : string.Empty;
+							if (!string.IsNullOrWhiteSpace(task.RuTrackerPayload.TargetReleaseDir) && Directory.Exists(task.RuTrackerPayload.TargetReleaseDir))
+							{
+								string tDirFull = Path.GetFullPath(task.RuTrackerPayload.TargetReleaseDir).TrimEnd('\\', '/');
+								if (!string.Equals(tDirFull, outDirFull, StringComparison.OrdinalIgnoreCase))
+									Directory.Delete(task.RuTrackerPayload.TargetReleaseDir, recursive: true);
+							}
+							if (!string.IsNullOrWhiteSpace(task.RuTrackerPayload.SharedReleaseDir) && Directory.Exists(task.RuTrackerPayload.SharedReleaseDir))
+							{
+								string sDirFull = Path.GetFullPath(task.RuTrackerPayload.SharedReleaseDir).TrimEnd('\\', '/');
+								bool neededBySibling = Tasks.Any(other =>
+									other != task &&
+									(other.Status == "Ожидание" || other.IsRunning) &&
+									other.RuTrackerPayload != null &&
+									string.Equals(other.RuTrackerPayload.SharedReleaseDir, task.RuTrackerPayload.SharedReleaseDir, StringComparison.OrdinalIgnoreCase));
+								if (!neededBySibling && !string.Equals(sDirFull, outDirFull, StringComparison.OrdinalIgnoreCase))
+									Directory.Delete(task.RuTrackerPayload.SharedReleaseDir, recursive: true);
+							}
+						}
+						catch { }
 					}
 				}
 

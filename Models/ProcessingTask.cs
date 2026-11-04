@@ -26,7 +26,7 @@ namespace StormSwitchBox.Models
         private string _targetFormat = "NSP";
         public string TargetFormat
         {
-            get => string.IsNullOrWhiteSpace(_targetFormat) ? (_is3dsTask ? "3DS" : "NSP") : _targetFormat;
+            get => string.IsNullOrWhiteSpace(_targetFormat) ? (Is3dsTask ? "3DS" : "NSP") : _targetFormat;
             set
             {
                 // CRITICAL: Prevent ComboBox virtualization recycling from resetting TargetFormat to null/empty!
@@ -39,6 +39,11 @@ namespace StormSwitchBox.Models
                     OnPropertyChanged(nameof(TargetFormatColor));
                     OnPropertyChanged(nameof(TargetFormatWeight));
                     OverwriteConfirmed = false;
+                    if (IsCompleted && !IsRunning)
+                    {
+                        Status = "Ожидание";
+                        Progress = 0;
+                    }
                 }
             }
         }
@@ -169,13 +174,13 @@ namespace StormSwitchBox.Models
         public bool IsCompleted => Status == "Успешно" || Status == "Готово" || Status == "Корректна" || Status == "Ок" || Status == "Да" || Status == "Да (Гибрид)";
 
         [System.Text.Json.Serialization.JsonIgnore]
-        public bool CanChangeFormat => !IsRunning && !IsCompleted;
+        public bool CanChangeFormat => !IsRunning;
 
         [System.Text.Json.Serialization.JsonIgnore]
-        public Visibility FormatCompletedVisibility => IsCompleted ? Visibility.Visible : Visibility.Collapsed;
+        public Visibility FormatCompletedVisibility => Visibility.Collapsed;
 
         [System.Text.Json.Serialization.JsonIgnore]
-        public Visibility FormatSelectableVisibility => IsCompleted ? Visibility.Collapsed : Visibility.Visible;
+        public Visibility FormatSelectableVisibility => Visibility.Visible;
 
         private static readonly SolidColorBrush FormatGreenBrush = new(Windows.UI.Color.FromArgb(255, 46, 204, 113));
         private static readonly SolidColorBrush FormatCyanBrush = new(Windows.UI.Color.FromArgb(255, 0, 229, 255));
@@ -228,6 +233,9 @@ namespace StormSwitchBox.Models
 
         /// <summary>Флаг задачи, созданной через RuTracker</summary>
         public bool IsRuTrackerTask { get; set; }
+
+        /// <summary>Сохранять точное пользовательское имя выходного файла без принудительного добавления тегов [TitleID][vXXX](1G+1U)</summary>
+        public bool KeepExactOutputFileName { get; set; }
 
         /// <summary>Удалять исходные файлы после успешной проверки выходного контейнера (для задач RuTracker)</summary>
         public bool DeleteSourceAfterVerify { get; set; } = true;
@@ -398,6 +406,8 @@ namespace StormSwitchBox.Models
         public int SlotNumber { get; set; } = 0;
         public int TotalSlots { get; set; } = 1;
         public string SlotGameTitle { get; set; } = string.Empty;
+        public string SharedReleaseDir { get; set; } = string.Empty;
+        public bool AppendAutoTags { get; set; } = false;
     }
 
     public sealed class PersistedTaskSnapshot
@@ -418,6 +428,7 @@ namespace StormSwitchBox.Models
         public List<string> InputFiles { get; set; } = new();
         public List<string> FilesList { get; set; } = new();
         public bool IsRuTrackerTask { get; set; }
+        public bool KeepExactOutputFileName { get; set; }
         public bool DeleteSourceAfterVerify { get; set; }
         public RuTrackerTaskSnapshot? RuTrackerSnapshot { get; set; }
     }
@@ -438,6 +449,8 @@ namespace StormSwitchBox.Models
         public string CustomModTitle { get; set; } = string.Empty;
         public bool AutoBuild { get; set; } = true;
         public bool HasTorrentSource { get; set; } = true;
+        public string SharedReleaseDir { get; set; } = string.Empty;
+        public bool AppendAutoTags { get; set; } = false;
     }
 
     public sealed class PersistedTorrentFileItem

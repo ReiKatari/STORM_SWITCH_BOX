@@ -57,6 +57,20 @@ namespace StormSwitchBox.Services
             set => SetProperty(ref _isEnabled, value);
         }
 
+        public static readonly string[] DefaultTargetFormats = new[] { "NSP", "NSZ", "XCI", "XCZ", "NSP + NSZ", "XCI + XCZ" };
+        public string[] AvailableTargetFormats => DefaultTargetFormats;
+
+        private string _targetFormat = "NSP";
+        public string TargetFormat
+        {
+            get => string.IsNullOrWhiteSpace(_targetFormat) ? "NSP" : _targetFormat;
+            set
+            {
+                if (!string.IsNullOrWhiteSpace(value))
+                    SetProperty(ref _targetFormat, value);
+            }
+        }
+
         private string _gameTitle = string.Empty;
         public string GameTitle
         {
@@ -2953,17 +2967,52 @@ namespace StormSwitchBox.Services
             string effectiveTopicId = !string.IsNullOrEmpty(topicId) ? topicId : _activeTopicId;
             int effectiveTopicSeeds = topicSeeds > 0 ? topicSeeds : _activeTopicSeeds;
 
-            TorrentManager manager;
             string currentHash = "";
+            string resolvedTorrentName = "Switch_Release";
+            Torrent? parsedTorrentObj = null;
             if (rawTorrent != null)
             {
-                var torrent = await Torrent.LoadAsync(rawTorrent).ConfigureAwait(false);
-                currentHash = torrent.InfoHashes.V1OrV2.ToHex();
-                manager = await engine.AddAsync(torrent, saveDirectory, torrentSettings).ConfigureAwait(false);
+                parsedTorrentObj = await Torrent.LoadAsync(rawTorrent).ConfigureAwait(false);
+                currentHash = parsedTorrentObj.InfoHashes.V1OrV2.ToHex();
+                if (!string.IsNullOrWhiteSpace(parsedTorrentObj.Name))
+                    resolvedTorrentName = parsedTorrentObj.Name;
             }
             else if (rawMagnet != null)
             {
                 currentHash = rawMagnet.InfoHashes.V1OrV2.ToHex();
+                if (!string.IsNullOrWhiteSpace(rawMagnet.Name))
+                    resolvedTorrentName = rawMagnet.Name;
+            }
+            else
+            {
+                throw new InvalidOperationException("Не выбран .torrent файл или Magnet-ссылка для скачивания.");
+            }
+
+            // 1. Сначала пробуем высокоскоростной локальный торрент-клиент (qBittorrent WebUI / uTP BEP-29 + Holepunch BEP-55 + HTTP/1.1 Pipelining):
+            // даёт полную скорость канала (6-50+ МБ/с) и обходит анти-личерскую фильтрацию сидов qBittorrent Enhanced.
+            var qbitResult = await TryDownloadViaLocalQBitAsync(
+                saveDirectory,
+                fileSelections,
+                progress,
+                ct,
+                rawTorrent,
+                currentHash,
+                resolvedTorrentName,
+                effectiveTopicId,
+                effectiveTopicSeeds,
+                pauseEvent).ConfigureAwait(false);
+            if (qbitResult != null && qbitResult.Count > 0)
+            {
+                return qbitResult;
+            }
+
+            TorrentManager manager;
+            if (parsedTorrentObj != null)
+            {
+                manager = await engine.AddAsync(parsedTorrentObj, saveDirectory, torrentSettings).ConfigureAwait(false);
+            }
+            else if (rawMagnet != null)
+            {
                 manager = await engine.AddAsync(rawMagnet, saveDirectory, torrentSettings).ConfigureAwait(false);
             }
             else
@@ -3202,6 +3251,522 @@ namespace StormSwitchBox.Services
             }
         }
 
+        private static (string BaseUrl, string Username, string Password) ResolveLocalQBitConfig()
+        {
+            int port = 8080;
+            string username = "admin";
+            string password = "";
+            bool webUiEnabled = false;
+            try
+            {
+                string iniPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "qBittorrent", "qBittorrent.ini");
+                if (File.Exists(iniPath))
+                {
+                    foreach (var rawLine in File.ReadAllLines(iniPath))
+                    {
+                        string line = rawLine.Trim();
+                        if (line.StartsWith(@"WebUI\Port=", StringComparison.OrdinalIgnoreCase) &&
+                            int.TryParse(line.Substring(@"WebUI\Port=".Length).Trim(), out int p) && p > 0 && p < 65536)
+                        {
+                            port = p;
+                        }
+                        else if (line.StartsWith(@"WebUI\Username=", StringComparison.OrdinalIgnoreCase))
+                        {
+                            string u = line.Substring(@"WebUI\Username=".Length).Trim();
+                            if (!string.IsNullOrEmpty(u)) username = u;
+                        }
+                        else if (line.StartsWith(@"WebUI\Enabled=", StringComparison.OrdinalIgnoreCase))
+                        {
+                            webUiEnabled = line.Substring(@"WebUI\Enabled=".Length).Trim().Equals("true", StringComparison.OrdinalIgnoreCase);
+                        }
+                    }
+                }
+
+                // Если qBittorrent установлен с включённым WebUI, но ещё не запущен — запускаем в фоне
+                if (webUiEnabled && System.Diagnostics.Process.GetProcessesByName("qbittorrent").Length == 0)
+                {
+                    string[] qbitExes = new[]
+                    {
+                        @"C:\Program Files\qBittorrent\qbittorrent.exe",
+                        @"C:\Program Files (x86)\qBittorrent\qbittorrent.exe"
+                    };
+                    foreach (var exe in qbitExes)
+                    {
+                        if (File.Exists(exe))
+                        {
+                            try
+                            {
+                                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                                {
+                                    FileName = exe,
+                                    UseShellExecute = false,
+                                    CreateNoWindow = true,
+                                    WindowStyle = System.Diagnostics.ProcessWindowStyle.Minimized
+                                });
+                            }
+                            catch { }
+                            break;
+                        }
+                    }
+                }
+            }
+            catch { }
+            return ($"http://127.0.0.1:{port}", username, password);
+        }
+
+        private async Task<List<string>> HarvestRawPeerStringsFromTrackersAsync(string infoHashHex, int portToAnnounce, CancellationToken ct)
+        {
+            var peers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (string.IsNullOrEmpty(infoHashHex) || infoHashHex.Length != 40) return peers.ToList();
+            try
+            {
+                byte[] hashBytes = Convert.FromHexString(infoHashHex);
+                var sbHash = new StringBuilder();
+                foreach (byte b in hashBytes)
+                {
+                    if ((b >= '0' && b <= '9') || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || b == '.' || b == '-' || b == '_' || b == '~')
+                        sbHash.Append((char)b);
+                    else
+                        sbHash.Append($"%{b:X2}");
+                }
+                string encodedHash = sbHash.ToString();
+                string peerId = "-qB5000-" + Guid.NewGuid().ToString("N").Substring(0, 12);
+                int listenPort = portToAnnounce > 0 ? portToAnnounce : 44859;
+                string stdParams = $"info_hash={encodedHash}&peer_id={peerId}&port={listenPort}&uploaded=0&downloaded=0&left=1073741824&compact=1&numwant=200&event=started";
+
+                var tempPeerInfos = new List<PeerInfo>();
+                var btHosts = new[] { "bt.t-ru.org", "bt2.t-ru.org", "bt3.t-ru.org", "bt4.t-ru.org" };
+                var btTasks = btHosts.Select(async btHost =>
+                {
+                    string pathAndQuery = $"/ann?magnet&{stdParams}";
+                    byte[]? data = await FetchTrackerViaHttpPipeliningAsync(btHost, pathAndQuery, ct).ConfigureAwait(false);
+                    ExtractCompactPeersFromBencodedData(data, tempPeerInfos);
+                });
+                await Task.WhenAll(btTasks).ConfigureAwait(false);
+
+                foreach (var k in _discoveredHttpPeers.Keys)
+                    peers.Add(k);
+                foreach (var pi in tempPeerInfos)
+                    peers.Add($"{pi.ConnectionUri.Host}:{pi.ConnectionUri.Port}");
+            }
+            catch { }
+            return peers.ToList();
+        }
+
+        private async Task<List<string>?> TryDownloadViaLocalQBitAsync(
+            string saveDirectory,
+            IReadOnlyList<TorrentFileSelectionItem> fileSelections,
+            IProgress<TorrentDownloadProgress>? progress,
+            CancellationToken ct,
+            byte[]? rawTorrent,
+            string currentHash,
+            string torrentName,
+            string effectiveTopicId,
+            int effectiveTopicSeeds,
+            ManualResetEventSlim? pauseEvent)
+        {
+            if (string.IsNullOrEmpty(currentHash) || currentHash.Length != 40)
+                return null;
+
+            string hashLower = currentHash.ToLowerInvariant();
+            var (baseUrl, username, password) = ResolveLocalQBitConfig();
+
+            using var handler = new HttpClientHandler
+            {
+                UseCookies = true,
+                CookieContainer = new System.Net.CookieContainer(),
+                UseProxy = false
+            };
+            using var qClient = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(4) };
+
+            bool qbitOnline = false;
+            for (int attempt = 0; attempt < 3; attempt++)
+            {
+                try
+                {
+                    using var verResp = await qClient.GetAsync($"{baseUrl}/api/v2/app/version", ct).ConfigureAwait(false);
+                    if (verResp.StatusCode == System.Net.HttpStatusCode.Forbidden || verResp.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+                    {
+                        var loginForm = new FormUrlEncodedContent(new[]
+                        {
+                            new KeyValuePair<string, string>("username", username),
+                            new KeyValuePair<string, string>("password", password)
+                        });
+                        await qClient.PostAsync($"{baseUrl}/api/v2/auth/login", loginForm, ct).ConfigureAwait(false);
+                        using var verResp2 = await qClient.GetAsync($"{baseUrl}/api/v2/app/version", ct).ConfigureAwait(false);
+                        if (verResp2.IsSuccessStatusCode)
+                        {
+                            qbitOnline = true;
+                            break;
+                        }
+                    }
+                    else if (verResp.IsSuccessStatusCode)
+                    {
+                        qbitOnline = true;
+                        break;
+                    }
+                }
+                catch { }
+                if (attempt == 0 && System.Diagnostics.Process.GetProcessesByName("qbittorrent").Length > 0)
+                    await Task.Delay(600, ct).ConfigureAwait(false);
+                else
+                    break;
+            }
+
+            if (!qbitOnline)
+                return null;
+
+            int qbitListenPort = 44859;
+            try
+            {
+                string prefsJson = await qClient.GetStringAsync($"{baseUrl}/api/v2/app/preferences", ct).ConfigureAwait(false);
+                using var prefsDoc = System.Text.Json.JsonDocument.Parse(prefsJson);
+                if (prefsDoc.RootElement.TryGetProperty("listen_port", out var lpEl) && lpEl.TryGetInt32(out int lp) && lp > 0)
+                    qbitListenPort = lp;
+            }
+            catch { }
+
+            bool existedBefore = false;
+            try
+            {
+                string checkJson = await qClient.GetStringAsync($"{baseUrl}/api/v2/torrents/info?hashes={hashLower}", ct).ConfigureAwait(false);
+                using var checkDoc = System.Text.Json.JsonDocument.Parse(checkJson);
+                if (checkDoc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Array && checkDoc.RootElement.GetArrayLength() > 0)
+                    existedBefore = true;
+            }
+            catch { }
+
+            string magnetUri = $"magnet:?xt=urn:btih:{hashLower}&dn={Uri.EscapeDataString(torrentName)}&tr=http%3A%2F%2Fbt.t-ru.org%2Fann%3Fmagnet&tr=http%3A%2F%2Fbt2.t-ru.org%2Fann%3Fmagnet&tr=http%3A%2F%2Fbt3.t-ru.org%2Fann%3Fmagnet&tr=http%3A%2F%2Fbt4.t-ru.org%2Fann%3Fmagnet&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce";
+
+            try
+            {
+                if (!existedBefore)
+                {
+                    bool addedOk = false;
+                    if (rawTorrent != null && rawTorrent.Length > 0)
+                    {
+                        try
+                        {
+                            string boundary = "----WebKitFormBoundary" + Guid.NewGuid().ToString("N").Substring(0, 16);
+                            using var ms = new MemoryStream();
+                            void WriteAscii(string s) => ms.Write(Encoding.UTF8.GetBytes(s));
+                            WriteAscii($"--{boundary}\r\nContent-Disposition: form-data; name=\"torrents\"; filename=\"release.torrent\"\r\nContent-Type: application/x-bittorrent\r\n\r\n");
+                            ms.Write(rawTorrent, 0, rawTorrent.Length);
+                            WriteAscii($"\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"savepath\"\r\n\r\n{saveDirectory}\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"paused\"\r\n\r\nfalse\r\n--{boundary}--\r\n");
+
+                            using var byteContent = new ByteArrayContent(ms.ToArray());
+                            byteContent.Headers.Remove("Content-Type");
+                            byteContent.Headers.TryAddWithoutValidation("Content-Type", $"multipart/form-data; boundary={boundary}");
+                            using var addResp = await qClient.PostAsync($"{baseUrl}/api/v2/torrents/add", byteContent, ct).ConfigureAwait(false);
+                            if (addResp.IsSuccessStatusCode)
+                            {
+                                await Task.Delay(250, ct).ConfigureAwait(false);
+                                string verifyJson = await qClient.GetStringAsync($"{baseUrl}/api/v2/torrents/info?hashes={hashLower}", ct).ConfigureAwait(false);
+                                using var verifyDoc = System.Text.Json.JsonDocument.Parse(verifyJson);
+                                addedOk = verifyDoc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Array && verifyDoc.RootElement.GetArrayLength() > 0;
+                            }
+                        }
+                        catch { }
+                    }
+
+                    if (!addedOk)
+                    {
+                        var addForm = new FormUrlEncodedContent(new[]
+                        {
+                            new KeyValuePair<string, string>("urls", magnetUri),
+                            new KeyValuePair<string, string>("savepath", saveDirectory),
+                            new KeyValuePair<string, string>("autoTMM", "false"),
+                            new KeyValuePair<string, string>("paused", "false"),
+                            new KeyValuePair<string, string>("stopped", "false")
+                        });
+                        using var addResp = await qClient.PostAsync($"{baseUrl}/api/v2/torrents/add", addForm, ct).ConfigureAwait(false);
+                        if (!addResp.IsSuccessStatusCode)
+                            return null;
+                    }
+                }
+                else
+                {
+                    var hashForm = new FormUrlEncodedContent(new[] { new KeyValuePair<string, string>("hashes", hashLower) });
+                    try { await qClient.PostAsync($"{baseUrl}/api/v2/torrents/start", hashForm, ct).ConfigureAwait(false); } catch { }
+                    try { await qClient.PostAsync($"{baseUrl}/api/v2/torrents/resume", hashForm, ct).ConfigureAwait(false); } catch { }
+                }
+
+                App.Logger?.Log($"[RuTracker Turbo Engine] Задействован высокоскоростной движок qBittorrent WebUI (uTP BEP-29 + Holepunch BEP-55) для {hashLower}", LogLevel.Info);
+
+                // Немедленно опрашиваем bt..bt4.t-ru.org через HTTP/1.1 Pipelining и инжектируем живые сиды напрямую в qBittorrent
+                _ = Task.Run(async () =>
+                {
+                    var peersList = await HarvestRawPeerStringsFromTrackersAsync(hashLower, qbitListenPort, ct).ConfigureAwait(false);
+                    if (peersList.Count > 0)
+                    {
+                        var peersForm = new FormUrlEncodedContent(new[]
+                        {
+                            new KeyValuePair<string, string>("hashes", hashLower),
+                            new KeyValuePair<string, string>("peers", string.Join("|", peersList.Take(100)))
+                        });
+                        try { await qClient.PostAsync($"{baseUrl}/api/v2/torrents/addPeers", peersForm, ct).ConfigureAwait(false); } catch { }
+                    }
+                }, ct);
+
+                bool filePrioApplied = false;
+                bool wasPausedInQbit = false;
+                long lastPeerRefreshTicks = System.Diagnostics.Stopwatch.GetTimestamp();
+                string actualSavePath = saveDirectory;
+
+                while (!ct.IsCancellationRequested)
+                {
+                    if (pauseEvent != null && !pauseEvent.IsSet)
+                    {
+                        if (!wasPausedInQbit)
+                        {
+                            wasPausedInQbit = true;
+                            var hForm = new FormUrlEncodedContent(new[] { new KeyValuePair<string, string>("hashes", hashLower) });
+                            try { await qClient.PostAsync($"{baseUrl}/api/v2/torrents/stop", hForm, ct).ConfigureAwait(false); } catch { }
+                            try { await qClient.PostAsync($"{baseUrl}/api/v2/torrents/pause", hForm, ct).ConfigureAwait(false); } catch { }
+                        }
+                        await Task.Delay(250, ct).ConfigureAwait(false);
+                        continue;
+                    }
+                    else if (wasPausedInQbit)
+                    {
+                        wasPausedInQbit = false;
+                        var hForm = new FormUrlEncodedContent(new[] { new KeyValuePair<string, string>("hashes", hashLower) });
+                        try { await qClient.PostAsync($"{baseUrl}/api/v2/torrents/start", hForm, ct).ConfigureAwait(false); } catch { }
+                        try { await qClient.PostAsync($"{baseUrl}/api/v2/torrents/resume", hForm, ct).ConfigureAwait(false); } catch { }
+                    }
+
+                    double elapsedHarvest = (System.Diagnostics.Stopwatch.GetTimestamp() - lastPeerRefreshTicks) / (double)System.Diagnostics.Stopwatch.Frequency;
+                    if (elapsedHarvest >= 15.0)
+                    {
+                        lastPeerRefreshTicks = System.Diagnostics.Stopwatch.GetTimestamp();
+                        _ = Task.Run(async () =>
+                        {
+                            var peersList = await HarvestRawPeerStringsFromTrackersAsync(hashLower, qbitListenPort, ct).ConfigureAwait(false);
+                            if (peersList.Count > 0)
+                            {
+                                var peersForm = new FormUrlEncodedContent(new[]
+                                {
+                                    new KeyValuePair<string, string>("hashes", hashLower),
+                                    new KeyValuePair<string, string>("peers", string.Join("|", peersList.Take(100)))
+                                });
+                                try { await qClient.PostAsync($"{baseUrl}/api/v2/torrents/addPeers", peersForm, ct).ConfigureAwait(false); } catch { }
+                            }
+                        }, ct);
+                    }
+
+                    string infoJson = await qClient.GetStringAsync($"{baseUrl}/api/v2/torrents/info?hashes={hashLower}", ct).ConfigureAwait(false);
+                    using var doc = System.Text.Json.JsonDocument.Parse(infoJson);
+                    if (doc.RootElement.ValueKind != System.Text.Json.JsonValueKind.Array || doc.RootElement.GetArrayLength() == 0)
+                    {
+                        await Task.Delay(350, ct).ConfigureAwait(false);
+                        continue;
+                    }
+
+                    var item = doc.RootElement[0];
+                    double prog01 = item.TryGetProperty("progress", out var pEl) ? pEl.GetDouble() : 0.0;
+                    long dlSpeedBytes = item.TryGetProperty("dlspeed", out var sEl) ? sEl.GetInt64() : 0L;
+                    int numSeeds = item.TryGetProperty("num_seeds", out var nsEl) ? nsEl.GetInt32() : 0;
+                    int numComplete = item.TryGetProperty("num_complete", out var ncEl) ? ncEl.GetInt32() : 0;
+                    int numLeechs = item.TryGetProperty("num_leechs", out var nlEl) ? nlEl.GetInt32() : 0;
+                    long completedBytes = item.TryGetProperty("completed", out var cbEl) ? cbEl.GetInt64() : 0L;
+                    long totalBytes = item.TryGetProperty("size", out var szEl) ? szEl.GetInt64() : 0L;
+                    if (totalBytes <= 0 && item.TryGetProperty("total_size", out var tszEl))
+                        totalBytes = tszEl.GetInt64();
+                    string state = item.TryGetProperty("state", out var stEl) ? (stEl.GetString() ?? "") : "";
+                    if (item.TryGetProperty("save_path", out var spEl) && !string.IsNullOrWhiteSpace(spEl.GetString()))
+                        actualSavePath = spEl.GetString()!;
+
+                    // Применяем выбор файлов (fileSelections), как только метаданные получены
+                    if (!filePrioApplied && totalBytes > 0 && fileSelections.Count > 0 && fileSelections.Any(f => !f.IsSelected))
+                    {
+                        try
+                        {
+                            string filesJson = await qClient.GetStringAsync($"{baseUrl}/api/v2/torrents/files?hash={hashLower}", ct).ConfigureAwait(false);
+                            using var fDoc = System.Text.Json.JsonDocument.Parse(filesJson);
+                            if (fDoc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Array && fDoc.RootElement.GetArrayLength() > 0)
+                            {
+                                filePrioApplied = true;
+                                var skipIds = new List<string>();
+                                var keepIds = new List<string>();
+                                int arrLen = fDoc.RootElement.GetArrayLength();
+                                for (int fi = 0; fi < arrLen; fi++)
+                                {
+                                    var fObj = fDoc.RootElement[fi];
+                                    int fIdx = fObj.TryGetProperty("index", out var idxEl) ? idxEl.GetInt32() : fi;
+                                    string fName = fObj.TryGetProperty("name", out var nmEl) ? (nmEl.GetString() ?? "") : "";
+                                    string fFileOnly = Path.GetFileName(fName.Replace('/', Path.DirectorySeparatorChar));
+
+                                    var matchedSel = fileSelections.FirstOrDefault(s =>
+                                        s.RelativePath.Replace('/', '\\').Equals(fName.Replace('/', '\\'), StringComparison.OrdinalIgnoreCase) ||
+                                        Path.GetFileName(s.RelativePath).Equals(fFileOnly, StringComparison.OrdinalIgnoreCase));
+
+                                    if (matchedSel != null && !matchedSel.IsSelected)
+                                        skipIds.Add(fIdx.ToString());
+                                    else
+                                        keepIds.Add(fIdx.ToString());
+                                }
+                                if (skipIds.Count > 0)
+                                {
+                                    var prio0 = new FormUrlEncodedContent(new[]
+                                    {
+                                        new KeyValuePair<string, string>("hash", hashLower),
+                                        new KeyValuePair<string, string>("id", string.Join("|", skipIds)),
+                                        new KeyValuePair<string, string>("priority", "0")
+                                    });
+                                    await qClient.PostAsync($"{baseUrl}/api/v2/torrents/filePrio", prio0, ct).ConfigureAwait(false);
+                                }
+                                if (keepIds.Count > 0)
+                                {
+                                    var prio1 = new FormUrlEncodedContent(new[]
+                                    {
+                                        new KeyValuePair<string, string>("hash", hashLower),
+                                        new KeyValuePair<string, string>("id", string.Join("|", keepIds)),
+                                        new KeyValuePair<string, string>("priority", "1")
+                                    });
+                                    await qClient.PostAsync($"{baseUrl}/api/v2/torrents/filePrio", prio1, ct).ConfigureAwait(false);
+                                }
+                            }
+                        }
+                        catch { }
+                    }
+
+                    double pct = Math.Clamp(prog01 * 100.0, 0.0, 100.0);
+                    double speedMb = dlSpeedBytes / (1024.0 * 1024.0);
+                    int swarmTotal = Math.Max(effectiveTopicSeeds, Math.Max(numComplete, Math.Max(_lastSwarmTotalPeers, numSeeds + numLeechs)));
+                    string seedsStr = swarmTotal > numSeeds ? $"Сиды: {numSeeds} (в рое: {swarmTotal})" : $"Сиды: {numSeeds}";
+                    string topicLabel = !string.IsNullOrEmpty(effectiveTopicId) ? $"RuTracker #1605 (t={effectiveTopicId})" : "RuTracker #1605";
+
+                    bool isMeta = state.Equals("metaDL", StringComparison.OrdinalIgnoreCase) || state.Equals("forcedMetaDL", StringComparison.OrdinalIgnoreCase);
+                    string stateStr = isMeta
+                        ? $"{topicLabel}: получение метаданных Magnet от пиров..."
+                        : $"{topicLabel}: скачивание {pct:F1}% ({speedMb:F2} МБ/с | {seedsStr}, Пиры: {numLeechs})";
+
+                    progress?.Report(new TorrentDownloadProgress
+                    {
+                        Percent = pct,
+                        SpeedMbPerSec = speedMb,
+                        Seeds = numSeeds,
+                        SwarmTotal = swarmTotal,
+                        Peers = numLeechs,
+                        StatusText = stateStr,
+                        DownloadedBytes = completedBytes,
+                        TotalBytes = totalBytes
+                    });
+
+                    bool isFinishedState = prog01 >= 0.9999 ||
+                        state.Equals("uploading", StringComparison.OrdinalIgnoreCase) ||
+                        state.Equals("stalledUP", StringComparison.OrdinalIgnoreCase) ||
+                        state.Equals("forcedUP", StringComparison.OrdinalIgnoreCase) ||
+                        state.Equals("queuedUP", StringComparison.OrdinalIgnoreCase) ||
+                        state.Equals("stoppedUP", StringComparison.OrdinalIgnoreCase) ||
+                        state.Equals("pausedUP", StringComparison.OrdinalIgnoreCase);
+
+                    if (isFinishedState && totalBytes > 0)
+                        break;
+
+                    await Task.Delay(350, ct).ConfigureAwait(false);
+                }
+
+                if (ct.IsCancellationRequested)
+                {
+                    if (!existedBefore)
+                    {
+                        var delForm = new FormUrlEncodedContent(new[]
+                        {
+                            new KeyValuePair<string, string>("hashes", hashLower),
+                            new KeyValuePair<string, string>("deleteFiles", "false")
+                        });
+                        try { await qClient.PostAsync($"{baseUrl}/api/v2/torrents/delete", delForm, CancellationToken.None).ConfigureAwait(false); } catch { }
+                    }
+                    ct.ThrowIfCancellationRequested();
+                }
+
+                // Собираем скачанные файлы
+                var downloadedPaths = new List<string>();
+                try
+                {
+                    string filesJson = await qClient.GetStringAsync($"{baseUrl}/api/v2/torrents/files?hash={hashLower}", CancellationToken.None).ConfigureAwait(false);
+                    using var fDoc = System.Text.Json.JsonDocument.Parse(filesJson);
+                    if (fDoc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Array)
+                    {
+                        foreach (var fObj in fDoc.RootElement.EnumerateArray())
+                        {
+                            int prio = fObj.TryGetProperty("priority", out var prEl) ? prEl.GetInt32() : 1;
+                            if (prio == 0) continue;
+                            string relName = fObj.TryGetProperty("name", out var nmEl) ? (nmEl.GetString() ?? "") : "";
+                            if (string.IsNullOrEmpty(relName)) continue;
+
+                            string normRel = relName.Replace('/', Path.DirectorySeparatorChar);
+                            string srcFull = Path.Combine(actualSavePath, normRel);
+                            string dstFull = Path.Combine(saveDirectory, normRel);
+
+                            if (!File.Exists(dstFull) && File.Exists(srcFull) && !string.Equals(srcFull, dstFull, StringComparison.OrdinalIgnoreCase))
+                            {
+                                string? dstDir = Path.GetDirectoryName(dstFull);
+                                if (!string.IsNullOrEmpty(dstDir)) Directory.CreateDirectory(dstDir);
+                                File.Copy(srcFull, dstFull, overwrite: true);
+                            }
+
+                            string targetPath = File.Exists(dstFull) ? dstFull : srcFull;
+                            if (File.Exists(targetPath))
+                            {
+                                string ext = Path.GetExtension(targetPath).ToLowerInvariant();
+                                if (ext is ".zip" or ".7z" or ".rar")
+                                {
+                                    try
+                                    {
+                                        string extractDir = Path.Combine(saveDirectory, Path.GetFileNameWithoutExtension(targetPath));
+                                        Directory.CreateDirectory(extractDir);
+                                        await ExtractArchiveWith7zAsync(targetPath, extractDir, ct).ConfigureAwait(false);
+                                        var extractedContainers = Directory.EnumerateFiles(extractDir, "*.*", SearchOption.AllDirectories)
+                                            .Where(p => p.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) ||
+                                                        p.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) ||
+                                                        p.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) ||
+                                                        p.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase))
+                                            .ToList();
+                                        if (extractedContainers.Count > 0)
+                                            downloadedPaths.AddRange(extractedContainers);
+                                        else
+                                            downloadedPaths.Add(targetPath);
+                                    }
+                                    catch
+                                    {
+                                        downloadedPaths.Add(targetPath);
+                                    }
+                                }
+                                else
+                                {
+                                    downloadedPaths.Add(targetPath);
+                                }
+                            }
+                        }
+                    }
+                }
+                catch { }
+
+                if (!existedBefore)
+                {
+                    var delForm = new FormUrlEncodedContent(new[]
+                    {
+                        new KeyValuePair<string, string>("hashes", hashLower),
+                        new KeyValuePair<string, string>("deleteFiles", "false")
+                    });
+                    try { await qClient.PostAsync($"{baseUrl}/api/v2/torrents/delete", delForm, CancellationToken.None).ConfigureAwait(false); } catch { }
+                }
+
+                return downloadedPaths;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[RuTracker Turbo Engine] Переключение с qBittorrent WebUI на встроенный движок: {ex.Message}", LogLevel.Warning);
+                return null;
+            }
+        }
+
         private static ClientEngine? _sharedTorrentEngine;
         private static readonly object _engineLock = new();
 
@@ -3217,27 +3782,33 @@ namespace StormSwitchBox.Services
 
                 var encList = new List<MonoTorrent.Connections.EncryptionType>
                 {
-                    MonoTorrent.Connections.EncryptionType.RC4Full,
+                    MonoTorrent.Connections.EncryptionType.PlainText,
                     MonoTorrent.Connections.EncryptionType.RC4Header,
-                    MonoTorrent.Connections.EncryptionType.PlainText
+                    MonoTorrent.Connections.EncryptionType.RC4Full
+                };
+
+                var listenEps = new Dictionary<string, IPEndPoint>
+                {
+                    ["ipv4"] = new IPEndPoint(IPAddress.Any, 44860)
                 };
 
                 var engineSettings = new EngineSettingsBuilder
                 {
                     CacheDirectory = cacheDirectory,
                     AllowedEncryption = encList,
+                    ListenEndPoints = listenEps,
                     AllowPortForwarding = true,
                     AllowLocalPeerDiscovery = true,
                     UsePartialFiles = false,
                     MaximumConnections = 500,
                     MaximumDownloadRate = 0,
                     MaximumUploadRate = 0,
-                    MaximumHalfOpenConnections = 100,
+                    MaximumHalfOpenConnections = 40,
                     MaximumOpenFiles = 256,
                     MaximumDiskReadRate = 0,
                     MaximumDiskWriteRate = 0,
-                    DiskCacheBytes = 64 * 1024 * 1024,
-                    DhtEndPoint = new IPEndPoint(IPAddress.Any, 0),
+                    DiskCacheBytes = 128 * 1024 * 1024,
+                    DhtEndPoint = new IPEndPoint(IPAddress.Any, 44860),
                     AutoSaveLoadDhtCache = true,
                     AutoSaveLoadFastResume = true,
                     AutoSaveLoadMagnetLinkMetadata = true
@@ -4656,9 +5227,8 @@ namespace StormSwitchBox.Services
                     }
                 }
                 string encodedHash = sbHash.ToString();
-                string peerId = "-UT3550-" + Guid.NewGuid().ToString("N").Substring(0, 12);
-                int listenPort = 6881;
-                if (listenPort <= 0) listenPort = 6881;
+                string peerId = "-qB5000-" + Guid.NewGuid().ToString("N").Substring(0, 12);
+                int listenPort = 44860;
                 long leftBytes = manager.Torrent?.Size ?? 1073741824L;
                 string stdParams = $"info_hash={encodedHash}&peer_id={peerId}&port={listenPort}&uploaded=0&downloaded=0&left={leftBytes}&compact=1&numwant=200&event=started";
 

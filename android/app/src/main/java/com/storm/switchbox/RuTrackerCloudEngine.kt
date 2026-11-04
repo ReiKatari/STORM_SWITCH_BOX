@@ -3854,7 +3854,11 @@ object RuTrackerCloudEngine {
             sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.out_enc_policy.swigValue(), org.libtorrent4j.swig.settings_pack.enc_policy.pe_enabled.swigValue())
             sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.in_enc_policy.swigValue(), org.libtorrent4j.swig.settings_pack.enc_policy.pe_enabled.swigValue())
             sp.setInteger(org.libtorrent4j.swig.settings_pack.int_types.allowed_enc_level.swigValue(), org.libtorrent4j.swig.settings_pack.enc_level.pe_both.swigValue())
-            sp.setBoolean(org.libtorrent4j.swig.settings_pack.bool_types.prefer_rc4.swigValue(), true)
+            sp.setBoolean(org.libtorrent4j.swig.settings_pack.bool_types.prefer_rc4.swigValue(), false)
+            try {
+                sp.setString(org.libtorrent4j.swig.settings_pack.string_types.user_agent.swigValue(), "qBittorrent/5.0.0")
+                sp.setString(org.libtorrent4j.swig.settings_pack.string_types.peer_fingerprint.swigValue(), "-qB5000-")
+            } catch (_: Throwable) {}
 
             // 2. Сетевые протоколы IPv4 + IPv6 + uTP + DHT + PEX + LSD + UPnP
             sp.setString(org.libtorrent4j.swig.settings_pack.string_types.listen_interfaces.swigValue(), "0.0.0.0:0,[::]:0")
