@@ -104,9 +104,129 @@ namespace StormSwitchBox.Services
 
         public string RelativePath { get; set; } = string.Empty;
         public long Length { get; set; }
+        public long SizeBytes { get => Length; set => Length = value; }
         public string SizeFormatted => Length > 0 ? ProcessingTask.FormatSize(Length) : "DHT/Magnet";
         public string CategoryBadge { get; set; } = "ФАЙЛ";
         public bool IsRealTorrentFile { get; set; } = false;
+
+        public string RoleBadgeBackground => CategoryBadge switch
+        {
+            "ИГРА" => "#064E3B",
+            "ОБНОВЛЕНИЕ" => "#0C4A6E",
+            "DLC" => "#4C1D95",
+            _ => "#1E293B"
+        };
+
+        public string RoleBadgeForeground => CategoryBadge switch
+        {
+            "ИГРА" => "#34D399",
+            "ОБНОВЛЕНИЕ" => "#38BDF8",
+            "DLC" => "#C084FC",
+            _ => "#FBBF24"
+        };
+    }
+
+    public sealed class RuTrackerFileGroupBlock : CommunityToolkit.Mvvm.ComponentModel.ObservableObject
+    {
+        public int SlotNumber { get; set; }
+
+        private string _groupBadge = string.Empty;
+        public string GroupBadge
+        {
+            get => !string.IsNullOrEmpty(_groupBadge) ? _groupBadge : (SlotNumber > 0 ? $"🎮 ИГРА #{SlotNumber}" : "📦 ОБЩИЕ ФАЙЛЫ");
+            set => SetProperty(ref _groupBadge, value);
+        }
+        public string BlockBadge => GroupBadge;
+
+        private string _groupTitle = string.Empty;
+        public string GroupTitle
+        {
+            get => _groupTitle;
+            set => SetProperty(ref _groupTitle, value);
+        }
+        public string GameTitle
+        {
+            get => GroupTitle;
+            set => GroupTitle = value;
+        }
+
+        private string _groupSummary = string.Empty;
+        public string GroupSummary
+        {
+            get => _groupSummary;
+            set => SetProperty(ref _groupSummary, value);
+        }
+        public string HeaderSummary
+        {
+            get => GroupSummary;
+            set => GroupSummary = value;
+        }
+
+        public string BadgeBackground => SlotNumber switch
+        {
+            1 => "#0284C7",
+            2 => "#7C3AED",
+            3 => "#059669",
+            4 => "#D97706",
+            5 => "#DB2777",
+            6 => "#2563EB",
+            7 => "#9333EA",
+            8 => "#0D9488",
+            9 => "#EA580C",
+            10 => "#4F46E5",
+            _ => "#334155"
+        };
+
+        public System.Collections.ObjectModel.ObservableCollection<TorrentFileSelectionItem> Files { get; } = new();
+    }
+
+    public sealed class RuTrackerLinkGroupBlock : CommunityToolkit.Mvvm.ComponentModel.ObservableObject
+    {
+        public int SlotNumber { get; set; }
+
+        private string _groupBadge = string.Empty;
+        public string GroupBadge
+        {
+            get => !string.IsNullOrEmpty(_groupBadge) ? _groupBadge : (SlotNumber > 0 ? $"🎮 ИГРА #{SlotNumber}" : "🌐 ОБЩИЕ ССЫЛКИ");
+            set => SetProperty(ref _groupBadge, value);
+        }
+        public string BlockBadge => GroupBadge;
+
+        private string _groupTitle = string.Empty;
+        public string GroupTitle
+        {
+            get => _groupTitle;
+            set => SetProperty(ref _groupTitle, value);
+        }
+        public string GameTitle
+        {
+            get => GroupTitle;
+            set => GroupTitle = value;
+        }
+
+        private string _groupSummary = string.Empty;
+        public string GroupSummary
+        {
+            get => _groupSummary;
+            set => SetProperty(ref _groupSummary, value);
+        }
+        public string HeaderSummary
+        {
+            get => GroupSummary;
+            set => GroupSummary = value;
+        }
+
+        public string BadgeBackground => SlotNumber switch
+        {
+            1 => "#0284C7",
+            2 => "#7C3AED",
+            3 => "#059669",
+            4 => "#D97706",
+            5 => "#DB2777",
+            _ => "#334155"
+        };
+
+        public System.Collections.ObjectModel.ObservableCollection<CloudModLinkItem> Links { get; } = new();
     }
 
     public sealed class CloudModLinkItem : CommunityToolkit.Mvvm.ComponentModel.ObservableObject
@@ -2514,52 +2634,205 @@ namespace StormSwitchBox.Services
             return result;
         }
 
+        public static string ExtractCleanGameTitleFromFilePath(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return string.Empty;
+            string fileName = Path.GetFileNameWithoutExtension(path.Replace('\\', '/'));
+            string cleaned = Regex.Replace(fileName, @"\[[^\]]*\]|\([^)]*\)", " ").Trim();
+            cleaned = Regex.Replace(cleaned, @"\b(?:Update|Patch|DLC|Unlocker|v\d+(?:\.\d+)*)\b.*$", "", RegexOptions.IgnoreCase).Trim();
+            cleaned = Regex.Replace(cleaned, @"\s{2,}", " ").Trim(' ', '-', '_', '.');
+            return cleaned;
+        }
+
+        private static (string BasePrefix, int PartNumber, string FullClean) GetNaturalGameSortKey(string cleanTitle)
+        {
+            if (string.IsNullOrWhiteSpace(cleanTitle))
+                return ("~", 999, "");
+
+            string t = cleanTitle.Trim();
+            var m = Regex.Match(t, @"^(?<prefix>.+?)\s+(?<num>\d{1,2})\s*$");
+            if (m.Success && int.TryParse(m.Groups["num"].Value, out int n))
+            {
+                return (m.Groups["prefix"].Value.Trim().ToLowerInvariant(), n, t);
+            }
+            return (t.ToLowerInvariant(), 1, t);
+        }
+
+        public static int GetFileRolePriority(string? categoryBadge) => GetRoleSortOrder(categoryBadge);
+
+        public static int GetRoleSortOrder(string? categoryBadge)
+        {
+            string b = (categoryBadge ?? "").ToUpperInvariant();
+            if (b == "ИГРА" || b.StartsWith("ИГРА #")) return 0;
+            if (b.Contains("ОБНОВЛЕНИЕ") || b.Contains("UPDATE")) return 1;
+            if (b.Contains("DLC")) return 2;
+            if (b.Contains("МОД") || b.Contains("РУСИФИКАТОР") || b.Contains("UNLOCKER")) return 3;
+            return 4;
+        }
+
+        /// <summary>
+        /// Извлекает реальные упорядоченные названия отдельных игр непосредственно из файлов .torrent / индекса
+        /// (например, ["Aggelos", "Aggelos 2"] в правильном порядке частей: часть 1 -> часть 2).
+        /// </summary>
+        public static List<string> DiscoverGameTitlesFromFiles(IList<TorrentFileSelectionItem> files)
+        {
+            var result = new List<string>();
+            if (files == null || files.Count == 0) return result;
+
+            var byBaseTid = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var f in files)
+            {
+                if (!f.IsRealTorrentFile && f.CategoryBadge == "MAGNET") continue;
+                string tid = ExtractTitleId(f.RelativePath);
+                string cleanName = ExtractCleanGameTitleFromFilePath(f.RelativePath);
+                if (string.IsNullOrWhiteSpace(cleanName)) continue;
+
+                if (tid.Length == 16)
+                {
+                    string baseTid = tid.Substring(0, 12);
+                    if (!byBaseTid.ContainsKey(baseTid) || f.CategoryBadge == "ИГРА")
+                    {
+                        byBaseTid[baseTid] = cleanName;
+                    }
+                }
+            }
+
+            if (byBaseTid.Count >= 2)
+            {
+                return byBaseTid.Values
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(t => GetNaturalGameSortKey(t).BasePrefix)
+                    .ThenBy(t => GetNaturalGameSortKey(t).PartNumber)
+                    .ThenBy(t => t, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+            }
+
+            var baseGameFiles = files
+                .Where(f => f.CategoryBadge == "ИГРА")
+                .Select(f => ExtractCleanGameTitleFromFilePath(f.RelativePath))
+                .Where(n => !string.IsNullOrWhiteSpace(n))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(t => GetNaturalGameSortKey(t).BasePrefix)
+                .ThenBy(t => GetNaturalGameSortKey(t).PartNumber)
+                .ToList();
+
+            if (baseGameFiles.Count >= 2)
+                return baseGameFiles;
+
+            return result;
+        }
+
+        public static void SortTorrentFilesBySlotAndRole(IList<TorrentFileSelectionItem> files)
+        {
+            if (files == null || files.Count <= 1) return;
+            var sorted = files
+                .OrderBy(f => f.TargetGameSlot == 0 ? 999 : f.TargetGameSlot)
+                .ThenBy(f => GetRoleSortOrder(f.CategoryBadge))
+                .ThenBy(f => ExtractCleanGameTitleFromFilePath(f.RelativePath), StringComparer.OrdinalIgnoreCase)
+                .ThenBy(f => f.RelativePath, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            files.Clear();
+            foreach (var item in sorted)
+                files.Add(item);
+        }
+
         public static void AutoAssignFilesToGameSlots(IList<TorrentFileSelectionItem> files, IList<string> gameSlots)
         {
             if (files == null || files.Count == 0) return;
             if (gameSlots == null || gameSlots.Count <= 1)
             {
                 foreach (var f in files) f.TargetGameSlot = 1;
+                SortTorrentFilesBySlotAndRole(files);
                 return;
             }
 
-            // Группируем по базовому TitleID (первые 13 символов + 000), если они есть в именах файлов
-            var baseTids = new List<string>();
+            // 1. Строим карту BaseTitleID -> CleanGameName и сортируем группы игр в естественном порядке (Часть 1 -> Часть 2 -> ...)
+            var tidToTitle = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (var f in files)
             {
                 string tid = ExtractTitleId(f.RelativePath);
                 if (tid.Length == 16)
                 {
-                    string baseTid = tid.Substring(0, 13) + "000";
-                    if (!baseTids.Contains(baseTid, StringComparer.OrdinalIgnoreCase))
-                        baseTids.Add(baseTid);
+                    string baseTid = tid.Substring(0, 12);
+                    string cleanName = ExtractCleanGameTitleFromFilePath(f.RelativePath);
+                    if (!tidToTitle.ContainsKey(baseTid) || (f.CategoryBadge == "ИГРА" && !string.IsNullOrEmpty(cleanName)))
+                    {
+                        tidToTitle[baseTid] = cleanName;
+                    }
                 }
+            }
+
+            var orderedBaseTids = tidToTitle
+                .OrderBy(kv => GetNaturalGameSortKey(kv.Value).BasePrefix)
+                .ThenBy(kv => GetNaturalGameSortKey(kv.Value).PartNumber)
+                .ThenBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase)
+                .Select(kv => kv.Key)
+                .ToList();
+
+            // Сопоставляем каждый BaseTitleID со слотом из gameSlots
+            var tidToSlot = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            for (int tIdx = 0; tIdx < orderedBaseTids.Count; tIdx++)
+            {
+                string bTid = orderedBaseTids[tIdx];
+                string cleanTitle = tidToTitle[bTid];
+                var (_, partNum, _) = GetNaturalGameSortKey(cleanTitle);
+
+                int assignedSlot = 0;
+                // Сначала ищем точное совпадение по имени или номеру части в gameSlots
+                for (int sIdx = gameSlots.Count - 1; sIdx >= 0; sIdx--)
+                {
+                    string slotTitle = gameSlots[sIdx];
+                    if (string.Equals(cleanTitle, slotTitle, StringComparison.OrdinalIgnoreCase))
+                    {
+                        assignedSlot = sIdx + 1;
+                        break;
+                    }
+                    var (_, slotPartNum, _) = GetNaturalGameSortKey(slotTitle);
+                    if (slotPartNum == partNum && partNum >= 1 && sIdx + 1 == partNum)
+                    {
+                        assignedSlot = sIdx + 1;
+                        break;
+                    }
+                }
+
+                if (assignedSlot == 0)
+                {
+                    assignedSlot = Math.Min(tIdx + 1, gameSlots.Count);
+                }
+                tidToSlot[bTid] = assignedSlot;
             }
 
             foreach (var f in files)
             {
                 string pathNorm = f.RelativePath.Replace('\\', '/');
                 string tid = ExtractTitleId(pathNorm);
-                if (tid.Length == 16 && baseTids.Count >= 2)
+                if (tid.Length == 16)
                 {
                     string bTid = tid.Substring(0, 13) + "000";
-                    int tidIdx = baseTids.FindIndex(x => x.Equals(bTid, StringComparison.OrdinalIgnoreCase));
-                    if (tidIdx >= 0 && tidIdx < gameSlots.Count)
+                    if (tidToSlot.TryGetValue(bTid, out int mappedSlot))
                     {
-                        f.TargetGameSlot = tidIdx + 1;
+                        f.TargetGameSlot = mappedSlot;
                         continue;
                     }
                 }
+
+                string cleanFileTitle = ExtractCleanGameTitleFromFilePath(pathNorm);
+                var (_, filePartNum, _) = GetNaturalGameSortKey(cleanFileTitle);
 
                 int matchedSlot = 0;
                 for (int i = gameSlots.Count - 1; i >= 0; i--)
                 {
                     string slotTitle = gameSlots[i];
-                    var numMatch = Regex.Match(slotTitle, @"(\d+)\s*$");
-                    if (numMatch.Success)
+                    if (!string.IsNullOrEmpty(cleanFileTitle) && string.Equals(cleanFileTitle, slotTitle, StringComparison.OrdinalIgnoreCase))
                     {
-                        string numStr = numMatch.Groups[1].Value;
-                        if (Regex.IsMatch(pathNorm, $@"(?:\b|_|-|part|часть|#){Regex.Escape(numStr)}(?:\b|_|-|\.|\[)", RegexOptions.IgnoreCase))
+                        matchedSlot = i + 1;
+                        break;
+                    }
+                    var numMatch = Regex.Match(slotTitle, @"(\d+)\s*$");
+                    if (numMatch.Success && int.TryParse(numMatch.Groups[1].Value, out int slotNum))
+                    {
+                        if (filePartNum == slotNum)
                         {
                             matchedSlot = i + 1;
                             break;
@@ -2572,13 +2845,15 @@ namespace StormSwitchBox.Services
                     }
                 }
 
-                if (matchedSlot == 0 && gameSlots.Count >= 2)
+                if (matchedSlot == 0)
                 {
-                    // Если номер части 1 не указан явно в имени первой игры (напр. "Aggelos [0100...].nsp" vs "Aggelos 2 [0100...].nsp")
                     matchedSlot = 1;
                 }
                 f.TargetGameSlot = matchedSlot;
             }
+
+            // Сортируем файлы строго по блокам игр (Игра #1, Игра #2, ...) и ролям (ИГРА -> ОБНОВЛЕНИЕ -> DLC -> МОД)
+            SortTorrentFilesBySlotAndRole(files);
         }
 
         public static void AutoAssignLinksToGameSlots(IList<CloudModLinkItem> links, IList<string> gameSlots)

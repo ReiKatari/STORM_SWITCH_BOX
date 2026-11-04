@@ -30,6 +30,9 @@ namespace StormSwitchBox.Views.Dialogs
         private readonly ObservableCollection<RuTrackerGameSlotItem> _gameSlots = new();
         private readonly ObservableCollection<TorrentFileSelectionItem> _torrentFiles = new();
         private readonly ObservableCollection<CloudModLinkItem> _discussionLinks = new();
+        private readonly ObservableCollection<RuTrackerFileGroupBlock> _fileGroups = new();
+        private readonly ObservableCollection<RuTrackerLinkGroupBlock> _linkGroups = new();
+        private bool _suppressGroupRebuild;
 
         private string? _localTorrentPath;
         private string _currentTopicTitle = string.Empty;
@@ -47,8 +50,8 @@ namespace StormSwitchBox.Views.Dialogs
 
             TopicsListView.ItemsSource = _topics;
             GameSlotsListView.ItemsSource = _gameSlots;
-            TorrentFilesListView.ItemsSource = _torrentFiles;
-            DiscussionLinksListView.ItemsSource = _discussionLinks;
+            TorrentFilesListView.ItemsSource = _fileGroups;
+            DiscussionLinksListView.ItemsSource = _linkGroups;
             InitializeDefaultGameSlot("Игра 1");
 
             LoadSavedSettings();
@@ -218,9 +221,16 @@ namespace StormSwitchBox.Views.Dialogs
                     _currentTopicTitle = Path.GetFileNameWithoutExtension(file.Name);
 
                     var dummyTopic = new RuTrackerTopicItem { Title = _currentTopicTitle };
+                    RebuildGameSlotsForTopic(_currentTopicTitle, null);
                     var entries = await _service.InspectTorrentFilesAsync(dummyTopic, file.Path, CancellationToken.None);
+                    SyncGameSlotsWithDiscoveredFiles(entries);
                     PopulateTorrentFiles(entries);
-                    StatusText.Text = $"Загружен локальный торрент: {file.Name} ({entries.Count} файлов).";
+                    var slotTitles = _gameSlots.Select(s => s.GameTitle).ToList();
+                    _suppressGroupRebuild = true;
+                    RuTrackerModService.AutoAssignFilesToGameSlots(_torrentFiles, slotTitles);
+                    _suppressGroupRebuild = false;
+                    UpdateGameSlotsSummary();
+                    StatusText.Text = $"Загружен локальный торрент: {file.Name} ({entries.Count} файлов, игр/частей: {_gameSlots.Count}).";
                 }
             }
             catch (Exception ex)
@@ -344,10 +354,13 @@ namespace StormSwitchBox.Views.Dialogs
                 // 2. Инспектируем .torrent (если есть bb_session) или Magnet + авто-разбивка на отдельные игры/части
                 RebuildGameSlotsForTopic(topic.Title, topic.TopicId);
                 var entries = await _service.InspectTorrentFilesAsync(topic, null, CancellationToken.None);
+                SyncGameSlotsWithDiscoveredFiles(entries);
                 PopulateTorrentFiles(entries);
                 var slotTitles = _gameSlots.Select(s => s.GameTitle).ToList();
+                _suppressGroupRebuild = true;
                 RuTrackerModService.AutoAssignFilesToGameSlots(_torrentFiles, slotTitles);
                 RuTrackerModService.AutoAssignLinksToGameSlots(_discussionLinks, slotTitles);
+                _suppressGroupRebuild = false;
                 UpdateGameSlotsSummary();
 
                 if (entries.Count > 1 || (entries.Count == 1 && entries[0].CategoryBadge != "MAGNET"))
@@ -383,6 +396,7 @@ namespace StormSwitchBox.Views.Dialogs
             }
             TorrentFilesHeader.Text = $"📦 Файлы в раздаче ({entries.Count} шт.)";
             UpdateDlcUnlockerAutoState();
+            RebuildFileAndLinkGroups();
         }
 
         private void PopulateDiscussionLinks(IEnumerable<CloudModLinkItem> links)
@@ -398,6 +412,7 @@ namespace StormSwitchBox.Views.Dialogs
             }
             UpdateDiscussionSummaryText();
             UpdateDlcUnlockerAutoState();
+            RebuildFileAndLinkGroups();
         }
 
         private void InitializeDefaultGameSlot(string title)
@@ -437,14 +452,87 @@ namespace StormSwitchBox.Views.Dialogs
             UpdateGameSlotsSummary();
         }
 
+        private void CenteredInput_Loaded(object sender, RoutedEventArgs e)
+        {
+            if (sender is not DependencyObject root) return;
+            ApplyVerticalCenterToInputVisualTree(root);
+            if (sender is FrameworkElement fe)
+            {
+                void OnFirstLayout(object? s, object? args)
+                {
+                    fe.LayoutUpdated -= OnFirstLayout;
+                    ApplyVerticalCenterToInputVisualTree(fe);
+                }
+                fe.LayoutUpdated += OnFirstLayout;
+            }
+        }
+
+        private static void ApplyVerticalCenterToInputVisualTree(DependencyObject parent)
+        {
+            int count = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(parent);
+            for (int i = 0; i < count; i++)
+            {
+                var child = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(parent, i);
+                if (child is FrameworkElement fe)
+                {
+                    if (fe.Name == "ContentElement" || fe.Name == "PlaceholderTextContentPresenter")
+                    {
+                        fe.VerticalAlignment = VerticalAlignment.Center;
+                        fe.Margin = new Thickness(0);
+                        if (fe is Control ctrl)
+                            ctrl.Padding = new Thickness(ctrl.Padding.Left, 0, ctrl.Padding.Right, 0);
+                        if (fe is ContentPresenter cp)
+                            cp.Padding = new Thickness(cp.Padding.Left, 0, cp.Padding.Right, 0);
+                    }
+                }
+                ApplyVerticalCenterToInputVisualTree(child);
+            }
+        }
+
+        private void SyncGameSlotsWithDiscoveredFiles(IList<TorrentFileSelectionItem> entries)
+        {
+            var discoveredFromFiles = RuTrackerModService.DiscoverGameTitlesFromFiles(entries);
+            if (discoveredFromFiles.Count == 0)
+                return;
+
+            // Если в файлах раздачи обнаружено больше игр или более точные названия (например, "Aggelos" и "Aggelos 2"),
+            // синхронизируем слоты в естественном порядке (Часть 1 -> ИГРА #1, Часть 2 -> ИГРА #2)
+            if (discoveredFromFiles.Count >= _gameSlots.Count || _gameSlots.Count <= 1)
+            {
+                _gameSlots.Clear();
+                for (int i = 0; i < discoveredFromFiles.Count; i++)
+                {
+                    var slot = new RuTrackerGameSlotItem
+                    {
+                        SlotNumber = i + 1,
+                        IsEnabled = true,
+                        GameTitle = discoveredFromFiles[i]
+                    };
+                    slot.PropertyChanged += (_, _) => UpdateGameSlotsSummary();
+                    _gameSlots.Add(slot);
+                }
+            }
+            else
+            {
+                for (int i = 0; i < Math.Min(_gameSlots.Count, discoveredFromFiles.Count); i++)
+                {
+                    if (!string.IsNullOrWhiteSpace(discoveredFromFiles[i]))
+                        _gameSlots[i].GameTitle = discoveredFromFiles[i];
+                }
+            }
+        }
+
         private void AutoSplitGames_Click(object sender, RoutedEventArgs e)
         {
             RebuildGameSlotsForTopic(_currentTopicTitle, _service.ActiveTopicId);
+            SyncGameSlotsWithDiscoveredFiles(_torrentFiles);
             var slotTitles = _gameSlots.Select(s => s.GameTitle).ToList();
+            _suppressGroupRebuild = true;
             RuTrackerModService.AutoAssignFilesToGameSlots(_torrentFiles, slotTitles);
             RuTrackerModService.AutoAssignLinksToGameSlots(_discussionLinks, slotTitles);
+            _suppressGroupRebuild = false;
             UpdateGameSlotsSummary();
-            LiveTelemetryText.Text = $"🪄 Авто-разбивка выполнена: распознано частей/игр — {_gameSlots.Count}. Проверьте привязку файлов и ссылок.";
+            LiveTelemetryText.Text = $"🪄 Авто-разбивка выполнена: распознано частей/игр — {_gameSlots.Count}. Файлы сгруппированы по блокам игр.";
         }
 
         private void AddGameSlot_Click(object sender, RoutedEventArgs e)
@@ -474,20 +562,25 @@ namespace StormSwitchBox.Views.Dialogs
             if (_gameSlots.Count <= 1) return;
             int removedSlot = _gameSlots.Count;
             _gameSlots.RemoveAt(_gameSlots.Count - 1);
+            _suppressGroupRebuild = true;
             foreach (var f in _torrentFiles.Where(x => x.TargetGameSlot == removedSlot))
                 f.TargetGameSlot = 1;
             foreach (var l in _discussionLinks.Where(x => x.TargetGameSlot == removedSlot))
                 l.TargetGameSlot = 1;
+            _suppressGroupRebuild = false;
             UpdateGameSlotsSummary();
         }
 
         private void SlotAssignmentCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
+            if (_suppressGroupRebuild) return;
             UpdateGameSlotsSummary();
         }
 
         private void UpdateGameSlotsSummary()
         {
+            if (_suppressGroupRebuild) return;
+
             if (GameSlotsCountText != null)
             {
                 int enabledCount = _gameSlots.Count(s => s.IsEnabled);
@@ -502,6 +595,111 @@ namespace StormSwitchBox.Views.Dialogs
                     .Split(new[] { ' ', ',', ';', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
                     .Count(s => s.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || s.StartsWith("https://", StringComparison.OrdinalIgnoreCase));
                 slot.SummaryText = $"Файлы: {filesForSlot} • Ссылки: {linksForSlot + manualLinksCount}";
+            }
+
+            RebuildFileAndLinkGroups();
+        }
+
+        private void RebuildFileAndLinkGroups()
+        {
+            if (_suppressGroupRebuild) return;
+
+            // 1. Формируем блоки файлов строго по играм (ИГРА #1, ИГРА #2, ..., и Общие файлы, если есть)
+            var sortedFiles = _torrentFiles
+                .OrderBy(f => f.TargetGameSlot == 0 ? 999 : f.TargetGameSlot)
+                .ThenBy(f => RuTrackerModService.GetFileRolePriority(f.CategoryBadge))
+                .ThenBy(f => f.RelativePath, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var newFileGroups = new List<RuTrackerFileGroupBlock>();
+            foreach (var grp in sortedFiles.GroupBy(f => f.TargetGameSlot))
+            {
+                int slotNum = grp.Key;
+                var slotObj = _gameSlots.FirstOrDefault(s => s.SlotNumber == slotNum);
+                string badge = slotNum <= 0 ? "📦 ОБЩИЕ ФАЙЛЫ" : $"🎮 ИГРА #{slotNum}";
+                string title = slotNum <= 0
+                    ? "Для всех частей раздачи"
+                    : (!string.IsNullOrWhiteSpace(slotObj?.GameTitle) ? slotObj!.GameTitle : $"Игра #{slotNum}");
+
+                long totalBytes = grp.Sum(x => Math.Max(0L, x.SizeBytes));
+                string sizeStr = totalBytes > 0 ? $"{totalBytes / 1024.0 / 1024.0:F2} МБ" : "Magnet / P2P";
+                int count = grp.Count();
+                string countWord = count == 1 ? "1 файл" : (count >= 2 && count <= 4 ? $"{count} файла" : $"{count} файлов");
+
+                var block = new RuTrackerFileGroupBlock
+                {
+                    SlotNumber = slotNum,
+                    GroupBadge = badge,
+                    GroupTitle = title,
+                    GroupSummary = $"{countWord} • {sizeStr}"
+                };
+                foreach (var fileItem in grp)
+                    block.Files.Add(fileItem);
+                newFileGroups.Add(block);
+            }
+
+            // Проверяем, изменилась ли структура групп, чтобы не сбрасывать скролл без необходимости
+            bool sameFileStructure = _fileGroups.Count == newFileGroups.Count &&
+                _fileGroups.Zip(newFileGroups, (a, b) =>
+                    a.SlotNumber == b.SlotNumber &&
+                    a.GroupTitle == b.GroupTitle &&
+                    a.GroupSummary == b.GroupSummary &&
+                    a.Files.SequenceEqual(b.Files)).All(x => x);
+
+            if (!sameFileStructure)
+            {
+                _fileGroups.Clear();
+                foreach (var g in newFileGroups)
+                    _fileGroups.Add(g);
+            }
+
+            if (TorrentFilesHeader != null && _torrentFiles.Count > 0 && (_torrentFiles.Count > 1 || _torrentFiles[0].CategoryBadge != "MAGNET"))
+            {
+                TorrentFilesHeader.Text = $"📦 Файлы в раздаче ({_torrentFiles.Count} шт. • блоками по играм: {_fileGroups.Count})";
+            }
+
+            // 2. Формируем блоки ссылок из темы и обсуждений по играм
+            var sortedLinks = _discussionLinks
+                .OrderBy(l => l.TargetGameSlot == 0 ? 0 : l.TargetGameSlot)
+                .ThenBy(l => l.Title, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var newLinkGroups = new List<RuTrackerLinkGroupBlock>();
+            foreach (var grp in sortedLinks.GroupBy(l => l.TargetGameSlot))
+            {
+                int slotNum = grp.Key;
+                var slotObj = _gameSlots.FirstOrDefault(s => s.SlotNumber == slotNum);
+                string badge = slotNum <= 0 ? "🌐 ОБЩИЕ ССЫЛКИ" : $"🎮 ИГРА #{slotNum}";
+                string title = slotNum <= 0
+                    ? "Применяются ко всем выбранным играм"
+                    : (!string.IsNullOrWhiteSpace(slotObj?.GameTitle) ? slotObj!.GameTitle : $"Игра #{slotNum}");
+
+                int count = grp.Count();
+                int selCount = grp.Count(x => x.IsSelected);
+                var block = new RuTrackerLinkGroupBlock
+                {
+                    SlotNumber = slotNum,
+                    GroupBadge = badge,
+                    GroupTitle = title,
+                    GroupSummary = $"выбрано {selCount} из {count}"
+                };
+                foreach (var linkItem in grp)
+                    block.Links.Add(linkItem);
+                newLinkGroups.Add(block);
+            }
+
+            bool sameLinkStructure = _linkGroups.Count == newLinkGroups.Count &&
+                _linkGroups.Zip(newLinkGroups, (a, b) =>
+                    a.SlotNumber == b.SlotNumber &&
+                    a.GroupTitle == b.GroupTitle &&
+                    a.GroupSummary == b.GroupSummary &&
+                    a.Links.SequenceEqual(b.Links)).All(x => x);
+
+            if (!sameLinkStructure)
+            {
+                _linkGroups.Clear();
+                foreach (var g in newLinkGroups)
+                    _linkGroups.Add(g);
             }
         }
 

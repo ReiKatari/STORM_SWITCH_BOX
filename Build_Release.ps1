@@ -174,6 +174,8 @@ if (Test-Path "$baseDir\tools\7z.exe") {
 Copy-Item $portableZipPath $filesDir -Force
 Copy-Item $portableZipPath (Join-Path $outputDir "STORM_SWITCH_BOX_${appVersion}.zip") -Force
 Copy-Item $portableZipPath (Join-Path $filesDir "STORM_SWITCH_BOX_${appVersion}.zip") -Force
+Copy-Item $portableZipPath (Join-Path $outputDir "STORM_SWITCH_BOX_${appVersion}_Portable.zip") -Force
+Copy-Item $portableZipPath (Join-Path $filesDir "STORM_SWITCH_BOX_${appVersion}_Portable.zip") -Force
 
 # Step 4: Build Custom StormInstaller
 Write-Host "[5/6] Building and Signing StormInstaller (Cyber Dark UI)..." -ForegroundColor Yellow

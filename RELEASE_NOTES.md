@@ -1,31 +1,31 @@
-> 💡 **Релиз 6.9.0** — *Поддержка мульти-игровых раздач и слот-менеджер RuTracker, расширенное кэширование обложек с управлением автозагрузкой, гибридный распаковщик RomFS/ExeFS для нестандартных обновлений и синхронизация Android-клиента*
+> 💡 **Релиз 6.9.1** — *Группировка файлов и ссылок по играм в RuTracker Mod Downloader, центрирование текста полей ввода, синхронизация Android-клиента и оптимизация производительности*
 
 ---
 
 ### 🚀 Ключевые изменения и улучшения
-- 🌟 **[RuTracker Слот-Менеджер Мульти-Раздач] Поддержка комплектов игр и сборников в одном торренте**: модуль RuTracker теперь полноценно поддерживает раздачи, содержащие несколько независимых игр (например, антологии, бандлы или сплит-версии). В интерфейс добавлен динамический менеджер игровых слотов (`RuTrackerGameSlotItem`, бейджи `ИГРА #1`, `ИГРА #2`), позволяющий индивидуально настраивать заголовок мода, ручные ссылки и фильтровать файлы торрента для каждой игры в отдельную сборочную задачу.
-- 🌟 **[Кэш Обложек и Настройки] Умный сервис кэширования обложек (`CoverCacheService`)**: внедрено централизованное кэширование постеров и обложек игр с многоуровневым поиском (папки лаунчера, системные директории, эмуляторы). Добавлена пользовательская настройка `AutoDownloadCovers` («Автоматически загружать обложки игр») на вкладке «Параметры», исключающая нежелательный сетевой трафик и фоновые дисковые операции при отключении.
-- 🌟 **[Hard Patch Engine] Гибридный LibHac/Hactoolnet распаковщик для Non-BKTR обновлений**: реализован отказоустойчивый нативный распаковщик RomFS и ExeFS (`ExtractMergedRomFsNativeFallbackAsync`), перехватывающий ошибки `yanu-cli unpack` в случаях, когда обновление игры не содержит дельта-патча BKTR (например, ExeFS-only или чистые накопительные апдейты). Добавлена автоматическая перепаковка `Control NCA` через `hacpack` в чистый `StandardCrypto` с базовым TitleID.
-- 🌟 **[Android Паритет и Синхронизация] Релиз 6.9.0 для Android**: обновлены версия и код сборки (`versionCode = 690`, `versionName = "6.9.0"`), обеспечена 100% совместимость с API RuTracker и синхронизация обеих редакций пакетов (`Modern` 64-bit и `Legacy` 32-bit).
+- 🌟 **[RuTracker Блочная Группировка по Играм] Наглядное разделение контента раздачи**: в диалоге загрузки модов RuTracker (`RuTrackerModDownloaderDialog`) реализована интеллектуальная группировка файлов торрента и облачных ссылок по игровым слотам (`RuTrackerFileGroupBlock` и `RuTrackerLinkGroupBlock`). Каждый блок оформлен индивидуальным цветным бейджем (`ИГРА #1`, `ИГРА #2`, `ОБЩИЕ ФАЙЛЫ`), содержит название игры и сводку по объёму и количеству файлов.
+- 🌟 **[Умная Сортировка и Фильтрация] Естественный порядок частей и ролей**: внедрена естественная буквенно-цифровая сортировка (Natural Sort) заголовков частей и разделов, а также иерархический приоритет ролей файлов (`ИГРА` → `ОБНОВЛЕНИЕ` → `DLC` → `ФАЙЛ`) с автоматическим выделением чистых названий игр из путей и архивов.
+- 🌟 **[Интерфейс и Типографика] Вертикальное центрирование текста в полях ввода**: оптимизировано отображение текстовых полей ввода и строк поиска с выравниванием `VerticalContentAlignment="Center"`, исключающее смещение курсора и текста к верхней границе контейнера.
+- 🌟 **[Android Паритет и Синхронизация] Релиз 6.9.1 для Android**: обновлены версия и код сборки (`versionCode = 691`, `versionName = "6.9.1"`), обеспечена 100% совместимость с сервисами RuTracker и синхронизация обеих редакций пакетов (`Modern` 64-bit и `Legacy` 32-bit).
 
 <details>
 <summary><b>📋 Полный список изменений (нажмите, чтобы развернуть)</b></summary>
 
-- 🔹 **[Слот-менеджер RuTracker]**: реализованы классы `RuTrackerGameSlotItem` с привязкой к визуальному дереву диалога, поддержкой раздельной маски файлов и индивидуальных ссылок модификаций.
-- 🔹 **[Опция AutoDownloadCovers]**: в `AppSettings.cs` и `SettingsPage.xaml` добавлен тумблер управления фоновой загрузкой постеров с сохранением в конфигурационный JSON.
-- 🔹 **[Отказоустойчивость HardPatchEngine]**: устранены сбои слияния RomFS/ExeFS для игр со сложной структурой разделов, поддержана регенерация `control.nacp` и иконок для базового `TitleID`.
-- 🔹 **[Синхронизация Android]**: актуализированы строковые ресурсы, заголовки лога и карточка обновления `RuTrackerCloudEngine`.
-- 🔹 **[Контроль целостности инсталлятора]**: обновлена конфигурация `StormInstaller` и манифесты сборщика.
+- 🔹 **[Блочная визуализация RuTracker]**: реализованы контейнеры `RuTrackerFileGroupBlock` и `RuTrackerLinkGroupBlock` с поддержкой динамического обновления без сброса позиции скролла при переключении слотов.
+- 🔹 **[Ролевые индикаторы файлов]**: добавлены контрастные бейджи категорий файлов (`RoleBadgeBackground` и `RoleBadgeForeground`) для быстрого визуального контроля структуры раздачи.
+- 🔹 **[Центрирование текстовых полей]**: обновлены стили и разметка `TextBox` в диалогах поиска и параметров.
+- 🔹 **[Синхронизация Android]**: актуализированы метаданные сборки и строковые ресурсы для версии 6.9.1.
+- 🔹 **[Инсталлятор StormInstaller]**: обновлена конфигурация инсталлятора под релиз 6.9.1 с сохранением цифровой подписи STORM TEAM.
 
 </details>
 
 <details>
 <summary><b>🌐 English Changelog (click to expand)</b></summary>
 
-- 🔸 **RuTracker Multi-Game Slot Manager**: added support for multi-game torrent bundles with per-game slot configuration (`RuTrackerGameSlotItem`, badges `GAME #1`, `GAME #2`), allowing independent mod title customization, manual link routing, and selective file assignment per task.
-- 🔸 **Advanced Cover Cache Service with User Toggle**: integrated central cover cache engine (`CoverCacheService.cs`) with multi-tier folder resolution and added the `AutoDownloadCovers` setting in Settings to avoid unwanted background web downloads.
-- 🔸 **Hard Patch Engine Native RomFS/ExeFS Hybrid Fallback**: added automatic fallback unpacking via LibHac and hactoolnet for updates lacking BKTR patch NCAs, with automatic `Control NCA` standard crypto repackaging.
-- 🔸 **Android Parity 6.9.0**: bumped version to 6.9.0 (`versionCode 690`) across Modern and Legacy editions.
+- 🔸 **RuTracker Grouped Per-Game Blocks**: implemented structured per-game block visualization (`RuTrackerFileGroupBlock` and `RuTrackerLinkGroupBlock`) with dedicated color badges, slot titles, file counts, and aggregated size counters.
+- 🔸 **Natural Sorting & Smart Role Hierarchy**: added natural alphanumeric sorting for franchise titles and hierarchical role prioritization (`GAME` → `UPDATE` → `DLC` → `FILE`) with clean title extraction.
+- 🔸 **Vertical Text Centering**: adjusted `TextBox` vertical content alignment across dialogs for optimal typography and caret placement.
+- 🔸 **Android Parity 6.9.1**: bumped version to 6.9.1 (`versionCode 691`) across Modern and Legacy editions.
 
 </details>
 
