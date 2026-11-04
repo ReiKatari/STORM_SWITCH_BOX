@@ -395,6 +395,9 @@ namespace StormSwitchBox.Models
         public string CustomModTitle { get; set; } = string.Empty;
         public bool AutoBuild { get; set; } = true;
         public bool HasTorrentSource { get; set; } = true;
+        public int SlotNumber { get; set; } = 0;
+        public int TotalSlots { get; set; } = 1;
+        public string SlotGameTitle { get; set; } = string.Empty;
     }
 
     public sealed class PersistedTaskSnapshot

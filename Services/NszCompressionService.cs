@@ -541,7 +541,9 @@ namespace StormSwitchBox.Services
                     }
 
                     string targetInputForNsz = linkCreated ? tempSafeInputPath : inputPath;
-                    string expectedTempNsp = System.IO.Path.Combine(outDir, System.IO.Path.GetFileNameWithoutExtension(safeInputName) + expectedExt);
+                    string isolatedOutDir = System.IO.Path.Combine(outDir, "_nsz_dec_" + Guid.NewGuid().ToString("N").Substring(0, 8));
+                    Directory.CreateDirectory(isolatedOutDir);
+                    string expectedTempNsp = System.IO.Path.Combine(isolatedOutDir, System.IO.Path.GetFileNameWithoutExtension(safeInputName) + expectedExt);
 
                     string keysParam = "";
                     if (!string.IsNullOrEmpty(App.Settings.Current.KeysPath) && File.Exists(App.Settings.Current.KeysPath))
@@ -549,7 +551,7 @@ namespace StormSwitchBox.Services
                         keysParam = $"--keys \"{App.Settings.Current.KeysPath}\"";
                     }
 
-                    string nszArgs = $"-D -w --minimal-output {keysParam} -o \"{outDir}\" \"{targetInputForNsz}\"".Trim();
+                    string nszArgs = $"-D -w --minimal-output {keysParam} -o \"{isolatedOutDir}\" \"{targetInputForNsz}\"".Trim();
                     int exitCode = await ExternalProcessRunner.RunAsync(
                         nszExe,
                         nszArgs,
@@ -572,7 +574,7 @@ namespace StormSwitchBox.Services
                     {
                         try
                         {
-                            var candidates = Directory.GetFiles(outDir, "*" + expectedExt)
+                            var candidates = Directory.GetFiles(isolatedOutDir, "*" + expectedExt)
                                 .Where(f => !f.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) && !f.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase))
                                 .Where(f => new FileInfo(f).Length > 0)
                                 .OrderByDescending(f => new FileInfo(f).Length)
@@ -589,9 +591,11 @@ namespace StormSwitchBox.Services
                             if (File.Exists(outNspPath)) try { File.Delete(outNspPath); } catch { }
                             File.Move(foundNsp, outNspPath);
                         }
+                        try { if (Directory.Exists(isolatedOutDir)) Directory.Delete(isolatedOutDir, true); } catch { }
                         App.Logger.Log($"[NSZ Engine] Успешная распаковка nsz.exe: {fileName}", LogLevel.Success);
                         return outNspPath;
                     }
+                    try { if (Directory.Exists(isolatedOutDir)) Directory.Delete(isolatedOutDir, true); } catch { }
                 }
                 catch (Exception ex)
                 {

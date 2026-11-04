@@ -35,6 +35,57 @@ namespace StormSwitchBox.Services
         public List<CloudModLinkItem> ExtractedModLinks { get; set; } = new();
     }
 
+    public sealed class RuTrackerGameSlotItem : CommunityToolkit.Mvvm.ComponentModel.ObservableObject
+    {
+        private int _slotNumber = 1;
+        public int SlotNumber
+        {
+            get => _slotNumber;
+            set
+            {
+                if (SetProperty(ref _slotNumber, value))
+                    OnPropertyChanged(nameof(SlotBadge));
+            }
+        }
+
+        public string SlotBadge => $"ИГРА #{SlotNumber}";
+
+        private bool _isEnabled = true;
+        public bool IsEnabled
+        {
+            get => _isEnabled;
+            set => SetProperty(ref _isEnabled, value);
+        }
+
+        private string _gameTitle = string.Empty;
+        public string GameTitle
+        {
+            get => _gameTitle;
+            set => SetProperty(ref _gameTitle, value);
+        }
+
+        private string _customModTitle = string.Empty;
+        public string CustomModTitle
+        {
+            get => _customModTitle;
+            set => SetProperty(ref _customModTitle, value);
+        }
+
+        private string _manualExtraLinks = string.Empty;
+        public string ManualExtraLinks
+        {
+            get => _manualExtraLinks;
+            set => SetProperty(ref _manualExtraLinks, value);
+        }
+
+        private string _summaryText = "Файлы: авто • Ссылки: 0";
+        public string SummaryText
+        {
+            get => _summaryText;
+            set => SetProperty(ref _summaryText, value);
+        }
+    }
+
     public sealed class TorrentFileSelectionItem : CommunityToolkit.Mvvm.ComponentModel.ObservableObject
     {
         private bool _isSelected = true;
@@ -44,9 +95,16 @@ namespace StormSwitchBox.Services
             set => SetProperty(ref _isSelected, value);
         }
 
+        private int _targetGameSlot = 0; // 0 = Все игры (общий), 1..10 = Игра #1..#10
+        public int TargetGameSlot
+        {
+            get => _targetGameSlot;
+            set => SetProperty(ref _targetGameSlot, Math.Max(0, value));
+        }
+
         public string RelativePath { get; set; } = string.Empty;
         public long Length { get; set; }
-        public string SizeFormatted => ProcessingTask.FormatSize(Length);
+        public string SizeFormatted => Length > 0 ? ProcessingTask.FormatSize(Length) : "DHT/Magnet";
         public string CategoryBadge { get; set; } = "ФАЙЛ";
         public bool IsRealTorrentFile { get; set; } = false;
     }
@@ -58,6 +116,13 @@ namespace StormSwitchBox.Services
         {
             get => _isSelected;
             set => SetProperty(ref _isSelected, value);
+        }
+
+        private int _targetGameSlot = 0; // 0 = Все игры, 1..10 = Игра #1..#10
+        public int TargetGameSlot
+        {
+            get => _targetGameSlot;
+            set => SetProperty(ref _targetGameSlot, Math.Max(0, value));
         }
 
         public string Title { get; set; } = string.Empty;
@@ -77,6 +142,9 @@ namespace StormSwitchBox.Services
         public int Seeds { get; set; }
         public int Peers { get; set; }
         public int SwarmTotal { get; set; }
+        public long DownloadedBytes { get; set; }
+        public long TotalBytes { get; set; }
+        public bool IsMetadataPhase { get; set; }
         public string StatusText { get; set; } = string.Empty;
     }
 
@@ -2307,10 +2375,12 @@ namespace StormSwitchBox.Services
                 }
             }
 
+            var detectedParts = DetectMultiGameTitlesFromRelease(topic.Title, topic.TopicId);
+
             if (_loadedTorrentBytes != null)
             {
                 var torrent = await Torrent.LoadAsync(_loadedTorrentBytes).ConfigureAwait(false);
-                return torrent.Files.Select(f => new TorrentFileSelectionItem
+                var items = torrent.Files.Select(f => new TorrentFileSelectionItem
                 {
                     IsSelected = true,
                     RelativePath = f.Path,
@@ -2318,6 +2388,8 @@ namespace StormSwitchBox.Services
                     CategoryBadge = ClassifyTorrentEntryBadge(f.Path),
                     IsRealTorrentFile = true
                 }).ToList();
+                AutoAssignFilesToGameSlots(items, detectedParts);
+                return items;
             }
 
             if (!string.IsNullOrEmpty(topic.TopicId))
@@ -2326,24 +2398,46 @@ namespace StormSwitchBox.Services
                 lock (_indexLock) { _topicsById.TryGetValue(topic.TopicId, out indexed); }
                 if (indexed != null && indexed.Files.Count > 0)
                 {
-                    return indexed.Files.Select(f => new TorrentFileSelectionItem
+                    var items = indexed.Files.Select(f => new TorrentFileSelectionItem
                     {
                         IsSelected = true,
                         RelativePath = f.Path,
                         Length = f.Size,
                         CategoryBadge = !string.IsNullOrEmpty(f.Role) ? f.Role : ClassifyTorrentEntryBadge(f.Path)
                     }).ToList();
+                    AutoAssignFilesToGameSlots(items, detectedParts);
+                    return items;
                 }
             }
 
             if (!string.IsNullOrWhiteSpace(topic.MagnetUri) && MagnetLink.TryParse(topic.MagnetUri, out var magnet))
             {
                 _loadedMagnet = magnet;
+                if (detectedParts.Count > 1)
+                {
+                    var multiItems = new List<TorrentFileSelectionItem>();
+                    for (int i = 0; i < detectedParts.Count; i++)
+                    {
+                        int slotNum = i + 1;
+                        string partName = detectedParts[i];
+                        multiItems.Add(new TorrentFileSelectionItem
+                        {
+                            IsSelected = true,
+                            TargetGameSlot = slotNum,
+                            RelativePath = $"{partName} — Базовая игра + Обновления / DLC (получение по Magnet/DHT)",
+                            Length = 0,
+                            CategoryBadge = $"ИГРА #{slotNum}"
+                        });
+                    }
+                    return multiItems;
+                }
+
                 return new List<TorrentFileSelectionItem>
                 {
                     new TorrentFileSelectionItem
                     {
                         IsSelected = true,
+                        TargetGameSlot = 1,
                         RelativePath = $"{topic.Title} (Метаданные Magnet будут получены при старте загрузки)",
                         Length = 0,
                         CategoryBadge = "MAGNET"
@@ -2352,6 +2446,175 @@ namespace StormSwitchBox.Services
             }
 
             return new List<TorrentFileSelectionItem>();
+        }
+
+        /// <summary>
+        /// Автоматически распознаёт многосоставные раздачи (напр. "Aggelos 1-2", "Pikmin 1+2", "Sakura Succubus 1 / 2 / 3", "Trilogy", или список игр из шапки темы)
+        /// и возвращает список отдельных названий игр (от 1 до 10+ частей).
+        /// </summary>
+        public static List<string> DetectMultiGameTitlesFromRelease(string? rawTitle, string? topicId = null)
+        {
+            var result = new List<string>();
+            if (string.IsNullOrWhiteSpace(rawTitle)) return result;
+
+            // Очищаем от префиксов [Nintendo Switch], [NSP][RUS/Multi10], (обновлено) и т.д.
+            string cleaned = Regex.Replace(rawTitle, @"^(\s*\[[^\]]*\]|\s*\([^)]*\))+", "").Trim();
+            cleaned = Regex.Replace(cleaned, @"(\s*\[[^\]]*\]|\s*\((?:NSP|NSZ|XCI|XCZ|RUS|ENG|Multi\d*|Update|DLC|v\d[^)]*)[^)]*\))+$", "", RegexOptions.IgnoreCase).Trim();
+            int pipeIdx = cleaned.IndexOf('|');
+            if (pipeIdx > 3) cleaned = cleaned.Substring(0, pipeIdx).Trim();
+
+            // 1. Паттерн диапазона номеров: "Aggelos 1-2", "Bayonetta 1-3", "Pikmin 1+2", "Final Fantasy I-VI"
+            var rangeMatch = Regex.Match(cleaned, @"^(?<base>[A-Za-zА-Яа-яЁё0-9\s:'\-]+?)\s+(?<start>\d{1,2})\s*[\-\+&]\s*(?<end>\d{1,2})(?:\b|$)");
+            if (rangeMatch.Success &&
+                int.TryParse(rangeMatch.Groups["start"].Value, out int startNum) &&
+                int.TryParse(rangeMatch.Groups["end"].Value, out int endNum) &&
+                startNum >= 1 && endNum > startNum && (endNum - startNum) <= 11)
+            {
+                string baseName = rangeMatch.Groups["base"].Value.Trim();
+                for (int n = startNum; n <= endNum; n++)
+                {
+                    result.Add(n == 1 ? $"{baseName} 1" : $"{baseName} {n}");
+                }
+                return result;
+            }
+
+            // 2. Паттерн перечисления через слэш: "Game A / Game B / Game C" или "Sakura 1 / 2 / 3 / 4"
+            if (cleaned.Contains(" / "))
+            {
+                var slashParts = cleaned.Split(new[] { " / " }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                if (slashParts.Length >= 2 && slashParts.Length <= 15)
+                {
+                    string prefixBase = Regex.Replace(slashParts[0], @"\s+\d+$", "").Trim();
+                    foreach (var sp in slashParts)
+                    {
+                        if (Regex.IsMatch(sp, @"^\d+$") && !string.IsNullOrEmpty(prefixBase))
+                            result.Add($"{prefixBase} {sp}");
+                        else if (Regex.IsMatch(sp, @"^\d+\s*-\s*\d+") && !string.IsNullOrEmpty(prefixBase))
+                            result.Add($"{prefixBase} {sp}");
+                        else
+                            result.Add(sp);
+                    }
+                    return result.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                }
+            }
+
+            // 3. Паттерн перечисления через запятую или плюс: "Where Angels Cry, Where Angels Cry: Tears of the Fallen"
+            if (cleaned.Contains(" + ") && !cleaned.Contains("DLC", StringComparison.OrdinalIgnoreCase) && !cleaned.Contains("Update", StringComparison.OrdinalIgnoreCase))
+            {
+                var plusParts = cleaned.Split(new[] { " + " }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                if (plusParts.Length >= 2 && plusParts.Length <= 10 && plusParts.All(p => p.Length >= 3))
+                {
+                    return plusParts.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                }
+            }
+
+            if (!string.IsNullOrEmpty(cleaned))
+                result.Add(cleaned);
+
+            return result;
+        }
+
+        public static void AutoAssignFilesToGameSlots(IList<TorrentFileSelectionItem> files, IList<string> gameSlots)
+        {
+            if (files == null || files.Count == 0) return;
+            if (gameSlots == null || gameSlots.Count <= 1)
+            {
+                foreach (var f in files) f.TargetGameSlot = 1;
+                return;
+            }
+
+            // Группируем по базовому TitleID (первые 13 символов + 000), если они есть в именах файлов
+            var baseTids = new List<string>();
+            foreach (var f in files)
+            {
+                string tid = ExtractTitleId(f.RelativePath);
+                if (tid.Length == 16)
+                {
+                    string baseTid = tid.Substring(0, 13) + "000";
+                    if (!baseTids.Contains(baseTid, StringComparer.OrdinalIgnoreCase))
+                        baseTids.Add(baseTid);
+                }
+            }
+
+            foreach (var f in files)
+            {
+                string pathNorm = f.RelativePath.Replace('\\', '/');
+                string tid = ExtractTitleId(pathNorm);
+                if (tid.Length == 16 && baseTids.Count >= 2)
+                {
+                    string bTid = tid.Substring(0, 13) + "000";
+                    int tidIdx = baseTids.FindIndex(x => x.Equals(bTid, StringComparison.OrdinalIgnoreCase));
+                    if (tidIdx >= 0 && tidIdx < gameSlots.Count)
+                    {
+                        f.TargetGameSlot = tidIdx + 1;
+                        continue;
+                    }
+                }
+
+                int matchedSlot = 0;
+                for (int i = gameSlots.Count - 1; i >= 0; i--)
+                {
+                    string slotTitle = gameSlots[i];
+                    var numMatch = Regex.Match(slotTitle, @"(\d+)\s*$");
+                    if (numMatch.Success)
+                    {
+                        string numStr = numMatch.Groups[1].Value;
+                        if (Regex.IsMatch(pathNorm, $@"(?:\b|_|-|part|часть|#){Regex.Escape(numStr)}(?:\b|_|-|\.|\[)", RegexOptions.IgnoreCase))
+                        {
+                            matchedSlot = i + 1;
+                            break;
+                        }
+                    }
+                    if (pathNorm.Contains(slotTitle, StringComparison.OrdinalIgnoreCase))
+                    {
+                        matchedSlot = i + 1;
+                        break;
+                    }
+                }
+
+                if (matchedSlot == 0 && gameSlots.Count >= 2)
+                {
+                    // Если номер части 1 не указан явно в имени первой игры (напр. "Aggelos [0100...].nsp" vs "Aggelos 2 [0100...].nsp")
+                    matchedSlot = 1;
+                }
+                f.TargetGameSlot = matchedSlot;
+            }
+        }
+
+        public static void AutoAssignLinksToGameSlots(IList<CloudModLinkItem> links, IList<string> gameSlots)
+        {
+            if (links == null || links.Count == 0) return;
+            if (gameSlots == null || gameSlots.Count <= 1)
+            {
+                foreach (var l in links) l.TargetGameSlot = 1;
+                return;
+            }
+
+            foreach (var l in links)
+            {
+                string text = $"{l.Title} {l.SourceLocation} {l.Url}";
+                int matchedSlot = 0;
+                for (int i = gameSlots.Count - 1; i >= 0; i--)
+                {
+                    string slotTitle = gameSlots[i];
+                    var numMatch = Regex.Match(slotTitle, @"(\d+)\s*$");
+                    if (numMatch.Success)
+                    {
+                        string numStr = numMatch.Groups[1].Value;
+                        if (Regex.IsMatch(text, $@"(?:\b|_|-|часть|part|#){Regex.Escape(numStr)}(?:\b|_|-|\.|\]|\))", RegexOptions.IgnoreCase))
+                        {
+                            matchedSlot = i + 1;
+                            break;
+                        }
+                    }
+                    if (text.Contains(slotTitle, StringComparison.OrdinalIgnoreCase))
+                    {
+                        matchedSlot = i + 1;
+                        break;
+                    }
+                }
+                l.TargetGameSlot = matchedSlot; // 0 = Общий / Все игры, 1..N = конкретная часть
+            }
         }
 
         private static string ClassifyTorrentEntryBadge(string path)
@@ -2499,6 +2762,25 @@ namespace StormSwitchBox.Services
                             ? $"{topicLabel}: пауза ({pct:F1}% | {seedsStr}, Пиры: {leechs})"
                             : $"{topicLabel}: скачивание {pct:F1}% ({speedMb:F2} МБ/с | {seedsStr}, Пиры: {leechs})");
 
+                    long totalWantedBytes = 0;
+                    long downloadedWantedBytes = 0;
+                    if (manager.HasMetadata && manager.Files.Count > 0)
+                    {
+                        foreach (var tf in manager.Files)
+                        {
+                            if (tf.Priority != Priority.DoNotDownload)
+                            {
+                                totalWantedBytes += tf.Length;
+                                downloadedWantedBytes += (long)(tf.Length * (tf.BitField.PercentComplete / 100.0));
+                            }
+                        }
+                    }
+                    if (totalWantedBytes <= 0 && manager.Torrent != null)
+                    {
+                        totalWantedBytes = manager.Torrent.Size;
+                        downloadedWantedBytes = (long)(totalWantedBytes * (pct / 100.0));
+                    }
+
                     progress?.Report(new TorrentDownloadProgress
                     {
                         Percent = pct,
@@ -2506,6 +2788,9 @@ namespace StormSwitchBox.Services
                         Seeds = seeds,
                         Peers = leechs,
                         SwarmTotal = swarmTotal,
+                        DownloadedBytes = downloadedWantedBytes,
+                        TotalBytes = totalWantedBytes,
+                        IsMetadataPhase = !manager.HasMetadata || manager.State == TorrentState.Metadata,
                         StatusText = stateStr
                     });
 
@@ -4003,13 +4288,12 @@ namespace StormSwitchBox.Services
                                     {
                                         var ip = new IPAddress(ipBytes);
                                         string pKey = $"{ip}:{port}";
-                                        if (_discoveredHttpPeers.TryAdd(pKey, 0))
+                                        _discoveredHttpPeers.TryAdd(pKey, 0);
+                                        var peer = new PeerInfo(new Uri($"ipv4://{ip}:{port}"));
+                                        lock (newPeers)
                                         {
-                                            var peer = new PeerInfo(new Uri($"ipv4://{ip}:{port}"));
-                                            lock (newPeers)
-                                            {
+                                            if (!newPeers.Any(p => p.ConnectionUri.Equals(peer.ConnectionUri)))
                                                 newPeers.Add(peer);
-                                            }
                                         }
                                     }
                                 }

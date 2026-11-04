@@ -117,6 +117,9 @@ namespace StormSwitchBox.Models
         public int WatchFolderAction { get => WatchFolderActionSwitch; set => WatchFolderActionSwitch = value; }
         public int WatchFolderFormat { get => WatchFolderFormatSwitch; set => WatchFolderFormatSwitch = value; }
 
+        // Автозагрузка и кэширование обложек библиотеки игр (по умолчанию ВЫКЛЮЧЕНО, чтобы не скачивать 12+ ГБ обложек для 19 платформ)
+        public bool AutoDownloadCovers { get; set; } = false;
+
         // Уведомления и оформление
         public bool EnableSoundNotifications { get; set; } = true;
         public string AccentColorTheme { get; set; } = "Default";

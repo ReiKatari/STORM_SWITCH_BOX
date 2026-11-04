@@ -2145,7 +2145,7 @@ namespace StormSwitchBox.Services
                 App.Logger.Log($"[Cheats] Ошибка синхронизации чит-кодов с эмуляторами: {ex.Message}", Models.LogLevel.Warning);
             }
 
-            // 2. Копирование читов в каталог с собранным файлом
+            // 2. Копирование читов в каталог с собранным файлом (с защитой от копирования файла самого в себя)
             try
             {
                 string outDir = Path.GetDirectoryName(outPath) ?? "";
@@ -2153,10 +2153,24 @@ namespace StormSwitchBox.Services
                 {
                     string outCheatsDir = Path.Combine(outDir, "cheats", cleanTid);
                     Directory.CreateDirectory(outCheatsDir);
-                    foreach (var cheatFile in cheatFiles)
+                    var uniqueCheatFiles = cheatFiles
+                        .Where(f => !string.IsNullOrWhiteSpace(f) && File.Exists(f))
+                        .Select(f => Path.GetFullPath(f))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+
+                    foreach (var cheatFile in uniqueCheatFiles)
                     {
-                        string targetFile = Path.Combine(outCheatsDir, Path.GetFileName(cheatFile));
-                        File.Copy(cheatFile, targetFile, true);
+                        string targetFile = Path.GetFullPath(Path.Combine(outCheatsDir, Path.GetFileName(cheatFile)));
+                        if (string.Equals(cheatFile, targetFile, StringComparison.OrdinalIgnoreCase))
+                        {
+                            // Файл уже находится в целевой папке выходного каталога — пропускаем перезапись самого себя
+                            continue;
+                        }
+
+                        using var srcStream = new FileStream(cheatFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                        using var dstStream = new FileStream(targetFile, FileMode.Create, FileAccess.Write, FileShare.Read);
+                        srcStream.CopyTo(dstStream);
                     }
                     App.Logger.Log($"[Cheats] Чит-коды сохранены в выходной каталог: {outCheatsDir}", Models.LogLevel.Success);
                 }

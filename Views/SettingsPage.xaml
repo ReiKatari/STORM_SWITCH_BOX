@@ -159,6 +159,29 @@
                                 <ToggleSwitch x:Name="DeleteSourceToggle" HorizontalAlignment="Right" IsOn="{x:Bind Settings.DeleteSourceOnSuccess, Mode=TwoWay}" Toggled="Toggle_Changed"
                                               ToolTipService.ToolTip="Экономит место на диске, удаляя исходники только после 100% безошибочного завершения."/>
                             </Grid>
+
+                            <Rectangle Fill="{ThemeResource CardStrokeColorDefaultBrush}" Height="1"/>
+
+                            <!-- Автозагрузка обложек всех консолей в локальный кэш (Чекбокс включения/отключения + очистка 12+ ГБ кэша) -->
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+                                <StackPanel Grid.Column="0" Spacing="4" VerticalAlignment="Center">
+                                    <CheckBox x:Name="AutoDownloadCoversCheckBox"
+                                              Content="Фоновая предзагрузка обложек всех игр и консолей на диск (офлайн-кэш)"
+                                              IsChecked="{x:Bind Settings.AutoDownloadCovers, Mode=TwoWay}"
+                                              Click="AutoDownloadCoversCheckBox_Click"
+                                              FontWeight="Medium"/>
+                                    <TextBlock x:Name="AutoDownloadCoversDescTxt"
+                                               Text="По умолчанию отключено для экономии места на диске (полный кэш обложек 19 консолей может занимать до 12–14 ГБ в AppData\Local\StormSwitchBox\covers)."
+                                               FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                    <TextBlock x:Name="CoversCacheSizeTxt"
+                                               Text="Размер локального кэша обложек: проверка..."
+                                               FontSize="12" Foreground="#38BDF8" FontWeight="SemiBold"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                    <Button x:Name="ClearCoversCacheBtn" Content="🗑️ Очистить кэш обложек" Click="ClearCoversCacheBtn_Click" CornerRadius="6"/>
+                                    <Button x:Name="OpenCoversFolderBtn" Content="📂 Папка кэша" Click="OpenCoversFolderBtn_Click" CornerRadius="6"/>
+                                </StackPanel>
+                            </Grid>
                         </StackPanel>
                     </Border>
                 </StackPanel>

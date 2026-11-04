@@ -291,6 +291,53 @@ namespace StormSwitchBox.Views
             }
         }
 
+        private async void AutoDownloadCoversCheckBox_Click(object sender, RoutedEventArgs e)
+        {
+            if (AutoDownloadCoversCheckBox != null)
+            {
+                App.Settings.Current.AutoDownloadCovers = AutoDownloadCoversCheckBox.IsChecked == true;
+                await App.Settings.SaveAsync();
+                App.Logger?.Log($"[Covers Cache] Фоновая предзагрузка обложек: {(App.Settings.Current.AutoDownloadCovers ? "ВКЛЮЧЕНА" : "ОТКЛЮЧЕНА (экономия места на диске)")}", Models.LogLevel.Info);
+                RefreshCoversCacheStatsUi();
+            }
+        }
+
+        private void ClearCoversCacheBtn_Click(object sender, RoutedEventArgs e)
+        {
+            var (deleted, freed) = Services.CoverCacheService.PurgeCoverCache();
+            double freedMb = freed / (1024.0 * 1024.0);
+            double freedGb = freed / (1024.0 * 1024.0 * 1024.0);
+            string sizeStr = freedGb >= 1.0 ? $"{freedGb:F2} ГБ" : $"{freedMb:F1} МБ";
+            App.Logger?.Log($"[Covers Cache] Кэш обложек очищен: удалено {deleted} файлов ({sizeStr}).", Models.LogLevel.Success);
+            RefreshCoversCacheStatsUi();
+        }
+
+        private void OpenCoversFolderBtn_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var dirs = Services.CoverCacheService.GetAllCandidateCoverDirectories();
+                string target = dirs.FirstOrDefault(d => System.IO.Directory.Exists(d)) ?? Services.CoverCacheService.GetCoversDirectory();
+                System.IO.Directory.CreateDirectory(target);
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(target) { UseShellExecute = true });
+            }
+            catch { }
+        }
+
+        private void RefreshCoversCacheStatsUi()
+        {
+            try
+            {
+                if (CoversCacheSizeTxt == null) return;
+                var (count, bytes) = Services.CoverCacheService.GetCacheStats();
+                double mb = bytes / (1024.0 * 1024.0);
+                double gb = bytes / (1024.0 * 1024.0 * 1024.0);
+                string formatted = gb >= 1.0 ? $"{gb:F2} ГБ" : $"{mb:F1} МБ";
+                CoversCacheSizeTxt.Text = $"Локальный кэш обложек: {count} файлов ({formatted})";
+            }
+            catch { }
+        }
+
         private async void ToggleWatchFolderSwitchBtn_Click(object sender, RoutedEventArgs e)
         {
             if (App.WatchFolderService == null) return;
@@ -1036,6 +1083,7 @@ namespace StormSwitchBox.Views
             string offTxt = loc.GetString("Common_Off");
             if (string.IsNullOrEmpty(offTxt)) offTxt = "Откл.";
 
+            RefreshCoversCacheStatsUi();
             if (SoundToggle != null) { SoundToggle.OnContent = onTxt; SoundToggle.OffContent = offTxt; }
             if (ComplexFoldersToggle != null) { ComplexFoldersToggle.OnContent = onTxt; ComplexFoldersToggle.OffContent = offTxt; }
             if (DeleteSourceToggle != null) { DeleteSourceToggle.OnContent = onTxt; DeleteSourceToggle.OffContent = offTxt; }

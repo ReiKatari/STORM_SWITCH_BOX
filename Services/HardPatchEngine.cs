@@ -802,7 +802,11 @@ namespace StormSwitchBox.Services
                         unpackProc.BeginErrorReadLine();
                         await unpackProc.WaitForExitAsync(cancellationToken);
                     }
-                    if (unpackProc.ExitCode != 0) throw new Exception($"Ошибка yanu-cli unpack:\n{unpackStderr}");
+                    if (unpackProc.ExitCode != 0)
+                    {
+                        App.Logger.Log($"[HardPatchEngine] yanu-cli unpack вернул код {unpackProc.ExitCode} (обновление без BKTR Patch NCA). Переключение на гибридный нативный распаковщик (LibHac + hactoolnet)...", Models.LogLevel.Info);
+                        await ExtractMergedRomFsNativeFallbackAsync(baseFile, updateFile, tempUnpack, keysPath, isolatedUserProfile, _keysService, cancellationToken);
+                    }
 
                     // Динамический поиск реальных путей ExeFS (с подлинным main.npdm), RomFS и Control NCA внутри tempUnpack
                     var (targetExeFs, targetRomFs, controlNca, resolvedTitleId) = ResolveUnpackedStructure(
@@ -1640,10 +1644,16 @@ namespace StormSwitchBox.Services
                 controlNca = ncaFiles.FirstOrDefault(f => f.EndsWith(".nca", StringComparison.OrdinalIgnoreCase)) ?? "";
             }
 
-            // Fallback: извлечение Control NCA напрямую из файлов, если yanu unpack его не извлек
-            if (string.IsNullOrEmpty(controlNca) || !File.Exists(controlNca))
+            // Всегда извлекаем и пересобираем Control NCA из обновления (updateFile), если он присутствует,
+            // чтобы гарантировать актуальную DisplayVersion (напр. 1.0.2 вместо 1.0.0) и чистый StandardCrypto без TitleRights
+            if (string.IsNullOrEmpty(controlNca) || !File.Exists(controlNca) ||
+                (!string.IsNullOrEmpty(updateFile) && File.Exists(updateFile) && !controlNca.Contains("patchdata", StringComparison.OrdinalIgnoreCase)))
             {
-                controlNca = ExtractControlNcaIfMissing(baseFile, updateFile, tempUnpack, keysService);
+                string extractedControl = ExtractControlNcaIfMissing(baseFile, updateFile, tempUnpack, keysService);
+                if (!string.IsNullOrEmpty(extractedControl) && File.Exists(extractedControl))
+                {
+                    controlNca = extractedControl;
+                }
             }
 
             ulong baseTidUlong = maxTitleId > 0 ? (maxTitleId & ~0xFFFUL) : 0;
@@ -2095,7 +2105,10 @@ namespace StormSwitchBox.Services
         }
 
         /// <summary>
-        /// Извлекает файл Control NCA из базового файла или обновления, если yanu unpack его не создал
+        /// Извлекает файл Control NCA из обновления или базового файла.
+        /// Если Control NCA имеет TitleRights или TitleID обновления (напр. ...800),
+        /// распаковывает его RomFS (control.nacp v1.0.2 + icon_*.dat) и перепаковывает через hacpack
+        /// в чистый StandardCrypto Control NCA с базовым TitleID (...000).
         /// </summary>
         private static string ExtractControlNcaIfMissing(string baseFile, string? updateFile, string tempUnpack, KeysService keysService)
         {
@@ -2135,6 +2148,7 @@ namespace StormSwitchBox.Services
                     }
 
                     if (fileSystem == null) continue;
+                    SmartShrinkService.HarvestTicketsFromFileSystem(fileSystem, keysService.CurrentKeyset);
 
                     foreach (var entry in fileSystem.EnumerateEntries().Where(e => e.Name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase)))
                     {
@@ -2147,8 +2161,69 @@ namespace StormSwitchBox.Services
                             {
                                 IFile ncaFile = ncaFileRef.Release();
                                 var nca = new LibHac.Tools.FsSystem.NcaUtils.Nca(keysService.CurrentKeyset, ncaFile.AsStorage());
+                                KeysService.RegisterRightsIdFallback(keysService.CurrentKeyset, nca);
+
                                 if (nca.Header.ContentType == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Control || (byte)nca.Header.ContentType == 2)
                                 {
+                                    ulong rawTid = nca.Header.TitleId;
+                                    ulong baseTid = rawTid & ~0xFFFUL;
+                                    string baseTidHex = baseTid.ToString("x16");
+
+                                    if (nca.Header.HasRightsId || (rawTid & 0xFFFUL) != 0)
+                                    {
+                                        try
+                                        {
+                                            string ctrlWorkDir = System.IO.Path.Combine(tempUnpack, "_repack_control_" + Guid.NewGuid().ToString("N").Substring(0, 6));
+                                            string ctrlRomfsDir = System.IO.Path.Combine(ctrlWorkDir, "romfs");
+                                            string ctrlOutDir = System.IO.Path.Combine(ctrlWorkDir, "out");
+                                            string ctrlBkupDir = System.IO.Path.Combine(ctrlWorkDir, "bkup");
+                                            Directory.CreateDirectory(ctrlRomfsDir);
+                                            Directory.CreateDirectory(ctrlOutDir);
+                                            Directory.CreateDirectory(ctrlBkupDir);
+
+                                            IFileSystem? ctrlFs = null;
+                                            if (nca.CanOpenSection(LibHac.Tools.FsSystem.NcaUtils.NcaSectionType.Data))
+                                                ctrlFs = nca.OpenFileSystem(LibHac.Tools.FsSystem.NcaUtils.NcaSectionType.Data, LibHac.Tools.FsSystem.IntegrityCheckLevel.None);
+                                            else if (nca.SectionExists(LibHac.Tools.FsSystem.NcaUtils.NcaSectionType.Data))
+                                                ctrlFs = nca.OpenFileSystem(0, LibHac.Tools.FsSystem.IntegrityCheckLevel.None);
+
+                                            if (ctrlFs != null)
+                                            {
+                                                ExtractVirtualFsToDisk(ctrlFs, "/", ctrlRomfsDir, CancellationToken.None);
+                                                string? hpExe = FindHacpack();
+                                                string? kPath = FindKeysFile();
+                                                if (!string.IsNullOrEmpty(hpExe) && File.Exists(hpExe) && !string.IsNullOrEmpty(kPath) && File.Exists(kPath))
+                                                {
+                                                    var psi = new ProcessStartInfo
+                                                    {
+                                                        FileName = hpExe,
+                                                        Arguments = $"-k \"{kPath}\" --type nca --ncatype control --titleid {baseTidHex} --romfsdir \"{ctrlRomfsDir}\" -o \"{ctrlOutDir}\" --backupdir \"{ctrlBkupDir}\"",
+                                                        WorkingDirectory = ctrlWorkDir,
+                                                        UseShellExecute = false,
+                                                        CreateNoWindow = true,
+                                                        RedirectStandardOutput = true,
+                                                        RedirectStandardError = true
+                                                    };
+                                                    using var p = Process.Start(psi);
+                                                    p?.WaitForExit(30000);
+                                                    var builtNcas = Directory.GetFiles(ctrlOutDir, "*.nca");
+                                                    if (builtNcas.Length > 0 && new FileInfo(builtNcas[0]).Length > 0)
+                                                    {
+                                                        File.Copy(builtNcas[0], controlPath, true);
+                                                        try { Directory.Delete(ctrlWorkDir, true); } catch { }
+                                                        App.Logger.Log($"[HardPatchEngine] Control NCA пересобран из {System.IO.Path.GetFileName(file)} (BaseTID={baseTidHex.ToUpperInvariant()}, без TitleRights) -> {controlPath}", Models.LogLevel.Success);
+                                                        return controlPath;
+                                                    }
+                                                }
+                                            }
+                                            try { Directory.Delete(ctrlWorkDir, true); } catch { }
+                                        }
+                                        catch (Exception rex)
+                                        {
+                                            App.Logger.Log($"[HardPatchEngine] Предупреждение пересборки Control NCA: {rex.Message}", Models.LogLevel.Warning);
+                                        }
+                                    }
+
                                     using var outStream = new FileStream(controlPath, FileMode.Create, FileAccess.Write);
                                     ncaFile.AsStream().CopyTo(outStream);
                                     if (File.Exists(controlPath) && new FileInfo(controlPath).Length > 0)
@@ -2166,6 +2241,237 @@ namespace StormSwitchBox.Services
             }
 
             return "";
+        }
+
+        /// <summary>
+        /// Нативный гибридный распаковщик Base + Update (LibHac + hactoolnet fallback) для тех случаев,
+        /// когда обновление не содержит BKTR Patch NCA (например, ExeFS-only обновление New Super Mario Bros U Deluxe v131072)
+        /// и yanu-cli unpack завершается с ошибкой "Failed to find Patch NCA".
+        /// </summary>
+        private static void ExtractVirtualFsToDisk(IFileSystem fs, string subPath, string destinationDirectory, CancellationToken token)
+        {
+            Directory.CreateDirectory(destinationDirectory);
+            foreach (var entry in fs.EnumerateEntries(subPath, "*"))
+            {
+                token.ThrowIfCancellationRequested();
+                string destPath = System.IO.Path.Combine(destinationDirectory, entry.Name);
+                if (entry.Type == DirectoryEntryType.Directory)
+                {
+                    ExtractVirtualFsToDisk(fs, entry.FullPath, destPath, token);
+                }
+                else
+                {
+                    try
+                    {
+                        using var fileRef = new UniqueRef<IFile>();
+                        using var entryPath = new LibHac.Fs.Path();
+                        entryPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(entry.FullPath))).ThrowIfFailure();
+                        if (fs.OpenFile(ref fileRef.Ref, in entryPath, OpenMode.Read).IsSuccess())
+                        {
+                            using var inStream = fileRef.Release().AsStream();
+                            using var outStream = new FileStream(destPath, FileMode.Create, FileAccess.Write);
+                            inStream.CopyTo(outStream);
+                        }
+                    }
+                    catch { }
+                }
+            }
+        }
+
+        private static string? FindHacpack()
+        {
+            string appDir = AppDomain.CurrentDomain.BaseDirectory;
+            string[] searchPaths = new[]
+            {
+                System.IO.Path.Combine(appDir, "tools", "hacpack.exe"),
+                System.IO.Path.Combine(appDir, "tools", "com.github.nozwock.yanu", "hacpack.exe"),
+                System.IO.Path.Combine(appDir, "..", "..", "..", "tools", "hacpack.exe"),
+                System.IO.Path.Combine(appDir, "..", "..", "..", "..", "tools", "hacpack.exe"),
+                System.IO.Path.Combine(appDir, "..", "..", "..", "..", "..", "tools", "hacpack.exe")
+            };
+            foreach (var p in searchPaths)
+            {
+                if (File.Exists(p)) return p;
+            }
+            return null;
+        }
+
+        private static string? FindKeysFile()
+        {
+            if (!string.IsNullOrEmpty(App.Settings?.Current?.KeysPath) && File.Exists(App.Settings.Current.KeysPath))
+                return App.Settings.Current.KeysPath;
+            string def = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "prod.keys");
+            if (File.Exists(def)) return def;
+            return null;
+        }
+
+        private static void ExtractLibHacRomFsAndExeFs(
+            string baseFile,
+            string? updateFile,
+            string patchRomFs,
+            string patchExeFs,
+            KeysService keysService,
+            CancellationToken token)
+        {
+            try
+            {
+                LibHac.Tools.FsSystem.NcaUtils.Nca? baseProgNca = null;
+                var openedStreams = new List<IDisposable>();
+                try
+                {
+                    foreach (var srcFile in new[] { baseFile, updateFile })
+                    {
+                        if (string.IsNullOrEmpty(srcFile) || !File.Exists(srcFile)) continue;
+                        bool isXci = srcFile.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) || srcFile.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase);
+                        var fs = new FileStream(srcFile, FileMode.Open, FileAccess.Read, FileShare.Read);
+                        openedStreams.Add(fs);
+                        IStorage storage = fs.AsStorage();
+                        IFileSystem? pfs = null;
+
+                        if (isXci)
+                        {
+                            storage.GetSize(out long sz).ThrowIfFailure();
+                            if (sz > 0x10000)
+                            {
+                                var rootPfs = new PartitionFileSystem(new SubStorage(storage, 0x10000, sz - 0x10000));
+                                using var secFile = new UniqueRef<IFile>();
+                                using var secPath = new LibHac.Fs.Path();
+                                secPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes("/secure"))).ThrowIfFailure();
+                                if (rootPfs.OpenFile(ref secFile.Ref, in secPath, OpenMode.Read).IsSuccess())
+                                    pfs = new PartitionFileSystem(secFile.Release().AsStorage());
+                            }
+                        }
+                        else
+                        {
+                            pfs = new PartitionFileSystem(storage);
+                        }
+
+                        if (pfs == null) continue;
+                        SmartShrinkService.HarvestTicketsFromFileSystem(pfs, keysService.CurrentKeyset);
+
+                        foreach (var entry in pfs.EnumerateEntries().Where(e => e.Name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase)))
+                        {
+                            using var ncaRef = new UniqueRef<IFile>();
+                            using var ncaPath = new LibHac.Fs.Path();
+                            ncaPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(entry.FullPath))).ThrowIfFailure();
+                            if (!pfs.OpenFile(ref ncaRef.Ref, in ncaPath, OpenMode.Read).IsSuccess()) continue;
+
+                            var nca = new LibHac.Tools.FsSystem.NcaUtils.Nca(keysService.CurrentKeyset, ncaRef.Release().AsStorage());
+                            KeysService.RegisterRightsIdFallback(keysService.CurrentKeyset, nca);
+
+                            if (nca.Header.ContentType == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Program)
+                            {
+                                bool isUpdateContainer = !string.IsNullOrEmpty(updateFile) && srcFile.Equals(updateFile, StringComparison.OrdinalIgnoreCase);
+                                if (!isUpdateContainer && baseProgNca == null)
+                                    baseProgNca = nca;
+
+                                // Извлекаем ExeFS (Code)
+                                try
+                                {
+                                    if (nca.CanOpenSection(LibHac.Tools.FsSystem.NcaUtils.NcaSectionType.Code))
+                                    {
+                                        var codeFs = nca.OpenFileSystem(LibHac.Tools.FsSystem.NcaUtils.NcaSectionType.Code, LibHac.Tools.FsSystem.IntegrityCheckLevel.None);
+                                        ExtractVirtualFsToDisk(codeFs, "/", patchExeFs, token);
+                                    }
+                                    else if (isUpdateContainer && baseProgNca != null && nca.SectionExists(LibHac.Tools.FsSystem.NcaUtils.NcaSectionType.Code))
+                                    {
+                                        var codeFs = baseProgNca.OpenFileSystemWithPatch(nca, LibHac.Tools.FsSystem.NcaUtils.NcaSectionType.Code, LibHac.Tools.FsSystem.IntegrityCheckLevel.None);
+                                        ExtractVirtualFsToDisk(codeFs, "/", patchExeFs, token);
+                                    }
+                                }
+                                catch { }
+
+                                // Извлекаем RomFS (Data) только если в контейнере она еще не распакована или это Update
+                                try
+                                {
+                                    bool romfsEmpty = !Directory.EnumerateFileSystemEntries(patchRomFs).Any();
+                                    if (romfsEmpty || isUpdateContainer)
+                                    {
+                                        if (nca.CanOpenSection(LibHac.Tools.FsSystem.NcaUtils.NcaSectionType.Data))
+                                        {
+                                            var dataFs = nca.OpenFileSystem(LibHac.Tools.FsSystem.NcaUtils.NcaSectionType.Data, LibHac.Tools.FsSystem.IntegrityCheckLevel.None);
+                                            ExtractVirtualFsToDisk(dataFs, "/", patchRomFs, token);
+                                        }
+                                        else if (isUpdateContainer && baseProgNca != null && nca.SectionExists(LibHac.Tools.FsSystem.NcaUtils.NcaSectionType.Data))
+                                        {
+                                            var dataFs = baseProgNca.OpenFileSystemWithPatch(nca, LibHac.Tools.FsSystem.NcaUtils.NcaSectionType.Data, LibHac.Tools.FsSystem.IntegrityCheckLevel.None);
+                                            ExtractVirtualFsToDisk(dataFs, "/", patchRomFs, token);
+                                        }
+                                    }
+                                }
+                                catch { }
+                            }
+                        }
+                    }
+                }
+                finally
+                {
+                    foreach (var d in openedStreams)
+                    {
+                        try { d.Dispose(); } catch { }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Logger.Log($"[HardPatchEngine] Предупреждение LibHac RomFS/ExeFS fallback: {ex.Message}", Models.LogLevel.Warning);
+            }
+        }
+
+        private static async Task ExtractMergedRomFsNativeFallbackAsync(
+            string baseFile,
+            string? updateFile,
+            string tempUnpack,
+            string? keysPath,
+            string isolatedUserProfile,
+            KeysService keysService,
+            CancellationToken token)
+        {
+            string patchRomFs = System.IO.Path.Combine(tempUnpack, "patchdata", "romfs");
+            string patchExeFs = System.IO.Path.Combine(tempUnpack, "patchdata", "exefs");
+            Directory.CreateDirectory(patchRomFs);
+            Directory.CreateDirectory(patchExeFs);
+
+            // 1. Сначала пробуем hactoolnet (распаковывает RomFS и ExeFS из Base, затем поверх накатывает Update)
+            ExtractRomFsWithHactoolnet(baseFile, updateFile, patchRomFs, keysPath, isolatedUserProfile);
+
+            string? hactoolnetPath = FindHactoolnet();
+            if (!string.IsNullOrEmpty(hactoolnetPath) && File.Exists(hactoolnetPath))
+            {
+                try
+                {
+                    string titleKeysPath = System.IO.Path.Combine(isolatedUserProfile, ".switch", "title.keys");
+                    if (!File.Exists(titleKeysPath))
+                        titleKeysPath = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "title.keys");
+                    string tkFlag = File.Exists(titleKeysPath) ? $"--titlekeys \"{titleKeysPath}\" " : "";
+                    string kFlag = (!string.IsNullOrEmpty(keysPath) && File.Exists(keysPath)) ? $"-k \"{keysPath}\" " : "";
+
+                    foreach (var srcFile in new[] { baseFile, updateFile })
+                    {
+                        if (string.IsNullOrEmpty(srcFile) || !File.Exists(srcFile)) continue;
+                        string tFlag = (srcFile.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) || srcFile.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase)) ? "-t xci" : "-t pfs0";
+                        var psi = new ProcessStartInfo
+                        {
+                            FileName = hactoolnetPath,
+                            Arguments = $"{kFlag}{tkFlag}{tFlag} --exefsdir \"{patchExeFs}\" \"{srcFile}\"",
+                            UseShellExecute = false,
+                            RedirectStandardOutput = true,
+                            RedirectStandardError = true,
+                            CreateNoWindow = true
+                        };
+                        psi.EnvironmentVariables["USERPROFILE"] = isolatedUserProfile;
+                        using var proc = Process.Start(psi);
+                        if (proc != null) await proc.WaitForExitAsync(token);
+                    }
+                }
+                catch { }
+            }
+
+            // 2. Извлекаем через LibHac Virtual FS из Base и Update (включая Program NCA без BKTR и BKTR с BaseNca)
+            ExtractLibHacRomFsAndExeFs(baseFile, updateFile, patchRomFs, patchExeFs, keysService, token);
+
+            // 3. Извлекаем и перепаковываем Control NCA из Update (с версией 1.0.2 и базовым TitleID)
+            ExtractControlNcaIfMissing(baseFile, updateFile, tempUnpack, keysService);
         }
 
         private static string? FindHactoolnet()

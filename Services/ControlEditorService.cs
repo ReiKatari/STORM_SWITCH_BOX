@@ -196,10 +196,23 @@ namespace StormSwitchBox.Services
                 Directory.CreateDirectory(romfsDir);
                 Directory.CreateDirectory(outNcaDir);
 
-                // 1. Подготовка control.nacp
-                byte[] nacpData = model.RawNacpBytes != null && model.RawNacpBytes.Length >= 0x4000 
-                    ? (byte[])model.RawNacpBytes.Clone() 
-                    : new byte[0x4000];
+                // 1. Подготовка control.nacp (сначала читаем актуальный NACP из уже собранного контейнера, чтобы не затереть DisplayVersion 1.0.2 старым 1.0.0 из базовой игры)
+                byte[]? currentTargetNacp = null;
+                try
+                {
+                    var currentMeta = await ExtractMetadataAsync(targetNspPath);
+                    if (currentMeta?.RawNacpBytes != null && currentMeta.RawNacpBytes.Length >= 0x4000)
+                    {
+                        currentTargetNacp = currentMeta.RawNacpBytes;
+                    }
+                }
+                catch { }
+
+                byte[] nacpData = currentTargetNacp != null
+                    ? (byte[])currentTargetNacp.Clone()
+                    : (model.RawNacpBytes != null && model.RawNacpBytes.Length >= 0x4000
+                        ? (byte[])model.RawNacpBytes.Clone()
+                        : new byte[0x4000]);
 
                 string finalEngName = !string.IsNullOrEmpty(model.TitleNameEnglish) ? model.TitleNameEnglish : model.TitleNameRussian;
                 string finalRusName = !string.IsNullOrEmpty(model.TitleNameRussian) ? model.TitleNameRussian : model.TitleNameEnglish;

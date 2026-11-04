@@ -1,29 +1,31 @@
-> 💡 **Релиз 6.8.9** — *Высокоточный поисковый движок RuTracker с контролем опечаток (перестановка букв и 1 неверная буква без ложных совпадений), исправление инициализации WebView2 и Same-Origin CDP в WinUI 3, автоматическая сборка задач по умолчанию и обновление индекса раздач*
+> 💡 **Релиз 6.9.0** — *Поддержка мульти-игровых раздач и слот-менеджер RuTracker, расширенное кэширование обложек с управлением автозагрузкой, гибридный распаковщик RomFS/ExeFS для нестандартных обновлений и синхронизация Android-клиента*
 
 ---
 
 ### 🚀 Ключевые изменения и улучшения
-- 🌟 **[Поисковый движок RuTracker] Точный поиск с умным допуском 1 опечатки или перестановки букв**: полностью переработан алгоритм ранжирования раздач в Windows (`RuTrackerModService.cs`) и Android (`RuTrackerCloudEngine.kt`). Удалён шумный фонетический скелет (`PhoneticSkeleton`), вызывавший ложные срабатывания на посторонние игры (например, выдача `Angels of Death` и `Gears of War 2` при поиске `Aggelos`). Теперь поиск работает строго по введённому запросу с допуском ровно одной перестановки соседних букв (`IsSingleLetterSwap`) или одной неправильной/пропущенной буквы (`DamerauLevenshtein <= 1`), а словарь синонимов сопоставляется строго по границам целых слов.
-- 🌟 **[WebView2 и Same-Origin CDP] Устранение ошибок NullReferenceException при фоновом обходе**: исправлена ранняя инициализация `CloudflareWebView` до включения `ContentDialog` в визуальное дерево WinUI 3 (`RuTrackerModDownloaderDialog.xaml.cs`). Добавлен потокобезопасный менеджер `EnsureWebViewInitializedAsync` с выделенным пользовательским каталогом `%LOCALAPPDATA%\STORM SWITCH BOX\WebView2`, синхронизацией через события `Opened` / `Loaded` и защитой вызовов `CallDevToolsProtocolMethodAsync`.
-- 🌟 **[Диспетчер задач и Автосборка] Полный паритет конвейера задач Windows и Android**: опция автоматической сборки после скачивания раздачи и модов (`AutoBuild`) теперь включена по умолчанию на Windows аналогично Android. Все обновления свойств задачи и привязка скачанных файлов (`NSP`, `NSZ`, `XCI`, `XCZ`, `NUP`, `NRO`, `3DS`, `CIA`) выполняются потокобезопасно в потоке UI, а при ручном отключении автосборки задача корректно переводится в статус `Ожидание` для запуска из основной очереди.
+- 🌟 **[RuTracker Слот-Менеджер Мульти-Раздач] Поддержка комплектов игр и сборников в одном торренте**: модуль RuTracker теперь полноценно поддерживает раздачи, содержащие несколько независимых игр (например, антологии, бандлы или сплит-версии). В интерфейс добавлен динамический менеджер игровых слотов (`RuTrackerGameSlotItem`, бейджи `ИГРА #1`, `ИГРА #2`), позволяющий индивидуально настраивать заголовок мода, ручные ссылки и фильтровать файлы торрента для каждой игры в отдельную сборочную задачу.
+- 🌟 **[Кэш Обложек и Настройки] Умный сервис кэширования обложек (`CoverCacheService`)**: внедрено централизованное кэширование постеров и обложек игр с многоуровневым поиском (папки лаунчера, системные директории, эмуляторы). Добавлена пользовательская настройка `AutoDownloadCovers` («Автоматически загружать обложки игр») на вкладке «Параметры», исключающая нежелательный сетевой трафик и фоновые дисковые операции при отключении.
+- 🌟 **[Hard Patch Engine] Гибридный LibHac/Hactoolnet распаковщик для Non-BKTR обновлений**: реализован отказоустойчивый нативный распаковщик RomFS и ExeFS (`ExtractMergedRomFsNativeFallbackAsync`), перехватывающий ошибки `yanu-cli unpack` в случаях, когда обновление игры не содержит дельта-патча BKTR (например, ExeFS-only или чистые накопительные апдейты). Добавлена автоматическая перепаковка `Control NCA` через `hacpack` в чистый `StandardCrypto` с базовым TitleID.
+- 🌟 **[Android Паритет и Синхронизация] Релиз 6.9.0 для Android**: обновлены версия и код сборки (`versionCode = 690`, `versionName = "6.9.0"`), обеспечена 100% совместимость с API RuTracker и синхронизация обеих редакций пакетов (`Modern` 64-bit и `Legacy` 32-bit).
 
 <details>
 <summary><b>📋 Полный список изменений (нажмите, чтобы развернуть)</b></summary>
 
-- 🔹 **[Точный поиск и фильтрация тегов]**: из поискового индекса слов исключены технические теги релиза (`NSP`, `NSZ`, `XCI`, `RUS`, `Multi`, `Update`, `DLC`), сохранены альтернативные и русские названия игр в скобках (`CleanTitleKeepAltNames`).
-- 🔹 **[Контроль опечаток]**: внедрён детектор перестановки двух букв (`IsSingleLetterSwap`) и жёсткий порог расстояния Дамерау-Левенштейна `<= 1` с проверкой первой буквы слова.
-- 🔹 **[Жизненный цикл WebView2 в WinUI 3]**: исключён вызов `EnsureCoreWebView2Async()` в конструкторе диалога до открытия окна; добавлена инициализация `CoreWebView2Environment` с правами записи при запуске от имени администратора.
-- 🔹 **[Синхронизация API RuTracker #1605]**: исправлен парсинг JSON-структуры `result` из `api.rutracker.cc/v1/static/pvc/f/1605` и очистка `CDATA`-заголовков Atom-ленты; локальный индекс обогащён новыми релизами Nintendo Switch и Switch 2 (`7 285` тем).
-- 🔹 **[Потокобезопасность очереди задач]**: устранены кросс-поточные обращения к `ObservableCollection` и `SolidColorBrush` (`RPC_E_WRONG_THREAD`) в фоновом конвейере `ExecuteRuTrackerPipelineAsync`.
+- 🔹 **[Слот-менеджер RuTracker]**: реализованы классы `RuTrackerGameSlotItem` с привязкой к визуальному дереву диалога, поддержкой раздельной маски файлов и индивидуальных ссылок модификаций.
+- 🔹 **[Опция AutoDownloadCovers]**: в `AppSettings.cs` и `SettingsPage.xaml` добавлен тумблер управления фоновой загрузкой постеров с сохранением в конфигурационный JSON.
+- 🔹 **[Отказоустойчивость HardPatchEngine]**: устранены сбои слияния RomFS/ExeFS для игр со сложной структурой разделов, поддержана регенерация `control.nacp` и иконок для базового `TitleID`.
+- 🔹 **[Синхронизация Android]**: актуализированы строковые ресурсы, заголовки лога и карточка обновления `RuTrackerCloudEngine`.
+- 🔹 **[Контроль целостности инсталлятора]**: обновлена конфигурация `StormInstaller` и манифесты сборщика.
 
 </details>
 
 <details>
 <summary><b>🌐 English Changelog (click to expand)</b></summary>
 
-- 🔸 **Precision RuTracker Search with Single-Typo and Transposition Tolerance**: overhauled the search scoring engine across Windows (`RuTrackerModService.cs`) and Android (`RuTrackerCloudEngine.kt`). Removed noisy consonant skeleton matching and restricted fuzzy matching to exact words, valid prefixes, single letter swaps (`IsSingleLetterSwap`), and a strict Damerau-Levenshtein distance of `<= 1`.
-- 🔸 **WinUI 3 WebView2 and Same-Origin CDP NullReferenceException Fix**: deferred `CloudflareWebView` initialization until `ContentDialog.Opened` / `Loaded` in the visual tree with a dedicated `%LOCALAPPDATA%\STORM SWITCH BOX\WebView2` environment and full null-safety guards before CDP `Runtime.evaluate` calls.
-- 🔸 **Windows and Android Task Pipeline Parity**: enabled automatic multi-content build (`AutoBuild`) by default on Windows to match Android, added UI-thread marshaling for all task updates, and ensured tasks with `AutoBuild` disabled transition cleanly to the `Pending` queue state.
+- 🔸 **RuTracker Multi-Game Slot Manager**: added support for multi-game torrent bundles with per-game slot configuration (`RuTrackerGameSlotItem`, badges `GAME #1`, `GAME #2`), allowing independent mod title customization, manual link routing, and selective file assignment per task.
+- 🔸 **Advanced Cover Cache Service with User Toggle**: integrated central cover cache engine (`CoverCacheService.cs`) with multi-tier folder resolution and added the `AutoDownloadCovers` setting in Settings to avoid unwanted background web downloads.
+- 🔸 **Hard Patch Engine Native RomFS/ExeFS Hybrid Fallback**: added automatic fallback unpacking via LibHac and hactoolnet for updates lacking BKTR patch NCAs, with automatic `Control NCA` standard crypto repackaging.
+- 🔸 **Android Parity 6.9.0**: bumped version to 6.9.0 (`versionCode 690`) across Modern and Legacy editions.
 
 </details>
 

@@ -95,6 +95,11 @@ namespace StormSwitchBox.Services
                 {
                     try
                     {
+                        if (App.Settings?.Current?.AutoDownloadCovers != true)
+                        {
+                            continue;
+                        }
+
                         if (File.Exists(item.LocalPath) && new FileInfo(item.LocalPath).Length > 200)
                         {
                             _memoryUrlMap[item.OriginalKey] = item.LocalPath;
@@ -173,7 +178,8 @@ namespace StormSwitchBox.Services
             var candidates = GetCandidateUrls(rawUrl, system, title, titleId);
             string primaryUrl = candidates.Count > 0 ? candidates[0] : "ms-appx:///Assets/placeholder_cover.png";
 
-            if (_queuedUrls.TryAdd(key, true))
+            // Фоновое скачивание обложек на диск выполняется ТОЛЬКО если включена опция AutoDownloadCovers в настройках
+            if (App.Settings?.Current?.AutoDownloadCovers == true && _queuedUrls.TryAdd(key, true))
             {
                 _downloadChannel.Writer.TryWrite(new DownloadItem
                 {
@@ -211,6 +217,10 @@ namespace StormSwitchBox.Services
             }
 
             var candidates = GetCandidateUrls(rawUrl, system, title, titleId);
+            if (App.Settings?.Current?.AutoDownloadCovers != true)
+            {
+                return candidates.Count > 0 ? candidates[0] : "ms-appx:///Assets/placeholder_cover.png";
+            }
 
             try
             {
@@ -464,6 +474,86 @@ namespace StormSwitchBox.Services
             }
             catch { }
             return ".png";
+        }
+
+        public static string GetCoversDirectory() => _baseCoversDirectory;
+
+        public static List<string> GetAllCandidateCoverDirectories()
+        {
+            var dirs = new List<string>();
+            if (!string.IsNullOrWhiteSpace(_baseCoversDirectory))
+                dirs.Add(_baseCoversDirectory);
+
+            string localAppDataCovers = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "StormSwitchBox",
+                "covers");
+            if (!dirs.Contains(localAppDataCovers, StringComparer.OrdinalIgnoreCase))
+                dirs.Add(localAppDataCovers);
+
+            string appBaseCovers = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "covers");
+            if (!dirs.Contains(appBaseCovers, StringComparer.OrdinalIgnoreCase))
+                dirs.Add(appBaseCovers);
+
+            return dirs;
+        }
+
+        public static (int FileCount, long TotalBytes) GetCacheStats()
+        {
+            int count = 0;
+            long bytes = 0;
+            foreach (var dir in GetAllCandidateCoverDirectories())
+            {
+                try
+                {
+                    if (!Directory.Exists(dir)) continue;
+                    foreach (var f in Directory.EnumerateFiles(dir, "*.*", SearchOption.AllDirectories))
+                    {
+                        try
+                        {
+                            count++;
+                            bytes += new FileInfo(f).Length;
+                        }
+                        catch { }
+                    }
+                }
+                catch { }
+            }
+            return (count, bytes);
+        }
+
+        public static (int DeletedFiles, long FreedBytes) PurgeCoverCache()
+        {
+            while (_downloadChannel.Reader.TryRead(out _)) { }
+            _queuedUrls.Clear();
+            _memoryUrlMap.Clear();
+
+            int deleted = 0;
+            long freed = 0;
+            foreach (var dir in GetAllCandidateCoverDirectories())
+            {
+                try
+                {
+                    if (!Directory.Exists(dir)) continue;
+                    foreach (var f in Directory.EnumerateFiles(dir, "*.*", SearchOption.AllDirectories))
+                    {
+                        try
+                        {
+                            long len = new FileInfo(f).Length;
+                            File.Delete(f);
+                            deleted++;
+                            freed += len;
+                        }
+                        catch { }
+                    }
+                    foreach (var sub in Directory.EnumerateDirectories(dir))
+                    {
+                        try { Directory.Delete(sub, true); } catch { }
+                    }
+                }
+                catch { }
+            }
+            return (deleted, freed);
         }
     }
 }
