@@ -4057,9 +4057,48 @@ object RuTrackerCloudEngine {
             "https://corsproxy.io/?" + java.net.URLEncoder.encode("http://bt.t-ru.org/ann?magnet&$queryParams", "UTF-8")
         )
 
+        val btHosts = listOf("bt.t-ru.org", "bt2.t-ru.org", "bt3.t-ru.org", "bt4.t-ru.org")
+        val cfEdges = listOf("188.114.96.3", "188.114.97.3", "104.21.32.39", "172.67.182.196")
+
         kotlin.concurrent.thread(name = "http-tracker-harvester", isDaemon = true) {
             val pool = java.util.concurrent.Executors.newFixedThreadPool(6)
             try {
+                // 1. Обход ТСПУ DPI методом HTTP/1.1 Pipelining к bt.t-ru.org..bt4.t-ru.org через граничные IP Cloudflare
+                for (btHost in btHosts) {
+                    if (isCancelled()) break
+                    pool.execute {
+                        if (isCancelled()) return@execute
+                        val reqStr = "GET / HTTP/1.1\r\nHost: cloudflare.com\r\n\r\n" +
+                            "GET /ann?magnet&$queryParams HTTP/1.1\r\n" +
+                            "Host: $btHost\r\n" +
+                            "User-Agent: uTorrent/3550\r\n" +
+                            "Accept-Encoding: identity\r\n" +
+                            "Connection: close\r\n\r\n"
+                        val reqBytes = reqStr.toByteArray(Charsets.US_ASCII)
+                        for (edgeIp in cfEdges) {
+                            if (isCancelled()) break
+                            var sock: java.net.Socket? = null
+                            try {
+                                sock = java.net.Socket()
+                                sock.tcpNoDelay = true
+                                sock.soTimeout = 4000
+                                sock.connect(java.net.InetSocketAddress(edgeIp, 80), 3500)
+                                sock.getOutputStream().write(reqBytes)
+                                sock.getOutputStream().flush()
+                                val respBytes = sock.getInputStream().readBytes()
+                                if (respBytes.isNotEmpty() && String(respBytes, Charsets.ISO_8859_1).contains("5:peers")) {
+                                    parseAndInjectBencodedPeers(respBytes, h, th)
+                                    break
+                                }
+                            } catch (_: Throwable) {
+                            } finally {
+                                try { sock?.close() } catch (_: Throwable) {}
+                            }
+                        }
+                    }
+                }
+
+                // 2. Прямой опрос глобальных HTTP/HTTPS трекеров
                 for (annUrl in announceUrls) {
                     if (isCancelled()) break
                     pool.execute {

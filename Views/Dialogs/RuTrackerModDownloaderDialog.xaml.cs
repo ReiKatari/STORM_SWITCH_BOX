@@ -992,6 +992,11 @@ namespace StormSwitchBox.Views.Dialogs
                 if (_targetTask != null && idx == 0 && activeSlots.Count == 1)
                 {
                     task = _targetTask;
+                    if (!string.IsNullOrWhiteSpace(slotTitle))
+                    {
+                        task.GameName = slotTitle;
+                        task.OutputFileName = SanitizeFolderName(slotTitle);
+                    }
                     task.IsRuTrackerTask = true;
                     task.DeleteSourceAfterVerify = deleteRtSource;
                     task.RuTrackerPayload = payload;
@@ -1416,6 +1421,12 @@ namespace StormSwitchBox.Views.Dialogs
                 {
                     task.Operation = "Multi";
                     task.SourceFormat = "MULTI";
+                }
+                if (task.RuTrackerPayload != null && !string.IsNullOrWhiteSpace(task.RuTrackerPayload.SlotGameTitle))
+                {
+                    task.GameName = task.RuTrackerPayload.SlotGameTitle.Trim();
+                    if (string.IsNullOrWhiteSpace(task.OutputFileName))
+                        task.OutputFileName = SanitizeFolderName(task.GameName);
                 }
                 string formattedName = MultiContentService.FormatOutputFileName(
                     Path.Combine(task.OutputFolder, task.OutputFileName + task.GetPrimaryExtension()), 

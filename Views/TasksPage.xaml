@@ -37,12 +37,24 @@
                 </AppBarButton.Icon>
                 <AppBarButton.Flyout>
                     <MenuFlyout>
-                        <MenuFlyoutItem x:Name="AddFilesItem" Text="Добавить файлы..." Click="AddFiles_Click"/>
-                        <MenuFlyoutItem x:Name="AddFolderItem" Text="Добавить папку..." Click="AddFolder_Click"/>
+                        <MenuFlyoutItem x:Name="AddFilesItem" Text="Добавить файлы..." Click="AddFiles_Click">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE8E5;"/>
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem x:Name="AddFolderItem" Text="Добавить папку..." Click="AddFolder_Click">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE8B7;"/>
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
 
                         <MenuFlyoutSeparator/>
 
-                        <MenuFlyoutItem Text="🌐 Скачать игру / патч / мод (RuTracker / Я.Диск / GDrive)..." Click="OpenRuTrackerDownloader_Click"/>
+                        <MenuFlyoutItem Text="Скачать игру / патч / мод (RuTracker / Я.Диск / GDrive)..." Click="OpenRuTrackerDownloader_Click">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE774;" Foreground="#38BDF8"/>
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
                     </MenuFlyout>
                 </AppBarButton.Flyout>
             </AppBarButton>
@@ -135,13 +147,33 @@
                 </AppBarButton.Icon>
                 <AppBarButton.Flyout>
                     <MenuFlyout>
-                        <MenuFlyoutItem Text="🌐 RuTracker и Облачный загрузчик игр / модов..." Click="OpenRuTrackerDownloader_Click"/>
+                        <MenuFlyoutItem Text="RuTracker и Облачный загрузчик игр / модов..." Click="OpenRuTrackerDownloader_Click">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE774;" Foreground="#38BDF8"/>
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
 
-                        <MenuFlyoutItem Text="📡 Отправить на консоль (Wi-Fi / FTP / FBI QR)..." Click="OpenDirectConsoleSender_Click"/>
+                        <MenuFlyoutItem Text="Отправить на консоль (Wi-Fi / FTP / FBI QR)..." Click="OpenDirectConsoleSender_Click">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE701;" Foreground="#22C55E"/>
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
                         <MenuFlyoutSeparator/>
-                        <MenuFlyoutItem Text="🔍 Визуальный инспектор RomFS / ExeFS..." Click="OpenRomFsInspector_Click"/>
-                        <MenuFlyoutItem Text="🗂 Конструктор мульти-картриджей XCI / XCZ..." Click="OpenMultiCartridgeBuilder_Click"/>
-                        <MenuFlyoutItem Text="🛡 Аудитор и дедупликатор коллекции игр..." Click="OpenLibraryAuditor_Click"/>
+                        <MenuFlyoutItem Text="Визуальный инспектор RomFS / ExeFS..." Click="OpenRomFsInspector_Click">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE721;"/>
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem Text="Конструктор мульти-картриджей XCI / XCZ..." Click="OpenMultiCartridgeBuilder_Click">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE8F1;"/>
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem Text="Аудитор и дедупликатор коллекции игр..." Click="OpenLibraryAuditor_Click">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE83D;"/>
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
                     </MenuFlyout>
                 </AppBarButton.Flyout>
             </AppBarButton>
@@ -389,13 +421,13 @@
                                 <FontIcon Glyph="&#xE70F;" Foreground="#82B1FF"/>
                             </MenuFlyoutItem.Icon>
                         </MenuFlyoutItem>
-                        <MenuFlyoutItem Text="⏸ Приостановить выполнение задачи" Click="PauseTask_Click" MinWidth="300"
+                        <MenuFlyoutItem Text="Приостановить выполнение задачи" Click="PauseTask_Click" MinWidth="300"
                                         Visibility="{Binding PauseButtonVisibility, Mode=OneWay}">
                             <MenuFlyoutItem.Icon>
                                 <FontIcon Glyph="&#xE769;" Foreground="#F59E0B"/>
                             </MenuFlyoutItem.Icon>
                         </MenuFlyoutItem>
-                        <MenuFlyoutItem Text="▶️ Возобновить выполнение задачи" Click="ResumeTask_Click" MinWidth="300"
+                        <MenuFlyoutItem Text="Возобновить выполнение задачи" Click="ResumeTask_Click" MinWidth="300"
                                         Visibility="{Binding ResumeButtonVisibility, Mode=OneWay}">
                             <MenuFlyoutItem.Icon>
                                 <FontIcon Glyph="&#xE768;" Foreground="#10B981"/>
@@ -614,13 +646,13 @@
                                 <FontIcon Glyph="&#xE70F;"/>
                             </MenuFlyoutItem.Icon>
                         </MenuFlyoutItem>
-                        <MenuFlyoutItem Text="⏸ Приостановить выполнение задачи" Click="PauseTask_Click" MinWidth="300"
+                        <MenuFlyoutItem Text="Приостановить выполнение задачи" Click="PauseTask_Click" MinWidth="300"
                                         Visibility="{Binding PauseButtonVisibility, Mode=OneWay}">
                             <MenuFlyoutItem.Icon>
                                 <FontIcon Glyph="&#xE769;" Foreground="#F59E0B"/>
                             </MenuFlyoutItem.Icon>
                         </MenuFlyoutItem>
-                        <MenuFlyoutItem Text="▶️ Возобновить выполнение задачи" Click="ResumeTask_Click" MinWidth="300"
+                        <MenuFlyoutItem Text="Возобновить выполнение задачи" Click="ResumeTask_Click" MinWidth="300"
                                         Visibility="{Binding ResumeButtonVisibility, Mode=OneWay}">
                             <MenuFlyoutItem.Icon>
                                 <FontIcon Glyph="&#xE768;" Foreground="#10B981"/>

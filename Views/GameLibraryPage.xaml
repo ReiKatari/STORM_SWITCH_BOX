@@ -364,7 +364,7 @@
                     <Button Click="DialogSearchWeb_Click" HorizontalAlignment="Stretch" Height="40" CornerRadius="8">
                         <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
                             <FontIcon Glyph="&#xE721;" FontSize="14"/>
-                            <TextBlock x:Name="DialogSearchWebTextBlock" Text="🔍 Найти информацию в сети" FontWeight="SemiBold" FontSize="13"/>
+                            <TextBlock x:Name="DialogSearchWebTextBlock" Text="Найти информацию в сети" FontWeight="SemiBold" FontSize="13"/>
                         </StackPanel>
                     </Button>
                 </StackPanel>

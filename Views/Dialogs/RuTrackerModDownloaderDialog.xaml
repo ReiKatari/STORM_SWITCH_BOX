@@ -104,20 +104,20 @@
                           ToolTipService.ToolTip="Разрешать домен RuTracker через защищённый DoH (1.1.1.1 / 8.8.8.8) в обход DNS-блокировок провайдера"/>
 
                 <TextBox x:Name="ProxyBox" Grid.Row="0" Grid.Column="2" Header="HTTP / SOCKS5 Прокси (необязательно)"
-                         PlaceholderText="Напр. socks5://127.0.0.1:1080 или http://127.0.0.1:8080" VerticalContentAlignment="Center" CornerRadius="6"/>
+                         PlaceholderText="Напр. socks5://127.0.0.1:1080 или http://127.0.0.1:8080" Loaded="CenteredInput_Loaded" VerticalContentAlignment="Center" CornerRadius="6"/>
 
                 <Button Grid.Row="0" Grid.Column="3" Content="Применить сеть" Click="ApplyNetworkSettings_Click"
                         VerticalAlignment="Bottom" CornerRadius="6" Padding="12,6"/>
 
                 <!-- Строка 2: Авторизация RuTracker (Логин / Пароль или Cookie bb_session) -->
                 <TextBox x:Name="LoginUserBox" Grid.Row="1" Grid.Column="0" Header="Логин RuTracker"
-                         PlaceholderText="Логин (необязательно)" VerticalContentAlignment="Center" CornerRadius="6"/>
+                         PlaceholderText="Логин (необязательно)" Loaded="CenteredInput_Loaded" VerticalContentAlignment="Center" CornerRadius="6"/>
 
                 <PasswordBox x:Name="LoginPassBox" Grid.Row="1" Grid.Column="1" Header="Пароль" Width="190"
-                             PlaceholderText="Пароль" Height="32" MinHeight="32" Padding="10,0,10,0" Loaded="CenteredInput_Loaded" VerticalAlignment="Center" VerticalContentAlignment="Center" CornerRadius="6"/>
+                             PlaceholderText="Введите пароль..." Loaded="CenteredInput_Loaded" VerticalContentAlignment="Center" CornerRadius="6"/>
 
                 <TextBox x:Name="CookieBox" Grid.Row="1" Grid.Column="2" Header="Или Cookie bb_session (для входа без пароля)"
-                         PlaceholderText="Вставьте значение cookie bb_session из браузера..." VerticalContentAlignment="Center" CornerRadius="6"/>
+                         PlaceholderText="Вставьте значение cookie bb_session из браузера..." Loaded="CenteredInput_Loaded" VerticalContentAlignment="Center" CornerRadius="6"/>
 
                 <Button x:Name="LoginBtn" Grid.Row="1" Grid.Column="3" Content="🔑 Войти" Click="LoginRuTracker_Click"
                         VerticalAlignment="Bottom" CornerRadius="6" Padding="12,6"/>
@@ -202,8 +202,9 @@
                 <!-- Верхняя карточка: Игры / Части в раздаче (Отдельные задачи с отдельным именем, русификатором и ссылками) -->
                 <Border Grid.Row="0" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="10">
-                    <Grid RowSpacing="6">
+                    <Grid RowSpacing="5">
                         <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="*"/>
                         </Grid.RowDefinitions>
@@ -217,7 +218,7 @@
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <TextBlock Text="🎮 Игры / Части в раздаче (отдельные задачи)" FontWeight="Bold" FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
-                                       ToolTipService.ToolTip="Каждая отмеченная часть создаст отдельную задачу со своим именем, набором файлов, русификатором и ссылками (поддерживается от 1 до 10+ игр в одной раздаче)"/>
+                                       ToolTipService.ToolTip="Каждая отмеченная часть создаст отдельную задачу со своим итоговым именем, набором файлов, русификатором и ссылками (поддерживается от 1 до 10+ игр в одной раздаче)"/>
                             <TextBlock x:Name="GameSlotsCountText" Grid.Column="1" Text="1 игра" Foreground="#38BDF8" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,4,0"/>
                             <Button Grid.Column="2" Content="🪄 Авто" Click="AutoSplitGames_Click" Padding="8,3" FontSize="11" CornerRadius="4"
                                     ToolTipService.ToolTip="Автоматически распознать части/игры из файлов раздачи и названия темы"/>
@@ -227,7 +228,19 @@
                                     ToolTipService.ToolTip="Удалить последнюю часть из списка"/>
                         </Grid>
 
-                        <ListView x:Name="GameSlotsListView" Grid.Row="1" SelectionMode="None" Background="#0DFFFFFF" CornerRadius="6" Padding="2">
+                        <Grid Grid.Row="1" ColumnSpacing="6" Padding="10,0,10,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="96"/>
+                                <ColumnDefinition Width="1.25*"/>
+                                <ColumnDefinition Width="0.95*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Задача / часть" FontSize="10.5" Foreground="#94A3B8" FontWeight="SemiBold"/>
+                            <TextBlock Grid.Column="1" Text="✏️ Итоговое имя игры / выходного файла:" FontSize="10.5" Foreground="#38BDF8" FontWeight="SemiBold"
+                                       ToolTipService.ToolTip="Укажите желаемое итоговое имя прямо здесь для каждой игры (теги [TitleID][vXXX](1G+1U) подставятся автоматически) или измените позже в очереди задач"/>
+                            <TextBlock Grid.Column="2" Text="Имя русификатора / мода:" FontSize="10.5" Foreground="#94A3B8" FontWeight="SemiBold"/>
+                        </Grid>
+
+                        <ListView x:Name="GameSlotsListView" Grid.Row="2" SelectionMode="None" Background="#0DFFFFFF" CornerRadius="6" Padding="2">
                             <ListView.ItemContainerStyle>
                                 <Style TargetType="ListViewItem">
                                     <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
@@ -252,9 +265,10 @@
                                                     <TextBlock Text="{Binding SlotBadge}" FontSize="10.5" Foreground="White" FontWeight="Bold" VerticalAlignment="Center"/>
                                                 </Border>
                                                 <TextBox Grid.Column="2" Text="{Binding GameTitle, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                                         PlaceholderText="Имя задачи / части (напр. Aggelos)" FontSize="11.5"
+                                                         PlaceholderText="Итоговое имя игры / файла (напр. Aggelos)" FontSize="11.5"
                                                          Height="30" MinHeight="30" Padding="8,0,8,0"
                                                          VerticalAlignment="Center" VerticalContentAlignment="Center"
+                                                         ToolTipService.ToolTip="Итоговое имя игры и выходного контейнера для этой задачи (теги [TitleID][vXXX](1G+1U) добавятся автоматически). Также можно переименовать в очереди задач через ПКМ → Редактировать иконку и название..."
                                                          Loaded="CenteredInput_Loaded" CornerRadius="5"/>
                                                 <TextBox Grid.Column="3" Text="{Binding CustomModTitle, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                          PlaceholderText="Имя русификатора / мода" FontSize="11"

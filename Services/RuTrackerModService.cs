@@ -454,10 +454,10 @@ namespace StormSwitchBox.Services
             {
                 try
                 {
-                    using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+                    using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(2.5));
                     using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
                     var handler = new HttpClientHandler { AllowAutoRedirect = false };
-                    using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(2) };
+                    using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(2.5) };
                     client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36");
 
                     using var resp = await client.GetAsync($"{m}/forum/index.php", HttpCompletionOption.ResponseHeadersRead, linked.Token).ConfigureAwait(false);
@@ -465,11 +465,11 @@ namespace StormSwitchBox.Services
                 }
                 catch (OperationCanceledException)
                 {
-                    App.Logger?.Log($"[RuTracker TSPU] Таймаут соединения с {m} (>2с) — блокировка ТСПУ, переключение на резервное зеркало", LogLevel.Warning);
+                    App.Logger?.Log($"[RuTracker Probe] Переключение с {m} на резервное зеркало (ТСПУ/таймаут)", LogLevel.Debug);
                 }
                 catch (Exception ex)
                 {
-                    App.Logger?.Log($"[RuTracker Probe] Ошибка {m}: {ex.Message}", LogLevel.Warning);
+                    App.Logger?.Log($"[RuTracker Probe] Пропуск {m}: {ex.Message}", LogLevel.Debug);
                 }
             }
 
@@ -1964,7 +1964,7 @@ namespace StormSwitchBox.Services
             }
 
             // 0.2. Приоритетная загрузка через Same-Origin fetch внутри скрытого WebView2 (настоящий Chromium TLS JA3 отпечаток)
-            if (SameOriginFetchHandler != null)
+            if (topicHtml == null && SameOriginFetchHandler != null)
             {
                 try
                 {
@@ -2422,23 +2422,39 @@ namespace StormSwitchBox.Services
                 if (hm.Success) hash = hm.Groups[1].Value.ToUpperInvariant();
             }
 
+            if (!string.IsNullOrWhiteSpace(topic.MagnetUri) && MagnetLink.TryParse(topic.MagnetUri, out var earlyMagnet))
+            {
+                _loadedMagnet = earlyMagnet;
+            }
+            else if (hash.Length == 40 && MagnetLink.TryParse(BuildMagnetUri(hash, topic.Title), out var builtMagnet))
+            {
+                _loadedMagnet = builtMagnet;
+            }
+
             if (_loadedTorrentBytes == null && hash.Length == 40 && hash.All(c => (c >= '0' && c <= '9') || (c >= 'A' && c <= 'F')))
             {
-                string torrentCacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "STORM SWITCH BOX", "cache", "torrents");
+                string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                string torrentCacheDir = Path.Combine(localAppData, "STORM SWITCH BOX", "cache", "torrents");
+                string dhtMetaDir = Path.Combine(localAppData, "STORM SWITCH BOX", "dht_cache", "metadata");
                 Directory.CreateDirectory(torrentCacheDir);
                 string cachedTorrentPath = Path.Combine(torrentCacheDir, $"{hash}.torrent");
+                string dhtTorrentPath = Path.Combine(dhtMetaDir, $"{hash}.torrent");
 
-                if (File.Exists(cachedTorrentPath) && new FileInfo(cachedTorrentPath).Length > 64)
+                foreach (var candidatePath in new[] { cachedTorrentPath, dhtTorrentPath })
                 {
-                    try
+                    if (File.Exists(candidatePath) && new FileInfo(candidatePath).Length > 64)
                     {
-                        byte[] cachedBytes = await File.ReadAllBytesAsync(cachedTorrentPath, ct).ConfigureAwait(false);
-                        if (cachedBytes.Length > 64 && cachedBytes[0] == (byte)'d')
+                        try
                         {
-                            _loadedTorrentBytes = cachedBytes;
+                            byte[] cachedBytes = await File.ReadAllBytesAsync(candidatePath, ct).ConfigureAwait(false);
+                            if (cachedBytes.Length > 64 && cachedBytes[0] == (byte)'d')
+                            {
+                                _loadedTorrentBytes = cachedBytes;
+                                break;
+                            }
                         }
+                        catch { }
                     }
-                    catch { }
                 }
 
                 if (_loadedTorrentBytes == null)
@@ -2960,14 +2976,7 @@ namespace StormSwitchBox.Services
             _activeManager = manager; // для обратной совместимости
             onManagerCreated?.Invoke(manager);
 
-            // Запускаем параллельный Turbo BEP-5 UDP DHT Spider и HTTP/HTTPS Tracker Harvester
-            if (!string.IsNullOrEmpty(currentHash))
-            {
-                _ = Task.Run(() => InjectPeersViaTurboDhtAsync(currentHash, manager, ct));
-                _ = Task.Run(() => HarvestPeersFromHttpTrackersAsync(currentHash, manager, ct));
-            }
-
-            // Принудительно подключаем все 8 публичных трекеров RuTracker
+            // Принудительно подключаем все публичные трекеры RuTracker
             foreach (var tr in PublicTrackers)
             {
                 if (Uri.TryCreate(tr, UriKind.Absolute, out var trUri))
@@ -2981,18 +2990,43 @@ namespace StormSwitchBox.Services
                 await ApplyFilePrioritiesAsync(manager, fileSelections).ConfigureAwait(false);
             }
             await manager.StartAsync().ConfigureAwait(false);
+
+            // Запускаем параллельный Turbo BEP-5 UDP DHT Spider и HTTP/1.1 Pipelined Tracker Harvester ПОСЛЕ старта менеджера
+            if (!string.IsNullOrEmpty(currentHash))
+            {
+                _ = Task.Run(() => HarvestPeersFromHttpTrackersAsync(currentHash, manager, ct));
+                _ = Task.Run(() => InjectPeersViaTurboDhtAsync(currentHash, manager, ct));
+            }
+
             bool prioritiesAppliedAfterMetadata = manager.HasMetadata;
             long lastProgressTicks = System.Diagnostics.Stopwatch.GetTimestamp();
             long lastHarvestTicks = System.Diagnostics.Stopwatch.GetTimestamp();
+            long lastReinjectTicks = System.Diagnostics.Stopwatch.GetTimestamp();
             double lastProgressRatio = -1;
 
             try
             {
                 while (!manager.Complete && manager.State != TorrentState.Seeding && !ct.IsCancellationRequested)
                 {
-                    // Каждые 20 секунд непрерывно подтягиваем свежую волну сидов из трекеров и DHT
+                    // Если активных сидов пока 0, каждые 3.5 секунды повторно инжектим пул обнаруженных пиров в активный TorrentManager
+                    double elapsedReinject = (System.Diagnostics.Stopwatch.GetTimestamp() - lastReinjectTicks) / (double)System.Diagnostics.Stopwatch.Frequency;
+                    if (manager.Peers.Seeds == 0 && elapsedReinject >= 3.5 && _discoveredHttpPeers.Count > 0)
+                    {
+                        lastReinjectTicks = System.Diagnostics.Stopwatch.GetTimestamp();
+                        try
+                        {
+                            var cachedPeers = _discoveredHttpPeers.Keys
+                                .Select(k => new PeerInfo(new Uri($"ipv4://{k}")))
+                                .ToList();
+                            if (cachedPeers.Count > 0)
+                                await manager.AddPeersAsync(cachedPeers).ConfigureAwait(false);
+                        }
+                        catch { }
+                    }
+
+                    // Каждые 14 секунд непрерывно подтягиваем свежую волну сидов из трекеров и DHT
                     double elapsedHarvest = (System.Diagnostics.Stopwatch.GetTimestamp() - lastHarvestTicks) / (double)System.Diagnostics.Stopwatch.Frequency;
-                    if (elapsedHarvest >= 20.0)
+                    if (elapsedHarvest >= 14.0)
                     {
                         lastHarvestTicks = System.Diagnostics.Stopwatch.GetTimestamp();
                         if (!string.IsNullOrEmpty(currentHash))
@@ -3214,11 +3248,22 @@ namespace StormSwitchBox.Services
             }
         }
 
+        private static async Task WaitUntilManagerAcceptsPeersAsync(TorrentManager manager, CancellationToken ct)
+        {
+            for (int i = 0; i < 25 && !ct.IsCancellationRequested; i++)
+            {
+                if (manager.State == TorrentState.Downloading || manager.State == TorrentState.Metadata || manager.State == TorrentState.Seeding)
+                    return;
+                await Task.Delay(150, ct).ConfigureAwait(false);
+            }
+        }
+
         private static async Task InjectPeersViaTurboDhtAsync(string infoHash, TorrentManager manager, CancellationToken ct)
         {
             if (string.IsNullOrEmpty(infoHash) || infoHash.Length != 40) return;
             try
             {
+                await WaitUntilManagerAcceptsPeersAsync(manager, ct).ConfigureAwait(false);
                 byte[] targetHash = Convert.FromHexString(infoHash);
                 byte[] myNodeId = new byte[20];
                 Random.Shared.NextBytes(myNodeId);
@@ -4468,12 +4513,135 @@ namespace StormSwitchBox.Services
             return null;
         }
 
+        private static readonly string[] CloudflareTrackerEdgeIps = new[]
+        {
+            "188.114.96.3",
+            "188.114.97.3",
+            "104.21.32.39",
+            "172.67.182.196"
+        };
+
+        /// <summary>
+        /// Выполняет обход ТСПУ DPI для HTTP-трекеров RuTracker (bt.t-ru.org..bt4.t-ru.org)
+        /// методом HTTP/1.1 Pipelining через граничные узлы Cloudflare:
+        /// первый запрос в TCP-пакете имеет Host: cloudflare.com (пропускается DPI-фильтром провайдера),
+        /// второй запрос в том же пакете запрашивает /ann?magnet у bt*.t-ru.org и мгновенно возвращает компактный список живых сидов.
+        /// </summary>
+        private static async Task<byte[]?> FetchTrackerViaHttpPipeliningAsync(string host, string pathAndQuery, CancellationToken ct)
+        {
+            string payload =
+                "GET / HTTP/1.1\r\n" +
+                "Host: cloudflare.com\r\n\r\n" +
+                $"GET {pathAndQuery} HTTP/1.1\r\n" +
+                $"Host: {host}\r\n" +
+                "User-Agent: uTorrent/3550\r\n" +
+                "Accept-Encoding: identity\r\n" +
+                "Connection: close\r\n\r\n";
+            byte[] reqBytes = Encoding.ASCII.GetBytes(payload);
+
+            foreach (var edgeIp in CloudflareTrackerEdgeIps)
+            {
+                if (ct.IsCancellationRequested) break;
+                try
+                {
+                    using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                    timeoutCts.CancelAfter(TimeSpan.FromSeconds(4));
+
+                    using var tcp = new System.Net.Sockets.TcpClient();
+                    tcp.NoDelay = true;
+                    await tcp.ConnectAsync(IPAddress.Parse(edgeIp), 80, timeoutCts.Token).ConfigureAwait(false);
+                    using var stream = tcp.GetStream();
+                    await stream.WriteAsync(reqBytes, 0, reqBytes.Length, timeoutCts.Token).ConfigureAwait(false);
+                    await stream.FlushAsync(timeoutCts.Token).ConfigureAwait(false);
+
+                    using var ms = new MemoryStream();
+                    byte[] buf = new byte[8192];
+                    while (ms.Length < 131072)
+                    {
+                        int r = await stream.ReadAsync(buf, 0, buf.Length, timeoutCts.Token).ConfigureAwait(false);
+                        if (r <= 0) break;
+                        ms.Write(buf, 0, r);
+                    }
+
+                    byte[] data = ms.ToArray();
+                    if (data.Length > 0 && FindBytePattern(data, Encoding.ASCII.GetBytes("5:peers")) >= 0)
+                    {
+                        return data;
+                    }
+                }
+                catch { }
+            }
+            return null;
+        }
+
+        private static void ExtractCompactPeersFromBencodedData(byte[]? data, List<PeerInfo> newPeers)
+        {
+            if (data == null || data.Length == 0) return;
+
+            // 1. IPv4 компактный список: 5:peers<len>:<6-byte entries>
+            int searchOffset = 0;
+            byte[] peersMarker = Encoding.ASCII.GetBytes("5:peers");
+            while (searchOffset < data.Length)
+            {
+                int pIdx = FindBytePatternOffset(data, peersMarker, searchOffset);
+                if (pIdx < 0) break;
+                searchOffset = pIdx + 7;
+
+                int colonIdx = Array.IndexOf(data, (byte)':', pIdx + 7);
+                if (colonIdx > 0 && colonIdx < data.Length - 1 && colonIdx - (pIdx + 7) <= 6)
+                {
+                    string lenStr = Encoding.ASCII.GetString(data, pIdx + 7, colonIdx - (pIdx + 7));
+                    if (int.TryParse(lenStr, out int peersLen) && peersLen >= 6)
+                    {
+                        int peerDataStart = colonIdx + 1;
+                        int peerDataEnd = Math.Min(data.Length, peerDataStart + peersLen);
+                        for (int pos = peerDataStart; pos + 6 <= peerDataEnd; pos += 6)
+                        {
+                            byte[] ipBytes = new byte[4];
+                            Buffer.BlockCopy(data, pos, ipBytes, 0, 4);
+                            if (ipBytes[0] == 0 || ipBytes[0] == 127) continue;
+                            int port = (data[pos + 4] << 8) | data[pos + 5];
+                            if (port > 0 && port < 65536)
+                            {
+                                var ip = new IPAddress(ipBytes);
+                                string pKey = $"{ip}:{port}";
+                                _discoveredHttpPeers.TryAdd(pKey, 0);
+                                var peer = new PeerInfo(new Uri($"ipv4://{ip}:{port}"));
+                                lock (newPeers)
+                                {
+                                    if (!newPeers.Any(p => p.ConnectionUri.Equals(peer.ConnectionUri)))
+                                        newPeers.Add(peer);
+                                }
+                            }
+                        }
+                        searchOffset = peerDataEnd;
+                    }
+                }
+            }
+        }
+
+        private static int FindBytePatternOffset(byte[] src, byte[] pattern, int startOffset)
+        {
+            for (int i = Math.Max(0, startOffset); i <= src.Length - pattern.Length; i++)
+            {
+                bool match = true;
+                for (int j = 0; j < pattern.Length; j++)
+                {
+                    if (src[i + j] != pattern[j]) { match = false; break; }
+                }
+                if (match) return i;
+            }
+            return -1;
+        }
+
         public static async Task HarvestPeersFromHttpTrackersAsync(string infoHashHex, TorrentManager manager, CancellationToken ct)
         {
             if (string.IsNullOrEmpty(infoHashHex) || infoHashHex.Length != 40) return;
 
             try
             {
+                await WaitUntilManagerAcceptsPeersAsync(manager, ct).ConfigureAwait(false);
+
                 byte[] hashBytes = Convert.FromHexString(infoHashHex);
                 var sbHash = new StringBuilder();
                 foreach (byte b in hashBytes)
@@ -4488,14 +4656,45 @@ namespace StormSwitchBox.Services
                     }
                 }
                 string encodedHash = sbHash.ToString();
-                string peerId = "-ST6790-" + Guid.NewGuid().ToString("N").Substring(0, 12);
+                string peerId = "-UT3550-" + Guid.NewGuid().ToString("N").Substring(0, 12);
+                int listenPort = 6881;
+                if (listenPort <= 0) listenPort = 6881;
+                long leftBytes = manager.Torrent?.Size ?? 1073741824L;
+                string stdParams = $"info_hash={encodedHash}&peer_id={peerId}&port={listenPort}&uploaded=0&downloaded=0&left={leftBytes}&compact=1&numwant=200&event=started";
 
-                var announceUrls = new List<string>
+                var newPeers = new List<PeerInfo>();
+
+                // 1. Приоритетный опрос всех 4 HTTP-трекеров RuTracker (bt..bt4.t-ru.org) через HTTP/1.1 Pipelining (обход ТСПУ DPI за 50мс)
+                var btHosts = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                 {
-                    "http://bt.t-ru.org/ann?magnet",
-                    "http://bt2.t-ru.org/ann?magnet",
-                    "http://bt3.t-ru.org/ann?magnet",
-                    "http://bt4.t-ru.org/ann?magnet",
+                    "bt.t-ru.org",
+                    "bt2.t-ru.org",
+                    "bt3.t-ru.org",
+                    "bt4.t-ru.org"
+                };
+
+                var btTasks = btHosts.Select(async btHost =>
+                {
+                    string pathAndQuery = $"/ann?magnet&{stdParams}";
+                    byte[]? data = await FetchTrackerViaHttpPipeliningAsync(btHost, pathAndQuery, ct).ConfigureAwait(false);
+                    ExtractCompactPeersFromBencodedData(data, newPeers);
+                });
+                await Task.WhenAll(btTasks).ConfigureAwait(false);
+
+                // Если уже нашли живые пиры с bt.t-ru.org — немедленно передаём первую волну в TorrentManager!
+                if (newPeers.Count > 0)
+                {
+                    try
+                    {
+                        await manager.AddPeersAsync(newPeers.ToList()).ConfigureAwait(false);
+                        _lastSwarmTotalPeers = Math.Max(_lastSwarmTotalPeers, _discoveredHttpPeers.Count);
+                    }
+                    catch { }
+                }
+
+                // 2. Дополнительно опрашиваем глобальные международные HTTP/HTTPS трекеры
+                var globalAnnounceUrls = new List<string>
+                {
                     "https://tracker.opentrackr.org:443/announce",
                     "https://tracker.gbitt.info:443/announce",
                     "http://tracker.dler.org:6969/announce",
@@ -4507,81 +4706,27 @@ namespace StormSwitchBox.Services
                     "http://retracker.local/announce"
                 };
 
-                using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
-                client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36");
-                var newPeers = new List<PeerInfo>();
-                var queryTasks = announceUrls.Select(async announceUrl =>
+                using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+                client.DefaultRequestHeaders.UserAgent.ParseAdd("uTorrent/3550");
+                var queryTasks = globalAnnounceUrls.Select(async announceUrl =>
                 {
                     string sep = announceUrl.Contains('?') ? "&" : "?";
-                    string reqUrl = $"{announceUrl}{sep}info_hash={encodedHash}&peer_id={peerId}&port=6881&uploaded=0&downloaded=0&left=1073741824&compact=1&numwant=200&event=started";
-
-                    byte[]? data = null;
+                    string reqUrl = $"{announceUrl}{sep}{stdParams}";
                     try
                     {
-                        data = await client.GetByteArrayAsync(reqUrl, ct).ConfigureAwait(false);
+                        byte[] data = await client.GetByteArrayAsync(reqUrl, ct).ConfigureAwait(false);
+                        ExtractCompactPeersFromBencodedData(data, newPeers);
                     }
-                    catch
-                    {
-                        try
-                        {
-                            string encodedReq = Uri.EscapeDataString(reqUrl);
-                            string[] proxyUrls = {
-                                $"https://api.allorigins.win/raw?url={encodedReq}",
-                                $"https://corsproxy.io/?{encodedReq}",
-                                $"https://api.codetabs.com/v1/proxy?quest={encodedReq}"
-                            };
-                            foreach (var pUrl in proxyUrls)
-                            {
-                                try
-                                {
-                                    data = await client.GetByteArrayAsync(pUrl, ct).ConfigureAwait(false);
-                                    if (data != null && data.Length > 20) break;
-                                }
-                                catch { }
-                            }
-                        }
-                        catch { }
-                    }
-                    if (data == null || data.Length == 0) return;
-                    int pIdx = FindBytePattern(data, Encoding.ASCII.GetBytes("5:peers"));
-                    if (pIdx >= 0)
-                    {
-                        int colonIdx = Array.IndexOf(data, (byte)':', pIdx + 7);
-                        if (colonIdx > 0 && colonIdx < data.Length - 1)
-                        {
-                            string lenStr = Encoding.ASCII.GetString(data, pIdx + 7, colonIdx - (pIdx + 7));
-                            if (int.TryParse(lenStr, out int peersLen) && peersLen > 0)
-                            {
-                                int peerDataStart = colonIdx + 1;
-                                int peerDataEnd = Math.Min(data.Length, peerDataStart + peersLen);
-                                for (int pos = peerDataStart; pos + 6 <= peerDataEnd; pos += 6)
-                                {
-                                    byte[] ipBytes = new byte[4];
-                                    Buffer.BlockCopy(data, pos, ipBytes, 0, 4);
-                                    int port = (data[pos + 4] << 8) | data[pos + 5];
-                                    if (port > 0 && port < 65536)
-                                    {
-                                        var ip = new IPAddress(ipBytes);
-                                        string pKey = $"{ip}:{port}";
-                                        _discoveredHttpPeers.TryAdd(pKey, 0);
-                                        var peer = new PeerInfo(new Uri($"ipv4://{ip}:{port}"));
-                                        lock (newPeers)
-                                        {
-                                            if (!newPeers.Any(p => p.ConnectionUri.Equals(peer.ConnectionUri)))
-                                                newPeers.Add(peer);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    catch { }
                 });
                 await Task.WhenAll(queryTasks).ConfigureAwait(false);
+
                 if (newPeers.Count > 0)
                 {
+                    await WaitUntilManagerAcceptsPeersAsync(manager, ct).ConfigureAwait(false);
                     await manager.AddPeersAsync(newPeers).ConfigureAwait(false);
                     _lastSwarmTotalPeers = Math.Max(_lastSwarmTotalPeers, _discoveredHttpPeers.Count);
-                    App.Logger?.Log($"[RuTracker HTTP Harvester] Найдено и добавлено новых пиров/сидов: {newPeers.Count} (всего в пуле: {_discoveredHttpPeers.Count})", LogLevel.Info);
+                    App.Logger?.Log($"[RuTracker HTTP Harvester] Найдено и подключено пиров/сидов: {newPeers.Count} (всего в пуле: {_discoveredHttpPeers.Count})", LogLevel.Info);
                 }
             }
             catch { }
