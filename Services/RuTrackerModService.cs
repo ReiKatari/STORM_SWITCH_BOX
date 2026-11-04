@@ -366,24 +366,42 @@ namespace StormSwitchBox.Services
                             if (string.IsNullOrWhiteSpace(g)) g = CleanTitleToGame(!string.IsNullOrWhiteSpace(tt) ? tt : n);
                             if (string.IsNullOrWhiteSpace(tidHex)) tidHex = ExtractTitleId(!string.IsNullOrWhiteSpace(tt) ? tt : n);
 
-                            var topic = new RuTrackerIndexTopic
+                            if (_topicsById.TryGetValue(tid, out var existing))
                             {
-                                TopicId = tid,
-                                InfoHash = h,
-                                Seeds = sd,
-                                SizeBytes = sz,
-                                RegTime = rt,
-                                TorrentName = n,
-                                TopicTitle = tt,
-                                GameName = g,
-                                TitleId = tidHex
-                            };
-                            try { topic.RebuildKeys(); } catch { }
+                                if (!string.IsNullOrEmpty(h) && h.Length == 40) existing.InfoHash = h;
+                                if (sd > 0) existing.Seeds = sd;
+                                if (sz > 0) existing.SizeBytes = sz;
+                                if (rt > 0) existing.RegTime = rt;
+                                if (!string.IsNullOrWhiteSpace(n)) existing.TorrentName = n;
+                                if (!string.IsNullOrWhiteSpace(tt)) existing.TopicTitle = tt;
+                                if (!string.IsNullOrWhiteSpace(g)) existing.GameName = g;
+                                if (!string.IsNullOrWhiteSpace(tidHex)) existing.TitleId = tidHex;
+                                try { existing.RebuildKeys(); } catch { }
+                                _deltaTopics[tid] = existing;
+                                if (!string.IsNullOrEmpty(existing.InfoHash) && existing.InfoHash.Length == 40)
+                                    _topicsByHash[existing.InfoHash] = existing;
+                            }
+                            else
+                            {
+                                var topic = new RuTrackerIndexTopic
+                                {
+                                    TopicId = tid,
+                                    InfoHash = h,
+                                    Seeds = sd,
+                                    SizeBytes = sz,
+                                    RegTime = rt,
+                                    TorrentName = n,
+                                    TopicTitle = tt,
+                                    GameName = g,
+                                    TitleId = tidHex
+                                };
+                                try { topic.RebuildKeys(); } catch { }
 
-                            _deltaTopics[tid] = topic;
-                            _topicsById[tid] = topic;
-                            if (!string.IsNullOrEmpty(h) && h.Length == 40) _topicsByHash[h] = topic;
-                            if (!_indexTopics.Any(x => x.TopicId == tid)) _indexTopics.Add(topic);
+                                _deltaTopics[tid] = topic;
+                                _topicsById[tid] = topic;
+                                if (!string.IsNullOrEmpty(h) && h.Length == 40) _topicsByHash[h] = topic;
+                                _indexTopics.Add(topic);
+                            }
                         }
                     }
                 }
@@ -484,6 +502,55 @@ namespace StormSwitchBox.Services
                 }
             }
             catch { }
+        }
+
+        public static async Task ResolveUnnamedTopicsViaSameOriginAsync(CancellationToken ct = default)
+        {
+            if (SameOriginFetchHandler == null) return;
+            List<string> unnamedIds;
+            lock (_indexLock)
+            {
+                unnamedIds = _indexTopics
+                    .Where(t => string.IsNullOrWhiteSpace(t.TopicTitle) && string.IsNullOrWhiteSpace(t.TorrentName))
+                    .Select(t => t.TopicId)
+                    .Take(40)
+                    .ToList();
+            }
+            if (unnamedIds.Count == 0) return;
+
+            string mirror = GetActiveMirror();
+            bool anyUpdated = false;
+            foreach (var tid in unnamedIds)
+            {
+                if (ct.IsCancellationRequested) break;
+                try
+                {
+                    string? html = await SameOriginFetchHandler($"{mirror}/forum/viewtopic.php?t={tid}", ct).ConfigureAwait(false);
+                    if (string.IsNullOrWhiteSpace(html)) continue;
+                    var tm = Regex.Match(html, @"<title>(.*?)</title>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
+                    if (tm.Success)
+                    {
+                        string title = WebUtility.HtmlDecode(Regex.Replace(tm.Groups[1].Value, @"::\s*RuTracker\.org.*$", "", RegexOptions.IgnoreCase)).Trim();
+                        if (!string.IsNullOrWhiteSpace(title) && !title.Contains("Just a moment") && !title.Contains("Один момент"))
+                        {
+                            lock (_indexLock)
+                            {
+                                if (_topicsById.TryGetValue(tid, out var topic))
+                                {
+                                    topic.UpdateTopicTitle(title);
+                                    _deltaTopics[tid] = topic;
+                                    anyUpdated = true;
+                                }
+                            }
+                        }
+                    }
+                }
+                catch { }
+            }
+            if (anyUpdated)
+            {
+                _ = Task.Run(SaveDeltaCache);
+            }
         }
 
         private static bool _warmupStarted = false;
@@ -1019,21 +1086,32 @@ namespace StormSwitchBox.Services
                 if (single != null) return new List<RuTrackerTopicItem> { single };
             }
 
-            // 2. Если есть авторизация (bb_session), пробуем живой tracker.php
+            // 2. Если есть авторизация (bb_session) или активный WebView2, пробуем живой tracker.php
             var trackerResults = new List<RuTrackerTopicItem>();
-            if (!string.IsNullOrWhiteSpace(App.Settings.Current.RuTrackerCookie) && !string.IsNullOrWhiteSpace(cleanQ))
+            if (!string.IsNullOrWhiteSpace(cleanQ) && (!string.IsNullOrWhiteSpace(App.Settings.Current.RuTrackerCookie) || SameOriginFetchHandler != null))
             {
                 try
                 {
                     Encoding cp1251 = Encoding.GetEncoding(1251);
-                    using var client = CreateHttpClient();
                     string url = $"{mirror}/forum/tracker.php?f=1605&nm={UrlEncodeCp1251(cleanQ, cp1251)}";
-                    using var resp = await client.GetAsync(url, ct).ConfigureAwait(false);
-                    if (resp.IsSuccessStatusCode)
+                    if (!string.IsNullOrWhiteSpace(App.Settings.Current.RuTrackerCookie))
                     {
-                        byte[] bytes = await resp.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
-                        string html = DecodeRuTrackerHtml(bytes, resp.Content.Headers.ContentType?.CharSet);
-                        trackerResults = ParseTrackerSearchHtml(html, mirror);
+                        using var client = CreateHttpClient();
+                        using var resp = await client.GetAsync(url, ct).ConfigureAwait(false);
+                        if (resp.IsSuccessStatusCode)
+                        {
+                            byte[] bytes = await resp.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
+                            string html = DecodeRuTrackerHtml(bytes, resp.Content.Headers.ContentType?.CharSet);
+                            trackerResults = ParseTrackerSearchHtml(html, mirror);
+                        }
+                    }
+                    if (trackerResults.Count == 0 && SameOriginFetchHandler != null)
+                    {
+                        string? wvHtml = await SameOriginFetchHandler(url, ct).ConfigureAwait(false);
+                        if (!string.IsNullOrWhiteSpace(wvHtml))
+                        {
+                            trackerResults = ParseTrackerSearchHtml(wvHtml, mirror);
+                        }
                     }
                 }
                 catch { }

@@ -1262,6 +1262,7 @@ namespace StormSwitchBox.Views.Dialogs
                 if (hasForumTopics)
                 {
                     RuTrackerModService.ParseAndMergeForumTopicsHtml(html);
+                    _ = Task.Run(() => RuTrackerModService.ResolveUnnamedTopicsViaSameOriginAsync());
                 }
 
                 if (hasForumTopics || (cfCookie != null && !html.Contains("Just a moment...") && !html.Contains("cf-turnstile")) || _warmupNavCount >= 6)
