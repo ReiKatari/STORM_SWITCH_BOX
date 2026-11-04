@@ -105,43 +105,67 @@ namespace StormSwitchBox.Services
 
         internal string GameKey = "";
         internal string GameKeyPadded = "";
+        internal string TitleKey = "";
+        internal string TitleKeyPadded = "";
         internal string BlobPadded = "";
         internal string[] Words = Array.Empty<string>();
         internal int GameWordCount;
         internal string Skeleton = "";
         internal string TidBlob = "";
 
+        private static readonly HashSet<string> TagNoiseWords = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "nintendo", "switch", "nsw", "nsw2", "nsp", "nsz", "xci", "xcz", "nup", "nro",
+            "rus", "eng", "jpn", "multi", "update", "upd", "dlc", "unlocker", "patched",
+            "repack", "gb", "mb", "??", "??", "?????????", "????", "???????", "homebrew",
+            "mod", "mods", "???????????"
+        };
+
         public void RebuildKeys()
         {
+            string rawFullTitle = !string.IsNullOrWhiteSpace(TopicTitle) ? TopicTitle : TorrentName;
             string baseName = !string.IsNullOrWhiteSpace(GameName)
                 ? GameName
-                : (!string.IsNullOrWhiteSpace(TopicTitle) ? TopicTitle : TorrentName);
+                : RuTrackerModService.CleanTitleToGame(rawFullTitle);
 
             GameKey = RuTrackerModService.NormalizeSearchKey(baseName);
-            GameKeyPadded = " " + GameKey;
+            GameKeyPadded = " " + GameKey + " ";
+
+            string fullClean = RuTrackerModService.CleanTitleKeepAltNames(rawFullTitle);
+            TitleKey = RuTrackerModService.NormalizeSearchKey(string.IsNullOrWhiteSpace(fullClean) ? baseName : fullClean);
+            TitleKeyPadded = " " + TitleKey + " ";
 
             var blob = new StringBuilder(GameKey.Length * 4);
-            blob.Append(GameKey).Append(' ')
-                .Append(RuTrackerModService.NormalizeSearchKey(TopicTitle)).Append(' ')
-                .Append(RuTrackerModService.NormalizeSearchKey(TorrentName));
+            blob.Append(GameKey).Append(' ').Append(TitleKey);
 
             foreach (var f in Files)
             {
                 int dot = f.FileName.LastIndexOf('.');
                 string stem = dot > 0 ? f.FileName.Substring(0, dot) : f.FileName;
-                blob.Append(' ').Append(RuTrackerModService.NormalizeSearchKey(stem));
+                blob.Append(' ').Append(RuTrackerModService.NormalizeSearchKey(RuTrackerModService.CleanTitleToGame(stem)));
             }
 
             string blobStr = blob.ToString();
-            BlobPadded = " " + blobStr;
+            BlobPadded = " " + blobStr + " ";
 
-            var gw = GameKey.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            var rest = blobStr.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            var all = new HashSet<string>(gw, StringComparer.OrdinalIgnoreCase);
-            foreach (var r in rest) all.Add(r);
-            Words = all.ToArray();
-            GameWordCount = gw.Length;
-            Skeleton = RuTrackerModService.PhoneticSkeleton(GameKey);
+            var orderedWords = new List<string>();
+            var seenWords = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var w in GameKey.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (!TagNoiseWords.Contains(w) && seenWords.Add(w))
+                    orderedWords.Add(w);
+            }
+            GameWordCount = orderedWords.Count;
+
+            foreach (var r in blobStr.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (!TagNoiseWords.Contains(r) && seenWords.Add(r))
+                    orderedWords.Add(r);
+            }
+
+            Words = orderedWords.ToArray();
+            Skeleton = "";
 
             var tids = new StringBuilder();
             if (!string.IsNullOrEmpty(TitleId)) tids.Append(TitleId.ToLowerInvariant()).Append(' ');
@@ -881,7 +905,10 @@ namespace StormSwitchBox.Services
                     if (linkMatch.Success && titleMatch.Success)
                     {
                         string tid = linkMatch.Groups[1].Value;
-                        string rawTitle = WebUtility.HtmlDecode(titleMatch.Groups[1].Value).Trim();
+                        string rawInner = titleMatch.Groups[1].Value.Trim();
+                        if (rawInner.StartsWith("<![CDATA[", StringComparison.OrdinalIgnoreCase) && rawInner.EndsWith("]]>"))
+                            rawInner = rawInner.Substring(9, rawInner.Length - 12);
+                        string rawTitle = WebUtility.HtmlDecode(rawInner).Trim();
                         lock (_indexLock)
                         {
                             if (_topicsById.TryGetValue(tid, out var topic))
@@ -925,14 +952,29 @@ namespace StormSwitchBox.Services
                 {
                     lock (_indexLock)
                     {
-                        foreach (var prop in doc.RootElement.EnumerateObject())
+                        JsonElement mapRoot = doc.RootElement.TryGetProperty("result", out var resElem) && resElem.ValueKind == JsonValueKind.Object
+                            ? resElem
+                            : doc.RootElement;
+                        foreach (var prop in mapRoot.EnumerateObject())
                         {
                             string tid = prop.Name;
                             if (prop.Value.ValueKind == JsonValueKind.Array && prop.Value.GetArrayLength() >= 3)
                             {
-                                string h = prop.Value[0].GetString() ?? "";
-                                long sz = prop.Value[1].GetInt64();
-                                int sd = prop.Value[2].GetInt32();
+                                string h = "";
+                                long sz = 0;
+                                int sd = 0;
+                                if (prop.Value.GetArrayLength() >= 8 && prop.Value[7].ValueKind == JsonValueKind.String)
+                                {
+                                    sd = prop.Value[1].ValueKind == JsonValueKind.Number ? prop.Value[1].GetInt32() : 0;
+                                    sz = prop.Value[3].ValueKind == JsonValueKind.Number ? prop.Value[3].GetInt64() : 0L;
+                                    h = prop.Value[7].GetString() ?? "";
+                                }
+                                else if (prop.Value[0].ValueKind == JsonValueKind.String)
+                                {
+                                    h = prop.Value[0].GetString() ?? "";
+                                    sz = prop.Value[1].ValueKind == JsonValueKind.Number ? prop.Value[1].GetInt64() : 0L;
+                                    sd = prop.Value[2].ValueKind == JsonValueKind.Number ? prop.Value[2].GetInt32() : 0;
+                                }
 
                                 if (_topicsById.TryGetValue(tid, out var topic))
                                 {
@@ -1132,7 +1174,7 @@ namespace StormSwitchBox.Services
                 lock (_indexLock)
                 {
                     var topSeedTopics = _indexTopics
-                        .Where(t => !seenTids.Contains(t.TopicId) && !string.IsNullOrEmpty(t.InfoHash) && t.Seeds > 0)
+                        .Where(t => !seenTids.Contains(t.TopicId) && !string.IsNullOrEmpty(t.InfoHash) && !string.IsNullOrWhiteSpace(t.GameKey) && t.Seeds > 0)
                         .OrderByDescending(t => t.Seeds)
                         .Take(limit - starterResults.Count);
 
@@ -1208,353 +1250,407 @@ namespace StormSwitchBox.Services
 
         #region Алгоритмы поиска (раскладка, опечатки, Soundex, синонимы)
 
-        private sealed class QVariant
-        {
-            public string Text { get; }
-            public string Padded { get; }
-            public string[] Words { get; }
-            public string Skeleton { get; }
-
-            public QVariant(string text, string padded, string[] words, string skeleton)
-            {
-                Text = text;
-                Padded = padded;
-                Words = words;
-                Skeleton = skeleton;
-            }
-        }
-
-        private static readonly HashSet<string> StopWords = new(StringComparer.OrdinalIgnoreCase)
-        {
-            "the", "and", "for", "of", "a", "an", "nintendo", "switch", "edition", "deluxe"
-        };
-
-        private static readonly Dictionary<string, string> RuGameAliases = new(StringComparer.OrdinalIgnoreCase)
-        {
-            ["бротато"] = "brotato", ["братато"] = "brotato", ["бротата"] = "brotato", ["картошка"] = "brotato",
-            ["анимал велл"] = "animal well", ["энимал велл"] = "animal well", ["анимал вел"] = "animal well", ["энимал вел"] = "animal well",
-            ["зельда"] = "zelda", ["зельды"] = "zelda", ["линк"] = "zelda", ["хайрул"] = "hyrule",
-            ["марио"] = "mario", ["супер марио"] = "super mario", ["марио карт"] = "mario kart",
-            ["ведьмак"] = "witcher", ["витчер"] = "witcher", ["геральт"] = "witcher",
-            ["холлоу найт"] = "hollow knight", ["полый рыцарь"] = "hollow knight", ["холоу найт"] = "hollow knight",
-            ["силксонг"] = "silksong", ["хорнет"] = "silksong",
-            ["капхед"] = "cuphead", ["чашкоhead"] = "cuphead",
-            ["балатро"] = "balatro", ["покер"] = "balatro",
-            ["дум"] = "doom", ["дум этернал"] = "doom eternal",
-            ["скайрим"] = "skyrim", ["элдер скроллс"] = "elder scrolls",
-            ["стардю"] = "stardew valley", ["стардью"] = "stardew valley", ["долина стардью"] = "stardew valley",
-            ["террария"] = "terraria", ["терария"] = "terraria",
-            ["майнкрафт"] = "minecraft", ["майн"] = "minecraft",
-            ["персона"] = "persona", ["покемон"] = "pokemon", ["покемоны"] = "pokemon",
-            ["байонетта"] = "bayonetta", ["ксеноблейд"] = "xenoblade", ["зеноблейд"] = "xenoblade",
-            ["дарк соулс"] = "dark souls", ["дарк соулз"] = "dark souls",
-            ["хейдес"] = "hades", ["гадес"] = "hades", ["аид"] = "hades",
-            ["факторио"] = "factorio", ["сабнавтика"] = "subnautica", ["сабнатика"] = "subnautica",
-            ["дейв"] = "dave the diver", ["дайвер"] = "dave the diver",
-            ["дредж"] = "dredge", ["туник"] = "tunic",
-            ["бласфемос"] = "blasphemous", ["бласфемус"] = "blasphemous",
-            ["пицца тауэр"] = "pizza tower", ["пицца"] = "pizza tower",
-            ["найн солс"] = "nine sols", ["девять солнц"] = "nine sols",
-            ["дед селлс"] = "dead cells", ["мертвые клетки"] = "dead cells", ["дэд селлс"] = "dead cells",
-            ["селеста"] = "celeste", ["селест"] = "celeste",
-            ["ори"] = "ori", ["крэш"] = "crash bandicoot", ["краш"] = "crash bandicoot",
-            ["спайро"] = "spyro", ["соник"] = "sonic", ["кирби"] = "kirby",
-            ["сплатун"] = "splatoon", ["пикмин"] = "pikmin",
-            ["файр эмблем"] = "fire emblem", ["огненная эмблема"] = "fire emblem",
-            ["монстер хантер"] = "monster hunter", ["монхан"] = "monster hunter",
-            ["резидент"] = "resident evil", ["обитель зла"] = "resident evil",
-            ["ассасин"] = "assassins creed",
-            ["донки конг"] = "donkey kong", ["донкиконг"] = "donkey kong",
-            ["кастлвания"] = "castlevania", ["кастлевания"] = "castlevania",
-            ["мегамен"] = "mega man", ["астрал чейн"] = "astral chain",
-            ["октопат"] = "octopath traveler", ["якудза"] = "yakuza"
-        };
-
-        private static List<QVariant> BuildQueryVariants(string rawQuery)
-        {
-            string clean = rawQuery.Trim().ToLowerInvariant();
-            var raw = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { clean };
-
-            foreach (var (ruKey, enVal) in RuGameAliases)
-            {
-                if (clean == ruKey || clean.Contains(ruKey))
-                {
-                    raw.Add(clean.Replace(ruKey, enVal).Trim());
-                    raw.Add(enVal);
-                }
-            }
-
-            string swappedEn = SwapKeyboardLayout(clean, ruToEn: true);
-            if (swappedEn != clean) raw.Add(swappedEn);
-
-            string swappedRu = SwapKeyboardLayout(clean, ruToEn: false);
-            if (swappedRu != clean)
-            {
-                raw.Add(swappedRu);
-                foreach (var (ruKey, enVal) in RuGameAliases)
-                {
-                    if (swappedRu == ruKey || swappedRu.Contains(ruKey))
-                        raw.Add(enVal);
-                }
-            }
-
-            string translit = TransliterateRuToEn(clean);
-            if (translit != clean)
-            {
-                raw.Add(translit);
-                raw.Add(translit.Replace('v', 'w'));
-                raw.Add(translit.Replace('k', 'c'));
-            }
-
-            var outList = new List<QVariant>();
-            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            foreach (var r in raw)
-            {
-                string n = NormalizeSearchKey(r);
-                if (string.IsNullOrEmpty(n) || !seen.Add(n)) continue;
-
-                var ws = n.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-                var sig = ws.Where(w => !StopWords.Contains(w)).ToArray();
-                if (sig.Length == 0) sig = ws;
-
-                outList.Add(new QVariant(n, " " + n, sig, n.Length >= 4 ? PhoneticSkeleton(n) : ""));
-            }
-
-            return outList;
-        }
-
-        private static int ScoreTopic(RuTrackerIndexTopic t, List<QVariant> variants, string? tidQuery)
-        {
-            if (!string.IsNullOrEmpty(tidQuery) && t.TidBlob.Contains(tidQuery))
-                return 1300;
-
-            int best = 0;
-            for (int i = 0; i < variants.Count; i++)
-            {
-                var v = variants[i];
-                if (t.GameKey == v.Text)
-                {
-                    best = Math.Max(best, 1100 - i * 10);
-                    continue;
-                }
-
-                if (t.GameKey.StartsWith(v.Text, StringComparison.Ordinal))
-                {
-                    best = Math.Max(best, 1020 - i * 10);
-                    continue;
-                }
-
-                if (t.GameKeyPadded.Contains(v.Padded, StringComparison.Ordinal))
-                {
-                    best = Math.Max(best, 990 - i * 10);
-                    continue;
-                }
-
-                int ws = WordScore(t, v);
-                if (ws > best) best = ws;
-
-                if (!string.IsNullOrEmpty(v.Skeleton) && t.Skeleton.Contains(v.Skeleton, StringComparison.Ordinal))
-                {
-                    best = Math.Max(best, 680 - i * 10);
-                }
-            }
-
-            return best;
-        }
-
-        private static int WordScore(RuTrackerIndexTopic t, QVariant v)
-        {
-            if (v.Words.Length == 0) return 0;
-            int total = 0;
-            int inGame = 0;
-
-            foreach (var qw in v.Words)
-            {
-                int best = 99;
-                bool bestInGame = false;
-
-                for (int wi = 0; wi < t.Words.Length; wi++)
-                {
-                    int d = WordMatch(qw, t.Words[wi]);
-                    if (d < best || (d == best && wi < t.GameWordCount && !bestInGame))
-                    {
-                        best = d;
-                        bestInGame = wi < t.GameWordCount;
-                        if (d == 0 && bestInGame) break;
-                    }
-                }
-
-                if (best >= 99) return 0;
-                total += best;
-                if (bestInGame) inGame++;
-            }
-
-            int scoreBase = total == 0 ? 980 : (840 - total * 60);
-            int gameBonus = inGame == v.Words.Length ? 40 : 0;
-            return Math.Max(600, scoreBase + gameBonus);
-        }
-
-        private static int WordMatch(string qw, string gw)
-        {
-            if (qw == gw) return 0;
-            if (qw.Length >= 2 && gw.StartsWith(qw, StringComparison.Ordinal) && !qw.All(char.IsDigit)) return 0;
-            if (qw.Length < 4 || gw.Length < 4) return 99;
-            if (Math.Abs(qw.Length - gw.Length) > 2 && gw.Length < qw.Length) return 99;
-            bool sameStart = qw[0] == gw[0] || (qw.Length > 1 && gw.Length > 1 && qw[0] == gw[1] && qw[1] == gw[0]);
-            if (!sameStart) return 99;
-            int maxDist = qw.Length <= 5 ? 1 : 2;
-            if (Math.Abs(qw.Length - gw.Length) <= 2)
-            {
-                int d = DamerauLevenshtein(qw, gw);
-                if (d <= maxDist) return d;
-            }
-            if (gw.Length > qw.Length)
-            {
-                int dp = DamerauLevenshtein(qw, gw.Substring(0, qw.Length));
-                if (dp <= 1) return dp + 1;
-            }
-            return 99;
-        }
-
-        public static string NormalizeSearchKey(string s)
-        {
-            if (string.IsNullOrEmpty(s)) return "";
-            var sb = new StringBuilder(s.Length);
-            bool space = true;
-            foreach (char c0 in s)
-            {
-                char c = char.ToLowerInvariant(c0);
-                if (c == 'ё') c = 'е';
-                if (char.IsLetterOrDigit(c))
-                {
-                    sb.Append(c);
-                    space = false;
-                }
-                else if (!space)
-                {
-                    sb.Append(' ');
-                    space = true;
-                }
-            }
-            if (sb.Length > 0 && sb[^1] == ' ')
-                sb.Length--;
-            return sb.ToString();
-        }
-
-        public static string SwapKeyboardLayout(string input, bool ruToEn)
-        {
-            const string ru = "йцукенгшщзхъфывапролджэячсмитьбю.ё";
-            const string en = "qwertyuiop[]asdfghjkl;'zxcvbnm,./`";
-            var sb = new StringBuilder(input.Length);
-            foreach (char c in input.ToLowerInvariant())
-            {
-                if (ruToEn)
-                {
-                    int idx = ru.IndexOf(c);
-                    sb.Append(idx >= 0 && idx < en.Length ? en[idx] : c);
-                }
-                else
-                {
-                    int idx = en.IndexOf(c);
-                    sb.Append(idx >= 0 && idx < ru.Length ? ru[idx] : c);
-                }
-            }
-            return sb.ToString();
-        }
-
-        public static string TransliterateRuToEn(string input)
-        {
-            var map = new Dictionary<string, string>
-            {
-                ["щ"] = "shch", ["ш"] = "sh", ["ч"] = "ch", ["ц"] = "ts", ["ж"] = "zh",
-                ["э"] = "e", ["ю"] = "yu", ["я"] = "ya", ["а"] = "a", ["б"] = "b",
-                ["в"] = "v", ["г"] = "g", ["д"] = "d", ["е"] = "e", ["ё"] = "yo",
-                ["з"] = "z", ["и"] = "i", ["й"] = "y", ["к"] = "k", ["л"] = "l",
-                ["м"] = "m", ["н"] = "n", ["о"] = "o", ["п"] = "p", ["р"] = "r",
-                ["с"] = "s", ["т"] = "t", ["у"] = "u", ["ф"] = "f", ["х"] = "kh",
-                ["ъ"] = "", ["ы"] = "y", ["ь"] = ""
-            };
-            var sb = new StringBuilder(input.Length * 2);
-            foreach (char c in input.ToLowerInvariant())
-            {
-                string s = c.ToString();
-                if (map.TryGetValue(s, out var tr))
-                    sb.Append(tr);
-                else
-                    sb.Append(c);
-            }
-            return sb.ToString();
-        }
-
-        public static string PhoneticSkeleton(string input)
-        {
-            var sb = new StringBuilder();
-            char prev = ' ';
-            foreach (char c in input.ToLowerInvariant())
-            {
-                char outChar = c switch
-                {
-                    'c' or 'k' or 'q' => 'k',
-                    's' or 'z' => 's',
-                    'f' or 'v' or 'w' => 'f',
-                    'b' or 'p' => 'p',
-                    'd' or 't' => 't',
-                    'g' or 'j' => 'j',
-                    'm' or 'n' => 'n',
-                    'l' or 'r' => 'r',
-                    _ => (c >= '0' && c <= '9') ? c : ' '
-                };
-                if (outChar != ' ' && outChar != prev)
-                {
-                    sb.Append(outChar);
-                    prev = outChar;
-                }
-            }
-            return sb.ToString();
-        }
-
-        public static int DamerauLevenshtein(string a, string b)
-        {
-            int lenA = a.Length;
-            int lenB = b.Length;
-            if (lenA == 0) return lenB;
-            if (lenB == 0) return lenA;
-
-            int[,] dp = new int[lenA + 1, lenB + 1];
-            for (int i = 0; i <= lenA; i++) dp[i, 0] = i;
-            for (int j = 0; j <= lenB; j++) dp[0, j] = j;
-
-            for (int i = 1; i <= lenA; i++)
-            {
-                for (int j = 1; j <= lenB; j++)
-                {
-                    int cost = a[i - 1] == b[j - 1] ? 0 : 1;
-                    int v = Math.Min(
-                        Math.Min(dp[i - 1, j] + 1, dp[i, j - 1] + 1),
-                        dp[i - 1, j - 1] + cost);
-
-                    if (i > 1 && j > 1 && a[i - 1] == b[j - 2] && a[i - 2] == b[j - 1])
-                    {
-                        v = Math.Min(v, dp[i - 2, j - 2] + 1);
-                    }
-                    dp[i, j] = v;
-                }
-            }
-            return dp[lenA, lenB];
-        }
-
-        public static string CleanTitleToGame(string title)
-        {
-            string s = Regex.Replace(title, @"^\s*\[[^\]]*Switch[^\]]*\]\s*", "", RegexOptions.IgnoreCase);
-            s = Regex.Replace(s, @"\[[^\]]*\]|\([^)]*\)|\{[^}]*\}", " ");
-            s = Regex.Replace(s, @"[vV]\d[\d.]*", " ");
-            s = Regex.Replace(s, @"(NSP|NSZ|XCI|XCZ|RUS|ENG|Multi\d*)", " ", RegexOptions.IgnoreCase);
-            s = s.Replace('_', ' ');
-            s = Regex.Replace(s, @"\s+", " ").Trim().Trim('-', '/', '|', '.', ',', ' ');
-            return s;
-        }
-
+        private sealed class QVariant
+        {
+            public string Text { get; }
+            public string Padded { get; }
+            public string[] Words { get; }
+            public bool AllowTypo { get; }
+
+            public QVariant(string text, string padded, string[] words, bool allowTypo)
+            {
+                Text = text;
+                Padded = padded;
+                Words = words;
+                AllowTypo = allowTypo;
+            }
+        }
+
+        private static readonly HashSet<string> StopWords = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "the", "and", "for", "of", "a", "an", "nintendo", "switch", "edition", "deluxe"
+        };
+
+        private static readonly Dictionary<string, string> RuGameAliases = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["???????"] = "brotato", ["???????"] = "brotato", ["???????"] = "brotato", ["????????"] = "brotato",
+            ["?????? ????"] = "animal well", ["?????? ????"] = "animal well", ["?????? ???"] = "animal well", ["?????? ???"] = "animal well",
+            ["??????"] = "zelda", ["??????"] = "zelda", ["????"] = "zelda", ["??????"] = "hyrule",
+            ["?????"] = "mario", ["????? ?????"] = "super mario", ["????? ????"] = "mario kart",
+            ["???????"] = "witcher", ["??????"] = "witcher", ["???????"] = "witcher",
+            ["?????? ????"] = "hollow knight", ["????? ??????"] = "hollow knight", ["????? ????"] = "hollow knight",
+            ["????????"] = "silksong", ["??????"] = "silksong",
+            ["??????"] = "cuphead", ["?????head"] = "cuphead",
+            ["???????"] = "balatro", ["?????"] = "balatro",
+            ["???"] = "doom", ["??? ???????"] = "doom eternal",
+            ["???????"] = "skyrim", ["????? ???????"] = "elder scrolls",
+            ["??????"] = "stardew valley", ["???????"] = "stardew valley", ["?????? ???????"] = "stardew valley",
+            ["????????"] = "terraria", ["???????"] = "terraria",
+            ["?????????"] = "minecraft", ["????"] = "minecraft",
+            ["???????"] = "persona", ["???????"] = "pokemon", ["????????"] = "pokemon",
+            ["?????????"] = "bayonetta", ["??????????"] = "xenoblade", ["?????????"] = "xenoblade",
+            ["???? ?????"] = "dark souls", ["???? ?????"] = "dark souls",
+            ["??????"] = "hades", ["?????"] = "hades", ["???"] = "hades",
+            ["????????"] = "factorio", ["??????????"] = "subnautica", ["?????????"] = "subnautica",
+            ["????"] = "dave the diver", ["??????"] = "dave the diver",
+            ["?????"] = "dredge", ["?????"] = "tunic",
+            ["?????????"] = "blasphemous", ["?????????"] = "blasphemous",
+            ["????? ?????"] = "pizza tower", ["?????"] = "pizza tower",
+            ["???? ????"] = "nine sols", ["?????? ?????"] = "nine sols",
+            ["??? ?????"] = "dead cells", ["??????? ??????"] = "dead cells", ["??? ?????"] = "dead cells",
+            ["???????"] = "celeste", ["??????"] = "celeste",
+            ["???"] = "ori", ["????"] = "crash bandicoot", ["????"] = "crash bandicoot",
+            ["??????"] = "spyro", ["?????"] = "sonic", ["?????"] = "kirby",
+            ["???????"] = "splatoon", ["??????"] = "pikmin",
+            ["???? ??????"] = "fire emblem", ["???????? ???????"] = "fire emblem",
+            ["??????? ??????"] = "monster hunter", ["??????"] = "monster hunter",
+            ["????????"] = "resident evil", ["??????? ???"] = "resident evil",
+            ["???????"] = "assassins creed",
+            ["????? ????"] = "donkey kong", ["?????????"] = "donkey kong",
+            ["??????????"] = "castlevania", ["???????????"] = "castlevania",
+            ["???????"] = "mega man", ["?????? ????"] = "astral chain",
+            ["???????"] = "octopath traveler", ["??????"] = "yakuza",
+            ["???????"] = "aggelos"
+        };
+
+        private static bool ContainsWholePhrase(string paddedText, string phrase)
+        {
+            if (string.IsNullOrWhiteSpace(phrase)) return false;
+            return paddedText.Contains(" " + phrase + " ", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static List<QVariant> BuildQueryVariants(string rawQuery)
+        {
+            string clean = NormalizeSearchKey(rawQuery);
+            string paddedClean = " " + clean + " ";
+            var raw = new List<(string Text, bool AllowTypo)>();
+            if (!string.IsNullOrEmpty(clean))
+                raw.Add((clean, true));
+
+            foreach (var (ruKey, enVal) in RuGameAliases)
+            {
+                if (clean.Equals(ruKey, StringComparison.OrdinalIgnoreCase) || ContainsWholePhrase(paddedClean, ruKey))
+                {
+                    string replaced = (" " + clean + " ").Replace(" " + ruKey + " ", " " + enVal + " ", StringComparison.OrdinalIgnoreCase).Trim();
+                    raw.Add((replaced, true));
+                    raw.Add((enVal, true));
+                }
+            }
+
+            bool hasCyrillic = clean.Any(c => c >= '?' && c <= '?');
+            bool hasLatin = clean.Any(c => c >= 'a' && c <= 'z');
+
+            if (hasCyrillic)
+            {
+                string translit = TransliterateRuToEn(clean);
+                if (translit != clean)
+                {
+                    raw.Add((translit, true));
+                    raw.Add((translit.Replace('v', 'w'), false));
+                    raw.Add((translit.Replace('k', 'c'), false));
+                }
+
+                string swappedEn = SwapKeyboardLayout(rawQuery.Trim().ToLowerInvariant(), ruToEn: true);
+                if (swappedEn != clean)
+                    raw.Add((swappedEn, false));
+            }
+
+            if (hasLatin)
+            {
+                string swappedRu = NormalizeSearchKey(SwapKeyboardLayout(rawQuery.Trim().ToLowerInvariant(), ruToEn: false));
+                if (!string.IsNullOrEmpty(swappedRu) && swappedRu != clean)
+                {
+                    raw.Add((swappedRu, false));
+                    string paddedSwapped = " " + swappedRu + " ";
+                    foreach (var (ruKey, enVal) in RuGameAliases)
+                    {
+                        if (swappedRu.Equals(ruKey, StringComparison.OrdinalIgnoreCase) || ContainsWholePhrase(paddedSwapped, ruKey))
+                            raw.Add((enVal, true));
+                    }
+                }
+            }
+
+            var outList = new List<QVariant>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var (r, allowTypo) in raw)
+            {
+                string n = NormalizeSearchKey(r);
+                if (string.IsNullOrEmpty(n) || !seen.Add(n)) continue;
+
+                var ws = n.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                var sig = ws.Where(w => !StopWords.Contains(w)).ToArray();
+                if (sig.Length == 0) sig = ws;
+
+                outList.Add(new QVariant(n, " " + n + " ", sig, allowTypo));
+            }
+
+            return outList;
+        }
+
+        private static int ScoreTopic(RuTrackerIndexTopic t, List<QVariant> variants, string? tidQuery)
+        {
+            if (string.IsNullOrWhiteSpace(t.GameKey) && string.IsNullOrWhiteSpace(t.TitleKey))
+                return 0;
+
+            if (!string.IsNullOrEmpty(tidQuery) && t.TidBlob.Contains(tidQuery, StringComparison.OrdinalIgnoreCase))
+                return 1300;
+
+            int best = 0;
+            for (int i = 0; i < variants.Count; i++)
+            {
+                var v = variants[i];
+                int penalty = i * 15;
+
+                if (t.GameKey.Equals(v.Text, StringComparison.Ordinal))
+                {
+                    best = Math.Max(best, 1200 - penalty);
+                    continue;
+                }
+
+                if (t.GameKey.StartsWith(v.Text + " ", StringComparison.Ordinal))
+                {
+                    best = Math.Max(best, 1140 - penalty);
+                    continue;
+                }
+
+                if (v.Text.Length >= 4 && t.GameKey.StartsWith(v.Text, StringComparison.Ordinal))
+                {
+                    best = Math.Max(best, 1080 - penalty);
+                    continue;
+                }
+
+                if (t.GameKeyPadded.Contains(v.Padded, StringComparison.Ordinal))
+                {
+                    best = Math.Max(best, 1050 - penalty);
+                    continue;
+                }
+
+                if (!string.IsNullOrEmpty(t.TitleKeyPadded) && t.TitleKeyPadded.Contains(v.Padded, StringComparison.Ordinal))
+                {
+                    best = Math.Max(best, 1020 - penalty);
+                    continue;
+                }
+
+                int ws = WordScore(t, v) - penalty;
+                if (ws > best) best = ws;
+            }
+
+            return best;
+        }
+
+        private static int WordScore(RuTrackerIndexTopic t, QVariant v)
+        {
+            if (v.Words.Length == 0 || t.Words.Length == 0) return 0;
+            int totalTypos = 0;
+            int inGame = 0;
+
+            foreach (var qw in v.Words)
+            {
+                int best = 99;
+                bool bestInGame = false;
+
+                for (int wi = 0; wi < t.Words.Length; wi++)
+                {
+                    int d = WordMatch(qw, t.Words[wi], v.AllowTypo);
+                    if (d < best || (d == best && wi < t.GameWordCount && !bestInGame))
+                    {
+                        best = d;
+                        bestInGame = wi < t.GameWordCount;
+                        if (d == 0 && bestInGame) break;
+                    }
+                }
+
+                if (best >= 99) return 0;
+                totalTypos += best;
+                if (bestInGame) inGame++;
+            }
+
+            int scoreBase = totalTypos == 0 ? 980 : (880 - totalTypos * 60);
+            int gameBonus = inGame == v.Words.Length ? 40 : (inGame > 0 ? 15 : 0);
+            return Math.Max(650, scoreBase + gameBonus);
+        }
+
+        /// <summary>
+        /// ?????????, ?????????? ?? ??? ????? ?????????? ????? ????? ????? ????????????? ???? ???? (???????? ??? ????? ????).
+        /// </summary>
+        public static bool IsSingleLetterSwap(string a, string b)
+        {
+            if (a.Length != b.Length || a.Length < 3) return false;
+            int p1 = -1, p2 = -1;
+            for (int i = 0; i < a.Length; i++)
+            {
+                if (a[i] != b[i])
+                {
+                    if (p1 < 0) p1 = i;
+                    else if (p2 < 0) p2 = i;
+                    else return false;
+                }
+            }
+            if (p1 < 0 || p2 < 0) return false;
+            if (p2 - p1 > 2) return false;
+            if (a.Length == 3 && p1 == 0) return false;
+            return a[p1] == b[p2] && a[p2] == b[p1];
+        }
+
+        /// <summary>
+        /// ?????? ???? ????? ? ???????? ????? 1 ???????? (?????????? 2 ????? ??? 1 ????????????/???????????/?????? ?????).
+        /// </summary>
+        private static int WordMatch(string qw, string gw, bool allowTypo)
+        {
+            if (qw.Equals(gw, StringComparison.Ordinal)) return 0;
+
+            // ?????? ??????? ???????? ????? (??? ????????? ????)
+            if (!qw.All(char.IsDigit) && gw.StartsWith(qw, StringComparison.Ordinal))
+            {
+                if (qw.Length >= 5 || (qw.Length == 4 && gw.Length <= 7) || (qw.Length == 3 && gw.Length <= 5))
+                    return 1;
+            }
+
+            if (!allowTypo) return 99;
+
+            // ?????????? 2 ????? ??????? (????????, zedla -> zelda, mairo -> mario, aggleos -> aggelos)
+            if (IsSingleLetterSwap(qw, gw))
+                return 1;
+
+            if (qw.Length < 4 || gw.Length < 4) return 99;
+            if (Math.Abs(qw.Length - gw.Length) > 1) return 99;
+
+            // ?????? ????? ?????? ?????????, ???? (??? ???? >= 5 ????) ??? ????????? ????? ????????? 1-?-1
+            bool firstOk = qw[0] == gw[0] ||
+                           (qw.Length == gw.Length && qw.Length >= 5 && qw.AsSpan(1).SequenceEqual(gw.AsSpan(1)));
+            if (!firstOk) return 99;
+
+            // ?????? ?? ????? 1 ?????? (1 ???????????? ?????, 1 ??????????? ??? 1 ??????)
+            int d = DamerauLevenshtein(qw, gw);
+            return d <= 1 ? 1 : 99;
+        }
+
+        public static string NormalizeSearchKey(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return "";
+            var sb = new StringBuilder(s.Length);
+            bool space = true;
+            foreach (char c0 in s)
+            {
+                char c = char.ToLowerInvariant(c0);
+                if (c == '?') c = '?';
+                if (char.IsLetterOrDigit(c))
+                {
+                    sb.Append(c);
+                    space = false;
+                }
+                else if (!space)
+                {
+                    sb.Append(' ');
+                    space = true;
+                }
+            }
+            if (sb.Length > 0 && sb[^1] == ' ')
+                sb.Length--;
+            return sb.ToString();
+        }
+
+        public static string SwapKeyboardLayout(string input, bool ruToEn)
+        {
+            const string ru = "????????????????????????????????.?";
+            const string en = "qwertyuiop[]asdfghjkl;'zxcvbnm,./`";
+            var sb = new StringBuilder(input.Length);
+            foreach (char c in input.ToLowerInvariant())
+            {
+                if (ruToEn)
+                {
+                    int idx = ru.IndexOf(c);
+                    sb.Append(idx >= 0 && idx < en.Length ? en[idx] : c);
+                }
+                else
+                {
+                    int idx = en.IndexOf(c);
+                    sb.Append(idx >= 0 && idx < ru.Length ? ru[idx] : c);
+                }
+            }
+            return sb.ToString();
+        }
+
+        public static string TransliterateRuToEn(string input)
+        {
+            var map = new Dictionary<string, string>
+            {
+                ["?"] = "shch", ["?"] = "sh", ["?"] = "ch", ["?"] = "ts", ["?"] = "zh",
+                ["?"] = "e", ["?"] = "yu", ["?"] = "ya", ["?"] = "a", ["?"] = "b",
+                ["?"] = "v", ["?"] = "g", ["?"] = "d", ["?"] = "e", ["?"] = "yo",
+                ["?"] = "z", ["?"] = "i", ["?"] = "y", ["?"] = "k", ["?"] = "l",
+                ["?"] = "m", ["?"] = "n", ["?"] = "o", ["?"] = "p", ["?"] = "r",
+                ["?"] = "s", ["?"] = "t", ["?"] = "u", ["?"] = "f", ["?"] = "kh",
+                ["?"] = "", ["?"] = "y", ["?"] = ""
+            };
+            var sb = new StringBuilder(input.Length * 2);
+            foreach (char c in input.ToLowerInvariant())
+            {
+                string s = c.ToString();
+                if (map.TryGetValue(s, out var tr))
+                    sb.Append(tr);
+                else
+                    sb.Append(c);
+            }
+            return sb.ToString();
+        }
+
+        public static string PhoneticSkeleton(string input) => string.Empty;
+
+        public static int DamerauLevenshtein(string a, string b)
+        {
+            int lenA = a.Length;
+            int lenB = b.Length;
+            if (Math.Abs(lenA - lenB) > 2) return 99;
+            if (lenA == 0) return lenB;
+            if (lenB == 0) return lenA;
+
+            int[,] dp = new int[lenA + 1, lenB + 1];
+            for (int i = 0; i <= lenA; i++) dp[i, 0] = i;
+            for (int j = 0; j <= lenB; j++) dp[0, j] = j;
+
+            for (int i = 1; i <= lenA; i++)
+            {
+                for (int j = 1; j <= lenB; j++)
+                {
+                    int cost = a[i - 1] == b[j - 1] ? 0 : 1;
+                    int v = Math.Min(
+                        Math.Min(dp[i - 1, j] + 1, dp[i, j - 1] + 1),
+                        dp[i - 1, j - 1] + cost);
+
+                    if (i > 1 && j > 1 && a[i - 1] == b[j - 2] && a[i - 2] == b[j - 1])
+                    {
+                        v = Math.Min(v, dp[i - 2, j - 2] + 1);
+                    }
+                    dp[i, j] = v;
+                }
+            }
+            return dp[lenA, lenB];
+        }
+
+        public static string CleanTitleToGame(string title)
+        {
+            string s = Regex.Replace(title, @"^\s*\[[^\]]*Switch[^\]]*\]\s*", "", RegexOptions.IgnoreCase);
+            s = Regex.Replace(s, @"\[[^\]]*\]|\([^)]*\)|\{[^}]*\}", " ");
+            s = Regex.Replace(s, @" [vV]\d[\d.]* ", " ");
+            s = Regex.Replace(s, @" (NSP|NSZ|XCI|XCZ|NUP|NRO|RUS|ENG|Multi\d*) ", " ", RegexOptions.IgnoreCase);
+            s = s.Replace('_', ' ');
+            s = Regex.Replace(s, @"\s+", " ").Trim().Trim('-', '/', '|', '.', ',', ' ');
+            return s;
+        }
+
+        public static string CleanTitleKeepAltNames(string title)
+        {
+            string s = Regex.Replace(title, @"\[[^\]]*\]|\{[^}]*\}", " ");
+            s = Regex.Replace(s, @"\((?:????|???????|homebrew[^)]*|update[^)]*|dlc[^)]*|v\d[^)]*|mod[^)]*)\)", " ", RegexOptions.IgnoreCase);
+            s = Regex.Replace(s, @" [vV]\d[\d.]* ", " ");
+            s = Regex.Replace(s, @" (NSP|NSZ|XCI|XCZ|NUP|NRO|RUS|ENG|Multi\d*) ", " ", RegexOptions.IgnoreCase);
+            s = s.Replace('_', ' ').Replace('(', ' ').Replace(')', ' ');
+            s = Regex.Replace(s, @"\s+", " ").Trim().Trim('-', '/', '|', '.', ',', ' ');
+            return s;
+        }
+
         private static readonly Regex TidRegex = new(@"(?<![0-9A-Fa-f])(01[0-9A-Fa-f]{14})(?![0-9A-Fa-f])", RegexOptions.Compiled);
 
         public static string ExtractTitleId(string s)

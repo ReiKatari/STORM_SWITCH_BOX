@@ -1,29 +1,29 @@
-> 💡 **Релиз 6.8.0** — *Поддержка прямых дампов без тикетов Direct Dump RightsId-as-TitleKey Fallback (синхронизация с Eden fbfe0c95fa30), упреждающая инъекция ключей в LibHac и полная совместимость с RomFS, сжатием NCZ/XCZ и слиянием 4-в-1*
+> 💡 **Релиз 6.8.7** — *Высокоточный поисковый движок RuTracker с контролем опечаток (перестановка букв и 1 неверная буква без ложных совпадений), исправление инициализации WebView2 и Same-Origin CDP в WinUI 3, автоматическая сборка задач по умолчанию и обновление индекса раздач*
 
 ---
 
 ### 🚀 Ключевые изменения и улучшения
-- 🌟 **[Криптография / Совместимость] Поддержка прямых дампов без тикетов (Direct Dump RightsId-as-TitleKey Fallback)**: во все криптографические конвейеры на Android (`StormNczEngine.kt`) и Windows (`StormNczCompressor.cs`, `StormNczStorage.cs`, `MultiContentService.cs`, `NszCompressionService.cs`, `RomFsService.cs`, `TitleKeyAuditService.cs`) внедрена архитектурная синхронизация с эмулятором Nintendo Switch **Eden** (`commit fbfe0c95fa30`). При отсутствии `.tik`-билета и записи в `title.keys` программа автоматически подставляет 16 сырых байт `RightsId` (`смещение 0x230..0x23F`) в качестве ключа `TitleKey` напрямую (без обёртки мастер-ключами `TitleKek`), сопровождая операцию верификацией по сигнатурам заголовков секций (`PFS0`, `IVFC`, `RomFS 0x50`).
-- 🌟 **[LibHac и Мульти-контейнеры] Упреждающая инъекция ключей EnsureDirectDumpRightsIdFallback**: на платформе Windows перед открытием любого `Nca` автоматически проверяется наличие ключа для ненулевого `RightsId` и регистрируется `AccessKey(rightsIdBytes)` в системном наборе `ExternalKeySet`. В хранилище `StormNczStorage` исключено ошибочное использование чужого ключа из общего словаря `_titleKeys` при сборке и распаковке мульти-контейнеров с несколькими DLC, обладающими разными `RightsId`.
-- 🌟 **[Экосистема форматов] Бесшовная обработка прямых дампов во всех операциях**: прямые дампы без тикетов теперь открываются в инспекторе `RomFS` с моментальным извлечением файлов, распаковываются, патчатся обновлениями и модификациями в режиме `4-в-1` (`Base + Update + DLC + Mods`) и сжимаются в высокоскоростные блочные контейнеры `NSZ` (`NCZBLOCK`) и `XCZ`.
+- 🌟 **[Поисковый движок RuTracker] Точный поиск с умным допуском 1 опечатки или перестановки букв**: полностью переработан алгоритм ранжирования раздач в Windows (`RuTrackerModService.cs`) и Android (`RuTrackerCloudEngine.kt`). Удалён шумный фонетический скелет (`PhoneticSkeleton`), вызывавший ложные срабатывания на посторонние игры (например, выдача `Angels of Death` и `Gears of War 2` при поиске `Aggelos`). Теперь поиск работает строго по введённому запросу с допуском ровно одной перестановки соседних букв (`IsSingleLetterSwap`) или одной неправильной/пропущенной буквы (`DamerauLevenshtein <= 1`), а словарь синонимов сопоставляется строго по границам целых слов.
+- 🌟 **[WebView2 и Same-Origin CDP] Устранение ошибок NullReferenceException при фоновом обходе**: исправлена ранняя инициализация `CloudflareWebView` до включения `ContentDialog` в визуальное дерево WinUI 3 (`RuTrackerModDownloaderDialog.xaml.cs`). Добавлен потокобезопасный менеджер `EnsureWebViewInitializedAsync` с выделенным пользовательским каталогом `%LOCALAPPDATA%\STORM SWITCH BOX\WebView2`, синхронизацией через события `Opened` / `Loaded` и защитой вызовов `CallDevToolsProtocolMethodAsync`.
+- 🌟 **[Диспетчер задач и Автосборка] Полный паритет конвейера задач Windows и Android**: опция автоматической сборки после скачивания раздачи и модов (`AutoBuild`) теперь включена по умолчанию на Windows аналогично Android. Все обновления свойств задачи и привязка скачанных файлов (`NSP`, `NSZ`, `XCI`, `XCZ`, `NUP`, `NRO`, `3DS`, `CIA`) выполняются потокобезопасно в потоке UI, а при ручном отключении автосборки задача корректно переводится в статус `Ожидание` для запуска из основной очереди.
 
 <details>
 <summary><b>📋 Полный список изменений (нажмите, чтобы развернуть)</b></summary>
 
-- 🔹 **[Direct Dump Detection]**: сканирование RightsId и валидация заголовка секции через `SectionHeader` для 100% точного определения прямых дампов без ложных срабатываний.
-- 🔹 **[Multi-DLC Key Isolation]**: изоляция индивидуальных прав доступа к ключам `RightsId` в PFS0 при наличии более 50 DLC в одном монолитном пакете.
-- 🔹 **[Virtual RomFS Inspector]**: просмотр и распаковка ресурсов RomFS из прямых дампов без предварительного преобразования в Standard Crypto.
-- 🔹 **[SmartShrink и MultiContent]**: корректное сохранение структуры прямых дампов при удалении лишних языковых дорожек и слиянии обновлений.
-- 🔹 **[Android Cryptographic Parity]**: перенос логики RightsId-as-TitleKey в нативный движок `StormNczEngine.kt` с поддержкой 64-битных и legacy 32-битных архитектур.
+- 🔹 **[Точный поиск и фильтрация тегов]**: из поискового индекса слов исключены технические теги релиза (`NSP`, `NSZ`, `XCI`, `RUS`, `Multi`, `Update`, `DLC`), сохранены альтернативные и русские названия игр в скобках (`CleanTitleKeepAltNames`).
+- 🔹 **[Контроль опечаток]**: внедрён детектор перестановки двух букв (`IsSingleLetterSwap`) и жёсткий порог расстояния Дамерау-Левенштейна `<= 1` с проверкой первой буквы слова.
+- 🔹 **[Жизненный цикл WebView2 в WinUI 3]**: исключён вызов `EnsureCoreWebView2Async()` в конструкторе диалога до открытия окна; добавлена инициализация `CoreWebView2Environment` с правами записи при запуске от имени администратора.
+- 🔹 **[Синхронизация API RuTracker #1605]**: исправлен парсинг JSON-структуры `result` из `api.rutracker.cc/v1/static/pvc/f/1605` и очистка `CDATA`-заголовков Atom-ленты; локальный индекс обогащён новыми релизами Nintendo Switch и Switch 2 (`7 285` тем).
+- 🔹 **[Потокобезопасность очереди задач]**: устранены кросс-поточные обращения к `ObservableCollection` и `SolidColorBrush` (`RPC_E_WRONG_THREAD`) в фоновом конвейере `ExecuteRuTrackerPipelineAsync`.
 
 </details>
 
 <details>
 <summary><b>🌐 English Changelog (click to expand)</b></summary>
 
-- 🔸 **Direct Dump RightsId-as-TitleKey Fallback**: synchronized cryptographic pipeline with Nintendo Switch emulator **Eden** (`commit fbfe0c95fa30`). The engine automatically uses the 16 raw `RightsId` bytes (`offset 0x230..0x23F`) as the direct `TitleKey` (bypassing `TitleKek` decryption) when `.tik` tickets are absent, verified against `PFS0`, `IVFC`, and `RomFS 0x50` section headers.
-- 🔸 **LibHac Preemptive Key Injection and Multi-DLC Safety**: automated `EnsureDirectDumpRightsIdFallback` injects `AccessKey(rightsIdBytes)` into `ExternalKeySet` before NCA access, eliminating key collisions across multiple DLCs with distinct `RightsIds` in `StormNczStorage`.
-- 🔸 **Universal Direct Dump Tooling Compatibility**: ticketless direct dumps now seamlessly open in Virtual `RomFS` Inspector, compress into block `NCZBLOCK` / `XCZ` archives, and merge via `4-in-1` Multi-Content workflow.
+- 🔸 **Precision RuTracker Search with Single-Typo and Transposition Tolerance**: overhauled the search scoring engine across Windows (`RuTrackerModService.cs`) and Android (`RuTrackerCloudEngine.kt`). Removed noisy consonant skeleton matching and restricted fuzzy matching to exact words, valid prefixes, single letter swaps (`IsSingleLetterSwap`), and a strict Damerau-Levenshtein distance of `<= 1`.
+- 🔸 **WinUI 3 WebView2 and Same-Origin CDP NullReferenceException Fix**: deferred `CloudflareWebView` initialization until `ContentDialog.Opened` / `Loaded` in the visual tree with a dedicated `%LOCALAPPDATA%\STORM SWITCH BOX\WebView2` environment and full null-safety guards before CDP `Runtime.evaluate` calls.
+- 🔸 **Windows and Android Task Pipeline Parity**: enabled automatic multi-content build (`AutoBuild`) by default on Windows to match Android, added UI-thread marshaling for all task updates, and ensured tasks with `AutoBuild` disabled transition cleanly to the `Pending` queue state.
 
 </details>
 

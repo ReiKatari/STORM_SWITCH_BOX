@@ -1136,58 +1136,88 @@ object RuTrackerCloudEngine {
         return dp[lenA][lenB]
     }
 
+    private fun containsWholePhrase(paddedText: String, phrase: String): Boolean {
+        if (phrase.isBlank()) return false
+        return paddedText.contains(" $phrase ", ignoreCase = true)
+    }
+
     fun generateSmartQueryVariants(rawQuery: String): List<String> {
-        val clean = rawQuery.trim().lowercase()
+        val clean = rawQuery.trim().lowercase().replace('ё', 'е').replace(Regex("""[^a-zа-я0-9]+"""), " ").trim()
         if (clean.isEmpty()) return emptyList()
+        val paddedClean = " $clean "
         val variants = LinkedHashSet<String>()
         variants.add(clean)
 
         for ((ruKey, enVal) in RU_GAME_ALIASES) {
-            if (clean == ruKey || clean.contains(ruKey)) {
-                variants.add(clean.replace(ruKey, enVal).trim())
+            if (clean == ruKey || containsWholePhrase(paddedClean, ruKey)) {
+                variants.add((" $clean ").replace(" $ruKey ", " $enVal ").trim())
                 variants.add(enVal)
             }
         }
 
-        val swappedEn = swapKeyboardLayout(clean, ruToEn = true)
-        if (swappedEn != clean) variants.add(swappedEn)
+        val hasCyr = clean.any { it in 'а'..'я' }
+        val hasLat = clean.any { it in 'a'..'z' }
 
-        val swappedRu = swapKeyboardLayout(clean, ruToEn = false)
-        if (swappedRu != clean) {
-            variants.add(swappedRu)
-            for ((ruKey, enVal) in RU_GAME_ALIASES) {
-                if (swappedRu == ruKey || swappedRu.contains(ruKey)) {
-                    variants.add(enVal)
-                }
+        if (hasCyr) {
+            val translit = transliterateRuToEn(clean)
+            if (translit != clean) {
+                variants.add(translit)
+                variants.add(translit.replace('v', 'w'))
+                variants.add(translit.replace('k', 'c'))
             }
+            val swappedEn = swapKeyboardLayout(rawQuery.trim().lowercase(), ruToEn = true)
+            if (swappedEn != clean) variants.add(swappedEn)
         }
 
-        val translit = transliterateRuToEn(clean)
-        if (translit != clean) {
-            variants.add(translit)
-            variants.add(translit.replace('v', 'w'))
-            variants.add(translit.replace('k', 'c'))
+        if (hasLat) {
+            val swappedRu = swapKeyboardLayout(rawQuery.trim().lowercase(), ruToEn = false)
+                .replace('ё', 'е').replace(Regex("""[^a-zа-я0-9]+"""), " ").trim()
+            if (swappedRu.isNotEmpty() && swappedRu != clean) {
+                val paddedSwapped = " $swappedRu "
+                for ((ruKey, enVal) in RU_GAME_ALIASES) {
+                    if (swappedRu == ruKey || containsWholePhrase(paddedSwapped, ruKey)) {
+                        variants.add(enVal)
+                    }
+                }
+            }
         }
 
         return variants.filter { it.isNotBlank() }
     }
 
-    private val ENGLISH_STOP_WORDS = setOf("the", "and", "for", "with", "from", "into", "edition", "switch", "nintendo")
+    private val ENGLISH_STOP_WORDS = setOf("the", "and", "for", "with", "from", "into", "edition", "switch", "nintendo", "deluxe")
 
-    private fun isWordFuzzyMatch(qw: String, gw: String): Pair<Boolean, Int> {
-        if (qw == gw) return true to 0
-        if (qw.length >= 3 && gw.startsWith(qw)) return true to 0
-        if (qw.length < 4 || gw.length < 4) return false to 99
-        if (kotlin.math.abs(qw.length - gw.length) > 2) return false to 99
-        val sameStart = (qw[0] == gw[0]) || (qw.length >= 2 && gw.length >= 2 && qw[0] == gw[1] && qw[1] == gw[0])
-        if (!sameStart) return false to 99
-        val maxDist = if (qw.length <= 5) 1 else 2
-        val d = damerauLevenshtein(qw, gw)
-        if (d <= maxDist) return true to d
-        if (gw.length > qw.length && qw.length >= 4) {
-            val dPref = damerauLevenshtein(qw, gw.take(qw.length))
-            if (dPref <= 1) return true to dPref
+    private fun isSingleLetterSwap(a: String, b: String): Boolean {
+        if (a.length != b.length || a.length < 3) return false
+        var p1 = -1
+        var p2 = -1
+        for (i in a.indices) {
+            if (a[i] != b[i]) {
+                if (p1 < 0) p1 = i
+                else if (p2 < 0) p2 = i
+                else return false
+            }
         }
+        if (p1 < 0 || p2 < 0 || (p2 - p1) > 2) return false
+        if (a.length == 3 && p1 == 0) return false
+        return a[p1] == b[p2] && a[p2] == b[p1]
+    }
+
+    private fun isWordFuzzyMatch(qw: String, gw: String, allowTypo: Boolean = true): Pair<Boolean, Int> {
+        if (qw == gw) return true to 0
+        if (!qw.all { it.isDigit() } && gw.startsWith(qw)) {
+            if (qw.length >= 5 || (qw.length == 4 && gw.length <= 7) || (qw.length == 3 && gw.length <= 5)) {
+                return true to 1
+            }
+        }
+        if (!allowTypo) return false to 99
+        if (isSingleLetterSwap(qw, gw)) return true to 1
+        if (qw.length < 4 || gw.length < 4) return false to 99
+        if (kotlin.math.abs(qw.length - gw.length) > 1) return false to 99
+        val firstOk = (qw[0] == gw[0]) || (qw.length == gw.length && qw.length >= 5 && qw.substring(1) == gw.substring(1))
+        if (!firstOk) return false to 99
+        val d = damerauLevenshtein(qw, gw)
+        if (d <= 1) return true to 1
         return false to 99
     }
 
@@ -1198,41 +1228,43 @@ object RuTrackerCloudEngine {
         publisher: String = "",
         genre: String = ""
     ): Int {
-        val q = rawQuery.trim().lowercase()
+        val q = rawQuery.trim().lowercase().replace('ё', 'е')
         if (q.isEmpty() || q.equals("nintendo switch", true) || q.equals("все хиты switch", true)) return 500
 
-        val cleanGame = StormNczEngine.extractCleanGameTitle(gameTitle).lowercase().trim()
+        val cleanGame = StormNczEngine.extractCleanGameTitle(gameTitle).lowercase().replace('ё', 'е').trim()
+        val normGame = cleanGame.replace(Regex("""[^a-zа-я0-9]+"""), " ").trim()
+        val paddedGame = " $normGame "
 
         if (titleId.isNotEmpty() && titleId.lowercase().contains(q)) return 1300
-        if (cleanGame == q) return 1250
-        if (cleanGame.startsWith(q)) return 1180
-        if (cleanGame.contains(q)) return 1100
 
-        val gameWords = cleanGame.split(Regex("""[^a-zа-яё0-9]+""")).filter { it.isNotEmpty() }
+        val gameWords = normGame.split(' ').filter { it.isNotEmpty() && it !in ENGLISH_STOP_WORDS }.ifEmpty {
+            normGame.split(' ').filter { it.isNotEmpty() }
+        }
         if (gameWords.isEmpty()) return 0
 
         val variants = generateSmartQueryVariants(q)
         for ((idx, v) in variants.withIndex()) {
-            val penalty = if (idx == 0) 0 else 35
-            if (cleanGame == v) return 1220 - penalty
-            if (cleanGame.startsWith(v)) return 1140 - penalty
-            if (cleanGame.contains(v) && v.length >= 4) return 1060 - penalty
+            val penalty = idx * 20
+            val allowTypo = idx <= 1
+            if (normGame == v) return 1220 - penalty
+            if (normGame.startsWith("$v ")) return 1160 - penalty
+            if (v.length >= 4 && normGame.startsWith(v)) return 1100 - penalty
+            if (paddedGame.contains(" $v ")) return 1060 - penalty
 
-            val allQWords = v.split(Regex("""[^a-zа-яё0-9]+""")).filter { it.isNotEmpty() }
+            val allQWords = v.split(' ').filter { it.isNotEmpty() }
             if (allQWords.isEmpty()) continue
 
             val significantQWords = allQWords.filter { it.length >= 2 && it !in ENGLISH_STOP_WORDS }.ifEmpty { allQWords }
-            val stopQWords = allQWords.filter { it in ENGLISH_STOP_WORDS }
 
             var allSignificantMatched = true
             var totalDist = 0
-            var exactOrPrefixCount = 0
+            var exactCount = 0
 
             for (qw in significantQWords) {
                 var bestDist = 99
                 var matchedThisWord = false
                 for (gw in gameWords) {
-                    val (ok, d) = isWordFuzzyMatch(qw, gw)
+                    val (ok, d) = isWordFuzzyMatch(qw, gw, allowTypo)
                     if (ok && d < bestDist) {
                         matchedThisWord = true
                         bestDist = d
@@ -1243,18 +1275,13 @@ object RuTrackerCloudEngine {
                     allSignificantMatched = false
                     break
                 }
-                if (bestDist == 0) exactOrPrefixCount++
+                if (bestDist == 0) exactCount++
                 totalDist += bestDist
             }
 
             if (allSignificantMatched) {
-                var stopBonus = 0
-                for (sw in stopQWords) {
-                    if (gameWords.any { it == sw || it.startsWith(sw) }) stopBonus += 45
-                    else stopBonus -= 25
-                }
-                val baseScore = if (totalDist == 0) 980 else (820 - totalDist * 55)
-                return (baseScore + exactOrPrefixCount * 20 + stopBonus - penalty).coerceAtLeast(600)
+                val baseScore = if (totalDist == 0) 980 else (880 - totalDist * 60)
+                return (baseScore + exactCount * 15 - penalty).coerceAtLeast(650)
             }
         }
 
@@ -1395,23 +1422,21 @@ object RuTrackerCloudEngine {
         // 2. Поиск по реальному RuTracker-индексу по полю "n" (title)
         // Нормализация: .lowercase().trim()
         // Результаты сортируются по "sd" (seeders) по убыванию
-        val matchedReal = mutableListOf<Map<String, Any>>()
+        val matchedReal = ArrayList<Pair<Map<String, Any>, Int>>()
         for (t in realIndex) {
-            val n = (t["n"] as? String).orEmpty()
+            val n = ((t["tt"] as? String)?.ifBlank { null } ?: (t["n"] as? String)).orEmpty()
             if (n.isBlank()) continue
-            val normN = n.lowercase().trim()
-            if (normN.contains(normQ)) {
-                matchedReal.add(t)
-            } else {
-                val tokens = normQ.split(Regex("""\s+""")).filter { it.length >= 2 }
-                if (tokens.isNotEmpty() && tokens.all { tok -> normN.contains(tok) }) {
-                    matchedReal.add(t)
-                }
+            val sc = scoreFuzzyGameMatch(cleanQ, n)
+            if (sc > 0) {
+                matchedReal.add(t to sc)
             }
         }
-        matchedReal.sortByDescending { (it["sd"] as? Number)?.toInt() ?: 0 }
+        matchedReal.sortWith(
+            compareByDescending<Pair<Map<String, Any>, Int>> { it.second }
+                .thenByDescending { (it.first["sd"] as? Number)?.toInt() ?: 0 }
+        )
 
-        for (t in matchedReal) {
+        for ((t, _) in matchedReal) {
             val tid = t["t"].toString()
             if (!seenTids.add(tid)) continue
             val title = (t["n"] as? String).orEmpty()

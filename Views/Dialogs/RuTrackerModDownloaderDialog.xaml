@@ -315,7 +315,7 @@
                                 <TextBox x:Name="CustomModNameBox" Grid.Column="0"
                                          PlaceholderText="Название мода для вшивания (необязательно, напр. Русификатор текста + 60 FPS)"
                                          FontSize="11" VerticalContentAlignment="Center" CornerRadius="6"/>
-                                <CheckBox x:Name="AutoBuildCheckBox" Grid.Column="1" Content="Сразу запустить сборку задачи" IsChecked="False" FontSize="11"/>
+                                <CheckBox x:Name="AutoBuildCheckBox" Grid.Column="1" Content="Сразу запустить сборку задачи" IsChecked="True" FontSize="11"/>
                             </Grid>
                             <CheckBox x:Name="StitchDlcUnlockerCheckBox"
                                       Content="Вшить DLC UNLOCKER (автоизвлечение и разблокировка всех дополнений в RomFS — авто-режим)"

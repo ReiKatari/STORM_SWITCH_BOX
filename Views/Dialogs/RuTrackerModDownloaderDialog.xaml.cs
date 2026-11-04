@@ -52,7 +52,8 @@ namespace StormSwitchBox.Views.Dialogs
             ActiveInstance = this;
             RuTrackerModService.CloudflareChallengeHandler = SolveCloudflareChallengeInDialogAsync;
             RuTrackerModService.SameOriginFetchHandler = FetchViaSameOriginInDialogAsync;
-            _ = InitBackgroundWebViewAsync();
+            this.Opened += Dialog_Opened;
+            CloudflareWebView.Loaded += CloudflareWebView_Loaded;
 
             if (_targetTask != null)
             {
@@ -289,7 +290,7 @@ namespace StormSwitchBox.Views.Dialogs
                 }
                 else
                 {
-                    StatusText.Text = "По запросу ничего не найдено. Попробуйте упростить запрос или вставить прямую ссылку на тему viewtopic.php?t=...";
+                    StatusText.Text = $"По запросу «{input}» раздач на RuTracker не найдено. Проверьте название или откройте внешний .torrent / magnet.";
                 }
             }
             catch (Exception ex)
@@ -754,647 +755,804 @@ namespace StormSwitchBox.Views.Dialogs
             await Task.CompletedTask;
         }
 
-        public static async Task ExecuteRuTrackerPipelineAsync(
-            ProcessingTask task,
-            RuTrackerTaskPayload payload,
-            TasksViewModel viewModel,
-            RuTrackerModService service,
-            Action<TorrentDownloadProgress>? onTorrentProgress = null,
-            Action<(double Percent, string Status)>? onModProgress = null)
-        {
-            var ct = task.Cts?.Token ?? CancellationToken.None;
-            task.HasActiveWorker = true;
-            task.IsRunning = true;
-            task.IsPaused = false;
-
-            try
-            {
-                // 1. Скачивание торрента / Magnet
-                if (payload.HasTorrentSource)
-                {
-                    task.Status = "Загрузка торрента...";
-                    var torrentProg = new Progress<TorrentDownloadProgress>(p =>
-                    {
-                        task.Progress = Math.Clamp(p.Percent, 0, 100);
-                        task.Status = p.StatusText;
-                        task.Speed = p.SwarmTotal > p.Seeds
-                            ? $"{p.SpeedMbPerSec:F2} МБ/с | Сиды: {p.Seeds} (в рое: {p.SwarmTotal})"
-                            : $"{p.SpeedMbPerSec:F2} МБ/с | Сиды: {p.Seeds}";
-                        onTorrentProgress?.Invoke(p);
-                    });
-
-                    await service.DownloadTorrentAsync(
-                        payload.TargetReleaseDir,
-                        payload.TorrentFiles,
-                        torrentProg,
-                        ct,
-                        payload.TorrentBytes,
-                        payload.MagnetLink,
-                        payload.Topic?.TopicId,
-                        payload.Topic?.Seeds ?? 0,
-                        task.PauseEvent,
-                        mgr => task.ActiveTorrentManager = mgr).ConfigureAwait(false);
-                }
-
-                // 2. Скачивание и автораспаковка всех облачных модов / русификаторов
-                var discoveredModPayloads = new List<string>();
-                if (payload.CloudLinks.Count > 0)
-                {
-                    task.Status = "Скачивание облачных модов...";
-                    var modProg = new Progress<(double Percent, string Status)>(mp =>
-                    {
-                        task.Progress = Math.Clamp(mp.Percent, 0, 100);
-                        task.Status = mp.Status;
-                        if (mp.Status.Contains("МБ/с"))
-                        {
-                            int sIdx = mp.Status.IndexOf('(');
-                            int eIdx = mp.Status.IndexOf(')');
-                            if (sIdx >= 0 && eIdx > sIdx)
-                                task.Speed = mp.Status.Substring(sIdx + 1, eIdx - sIdx - 1);
-                        }
-                        onModProgress?.Invoke(mp);
-                    });
-
-                    var extractedPaths = await service.DownloadAndExtractCloudModsAsync(
-                        payload.CloudLinks,
-                        payload.TargetReleaseDir,
-                        modProg,
-                        ct,
-                        task.PauseEvent).ConfigureAwait(false);
-
-                    foreach (var ep in extractedPaths)
-                    {
-                        if (!discoveredModPayloads.Contains(ep, StringComparer.OrdinalIgnoreCase))
-                            discoveredModPayloads.Add(ep);
-                    }
-                }
-
-                // Сканируем каталог релиза на наличие распакованных romfs / exefs
-                foreach (var p in RuTrackerModService.DiscoverModPayloadsInDirectory(payload.TargetReleaseDir))
-                {
-                    if (!discoveredModPayloads.Contains(p, StringComparer.OrdinalIgnoreCase))
-                        discoveredModPayloads.Add(p);
-                }
-
-                // 3. Привязка файлов к задаче
-                BindDownloadedFilesToExistingTask(task, payload.TargetReleaseDir, discoveredModPayloads, payload.CustomModTitle);
-
-                // 4. Автоматическая сборка мульти-контента
-                if (payload.AutoBuild)
-                {
-                    task.Status = "Сборка мульти-контента...";
-                    task.Speed = string.Empty;
-                    task.Progress = 0;
-
-                    string outExt = task.GetPrimaryExtension();
-                    string outDir = string.IsNullOrWhiteSpace(task.OutputFolder)
-                        ? (string.IsNullOrWhiteSpace(App.Settings.Current.OutputFolder) ? payload.TargetReleaseDir : App.Settings.Current.OutputFolder)
-                        : task.OutputFolder;
-                    Directory.CreateDirectory(outDir);
-                    string outPath = Path.Combine(outDir, task.OutputFileName + outExt);
-
-                    await App.MultiContent.BuildMultiContentAsync(
-                        task,
-                        task.InputFiles,
-                        outPath,
-                        patchFirmware: App.Settings.Current.ForceMultiRebuild,
-                        ct).ConfigureAwait(false);
-
-                    if (task.DeleteSourceAfterVerify && (task.Status == "Успешно" || task.Status == "Готово"))
-                    {
-                        try
-                        {
-                            if (Directory.Exists(payload.TargetReleaseDir))
-                            {
-                                Directory.Delete(payload.TargetReleaseDir, recursive: true);
-                                App.Logger?.Log($"[RuTracker] Исходный каталог очищен после успешной сборки: {payload.TargetReleaseDir}", LogLevel.Info);
-                            }
-                        }
-                        catch { }
-                    }
-                }
-
-                task.Status = "Успешно";
-                task.Progress = 100;
-                task.IsRunning = false;
-                task.IsPaused = false;
-                task.Speed = string.Empty;
-                task.FinishedAt = DateTime.Now;
-            }
-            catch (OperationCanceledException)
-            {
-                task.Status = "Отменено";
-                task.IsRunning = false;
-                task.IsPaused = false;
-                task.Speed = string.Empty;
-            }
-            catch (Exception ex)
-            {
-                task.Status = "Ошибка";
-                task.IsRunning = false;
-                task.IsPaused = false;
-                task.Speed = string.Empty;
-                task.LogDetails += $"\n❌ Ошибка: {ex.Message}";
-                App.Logger?.Log($"[RuTracker Task Pipeline] Ошибка: {ex.Message}", LogLevel.Error);
-            }
-            finally
-            {
-                task.HasActiveWorker = false;
-                viewModel.SavePersistedTasks();
-            }
-        }
-
-        private static void BindDownloadedFilesToExistingTask(
-            ProcessingTask task,
-            string downloadDir,
-            List<string> modPayloads,
-            string customModTitle)
-        {
-            bool addedRomFs = false;
-            bool addedExeFs = false;
-
-            foreach (var payload in modPayloads)
-            {
-                if (!task.InputFiles.Contains(payload, StringComparer.OrdinalIgnoreCase))
-                {
-                    task.InputFiles.Add(payload);
-                    task.FilesList.Add(Path.GetFileName(payload));
-                }
-
-                string name = Path.GetFileName(payload).ToLowerInvariant();
-                if (name == "romfs" || name.EndsWith(".romfs") || name == "romfs.bin" || name.EndsWith(".pak") || name.EndsWith(".sarc.zs") || name.EndsWith(".sarc") || name.EndsWith(".zs"))
-                    addedRomFs = true;
-                if (name == "exefs" || name == "exefs_patches" || name.EndsWith(".ips") || name.EndsWith(".pchtxt") || name.EndsWith(".bps"))
-                    addedExeFs = true;
-            }
-
-            if (Directory.Exists(downloadDir))
-            {
-                var discoveredFiles = Directory.EnumerateFiles(downloadDir, "*.*", SearchOption.AllDirectories)
-                    .Where(p => p.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) ||
-                                p.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) ||
-                                p.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) ||
-                                p.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase))
-                    .ToList();
-
-                foreach (var f in discoveredFiles)
-                {
-                    if (!task.InputFiles.Contains(f, StringComparer.OrdinalIgnoreCase))
-                    {
-                        task.InputFiles.Add(f);
-                        task.FilesList.Add(Path.GetFileName(f));
-                    }
-                }
-            }
-
-            task.FilesCount = $"{task.InputFiles.Count} файл(ов)";
-
-            long totalBytes = 0;
-            foreach (var f in task.InputFiles)
-            {
-                try
-                {
-                    if (File.Exists(f)) totalBytes += new FileInfo(f).Length;
-                    else if (Directory.Exists(f))
-                    {
-                        totalBytes += Directory.EnumerateFiles(f, "*.*", SearchOption.AllDirectories)
-                            .Sum(fi => new FileInfo(fi).Length);
-                    }
-                }
-                catch { }
-            }
-            task.SourceSizeBytes = totalBytes;
-
-            if (addedRomFs) task.HasRomFs = "Да";
-            if (addedExeFs) task.HasExeFs = "Да";
-
-            if (!string.IsNullOrWhiteSpace(customModTitle))
-            {
-                if (task.HasRomFs == "Да") task.ModNameRomFs = customModTitle;
-                if (task.HasExeFs == "Да") task.ModNameExeFs = customModTitle;
-            }
-
-            if (modPayloads.Count > 0 || task.InputFiles.Count > 1 || addedRomFs || addedExeFs)
-            {
-                if (task.Operation != "Homebrew" && task.Operation != "Verify" && task.Operation != "Unpack")
-                {
-                    task.Operation = "Multi";
-                    task.SourceFormat = "MULTI";
-                }
-                string formattedName = MultiContentService.FormatOutputFileName(
-                    Path.Combine(task.OutputFolder, task.OutputFileName + task.GetPrimaryExtension()), 
-                    task.InputFiles);
-                task.OutputFileName = Path.GetFileNameWithoutExtension(formattedName);
-            }
-        }
-
-                private void SetUiBusy(bool busy)
-        {
-            StartFullDownloadBtn.IsEnabled = !busy;
-            DownloadOnlyModsBtn.IsEnabled = !busy;
-            SearchBtn.IsEnabled = !busy;
-            CancelDownloadBtn.IsEnabled = true;
-        }
-
-private static string SanitizeFolderName(string name)
-        {
-            foreach (char c in Path.GetInvalidFileNameChars())
-                name = name.Replace(c, '_');
-            name = name.Trim().Trim('.');
-            if (name.Length > 75)
-                name = name.Substring(0, 75).Trim();
-            return string.IsNullOrWhiteSpace(name) ? "Release" : name;
-        }
-
-        
-        private readonly TaskCompletionSource<bool> _webViewReadyTcs = new();
-
-        private async Task InitBackgroundWebViewAsync()
-        {
-            try
-            {
-                await CloudflareWebView.EnsureCoreWebView2Async();
-                CloudflareWebView.CoreWebView2.Settings.IsStatusBarEnabled = false;
-                CloudflareWebView.CoreWebView2.Settings.AreDevToolsEnabled = false;
-
-                // Синхронизация User-Agent
-                string currentUa = App.Settings.Current.RuTrackerUserAgent;
-                if (!string.IsNullOrWhiteSpace(currentUa))
-                {
-                    CloudflareWebView.CoreWebView2.Settings.UserAgent = currentUa;
-                    RuTrackerModService.SharedUserAgent = currentUa;
-                }
-                else
-                {
-                    string rawUa = await CloudflareWebView.ExecuteScriptAsync("navigator.userAgent");
-                    string cleanUa = rawUa.Trim('"');
-                    if (!string.IsNullOrEmpty(cleanUa) && cleanUa != "null")
-                    {
-                        CloudflareWebView.CoreWebView2.Settings.UserAgent = cleanUa;
-                        RuTrackerModService.SharedUserAgent = cleanUa;
-                        App.Settings.Current.RuTrackerUserAgent = cleanUa;
-                        _ = App.Settings.SaveAsync();
-                    }
-                }
-
-                // Синхронизация куки cf_clearance и bb_session в WebView2
-                string mirror = RuTrackerModService.NormalizeMirrorUrl(App.Settings.Current.RuTrackerMirror);
-                if (!string.IsNullOrWhiteSpace(App.Settings.Current.RuTrackerCfClearance))
-                {
-                    RuTrackerModService.SharedCfClearance = App.Settings.Current.RuTrackerCfClearance;
-                    try
-                    {
-                        var cfCookie = CloudflareWebView.CoreWebView2.CookieManager.CreateCookie(
-                            "cf_clearance", App.Settings.Current.RuTrackerCfClearance, ".rutracker.org", "/");
-                        CloudflareWebView.CoreWebView2.CookieManager.AddOrUpdateCookie(cfCookie);
-                    }
-                    catch { }
-                }
-
-                if (!string.IsNullOrWhiteSpace(App.Settings.Current.RuTrackerCookie))
-                {
-                    try
-                    {
-                        var bbCookie = CloudflareWebView.CoreWebView2.CookieManager.CreateCookie(
-                            "bb_session", App.Settings.Current.RuTrackerCookie, ".rutracker.org", "/");
-                        CloudflareWebView.CoreWebView2.CookieManager.AddOrUpdateCookie(bbCookie);
-                    }
-                    catch { }
-                }
-
-                _webViewReadyTcs.TrySetResult(true);
-
-                // Быстрая проверка ТСПУ (2 сек таймаут) перед навигацией
-                string responsiveMirror = await RuTrackerModService.ProbeAndGetActiveMirrorAsync(mirror).ConfigureAwait(true);
-                App.Settings.Current.RuTrackerMirror = responsiveMirror.Replace("https://", "").Replace("http://", "");
-                _ = App.Settings.SaveAsync();
-
-                // Проактивный прогрев viewforum.php?f=1605 (фоновый рендеринг Chromium без зависания)
-                string warmupUrl = $"{responsiveMirror}/forum/viewforum.php?f=1605";
-                CloudflareWebView.NavigationCompleted += OnWarmupNavigationCompleted;
-                CloudflareWebView.Source = new Uri(warmupUrl);
-            }
-            catch (Exception ex)
-            {
-                App.Logger?.Log($"[RuTracker WebView2] Ошибка инициализации фонового обхода: {ex.Message}", LogLevel.Warning);
-                _webViewReadyTcs.TrySetResult(false);
-            }
-        }
-
-        private int _warmupNavCount = 0;
-        private async void OnWarmupNavigationCompleted(object? sender, Microsoft.Web.WebView2.Core.CoreWebView2NavigationCompletedEventArgs e)
-        {
-            try
-            {
-                _warmupNavCount++;
-                string currentUrl = CloudflareWebView.Source?.ToString() ?? "";
-                var cookieList = await CloudflareWebView.CoreWebView2.CookieManager.GetCookiesAsync(currentUrl);
-                var cfCookie = cookieList.FirstOrDefault(c => c.Name == "cf_clearance");
-                if (cfCookie != null)
-                {
-                    RuTrackerModService.SharedCfClearance = cfCookie.Value;
-                    App.Settings.Current.RuTrackerCfClearance = cfCookie.Value;
-                    _ = App.Settings.SaveAsync();
-                }
-
-                string htmlRaw = await CloudflareWebView.ExecuteScriptAsync("document.documentElement.outerHTML");
-                string html = System.Text.RegularExpressions.Regex.Unescape(htmlRaw.Trim('"'));
-
-                bool hasForumTopics = html.Contains("viewtopic.php?t=");
-                if (hasForumTopics)
-                {
-                    RuTrackerModService.ParseAndMergeForumTopicsHtml(html);
-                }
-
-                // Отписываемся ТОЛЬКО когда форум действительно загружен, либо получен cf_clearance и нет капчи, либо прошло более 6 навигаций
-                if (hasForumTopics || (cfCookie != null && !html.Contains("Just a moment...") && !html.Contains("cf-turnstile")) || _warmupNavCount >= 6)
-                {
-                    CloudflareWebView.NavigationCompleted -= OnWarmupNavigationCompleted;
-                }
-            }
-            catch { }
-        }
-
-        private void ShowCloudflareBypassUi(string message)
-        {
-            App.RunOnUI(() =>
-            {
-                CloudflareStatusText.Text = message;
-                CloudflareBypassPanel.Opacity = 1.0;
-                CloudflareBypassPanel.IsHitTestVisible = true;
-            });
-        }
-
-        private void HideCloudflareBypassUi()
-        {
-            App.RunOnUI(() =>
-            {
-                CloudflareBypassPanel.Opacity = 0.01;
-                CloudflareBypassPanel.IsHitTestVisible = false;
-            });
-        }
-
-        private void CloseCloudflareBypass_Click(object sender, RoutedEventArgs e)
-        {
-            HideCloudflareBypassUi();
-            try { _cfTcs?.TrySetResult(null); } catch { }
-        }
-
-        private async Task<string?> FetchViaSameOriginInDialogAsync(string url, CancellationToken ct)
-        {
-            await _webViewReadyTcs.Task.ConfigureAwait(false);
-
-            var tcs = new TaskCompletionSource<string?>();
-            App.RunOnUI(async () =>
-            {
-                try
-                {
-                    string escapedUrl = url.Replace("'", "\\'");
-                    string jsCode = "(async () => {" +
-                        " try {" +
-                        "   if (!location.hostname.includes('rutracker.')) return 'NEED_NAV';" +
-                        $"   const parsed = new URL('{escapedUrl}', location.origin);" +
-                        "   const sameUrl = location.origin + parsed.pathname + parsed.search;" +
-                        "   const resp = await fetch(sameUrl, { credentials: 'include' });" +
-                        "   if (!resp.ok) return 'HTTP_STATUS:' + resp.status;" +
-                        "   const buf = await resp.arrayBuffer();" +
-                        "   const decoder = new TextDecoder('windows-1251');" +
-                        "   return decoder.decode(buf);" +
-                        " } catch (e) {" +
-                        "   return 'FETCH_ERR:' + e.message;" +
-                        " }" +
-                        "})()";
-
-                    var evalParams = new
-                    {
-                        expression = jsCode,
-                        awaitPromise = true,
-                        returnByValue = true
-                    };
-                    string evalParamsJson = System.Text.Json.JsonSerializer.Serialize(evalParams);
-                    string cdpResultJson = await CloudflareWebView.CoreWebView2.CallDevToolsProtocolMethodAsync("Runtime.evaluate", evalParamsJson);
-
-                    string fetchedText = "";
-                    if (!string.IsNullOrEmpty(cdpResultJson))
-                    {
-                        using var doc = System.Text.Json.JsonDocument.Parse(cdpResultJson);
-                        if (doc.RootElement.TryGetProperty("result", out var resObj) &&
-                            resObj.TryGetProperty("value", out var valProp) &&
-                            valProp.ValueKind == System.Text.Json.JsonValueKind.String)
-                        {
-                            fetchedText = valProp.GetString() ?? "";
-                        }
-                    }
-
-                    if (!string.IsNullOrEmpty(fetchedText) &&
-                        !fetchedText.Equals("NEED_NAV", StringComparison.OrdinalIgnoreCase) &&
-                        !fetchedText.StartsWith("HTTP_STATUS:") &&
-                        !fetchedText.StartsWith("FETCH_ERR:") &&
-                        !fetchedText.Contains("Just a moment...") &&
-                        !fetchedText.Contains("cf-turnstile"))
-                    {
-                        tcs.TrySetResult(fetchedText);
-                        return;
-                    }
-
-                    // Если Same-Origin fetch вернул NEED_NAV, 403, ошибку или проверку — переходим в режим обхода страницы
-                    string tid = "";
-                    var tm = System.Text.RegularExpressions.Regex.Match(url, @"t=(\d+)");
-                    if (tm.Success) tid = tm.Groups[1].Value;
-
-                    var solvedHtml = await SolveCloudflareChallengeInDialogAsync(url, tid, ct);
-                    tcs.TrySetResult(solvedHtml);
-                }
-                catch (Exception ex)
-                {
-                    App.Logger?.Log($"[SameOrigin Fetch CDP] Ошибка: {ex.Message}", LogLevel.Warning);
-                    tcs.TrySetResult(null);
-                }
-            });
-
-            using var reg = ct.Register(() => tcs.TrySetCanceled());
-            return await tcs.Task.ConfigureAwait(false);
-        }
-
-        private async Task<string?> SolveCloudflareChallengeInDialogAsync(string url, string topicId, CancellationToken ct)
-        {
-            var tcs = new TaskCompletionSource<string?>();
-            _cfTcs = tcs;
-
-            App.RunOnUI(async () =>
-            {
-                try
-                {
-                    await CloudflareWebView.EnsureCoreWebView2Async();
-                    CloudflareStatusText.Text = $"Подключение к теме #{topicId}... Проверка Cloudflare...";
-
-                    CancellationTokenSource? timeoutCts = new CancellationTokenSource();
-                    var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
-
-                    // Внедрение stealth-скриптов обхода анти-автоматизации Turnstile
-                    try
-                    {
-                        await CloudflareWebView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(@"
-                            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-                            window.chrome = { runtime: {} };
-                            Object.defineProperty(navigator, 'languages', { get: () => ['ru-RU', 'ru', 'en-US', 'en'] });
-                            Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
-                        ");
-                    }
-                    catch { }
-
-                    // Полностью автоматический аппаратный CDP-кликер Turnstile в фоне (без показа окна пользователю)
-                    _ = Task.Run(async () =>
-                    {
-                        for (int attempt = 0; attempt < 12 && !linkedCts.IsCancellationRequested; attempt++)
-                        {
-                            await Task.Delay(1500, linkedCts.Token);
-                            if (tcs.Task.IsCompleted) break;
-
-                            App.RunOnUI(async () =>
-                            {
-                                try
-                                {
-                                    string checkScript = @"(() => {
-                                        try {
-                                            const body = document.body ? document.body.innerHTML : '';
-                                            if (body.includes('post_body') || body.includes('topic-title')) {
-                                                return JSON.stringify({ passed: true });
-                                            }
-                                            const ifr = document.querySelector('iframe[src*=""challenges.cloudflare.com""], .cf-turnstile iframe, iframe[src*=""turnstile""], #turnstile-wrapper iframe');
-                                            if (!ifr) return JSON.stringify({ passed: false, found: false });
-                                            const rect = ifr.getBoundingClientRect();
-                                            return JSON.stringify({
-                                                passed: false,
-                                                found: true,
-                                                x: Math.round(rect.left + 28),
-                                                y: Math.round(rect.top + (rect.height > 0 ? rect.height / 2 : 30))
-                                            });
-                                        } catch {
-                                            return null;
-                                        }
-                                    })()";
-
-                                    string resJson = await CloudflareWebView.ExecuteScriptAsync(checkScript);
-                                    if (!string.IsNullOrEmpty(resJson) && resJson != "null")
-                                    {
-                                        string unescaped = System.Text.Json.JsonSerializer.Deserialize<string>(resJson) ?? resJson;
-                                        using var doc = System.Text.Json.JsonDocument.Parse(unescaped);
-                                        if (doc.RootElement.TryGetProperty("passed", out var pPassed) && pPassed.GetBoolean())
-                                        {
-                                            string html = await CloudflareWebView.ExecuteScriptAsync("document.documentElement.outerHTML");
-                                            tcs.TrySetResult(System.Text.Json.JsonSerializer.Deserialize<string>(html) ?? html);
-                                            return;
-                                        }
-
-                                        if (doc.RootElement.TryGetProperty("found", out var pFound) && pFound.GetBoolean())
-                                        {
-                                            double clickX = doc.RootElement.GetProperty("x").GetDouble();
-                                            double clickY = doc.RootElement.GetProperty("y").GetDouble();
-
-                                            // 1. Имитация движения мыши (mouseMoved)
-                                            string moveParams = System.Text.Json.JsonSerializer.Serialize(new
-                                            {
-                                                type = "mouseMoved",
-                                                x = clickX,
-                                                y = clickY
-                                            });
-                                            await CloudflareWebView.CoreWebView2.CallDevToolsProtocolMethodAsync("Input.dispatchMouseEvent", moveParams);
-
-                                            await Task.Delay(60);
-
-                                            // 2. Нажатие (mousePressed)
-                                            string pressParams = System.Text.Json.JsonSerializer.Serialize(new
-                                            {
-                                                type = "mousePressed",
-                                                x = clickX,
-                                                y = clickY,
-                                                button = "left",
-                                                clickCount = 1
-                                            });
-                                            await CloudflareWebView.CoreWebView2.CallDevToolsProtocolMethodAsync("Input.dispatchMouseEvent", pressParams);
-
-                                            await Task.Delay(80);
-
-                                            // 3. Отпускание (mouseReleased)
-                                            string releaseParams = System.Text.Json.JsonSerializer.Serialize(new
-                                            {
-                                                type = "mouseReleased",
-                                                x = clickX,
-                                                y = clickY,
-                                                button = "left",
-                                                clickCount = 1
-                                            });
-                                            await CloudflareWebView.CoreWebView2.CallDevToolsProtocolMethodAsync("Input.dispatchMouseEvent", releaseParams);
-                                        }
-                                    }
-                                }
-                                catch { }
-                            });
-                        }
-
-                        // Только если прошло более 18 секунд и авто-кликер не пробил защиту (например, появилась капча с выбором картинок) — показываем интерфейс для ручной помощи
-                        await Task.Delay(2000, linkedCts.Token);
-                        if (!tcs.Task.IsCompleted)
-                        {
-                            App.RunOnUI(() =>
-                            {
-                                ShowCloudflareBypassUi($"🛡️ Требуется подтверждение капчи Cloudflare для раздачи #{topicId}...");
-                            });
-                        }
-                    }, linkedCts.Token);
-
-                    async void OnNavCompleted(object? sender, Microsoft.Web.WebView2.Core.CoreWebView2NavigationCompletedEventArgs e)
-                    {
-                        try
-                        {
-                            var cookieList = await CloudflareWebView.CoreWebView2.CookieManager.GetCookiesAsync(url);
-                            var cfCookie = cookieList.FirstOrDefault(c => c.Name == "cf_clearance");
-                            var bbCookie = cookieList.FirstOrDefault(c => c.Name == "bb_session");
-
-                            if (cfCookie != null)
-                            {
-                                RuTrackerModService.SharedCfClearance = cfCookie.Value;
-                                RuTrackerModService.SharedUserAgent = CloudflareWebView.CoreWebView2.Settings.UserAgent;
-                                _ = App.Settings.SaveAsync();
-                            }
-                            if (bbCookie != null && string.IsNullOrEmpty(App.Settings.Current.RuTrackerCookie))
-                            {
-                                App.Settings.Current.RuTrackerCookie = bbCookie.Value;
-                                _ = App.Settings.SaveAsync();
-                            }
-
-                            string htmlRaw = await CloudflareWebView.ExecuteScriptAsync("document.documentElement.outerHTML");
-                            string html = System.Text.RegularExpressions.Regex.Unescape(htmlRaw.Trim('"'));
-
-                            if (html.Contains("topic-title") || html.Contains("viewtopic.php") || (cfCookie != null && !html.Contains("cf-turnstile") && !html.Contains("Just a moment...")))
-                            {
-                                CloudflareWebView.NavigationCompleted -= OnNavCompleted;
-                                timeoutCts.Cancel();
-                                HideCloudflareBypassUi();
-                                tcs.TrySetResult(html);
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            App.Logger?.Log($"[Cloudflare Bypass] Ошибка чтения страницы: {ex.Message}", LogLevel.Warning);
-                        }
-                    }
-
-                    CloudflareWebView.NavigationCompleted += OnNavCompleted;
-                    CloudflareWebView.Source = new Uri(url);
-                }
-                catch (Exception ex)
-                {
-                    HideCloudflareBypassUi();
-                    tcs.TrySetResult(null);
-                }
-            });
-
-            using var reg = ct.Register(() => tcs.TrySetCanceled());
-            return await tcs.Task.ConfigureAwait(false);
-        }
-
+        public static async Task ExecuteRuTrackerPipelineAsync(
+            ProcessingTask task,
+            RuTrackerTaskPayload payload,
+            TasksViewModel viewModel,
+            RuTrackerModService service,
+            Action<TorrentDownloadProgress>? onTorrentProgress = null,
+            Action<(double Percent, string Status)>? onModProgress = null)
+        {
+            var ct = task.Cts?.Token ?? CancellationToken.None;
+            task.HasActiveWorker = true;
+            App.RunOnUI(() =>
+            {
+                task.IsRunning = true;
+                task.IsPaused = false;
+            });
+
+            try
+            {
+                // 1. Скачивание торрента / Magnet
+                if (payload.HasTorrentSource)
+                {
+                    App.RunOnUI(() => { task.Status = "Загрузка торрента..."; });
+                    var torrentProg = new Progress<TorrentDownloadProgress>(p =>
+                    {
+                        App.RunOnUI(() =>
+                        {
+                            task.Progress = Math.Clamp(p.Percent, 0, 100);
+                            task.Status = p.StatusText;
+                            task.Speed = p.SwarmTotal > p.Seeds
+                                ? $"{p.SpeedMbPerSec:F2} МБ/с | Сиды: {p.Seeds} (в рое: {p.SwarmTotal})"
+                                : $"{p.SpeedMbPerSec:F2} МБ/с | Сиды: {p.Seeds}";
+                        });
+                        onTorrentProgress?.Invoke(p);
+                    });
+
+                    await service.DownloadTorrentAsync(
+                        payload.TargetReleaseDir,
+                        payload.TorrentFiles,
+                        torrentProg,
+                        ct,
+                        payload.TorrentBytes,
+                        payload.MagnetLink,
+                        payload.Topic?.TopicId,
+                        payload.Topic?.Seeds ?? 0,
+                        task.PauseEvent,
+                        mgr => task.ActiveTorrentManager = mgr).ConfigureAwait(false);
+                }
+
+                // 2. Скачивание и автораспаковка всех облачных модов / русификаторов
+                var discoveredModPayloads = new List<string>();
+                if (payload.CloudLinks.Count > 0)
+                {
+                    App.RunOnUI(() => { task.Status = "Скачивание облачных модов..."; });
+                    var modProg = new Progress<(double Percent, string Status)>(mp =>
+                    {
+                        App.RunOnUI(() =>
+                        {
+                            task.Progress = Math.Clamp(mp.Percent, 0, 100);
+                            task.Status = mp.Status;
+                            if (mp.Status.Contains("МБ/с"))
+                            {
+                                int sIdx = mp.Status.IndexOf('(');
+                                int eIdx = mp.Status.IndexOf(')');
+                                if (sIdx >= 0 && eIdx > sIdx)
+                                    task.Speed = mp.Status.Substring(sIdx + 1, eIdx - sIdx - 1);
+                            }
+                        });
+                        onModProgress?.Invoke(mp);
+                    });
+
+                    var extractedPaths = await service.DownloadAndExtractCloudModsAsync(
+                        payload.CloudLinks,
+                        payload.TargetReleaseDir,
+                        modProg,
+                        ct,
+                        task.PauseEvent).ConfigureAwait(false);
+
+                    foreach (var ep in extractedPaths)
+                    {
+                        if (!discoveredModPayloads.Contains(ep, StringComparer.OrdinalIgnoreCase))
+                            discoveredModPayloads.Add(ep);
+                    }
+                }
+
+                // Сканируем каталог релиза на наличие распакованных romfs / exefs
+                foreach (var p in RuTrackerModService.DiscoverModPayloadsInDirectory(payload.TargetReleaseDir))
+                {
+                    if (!discoveredModPayloads.Contains(p, StringComparer.OrdinalIgnoreCase))
+                        discoveredModPayloads.Add(p);
+                }
+
+                // 3. Привязка файлов к задаче (на UI-потоке во избежание RPC_E_WRONG_THREAD)
+                var bindTcs = new TaskCompletionSource<bool>();
+                App.RunOnUI(() =>
+                {
+                    try
+                    {
+                        BindDownloadedFilesToExistingTask(task, payload.TargetReleaseDir, discoveredModPayloads, payload.CustomModTitle);
+                    }
+                    finally
+                    {
+                        bindTcs.TrySetResult(true);
+                    }
+                });
+                await bindTcs.Task.ConfigureAwait(false);
+
+                // 4. Автоматическая сборка мульти-контента (как в Android-версии)
+                if (payload.AutoBuild && task.InputFiles.Count > 0)
+                {
+                    App.RunOnUI(() =>
+                    {
+                        task.Status = "Сборка мульти-контента...";
+                        task.Speed = string.Empty;
+                        task.Progress = 0;
+                    });
+
+                    string outExt = task.GetPrimaryExtension();
+                    string outDir = string.IsNullOrWhiteSpace(task.OutputFolder)
+                        ? (string.IsNullOrWhiteSpace(App.Settings.Current.OutputFolder) ? payload.TargetReleaseDir : App.Settings.Current.OutputFolder)
+                        : task.OutputFolder;
+                    Directory.CreateDirectory(outDir);
+                    string outPath = Path.Combine(outDir, task.OutputFileName + outExt);
+
+                    await App.MultiContent.BuildMultiContentAsync(
+                        task,
+                        task.InputFiles,
+                        outPath,
+                        patchFirmware: App.Settings.Current.ForceMultiRebuild,
+                        ct).ConfigureAwait(false);
+
+                    if (task.DeleteSourceAfterVerify && (task.Status == "Успешно" || task.Status == "Готово"))
+                    {
+                        try
+                        {
+                            if (Directory.Exists(payload.TargetReleaseDir) &&
+                                !string.Equals(Path.GetFullPath(payload.TargetReleaseDir).TrimEnd('\\', '/'),
+                                               Path.GetFullPath(outDir).TrimEnd('\\', '/'),
+                                               StringComparison.OrdinalIgnoreCase))
+                            {
+                                Directory.Delete(payload.TargetReleaseDir, recursive: true);
+                                App.Logger?.Log($"[RuTracker] Исходный каталог очищен после успешной сборки: {payload.TargetReleaseDir}", LogLevel.Info);
+                            }
+                        }
+                        catch { }
+                    }
+
+                    App.RunOnUI(() =>
+                    {
+                        if (task.Status != "Ошибка" && task.Status != "Отменено")
+                        {
+                            task.Status = "Успешно";
+                            task.Progress = 100;
+                        }
+                        task.IsRunning = false;
+                        task.IsPaused = false;
+                        task.Speed = string.Empty;
+                        task.FinishedAt = DateTime.Now;
+                    });
+                }
+                else
+                {
+                    // Если автосборка отключена пользователем — переводим задачу в статус «Ожидание», чтобы её можно было запустить из очереди задач
+                    App.RunOnUI(() =>
+                    {
+                        task.IsRuTrackerTask = false;
+                        task.Status = task.InputFiles.Count > 0 ? "Ожидание" : "Успешно";
+                        task.Progress = task.InputFiles.Count > 0 ? 0 : 100;
+                        task.IsRunning = false;
+                        task.IsPaused = false;
+                        task.Speed = string.Empty;
+                        task.FinishedAt = DateTime.Now;
+                    });
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                App.RunOnUI(() =>
+                {
+                    task.Status = "Отменено";
+                    task.IsRunning = false;
+                    task.IsPaused = false;
+                    task.Speed = string.Empty;
+                });
+            }
+            catch (Exception ex)
+            {
+                App.RunOnUI(() =>
+                {
+                    task.Status = "Ошибка";
+                    task.IsRunning = false;
+                    task.IsPaused = false;
+                    task.Speed = string.Empty;
+                    task.LogDetails += $"\n❌ Ошибка: {ex.Message}";
+                });
+                App.Logger?.Log($"[RuTracker Task Pipeline] Ошибка: {ex.Message}", LogLevel.Error);
+            }
+            finally
+            {
+                task.HasActiveWorker = false;
+                viewModel.SavePersistedTasks();
+            }
+        }
+
+        private static void BindDownloadedFilesToExistingTask(
+            ProcessingTask task,
+            string downloadDir,
+            List<string> modPayloads,
+            string customModTitle)
+        {
+            bool addedRomFs = false;
+            bool addedExeFs = false;
+
+            foreach (var payload in modPayloads)
+            {
+                if (!task.InputFiles.Contains(payload, StringComparer.OrdinalIgnoreCase))
+                {
+                    task.InputFiles.Add(payload);
+                    task.FilesList.Add(Path.GetFileName(payload));
+                }
+
+                string name = Path.GetFileName(payload).ToLowerInvariant();
+                if (name == "romfs" || name.EndsWith(".romfs") || name == "romfs.bin" || name.EndsWith(".pak") || name.EndsWith(".sarc.zs") || name.EndsWith(".sarc") || name.EndsWith(".zs"))
+                    addedRomFs = true;
+                if (name == "exefs" || name == "exefs_patches" || name.EndsWith(".ips") || name.EndsWith(".pchtxt") || name.EndsWith(".bps"))
+                    addedExeFs = true;
+            }
+
+            if (Directory.Exists(downloadDir))
+            {
+                var discoveredFiles = Directory.EnumerateFiles(downloadDir, "*.*", SearchOption.AllDirectories)
+                    .Where(p => p.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) ||
+                                p.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) ||
+                                p.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) ||
+                                p.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase) ||
+                                p.EndsWith(".nup", StringComparison.OrdinalIgnoreCase) ||
+                                p.EndsWith(".nro", StringComparison.OrdinalIgnoreCase) ||
+                                p.EndsWith(".3ds", StringComparison.OrdinalIgnoreCase) ||
+                                p.EndsWith(".cia", StringComparison.OrdinalIgnoreCase) ||
+                                p.EndsWith(".cci", StringComparison.OrdinalIgnoreCase) ||
+                                p.EndsWith(".cxi", StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                foreach (var f in discoveredFiles)
+                {
+                    if (!task.InputFiles.Contains(f, StringComparer.OrdinalIgnoreCase))
+                    {
+                        task.InputFiles.Add(f);
+                        task.FilesList.Add(Path.GetFileName(f));
+                    }
+                }
+            }
+
+            task.FilesCount = $"{task.InputFiles.Count} файл(ов)";
+
+            long totalBytes = 0;
+            foreach (var f in task.InputFiles)
+            {
+                try
+                {
+                    if (File.Exists(f)) totalBytes += new FileInfo(f).Length;
+                    else if (Directory.Exists(f))
+                    {
+                        totalBytes += Directory.EnumerateFiles(f, "*.*", SearchOption.AllDirectories)
+                            .Sum(fi => new FileInfo(fi).Length);
+                    }
+                }
+                catch { }
+            }
+            task.SourceSizeBytes = totalBytes;
+            if (totalBytes > 0)
+                task.SourceSize = ProcessingTask.FormatSize(totalBytes);
+
+            if (addedRomFs) task.HasRomFs = "Да";
+            if (addedExeFs) task.HasExeFs = "Да";
+
+            if (!string.IsNullOrWhiteSpace(customModTitle))
+            {
+                if (task.HasRomFs == "Да") task.ModNameRomFs = customModTitle;
+                if (task.HasExeFs == "Да") task.ModNameExeFs = customModTitle;
+            }
+
+            if (modPayloads.Count > 0 || task.InputFiles.Count > 1 || addedRomFs || addedExeFs)
+            {
+                if (task.Operation != "Homebrew" && task.Operation != "Verify" && task.Operation != "Unpack")
+                {
+                    task.Operation = "Multi";
+                    task.SourceFormat = "MULTI";
+                }
+                string formattedName = MultiContentService.FormatOutputFileName(
+                    Path.Combine(task.OutputFolder, task.OutputFileName + task.GetPrimaryExtension()), 
+                    task.InputFiles);
+                task.OutputFileName = Path.GetFileNameWithoutExtension(formattedName);
+            }
+        }
+
+        private void SetUiBusy(bool busy)
+        {
+            StartFullDownloadBtn.IsEnabled = !busy;
+            DownloadOnlyModsBtn.IsEnabled = !busy;
+            SearchBtn.IsEnabled = !busy;
+            CancelDownloadBtn.IsEnabled = true;
+        }
+
+        private static string SanitizeFolderName(string name)
+        {
+            foreach (char c in Path.GetInvalidFileNameChars())
+                name = name.Replace(c, '_');
+            name = name.Trim().Trim('.');
+            if (name.Length > 75)
+                name = name.Substring(0, 75).Trim();
+            return string.IsNullOrWhiteSpace(name) ? "Release" : name;
+        }
+
+        private readonly TaskCompletionSource<bool> _visualTreeReadyTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly SemaphoreSlim _webViewInitGate = new(1, 1);
+        private bool _webViewConfigured = false;
+        private bool _warmupStartedInDialog = false;
+        private static Microsoft.Web.WebView2.Core.CoreWebView2Environment? _sharedWebViewEnv;
+
+        private void Dialog_Opened(ContentDialog sender, ContentDialogOpenedEventArgs args)
+        {
+            _visualTreeReadyTcs.TrySetResult(true);
+            if (!_warmupStartedInDialog)
+            {
+                _warmupStartedInDialog = true;
+                _ = InitBackgroundWebViewAsync();
+            }
+        }
+
+        private void CloudflareWebView_Loaded(object sender, RoutedEventArgs e)
+        {
+            _visualTreeReadyTcs.TrySetResult(true);
+            if (!_warmupStartedInDialog)
+            {
+                _warmupStartedInDialog = true;
+                _ = InitBackgroundWebViewAsync();
+            }
+        }
+
+        private async Task<bool> EnsureWebViewInitializedAsync(CancellationToken ct = default)
+        {
+            if (CloudflareWebView?.CoreWebView2 != null && _webViewConfigured)
+                return true;
+
+            // Ждём загрузки диалога в визуальное дерево WinUI 3 (до 3 секунд)
+            await Task.WhenAny(_visualTreeReadyTcs.Task, Task.Delay(3000, ct)).ConfigureAwait(false);
+
+            await _webViewInitGate.WaitAsync(ct).ConfigureAwait(false);
+            try
+            {
+                var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                App.RunOnUI(async () =>
+                {
+                    try
+                    {
+                        if (CloudflareWebView == null)
+                        {
+                            tcs.TrySetResult(false);
+                            return;
+                        }
+
+                        if (CloudflareWebView.CoreWebView2 == null)
+                        {
+                            try
+                            {
+                                if (_sharedWebViewEnv == null)
+                                {
+                                    string userDataDir = Path.Combine(
+                                        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                                        "STORM SWITCH BOX",
+                                        "WebView2");
+                                    Directory.CreateDirectory(userDataDir);
+                                    _sharedWebViewEnv = await Microsoft.Web.WebView2.Core.CoreWebView2Environment.CreateWithOptionsAsync(
+                                        null, userDataDir, null);
+                                }
+                                await CloudflareWebView.EnsureCoreWebView2Async(_sharedWebViewEnv);
+                            }
+                            catch
+                            {
+                                try { await CloudflareWebView.EnsureCoreWebView2Async(); } catch { }
+                            }
+                        }
+
+                        if (CloudflareWebView.CoreWebView2 == null)
+                        {
+                            await Task.Delay(250);
+                            try { await CloudflareWebView.EnsureCoreWebView2Async(); } catch { }
+                        }
+
+                        var coreWv = CloudflareWebView.CoreWebView2;
+                        if (coreWv == null)
+                        {
+                            tcs.TrySetResult(false);
+                            return;
+                        }
+
+                        if (!_webViewConfigured)
+                        {
+                            coreWv.Settings.IsStatusBarEnabled = false;
+                            coreWv.Settings.AreDevToolsEnabled = false;
+
+                            string currentUa = App.Settings.Current.RuTrackerUserAgent;
+                            if (!string.IsNullOrWhiteSpace(currentUa))
+                            {
+                                coreWv.Settings.UserAgent = currentUa;
+                                RuTrackerModService.SharedUserAgent = currentUa;
+                            }
+                            else
+                            {
+                                string rawUa = await CloudflareWebView.ExecuteScriptAsync("navigator.userAgent");
+                                string cleanUa = (rawUa ?? "").Trim('"');
+                                if (!string.IsNullOrEmpty(cleanUa) && cleanUa != "null")
+                                {
+                                    coreWv.Settings.UserAgent = cleanUa;
+                                    RuTrackerModService.SharedUserAgent = cleanUa;
+                                    App.Settings.Current.RuTrackerUserAgent = cleanUa;
+                                    _ = App.Settings.SaveAsync();
+                                }
+                            }
+
+                            if (!string.IsNullOrWhiteSpace(App.Settings.Current.RuTrackerCfClearance))
+                            {
+                                RuTrackerModService.SharedCfClearance = App.Settings.Current.RuTrackerCfClearance;
+                                try
+                                {
+                                    var cfCookie = coreWv.CookieManager.CreateCookie(
+                                        "cf_clearance", App.Settings.Current.RuTrackerCfClearance, ".rutracker.org", "/");
+                                    coreWv.CookieManager.AddOrUpdateCookie(cfCookie);
+                                }
+                                catch { }
+                            }
+
+                            if (!string.IsNullOrWhiteSpace(App.Settings.Current.RuTrackerCookie))
+                            {
+                                try
+                                {
+                                    var bbCookie = coreWv.CookieManager.CreateCookie(
+                                        "bb_session", App.Settings.Current.RuTrackerCookie, ".rutracker.org", "/");
+                                    coreWv.CookieManager.AddOrUpdateCookie(bbCookie);
+                                }
+                                catch { }
+                            }
+
+                            _webViewConfigured = true;
+                        }
+
+                        tcs.TrySetResult(true);
+                    }
+                    catch
+                    {
+                        tcs.TrySetResult(false);
+                    }
+                });
+
+                using var reg = ct.Register(() => tcs.TrySetResult(false));
+                return await tcs.Task.ConfigureAwait(false);
+            }
+            finally
+            {
+                _webViewInitGate.Release();
+            }
+        }
+
+        private async Task InitBackgroundWebViewAsync()
+        {
+            try
+            {
+                bool ready = await EnsureWebViewInitializedAsync().ConfigureAwait(false);
+                if (!ready) return;
+
+                string mirror = RuTrackerModService.NormalizeMirrorUrl(App.Settings.Current.RuTrackerMirror);
+                string responsiveMirror = await RuTrackerModService.ProbeAndGetActiveMirrorAsync(mirror).ConfigureAwait(false);
+                App.Settings.Current.RuTrackerMirror = responsiveMirror.Replace("https://", "").Replace("http://", "");
+                _ = App.Settings.SaveAsync();
+
+                App.RunOnUI(() =>
+                {
+                    try
+                    {
+                        if (CloudflareWebView?.CoreWebView2 == null) return;
+                        string warmupUrl = $"{responsiveMirror}/forum/viewforum.php?f=1605";
+                        CloudflareWebView.NavigationCompleted -= OnWarmupNavigationCompleted;
+                        CloudflareWebView.NavigationCompleted += OnWarmupNavigationCompleted;
+                        CloudflareWebView.Source = new Uri(warmupUrl);
+                    }
+                    catch { }
+                });
+            }
+            catch { }
+        }
+
+        private int _warmupNavCount = 0;
+        private async void OnWarmupNavigationCompleted(object? sender, Microsoft.Web.WebView2.Core.CoreWebView2NavigationCompletedEventArgs e)
+        {
+            try
+            {
+                var coreWv = CloudflareWebView?.CoreWebView2;
+                if (coreWv == null) return;
+
+                _warmupNavCount++;
+                string currentUrl = CloudflareWebView?.Source?.ToString() ?? "";
+                if (string.IsNullOrEmpty(currentUrl)) return;
+
+                var cookieList = await coreWv.CookieManager.GetCookiesAsync(currentUrl);
+                var cfCookie = cookieList.FirstOrDefault(c => c.Name == "cf_clearance");
+                if (cfCookie != null)
+                {
+                    RuTrackerModService.SharedCfClearance = cfCookie.Value;
+                    App.Settings.Current.RuTrackerCfClearance = cfCookie.Value;
+                    _ = App.Settings.SaveAsync();
+                }
+
+                string htmlRaw = await CloudflareWebView!.ExecuteScriptAsync("document.documentElement.outerHTML");
+                string html = System.Text.RegularExpressions.Regex.Unescape((htmlRaw ?? "").Trim('"'));
+
+                bool hasForumTopics = html.Contains("viewtopic.php?t=");
+                if (hasForumTopics)
+                {
+                    RuTrackerModService.ParseAndMergeForumTopicsHtml(html);
+                }
+
+                if (hasForumTopics || (cfCookie != null && !html.Contains("Just a moment...") && !html.Contains("cf-turnstile")) || _warmupNavCount >= 6)
+                {
+                    CloudflareWebView.NavigationCompleted -= OnWarmupNavigationCompleted;
+                }
+            }
+            catch { }
+        }
+
+        private void ShowCloudflareBypassUi(string message)
+        {
+            App.RunOnUI(() =>
+            {
+                CloudflareStatusText.Text = message;
+                CloudflareBypassPanel.Opacity = 1.0;
+                CloudflareBypassPanel.IsHitTestVisible = true;
+            });
+        }
+
+        private void HideCloudflareBypassUi()
+        {
+            App.RunOnUI(() =>
+            {
+                CloudflareBypassPanel.Opacity = 0.01;
+                CloudflareBypassPanel.IsHitTestVisible = false;
+            });
+        }
+
+        private void CloseCloudflareBypass_Click(object sender, RoutedEventArgs e)
+        {
+            HideCloudflareBypassUi();
+            try { _cfTcs?.TrySetResult(null); } catch { }
+        }
+
+        private async Task<string?> FetchViaSameOriginInDialogAsync(string url, CancellationToken ct)
+        {
+            bool ready = await EnsureWebViewInitializedAsync(ct).ConfigureAwait(false);
+            if (!ready) return null;
+
+            var tcs = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+            App.RunOnUI(async () =>
+            {
+                try
+                {
+                    var coreWv = CloudflareWebView?.CoreWebView2;
+                    if (coreWv == null)
+                    {
+                        tcs.TrySetResult(null);
+                        return;
+                    }
+
+                    string escapedUrl = url.Replace("'", "\\'");
+                    string jsCode = "(async () => {" +
+                        " try {" +
+                        "   if (!location.hostname.includes('rutracker.')) return 'NEED_NAV';" +
+                        $"   const parsed = new URL('{escapedUrl}', location.origin);" +
+                        "   const sameUrl = location.origin + parsed.pathname + parsed.search;" +
+                        "   const resp = await fetch(sameUrl, { credentials: 'include' });" +
+                        "   if (!resp.ok) return 'HTTP_STATUS:' + resp.status;" +
+                        "   const buf = await resp.arrayBuffer();" +
+                        "   const decoder = new TextDecoder('windows-1251');" +
+                        "   return decoder.decode(buf);" +
+                        " } catch (e) {" +
+                        "   return 'FETCH_ERR:' + e.message;" +
+                        " }" +
+                        "})()";
+
+                    var evalParams = new
+                    {
+                        expression = jsCode,
+                        awaitPromise = true,
+                        returnByValue = true
+                    };
+                    string evalParamsJson = System.Text.Json.JsonSerializer.Serialize(evalParams);
+                    string cdpResultJson = await coreWv.CallDevToolsProtocolMethodAsync("Runtime.evaluate", evalParamsJson);
+
+                    string fetchedText = "";
+                    if (!string.IsNullOrEmpty(cdpResultJson))
+                    {
+                        using var doc = System.Text.Json.JsonDocument.Parse(cdpResultJson);
+                        if (doc.RootElement.TryGetProperty("result", out var resObj) &&
+                            resObj.TryGetProperty("value", out var valProp) &&
+                            valProp.ValueKind == System.Text.Json.JsonValueKind.String)
+                        {
+                            fetchedText = valProp.GetString() ?? "";
+                        }
+                    }
+
+                    if (!string.IsNullOrEmpty(fetchedText) &&
+                        !fetchedText.Equals("NEED_NAV", StringComparison.OrdinalIgnoreCase) &&
+                        !fetchedText.StartsWith("HTTP_STATUS:") &&
+                        !fetchedText.StartsWith("FETCH_ERR:") &&
+                        !fetchedText.Contains("Just a moment...") &&
+                        !fetchedText.Contains("cf-turnstile"))
+                    {
+                        tcs.TrySetResult(fetchedText);
+                        return;
+                    }
+
+                    string tid = "";
+                    var tm = System.Text.RegularExpressions.Regex.Match(url, @"t=(\d+)");
+                    if (tm.Success) tid = tm.Groups[1].Value;
+
+                    var solvedHtml = await SolveCloudflareChallengeInDialogAsync(url, tid, ct);
+                    tcs.TrySetResult(solvedHtml);
+                }
+                catch
+                {
+                    tcs.TrySetResult(null);
+                }
+            });
+
+            using var reg = ct.Register(() => tcs.TrySetCanceled());
+            return await tcs.Task.ConfigureAwait(false);
+        }
+
+        private async Task<string?> SolveCloudflareChallengeInDialogAsync(string url, string topicId, CancellationToken ct)
+        {
+            bool ready = await EnsureWebViewInitializedAsync(ct).ConfigureAwait(false);
+            if (!ready) return null;
+
+            var tcs = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _cfTcs = tcs;
+
+            App.RunOnUI(async () =>
+            {
+                try
+                {
+                    var coreWv = CloudflareWebView?.CoreWebView2;
+                    if (coreWv == null)
+                    {
+                        tcs.TrySetResult(null);
+                        return;
+                    }
+
+                    CloudflareStatusText.Text = $"Подключение к теме #{topicId}... Проверка Cloudflare...";
+
+                    var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(45));
+                    var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
+                    linkedCts.Token.Register(() =>
+                    {
+                        HideCloudflareBypassUi();
+                        tcs.TrySetResult(null);
+                    });
+
+                    _ = Task.Run(async () =>
+                    {
+                        for (int attempt = 0; attempt < 9 && !tcs.Task.IsCompleted && !linkedCts.Token.IsCancellationRequested; attempt++)
+                        {
+                            await Task.Delay(2000, linkedCts.Token);
+                            if (tcs.Task.IsCompleted) return;
+
+                            App.RunOnUI(async () =>
+                            {
+                                try
+                                {
+                                    var wv = CloudflareWebView?.CoreWebView2;
+                                    if (wv == null) return;
+
+                                    string checkJs = @"
+                                        (function() {
+                                            if (document.getElementById('topic-title') || document.querySelector('a[href*=""magnet:?""]')) return 'SOLVED';
+                                            const cfIframe = document.querySelector('iframe[src*=""challenges.cloudflare.com""], iframe[src*=""turnstile""], iframe[id*=""cf-chl-widget""]');
+                                            if (cfIframe) {
+                                                const r = cfIframe.getBoundingClientRect();
+                                                if (r.width > 0 && r.height > 0) return 'CLICK:' + Math.round(r.left + 28) + ',' + Math.round(r.top + r.height / 2);
+                                            }
+                                            const cfDiv = document.querySelector('.cf-turnstile, #challenge-stage, #turnstile-wrapper');
+                                            if (cfDiv) {
+                                                const r = cfDiv.getBoundingClientRect();
+                                                if (r.width > 0 && r.height > 0) return 'CLICK:' + Math.round(r.left + 28) + ',' + Math.round(r.top + r.height / 2);
+                                            }
+                                            return 'WAIT';
+                                        })()";
+
+                                    string resRaw = await CloudflareWebView!.ExecuteScriptAsync(checkJs);
+                                    string res = (resRaw ?? "").Trim('"');
+                                    if (res == "SOLVED")
+                                    {
+                                        string htmlRaw = await CloudflareWebView.ExecuteScriptAsync("document.documentElement.outerHTML");
+                                        string html = System.Text.RegularExpressions.Regex.Unescape((htmlRaw ?? "").Trim('"'));
+                                        HideCloudflareBypassUi();
+                                        tcs.TrySetResult(html);
+                                        return;
+                                    }
+
+                                    if (res.StartsWith("CLICK:"))
+                                    {
+                                        var parts = res.Substring(6).Split(',');
+                                        if (parts.Length == 2 && int.TryParse(parts[0], out int clickX) && int.TryParse(parts[1], out int clickY))
+                                        {
+                                            string pressParams = System.Text.Json.JsonSerializer.Serialize(new
+                                            {
+                                                type = "mousePressed",
+                                                x = clickX,
+                                                y = clickY,
+                                                button = "left",
+                                                clickCount = 1
+                                            });
+                                            await wv.CallDevToolsProtocolMethodAsync("Input.dispatchMouseEvent", pressParams);
+                                            await Task.Delay(65);
+                                            string releaseParams = System.Text.Json.JsonSerializer.Serialize(new
+                                            {
+                                                type = "mouseReleased",
+                                                x = clickX,
+                                                y = clickY,
+                                                button = "left",
+                                                clickCount = 1
+                                            });
+                                            await wv.CallDevToolsProtocolMethodAsync("Input.dispatchMouseEvent", releaseParams);
+                                        }
+                                    }
+                                }
+                                catch { }
+                            });
+                        }
+
+                        await Task.Delay(2000, linkedCts.Token);
+                        if (!tcs.Task.IsCompleted)
+                        {
+                            App.RunOnUI(() =>
+                            {
+                                ShowCloudflareBypassUi($"🛡️ Требуется подтверждение капчи Cloudflare для раздачи #{topicId}...");
+                            });
+                        }
+                    }, linkedCts.Token);
+
+                    async void OnNavCompleted(object? sender, Microsoft.Web.WebView2.Core.CoreWebView2NavigationCompletedEventArgs e)
+                    {
+                        try
+                        {
+                            var wv = CloudflareWebView?.CoreWebView2;
+                            if (wv == null) return;
+
+                            var cookieList = await wv.CookieManager.GetCookiesAsync(url);
+                            var cfCookie = cookieList.FirstOrDefault(c => c.Name == "cf_clearance");
+                            var bbCookie = cookieList.FirstOrDefault(c => c.Name == "bb_session");
+
+                            if (cfCookie != null)
+                            {
+                                RuTrackerModService.SharedCfClearance = cfCookie.Value;
+                                RuTrackerModService.SharedUserAgent = wv.Settings.UserAgent;
+                                _ = App.Settings.SaveAsync();
+                            }
+                            if (bbCookie != null && string.IsNullOrEmpty(App.Settings.Current.RuTrackerCookie))
+                            {
+                                App.Settings.Current.RuTrackerCookie = bbCookie.Value;
+                                _ = App.Settings.SaveAsync();
+                            }
+
+                            string htmlRaw = await CloudflareWebView!.ExecuteScriptAsync("document.documentElement.outerHTML");
+                            string html = System.Text.RegularExpressions.Regex.Unescape((htmlRaw ?? "").Trim('"'));
+
+                            if (html.Contains("topic-title") || html.Contains("viewtopic.php") || (cfCookie != null && !html.Contains("cf-turnstile") && !html.Contains("Just a moment...")))
+                            {
+                                CloudflareWebView.NavigationCompleted -= OnNavCompleted;
+                                timeoutCts.Cancel();
+                                HideCloudflareBypassUi();
+                                tcs.TrySetResult(html);
+                            }
+                        }
+                        catch { }
+                    }
+
+                    CloudflareWebView!.NavigationCompleted += OnNavCompleted;
+                    CloudflareWebView.Source = new Uri(url);
+                }
+                catch
+                {
+                    HideCloudflareBypassUi();
+                    tcs.TrySetResult(null);
+                }
+            });
+
+            using var reg = ct.Register(() => tcs.TrySetCanceled());
+            return await tcs.Task.ConfigureAwait(false);
+        }
+
         private void Dialog_Closed(ContentDialog sender, ContentDialogClosedEventArgs args)
         {
             if (ActiveInstance == this)
