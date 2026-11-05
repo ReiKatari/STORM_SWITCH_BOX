@@ -634,6 +634,80 @@ namespace StormSwitchBox.Services
             }
         }
 
+        private static readonly byte[] StandardNcaHeaderKey = new byte[]
+        {
+            0xAE, 0xA6, 0x82, 0xD2, 0x3F, 0x20, 0x21, 0x1E, 0x8F, 0x99, 0xB8, 0xD3, 0x24, 0x9D, 0x8E, 0xFC,
+            0x02, 0x45, 0xA0, 0xFB, 0x16, 0x3A, 0x39, 0x6A, 0x98, 0xAC, 0xCA, 0x6E, 0x07, 0xF3, 0xBF, 0x18
+        };
+
+        private static readonly byte[] StandardEncryptedKeyArea0 = new byte[]
+        {
+            0x27, 0x3B, 0x7D, 0x0D, 0x7A, 0xC6, 0x22, 0x67, 0x3E, 0xDD, 0xFB, 0xB0, 0xE3, 0xF5, 0x4E, 0x88,
+            0x0F, 0xD2, 0x93, 0xD8, 0x92, 0xD6, 0x0C, 0x9E, 0xDF, 0x27, 0xD8, 0x93, 0xC1, 0x57, 0x26, 0x05,
+            0x14, 0x53, 0x8D, 0x27, 0x66, 0x65, 0x10, 0xB4, 0x94, 0x5A, 0xAA, 0x15, 0xBA, 0xEE, 0xEB, 0xE7,
+            0xE1, 0x14, 0x98, 0x24, 0xBC, 0x6A, 0xF5, 0xD1, 0xA2, 0xCE, 0xB3, 0x79, 0x6C, 0x55, 0xE5, 0x58
+        };
+
+        private static void FinalizeAndEncryptNcaHeaderInPlace(byte[] header)
+        {
+            Array.Copy(StandardEncryptedKeyArea0, 0, header, 0x300, 0x40);
+
+            var k1 = new byte[16];
+            var k2 = new byte[16];
+            Array.Copy(StandardNcaHeaderKey, 0, k1, 0, 16);
+            Array.Copy(StandardNcaHeaderKey, 16, k2, 0, 16);
+
+            using var aes1 = System.Security.Cryptography.Aes.Create();
+            aes1.Mode = System.Security.Cryptography.CipherMode.ECB;
+            aes1.Padding = System.Security.Cryptography.PaddingMode.None;
+            aes1.Key = k1;
+            using var enc1 = aes1.CreateEncryptor();
+
+            using var aes2 = System.Security.Cryptography.Aes.Create();
+            aes2.Mode = System.Security.Cryptography.CipherMode.ECB;
+            aes2.Padding = System.Security.Cryptography.PaddingMode.None;
+            aes2.Key = k2;
+            using var enc2 = aes2.CreateEncryptor();
+
+            var tweakIn = new byte[16];
+            var tweak = new byte[16];
+            var tmp = new byte[16];
+            var outBlk = new byte[16];
+
+            for (int sec = 0; sec < 6; sec++)
+            {
+                Array.Clear(tweakIn, 0, 16);
+                int s = sec;
+                for (int i = 15; i >= 0; i--)
+                {
+                    tweakIn[i] = (byte)(s & 0xFF);
+                    s >>= 8;
+                }
+                enc2.TransformBlock(tweakIn, 0, 16, tweak, 0);
+
+                int secOff = sec * 0x200;
+                for (int b = 0; b < 32; b++)
+                {
+                    int blkOff = secOff + b * 16;
+                    for (int i = 0; i < 16; i++)
+                        tmp[i] = (byte)(header[blkOff + i] ^ tweak[i]);
+                    enc1.TransformBlock(tmp, 0, 16, outBlk, 0);
+                    for (int i = 0; i < 16; i++)
+                        header[blkOff + i] = (byte)(outBlk[i] ^ tweak[i]);
+
+                    int carry = 0;
+                    for (int i = 0; i < 16; i++)
+                    {
+                        int nc = (tweak[i] >> 7) & 1;
+                        tweak[i] = (byte)(((tweak[i] << 1) | carry) & 0xFF);
+                        carry = nc;
+                    }
+                    if (carry != 0)
+                        tweak[0] ^= 0x87;
+                }
+            }
+        }
+
         public static void BuildControlNca(string titleId, string gameTitle, string publisher, string displayVersion, byte[] iconJpeg, string outPath)
         {
             byte[] nacp = BuildNacpBytes(titleId, gameTitle, publisher, displayVersion);
@@ -681,6 +755,7 @@ namespace StormSwitchBox.Services
             using var sha = SHA256.Create();
             byte[] fsHeaderHash = sha.ComputeHash(header, 0x400, 0x200);
             fsHeaderHash.CopyTo(header, 0x280);
+            FinalizeAndEncryptNcaHeaderInPlace(header);
 
             using var fs = new FileStream(outPath, FileMode.Create, FileAccess.Write, FileShare.None, 64 * 1024);
             fs.Write(header, 0, header.Length);
@@ -815,6 +890,7 @@ namespace StormSwitchBox.Services
                 Array.Copy(fsHeader1, 0, ncaHdr, fs1, fsHeader1.Length);
                 byte[] fs1Sha = sha.ComputeHash(ncaHdr, fs1, 0x200);
                 Array.Copy(fs1Sha, 0, ncaHdr, 0x2A0, 32);
+                FinalizeAndEncryptNcaHeaderInPlace(ncaHdr);
 
                 using var outFs = new FileStream(outPath, FileMode.Create, FileAccess.Write, FileShare.None, 1024 * 1024);
                 outFs.Write(ncaHdr, 0, ncaHdr.Length);
@@ -900,6 +976,8 @@ namespace StormSwitchBox.Services
             ncaHdr[0x206] = 0; // None
             BitConverter.GetBytes(totalNcaSize).CopyTo(ncaHdr, 0x208);
             BitConverter.GetBytes(tidVal).CopyTo(ncaHdr, 0x210);
+            BitConverter.GetBytes(0).CopyTo(ncaHdr, 0x218); // ContentIndex = 0
+            BitConverter.GetBytes(0x000E0000).CopyTo(ncaHdr, 0x21C); // SdkAddonVersion = 14.0.0
 
             // Section 0
             BitConverter.GetBytes((int)(0x4000 / 0x200)).CopyTo(ncaHdr, 0x240);
@@ -923,6 +1001,7 @@ namespace StormSwitchBox.Services
             ncaHdr[fs0 + 0x140] = 2;
             byte[] fs0Sha = sha.ComputeHash(ncaHdr, fs0, 0x200);
             Array.Copy(fs0Sha, 0, ncaHdr, 0x280, 32);
+            FinalizeAndEncryptNcaHeaderInPlace(ncaHdr);
 
             using var outFs = new FileStream(outPath, FileMode.Create, FileAccess.Write, FileShare.None, 64 * 1024);
             outFs.Write(ncaHdr, 0, ncaHdr.Length);
@@ -1059,101 +1138,259 @@ namespace StormSwitchBox.Services
             return nacp;
         }
 
+        private sealed class RomFsDirNode
+        {
+            public string Name = "";
+            public int ParentIdx;
+            public int SiblingIdx = -1;
+            public int ChildDirIdx = -1;
+            public int ChildFileIdx = -1;
+            public int NextHashIdx = -1;
+            public int Offset;
+            public readonly Dictionary<string, int> SubDirs = new(StringComparer.Ordinal);
+            public readonly List<int> Files = new();
+        }
+
+        private sealed class RomFsFileNode
+        {
+            public string Name = "";
+            public int ParentDirIdx;
+            public int SiblingIdx = -1;
+            public int NextHashIdx = -1;
+            public long DataOffset;
+            public long DataSize;
+            public int Offset;
+            public string SourceFullPath = "";
+            public byte[]? InMemoryData;
+        }
+
+        private static uint CalcRomFsHashTableCount(uint numEntries)
+        {
+            if (numEntries < 3) return 3;
+            if (numEntries < 19) return numEntries | 1;
+            uint count = numEntries;
+            while (count % 2 == 0 || count % 3 == 0 || count % 5 == 0 || count % 7 == 0 ||
+                   count % 11 == 0 || count % 13 == 0 || count % 17 == 0)
+            {
+                count++;
+            }
+            return count;
+        }
+
+        private static uint CalcRomFsPathHash(uint parentOffset, byte[] nameBytes)
+        {
+            uint hash = parentOffset ^ 123456789u;
+            for (int i = 0; i < nameBytes.Length; i++)
+            {
+                hash = (hash >> 27) | (hash << 5);
+                hash ^= nameBytes[i];
+            }
+            return hash;
+        }
+
+        private static (byte[] MetaPrefix, List<RomFsFileNode> OrderedFiles, long TotalImageSize) BuildHierarchicalRomFsMetadata(
+            List<(string RelPath, long Size, string FullPath, byte[]? Data)> items)
+        {
+            var sorted = items
+                .Select(x => (NormPath: x.RelPath.Replace('\\', '/').Trim('/'), x.Size, x.FullPath, x.Data))
+                .Where(x => !string.IsNullOrEmpty(x.NormPath))
+                .OrderBy(x => x.NormPath, StringComparer.Ordinal)
+                .ToList();
+
+            var dirs = new List<RomFsDirNode>
+            {
+                new RomFsDirNode { Name = "", ParentIdx = 0 }
+            };
+            var files = new List<RomFsFileNode>(sorted.Count);
+
+            foreach (var item in sorted)
+            {
+                string[] parts = item.NormPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                int curDir = 0;
+                for (int p = 0; p < parts.Length - 1; p++)
+                {
+                    string dName = parts[p];
+                    if (!dirs[curDir].SubDirs.TryGetValue(dName, out int nextDir))
+                    {
+                        nextDir = dirs.Count;
+                        dirs.Add(new RomFsDirNode
+                        {
+                            Name = dName,
+                            ParentIdx = curDir
+                        });
+                        dirs[curDir].SubDirs[dName] = nextDir;
+                    }
+                    curDir = nextDir;
+                }
+
+                string fName = parts[^1];
+                int fIdx = files.Count;
+                files.Add(new RomFsFileNode
+                {
+                    Name = fName,
+                    ParentDirIdx = curDir,
+                    DataSize = item.Size,
+                    SourceFullPath = item.FullPath,
+                    InMemoryData = item.Data
+                });
+                dirs[curDir].Files.Add(fIdx);
+            }
+
+            for (int d = 0; d < dirs.Count; d++)
+            {
+                var subOrder = dirs[d].SubDirs.OrderBy(k => k.Key, StringComparer.Ordinal).Select(k => k.Value).ToList();
+                if (subOrder.Count > 0)
+                {
+                    dirs[d].ChildDirIdx = subOrder[0];
+                    for (int i = 0; i < subOrder.Count - 1; i++)
+                        dirs[subOrder[i]].SiblingIdx = subOrder[i + 1];
+                }
+
+                var fOrder = dirs[d].Files;
+                if (fOrder.Count > 0)
+                {
+                    dirs[d].ChildFileIdx = fOrder[0];
+                    for (int i = 0; i < fOrder.Count - 1; i++)
+                        files[fOrder[i]].SiblingIdx = fOrder[i + 1];
+                }
+            }
+
+            int dirTableSize = 0;
+            for (int d = 0; d < dirs.Count; d++)
+            {
+                dirs[d].Offset = dirTableSize;
+                int nameLen = Encoding.UTF8.GetByteCount(dirs[d].Name);
+                dirTableSize += 24 + ((nameLen + 3) & ~3);
+            }
+
+            int fileTableSize = 0;
+            long dataCursor = 0;
+            for (int f = 0; f < files.Count; f++)
+            {
+                files[f].Offset = fileTableSize;
+                int nameLen = Encoding.UTF8.GetByteCount(files[f].Name);
+                fileTableSize += 32 + ((nameLen + 3) & ~3);
+
+                dataCursor = (dataCursor + 0x0FL) & ~0x0FL;
+                files[f].DataOffset = dataCursor;
+                dataCursor += files[f].DataSize;
+            }
+
+            uint dirHashCount = CalcRomFsHashTableCount((uint)dirs.Count);
+            uint fileHashCount = CalcRomFsHashTableCount((uint)files.Count);
+            int dirHashBytes = (int)(dirHashCount * 4);
+            int fileHashBytes = (int)(fileHashCount * 4);
+
+            var dirBuckets = new int[dirHashCount];
+            Array.Fill(dirBuckets, -1);
+            for (int d = 0; d < dirs.Count; d++)
+            {
+                uint pOff = (uint)dirs[dirs[d].ParentIdx].Offset;
+                byte[] nBytes = Encoding.UTF8.GetBytes(dirs[d].Name);
+                uint h = CalcRomFsPathHash(pOff, nBytes) % dirHashCount;
+                dirs[d].NextHashIdx = dirBuckets[h];
+                dirBuckets[h] = d;
+            }
+
+            var fileBuckets = new int[fileHashCount];
+            Array.Fill(fileBuckets, -1);
+            for (int f = 0; f < files.Count; f++)
+            {
+                uint pOff = (uint)dirs[files[f].ParentDirIdx].Offset;
+                byte[] nBytes = Encoding.UTF8.GetBytes(files[f].Name);
+                uint h = CalcRomFsPathHash(pOff, nBytes) % fileHashCount;
+                files[f].NextHashIdx = fileBuckets[h];
+                fileBuckets[h] = f;
+            }
+
+            long headerSize = 0x50;
+            long dirHashOff = headerSize;
+            long dirTableOff = dirHashOff + dirHashBytes;
+            long fileHashOff = dirTableOff + dirTableSize;
+            long fileTableOff = fileHashOff + fileHashBytes;
+            long filePartOff = (fileTableOff + fileTableSize + 0x1FFL) & ~0x1FFL;
+
+            var prefix = new byte[filePartOff];
+            BitConverter.GetBytes(headerSize).CopyTo(prefix, 0x00);
+            BitConverter.GetBytes(dirHashOff).CopyTo(prefix, 0x08);
+            BitConverter.GetBytes((long)dirHashBytes).CopyTo(prefix, 0x10);
+            BitConverter.GetBytes(dirTableOff).CopyTo(prefix, 0x18);
+            BitConverter.GetBytes((long)dirTableSize).CopyTo(prefix, 0x20);
+            BitConverter.GetBytes(fileHashOff).CopyTo(prefix, 0x28);
+            BitConverter.GetBytes((long)fileHashBytes).CopyTo(prefix, 0x30);
+            BitConverter.GetBytes(fileTableOff).CopyTo(prefix, 0x38);
+            BitConverter.GetBytes((long)fileTableSize).CopyTo(prefix, 0x40);
+            BitConverter.GetBytes(filePartOff).CopyTo(prefix, 0x48);
+
+            for (int i = 0; i < dirBuckets.Length; i++)
+            {
+                uint val = dirBuckets[i] < 0 ? 0xFFFFFFFFu : (uint)dirs[dirBuckets[i]].Offset;
+                BitConverter.GetBytes(val).CopyTo(prefix, (int)dirHashOff + i * 4);
+            }
+
+            for (int d = 0; d < dirs.Count; d++)
+            {
+                var node = dirs[d];
+                int pos = (int)dirTableOff + node.Offset;
+                uint parentOff = (uint)dirs[node.ParentIdx].Offset;
+                uint siblingOff = node.SiblingIdx < 0 ? 0xFFFFFFFFu : (uint)dirs[node.SiblingIdx].Offset;
+                uint childDirOff = node.ChildDirIdx < 0 ? 0xFFFFFFFFu : (uint)dirs[node.ChildDirIdx].Offset;
+                uint childFileOff = node.ChildFileIdx < 0 ? 0xFFFFFFFFu : (uint)files[node.ChildFileIdx].Offset;
+                uint nextHashOff = node.NextHashIdx < 0 ? 0xFFFFFFFFu : (uint)dirs[node.NextHashIdx].Offset;
+                byte[] nBytes = Encoding.UTF8.GetBytes(node.Name);
+
+                BitConverter.GetBytes(parentOff).CopyTo(prefix, pos + 0x00);
+                BitConverter.GetBytes(siblingOff).CopyTo(prefix, pos + 0x04);
+                BitConverter.GetBytes(childDirOff).CopyTo(prefix, pos + 0x08);
+                BitConverter.GetBytes(childFileOff).CopyTo(prefix, pos + 0x0C);
+                BitConverter.GetBytes(nextHashOff).CopyTo(prefix, pos + 0x10);
+                BitConverter.GetBytes((uint)nBytes.Length).CopyTo(prefix, pos + 0x14);
+                if (nBytes.Length > 0)
+                    Array.Copy(nBytes, 0, prefix, pos + 0x18, nBytes.Length);
+            }
+
+            for (int i = 0; i < fileBuckets.Length; i++)
+            {
+                uint val = fileBuckets[i] < 0 ? 0xFFFFFFFFu : (uint)files[fileBuckets[i]].Offset;
+                BitConverter.GetBytes(val).CopyTo(prefix, (int)fileHashOff + i * 4);
+            }
+
+            for (int f = 0; f < files.Count; f++)
+            {
+                var node = files[f];
+                int pos = (int)fileTableOff + node.Offset;
+                uint parentOff = (uint)dirs[node.ParentDirIdx].Offset;
+                uint siblingOff = node.SiblingIdx < 0 ? 0xFFFFFFFFu : (uint)files[node.SiblingIdx].Offset;
+                uint nextHashOff = node.NextHashIdx < 0 ? 0xFFFFFFFFu : (uint)files[node.NextHashIdx].Offset;
+                byte[] nBytes = Encoding.UTF8.GetBytes(node.Name);
+
+                BitConverter.GetBytes(parentOff).CopyTo(prefix, pos + 0x00);
+                BitConverter.GetBytes(siblingOff).CopyTo(prefix, pos + 0x04);
+                BitConverter.GetBytes(node.DataOffset).CopyTo(prefix, pos + 0x08);
+                BitConverter.GetBytes(node.DataSize).CopyTo(prefix, pos + 0x10);
+                BitConverter.GetBytes(nextHashOff).CopyTo(prefix, pos + 0x18);
+                BitConverter.GetBytes((uint)nBytes.Length).CopyTo(prefix, pos + 0x1C);
+                if (nBytes.Length > 0)
+                    Array.Copy(nBytes, 0, prefix, pos + 0x20, nBytes.Length);
+            }
+
+            long totalSize = (filePartOff + dataCursor + 0x3FFFL) & ~0x3FFFL;
+            return (prefix, files, totalSize);
+        }
+
         private static byte[] BuildRomFsImage(Dictionary<string, byte[]> files)
         {
-            var entries = files.ToList();
-            int bucketCount = 3;
-            int dirHashTableSize = 4;
-            int dirMetaTableSize = 24;
-            int fileHashTableSize = bucketCount * 4;
-
-            int[] fileMetaOffsets = new int[entries.Count];
-            List<byte[]> fileNameBytesList = entries.Select(e => Encoding.UTF8.GetBytes(e.Key)).ToList();
-            int curMetaOff = 0;
-            for (int i = 0; i < entries.Count; i++)
+            var items = files
+                .Select(kv => (RelPath: kv.Key, Size: (long)kv.Value.Length, FullPath: "", Data: (byte[]?)kv.Value))
+                .ToList();
+            var (prefix, orderedFiles, totalSize) = BuildHierarchicalRomFsMetadata(items);
+            byte[] outBuf = new byte[totalSize];
+            Array.Copy(prefix, 0, outBuf, 0, prefix.Length);
+            int filePartOff = prefix.Length;
+            foreach (var f in orderedFiles)
             {
-                fileMetaOffsets[i] = curMetaOff;
-                int aligned = (fileNameBytesList[i].Length + 3) & ~3;
-                curMetaOff += 32 + aligned;
-            }
-            int fileMetaTableSize = curMetaOff;
-
-            int headerAndMetaEnd = 0x50 + dirHashTableSize + dirMetaTableSize + fileHashTableSize + fileMetaTableSize;
-            int filePartitionOffset = (headerAndMetaEnd + 0x1FF) & ~0x1FF;
-
-            long[] fileDataOffsets = new long[entries.Count];
-            long curDataOff = 0;
-            for (int i = 0; i < entries.Count; i++)
-            {
-                curDataOff = (curDataOff + 0x0FL) & ~0x0FL;
-                fileDataOffsets[i] = curDataOff;
-                curDataOff += entries[i].Value.Length;
-            }
-
-            int totalRomFsSize = (int)((filePartitionOffset + curDataOff + 0x3FFFL) & ~0x3FFFL);
-            byte[] outBuf = new byte[totalRomFsSize];
-
-            int dirHashOff = 0x50;
-            int dirMetaOff = dirHashOff + dirHashTableSize;
-            int fileHashOff = dirMetaOff + dirMetaTableSize;
-            int fileMetaOff = fileHashOff + fileHashTableSize;
-
-            BitConverter.GetBytes(0x50L).CopyTo(outBuf, 0x00);
-            BitConverter.GetBytes((long)dirHashOff).CopyTo(outBuf, 0x08);
-            BitConverter.GetBytes((long)dirHashTableSize).CopyTo(outBuf, 0x10);
-            BitConverter.GetBytes((long)dirMetaOff).CopyTo(outBuf, 0x18);
-            BitConverter.GetBytes((long)dirMetaTableSize).CopyTo(outBuf, 0x20);
-            BitConverter.GetBytes((long)fileHashOff).CopyTo(outBuf, 0x28);
-            BitConverter.GetBytes((long)fileHashTableSize).CopyTo(outBuf, 0x30);
-            BitConverter.GetBytes((long)fileMetaOff).CopyTo(outBuf, 0x38);
-            BitConverter.GetBytes((long)fileMetaTableSize).CopyTo(outBuf, 0x40);
-            BitConverter.GetBytes((long)filePartitionOffset).CopyTo(outBuf, 0x48);
-
-            // root dir
-            BitConverter.GetBytes(0).CopyTo(outBuf, dirMetaOff);
-            BitConverter.GetBytes(-1).CopyTo(outBuf, dirMetaOff + 4);
-            BitConverter.GetBytes(-1).CopyTo(outBuf, dirMetaOff + 8);
-            BitConverter.GetBytes(entries.Count > 0 ? 0 : -1).CopyTo(outBuf, dirMetaOff + 12);
-            BitConverter.GetBytes(-1).CopyTo(outBuf, dirMetaOff + 16);
-            BitConverter.GetBytes(0).CopyTo(outBuf, dirMetaOff + 20);
-
-            int[] bucketChains = Enumerable.Repeat(-1, bucketCount).ToArray();
-            int[] fileHashNext = Enumerable.Repeat(-1, entries.Count).ToArray();
-            for (int i = 0; i < entries.Count; i++)
-            {
-                uint h = 123456789u;
-                foreach (byte b in fileNameBytesList[i])
-                {
-                    h = (h >> 5) | (h << 27);
-                    h ^= b;
-                }
-                int bIdx = (int)(h % (uint)bucketCount);
-                fileHashNext[i] = bucketChains[bIdx];
-                bucketChains[bIdx] = fileMetaOffsets[i];
-            }
-            for (int b = 0; b < bucketCount; b++)
-            {
-                BitConverter.GetBytes(bucketChains[b]).CopyTo(outBuf, fileHashOff + b * 4);
-            }
-
-            for (int i = 0; i < entries.Count; i++)
-            {
-                int mOff = fileMetaOff + fileMetaOffsets[i];
-                byte[] nb = fileNameBytesList[i];
-                int next = (i + 1 < entries.Count) ? fileMetaOffsets[i + 1] : -1;
-                BitConverter.GetBytes(0).CopyTo(outBuf, mOff);
-                BitConverter.GetBytes(next).CopyTo(outBuf, mOff + 4);
-                BitConverter.GetBytes(fileDataOffsets[i]).CopyTo(outBuf, mOff + 8);
-                BitConverter.GetBytes((long)entries[i].Value.Length).CopyTo(outBuf, mOff + 16);
-                BitConverter.GetBytes(fileHashNext[i]).CopyTo(outBuf, mOff + 24);
-                BitConverter.GetBytes(nb.Length).CopyTo(outBuf, mOff + 28);
-                Array.Copy(nb, 0, outBuf, mOff + 32, nb.Length);
-            }
-
-            for (int i = 0; i < entries.Count; i++)
-            {
-                int dest = filePartitionOffset + (int)fileDataOffsets[i];
-                Array.Copy(entries[i].Value, 0, outBuf, dest, entries[i].Value.Length);
+                if (f.InMemoryData != null && f.InMemoryData.Length > 0)
+                    Array.Copy(f.InMemoryData, 0, outBuf, filePartOff + (int)f.DataOffset, f.InMemoryData.Length);
             }
             return outBuf;
         }
@@ -1191,21 +1428,22 @@ namespace StormSwitchBox.Services
             Array.Copy(lv6, 0, fullBody, ivfcPrefix.Length, lv6.Length);
 
             byte[] fsHdr = new byte[0x200];
-            BitConverter.GetBytes((short)2).CopyTo(fsHdr, 0); // Version
-            fsHdr[2] = 2; // RomFS
-            fsHdr[3] = 3; // IVFC
-            fsHdr[4] = 1; // None
+            BitConverter.GetBytes((short)2).CopyTo(fsHdr, 0); // Version = 2
+            fsHdr[2] = 0; // FsType::RomFs = 0
+            fsHdr[3] = 3; // HashType::HierarchicalIntegrity (IVFC) = 3
+            fsHdr[4] = 1; // EncryptionType::None = 1
 
             Encoding.ASCII.GetBytes("IVFC").CopyTo(fsHdr, 8);
             BitConverter.GetBytes(0x00020000).CopyTo(fsHdr, 0x0C);
-            BitConverter.GetBytes(7).CopyTo(fsHdr, 0x10);
+            BitConverter.GetBytes(0x20).CopyTo(fsHdr, 0x10); // master_hash_size = 0x20
+            BitConverter.GetBytes(7).CopyTo(fsHdr, 0x14);    // max_layers = 7 (6 levels + master)
 
             long[] offsets = { 0, lv1.Length, lv1.Length + lv2.Length, lv1.Length + lv2.Length + lv3.Length, lv1.Length + lv2.Length + lv3.Length + lv4.Length, (long)ivfcPrefix.Length };
             long[] sizes = { lv1.Length, lv2.Length, lv3.Length, lv4.Length, lv5.Length, lv6.Length };
 
             for (int i = 0; i < 6; i++)
             {
-                int lOff = 0x14 + i * 0x18;
+                int lOff = 0x18 + i * 0x18;
                 BitConverter.GetBytes(offsets[i]).CopyTo(fsHdr, lOff);
                 BitConverter.GetBytes(sizes[i]).CopyTo(fsHdr, lOff + 8);
                 BitConverter.GetBytes(14).CopyTo(fsHdr, lOff + 16);
@@ -1219,94 +1457,15 @@ namespace StormSwitchBox.Services
 
         private static long BuildStreamedRomFs(Dictionary<string, string> files, string outTempFile, Action<double> onProgress, CancellationToken ct)
         {
-            var entries = files.ToList();
-            int bucketCount = 3;
-            int dirHashTableSize = 4;
-            int dirMetaTableSize = 24;
-            int fileHashTableSize = bucketCount * 4;
-
-            int[] fileMetaOffsets = new int[entries.Count];
-            List<byte[]> fileNameBytesList = entries.Select(e => Encoding.UTF8.GetBytes(e.Key)).ToList();
-            int curMetaOff = 0;
-            for (int i = 0; i < entries.Count; i++)
+            var items = new List<(string RelPath, long Size, string FullPath, byte[]? Data)>(files.Count);
+            foreach (var kv in files)
             {
-                fileMetaOffsets[i] = curMetaOff;
-                int aligned = (fileNameBytesList[i].Length + 3) & ~3;
-                curMetaOff += 32 + aligned;
-            }
-            int fileMetaTableSize = curMetaOff;
-
-            int headerAndMetaEnd = 0x50 + dirHashTableSize + dirMetaTableSize + fileHashTableSize + fileMetaTableSize;
-            int filePartitionOffset = (headerAndMetaEnd + 0x1FF) & ~0x1FF;
-
-            long[] fileDataOffsets = new long[entries.Count];
-            long curDataOff = 0;
-            for (int i = 0; i < entries.Count; i++)
-            {
-                curDataOff = (curDataOff + 0x0FL) & ~0x0FL;
-                fileDataOffsets[i] = curDataOff;
-                curDataOff += new FileInfo(entries[i].Value).Length;
+                long sz = new FileInfo(kv.Value).Length;
+                items.Add((kv.Key, sz, kv.Value, null));
             }
 
-            long totalRomFsSize = (filePartitionOffset + curDataOff + 0x3FFFL) & ~0x3FFFL;
-            byte[] metaHeader = new byte[filePartitionOffset];
-
-            int dirHashOff = 0x50;
-            int dirMetaOff = dirHashOff + dirHashTableSize;
-            int fileHashOff = dirMetaOff + dirMetaTableSize;
-            int fileMetaOff = fileHashOff + fileHashTableSize;
-
-            BitConverter.GetBytes(0x50L).CopyTo(metaHeader, 0x00);
-            BitConverter.GetBytes((long)dirHashOff).CopyTo(metaHeader, 0x08);
-            BitConverter.GetBytes((long)dirHashTableSize).CopyTo(metaHeader, 0x10);
-            BitConverter.GetBytes((long)dirMetaOff).CopyTo(metaHeader, 0x18);
-            BitConverter.GetBytes((long)dirMetaTableSize).CopyTo(metaHeader, 0x20);
-            BitConverter.GetBytes((long)fileHashOff).CopyTo(metaHeader, 0x28);
-            BitConverter.GetBytes((long)fileHashTableSize).CopyTo(metaHeader, 0x30);
-            BitConverter.GetBytes((long)fileMetaOff).CopyTo(metaHeader, 0x38);
-            BitConverter.GetBytes((long)fileMetaTableSize).CopyTo(metaHeader, 0x40);
-            BitConverter.GetBytes((long)filePartitionOffset).CopyTo(metaHeader, 0x48);
-
-            BitConverter.GetBytes(0).CopyTo(metaHeader, dirMetaOff);
-            BitConverter.GetBytes(-1).CopyTo(metaHeader, dirMetaOff + 4);
-            BitConverter.GetBytes(-1).CopyTo(metaHeader, dirMetaOff + 8);
-            BitConverter.GetBytes(entries.Count > 0 ? 0 : -1).CopyTo(metaHeader, dirMetaOff + 12);
-            BitConverter.GetBytes(-1).CopyTo(metaHeader, dirMetaOff + 16);
-            BitConverter.GetBytes(0).CopyTo(metaHeader, dirMetaOff + 20);
-
-            int[] bucketChains = Enumerable.Repeat(-1, bucketCount).ToArray();
-            int[] fileHashNext = Enumerable.Repeat(-1, entries.Count).ToArray();
-            for (int i = 0; i < entries.Count; i++)
-            {
-                uint h = 123456789u;
-                foreach (byte b in fileNameBytesList[i])
-                {
-                    h = (h >> 5) | (h << 27);
-                    h ^= b;
-                }
-                int bIdx = (int)(h % (uint)bucketCount);
-                fileHashNext[i] = bucketChains[bIdx];
-                bucketChains[bIdx] = fileMetaOffsets[i];
-            }
-            for (int b = 0; b < bucketCount; b++)
-            {
-                BitConverter.GetBytes(bucketChains[b]).CopyTo(metaHeader, fileHashOff + b * 4);
-            }
-
-            for (int i = 0; i < entries.Count; i++)
-            {
-                int mOff = fileMetaOff + fileMetaOffsets[i];
-                byte[] nb = fileNameBytesList[i];
-                int next = (i + 1 < entries.Count) ? fileMetaOffsets[i + 1] : -1;
-                BitConverter.GetBytes(0).CopyTo(metaHeader, mOff);
-                BitConverter.GetBytes(next).CopyTo(metaHeader, mOff + 4);
-                BitConverter.GetBytes(fileDataOffsets[i]).CopyTo(metaHeader, mOff + 8);
-                long fLen = new FileInfo(entries[i].Value).Length;
-                BitConverter.GetBytes(fLen).CopyTo(metaHeader, mOff + 16);
-                BitConverter.GetBytes(fileHashNext[i]).CopyTo(metaHeader, mOff + 24);
-                BitConverter.GetBytes(nb.Length).CopyTo(metaHeader, mOff + 28);
-                Array.Copy(nb, 0, metaHeader, mOff + 32, nb.Length);
-            }
+            var (metaHeader, orderedFiles, totalRomFsSize) = BuildHierarchicalRomFsMetadata(items);
+            long filePartitionOffset = metaHeader.Length;
 
             using var outFs = new FileStream(outTempFile, FileMode.Create, FileAccess.Write, FileShare.None, 2 * 1024 * 1024);
             outFs.Write(metaHeader, 0, metaHeader.Length);
@@ -1314,10 +1473,11 @@ namespace StormSwitchBox.Services
             byte[] buf = new byte[1024 * 1024];
             long written = filePartitionOffset;
 
-            for (int i = 0; i < entries.Count; i++)
+            for (int i = 0; i < orderedFiles.Count; i++)
             {
                 ct.ThrowIfCancellationRequested();
-                long targetOff = filePartitionOffset + fileDataOffsets[i];
+                var f = orderedFiles[i];
+                long targetOff = filePartitionOffset + f.DataOffset;
                 while (written < targetOff)
                 {
                     int pad = (int)Math.Min(targetOff - written, buf.Length);
@@ -1326,7 +1486,7 @@ namespace StormSwitchBox.Services
                     written += pad;
                 }
 
-                using var inFs = new FileStream(entries[i].Value, FileMode.Open, FileAccess.Read, FileShare.Read, 1024 * 1024);
+                using var inFs = new FileStream(f.SourceFullPath, FileMode.Open, FileAccess.Read, FileShare.Read, 1024 * 1024);
                 int r;
                 while ((r = inFs.Read(buf, 0, buf.Length)) > 0)
                 {
@@ -1335,7 +1495,7 @@ namespace StormSwitchBox.Services
                 }
                 if (i % 20 == 0)
                 {
-                    onProgress((double)i / Math.Max(1, entries.Count));
+                    onProgress((double)i / Math.Max(1, orderedFiles.Count));
                 }
             }
 
@@ -1388,21 +1548,22 @@ namespace StormSwitchBox.Services
             Array.Copy(lv5, 0, ivfcPrefix, p, lv5.Length);
 
             byte[] fsHdr = new byte[0x200];
-            BitConverter.GetBytes((short)2).CopyTo(fsHdr, 0);
-            fsHdr[2] = 2; // RomFS
-            fsHdr[3] = 3; // IVFC
-            fsHdr[4] = 1; // None
+            BitConverter.GetBytes((short)2).CopyTo(fsHdr, 0); // Version = 2
+            fsHdr[2] = 0; // FsType::RomFs = 0
+            fsHdr[3] = 3; // HashType::HierarchicalIntegrity (IVFC) = 3
+            fsHdr[4] = 1; // EncryptionType::None = 1
 
             Encoding.ASCII.GetBytes("IVFC").CopyTo(fsHdr, 8);
             BitConverter.GetBytes(0x00020000).CopyTo(fsHdr, 0x0C);
-            BitConverter.GetBytes(7).CopyTo(fsHdr, 0x10);
+            BitConverter.GetBytes(0x20).CopyTo(fsHdr, 0x10); // master_hash_size = 0x20
+            BitConverter.GetBytes(7).CopyTo(fsHdr, 0x14);    // max_layers = 7 (6 levels + master)
 
             long[] offsets = { 0, lv1.Length, lv1.Length + lv2.Length, lv1.Length + lv2.Length + lv3.Length, lv1.Length + lv2.Length + lv3.Length + lv4.Length, (long)ivfcPrefix.Length };
             long[] sizes = { lv1.Length, lv2.Length, lv3.Length, lv4.Length, lv5.Length, romfsLen };
 
             for (int i = 0; i < 6; i++)
             {
-                int lOff = 0x14 + i * 0x18;
+                int lOff = 0x18 + i * 0x18;
                 BitConverter.GetBytes(offsets[i]).CopyTo(fsHdr, lOff);
                 BitConverter.GetBytes(sizes[i]).CopyTo(fsHdr, lOff + 8);
                 BitConverter.GetBytes(14).CopyTo(fsHdr, lOff + 16);

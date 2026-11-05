@@ -818,10 +818,18 @@ namespace StormSwitchBox.Services
                 var fm = FnPairVerRegex.Match(text);
                 if (fm.Success && !string.IsNullOrEmpty(fm.Groups[1].Value))
                 {
-                    displayVersion = CleanVersion(fm.Groups[1].Value);
+                    string fileDispVer = CleanVersion(fm.Groups[1].Value);
+                    if (!IsBaseVersion(fileDispVer) || IsBaseVersion(displayVersion))
+                    {
+                        displayVersion = fileDispVer;
+                    }
                     if (!string.IsNullOrEmpty(fm.Groups[2].Value))
                     {
                         versionCode = fm.Groups[2].Value;
+                    }
+                    if (IsBaseVersion(displayVersion) && uint.TryParse(versionCode, out uint vcNum) && vcNum > 0 && vcNum % 65536 == 0)
+                    {
+                        displayVersion = $"1.0.{vcNum / 65536}";
                     }
                     return;
                 }

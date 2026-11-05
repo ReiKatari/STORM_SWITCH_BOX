@@ -1,31 +1,35 @@
-> 💡 **Релиз 6.9.3** — *Прямая интеграция с qBittorrent WebUI для загрузки на полной скорости канала, селектор целевого формата конвертации для всех слотов раздачи и оптимизация ядра HardPatch*
+> 💡 **Релиз 6.9.4** — *Полное исправление структуры заголовков NCA3 и RomFS при компиляции дампов Nintendo Switch 2, иерархические таблицы директорий и штатное AES-128-XTS шифрование заголовков*
 
 ---
 
 ### 🚀 Ключевые изменения и улучшения
-- 🌟 **[qBittorrent WebUI & Line-Speed Torrent Engine] Прямая интеграция с локальным клиентом**: внедрено бесшовное подключение к работающему локальному клиенту qBittorrent через WebUI API (`127.0.0.1:8080`, автоопределение порта и учетных данных из `qBittorrent.ini`). Загрузка файлов раздачи происходит на полной скорости канала (6–50+ МБ/с) с обходом анти-личерской фильтрации сидов (qBittorrent Enhanced / BEP-29 uTP / BEP-55 holepunch) и фоновой инъекцией обнаруженных через HTTP/1.1 Pipelining пиров.
-- 🌟 **[Выбор Целевого Формата Конвертации] TargetFormat Selector для всех слотов раздачи**: в интерфейсе диалога RuTracker (`RuTrackerModDownloaderDialog`) добавлен выбор целевого формата (`NSP`, `NSZ`, `XCI`, `XCZ`, `NSP + NSZ`, `XCI + XCZ`) как индивидуально для каждого игрового слота, так и пакетно для всех слотов сразу, с автоматической передачей формата в очередь задач.
-- 🌟 **[HardPatch & Multi-Content Engine] Оптимизация сборки многофайлового контента**: усовершенствованы алгоритмы прямого слияния патчей и модификаций RomFS/ExeFS (`HardPatchEngine` и `MultiContentService`) с повышенной надежностью валидации NCA-экстентов и очистки временных дескрипторов.
-- 🌟 **[Android Паритет и Синхронизация] Полнофункциональный релиз 6.9.3**: обновлены версия и код сборки (`versionCode = 693`, `versionName = "6.9.3"`) для Modern (64-бит ARMv8/x86_64) и Legacy (32-бит ARMv7/x86) с поддержкой новых форматов и синхронизированным сетевым ядром.
+- 🌟 **[Switch 2 Dump Compiler (`Switch2DumpCompilerService`)] Полное исправление структуры заголовков NCA3 и RomFS**: при сборке дампов игр Nintendo Switch 2 (`0400...`) в `.nsp` / `.nsz` / `.xci` / `.xcz` обеспечена 100% совместимость со спецификацией Horizon OS и эмуляторами Switch 2.
+- 🌟 **[Meta NCA & SdkAddonVersion] Устранение сбоя Bad Header**: внедрена запись версии SDK (`SdkAddonVersion = 0x000E0000`) по смещению `0x21C` в `Meta NCA (.cnmt.nca)`, полностью устраняющая критическую ошибку эмуляторов `(0007-000C): The NCA file has a bad header`.
+- 🌟 **[RomFS Partition & IVFC Layout] Коррекция типов файловой системы и метаданных целостности**: исправлен код типа файловой системы `NcaFsHeader::FsType` для разделов `RomFS` (`0` вместо `2`) в `Control NCA` и `Program NCA`, внедрена разметка структуры `IntegrityMetaInfo (IVFC)` с полем `master_hash_size = 0x20` по смещению `0x10`, `max_layers = 7` по смещению `0x14` и выравниванием дескрипторов 6 уровней хешей по смещениям `0x18..0xA7`.
+- 🌟 **[Иерархические таблицы RomFS и AES-128-XTS шифрование]**: реализован полноценный иерархический генератор таблиц директорий и файлов Nintendo RomFS (`Directory Meta Table` + `File Meta Table` + хеш-бакеты с простыми числами) вместо плоского списка путей, а также штатное шифрование заголовков `0x000..0xBFF` ключом `header_key` (`AES-128-XTS`) для прозрачной совместимости с эмуляторами и блочным сжатием `NSZ / NCZ`.
+- 🌟 **[Android Паритет и Синхронизация] Полнофункциональный релиз 6.9.4**: обновлены версия и код сборки (`versionCode = 694`, `versionName = "6.9.4"`) для Modern (64-бит ARMv8/x86_64) и Legacy (32-бит ARMv7/x86) с синхронизированным ядром компиляции дампов.
 
 <details>
 <summary><b>📋 Полный список изменений (нажмите, чтобы развернуть)</b></summary>
 
-- 🔹 **[Интеграция qBittorrent WebUI]**: реализован метод `TryDownloadViaLocalQBitAsync` с авторизацией, контролем паузы/отмены, выборочным скачиванием файлов и авто-очисткой торрент-задачи при завершении.
-- 🔹 **[Сбор пиров и инъекция через HTTP Pipelining]**: разработан харвестер `HarvestRawPeerStringsFromTrackersAsync` для передачи пиров напрямую в локальный клиент.
-- 🔹 **[Селектор целевого формата в UI]**: добавлено свойство `TargetFormat` в модель слота `RuTrackerGameSlot` и глобальный комбобокс выбора формата в шапке загрузчика.
-- 🔹 **[Настройки движка MonoTorrent]**: расширен дисковый кэш до 128 МБ (`DiskCacheBytes`), оптимизировано максимальное количество полуоткрытых соединений (`MaximumHalfOpenConnections = 40`) и зафиксирован выделенный порт DHT.
-- 🔹 **[Инсталлятор StormInstaller]**: конфигурация сборки и метаданные развёртывания обновлены до версии 6.9.3 с сохранением цифровой подписи STORM TEAM.
+- 🔹 **[SdkAddonVersion в Meta NCA]**: добавлена запись версии SDK `0x000E0000` в `BuildCnmtNca` по смещению `0x21C`.
+- 🔹 **[Коррекция RomFS FsType]**: исправлена константа типа файловой системы `FsType::RomFs = 0` для всех создаваемых разделов NCA.
+- 🔹 **[Выравнивание IVFC дескрипторов]**: выровнены дескрипторы уровней IVFC хеш-дерева со смещения `0x18` с установкой размера мастер-хеша `0x20` и `max_layers = 7`.
+- 🔹 **[Иерархический генератор RomFS]**: разработаны структуры `Directory Meta Table` и `File Meta Table` с расчетом хеш-бакетов по простым числам.
+- 🔹 **[Штатное шифрование AES-128-XTS]**: внедрен метод `FinalizeAndEncryptNcaHeaderInPlace` с шифрованием 6 секторов заголовка NCA ключом `header_key`.
+- 🔹 **[Парсинг версий в CatalogScannerService]**: улучшено автоопределение версий и парсинг парных версий в имени файлов.
+- 🔹 **[Инсталлятор StormInstaller]**: конфигурация сборки и метаданные развёртывания обновлены до версии 6.9.4 с сохранением цифровой подписи STORM TEAM.
 
 </details>
 
 <details>
 <summary><b>🌐 English Changelog (click to expand)</b></summary>
 
-- 🔸 **qBittorrent WebUI High-Speed Integration**: seamless direct pipeline to local qBittorrent instance via WebUI API (`127.0.0.1:8080`, automatic credential/port detection from `qBittorrent.ini`), unlocking full line speed (6-50+ MB/s), bypassing qBittorrent Enhanced anti-leech peer bans, with automated peer harvesting from HTTP/1.1 Pipelining trackers.
-- 🔸 **Per-Game & Global Target Format Selector**: added flexible output format selection (`NSP`, `NSZ`, `XCI`, `XCZ`, `NSP + NSZ`, `XCI + XCZ`) across all RuTracker multi-game download slots.
-- 🔸 **HardPatch & MultiContent Core Enhancements**: improved RomFS/ExeFS direct patching reliability, NCA extent validation, and task queuing pipeline.
-- 🔸 **Android Parity 6.9.3**: synchronized Modern and Legacy Android editions to version 6.9.3 (`versionCode 693`).
+- 🔸 **Switch 2 Dump Compiler (`Switch2DumpCompilerService`)**: complete overhaul of NCA3 and RomFS header structures when assembling Nintendo Switch 2 game dumps (`0400...`) into `.nsp` / `.nsz` / `.xci` / `.xcz`.
+- 🔸 **SDK Addon Version Fix**: written SDK version (`SdkAddonVersion = 0x000E0000`) at offset `0x21C` in Meta NCA (`.cnmt.nca`), resolving emulator error `(0007-000C): The NCA file has a bad header`.
+- 🔸 **RomFS FsType & IVFC Integrity Alignment**: corrected `NcaFsHeader::FsType` for RomFS partitions (`0` instead of `2`) in Control and Program NCAs; aligned `IntegrityMetaInfo (IVFC)` with `master_hash_size = 0x20` at `0x10`, `max_layers = 7` at `0x14`, and 6-level hash descriptors from `0x18..0xA7`.
+- 🔸 **Hierarchical RomFS & AES-128-XTS Header Encryption**: added hierarchical directory/file meta tables with prime-number hash buckets and standard AES-128-XTS header encryption (`0x000..0xBFF`) for emulator and NSZ/NCZ compatibility.
+- 🔸 **Android Parity 6.9.4**: synchronized Modern and Legacy Android packages to version 6.9.4 (`versionCode 694`).
 
 </details>
 
