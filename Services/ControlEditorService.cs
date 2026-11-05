@@ -196,14 +196,36 @@ namespace StormSwitchBox.Services
                 Directory.CreateDirectory(romfsDir);
                 Directory.CreateDirectory(outNcaDir);
 
-                // 1. Подготовка control.nacp (сначала читаем актуальный NACP из уже собранного контейнера, чтобы не затереть DisplayVersion 1.0.2 старым 1.0.0 из базовой игры)
+                // 1. Подготовка control.nacp (сначала читаем актуальный NACP и иконку из уже собранного контейнера)
                 byte[]? currentTargetNacp = null;
                 try
                 {
                     var currentMeta = await ExtractMetadataAsync(targetNspPath);
-                    if (currentMeta?.RawNacpBytes != null && currentMeta.RawNacpBytes.Length >= 0x4000)
+                    if (currentMeta != null)
                     {
-                        currentTargetNacp = currentMeta.RawNacpBytes;
+                        if (currentMeta.RawNacpBytes != null && currentMeta.RawNacpBytes.Length >= 0x4000)
+                        {
+                            currentTargetNacp = currentMeta.RawNacpBytes;
+                        }
+                        if (string.IsNullOrWhiteSpace(model.TitleId) ||
+                            model.TitleId == "0100000000000000" ||
+                            model.TitleId == "0100000000010000")
+                        {
+                            if (!string.IsNullOrWhiteSpace(currentMeta.TitleId) && currentMeta.TitleId != "0100000000000000")
+                                model.TitleId = currentMeta.TitleId;
+                        }
+                        if ((model.OriginalIconBytes == null || model.OriginalIconBytes.Length == 0) &&
+                            currentMeta.OriginalIconBytes != null && currentMeta.OriginalIconBytes.Length > 0)
+                        {
+                            model.OriginalIconBytes = currentMeta.OriginalIconBytes;
+                            if (string.IsNullOrEmpty(model.CustomIconPath) && model.HasBadges)
+                            {
+                                model.CustomIconBytes = IconBadgeStudioService.RenderIconWithBadges(
+                                    currentMeta.OriginalIconBytes, 256,
+                                    model.BadgeRus, model.Badge60Fps, model.BadgeMod, model.BadgeAllDlc,
+                                    model.CustomBadgeText, model.BadgePosition, outputPng: false);
+                            }
+                        }
                     }
                 }
                 catch { }
@@ -337,8 +359,11 @@ namespace StormSwitchBox.Services
                                 var nca = new Nca(App.Keys.CurrentKeyset, ef.AsStorage());
                                 KeysService.RegisterRightsIdFallback(App.Keys.CurrentKeyset, nca);
                                 string ncaTid = nca.Header.TitleId.ToString("X16");
+                                bool tidMatch = ncaTid.Equals(titleId, StringComparison.OrdinalIgnoreCase) ||
+                                                (titleId.Length >= 13 && ncaTid.Length >= 13 &&
+                                                 ncaTid.Substring(0, 13).Equals(titleId.Substring(0, 13), StringComparison.OrdinalIgnoreCase));
 
-                                if (nca.Header.ContentType == NcaContentType.Meta && ncaTid.Equals(titleId, StringComparison.OrdinalIgnoreCase))
+                                if (nca.Header.ContentType == NcaContentType.Meta && tidMatch)
                                 {
                                     oldMetaNcaEntryName = name;
                                     try
@@ -367,7 +392,7 @@ namespace StormSwitchBox.Services
                                     }
                                     catch { }
                                 }
-                                else if (nca.Header.ContentType == NcaContentType.Control && ncaTid.Equals(titleId, StringComparison.OrdinalIgnoreCase))
+                                else if (nca.Header.ContentType == NcaContentType.Control && tidMatch)
                                 {
                                     oldControlNcaEntryName = name;
                                 }
@@ -609,7 +634,7 @@ namespace StormSwitchBox.Services
                                 if (lower.EndsWith(".cert")) return 91;
                                 if (lower.EndsWith(".cnmt.nca") || lower.EndsWith(".cnmt.xml")) return 0;
                                 if (lower.Equals(newControlNcaName, StringComparison.OrdinalIgnoreCase) || lower.Contains("control")) return 1;
-                                if (lower.Contains("program")) return 2;
+                                if (lower.Contains("program") || lower.EndsWith(".ncz")) return 2;
                                 if (lower.Contains("manual")) return 3;
                                 return 5;
                             }).ThenBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase);

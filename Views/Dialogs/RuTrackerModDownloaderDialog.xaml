@@ -242,17 +242,19 @@
 
                         <Grid Grid.Row="1" ColumnSpacing="6" Padding="10,0,10,0">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="96"/>
-                                <ColumnDefinition Width="1.20*"/>
-                                <ColumnDefinition Width="108"/>
-                                <ColumnDefinition Width="0.85*"/>
+                                <ColumnDefinition Width="136"/>
+                                <ColumnDefinition Width="1.25*"/>
+                                <ColumnDefinition Width="98"/>
+                                <ColumnDefinition Width="0.75*"/>
+                                <ColumnDefinition Width="122"/>
                             </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Text="Задача / часть" FontSize="10.5" Foreground="#94A3B8" FontWeight="SemiBold"/>
-                            <TextBlock Grid.Column="1" Text="✏️ Итоговое имя игры / выходного файла:" FontSize="10.5" Foreground="#38BDF8" FontWeight="SemiBold"
-                                       ToolTipService.ToolTip="Укажите желаемое итоговое имя файла для каждой игры (сохраняется один-в-один без лишних тегов, если не включена галочка добавления тегов)"/>
+                            <TextBlock Grid.Column="0" Text="Иконка / задача" FontSize="10.5" Foreground="#94A3B8" FontWeight="SemiBold"/>
+                            <TextBlock Grid.Column="1" Text="✏️ Итоговое имя файла + внутр. имена (EN / RU / Издатель):" FontSize="10.5" Foreground="#38BDF8" FontWeight="SemiBold"
+                                       ToolTipService.ToolTip="Сверху — итоговое имя выходного файла (.nsp/.nsz); во второй строке — внутреннее английское имя, внутреннее русское имя, издатель/разработчик и иконка NACP"/>
                             <TextBlock Grid.Column="2" Text="Кон. формат:" FontSize="10.5" Foreground="#22C55E" FontWeight="SemiBold"
                                        ToolTipService.ToolTip="Выберите итоговое расширение контейнера для этой игры (NSP, NSZ, XCI, XCZ)"/>
-                            <TextBlock Grid.Column="3" Text="Имя русификатора / мода:" FontSize="10.5" Foreground="#94A3B8" FontWeight="SemiBold"/>
+                            <TextBlock Grid.Column="3" Text="Имя мода:" FontSize="10.5" Foreground="#94A3B8" FontWeight="SemiBold"/>
+                            <TextBlock Grid.Column="4" Text="Метаданные NACP:" FontSize="10.5" Foreground="#C084FC" FontWeight="SemiBold"/>
                         </Grid>
 
                         <ListView x:Name="GameSlotsListView" Grid.Row="2" SelectionMode="None" Background="#0DFFFFFF" CornerRadius="6" Padding="2">
@@ -266,52 +268,124 @@
                             <ListView.ItemTemplate>
                                 <DataTemplate>
                                     <Border Background="#161F30" BorderBrush="#2A3B56" BorderThickness="1" CornerRadius="6" Padding="8,6" Margin="0,2">
-                                        <StackPanel Spacing="5">
-                                            <Grid ColumnSpacing="6">
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="Auto"/>
-                                                    <ColumnDefinition Width="Auto"/>
-                                                    <ColumnDefinition Width="1.20*"/>
-                                                    <ColumnDefinition Width="108"/>
-                                                    <ColumnDefinition Width="0.85*"/>
-                                                </Grid.ColumnDefinitions>
-                                                <CheckBox Grid.Column="0" IsChecked="{Binding IsEnabled, Mode=TwoWay}" MinWidth="0" VerticalAlignment="Center"
-                                                          ToolTipService.ToolTip="Создать отдельную задачу для этой игры / части"/>
-                                                <Border Grid.Column="1" Background="#0284C7" CornerRadius="4" Padding="8,4" VerticalAlignment="Center">
-                                                    <TextBlock Text="{Binding SlotBadge}" FontSize="10.5" Foreground="White" FontWeight="Bold" VerticalAlignment="Center"/>
-                                                </Border>
-                                                <TextBox Grid.Column="2" Text="{Binding GameTitle, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                                         PlaceholderText="Итоговое имя игры / файла (напр. Aggelos)" FontSize="11.5"
-                                                         Height="30" MinHeight="30" Padding="8,0,8,0"
-                                                         VerticalAlignment="Center" VerticalContentAlignment="Center"
-                                                         ToolTipService.ToolTip="Итоговое имя игры и выходного файла для этой задачи (напр. Aggelos -> Aggelos.nsz / Aggelos.nsp)"
-                                                         Loaded="CenteredInput_Loaded" CornerRadius="5"/>
-                                                <ComboBox Grid.Column="3" ItemsSource="{Binding AvailableTargetFormats}" SelectedItem="{Binding TargetFormat, Mode=TwoWay}"
-                                                          FontSize="11.5" FontWeight="Bold" Foreground="#22C55E"
-                                                          Height="30" MinHeight="30" Padding="8,0,6,0"
-                                                          VerticalAlignment="Center" VerticalContentAlignment="Center" HorizontalAlignment="Stretch" CornerRadius="5"
-                                                          ToolTipService.ToolTip="Итоговый формат (расширение) выходного файла для этой игры (NSP, NSZ, XCI, XCZ)"/>
-                                                <TextBox Grid.Column="4" Text="{Binding CustomModTitle, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                                         PlaceholderText="Имя русификатора / мода" FontSize="11"
-                                                         Height="30" MinHeight="30" Padding="8,0,8,0"
-                                                         VerticalAlignment="Center" VerticalContentAlignment="Center"
-                                                         Loaded="CenteredInput_Loaded" CornerRadius="5"/>
-                                            </Grid>
-                                            <Grid ColumnSpacing="8">
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="*"/>
-                                                    <ColumnDefinition Width="Auto"/>
-                                                </Grid.ColumnDefinitions>
-                                                <TextBox Grid.Column="0" Text="{Binding ManualExtraLinks, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                                         PlaceholderText="Доп. ссылки только для этой части (русификатор / обновление / DLC — через пробел или запятую)..."
-                                                         FontSize="10.5" Height="28" MinHeight="28" Padding="8,0,8,0"
-                                                         VerticalAlignment="Center" VerticalContentAlignment="Center"
-                                                         Loaded="CenteredInput_Loaded" CornerRadius="5"/>
-                                                <Border Grid.Column="1" Background="#0F2942" BorderBrush="#1E3A5F" BorderThickness="1" CornerRadius="4" Padding="7,3" VerticalAlignment="Center">
-                                                    <TextBlock Text="{Binding SummaryText}" FontSize="10.5" Foreground="#38BDF8" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                                                </Border>
-                                            </Grid>
-                                        </StackPanel>
+                                        <Grid ColumnSpacing="8">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+
+                                            <!-- Левая колонка: живая иконка 54x54 (клик или Drag&Drop для быстрой замены) -->
+                                            <Button Grid.Column="0" Click="SelectSlotIconQuick_Click" Tag="{Binding}"
+                                                    Padding="0" Width="56" Height="56" CornerRadius="8"
+                                                    Background="#0F172A" BorderBrush="#334155" BorderThickness="1"
+                                                    VerticalAlignment="Center" AllowDrop="True"
+                                                    DragOver="SlotIconPreview_DragOver" Drop="SlotIconPreview_Drop"
+                                                    ToolTipService.ToolTip="Нажмите или перетащите PNG/JPG сюда, чтобы заменить иконку игры (256x256)">
+                                                <Grid Width="54" Height="54">
+                                                    <FontIcon Glyph="&#xE8B9;" FontSize="20" Foreground="#475569"
+                                                              HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                    <Border CornerRadius="7" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                                                        <Image Source="{Binding SlotIconBitmap}" Stretch="UniformToFill"/>
+                                                    </Border>
+                                                </Grid>
+                                            </Button>
+
+                                            <!-- Правая часть: 3 компактных ряда (1: Имя файла + формат + мод + Студия NACP; 2: Внутр. EN + Внутр. RU + Издатель + Иконка; 3: Ссылки + Сводка) -->
+                                            <StackPanel Grid.Column="1" Spacing="4">
+                                                <!-- Ряд 1: Чекбокс, Бейдж ИГРА #N, Итоговое имя выходного файла, Формат, Имя мода, Кнопка Студии NACP -->
+                                                <Grid ColumnSpacing="6">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                        <ColumnDefinition Width="1.25*"/>
+                                                        <ColumnDefinition Width="96"/>
+                                                        <ColumnDefinition Width="0.75*"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <CheckBox Grid.Column="0" IsChecked="{Binding IsEnabled, Mode=TwoWay}" MinWidth="0" VerticalAlignment="Center"
+                                                              ToolTipService.ToolTip="Создать отдельную задачу для этой игры / части"/>
+                                                    <Border Grid.Column="1" Background="#0284C7" CornerRadius="4" Padding="7,4" VerticalAlignment="Center">
+                                                        <TextBlock Text="{Binding SlotBadge}" FontSize="10.5" Foreground="White" FontWeight="Bold" VerticalAlignment="Center"/>
+                                                    </Border>
+                                                    <TextBox Grid.Column="2" Text="{Binding GameTitle, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                             PlaceholderText="Итоговое имя выходного файла (напр. Aggelos (2018) [WW] [RUS]...)" FontSize="11.5"
+                                                             Height="28" MinHeight="28" Padding="8,0,8,0"
+                                                             VerticalAlignment="Center" VerticalContentAlignment="Center"
+                                                             ToolTipService.ToolTip="Итоговое имя выходного файла на диске (.nsp / .nsz / .xci / .xcz)"
+                                                             Loaded="CenteredInput_Loaded" CornerRadius="5"/>
+                                                    <ComboBox Grid.Column="3" ItemsSource="{Binding AvailableTargetFormats}" SelectedItem="{Binding TargetFormat, Mode=TwoWay}"
+                                                              FontSize="11" FontWeight="Bold" Foreground="#22C55E"
+                                                              Height="28" MinHeight="28" Padding="7,0,5,0"
+                                                              VerticalAlignment="Center" VerticalContentAlignment="Center" HorizontalAlignment="Stretch" CornerRadius="5"
+                                                              ToolTipService.ToolTip="Итоговый формат (расширение) выходного файла для этой игры (NSP, NSZ, XCI, XCZ)"/>
+                                                    <TextBox Grid.Column="4" Text="{Binding CustomModTitle, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                             PlaceholderText="Имя русификатора / мода" FontSize="11"
+                                                             Height="28" MinHeight="28" Padding="8,0,8,0"
+                                                             VerticalAlignment="Center" VerticalContentAlignment="Center"
+                                                             Loaded="CenteredInput_Loaded" CornerRadius="5"/>
+                                                    <Button Grid.Column="5" Content="{Binding MetadataStudioButtonText}" Click="OpenSlotMetadataStudio_Click" Tag="{Binding}"
+                                                            Height="28" Padding="9,0" FontSize="11" FontWeight="SemiBold" CornerRadius="5"
+                                                            Background="#3B1D5E" BorderBrush="#9333EA" BorderThickness="1" Foreground="#F3E8FF"
+                                                            VerticalAlignment="Center"
+                                                            ToolTipService.ToolTip="Открыть полную Студию метаданных, иконок и бейджей (NACP / SMDH) для этой игры — как в списке задач"/>
+                                                </Grid>
+
+                                                <!-- Ряд 2: Внутреннее английское имя, Внутреннее русское имя, Издатель / Разработчик, Быстрая кнопка выбора иконки -->
+                                                <Grid ColumnSpacing="6">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="1*"/>
+                                                        <ColumnDefinition Width="1*"/>
+                                                        <ColumnDefinition Width="0.85*"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBox Grid.Column="0" Text="{Binding InternalTitleEnglish, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                             PlaceholderText="Внутр. имя (English, напр. Aggelos)" FontSize="11"
+                                                             Height="27" MinHeight="27" Padding="8,0,8,0"
+                                                             VerticalAlignment="Center" VerticalContentAlignment="Center"
+                                                             TextChanged="SlotInlineMetadata_TextChanged" Tag="{Binding}"
+                                                             ToolTipService.ToolTip="Внутреннее английское название игры (вшивается в NACP / SMDH контейнера)"
+                                                             Loaded="CenteredInput_Loaded" CornerRadius="5"/>
+                                                    <TextBox Grid.Column="1" Text="{Binding InternalTitleRussian, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                             PlaceholderText="Внутр. имя (Русское, напр. Аггелос)" FontSize="11"
+                                                             Height="27" MinHeight="27" Padding="8,0,8,0"
+                                                             VerticalAlignment="Center" VerticalContentAlignment="Center"
+                                                             TextChanged="SlotInlineMetadata_TextChanged" Tag="{Binding}"
+                                                             ToolTipService.ToolTip="Внутреннее русское название игры (вшивается в NACP / SMDH контейнера)"
+                                                             Loaded="CenteredInput_Loaded" CornerRadius="5"/>
+                                                    <TextBox Grid.Column="2" Text="{Binding Publisher, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                             PlaceholderText="Издатель / Разработчик (напр. PQube)" FontSize="11"
+                                                             Height="27" MinHeight="27" Padding="8,0,8,0"
+                                                             VerticalAlignment="Center" VerticalContentAlignment="Center"
+                                                             TextChanged="SlotInlineMetadata_TextChanged" Tag="{Binding}"
+                                                             ToolTipService.ToolTip="Издатель / Разработчик игры (вшивается в NACP / SMDH контейнера)"
+                                                             Loaded="CenteredInput_Loaded" CornerRadius="5"/>
+                                                    <Button Grid.Column="3" Content="🖼 Иконка..." Click="SelectSlotIconQuick_Click" Tag="{Binding}"
+                                                            Height="27" Padding="8,0" FontSize="10.5" CornerRadius="5"
+                                                            VerticalAlignment="Center"
+                                                            ToolTipService.ToolTip="Выбрать свою картинку PNG/JPG для иконки этой игры (256x256)"/>
+                                                </Grid>
+
+                                                <!-- Ряд 3: Доп. ссылки + TitleID/Версия + Сводка файлов -->
+                                                <Grid ColumnSpacing="6">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBox Grid.Column="0" Text="{Binding ManualExtraLinks, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                             PlaceholderText="Доп. ссылки только для этой части (русификатор / обновление / DLC — через пробел или запятую)..."
+                                                             FontSize="10.5" Height="26" MinHeight="26" Padding="8,0,8,0"
+                                                             VerticalAlignment="Center" VerticalContentAlignment="Center"
+                                                             Loaded="CenteredInput_Loaded" CornerRadius="5"/>
+                                                    <Border Grid.Column="1" Background="#1E1B4B" BorderBrush="#4338CA" BorderThickness="1" CornerRadius="4" Padding="6,2" VerticalAlignment="Center">
+                                                        <TextBlock Text="{Binding TitleIdAndVersionBadge}" FontSize="10" FontFamily="Consolas" Foreground="#A5B4FC" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                                    </Border>
+                                                    <Border Grid.Column="2" Background="#0F2942" BorderBrush="#1E3A5F" BorderThickness="1" CornerRadius="4" Padding="7,2" VerticalAlignment="Center">
+                                                        <TextBlock Text="{Binding SummaryText}" FontSize="10.5" Foreground="#38BDF8" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                                    </Border>
+                                                </Grid>
+                                            </StackPanel>
+                                        </Grid>
                                     </Border>
                                 </DataTemplate>
                             </ListView.ItemTemplate>
@@ -659,5 +733,173 @@
             </Grid>
         </Border>
 
+        <!-- Модальный оверлей: Полноценная «🎨 Студия метаданных, иконок и 3DS баннеров» прямо внутри загрузчика RuTracker -->
+        <Grid x:Name="SlotMetadataStudioOverlay" Grid.Row="0" Grid.RowSpan="6" Canvas.ZIndex="1100"
+              Visibility="Collapsed" Background="#CC090D16">
+            <Border Width="540" MaxHeight="680" HorizontalAlignment="Center" VerticalAlignment="Center"
+                    Background="#181B26" BorderBrush="#3B4256" BorderThickness="1.5" CornerRadius="12" Padding="20,18">
+                <Grid RowSpacing="12">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- Заголовок студии -->
+                    <Grid Grid.Row="0" ColumnSpacing="10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" x:Name="StudioHeaderTitleText"
+                                   Text="🎨 Студия метаданных, иконок и 3DS баннеров"
+                                   FontSize="17" FontWeight="Bold" Foreground="#F8FAFC" VerticalAlignment="Center"/>
+                        <Border Grid.Column="1" Background="#0284C7" CornerRadius="5" Padding="8,3" VerticalAlignment="Center">
+                            <TextBlock x:Name="StudioSlotBadgeText" Text="ИГРА #1" FontSize="11" FontWeight="Bold" Foreground="White"/>
+                        </Border>
+                    </Grid>
+
+                    <!-- Основное содержимое (точно как во втором скриншоте ControlEditorDialog) -->
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="0,0,6,0">
+                        <StackPanel Spacing="12">
+                            <!-- Секция иконки и TitleID/Версии -->
+                            <Grid ColumnSpacing="16">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <Border Grid.Column="0" Width="120" Height="120" CornerRadius="12"
+                                        BorderBrush="#334155" BorderThickness="2" Background="#0F172A"
+                                        AllowDrop="True" DragOver="StudioIconBorder_DragOver" Drop="StudioIconBorder_Drop">
+                                    <Grid>
+                                        <Image x:Name="StudioIconPreviewImage" Stretch="UniformToFill"/>
+                                        <Border Background="#CC000000" VerticalAlignment="Bottom" Padding="4,3">
+                                            <TextBlock Text="Live-превью иконки" FontSize="10" HorizontalAlignment="Center" Foreground="#E2E8F0"/>
+                                        </Border>
+                                    </Grid>
+                                </Border>
+
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="8">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="Title ID:" FontWeight="SemiBold" Foreground="#A78BFA" VerticalAlignment="Center"/>
+                                        <TextBlock x:Name="StudioTitleIdText" Text="0100000000000000" FontFamily="Consolas" FontWeight="Bold" VerticalAlignment="Center"/>
+                                        <Border Background="#0284C7" CornerRadius="4" Padding="6,2" VerticalAlignment="Center">
+                                            <TextBlock x:Name="StudioPlatformBadgeText" Text="SWITCH" FontSize="10" FontWeight="Bold" Foreground="White"/>
+                                        </Border>
+                                    </StackPanel>
+
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="Версия:" FontWeight="SemiBold" Foreground="#A78BFA" VerticalAlignment="Center"/>
+                                        <TextBlock x:Name="StudioVersionText" Text="1.0.0" FontWeight="Bold" VerticalAlignment="Center"/>
+                                    </StackPanel>
+
+                                    <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
+                                        <Button Content="🖼 Выбрать иконку (PNG/JPG)" Click="StudioSelectIcon_Click" Padding="10,6" CornerRadius="6"/>
+                                        <Button x:Name="StudioResetIconBtn" Content="🔄 Сбросить" Click="StudioResetIcon_Click" Padding="10,6" CornerRadius="6"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- Визуальные бейджи на иконке -->
+                            <Border Background="#161224" BorderBrush="#581C87" BorderThickness="1" CornerRadius="8" Padding="12,10">
+                                <StackPanel Spacing="8">
+                                    <TextBlock Text="🏷 Визуальные бейджи на иконке (256x256 Switch / 48x48 3DS SMDH)"
+                                               FontWeight="SemiBold" FontSize="12" Foreground="#C084FC"/>
+                                    <StackPanel Orientation="Horizontal" Spacing="14">
+                                        <CheckBox x:Name="StudioBadgeRusCheck" Content="🇷🇺 [RUS]" Checked="StudioBadgeOption_Changed" Unchecked="StudioBadgeOption_Changed" MinWidth="0"/>
+                                        <CheckBox x:Name="StudioBadge60FpsCheck" Content="⚡ [60 FPS]" Checked="StudioBadgeOption_Changed" Unchecked="StudioBadgeOption_Changed" MinWidth="0"/>
+                                        <CheckBox x:Name="StudioBadgeModCheck" Content="🛠 [MOD]" Checked="StudioBadgeOption_Changed" Unchecked="StudioBadgeOption_Changed" MinWidth="0"/>
+                                        <CheckBox x:Name="StudioBadgeAllDlcCheck" Content="💎 [ALL DLC]" Checked="StudioBadgeOption_Changed" Unchecked="StudioBadgeOption_Changed" MinWidth="0"/>
+                                    </StackPanel>
+                                    <Grid ColumnSpacing="10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="170"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBox x:Name="StudioCustomBadgeTextBox" Grid.Column="0"
+                                                 PlaceholderText="Свой текст бейджа (напр. HD, 2.0, СБОРКА)"
+                                                 Height="32" MinHeight="32" Padding="10,0,10,0"
+                                                 VerticalAlignment="Center" VerticalContentAlignment="Center"
+                                                 Loaded="CenteredInput_Loaded"
+                                                 TextChanged="StudioCustomBadgeTextBox_TextChanged"/>
+                                        <ComboBox x:Name="StudioBadgeCornerCombo" Grid.Column="1" HorizontalAlignment="Stretch" SelectedIndex="0"
+                                                  Height="32" MinHeight="32" VerticalAlignment="Center" VerticalContentAlignment="Center"
+                                                  SelectionChanged="StudioBadgeCornerCombo_SelectionChanged">
+                                            <ComboBoxItem Content="Внизу справа"/>
+                                            <ComboBoxItem Content="Внизу слева"/>
+                                            <ComboBoxItem Content="Сверху справа"/>
+                                            <ComboBoxItem Content="Сверху слева"/>
+                                        </ComboBox>
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Аудио-джингл 3D-баннера Nintendo 3DS -->
+                            <Border Background="#111C24" BorderBrush="#0F766E" BorderThickness="1" CornerRadius="8" Padding="12,10">
+                                <StackPanel Spacing="6">
+                                    <TextBlock Text="🎵 Аудио-джингл 3D-баннера Nintendo 3DS (.WAV / .BCWAV -> CBMD)"
+                                               FontWeight="SemiBold" FontSize="12" Foreground="#2DD4BF"/>
+                                    <Grid ColumnSpacing="8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBox x:Name="StudioAudioJinglePathBox" Grid.Column="0" IsReadOnly="True"
+                                                 PlaceholderText="Использовать исходный джингл игры (до 3 сек IMA-ADPCM)"
+                                                 Height="32" MinHeight="32" Padding="10,0,10,0"
+                                                 VerticalAlignment="Center" VerticalContentAlignment="Center"
+                                                 Loaded="CenteredInput_Loaded"/>
+                                        <Button Grid.Column="1" Content="🎵 Выбрать WAV/BCWAV" Click="StudioSelectAudioWav_Click" Height="32" Padding="10,0"/>
+                                        <Button Grid.Column="2" Content="✕" Click="StudioClearAudioWav_Click" Height="32" Padding="10,0"/>
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Поля названий игры и издателя -->
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="Название игры (English / основное)" FontSize="12" FontWeight="SemiBold" Foreground="#E2E8F0"/>
+                                <TextBox x:Name="StudioTitleEnglishBox" PlaceholderText="Введите английское название игры (напр. Aggelos)" MaxLength="127"
+                                         Height="34" MinHeight="34" Padding="10,0,10,0"
+                                         VerticalAlignment="Center" VerticalContentAlignment="Center"
+                                         Loaded="CenteredInput_Loaded"/>
+                            </StackPanel>
+
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="Название игры (Русское)" FontSize="12" FontWeight="SemiBold" Foreground="#E2E8F0"/>
+                                <TextBox x:Name="StudioTitleRussianBox" PlaceholderText="Введите русское название игры (напр. Аггелос)" MaxLength="127"
+                                         Height="34" MinHeight="34" Padding="10,0,10,0"
+                                         VerticalAlignment="Center" VerticalContentAlignment="Center"
+                                         Loaded="CenteredInput_Loaded"/>
+                            </StackPanel>
+
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="Издатель / Разработчик" FontSize="12" FontWeight="SemiBold" Foreground="#E2E8F0"/>
+                                <TextBox x:Name="StudioPublisherBox" PlaceholderText="Введите имя издателя или автора (напр. PQube / Wonderboy Bobi)" MaxLength="63"
+                                         Height="34" MinHeight="34" Padding="10,0,10,0"
+                                         VerticalAlignment="Center" VerticalContentAlignment="Center"
+                                         Loaded="CenteredInput_Loaded"/>
+                            </StackPanel>
+
+                            <TextBlock Text="💡 Для Switch изменения вшиваются в Control NCA (NACP + 256x256 JPEG) при сборке задачи. Для 3DS автоматически генерируется 16-язычный SMDH (48x48 + 24x24 Morton RGB565)."
+                                       FontSize="11" Foreground="#A78BFA" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </ScrollViewer>
+
+                    <!-- Кнопки Сохранить / Отмена -->
+                    <Grid Grid.Row="2" ColumnSpacing="10" Margin="0,4,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Button Grid.Column="0" Content="Сохранить" Click="StudioSave_Click"
+                                Style="{StaticResource AccentButtonStyle}" HorizontalAlignment="Stretch" Height="36" FontWeight="SemiBold"/>
+                        <Button Grid.Column="1" Content="Отмена" Click="StudioCancel_Click"
+                                HorizontalAlignment="Stretch" Height="36"/>
+                    </Grid>
+                </Grid>
+            </Border>
+        </Grid>
     </Grid>
 </ContentDialog>

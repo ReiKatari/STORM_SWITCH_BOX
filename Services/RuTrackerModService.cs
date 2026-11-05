@@ -75,7 +75,27 @@ namespace StormSwitchBox.Services
         public string GameTitle
         {
             get => _gameTitle;
-            set => SetProperty(ref _gameTitle, value);
+            set
+            {
+                if (SetProperty(ref _gameTitle, value))
+                {
+                    if (!_isUserEditedMetadata && !string.IsNullOrWhiteSpace(value))
+                    {
+                        string clean = RuTrackerModService.ExtractCleanGameTitleFromFilePath(value);
+                        if (string.IsNullOrWhiteSpace(clean)) clean = value.Trim();
+                        if (string.IsNullOrWhiteSpace(_internalTitleEnglish))
+                        {
+                            _internalTitleEnglish = clean;
+                            OnPropertyChanged(nameof(InternalTitleEnglish));
+                        }
+                        if (string.IsNullOrWhiteSpace(_internalTitleRussian))
+                        {
+                            _internalTitleRussian = clean;
+                            OnPropertyChanged(nameof(InternalTitleRussian));
+                        }
+                    }
+                }
+            }
         }
 
         private string _customModTitle = string.Empty;
@@ -97,6 +117,277 @@ namespace StormSwitchBox.Services
         {
             get => _summaryText;
             set => SetProperty(ref _summaryText, value);
+        }
+
+        private string _titleId = string.Empty;
+        public string TitleId
+        {
+            get => _titleId;
+            set
+            {
+                if (SetProperty(ref _titleId, value))
+                    OnPropertyChanged(nameof(TitleIdAndVersionBadge));
+            }
+        }
+
+        private string _displayVersion = "1.0.0";
+        public string DisplayVersion
+        {
+            get => string.IsNullOrWhiteSpace(_displayVersion) ? "1.0.0" : _displayVersion;
+            set
+            {
+                if (SetProperty(ref _displayVersion, value))
+                    OnPropertyChanged(nameof(TitleIdAndVersionBadge));
+            }
+        }
+
+        public string TitleIdAndVersionBadge =>
+            !string.IsNullOrWhiteSpace(TitleId)
+                ? $"{TitleId} • v{DisplayVersion}"
+                : $"v{DisplayVersion}";
+
+        private string _internalTitleEnglish = string.Empty;
+        public string InternalTitleEnglish
+        {
+            get => _internalTitleEnglish;
+            set
+            {
+                if (SetProperty(ref _internalTitleEnglish, value))
+                {
+                    OnPropertyChanged(nameof(HasCustomMetadata));
+                    OnPropertyChanged(nameof(MetadataStudioButtonText));
+                }
+            }
+        }
+
+        private string _internalTitleRussian = string.Empty;
+        public string InternalTitleRussian
+        {
+            get => _internalTitleRussian;
+            set
+            {
+                if (SetProperty(ref _internalTitleRussian, value))
+                {
+                    OnPropertyChanged(nameof(HasCustomMetadata));
+                    OnPropertyChanged(nameof(MetadataStudioButtonText));
+                }
+            }
+        }
+
+        private string _publisher = "Nintendo";
+        public string Publisher
+        {
+            get => _publisher;
+            set
+            {
+                if (SetProperty(ref _publisher, value))
+                {
+                    OnPropertyChanged(nameof(HasCustomMetadata));
+                    OnPropertyChanged(nameof(MetadataStudioButtonText));
+                }
+            }
+        }
+
+        private bool _isUserEditedMetadata;
+        public bool IsUserEditedMetadata
+        {
+            get => _isUserEditedMetadata;
+            set
+            {
+                if (SetProperty(ref _isUserEditedMetadata, value))
+                {
+                    OnPropertyChanged(nameof(HasCustomMetadata));
+                    OnPropertyChanged(nameof(MetadataStudioButtonText));
+                }
+            }
+        }
+
+        private byte[]? _originalIconBytes;
+        public byte[]? OriginalIconBytes
+        {
+            get => _originalIconBytes;
+            set
+            {
+                _originalIconBytes = value;
+                RefreshSlotIconBitmap();
+            }
+        }
+
+        private byte[]? _customIconBytes;
+        public byte[]? CustomIconBytes
+        {
+            get => _customIconBytes;
+            set
+            {
+                _customIconBytes = value;
+                OnPropertyChanged(nameof(HasCustomMetadata));
+                OnPropertyChanged(nameof(MetadataStudioButtonText));
+                RefreshSlotIconBitmap();
+            }
+        }
+
+        private string? _customIconPath;
+        public string? CustomIconPath
+        {
+            get => _customIconPath;
+            set
+            {
+                if (SetProperty(ref _customIconPath, value))
+                {
+                    OnPropertyChanged(nameof(HasCustomMetadata));
+                    OnPropertyChanged(nameof(MetadataStudioButtonText));
+                }
+            }
+        }
+
+        private Microsoft.UI.Xaml.Media.Imaging.BitmapImage? _slotIconBitmap;
+        public Microsoft.UI.Xaml.Media.Imaging.BitmapImage? SlotIconBitmap
+        {
+            get => _slotIconBitmap;
+            set => SetProperty(ref _slotIconBitmap, value);
+        }
+
+        public bool Is3ds { get; set; }
+        public bool BadgeRus { get; set; }
+        public bool Badge60Fps { get; set; }
+        public bool BadgeMod { get; set; }
+        public bool BadgeAllDlc { get; set; }
+        public string CustomBadgeText { get; set; } = string.Empty;
+        public string BadgePosition { get; set; } = "BottomRight";
+        public string CustomAudioWavPath { get; set; } = string.Empty;
+
+        public bool HasBadges => BadgeRus || Badge60Fps || BadgeMod || BadgeAllDlc || !string.IsNullOrWhiteSpace(CustomBadgeText);
+
+        public bool HasCustomMetadata =>
+            IsUserEditedMetadata ||
+            (CustomIconBytes != null && CustomIconBytes.Length > 0) ||
+            !string.IsNullOrWhiteSpace(CustomIconPath) ||
+            HasBadges ||
+            !string.IsNullOrWhiteSpace(CustomAudioWavPath);
+
+        public string MetadataStudioButtonText => HasCustomMetadata ? "🎨 Студия NACP ✓" : "🎨 Студия NACP";
+
+        public void SetEnrichedMetadataSilently(string titleId, string version, string engTitle, string rusTitle, string publisher, byte[]? iconBytes)
+        {
+            if (!string.IsNullOrWhiteSpace(titleId))
+                TitleId = titleId;
+            if (!string.IsNullOrWhiteSpace(version))
+                DisplayVersion = version;
+
+            if (!IsUserEditedMetadata)
+            {
+                if (!string.IsNullOrWhiteSpace(engTitle))
+                {
+                    _internalTitleEnglish = engTitle;
+                    OnPropertyChanged(nameof(InternalTitleEnglish));
+                }
+                if (!string.IsNullOrWhiteSpace(rusTitle))
+                {
+                    _internalTitleRussian = rusTitle;
+                    OnPropertyChanged(nameof(InternalTitleRussian));
+                }
+                if (!string.IsNullOrWhiteSpace(publisher))
+                {
+                    _publisher = publisher;
+                    OnPropertyChanged(nameof(Publisher));
+                }
+            }
+
+            if (iconBytes != null && iconBytes.Length > 0 && (_originalIconBytes == null || _originalIconBytes.Length == 0))
+            {
+                _originalIconBytes = iconBytes;
+                RefreshSlotIconBitmap();
+            }
+        }
+
+        public void RefreshSlotIconBitmap()
+        {
+            byte[]? activeBytes = _customIconBytes ?? _originalIconBytes;
+            if (activeBytes == null || activeBytes.Length == 0)
+            {
+                App.RunOnUI(() => SlotIconBitmap = null);
+                return;
+            }
+
+            byte[] dataCopy = activeBytes;
+            App.RunOnUI(async () =>
+            {
+                try
+                {
+                    using var ms = new MemoryStream(dataCopy);
+                    var bmp = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
+                    await bmp.SetSourceAsync(ms.AsRandomAccessStream());
+                    SlotIconBitmap = bmp;
+                }
+                catch { }
+            });
+        }
+
+        public StormSwitchBox.Models.GameMetadataEditModel ToMetadataEditModel()
+        {
+            string cleanFallback = RuTrackerModService.ExtractCleanGameTitleFromFilePath(GameTitle);
+            if (string.IsNullOrWhiteSpace(cleanFallback)) cleanFallback = GameTitle.Trim();
+
+            string eng = !string.IsNullOrWhiteSpace(InternalTitleEnglish) ? InternalTitleEnglish.Trim() : cleanFallback;
+            string rus = !string.IsNullOrWhiteSpace(InternalTitleRussian) ? InternalTitleRussian.Trim() : eng;
+            string pub = !string.IsNullOrWhiteSpace(Publisher) ? Publisher.Trim() : "Nintendo";
+
+            return new StormSwitchBox.Models.GameMetadataEditModel
+            {
+                TitleId = !string.IsNullOrWhiteSpace(TitleId) ? TitleId : "0100000000000000",
+                Version = DisplayVersion,
+                TitleNameEnglish = eng,
+                TitleNameRussian = rus,
+                Publisher = pub,
+                OriginalIconBytes = OriginalIconBytes,
+                CustomIconBytes = CustomIconBytes,
+                CustomIconPath = CustomIconPath,
+                Is3ds = Is3ds,
+                BadgeRus = BadgeRus,
+                Badge60Fps = Badge60Fps,
+                BadgeMod = BadgeMod,
+                BadgeAllDlc = BadgeAllDlc,
+                CustomBadgeText = CustomBadgeText,
+                BadgePosition = BadgePosition,
+                CustomAudioWavPath = CustomAudioWavPath,
+                HasRomFs = !string.IsNullOrWhiteSpace(CustomModTitle),
+                ModNameRomFs = CustomModTitle ?? string.Empty
+            };
+        }
+
+        public void ApplyFromMetadataEditModel(StormSwitchBox.Models.GameMetadataEditModel model)
+        {
+            if (model == null) return;
+            IsUserEditedMetadata = true;
+            if (!string.IsNullOrWhiteSpace(model.TitleId) && model.TitleId != "0100000000000000")
+                TitleId = model.TitleId;
+            if (!string.IsNullOrWhiteSpace(model.Version))
+                DisplayVersion = model.Version;
+
+            _internalTitleEnglish = model.TitleNameEnglish?.Trim() ?? string.Empty;
+            _internalTitleRussian = model.TitleNameRussian?.Trim() ?? string.Empty;
+            _publisher = !string.IsNullOrWhiteSpace(model.Publisher) ? model.Publisher.Trim() : "Nintendo";
+
+            OriginalIconBytes = model.OriginalIconBytes;
+            CustomIconPath = model.CustomIconPath;
+            CustomIconBytes = model.CustomIconBytes;
+            Is3ds = model.Is3ds;
+            BadgeRus = model.BadgeRus;
+            Badge60Fps = model.Badge60Fps;
+            BadgeMod = model.BadgeMod;
+            BadgeAllDlc = model.BadgeAllDlc;
+            CustomBadgeText = model.CustomBadgeText ?? string.Empty;
+            BadgePosition = model.BadgePosition;
+            CustomAudioWavPath = model.CustomAudioWavPath;
+            if (!string.IsNullOrWhiteSpace(model.ModNameRomFs))
+                CustomModTitle = model.ModNameRomFs;
+
+            OnPropertyChanged(nameof(InternalTitleEnglish));
+            OnPropertyChanged(nameof(InternalTitleRussian));
+            OnPropertyChanged(nameof(Publisher));
+            OnPropertyChanged(nameof(HasCustomMetadata));
+            OnPropertyChanged(nameof(MetadataStudioButtonText));
+            RefreshSlotIconBitmap();
         }
     }
 
@@ -2667,7 +2958,8 @@ namespace StormSwitchBox.Services
         public static string ExtractCleanGameTitleFromFilePath(string path)
         {
             if (string.IsNullOrWhiteSpace(path)) return string.Empty;
-            string fileName = Path.GetFileNameWithoutExtension(path.Replace('\\', '/'));
+            string fileName = Path.GetFileName(path.Replace('\\', '/'));
+            fileName = Regex.Replace(fileName, @"\.(?:nsp|nsz|xci|xcz|nup|nro|3ds|cia|cci|cxi|zip|rar|7z|torrent)$", "", RegexOptions.IgnoreCase);
             string cleaned = Regex.Replace(fileName, @"\[[^\]]*\]|\([^)]*\)", " ").Trim();
             cleaned = Regex.Replace(cleaned, @"\b(?:Update|Patch|DLC|Unlocker|v\d+(?:\.\d+)*)\b.*$", "", RegexOptions.IgnoreCase).Trim();
             cleaned = Regex.Replace(cleaned, @"\s{2,}", " ").Trim(' ', '-', '_', '.');
@@ -2809,16 +3101,25 @@ namespace StormSwitchBox.Services
                 var (_, partNum, _) = GetNaturalGameSortKey(cleanTitle);
 
                 int assignedSlot = 0;
-                // Сначала ищем точное совпадение по имени или номеру части в gameSlots
+                // Сначала ищем точное совпадение по TitleID, чистому имени или номеру части в gameSlots
                 for (int sIdx = gameSlots.Count - 1; sIdx >= 0; sIdx--)
                 {
                     string slotTitle = gameSlots[sIdx];
-                    if (string.Equals(cleanTitle, slotTitle, StringComparison.OrdinalIgnoreCase))
+                    string slotTid = ExtractTitleId(slotTitle);
+                    if (slotTid.Length == 16 && bTid.Length >= 12 && slotTid.StartsWith(bTid.Substring(0, 12), StringComparison.OrdinalIgnoreCase))
                     {
                         assignedSlot = sIdx + 1;
                         break;
                     }
-                    var (_, slotPartNum, _) = GetNaturalGameSortKey(slotTitle);
+                    string cleanSlotTitle = ExtractCleanGameTitleFromFilePath(slotTitle);
+                    if (string.IsNullOrWhiteSpace(cleanSlotTitle)) cleanSlotTitle = slotTitle;
+                    if (string.Equals(cleanTitle, slotTitle, StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(cleanTitle, cleanSlotTitle, StringComparison.OrdinalIgnoreCase))
+                    {
+                        assignedSlot = sIdx + 1;
+                        break;
+                    }
+                    var (_, slotPartNum, _) = GetNaturalGameSortKey(cleanSlotTitle);
                     if (slotPartNum == partNum && partNum >= 1 && sIdx + 1 == partNum)
                     {
                         assignedSlot = sIdx + 1;

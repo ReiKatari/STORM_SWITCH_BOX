@@ -688,7 +688,7 @@ namespace StormSwitchBox.Views
                 return;
             }
 
-            string? sourceFile = task.InputFiles?.FirstOrDefault(f => !System.IO.Directory.Exists(f) && 
+            string? sourceFile = task.InputFiles?.FirstOrDefault(f => System.IO.File.Exists(f) &&
                 (f.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) || 
                  f.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) || 
                  f.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) ||
@@ -698,7 +698,87 @@ namespace StormSwitchBox.Views
                  f.EndsWith(".cia", StringComparison.OrdinalIgnoreCase) ||
                  f.EndsWith(".cxi", StringComparison.OrdinalIgnoreCase)));
 
-            GameMetadataEditModel? model = task.CustomMetadata;
+            string? builtOutputFile = null;
+            if (!string.IsNullOrWhiteSpace(task.OutputFolder) && !string.IsNullOrWhiteSpace(task.OutputFileName))
+            {
+                string[] candidateExts = new[] { task.GetPrimaryExtension(), ".nsz", ".nsp", ".xci", ".xcz", ".3ds", ".cia", ".cci" };
+                foreach (var ext in candidateExts.Distinct(StringComparer.OrdinalIgnoreCase))
+                {
+                    string candidatePath = Path.Combine(task.OutputFolder, task.OutputFileName + ext);
+                    if (File.Exists(candidatePath))
+                    {
+                        builtOutputFile = candidatePath;
+                        break;
+                    }
+                }
+            }
+
+            if (string.IsNullOrEmpty(sourceFile) && !string.IsNullOrEmpty(builtOutputFile))
+            {
+                sourceFile = builtOutputFile;
+            }
+
+            string rawLabel = !string.IsNullOrWhiteSpace(task.GameName) ? task.GameName : task.OutputFileName;
+            string cleanFallbackTitle = RuTrackerModService.ExtractCleanGameTitleFromFilePath(rawLabel);
+            if (string.IsNullOrWhiteSpace(cleanFallbackTitle)) cleanFallbackTitle = rawLabel;
+
+            string resolvedTid = !string.IsNullOrWhiteSpace(task.TitleId) ? task.TitleId : RuTrackerModService.ExtractTitleId(rawLabel);
+            if (resolvedTid.Length == 16 && !resolvedTid.EndsWith("000", StringComparison.OrdinalIgnoreCase))
+            {
+                resolvedTid = resolvedTid.Substring(0, 13) + "000";
+            }
+
+            string resolvedVersion = "1.0.0";
+            var verMatch = System.Text.RegularExpressions.Regex.Match(rawLabel, @"\((?<dv>\d+\.\d+(?:\.\d+)?)\s*-\s*\d+");
+            if (verMatch.Success)
+            {
+                resolvedVersion = verMatch.Groups["dv"].Value;
+            }
+
+            string resolvedPublisher = task.Operation == "Homebrew" ? "Homebrew Developer" : "Nintendo";
+            if (!string.IsNullOrEmpty(resolvedTid) && App.TitleDb != null && App.TitleDb.TryGetTitleInfo(resolvedTid, out var dbEntry) && dbEntry != null)
+            {
+                if (!string.IsNullOrWhiteSpace(dbEntry.Name))
+                    cleanFallbackTitle = dbEntry.Name.Trim();
+                if (!string.IsNullOrWhiteSpace(dbEntry.Publisher) && !string.IsNullOrWhiteSpace(dbEntry.Developer) &&
+                    !string.Equals(dbEntry.Publisher.Trim(), dbEntry.Developer.Trim(), StringComparison.OrdinalIgnoreCase))
+                {
+                    resolvedPublisher = $"{dbEntry.Publisher.Trim()} / {dbEntry.Developer.Trim()}";
+                }
+                else if (!string.IsNullOrWhiteSpace(dbEntry.Publisher))
+                {
+                    resolvedPublisher = dbEntry.Publisher.Trim();
+                }
+                else if (!string.IsNullOrWhiteSpace(dbEntry.Developer))
+                {
+                    resolvedPublisher = dbEntry.Developer.Trim();
+                }
+            }
+
+            byte[]? cachedIcon = null;
+            try
+            {
+                string iconsDir = HistoryService.GetIconsDirectory();
+                var iconCandidates = new List<string>();
+                if (!string.IsNullOrWhiteSpace(task.GroupId))
+                    iconCandidates.Add(Path.Combine(iconsDir, $"{task.GroupId}.png"));
+                if (!string.IsNullOrWhiteSpace(resolvedTid))
+                {
+                    iconCandidates.Add(Path.Combine(iconsDir, $"{resolvedTid}.png"));
+                    iconCandidates.Add(Path.Combine(iconsDir, $"{TasksViewModel.GetTitleGroupPrefix(resolvedTid)}.png"));
+                }
+                foreach (var ic in iconCandidates)
+                {
+                    if (File.Exists(ic))
+                    {
+                        cachedIcon = File.ReadAllBytes(ic);
+                        if (cachedIcon.Length > 0) break;
+                    }
+                }
+            }
+            catch { }
+
+            GameMetadataEditModel? model = task.CustomMetadata ?? task.RuTrackerPayload?.CustomMetadata;
             if (model == null)
             {
                 if (!string.IsNullOrEmpty(sourceFile) && System.IO.File.Exists(sourceFile))
@@ -709,10 +789,12 @@ namespace StormSwitchBox.Views
                         model = new GameMetadataEditModel
                         {
                             SourceFilePath = sourceFile,
-                            TitleNameEnglish = !string.IsNullOrEmpty(info3ds?.GameName) ? info3ds.GameName : task.GameName,
-                            TitleNameRussian = !string.IsNullOrEmpty(info3ds?.GameName) ? info3ds.GameName : task.GameName,
-                            Publisher = !string.IsNullOrEmpty(info3ds?.Publisher) ? info3ds.Publisher : "Nintendo",
-                            OriginalIconBytes = info3ds?.IconBytes
+                            TitleId = !string.IsNullOrEmpty(info3ds?.TitleId) ? info3ds.TitleId : resolvedTid,
+                            Version = !string.IsNullOrEmpty(info3ds?.Version) ? info3ds.Version : resolvedVersion,
+                            TitleNameEnglish = !string.IsNullOrEmpty(info3ds?.GameName) ? info3ds.GameName : cleanFallbackTitle,
+                            TitleNameRussian = !string.IsNullOrEmpty(info3ds?.GameName) ? info3ds.GameName : cleanFallbackTitle,
+                            Publisher = !string.IsNullOrEmpty(info3ds?.Publisher) ? info3ds.Publisher : resolvedPublisher,
+                            OriginalIconBytes = info3ds?.IconBytes ?? cachedIcon
                         };
                     }
                     else
@@ -723,25 +805,41 @@ namespace StormSwitchBox.Views
 
                 if (model == null)
                 {
-                    byte[]? cachedIcon = null;
-                    try
-                    {
-                        string iconPath = Path.Combine(HistoryService.GetIconsDirectory(), $"{task.GroupId}.png");
-                        if (File.Exists(iconPath)) cachedIcon = File.ReadAllBytes(iconPath);
-                    }
-                    catch { }
-
                     model = new GameMetadataEditModel
                     {
                         SourceFilePath = sourceFile ?? task.InputFiles?.FirstOrDefault() ?? "",
-                        TitleNameEnglish = !string.IsNullOrWhiteSpace(task.GameName) ? task.GameName : task.OutputFileName,
-                        TitleNameRussian = !string.IsNullOrWhiteSpace(task.GameName) ? task.GameName : task.OutputFileName,
-                        Publisher = task.Operation == "Homebrew" ? "Homebrew Developer" : "Nintendo",
-                        Version = "1.0.0",
+                        TitleId = !string.IsNullOrEmpty(resolvedTid) ? resolvedTid : "0100000000000000",
+                        TitleNameEnglish = cleanFallbackTitle,
+                        TitleNameRussian = cleanFallbackTitle,
+                        Publisher = resolvedPublisher,
+                        Version = resolvedVersion,
                         OriginalIconBytes = cachedIcon
                     };
                 }
             }
+
+            // Дообогащаем модель, если в ней остались плейсхолдеры или длинное имя файла с тегами
+            if (string.IsNullOrWhiteSpace(model.TitleId) || model.TitleId == "0100000000000000")
+            {
+                if (!string.IsNullOrWhiteSpace(resolvedTid))
+                    model.TitleId = resolvedTid;
+            }
+            if (string.IsNullOrWhiteSpace(model.Version) || model.Version == "1.0.0")
+            {
+                if (!string.IsNullOrWhiteSpace(resolvedVersion) && resolvedVersion != "1.0.0")
+                    model.Version = resolvedVersion;
+            }
+            if (string.IsNullOrWhiteSpace(model.Publisher) || model.Publisher == "Nintendo")
+            {
+                if (!string.IsNullOrWhiteSpace(resolvedPublisher) && resolvedPublisher != "Nintendo")
+                    model.Publisher = resolvedPublisher;
+            }
+            if (model.TitleNameEnglish == rawLabel && rawLabel != cleanFallbackTitle)
+                model.TitleNameEnglish = cleanFallbackTitle;
+            if (model.TitleNameRussian == rawLabel && rawLabel != cleanFallbackTitle)
+                model.TitleNameRussian = cleanFallbackTitle;
+            if ((model.OriginalIconBytes == null || model.OriginalIconBytes.Length == 0) && cachedIcon != null && cachedIcon.Length > 0)
+                model.OriginalIconBytes = cachedIcon;
 
             model.Is3ds = task.Is3dsTask || (sourceFile != null && Nintendo3dsService.Is3dsExtension(Path.GetExtension(sourceFile)));
             model.HasRomFs = task.HasRomFs != "-";
@@ -754,22 +852,21 @@ namespace StormSwitchBox.Views
             if (result == ContentDialogResult.Primary)
             {
                 task.CustomMetadata = model;
+                if (task.RuTrackerPayload != null)
+                    task.RuTrackerPayload.CustomMetadata = model;
                 task.ModNameRomFs = model.ModNameRomFs;
                 task.ModNameExeFs = model.ModNameExeFs;
 
                 string newTitle = !string.IsNullOrEmpty(model.TitleNameRussian) ? model.TitleNameRussian : model.TitleNameEnglish;
-                if (!string.IsNullOrEmpty(newTitle))
+                if (!string.IsNullOrEmpty(newTitle) && string.IsNullOrEmpty(task.OutputFileName))
                 {
-                    task.GameName = newTitle;
-                    if (string.IsNullOrEmpty(task.OutputFileName))
-                    {
-                        task.OutputFileName = newTitle;
-                    }
+                    task.OutputFileName = newTitle;
                 }
 
-                if (model.CustomIconBytes != null && model.CustomIconBytes.Length > 0)
+                byte[]? activeIconBytes = model.CustomIconBytes ?? model.OriginalIconBytes;
+                if (activeIconBytes != null && activeIconBytes.Length > 0)
                 {
-                    using var ms = new System.IO.MemoryStream(model.CustomIconBytes);
+                    using var ms = new System.IO.MemoryStream(activeIconBytes);
                     var bmp = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
                     bmp.SetSource(ms.AsRandomAccessStream());
                     task.GameIcon = bmp;
@@ -779,10 +876,52 @@ namespace StormSwitchBox.Views
                         string iconsDir = HistoryService.GetIconsDirectory();
                         if (!string.IsNullOrEmpty(task.GroupId))
                         {
-                            File.WriteAllBytes(Path.Combine(iconsDir, $"{task.GroupId}.png"), model.CustomIconBytes);
+                            File.WriteAllBytes(Path.Combine(iconsDir, $"{task.GroupId}.png"), activeIconBytes);
+                        }
+                        if (!string.IsNullOrEmpty(model.TitleId) && model.TitleId != "0100000000000000")
+                        {
+                            File.WriteAllBytes(Path.Combine(iconsDir, $"{model.TitleId}.png"), activeIconBytes);
                         }
                     }
                     catch { }
+                }
+
+                // Если контейнер уже собран на диске (задача завершена), сразу вшиваем обновлённые NACP + иконку в готовый файл!
+                if (!string.IsNullOrEmpty(builtOutputFile) && File.Exists(builtOutputFile) && !task.IsRunning)
+                {
+                    string targetContainer = builtOutputFile;
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            App.RunOnUI(() =>
+                            {
+                                task.Status = "Обновление NACP...";
+                                task.LogDetails += $"\n🎨 [ControlEditor] Вшивание обновлённых метаданных (EN: «{model.TitleNameEnglish}», RU: «{model.TitleNameRussian}», Издатель: «{model.Publisher}») в {Path.GetFileName(targetContainer)}...\n";
+                            });
+
+                            bool patched;
+                            if (model.Is3ds)
+                            {
+                                patched = IconBadgeStudioService.Patch3dsSmdhInPlace(targetContainer, model);
+                            }
+                            else
+                            {
+                                patched = await App.ControlEditor.ApplyCustomMetadataAsync(model, targetContainer, task, CancellationToken.None);
+                            }
+
+                            App.RunOnUI(() =>
+                            {
+                                task.Status = patched ? "Готово" : "Готово (без патча NACP)";
+                                if (patched)
+                                    task.LogDetails += $"✅ [ControlEditor] Иконка и названия NACP успешно обновлены в {Path.GetFileName(targetContainer)}!\n";
+                            });
+                        }
+                        catch (Exception ex)
+                        {
+                            App.Logger.Log($"[ControlEditor] Ошибка применения метаданных к готовому файлу: {ex.Message}", LogLevel.Warning);
+                        }
+                    });
                 }
 
                 App.Logger.Log($"Кастомные метаданные сохранены для задачи: {task.GameName}", LogLevel.Success);

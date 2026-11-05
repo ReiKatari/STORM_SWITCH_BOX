@@ -408,6 +408,7 @@ namespace StormSwitchBox.Models
         public string SlotGameTitle { get; set; } = string.Empty;
         public string SharedReleaseDir { get; set; } = string.Empty;
         public bool AppendAutoTags { get; set; } = false;
+        public GameMetadataEditModel? CustomMetadata { get; set; }
     }
 
     public sealed class PersistedTaskSnapshot

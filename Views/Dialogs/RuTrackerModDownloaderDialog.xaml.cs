@@ -243,6 +243,7 @@ namespace StormSwitchBox.Views.Dialogs
                     _suppressGroupRebuild = true;
                     RuTrackerModService.AutoAssignFilesToGameSlots(_torrentFiles, slotTitles);
                     _suppressGroupRebuild = false;
+                    EnrichGameSlotsFromFilesAndTitleDb();
                     UpdateGameSlotsSummary();
                     StatusText.Text = $"Загружен локальный торрент: {file.Name} ({entries.Count} файлов, игр/частей: {_gameSlots.Count}).";
                 }
@@ -375,6 +376,7 @@ namespace StormSwitchBox.Views.Dialogs
                 RuTrackerModService.AutoAssignFilesToGameSlots(_torrentFiles, slotTitles);
                 RuTrackerModService.AutoAssignLinksToGameSlots(_discussionLinks, slotTitles);
                 _suppressGroupRebuild = false;
+                EnrichGameSlotsFromFilesAndTitleDb();
                 UpdateGameSlotsSummary();
 
                 if (entries.Count > 1 || (entries.Count == 1 && entries[0].CategoryBadge != "MAGNET"))
@@ -579,6 +581,7 @@ namespace StormSwitchBox.Views.Dialogs
             RuTrackerModService.AutoAssignFilesToGameSlots(_torrentFiles, slotTitles);
             RuTrackerModService.AutoAssignLinksToGameSlots(_discussionLinks, slotTitles);
             _suppressGroupRebuild = false;
+            EnrichGameSlotsFromFilesAndTitleDb();
             UpdateGameSlotsSummary();
             LiveTelemetryText.Text = $"🪄 Авто-разбивка выполнена: распознано частей/игр — {_gameSlots.Count}. Файлы сгруппированы по блокам игр.";
         }
@@ -647,6 +650,498 @@ namespace StormSwitchBox.Views.Dialogs
             }
 
             RebuildFileAndLinkGroups();
+        }
+
+        private RuTrackerGameSlotItem? _activeStudioSlot;
+        private GameMetadataEditModel? _activeStudioModel;
+        private bool _isInitializingStudioOverlay;
+
+        private void EnrichGameSlotsFromFilesAndTitleDb()
+        {
+            foreach (var slot in _gameSlots)
+            {
+                var slotFiles = _torrentFiles
+                    .Where(f => f.TargetGameSlot == slot.SlotNumber || (_gameSlots.Count == 1 && f.TargetGameSlot <= 1))
+                    .ToList();
+
+                string bestTid = string.Empty;
+                int maxPatchVer = 0;
+                string cleanTitleFromFile = string.Empty;
+                bool is3ds = false;
+
+                foreach (var f in slotFiles)
+                {
+                    string rel = f.RelativePath ?? string.Empty;
+                    if (rel.EndsWith(".3ds", StringComparison.OrdinalIgnoreCase) ||
+                        rel.EndsWith(".cia", StringComparison.OrdinalIgnoreCase) ||
+                        rel.EndsWith(".cci", StringComparison.OrdinalIgnoreCase) ||
+                        rel.EndsWith(".cxi", StringComparison.OrdinalIgnoreCase))
+                    {
+                        is3ds = true;
+                    }
+
+                    string tid = RuTrackerModService.ExtractTitleId(rel);
+                    if (tid.Length == 16)
+                    {
+                        string baseTid = tid.Substring(0, 13) + "000";
+                        if (string.IsNullOrEmpty(bestTid) || tid.EndsWith("000", StringComparison.OrdinalIgnoreCase))
+                            bestTid = baseTid;
+                    }
+
+                    var vMatch = System.Text.RegularExpressions.Regex.Match(rel, @"\[v(?<ver>\d+)\]", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    if (vMatch.Success && int.TryParse(vMatch.Groups["ver"].Value, out int vNum) && vNum > maxPatchVer)
+                    {
+                        maxPatchVer = vNum;
+                    }
+
+                    if (string.IsNullOrEmpty(cleanTitleFromFile) && f.CategoryBadge == "ИГРА")
+                    {
+                        cleanTitleFromFile = RuTrackerModService.ExtractCleanGameTitleFromFilePath(rel);
+                    }
+                }
+
+                if (string.IsNullOrEmpty(bestTid))
+                {
+                    string fromSlot = RuTrackerModService.ExtractTitleId(slot.GameTitle);
+                    if (fromSlot.Length == 16)
+                        bestTid = fromSlot.Substring(0, 13) + "000";
+                }
+
+                if (string.IsNullOrEmpty(cleanTitleFromFile))
+                {
+                    cleanTitleFromFile = RuTrackerModService.ExtractCleanGameTitleFromFilePath(slot.GameTitle);
+                    if (string.IsNullOrWhiteSpace(cleanTitleFromFile))
+                        cleanTitleFromFile = slot.GameTitle.Trim();
+                }
+
+                string displayVer = "1.0.0";
+                var dispVerMatch = System.Text.RegularExpressions.Regex.Match(slot.GameTitle, @"\((?<dv>\d+\.\d+(?:\.\d+)?)\s*-\s*\d+");
+                if (dispVerMatch.Success)
+                {
+                    displayVer = dispVerMatch.Groups["dv"].Value;
+                }
+                else if (maxPatchVer >= 65536)
+                {
+                    int major = maxPatchVer / 65536;
+                    displayVer = $"1.{major}.0 ({maxPatchVer})";
+                }
+
+                string engTitle = cleanTitleFromFile;
+                string rusTitle = cleanTitleFromFile;
+                string publisher = "Nintendo";
+                string? iconUrl = null;
+
+                if (!string.IsNullOrEmpty(bestTid) && App.TitleDb != null && App.TitleDb.TryGetTitleInfo(bestTid, out var dbEntry) && dbEntry != null)
+                {
+                    if (!string.IsNullOrWhiteSpace(dbEntry.Name))
+                    {
+                        engTitle = dbEntry.Name.Trim();
+                        rusTitle = dbEntry.Name.Trim();
+                    }
+                    if (!string.IsNullOrWhiteSpace(dbEntry.Publisher) && !string.IsNullOrWhiteSpace(dbEntry.Developer) &&
+                        !string.Equals(dbEntry.Publisher.Trim(), dbEntry.Developer.Trim(), StringComparison.OrdinalIgnoreCase))
+                    {
+                        publisher = $"{dbEntry.Publisher.Trim()} / {dbEntry.Developer.Trim()}";
+                    }
+                    else if (!string.IsNullOrWhiteSpace(dbEntry.Publisher))
+                    {
+                        publisher = dbEntry.Publisher.Trim();
+                    }
+                    else if (!string.IsNullOrWhiteSpace(dbEntry.Developer))
+                    {
+                        publisher = dbEntry.Developer.Trim();
+                    }
+                    iconUrl = dbEntry.IconUrl;
+                }
+
+                byte[]? cachedIcon = TryLoadCachedIconBytes(bestTid, cleanTitleFromFile);
+                slot.Is3ds = is3ds;
+                slot.SetEnrichedMetadataSilently(bestTid, displayVer, engTitle, rusTitle, publisher, cachedIcon);
+
+                if ((cachedIcon == null || cachedIcon.Length == 0) && !string.IsNullOrWhiteSpace(iconUrl))
+                {
+                    _ = FetchAndCacheSlotIconFromUrlAsync(slot, bestTid, iconUrl);
+                }
+            }
+        }
+
+        private static byte[]? TryLoadCachedIconBytes(string? titleId, string? cleanGameName)
+        {
+            try
+            {
+                string iconsDir = HistoryService.GetIconsDirectory();
+                if (!Directory.Exists(iconsDir)) return null;
+
+                var candidates = new List<string>();
+                if (!string.IsNullOrWhiteSpace(titleId))
+                {
+                    candidates.Add(Path.Combine(iconsDir, $"{titleId}.png"));
+                    if (titleId.Length >= 13)
+                    {
+                        candidates.Add(Path.Combine(iconsDir, $"{titleId.Substring(0, 13)}000.png"));
+                        candidates.Add(Path.Combine(iconsDir, $"{TasksViewModel.GetTitleGroupPrefix(titleId)}.png"));
+                    }
+                }
+                if (!string.IsNullOrWhiteSpace(cleanGameName))
+                {
+                    string safe = string.Join("_", cleanGameName.Split(Path.GetInvalidFileNameChars()));
+                    candidates.Add(Path.Combine(iconsDir, $"{safe}.png"));
+                }
+
+                foreach (var c in candidates)
+                {
+                    if (File.Exists(c))
+                    {
+                        byte[] bytes = File.ReadAllBytes(c);
+                        if (bytes.Length > 0) return bytes;
+                    }
+                }
+            }
+            catch { }
+            return null;
+        }
+
+        private static async Task FetchAndCacheSlotIconFromUrlAsync(RuTrackerGameSlotItem slot, string titleId, string iconUrl)
+        {
+            try
+            {
+                using var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(8) };
+                byte[] bytes = await http.GetByteArrayAsync(iconUrl).ConfigureAwait(false);
+                if (bytes != null && bytes.Length > 256)
+                {
+                    try
+                    {
+                        string iconsDir = HistoryService.GetIconsDirectory();
+                        if (!string.IsNullOrWhiteSpace(titleId))
+                            File.WriteAllBytes(Path.Combine(iconsDir, $"{titleId}.png"), bytes);
+                    }
+                    catch { }
+
+                    if (slot.OriginalIconBytes == null || slot.OriginalIconBytes.Length == 0)
+                    {
+                        slot.OriginalIconBytes = bytes;
+                    }
+                }
+            }
+            catch { }
+        }
+
+        private void SlotInlineMetadata_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (sender is FrameworkElement fe && fe.Tag is RuTrackerGameSlotItem slot)
+            {
+                if (fe is TextBox tb && tb.FocusState != FocusState.Unfocused)
+                {
+                    slot.IsUserEditedMetadata = true;
+                }
+            }
+        }
+
+        private async void SelectSlotIconQuick_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not FrameworkElement fe || fe.Tag is not RuTrackerGameSlotItem slot)
+                return;
+
+            try
+            {
+                var picker = new FileOpenPicker();
+                InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(App.MainWindow));
+                picker.ViewMode = PickerViewMode.Thumbnail;
+                picker.SuggestedStartLocation = PickerLocationId.PicturesLibrary;
+                picker.FileTypeFilter.Add(".png");
+                picker.FileTypeFilter.Add(".jpg");
+                picker.FileTypeFilter.Add(".jpeg");
+                picker.FileTypeFilter.Add(".bmp");
+                picker.FileTypeFilter.Add(".webp");
+
+                var file = await picker.PickSingleFileAsync();
+                if (file != null)
+                {
+                    ApplyCustomIconFileToSlot(slot, file.Path);
+                }
+            }
+            catch (Exception ex)
+            {
+                LiveTelemetryText.Text = $"⚠️ Ошибка выбора иконки: {ex.Message}";
+            }
+        }
+
+        private void ApplyCustomIconFileToSlot(RuTrackerGameSlotItem slot, string filePath)
+        {
+            try
+            {
+                int targetSize = slot.Is3ds ? 48 : 256;
+                slot.CustomIconPath = filePath;
+                slot.CustomIconBytes = IconBadgeStudioService.RenderIconWithBadges(
+                    File.ReadAllBytes(filePath), targetSize, slot.BadgeRus, slot.Badge60Fps, slot.BadgeMod, slot.BadgeAllDlc,
+                    slot.CustomBadgeText, slot.BadgePosition, outputPng: true);
+                slot.IsUserEditedMetadata = true;
+                LiveTelemetryText.Text = $"🖼 Иконка для «{slot.SlotBadge}» успешно обновлена: {Path.GetFileName(filePath)}";
+            }
+            catch (Exception ex)
+            {
+                LiveTelemetryText.Text = $"⚠️ Не удалось обработать изображение иконки: {ex.Message}";
+            }
+        }
+
+        private void SlotIconPreview_DragOver(object sender, DragEventArgs e)
+        {
+            if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+            {
+                e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
+                e.DragUIOverride.Caption = "Заменить иконку (256x256)";
+            }
+        }
+
+        private async void SlotIconPreview_Drop(object sender, DragEventArgs e)
+        {
+            if (sender is not FrameworkElement fe || fe.Tag is not RuTrackerGameSlotItem slot)
+                return;
+
+            if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+            {
+                var items = await e.DataView.GetStorageItemsAsync();
+                var file = items.OfType<Windows.Storage.StorageFile>().FirstOrDefault();
+                if (file != null)
+                {
+                    string ext = Path.GetExtension(file.Path).ToLowerInvariant();
+                    if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".bmp" || ext == ".webp")
+                    {
+                        ApplyCustomIconFileToSlot(slot, file.Path);
+                    }
+                }
+            }
+        }
+
+        private void OpenSlotMetadataStudio_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not FrameworkElement fe || fe.Tag is not RuTrackerGameSlotItem slot)
+                return;
+
+            _activeStudioSlot = slot;
+            _activeStudioModel = slot.ToMetadataEditModel();
+
+            _isInitializingStudioOverlay = true;
+            StudioSlotBadgeText.Text = slot.SlotBadge;
+            StudioTitleIdText.Text = !string.IsNullOrWhiteSpace(_activeStudioModel.TitleId) ? _activeStudioModel.TitleId : "0100000000000000";
+            StudioVersionText.Text = !string.IsNullOrWhiteSpace(_activeStudioModel.Version) ? _activeStudioModel.Version : "1.0.0";
+            StudioPlatformBadgeText.Text = _activeStudioModel.Is3ds ? "3DS SMDH" : "SWITCH";
+
+            StudioTitleEnglishBox.Text = _activeStudioModel.TitleNameEnglish;
+            StudioTitleRussianBox.Text = _activeStudioModel.TitleNameRussian;
+            StudioPublisherBox.Text = _activeStudioModel.Publisher;
+
+            StudioBadgeRusCheck.IsChecked = _activeStudioModel.BadgeRus;
+            StudioBadge60FpsCheck.IsChecked = _activeStudioModel.Badge60Fps;
+            StudioBadgeModCheck.IsChecked = _activeStudioModel.BadgeMod;
+            StudioBadgeAllDlcCheck.IsChecked = _activeStudioModel.BadgeAllDlc;
+            StudioCustomBadgeTextBox.Text = _activeStudioModel.CustomBadgeText ?? string.Empty;
+            StudioBadgeCornerCombo.SelectedIndex = _activeStudioModel.BadgePosition switch { "BottomLeft" => 1, "TopRight" => 2, "TopLeft" => 3, _ => 0 };
+            StudioAudioJinglePathBox.Text = _activeStudioModel.CustomAudioWavPath ?? string.Empty;
+            _isInitializingStudioOverlay = false;
+
+            RefreshStudioOverlayIconPreview();
+            SlotMetadataStudioOverlay.Visibility = Visibility.Visible;
+        }
+
+        private void RefreshStudioOverlayIconPreview()
+        {
+            if (_activeStudioModel == null) return;
+            try
+            {
+                int targetSize = _activeStudioModel.Is3ds ? 48 : 256;
+                if (!string.IsNullOrEmpty(_activeStudioModel.CustomIconPath) && File.Exists(_activeStudioModel.CustomIconPath))
+                {
+                    _activeStudioModel.CustomIconBytes = IconBadgeStudioService.RenderIconWithBadges(
+                        File.ReadAllBytes(_activeStudioModel.CustomIconPath),
+                        targetSize,
+                        _activeStudioModel.BadgeRus,
+                        _activeStudioModel.Badge60Fps,
+                        _activeStudioModel.BadgeMod,
+                        _activeStudioModel.BadgeAllDlc,
+                        _activeStudioModel.CustomBadgeText,
+                        _activeStudioModel.BadgePosition,
+                        outputPng: true);
+                }
+                else if (_activeStudioModel.HasBadges && _activeStudioModel.OriginalIconBytes != null && _activeStudioModel.OriginalIconBytes.Length > 0)
+                {
+                    _activeStudioModel.CustomIconBytes = IconBadgeStudioService.RenderIconWithBadges(
+                        _activeStudioModel.OriginalIconBytes,
+                        targetSize,
+                        _activeStudioModel.BadgeRus,
+                        _activeStudioModel.Badge60Fps,
+                        _activeStudioModel.BadgeMod,
+                        _activeStudioModel.BadgeAllDlc,
+                        _activeStudioModel.CustomBadgeText,
+                        _activeStudioModel.BadgePosition,
+                        outputPng: true);
+                }
+                else if (string.IsNullOrEmpty(_activeStudioModel.CustomIconPath) && !_activeStudioModel.HasBadges)
+                {
+                    _activeStudioModel.CustomIconBytes = null;
+                }
+
+                byte[]? previewBytes = _activeStudioModel.CustomIconBytes ?? _activeStudioModel.OriginalIconBytes;
+                if (previewBytes != null && previewBytes.Length > 0)
+                {
+                    using var ms = new MemoryStream(previewBytes);
+                    var bmp = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
+                    bmp.SetSource(ms.AsRandomAccessStream());
+                    StudioIconPreviewImage.Source = bmp;
+                }
+                else
+                {
+                    StudioIconPreviewImage.Source = null;
+                }
+
+                StudioResetIconBtn.IsEnabled = !string.IsNullOrEmpty(_activeStudioModel.CustomIconPath) || _activeStudioModel.HasBadges || _activeStudioModel.CustomIconBytes != null;
+            }
+            catch { }
+        }
+
+        private async void StudioSelectIcon_Click(object sender, RoutedEventArgs e)
+        {
+            if (_activeStudioModel == null) return;
+            try
+            {
+                var picker = new FileOpenPicker();
+                InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(App.MainWindow));
+                picker.ViewMode = PickerViewMode.Thumbnail;
+                picker.SuggestedStartLocation = PickerLocationId.PicturesLibrary;
+                picker.FileTypeFilter.Add(".png");
+                picker.FileTypeFilter.Add(".jpg");
+                picker.FileTypeFilter.Add(".jpeg");
+                picker.FileTypeFilter.Add(".bmp");
+                picker.FileTypeFilter.Add(".webp");
+
+                var file = await picker.PickSingleFileAsync();
+                if (file != null)
+                {
+                    _activeStudioModel.CustomIconPath = file.Path;
+                    RefreshStudioOverlayIconPreview();
+                }
+            }
+            catch { }
+        }
+
+        private void StudioResetIcon_Click(object sender, RoutedEventArgs e)
+        {
+            if (_activeStudioModel == null) return;
+            _activeStudioModel.CustomIconPath = null;
+            _activeStudioModel.CustomIconBytes = null;
+            _isInitializingStudioOverlay = true;
+            StudioBadgeRusCheck.IsChecked = false;
+            StudioBadge60FpsCheck.IsChecked = false;
+            StudioBadgeModCheck.IsChecked = false;
+            StudioBadgeAllDlcCheck.IsChecked = false;
+            StudioCustomBadgeTextBox.Text = string.Empty;
+            _isInitializingStudioOverlay = false;
+
+            _activeStudioModel.BadgeRus = false;
+            _activeStudioModel.Badge60Fps = false;
+            _activeStudioModel.BadgeMod = false;
+            _activeStudioModel.BadgeAllDlc = false;
+            _activeStudioModel.CustomBadgeText = string.Empty;
+            RefreshStudioOverlayIconPreview();
+        }
+
+        private void StudioBadgeOption_Changed(object sender, RoutedEventArgs e)
+        {
+            if (_isInitializingStudioOverlay || _activeStudioModel == null) return;
+            _activeStudioModel.BadgeRus = StudioBadgeRusCheck.IsChecked == true;
+            _activeStudioModel.Badge60Fps = StudioBadge60FpsCheck.IsChecked == true;
+            _activeStudioModel.BadgeMod = StudioBadgeModCheck.IsChecked == true;
+            _activeStudioModel.BadgeAllDlc = StudioBadgeAllDlcCheck.IsChecked == true;
+            RefreshStudioOverlayIconPreview();
+        }
+
+        private void StudioCustomBadgeTextBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (_isInitializingStudioOverlay || _activeStudioModel == null) return;
+            _activeStudioModel.CustomBadgeText = StudioCustomBadgeTextBox.Text?.Trim() ?? string.Empty;
+            RefreshStudioOverlayIconPreview();
+        }
+
+        private void StudioBadgeCornerCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_isInitializingStudioOverlay || _activeStudioModel == null || StudioBadgeCornerCombo == null) return;
+            _activeStudioModel.BadgePosition = StudioBadgeCornerCombo.SelectedIndex switch { 1 => "BottomLeft", 2 => "TopRight", 3 => "TopLeft", _ => "BottomRight" };
+            RefreshStudioOverlayIconPreview();
+        }
+
+        private async void StudioSelectAudioWav_Click(object sender, RoutedEventArgs e)
+        {
+            if (_activeStudioModel == null) return;
+            try
+            {
+                var picker = new FileOpenPicker();
+                InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(App.MainWindow));
+                picker.SuggestedStartLocation = PickerLocationId.MusicLibrary;
+                picker.FileTypeFilter.Add(".wav");
+                picker.FileTypeFilter.Add(".bcwav");
+                picker.FileTypeFilter.Add(".cwav");
+
+                var file = await picker.PickSingleFileAsync();
+                if (file != null)
+                {
+                    _activeStudioModel.CustomAudioWavPath = file.Path;
+                    StudioAudioJinglePathBox.Text = file.Path;
+                }
+            }
+            catch { }
+        }
+
+        private void StudioClearAudioWav_Click(object sender, RoutedEventArgs e)
+        {
+            if (_activeStudioModel == null) return;
+            _activeStudioModel.CustomAudioWavPath = string.Empty;
+            StudioAudioJinglePathBox.Text = string.Empty;
+        }
+
+        private void StudioIconBorder_DragOver(object sender, DragEventArgs e)
+        {
+            if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+            {
+                e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
+                e.DragUIOverride.Caption = "Заменить иконку (256x256)";
+            }
+        }
+
+        private async void StudioIconBorder_Drop(object sender, DragEventArgs e)
+        {
+            if (_activeStudioModel == null) return;
+            if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+            {
+                var items = await e.DataView.GetStorageItemsAsync();
+                var file = items.OfType<Windows.Storage.StorageFile>().FirstOrDefault();
+                if (file != null)
+                {
+                    string ext = Path.GetExtension(file.Path).ToLowerInvariant();
+                    if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".bmp" || ext == ".webp")
+                    {
+                        _activeStudioModel.CustomIconPath = file.Path;
+                        RefreshStudioOverlayIconPreview();
+                    }
+                }
+            }
+        }
+
+        private void StudioSave_Click(object sender, RoutedEventArgs e)
+        {
+            if (_activeStudioSlot != null && _activeStudioModel != null)
+            {
+                _activeStudioModel.TitleNameEnglish = StudioTitleEnglishBox.Text?.Trim() ?? string.Empty;
+                _activeStudioModel.TitleNameRussian = StudioTitleRussianBox.Text?.Trim() ?? string.Empty;
+                _activeStudioModel.Publisher = StudioPublisherBox.Text?.Trim() ?? "Nintendo";
+                _activeStudioSlot.ApplyFromMetadataEditModel(_activeStudioModel);
+                LiveTelemetryText.Text = $"🎨 Метаданные NACP сохранены для «{_activeStudioSlot.SlotBadge}»: EN=«{_activeStudioSlot.InternalTitleEnglish}», RU=«{_activeStudioSlot.InternalTitleRussian}», Издатель=«{_activeStudioSlot.Publisher}».";
+            }
+            SlotMetadataStudioOverlay.Visibility = Visibility.Collapsed;
+        }
+
+        private void StudioCancel_Click(object sender, RoutedEventArgs e)
+        {
+            SlotMetadataStudioOverlay.Visibility = Visibility.Collapsed;
         }
 
         private void RebuildFileAndLinkGroups()
@@ -1026,6 +1521,7 @@ namespace StormSwitchBox.Views.Dialogs
                     ? slot.TargetFormat.Trim()
                     : GetDefaultTargetFormat();
 
+                var slotMetadataModel = slot.ToMetadataEditModel();
                 var payload = new RuTrackerTaskPayload
                 {
                     Topic = currentTopic,
@@ -1041,7 +1537,8 @@ namespace StormSwitchBox.Views.Dialogs
                     TotalSlots = activeSlots.Count,
                     SlotGameTitle = slotTitle,
                     SharedReleaseDir = sharedReleaseDir,
-                    AppendAutoTags = appendAutoTags
+                    AppendAutoTags = appendAutoTags,
+                    CustomMetadata = slotMetadataModel
                 };
 
                 ProcessingTask task;
@@ -1051,13 +1548,21 @@ namespace StormSwitchBox.Views.Dialogs
                     if (!string.IsNullOrWhiteSpace(slotTitle))
                     {
                         task.GameName = slotTitle;
-                        task.OutputFileName = SanitizeFolderName(slotTitle);
+                        task.OutputFileName = SanitizeFileName(slotTitle);
                     }
                     task.TargetFormat = chosenFormat;
                     task.KeepExactOutputFileName = !appendAutoTags;
                     task.IsRuTrackerTask = true;
                     task.DeleteSourceAfterVerify = deleteRtSource;
                     task.RuTrackerPayload = payload;
+                    task.CustomMetadata = slotMetadataModel;
+                    if (!string.IsNullOrWhiteSpace(slot.TitleId))
+                    {
+                        task.TitleId = slot.TitleId;
+                        task.GroupId = TasksViewModel.GetTitleGroupPrefix(slot.TitleId);
+                    }
+                    if (slot.SlotIconBitmap != null)
+                        task.GameIcon = slot.SlotIconBitmap;
                 }
                 else
                 {
@@ -1065,6 +1570,10 @@ namespace StormSwitchBox.Views.Dialogs
                     {
                         Id = Guid.NewGuid().ToString("N").Substring(0, 8),
                         GameName = slotTitle,
+                        TitleId = slot.TitleId ?? string.Empty,
+                        GroupId = !string.IsNullOrWhiteSpace(slot.TitleId) ? TasksViewModel.GetTitleGroupPrefix(slot.TitleId) : string.Empty,
+                        GameIcon = slot.SlotIconBitmap,
+                        CustomMetadata = slotMetadataModel,
                         Operation = "Multi",
                         SourceFormat = "MULTI",
                         TargetFormat = chosenFormat,
@@ -1075,7 +1584,7 @@ namespace StormSwitchBox.Views.Dialogs
                         IsRuTrackerTask = true,
                         DeleteSourceAfterVerify = deleteRtSource,
                         OutputFolder = baseDownloadDir,
-                        OutputFileName = SanitizeFolderName(slotTitle),
+                        OutputFileName = SanitizeFileName(slotTitle),
                         FilesCount = $"{slotFiles.Count} файл(ов)" + (slotCloudLinks.Count > 0 ? $" + {slotCloudLinks.Count} мод." : ""),
                         LogDetails = $"[RuTracker] Старт задачи #{slot.SlotNumber}: {slotTitle} (Формат: {chosenFormat})\nЦелевая папка: {slotTargetDir}",
                         RuTrackerPayload = payload,
@@ -1495,11 +2004,17 @@ namespace StormSwitchBox.Views.Dialogs
                     task.Operation = "Multi";
                     task.SourceFormat = "MULTI";
                 }
-                if (task.RuTrackerPayload != null && !string.IsNullOrWhiteSpace(task.RuTrackerPayload.SlotGameTitle))
+                if (task.RuTrackerPayload != null)
                 {
-                    task.GameName = task.RuTrackerPayload.SlotGameTitle.Trim();
-                    if (string.IsNullOrWhiteSpace(task.OutputFileName) || task.KeepExactOutputFileName)
-                        task.OutputFileName = SanitizeFolderName(task.GameName);
+                    if (task.CustomMetadata == null && task.RuTrackerPayload.CustomMetadata != null)
+                        task.CustomMetadata = task.RuTrackerPayload.CustomMetadata;
+
+                    if (!string.IsNullOrWhiteSpace(task.RuTrackerPayload.SlotGameTitle))
+                    {
+                        task.GameName = task.RuTrackerPayload.SlotGameTitle.Trim();
+                        if (string.IsNullOrWhiteSpace(task.OutputFileName) || task.KeepExactOutputFileName)
+                            task.OutputFileName = SanitizeFileName(task.GameName);
+                    }
                 }
                 if (!task.KeepExactOutputFileName && (task.RuTrackerPayload == null || task.RuTrackerPayload.AppendAutoTags))
                 {
@@ -1598,6 +2113,33 @@ namespace StormSwitchBox.Views.Dialogs
                             bestIconBytes = File.ReadAllBytes(iconCachePath);
                     }
                     catch { }
+                }
+
+                if (task.CustomMetadata != null)
+                {
+                    if (string.IsNullOrEmpty(task.CustomMetadata.TitleId) || task.CustomMetadata.TitleId == "0100000000000000")
+                    {
+                        if (!string.IsNullOrEmpty(bestTitleId))
+                            task.CustomMetadata.TitleId = bestTitleId;
+                    }
+                    if ((task.CustomMetadata.OriginalIconBytes == null || task.CustomMetadata.OriginalIconBytes.Length == 0) &&
+                        bestIconBytes != null && bestIconBytes.Length > 0)
+                    {
+                        task.CustomMetadata.OriginalIconBytes = bestIconBytes;
+                        if (string.IsNullOrEmpty(task.CustomMetadata.CustomIconPath) && task.CustomMetadata.HasBadges)
+                        {
+                            int targetSize = task.CustomMetadata.Is3ds ? 48 : 256;
+                            task.CustomMetadata.CustomIconBytes = IconBadgeStudioService.RenderIconWithBadges(
+                                bestIconBytes, targetSize,
+                                task.CustomMetadata.BadgeRus, task.CustomMetadata.Badge60Fps,
+                                task.CustomMetadata.BadgeMod, task.CustomMetadata.BadgeAllDlc,
+                                task.CustomMetadata.CustomBadgeText, task.CustomMetadata.BadgePosition, outputPng: true);
+                        }
+                    }
+                    if (task.CustomMetadata.CustomIconBytes != null && task.CustomMetadata.CustomIconBytes.Length > 0)
+                    {
+                        bestIconBytes = task.CustomMetadata.CustomIconBytes;
+                    }
                 }
 
                 if (bestIconBytes != null && bestIconBytes.Length > 0)
@@ -1811,7 +2353,8 @@ namespace StormSwitchBox.Views.Dialogs
                     TotalSlots = payload.TotalSlots,
                     SlotGameTitle = payload.SlotGameTitle,
                     SharedReleaseDir = sharedReleaseDir,
-                    AppendAutoTags = payload.AppendAutoTags
+                    AppendAutoTags = payload.AppendAutoTags,
+                    CustomMetadata = payload.CustomMetadata
                 };
 
                 int capturedIdx = i + 1;
@@ -1891,6 +2434,16 @@ namespace StormSwitchBox.Views.Dialogs
             if (name.Length > 75)
                 name = name.Substring(0, 75).Trim();
             return string.IsNullOrWhiteSpace(name) ? "Release" : name;
+        }
+
+        private static string SanitizeFileName(string name)
+        {
+            foreach (char c in Path.GetInvalidFileNameChars())
+                name = name.Replace(c, '_');
+            name = name.Trim().Trim('.');
+            if (name.Length > 200)
+                name = name.Substring(0, 200).Trim();
+            return string.IsNullOrWhiteSpace(name) ? "Game" : name;
         }
 
         private readonly TaskCompletionSource<bool> _visualTreeReadyTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);

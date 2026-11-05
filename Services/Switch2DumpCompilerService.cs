@@ -441,15 +441,20 @@ namespace StormSwitchBox.Services
                     task.LogDetails += "[1/4] Сборка Control NCA (control.nacp на 16 языках + иконка 256×256)...\n";
                 });
 
-                byte[]? iconBytes = sw2Info.CoverBytes ?? await FetchCoverAsync(sw2Info.GameName);
+                var customMeta = task.CustomMetadata ?? task.RuTrackerPayload?.CustomMetadata;
+                byte[]? iconBytes = customMeta?.CustomIconBytes ?? customMeta?.OriginalIconBytes ?? sw2Info.CoverBytes ?? await FetchCoverAsync(sw2Info.GameName);
                 if (iconBytes == null || iconBytes.Length == 0)
                 {
                     iconBytes = GenerateDefaultSwitchCoverBytes(sw2Info.GameName);
                 }
                 iconBytes = SmartShrinkService.OptimizeSwitchIconJpeg(iconBytes);
 
+                string engTitle = !string.IsNullOrWhiteSpace(customMeta?.TitleNameEnglish) ? customMeta.TitleNameEnglish : sw2Info.GameName;
+                string rusTitle = !string.IsNullOrWhiteSpace(customMeta?.TitleNameRussian) ? customMeta.TitleNameRussian : engTitle;
+                string pubName = !string.IsNullOrWhiteSpace(customMeta?.Publisher) ? customMeta.Publisher : "Nintendo";
+
                 string ctrlNcaPath = Path.Combine(tempWorkDir, "control.nca");
-                BuildControlNca(sw2Info.TitleId, sw2Info.GameName, "Nintendo", sw2Info.MaxUpdateVersion.Length > 0 ? $"v{sw2Info.MaxUpdateVersion}" : "1.0.0", iconBytes, ctrlNcaPath);
+                BuildControlNca(sw2Info.TitleId, engTitle, pubName, sw2Info.MaxUpdateVersion.Length > 0 ? $"v{sw2Info.MaxUpdateVersion}" : "1.0.0", iconBytes, ctrlNcaPath, rusTitle);
 
                 byte[] ctrlSha = ComputeSha256(ctrlNcaPath);
                 string ctrlHex = BitConverter.ToString(ctrlSha, 0, 16).Replace("-", "").ToLowerInvariant();
@@ -708,9 +713,9 @@ namespace StormSwitchBox.Services
             }
         }
 
-        public static void BuildControlNca(string titleId, string gameTitle, string publisher, string displayVersion, byte[] iconJpeg, string outPath)
+        public static void BuildControlNca(string titleId, string gameTitle, string publisher, string displayVersion, byte[] iconJpeg, string outPath, string? russianTitle = null)
         {
-            byte[] nacp = BuildNacpBytes(titleId, gameTitle, publisher, displayVersion);
+            byte[] nacp = BuildNacpBytes(titleId, gameTitle, publisher, displayVersion, russianTitle);
             var romfsFiles = new Dictionary<string, byte[]>
             {
                 ["control.nacp"] = nacp
@@ -1114,17 +1119,21 @@ namespace StormSwitchBox.Services
             return outBuf;
         }
 
-        private static byte[] BuildNacpBytes(string titleId, string title, string publisher, string version)
+        private static byte[] BuildNacpBytes(string titleId, string title, string publisher, string version, string? russianTitle = null)
         {
             byte[] nacp = new byte[0x4000];
-            byte[] tBytes = Encoding.UTF8.GetBytes(title.Length > 0 ? title : "SWITCH 2 APPLICATION");
+            string eng = title.Length > 0 ? title : "SWITCH 2 APPLICATION";
+            string rus = !string.IsNullOrWhiteSpace(russianTitle) ? russianTitle : eng;
+            byte[] tEngBytes = Encoding.UTF8.GetBytes(eng);
+            byte[] tRusBytes = Encoding.UTF8.GetBytes(rus);
             byte[] pBytes = Encoding.UTF8.GetBytes(publisher.Length > 0 ? publisher : "Nintendo");
 
             for (int i = 0; i < 16; i++)
             {
                 int baseOff = i * 0x300;
-                Array.Copy(tBytes, 0, nacp, baseOff, Math.Min(tBytes.Length, 0x200));
-                Array.Copy(pBytes, 0, nacp, baseOff + 0x200, Math.Min(pBytes.Length, 0x100));
+                byte[] nameBytes = (i == 11) ? tRusBytes : tEngBytes;
+                Array.Copy(nameBytes, 0, nacp, baseOff, Math.Min(nameBytes.Length, 0x1FF));
+                Array.Copy(pBytes, 0, nacp, baseOff + 0x200, Math.Min(pBytes.Length, 0xFF));
             }
 
             byte[] vBytes = Encoding.UTF8.GetBytes(version.Length > 0 ? version : "1.0.0");
