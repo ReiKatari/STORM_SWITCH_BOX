@@ -1,34 +1,33 @@
-> 💡 **Релиз 6.9.6** — *Исправление конвейера пересборки игр Switch: сырой TitleKeyBlock для title.keys, ликвидация дедлоков stdout/stderr в hactoolnet/hacpack, валидация RomFS и исключение дублирующего Patch CNMT*
+> 💡 **Релиз 6.9.7** — *100% 6-языковая локализация интерфейса (ru, en, de, fr, zh, ja), рекурсивный обход визуального и логического дерева XAML, очистка дублирования иконок и динамическая смена языка на лету без перезапуска приложения*
 
 ---
 
 ### 🚀 Ключевые изменения и улучшения
-- 🌟 **[TicketHarvester & title.keys] Сырой TitleKeyBlock для криптографического конвейера**: в `title.keys` и `ExternalKeySet` внедрена запись сырого `TitleKeyBlock` из бинарных билетов `.tik` (зашифрованный `TitleKek`), что полностью восстановило совместимость с `LibHac`, `hactoolnet` и `yanu-cli`, выполняющими штатную дешифровку ключей прав через TitleKek.
-- 🌟 **[Ликвидация дедлоков stdout/stderr в hactoolnet и hacpack] Асинхронное дренирование каналов ввода-вывода**: во всех системных вызовах `hactoolnet` и `hacpack` при распаковке и компиляции RomFS, ExeFS и Control NCA реализовано асинхронное считывание (`BeginOutputReadLine` / `BeginErrorReadLine` с подпиской на события), что полностью устраняет 120-секундные дедлоки и таймауты из-за переполнения 4-килобайтного буфера анонимных каналов Windows.
-- 🌟 **[Контроль полноты извлечения Base RomFS и 65% порог валидации]**: добавлена проверка завершённости и полноты дерева файлов RomFS при частичном выходе `hactoolnet`, а также внедрён адаптивный порог валидации размера выходного файла (не менее 65% от размера базы для полноразмерных игр), гарантирующий отсутствие битых или пустых образов.
-- 🌟 **[Исключение дублирующего Patch CNMT 0x81 из монолитных NSP]**: в монолитные пакеты NSP теперь внедряется строго единый Program NCA (`...000`) и корневой Application CNMT (`...000.cnmt.nca`) с обновлённой версией приложения, исключая конфликтный мета-раздел Patch CNMT (`...800.cnmt.nca`), вызывавший ошибки монтирования в эмуляторе Eden.
-- 🌟 **[Android Паритет и Синхронизация] Полнофункциональный релиз 6.9.6**: обновлены версия и код сборки (`versionCode = 696`, `versionName = "6.9.6"`) для Modern (64-бит ARMv8/x86_64) и Legacy (32-бит ARMv7/x86) редакций.
+- 🌟 **[100% 6-языковая локализация интерфейса]**: Полный перевод всех страниц, модальных окон, подсказок ToolTip и контекстных меню на 6 основных языков мира: 🇷🇺 Русский, 🇬🇧 Английский, 🇩🇪 Немецкий, 🇫🇷 Французский, 🇨🇳 Упрощенный китайский и 🇯🇵 Японский.
+- 🌟 **[Рекурсивный движок `TranslateRoot`]**: Реализован интеллектуальный обход визуального и логического дерева XAML (`ConditionalWeakTable`), автоматически локализующий даже свернутые панели настроек, заголовки вкладок `TabViewItem`, строки `CommunityToolkit DataGrid`, выпадающие меню `Flyout` и `MenuFlyout`, вложенные блоки `Run` и подсказки `ToolTipService`.
+- 🌟 **[Single Icon Mandate & Чистый UI]**: Устранено дублирование эмодзи и векторных иконок на кнопках фильтров платформ (`Nintendo Switch`, `Nintendo 3DS`), таблицах и тултипах в строгом соответствии с дизайн-системой STORM SOFT.
+- 🌟 **[Французский раздел интерактивной инструкции]**: Добавлена полная поддержка французского языка (`GetTopicsFr`) для всех 22 тем и симулятора параметров `InstructionPage`.
+- 🌟 **[Динамическое переключение на лету]**: Мгновенная реакция всех компонентов (`TasksPage`, `SettingsPage`, `CatalogPage`, `GameLibraryPage`, `HistoryPage`, `InstructionPage` и всех 6 диалоговых окон) на смену языка без необходимости перезапуска программы.
 
 <details>
 <summary><b>📋 Полный список изменений (нажмите, чтобы развернуть)</b></summary>
 
-- 🔹 **[TicketHarvesterService]**: метод сбора ключей теперь извлекает сырой зашифрованный TitleKeyBlock из `.tik` и добавляет его в `ExternalKeySet` и `title.keys`.
-- 🔹 **[HardPatchEngine Async Drain]**: внедрены асинхронные обработчики `OutputDataReceived`/`ErrorDataReceived` для всех процессов `hactoolnet` (ExeFS, RomFS base, RomFS update, Control) и `hacpack`.
-- 🔹 **[RomFS Extraction Guard]**: очистка и повторная попытка распаковки RomFS при аварийном завершении процесса без зависания конвейера.
-- 🔹 **[Monolithic NSP CNMT Layout]**: удалено встраивание дублирующего файла `extraCnmtRebuiltPath` (`.cnmt.nca` с контентом Patch), предотвращая попытки эмуляторов обращаться к несуществующим секциям патча.
-- 🔹 **[Adaptive Size Threshold]**: порог валидации размера Program NCA установлен в 65% от исходной базы при полной пересборке и 30% при фильтрации языковых дорожек.
-- 🔹 **[Инсталлятор StormInstaller]**: сборка инсталлятора и метаданные обновлены до версии 6.9.6 с сохранением Authenticode-подписи STORM TEAM.
+- 🔹 **UiTree.cs**: Создан файл `LocalizationService.UiTree.cs` с полным словарем direct translations (611 строк) для моментального перевода любых XAML и динамических текстовых элементов.
+- 🔹 **Safe Content Preservation**: Механизм `TranslateRoot` проверяет тип содержимого `ContentControl` и никогда не перезаписывает сложные визуальные шаблоны или векторные иконки.
+- 🔹 **Reversible Caching**: Исходные строки кэшируются через `ConditionalWeakTable`, гарантируя корректное многократное переключение между любыми парами языков без искажения текста.
+- 🔹 **GameLibraryPage**: Локализован чип «Все системы» (`🌟 Все системы ({0})`) с авто-форматированием разрядов чисел.
+- 🔹 **Dialogs Coverage**: Все 6 диалоговых окон (`ControlEditorDialog`, `DirectConsoleSenderDialog`, `LibraryAuditorDialog`, `MultiCartridgeDialog`, `RomFsInspectorDialog`, `RuTrackerModDownloaderDialog`) автоматически переводятся при инициализации и открытии.
 
 </details>
 
 <details>
 <summary><b>🌐 English Changelog (click to expand)</b></summary>
 
-- 🔸 **TicketHarvester Raw TitleKeyBlock**: recorded raw `TitleKeyBlock` from `.tik` files into `title.keys` and `ExternalKeySet`, ensuring native decryption compatibility for LibHac, hactoolnet, and yanu-cli.
-- 🔸 **Async Stdout/Stderr Pipe Drain (Deadlock Fix)**: eliminated 120-second process hangs in `hactoolnet` and `hacpack` by asynchronously draining output/error streams via `BeginOutputReadLine` and `BeginErrorReadLine`.
-- 🔸 **Base RomFS Extraction Guard & 65% Size Threshold**: implemented partial-extraction detection and adaptive file size validation (65% of base game size) to guarantee uncorrupted RomFS outputs.
-- 🔸 **Monolithic NSP Clean CNMT Layout**: prevented injection of duplicate Patch CNMT 0x81 (`...800.cnmt.nca`) into monolithic NSP files, resolving mounting errors in Eden and modern Switch emulators.
-- 🔸 **Android Parity 6.9.6**: synchronized Modern and Legacy Android packages to version 6.9.6 (`versionCode 696`).
+- 🔸 **100% 6-Language UI Localization**: Full native translation of all views, dialogs, tooltips, and flyout menus across Russian, English, German, French, Simplified Chinese, and Japanese.
+- 🔸 **Recursive Visual & Logical Tree Translation**: Instant runtime tree walk engine (`TranslateRoot`) automatically translates hidden panels, data grids, runs, and dialog elements.
+- 🔸 **Single Icon Mandate**: Removed duplicated emojis and icons from platform filter buttons and action controls.
+- 🔸 **French Instruction Topics**: Added native French documentation topics and simulator parameter matrix in `InstructionPage`.
+- 🔸 **Seamless Dynamic Switching**: Switch languages instantaneously on the fly with zero restarts.
 
 </details>
 

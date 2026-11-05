@@ -350,14 +350,14 @@
                                     <Button Click="PauseTask_Click" Tag="{Binding}" VerticalAlignment="Center"
                                             Visibility="{Binding PauseButtonVisibility, Mode=OneWay}"
                                             Padding="4,2" MinHeight="0" MinWidth="0" Background="Transparent" BorderThickness="0" 
-                                            ToolTipService.ToolTip="Приостановить задачу (⏸ Пауза)">
+                                            ToolTipService.ToolTip="Приостановить задачу">
                                         <FontIcon Glyph="&#xE769;" FontSize="12" Foreground="#F59E0B"/>
                                     </Button>
 
                                     <Button Click="ResumeTask_Click" Tag="{Binding}" VerticalAlignment="Center"
                                             Visibility="{Binding ResumeButtonVisibility, Mode=OneWay}"
                                             Padding="4,2" MinHeight="0" MinWidth="0" Background="Transparent" BorderThickness="0" 
-                                            ToolTipService.ToolTip="Возобновить задачу (▶️ Продолжить)">
+                                            ToolTipService.ToolTip="Возобновить задачу">
                                         <FontIcon Glyph="&#xE768;" FontSize="12" Foreground="#10B981"/>
                                     </Button>
 

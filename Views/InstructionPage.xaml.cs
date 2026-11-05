@@ -64,6 +64,7 @@ namespace StormSwitchBox.Views
             {
                 TopicList.SelectedIndex = Math.Clamp(prevIndex, 0, _filteredTopics.Count - 1);
             }
+            App.Localization.TranslateRoot(this);
         }
 
         private void InitializeTopics()
@@ -73,7 +74,7 @@ namespace StormSwitchBox.Views
             {
                 "en" => GetTopicsEn(),
                 "de" => GetTopicsDe(),
-                "fr" => GetTopicsEn(),
+                "fr" => GetTopicsFr(),
                 "zh" => GetTopicsZh(),
                 "ja" => GetTopicsJa(),
                 _ => GetTopicsRu()
@@ -1360,6 +1361,67 @@ new TopicItem
                     "Encyclopedia" => "百科事典",
                     "Catalog" => "カタログ",
                     "Safety" => "クリーンアップ",
+                    _ => t.Category
+                },
+                Icon = t.Icon,
+                DescriptionText = t.DescriptionText,
+                Tip = t.Tip,
+                SetupPreview = t.SetupPreview
+            }).ToList();
+        }
+
+        private List<TopicItem> GetTopicsFr()
+        {
+            var enList = GetTopicsEn();
+            return enList.Select(t => new TopicItem
+            {
+                Title = t.Title switch
+                {
+                    "Application Overview" => "Présentation de l'application",
+                    "Smart File Processing" => "Traitement intelligent des fichiers",
+                    "Task Grouping Simulator" => "Simulateur de regroupement de tâches",
+                    "Built-in 7-Zip & Auto-Extraction" => "7-Zip intégré et auto-extraction",
+                    "Modifications (RomFS, ExeFS & IPS)" => "Modifications (RomFS, ExeFS & IPS)",
+                    "Metadata & Icon Editor" => "Éditeur de métadonnées et d'icônes",
+                    "Smart Folder" => "Dossier intelligent",
+                    "Multi-Content & Unlocker" => "Multi-contenu et débloqueur",
+                    "Emulator Integration and SDMC Sync" => "Intégration d'émulateurs et synchronisation SDMC",
+                    "Homebrew: Engine Ports & Standalone Games" => "Homebrew : Ports de moteurs et jeux autonomes",
+                    "Game Updates (HardPatch & Splicing)" => "Mises à jour de jeux (HardPatch et fusion)",
+                    "Format Conversion (Switch & 3DS)" => "Conversion de formats (Switch & 3DS)",
+                    "Extraction & Packaging" => "Extraction et empaquetage",
+                    "Settings & Keys" => "Paramètres et clés",
+                    "Settings and Keys" => "Paramètres et clés",
+                    "Settings and Tasks: Compatibility Matrix" => "Paramètres et tâches : Matrice de compatibilité",
+                    "Integrity Verification" => "Vérification de l'intégrité",
+                    "Nintendo 3DS: Architecture & Multi-Content" => "Nintendo 3DS : Architecture et multi-contenu",
+                    "Nintendo 3DS: Formats & Compression" => "Nintendo 3DS : Formats et compression",
+                    "Nintendo Game Library (19 Systems)" => "Bibliothèque de jeux Nintendo (19 systèmes)",
+                    "Information: Switch & 3DS Database" => "Informations : Base de données Switch & 3DS",
+                    "Dual Smart Folder Services" => "Services séparés de dossiers intelligents",
+                    "Guaranteed Temporary File Cleanup" => "Nettoyage garanti des fichiers temporaires",
+                    _ => t.Title
+                },
+                Category = t.Category switch
+                {
+                    "Introduction" => "Introduction",
+                    "Algorithms" => "Algorithmes",
+                    "Interactive" => "Interactif",
+                    "Archives" => "Archives",
+                    "Modding" => "Modding",
+                    "Customization" => "Personnalisation",
+                    "Automation" => "Automatisation",
+                    "Packaging" => "Empaquetage",
+                    "Emulators" => "Émulateurs",
+                    "Homebrew" => "Homebrew",
+                    "Patching" => "Correctifs",
+                    "Formats" => "Formats",
+                    "Configuration" => "Configuration",
+                    "Validation" => "Validation",
+                    "Nintendo 3DS" => "Nintendo 3DS",
+                    "Encyclopedia" => "Encyclopédie",
+                    "Catalog" => "Catalogue",
+                    "Safety" => "Sécurité",
                     _ => t.Category
                 },
                 Icon = t.Icon,

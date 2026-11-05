@@ -30,6 +30,7 @@ namespace StormSwitchBox.Views
                 {
                     LogRow.Height = new GridLength(App.Settings.Current.LogPanelHeight);
                 }
+                ApplyLocalization();
             };
 
             // Перехватываем PointerPressed ДО того, как DataGrid его обработает и изменит Selection
@@ -1493,6 +1494,22 @@ namespace StormSwitchBox.Views
             if (StopAllButton != null) StopAllButton.Label = loc["Tasks_StopAll"];
             if (ClearButton != null) ClearButton.Label = loc["Tasks_ClearList"];
             if (ColumnsFlyoutTitle != null) ColumnsFlyoutTitle.Text = loc["Tasks_Col_Actions"];
+
+            App.Localization.TranslateRoot(this);
+            if (ViewModel?.Tasks != null)
+            {
+                foreach (var t in ViewModel.Tasks)
+                {
+                    t.NotifyLocalizationChanged();
+                }
+            }
+            if (ViewModel?.VerifyTasks != null)
+            {
+                foreach (var t in ViewModel.VerifyTasks)
+                {
+                    t.NotifyLocalizationChanged();
+                }
+            }
         }
     }
 }

@@ -996,6 +996,13 @@ namespace StormSwitchBox.Services
                     throw new FileNotFoundException($"Сжатый файл {expectedExt} не найден после работы nsz.exe в {tempCompressDir}");
                 }
 
+                long genNszLen = new FileInfo(generatedNsz).Length;
+                if (totalBytes > 32 * 1024 * 1024 && genNszLen >= (long)(totalBytes * 0.995))
+                {
+                    try { File.Delete(generatedNsz); } catch { }
+                    throw new InvalidOperationException("nsz.exe пропустил сжатие секций NCA (NoCrypto / Switch 2), переключение на нативный StormNczCompressor");
+                }
+
                 outNszPath = await SafeFileOperations.SafeMoveOrReplaceFileAsync(generatedNsz, outNszPath, task, cancellationToken);
 
                 if (System.IO.File.Exists(outNszPath))

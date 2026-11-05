@@ -21,6 +21,8 @@ namespace StormSwitchBox.Views.Dialogs
         public LibraryAuditorDialog(TasksViewModel? tasksViewModel = null)
         {
             this.InitializeComponent();
+            App.Localization.TranslateRoot(this);
+            this.Opened += (_, _) => App.Localization.TranslateRoot(this);
             this.XamlRoot = App.MainWindow?.Content?.XamlRoot;
             _tasksViewModel = tasksViewModel;
             IssuesListView.ItemsSource = Issues;

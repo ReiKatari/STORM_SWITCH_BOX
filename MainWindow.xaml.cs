@@ -303,6 +303,7 @@ namespace StormSwitchBox
             {
                 settingsItem.Content = App.Localization["Nav_Settings"];
             }
+            App.Localization.TranslateRoot(this.Content as Microsoft.UI.Xaml.DependencyObject);
         }
 
         private void AppWindow_Closing(AppWindow sender, AppWindowClosingEventArgs args)

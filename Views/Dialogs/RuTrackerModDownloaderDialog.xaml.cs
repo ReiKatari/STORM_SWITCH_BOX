@@ -42,6 +42,8 @@ namespace StormSwitchBox.Views.Dialogs
         public RuTrackerModDownloaderDialog(TasksViewModel viewModel, ProcessingTask? targetTask = null)
         {
             this.InitializeComponent();
+            App.Localization.TranslateRoot(this);
+            this.Opened += (_, _) => App.Localization.TranslateRoot(this);
             this.XamlRoot = App.MainWindow.Content.XamlRoot;
             this.RequestedTheme = (App.MainWindow.Content as FrameworkElement)?.RequestedTheme ?? ElementTheme.Dark;
 

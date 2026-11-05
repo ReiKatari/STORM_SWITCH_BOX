@@ -133,6 +133,7 @@ namespace StormSwitchBox.Views
 
             ApplyLocalization();
             App.Localization.LanguageChanged += () => App.RunOnUI(ApplyLocalization);
+            this.Loaded += (_, _) => ApplyLocalization();
             _isSettingsPageLoaded = true;
         }
 
@@ -1100,6 +1101,12 @@ namespace StormSwitchBox.Views
             InitializeLanguages();
 
             UpdateWatchFolderUiState();
+
+            App.Localization.TranslateRoot(this);
+            if (GeneralSettingsPanel != null) App.Localization.TranslateRoot(GeneralSettingsPanel);
+            if (SwitchSettingsPanel != null) App.Localization.TranslateRoot(SwitchSettingsPanel);
+            if (Switch2SettingsPanel != null) App.Localization.TranslateRoot(Switch2SettingsPanel);
+            if (ThreeDsSettingsPanel != null) App.Localization.TranslateRoot(ThreeDsSettingsPanel);
         }
 
         // ===== 3DS Ключи и настройки =====

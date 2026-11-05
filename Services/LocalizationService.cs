@@ -3,7 +3,7 @@ using System.Collections.Generic;
 
 namespace StormSwitchBox.Services
 {
-    public class LocalizationService
+    public partial class LocalizationService
     {
         public static LocalizationService Instance { get; } = new LocalizationService();
 
@@ -222,8 +222,8 @@ namespace StormSwitchBox.Services
                 ["Catalog_RemoveFolder"] = "Удалить",
                 ["Catalog_ScanAll"] = "Сканировать все",
                 ["Catalog_Filter_All"] = "Все игры",
-                ["Catalog_Filter_Switch"] = "🎮 Nintendo Switch",
-                ["Catalog_Filter_3ds"] = "🕹️ Nintendo 3DS",
+                ["Catalog_Filter_Switch"] = "Nintendo Switch",
+                ["Catalog_Filter_3ds"] = "Nintendo 3DS",
                 ["Catalog_Search_Placeholder"] = "Поиск по названию или Title ID...",
                 ["Catalog_UpdateDb"] = "Обновление данных TitleDB",
                 ["Catalog_Details_Genre"] = "Жанр:",
@@ -453,8 +453,8 @@ namespace StormSwitchBox.Services
                 ["Catalog_RemoveFolder"] = "Remove",
                 ["Catalog_ScanAll"] = "Scan All",
                 ["Catalog_Filter_All"] = "All Games",
-                ["Catalog_Filter_Switch"] = "🎮 Nintendo Switch",
-                ["Catalog_Filter_3ds"] = "🕹️ Nintendo 3DS",
+                ["Catalog_Filter_Switch"] = "Nintendo Switch",
+                ["Catalog_Filter_3ds"] = "Nintendo 3DS",
                 ["Catalog_Search_Placeholder"] = "Search by title or Title ID...",
                 ["Catalog_UpdateDb"] = "Update TitleDB Database",
                 ["Catalog_Details_Genre"] = "Genre:",
@@ -678,8 +678,8 @@ namespace StormSwitchBox.Services
                 ["Catalog_RemoveFolder"] = "Entfernen",
                 ["Catalog_ScanAll"] = "Alle scannen",
                 ["Catalog_Filter_All"] = "Alle Spiele",
-                ["Catalog_Filter_Switch"] = "🎮 Nintendo Switch",
-                ["Catalog_Filter_3ds"] = "🕹️ Nintendo 3DS",
+                ["Catalog_Filter_Switch"] = "Nintendo Switch",
+                ["Catalog_Filter_3ds"] = "Nintendo 3DS",
                 ["Catalog_Search_Placeholder"] = "Nach Titel oder Title-ID suchen...",
                 ["Catalog_UpdateDb"] = "TitleDB-Datenbank aktualisieren",
                 ["Catalog_Details_Genre"] = "Genre:",
@@ -906,8 +906,8 @@ namespace StormSwitchBox.Services
                 ["Catalog_RemoveFolder"] = "Supprimer",
                 ["Catalog_ScanAll"] = "Tout analyser",
                 ["Catalog_Filter_All"] = "Tous les jeux",
-                ["Catalog_Filter_Switch"] = "🎮 Nintendo Switch",
-                ["Catalog_Filter_3ds"] = "🕹️ Nintendo 3DS",
+                ["Catalog_Filter_Switch"] = "Nintendo Switch",
+                ["Catalog_Filter_3ds"] = "Nintendo 3DS",
                 ["Catalog_Search_Placeholder"] = "Rechercher par titre ou Title ID...",
                 ["Catalog_UpdateDb"] = "Mettre à jour TitleDB",
                 ["Catalog_Details_Genre"] = "Genre :",
@@ -1137,8 +1137,8 @@ namespace StormSwitchBox.Services
                 ["Catalog_RemoveFolder"] = "移除",
                 ["Catalog_ScanAll"] = "全部扫描",
                 ["Catalog_Filter_All"] = "全部游戏",
-                ["Catalog_Filter_Switch"] = "🎮 Nintendo Switch",
-                ["Catalog_Filter_3ds"] = "🕹️ Nintendo 3DS",
+                ["Catalog_Filter_Switch"] = "Nintendo Switch",
+                ["Catalog_Filter_3ds"] = "Nintendo 3DS",
                 ["Catalog_Search_Placeholder"] = "按游戏名称或 Title ID 搜索...",
                 ["Catalog_UpdateDb"] = "更新 TitleDB 数据库",
                 ["Catalog_Details_Genre"] = "游戏类型：",
@@ -1362,8 +1362,8 @@ namespace StormSwitchBox.Services
                 ["Catalog_RemoveFolder"] = "削除",
                 ["Catalog_ScanAll"] = "すべてスキャン",
                 ["Catalog_Filter_All"] = "すべてのゲーム",
-                ["Catalog_Filter_Switch"] = "🎮 Nintendo Switch",
-                ["Catalog_Filter_3ds"] = "🕹️ Nintendo 3DS",
+                ["Catalog_Filter_Switch"] = "Nintendo Switch",
+                ["Catalog_Filter_3ds"] = "Nintendo 3DS",
                 ["Catalog_Search_Placeholder"] = "タイトルまたはTitle IDで検索...",
                 ["Catalog_UpdateDb"] = "TitleDB データベースを更新",
                 ["Catalog_Details_Genre"] = "ジャンル：",

@@ -20,6 +20,7 @@ namespace StormSwitchBox.Views
 
             ApplyLocalization();
             App.Localization.LanguageChanged += () => App.RunOnUI(ApplyLocalization);
+            this.Loaded += (_, _) => ApplyLocalization();
         }
 
         public void ApplyLocalization()
@@ -27,6 +28,15 @@ namespace StormSwitchBox.Views
             var loc = App.Localization;
             if (ClearHistoryTextBlock != null) ClearHistoryTextBlock.Text = loc["History_Clear"];
             if (HistorySearchBox != null) HistorySearchBox.PlaceholderText = "🔍 " + (loc["Catalog_Search_Placeholder"] ?? "Поиск...");
+
+            App.Localization.TranslateRoot(this);
+            if (HistoryTasks != null)
+            {
+                foreach (var t in HistoryTasks)
+                {
+                    t.NotifyLocalizationChanged();
+                }
+            }
         }
 
         private async void ClearHistory_Click(object sender, RoutedEventArgs e)

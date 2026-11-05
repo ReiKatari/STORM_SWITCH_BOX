@@ -3655,37 +3655,25 @@ namespace StormSwitchBox.Services
                     }
                 }
 
-                string[][] regionalPairs = new[]
+                string[][] regionalGroups = new[]
                 {
-                    new[] { "EU_English", "US_English" },
-                    new[] { "EuEnglish", "UsEnglish" },
-                    new[] { "en-GB", "en-US" },
-                    new[] { "EUen", "USen" }
+                    new[] { "EU_English", "US_English", "EU_Russian", "RU_Russian" },
+                    new[] { "EuEnglish", "UsEnglish", "EuRussian", "RuRussian" },
+                    new[] { "en-GB", "en-US", "ru-RU" },
+                    new[] { "EUen", "USen", "EUru", "RUru" }
                 };
 
                 foreach (var relPath in injectedRelativeFiles)
                 {
-                    foreach (var pair in regionalPairs)
+                    foreach (var group in regionalGroups)
                     {
-                        string rA = pair[0];
-                        string rB = pair[1];
+                        string? srcRegion = group.FirstOrDefault(r => relPath.Contains(r, StringComparison.OrdinalIgnoreCase));
+                        if (srcRegion == null) continue;
 
-                        string? srcRegion = null;
-                        string? dstRegion = null;
+                        foreach (var dstRegion in group)
+                        {
+                            if (string.Equals(srcRegion, dstRegion, StringComparison.OrdinalIgnoreCase)) continue;
 
-                        if (relPath.Contains(rA, StringComparison.OrdinalIgnoreCase))
-                        {
-                            srcRegion = rA;
-                            dstRegion = rB;
-                        }
-                        else if (relPath.Contains(rB, StringComparison.OrdinalIgnoreCase))
-                        {
-                            srcRegion = rB;
-                            dstRegion = rA;
-                        }
-
-                        if (srcRegion != null && dstRegion != null)
-                        {
                             string counterpartRel = Regex.Replace(relPath, Regex.Escape(srcRegion), dstRegion, RegexOptions.IgnoreCase);
                             if (!injectedRelativeFiles.Contains(counterpartRel))
                             {
@@ -3695,7 +3683,8 @@ namespace StormSwitchBox.Services
                                 if (File.Exists(srcFull))
                                 {
                                     string? dstDir = System.IO.Path.GetDirectoryName(dstFull);
-                                    if (dstDir != null && (Directory.Exists(dstDir) || File.Exists(dstFull)))
+                                    bool regionIsInDirectoryPath = (System.IO.Path.GetDirectoryName(relPath) ?? "").Contains(srcRegion, StringComparison.OrdinalIgnoreCase);
+                                    if (dstDir != null && (File.Exists(dstFull) || (regionIsInDirectoryPath && Directory.Exists(dstDir))))
                                     {
                                         Directory.CreateDirectory(dstDir);
                                         File.Copy(srcFull, dstFull, overwrite: true);
@@ -3709,7 +3698,7 @@ namespace StormSwitchBox.Services
 
                 if (syncedAny)
                 {
-                    App.RunOnUI(() => task.LogDetails += "\n🌐 [Localization Sync] Выполнена кросс-региональная синхронизация локализации (EU ↔ US)...");
+                    App.RunOnUI(() => task.LogDetails += "\n🌐 [Localization Sync] Выполнена кросс-региональная синхронизация локализации (EU ↔ US ↔ RU)...");
                 }
             }
             catch (Exception ex)

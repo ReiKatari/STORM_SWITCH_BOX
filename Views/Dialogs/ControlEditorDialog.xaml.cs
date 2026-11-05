@@ -20,6 +20,8 @@ namespace StormSwitchBox.Views.Dialogs
         public ControlEditorDialog(GameMetadataEditModel model)
         {
             this.InitializeComponent();
+            App.Localization.TranslateRoot(this);
+            this.Opened += (_, _) => App.Localization.TranslateRoot(this);
             _model = model;
             this.XamlRoot = App.MainWindow?.Content?.XamlRoot;
 

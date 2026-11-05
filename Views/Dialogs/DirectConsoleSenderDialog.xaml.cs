@@ -23,6 +23,8 @@ namespace StormSwitchBox.Views.Dialogs
         public DirectConsoleSenderDialog(IEnumerable<string>? initialFiles = null)
         {
             this.InitializeComponent();
+            App.Localization.TranslateRoot(this);
+            this.Opened += (_, _) => App.Localization.TranslateRoot(this);
 
             _senderService.ServerLogAdded += OnServerLogAdded;
             _senderService.TransferProgressChanged += OnTransferProgressChanged;

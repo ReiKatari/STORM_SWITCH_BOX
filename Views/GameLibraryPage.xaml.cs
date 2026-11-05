@@ -37,6 +37,7 @@ namespace StormSwitchBox.Views
             this.InitializeComponent();
             this.NavigationCacheMode = Microsoft.UI.Xaml.Navigation.NavigationCacheMode.Required;
             this.Loaded += GameLibraryPage_Loaded;
+            App.Localization.LanguageChanged += () => App.RunOnUI(ApplyLocalization);
         }
 
         private CancellationTokenSource? _filterCts;
@@ -108,6 +109,13 @@ namespace StormSwitchBox.Views
             }
 
             UpdatePageSummaryText();
+
+            App.Localization.TranslateRoot(this);
+            if (_isLoaded)
+            {
+                InitializeSystemTabsAndDropdown();
+                PopulateFilterDropdowns();
+            }
         }
 
         private void InitializeSystemTabsAndDropdown()
@@ -120,7 +128,8 @@ namespace StormSwitchBox.Views
             // "Все системы" Tab Chip с форматированием пробела в тысячах
             int totalAll = App.NintendoLibrary.GetGameCountForSystem("Все системы");
             string formattedTotal = NintendoLibraryService.FormatNumber(totalAll);
-            var allBtn = CreateSystemButton($"🌟 Все системы ({formattedTotal})", "Все системы", _selectedSystems.Count == 0);
+            string allSystemsTitle = App.Localization["Library_AllSystems"] ?? "Все системы";
+            var allBtn = CreateSystemButton($"🌟 {allSystemsTitle} ({formattedTotal})", "Все системы", _selectedSystems.Count == 0);
             SystemsStackPanel.Children.Add(allBtn);
             _systemButtons.Add(allBtn);
 

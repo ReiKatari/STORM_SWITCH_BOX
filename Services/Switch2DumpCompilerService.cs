@@ -59,15 +59,49 @@ namespace StormSwitchBox.Services
                     return false;
                 }
 
-                // Direct dump root must contain base/exefs or exefs with main.npdm or main
-                if (File.Exists(Path.Combine(dirPath, "base", "exefs", "main.npdm")) ||
-                    File.Exists(Path.Combine(dirPath, "base", "exefs", "main")))
+                // Guard: never treat a LayeredFS mod/cheat/translation folder or a subfolder next to .nsp/.nsz/.xci/.xcz as a standalone dump
+                string lowerDirName = dirName.ToLowerInvariant();
+                if (lowerDirName.Contains("mod") || lowerDirName.Contains("мод") ||
+                    lowerDirName.Contains("rus") || lowerDirName.Contains("рус") ||
+                    lowerDirName.Contains("ukr") || lowerDirName.Contains("укр") ||
+                    lowerDirName.Contains("cheat") || lowerDirName.Contains("чит") ||
+                    lowerDirName.Contains("patch") || lowerDirName.Contains("патч") ||
+                    lowerDirName.Contains("translation") || lowerDirName.Contains("перевод") ||
+                    lowerDirName.Equals("atmosphere") || lowerDirName.Equals("contents") ||
+                    lowerDirName.Equals("load") || lowerDirName.Equals("luma") || lowerDirName.Equals("titles"))
+                {
+                    return false;
+                }
+
+                var parentDir = Directory.GetParent(dirPath);
+                if (parentDir != null)
+                {
+                    try
+                    {
+                        bool siblingContainersExist = Directory.EnumerateFiles(parentDir.FullName, "*.*", SearchOption.TopDirectoryOnly)
+                            .Any(f => f.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) ||
+                                      f.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) ||
+                                      f.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) ||
+                                      f.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase));
+                        if (siblingContainersExist)
+                        {
+                            return false;
+                        }
+                    }
+                    catch { }
+                }
+
+                // Direct dump root with base/exefs/main.npdm + base/romfs
+                if (File.Exists(Path.Combine(dirPath, "base", "exefs", "main.npdm")) &&
+                    Directory.Exists(Path.Combine(dirPath, "base", "romfs")))
                 {
                     return true;
                 }
 
-                if (File.Exists(Path.Combine(dirPath, "exefs", "main.npdm")) ||
-                    File.Exists(Path.Combine(dirPath, "exefs", "main")))
+                // Full extracted dump with exefs/main.npdm + exefs/rtld + romfs (mods never have rtld alongside full exefs+romfs without containers)
+                if (File.Exists(Path.Combine(dirPath, "exefs", "main.npdm")) &&
+                    File.Exists(Path.Combine(dirPath, "exefs", "rtld")) &&
+                    Directory.Exists(Path.Combine(dirPath, "romfs")))
                 {
                     return true;
                 }
@@ -647,11 +681,93 @@ namespace StormSwitchBox.Services
 
         private static readonly byte[] StandardEncryptedKeyArea0 = new byte[]
         {
-            0x27, 0x3B, 0x7D, 0x0D, 0x7A, 0xC6, 0x22, 0x67, 0x3E, 0xDD, 0xFB, 0xB0, 0xE3, 0xF5, 0x4E, 0x88,
-            0x0F, 0xD2, 0x93, 0xD8, 0x92, 0xD6, 0x0C, 0x9E, 0xDF, 0x27, 0xD8, 0x93, 0xC1, 0x57, 0x26, 0x05,
-            0x14, 0x53, 0x8D, 0x27, 0x66, 0x65, 0x10, 0xB4, 0x94, 0x5A, 0xAA, 0x15, 0xBA, 0xEE, 0xEB, 0xE7,
-            0xE1, 0x14, 0x98, 0x24, 0xBC, 0x6A, 0xF5, 0xD1, 0xA2, 0xCE, 0xB3, 0x79, 0x6C, 0x55, 0xE5, 0x58
+            0x8C, 0xF2, 0x50, 0x9F, 0x0E, 0x2B, 0xCC, 0x5F, 0xF7, 0x72, 0xCF, 0xDB, 0x77, 0xC8, 0xEA, 0x17,
+            0x8C, 0xF2, 0x50, 0x9F, 0x0E, 0x2B, 0xCC, 0x5F, 0xF7, 0x72, 0xCF, 0xDB, 0x77, 0xC8, 0xEA, 0x17,
+            0xCA, 0xF8, 0xF5, 0x17, 0x94, 0xF0, 0xDB, 0x98, 0xBB, 0xC7, 0xC6, 0xDC, 0xAB, 0x88, 0x73, 0x84,
+            0x8C, 0xF2, 0x50, 0x9F, 0x0E, 0x2B, 0xCC, 0x5F, 0xF7, 0x72, 0xCF, 0xDB, 0x77, 0xC8, 0xEA, 0x17
         };
+
+        /// <summary>
+        /// Нормализует секцию ACID в main.npdm дампов Switch 2 (RSA-3072 смещение +0x300)
+        /// под стандарт NCA3 / LibHac / Eden / Yuzu / Citron / Ryujinx (RSA-2048 смещение +0x200),
+        /// устраняя ошибку «ACID Stream doesn't contain ACID section!» / «ROM зашифрован».
+        /// </summary>
+        public static byte[] NormalizeSwitch2NpdmForNca3(byte[] npdmBytes)
+        {
+            if (npdmBytes == null || npdmBytes.Length < 0x100)
+                return npdmBytes ?? Array.Empty<byte>();
+
+            try
+            {
+                if (npdmBytes[0] != (byte)'M' || npdmBytes[1] != (byte)'E' || npdmBytes[2] != (byte)'T' || npdmBytes[3] != (byte)'A')
+                    return npdmBytes;
+
+                int aci0Off = BitConverter.ToInt32(npdmBytes, 0x70);
+                int aci0Size = BitConverter.ToInt32(npdmBytes, 0x74);
+                int acidOff = BitConverter.ToInt32(npdmBytes, 0x78);
+                int acidSize = BitConverter.ToInt32(npdmBytes, 0x7C);
+
+                if (acidOff <= 0 || acidSize <= 0x320 || acidOff + 0x320 > npdmBytes.Length)
+                    return npdmBytes;
+
+                // Если на +0x200 уже находится стандартный "ACID", ничего менять не нужно
+                if (npdmBytes[acidOff + 0x200] == (byte)'A' &&
+                    npdmBytes[acidOff + 0x201] == (byte)'C' &&
+                    npdmBytes[acidOff + 0x202] == (byte)'I' &&
+                    npdmBytes[acidOff + 0x203] == (byte)'D')
+                {
+                    return npdmBytes;
+                }
+
+                // В дампах Switch 2 (Ounce) перед "ACID" идёт RSA-3072 (0x180 подпись + 0x180 модуль = 0x300 байт)
+                if (npdmBytes[acidOff + 0x300] == (byte)'A' &&
+                    npdmBytes[acidOff + 0x301] == (byte)'C' &&
+                    npdmBytes[acidOff + 0x302] == (byte)'I' &&
+                    npdmBytes[acidOff + 0x303] == (byte)'D')
+                {
+                    int acidBodyStart = acidOff + 0x300;
+                    int acidBodyLen = (aci0Off > acidBodyStart && aci0Off <= npdmBytes.Length)
+                        ? (aci0Off - acidBodyStart)
+                        : (npdmBytes.Length - acidBodyStart);
+
+                    byte[] acidBody = new byte[acidBodyLen];
+                    Array.Copy(npdmBytes, acidBodyStart, acidBody, 0, acidBodyLen);
+
+                    int oldBodySize = BitConverter.ToInt32(acidBody, 0x04);
+                    if (oldBodySize > 0x80)
+                        BitConverter.GetBytes(oldBodySize - 0x80).CopyTo(acidBody, 0x04);
+
+                    // Сдвигаем внутренние смещения FAC, SAC, KAC внутри ACID с базы 0x300 на базу 0x200 (-0x100)
+                    for (int internalOff = 0x20; internalOff <= 0x30; internalOff += 8)
+                    {
+                        int subOff = BitConverter.ToInt32(acidBody, internalOff);
+                        if (subOff >= 0x300)
+                            BitConverter.GetBytes(subOff - 0x100).CopyTo(acidBody, internalOff);
+                    }
+
+                    using var ms = new MemoryStream();
+                    ms.Write(npdmBytes, 0, acidOff);
+                    // 0x100 байт подписи + 0x100 байт модуля (2048-бит)
+                    ms.Write(npdmBytes, acidOff, 0x100);
+                    ms.Write(npdmBytes, acidOff + 0x180, 0x100);
+                    ms.Write(acidBody, 0, acidBody.Length);
+
+                    int newAci0Off = (int)ms.Position;
+                    if (aci0Off > 0 && aci0Off < npdmBytes.Length)
+                    {
+                        ms.Write(npdmBytes, aci0Off, npdmBytes.Length - aci0Off);
+                    }
+
+                    byte[] normalized = ms.ToArray();
+                    BitConverter.GetBytes(newAci0Off).CopyTo(normalized, 0x70);
+                    BitConverter.GetBytes(0x200 + acidBody.Length).CopyTo(normalized, 0x7C);
+                    return normalized;
+                }
+            }
+            catch { }
+
+            return npdmBytes;
+        }
 
         private static void FinalizeAndEncryptNcaHeaderInPlace(byte[] header)
         {
@@ -799,6 +915,10 @@ namespace StormSwitchBox.Services
             {
                 if (kv.Key.Equals(".listing", StringComparison.OrdinalIgnoreCase)) continue;
                 byte[] data = File.ReadAllBytes(kv.Value);
+                if (kv.Key.Equals("main.npdm", StringComparison.OrdinalIgnoreCase))
+                {
+                    data = NormalizeSwitch2NpdmForNca3(data);
+                }
                 exefsEntries.Add(Tuple.Create(kv.Key, data));
             }
             byte[] rawExefsPfs0 = BuildMemoryPfs0(exefsEntries);

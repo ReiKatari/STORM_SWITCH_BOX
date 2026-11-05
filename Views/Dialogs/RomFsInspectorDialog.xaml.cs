@@ -23,6 +23,8 @@ namespace StormSwitchBox.Views.Dialogs
         public RomFsInspectorDialog(string? initialFilePath = null)
         {
             this.InitializeComponent();
+            App.Localization.TranslateRoot(this);
+            this.Opened += (_, _) => App.Localization.TranslateRoot(this);
             this.XamlRoot = App.MainWindow?.Content?.XamlRoot;
             EntriesListView.ItemsSource = FilteredEntries;
 

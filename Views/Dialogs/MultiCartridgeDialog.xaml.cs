@@ -19,6 +19,8 @@ namespace StormSwitchBox.Views.Dialogs
         public MultiCartridgeDialog(IEnumerable<string>? initialFiles = null)
         {
             this.InitializeComponent();
+            App.Localization.TranslateRoot(this);
+            this.Opened += (_, _) => App.Localization.TranslateRoot(this);
             this.XamlRoot = App.MainWindow?.Content?.XamlRoot;
             ItemsListView.ItemsSource = Items;
             OutputFolderBox.Text = !string.IsNullOrWhiteSpace(App.Settings.Current.OutputFolder)

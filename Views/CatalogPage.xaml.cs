@@ -65,6 +65,7 @@ namespace StormSwitchBox.Views
 
         private void CatalogPage_Loaded(object sender, RoutedEventArgs e)
         {
+            ApplyLocalization();
             if (_allCatalogItems.Count == 0 && App.Settings.Current.CatalogFolders.Any())
             {
                 ScanAllFolders_Click(this, new RoutedEventArgs());
@@ -931,6 +932,7 @@ namespace StormSwitchBox.Views
             if (ThreeDsPlatformButton != null) ThreeDsPlatformButton.Content = loc["Catalog_Filter_3ds"];
             if (SearchBox != null) SearchBox.PlaceholderText = loc["Catalog_Search_Placeholder"];
             if (UpdateDbTextBlock != null) UpdateDbTextBlock.Text = loc["Catalog_UpdateDb"];
+            App.Localization.TranslateRoot(this);
         }
     
         private async void ErrorCodesLookupButton_Click(object sender, RoutedEventArgs e)

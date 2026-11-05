@@ -254,15 +254,20 @@ namespace StormSwitchBox.Models
         [System.Text.Json.Serialization.JsonIgnore]
         public string OperationDisplay => Operation switch
         {
-            "Update" => "Обновление",
-            "Unpack" => "Распаковка",
-            "Pack" => "Упаковка",
-            "Convert" => "Конвертация",
-            "Multi" => "Мульти-контент",
-            "Homebrew" => "Homebrew",
-            "Verify" => "Проверка",
-            _ => Operation
+            "Update" => LocalizationService.Instance["Nav_Update"],
+            "Unpack" => LocalizationService.Instance["Nav_Unpack"],
+            "Pack" => LocalizationService.Instance["Nav_Pack"],
+            "Convert" => LocalizationService.Instance["Nav_Convert"],
+            "Multi" => LocalizationService.Instance["Nav_Multi"],
+            "Homebrew" => LocalizationService.Instance["Nav_Homebrew"],
+            "Verify" => LocalizationService.Instance["Nav_Verify"],
+            _ => LocalizationService.Instance.TranslateText(Operation)
         };
+
+        public void NotifyLocalizationChanged()
+        {
+            OnPropertyChanged(nameof(OperationDisplay));
+        }
 
         partial void OnOperationChanged(string value) => OnPropertyChanged(nameof(OperationDisplay));
 

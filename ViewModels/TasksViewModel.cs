@@ -81,9 +81,9 @@ public partial class TasksViewModel : ObservableObject
 	public bool Is3dsPlatformVisible => SelectedPlatform == 2;
 	public string CurrentPlatformLabel => SelectedPlatform switch
 	{
-		1 => "🎮 Nintendo Switch 2",
-		2 => "🕹️ Nintendo 3DS",
-		_ => "🎮 Nintendo Switch"
+		1 => "Nintendo Switch 2",
+		2 => "Nintendo 3DS",
+		_ => "Nintendo Switch"
 	};
 
 	public void TogglePlatform()
