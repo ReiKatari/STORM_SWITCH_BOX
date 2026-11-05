@@ -95,14 +95,32 @@ namespace StormSwitchBox.Services
 
                     if (bytesRead >= 0x100)
                     {
-                        var ticketInfo = ExtractDecryptedTicket(tikBytes, (int)bytesRead, App.Keys.CurrentKeyset);
-                        if (ticketInfo.HasValue && !string.IsNullOrEmpty(ticketInfo.Value.RightsId) && ticketInfo.Value.TitleKey != null && ticketInfo.Value.TitleKey.Length == 16)
+                        // В title.keys и ExternalKeySet (для LibHac / hactoolnet / yanu-cli) обязан храниться сырой TitleKeyBlock из .tik (зашифрованный TitleKek),
+                        // так как LibHac и hactoolnet всегда расшифровывают ключ из title.keys через TitleKek!
+                        var rawInfo = ExtractTicketInfo(tikBytes, (int)bytesRead);
+                        if (rawInfo.HasValue && !string.IsNullOrEmpty(rawInfo.Value.RightsId) && !string.IsNullOrEmpty(rawInfo.Value.TitleKey))
                         {
-                            string tKeyHex = BitConverter.ToString(ticketInfo.Value.TitleKey).Replace("-", "").ToLowerInvariant();
-                            keysToAdd.Add($"{ticketInfo.Value.RightsId} = {tKeyHex}");
+                            string rIdNorm = rawInfo.Value.RightsId.Trim().ToLowerInvariant();
+                            string rawKeyHex = rawInfo.Value.TitleKey.Trim().ToLowerInvariant();
+                            keysToAdd.Add($"{rIdNorm} = {rawKeyHex}");
+                            try
+                            {
+                                if (App.Keys?.CurrentKeyset?.ExternalKeySet != null)
+                                {
+                                    byte[] ridB = Convert.FromHexString(rIdNorm);
+                                    byte[] keyB = Convert.FromHexString(rawKeyHex);
+                                    App.Keys.CurrentKeyset.ExternalKeySet.Add(new LibHac.Fs.RightsId(ridB), new LibHac.Spl.AccessKey(keyB));
+                                }
+                            }
+                            catch { }
+                        }
+
+                        var decTicketInfo = ExtractDecryptedTicket(tikBytes, (int)bytesRead, App.Keys.CurrentKeyset);
+                        if (decTicketInfo.HasValue && !string.IsNullOrEmpty(decTicketInfo.Value.RightsId) && decTicketInfo.Value.TitleKey != null && decTicketInfo.Value.TitleKey.Length == 16)
+                        {
                             lock (Core.NSZ.StormNczCompressor.TitleKeysCache)
                             {
-                                Core.NSZ.StormNczCompressor.TitleKeysCache[ticketInfo.Value.RightsId] = ticketInfo.Value.TitleKey;
+                                Core.NSZ.StormNczCompressor.TitleKeysCache[decTicketInfo.Value.RightsId] = decTicketInfo.Value.TitleKey;
                             }
                         }
                     }

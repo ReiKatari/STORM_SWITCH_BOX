@@ -1,34 +1,34 @@
-> 💡 **Релиз 6.9.5** — *Студия метаданных для каждого слота раздачи RuTracker, мгновенное вшивание NACP/SMDH в готовые образы без пересборки и двуязычные Control NCA для Nintendo Switch 2*
+> 💡 **Релиз 6.9.6** — *Исправление конвейера пересборки игр Switch: сырой TitleKeyBlock для title.keys, ликвидация дедлоков stdout/stderr в hactoolnet/hacpack, валидация RomFS и исключение дублирующего Patch CNMT*
 
 ---
 
 ### 🚀 Ключевые изменения и улучшения
-- 🌟 **[RuTracker Multi-Game Slot Metadata Studio] Студия метаданных для каждого игрового слота**: в диалоге загрузки и конвертации многофайловых раздач RuTracker внедрена индивидуальная карточка настройки метаданных для каждого слота. Доступно редактирование названий на английском и русском языках, издателя, TitleID, отображаемой версии, бейджей кастомизации иконок (`RUS`, `60FPS`, `MOD`, `ALL DLC`, произвольный текст и позиция) с автообогащением из TitleDB.
-- 🌟 **[Tasks Page In-Place Post-Build Patching] Мгновенное обновление NACP и иконок без пересборки**: если контейнер (`.nsp`, `.nsz`, `.xci`, `.xcz`, `.3ds`, `.cia`) уже собран на диске, сохранение изменений в студии метаданных на вкладке «Задачи» сразу же производит прямое бесшовное вшивание обновлённого `control.nacp` и иконки в файл без повторной полной перепаковки.
-- 🌟 **[Switch 2 Dump Compiler & Двуязычный Control NACP] Интеграция кастомных метаданных**: при компиляции дампов Nintendo Switch 2 (`Switch2DumpCompilerService`) метаданные из задачи и слотов раздачи автоматически запекаются в `Control NCA` (английское название во всех слотах по умолчанию и отдельное русское название для локали Horizon OS в слоте 11), с оптимизацией JPEG-иконки и бейджей.
-- 🌟 **[ControlEditor Prefix Matching & NCZ Order] Надежность модификации контейнеров**: реализовано сопоставление TitleID по 13-значному префиксу для исключения конфликтов с DLC/обновлениями, а также скорректирован порядок записей PFS0 для сжатых файлов `.ncz`.
-- 🌟 **[Android Паритет и Синхронизация] Полнофункциональный релиз 6.9.5**: обновлены версия и код сборки (`versionCode = 695`, `versionName = "6.9.5"`) для Modern (64-бит ARMv8/x86_64) и Legacy (32-бит ARMv7/x86) редакций.
+- 🌟 **[TicketHarvester & title.keys] Сырой TitleKeyBlock для криптографического конвейера**: в `title.keys` и `ExternalKeySet` внедрена запись сырого `TitleKeyBlock` из бинарных билетов `.tik` (зашифрованный `TitleKek`), что полностью восстановило совместимость с `LibHac`, `hactoolnet` и `yanu-cli`, выполняющими штатную дешифровку ключей прав через TitleKek.
+- 🌟 **[Ликвидация дедлоков stdout/stderr в hactoolnet и hacpack] Асинхронное дренирование каналов ввода-вывода**: во всех системных вызовах `hactoolnet` и `hacpack` при распаковке и компиляции RomFS, ExeFS и Control NCA реализовано асинхронное считывание (`BeginOutputReadLine` / `BeginErrorReadLine` с подпиской на события), что полностью устраняет 120-секундные дедлоки и таймауты из-за переполнения 4-килобайтного буфера анонимных каналов Windows.
+- 🌟 **[Контроль полноты извлечения Base RomFS и 65% порог валидации]**: добавлена проверка завершённости и полноты дерева файлов RomFS при частичном выходе `hactoolnet`, а также внедрён адаптивный порог валидации размера выходного файла (не менее 65% от размера базы для полноразмерных игр), гарантирующий отсутствие битых или пустых образов.
+- 🌟 **[Исключение дублирующего Patch CNMT 0x81 из монолитных NSP]**: в монолитные пакеты NSP теперь внедряется строго единый Program NCA (`...000`) и корневой Application CNMT (`...000.cnmt.nca`) с обновлённой версией приложения, исключая конфликтный мета-раздел Patch CNMT (`...800.cnmt.nca`), вызывавший ошибки монтирования в эмуляторе Eden.
+- 🌟 **[Android Паритет и Синхронизация] Полнофункциональный релиз 6.9.6**: обновлены версия и код сборки (`versionCode = 696`, `versionName = "6.9.6"`) для Modern (64-бит ARMv8/x86_64) и Legacy (32-бит ARMv7/x86) редакций.
 
 <details>
 <summary><b>📋 Полный список изменений (нажмите, чтобы развернуть)</b></summary>
 
-- 🔹 **[RuTracker Metadata Studio Overlay]**: разработан интерактивный оверлей редактирования метаданных и иконок внутри диалога RuTracker с предварительным просмотром в реальном времени.
-- 🔹 **[EnrichGameSlotsFromFilesAndTitleDb]**: реализован автоматический парсинг TitleID, номеров обновлений и сопоставление с локальной базой TitleDB при анализе торрента.
-- 🔹 **[Прямой патч NACP/SMDH в TasksPage]**: применён асинхронный вызов `ApplyCustomMetadataAsync` / `Patch3dsSmdhInPlace` для уже существующих на диске файлов с отображением статуса в логе задачи.
-- 🔹 **[Двуязычный NACP для Switch 2]**: обновлён генератор `BuildNacpBytes` в `Switch2DumpCompilerService` с поддержкой раздельных UTF-8 строк для слота 11 (русский) и остальных языковых слотов.
-- 🔹 **[Поддержка NCZ в ControlEditor]**: обеспечено корректное позиционирование сжатых Program разделов `.ncz` в заголовке PFS0 при инъекции кастомного Control NCA.
-- 🔹 **[Инсталлятор StormInstaller]**: сборка инсталлятора и метаданные развёртывания обновлены до версии 6.9.5 с сохранением цифровой подписи STORM TEAM.
+- 🔹 **[TicketHarvesterService]**: метод сбора ключей теперь извлекает сырой зашифрованный TitleKeyBlock из `.tik` и добавляет его в `ExternalKeySet` и `title.keys`.
+- 🔹 **[HardPatchEngine Async Drain]**: внедрены асинхронные обработчики `OutputDataReceived`/`ErrorDataReceived` для всех процессов `hactoolnet` (ExeFS, RomFS base, RomFS update, Control) и `hacpack`.
+- 🔹 **[RomFS Extraction Guard]**: очистка и повторная попытка распаковки RomFS при аварийном завершении процесса без зависания конвейера.
+- 🔹 **[Monolithic NSP CNMT Layout]**: удалено встраивание дублирующего файла `extraCnmtRebuiltPath` (`.cnmt.nca` с контентом Patch), предотвращая попытки эмуляторов обращаться к несуществующим секциям патча.
+- 🔹 **[Adaptive Size Threshold]**: порог валидации размера Program NCA установлен в 65% от исходной базы при полной пересборке и 30% при фильтрации языковых дорожек.
+- 🔹 **[Инсталлятор StormInstaller]**: сборка инсталлятора и метаданные обновлены до версии 6.9.6 с сохранением Authenticode-подписи STORM TEAM.
 
 </details>
 
 <details>
 <summary><b>🌐 English Changelog (click to expand)</b></summary>
 
-- 🔸 **RuTracker Multi-Game Slot Metadata Studio**: integrated per-slot metadata studio in RuTracker download dialog, supporting dual-language English/Russian titles, publisher, TitleID & version badges, icon badges (RUS, 60FPS, MOD, ALL DLC), and automatic TitleDB enrichment.
-- 🔸 **Tasks Page In-Place Post-Build Patching**: editing metadata on the Tasks page for already-built containers (`.nsp`, `.nsz`, `.xci`, `.xcz`, `.3ds`, `.cia`) immediately patches `control.nacp` and icons in place without requiring a complete rebuild.
-- 🔸 **Switch 2 Dump Compiler Custom Metadata & Bilingual Control NACP**: injected task metadata directly into Switch 2 Control NCA with default English title and dedicated slot 11 Russian title, plus optimized badge-rendered cover icons.
-- 🔸 **ControlEditor 13-Char TitleID Prefix Matching & NCZ Ordering**: enhanced TitleID matching logic to prevent DLC/Update collisions and corrected PFS0 partition ordering for `.ncz` files.
-- 🔸 **Android Parity 6.9.5**: synchronized Modern and Legacy Android packages to version 6.9.5 (`versionCode 695`).
+- 🔸 **TicketHarvester Raw TitleKeyBlock**: recorded raw `TitleKeyBlock` from `.tik` files into `title.keys` and `ExternalKeySet`, ensuring native decryption compatibility for LibHac, hactoolnet, and yanu-cli.
+- 🔸 **Async Stdout/Stderr Pipe Drain (Deadlock Fix)**: eliminated 120-second process hangs in `hactoolnet` and `hacpack` by asynchronously draining output/error streams via `BeginOutputReadLine` and `BeginErrorReadLine`.
+- 🔸 **Base RomFS Extraction Guard & 65% Size Threshold**: implemented partial-extraction detection and adaptive file size validation (65% of base game size) to guarantee uncorrupted RomFS outputs.
+- 🔸 **Monolithic NSP Clean CNMT Layout**: prevented injection of duplicate Patch CNMT 0x81 (`...800.cnmt.nca`) into monolithic NSP files, resolving mounting errors in Eden and modern Switch emulators.
+- 🔸 **Android Parity 6.9.6**: synchronized Modern and Legacy Android packages to version 6.9.6 (`versionCode 696`).
 
 </details>
 

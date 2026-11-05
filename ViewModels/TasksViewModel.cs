@@ -1485,6 +1485,7 @@ public partial class TasksViewModel : ObservableObject
 							existingTask.SourceFormat = "MULTI";
 						}
 						App.Logger.Log($"К задаче {existingTask.Id} добавлены новые файлы ({added} шт.)");
+						App.TicketHarvester.HarvestTicketsBackground(files);
 					}
 					else
 					{

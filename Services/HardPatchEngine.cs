@@ -913,10 +913,13 @@ namespace StormSwitchBox.Services
                 {
                     string genFile = generatedFiles.OrderByDescending(f => new FileInfo(f).CreationTime).First();
                     long genFileSize = new FileInfo(genFile).Length;
-                    long minGenSize = Math.Min(25L * 1024 * 1024, (long)(baseSize * 0.2));
+                    double minRatio = string.IsNullOrEmpty(keepLangsArg) ? 0.65 : 0.30;
+                    long minGenSize = baseSize > 64L * 1024 * 1024
+                        ? (long)(baseSize * minRatio)
+                        : Math.Min(25L * 1024 * 1024, (long)(baseSize * 0.2));
                     if (baseSize > 50 * 1024 * 1024 && genFileSize < minGenSize)
                     {
-                        throw new InvalidOperationException($"Размер сгенерированного файла ({genFileSize} байт) аномально мал относительно базы ({baseSize} байт). RomFS отсутствует.");
+                        throw new InvalidOperationException($"Размер сгенерированного файла ({genFileSize} байт) аномально мал относительно базы ({baseSize} байт, порог {minGenSize} байт). RomFS повреждён или обрезан.");
                     }
                     
                     // Нормализация Program NCA (Section[0] 0x0C00 -> 0x4000 +26 блоков) и точной десятичной версии CNMT
@@ -2017,7 +2020,14 @@ namespace StormSwitchBox.Services
                         CreateNoWindow = true
                     };
                     using var proc = Process.Start(psi);
-                    proc?.WaitForExit(30000);
+                    if (proc != null)
+                    {
+                        proc.OutputDataReceived += static (_, _) => { };
+                        proc.ErrorDataReceived += static (_, _) => { };
+                        proc.BeginOutputReadLine();
+                        proc.BeginErrorReadLine();
+                        if (!proc.WaitForExit(30000)) { try { proc.Kill(true); } catch { } }
+                    }
                 }
 
                 if (!string.IsNullOrEmpty(updateFile) && File.Exists(updateFile))
@@ -2033,7 +2043,14 @@ namespace StormSwitchBox.Services
                         CreateNoWindow = true
                     };
                     using var proc = Process.Start(psi);
-                    proc?.WaitForExit(30000);
+                    if (proc != null)
+                    {
+                        proc.OutputDataReceived += static (_, _) => { };
+                        proc.ErrorDataReceived += static (_, _) => { };
+                        proc.BeginOutputReadLine();
+                        proc.BeginErrorReadLine();
+                        if (!proc.WaitForExit(30000)) { try { proc.Kill(true); } catch { } }
+                    }
                 }
 
                 App.Logger.Log($"[HardPatchEngine] hactoolnet ExeFS extraction check completed.", Models.LogLevel.Info);
@@ -2076,7 +2093,18 @@ namespace StormSwitchBox.Services
                     };
                     psi.EnvironmentVariables["USERPROFILE"] = isolatedUserProfile;
                     using var proc = Process.Start(psi);
-                    proc?.WaitForExit(120000);
+                    if (proc != null)
+                    {
+                        proc.OutputDataReceived += static (_, _) => { };
+                        proc.ErrorDataReceived += static (_, _) => { };
+                        proc.BeginOutputReadLine();
+                        proc.BeginErrorReadLine();
+                        if (!proc.WaitForExit(240000))
+                        {
+                            try { proc.Kill(true); } catch { }
+                            try { if (Directory.Exists(targetRomFs)) Directory.Delete(targetRomFs, true); Directory.CreateDirectory(targetRomFs); } catch { }
+                        }
+                    }
                 }
 
                 if (!string.IsNullOrEmpty(updateFile) && File.Exists(updateFile))
@@ -2093,7 +2121,17 @@ namespace StormSwitchBox.Services
                     };
                     psi.EnvironmentVariables["USERPROFILE"] = isolatedUserProfile;
                     using var proc = Process.Start(psi);
-                    proc?.WaitForExit(120000);
+                    if (proc != null)
+                    {
+                        proc.OutputDataReceived += static (_, _) => { };
+                        proc.ErrorDataReceived += static (_, _) => { };
+                        proc.BeginOutputReadLine();
+                        proc.BeginErrorReadLine();
+                        if (!proc.WaitForExit(180000))
+                        {
+                            try { proc.Kill(true); } catch { }
+                        }
+                    }
                 }
 
                 App.Logger.Log($"[HardPatchEngine] hactoolnet RomFS extraction check completed.", Models.LogLevel.Info);
@@ -2205,7 +2243,14 @@ namespace StormSwitchBox.Services
                                                         RedirectStandardError = true
                                                     };
                                                     using var p = Process.Start(psi);
-                                                    p?.WaitForExit(30000);
+                                                    if (p != null)
+                                                    {
+                                                        p.OutputDataReceived += static (_, _) => { };
+                                                        p.ErrorDataReceived += static (_, _) => { };
+                                                        p.BeginOutputReadLine();
+                                                        p.BeginErrorReadLine();
+                                                        if (!p.WaitForExit(30000)) { try { p.Kill(true); } catch { } }
+                                                    }
                                                     var builtNcas = Directory.GetFiles(ctrlOutDir, "*.nca");
                                                     if (builtNcas.Length > 0 && new FileInfo(builtNcas[0]).Length > 0)
                                                     {
@@ -2222,6 +2267,9 @@ namespace StormSwitchBox.Services
                                         {
                                             App.Logger.Log($"[HardPatchEngine] Предупреждение пересборки Control NCA: {rex.Message}", Models.LogLevel.Warning);
                                         }
+                                        // Не допускаем записи сырого Control NCA с чужим TitleID (...800) или TitleRights без тикета — переходим к следующему источнику (baseFile)
+                                        if ((rawTid & 0xFFFUL) != 0)
+                                            continue;
                                     }
 
                                     using var outStream = new FileStream(controlPath, FileMode.Create, FileAccess.Write);
@@ -2300,6 +2348,10 @@ namespace StormSwitchBox.Services
         {
             if (!string.IsNullOrEmpty(App.Settings?.Current?.KeysPath) && File.Exists(App.Settings.Current.KeysPath))
                 return App.Settings.Current.KeysPath;
+            if (!string.IsNullOrEmpty(App.Keys?.KeysFilePath) && File.Exists(App.Keys.KeysFilePath))
+                return App.Keys.KeysFilePath;
+            string localKeys = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "StormSwitchBox", "keys", "prod.keys");
+            if (File.Exists(localKeys)) return localKeys;
             string def = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "prod.keys");
             if (File.Exists(def)) return def;
             return null;
@@ -2427,50 +2479,70 @@ namespace StormSwitchBox.Services
             KeysService keysService,
             CancellationToken token)
         {
+            // Очищаем остатки незавершённой распаковки yanu-cli unpack, чтобы исключить неполный или дублированный RomFS
+            try
+            {
+                if (Directory.Exists(tempUnpack)) Directory.Delete(tempUnpack, true);
+            }
+            catch { }
+
             string patchRomFs = System.IO.Path.Combine(tempUnpack, "patchdata", "romfs");
             string patchExeFs = System.IO.Path.Combine(tempUnpack, "patchdata", "exefs");
             Directory.CreateDirectory(patchRomFs);
             Directory.CreateDirectory(patchExeFs);
 
-            // 1. Сначала пробуем hactoolnet (распаковывает RomFS и ExeFS из Base, затем поверх накатывает Update)
-            ExtractRomFsWithHactoolnet(baseFile, updateFile, patchRomFs, keysPath, isolatedUserProfile);
+            // 1. Сначала извлекаем напрямую через нативный LibHac Virtual FS в памяти (без риска зависания stdout-пайпа hactoolnet и с авто-харвестингом тикетов)
+            await Task.Run(() => ExtractLibHacRomFsAndExeFs(baseFile, updateFile, patchRomFs, patchExeFs, keysService, token), token);
 
-            string? hactoolnetPath = FindHactoolnet();
-            if (!string.IsNullOrEmpty(hactoolnetPath) && File.Exists(hactoolnetPath))
+            // 2. Только если после LibHac каталог RomFS или ExeFS пуст — используем резервный hactoolnet с чтением пайпов
+            if (!Directory.EnumerateFileSystemEntries(patchRomFs).Any())
             {
-                try
-                {
-                    string titleKeysPath = System.IO.Path.Combine(isolatedUserProfile, ".switch", "title.keys");
-                    if (!File.Exists(titleKeysPath))
-                        titleKeysPath = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "title.keys");
-                    string tkFlag = File.Exists(titleKeysPath) ? $"--titlekeys \"{titleKeysPath}\" " : "";
-                    string kFlag = (!string.IsNullOrEmpty(keysPath) && File.Exists(keysPath)) ? $"-k \"{keysPath}\" " : "";
-
-                    foreach (var srcFile in new[] { baseFile, updateFile })
-                    {
-                        if (string.IsNullOrEmpty(srcFile) || !File.Exists(srcFile)) continue;
-                        string tFlag = (srcFile.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) || srcFile.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase)) ? "-t xci" : "-t pfs0";
-                        var psi = new ProcessStartInfo
-                        {
-                            FileName = hactoolnetPath,
-                            Arguments = $"{kFlag}{tkFlag}{tFlag} --exefsdir \"{patchExeFs}\" \"{srcFile}\"",
-                            UseShellExecute = false,
-                            RedirectStandardOutput = true,
-                            RedirectStandardError = true,
-                            CreateNoWindow = true
-                        };
-                        psi.EnvironmentVariables["USERPROFILE"] = isolatedUserProfile;
-                        using var proc = Process.Start(psi);
-                        if (proc != null) await proc.WaitForExitAsync(token);
-                    }
-                }
-                catch { }
+                ExtractRomFsWithHactoolnet(baseFile, updateFile, patchRomFs, keysPath ?? "", isolatedUserProfile);
             }
 
-            // 2. Извлекаем через LibHac Virtual FS из Base и Update (включая Program NCA без BKTR и BKTR с BaseNca)
-            ExtractLibHacRomFsAndExeFs(baseFile, updateFile, patchRomFs, patchExeFs, keysService, token);
+            if (!File.Exists(System.IO.Path.Combine(patchExeFs, "main.npdm")))
+            {
+                string? hactoolnetPath = FindHactoolnet();
+                if (!string.IsNullOrEmpty(hactoolnetPath) && File.Exists(hactoolnetPath))
+                {
+                    try
+                    {
+                        string titleKeysPath = System.IO.Path.Combine(isolatedUserProfile, ".switch", "title.keys");
+                        if (!File.Exists(titleKeysPath))
+                            titleKeysPath = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "title.keys");
+                        string tkFlag = File.Exists(titleKeysPath) ? $"--titlekeys \"{titleKeysPath}\" " : "";
+                        string kFlag = (!string.IsNullOrEmpty(keysPath) && File.Exists(keysPath)) ? $"-k \"{keysPath}\" " : "";
 
-            // 3. Извлекаем и перепаковываем Control NCA из Update (с версией 1.0.2 и базовым TitleID)
+                        foreach (var srcFile in new[] { baseFile, updateFile })
+                        {
+                            if (string.IsNullOrEmpty(srcFile) || !File.Exists(srcFile)) continue;
+                            string tFlag = (srcFile.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) || srcFile.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase)) ? "-t xci" : "-t pfs0";
+                            var psi = new ProcessStartInfo
+                            {
+                                FileName = hactoolnetPath,
+                                Arguments = $"{kFlag}{tkFlag}{tFlag} --exefsdir \"{patchExeFs}\" \"{srcFile}\"",
+                                UseShellExecute = false,
+                                RedirectStandardOutput = true,
+                                RedirectStandardError = true,
+                                CreateNoWindow = true
+                            };
+                            psi.EnvironmentVariables["USERPROFILE"] = isolatedUserProfile;
+                            using var proc = Process.Start(psi);
+                            if (proc != null)
+                            {
+                                proc.OutputDataReceived += static (_, _) => { };
+                                proc.ErrorDataReceived += static (_, _) => { };
+                                proc.BeginOutputReadLine();
+                                proc.BeginErrorReadLine();
+                                await proc.WaitForExitAsync(token);
+                            }
+                        }
+                    }
+                    catch { }
+                }
+            }
+
+            // 3. Извлекаем и перепаковываем Control NCA из Update (с актуальной версией и базовым TitleID без TitleRights)
             ExtractControlNcaIfMissing(baseFile, updateFile, tempUnpack, keysService);
         }
 
@@ -3421,11 +3493,8 @@ namespace StormSwitchBox.Services
                             finalItems.Add((pfsEntries[idx].Name, pfsEntries[idx].Size, idx, null));
                     }
 
-                    if (!string.IsNullOrEmpty(extraCnmtRebuiltPath) && File.Exists(extraCnmtRebuiltPath))
-                    {
-                        // Внедряем 4 KB Patch CNMT (...800.cnmt.nca) рядом с Base CNMT (...000.cnmt.nca)
-                        finalItems.Add((extraCnmtRebuiltName!, extraCnmtRebuiltSize, -1, extraCnmtRebuiltPath));
-                    }
+                    // Монолитный NSP содержит только единый Program NCA (...000) и Application CNMT (...000.cnmt.nca) с обновлённым TitleVersion.
+                    // Дублирующий Patch CNMT (...800.cnmt.nca) НЕ внедряется, чтобы эмулятор Eden не пытался монтировать отсутствующие разделы патча.
 
                     using var strMs = new MemoryStream();
                     var strOffsets = new int[finalItems.Count];

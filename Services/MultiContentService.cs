@@ -342,7 +342,7 @@ namespace StormSwitchBox.Services
                             if (System.IO.File.Exists(tempHardPatchedNsp))
                             {
                                 long patchedSize = new FileInfo(tempHardPatchedNsp).Length;
-                                long minValidSize = Math.Min(25L * 1024 * 1024, (long)(baseSize * 0.2));
+                                long minValidSize = Math.Max(4L * 1024 * 1024, (long)(baseSize * 0.65));
                                 // Валидация: если исходная база > 50 МБ, а результат хардпатча меньше минимального порога (20% базы или < 25 МБ) — это поврежденный огрызок без RomFS!
                                 if (baseSize > 50 * 1024 * 1024 && patchedSize < minValidSize)
                                 {

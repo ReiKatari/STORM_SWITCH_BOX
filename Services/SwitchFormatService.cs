@@ -284,10 +284,10 @@ namespace StormSwitchBox.Services
                     info.TitleId = b.Tid.ToUpperInvariant();
                     info.ContentType = "Application";
                     info.Version = b.Ver.ToString();
-                    info.EmbeddedPatchVersion = 0;
-                    info.IsMonolithicHardPatch = false;
+                    info.EmbeddedPatchVersion = b.Ver > 0 ? b.Ver : 0;
+                    info.IsMonolithicHardPatch = b.Ver > 0 && !hasSeparatePatchProg;
                     info.BaseTitleId = b.Tid.ToUpperInvariant();
-                    App.Logger.Log($"[LibHac] Распознан чистый Base контент: {info.TitleId} | v{info.Version}", Models.LogLevel.Info);
+                    App.Logger.Log($"[LibHac] Распознан Base контент: {info.TitleId} | v{info.Version} (Монолит: {info.IsMonolithicHardPatch})", Models.LogLevel.Info);
                 }
                 else if (patchCnmts.Count > 0)
                 {
