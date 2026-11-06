@@ -3944,13 +3944,9 @@ namespace StormSwitchBox.Services
         {
             Directory.CreateDirectory(saveDirectory);
 
-            string dhtCacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "STORM SWITCH BOX", "dht_cache");
-            string sessionCacheDir = Path.Combine(dhtCacheDir, "session_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(sessionCacheDir);
-            var engine = CreateDownloadEngine(sessionCacheDir);
             var torrentSettings = new TorrentSettingsBuilder
             {
-                MaximumConnections = 350,
+                MaximumConnections = 300,
                 UploadSlots = 64,
                 AllowDht = true,
                 AllowPeerExchange = true
@@ -3998,6 +3994,35 @@ namespace StormSwitchBox.Services
             if (qbitResult != null && qbitResult.Count > 0)
             {
                 return qbitResult;
+            }
+
+            ClientEngine engine;
+            bool isTemporaryEngine = false;
+            string? temporarySessionDir = null;
+
+            var sharedEngine = GetOrCreateSharedQueueEngine();
+            bool hashAlreadyInShared = false;
+            if (!string.IsNullOrEmpty(currentHash))
+            {
+                lock (_queueEngineLock)
+                {
+                    hashAlreadyInShared = sharedEngine.Torrents.Any(t =>
+                        string.Equals(t.InfoHashes.V1OrV2.ToHex(), currentHash, StringComparison.OrdinalIgnoreCase) ||
+                        (t.Torrent != null && string.Equals(t.Torrent.InfoHashes.V1OrV2.ToHex(), currentHash, StringComparison.OrdinalIgnoreCase)));
+                }
+            }
+
+            if (hashAlreadyInShared)
+            {
+                string dhtCacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "STORM SWITCH BOX", "dht_cache");
+                temporarySessionDir = Path.Combine(dhtCacheDir, "session_" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(temporarySessionDir);
+                engine = CreateTemporaryFallbackEngine(temporarySessionDir);
+                isTemporaryEngine = true;
+            }
+            else
+            {
+                engine = sharedEngine;
             }
 
             TorrentManager manager;
@@ -4067,7 +4092,7 @@ namespace StormSwitchBox.Services
 
             try
             {
-                while (!manager.Complete && manager.State != TorrentState.Seeding && !ct.IsCancellationRequested)
+                while (!ct.IsCancellationRequested)
                 {
                     // Пока сидов < 15 или скорость < 2.5 МБ/с, каждые 3 секунды инжектим пул обнаруженных HTTP/UDP/DHT пиров в активный TorrentManager
                     double elapsedReinject = (System.Diagnostics.Stopwatch.GetTimestamp() - lastReinjectTicks) / (double)System.Diagnostics.Stopwatch.Frequency;
@@ -4101,12 +4126,22 @@ namespace StormSwitchBox.Services
                         }
                     }
 
-                    // Поддержка паузы (Pause Token)
+                    // Поддержка настоящей паузы MonoTorrent
                     if (pauseEvent != null && !pauseEvent.IsSet)
                     {
+                        if (manager.State == TorrentState.Downloading || manager.State == TorrentState.Metadata)
+                        {
+                            try { await manager.PauseAsync().ConfigureAwait(false); } catch { }
+                        }
+
                         while (!pauseEvent.IsSet && !ct.IsCancellationRequested)
                         {
                             await Task.Delay(250, ct).ConfigureAwait(false);
+                        }
+
+                        if (!ct.IsCancellationRequested && (manager.State == TorrentState.Paused || manager.State == TorrentState.Stopped))
+                        {
+                            try { await manager.StartAsync().ConfigureAwait(false); } catch { }
                         }
                         // Сброс таймера застревания (stall timer) при возобновлении
                         lastProgressTicks = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -4115,13 +4150,42 @@ namespace StormSwitchBox.Services
                     if (!prioritiesAppliedAfterMetadata && manager.HasMetadata)
                     {
                         prioritiesAppliedAfterMetadata = true;
-                        if (fileSelections.Count > 0)
+                        if (fileSelections != null && fileSelections.Count > 0)
                         {
                             await ApplyFilePrioritiesAsync(manager, fileSelections).ConfigureAwait(false);
                         }
                     }
 
-                    double pct = manager.Progress;
+                    long totalWantedBytes = 0;
+                    long downloadedWantedBytes = 0;
+                    var wantedFiles = new List<ITorrentManagerFile>();
+                    if (manager.HasMetadata && manager.Files.Count > 0)
+                    {
+                        foreach (var tf in manager.Files)
+                        {
+                            if (tf.Priority != Priority.DoNotDownload)
+                            {
+                                wantedFiles.Add(tf);
+                                totalWantedBytes += tf.Length;
+                                downloadedWantedBytes += (long)(tf.Length * (tf.BitField.PercentComplete / 100.0));
+                            }
+                        }
+                    }
+                    if (totalWantedBytes <= 0 && manager.Torrent != null)
+                    {
+                        totalWantedBytes = manager.Torrent.Size;
+                        downloadedWantedBytes = (long)(totalWantedBytes * (manager.Progress / 100.0));
+                    }
+
+                    double pct = 0.0;
+                    if (manager.HasMetadata)
+                    {
+                        pct = totalWantedBytes > 0
+                            ? Math.Max(manager.PartialProgress, (downloadedWantedBytes * 100.0) / totalWantedBytes)
+                            : manager.PartialProgress;
+                    }
+                    pct = Math.Clamp(pct, 0.0, 100.0);
+
                     double speedMb = manager.Monitor.DownloadRate / (1024.0 * 1024.0);
                     int seeds = manager.Peers.Seeds;
                     int leechs = manager.Peers.Leechs;
@@ -4136,25 +4200,6 @@ namespace StormSwitchBox.Services
                             ? $"{topicLabel}: пауза ({pct:F1}% | {seedsStr}, Пиры: {leechs})"
                             : $"{topicLabel}: скачивание {pct:F1}% ({speedMb:F2} МБ/с | {seedsStr}, Пиры: {leechs})");
 
-                    long totalWantedBytes = 0;
-                    long downloadedWantedBytes = 0;
-                    if (manager.HasMetadata && manager.Files.Count > 0)
-                    {
-                        foreach (var tf in manager.Files)
-                        {
-                            if (tf.Priority != Priority.DoNotDownload)
-                            {
-                                totalWantedBytes += tf.Length;
-                                downloadedWantedBytes += (long)(tf.Length * (tf.BitField.PercentComplete / 100.0));
-                            }
-                        }
-                    }
-                    if (totalWantedBytes <= 0 && manager.Torrent != null)
-                    {
-                        totalWantedBytes = manager.Torrent.Size;
-                        downloadedWantedBytes = (long)(totalWantedBytes * (pct / 100.0));
-                    }
-
                     progress?.Report(new TorrentDownloadProgress
                     {
                         Percent = pct,
@@ -4168,6 +4213,7 @@ namespace StormSwitchBox.Services
                         StatusText = stateStr
                     });
 
+                    // Динамическая адаптация без падений по тайм-ауту: при отсутствии прогресса > 20 с ре-анонсим трекеры и инжектим DHT
                     if (pct > lastProgressRatio || speedMb > 0.05)
                     {
                         lastProgressRatio = pct;
@@ -4175,25 +4221,43 @@ namespace StormSwitchBox.Services
                     }
                     else
                     {
-                        // Проверка таймера застревания только когда задача НЕ на паузе
                         if (pauseEvent == null || pauseEvent.IsSet)
                         {
                             double elapsedSec = (System.Diagnostics.Stopwatch.GetTimestamp() - lastProgressTicks) / (double)System.Diagnostics.Stopwatch.Frequency;
-                            if (elapsedSec > stallTimeoutSec)
+                            if (elapsedSec >= 20.0)
                             {
-                                throw new TimeoutException($"Скачивание остановилось: за {stallTimeoutSec} с не получено данных (пиров: {leechs}, сидов: {seeds})");
+                                lastProgressTicks = System.Diagnostics.Stopwatch.GetTimestamp();
+                                try { _ = manager.TrackerManager.AnnounceAsync(ct); } catch { }
+                                if (!string.IsNullOrEmpty(currentHash))
+                                {
+                                    _ = Task.Run(() => HarvestPeersFromHttpTrackersAsync(currentHash, manager, ct));
+                                    _ = Task.Run(() => InjectPeersViaTurboDhtAsync(currentHash, manager, ct));
+                                }
                             }
                         }
                     }
 
                     if (manager.HasMetadata && manager.Files.Count > 0)
                     {
-                        bool allSelectedDone = manager.Files
-                            .Where(f => f.Priority != Priority.DoNotDownload)
-                            .All(f => f.BitField.AllTrue);
+                        bool allSelectedDone = wantedFiles.Count > 0
+                            ? wantedFiles.All(f => f.BitField.AllTrue)
+                            : (manager.PartialProgress >= 99.99 || manager.Progress >= 99.99);
 
-                        if (allSelectedDone && fileSelections.Any(x => x.IsSelected))
+                        if ((allSelectedDone || manager.PartialProgress >= 99.99 || manager.State == TorrentState.Seeding) &&
+                            fileSelections.Any(x => x.IsSelected))
                         {
+                            progress?.Report(new TorrentDownloadProgress
+                            {
+                                Percent = 100.0,
+                                SpeedMbPerSec = 0,
+                                Seeds = seeds,
+                                Peers = leechs,
+                                SwarmTotal = swarmTotal,
+                                DownloadedBytes = totalWantedBytes,
+                                TotalBytes = totalWantedBytes,
+                                IsMetadataPhase = false,
+                                StatusText = $"{topicLabel}: скачивание завершено (100.0%)"
+                            });
                             break;
                         }
                     }
@@ -4213,7 +4277,8 @@ namespace StormSwitchBox.Services
                     var selectedRelSet = fileSelections != null && fileSelections.Count > 0
                         ? fileSelections
                             .Where(f => f.IsSelected)
-                            .Select(f => f.RelativePath.Replace('/', '\\').Trim('\\'))
+                            .SelectMany(f => f.GetEffectiveRelativePaths())
+                            .Select(f => f.Replace('/', '\\').Trim('\\'))
                             .ToHashSet(StringComparer.OrdinalIgnoreCase)
                         : null;
 
@@ -4249,7 +4314,8 @@ namespace StormSwitchBox.Services
                     var selectedRelSet = fileSelections != null && fileSelections.Count > 0
                         ? fileSelections
                             .Where(f => f.IsSelected)
-                            .Select(f => f.RelativePath.Replace('/', '\\').Trim('\\'))
+                            .SelectMany(f => f.GetEffectiveRelativePaths())
+                            .Select(f => f.Replace('/', '\\').Trim('\\'))
                             .ToHashSet(StringComparer.OrdinalIgnoreCase)
                         : null;
 
@@ -4313,21 +4379,26 @@ namespace StormSwitchBox.Services
             }
             finally
             {
-                try { await manager.StopAsync().ConfigureAwait(false); } catch { }
+                if (manager != null)
+                {
+                    try { await manager.StopAsync().ConfigureAwait(false); } catch { }
+                    try { await engine.RemoveAsync(manager).ConfigureAwait(false); } catch { }
+                }
                 _activeManagers.TryRemove(mgrKey, out _);
                 if (_activeManager == manager) _activeManager = null;
-                try
+                if (isTemporaryEngine)
                 {
-                    await engine.StopAllAsync().ConfigureAwait(false);
-                    engine.Dispose();
+                    try { engine.Dispose(); } catch { }
+                    if (!string.IsNullOrEmpty(temporarySessionDir))
+                    {
+                        try
+                        {
+                            if (Directory.Exists(temporarySessionDir))
+                                Directory.Delete(temporarySessionDir, true);
+                        }
+                        catch { }
+                    }
                 }
-                catch { }
-                try
-                {
-                    if (Directory.Exists(sessionCacheDir))
-                        Directory.Delete(sessionCacheDir, true);
-                }
-                catch { }
             }
         }
 
@@ -5082,7 +5153,63 @@ namespace StormSwitchBox.Services
         private static ClientEngine? _sharedTorrentEngine;
         private static readonly object _engineLock = new();
 
-        private static ClientEngine CreateDownloadEngine(string sessionCacheDir)
+        private static ClientEngine? _sharedQueueEngine;
+        private static readonly object _queueEngineLock = new();
+
+        public static ClientEngine GetOrCreateSharedQueueEngine()
+        {
+            if (_sharedQueueEngine != null)
+                return _sharedQueueEngine;
+
+            lock (_queueEngineLock)
+            {
+                if (_sharedQueueEngine != null)
+                    return _sharedQueueEngine;
+
+                string dhtCacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "STORM SWITCH BOX", "dht_cache");
+                string sharedCacheDir = Path.Combine(dhtCacheDir, "shared_engine");
+                Directory.CreateDirectory(sharedCacheDir);
+
+                var encList = new List<MonoTorrent.Connections.EncryptionType>
+                {
+                    MonoTorrent.Connections.EncryptionType.RC4Full,
+                    MonoTorrent.Connections.EncryptionType.RC4Header,
+                    MonoTorrent.Connections.EncryptionType.PlainText
+                };
+
+                var listenEps = new Dictionary<string, IPEndPoint>
+                {
+                    ["ipv4"] = new IPEndPoint(IPAddress.Any, 0)
+                };
+
+                var engineSettings = new EngineSettingsBuilder
+                {
+                    CacheDirectory = sharedCacheDir,
+                    AllowedEncryption = encList,
+                    ListenEndPoints = listenEps,
+                    AllowPortForwarding = true,
+                    AllowLocalPeerDiscovery = true,
+                    UsePartialFiles = false,
+                    MaximumConnections = 300,
+                    MaximumDownloadRate = 0,
+                    MaximumUploadRate = 0,
+                    MaximumHalfOpenConnections = 60,
+                    MaximumOpenFiles = 256,
+                    MaximumDiskReadRate = 0,
+                    MaximumDiskWriteRate = 0,
+                    DiskCacheBytes = 64 * 1024 * 1024,
+                    DhtEndPoint = new IPEndPoint(IPAddress.Any, 0),
+                    AutoSaveLoadDhtCache = true,
+                    AutoSaveLoadFastResume = true,
+                    AutoSaveLoadMagnetLinkMetadata = true
+                }.ToSettings();
+
+                _sharedQueueEngine = new ClientEngine(engineSettings);
+                return _sharedQueueEngine;
+            }
+        }
+
+        private static ClientEngine CreateTemporaryFallbackEngine(string sessionCacheDir)
         {
             var encList = new List<MonoTorrent.Connections.EncryptionType>
             {
@@ -5101,17 +5228,17 @@ namespace StormSwitchBox.Services
                 CacheDirectory = sessionCacheDir,
                 AllowedEncryption = encList,
                 ListenEndPoints = listenEps,
-                AllowPortForwarding = true,
-                AllowLocalPeerDiscovery = true,
+                AllowPortForwarding = false,
+                AllowLocalPeerDiscovery = false,
                 UsePartialFiles = false,
-                MaximumConnections = 400,
+                MaximumConnections = 150,
                 MaximumDownloadRate = 0,
                 MaximumUploadRate = 0,
-                MaximumHalfOpenConnections = 150,
-                MaximumOpenFiles = 256,
+                MaximumHalfOpenConnections = 30,
+                MaximumOpenFiles = 128,
                 MaximumDiskReadRate = 0,
                 MaximumDiskWriteRate = 0,
-                DiskCacheBytes = 128 * 1024 * 1024,
+                DiskCacheBytes = 32 * 1024 * 1024,
                 DhtEndPoint = new IPEndPoint(IPAddress.Any, 0),
                 AutoSaveLoadDhtCache = false,
                 AutoSaveLoadFastResume = false,
@@ -5120,6 +5247,8 @@ namespace StormSwitchBox.Services
 
             return new ClientEngine(engineSettings);
         }
+
+        private static ClientEngine CreateDownloadEngine(string sessionCacheDir) => CreateTemporaryFallbackEngine(sessionCacheDir);
 
         private static ClientEngine GetOrCreateEngine(string cacheDirectory)
         {
@@ -5481,11 +5610,13 @@ namespace StormSwitchBox.Services
             {
                 // Сопоставление строго по реальным путям/именам файлов
                 var selLookup = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
-                foreach (var item in fileSelections.Where(x => x.IsRealTorrentFile))
+                foreach (var item in fileSelections)
                 {
                     foreach (var effPath in item.GetEffectiveRelativePaths())
                     {
-                        selLookup[effPath.Replace('\\', '/')] = item.IsSelected;
+                        string normEff = effPath.Replace('\\', '/').Trim('/');
+                        selLookup[normEff] = item.IsSelected;
+                        selLookup[Path.GetFileName(normEff)] = item.IsSelected;
                     }
                 }
 

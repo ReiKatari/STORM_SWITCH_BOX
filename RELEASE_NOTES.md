@@ -1,40 +1,37 @@
-> 💡 **Релиз 7.0.0** — *Комплексная оболочка, ROM-комбайн, пакетный конвертер и студия модификаций для Nintendo Switch и Nintendo 3DS.*
+> 💡 **Релиз 7.0.1** — *Комплексная оболочка, ROM-комбайн, пакетный конвертер и студия модификаций для Nintendo Switch и Nintendo 3DS.*
 
 ---
 
 ### 🚀 Ключевые изменения и улучшения
-- 🌟 **[RuTracker: нормализация TitleID Switch и связывание DLC]**: Добавлен метод `NormalizeSwitchBaseApplicationTitleId`, математически вычисляющий базовый TitleID для обновлений (`...800`) и DLC (`(val & mask) - 0x1000`), объединяя базу, патчи и дополнения (*Assassin's Creed III Remastered* и DLC *Liberation*) в один слот.
-- 🌟 **[RuTracker: авто-детекция и защита от фантомных игр]**: `DiscoverGameTitlesFromFiles` группирует слоты только по базовым играм (`CategoryBadge == "ИГРА"`), не создавая ложные слоты для DLC; текстовая эвристика игнорирует слэши внутри скобок и дополнения после ` + `.
-- 🌟 **[RuTracker: ручное объединение слотов игр на лету]**: На каждом слоте внедрён выпадающий список (ComboBox): выбор другого номера мгновенно объединяет все файлы, ссылки и метаданные в целевой слот без дыр в нумерации.
-- 🌟 **[RuTracker: сворачивание папок распакованных модов в одну запись]**: Распакованные папки русификаторов (`atmosphere/contents/...`, `romfs/`, `exefs/`, как в *Cadence of Hyrule*) сворачиваются в одну строку `МОД / РУСИФИКАТОР` с суммарным размером и сохранением привязки `DetectedTitleId`.
-- 🌟 **[RuTracker UI: расширение списка файлов раздачи]**: Блок «Файлы в раздаче» расширен влево под список раздач (`Grid.ColumnSpan="2"`), предоставляя более 1120 пикселей ширины для полного отображения путей и бейджей.
-- 🌟 **[RuTracker UI: устранение моргания при параллельных закачках]**: Внедрён список активных загрузок с отдельной строкой на каждую игру, независимыми прогрессбарами, кнопками отмены и общим ровным индикатором скорости.
-- 🌟 **[RuTracker UI: гарантированная очистка ссылок]**: При смене темы список внешних ссылок мгновенно очищается, исключая отображение ссылок от предыдущей раздачи.
+- 🌟 **[RuTracker: Глобальный менеджер очереди и планировщик (до 2 параллельных закачек)]**: Внедрён долговечный синглтон-сервис `RuTrackerDownloadQueueService`, сохраняющий и отображающий список всех закачек даже при закрытии и повторном открытии диалога. Планировщик автоматически поддерживает до 2 одновременных закачек на полной скорости канала без перегрузки сокетов TCP/NAT роутера, плавно запуская следующие задачи из очереди.
+- 🌟 **[RuTracker: Динамический расчёт прогресса 0..100% при выборочной загрузке]**: Исправлена ошибка зависания прогресса при выборе части файлов торрента (напр. 60.1% в *Cadence of Hyrule*). Процент вычисляется строго по выбранным файлам, динамически доходя до 100.0% с автоматическим переходом на этапы загрузки модов, сборки и успешного завершения.
+- 🌟 **[RuTracker: Полное интерактивное управление очередью (Пауза, Вверх, Вниз, Отмена)]**: На каждой строке добавлены 4 компактные векторные кнопки управления (Single Icon Mandate): мгновенная пауза/возобновление (`TorrentManager.PauseAsync`), перемещение вверх и вниз по приоритету с мягким вытеснением (`PauseForPreemption`), отмена и очистка. В шапку добавлены кнопки пакетного управления «Пауза все», «Продолжить все», «Очистить готовые».
+- 🌟 **[RuTracker: Отображение статуса «СБОРКА» и сквозная телеметрия]**: Статус сборки контейнера отображается прямо в строке загрузки (`СБОРКА`), гарантируя прозрачность для пользователя после завершения скачивания. Глобальный UI-таймер (250 мс) непрерывно синхронизирует прогресс и скорость строк и задач в основном планировщике независимо от открытия диалога.
+- 🌟 **[RuTracker: Сохранение путей группировки модов и устойчивость к просадкам]**: При клонировании файлов торрента полностью сохраняются `GroupedRelativePaths`, `DetectedTitleId` и `DisplayPath`. Устранены фатальные `TimeoutException` — при просадке скорости сервис автоматически запрашивает анонсы трекеров и собирает пиры через DHT.
 
 <details>
 <summary><b>📋 Полный список изменений (нажмите, чтобы развернуть)</b></summary>
 
-- 🔹 **[NormalizeSwitchBaseApplicationTitleId]**: Алгоритмический расчёт базового Application TitleID по маске `0xFFFFFFFFFFFFF000 - 0x1000` для DLC и `...000` для обновлений.
-- 🔹 **[DiscoverGameTitlesFromFiles]**: Фильтрация слотов исключительно по настоящим базовым играм, исключая дублирование DLC слотов.
-- 🔹 **[GameSlotNumberCombo_SelectionChanged & MergeGameSlotIntoTarget]**: Интерактивное слияние слотов игр прямо в интерфейсе раздачи.
-- 🔹 **[CollapseModFoldersIntoSingleEntries]**: Умное объединение сотен файлов распакованных модов в единый элемент с сохранением всех путей через `GetEffectiveRelativePaths()`.
-- 🔹 **[Layout Grid.Row 3 & 4]**: 2-строчная сетка рабочих карточек с широким списком файлов и панелью загрузок без мерцания.
-- 🔹 **[RuTrackerActiveDownloadItem & UiAggregationTimer]**: Реактивная потокобезопасная агрегация телеметрии P2P и облака каждые 300 мс.
-- 🔹 **[LocalizationService.UiTree]**: 100% перевод всех новых элементов интерфейса на 6 поддерживаемых языков.
+- 🔹 **[RuTrackerDownloadQueueService]**: Полнофункциональный менеджер очереди закачек с персистентным сохранением состояния в `rutracker_download_queue.json`.
+- 🔹 **[Smart Queue Concurrency]**: Лимит `MaxConcurrentDownloads = 2` с автоматической активацией задач со статусом `В ОЧЕРЕДИ`.
+- 🔹 **[MonoTorrent Dynamic Progress & True Pause]**: Вычисление `PartialProgress` и точных байт выбранных файлов, аппаратная пауза `manager.PauseAsync()` и возобновление `manager.StartAsync()`.
+- 🔹 **[Queue Preemption on Reorder]**: Динамический пересчёт приоритета очереди при нажатии кнопок «Вверх» / «Вниз» с вытеснением нижних задач в очередь.
+- 🔹 **[GroupedRelativePaths & TitleId Preservation]**: Полное копирование структуры файлов модов и TitleID в `ExecuteDownloadPipelineAsync`.
+- 🔹 **[UI Grid.Row 4 Overhaul]**: Просторная панель закачек (высота строк 30px, `ScrollViewer MinHeight="96" MaxHeight="156"`), сводка очередей и индикатор суммарного роя.
+- 🔹 **[Single Icon Mandate Controls]**: Строго по одной векторной иконке (`FontIcon`) на кнопках управления закачками без текстовых эмодзи.
+- 🔹 **[6-Language UI Localization]**: Добавлены переводы всех новых кнопок и подсказок в `LocalizationService.UiTree.cs`.
 
 </details>
 
 <details>
 <summary><b>🌐 English Changelog (click to expand)</b></summary>
 
-- 🔸 **[RuTracker Switch TitleID Normalization & DLC Linking]**: Added `NormalizeSwitchBaseApplicationTitleId` which computes the base 16-character TitleID for updates and DLCs, ensuring base games, patches, and add-ons are unified under the same game slot.
-- 🔸 **[RuTracker Phantom Slots Prevention]**: `DiscoverGameTitlesFromFiles` now groups only by real base game files (`CategoryBadge == "ИГРА"`), preventing DLCs from creating phantom second game slots. Text heuristic ignores slashes inside brackets and add-on names after ` + `.
-- 🔸 **[Manual Game Slot Merging UI]**: Added a styled dropdown on each game slot badge allowing users to merge slots (e.g. `GAME #2 -> GAME #1`) on the fly with automatic file, link, and metadata migration.
-- 🔸 **[Collapse Mod Folders into Single Entries]**: Folders with unpacked mod trees (`atmosphere/contents/...`) are automatically collapsed into a single `MOD / TRANSLATION` entry with total size calculation and unified multi-file download.
-- 🔸 **[Extended Torrent Files Panel]**: The files panel now spans columns 0 and 1 (`Grid.ColumnSpan="2"`) under the topic list (~1120+ px wide) for complete readability of long paths.
-- 🔸 **[Flicker-Free Multi-Download Manager]**: Clean items list with dedicated progress bars, speed metrics, cancel buttons per game, and an aggregated header speedometer.
-- 🔸 **[Instant Link Clearance on Topic Switch]**: Prevents stale links from previous releases from lingering when switching topics.
-- 🔸 **[Full 6-Language Localization]**: Complete coverage for all new UI text across English, German, French, Chinese, and Japanese.
+- 🔸 **[RuTracker Global Queue Service & Smart Scheduler]**: Introduced `RuTrackerDownloadQueueService` singleton which manages all downloads throughout the application lifecycle. Limits active downloads to 2 concurrent torrents, preventing TCP/NAT overload and automatically dispatching queued items as slots become available.
+- 🔸 **[Accurate 0..100% Selective Progress Calculation]**: Fixed progress getting stuck when selecting a subset of torrent files (e.g. 60.1% in *Cadence of Hyrule*). Progress is calculated strictly against selected bytes and advances smoothly all the way to 100.0%.
+- 🔸 **[Comprehensive Queue Controls (Pause, Move Up, Move Down, Cancel)]**: Added 4 vector icon buttons per download item adhering to Single Icon Mandate: pause/resume, priority reordering with preemption (`PauseForPreemption`), and cancellation. Added "Pause all", "Resume all", and "Clear finished" batch buttons in the panel header.
+- 🔸 **[Multi-Content Build Stage Display & Telemetry]**: The downloads list reflects the post-download multi-content building stage (`СБОРКА`) with dedicated telemetry. A 250 ms UI timer keeps tasks in `TasksViewModel` and download items synchronized even when the RuTracker dialog is closed.
+- 🔸 **[GroupedRelativePaths Preservation & Resilient Swarm Harvesting]**: Fixed loss of grouped paths and TitleIDs during file selection cloning. Replaced fatal timeout exceptions with automatic tracker re-announcements and DHT peer reinjection.
+- 🔸 **[Full 6-Language Localization]**: Complete localization across Russian, English, German, French, Chinese, and Japanese.
 
 </details>
 

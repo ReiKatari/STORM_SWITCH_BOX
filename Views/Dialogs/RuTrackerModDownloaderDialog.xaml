@@ -667,41 +667,74 @@
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
-                <!-- Верхняя строка: Сводка загрузок (слева) + Общая скорость скачивания и пиры (справа) -->
-                <Grid Grid.Row="0" ColumnSpacing="10">
+                <!-- Верхняя строка: Сводка загрузок и кнопки очереди (слева) + Общая скорость скачивания и пиры (справа) -->
+                <Grid Grid.Row="0" ColumnSpacing="8">
                     <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
+
                     <Border x:Name="StageBadgeBorder" Grid.Column="0" Background="#0284C7" CornerRadius="4" Padding="8,2" VerticalAlignment="Center">
                         <TextBlock x:Name="StageBadgeText" Text="ГОТОВ К РАБОТЕ" FontSize="10.5" Foreground="White" FontWeight="Bold"/>
                     </Border>
-                    <TextBlock x:Name="StatusText" Grid.Column="1" Text="Готов к поиску и загрузке игр или облачных модификаций." FontSize="12" Foreground="#38BDF8" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-                    <TextBlock x:Name="VolumeProgressText" Grid.Column="2" Text="" FontSize="11.5" Foreground="#E2E8F0" FontWeight="Bold" VerticalAlignment="Center"/>
-                    <TextBlock x:Name="SpeedPeersText" Grid.Column="3" Text="" FontSize="11.5" FontFamily="Consolas" Foreground="#22C55E" FontWeight="Bold" VerticalAlignment="Center"/>
+
+                    <TextBlock x:Name="StatusText" Grid.Column="1" Text="Готов к поиску и загрузке игр или облачных модификаций." FontSize="11.5" Foreground="#38BDF8" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+
+                    <!-- Компактные кнопки управления очередью -->
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" Margin="10,0,0,0">
+                        <Button x:Name="PauseAllDownloadsBtn" Click="PauseAllDownloads_Click"
+                                Padding="8,2" Height="24" MinHeight="24" CornerRadius="4" FontSize="10.5"
+                                ToolTipService.ToolTip="Приостановить все активные закачки">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <FontIcon Glyph="&#xE769;" FontSize="11"/>
+                                <TextBlock Text="Пауза все" FontSize="10.5"/>
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="ResumeAllDownloadsBtn" Click="ResumeAllDownloads_Click"
+                                Padding="8,2" Height="24" MinHeight="24" CornerRadius="4" FontSize="10.5"
+                                ToolTipService.ToolTip="Возобновить закачки в очереди">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <FontIcon Glyph="&#xE768;" FontSize="11"/>
+                                <TextBlock Text="Продолжить все" FontSize="10.5"/>
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="ClearFinishedDownloadsBtn" Click="ClearFinishedDownloads_Click"
+                                Padding="8,2" Height="24" MinHeight="24" CornerRadius="4" FontSize="10.5"
+                                ToolTipService.ToolTip="Очистить завершённые, отменённые и ошибочные закачки">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <FontIcon Glyph="&#xE74D;" FontSize="11"/>
+                                <TextBlock Text="Очистить готовые" FontSize="10.5"/>
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <TextBlock x:Name="VolumeProgressText" Text="" FontSize="11" Foreground="#E2E8F0" FontWeight="Bold" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="SpeedPeersText" Text="" FontSize="11.5" FontFamily="Consolas" Foreground="#22C55E" FontWeight="Bold" VerticalAlignment="Center"/>
+                    </StackPanel>
                 </Grid>
 
                 <!-- Список активных и добавленных закачек (отдельная аккуратная строка на каждую игру!) -->
-                <ScrollViewer x:Name="ActiveDownloadsScrollViewer" Grid.Row="1" MaxHeight="92" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
+                <ScrollViewer x:Name="ActiveDownloadsScrollViewer" Grid.Row="1" MinHeight="96" MaxHeight="156" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
                     <ItemsControl x:Name="ActiveDownloadsItemsControl">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <Border Background="#161F30" BorderBrush="#25354F" BorderThickness="1" CornerRadius="5" Padding="8,4" Margin="0,2">
+                                <Border Background="#161F30" BorderBrush="#25354F" BorderThickness="1" CornerRadius="5" Padding="6,3" Margin="0,2" Height="30">
                                     <Grid ColumnSpacing="8">
                                         <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="90"/>
                                             <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="140"/>
-                                            <ColumnDefinition Width="155"/>
+                                            <ColumnDefinition Width="135"/>
+                                            <ColumnDefinition Width="165"/>
                                             <ColumnDefinition Width="150"/>
                                             <ColumnDefinition Width="Auto"/>
                                         </Grid.ColumnDefinitions>
 
                                         <!-- 1. Бейдж этапа -->
-                                        <Border Grid.Column="0" Background="{Binding StageBrush}" CornerRadius="3" Padding="6,2" VerticalAlignment="Center">
-                                            <TextBlock Text="{Binding StageBadge}" FontSize="9.5" Foreground="White" FontWeight="Bold" VerticalAlignment="Center"/>
+                                        <Border Grid.Column="0" Background="{Binding StageBrush}" CornerRadius="3" Padding="6,2" VerticalAlignment="Center" HorizontalAlignment="Center">
+                                            <TextBlock Text="{Binding StageBadge}" FontSize="9.5" Foreground="White" FontWeight="Bold" VerticalAlignment="Center" TextAlignment="Center"/>
                                         </Border>
 
                                         <!-- 2. Название игры / раздачи -->
@@ -711,7 +744,7 @@
                                         <!-- 3. Ровный мини-прогрессбар -->
                                         <ProgressBar Grid.Column="2" Value="{Binding ProgressPercent}" Minimum="0" Maximum="100" Height="6" CornerRadius="3" VerticalAlignment="Center"/>
 
-                                        <!-- 4. Объём и % -->
+                                        <!-- 4. Объём и точный % -->
                                         <TextBlock Grid.Column="3" Text="{Binding ProgressDetails}" FontSize="10.5" FontFamily="Consolas" Foreground="#CBD5E1"
                                                    VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
 
@@ -719,11 +752,40 @@
                                         <TextBlock Grid.Column="4" Text="{Binding SpeedAndPeersText}" FontSize="10.5" FontFamily="Consolas" Foreground="#22C55E" FontWeight="SemiBold"
                                                    VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
 
-                                        <!-- 6. Кнопка отмены конкретной закачки -->
-                                        <Button Grid.Column="5" Content="✕" Click="CancelSingleBatch_Click" Tag="{Binding}"
-                                                Padding="6,1" FontSize="10" Height="22" MinHeight="22" CornerRadius="3"
-                                                Background="#7FDC2626" Foreground="White" VerticalAlignment="Center"
-                                                ToolTipService.ToolTip="Отменить эту закачку"/>
+                                        <!-- 6. 4 компактные векторные кнопки управления (Single Icon Mandate) -->
+                                        <StackPanel Grid.Column="5" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                            <!-- Пауза / Возобновить -->
+                                            <Button Click="TogglePauseQueueItem_Click" Tag="{Binding}"
+                                                    Padding="4,2" Width="26" Height="22" MinHeight="22" CornerRadius="3"
+                                                    Background="#25354F" Foreground="#38BDF8" VerticalAlignment="Center"
+                                                    ToolTipService.ToolTip="{Binding PauseResumeToolTip}">
+                                                <FontIcon Glyph="{Binding PauseResumeGlyph}" FontSize="11"/>
+                                            </Button>
+
+                                            <!-- Вверх в очереди -->
+                                            <Button Click="MoveQueueItemUp_Click" Tag="{Binding}"
+                                                    Padding="4,2" Width="26" Height="22" MinHeight="22" CornerRadius="3"
+                                                    Background="#25354F" Foreground="#CBD5E1" VerticalAlignment="Center"
+                                                    ToolTipService.ToolTip="Поднять выше в очереди закачек">
+                                                <FontIcon Glyph="&#xE74A;" FontSize="11"/>
+                                            </Button>
+
+                                            <!-- Вниз в очереди -->
+                                            <Button Click="MoveQueueItemDown_Click" Tag="{Binding}"
+                                                    Padding="4,2" Width="26" Height="22" MinHeight="22" CornerRadius="3"
+                                                    Background="#25354F" Foreground="#CBD5E1" VerticalAlignment="Center"
+                                                    ToolTipService.ToolTip="Опустить ниже в очереди закачек">
+                                                <FontIcon Glyph="&#xE74B;" FontSize="11"/>
+                                            </Button>
+
+                                            <!-- Отменить / Удалить -->
+                                            <Button Click="CancelSingleBatch_Click" Tag="{Binding}"
+                                                    Padding="4,2" Width="26" Height="22" MinHeight="22" CornerRadius="3"
+                                                    Background="#7FDC2626" Foreground="White" VerticalAlignment="Center"
+                                                    ToolTipService.ToolTip="Отменить закачку / убрать из списка">
+                                                <FontIcon Glyph="&#xE711;" FontSize="11"/>
+                                            </Button>
+                                        </StackPanel>
                                     </Grid>
                                 </Border>
                             </DataTemplate>

@@ -17,93 +17,6 @@ using WinRT.Interop;
 
 namespace StormSwitchBox.Views.Dialogs
 {
-    public sealed class RuTrackerActiveDownloadItem : CommunityToolkit.Mvvm.ComponentModel.ObservableObject
-    {
-        public string BatchId { get; set; } = string.Empty;
-
-        private string _displayTitle = string.Empty;
-        public string DisplayTitle
-        {
-            get => _displayTitle;
-            set => SetProperty(ref _displayTitle, value);
-        }
-
-        private string _stageBadge = "СКАЧИВАНИЕ";
-        public string StageBadge
-        {
-            get => _stageBadge;
-            set => SetProperty(ref _stageBadge, value);
-        }
-
-        private Microsoft.UI.Xaml.Media.SolidColorBrush _stageBrush = new(Windows.UI.Color.FromArgb(255, 2, 132, 199)); // #0284C7
-        public Microsoft.UI.Xaml.Media.SolidColorBrush StageBrush
-        {
-            get => _stageBrush;
-            set => SetProperty(ref _stageBrush, value);
-        }
-
-        private double _progressPercent;
-        public double ProgressPercent
-        {
-            get => _progressPercent;
-            set => SetProperty(ref _progressPercent, value);
-        }
-
-        private string _progressDetails = string.Empty;
-        public string ProgressDetails
-        {
-            get => _progressDetails;
-            set => SetProperty(ref _progressDetails, value);
-        }
-
-        private string _speedAndPeersText = string.Empty;
-        public string SpeedAndPeersText
-        {
-            get => _speedAndPeersText;
-            set => SetProperty(ref _speedAndPeersText, value);
-        }
-
-        public double CurrentSpeedBps { get; set; }
-        public int CurrentSeeds { get; set; }
-        public int CurrentPeers { get; set; }
-
-        private bool _isActive = true;
-        public bool IsActive
-        {
-            get => _isActive;
-            set => SetProperty(ref _isActive, value);
-        }
-
-        public CancellationTokenSource? Cts { get; set; }
-
-        // Потокобезопасные поля для агрегации UI
-        public double RawPercent;
-        public double RawSpeedBps;
-        public int RawSeeds;
-        public int RawPeers;
-        public string RawDetails = string.Empty;
-        public string RawSpeedText = string.Empty;
-        public string RawStageBadge = "СКАЧИВАНИЕ";
-        public Windows.UI.Color RawStageColor = Windows.UI.Color.FromArgb(255, 2, 132, 199);
-
-        public void CommitUiUpdates()
-        {
-            if (Math.Abs(ProgressPercent - RawPercent) > 0.05)
-                ProgressPercent = RawPercent;
-            if (ProgressDetails != RawDetails && !string.IsNullOrEmpty(RawDetails))
-                ProgressDetails = RawDetails;
-            if (SpeedAndPeersText != RawSpeedText && !string.IsNullOrEmpty(RawSpeedText))
-                SpeedAndPeersText = RawSpeedText;
-            if (StageBadge != RawStageBadge && !string.IsNullOrEmpty(RawStageBadge))
-                StageBadge = RawStageBadge;
-            if (StageBrush.Color != RawStageColor)
-                StageBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(RawStageColor);
-            CurrentSpeedBps = RawSpeedBps;
-            CurrentSeeds = RawSeeds;
-            CurrentPeers = RawPeers;
-        }
-    }
-
     public sealed partial class RuTrackerModDownloaderDialog : ContentDialog
     {
         public static RuTrackerModDownloaderDialog? ActiveInstance { get; private set; }
@@ -148,7 +61,7 @@ namespace StormSwitchBox.Views.Dialogs
             GameSlotsListView.ItemsSource = _gameSlots;
             TorrentFilesListView.ItemsSource = _fileGroups;
             DiscussionLinksListView.ItemsSource = _linkGroups;
-            ActiveDownloadsItemsControl.ItemsSource = _activeDownloadRows;
+            ActiveDownloadsItemsControl.ItemsSource = RuTrackerDownloadQueueService.Instance.Items;
             _uiAggregationTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
             _uiAggregationTimer.Tick += UiAggregationTimer_Tick;
             _uiAggregationTimer.Start();
@@ -1797,7 +1710,10 @@ namespace StormSwitchBox.Views.Dialogs
                         Length = f.Length,
                         CategoryBadge = f.CategoryBadge,
                         IsRealTorrentFile = f.IsRealTorrentFile,
-                        TargetGameSlot = f.TargetGameSlot
+                        TargetGameSlot = f.TargetGameSlot,
+                        GroupedRelativePaths = new List<string>(f.GroupedRelativePaths),
+                        DetectedTitleId = f.DetectedTitleId,
+                        DisplayPath = f.DisplayPath
                     })
                     .ToList();
 
@@ -1812,7 +1728,10 @@ namespace StormSwitchBox.Views.Dialogs
                             Length = f.Length,
                             CategoryBadge = f.CategoryBadge,
                             IsRealTorrentFile = f.IsRealTorrentFile,
-                            TargetGameSlot = f.TargetGameSlot
+                            TargetGameSlot = f.TargetGameSlot,
+                            GroupedRelativePaths = new List<string>(f.GroupedRelativePaths),
+                            DetectedTitleId = f.DetectedTitleId,
+                            DisplayPath = f.DisplayPath
                         })
                         .ToList();
                 }
@@ -1938,169 +1857,36 @@ namespace StormSwitchBox.Views.Dialogs
             {
                 BatchId = batchShortId,
                 DisplayTitle = displayBatchTitle,
-                StageBadge = hasTorrentSource ? "СКАЧИВАНИЕ" : "МОДЫ",
-                StageBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 2, 132, 199)),
+                StageBadge = "В ОЧЕРЕДИ",
+                StageBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 100, 116, 139)),
                 ProgressPercent = 0,
-                ProgressDetails = "Инициализация...",
-                SpeedAndPeersText = "Подключение...",
+                ProgressDetails = "В очереди закачек...",
+                SpeedAndPeersText = "В очереди",
                 IsActive = true,
-                Cts = batchCts
+                Cts = batchCts,
+                CreatedTasks = createdTasks,
+                SharedReleaseDir = sharedReleaseDir,
+                HasTorrentSource = hasTorrentSource,
+                CurrentTopic = currentTopic,
+                Service = isolatedService,
+                ViewModel = _viewModel,
+                DeleteSourceAfterVerify = deleteRtSource
             };
-
-            ActiveDownloadsScrollViewer.Visibility = Visibility.Visible;
-            _activeDownloadRows.Add(rowItem);
-
-            PauseResumeDownloadBtn.Visibility = Visibility.Visible;
-            PauseResumeDownloadBtn.Content = "⏸ Пауза";
-            StageBadgeText.Text = $"ФОН ({_activeBatchesCount})";
-            DownloadProgressBar.IsIndeterminate = hasTorrentSource;
-            DownloadProgressBar.Value = 0;
-            VolumeProgressText.Text = "Инициализация...";
-            SpeedPeersText.Text = "Подключение к трекерам и DHT...";
-            StatusText.Text = $"✅ Пакет #{batchShortId} добавлен в загрузку! Можете сразу выбрать другой набор файлов или следующую раздачу. (Активно: {_activeBatchesCount})";
-            LiveTelemetryText.Text = $"🚀 [Пакет #{batchShortId}] Создано задач: {createdTasks.Count} ({string.Join(", ", createdTasks.Select(c => c.Payload.SlotGameTitle))}). Загрузка продолжается в фоне...";
-            CancelDownloadBtn.IsEnabled = true;
 
             foreach (var (t, _, _) in createdTasks)
             {
-                t.OnPauseRequested = () =>
-                {
-                    App.RunOnUI(() =>
-                    {
-                        if (ActiveInstance == this)
-                        {
-                            PauseResumeDownloadBtn.Content = "▶️ Продолжить";
-                            StageBadgeText.Text = "ПАУЗА";
-                            DownloadProgressBar.IsIndeterminate = false;
-                            StatusText.Text = "⏸ Загрузка приостановлена (Пауза)";
-                            SpeedPeersText.Text = string.Empty;
-                        }
-                    });
-                };
-
-                t.OnResumeRequested = () =>
-                {
-                    App.RunOnUI(() =>
-                    {
-                        if (ActiveInstance == this)
-                        {
-                            PauseResumeDownloadBtn.Content = "⏸ Пауза";
-                            StageBadgeText.Text = "АКТИВНО";
-                            StatusText.Text = "Возобновление загрузки...";
-                        }
-                    });
-                };
-
-                t.OnCancelRequested = () =>
-                {
-                    App.RunOnUI(() =>
-                    {
-                        if (ActiveInstance == this)
-                        {
-                            StageBadgeText.Text = "ОТМЕНЕНО";
-                            DownloadProgressBar.IsIndeterminate = false;
-                            StatusText.Text = "⏹ Задача отменена пользователем.";
-                            SpeedPeersText.Text = string.Empty;
-                            VolumeProgressText.Text = string.Empty;
-                            PauseResumeDownloadBtn.Visibility = Visibility.Collapsed;
-                        }
-                    });
-                };
+                t.OnPauseRequested = () => RuTrackerDownloadQueueService.Instance.TogglePauseItem(rowItem);
+                t.OnResumeRequested = () => RuTrackerDownloadQueueService.Instance.TogglePauseItem(rowItem);
+                t.OnCancelRequested = () => RuTrackerDownloadQueueService.Instance.CancelOrRemoveItem(rowItem);
             }
 
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    if (createdTasks.Count == 1)
-                    {
-                        var (singleTask, singlePayload, _) = createdTasks[0];
-                        await ExecuteRuTrackerPipelineAsync(singleTask, singlePayload, _viewModel, isolatedService,
-                            p => UpdateActiveDownloadTorrentProgress(rowItem, p),
-                            mp => UpdateActiveDownloadCloudProgress(rowItem, mp));
-                    }
-                    else
-                    {
-                        // Многосоставная раздача (2..10+ игр): скачиваем выбранные файлы торрента ОДИН РАЗ в общий буфер,
-                        // а затем распределяем файлы и применяем индивидуальные русификаторы/ссылки к каждой задаче отдельно!
-                        await ExecuteMultiGameRuTrackerPipelineAsync(
-                            createdTasks,
-                            sharedReleaseDir,
-                            hasTorrentSource,
-                            currentTopic,
-                            isolatedService,
-                            batchCts.Token,
-                            rowItem);
-                    }
-                }
-                catch (OperationCanceledException)
-                {
-                    rowItem.IsActive = false;
-                    rowItem.RawSpeedBps = 0;
-                    rowItem.RawStageBadge = "ОТМЕНЕНО";
-                    rowItem.RawStageColor = Windows.UI.Color.FromArgb(255, 220, 38, 38);
-                    rowItem.RawSpeedText = "Отменено";
-                    foreach (var (t, _, _) in createdTasks)
-                    {
-                        App.RunOnUI(() => { t.Status = "Отменено"; t.IsRunning = false; });
-                    }
-                }
-                catch (Exception ex)
-                {
-                    rowItem.IsActive = false;
-                    rowItem.RawSpeedBps = 0;
-                    rowItem.RawStageBadge = "ОШИБКА";
-                    rowItem.RawStageColor = Windows.UI.Color.FromArgb(255, 239, 68, 68);
-                    rowItem.RawSpeedText = "Ошибка";
-                    App.Logger?.Log($"[RuTracker Batch #{batchShortId}] Ошибка выполнения: {ex.Message}", LogLevel.Error);
-                    foreach (var (t, _, _) in createdTasks)
-                    {
-                        App.RunOnUI(() => { t.Status = $"Ошибка: {ex.Message}"; t.IsRunning = false; });
-                    }
-                }
-                finally
-                {
-                    rowItem.IsActive = false;
-                    rowItem.RawSpeedBps = 0;
-                    if (rowItem.RawStageBadge != "ОТМЕНЕНО" && rowItem.RawStageBadge != "ОШИБКА")
-                    {
-                        rowItem.RawStageBadge = "ГОТОВО";
-                        rowItem.RawStageColor = Windows.UI.Color.FromArgb(255, 34, 197, 94);
-                        rowItem.RawPercent = 100;
-                        rowItem.RawSpeedText = "100% Завершено";
-                        rowItem.RawDetails = "Задачи созданы";
-                    }
-                    int remaining;
-                    lock (_batchLock)
-                    {
-                        _activeBatchCtsList.Remove(batchCts);
-                        _activeBatchesCount = Math.Max(0, _activeBatchesCount - 1);
-                        remaining = _activeBatchesCount;
-                    }
+            RuTrackerDownloadQueueService.Instance.EnqueueBatch(rowItem);
 
-                    App.RunOnUI(() =>
-                    {
-                        if (ActiveInstance == this)
-                        {
-                            if (remaining > 0)
-                            {
-                                StatusText.Text = $"[Активно загрузок: {remaining}] Скачивание в фоновом режиме...";
-                                StageBadgeText.Text = $"ФОН ({remaining})";
-                            }
-                            else
-                            {
-                                DownloadProgressBar.IsIndeterminate = false;
-                                PauseResumeDownloadBtn.Visibility = Visibility.Collapsed;
-                                StageBadgeText.Text = "ГОТОВО";
-                                DownloadProgressBar.Value = 100;
-                                SpeedPeersText.Text = "100% Завершено";
-                                StatusText.Text = $"✅ Все фоновые загрузки завершены.";
-                                LiveTelemetryText.Text = $"✅ Все задачи успешно сформированы в очереди задач!";
-                            }
-                        }
-                    });
-                }
-            });
+            ActiveDownloadsScrollViewer.Visibility = Visibility.Visible;
+            DownloadProgressBar.Visibility = Visibility.Collapsed;
+            PauseResumeDownloadBtn.Visibility = Visibility.Visible;
+            PauseResumeDownloadBtn.Content = "⏸ Пауза";
+            CancelDownloadBtn.IsEnabled = true;
 
             await Task.CompletedTask;
         }
@@ -2375,7 +2161,7 @@ namespace StormSwitchBox.Views.Dialogs
             }
         }
 
-        private static void BindDownloadedFilesToExistingTask(
+        public static void BindDownloadedFilesToExistingTask(
             ProcessingTask task,
             string downloadDir,
             List<string> modPayloads,
@@ -2504,7 +2290,7 @@ namespace StormSwitchBox.Views.Dialogs
             TryExtractAndSetTaskIcon(task, task.InputFiles);
         }
 
-        private static void TryExtractAndSetTaskIcon(ProcessingTask task, IEnumerable<string> candidateFiles)
+        public static void TryExtractAndSetTaskIcon(ProcessingTask task, IEnumerable<string> candidateFiles)
         {
             try
             {
@@ -2636,7 +2422,7 @@ namespace StormSwitchBox.Views.Dialogs
             catch { }
         }
 
-        private static void CleanupRuTrackerReleaseDirectory(string? dirToDelete, string? outDir)
+        public static void CleanupRuTrackerReleaseDirectory(string? dirToDelete, string? outDir)
         {
             if (string.IsNullOrWhiteSpace(dirToDelete) || !Directory.Exists(dirToDelete))
                 return;
@@ -2711,7 +2497,7 @@ namespace StormSwitchBox.Views.Dialogs
             }
         }
 
-        private static void UpdateActiveDownloadTorrentProgress(RuTrackerActiveDownloadItem item, TorrentDownloadProgress p)
+        public static void UpdateActiveDownloadTorrentProgress(RuTrackerActiveDownloadItem item, TorrentDownloadProgress p)
         {
             item.RawPercent = Math.Clamp(p.Percent, 0, 100);
             item.RawSpeedBps = p.SpeedMbPerSec * 1024.0 * 1024.0;
@@ -2743,7 +2529,7 @@ namespace StormSwitchBox.Views.Dialogs
             }
         }
 
-        private static void UpdateActiveDownloadCloudProgress(RuTrackerActiveDownloadItem item, (double Percent, string Status) mp)
+        public static void UpdateActiveDownloadCloudProgress(RuTrackerActiveDownloadItem item, (double Percent, string Status) mp)
         {
             item.RawPercent = Math.Clamp(mp.Percent, 0, 100);
             item.RawDetails = $"{mp.Percent:F1}%";
@@ -2975,7 +2761,7 @@ namespace StormSwitchBox.Views.Dialogs
             }
         }
 
-        private static List<string> FilterDownloadedContainersForSlot(
+        public static List<string> FilterDownloadedContainersForSlot(
             List<string> allContainers,
             List<TorrentFileSelectionItem> slotFileSelections,
             int slotNumber,
@@ -3084,6 +2870,11 @@ namespace StormSwitchBox.Views.Dialogs
         private void Dialog_Opened(ContentDialog sender, ContentDialogOpenedEventArgs args)
         {
             _visualTreeReadyTcs.TrySetResult(true);
+            if (RuTrackerDownloadQueueService.Instance.Items.Count > 0)
+            {
+                ActiveDownloadsScrollViewer.Visibility = Visibility.Visible;
+                DownloadProgressBar.Visibility = Visibility.Collapsed;
+            }
             if (!_warmupStartedInDialog)
             {
                 _warmupStartedInDialog = true;
@@ -3569,7 +3360,7 @@ namespace StormSwitchBox.Views.Dialogs
             return await tcs.Task.ConfigureAwait(false);
         }
 
-        private static async Task ExtractLocalTorrentModArchivesAsync(
+        public static async Task ExtractLocalTorrentModArchivesAsync(
             string releaseDir,
             CancellationToken ct,
             IReadOnlyCollection<string>? selectedRelativePaths = null)
@@ -3858,5 +3649,86 @@ namespace StormSwitchBox.Views.Dialogs
             // ВАЖНО: Не отменяем _downloadCts и не глушим сервис!
             // Задача продолжает выполняться в главном задачнике TasksViewModel.Tasks!
         }
+        public void UpdateHeaderSummary(int inList, int downloading, int inQueue, int finished, double totalSpeedBps, int maxSeeds, int maxPeers)
+        {
+            ActiveDownloadsScrollViewer.Visibility = Visibility.Visible;
+            DownloadProgressBar.Visibility = Visibility.Collapsed;
+
+            if (downloading > 0)
+            {
+                StageBadgeText.Text = $"АКТИВНО ({downloading})";
+                StageBadgeBorder.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 2, 132, 199)); // #0284C7
+            }
+            else if (inQueue > 0)
+            {
+                StageBadgeText.Text = $"В ОЧЕРЕДИ ({inQueue})";
+                StageBadgeBorder.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 100, 116, 139)); // #64748B
+            }
+            else if (finished > 0)
+            {
+                StageBadgeText.Text = "ГОТОВО";
+                StageBadgeBorder.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 34, 197, 94)); // #22C55E
+            }
+            else
+            {
+                StageBadgeText.Text = "ГОТОВ К РАБОТЕ";
+                StageBadgeBorder.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 2, 132, 199));
+            }
+
+            StatusText.Text = $"В списке: {inList} • Качается: {downloading} • В очереди: {inQueue} • Готово: {finished}";
+
+            if (totalSpeedBps > 1024)
+            {
+                SpeedPeersText.Text = $"Скорость скачивания: {totalSpeedBps / (1024.0 * 1024.0):F2} МБ/с | Сиды: {maxSeeds} • Пиры: {maxPeers}";
+            }
+            else if (downloading > 0)
+            {
+                SpeedPeersText.Text = $"Поиск пиров DHT/P2P... | Сиды: {maxSeeds}";
+            }
+            else
+            {
+                SpeedPeersText.Text = string.Empty;
+            }
+        }
+
+        private void TogglePauseQueueItem_Click(object sender, RoutedEventArgs e)
+        {
+            if ((sender as FrameworkElement)?.Tag is RuTrackerActiveDownloadItem item)
+            {
+                RuTrackerDownloadQueueService.Instance.TogglePauseItem(item);
+            }
+        }
+
+        private void MoveQueueItemUp_Click(object sender, RoutedEventArgs e)
+        {
+            if ((sender as FrameworkElement)?.Tag is RuTrackerActiveDownloadItem item)
+            {
+                RuTrackerDownloadQueueService.Instance.MoveItemUp(item);
+            }
+        }
+
+        private void MoveQueueItemDown_Click(object sender, RoutedEventArgs e)
+        {
+            if ((sender as FrameworkElement)?.Tag is RuTrackerActiveDownloadItem item)
+            {
+                RuTrackerDownloadQueueService.Instance.MoveItemDown(item);
+            }
+        }
+
+        private void PauseAllDownloads_Click(object sender, RoutedEventArgs e)
+        {
+            RuTrackerDownloadQueueService.Instance.PauseAll();
+        }
+
+        private void ResumeAllDownloads_Click(object sender, RoutedEventArgs e)
+        {
+            RuTrackerDownloadQueueService.Instance.ResumeAll();
+        }
+
+        private void ClearFinishedDownloads_Click(object sender, RoutedEventArgs e)
+        {
+            RuTrackerDownloadQueueService.Instance.ClearFinished();
+        }
+
     }
 }

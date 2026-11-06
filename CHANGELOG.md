@@ -1,3 +1,13 @@
+## **Релиз 7.0.1**
+
+- **RuTracker: Глобальный менеджер очереди (`RuTrackerDownloadQueueService`)**: Сохранение и отображение списка всех закачек при закрытии/открытии диалога, планировщик с лимитом `MaxConcurrentDownloads = 2`, сохранение состояния очереди в `%LOCALAPPDATA%\StormSwitchBox\rutracker_download_queue.json`.
+- **RuTracker: Честный динамический расчёт прогресса 0..100%**: Исправлено зависание `manager.Progress` при частичной загрузке торрента; расчёт ведётся по выбранным файлам `(downloadedWantedBytes * 100.0) / totalWantedBytes`.
+- **RuTracker: Управление очередью закачек**: Кнопки «Пауза/Продолжить» (`manager.PauseAsync`/`StartAsync`), «Вверх» и «Вниз» с динамическим вытеснением (`PauseForPreemption`), «Отмена/Удаление», кнопки шапки «Пауза все», «Продолжить все», «Очистить готовые» (Single Icon Mandate).
+- **RuTracker: Отображение этапа «СБОРКА»**: Фиксация статуса сборки контейнера прямо в строке загрузки после завершения докачки.
+- **RuTracker: Целостность GroupedRelativePaths**: Полное копирование структуры модов и TitleID при клонировании файлов в `ExecuteDownloadPipelineAsync`.
+- **RuTracker: Устранение таймаутов**: Замена фатального `TimeoutException` на авто-реанонс трекеров и инжект DHT пиров.
+- **Локализация**: 100% перевод всех новых элементов интерфейса на 6 языков в `LocalizationService.UiTree.cs`.
+
 # CHANGELOG - STORM SWITCH BOX
 
 ## [7.0.0] - 2026-11-06
