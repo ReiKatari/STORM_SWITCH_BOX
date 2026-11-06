@@ -554,7 +554,26 @@ namespace StormSwitchBox.Services
 
                     if (entry.SourceNcaName.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase))
                     {
-                        ncaStorage = new Core.NSZ.StormNczStorage(ncaStorage, new Dictionary<string, byte[]>(), null, App.Keys.CurrentKeyset);
+                        var titleKeyMap = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+                        foreach (var tikEntry in rootFs.EnumerateEntries("/", "*.tik"))
+                        {
+                            try
+                            {
+                                using var fRef = new UniqueRef<IFile>();
+                                using var pth = new LibHac.Fs.Path();
+                                pth.Initialize(new U8Span(Encoding.UTF8.GetBytes(tikEntry.FullPath))).ThrowIfFailure();
+                                rootFs.OpenFile(ref fRef.Ref, in pth, OpenMode.Read).ThrowIfFailure();
+                                using var ms = new MemoryStream();
+                                fRef.Release().AsStream().CopyTo(ms);
+                                ms.Position = 0;
+                                var ticket = new LibHac.Tools.Es.Ticket(ms);
+                                byte[] tKey = ticket.GetTitleKey(App.Keys.CurrentKeyset);
+                                string rId = BitConverter.ToString(ticket.RightsId).Replace("-", "").ToLowerInvariant();
+                                titleKeyMap[rId] = tKey;
+                            }
+                            catch { }
+                        }
+                        ncaStorage = new Core.NSZ.StormNczStorage(ncaStorage, titleKeyMap, null, App.Keys.CurrentKeyset);
                     }
 
                     var nca = new Nca(App.Keys.CurrentKeyset, ncaStorage);

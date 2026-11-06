@@ -17,11 +17,15 @@ android {
     namespace = "com.storm.switchbox"
     compileSdk = 36
 
+    buildFeatures {
+        buildConfig = true
+    }
+
     defaultConfig {
         applicationId = "com.storm.switchbox"
         targetSdk = 36
-        versionCode = 698
-        versionName = "6.9.8"
+        versionCode = 699
+        versionName = "6.9.9"
     }
 
     signingConfigs {

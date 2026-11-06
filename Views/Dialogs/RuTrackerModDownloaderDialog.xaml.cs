@@ -39,6 +39,9 @@ namespace StormSwitchBox.Views.Dialogs
         private string _currentTopicUrl = string.Empty;
         private string _currentTopicPosterUrl = string.Empty;
         private CancellationTokenSource? _downloadCts;
+        private readonly List<CancellationTokenSource> _activeBatchCtsList = new();
+        private readonly object _batchLock = new();
+        private int _activeBatchesCount = 0;
 
         public RuTrackerModDownloaderDialog(TasksViewModel viewModel, ProcessingTask? targetTask = null)
         {
@@ -671,9 +674,13 @@ namespace StormSwitchBox.Views.Dialogs
         {
             foreach (var slot in _gameSlots)
             {
-                var slotFiles = _torrentFiles
-                    .Where(f => f.TargetGameSlot == slot.SlotNumber || (_gameSlots.Count == 1 && f.TargetGameSlot <= 1))
+                var selectedSlotFiles = _torrentFiles
+                    .Where(f => f.IsSelected && (f.TargetGameSlot == slot.SlotNumber || (_gameSlots.Count == 1 && f.TargetGameSlot <= 1)))
                     .ToList();
+
+                var slotFiles = selectedSlotFiles.Count > 0
+                    ? selectedSlotFiles
+                    : _torrentFiles.Where(f => f.TargetGameSlot == slot.SlotNumber || (_gameSlots.Count == 1 && f.TargetGameSlot <= 1)).ToList();
 
                 string bestTid = string.Empty;
                 int maxPatchVer = 0;
@@ -1180,16 +1187,20 @@ namespace StormSwitchBox.Views.Dialogs
                     : (!string.IsNullOrWhiteSpace(slotObj?.GameTitle) ? slotObj!.GameTitle : $"Игра #{slotNum}");
 
                 long totalBytes = grp.Sum(x => Math.Max(0L, x.SizeBytes));
-                string sizeStr = totalBytes > 0 ? $"{totalBytes / 1024.0 / 1024.0:F2} МБ" : "Magnet / P2P";
+                long selBytes = grp.Where(x => x.IsSelected).Sum(x => Math.Max(0L, x.SizeBytes));
                 int count = grp.Count();
+                int selCount = grp.Count(x => x.IsSelected);
                 string countWord = count == 1 ? "1 файл" : (count >= 2 && count <= 4 ? $"{count} файла" : $"{count} файлов");
+                string summary = selCount == count
+                    ? $"{countWord} • {ProcessingTask.FormatSize(selBytes)}"
+                    : $"{selCount} из {count} файлов • {ProcessingTask.FormatSize(selBytes)}";
 
                 var block = new RuTrackerFileGroupBlock
                 {
                     SlotNumber = slotNum,
                     GroupBadge = badge,
                     GroupTitle = title,
-                    GroupSummary = $"{countWord} • {sizeStr}"
+                    GroupSummary = summary
                 };
                 foreach (var fileItem in grp)
                     block.Files.Add(fileItem);
@@ -1200,11 +1211,18 @@ namespace StormSwitchBox.Views.Dialogs
             bool sameFileStructure = _fileGroups.Count == newFileGroups.Count &&
                 _fileGroups.Zip(newFileGroups, (a, b) =>
                     a.SlotNumber == b.SlotNumber &&
-                    a.GroupTitle == b.GroupTitle &&
-                    a.GroupSummary == b.GroupSummary &&
                     a.Files.SequenceEqual(b.Files)).All(x => x);
 
-            if (!sameFileStructure)
+            if (sameFileStructure)
+            {
+                for (int i = 0; i < _fileGroups.Count; i++)
+                {
+                    _fileGroups[i].GroupBadge = newFileGroups[i].GroupBadge;
+                    _fileGroups[i].GroupTitle = newFileGroups[i].GroupTitle;
+                    _fileGroups[i].GroupSummary = newFileGroups[i].GroupSummary;
+                }
+            }
+            else
             {
                 _fileGroups.Clear();
                 foreach (var g in newFileGroups)
@@ -1249,11 +1267,18 @@ namespace StormSwitchBox.Views.Dialogs
             bool sameLinkStructure = _linkGroups.Count == newLinkGroups.Count &&
                 _linkGroups.Zip(newLinkGroups, (a, b) =>
                     a.SlotNumber == b.SlotNumber &&
-                    a.GroupTitle == b.GroupTitle &&
-                    a.GroupSummary == b.GroupSummary &&
                     a.Links.SequenceEqual(b.Links)).All(x => x);
 
-            if (!sameLinkStructure)
+            if (sameLinkStructure)
+            {
+                for (int i = 0; i < _linkGroups.Count; i++)
+                {
+                    _linkGroups[i].GroupBadge = newLinkGroups[i].GroupBadge;
+                    _linkGroups[i].GroupTitle = newLinkGroups[i].GroupTitle;
+                    _linkGroups[i].GroupSummary = newLinkGroups[i].GroupSummary;
+                }
+            }
+            else
             {
                 _linkGroups.Clear();
                 foreach (var g in newLinkGroups)
@@ -1270,6 +1295,7 @@ namespace StormSwitchBox.Views.Dialogs
             {
                 UpdateDiscussionSummaryText();
                 UpdateDlcUnlockerAutoState();
+                EnrichGameSlotsFromFilesAndTitleDb();
                 UpdateGameSlotsSummary();
             }
         }
@@ -1377,12 +1403,20 @@ namespace StormSwitchBox.Views.Dialogs
         {
             try
             {
+                lock (_batchLock)
+                {
+                    foreach (var cts in _activeBatchCtsList.ToList())
+                    {
+                        try { cts.Cancel(); } catch { }
+                    }
+                    _activeBatchCtsList.Clear();
+                }
                 _activeTask?.Cancel();
                 _downloadCts?.Cancel();
-                StatusText.Text = "⏹ Задача отменена пользователем.";
-                SpeedPeersText.Text = "";
+                StatusText.Text = "⏹ Все активные загрузки отменены пользователем.";
+                SpeedPeersText.Text = string.Empty;
                 DownloadProgressBar.Value = 0;
-                SetUiBusy(false);
+                DownloadProgressBar.IsIndeterminate = false;
                 PauseResumeDownloadBtn.Visibility = Visibility.Collapsed;
             }
             catch { }
@@ -1460,11 +1494,12 @@ namespace StormSwitchBox.Views.Dialogs
                 baseDownloadDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "STORM_SWITCH_BOX_Downloads");
             }
 
+            string batchShortId = Guid.NewGuid().ToString("N").Substring(0, 6);
             string safeSubFolder = SanitizeFolderName(!string.IsNullOrWhiteSpace(_currentTopicTitle)
                 ? _currentTopicTitle
                 : (_targetTask?.GameName ?? $"Release_{DateTime.Now:yyyyMMdd_HHmmss}"));
 
-            string sharedReleaseDir = Path.Combine(baseDownloadDir, safeSubFolder);
+            string sharedReleaseDir = Path.Combine(baseDownloadDir, $"{safeSubFolder}_{batchShortId}");
             Directory.CreateDirectory(sharedReleaseDir);
 
             string globalCustomModTitle = CustomModNameBox.Text?.Trim() ?? string.Empty;
@@ -1483,8 +1518,15 @@ namespace StormSwitchBox.Views.Dialogs
                 };
             }
 
-            _downloadCts?.Cancel();
-            _downloadCts = new CancellationTokenSource();
+            var isolatedService = _service.CreateIsolatedDownloadSession();
+            var batchCts = new CancellationTokenSource();
+            _downloadCts = batchCts;
+
+            lock (_batchLock)
+            {
+                _activeBatchCtsList.Add(batchCts);
+                _activeBatchesCount++;
+            }
 
             var createdTasks = new List<(ProcessingTask Task, RuTrackerTaskPayload Payload, RuTrackerGameSlotItem Slot)>();
 
@@ -1497,10 +1539,31 @@ namespace StormSwitchBox.Views.Dialogs
 
                 var slotFiles = _torrentFiles
                     .Where(f => f.IsSelected && (activeSlots.Count == 1 || f.TargetGameSlot == 0 || f.TargetGameSlot == slot.SlotNumber))
+                    .Select(f => new TorrentFileSelectionItem
+                    {
+                        IsSelected = true,
+                        RelativePath = f.RelativePath,
+                        Length = f.Length,
+                        CategoryBadge = f.CategoryBadge,
+                        IsRealTorrentFile = f.IsRealTorrentFile,
+                        TargetGameSlot = f.TargetGameSlot
+                    })
                     .ToList();
+
                 if (slotFiles.Count == 0 && hasTorrentSource)
                 {
-                    slotFiles = _torrentFiles.Where(f => f.IsSelected).ToList();
+                    slotFiles = _torrentFiles
+                        .Where(f => f.IsSelected)
+                        .Select(f => new TorrentFileSelectionItem
+                        {
+                            IsSelected = true,
+                            RelativePath = f.RelativePath,
+                            Length = f.Length,
+                            CategoryBadge = f.CategoryBadge,
+                            IsRealTorrentFile = f.IsRealTorrentFile,
+                            TargetGameSlot = f.TargetGameSlot
+                        })
+                        .ToList();
                 }
 
                 var slotDiscussionLinks = _discussionLinks
@@ -1539,8 +1602,8 @@ namespace StormSwitchBox.Views.Dialogs
                 var payload = new RuTrackerTaskPayload
                 {
                     Topic = currentTopic,
-                    TorrentBytes = _service.LoadedTorrentBytes,
-                    MagnetLink = _service.LoadedMagnet,
+                    TorrentBytes = isolatedService.LoadedTorrentBytes,
+                    MagnetLink = isolatedService.LoadedMagnet,
                     TorrentFiles = slotFiles,
                     CloudLinks = slotCloudLinks,
                     TargetReleaseDir = slotTargetDir,
@@ -1556,7 +1619,7 @@ namespace StormSwitchBox.Views.Dialogs
                 };
 
                 ProcessingTask task;
-                if (_targetTask != null && idx == 0 && activeSlots.Count == 1)
+                if (_targetTask != null && _activeTask == null && idx == 0 && activeSlots.Count == 1)
                 {
                     task = _targetTask;
                     if (!string.IsNullOrWhiteSpace(slotTitle))
@@ -1577,6 +1640,7 @@ namespace StormSwitchBox.Views.Dialogs
                     }
                     if (slot.SlotIconBitmap != null)
                         task.GameIcon = slot.SlotIconBitmap;
+                    task.Cts = batchCts;
                 }
                 else
                 {
@@ -1600,9 +1664,9 @@ namespace StormSwitchBox.Views.Dialogs
                         OutputFolder = baseDownloadDir,
                         OutputFileName = SanitizeFileName(slotTitle),
                         FilesCount = $"{slotFiles.Count} файл(ов)" + (slotCloudLinks.Count > 0 ? $" + {slotCloudLinks.Count} мод." : ""),
-                        LogDetails = $"[RuTracker] Старт задачи #{slot.SlotNumber}: {slotTitle} (Формат: {chosenFormat})\nЦелевая папка: {slotTargetDir}",
+                        LogDetails = $"[RuTracker Пакет #{batchShortId}] Старт задачи #{slot.SlotNumber}: {slotTitle} (Формат: {chosenFormat})\nЦелевая папка: {slotTargetDir}",
                         RuTrackerPayload = payload,
-                        Cts = _downloadCts
+                        Cts = batchCts
                     };
                     _viewModel.Tasks.Add(task);
                 }
@@ -1610,17 +1674,21 @@ namespace StormSwitchBox.Views.Dialogs
                 createdTasks.Add((task, payload, slot));
             }
 
+            _viewModel.SavePersistedTasks();
+
             var primaryTask = createdTasks[0].Task;
             _activeTask = primaryTask;
 
             PauseResumeDownloadBtn.Visibility = Visibility.Visible;
             PauseResumeDownloadBtn.Content = "⏸ Пауза";
-            StageBadgeText.Text = hasTorrentSource ? "ЭТАП 1/4 • ПОИСК ПИРОВ DHT" : "ЭТАП 1/2 • ОБЛАЧНЫЕ МОДЫ";
+            StageBadgeText.Text = $"ФОН ({_activeBatchesCount})";
             DownloadProgressBar.IsIndeterminate = hasTorrentSource;
             DownloadProgressBar.Value = 0;
             VolumeProgressText.Text = "Инициализация...";
             SpeedPeersText.Text = "Подключение к трекерам и DHT...";
-            LiveTelemetryText.Text = $"🚀 Создано отдельных задач: {createdTasks.Count} ({string.Join(", ", createdTasks.Select(c => c.Payload.SlotGameTitle))}). Запуск загрузки...";
+            StatusText.Text = $"✅ Пакет #{batchShortId} добавлен в загрузку! Можете сразу выбрать другой набор файлов или следующую раздачу. (Активно: {_activeBatchesCount})";
+            LiveTelemetryText.Text = $"🚀 [Пакет #{batchShortId}] Создано задач: {createdTasks.Count} ({string.Join(", ", createdTasks.Select(c => c.Payload.SlotGameTitle))}). Загрузка продолжается в фоне...";
+            CancelDownloadBtn.IsEnabled = true;
 
             foreach (var (t, _, _) in createdTasks)
             {
@@ -1663,14 +1731,12 @@ namespace StormSwitchBox.Views.Dialogs
                             StatusText.Text = "⏹ Задача отменена пользователем.";
                             SpeedPeersText.Text = string.Empty;
                             VolumeProgressText.Text = string.Empty;
-                            SetUiBusy(false);
                             PauseResumeDownloadBtn.Visibility = Visibility.Collapsed;
                         }
                     });
                 };
             }
 
-            SetUiBusy(true);
             _ = Task.Run(async () =>
             {
                 try
@@ -1678,7 +1744,7 @@ namespace StormSwitchBox.Views.Dialogs
                     if (createdTasks.Count == 1)
                     {
                         var (singleTask, singlePayload, _) = createdTasks[0];
-                        await ExecuteRuTrackerPipelineAsync(singleTask, singlePayload, _viewModel, _service,
+                        await ExecuteRuTrackerPipelineAsync(singleTask, singlePayload, _viewModel, isolatedService,
                             p => UpdateDialogTorrentProgress(p, 1, 1, singlePayload.SlotGameTitle),
                             mp => UpdateDialogCloudProgress(mp, 1, 1, singlePayload.SlotGameTitle));
                     }
@@ -1691,25 +1757,53 @@ namespace StormSwitchBox.Views.Dialogs
                             sharedReleaseDir,
                             hasTorrentSource,
                             currentTopic,
-                            _downloadCts.Token);
+                            isolatedService,
+                            batchCts.Token);
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    foreach (var (t, _, _) in createdTasks)
+                    {
+                        App.RunOnUI(() => { t.Status = "Отменено"; t.IsRunning = false; });
+                    }
+                }
+                catch (Exception ex)
+                {
+                    App.Logger?.Log($"[RuTracker Batch #{batchShortId}] Ошибка выполнения: {ex.Message}", LogLevel.Error);
+                    foreach (var (t, _, _) in createdTasks)
+                    {
+                        App.RunOnUI(() => { t.Status = $"Ошибка: {ex.Message}"; t.IsRunning = false; });
                     }
                 }
                 finally
                 {
+                    int remaining;
+                    lock (_batchLock)
+                    {
+                        _activeBatchCtsList.Remove(batchCts);
+                        _activeBatchesCount = Math.Max(0, _activeBatchesCount - 1);
+                        remaining = _activeBatchesCount;
+                    }
+
                     App.RunOnUI(() =>
                     {
                         if (ActiveInstance == this)
                         {
-                            DownloadProgressBar.IsIndeterminate = false;
-                            SetUiBusy(false);
-                            PauseResumeDownloadBtn.Visibility = Visibility.Collapsed;
-                            if (createdTasks.All(c => c.Task.Status == "Успешно" || c.Task.Status == "Готово" || c.Task.Status == "Ожидание"))
+                            if (remaining > 0)
                             {
+                                StatusText.Text = $"[Активно загрузок: {remaining}] Скачивание в фоновом режиме...";
+                                StageBadgeText.Text = $"ФОН ({remaining})";
+                            }
+                            else
+                            {
+                                DownloadProgressBar.IsIndeterminate = false;
+                                PauseResumeDownloadBtn.Visibility = Visibility.Collapsed;
                                 StageBadgeText.Text = "ГОТОВО";
                                 DownloadProgressBar.Value = 100;
                                 SpeedPeersText.Text = "100% Завершено";
-                                StatusText.Text = $"✅ Обработано задач: {createdTasks.Count} ({sharedReleaseDir}).";
-                                LiveTelemetryText.Text = $"✅ Все задачи ({string.Join(", ", createdTasks.Select(c => c.Payload.SlotGameTitle))}) успешно сформированы в очереди задач!";
+                                StatusText.Text = $"✅ Все фоновые загрузки завершены.";
+                                LiveTelemetryText.Text = $"✅ Все задачи успешно сформированы в очереди задач!";
                             }
                         }
                     });
@@ -1738,6 +1832,7 @@ namespace StormSwitchBox.Views.Dialogs
             try
             {
                 // 1. Скачивание торрента / Magnet
+                List<string>? downloadedTorrentFiles = null;
                 if (payload.HasTorrentSource)
                 {
                     App.RunOnUI(() => { task.Status = "Загрузка торрента..."; });
@@ -1754,7 +1849,7 @@ namespace StormSwitchBox.Views.Dialogs
                         onTorrentProgress?.Invoke(p);
                     });
 
-                    await service.DownloadTorrentAsync(
+                    downloadedTorrentFiles = await service.DownloadTorrentAsync(
                         payload.TargetReleaseDir,
                         payload.TorrentFiles,
                         torrentProg,
@@ -1803,8 +1898,12 @@ namespace StormSwitchBox.Views.Dialogs
                     }
                 }
 
-                // Автоматически распаковываем архивы модов/русификаторов (.7z / .zip / .rar), скачанные внутри самой раздачи (напр. atmosphere.7z)
-                await ExtractLocalTorrentModArchivesAsync(payload.TargetReleaseDir, ct).ConfigureAwait(false);
+                // Автоматически распаковываем ТОЛЬКО ВЫБРАННЫЕ архивы модов/русификаторов (.7z / .zip / .rar), скачанные внутри самой раздачи (напр. atmosphere.7z)
+                var allowedSelectedRelPaths = payload.TorrentFiles != null
+                    ? payload.TorrentFiles.Where(f => f.IsSelected).Select(f => f.RelativePath).ToList()
+                    : new List<string>();
+
+                await ExtractLocalTorrentModArchivesAsync(payload.TargetReleaseDir, ct, allowedSelectedRelPaths).ConfigureAwait(false);
 
                 // Сканируем каталог релиза на наличие распакованных romfs / exefs
                 foreach (var p in RuTrackerModService.DiscoverModPayloadsInDirectory(payload.TargetReleaseDir))
@@ -1813,13 +1912,41 @@ namespace StormSwitchBox.Views.Dialogs
                         discoveredModPayloads.Add(p);
                 }
 
+                // Собираем контейнеры и строго фильтруем по выбранным файлам этого слота
+                List<string> candidateContainers;
+                if (downloadedTorrentFiles != null && downloadedTorrentFiles.Count > 0)
+                {
+                    candidateContainers = downloadedTorrentFiles;
+                }
+                else if (Directory.Exists(payload.TargetReleaseDir))
+                {
+                    candidateContainers = Directory.EnumerateFiles(payload.TargetReleaseDir, "*.*", SearchOption.AllDirectories)
+                        .Where(p => p.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) ||
+                                    p.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) ||
+                                    p.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) ||
+                                    p.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase) ||
+                                    p.EndsWith(".nro", StringComparison.OrdinalIgnoreCase))
+                        .ToList();
+                }
+                else
+                {
+                    candidateContainers = new List<string>();
+                }
+
+                var matchedContainers = FilterDownloadedContainersForSlot(
+                    candidateContainers,
+                    payload.TorrentFiles,
+                    payload.SlotNumber,
+                    payload.SlotGameTitle,
+                    new List<string> { payload.SlotGameTitle });
+
                 // 3. Привязка файлов к задаче (на UI-потоке во избежание RPC_E_WRONG_THREAD)
                 var bindTcs = new TaskCompletionSource<bool>();
                 App.RunOnUI(() =>
                 {
                     try
                     {
-                        BindDownloadedFilesToExistingTask(task, payload.TargetReleaseDir, discoveredModPayloads, payload.CustomModTitle);
+                        BindDownloadedFilesToExistingTask(task, payload.TargetReleaseDir, discoveredModPayloads, payload.CustomModTitle, matchedContainers);
                     }
                     finally
                     {
@@ -1942,7 +2069,8 @@ namespace StormSwitchBox.Views.Dialogs
             ProcessingTask task,
             string downloadDir,
             List<string> modPayloads,
-            string customModTitle)
+            string customModTitle,
+            IReadOnlyCollection<string>? allowedContainerPaths = null)
         {
             bool addedRomFs = false;
             bool addedExeFs = false;
@@ -1979,8 +2107,26 @@ namespace StormSwitchBox.Views.Dialogs
                                 p.EndsWith(".cxi", StringComparison.OrdinalIgnoreCase))
                     .ToList();
 
+                HashSet<string>? allowedNames = null;
+                HashSet<string>? allowedFull = null;
+                if (allowedContainerPaths != null && allowedContainerPaths.Count > 0)
+                {
+                    allowedFull = new HashSet<string>(allowedContainerPaths.Select(Path.GetFullPath), StringComparer.OrdinalIgnoreCase);
+                    allowedNames = new HashSet<string>(allowedContainerPaths.Select(Path.GetFileName), StringComparer.OrdinalIgnoreCase);
+                }
+
                 foreach (var f in discoveredFiles)
                 {
+                    if (allowedFull != null && allowedNames != null)
+                    {
+                        string fullF = Path.GetFullPath(f);
+                        string nameF = Path.GetFileName(f);
+                        if (!allowedFull.Contains(fullF) && !allowedNames.Contains(nameF))
+                        {
+                            continue; // не выбран пользователем для этой задачи!
+                        }
+                    }
+
                     if (!task.InputFiles.Contains(f, StringComparer.OrdinalIgnoreCase))
                     {
                         task.InputFiles.Add(f);
@@ -2270,14 +2416,22 @@ namespace StormSwitchBox.Views.Dialogs
             string sharedReleaseDir,
             bool hasTorrentSource,
             RuTrackerTopicItem? currentTopic,
+            RuTrackerModService service,
             CancellationToken ct)
         {
             var firstTask = createdTasks[0].Task;
+            var unionFiles = new List<TorrentFileSelectionItem>();
 
             // 1. Скачиваем объединенный набор выбранных файлов торрента один раз в общую папку раздачи
             if (hasTorrentSource)
             {
-                var unionFiles = _torrentFiles.Where(f => f.IsSelected).ToList();
+                unionFiles = createdTasks
+                    .SelectMany(c => c.Payload.TorrentFiles)
+                    .Where(f => f.IsSelected)
+                    .GroupBy(f => f.RelativePath, StringComparer.OrdinalIgnoreCase)
+                    .Select(g => g.First())
+                    .ToList();
+
                 var torrentProg = new Progress<TorrentDownloadProgress>(p =>
                 {
                     UpdateDialogTorrentProgress(p, 1, createdTasks.Count, _currentTopicTitle);
@@ -2294,13 +2448,13 @@ namespace StormSwitchBox.Views.Dialogs
                     });
                 });
 
-                await _service.DownloadTorrentAsync(
+                await service.DownloadTorrentAsync(
                     sharedReleaseDir,
                     unionFiles,
                     torrentProg,
                     ct,
-                    _service.LoadedTorrentBytes,
-                    _service.LoadedMagnet,
+                    service.LoadedTorrentBytes,
+                    service.LoadedMagnet,
                     currentTopic?.TopicId,
                     currentTopic?.Seeds ?? 0,
                     firstTask.PauseEvent,
@@ -2311,8 +2465,9 @@ namespace StormSwitchBox.Views.Dialogs
                     }).ConfigureAwait(false);
             }
 
-            // Распаковываем все архивы модов/русификаторов (.7z / .zip / .rar), скачанные внутри раздачи (напр. atmosphere.7z)
-            await ExtractLocalTorrentModArchivesAsync(sharedReleaseDir, ct).ConfigureAwait(false);
+            // Распаковываем ТОЛЬКО ВЫБРАННЫЕ архивы модов/русификаторов (.7z / .zip / .rar), скачанные внутри раздачи (напр. atmosphere.7z)
+            var unionSelectedRelPaths = unionFiles.Select(f => f.RelativePath).ToList();
+            await ExtractLocalTorrentModArchivesAsync(sharedReleaseDir, ct, unionSelectedRelPaths).ConfigureAwait(false);
 
             // Собираем все скачанные игровые контейнеры в общей папке и раскладываем их по слотам игр (1..N)
             var allDownloadedContainers = Directory.Exists(sharedReleaseDir)
@@ -2384,7 +2539,7 @@ namespace StormSwitchBox.Views.Dialogs
                     task,
                     slotExecPayload,
                     _viewModel,
-                    _service,
+                    service,
                     null,
                     mp => UpdateDialogCloudProgress(mp, capturedIdx, createdTasks.Count, payload.SlotGameTitle)).ConfigureAwait(false);
             }
@@ -2405,46 +2560,73 @@ namespace StormSwitchBox.Views.Dialogs
             string slotGameTitle,
             List<string> allSlotTitles)
         {
-            if (allContainers.Count <= 1 || allSlotTitles.Count <= 1)
-                return allContainers.ToList();
+            if (allContainers == null || allContainers.Count == 0)
+                return new List<string>();
 
-            // 1. Если в slotFileSelections были реальные имена файлов из .torrent и они назначены на конкретный слот
-            var explicitRealNames = slotFileSelections
-                .Where(f => f.IsRealTorrentFile && f.TargetGameSlot == slotNumber)
-                .Select(f => Path.GetFileName(f.RelativePath))
-                .Where(n => !string.IsNullOrEmpty(n))
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var selectedItems = (slotFileSelections ?? new List<TorrentFileSelectionItem>())
+                .Where(f => f.IsSelected && (f.TargetGameSlot == slotNumber || (allSlotTitles.Count <= 1 && f.TargetGameSlot <= 1)))
+                .ToList();
 
-            if (explicitRealNames.Count > 0)
+            bool hasRealTorrentFiles = selectedItems.Any(f => f.IsRealTorrentFile);
+
+            if (hasRealTorrentFiles)
             {
-                var byExplicit = allContainers.Where(c => explicitRealNames.Contains(Path.GetFileName(c))).ToList();
-                if (byExplicit.Count > 0) return byExplicit;
+                var allowedFileNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var allowedRelPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                foreach (var f in selectedItems)
+                {
+                    if (!string.IsNullOrEmpty(f.RelativePath))
+                    {
+                        string normRel = f.RelativePath.Replace('/', '\\').Trim('\\');
+                        allowedRelPaths.Add(normRel);
+                        string fn = Path.GetFileName(normRel);
+                        if (!string.IsNullOrEmpty(fn))
+                            allowedFileNames.Add(fn);
+                    }
+                }
+
+                var matched = new List<string>();
+                foreach (var c in allContainers)
+                {
+                    string normContainer = c.Replace('/', '\\').Trim('\\');
+                    string containerName = Path.GetFileName(normContainer);
+
+                    bool isMatch = allowedRelPaths.Any(rel => normContainer.EndsWith(rel, StringComparison.OrdinalIgnoreCase)) ||
+                                   allowedFileNames.Contains(containerName);
+
+                    if (isMatch)
+                        matched.Add(c);
+                }
+
+                return matched;
             }
-
-            // 2. Авто-группировка скачанных файлов по базовому TitleID (первые 13 символов + 000) или номеру части
-            var tempItems = allContainers.Select(c => new TorrentFileSelectionItem
+            else
             {
-                IsSelected = true,
-                RelativePath = Path.GetFileName(c),
-                IsRealTorrentFile = true
-            }).ToList();
+                var tempItems = allContainers.Select(c => new TorrentFileSelectionItem
+                {
+                    IsSelected = true,
+                    RelativePath = Path.GetFileName(c),
+                    IsRealTorrentFile = true
+                }).ToList();
 
-            RuTrackerModService.AutoAssignFilesToGameSlots(tempItems, allSlotTitles);
-            var matched = new List<string>();
-            for (int i = 0; i < allContainers.Count; i++)
-            {
-                if (tempItems[i].TargetGameSlot == slotNumber || tempItems[i].TargetGameSlot == 0)
-                    matched.Add(allContainers[i]);
+                RuTrackerModService.AutoAssignFilesToGameSlots(tempItems, allSlotTitles);
+                var matched = new List<string>();
+                for (int i = 0; i < allContainers.Count; i++)
+                {
+                    if (tempItems[i].TargetGameSlot == slotNumber || (allSlotTitles.Count <= 1 && tempItems[i].TargetGameSlot <= 1))
+                        matched.Add(allContainers[i]);
+                }
+
+                return matched;
             }
-
-            return matched.Count > 0 ? matched : allContainers.ToList();
         }
 
         private void SetUiBusy(bool busy)
         {
-            StartFullDownloadBtn.IsEnabled = !busy;
-            DownloadOnlyModsBtn.IsEnabled = !busy;
-            SearchBtn.IsEnabled = !busy;
+            StartFullDownloadBtn.IsEnabled = true;
+            DownloadOnlyModsBtn.IsEnabled = true;
+            SearchBtn.IsEnabled = true;
             CancelDownloadBtn.IsEnabled = true;
         }
 
@@ -2962,7 +3144,10 @@ namespace StormSwitchBox.Views.Dialogs
             return await tcs.Task.ConfigureAwait(false);
         }
 
-        private static async Task ExtractLocalTorrentModArchivesAsync(string releaseDir, CancellationToken ct)
+        private static async Task ExtractLocalTorrentModArchivesAsync(
+            string releaseDir,
+            CancellationToken ct,
+            IReadOnlyCollection<string>? selectedRelativePaths = null)
         {
             if (string.IsNullOrWhiteSpace(releaseDir) || !Directory.Exists(releaseDir))
                 return;
@@ -2976,9 +3161,23 @@ namespace StormSwitchBox.Views.Dialogs
                                  f.EndsWith(".rar", StringComparison.OrdinalIgnoreCase)))
                     .ToList();
 
+                HashSet<string>? allowedArchNames = null;
+                if (selectedRelativePaths != null && selectedRelativePaths.Count > 0)
+                {
+                    allowedArchNames = new HashSet<string>(
+                        selectedRelativePaths.Select(p => Path.GetFileName(p.Replace('/', '\\'))),
+                        StringComparer.OrdinalIgnoreCase);
+                }
+
                 foreach (var arch in archiveFiles)
                 {
                     ct.ThrowIfCancellationRequested();
+                    string archFileName = Path.GetFileName(arch);
+                    if (allowedArchNames != null && !allowedArchNames.Contains(archFileName))
+                    {
+                        continue; // архив не был выбран пользователем!
+                    }
+
                     string baseName = Path.GetFileNameWithoutExtension(arch);
                     string parentDir = Path.GetDirectoryName(arch) ?? releaseDir;
                     string extractDir = Path.Combine(parentDir, $"Extracted_TorrentMod_{SanitizeFolderName(baseName)}");

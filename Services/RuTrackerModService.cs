@@ -1075,6 +1075,19 @@ namespace StormSwitchBox.Services
         public MagnetLink? LoadedMagnet => _loadedMagnet;
         public string ActiveTopicId => _activeTopicId;
         public int ActiveTopicSeeds => _activeTopicSeeds;
+
+        public RuTrackerModService CreateIsolatedDownloadSession()
+        {
+            var session = new RuTrackerModService();
+            if (_loadedTorrentBytes != null)
+            {
+                session._loadedTorrentBytes = (byte[])_loadedTorrentBytes.Clone();
+            }
+            session._loadedMagnet = _loadedMagnet;
+            session._activeTopicId = _activeTopicId;
+            session._activeTopicSeeds = _activeTopicSeeds;
+            return session;
+        }
         private readonly Dictionary<string, IPAddress> _dohCache = new(StringComparer.OrdinalIgnoreCase);
 
         static RuTrackerModService()
@@ -3542,22 +3555,44 @@ namespace StormSwitchBox.Services
                         IsRealTorrentFile = true
                     }).ToList();
 
-                    // Если MonoTorrent сохранил .torrent в кэш метаданных — копируем в основной кэш .torrent
+                    // Если MonoTorrent сохранил .torrent в кэш метаданных — копируем в основной кэш .torrent и сохраняем в _loadedTorrentBytes
                     try
                     {
-                        string dhtMetaDir = Path.Combine(dhtCacheDir, "metadata");
-                        if (Directory.Exists(dhtMetaDir))
+                        if (!string.IsNullOrEmpty(metaMgr.MetadataPath) && File.Exists(metaMgr.MetadataPath))
                         {
-                            var foundMeta = Directory.EnumerateFiles(dhtMetaDir, "*.torrent")
-                                .FirstOrDefault(p => Path.GetFileNameWithoutExtension(p).Equals(hashHex, StringComparison.OrdinalIgnoreCase));
-                            if (!string.IsNullOrEmpty(foundMeta) && File.Exists(foundMeta))
+                            byte[] rawBytes = await File.ReadAllBytesAsync(metaMgr.MetadataPath, CancellationToken.None).ConfigureAwait(false);
+                            if (rawBytes.Length > 64 && rawBytes[0] == (byte)'d')
                             {
-                                byte[] rawBytes = await File.ReadAllBytesAsync(foundMeta, CancellationToken.None).ConfigureAwait(false);
-                                if (rawBytes.Length > 64 && rawBytes[0] == (byte)'d')
+                                _loadedTorrentBytes = rawBytes;
+                                await File.WriteAllBytesAsync(cachedTorrentPath, rawBytes, CancellationToken.None).ConfigureAwait(false);
+                            }
+                        }
+
+                        if (_loadedTorrentBytes == null)
+                        {
+                            string dhtMetaDir = Path.Combine(dhtCacheDir, "metadata");
+                            if (Directory.Exists(dhtMetaDir))
+                            {
+                                var foundMeta = Directory.EnumerateFiles(dhtMetaDir, "*.torrent")
+                                    .FirstOrDefault(p => Path.GetFileNameWithoutExtension(p).Equals(hashHex, StringComparison.OrdinalIgnoreCase));
+                                if (!string.IsNullOrEmpty(foundMeta) && File.Exists(foundMeta))
                                 {
-                                    _loadedTorrentBytes = rawBytes;
-                                    await File.WriteAllBytesAsync(cachedTorrentPath, rawBytes, CancellationToken.None).ConfigureAwait(false);
+                                    byte[] rawBytes = await File.ReadAllBytesAsync(foundMeta, CancellationToken.None).ConfigureAwait(false);
+                                    if (rawBytes.Length > 64 && rawBytes[0] == (byte)'d')
+                                    {
+                                        _loadedTorrentBytes = rawBytes;
+                                        await File.WriteAllBytesAsync(cachedTorrentPath, rawBytes, CancellationToken.None).ConfigureAwait(false);
+                                    }
                                 }
+                            }
+                        }
+
+                        if (_loadedTorrentBytes == null && File.Exists(cachedTorrentPath))
+                        {
+                            byte[] rawBytes = await File.ReadAllBytesAsync(cachedTorrentPath, CancellationToken.None).ConfigureAwait(false);
+                            if (rawBytes.Length > 64 && rawBytes[0] == (byte)'d')
+                            {
+                                _loadedTorrentBytes = rawBytes;
                             }
                         }
                     }
@@ -3595,8 +3630,9 @@ namespace StormSwitchBox.Services
             Directory.CreateDirectory(saveDirectory);
 
             string dhtCacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "STORM SWITCH BOX", "dht_cache");
-            Directory.CreateDirectory(dhtCacheDir);
-            var engine = GetOrCreateEngine(dhtCacheDir);
+            string sessionCacheDir = Path.Combine(dhtCacheDir, "session_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(sessionCacheDir);
+            var engine = CreateDownloadEngine(sessionCacheDir);
             var torrentSettings = new TorrentSettingsBuilder
             {
                 MaximumConnections = 350,
@@ -3677,9 +3713,29 @@ namespace StormSwitchBox.Services
                 }
             }
 
-            if (manager.HasMetadata && fileSelections.Count > 0)
+            bool prioritiesAppliedAfterMetadata = manager.HasMetadata;
+            if (manager.HasMetadata && fileSelections != null && fileSelections.Count > 0)
             {
                 await ApplyFilePrioritiesAsync(manager, fileSelections).ConfigureAwait(false);
+            }
+            else
+            {
+                _ = Task.Run(async () =>
+                {
+                    while (!prioritiesAppliedAfterMetadata && !ct.IsCancellationRequested && manager.State != TorrentState.Stopped)
+                    {
+                        if (manager.HasMetadata)
+                        {
+                            prioritiesAppliedAfterMetadata = true;
+                            if (fileSelections != null && fileSelections.Count > 0)
+                            {
+                                try { await ApplyFilePrioritiesAsync(manager, fileSelections).ConfigureAwait(false); } catch { }
+                            }
+                            break;
+                        }
+                        await Task.Delay(200, ct).ConfigureAwait(false);
+                    }
+                }, ct);
             }
             await manager.StartAsync().ConfigureAwait(false);
 
@@ -3689,8 +3745,6 @@ namespace StormSwitchBox.Services
                 _ = Task.Run(() => HarvestPeersFromHttpTrackersAsync(currentHash, manager, ct));
                 _ = Task.Run(() => InjectPeersViaTurboDhtAsync(currentHash, manager, ct));
             }
-
-            bool prioritiesAppliedAfterMetadata = manager.HasMetadata;
             long lastProgressTicks = System.Diagnostics.Stopwatch.GetTimestamp();
             long lastHarvestTicks = System.Diagnostics.Stopwatch.GetTimestamp();
             long lastReinjectTicks = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -3838,14 +3892,66 @@ namespace StormSwitchBox.Services
                     ct.ThrowIfCancellationRequested();
                 }
 
+                // Удаление граничных кусков (Boundary Pieces) невыбранных файлов
+                if (manager.HasMetadata && manager.Files != null && manager.Files.Count > 0)
+                {
+                    var selectedRelSet = fileSelections != null && fileSelections.Count > 0
+                        ? fileSelections
+                            .Where(f => f.IsSelected)
+                            .Select(f => f.RelativePath.Replace('/', '\\').Trim('\\'))
+                            .ToHashSet(StringComparer.OrdinalIgnoreCase)
+                        : null;
+
+                    foreach (var f in manager.Files)
+                    {
+                        string normRel = f.Path.Replace('/', '\\').Trim('\\');
+                        bool isUnwanted = f.Priority == Priority.DoNotDownload ||
+                                          (selectedRelSet != null && selectedRelSet.Count > 0 &&
+                                           !selectedRelSet.Contains(normRel) &&
+                                           !selectedRelSet.Contains(Path.GetFileName(normRel)));
+
+                        if (isUnwanted)
+                        {
+                            try
+                            {
+                                string targetPath = !string.IsNullOrEmpty(f.FullPath) && File.Exists(f.FullPath)
+                                    ? f.FullPath
+                                    : Path.Combine(saveDirectory, f.Path);
+
+                                if (File.Exists(targetPath))
+                                {
+                                    File.Delete(targetPath);
+                                }
+                            }
+                            catch { }
+                        }
+                    }
+                }
+
                 var downloadedPaths = new List<string>();
                 if (manager.HasMetadata)
                 {
+                    var selectedRelSet = fileSelections != null && fileSelections.Count > 0
+                        ? fileSelections
+                            .Where(f => f.IsSelected)
+                            .Select(f => f.RelativePath.Replace('/', '\\').Trim('\\'))
+                            .ToHashSet(StringComparer.OrdinalIgnoreCase)
+                        : null;
+
                     foreach (var f in manager.Files)
                     {
-                        if (f.Priority != Priority.DoNotDownload && f.BitField.AllTrue)
+                        string normRel = f.Path.Replace('/', '\\').Trim('\\');
+                        bool isUnwanted = f.Priority == Priority.DoNotDownload ||
+                                          (selectedRelSet != null && selectedRelSet.Count > 0 &&
+                                           !selectedRelSet.Contains(normRel) &&
+                                           !selectedRelSet.Contains(Path.GetFileName(normRel)));
+
+                        if (!isUnwanted && f.BitField.AllTrue)
                         {
-                            string fullPath = Path.Combine(saveDirectory, f.Path);
+                            string fullPath = !string.IsNullOrEmpty(f.FullPath) && File.Exists(f.FullPath)
+                                ? f.FullPath
+                                : Path.Combine(saveDirectory, f.Path);
+
                             if (File.Exists(fullPath))
                             {
                                 string ext = Path.GetExtension(fullPath).ToLowerInvariant();
@@ -3895,6 +4001,18 @@ namespace StormSwitchBox.Services
                 try { await manager.StopAsync().ConfigureAwait(false); } catch { }
                 _activeManagers.TryRemove(mgrKey, out _);
                 if (_activeManager == manager) _activeManager = null;
+                try
+                {
+                    await engine.StopAllAsync().ConfigureAwait(false);
+                    engine.Dispose();
+                }
+                catch { }
+                try
+                {
+                    if (Directory.Exists(sessionCacheDir))
+                        Directory.Delete(sessionCacheDir, true);
+                }
+                catch { }
             }
         }
 
@@ -4648,6 +4766,45 @@ namespace StormSwitchBox.Services
 
         private static ClientEngine? _sharedTorrentEngine;
         private static readonly object _engineLock = new();
+
+        private static ClientEngine CreateDownloadEngine(string sessionCacheDir)
+        {
+            var encList = new List<MonoTorrent.Connections.EncryptionType>
+            {
+                MonoTorrent.Connections.EncryptionType.RC4Full,
+                MonoTorrent.Connections.EncryptionType.RC4Header,
+                MonoTorrent.Connections.EncryptionType.PlainText
+            };
+
+            var listenEps = new Dictionary<string, IPEndPoint>
+            {
+                ["ipv4"] = new IPEndPoint(IPAddress.Any, 0)
+            };
+
+            var engineSettings = new EngineSettingsBuilder
+            {
+                CacheDirectory = sessionCacheDir,
+                AllowedEncryption = encList,
+                ListenEndPoints = listenEps,
+                AllowPortForwarding = true,
+                AllowLocalPeerDiscovery = true,
+                UsePartialFiles = false,
+                MaximumConnections = 400,
+                MaximumDownloadRate = 0,
+                MaximumUploadRate = 0,
+                MaximumHalfOpenConnections = 150,
+                MaximumOpenFiles = 256,
+                MaximumDiskReadRate = 0,
+                MaximumDiskWriteRate = 0,
+                DiskCacheBytes = 128 * 1024 * 1024,
+                DhtEndPoint = new IPEndPoint(IPAddress.Any, 0),
+                AutoSaveLoadDhtCache = false,
+                AutoSaveLoadFastResume = false,
+                AutoSaveLoadMagnetLinkMetadata = true
+            }.ToSettings();
+
+            return new ClientEngine(engineSettings);
+        }
 
         private static ClientEngine GetOrCreateEngine(string cacheDirectory)
         {

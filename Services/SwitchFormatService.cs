@@ -394,6 +394,11 @@ namespace StormSwitchBox.Services
                     catch { }
                 }
 
+                if (pfs != null && _keysService.CurrentKeyset != null)
+                {
+                    SmartShrinkService.HarvestTicketsFromFileSystem(pfs, _keysService.CurrentKeyset);
+                }
+
                 var entries = fileSystem.EnumerateEntries().ToList();
                 int totalFiles = entries.Count;
                 int currentFile = 0;
@@ -433,16 +438,20 @@ namespace StormSwitchBox.Services
                         }
                         
                         var nca = new Nca(_keysService.CurrentKeyset, entryStorage);
+                        if (pfs != null && _keysService.CurrentKeyset != null)
+                        {
+                            SmartShrinkService.HarvestTicketsFromFileSystem(pfs, _keysService.CurrentKeyset);
+                        }
                         KeysService.RegisterRightsIdFallback(_keysService.CurrentKeyset, nca);
                         
                         if (nca.Header.ContentType == NcaContentType.Program)
                         {
-                            ExtractNcaSection(nca, NcaSectionType.Data, System.IO.Path.Combine(finalOutPath, "romfs"), token);
-                            ExtractNcaSection(nca, NcaSectionType.Code, System.IO.Path.Combine(finalOutPath, "exefs"), token);
+                            ExtractNcaSection(nca, NcaSectionType.Data, System.IO.Path.Combine(finalOutPath, "romfs"), token, ncaStorage: entryStorage);
+                            ExtractNcaSection(nca, NcaSectionType.Code, System.IO.Path.Combine(finalOutPath, "exefs"), token, ncaStorage: entryStorage);
                         }
                         else if (nca.Header.ContentType == NcaContentType.Control)
                         {
-                            ExtractNcaSection(nca, NcaSectionType.Data, System.IO.Path.Combine(finalOutPath, "control"), token);
+                            ExtractNcaSection(nca, NcaSectionType.Data, System.IO.Path.Combine(finalOutPath, "control"), token, ncaStorage: entryStorage);
                         }
                         else 
                         {
@@ -721,64 +730,87 @@ namespace StormSwitchBox.Services
             });
         }
 
-        public void ExtractNcaSection(Nca nca, NcaSectionType sectionType, string outDir, System.Threading.CancellationToken token, string? ncaFilePath = null)
+        public void ExtractNcaSection(Nca nca, NcaSectionType sectionType, string outDir, System.Threading.CancellationToken token, string? ncaFilePath = null, IStorage? ncaStorage = null)
         {
-            if (!nca.CanOpenSection(sectionType)) return;
-            
             System.IO.Directory.CreateDirectory(outDir);
             
-            try 
+            if (nca.CanOpenSection(sectionType))
             {
-                LibHac.Fs.Fsa.IFileSystem? fs = null;
-                if (nca.Header.GetFsHeader((int)sectionType).FormatType == LibHac.Tools.FsSystem.NcaUtils.NcaFormatType.Romfs)
+                try 
                 {
-                    try
+                    LibHac.Fs.Fsa.IFileSystem? fs = null;
+                    if (nca.Header.GetFsHeader((int)sectionType).FormatType == LibHac.Tools.FsSystem.NcaUtils.NcaFormatType.Romfs)
                     {
-                        var storage = nca.OpenStorage((int)sectionType, IntegrityCheckLevel.None);
-                        var wrappedStorage = new UnalignedStorageWrapper(storage);
-                        fs = new LibHac.Tools.FsSystem.RomFs.RomFsFileSystem(wrappedStorage);
+                        try
+                        {
+                            var storage = nca.OpenStorage((int)sectionType, IntegrityCheckLevel.None);
+                            var wrappedStorage = new UnalignedStorageWrapper(storage);
+                            fs = new LibHac.Tools.FsSystem.RomFs.RomFsFileSystem(wrappedStorage);
+                        }
+                        catch
+                        {
+                            try { fs = nca.OpenFileSystem((int)sectionType, IntegrityCheckLevel.None); } catch { }
+                            if (fs == null) try { fs = nca.OpenFileSystem((int)sectionType, IntegrityCheckLevel.IgnoreOnInvalid); } catch { }
+                        }
                     }
-                    catch
+                    else
                     {
-                        try { fs = nca.OpenFileSystem((int)sectionType, IntegrityCheckLevel.None); } catch { }
-                        if (fs == null) try { fs = nca.OpenFileSystem((int)sectionType, IntegrityCheckLevel.IgnoreOnInvalid); } catch { }
+                        try
+                        {
+                            var storage = nca.OpenStorage((int)sectionType, IntegrityCheckLevel.None);
+                            var wrappedStorage = new UnalignedStorageWrapper(storage);
+                            var pfs = new LibHac.FsSystem.PartitionFileSystem(wrappedStorage);
+                            fs = pfs;
+                        }
+                        catch
+                        {
+                            try { fs = nca.OpenFileSystem((int)sectionType, IntegrityCheckLevel.None); } catch { }
+                            if (fs == null) try { fs = nca.OpenFileSystem((int)sectionType, IntegrityCheckLevel.IgnoreOnInvalid); } catch { }
+                        }
+                    }
+                    
+                    if (fs != null)
+                    {
+                        try
+                        {
+                            ExtractDirectoryRecursively(fs, "/", outDir, token);
+                            return; // success via LibHac
+                        }
+                        finally
+                        {
+                            if (fs is IDisposable d) d.Dispose();
+                        }
                     }
                 }
-                else
-                {
-                    try
-                    {
-                        var storage = nca.OpenStorage((int)sectionType, IntegrityCheckLevel.None);
-                        var wrappedStorage = new UnalignedStorageWrapper(storage);
-                        var pfs = new LibHac.FsSystem.PartitionFileSystem(wrappedStorage);
-                        fs = pfs;
-                    }
-                    catch
-                    {
-                        try { fs = nca.OpenFileSystem((int)sectionType, IntegrityCheckLevel.None); } catch { }
-                        if (fs == null) try { fs = nca.OpenFileSystem((int)sectionType, IntegrityCheckLevel.IgnoreOnInvalid); } catch { }
-                    }
-                }
-                
-                if (fs != null)
-                {
-                    try
-                    {
-                        ExtractDirectoryRecursively(fs, "/", outDir, token);
-                        return; // success via LibHac
-                    }
-                    finally
-                    {
-                        if (fs is IDisposable d) d.Dispose();
-                    }
-                }
+                catch { /* LibHac failed, will try hactoolnet fallback */ }
             }
-            catch { /* LibHac failed, will try hactoolnet fallback */ }
 
             // Fallback: use hactoolnet.exe
             if (!string.IsNullOrEmpty(ncaFilePath) && System.IO.File.Exists(ncaFilePath))
             {
                 ExtractNcaSectionViaHactool(ncaFilePath, null, sectionType, outDir, token);
+            }
+            else if (ncaStorage != null)
+            {
+                string tempDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "StormNcaExtract_" + Guid.NewGuid().ToString("N").Substring(0, 8));
+                System.IO.Directory.CreateDirectory(tempDir);
+                string tempNcaPath = System.IO.Path.Combine(tempDir, "temp.nca");
+                try
+                {
+                    SaveStorageToFile(ncaStorage, tempNcaPath);
+                    if (System.IO.File.Exists(tempNcaPath) && new FileInfo(tempNcaPath).Length > 0)
+                    {
+                        ExtractNcaSectionViaHactool(tempNcaPath, null, sectionType, outDir, token);
+                    }
+                    else
+                    {
+                        throw new Exception($"Не удалось извлечь секцию {sectionType} через LibHac API (дамп временного NCA пуст).");
+                    }
+                }
+                finally
+                {
+                    try { System.IO.Directory.Delete(tempDir, true); } catch { }
+                }
             }
             else
             {
@@ -864,6 +896,17 @@ namespace StormSwitchBox.Services
 
         private void ExtractNcaSectionViaHactool(string ncaPath, string? baseNcaPath, NcaSectionType sectionType, string outDir, System.Threading.CancellationToken token)
         {
+            string userKeys = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "prod.keys");
+            if (!File.Exists(userKeys) && !string.IsNullOrEmpty(_keysService.KeysFilePath) && File.Exists(_keysService.KeysFilePath))
+            {
+                try
+                {
+                    System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(userKeys)!);
+                    File.Copy(_keysService.KeysFilePath, userKeys, true);
+                }
+                catch { }
+            }
+
             string hactoolPath = FindHactoolnet();
             string keysPath = _keysService.KeysFilePath ?? System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "prod.keys");
             string baseArg = !string.IsNullOrEmpty(baseNcaPath) ? $"--basenca \"{baseNcaPath}\"" : "";
@@ -1190,6 +1233,13 @@ namespace StormSwitchBox.Services
                     if (eDirs.Length > 0) exefsDir = eDirs[0];
                 }
 
+                string controlDir = System.IO.Path.Combine(inputFolder, "control");
+                if (!System.IO.Directory.Exists(controlDir))
+                {
+                    var cDirs = System.IO.Directory.GetDirectories(inputFolder, "control", System.IO.SearchOption.AllDirectories);
+                    if (cDirs.Length > 0) controlDir = cDirs[0];
+                }
+
                 bool hasMods = System.IO.Directory.Exists(romfsDir) || System.IO.Directory.Exists(exefsDir);
 
                 if (hasMods)
@@ -1232,72 +1282,177 @@ namespace StormSwitchBox.Services
                         catch { }
                     }
 
-                    if (string.IsNullOrEmpty(controlNca))
+                    string keysPath = _keysService.KeysFilePath ?? App.Settings.Current.KeysPath;
+                    if (string.IsNullOrEmpty(keysPath) || !File.Exists(keysPath))
                     {
-                        throw new Exception("Не найден control.nca. Перепаковка romfs/exefs невозможна.");
+                        keysPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tools", "keys.txt");
                     }
-                    if (string.IsNullOrEmpty(baseProgramNca))
+                    if (string.IsNullOrEmpty(keysPath) || !File.Exists(keysPath))
                     {
-                        throw new Exception("Не найден базовый Program NCA. Перепаковка romfs/exefs невозможна.");
+                        keysPath = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "prod.keys");
                     }
-                    if (string.IsNullOrEmpty(titleId)) titleId = "0100000000000000";
+                    string keyfileFlag = (!string.IsNullOrEmpty(keysPath) && File.Exists(keysPath)) ? $"-k \"{keysPath}\" " : "";
 
                     string yanuCliPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tools", "yanu-cli.exe");
                     if (!System.IO.File.Exists(yanuCliPath))
                     {
                         string fallback = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "tools", "yanu-cli.exe");
                         if (System.IO.File.Exists(fallback)) yanuCliPath = fallback;
-                        else throw new Exception("yanu-cli.exe не найден.");
                     }
 
                     string tempOut = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "StormPack_" + Guid.NewGuid().ToString("N").Substring(0, 8));
                     System.IO.Directory.CreateDirectory(tempOut);
 
+                    string localAppDataDir = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "StormSwitchBox");
+                    string isolatedUserProfile = System.IO.Path.Combine(localAppDataDir, "user_profile");
+                    string isolatedSwitchDir = System.IO.Path.Combine(isolatedUserProfile, ".switch");
+                    System.IO.Directory.CreateDirectory(isolatedSwitchDir);
+                    if (!string.IsNullOrEmpty(keysPath) && File.Exists(keysPath))
+                    {
+                        try { File.Copy(keysPath, System.IO.Path.Combine(isolatedSwitchDir, "prod.keys"), true); } catch { }
+                    }
+                    string userTitleKeys = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "title.keys");
+                    if (File.Exists(userTitleKeys))
+                    {
+                        try { File.Copy(userTitleKeys, System.IO.Path.Combine(isolatedSwitchDir, "title.keys"), true); } catch { }
+                    }
+
                     try
                     {
-                        string keysPath = App.Settings.Current.KeysPath;
-                        if (string.IsNullOrEmpty(keysPath) || !File.Exists(keysPath))
+                        string builtNspPath = "";
+                        bool yanuSuccess = false;
+
+                        // Сценарий 1: Если есть базовые control.nca и baseProgramNca, и доступен yanu-cli — пробуем yanu-cli pack (без дедлока пайпа)
+                        if (!string.IsNullOrEmpty(controlNca) && !string.IsNullOrEmpty(baseProgramNca) && File.Exists(yanuCliPath))
                         {
-                            keysPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tools", "keys.txt");
+                            if (string.IsNullOrEmpty(titleId)) titleId = "0100000000000000";
+                            string packArgs = $"{keyfileFlag}pack --titleid {titleId} --controlnca \"{controlNca}\" --romfsdir \"{romfsDir}\" --exefsdir \"{exefsDir}\" -o \"{tempOut}\"";
+                            var packPsi = new System.Diagnostics.ProcessStartInfo
+                            {
+                                FileName = yanuCliPath,
+                                Arguments = packArgs,
+                                WorkingDirectory = tempOut,
+                                UseShellExecute = false,
+                                RedirectStandardOutput = true,
+                                RedirectStandardError = true,
+                                CreateNoWindow = true,
+                                StandardOutputEncoding = System.Text.Encoding.UTF8,
+                                StandardErrorEncoding = System.Text.Encoding.UTF8
+                            };
+                            packPsi.EnvironmentVariables["USERPROFILE"] = isolatedUserProfile;
+                            packPsi.EnvironmentVariables["LOCALAPPDATA"] = System.IO.Path.Combine(localAppDataDir, "cache");
+                            packPsi.EnvironmentVariables["APPDATA"] = System.IO.Path.Combine(localAppDataDir, "cache");
+                            packPsi.EnvironmentVariables["TEMP"] = tempOut;
+                            packPsi.EnvironmentVariables["TMP"] = tempOut;
+                            
+                            using var packProcess = System.Diagnostics.Process.Start(packPsi);
+                            if (packProcess != null)
+                            {
+                                var stdoutTask = packProcess.StandardOutput.ReadToEndAsync(cancellationToken);
+                                var stderrTask = packProcess.StandardError.ReadToEndAsync(cancellationToken);
+                                await Task.WhenAll(stdoutTask, stderrTask);
+                                await packProcess.WaitForExitAsync(cancellationToken);
+
+                                var genFiles = System.IO.Directory.GetFiles(tempOut, "*.nsp");
+                                if (packProcess.ExitCode == 0 && genFiles.Length > 0)
+                                {
+                                    builtNspPath = genFiles[0];
+                                    yanuSuccess = true;
+                                }
+                            }
                         }
-                        string keyfileFlag = (!string.IsNullOrEmpty(keysPath) && File.Exists(keysPath)) ? $"-k \"{keysPath}\" " : "";
 
-                        string packArgs = $"{keyfileFlag}pack --titleid {titleId} --controlnca \"{controlNca}\" --romfsdir \"{romfsDir}\" --exefsdir \"{exefsDir}\" -o \"{tempOut}\"";
-                        var packPsi = new System.Diagnostics.ProcessStartInfo
+                        // Сценарий 2: Если yanu-cli не сработал или нет controlNca/baseProgramNca — собираем через hacpack
+                        if (!yanuSuccess)
                         {
-                            FileName = yanuCliPath,
-                            Arguments = packArgs,
-                            WorkingDirectory = tempOut,
-                            UseShellExecute = false,
-                            RedirectStandardOutput = true,
-                            RedirectStandardError = true,
-                            CreateNoWindow = true,
-                            StandardOutputEncoding = System.Text.Encoding.UTF8,
-                            StandardErrorEncoding = System.Text.Encoding.UTF8
-                        };
-                        string localAppDataDir = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "StormSwitchBox");
-                        packPsi.EnvironmentVariables["USERPROFILE"] = System.IO.Path.Combine(localAppDataDir, "user_profile");
-                        packPsi.EnvironmentVariables["LOCALAPPDATA"] = System.IO.Path.Combine(localAppDataDir, "cache");
-                        packPsi.EnvironmentVariables["APPDATA"] = System.IO.Path.Combine(localAppDataDir, "cache");
-                        packPsi.EnvironmentVariables["TEMP"] = tempOut;
-                        packPsi.EnvironmentVariables["TMP"] = tempOut;
-                        
-                        using var packProcess = System.Diagnostics.Process.Start(packPsi);
-                        if (packProcess == null) throw new Exception("Не удалось запустить yanu-cli pack.");
-                        
-                        string stderr = await packProcess.StandardError.ReadToEndAsync();
-                        await packProcess.WaitForExitAsync(cancellationToken);
-                        
-                        if (packProcess.ExitCode != 0) throw new Exception($"Ошибка yanu-cli pack:\n{stderr}");
+                            string hacpackPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tools", "hacpack.exe");
+                            if (!File.Exists(hacpackPath))
+                            {
+                                throw new Exception("Для перепаковки распакованной игры (romfs/exefs) требуется hacpack.exe или базовый control.nca.");
+                            }
 
-                        var genFiles = System.IO.Directory.GetFiles(tempOut, "*.nsp");
-                        if (genFiles.Length > 0)
+                            if (string.IsNullOrEmpty(titleId)) titleId = "0100000000000000";
+
+                            // Подготавливаем control: если нет папки control, создаем синтетический control.nacp
+                            string effectiveControlDir = controlDir;
+                            if (string.IsNullOrEmpty(effectiveControlDir) || !System.IO.Directory.Exists(effectiveControlDir))
+                            {
+                                effectiveControlDir = System.IO.Path.Combine(tempOut, "synthetic_control");
+                                System.IO.Directory.CreateDirectory(effectiveControlDir);
+                                byte[] nacpBytes = GenerateNacp("Storm Game", "Storm Team", "1.0.0", titleId);
+                                File.WriteAllBytes(System.IO.Path.Combine(effectiveControlDir, "control.nacp"), nacpBytes);
+                            }
+
+                            // 1. Сборка Program NCA
+                            string progOut = System.IO.Path.Combine(tempOut, "prog_out");
+                            System.IO.Directory.CreateDirectory(progOut);
+                            string progArgs = $"{keyfileFlag}--type nca --ncatype program --titleid {titleId} --exefsdir \"{exefsDir}\" --romfsdir \"{romfsDir}\" -o \"{progOut}\"";
+                            await RunHacpackAsync(hacpackPath, progArgs, tempOut, cancellationToken, isolatedUserProfile);
+                            var progNcas = System.IO.Directory.GetFiles(progOut, "*.nca");
+                            if (progNcas.Length == 0) throw new Exception("hacpack не создал Program NCA при перепаковке.");
+                            string genProgNca = progNcas[0];
+
+                            // 2. Сборка Control NCA
+                            string ctrlOut = System.IO.Path.Combine(tempOut, "ctrl_out");
+                            System.IO.Directory.CreateDirectory(ctrlOut);
+                            string ctrlArgs = $"{keyfileFlag}--type nca --ncatype control --titleid {titleId} --romfsdir \"{effectiveControlDir}\" -o \"{ctrlOut}\"";
+                            await RunHacpackAsync(hacpackPath, ctrlArgs, tempOut, cancellationToken, isolatedUserProfile);
+                            var ctrlNcas = System.IO.Directory.GetFiles(ctrlOut, "*.nca");
+                            if (ctrlNcas.Length == 0) throw new Exception("hacpack не создал Control NCA при перепаковке.");
+                            string genCtrlNca = ctrlNcas[0];
+
+                            // 3. Сборка Meta NCA
+                            string metaOut = System.IO.Path.Combine(tempOut, "meta_out");
+                            System.IO.Directory.CreateDirectory(metaOut);
+                            string metaArgs = $"{keyfileFlag}--type nca --ncatype meta --titletype application --titleid {titleId} --titleversion 0x0 --programnca \"{genProgNca}\" --controlnca \"{genCtrlNca}\" -o \"{metaOut}\"";
+                            await RunHacpackAsync(hacpackPath, metaArgs, tempOut, cancellationToken, isolatedUserProfile);
+                            var metaNcas = System.IO.Directory.GetFiles(metaOut, "*.nca");
+                            if (metaNcas.Length == 0) throw new Exception("hacpack не создал Meta NCA при перепаковке.");
+
+                            // 4. Сборка финального NSP
+                            var allNcasDir = System.IO.Path.Combine(tempOut, "all_ncas");
+                            System.IO.Directory.CreateDirectory(allNcasDir);
+                            File.Copy(genProgNca, System.IO.Path.Combine(allNcasDir, System.IO.Path.GetFileName(genProgNca)), true);
+                            File.Copy(genCtrlNca, System.IO.Path.Combine(allNcasDir, System.IO.Path.GetFileName(genCtrlNca)), true);
+                            foreach (var m in metaNcas)
+                            {
+                                File.Copy(m, System.IO.Path.Combine(allNcasDir, System.IO.Path.GetFileName(m)), true);
+                            }
+                            foreach (var extra in System.IO.Directory.GetFiles(inputFolder, "*.*", System.IO.SearchOption.AllDirectories)
+                                .Where(f => f.EndsWith(".tik", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".cert", StringComparison.OrdinalIgnoreCase)))
+                            {
+                                try { File.Copy(extra, System.IO.Path.Combine(allNcasDir, System.IO.Path.GetFileName(extra)), true); } catch { }
+                            }
+
+                            string packedNspPath = System.IO.Path.Combine(tempOut, "built.nsp");
+                            var nspPfsBuilder = new PartitionFileSystemBuilder();
+                            var openedPfsStreams = new List<FileStream>();
+                            try
+                            {
+                                foreach (var ncaFile in System.IO.Directory.GetFiles(allNcasDir))
+                                {
+                                    var fs = new FileStream(ncaFile, FileMode.Open, FileAccess.Read, FileShare.Read);
+                                    openedPfsStreams.Add(fs);
+                                    nspPfsBuilder.AddFile(System.IO.Path.GetFileName(ncaFile), new StorageFile(fs.AsStorage(), OpenMode.Read));
+                                }
+                                using var outFs = new FileStream(packedNspPath, FileMode.Create, FileAccess.Write, FileShare.None, 16 * 1024 * 1024);
+                                using var builtPfs = nspPfsBuilder.Build(PartitionFileSystemType.Standard);
+                                builtPfs.AsStream().CopyTo(outFs);
+                            }
+                            finally
+                            {
+                                foreach (var s in openedPfsStreams) s.Dispose();
+                            }
+                            builtNspPath = packedNspPath;
+                        }
+
+                        if (!string.IsNullOrEmpty(builtNspPath) && File.Exists(builtNspPath))
                         {
-                            outPath = await SafeFileOperations.SafeMoveOrReplaceFileAsync(genFiles[0], outPath, task, cancellationToken);
+                            outPath = await SafeFileOperations.SafeMoveOrReplaceFileAsync(builtNspPath, outPath, task, cancellationToken);
                         }
                         else
                         {
-                            throw new Exception("Сборка через yanu-cli не выдала .nsp файл.");
+                            throw new Exception("Сборка пакета не выдала готовый .nsp файл.");
                         }
                     }
                     finally
@@ -1694,6 +1849,59 @@ namespace StormSwitchBox.Services
             path.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(pth))).ThrowIfFailure();
             fsToOpen.OpenFile(ref fRef.Ref, in path, OpenMode.Read).ThrowIfFailure();
             return fRef.Release();
+        }
+
+        private static byte[] GenerateNacp(string title, string author, string version, string titleIdStr)
+        {
+            byte[] nacp = new byte[0x4000];
+            byte[] titleBytes = System.Text.Encoding.UTF8.GetBytes(title);
+            byte[] authorBytes = System.Text.Encoding.UTF8.GetBytes(author);
+
+            for (int i = 0; i < 16; i++)
+            {
+                int offset = i * 0x300;
+                Array.Copy(titleBytes, 0, nacp, offset, Math.Min(titleBytes.Length, 0x200));
+                Array.Copy(authorBytes, 0, nacp, offset + 0x200, Math.Min(authorBytes.Length, 0x100));
+            }
+
+            byte[] verBytes = System.Text.Encoding.UTF8.GetBytes(version);
+            Array.Copy(verBytes, 0, nacp, 0x3060, Math.Min(verBytes.Length, 0x10));
+
+            if (ulong.TryParse(titleIdStr, System.Globalization.NumberStyles.HexNumber, null, out ulong tid))
+            {
+                BitConverter.GetBytes(tid).CopyTo(nacp, 0x3078);
+                BitConverter.GetBytes(tid).CopyTo(nacp, 0x3038);
+                BitConverter.GetBytes(tid).CopyTo(nacp, 0x3070);
+            }
+
+            return nacp;
+        }
+
+        private static async Task<int> RunHacpackAsync(string exe, string args, string workDir, CancellationToken ct, string? userProfile = null)
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = exe,
+                Arguments = args,
+                WorkingDirectory = workDir,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+                StandardOutputEncoding = System.Text.Encoding.UTF8,
+                StandardErrorEncoding = System.Text.Encoding.UTF8
+            };
+            if (!string.IsNullOrEmpty(userProfile))
+            {
+                psi.EnvironmentVariables["USERPROFILE"] = userProfile;
+            }
+            using var proc = System.Diagnostics.Process.Start(psi);
+            if (proc == null) return -1;
+            var outTask = proc.StandardOutput.ReadToEndAsync(ct);
+            var errTask = proc.StandardError.ReadToEndAsync(ct);
+            await Task.WhenAll(outTask, errTask);
+            await proc.WaitForExitAsync(ct);
+            return proc.ExitCode;
         }
     }
 

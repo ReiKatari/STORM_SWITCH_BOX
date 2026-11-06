@@ -109,7 +109,11 @@ namespace StormSwitchBox.Services
                                 {
                                     byte[] ridB = Convert.FromHexString(rIdNorm);
                                     byte[] keyB = Convert.FromHexString(rawKeyHex);
-                                    App.Keys.CurrentKeyset.ExternalKeySet.Add(new LibHac.Fs.RightsId(ridB), new LibHac.Spl.AccessKey(keyB));
+                                    var rIdObj = new LibHac.Fs.RightsId(ridB);
+                                    var aKeyObj = new LibHac.Spl.AccessKey(keyB);
+                                    KeysService.RemoveFallbackRightsId(rIdObj);
+                                    App.Keys.CurrentKeyset.ExternalKeySet.Remove(rIdObj);
+                                    App.Keys.CurrentKeyset.ExternalKeySet.Add(rIdObj, aKeyObj);
                                 }
                             }
                             catch { }

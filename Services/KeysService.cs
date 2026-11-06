@@ -13,8 +13,22 @@ namespace StormSwitchBox.Services
     {
         private static readonly SemaphoreSlim _semaphore = new(1, 1);
 
+        private static readonly HashSet<LibHac.Fs.RightsId> _fallbackRightsIds = new();
+        private static readonly object _fallbackLock = new();
+
+        public static bool IsFallbackRightsId(LibHac.Fs.RightsId rId)
+        {
+            lock (_fallbackLock) return _fallbackRightsIds.Contains(rId);
+        }
+
+        public static void RemoveFallbackRightsId(LibHac.Fs.RightsId rId)
+        {
+            lock (_fallbackLock) _fallbackRightsIds.Remove(rId);
+        }
+
         /// <summary>
         /// Eden TitleKey fallback: Registers RightsId as TitleKey into ExternalKeySet for direct dumps without tickets/external keys.
+        /// Only registers fallback if no real ticket key already exists for this RightsId.
         /// </summary>
         public static void RegisterRightsIdFallback(KeySet? keyset, ReadOnlySpan<byte> rIdBytes)
         {
@@ -29,10 +43,13 @@ namespace StormSwitchBox.Services
                 if (isZero) return;
 
                 var rId = new LibHac.Fs.RightsId(rIdBytes.Slice(0, 16));
-                if (!keyset.ExternalKeySet.Contains(rId))
+                if (keyset.ExternalKeySet.Contains(rId)) return;
+
+                var aKey = new LibHac.Spl.AccessKey(rIdBytes.Slice(0, 16));
+                keyset.ExternalKeySet.Add(rId, aKey);
+                lock (_fallbackLock)
                 {
-                    var aKey = new LibHac.Spl.AccessKey(rIdBytes.Slice(0, 16));
-                    keyset.ExternalKeySet.Add(rId, aKey);
+                    _fallbackRightsIds.Add(rId);
                 }
             }
             catch { }
@@ -43,10 +60,13 @@ namespace StormSwitchBox.Services
             if (keyset?.ExternalKeySet == null) return;
             try
             {
-                if (!keyset.ExternalKeySet.Contains(rId))
+                if (keyset.ExternalKeySet.Contains(rId)) return;
+
+                var aKey = new LibHac.Spl.AccessKey(rId.Value);
+                keyset.ExternalKeySet.Add(rId, aKey);
+                lock (_fallbackLock)
                 {
-                    var aKey = new LibHac.Spl.AccessKey(rId.Value);
-                    keyset.ExternalKeySet.Add(rId, aKey);
+                    _fallbackRightsIds.Add(rId);
                 }
             }
             catch { }

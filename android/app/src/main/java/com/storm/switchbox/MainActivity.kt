@@ -900,7 +900,7 @@ class MainActivity : Activity() {
         }
 
         buildUserInterface()
-        appendLog("STORM SWITCH BOX ${"6.9.3"} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) готов к работе.")
+        appendLog("STORM SWITCH BOX ${BuildConfig.VERSION_NAME} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) готов к работе.")
         // Автоматическая проверка обновлений с GitHub при запуске
         if (autoCheckUpdatesOnStartup) {
             checkForUpdatesFromGitHub(isManualClick = false)
@@ -1464,7 +1464,7 @@ class MainActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
         titleCol.addView(TextView(this).apply {
-            text = "STORM SWITCH BOX ${"6.9.3"}"
+            text = "STORM SWITCH BOX ${BuildConfig.VERSION_NAME}"
             setTextColor(th.textPrimary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
             typeface = Typeface.DEFAULT_BOLD
@@ -2872,7 +2872,11 @@ class MainActivity : Activity() {
                                     totalFilesCount = rep.extractedFilesCount,
                                     blockSizeExponent = 20,
                                     zstdLevel = 18,
-                                    message = "Распаковано ${rep.extractedFilesCount} файлов (RomFS + ExeFS)"
+                                    message = if (rep.success) {
+                                        if (rep.message.isNotBlank()) rep.message else "Распаковано ${rep.extractedFilesCount} файлов (RomFS + ExeFS)"
+                                    } else {
+                                        if (rep.message.isNotBlank()) rep.message else "Ошибка распаковки: файлы RomFS/ExeFS не найдены или нет ключей"
+                                    }
                                 )
                             }
                             6 -> {
@@ -3060,9 +3064,16 @@ class MainActivity : Activity() {
                             extractControl = true,
                             extractRawPartitions = true
                         ) {}
-                        appendLog("✅ Извлечено RomFS / ExeFS (${rep.extractedFilesCount} файлов, ${StormNczEngine.formatSize(rep.totalExtractedBytes)}) в ${rep.outputDir.absolutePath}")
-                        mainHandler.post {
-                            showUnpackSummaryDialog(target.name, rep, th)
+                        if (rep.success) {
+                            appendLog("✅ Извлечено RomFS / ExeFS (${rep.extractedFilesCount} файлов, ${StormNczEngine.formatSize(rep.totalExtractedBytes)}) в ${rep.outputDir.absolutePath}")
+                            mainHandler.post {
+                                showUnpackSummaryDialog(target.name, rep, th)
+                            }
+                        } else {
+                            appendLog("❌ Ошибка извлечения RomFS/ExeFS: ${rep.message.ifBlank { "Файлы не найдены или нет ключей для расшифровки" }}")
+                            mainHandler.post {
+                                Toast.makeText(this@MainActivity, "Ошибка: ${rep.message.ifBlank { "Не удалось извлечь RomFS/ExeFS" }}", Toast.LENGTH_LONG).show()
+                            }
                         }
                     } catch (e: Exception) {
                         appendLog("❌ Ошибка извлечения RomFS/ExeFS: ${e.message}")
@@ -5556,7 +5567,7 @@ class MainActivity : Activity() {
         }
         updCard.addView(makeSectionHeader(
             "2. Обновление STORM SWITCH BOX (GitHub и STORM GAMES WORLD)",
-            "Текущая версия: ${try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.9.3" } catch (_: Exception) { "6.8.6" }} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) • Проверка на 2 официальных площадках",
+            "Текущая версия: ${try { packageManager.getPackageInfo(packageName, 0).versionName ?: BuildConfig.VERSION_NAME } catch (_: Exception) { BuildConfig.VERSION_NAME }} (${(if (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) "legacy" else "modern").uppercase()}) • Проверка на 2 официальных площадках",
             th
         ))
         updCard.addView(makeStormCheckBox(
@@ -6287,7 +6298,7 @@ class MainActivity : Activity() {
             Toast.makeText(this, "⏳ Проверка обновлений на GitHub и STORM GAMES WORLD...", Toast.LENGTH_SHORT).show()
         }
         val preferLegacy = (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) || Build.VERSION.SDK_INT < 26
-        val currentAppVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.9.3" } catch (_: Exception) { "6.8.6" }
+        val currentAppVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: BuildConfig.VERSION_NAME } catch (_: Exception) { BuildConfig.VERSION_NAME }
         thread {
             val rel = RuTrackerCloudEngine.checkGitHubAppUpdate(currentAppVer, preferLegacy)
             mainHandler.post {
@@ -6318,7 +6329,7 @@ class MainActivity : Activity() {
             typeface = Typeface.DEFAULT_BOLD
         })
         box.addView(TextView(this).apply {
-            val installedVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "6.9.3" } catch (_: Exception) { "6.8.6" }
+            val installedVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: BuildConfig.VERSION_NAME } catch (_: Exception) { BuildConfig.VERSION_NAME }
             text = "Новая версия: ${release.version} (Установлена: $installedVer)\nИсточник: ${release.sourceName}\nПакет: ${release.apkName} (${StormNczEngine.formatSize(release.apkSizeBytes)})"
             setTextColor(th.textPrimary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)

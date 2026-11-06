@@ -130,7 +130,31 @@ namespace StormSwitchBox.Services
                 {
                     var rightsId = new RightsId(ridBytes);
                     var accessKey = new AccessKey(tkeyBytes);
+                    KeysService.RemoveFallbackRightsId(rightsId);
+                    keySet.ExternalKeySet.Remove(rightsId);
                     keySet.ExternalKeySet.Add(rightsId, accessKey);
+
+                    try
+                    {
+                        string rIdHex = Convert.ToHexString(ridBytes).ToLowerInvariant();
+                        string tKeyHex = Convert.ToHexString(tkeyBytes).ToLowerInvariant();
+                        string userSwitchDir = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch");
+                        string titleKeysFile = System.IO.Path.Combine(userSwitchDir, "title.keys");
+                        Directory.CreateDirectory(userSwitchDir);
+                        if (!File.Exists(titleKeysFile))
+                        {
+                            File.WriteAllText(titleKeysFile, $"{rIdHex} = {tKeyHex}{Environment.NewLine}");
+                        }
+                        else
+                        {
+                            string tContent = File.ReadAllText(titleKeysFile);
+                            if (!tContent.Contains(rIdHex, StringComparison.OrdinalIgnoreCase))
+                            {
+                                File.AppendAllText(titleKeysFile, $"{rIdHex} = {tKeyHex}{Environment.NewLine}");
+                            }
+                        }
+                    }
+                    catch { }
 
                     var decInfo = TicketHarvesterService.ExtractDecryptedTicket(tikBytes, tikBytes.Length, keySet);
                     if (decInfo.HasValue && !string.IsNullOrEmpty(decInfo.Value.RightsId) && decInfo.Value.TitleKey != null)

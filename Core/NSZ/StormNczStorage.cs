@@ -261,7 +261,6 @@ namespace StormSwitchBox.Core.NSZ
                     {
                         ncaRightsIdHex = BitConverter.ToString(rightsId).Replace("-", "").ToLowerInvariant();
                         Console.WriteLine($"[StormNczStorage Debug] Found RightsId in NCA header: {ncaRightsIdHex}");
-                        Services.KeysService.RegisterRightsIdFallback(_keyset, rightsId);
                     }
                     
                     if (ncaRightsIdHex != null)
@@ -404,7 +403,8 @@ namespace StormSwitchBox.Core.NSZ
                             }
                             else
                             {
-                                expectedKey = GetTitleKeyFromKeysetHex(ncaRightsIdHex);
+                                int headerKeyGen = Math.Max((int)decryptedHeader[0x220], (int)decryptedHeader[0x206]);
+                                expectedKey = GetTitleKeyFromKeysetHex(ncaRightsIdHex, _keyset, headerKeyGen);
                             }
 
                             if (expectedKey == null && _titleKeys != null && _titleKeys.Count > 0)
@@ -1259,7 +1259,7 @@ namespace StormSwitchBox.Core.NSZ
             return decryptor.TransformFinalBlock(data, 0, 16);
         }
 
-        private static byte[]? GetTitleKeyFromKeysetHex(string targetRightsIdHex)
+        private static byte[]? GetTitleKeyFromKeysetHex(string targetRightsIdHex, KeySet? keyset = null, int keyGen = 0)
         {
             try
             {
@@ -1271,65 +1271,131 @@ namespace StormSwitchBox.Core.NSZ
                     }
                 }
 
-                if (App.Keys?.CurrentKeyset?.ExternalKeySet != null && targetRightsIdHex.Length == 32)
+                byte[]? rawEncryptedKey = null;
+                var effectiveKeySet = keyset ?? App.Keys?.CurrentKeyset;
+
+                if (effectiveKeySet?.ExternalKeySet != null && targetRightsIdHex.Length == 32)
                 {
                     try
                     {
                         byte[] rIdBytes = Convert.FromHexString(targetRightsIdHex);
                         var rId = new RightsId(rIdBytes);
-                        if (App.Keys.CurrentKeyset.ExternalKeySet.Get(rId, out var accKey).IsSuccess())
+                        if (effectiveKeySet.ExternalKeySet.Get(rId, out var accKey).IsSuccess())
                         {
-                            return accKey.Value.ToArray();
+                            rawEncryptedKey = accKey.Value.ToArray();
                         }
                     }
                     catch { }
                 }
 
-                string titleKeysPath1 = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "title.keys");
-                string titleKeysPath2 = "title.keys"; // Current directory fallback
-                string? titleKeysPath3 = null;
-                try
+                if (rawEncryptedKey == null)
                 {
-                    if (App.Settings?.Current?.KeysPath != null)
+                    string titleKeysPath1 = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "title.keys");
+                    string titleKeysPath2 = "title.keys"; // Current directory fallback
+                    string? titleKeysPath3 = null;
+                    try
                     {
-                        string? dir = System.IO.Path.GetDirectoryName(App.Settings.Current.KeysPath);
-                        if (!string.IsNullOrEmpty(dir))
+                        if (App.Settings?.Current?.KeysPath != null)
                         {
-                            titleKeysPath3 = System.IO.Path.Combine(dir, "title.keys");
-                        }
-                    }
-                }
-                catch { }
-
-                var pathsToCheck = new List<string> { titleKeysPath1, titleKeysPath2 };
-                if (titleKeysPath3 != null) pathsToCheck.Add(titleKeysPath3);
-
-                foreach (var path in pathsToCheck)
-                {
-                    if (File.Exists(path))
-                    {
-                        var lines = File.ReadAllLines(path);
-                        foreach (var line in lines)
-                        {
-                            var parts = line.Split('=');
-                            if (parts.Length == 2)
+                            string? dir = System.IO.Path.GetDirectoryName(App.Settings.Current.KeysPath);
+                            if (!string.IsNullOrEmpty(dir))
                             {
-                                string rightsIdStr = parts[0].Trim().ToLowerInvariant();
-                                string keyStr = parts[1].Trim().ToLowerInvariant();
-                                
-                                if (rightsIdStr == targetRightsIdHex)
-                                {
-                                    byte[] keyBytes = new byte[keyStr.Length / 2];
-                                    for (int i = 0; i < keyBytes.Length; i++)
-                                    {
-                                        keyBytes[i] = Convert.ToByte(keyStr.Substring(i * 2, 2), 16);
-                                    }
-                                    return keyBytes;
-                                }
+                                titleKeysPath3 = System.IO.Path.Combine(dir, "title.keys");
                             }
                         }
                     }
+                    catch { }
+
+                    var pathsToCheck = new List<string> { titleKeysPath1, titleKeysPath2 };
+                    if (titleKeysPath3 != null) pathsToCheck.Add(titleKeysPath3);
+
+                    foreach (var path in pathsToCheck)
+                    {
+                        if (File.Exists(path))
+                        {
+                            var lines = File.ReadAllLines(path);
+                            foreach (var line in lines)
+                            {
+                                var parts = line.Split('=');
+                                if (parts.Length == 2)
+                                {
+                                    string rightsIdStr = parts[0].Trim().ToLowerInvariant();
+                                    string keyStr = parts[1].Trim().ToLowerInvariant();
+                                    
+                                    if (rightsIdStr == targetRightsIdHex)
+                                    {
+                                        rawEncryptedKey = Convert.FromHexString(keyStr);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        if (rawEncryptedKey != null) break;
+                    }
                 }
+
+                if (rawEncryptedKey == null || rawEncryptedKey.Length < 16)
+                {
+                    return null;
+                }
+
+                // AES-128-ECB Decryption of TitleKeyBlock via TitleKek[masterKeyRev] for AES-CTR
+                byte[] rIdB = Convert.FromHexString(targetRightsIdHex);
+                if (keyGen == 0 && rIdB.Length == 16)
+                {
+                    keyGen = rIdB[15];
+                }
+                int masterKeyRev = Math.Max(0, keyGen - 1);
+
+                byte[]? titleKek = null;
+                if (effectiveKeySet != null)
+                {
+                    if (effectiveKeySet.TitleKeks != null && masterKeyRev < effectiveKeySet.TitleKeks.Length && effectiveKeySet.TitleKeks[masterKeyRev].DataRo.Length >= 16)
+                    {
+                        var tkCandidate = effectiveKeySet.TitleKeks[masterKeyRev].DataRo.ToArray();
+                        if (tkCandidate != null && tkCandidate.Length == 16 && (tkCandidate[0] != 0 || tkCandidate[1] != 0))
+                        {
+                            titleKek = tkCandidate;
+                        }
+                    }
+
+                    if (titleKek == null && effectiveKeySet.MasterKeys != null && masterKeyRev < effectiveKeySet.MasterKeys.Length && effectiveKeySet.MasterKeys[masterKeyRev].DataRo.Length >= 16)
+                    {
+                        byte[] mKey = effectiveKeySet.MasterKeys[masterKeyRev].DataRo.ToArray();
+                        if (mKey != null && mKey.Length == 16 && (mKey[0] != 0 || mKey[1] != 0))
+                        {
+                            byte[] titleKekSource = Convert.FromHexString("1EDC7B3B60E6B4D878B81715985E629B");
+                            using var aesKek = System.Security.Cryptography.Aes.Create();
+                            aesKek.Mode = System.Security.Cryptography.CipherMode.ECB;
+                            aesKek.Padding = System.Security.Cryptography.PaddingMode.None;
+                            aesKek.Key = mKey;
+                            using var decKek = aesKek.CreateDecryptor();
+                            titleKek = decKek.TransformFinalBlock(titleKekSource, 0, 16);
+                        }
+                    }
+                }
+
+                byte[] decryptedKey = new byte[16];
+                if (titleKek != null && titleKek.Length == 16 && (titleKek[0] != 0 || titleKek[1] != 0))
+                {
+                    using var aes = System.Security.Cryptography.Aes.Create();
+                    aes.Mode = System.Security.Cryptography.CipherMode.ECB;
+                    aes.Padding = System.Security.Cryptography.PaddingMode.None;
+                    aes.Key = titleKek;
+                    using var dec = aes.CreateDecryptor();
+                    dec.TransformBlock(rawEncryptedKey, 0, 16, decryptedKey, 0);
+                }
+                else
+                {
+                    Array.Copy(rawEncryptedKey, 0, decryptedKey, 0, 16);
+                }
+
+                lock (StormNczCompressor.TitleKeysCache)
+                {
+                    StormNczCompressor.TitleKeysCache[targetRightsIdHex] = decryptedKey;
+                }
+
+                return decryptedKey;
             }
             catch { }
             return null;

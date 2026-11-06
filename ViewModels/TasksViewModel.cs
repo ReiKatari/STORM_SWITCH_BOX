@@ -1479,7 +1479,7 @@ public partial class TasksViewModel : ObservableObject
 						}
 						existingTask.HasRomFs = (romFs ? "1" : "-");
 						existingTask.HasExeFs = (exeFs ? "1" : "-");
-						if ((romFs || exeFs || existingTask.InputFiles.Count > 1) && existingTask.Operation != "Verify" && existingTask.Operation != "Homebrew" && existingTask.Operation != "Unpack")
+						if ((romFs || exeFs || existingTask.InputFiles.Count > 1) && existingTask.Operation != "Verify" && existingTask.Operation != "Homebrew" && existingTask.Operation != "Unpack" && existingTask.Operation != "Pack" && existingTask.Operation != "Convert" && existingTask.Operation != "Update" && _currentPageType != "Pack" && _currentPageType != "Convert" && _currentPageType != "Update")
 						{
 							existingTask.Operation = "Multi";
 							existingTask.SourceFormat = "MULTI";
@@ -1626,7 +1626,7 @@ public partial class TasksViewModel : ObservableObject
 					ObservableCollection<ProcessingTask> targetList = _currentPageType == "Verify" ? VerifyTasks : Tasks;
 					string effectiveOp = _currentPageType;
 					string effectiveSrcFmt = ext;
-					if ((rFs || eFs || inputFiles.Count > 1) && _currentPageType != "Verify" && _currentPageType != "Homebrew" && _currentPageType != "Unpack")
+					if ((rFs || eFs || inputFiles.Count > 1) && _currentPageType != "Verify" && _currentPageType != "Homebrew" && _currentPageType != "Unpack" && _currentPageType != "Pack" && _currentPageType != "Convert" && _currentPageType != "Update")
 					{
 						effectiveOp = "Multi";
 						effectiveSrcFmt = "MULTI";
@@ -2561,7 +2561,7 @@ public partial class TasksViewModel : ObservableObject
 			await App.MultiContent.BuildMultiContentAsync(task, inputFiles2, outPath, patchFirmware: false, cts.Token);
 			return;
 		}
-		if (task.Operation == "Multi" || (task.Operation != "Verify" && task.Operation != "Unpack" && task.Operation != "Pack" && task.Operation != "Homebrew" && (task.HasRomFs == "1" || task.HasRomFs == "Да" || task.HasExeFs == "1" || task.HasExeFs == "Да" || task.InputFiles.Count > 1 || task.InputFiles.Any(p => Directory.Exists(p)))))
+		if (task.Operation == "Multi" || (task.Operation != "Verify" && task.Operation != "Unpack" && task.Operation != "Pack" && task.Operation != "Homebrew" && task.Operation != "Convert" && task.Operation != "Update" && (task.HasRomFs == "1" || task.HasRomFs == "Да" || task.HasExeFs == "1" || task.HasExeFs == "Да" || task.InputFiles.Count > 1 || task.InputFiles.Any(p => Directory.Exists(p)))))
 		{
 			task.Operation = "Multi";
 			task.IsRunning = true;

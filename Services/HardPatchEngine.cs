@@ -554,18 +554,33 @@ namespace StormSwitchBox.Services
                     {
                         using var bFs = new FileStream(baseFile, FileMode.Open, FileAccess.Read, FileShare.Read);
                         var bPfs = new PartitionFileSystem(bFs.AsStorage());
-                        var progEntry = bPfs.EnumerateEntries().FirstOrDefault(e => e.Name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase) && !e.Name.EndsWith(".cnmt.nca", StringComparison.OrdinalIgnoreCase));
-                        if (progEntry != null)
+                        SmartShrinkService.HarvestTicketsFromFileSystem(bPfs, _keysService.CurrentKeyset);
+
+                        var candidateProgEntries = bPfs.EnumerateEntries()
+                            .Where(e => (e.Name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase) || e.Name.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase)) && !e.Name.EndsWith(".cnmt.nca", StringComparison.OrdinalIgnoreCase))
+                            .OrderByDescending(e => e.Size)
+                            .ToList();
+
+                        foreach (var progEntry in candidateProgEntries)
                         {
-                            var progFile = OpenFileSafe(bPfs, progEntry.FullPath);
-                            baseProgNca = new Nca(_keysService.CurrentKeyset, progFile.AsStorage());
-                            KeysService.RegisterRightsIdFallback(_keysService.CurrentKeyset, baseProgNca);
-                            if (baseProgNca.CanOpenSection(1))
+                            try
                             {
-                                var rFs = baseProgNca.OpenFileSystem(1, IntegrityCheckLevel.None);
-                                ExtractAllEntriesFromRomFs(rFs, targetRomFs, cancellationToken);
-                                romfsExtracted = Directory.EnumerateFileSystemEntries(targetRomFs).Any();
+                                var progFile = OpenFileSafe(bPfs, progEntry.FullPath);
+                                var pNca = new Nca(_keysService.CurrentKeyset, progFile.AsStorage());
+                                KeysService.RegisterRightsIdFallback(_keysService.CurrentKeyset, pNca);
+                                if (pNca.Header.ContentType == NcaContentType.Program)
+                                {
+                                    baseProgNca = pNca;
+                                    if (baseProgNca.CanOpenSection(1))
+                                    {
+                                        var rFs = baseProgNca.OpenFileSystem(1, IntegrityCheckLevel.None);
+                                        ExtractAllEntriesFromRomFs(rFs, targetRomFs, cancellationToken);
+                                        romfsExtracted = Directory.EnumerateFileSystemEntries(targetRomFs).Any();
+                                        if (romfsExtracted) break;
+                                    }
+                                }
                             }
+                            catch { }
                         }
                     }
                     catch (Exception exLib)
@@ -581,6 +596,7 @@ namespace StormSwitchBox.Services
                     App.RunOnUI(() => task.LogDetails += "\n[2/4] Извлечение ExeFS и Control NCA из нового обновления...");
                     using var uFs = new FileStream(updateFile, FileMode.Open, FileAccess.Read, FileShare.Read);
                     var uPfs = new PartitionFileSystem(uFs.AsStorage());
+                    SmartShrinkService.HarvestTicketsFromFileSystem(uPfs, _keysService.CurrentKeyset);
                     Nca? updProgNca = null;
 
                     foreach (var uEntry in uPfs.EnumerateEntries().Where(e => e.Name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase)))

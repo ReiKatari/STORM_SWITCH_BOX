@@ -1038,28 +1038,41 @@ namespace StormSwitchBox.Services
                                             if (!existingTikRightsIds.Contains(rIdHex) && !pendingTicketsToAdd.ContainsKey($"{rIdHex}.tik"))
                                             {
                                                 int kGen = nca.Header.KeyGeneration;
-                                                byte[]? decKey = null;
-                                                lock (Core.NSZ.StormNczCompressor.TitleKeysCache)
-                                                {
-                                                    if (Core.NSZ.StormNczCompressor.TitleKeysCache.TryGetValue(rIdHex, out var cachedKey))
-                                                    {
-                                                        decKey = cachedKey;
-                                                    }
-                                                }
-                                                if (decKey == null && _keysService.CurrentKeyset?.ExternalKeySet != null)
+                                                byte[]? titleKey = null;
+                                                bool isAlreadyEncrypted = false;
+
+                                                // 1. First check if we already have the raw encrypted TitleKeyBlock in ExternalKeySet
+                                                if (_keysService.CurrentKeyset?.ExternalKeySet != null)
                                                 {
                                                     var rIdObj = new LibHac.Fs.RightsId(rIdBytes);
                                                     if (_keysService.CurrentKeyset.ExternalKeySet.Get(rIdObj, out var aKey).IsSuccess())
                                                     {
-                                                        decKey = aKey.Value.ToArray();
+                                                        titleKey = aKey.Value.ToArray();
+                                                        isAlreadyEncrypted = true;
                                                     }
                                                 }
-                                                if (decKey == null)
+
+                                                // 2. If not found in ExternalKeySet, check TitleKeysCache (holds decrypted keys)
+                                                if (titleKey == null)
                                                 {
-                                                    decKey = rIdBytes;
+                                                    lock (Core.NSZ.StormNczCompressor.TitleKeysCache)
+                                                    {
+                                                        if (Core.NSZ.StormNczCompressor.TitleKeysCache.TryGetValue(rIdHex, out var cachedDecKey))
+                                                        {
+                                                            titleKey = cachedDecKey;
+                                                            isAlreadyEncrypted = false;
+                                                        }
+                                                    }
                                                 }
 
-                                                var tikBytes = BuildValidCommonTicketBytes(rIdBytes, kGen, decKey, _keysService.CurrentKeyset);
+                                                // 3. Fallback: use rIdBytes as titleKey (direct dump without ticket)
+                                                if (titleKey == null)
+                                                {
+                                                    titleKey = rIdBytes;
+                                                    isAlreadyEncrypted = true;
+                                                }
+
+                                                var tikBytes = BuildValidCommonTicketBytes(rIdBytes, kGen, titleKey, _keysService.CurrentKeyset, isAlreadyEncrypted);
                                                 if (tikBytes != null)
                                                 {
                                                     pendingTicketsToAdd[$"{rIdHex}.tik"] = tikBytes;
@@ -1593,46 +1606,55 @@ namespace StormSwitchBox.Services
             return System.IO.Path.Combine(targetDir, newFileName);
         }
 
-        private static byte[]? BuildValidCommonTicketBytes(byte[] rightsIdBytes, int masterKeyGen, byte[] decryptedTitleKey, LibHac.Common.Keys.KeySet keyset)
+        private static byte[]? BuildValidCommonTicketBytes(byte[] rightsIdBytes, int masterKeyGen, byte[] titleKey, LibHac.Common.Keys.KeySet keyset, bool isAlreadyEncrypted = false)
         {
-            if (rightsIdBytes == null || rightsIdBytes.Length < 16 || decryptedTitleKey == null || decryptedTitleKey.Length < 16) return null;
-            int masterKeyRev = Math.Max(0, masterKeyGen - 1);
-            byte[]? titleKek = null;
-            if (keyset != null)
-            {
-                if (keyset.TitleKeks != null && masterKeyRev < keyset.TitleKeks.Length && keyset.TitleKeks[masterKeyRev].DataRo.Length >= 16)
-                {
-                    var tkCandidate = keyset.TitleKeks[masterKeyRev].DataRo.ToArray();
-                    if (tkCandidate != null && tkCandidate.Length == 16 && (tkCandidate[0] != 0 || tkCandidate[1] != 0))
-                    {
-                        titleKek = tkCandidate;
-                    }
-                }
-                if (titleKek == null && keyset.MasterKeys != null && masterKeyRev < keyset.MasterKeys.Length && keyset.MasterKeys[masterKeyRev].DataRo.Length >= 16)
-                {
-                    byte[] mKey = keyset.MasterKeys[masterKeyRev].DataRo.ToArray();
-                    if (mKey != null && mKey.Length == 16 && (mKey[0] != 0 || mKey[1] != 0))
-                    {
-                        byte[] titleKekSource = Convert.FromHexString("1EDC7B3B60E6B4D878B81715985E629B");
-                        using var aesKek = System.Security.Cryptography.Aes.Create();
-                        aesKek.Mode = System.Security.Cryptography.CipherMode.ECB;
-                        aesKek.Padding = System.Security.Cryptography.PaddingMode.None;
-                        aesKek.Key = mKey;
-                        using var decKek = aesKek.CreateDecryptor();
-                        titleKek = decKek.TransformFinalBlock(titleKekSource, 0, 16);
-                    }
-                }
-            }
-            if (titleKek == null || titleKek.Length < 16) return null;
+            if (rightsIdBytes == null || rightsIdBytes.Length < 16 || titleKey == null || titleKey.Length < 16) return null;
 
             byte[] encryptedTitleKey;
-            using (var aes = System.Security.Cryptography.Aes.Create())
+            if (isAlreadyEncrypted)
             {
-                aes.Mode = System.Security.Cryptography.CipherMode.ECB;
-                aes.Padding = System.Security.Cryptography.PaddingMode.None;
-                aes.Key = titleKek;
-                using var enc = aes.CreateEncryptor();
-                encryptedTitleKey = enc.TransformFinalBlock(decryptedTitleKey, 0, 16);
+                encryptedTitleKey = new byte[16];
+                Array.Copy(titleKey, 0, encryptedTitleKey, 0, 16);
+            }
+            else
+            {
+                int masterKeyRev = Math.Max(0, masterKeyGen - 1);
+                byte[]? titleKek = null;
+                if (keyset != null)
+                {
+                    if (keyset.TitleKeks != null && masterKeyRev < keyset.TitleKeks.Length && keyset.TitleKeks[masterKeyRev].DataRo.Length >= 16)
+                    {
+                        var tkCandidate = keyset.TitleKeks[masterKeyRev].DataRo.ToArray();
+                        if (tkCandidate != null && tkCandidate.Length == 16 && (tkCandidate[0] != 0 || tkCandidate[1] != 0))
+                        {
+                            titleKek = tkCandidate;
+                        }
+                    }
+                    if (titleKek == null && keyset.MasterKeys != null && masterKeyRev < keyset.MasterKeys.Length && keyset.MasterKeys[masterKeyRev].DataRo.Length >= 16)
+                    {
+                        byte[] mKey = keyset.MasterKeys[masterKeyRev].DataRo.ToArray();
+                        if (mKey != null && mKey.Length == 16 && (mKey[0] != 0 || mKey[1] != 0))
+                        {
+                            byte[] titleKekSource = Convert.FromHexString("1EDC7B3B60E6B4D878B81715985E629B");
+                            using var aesKek = System.Security.Cryptography.Aes.Create();
+                            aesKek.Mode = System.Security.Cryptography.CipherMode.ECB;
+                            aesKek.Padding = System.Security.Cryptography.PaddingMode.None;
+                            aesKek.Key = mKey;
+                            using var decKek = aesKek.CreateDecryptor();
+                            titleKek = decKek.TransformFinalBlock(titleKekSource, 0, 16);
+                        }
+                    }
+                }
+                if (titleKek == null || titleKek.Length < 16) return null;
+
+                using (var aes = System.Security.Cryptography.Aes.Create())
+                {
+                    aes.Mode = System.Security.Cryptography.CipherMode.ECB;
+                    aes.Padding = System.Security.Cryptography.PaddingMode.None;
+                    aes.Key = titleKek;
+                    using var enc = aes.CreateEncryptor();
+                    encryptedTitleKey = enc.TransformFinalBlock(titleKey, 0, 16);
+                }
             }
 
             byte[] tik = new byte[0x2C0]; // 704 bytes
