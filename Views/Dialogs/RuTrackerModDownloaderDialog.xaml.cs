@@ -37,6 +37,7 @@ namespace StormSwitchBox.Views.Dialogs
         private string? _localTorrentPath;
         private string _currentTopicTitle = string.Empty;
         private string _currentTopicUrl = string.Empty;
+        private string _currentTopicPosterUrl = string.Empty;
         private CancellationTokenSource? _downloadCts;
 
         public RuTrackerModDownloaderDialog(TasksViewModel viewModel, ProcessingTask? targetTask = null)
@@ -74,6 +75,8 @@ namespace StormSwitchBox.Views.Dialogs
             ActiveInstance = this;
             RuTrackerModService.CloudflareChallengeHandler = SolveCloudflareChallengeInDialogAsync;
             RuTrackerModService.SameOriginFetchHandler = FetchViaSameOriginInDialogAsync;
+            RuTrackerModService.SameOriginViewTorrentHandler = FetchViewTorrentTreeInDialogAsync;
+            RuTrackerModService.SameOriginTorrentBytesHandler = FetchTorrentBytesViaSameOriginInDialogAsync;
             this.Opened += Dialog_Opened;
             CloudflareWebView.Loaded += CloudflareWebView_Loaded;
 
@@ -337,6 +340,7 @@ namespace StormSwitchBox.Views.Dialogs
             _localTorrentPath = null;
             _currentTopicTitle = topic.Title;
             _currentTopicUrl = topic.TopicUrl;
+            _currentTopicPosterUrl = topic.PosterUrl ?? string.Empty;
             StatusText.Text = $"Анализ темы [{topic.TopicId}]: парсинг шапки на русификаторы/моды и чтение списка файлов...";
             try
             {
@@ -353,6 +357,11 @@ namespace StormSwitchBox.Views.Dialogs
                         topic.MagnetUri = detailed.MagnetUri;
                     if (!string.IsNullOrEmpty(detailed.InfoHash))
                         topic.InfoHash = detailed.InfoHash;
+                    if (!string.IsNullOrEmpty(detailed.PosterUrl))
+                    {
+                        topic.PosterUrl = detailed.PosterUrl;
+                        _currentTopicPosterUrl = detailed.PosterUrl;
+                    }
 
                     if (detailed.ExtractedModLinks.Count > 0)
                     {
@@ -755,6 +764,9 @@ namespace StormSwitchBox.Views.Dialogs
                     }
                     iconUrl = dbEntry.IconUrl;
                 }
+
+                if (string.IsNullOrWhiteSpace(iconUrl) && _gameSlots.Count == 1 && !string.IsNullOrWhiteSpace(_currentTopicPosterUrl))
+                    iconUrl = _currentTopicPosterUrl;
 
                 byte[]? cachedIcon = TryLoadCachedIconBytes(bestTid, cleanTitleFromFile);
                 slot.Is3ds = is3ds;
@@ -1791,6 +1803,9 @@ namespace StormSwitchBox.Views.Dialogs
                     }
                 }
 
+                // Автоматически распаковываем архивы модов/русификаторов (.7z / .zip / .rar), скачанные внутри самой раздачи (напр. atmosphere.7z)
+                await ExtractLocalTorrentModArchivesAsync(payload.TargetReleaseDir, ct).ConfigureAwait(false);
+
                 // Сканируем каталог релиза на наличие распакованных romfs / exefs
                 foreach (var p in RuTrackerModService.DiscoverModPayloadsInDirectory(payload.TargetReleaseDir))
                 {
@@ -1941,9 +1956,11 @@ namespace StormSwitchBox.Views.Dialogs
                 }
 
                 string name = Path.GetFileName(payload).ToLowerInvariant();
-                if (name == "romfs" || name.EndsWith(".romfs") || name == "romfs.bin" || name.EndsWith(".pak") || name.EndsWith(".sarc.zs") || name.EndsWith(".sarc") || name.EndsWith(".zs"))
+                if (name == "romfs" || name.EndsWith(".romfs") || name == "romfs.bin" || name.EndsWith(".pak") || name.EndsWith(".sarc.zs") || name.EndsWith(".sarc") || name.EndsWith(".zs") ||
+                    (Directory.Exists(payload) && Directory.Exists(Path.Combine(payload, "romfs"))))
                     addedRomFs = true;
-                if (name == "exefs" || name == "exefs_patches" || name.EndsWith(".ips") || name.EndsWith(".pchtxt") || name.EndsWith(".bps"))
+                if (name == "exefs" || name == "exefs_patches" || name.EndsWith(".ips") || name.EndsWith(".pchtxt") || name.EndsWith(".bps") ||
+                    (Directory.Exists(payload) && (Directory.Exists(Path.Combine(payload, "exefs")) || Directory.Exists(Path.Combine(payload, "exefs_patches")))))
                     addedExeFs = true;
             }
 
@@ -2293,6 +2310,9 @@ namespace StormSwitchBox.Views.Dialogs
                             t.ActiveTorrentManager = mgr;
                     }).ConfigureAwait(false);
             }
+
+            // Распаковываем все архивы модов/русификаторов (.7z / .zip / .rar), скачанные внутри раздачи (напр. atmosphere.7z)
+            await ExtractLocalTorrentModArchivesAsync(sharedReleaseDir, ct).ConfigureAwait(false);
 
             // Собираем все скачанные игровые контейнеры в общей папке и раскладываем их по слотам игр (1..N)
             var allDownloadedContainers = Directory.Exists(sharedReleaseDir)
@@ -2942,6 +2962,264 @@ namespace StormSwitchBox.Views.Dialogs
             return await tcs.Task.ConfigureAwait(false);
         }
 
+        private static async Task ExtractLocalTorrentModArchivesAsync(string releaseDir, CancellationToken ct)
+        {
+            if (string.IsNullOrWhiteSpace(releaseDir) || !Directory.Exists(releaseDir))
+                return;
+
+            try
+            {
+                var archiveFiles = Directory.EnumerateFiles(releaseDir, "*.*", SearchOption.AllDirectories)
+                    .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}Extracted_TorrentMod_", StringComparison.OrdinalIgnoreCase) &&
+                                (f.EndsWith(".7z", StringComparison.OrdinalIgnoreCase) ||
+                                 f.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) ||
+                                 f.EndsWith(".rar", StringComparison.OrdinalIgnoreCase)))
+                    .ToList();
+
+                foreach (var arch in archiveFiles)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    string baseName = Path.GetFileNameWithoutExtension(arch);
+                    string parentDir = Path.GetDirectoryName(arch) ?? releaseDir;
+                    string extractDir = Path.Combine(parentDir, $"Extracted_TorrentMod_{SanitizeFolderName(baseName)}");
+                    if (Directory.Exists(extractDir) && Directory.EnumerateFileSystemEntries(extractDir).Any())
+                        continue;
+
+                    Directory.CreateDirectory(extractDir);
+                    try
+                    {
+                        await RuTrackerModService.ExtractArchiveWith7zAsync(arch, extractDir, ct).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        App.Logger?.Log($"[RuTracker Mod Unpack] Не удалось распаковать архив из раздачи {Path.GetFileName(arch)}: {ex.Message}", LogLevel.Warning);
+                    }
+                }
+            }
+            catch { }
+        }
+
+        private async Task<byte[]?> FetchTorrentBytesViaSameOriginInDialogAsync(string topicId, CancellationToken ct)
+        {
+            if (string.IsNullOrWhiteSpace(topicId)) return null;
+            bool ready = await EnsureWebViewInitializedAsync(ct).ConfigureAwait(false);
+            if (!ready) return null;
+
+            var tcs = new TaskCompletionSource<byte[]?>(TaskCreationOptions.RunContinuationsAsynchronously);
+            App.RunOnUI(async () =>
+            {
+                try
+                {
+                    var coreWv = CloudflareWebView?.CoreWebView2;
+                    if (coreWv == null) { tcs.TrySetResult(null); return; }
+
+                    string js = "(async () => {" +
+                        " try {" +
+                        "   if (!location.hostname.includes('rutracker.')) return '';" +
+                        $"   const resp = await fetch(location.origin + '/forum/dl.php?t={topicId}', {{ method: 'POST', credentials: 'include' }});" +
+                        "   if (!resp.ok) return '';" +
+                        "   const buf = new Uint8Array(await resp.arrayBuffer());" +
+                        "   if (buf.length < 64 || buf[0] !== 100) return '';" +
+                        "   let bin = '';" +
+                        "   for (let i = 0; i < buf.length; i++) bin += String.fromCharCode(buf[i]);" +
+                        "   return btoa(bin);" +
+                        " } catch (e) { return ''; }" +
+                        "})()";
+
+                    string evalJson = System.Text.Json.JsonSerializer.Serialize(new { expression = js, awaitPromise = true, returnByValue = true });
+                    string cdpRes = await coreWv.CallDevToolsProtocolMethodAsync("Runtime.evaluate", evalJson);
+                    if (!string.IsNullOrEmpty(cdpRes))
+                    {
+                        using var doc = System.Text.Json.JsonDocument.Parse(cdpRes);
+                        if (doc.RootElement.TryGetProperty("result", out var rObj) &&
+                            rObj.TryGetProperty("value", out var vProp) &&
+                            vProp.ValueKind == System.Text.Json.JsonValueKind.String)
+                        {
+                            string b64 = vProp.GetString() ?? "";
+                            if (!string.IsNullOrEmpty(b64))
+                            {
+                                tcs.TrySetResult(Convert.FromBase64String(b64));
+                                return;
+                            }
+                        }
+                    }
+                    tcs.TrySetResult(null);
+                }
+                catch { tcs.TrySetResult(null); }
+            });
+
+            using var reg = ct.Register(() => tcs.TrySetCanceled());
+            return await tcs.Task.ConfigureAwait(false);
+        }
+
+        private async Task<List<(string Path, long Size)>?> FetchViewTorrentTreeInDialogAsync(string topicId, CancellationToken ct)
+        {
+            if (string.IsNullOrWhiteSpace(topicId)) return null;
+            bool ready = await EnsureWebViewInitializedAsync(ct).ConfigureAwait(false);
+            if (!ready) return null;
+
+            // Если WebView2 ещё не находится на домене rutracker.*, сначала открываем страницу темы (проходя Cloudflare при необходимости)
+            string currentHost = "";
+            var hostTcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+            App.RunOnUI(() =>
+            {
+                try { hostTcs.TrySetResult(CloudflareWebView?.Source?.Host ?? ""); }
+                catch { hostTcs.TrySetResult(""); }
+            });
+            currentHost = await hostTcs.Task.ConfigureAwait(false);
+
+            if (!currentHost.Contains("rutracker.", StringComparison.OrdinalIgnoreCase))
+            {
+                string mirror = RuTrackerModService.GetActiveMirror();
+                await SolveCloudflareChallengeInDialogAsync($"{mirror}/forum/viewtopic.php?t={topicId}", topicId, ct).ConfigureAwait(false);
+            }
+
+            var tcs = new TaskCompletionSource<List<(string Path, long Size)>?>(TaskCreationOptions.RunContinuationsAsynchronously);
+            App.RunOnUI(async () =>
+            {
+                try
+                {
+                    var coreWv = CloudflareWebView?.CoreWebView2;
+                    if (coreWv == null) { tcs.TrySetResult(null); return; }
+
+                    string js = @"
+                    (async () => {
+                      try {
+                        if (!location.hostname.includes('rutracker.')) return 'NEED_NAV';
+                        const resp = await fetch(location.origin + '/forum/viewtorrent.php', {
+                          method: 'POST',
+                          credentials: 'include',
+                          headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                            'X-Requested-With': 'XMLHttpRequest'
+                          },
+                          body: 't=" + topicId + @"' + ((window.BB && window.BB.form_token) ? '&form_token=' + encodeURIComponent(window.BB.form_token) : '')
+                        });
+                        if (!resp.ok) return 'HTTP:' + resp.status;
+                        const buf = await resp.arrayBuffer();
+                        let html = new TextDecoder('windows-1251').decode(buf);
+                        if (html.includes('charset=utf-8') || html.includes('charset=""utf-8""')) {
+                          html = new TextDecoder('utf-8').decode(buf);
+                        }
+                        if (html.includes('Just a moment...') || html.includes('_cf_chl_opt')) return 'CF_BLOCK';
+
+                        const doc = new DOMParser().parseFromString(html, 'text/html');
+                        const rootUl = doc.querySelector('ul.ftree, ul.tree-root, div.tor-filelist-wrap ul, ul');
+                        if (!rootUl) return 'NO_UL';
+
+                        const files = [];
+                        function parseHumanSize(txt) {
+                          if (!txt) return 0;
+                          const m = txt.replace(/,/g, '.').match(/([\d.]+)\s*(B|KB|MB|GB|TB|Б|КБ|МБ|ГБ|ТБ)/i);
+                          if (!m) return 0;
+                          const v = parseFloat(m[1]);
+                          const u = m[2].toUpperCase();
+                          if (u === 'TB' || u === 'ТБ') return Math.round(v * 1099511627776);
+                          if (u === 'GB' || u === 'ГБ') return Math.round(v * 1073741824);
+                          if (u === 'MB' || u === 'МБ') return Math.round(v * 1048576);
+                          if (u === 'KB' || u === 'КБ') return Math.round(v * 1024);
+                          return Math.round(v);
+                        }
+
+                        function walkUl(ul, stack) {
+                          const items = ul.children;
+                          for (let i = 0; i < items.length; i++) {
+                            const li = items[i];
+                            if (!li || li.tagName !== 'LI') continue;
+                            let childUl = null;
+                            for (let c = 0; c < li.children.length; c++) {
+                              if (li.children[c].tagName === 'UL') { childUl = li.children[c]; break; }
+                            }
+                            if (childUl) {
+                              let dirName = '';
+                              const bEl = li.querySelector(':scope > div > b, :scope > b');
+                              if (bEl) {
+                                dirName = bEl.textContent.trim();
+                              } else {
+                                const clone = li.cloneNode(true);
+                                clone.querySelectorAll('ul, s, i').forEach(n => n.remove());
+                                dirName = clone.textContent.trim();
+                              }
+                              dirName = dirName.replace(/^\.\/+/, '').trim();
+                              const nextStack = dirName ? stack.concat([dirName]) : stack;
+                              walkUl(childUl, nextStack);
+                            } else {
+                              let byteSize = 0;
+                              const iEl = li.querySelector('i');
+                              if (iEl) {
+                                const digits = iEl.textContent.replace(/[^\d]/g, '');
+                                if (digits) byteSize = parseInt(digits, 10) || 0;
+                              }
+                              const sEl = li.querySelector('s');
+                              if (!byteSize && sEl) {
+                                byteSize = parseHumanSize(sEl.textContent);
+                              }
+                              let fileName = '';
+                              const spEl = li.querySelector(':scope > div > span, :scope > span, :scope > div > b, :scope > b');
+                              if (spEl) {
+                                fileName = spEl.textContent.trim();
+                              } else {
+                                const clone = li.cloneNode(true);
+                                clone.querySelectorAll('s, i, ul').forEach(n => n.remove());
+                                fileName = clone.textContent.trim();
+                              }
+                              fileName = fileName.replace(/^\.\/+/, '').replace(/\s*·\s*$/, '').trim();
+                              if (fileName) {
+                                const relPath = stack.length > 0 ? stack.concat([fileName]).join('/') : fileName;
+                                files.push({ path: relPath, size: byteSize });
+                              }
+                            }
+                          }
+                        }
+
+                        walkUl(rootUl, []);
+                        return JSON.stringify(files);
+                      } catch (e) {
+                        return 'ERR:' + e.message;
+                      }
+                    })()";
+
+                    string evalJson = System.Text.Json.JsonSerializer.Serialize(new { expression = js, awaitPromise = true, returnByValue = true });
+                    string cdpRes = await coreWv.CallDevToolsProtocolMethodAsync("Runtime.evaluate", evalJson);
+                    if (!string.IsNullOrEmpty(cdpRes))
+                    {
+                        using var doc = System.Text.Json.JsonDocument.Parse(cdpRes);
+                        if (doc.RootElement.TryGetProperty("result", out var rObj) &&
+                            rObj.TryGetProperty("value", out var vProp) &&
+                            vProp.ValueKind == System.Text.Json.JsonValueKind.String)
+                        {
+                            string raw = vProp.GetString() ?? "";
+                            if (raw.StartsWith("["))
+                            {
+                                var parsedList = new List<(string Path, long Size)>();
+                                using var arrDoc = System.Text.Json.JsonDocument.Parse(raw);
+                                foreach (var el in arrDoc.RootElement.EnumerateArray())
+                                {
+                                    string p = el.TryGetProperty("path", out var pEl) ? (pEl.GetString() ?? "") : "";
+                                    long sz = el.TryGetProperty("size", out var sEl) && sEl.TryGetInt64(out long v) ? v : 0L;
+                                    if (!string.IsNullOrWhiteSpace(p))
+                                        parsedList.Add((p, sz));
+                                }
+                                if (parsedList.Count > 0)
+                                {
+                                    tcs.TrySetResult(parsedList);
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                    tcs.TrySetResult(null);
+                }
+                catch
+                {
+                    tcs.TrySetResult(null);
+                }
+            });
+
+            using var reg = ct.Register(() => tcs.TrySetCanceled());
+            return await tcs.Task.ConfigureAwait(false);
+        }
+
         private void Dialog_Closed(ContentDialog sender, ContentDialogClosedEventArgs args)
         {
             if (ActiveInstance == this)
@@ -2949,6 +3227,8 @@ namespace StormSwitchBox.Views.Dialogs
                 ActiveInstance = null;
                 RuTrackerModService.CloudflareChallengeHandler = null;
                 RuTrackerModService.SameOriginFetchHandler = null;
+                RuTrackerModService.SameOriginViewTorrentHandler = null;
+                RuTrackerModService.SameOriginTorrentBytesHandler = null;
             }
             try { _cfTcs?.TrySetResult(null); } catch { }
             // ВАЖНО: Не отменяем _downloadCts и не глушим сервис!

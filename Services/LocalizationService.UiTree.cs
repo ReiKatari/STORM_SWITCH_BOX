@@ -425,6 +425,12 @@ namespace StormSwitchBox.Services
         private static readonly Dictionary<string, (string En, string De, string Fr, string Zh, string Ja)> _directTranslations = new(StringComparer.Ordinal)
         {
             ["0 Б"] = ("0 B", "0 B", "0 o", "0 B", "0 B"),
+            ["ОБНОВЛЕНИЕ (РУС)"] = ("UPDATE (RUS)", "UPDATE (RUS)", "MISE À JOUR (RUS)", "更新补丁 (俄语)", "アップデート (RUS)"),
+            ["ИНФО"] = ("INFO", "INFO", "INFO", "说明文件", "情報"),
+            ["МОД / РУСИФИКАТОР"] = ("MOD / TRANSLATION", "MOD / ÜBERSETZUNG", "MOD / TRADUCTION", "模组 / 汉化补丁", "MOD / 翻訳パッチ"),
+            ["ИГРА"] = ("GAME", "SPIEL", "JEU", "游戏本体", "ゲーム本編"),
+            ["ОБНОВЛЕНИЕ"] = ("UPDATE", "UPDATE", "MISE À JOUR", "更新补丁", "アップデート"),
+            ["ФАЙЛ"] = ("FILE", "DATEI", "FICHIER", "文件", "ファイル"),
             ["0 тем"] = ("0 themes", "0 Designs", "0 thèmes", "0 个主题", "0 テーマ"),
             ["1 МБ (Рекомендуется)"] = ("1 MB (Recommended)", "1 MB (Empfohlen)", "1 Mo (Recommandé)", "1 MB (推荐)", "1 MB (推奨)"),
             ["1 игра"] = ("1 game", "1 Spiel", "1 jeu", "1 款游戏", "1 ゲーム"),

@@ -455,12 +455,12 @@
                                                                 <Grid.ColumnDefinitions>
                                                                     <ColumnDefinition Width="Auto"/>
                                                                     <ColumnDefinition Width="*"/>
-                                                                    <ColumnDefinition Width="108"/>
-                                                                    <ColumnDefinition Width="86"/>
+                                                                    <ColumnDefinition Width="104"/>
+                                                                    <ColumnDefinition Width="126"/>
                                                                     <ColumnDefinition Width="68"/>
                                                                 </Grid.ColumnDefinitions>
                                                                 <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected, Mode=TwoWay}" MinWidth="0" VerticalAlignment="Center"/>
-                                                                <TextBlock Grid.Column="1" Text="{Binding RelativePath}" FontSize="11.5" Foreground="#E2E8F0"
+                                                                <TextBlock Grid.Column="1" Text="{Binding DisplayPath}" FontSize="11.5" Foreground="#E2E8F0"
                                                                            VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
                                                                            ToolTipService.ToolTip="{Binding RelativePath}"/>
                                                                 <ComboBox Grid.Column="2" SelectedIndex="{Binding TargetGameSlot, Mode=TwoWay}" SelectionChanged="SlotAssignmentCombo_SelectionChanged"

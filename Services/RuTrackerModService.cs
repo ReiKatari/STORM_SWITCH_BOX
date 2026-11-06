@@ -32,6 +32,7 @@ namespace StormSwitchBox.Services
         public string MagnetUri { get; set; } = string.Empty;
         public string InfoHash { get; set; } = string.Empty;
         public string DirectTorrentUrl { get; set; } = string.Empty;
+        public string PosterUrl { get; set; } = string.Empty;
         public List<CloudModLinkItem> ExtractedModLinks { get; set; } = new();
     }
 
@@ -408,6 +409,12 @@ namespace StormSwitchBox.Services
         }
 
         public string RelativePath { get; set; } = string.Empty;
+        private string _displayPath = string.Empty;
+        public string DisplayPath
+        {
+            get => !string.IsNullOrEmpty(_displayPath) ? _displayPath : RelativePath;
+            set => SetProperty(ref _displayPath, value);
+        }
         public long Length { get; set; }
         public long SizeBytes { get => Length; set => Length = value; }
         public string SizeFormatted => Length > 0 ? ProcessingTask.FormatSize(Length) : "DHT/Magnet";
@@ -418,7 +425,10 @@ namespace StormSwitchBox.Services
         {
             "ИГРА" => "#064E3B",
             "ОБНОВЛЕНИЕ" => "#0C4A6E",
+            "ОБНОВЛЕНИЕ (РУС)" => "#164E63",
             "DLC" => "#4C1D95",
+            "МОД / РУСИФИКАТОР" => "#78350F",
+            "ИНФО" => "#1E293B",
             _ => "#1E293B"
         };
 
@@ -426,7 +436,10 @@ namespace StormSwitchBox.Services
         {
             "ИГРА" => "#34D399",
             "ОБНОВЛЕНИЕ" => "#38BDF8",
+            "ОБНОВЛЕНИЕ (РУС)" => "#67E8F9",
             "DLC" => "#C084FC",
+            "МОД / РУСИФИКАТОР" => "#FBBF24",
+            "ИНФО" => "#94A3B8",
             _ => "#FBBF24"
         };
     }
@@ -732,6 +745,8 @@ namespace StormSwitchBox.Services
 
         public static Func<string, string, CancellationToken, Task<string?>>? CloudflareChallengeHandler { get; set; }
         public static Func<string, CancellationToken, Task<string?>>? SameOriginFetchHandler { get; set; }
+        public static Func<string, CancellationToken, Task<List<(string Path, long Size)>?>>? SameOriginViewTorrentHandler { get; set; }
+        public static Func<string, CancellationToken, Task<byte[]?>>? SameOriginTorrentBytesHandler { get; set; }
 
         public static string GetActiveMirror()
         {
@@ -2252,32 +2267,34 @@ namespace StormSwitchBox.Services
                 }
             }
             string? topicHtml = null;
-            // 0. Проверка локального дискового кэша ссылок тем (%APPDATA%\STORM SWITCH BOX\rutracker_topic_links_cache.json)
-            if (_topicLinksCache.TryGetValue(tid, out var cachedHtml) && !string.IsNullOrEmpty(cachedHtml))
+            // 0. Проверка локального дискового кэша ссылок тем (строго с проверкой отсутствия страниц Cloudflare)
+            if (_topicLinksCache.TryGetValue(tid, out var cachedHtml) && IsValidRuTrackerTopicHtml(cachedHtml))
             {
                 topicHtml = cachedHtml;
             }
 
-            // 0.1. Параллельная гонка через облачные Cloud-рендеры и прокси (Jina AI Headless Chrome, CodeTabs, AllOrigins, CorsProxy)
-            if (topicHtml == null)
-            {
-                try
-                {
-                    topicHtml = await FetchTopicHtmlViaCloudRaceAsync(tid, ct).ConfigureAwait(false);
-                }
-                catch { }
-            }
-
-            // 0.2. Приоритетная загрузка через Same-Origin fetch внутри скрытого WebView2 (настоящий Chromium TLS JA3 отпечаток)
+            // 0.1. Приоритетная мгновенная загрузка через Same-Origin fetch внутри скрытого WebView2 (настоящий Chromium TLS JA3 + cf_clearance)
             if (topicHtml == null && SameOriginFetchHandler != null)
             {
                 try
                 {
                     string? h = await SameOriginFetchHandler(topicUrl, ct).ConfigureAwait(false);
-                    if (!string.IsNullOrEmpty(h) && (h.Contains("topic-title") || h.Contains("viewtopic.php")) && !h.Contains("Just a moment...") && !h.Contains("cf-turnstile"))
+                    if (IsValidRuTrackerTopicHtml(h))
                     {
                         topicHtml = h;
+                        _topicLinksCache[tid] = h!;
+                        SaveTopicLinksCache();
                     }
+                }
+                catch { }
+            }
+
+            // 0.2. Резервная параллельная гонка через облачные Cloud-рендеры и прокси
+            if (topicHtml == null)
+            {
+                try
+                {
+                    topicHtml = await FetchTopicHtmlViaCloudRaceAsync(tid, ct).ConfigureAwait(false);
                 }
                 catch { }
             }
@@ -2337,6 +2354,12 @@ namespace StormSwitchBox.Services
                 if (hashMatch.Success)
                 {
                     item.InfoHash = (!string.IsNullOrEmpty(hashMatch.Groups[1].Value) ? hashMatch.Groups[1].Value : hashMatch.Groups[2].Value).ToUpperInvariant();
+                }
+
+                var posterMatch = Regex.Match(topicHtml, @"<var[^>]+class=""[^""]*postImgAligned[^""]*""[^>]+title=""(https?://[^""]+\.(?:jpg|jpeg|png|webp))""|<var[^>]+class=""[^""]*postImg[^""]*""[^>]+title=""(https?://[^""]+\.(?:jpg|jpeg|png|webp))""", RegexOptions.IgnoreCase);
+                if (posterMatch.Success)
+                {
+                    item.PosterUrl = WebUtility.HtmlDecode(!string.IsNullOrEmpty(posterMatch.Groups[1].Value) ? posterMatch.Groups[1].Value : posterMatch.Groups[2].Value);
                 }
 
                 // Извлекаем все облачные ссылки на моды и русификаторы из 1-й страницы темы
@@ -2662,6 +2685,12 @@ namespace StormSwitchBox.Services
             if (lower.Contains("wdfiles.")) return "WDfiles";
             if (lower.Contains("dropbox.com")) return "Dropbox";
             if (lower.Contains("workupload.com")) return "WorkUpload";
+            if (lower.Contains("gofile.io")) return "GoFile";
+            if (lower.Contains("buzzheavier.")) return "BuzzHeavier";
+            if (lower.Contains("catbox.moe")) return "Catbox";
+            if (lower.Contains("krakenfiles.")) return "KrakenFiles";
+            if (lower.Contains("modsfire.")) return "ModsFire";
+            if (lower.Contains("1fichier.")) return "1fichier";
             if (lower.Contains("github.com") && (lower.Contains("/releases") || lower.Contains("/blob/") || lower.EndsWith(".zip") || lower.EndsWith(".7z") || lower.EndsWith(".rar") || lower.EndsWith(".nsp"))) return "GitHub Releases";
             if (lower.Contains("raw.githubusercontent.com")) return "GitHub";
             if (lower.EndsWith(".nsp") || lower.EndsWith(".nsz") || lower.EndsWith(".xci") || lower.EndsWith(".xcz") ||
@@ -2704,7 +2733,18 @@ namespace StormSwitchBox.Services
             {
                 _loadedTorrentBytes = await File.ReadAllBytesAsync(localTorrentFilePath, ct).ConfigureAwait(false);
             }
-            else if (!string.IsNullOrWhiteSpace(topic.DirectTorrentUrl) && !string.IsNullOrWhiteSpace(App.Settings.Current.RuTrackerCookie))
+            else if (!string.IsNullOrWhiteSpace(topic.TopicId) && SameOriginTorrentBytesHandler != null && !string.IsNullOrWhiteSpace(App.Settings.Current.RuTrackerCookie))
+            {
+                try
+                {
+                    var dlBytes = await SameOriginTorrentBytesHandler(topic.TopicId, ct).ConfigureAwait(false);
+                    if (dlBytes != null && dlBytes.Length > 32 && dlBytes[0] == (byte)'d')
+                        _loadedTorrentBytes = dlBytes;
+                }
+                catch { }
+            }
+
+            if (_loadedTorrentBytes == null && !string.IsNullOrWhiteSpace(topic.DirectTorrentUrl) && !string.IsNullOrWhiteSpace(App.Settings.Current.RuTrackerCookie))
             {
                 try
                 {
@@ -2829,10 +2869,44 @@ namespace StormSwitchBox.Services
                     CategoryBadge = ClassifyTorrentEntryBadge(f.Path),
                     IsRealTorrentFile = true
                 }).ToList();
+                PopulateDisplayPathsAndSmartSelection(items);
                 AutoAssignFilesToGameSlots(items, detectedParts);
                 return items;
             }
 
+            // Прямое чтение полного дерева файлов раздачи с RuTracker (POST /forum/viewtorrent.php через WebView2 — работает даже БЕЗ входа в аккаунт!)
+            if (!string.IsNullOrEmpty(topic.TopicId) && SameOriginViewTorrentHandler != null)
+            {
+                try
+                {
+                    var vtEntries = await SameOriginViewTorrentHandler(topic.TopicId, ct).ConfigureAwait(false);
+                    if (vtEntries != null && vtEntries.Count > 0)
+                    {
+                        var items = vtEntries.Select(f => new TorrentFileSelectionItem
+                        {
+                            IsSelected = true,
+                            RelativePath = f.Path,
+                            Length = f.Size,
+                            CategoryBadge = ClassifyTorrentEntryBadge(f.Path),
+                            IsRealTorrentFile = true
+                        }).ToList();
+                        PopulateDisplayPathsAndSmartSelection(items);
+                        AutoAssignFilesToGameSlots(items, detectedParts);
+
+                        // В фоне прогреваем и кэшируем .torrent метаданные из роя, пока пользователь выбирает файлы
+                        if (_loadedMagnet != null && hash.Length == 40)
+                        {
+                            var bgMagnet = _loadedMagnet;
+                            var bgHash = hash;
+                            _ = Task.Run(() => ResolveMagnetMetadataViaSwarmAsync(bgMagnet, bgHash, TimeSpan.FromSeconds(10), CancellationToken.None));
+                        }
+                        return items;
+                    }
+                }
+                catch { }
+            }
+
+            // Быстрая проверка локального оффлайн-индекса (если все файлы раздачи уже проиндексированы)
             if (!string.IsNullOrEmpty(topic.TopicId))
             {
                 RuTrackerIndexTopic? indexed = null;
@@ -2844,11 +2918,29 @@ namespace StormSwitchBox.Services
                         IsSelected = true,
                         RelativePath = f.Path,
                         Length = f.Size,
-                        CategoryBadge = !string.IsNullOrEmpty(f.Role) ? f.Role : ClassifyTorrentEntryBadge(f.Path)
+                        CategoryBadge = ClassifyTorrentEntryBadge(f.Path),
+                        IsRealTorrentFile = true
                     }).ToList();
+                    PopulateDisplayPathsAndSmartSelection(items);
                     AutoAssignFilesToGameSlots(items, detectedParts);
                     return items;
                 }
+            }
+
+            // Живое P2P BEP-9 (ut_metadata) получение реального списка файлов напрямую от сидов bt.t-ru.org / UDP трекеров (1.5–6 сек)
+            if (_loadedMagnet != null && hash.Length == 40)
+            {
+                try
+                {
+                    var swarmItems = await ResolveMagnetMetadataViaSwarmAsync(_loadedMagnet, hash, TimeSpan.FromSeconds(14.0), ct).ConfigureAwait(false);
+                    if (swarmItems != null && swarmItems.Count > 0)
+                    {
+                        PopulateDisplayPathsAndSmartSelection(swarmItems);
+                        AutoAssignFilesToGameSlots(swarmItems, detectedParts);
+                        return swarmItems;
+                    }
+                }
+                catch { }
             }
 
             if (!string.IsNullOrWhiteSpace(topic.MagnetUri) && MagnetLink.TryParse(topic.MagnetUri, out var magnet))
@@ -2879,7 +2971,7 @@ namespace StormSwitchBox.Services
                     {
                         IsSelected = true,
                         TargetGameSlot = 1,
-                        RelativePath = $"{topic.Title} (Метаданные Magnet будут получены при старте загрузки)",
+                        RelativePath = $"{(detectedParts.FirstOrDefault() ?? topic.Title)} — Полный пакет раздачи (получение списка файлов по Magnet при старте)",
                         Length = 0,
                         CategoryBadge = "MAGNET"
                     }
@@ -3223,18 +3315,268 @@ namespace StormSwitchBox.Services
             }
         }
 
-        private static string ClassifyTorrentEntryBadge(string path)
+        public static string ClassifyTorrentEntryBadge(string path)
         {
-            string lower = path.ToLowerInvariant();
-            if (lower.Contains("romfs") || lower.Contains("atmosphere") || lower.Contains("luma") || lower.Contains("rus"))
-                return "МОД / РУСИФИКАТОР";
-            if (lower.Contains("update") || lower.Contains("patch") || Regex.IsMatch(lower, @"\[v[1-9]\d*\]"))
-                return "ОБНОВЛЕНИЕ";
-            if (lower.Contains("dlc") || lower.Contains("addon"))
-                return "DLC";
-            if (lower.EndsWith(".nsp") || lower.EndsWith(".nsz") || lower.EndsWith(".xci") || lower.EndsWith(".xcz"))
+            if (string.IsNullOrWhiteSpace(path)) return "ФАЙЛ";
+            string norm = path.Replace('\\', '/').Trim();
+            string fn = Path.GetFileName(norm).ToLowerInvariant();
+            string ext = Path.GetExtension(fn).ToLowerInvariant();
+            string dir = (Path.GetDirectoryName(norm) ?? "").Replace('\\', '/').ToLowerInvariant();
+
+            // 1. Текстовые описания, NFO, скриншоты и ссылки
+            if (ext is ".txt" or ".nfo" or ".url" or ".md" or ".html" or ".htm" or ".jpg" or ".jpeg" or ".png" or ".webp" or ".sfv")
+                return "ИНФО";
+
+            // 2. Игровые контейнеры Switch / 3DS (.nsp, .nsz, .xci, .xcz, .nup, .3ds, .cia, .cci, .cxi) — проверяем ДО папок с "rus"!
+            if (ext is ".nsp" or ".nsz" or ".xci" or ".xcz" or ".nup" or ".3ds" or ".cia" or ".cci" or ".cxi")
+            {
+                string tid = ExtractTitleId(fn);
+                bool isUpdateByTid = tid.Length == 16 && tid.EndsWith("800", StringComparison.OrdinalIgnoreCase);
+                bool isUpdateByVer = Regex.IsMatch(fn, @"\[v[1-9]\d*\]") || Regex.IsMatch(fn, @"(?:^|[\s_\-\.\(\[])(?:update|patch|upd)(?:$|[\s_\-\.\)\]v\d])");
+                if (isUpdateByTid || isUpdateByVer)
+                {
+                    bool inTransSubfolder = Regex.IsMatch(dir, @"(?:translation|перевод|русиф|machine\s*trans|rus[\s_\-]mod|укр|ukr)", RegexOptions.IgnoreCase);
+                    return inTransSubfolder ? "ОБНОВЛЕНИЕ (РУС)" : "ОБНОВЛЕНИЕ";
+                }
+
+                bool isDlcByTid = tid.Length == 16 && !tid.EndsWith("000", StringComparison.OrdinalIgnoreCase) && !tid.EndsWith("800", StringComparison.OrdinalIgnoreCase);
+                bool isDlcByName = Regex.IsMatch(fn, @"(?:^|[\s_\-\.\(\[])(?:dlc|addon|unlocker)(?:$|[\s_\-\.\)\]\d])");
+                if (isDlcByTid || isDlcByName)
+                    return "DLC";
+
                 return "ИГРА";
+            }
+
+            // 3. Архивы модификаций, LayeredFS (atmosphere/romfs/exefs), читы и IPS-патчи
+            if (ext is ".7z" or ".zip" or ".rar" or ".ips" or ".pchtxt" or ".bps" ||
+                norm.Contains("atmosphere", StringComparison.OrdinalIgnoreCase) ||
+                norm.Contains("romfs", StringComparison.OrdinalIgnoreCase) ||
+                norm.Contains("exefs", StringComparison.OrdinalIgnoreCase) ||
+                norm.Contains("contents", StringComparison.OrdinalIgnoreCase) ||
+                norm.Contains("luma", StringComparison.OrdinalIgnoreCase) ||
+                norm.Contains("cheats", StringComparison.OrdinalIgnoreCase) ||
+                Regex.IsMatch(norm, @"(?:translation|перевод|русиф|mod|мод|rus|укр|ukr)", RegexOptions.IgnoreCase))
+            {
+                return "МОД / РУСИФИКАТОР";
+            }
+
             return "ФАЙЛ";
+        }
+
+        public static void PopulateDisplayPathsAndSmartSelection(IList<TorrentFileSelectionItem> items)
+        {
+            if (items == null || items.Count == 0) return;
+
+            // 1. Вычисляем общий корневой каталог торрента (напр. "./Another Eden Begins [NSP]/"), чтобы не засорять начало строки в UI
+            var splitPaths = items
+                .Select(i => i.RelativePath.Replace('\\', '/').TrimStart('.').TrimStart('/'))
+                .ToList();
+
+            string commonRoot = "";
+            if (splitPaths.All(p => p.Contains('/')))
+            {
+                string firstSeg = splitPaths[0].Substring(0, splitPaths[0].IndexOf('/'));
+                if (!string.IsNullOrEmpty(firstSeg) && splitPaths.All(p => p.StartsWith(firstSeg + "/", StringComparison.OrdinalIgnoreCase)))
+                {
+                    commonRoot = firstSeg + "/";
+                }
+            }
+
+            for (int idx = 0; idx < items.Count; idx++)
+            {
+                string cleanRel = splitPaths[idx];
+                items[idx].RelativePath = cleanRel;
+                items[idx].DisplayPath = (!string.IsNullOrEmpty(commonRoot) && cleanRel.StartsWith(commonRoot, StringComparison.OrdinalIgnoreCase))
+                    ? cleanRel.Substring(commonRoot.Length)
+                    : cleanRel;
+
+                // Отключаем текстовые ReadMe / NFO / картинки по умолчанию
+                if (items[idx].CategoryBadge == "ИНФО")
+                {
+                    items[idx].IsSelected = false;
+                }
+            }
+
+            // 2. Умное разрешение нескольких обновлений одной игры (напр. в корне лежит свежий v262144, а в папке русификатора рядом с atmosphere.7z лежит v131072 под перевод)
+            var updates = items
+                .Where(i => i.CategoryBadge == "ОБНОВЛЕНИЕ" || i.CategoryBadge == "ОБНОВЛЕНИЕ (РУС)")
+                .ToList();
+
+            if (updates.Count >= 2)
+            {
+                var modDirs = items
+                    .Where(i => i.CategoryBadge == "МОД / РУСИФИКАТОР" && i.IsSelected)
+                    .Select(i => (Path.GetDirectoryName(i.DisplayPath.Replace('\\', '/')) ?? "").Replace('\\', '/').Trim('/'))
+                    .Where(d => !string.IsNullOrEmpty(d))
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+                var groupedByGame = updates.GroupBy(u =>
+                {
+                    string tid = ExtractTitleId(u.RelativePath);
+                    return tid.Length >= 13 ? tid.Substring(0, 13).ToUpperInvariant() : ExtractCleanGameTitleFromFilePath(u.RelativePath).ToUpperInvariant();
+                });
+
+                foreach (var grp in groupedByGame)
+                {
+                    var grpList = grp.ToList();
+                    if (grpList.Count < 2) continue;
+
+                    var modPairedUpdates = grpList.Where(u =>
+                    {
+                        string uDir = (Path.GetDirectoryName(u.DisplayPath.Replace('\\', '/')) ?? "").Replace('\\', '/').Trim('/');
+                        return !string.IsNullOrEmpty(uDir) && modDirs.Contains(uDir);
+                    }).ToList();
+
+                    if (modPairedUpdates.Count > 0)
+                    {
+                        // Оставляем включённым обновление, спаренное с папкой русификатора, а конфликтующие обновления снимаем по умолчанию (пользователь видит оба и может переключить)
+                        foreach (var u in grpList)
+                            u.IsSelected = modPairedUpdates.Contains(u);
+                    }
+                    else
+                    {
+                        // Если модов в подпапках нет — оставляем включённым самое свежее обновление [vXXXXX]
+                        long ParseVer(TorrentFileSelectionItem it)
+                        {
+                            var vm = Regex.Match(it.RelativePath, @"\[v(\d+)\]", RegexOptions.IgnoreCase);
+                            return vm.Success && long.TryParse(vm.Groups[1].Value, out long v) ? v : 0L;
+                        }
+                        var newest = grpList.OrderByDescending(ParseVer).ThenByDescending(x => x.Length).First();
+                        foreach (var u in grpList)
+                            u.IsSelected = ReferenceEquals(u, newest);
+                    }
+                }
+            }
+        }
+
+        private async Task<List<TorrentFileSelectionItem>?> ResolveMagnetMetadataViaSwarmAsync(MagnetLink magnet, string hashHex, TimeSpan timeout, CancellationToken ct)
+        {
+            if (magnet == null || string.IsNullOrEmpty(hashHex) || hashHex.Length != 40)
+                return null;
+
+            string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            string torrentCacheDir = Path.Combine(localAppData, "STORM SWITCH BOX", "cache", "torrents");
+            Directory.CreateDirectory(torrentCacheDir);
+            string cachedTorrentPath = Path.Combine(torrentCacheDir, $"{hashHex.ToUpperInvariant()}.torrent");
+
+            if (File.Exists(cachedTorrentPath) && new FileInfo(cachedTorrentPath).Length > 64)
+            {
+                try
+                {
+                    byte[] existing = await File.ReadAllBytesAsync(cachedTorrentPath, ct).ConfigureAwait(false);
+                    if (existing.Length > 64 && existing[0] == (byte)'d' && Torrent.TryLoad(existing, out var existingTor))
+                    {
+                        _loadedTorrentBytes = existing;
+                        return existingTor.Files.Select(f => new TorrentFileSelectionItem
+                        {
+                            IsSelected = true,
+                            RelativePath = f.Path,
+                            Length = f.Length,
+                            CategoryBadge = ClassifyTorrentEntryBadge(f.Path),
+                            IsRealTorrentFile = true
+                        }).ToList();
+                    }
+                }
+                catch { }
+            }
+
+            string dhtCacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "STORM SWITCH BOX", "dht_cache");
+            Directory.CreateDirectory(dhtCacheDir);
+            string tempMetaSaveDir = Path.Combine(localAppData, "STORM SWITCH BOX", "cache", "meta_probe");
+            Directory.CreateDirectory(tempMetaSaveDir);
+
+            var engine = GetOrCreateEngine(dhtCacheDir);
+            TorrentManager? metaMgr = null;
+            bool createdHere = false;
+
+            try
+            {
+                metaMgr = engine.Torrents.FirstOrDefault(t =>
+                    string.Equals(t.InfoHashes.V1OrV2.ToHex(), hashHex, StringComparison.OrdinalIgnoreCase));
+
+                if (metaMgr == null)
+                {
+                    var ts = new TorrentSettingsBuilder
+                    {
+                        MaximumConnections = 120,
+                        AllowDht = true,
+                        AllowPeerExchange = true
+                    }.ToSettings();
+                    metaMgr = await engine.AddAsync(magnet, tempMetaSaveDir, ts).ConfigureAwait(false);
+                    createdHere = true;
+                }
+
+                if (!metaMgr.HasMetadata)
+                {
+                    foreach (var tr in PublicTrackers.Take(10))
+                    {
+                        if (Uri.TryCreate(tr, UriKind.Absolute, out var trUri))
+                        {
+                            try { await metaMgr.TrackerManager.AddTrackerAsync(trUri).ConfigureAwait(false); } catch { }
+                        }
+                    }
+
+                    if (metaMgr.State == TorrentState.Stopped || metaMgr.State == TorrentState.Paused)
+                        await metaMgr.StartAsync().ConfigureAwait(false);
+
+                    using var metaCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                    metaCts.CancelAfter(timeout);
+
+                    _ = Task.Run(() => HarvestPeersFromHttpTrackersAsync(hashHex, metaMgr, metaCts.Token));
+                    _ = Task.Run(() => InjectPeersViaTurboDhtAsync(hashHex, metaMgr, metaCts.Token));
+
+                    while (!metaMgr.HasMetadata && !metaCts.IsCancellationRequested)
+                    {
+                        await Task.Delay(120, metaCts.Token).ConfigureAwait(false);
+                    }
+                }
+
+                if (metaMgr.HasMetadata && metaMgr.Files != null && metaMgr.Files.Count > 0)
+                {
+                    var items = metaMgr.Files.Select(f => new TorrentFileSelectionItem
+                    {
+                        IsSelected = true,
+                        RelativePath = f.Path,
+                        Length = f.Length,
+                        CategoryBadge = ClassifyTorrentEntryBadge(f.Path),
+                        IsRealTorrentFile = true
+                    }).ToList();
+
+                    // Если MonoTorrent сохранил .torrent в кэш метаданных — копируем в основной кэш .torrent
+                    try
+                    {
+                        string dhtMetaDir = Path.Combine(dhtCacheDir, "metadata");
+                        if (Directory.Exists(dhtMetaDir))
+                        {
+                            var foundMeta = Directory.EnumerateFiles(dhtMetaDir, "*.torrent")
+                                .FirstOrDefault(p => Path.GetFileNameWithoutExtension(p).Equals(hashHex, StringComparison.OrdinalIgnoreCase));
+                            if (!string.IsNullOrEmpty(foundMeta) && File.Exists(foundMeta))
+                            {
+                                byte[] rawBytes = await File.ReadAllBytesAsync(foundMeta, CancellationToken.None).ConfigureAwait(false);
+                                if (rawBytes.Length > 64 && rawBytes[0] == (byte)'d')
+                                {
+                                    _loadedTorrentBytes = rawBytes;
+                                    await File.WriteAllBytesAsync(cachedTorrentPath, rawBytes, CancellationToken.None).ConfigureAwait(false);
+                                }
+                            }
+                        }
+                    }
+                    catch { }
+
+                    return items;
+                }
+            }
+            catch { }
+            finally
+            {
+                if (createdHere && metaMgr != null)
+                {
+                    try { await metaMgr.StopAsync(TimeSpan.FromMilliseconds(400)).ConfigureAwait(false); } catch { }
+                    try { await engine.RemoveAsync(metaMgr, RemoveMode.CacheDataOnly).ConfigureAwait(false); } catch { }
+                }
+            }
+
+            return null;
         }
 
         public async Task<List<string>> DownloadTorrentAsync(
@@ -4127,8 +4469,14 @@ namespace StormSwitchBox.Services
                                     string fName = fObj.TryGetProperty("name", out var nmEl) ? (nmEl.GetString() ?? "") : "";
                                     string fFileOnly = Path.GetFileName(fName.Replace('/', Path.DirectorySeparatorChar));
 
+                                    string fNorm = fName.Replace('\\', '/').TrimStart('.').TrimStart('/');
                                     var matchedSel = fileSelections.FirstOrDefault(s =>
-                                        s.RelativePath.Replace('/', '\\').Equals(fName.Replace('/', '\\'), StringComparison.OrdinalIgnoreCase) ||
+                                    {
+                                        string sNorm = s.RelativePath.Replace('\\', '/').TrimStart('.').TrimStart('/');
+                                        return sNorm.Equals(fNorm, StringComparison.OrdinalIgnoreCase) ||
+                                               sNorm.EndsWith("/" + fNorm, StringComparison.OrdinalIgnoreCase) ||
+                                               fNorm.EndsWith("/" + sNorm, StringComparison.OrdinalIgnoreCase);
+                                    }) ?? fileSelections.FirstOrDefault(s =>
                                         Path.GetFileName(s.RelativePath).Equals(fFileOnly, StringComparison.OrdinalIgnoreCase));
 
                                     if (matchedSel != null && !matchedSel.IsSelected)
@@ -4674,10 +5022,24 @@ namespace StormSwitchBox.Services
                     }
                     else
                     {
-                        string fn = Path.GetFileName(rel);
-                        var matched = selLookup.FirstOrDefault(kv => Path.GetFileName(kv.Key).Equals(fn, StringComparison.OrdinalIgnoreCase));
-                        if (!string.IsNullOrEmpty(matched.Key))
-                            want = matched.Value;
+                        string relClean = rel.TrimStart('.').TrimStart('/');
+                        var suffixMatched = selLookup.FirstOrDefault(kv =>
+                        {
+                            string kClean = kv.Key.TrimStart('.').TrimStart('/');
+                            return kClean.EndsWith("/" + relClean, StringComparison.OrdinalIgnoreCase) ||
+                                   relClean.EndsWith("/" + kClean, StringComparison.OrdinalIgnoreCase);
+                        });
+                        if (!string.IsNullOrEmpty(suffixMatched.Key))
+                        {
+                            want = suffixMatched.Value;
+                        }
+                        else
+                        {
+                            string fn = Path.GetFileName(rel);
+                            var matched = selLookup.FirstOrDefault(kv => Path.GetFileName(kv.Key).Equals(fn, StringComparison.OrdinalIgnoreCase));
+                            if (!string.IsNullOrEmpty(matched.Key))
+                                want = matched.Value;
+                        }
                     }
 
                     await manager.SetFilePriorityAsync(file, want ? Priority.Normal : Priority.DoNotDownload).ConfigureAwait(false);
@@ -5393,7 +5755,7 @@ namespace StormSwitchBox.Services
             }
         }
 
-        private static async Task ExtractArchiveWith7zAsync(string archivePath, string extractDir, CancellationToken ct)
+        public static async Task ExtractArchiveWith7zAsync(string archivePath, string extractDir, CancellationToken ct)
         {
             string tools7z = Path.Combine(AppContext.BaseDirectory, "tools", "7z", "7za.exe");
             if (!File.Exists(tools7z))
@@ -5488,6 +5850,23 @@ namespace StormSwitchBox.Services
         private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _topicLinksCache = new(StringComparer.OrdinalIgnoreCase);
         private static readonly string _topicCachePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "STORM SWITCH BOX", "rutracker_topic_links_cache.json");
 
+        public static bool IsValidRuTrackerTopicHtml(string? html)
+        {
+            if (string.IsNullOrWhiteSpace(html)) return false;
+            if (html.Contains("Just a moment...", StringComparison.OrdinalIgnoreCase) ||
+                html.Contains("_cf_chl_opt", StringComparison.OrdinalIgnoreCase) ||
+                html.Contains("cf-turnstile", StringComparison.OrdinalIgnoreCase) ||
+                html.Contains("challenge-running", StringComparison.OrdinalIgnoreCase) ||
+                html.Contains("Enable JavaScript and cookies", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+            return html.Contains("topic-title", StringComparison.OrdinalIgnoreCase) ||
+                   html.Contains("post_body", StringComparison.OrdinalIgnoreCase) ||
+                   html.Contains("tor-hash", StringComparison.OrdinalIgnoreCase) ||
+                   html.Contains("magnet:?xt=urn:btih:", StringComparison.OrdinalIgnoreCase);
+        }
+
         private static void LoadTopicLinksCache()
         {
             try
@@ -5497,7 +5876,16 @@ namespace StormSwitchBox.Services
                     var dict = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(_topicCachePath));
                     if (dict != null)
                     {
-                        foreach (var kvp in dict) _topicLinksCache[kvp.Key] = kvp.Value;
+                        bool purgedPoisoned = false;
+                        foreach (var kvp in dict)
+                        {
+                            if (IsValidRuTrackerTopicHtml(kvp.Value))
+                                _topicLinksCache[kvp.Key] = kvp.Value;
+                            else
+                                purgedPoisoned = true;
+                        }
+                        if (purgedPoisoned)
+                            SaveTopicLinksCache();
                     }
                 }
             }
@@ -5518,13 +5906,13 @@ namespace StormSwitchBox.Services
 
         public static async Task<string?> FetchTopicHtmlViaCloudRaceAsync(string tid, CancellationToken ct)
         {
-            if (_topicLinksCache.TryGetValue(tid, out var cached) && !string.IsNullOrEmpty(cached))
+            if (_topicLinksCache.TryGetValue(tid, out var cached) && IsValidRuTrackerTopicHtml(cached))
             {
                 return cached;
             }
 
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            linkedCts.CancelAfter(TimeSpan.FromSeconds(15));
+            linkedCts.CancelAfter(TimeSpan.FromSeconds(5));
             var lct = linkedCts.Token;
             var tasks = new List<Task<string?>>();
             // 1. Jina AI Cloud Reader (обходит Cloudflare и возвращает чистый HTML раздачи)
@@ -5536,7 +5924,7 @@ namespace StormSwitchBox.Services
                     client.DefaultRequestHeaders.Add("X-Return-Format", "html");
                     string url = $"https://r.jina.ai/https://rutracker.org/forum/viewtopic.php?t={tid}";
                     string html = await client.GetStringAsync(url, lct).ConfigureAwait(false);
-                    if (!string.IsNullOrEmpty(html) && (html.Contains("post_body") || html.Contains("topic-title") || html.Contains("viewtopic.php")))
+                    if (IsValidRuTrackerTopicHtml(html))
                     {
                         return html;
                     }
@@ -5553,7 +5941,7 @@ namespace StormSwitchBox.Services
                     using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
                     string url = $"https://api.codetabs.com/v1/proxy?quest=https://rutracker.org/forum/viewtopic.php?t={tid}";
                     string html = await client.GetStringAsync(url, lct).ConfigureAwait(false);
-                    if (!string.IsNullOrEmpty(html) && (html.Contains("post_body") || html.Contains("topic-title") || html.Contains("viewtopic.php")))
+                    if (IsValidRuTrackerTopicHtml(html))
                     {
                         return html;
                     }
@@ -5570,7 +5958,7 @@ namespace StormSwitchBox.Services
                     using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
                     string url = $"https://api.allorigins.win/raw?url={Uri.EscapeDataString($"https://rutracker.org/forum/viewtopic.php?t={tid}")}";
                     string html = await client.GetStringAsync(url, lct).ConfigureAwait(false);
-                    if (!string.IsNullOrEmpty(html) && (html.Contains("post_body") || html.Contains("topic-title") || html.Contains("viewtopic.php")))
+                    if (IsValidRuTrackerTopicHtml(html))
                     {
                         return html;
                     }
@@ -5587,7 +5975,7 @@ namespace StormSwitchBox.Services
                     using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
                     string url = $"https://corsproxy.io/?{Uri.EscapeDataString($"https://rutracker.org/forum/viewtopic.php?t={tid}")}";
                     string html = await client.GetStringAsync(url, lct).ConfigureAwait(false);
-                    if (!string.IsNullOrEmpty(html) && (html.Contains("post_body") || html.Contains("topic-title") || html.Contains("viewtopic.php")))
+                    if (IsValidRuTrackerTopicHtml(html))
                     {
                         return html;
                     }
