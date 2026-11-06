@@ -36,6 +36,16 @@ namespace StormSwitchBox.Services
         public List<CloudModLinkItem> ExtractedModLinks { get; set; } = new();
     }
 
+    public sealed class GameSlotTargetOption
+    {
+        public int SlotNumber { get; set; }
+        public string DisplayText => $"ИГРА #{SlotNumber}";
+
+        public override string ToString() => DisplayText;
+        public override bool Equals(object? obj) => obj is GameSlotTargetOption other && other.SlotNumber == SlotNumber;
+        public override int GetHashCode() => SlotNumber.GetHashCode();
+    }
+
     public sealed class RuTrackerGameSlotItem : CommunityToolkit.Mvvm.ComponentModel.ObservableObject
     {
         private int _slotNumber = 1;
@@ -45,11 +55,31 @@ namespace StormSwitchBox.Services
             set
             {
                 if (SetProperty(ref _slotNumber, value))
+                {
                     OnPropertyChanged(nameof(SlotBadge));
+                    OnPropertyChanged(nameof(CanChangeSlotNumber));
+                }
             }
         }
 
         public string SlotBadge => $"ИГРА #{SlotNumber}";
+
+        public System.Collections.ObjectModel.ObservableCollection<GameSlotTargetOption> AvailableSlotTargets { get; } = new();
+
+        private GameSlotTargetOption? _selectedSlotTarget;
+        public GameSlotTargetOption? SelectedSlotTarget
+        {
+            get => _selectedSlotTarget;
+            set => SetProperty(ref _selectedSlotTarget, value);
+        }
+
+        public bool CanChangeSlotNumber => AvailableSlotTargets.Count > 1;
+
+        public void RefreshSlotTargetsState()
+        {
+            OnPropertyChanged(nameof(CanChangeSlotNumber));
+            OnPropertyChanged(nameof(SelectedSlotTarget));
+        }
 
         private bool _isEnabled = true;
         public bool IsEnabled
@@ -409,6 +439,9 @@ namespace StormSwitchBox.Services
         }
 
         public string RelativePath { get; set; } = string.Empty;
+        public List<string> GroupedRelativePaths { get; set; } = new();
+        public string DetectedTitleId { get; set; } = string.Empty;
+        public IReadOnlyList<string> GetEffectiveRelativePaths() => GroupedRelativePaths != null && GroupedRelativePaths.Count > 0 ? GroupedRelativePaths : new[] { RelativePath };
         private string _displayPath = string.Empty;
         public string DisplayPath
         {
@@ -2247,6 +2280,37 @@ namespace StormSwitchBox.Services
                 return hex.Substring(0, 13) + "000";
             return hex;
         }
+
+        public static string NormalizeSwitchBaseApplicationTitleId(string? rawTid)
+        {
+            if (string.IsNullOrWhiteSpace(rawTid)) return string.Empty;
+            string hex = rawTid.Trim();
+            if (hex.Length != 16 || !hex.All(c => Uri.IsHexDigit(c)))
+            {
+                string extracted = ExtractTitleId(hex);
+                if (extracted.Length == 16) hex = extracted;
+                else return string.Empty;
+            }
+            hex = hex.ToUpperInvariant();
+            if (hex.Length != 16) return string.Empty;
+
+            if (hex.EndsWith("000"))
+                return hex;
+            if (hex.EndsWith("800"))
+                return hex.Substring(0, 13) + "000";
+
+            try
+            {
+                ulong val = Convert.ToUInt64(hex, 16);
+                ulong baseMasked = val & 0xFFFFFFFFFFFFF000UL;
+                ulong resultVal = baseMasked >= 0x0100000000001000UL ? baseMasked - 0x1000UL : baseMasked;
+                return resultVal.ToString("X16");
+            }
+            catch
+            {
+                return hex;
+            }
+        }
         #endregion
         public async Task<RuTrackerTopicItem?> FetchTopicDetailsAsync(string topicIdOrUrl, CancellationToken ct)
         {
@@ -2998,10 +3062,36 @@ namespace StormSwitchBox.Services
         /// Автоматически распознаёт многосоставные раздачи (напр. "Aggelos 1-2", "Pikmin 1+2", "Sakura Succubus 1 / 2 / 3", "Trilogy", или список игр из шапки темы)
         /// и возвращает список отдельных названий игр (от 1 до 10+ частей).
         /// </summary>
+        private static readonly string[] AddonBonusKeywords = new[]
+        {
+            "Liberation", "Rogue", "DLC", "All DLC", "Season Pass", "Expansion",
+            "Pass", "OST", "Soundtrack", "Artbook", "Bonus", "Pack", "Add-on", "Addon"
+        };
+
         public static List<string> DetectMultiGameTitlesFromRelease(string? rawTitle, string? topicId = null)
         {
             var result = new List<string>();
             if (string.IsNullOrWhiteSpace(rawTitle)) return result;
+
+            if (!string.IsNullOrWhiteSpace(topicId))
+            {
+                RuTrackerIndexTopic? indexed = null;
+                lock (_indexLock) { _topicsById.TryGetValue(topicId.Trim(), out indexed); }
+                if (indexed != null && indexed.Files.Count > 0)
+                {
+                    var tempItems = indexed.Files.Select(f => new TorrentFileSelectionItem
+                    {
+                        IsSelected = true,
+                        RelativePath = f.Path,
+                        Length = f.Size,
+                        CategoryBadge = ClassifyTorrentEntryBadge(f.Path),
+                        IsRealTorrentFile = true
+                    }).ToList();
+                    var discovered = DiscoverGameTitlesFromFiles(tempItems);
+                    if (discovered.Count >= 1)
+                        return discovered;
+                }
+            }
 
             // Очищаем от префиксов [Nintendo Switch], [NSP][RUS/Multi10], (обновлено) и т.д.
             string cleaned = Regex.Replace(rawTitle, @"^(\s*\[[^\]]*\]|\s*\([^)]*\))+", "").Trim();
@@ -3024,11 +3114,33 @@ namespace StormSwitchBox.Services
                 return result;
             }
 
-            // 2. Паттерн перечисления через слэш: "Game A / Game B / Game C" или "Sakura 1 / 2 / 3 / 4"
+            // 2. Паттерн перечисления через слэш вне круглых и квадратных скобок: "Game A / Game B / Game C" или "Sakura 1 / 2 / 3 / 4"
+            // Не дробит слэши внутри скобок, например "(AC II / Brotherhood / Revelations)"
             if (cleaned.Contains(" / "))
             {
-                var slashParts = cleaned.Split(new[] { " / " }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-                if (slashParts.Length >= 2 && slashParts.Length <= 15)
+                var slashParts = new List<string>();
+                int lastSlashIdx = 0;
+                int parenDepth = 0;
+                for (int i = 0; i < cleaned.Length; i++)
+                {
+                    char c = cleaned[i];
+                    if (c == '(' || c == '[') parenDepth++;
+                    else if (c == ')' || c == ']') { if (parenDepth > 0) parenDepth--; }
+                    else if (parenDepth == 0 && i + 2 < cleaned.Length && cleaned[i] == ' ' && cleaned[i + 1] == '/' && cleaned[i + 2] == ' ')
+                    {
+                        string part = cleaned.Substring(lastSlashIdx, i - lastSlashIdx).Trim();
+                        if (!string.IsNullOrEmpty(part)) slashParts.Add(part);
+                        lastSlashIdx = i + 3;
+                        i += 2;
+                    }
+                }
+                if (lastSlashIdx < cleaned.Length)
+                {
+                    string lastPart = cleaned.Substring(lastSlashIdx).Trim();
+                    if (!string.IsNullOrEmpty(lastPart)) slashParts.Add(lastPart);
+                }
+
+                if (slashParts.Count >= 2 && slashParts.Count <= 15)
                 {
                     string prefixBase = Regex.Replace(slashParts[0], @"\s+\d+$", "").Trim();
                     foreach (var sp in slashParts)
@@ -3044,13 +3156,20 @@ namespace StormSwitchBox.Services
                 }
             }
 
-            // 3. Паттерн перечисления через запятую или плюс: "Where Angels Cry, Where Angels Cry: Tears of the Fallen"
+            // 3. Паттерн перечисления через плюс: "Where Angels Cry + Tears of the Fallen"
+            // Не дробит, если правая часть — дополнение/бонус (Liberation, Rogue, DLC, Season Pass и т.д.)
             if (cleaned.Contains(" + ") && !cleaned.Contains("DLC", StringComparison.OrdinalIgnoreCase) && !cleaned.Contains("Update", StringComparison.OrdinalIgnoreCase))
             {
                 var plusParts = cleaned.Split(new[] { " + " }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
                 if (plusParts.Length >= 2 && plusParts.Length <= 10 && plusParts.All(p => p.Length >= 3))
                 {
-                    return plusParts.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                    bool hasAddonOrBonus = plusParts.Skip(1).Any(p =>
+                        AddonBonusKeywords.Any(kw => Regex.IsMatch(p, $@"\b{Regex.Escape(kw)}\b", RegexOptions.IgnoreCase))
+                    );
+                    if (!hasAddonOrBonus)
+                    {
+                        return plusParts.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                    }
                 }
             }
 
@@ -3106,25 +3225,34 @@ namespace StormSwitchBox.Services
             var result = new List<string>();
             if (files == null || files.Count == 0) return result;
 
+            var realFiles = files.Where(f => f.IsRealTorrentFile && f.CategoryBadge != "MAGNET").ToList();
+            if (realFiles.Count == 0) return result;
+
             var byBaseTid = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var f in files)
+
+            // Собираем группы только по настоящим базовым играм (f.CategoryBadge == "ИГРА" или "ИГРА #N")
+            var baseGameFiles = realFiles
+                .Where(f => f.CategoryBadge == "ИГРА" || (f.CategoryBadge != null && f.CategoryBadge.StartsWith("ИГРА #")))
+                .ToList();
+            var targetFilesForTid = baseGameFiles.Count > 0 ? baseGameFiles : realFiles;
+
+            foreach (var f in targetFilesForTid)
             {
-                if (!f.IsRealTorrentFile && f.CategoryBadge == "MAGNET") continue;
-                string tid = ExtractTitleId(f.RelativePath);
+                string rawTid = ExtractTitleId(f.RelativePath);
+                string normTid = NormalizeSwitchBaseApplicationTitleId(rawTid);
                 string cleanName = ExtractCleanGameTitleFromFilePath(f.RelativePath);
                 if (string.IsNullOrWhiteSpace(cleanName)) continue;
 
-                if (tid.Length == 16)
+                if (normTid.Length == 16)
                 {
-                    string baseTid = tid.Substring(0, 12);
-                    if (!byBaseTid.ContainsKey(baseTid) || f.CategoryBadge == "ИГРА")
+                    if (!byBaseTid.ContainsKey(normTid) || f.CategoryBadge == "ИГРА" || (f.CategoryBadge != null && f.CategoryBadge.StartsWith("ИГРА #")))
                     {
-                        byBaseTid[baseTid] = cleanName;
+                        byBaseTid[normTid] = cleanName;
                     }
                 }
             }
 
-            if (byBaseTid.Count >= 2)
+            if (byBaseTid.Count >= 1)
             {
                 return byBaseTid.Values
                     .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -3134,17 +3262,18 @@ namespace StormSwitchBox.Services
                     .ToList();
             }
 
-            var baseGameFiles = files
-                .Where(f => f.CategoryBadge == "ИГРА")
+            // Для игр без TitleID в имени (например, 3DS .3ds / .cia или чистые имена файлов)
+            var fallbackCleanNames = (baseGameFiles.Count > 0 ? baseGameFiles : realFiles)
                 .Select(f => ExtractCleanGameTitleFromFilePath(f.RelativePath))
                 .Where(n => !string.IsNullOrWhiteSpace(n))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderBy(t => GetNaturalGameSortKey(t).BasePrefix)
                 .ThenBy(t => GetNaturalGameSortKey(t).PartNumber)
+                .ThenBy(t => t, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            if (baseGameFiles.Count >= 2)
-                return baseGameFiles;
+            if (fallbackCleanNames.Count >= 1)
+                return fallbackCleanNames;
 
             return result;
         }
@@ -3174,18 +3303,18 @@ namespace StormSwitchBox.Services
                 return;
             }
 
-            // 1. Строим карту BaseTitleID -> CleanGameName и сортируем группы игр в естественном порядке (Часть 1 -> Часть 2 -> ...)
+            // 1. Строим карту BaseTitleID (16 символов) -> CleanGameName и сортируем группы игр в естественном порядке (Часть 1 -> Часть 2 -> ...)
             var tidToTitle = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (var f in files)
             {
-                string tid = ExtractTitleId(f.RelativePath);
-                if (tid.Length == 16)
+                string rawTid = ExtractTitleId(f.RelativePath);
+                string normTid = NormalizeSwitchBaseApplicationTitleId(rawTid);
+                if (normTid.Length == 16)
                 {
-                    string baseTid = tid.Substring(0, 12);
                     string cleanName = ExtractCleanGameTitleFromFilePath(f.RelativePath);
-                    if (!tidToTitle.ContainsKey(baseTid) || (f.CategoryBadge == "ИГРА" && !string.IsNullOrEmpty(cleanName)))
+                    if (!tidToTitle.ContainsKey(normTid) || ((f.CategoryBadge == "ИГРА" || (f.CategoryBadge != null && f.CategoryBadge.StartsWith("ИГРА #"))) && !string.IsNullOrEmpty(cleanName)))
                     {
-                        tidToTitle[baseTid] = cleanName;
+                        tidToTitle[normTid] = cleanName;
                     }
                 }
             }
@@ -3210,8 +3339,8 @@ namespace StormSwitchBox.Services
                 for (int sIdx = gameSlots.Count - 1; sIdx >= 0; sIdx--)
                 {
                     string slotTitle = gameSlots[sIdx];
-                    string slotTid = ExtractTitleId(slotTitle);
-                    if (slotTid.Length == 16 && bTid.Length >= 12 && slotTid.StartsWith(bTid.Substring(0, 12), StringComparison.OrdinalIgnoreCase))
+                    string slotTid = NormalizeSwitchBaseApplicationTitleId(ExtractTitleId(slotTitle));
+                    if (slotTid.Length == 16 && bTid.Length == 16 && string.Equals(slotTid, bTid, StringComparison.OrdinalIgnoreCase))
                     {
                         assignedSlot = sIdx + 1;
                         break;
@@ -3242,11 +3371,11 @@ namespace StormSwitchBox.Services
             foreach (var f in files)
             {
                 string pathNorm = f.RelativePath.Replace('\\', '/');
-                string tid = ExtractTitleId(pathNorm);
-                if (tid.Length == 16)
+                string rawFileTid = !string.IsNullOrEmpty(f.DetectedTitleId) ? f.DetectedTitleId : ExtractTitleId(pathNorm);
+                string normFileTid = NormalizeSwitchBaseApplicationTitleId(rawFileTid);
+                if (normFileTid.Length == 16)
                 {
-                    string bTid = tid.Substring(0, 13) + "000";
-                    if (tidToSlot.TryGetValue(bTid, out int mappedSlot))
+                    if (tidToSlot.TryGetValue(normFileTid, out int mappedSlot))
                     {
                         f.TargetGameSlot = mappedSlot;
                         continue;
@@ -3376,9 +3505,189 @@ namespace StormSwitchBox.Services
             return "ФАЙЛ";
         }
 
+        private static readonly HashSet<string> BinaryContainerExtensions = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ".nsp", ".nsz", ".xci", ".xcz", ".3ds", ".cia", ".cci", ".cxi", ".nca", ".ncz", ".nro"
+        };
+
+        private static readonly HashSet<string> ArchiveExtensions = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ".7z", ".zip", ".rar"
+        };
+
+        private static readonly HashSet<string> InfoExtensions = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ".txt", ".nfo", ".jpg", ".jpeg", ".png", ".url"
+        };
+
+        private static readonly HashSet<string> ModStructuralSegments = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "atmosphere", "contents", "romfs", "exefs", "exefs_patches", "ips_patches",
+            "layeredfs", "luma", "titles", "reinx", "sxos", "mods", "cheats"
+        };
+
+        private static readonly string[] ModFolderKeywords = new[]
+        {
+            "mod", "rus", "русиф", "перевод", "translation", "локализац", "patch", "ukr", "cheat"
+        };
+
+        public static void CollapseModFoldersIntoSingleEntries(List<TorrentFileSelectionItem> items)
+        {
+            if (items == null || items.Count <= 1) return;
+            if (!items.Any(x => x.IsRealTorrentFile)) return;
+
+            var splitPaths = items
+                .Select(i => i.RelativePath.Replace('\\', '/').TrimStart('.').TrimStart('/'))
+                .ToList();
+
+            string commonRoot = "";
+            if (splitPaths.All(p => p.Contains('/')))
+            {
+                string firstSeg = splitPaths[0].Substring(0, splitPaths[0].IndexOf('/'));
+                if (!string.IsNullOrEmpty(firstSeg) && splitPaths.All(p => p.StartsWith(firstSeg + "/", StringComparison.OrdinalIgnoreCase)))
+                {
+                    commonRoot = firstSeg + "/";
+                }
+            }
+
+            var containerAncestorDirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < items.Count; i++)
+            {
+                string p = splitPaths[i];
+                string ext = Path.GetExtension(p).ToLowerInvariant();
+                if (BinaryContainerExtensions.Contains(ext))
+                {
+                    string sub = (!string.IsNullOrEmpty(commonRoot) && p.StartsWith(commonRoot, StringComparison.OrdinalIgnoreCase))
+                        ? p.Substring(commonRoot.Length)
+                        : p;
+                    string[] parts = sub.Split('/');
+                    for (int k = 1; k < parts.Length; k++)
+                    {
+                        containerAncestorDirs.Add(string.Join("/", parts.Take(k)));
+                    }
+                }
+            }
+
+            var modFolderGroups = new Dictionary<string, List<TorrentFileSelectionItem>>(StringComparer.OrdinalIgnoreCase);
+            var unassigned = new List<TorrentFileSelectionItem>();
+
+            for (int i = 0; i < items.Count; i++)
+            {
+                var item = items[i];
+                string p = splitPaths[i];
+                string ext = Path.GetExtension(p).ToLowerInvariant();
+
+                if (BinaryContainerExtensions.Contains(ext))
+                {
+                    unassigned.Add(item);
+                    continue;
+                }
+
+                string sub = (!string.IsNullOrEmpty(commonRoot) && p.StartsWith(commonRoot, StringComparison.OrdinalIgnoreCase))
+                    ? p.Substring(commonRoot.Length)
+                    : p;
+
+                string[] parts = sub.Split('/');
+                if (parts.Length < 2)
+                {
+                    unassigned.Add(item);
+                    continue;
+                }
+
+                string? matchedFolderPrefix = null;
+                for (int s = 0; s < parts.Length - 1; s++)
+                {
+                    string candidateSub = string.Join("/", parts.Take(s + 1));
+                    if (containerAncestorDirs.Contains(candidateSub))
+                        continue;
+
+                    string seg = parts[s];
+                    bool isModSeg = ModStructuralSegments.Contains(seg) ||
+                                    ModFolderKeywords.Any(kw => seg.Contains(kw, StringComparison.OrdinalIgnoreCase));
+
+                    if (isModSeg)
+                    {
+                        matchedFolderPrefix = (!string.IsNullOrEmpty(commonRoot) ? commonRoot : "") + candidateSub;
+                        break;
+                    }
+                }
+
+                if (!string.IsNullOrEmpty(matchedFolderPrefix))
+                {
+                    if (!modFolderGroups.TryGetValue(matchedFolderPrefix, out var list))
+                    {
+                        list = new List<TorrentFileSelectionItem>();
+                        modFolderGroups[matchedFolderPrefix] = list;
+                    }
+                    list.Add(item);
+                }
+                else
+                {
+                    unassigned.Add(item);
+                }
+            }
+
+            var collapsedResult = new List<TorrentFileSelectionItem>(unassigned);
+
+            foreach (var (prefix, group) in modFolderGroups)
+            {
+                bool hasUnpackedMods = group.Any(it =>
+                {
+                    string e = Path.GetExtension(it.RelativePath).ToLowerInvariant();
+                    return !ArchiveExtensions.Contains(e) && !InfoExtensions.Contains(e);
+                });
+
+                if (hasUnpackedMods)
+                {
+                    string tid = "";
+                    foreach (var git in group)
+                    {
+                        string rawTid = ExtractTitleId(git.RelativePath);
+                        if (rawTid.Length == 16)
+                        {
+                            tid = rawTid;
+                            break;
+                        }
+                    }
+
+                    string cleanPrefixDisplay = (!string.IsNullOrEmpty(commonRoot) && prefix.StartsWith(commonRoot, StringComparison.OrdinalIgnoreCase))
+                        ? prefix.Substring(commonRoot.Length)
+                        : prefix;
+                    cleanPrefixDisplay = cleanPrefixDisplay.TrimEnd('/');
+
+                    var collapsedItem = new TorrentFileSelectionItem
+                    {
+                        IsSelected = true,
+                        IsRealTorrentFile = true,
+                        CategoryBadge = "МОД / РУСИФИКАТОР",
+                        Length = group.Sum(x => x.Length),
+                        RelativePath = !string.IsNullOrEmpty(tid) && !prefix.Contains(tid, StringComparison.OrdinalIgnoreCase)
+                            ? $"{prefix} [{tid}]"
+                            : prefix,
+                        DetectedTitleId = tid,
+                        DisplayPath = $"{cleanPrefixDisplay}/ ({group.Count} файлов)",
+                        GroupedRelativePaths = group.Select(x => x.RelativePath).ToList()
+                    };
+
+                    collapsedResult.Add(collapsedItem);
+                }
+                else
+                {
+                    collapsedResult.AddRange(group);
+                }
+            }
+
+            items.Clear();
+            items.AddRange(collapsedResult);
+        }
+
         public static void PopulateDisplayPathsAndSmartSelection(IList<TorrentFileSelectionItem> items)
         {
             if (items == null || items.Count == 0) return;
+            if (items is List<TorrentFileSelectionItem> list)
+            {
+                CollapseModFoldersIntoSingleEntries(list);
+            }
 
             // 1. Вычисляем общий корневой каталог торрента (напр. "./Another Eden Begins [NSP]/"), чтобы не засорять начало строки в UI
             var splitPaths = items
@@ -3399,9 +3708,15 @@ namespace StormSwitchBox.Services
             {
                 string cleanRel = splitPaths[idx];
                 items[idx].RelativePath = cleanRel;
-                items[idx].DisplayPath = (!string.IsNullOrEmpty(commonRoot) && cleanRel.StartsWith(commonRoot, StringComparison.OrdinalIgnoreCase))
+                string disp = (!string.IsNullOrEmpty(commonRoot) && cleanRel.StartsWith(commonRoot, StringComparison.OrdinalIgnoreCase))
                     ? cleanRel.Substring(commonRoot.Length)
                     : cleanRel;
+
+                if (items[idx].GroupedRelativePaths != null && items[idx].GroupedRelativePaths.Count > 0)
+                {
+                    disp = disp.TrimEnd('/') + $"/ ({items[idx].GroupedRelativePaths.Count} файлов)";
+                }
+                items[idx].DisplayPath = disp;
 
                 // Отключаем текстовые ReadMe / NFO / картинки по умолчанию
                 if (items[idx].CategoryBadge == "ИНФО")
@@ -5165,9 +5480,14 @@ namespace StormSwitchBox.Services
             if (hasRealFiles)
             {
                 // Сопоставление строго по реальным путям/именам файлов
-                var selLookup = fileSelections
-                    .Where(x => x.IsRealTorrentFile)
-                    .ToDictionary(x => x.RelativePath.Replace('\\', '/'), x => x.IsSelected, StringComparer.OrdinalIgnoreCase);
+                var selLookup = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+                foreach (var item in fileSelections.Where(x => x.IsRealTorrentFile))
+                {
+                    foreach (var effPath in item.GetEffectiveRelativePaths())
+                    {
+                        selLookup[effPath.Replace('\\', '/')] = item.IsSelected;
+                    }
+                }
 
                 foreach (var file in manager.Files)
                 {

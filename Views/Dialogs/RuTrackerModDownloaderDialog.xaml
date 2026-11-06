@@ -134,16 +134,20 @@
             </Grid>
         </Border>
 
-        <!-- Основная рабочая область (3 колонки: 1) Раздачи, 2) Игры/Части + Файлы раздачи, 3) Ссылки на русификаторы/обновления/DLC) -->
-        <Grid Grid.Row="3" ColumnSpacing="10">
+        <!-- Основная рабочая область (Сверху: Раздачи (0,0), Игры/Части (0,1), Ссылки (0..1,2). Снизу: Файлы раздачи (1, 0..1)) -->
+        <Grid Grid.Row="3" RowSpacing="8" ColumnSpacing="10">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="0.88*"/>
+                <RowDefinition Height="1.22*"/>
+            </Grid.RowDefinitions>
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="0.92*"/>
-                <ColumnDefinition Width="1.18*"/>
-                <ColumnDefinition Width="1.15*"/>
+                <ColumnDefinition Width="0.88*"/>
+                <ColumnDefinition Width="1.26*"/>
+                <ColumnDefinition Width="1.08*"/>
             </Grid.ColumnDefinitions>
 
-            <!-- КОЛОНКА 1 (Слева): Результаты поиска RuTracker -->
-            <Border Grid.Column="0" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+            <!-- Левая верхняя карточка: Результаты поиска RuTracker -->
+            <Border Grid.Row="0" Grid.Column="0" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="10">
                 <Grid RowSpacing="8">
                     <Grid.RowDefinitions>
@@ -192,15 +196,8 @@
                 </Grid>
             </Border>
 
-            <!-- КОЛОНКА 2 (Центр): Конструктор отдельных задач (Игры / Части 1..10+) + Сгруппированные по играм блоки файлов -->
-            <Grid Grid.Column="1" RowSpacing="8">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="0.88*"/>
-                    <RowDefinition Height="1.22*"/>
-                </Grid.RowDefinitions>
-
-                <!-- Верхняя карточка: Игры / Части в раздаче (Отдельные задачи с отдельным именем, русификатором и ссылками) -->
-                <Border Grid.Row="0" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+            <!-- Центральная верхняя карточка: Игры / Части в раздаче (вынесена на прямой уровень!) -->
+            <Border Grid.Row="0" Grid.Column="1" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="10">
                     <Grid RowSpacing="5">
                         <Grid.RowDefinitions>
@@ -304,9 +301,20 @@
                                                     </Grid.ColumnDefinitions>
                                                     <CheckBox Grid.Column="0" IsChecked="{Binding IsEnabled, Mode=TwoWay}" MinWidth="0" VerticalAlignment="Center"
                                                               ToolTipService.ToolTip="Создать отдельную задачу для этой игры / части"/>
-                                                    <Border Grid.Column="1" Background="#0284C7" CornerRadius="4" Padding="7,4" VerticalAlignment="Center">
-                                                        <TextBlock Text="{Binding SlotBadge}" FontSize="10.5" Foreground="White" FontWeight="Bold" VerticalAlignment="Center"/>
-                                                    </Border>
+                                                    <ComboBox Grid.Column="1"
+                                                              ItemsSource="{Binding AvailableSlotTargets}"
+                                                              SelectedItem="{Binding SelectedSlotTarget, Mode=TwoWay}"
+                                                              DisplayMemberPath="DisplayText"
+                                                              IsEnabled="{Binding CanChangeSlotNumber}"
+                                                              SelectionChanged="GameSlotNumberCombo_SelectionChanged"
+                                                              Tag="{Binding}"
+                                                              Height="28" MinHeight="28" MinWidth="94"
+                                                              Padding="8,0,6,0"
+                                                              Background="#0284C7" Foreground="White"
+                                                              FontWeight="Bold" FontSize="10.5"
+                                                              CornerRadius="4"
+                                                              VerticalAlignment="Center" VerticalContentAlignment="Center"
+                                                              ToolTipService.ToolTip="Номер слота игры. Выберите другой номер (например, ИГРА #1), чтобы объединить этот слот с выбранным."/>
                                                     <TextBox Grid.Column="2" Text="{Binding GameTitle, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                              PlaceholderText="Итоговое имя выходного файла (напр. Aggelos (2018) [WW] [RUS]...)" FontSize="11.5"
                                                              Height="28" MinHeight="28" Padding="8,0,8,0"
@@ -393,8 +401,8 @@
                     </Grid>
                 </Border>
 
-                <!-- Нижняя карточка: Файлы раздачи, сгруппированные по блокам игр (ИГРА #1, ИГРА #2, ...) -->
-                <Border Grid.Row="1" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+            <!-- Нижняя широкая карточка: Файлы раздачи (на ширину первых двух колонок Grid.ColumnSpan="2"!) -->
+            <Border Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="10">
                     <Grid RowSpacing="6">
                         <Grid.RowDefinitions>
@@ -498,10 +506,9 @@
                         </ListView>
                     </Grid>
                 </Border>
-            </Grid>
 
-            <!-- КОЛОНКА 3 (Справа): Ссылки из темы и обсуждений RuTracker (сгруппированные по играм) -->
-            <Border Grid.Column="2" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+            <!-- Правая колонка: Ссылки из темы и обсуждений RuTracker (Grid.Row="0" Grid.RowSpan="2" Grid.Column="2") -->
+            <Border Grid.Row="0" Grid.RowSpan="2" Grid.Column="2" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="10">
                 <Grid RowSpacing="6">
                     <Grid.RowDefinitions>
@@ -653,13 +660,14 @@
 
         <!-- Наглядная панель прогресса, скорости, сидов/пиров и телеметрии этапов (как на Android) -->
         <Border Grid.Row="4" Background="#111827" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="8" Padding="12,8">
-            <Grid RowSpacing="5">
+            <Grid RowSpacing="6">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
+                <!-- Верхняя строка: Сводка загрузок (слева) + Общая скорость скачивания и пиры (справа) -->
                 <Grid Grid.Row="0" ColumnSpacing="10">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>
@@ -672,10 +680,58 @@
                     </Border>
                     <TextBlock x:Name="StatusText" Grid.Column="1" Text="Готов к поиску и загрузке игр или облачных модификаций." FontSize="12" Foreground="#38BDF8" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
                     <TextBlock x:Name="VolumeProgressText" Grid.Column="2" Text="" FontSize="11.5" Foreground="#E2E8F0" FontWeight="Bold" VerticalAlignment="Center"/>
-                    <TextBlock x:Name="SpeedPeersText" Grid.Column="3" Text="" FontSize="11.5" Foreground="#22C55E" FontWeight="Bold" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="SpeedPeersText" Grid.Column="3" Text="" FontSize="11.5" FontFamily="Consolas" Foreground="#22C55E" FontWeight="Bold" VerticalAlignment="Center"/>
                 </Grid>
 
-                <ProgressBar x:Name="DownloadProgressBar" Grid.Row="1" Minimum="0" Maximum="100" Value="0" Height="8" CornerRadius="4"/>
+                <!-- Список активных и добавленных закачек (отдельная аккуратная строка на каждую игру!) -->
+                <ScrollViewer x:Name="ActiveDownloadsScrollViewer" Grid.Row="1" MaxHeight="92" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
+                    <ItemsControl x:Name="ActiveDownloadsItemsControl">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Background="#161F30" BorderBrush="#25354F" BorderThickness="1" CornerRadius="5" Padding="8,4" Margin="0,2">
+                                    <Grid ColumnSpacing="8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="140"/>
+                                            <ColumnDefinition Width="155"/>
+                                            <ColumnDefinition Width="150"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <!-- 1. Бейдж этапа -->
+                                        <Border Grid.Column="0" Background="{Binding StageBrush}" CornerRadius="3" Padding="6,2" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding StageBadge}" FontSize="9.5" Foreground="White" FontWeight="Bold" VerticalAlignment="Center"/>
+                                        </Border>
+
+                                        <!-- 2. Название игры / раздачи -->
+                                        <TextBlock Grid.Column="1" Text="{Binding DisplayTitle}" FontSize="11" FontWeight="SemiBold" Foreground="#F8FAFC"
+                                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{Binding DisplayTitle}"/>
+
+                                        <!-- 3. Ровный мини-прогрессбар -->
+                                        <ProgressBar Grid.Column="2" Value="{Binding ProgressPercent}" Minimum="0" Maximum="100" Height="6" CornerRadius="3" VerticalAlignment="Center"/>
+
+                                        <!-- 4. Объём и % -->
+                                        <TextBlock Grid.Column="3" Text="{Binding ProgressDetails}" FontSize="10.5" FontFamily="Consolas" Foreground="#CBD5E1"
+                                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+
+                                        <!-- 5. Скорость этой закачки -->
+                                        <TextBlock Grid.Column="4" Text="{Binding SpeedAndPeersText}" FontSize="10.5" FontFamily="Consolas" Foreground="#22C55E" FontWeight="SemiBold"
+                                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+
+                                        <!-- 6. Кнопка отмены конкретной закачки -->
+                                        <Button Grid.Column="5" Content="✕" Click="CancelSingleBatch_Click" Tag="{Binding}"
+                                                Padding="6,1" FontSize="10" Height="22" MinHeight="22" CornerRadius="3"
+                                                Background="#7FDC2626" Foreground="White" VerticalAlignment="Center"
+                                                ToolTipService.ToolTip="Отменить эту закачку"/>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+
+                <ProgressBar x:Name="DownloadProgressBar" Grid.Row="1" Minimum="0" Maximum="100" Value="0" Height="6" CornerRadius="3" Visibility="Collapsed"/>
 
                 <TextBlock x:Name="LiveTelemetryText" Grid.Row="2"
                            Text="💡 Выберите раздачу слева. Если в раздаче несколько игр/частей (напр. Aggelos 1-2), настройте их в центральной колонке — для каждой части будет создана отдельная задача."

@@ -17,6 +17,93 @@ using WinRT.Interop;
 
 namespace StormSwitchBox.Views.Dialogs
 {
+    public sealed class RuTrackerActiveDownloadItem : CommunityToolkit.Mvvm.ComponentModel.ObservableObject
+    {
+        public string BatchId { get; set; } = string.Empty;
+
+        private string _displayTitle = string.Empty;
+        public string DisplayTitle
+        {
+            get => _displayTitle;
+            set => SetProperty(ref _displayTitle, value);
+        }
+
+        private string _stageBadge = "СКАЧИВАНИЕ";
+        public string StageBadge
+        {
+            get => _stageBadge;
+            set => SetProperty(ref _stageBadge, value);
+        }
+
+        private Microsoft.UI.Xaml.Media.SolidColorBrush _stageBrush = new(Windows.UI.Color.FromArgb(255, 2, 132, 199)); // #0284C7
+        public Microsoft.UI.Xaml.Media.SolidColorBrush StageBrush
+        {
+            get => _stageBrush;
+            set => SetProperty(ref _stageBrush, value);
+        }
+
+        private double _progressPercent;
+        public double ProgressPercent
+        {
+            get => _progressPercent;
+            set => SetProperty(ref _progressPercent, value);
+        }
+
+        private string _progressDetails = string.Empty;
+        public string ProgressDetails
+        {
+            get => _progressDetails;
+            set => SetProperty(ref _progressDetails, value);
+        }
+
+        private string _speedAndPeersText = string.Empty;
+        public string SpeedAndPeersText
+        {
+            get => _speedAndPeersText;
+            set => SetProperty(ref _speedAndPeersText, value);
+        }
+
+        public double CurrentSpeedBps { get; set; }
+        public int CurrentSeeds { get; set; }
+        public int CurrentPeers { get; set; }
+
+        private bool _isActive = true;
+        public bool IsActive
+        {
+            get => _isActive;
+            set => SetProperty(ref _isActive, value);
+        }
+
+        public CancellationTokenSource? Cts { get; set; }
+
+        // Потокобезопасные поля для агрегации UI
+        public double RawPercent;
+        public double RawSpeedBps;
+        public int RawSeeds;
+        public int RawPeers;
+        public string RawDetails = string.Empty;
+        public string RawSpeedText = string.Empty;
+        public string RawStageBadge = "СКАЧИВАНИЕ";
+        public Windows.UI.Color RawStageColor = Windows.UI.Color.FromArgb(255, 2, 132, 199);
+
+        public void CommitUiUpdates()
+        {
+            if (Math.Abs(ProgressPercent - RawPercent) > 0.05)
+                ProgressPercent = RawPercent;
+            if (ProgressDetails != RawDetails && !string.IsNullOrEmpty(RawDetails))
+                ProgressDetails = RawDetails;
+            if (SpeedAndPeersText != RawSpeedText && !string.IsNullOrEmpty(RawSpeedText))
+                SpeedAndPeersText = RawSpeedText;
+            if (StageBadge != RawStageBadge && !string.IsNullOrEmpty(RawStageBadge))
+                StageBadge = RawStageBadge;
+            if (StageBrush.Color != RawStageColor)
+                StageBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(RawStageColor);
+            CurrentSpeedBps = RawSpeedBps;
+            CurrentSeeds = RawSeeds;
+            CurrentPeers = RawPeers;
+        }
+    }
+
     public sealed partial class RuTrackerModDownloaderDialog : ContentDialog
     {
         public static RuTrackerModDownloaderDialog? ActiveInstance { get; private set; }
@@ -32,7 +119,10 @@ namespace StormSwitchBox.Views.Dialogs
         private readonly ObservableCollection<CloudModLinkItem> _discussionLinks = new();
         private readonly ObservableCollection<RuTrackerFileGroupBlock> _fileGroups = new();
         private readonly ObservableCollection<RuTrackerLinkGroupBlock> _linkGroups = new();
+        private readonly ObservableCollection<RuTrackerActiveDownloadItem> _activeDownloadRows = new();
+        private DispatcherTimer? _uiAggregationTimer;
         private bool _suppressGroupRebuild;
+        private bool _suppressSlotMergeSelection;
 
         private string? _localTorrentPath;
         private string _currentTopicTitle = string.Empty;
@@ -58,6 +148,10 @@ namespace StormSwitchBox.Views.Dialogs
             GameSlotsListView.ItemsSource = _gameSlots;
             TorrentFilesListView.ItemsSource = _fileGroups;
             DiscussionLinksListView.ItemsSource = _linkGroups;
+            ActiveDownloadsItemsControl.ItemsSource = _activeDownloadRows;
+            _uiAggregationTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
+            _uiAggregationTimer.Tick += UiAggregationTimer_Tick;
+            _uiAggregationTimer.Start();
 
             string initialFormat = !string.IsNullOrWhiteSpace(_targetTask?.TargetFormat)
                 ? _targetTask.TargetFormat
@@ -340,6 +434,10 @@ namespace StormSwitchBox.Views.Dialogs
             if (TopicsListView.SelectedItem is not RuTrackerTopicItem topic)
                 return;
 
+            _discussionLinks.Clear();
+            ModLinksHintText.Text = "Поиск внешних ссылок...";
+            RebuildFileAndLinkGroups();
+
             _localTorrentPath = null;
             _currentTopicTitle = topic.Title;
             _currentTopicUrl = topic.TopicUrl;
@@ -481,6 +579,7 @@ namespace StormSwitchBox.Views.Dialogs
             };
             slot.PropertyChanged += (_, _) => UpdateGameSlotsSummary();
             _gameSlots.Add(slot);
+            RefreshGameSlotTargetOptions();
             UpdateGameSlotsSummary();
         }
 
@@ -506,6 +605,7 @@ namespace StormSwitchBox.Views.Dialogs
                 slot.PropertyChanged += (_, _) => UpdateGameSlotsSummary();
                 _gameSlots.Add(slot);
             }
+            RefreshGameSlotTargetOptions();
             UpdateGameSlotsSummary();
         }
 
@@ -548,42 +648,191 @@ namespace StormSwitchBox.Views.Dialogs
 
         private void SyncGameSlotsWithDiscoveredFiles(IList<TorrentFileSelectionItem> entries)
         {
+            if (entries == null || !entries.Any(e => e.IsRealTorrentFile))
+                return;
+
             var discoveredFromFiles = RuTrackerModService.DiscoverGameTitlesFromFiles(entries);
             if (discoveredFromFiles.Count == 0)
                 return;
 
-            // Если в файлах раздачи обнаружено больше игр или более точные названия (например, "Aggelos" и "Aggelos 2"),
-            // синхронизируем слоты в естественном порядке (Часть 1 -> ИГРА #1, Часть 2 -> ИГРА #2)
-            if (discoveredFromFiles.Count >= _gameSlots.Count || _gameSlots.Count <= 1)
+            string defaultFmt = GetDefaultTargetFormat();
+            var prevFormats = _gameSlots.ToDictionary(s => s.SlotNumber, s => s.TargetFormat);
+
+            _gameSlots.Clear();
+            for (int i = 0; i < discoveredFromFiles.Count; i++)
             {
-                string defaultFmt = GetDefaultTargetFormat();
-                var prevFormats = _gameSlots.ToDictionary(s => s.SlotNumber, s => s.TargetFormat);
-                _gameSlots.Clear();
-                for (int i = 0; i < discoveredFromFiles.Count; i++)
+                int slotNum = i + 1;
+                string slotFmt = prevFormats.TryGetValue(slotNum, out var existingFmt) && !string.IsNullOrWhiteSpace(existingFmt)
+                    ? existingFmt
+                    : defaultFmt;
+                var slot = new RuTrackerGameSlotItem
                 {
-                    int slotNum = i + 1;
-                    string slotFmt = prevFormats.TryGetValue(slotNum, out var existingFmt) && !string.IsNullOrWhiteSpace(existingFmt)
-                        ? existingFmt
-                        : defaultFmt;
-                    var slot = new RuTrackerGameSlotItem
+                    SlotNumber = slotNum,
+                    IsEnabled = true,
+                    GameTitle = discoveredFromFiles[i],
+                    TargetFormat = slotFmt
+                };
+                slot.PropertyChanged += (_, _) => UpdateGameSlotsSummary();
+                _gameSlots.Add(slot);
+            }
+
+            // Если после синхронизации слотов стало меньше, все файлы и ссылки с превышающим TargetGameSlot переназначаются в слот 1
+            _suppressGroupRebuild = true;
+            foreach (var f in _torrentFiles.Where(x => x.TargetGameSlot > _gameSlots.Count))
+                f.TargetGameSlot = 1;
+            foreach (var l in _discussionLinks.Where(x => x.TargetGameSlot > _gameSlots.Count))
+                l.TargetGameSlot = 1;
+            _suppressGroupRebuild = false;
+
+            RefreshGameSlotTargetOptions();
+            UpdateGameSlotsSummary();
+        }
+
+        private void RefreshGameSlotTargetOptions()
+        {
+            _suppressSlotMergeSelection = true;
+            try
+            {
+                int totalSlots = _gameSlots.Count;
+                var allOptions = Enumerable.Range(1, Math.Max(1, totalSlots))
+                    .Select(n => new GameSlotTargetOption { SlotNumber = n })
+                    .ToList();
+
+                foreach (var slot in _gameSlots)
+                {
+                    slot.AvailableSlotTargets.Clear();
+                    foreach (var opt in allOptions)
                     {
-                        SlotNumber = slotNum,
-                        IsEnabled = true,
-                        GameTitle = discoveredFromFiles[i],
-                        TargetFormat = slotFmt
-                    };
-                    slot.PropertyChanged += (_, _) => UpdateGameSlotsSummary();
-                    _gameSlots.Add(slot);
+                        slot.AvailableSlotTargets.Add(opt);
+                    }
+                    slot.SelectedSlotTarget = slot.AvailableSlotTargets.FirstOrDefault(o => o.SlotNumber == slot.SlotNumber);
+                    slot.RefreshSlotTargetsState();
                 }
             }
-            else
+            finally
             {
-                for (int i = 0; i < Math.Min(_gameSlots.Count, discoveredFromFiles.Count); i++)
+                _suppressSlotMergeSelection = false;
+            }
+        }
+
+        private void GameSlotNumberCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_suppressSlotMergeSelection) return;
+            if (sender is not ComboBox cb || cb.Tag is not RuTrackerGameSlotItem sourceSlot) return;
+            if (cb.SelectedItem is not GameSlotTargetOption selectedOption) return;
+
+            int fromSlot = sourceSlot.SlotNumber;
+            int toSlot = selectedOption.SlotNumber;
+
+            if (fromSlot == toSlot || fromSlot <= 0 || toSlot <= 0) return;
+
+            MergeGameSlotIntoTarget(fromSlot, toSlot);
+        }
+
+        private void MergeGameSlotIntoTarget(int fromSlot, int toSlot)
+        {
+            var sourceSlot = _gameSlots.FirstOrDefault(s => s.SlotNumber == fromSlot);
+            var targetSlot = _gameSlots.FirstOrDefault(s => s.SlotNumber == toSlot);
+            if (sourceSlot == null || targetSlot == null || fromSlot == toSlot) return;
+
+            string sourceTitle = sourceSlot.GameTitle;
+            string targetTitle = targetSlot.GameTitle;
+
+            _suppressGroupRebuild = true;
+            try
+            {
+                // 1. Все файлы в _torrentFiles с TargetGameSlot == fromSlot получают TargetGameSlot = toSlot и IsSelected = true
+                var matchingFiles = _torrentFiles.Where(f => f.TargetGameSlot == fromSlot).ToList();
+                if (matchingFiles.Count > 0)
                 {
-                    if (!string.IsNullOrWhiteSpace(discoveredFromFiles[i]))
-                        _gameSlots[i].GameTitle = discoveredFromFiles[i];
+                    foreach (var f in matchingFiles)
+                    {
+                        f.TargetGameSlot = toSlot;
+                        f.IsSelected = true;
+                        if (f.CategoryBadge == $"ИГРА #{fromSlot}" || f.CategoryBadge == "ИГРА")
+                        {
+                            f.CategoryBadge = "DLC";
+                        }
+                    }
+                }
+                else
+                {
+                    // Если у sourceSlot вообще не было отдельной строки в _torrentFiles только потому,
+                    // что раздача в чистом Magnet-режиме из 1 строки, создаём/обновляем запись для sourceSlot.GameTitle в toSlot
+                    string slotTitle = !string.IsNullOrWhiteSpace(sourceSlot.GameTitle) ? sourceSlot.GameTitle : $"Игра #{fromSlot}";
+                    var existingSynth = _torrentFiles.FirstOrDefault(f => f.RelativePath == slotTitle);
+                    if (existingSynth != null)
+                    {
+                        existingSynth.TargetGameSlot = toSlot;
+                        existingSynth.IsSelected = true;
+                        existingSynth.CategoryBadge = "DLC";
+                    }
+                    else
+                    {
+                        var newSynth = new TorrentFileSelectionItem
+                        {
+                            IsSelected = true,
+                            TargetGameSlot = toSlot,
+                            RelativePath = slotTitle,
+                            DisplayPath = slotTitle,
+                            CategoryBadge = "DLC",
+                            Length = 0,
+                            IsRealTorrentFile = false
+                        };
+                        newSynth.PropertyChanged += OnItemSelectionChangedForUnlocker;
+                        _torrentFiles.Add(newSynth);
+                    }
+                }
+
+                // 2. Все ссылки в _discussionLinks с TargetGameSlot == fromSlot переносятся в toSlot
+                foreach (var l in _discussionLinks.Where(x => x.TargetGameSlot == fromSlot))
+                {
+                    l.TargetGameSlot = toSlot;
+                    l.IsSelected = true;
+                }
+
+                // Объединяем ручные дополнительные ссылки
+                if (!string.IsNullOrWhiteSpace(sourceSlot.ManualExtraLinks))
+                {
+                    string extra = sourceSlot.ManualExtraLinks.Trim();
+                    if (string.IsNullOrWhiteSpace(targetSlot.ManualExtraLinks))
+                    {
+                        targetSlot.ManualExtraLinks = extra;
+                    }
+                    else if (!targetSlot.ManualExtraLinks.Contains(extra, StringComparison.OrdinalIgnoreCase))
+                    {
+                        targetSlot.ManualExtraLinks = (targetSlot.ManualExtraLinks.Trim() + "\n" + extra).Trim();
+                    }
+                }
+
+                // 3. Слот fromSlot удаляется из _gameSlots
+                _gameSlots.Remove(sourceSlot);
+
+                // 4. Все слоты/файлы/ссылки с номером > fromSlot сдвигаются на -1 без дыр в нумерации
+                foreach (var s in _gameSlots.Where(x => x.SlotNumber > fromSlot))
+                {
+                    s.SlotNumber -= 1;
+                }
+                foreach (var f in _torrentFiles.Where(x => x.TargetGameSlot > fromSlot))
+                {
+                    f.TargetGameSlot -= 1;
+                }
+                foreach (var l in _discussionLinks.Where(x => x.TargetGameSlot > fromSlot))
+                {
+                    l.TargetGameSlot -= 1;
                 }
             }
+            finally
+            {
+                _suppressGroupRebuild = false;
+            }
+
+            RuTrackerModService.SortTorrentFilesBySlotAndRole(_torrentFiles);
+            RefreshGameSlotTargetOptions();
+            EnrichGameSlotsFromFilesAndTitleDb();
+            UpdateGameSlotsSummary();
+
+            LiveTelemetryText.Text = $"🔗 Слот #{fromSlot} ({sourceTitle}) объединён со слотом #{toSlot} ({targetTitle}). Все файлы перенесены в слот #{toSlot}.";
         }
 
         private void AutoSplitGames_Click(object sender, RoutedEventArgs e)
@@ -620,6 +869,7 @@ namespace StormSwitchBox.Views.Dialogs
             };
             slot.PropertyChanged += (_, _) => UpdateGameSlotsSummary();
             _gameSlots.Add(slot);
+            RefreshGameSlotTargetOptions();
             UpdateGameSlotsSummary();
         }
 
@@ -634,6 +884,7 @@ namespace StormSwitchBox.Views.Dialogs
             foreach (var l in _discussionLinks.Where(x => x.TargetGameSlot == removedSlot))
                 l.TargetGameSlot = 1;
             _suppressGroupRebuild = false;
+            RefreshGameSlotTargetOptions();
             UpdateGameSlotsSummary();
         }
 
@@ -1679,6 +1930,26 @@ namespace StormSwitchBox.Views.Dialogs
             var primaryTask = createdTasks[0].Task;
             _activeTask = primaryTask;
 
+            string displayBatchTitle = createdTasks.Count == 1
+                ? createdTasks[0].Payload.SlotGameTitle
+                : $"{_currentTopicTitle} ({createdTasks.Count} игр)";
+
+            var rowItem = new RuTrackerActiveDownloadItem
+            {
+                BatchId = batchShortId,
+                DisplayTitle = displayBatchTitle,
+                StageBadge = hasTorrentSource ? "СКАЧИВАНИЕ" : "МОДЫ",
+                StageBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 2, 132, 199)),
+                ProgressPercent = 0,
+                ProgressDetails = "Инициализация...",
+                SpeedAndPeersText = "Подключение...",
+                IsActive = true,
+                Cts = batchCts
+            };
+
+            ActiveDownloadsScrollViewer.Visibility = Visibility.Visible;
+            _activeDownloadRows.Add(rowItem);
+
             PauseResumeDownloadBtn.Visibility = Visibility.Visible;
             PauseResumeDownloadBtn.Content = "⏸ Пауза";
             StageBadgeText.Text = $"ФОН ({_activeBatchesCount})";
@@ -1745,8 +2016,8 @@ namespace StormSwitchBox.Views.Dialogs
                     {
                         var (singleTask, singlePayload, _) = createdTasks[0];
                         await ExecuteRuTrackerPipelineAsync(singleTask, singlePayload, _viewModel, isolatedService,
-                            p => UpdateDialogTorrentProgress(p, 1, 1, singlePayload.SlotGameTitle),
-                            mp => UpdateDialogCloudProgress(mp, 1, 1, singlePayload.SlotGameTitle));
+                            p => UpdateActiveDownloadTorrentProgress(rowItem, p),
+                            mp => UpdateActiveDownloadCloudProgress(rowItem, mp));
                     }
                     else
                     {
@@ -1758,11 +2029,17 @@ namespace StormSwitchBox.Views.Dialogs
                             hasTorrentSource,
                             currentTopic,
                             isolatedService,
-                            batchCts.Token);
+                            batchCts.Token,
+                            rowItem);
                     }
                 }
                 catch (OperationCanceledException)
                 {
+                    rowItem.IsActive = false;
+                    rowItem.RawSpeedBps = 0;
+                    rowItem.RawStageBadge = "ОТМЕНЕНО";
+                    rowItem.RawStageColor = Windows.UI.Color.FromArgb(255, 220, 38, 38);
+                    rowItem.RawSpeedText = "Отменено";
                     foreach (var (t, _, _) in createdTasks)
                     {
                         App.RunOnUI(() => { t.Status = "Отменено"; t.IsRunning = false; });
@@ -1770,6 +2047,11 @@ namespace StormSwitchBox.Views.Dialogs
                 }
                 catch (Exception ex)
                 {
+                    rowItem.IsActive = false;
+                    rowItem.RawSpeedBps = 0;
+                    rowItem.RawStageBadge = "ОШИБКА";
+                    rowItem.RawStageColor = Windows.UI.Color.FromArgb(255, 239, 68, 68);
+                    rowItem.RawSpeedText = "Ошибка";
                     App.Logger?.Log($"[RuTracker Batch #{batchShortId}] Ошибка выполнения: {ex.Message}", LogLevel.Error);
                     foreach (var (t, _, _) in createdTasks)
                     {
@@ -1778,6 +2060,16 @@ namespace StormSwitchBox.Views.Dialogs
                 }
                 finally
                 {
+                    rowItem.IsActive = false;
+                    rowItem.RawSpeedBps = 0;
+                    if (rowItem.RawStageBadge != "ОТМЕНЕНО" && rowItem.RawStageBadge != "ОШИБКА")
+                    {
+                        rowItem.RawStageBadge = "ГОТОВО";
+                        rowItem.RawStageColor = Windows.UI.Color.FromArgb(255, 34, 197, 94);
+                        rowItem.RawPercent = 100;
+                        rowItem.RawSpeedText = "100% Завершено";
+                        rowItem.RawDetails = "Задачи созданы";
+                    }
                     int remaining;
                     lock (_batchLock)
                     {
@@ -1900,16 +2192,34 @@ namespace StormSwitchBox.Views.Dialogs
 
                 // Автоматически распаковываем ТОЛЬКО ВЫБРАННЫЕ архивы модов/русификаторов (.7z / .zip / .rar), скачанные внутри самой раздачи (напр. atmosphere.7z)
                 var allowedSelectedRelPaths = payload.TorrentFiles != null
-                    ? payload.TorrentFiles.Where(f => f.IsSelected).Select(f => f.RelativePath).ToList()
+                    ? payload.TorrentFiles.Where(f => f.IsSelected).SelectMany(f => f.GetEffectiveRelativePaths()).ToList()
                     : new List<string>();
 
                 await ExtractLocalTorrentModArchivesAsync(payload.TargetReleaseDir, ct, allowedSelectedRelPaths).ConfigureAwait(false);
 
-                // Сканируем каталог релиза на наличие распакованных romfs / exefs
-                foreach (var p in RuTrackerModService.DiscoverModPayloadsInDirectory(payload.TargetReleaseDir))
+                // Сканируем каталог релиза на наличие распакованных romfs / exefs ТОЛЬКО если выбрана соответствующая запись мода
+                var selectedModEntries = payload.TorrentFiles != null
+                    ? payload.TorrentFiles.Where(f => f.IsSelected && f.CategoryBadge == "МОД / РУСИФИКАТОР").ToList()
+                    : new List<TorrentFileSelectionItem>();
+
+                bool hasAllowedModsInRelease = selectedModEntries.Count > 0 || payload.CloudLinks.Count > 0;
+                if (hasAllowedModsInRelease)
                 {
-                    if (!discoveredModPayloads.Contains(p, StringComparer.OrdinalIgnoreCase))
-                        discoveredModPayloads.Add(p);
+                    var allowedModFolderNames = selectedModEntries
+                        .SelectMany(f => f.GetEffectiveRelativePaths().Concat(new[] { f.RelativePath }))
+                        .Select(p => p.Replace('/', '\\').Trim('\\'))
+                        .Select(p => p.Split('\\').FirstOrDefault(s => !string.IsNullOrEmpty(s)))
+                        .Where(s => !string.IsNullOrEmpty(s))
+                        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+                    foreach (var p in RuTrackerModService.DiscoverModPayloadsInDirectory(payload.TargetReleaseDir))
+                    {
+                        bool matchesSelected = allowedModFolderNames.Count == 0 ||
+                                               allowedModFolderNames.Any(m => p.Contains(m, StringComparison.OrdinalIgnoreCase)) ||
+                                               p.Contains("Extracted_TorrentMod_", StringComparison.OrdinalIgnoreCase);
+                        if (matchesSelected && !discoveredModPayloads.Contains(p, StringComparer.OrdinalIgnoreCase))
+                            discoveredModPayloads.Add(p);
+                    }
                 }
 
                 // Собираем контейнеры и строго фильтруем по выбранным файлам этого слота
@@ -2349,6 +2659,105 @@ namespace StormSwitchBox.Views.Dialogs
             }
         }
 
+        private void UiAggregationTimer_Tick(object? sender, object e)
+        {
+            if (_activeDownloadRows.Count == 0) return;
+
+            foreach (var r in _activeDownloadRows)
+            {
+                r.CommitUiUpdates();
+            }
+
+            int total = _activeDownloadRows.Count;
+            int active = _activeDownloadRows.Count(r => r.IsActive);
+            int completed = _activeDownloadRows.Count(r => r.StageBadge == "ГОТОВО");
+
+            StatusText.Text = $"Добавлено на закачку: {total} (активно: {active}, завершено: {completed})";
+
+            if (active > 0)
+            {
+                double totalSpeedBps = _activeDownloadRows.Where(r => r.IsActive).Sum(r => r.CurrentSpeedBps);
+                int totalSeeds = _activeDownloadRows.Where(r => r.IsActive).Sum(r => r.CurrentSeeds);
+                int totalPeers = _activeDownloadRows.Where(r => r.IsActive).Sum(r => r.CurrentPeers);
+                double totalSpeedMb = totalSpeedBps / (1024.0 * 1024.0);
+
+                SpeedPeersText.Text = $"Скорость скачивания: {totalSpeedMb:F2} МБ/с  |  Сиды: {totalSeeds} • Пиры: {totalPeers}";
+                StageBadgeText.Text = $"АКТИВНО ({active})";
+                StageBadgeBorder.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 2, 132, 199));
+            }
+            else
+            {
+                SpeedPeersText.Text = completed > 0 ? "Все загрузки завершены" : "";
+                StageBadgeText.Text = completed == total ? "ГОТОВО" : "ЗАВЕРШЕНО";
+                StageBadgeBorder.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 34, 197, 94));
+            }
+        }
+
+        private void CancelSingleBatch_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button btn && btn.Tag is RuTrackerActiveDownloadItem item)
+            {
+                try
+                {
+                    item.Cts?.Cancel();
+                }
+                catch { }
+                item.IsActive = false;
+                item.RawStageBadge = "ОТМЕНЕНО";
+                item.RawStageColor = Windows.UI.Color.FromArgb(255, 220, 38, 38);
+                item.RawSpeedText = "Отменено пользователем";
+                item.CommitUiUpdates();
+                LiveTelemetryText.Text = $"⏹ Закачка «{item.DisplayTitle}» отменена.";
+            }
+        }
+
+        private static void UpdateActiveDownloadTorrentProgress(RuTrackerActiveDownloadItem item, TorrentDownloadProgress p)
+        {
+            item.RawPercent = Math.Clamp(p.Percent, 0, 100);
+            item.RawSpeedBps = p.SpeedMbPerSec * 1024.0 * 1024.0;
+            item.RawSeeds = p.Seeds;
+            item.RawPeers = p.Peers;
+
+            if (p.TotalBytes > 0)
+            {
+                double dlMb = p.DownloadedBytes / (1024.0 * 1024.0);
+                double totMb = p.TotalBytes / (1024.0 * 1024.0);
+                item.RawDetails = $"{dlMb:F1} / {totMb:F1} МБ ({p.Percent:F1}%)";
+            }
+            else
+            {
+                item.RawDetails = p.IsMetadataPhase ? "Поиск пиров..." : $"{p.Percent:F1}%";
+            }
+
+            item.RawSpeedText = $"{p.SpeedMbPerSec:F2} МБ/с • Сиды: {p.Seeds}";
+
+            if (p.IsMetadataPhase)
+            {
+                item.RawStageBadge = "МЕТАДАННЫЕ";
+                item.RawStageColor = Windows.UI.Color.FromArgb(255, 14, 165, 233);
+            }
+            else
+            {
+                item.RawStageBadge = "СКАЧИВАНИЕ";
+                item.RawStageColor = Windows.UI.Color.FromArgb(255, 2, 132, 199);
+            }
+        }
+
+        private static void UpdateActiveDownloadCloudProgress(RuTrackerActiveDownloadItem item, (double Percent, string Status) mp)
+        {
+            item.RawPercent = Math.Clamp(mp.Percent, 0, 100);
+            item.RawDetails = $"{mp.Percent:F1}%";
+            item.RawStageBadge = "МОДЫ";
+            item.RawStageColor = Windows.UI.Color.FromArgb(255, 124, 58, 237);
+            if (mp.Status.Contains("МБ/с"))
+            {
+                int sIdx = mp.Status.IndexOf('(');
+                int eIdx = mp.Status.IndexOf(')');
+                if (sIdx >= 0 && eIdx > sIdx)
+                    item.RawSpeedText = mp.Status.Substring(sIdx + 1, eIdx - sIdx - 1);
+            }
+        }
+
         private void UpdateDialogTorrentProgress(TorrentDownloadProgress p, int slotIndex, int totalSlots, string gameTitle)
         {
             App.RunOnUI(() =>
@@ -2417,7 +2826,8 @@ namespace StormSwitchBox.Views.Dialogs
             bool hasTorrentSource,
             RuTrackerTopicItem? currentTopic,
             RuTrackerModService service,
-            CancellationToken ct)
+            CancellationToken ct,
+            RuTrackerActiveDownloadItem? activeRowItem = null)
         {
             var firstTask = createdTasks[0].Task;
             var unionFiles = new List<TorrentFileSelectionItem>();
@@ -2434,7 +2844,10 @@ namespace StormSwitchBox.Views.Dialogs
 
                 var torrentProg = new Progress<TorrentDownloadProgress>(p =>
                 {
-                    UpdateDialogTorrentProgress(p, 1, createdTasks.Count, _currentTopicTitle);
+                    if (activeRowItem != null)
+                        UpdateActiveDownloadTorrentProgress(activeRowItem, p);
+                    else
+                        UpdateDialogTorrentProgress(p, 1, createdTasks.Count, _currentTopicTitle);
                     App.RunOnUI(() =>
                     {
                         foreach (var (t, _, _) in createdTasks)
@@ -2466,7 +2879,10 @@ namespace StormSwitchBox.Views.Dialogs
             }
 
             // Распаковываем ТОЛЬКО ВЫБРАННЫЕ архивы модов/русификаторов (.7z / .zip / .rar), скачанные внутри раздачи (напр. atmosphere.7z)
-            var unionSelectedRelPaths = unionFiles.Select(f => f.RelativePath).ToList();
+            var unionSelectedRelPaths = unionFiles
+                .Where(f => f.IsSelected)
+                .SelectMany(f => f.GetEffectiveRelativePaths())
+                .ToList();
             await ExtractLocalTorrentModArchivesAsync(sharedReleaseDir, ct, unionSelectedRelPaths).ConfigureAwait(false);
 
             // Собираем все скачанные игровые контейнеры в общей папке и раскладываем их по слотам игр (1..N)
@@ -2541,7 +2957,13 @@ namespace StormSwitchBox.Views.Dialogs
                     _viewModel,
                     service,
                     null,
-                    mp => UpdateDialogCloudProgress(mp, capturedIdx, createdTasks.Count, payload.SlotGameTitle)).ConfigureAwait(false);
+                    mp =>
+                    {
+                        if (activeRowItem != null)
+                            UpdateActiveDownloadCloudProgress(activeRowItem, mp);
+                        else
+                            UpdateDialogCloudProgress(mp, capturedIdx, createdTasks.Count, payload.SlotGameTitle);
+                    }).ConfigureAwait(false);
             }
 
             // По завершении всех задач многосоставной раздачи гарантированно удаляем общую папку раздачи (напр. [Nintendo Switch] Aggelos 1-2 [NSP][RUS_Multi10])
@@ -2576,13 +2998,16 @@ namespace StormSwitchBox.Views.Dialogs
 
                 foreach (var f in selectedItems)
                 {
-                    if (!string.IsNullOrEmpty(f.RelativePath))
+                    foreach (var effPath in f.GetEffectiveRelativePaths())
                     {
-                        string normRel = f.RelativePath.Replace('/', '\\').Trim('\\');
-                        allowedRelPaths.Add(normRel);
-                        string fn = Path.GetFileName(normRel);
-                        if (!string.IsNullOrEmpty(fn))
-                            allowedFileNames.Add(fn);
+                        if (!string.IsNullOrEmpty(effPath))
+                        {
+                            string normRel = effPath.Replace('/', '\\').Trim('\\');
+                            allowedRelPaths.Add(normRel);
+                            string fn = Path.GetFileName(normRel);
+                            if (!string.IsNullOrEmpty(fn))
+                                allowedFileNames.Add(fn);
+                        }
                     }
                 }
 
