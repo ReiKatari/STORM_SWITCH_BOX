@@ -2483,16 +2483,7 @@ namespace StormSwitchBox.Views.Dialogs
         {
             if (sender is Button btn && btn.Tag is RuTrackerActiveDownloadItem item)
             {
-                try
-                {
-                    item.Cts?.Cancel();
-                }
-                catch { }
-                item.IsActive = false;
-                item.RawStageBadge = "ОТМЕНЕНО";
-                item.RawStageColor = Windows.UI.Color.FromArgb(255, 220, 38, 38);
-                item.RawSpeedText = "Отменено пользователем";
-                item.CommitUiUpdates();
+                RuTrackerDownloadQueueService.Instance.CancelOrRemoveItem(item);
                 LiveTelemetryText.Text = $"⏹ Закачка «{item.DisplayTitle}» отменена.";
             }
         }

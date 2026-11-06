@@ -24,8 +24,8 @@ android {
     defaultConfig {
         applicationId = "com.storm.switchbox"
         targetSdk = 36
-        versionCode = 701
-        versionName = "7.0.1"
+        versionCode = 702
+        versionName = "7.0.2"
     }
 
     signingConfigs {

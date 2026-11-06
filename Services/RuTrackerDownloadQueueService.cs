@@ -146,6 +146,28 @@ namespace StormSwitchBox.Services
         }
     }
 
+        public sealed class RuTrackerPersistedTaskPayload
+    {
+        public int SlotNumber { get; set; }
+        public string SlotGameTitle { get; set; } = string.Empty;
+        public string CustomModTitle { get; set; } = string.Empty;
+        public string TargetReleaseDir { get; set; } = string.Empty;
+        public string OutputFolder { get; set; } = string.Empty;
+        public string OutputFormat { get; set; } = "NSP";
+        public bool AutoBuild { get; set; } = true;
+        public bool IncludeTechTags { get; set; }
+        public bool InjectDlcUnlocker { get; set; }
+        public bool DeleteSourceAfterVerify { get; set; } = true;
+        public string TopicId { get; set; } = string.Empty;
+        public string TopicTitle { get; set; } = string.Empty;
+        public int Seeds { get; set; }
+        public string MagnetLink { get; set; } = string.Empty;
+        public string TorrentBytesBase64 { get; set; } = string.Empty;
+        public List<PersistedTorrentFileItem> TorrentFiles { get; set; } = new();
+        public List<string> CloudLinks { get; set; } = new();
+        public string TaskTitle { get; set; } = string.Empty;
+    }
+
     public sealed class RuTrackerPersistedQueueRecord
     {
         public string BatchId { get; set; } = string.Empty;
@@ -155,14 +177,18 @@ namespace StormSwitchBox.Services
         public string ProgressDetails { get; set; } = string.Empty;
         public bool IsPausedByUser { get; set; }
         public DateTime SavedAt { get; set; } = DateTime.Now;
+        public string SharedReleaseDir { get; set; } = string.Empty;
+        public bool HasTorrentSource { get; set; } = true;
+        public List<RuTrackerPersistedTaskPayload> Tasks { get; set; } = new();
     }
 
     public sealed class RuTrackerDownloadQueueService
     {
         public static RuTrackerDownloadQueueService Instance { get; } = new();
 
-        public const int MaxConcurrentDownloads = 2;
+                public const int MaxConcurrentDownloads = 2;
         public ObservableCollection<RuTrackerActiveDownloadItem> Items { get; } = new();
+        private readonly List<RuTrackerActiveDownloadItem> _backingItems = new();
 
         private readonly object _syncLock = new();
         private readonly System.Threading.Timer _uiTimer;
@@ -180,28 +206,48 @@ namespace StormSwitchBox.Services
             LoadPersistedState();
         }
 
+        private void RunOnUiSyncOrAsync(Action action)
+        {
+            if (App.MainWindow?.DispatcherQueue?.HasThreadAccess == true)
+            {
+                action();
+            }
+            else
+            {
+                App.RunOnUI(action);
+            }
+        }
+
         private void OnTimerCallback(object? state)
         {
-            App.RunOnUI(() =>
+            RunOnUiSyncOrAsync(() =>
             {
                 OnUiTimerTick();
             });
         }
 
-        private void OnUiTimerTick()
+                private void OnUiTimerTick()
         {
-            if (Items.Count == 0) return;
+            RuTrackerActiveDownloadItem[] snapshot;
+            lock (_syncLock)
+            {
+                snapshot = _backingItems.ToArray();
+            }
+
+            if (snapshot.Length == 0) return;
 
             double totalSpeedBps = 0;
             int maxSeeds = 0;
             int maxPeers = 0;
+            int runningCount = 0;
 
-            foreach (var item in Items)
+            foreach (var item in snapshot)
             {
                 item.CommitUiUpdates();
 
                 if (item.IsActive && item.StageBadge is "СКАЧИВАНИЕ" or "МОДЫ" or "МЕТАДАННЫЕ")
                 {
+                    runningCount++;
                     totalSpeedBps += item.RawSpeedBps;
                     if (item.RawSeeds > maxSeeds) maxSeeds = item.RawSeeds;
                     if (item.RawPeers > maxPeers) maxPeers = item.RawPeers;
@@ -219,26 +265,46 @@ namespace StormSwitchBox.Services
                 }
             }
 
-            int inList = Items.Count;
-            int downloading = Items.Count(i => i.StageBadge is "СКАЧИВАНИЕ" or "МОДЫ" or "МЕТАДАННЫЕ");
-            int inQueue = Items.Count(i => i.StageBadge is "В ОЧЕРЕДИ");
-            int finished = Items.Count(i => i.StageBadge is "ГОТОВО");
+            // Самовосстанавливающийся планировщик (Self-healing scheduler check):
+            // Если активных слотов меньше MaxConcurrentDownloads, а в очереди есть готовые к запуску задачи:
+            if (runningCount < MaxConcurrentDownloads)
+            {
+                bool hasPending = snapshot.Any(i =>
+                    i.StageBadge is not ("ГОТОВО" or "ОТМЕНЕНО" or "ОШИБКА" or "СБОРКА") &&
+                    !i.IsPausedByUser &&
+                    (!i.IsPipelineStarted || i.IsPreemptedByQueue) &&
+                    i.CreatedTasks.Count > 0);
+
+                if (hasPending)
+                {
+                    EvaluateQueuePriorities();
+                }
+            }
+
+            int inList = snapshot.Length;
+            int downloading = runningCount;
+            int inQueue = snapshot.Count(i => i.StageBadge is "В ОЧЕРЕДИ");
+            int finished = snapshot.Count(i => i.StageBadge is "ГОТОВО");
 
             // Если открыто диалоговое окно RuTrackerModDownloaderDialog, обновляем его заголовочную панель
             var activeDlg = RuTrackerModDownloaderDialog.ActiveInstance;
             if (activeDlg != null)
             {
                 activeDlg.UpdateHeaderSummary(inList, downloading, inQueue, finished, totalSpeedBps, maxSeeds, maxPeers);
-                        }
+            }
         }
 
         public void EnqueueBatch(RuTrackerActiveDownloadItem item)
         {
             lock (_syncLock)
             {
-                App.RunOnUI(() =>
+                if (!_backingItems.Contains(item))
+                    _backingItems.Add(item);
+
+                RunOnUiSyncOrAsync(() =>
                 {
-                    Items.Add(item);
+                    if (!Items.Contains(item))
+                        Items.Add(item);
                 });
             }
             EvaluateQueuePriorities();
@@ -249,15 +315,15 @@ namespace StormSwitchBox.Services
         {
             lock (_syncLock)
             {
-                // Находим все кандидаты на загрузку: не завершены, не отменены, не ошибочны и не на паузе пользователем
-                var candidates = Items
-                    .Where(i => i.StageBadge is not ("ГОТОВО" or "ОТМЕНЕНО" or "ОШИБКА") && !i.IsPausedByUser)
+                // Находим все кандидаты на загрузку: не завершены, не отменены, не ошибочны, не на паузе пользователем и с непустыми задачами
+                var candidates = _backingItems
+                    .Where(i => i.StageBadge is not ("ГОТОВО" or "ОТМЕНЕНО" or "ОШИБКА") && !i.IsPausedByUser && i.CreatedTasks.Count > 0)
                     .ToList();
 
                 var shouldBeActive = candidates.Take(MaxConcurrentDownloads).ToHashSet();
 
                 // 1. Вытесняем элементы за пределами топ-2 в статус "В ОЧЕРЕДИ"
-                foreach (var item in Items)
+                foreach (var item in _backingItems)
                 {
                     if (item.StageBadge is "ГОТОВО" or "ОТМЕНЕНО" or "ОШИБКА" || item.IsPausedByUser)
                         continue;
@@ -283,7 +349,7 @@ namespace StormSwitchBox.Services
 
                         foreach (var (t, _, _) in item.CreatedTasks)
                         {
-                            App.RunOnUI(() =>
+                            RunOnUiSyncOrAsync(() =>
                             {
                                 if (t.IsRunning)
                                 {
@@ -320,6 +386,17 @@ namespace StormSwitchBox.Services
 
         private void StartItemPipeline(RuTrackerActiveDownloadItem item)
         {
+            if (item.CreatedTasks.Count == 0)
+            {
+                item.IsActive = false;
+                item.RawStageBadge = "ОТМЕНЕНО";
+                item.RawStageColor = Windows.UI.Color.FromArgb(255, 220, 38, 38);
+                item.RawSpeedText = "Отменено";
+                item.RawDetails = "Отсутствуют задачи для выполнения";
+                item.CommitUiUpdates();
+                return;
+            }
+
             item.IsPipelineStarted = true;
             item.IsActive = true;
             item.IsPreemptedByQueue = false;
@@ -328,6 +405,7 @@ namespace StormSwitchBox.Services
             item.RawStageColor = Windows.UI.Color.FromArgb(255, 2, 132, 199);
             item.RawDetails = "Подключение к рою...";
             item.RawSpeedText = "0,00 МБ/с • Сиды: 0";
+            item.CommitUiUpdates();
 
             item.ExecutionTask = Task.Run(async () =>
             {
@@ -356,7 +434,7 @@ namespace StormSwitchBox.Services
                     item.RawDetails = "Отменено пользователем";
                     foreach (var (t, _, _) in item.CreatedTasks)
                     {
-                        App.RunOnUI(() =>
+                        RunOnUiSyncOrAsync(() =>
                         {
                             t.Status = "Отменено";
                             t.IsRunning = false;
@@ -376,7 +454,7 @@ namespace StormSwitchBox.Services
                     App.Logger?.Log($"[RuTracker Queue] Ошибка выполнения пакета {item.BatchId}: {ex.Message}", LogLevel.Error);
                     foreach (var (t, _, _) in item.CreatedTasks)
                     {
-                        App.RunOnUI(() =>
+                        RunOnUiSyncOrAsync(() =>
                         {
                             t.Status = $"Ошибка: {ex.Message}";
                             t.IsRunning = false;
@@ -398,7 +476,7 @@ namespace StormSwitchBox.Services
                         item.RawDetails = "Задачи созданы";
                     }
 
-                    App.RunOnUI(() =>
+                    RunOnUiSyncOrAsync(() =>
                     {
                         item.CommitUiUpdates();
                     });
@@ -820,166 +898,253 @@ namespace StormSwitchBox.Services
             }
         }
 
-        public void TogglePauseItem(RuTrackerActiveDownloadItem item)
+                public void TogglePauseItem(RuTrackerActiveDownloadItem item)
         {
-            if (item.IsPausedByUser || item.StageBadge == "ПАУЗА")
+            lock (_syncLock)
             {
-                item.IsPausedByUser = false;
-                item.PauseEvent.Set();
-                if (item.ActiveTorrentManager != null &&
-                    (item.ActiveTorrentManager.State == TorrentState.Paused || item.ActiveTorrentManager.State == TorrentState.Stopped))
+                if (item.IsPausedByUser || item.StageBadge == "ПАУЗА")
                 {
-                    try { item.ActiveTorrentManager.StartAsync(); } catch { }
-                }
-                EvaluateQueuePriorities();
-            }
-            else
-            {
-                item.IsPausedByUser = true;
-                item.PauseEvent.Reset();
-                if (item.ActiveTorrentManager != null &&
-                    (item.ActiveTorrentManager.State == TorrentState.Downloading || item.ActiveTorrentManager.State == TorrentState.Metadata))
-                {
-                    try { item.ActiveTorrentManager.PauseAsync(); } catch { }
-                }
-                item.RawStageBadge = "ПАУЗА";
-                item.RawStageColor = Windows.UI.Color.FromArgb(255, 217, 119, 6); // Amber #D97706
-                item.RawSpeedBps = 0;
-                item.RawSpeedText = "Пауза";
-                item.RawDetails = "Приостановлено пользователем";
-
-                foreach (var (t, _, _) in item.CreatedTasks)
-                {
-                    App.RunOnUI(() =>
+                    item.IsPausedByUser = false;
+                    item.PauseEvent.Set();
+                    if (item.ActiveTorrentManager != null &&
+                        (item.ActiveTorrentManager.State == TorrentState.Paused || item.ActiveTorrentManager.State == TorrentState.Stopped))
                     {
-                        t.Status = "Пауза";
-                        t.Speed = string.Empty;
-                        t.IsPaused = true;
-                    });
+                        try { item.ActiveTorrentManager.StartAsync(); } catch { }
+                    }
+                    EvaluateQueuePriorities();
                 }
-                EvaluateQueuePriorities();
+                else
+                {
+                    item.IsPausedByUser = true;
+                    item.PauseEvent.Reset();
+                    if (item.ActiveTorrentManager != null &&
+                        (item.ActiveTorrentManager.State == TorrentState.Downloading || item.ActiveTorrentManager.State == TorrentState.Metadata))
+                    {
+                        try { item.ActiveTorrentManager.PauseAsync(); } catch { }
+                    }
+                    item.RawStageBadge = "ПАУЗА";
+                    item.RawStageColor = Windows.UI.Color.FromArgb(255, 217, 119, 6); // Amber #D97706
+                    item.RawSpeedBps = 0;
+                    item.RawSpeedText = "Пауза";
+                    item.RawDetails = "Приостановлено пользователем";
+
+                    foreach (var (t, _, _) in item.CreatedTasks)
+                    {
+                        RunOnUiSyncOrAsync(() =>
+                        {
+                            t.Status = "Пауза";
+                            t.Speed = string.Empty;
+                            t.IsPaused = true;
+                        });
+                    }
+                    EvaluateQueuePriorities();
+                }
+
+                item.CommitUiUpdates();
+                SaveQueueState();
             }
-            item.CommitUiUpdates();
-            SaveQueueState();
         }
 
         public void CancelOrRemoveItem(RuTrackerActiveDownloadItem item)
         {
-            if (item.StageBadge is "ГОТОВО" or "ОТМЕНЕНО" or "ОШИБКА")
+            lock (_syncLock)
             {
-                App.RunOnUI(() =>
+                if (item.StageBadge is "ГОТОВО" or "ОТМЕНЕНО" or "ОШИБКА")
                 {
-                    Items.Remove(item);
-                    SaveQueueState();
-                });
-                return;
-            }
+                    _backingItems.Remove(item);
+                    RunOnUiSyncOrAsync(() =>
+                    {
+                        Items.Remove(item);
+                        SaveQueueState();
+                    });
+                    return;
+                }
 
-            item.Cts?.Cancel();
-            if (item.ActiveTorrentManager != null)
-            {
-                try { item.ActiveTorrentManager.StopAsync(); } catch { }
-            }
-            item.IsActive = false;
-            item.RawStageBadge = "ОТМЕНЕНО";
-            item.RawStageColor = Windows.UI.Color.FromArgb(255, 220, 38, 38);
-            item.RawSpeedBps = 0;
-            item.RawSpeedText = "Отменено";
-            item.RawDetails = "Отменено пользователем";
-
-            foreach (var (t, _, _) in item.CreatedTasks)
-            {
-                App.RunOnUI(() =>
+                item.Cts?.Cancel();
+                if (item.ActiveTorrentManager != null)
                 {
-                    t.Status = "Отменено";
-                    t.IsRunning = false;
-                    t.IsPaused = false;
-                    t.Speed = string.Empty;
-                });
-            }
+                    try { item.ActiveTorrentManager.StopAsync(); } catch { }
+                }
+                item.IsActive = false;
+                item.RawStageBadge = "ОТМЕНЕНО";
+                item.RawStageColor = Windows.UI.Color.FromArgb(255, 220, 38, 38);
+                item.RawSpeedBps = 0;
+                item.RawSpeedText = "Отменено";
+                item.RawDetails = "Отменено пользователем";
 
-            item.CommitUiUpdates();
-            EvaluateQueuePriorities();
-            SaveQueueState();
+                foreach (var (t, _, _) in item.CreatedTasks)
+                {
+                    RunOnUiSyncOrAsync(() =>
+                    {
+                        t.Status = "Отменено";
+                        t.IsRunning = false;
+                        t.IsPaused = false;
+                        t.Speed = string.Empty;
+                    });
+                }
+
+                item.CommitUiUpdates();
+                EvaluateQueuePriorities();
+                SaveQueueState();
+            }
         }
 
         public void MoveItemUp(RuTrackerActiveDownloadItem item)
         {
-            App.RunOnUI(() =>
+            lock (_syncLock)
             {
-                int idx = Items.IndexOf(item);
+                int idx = _backingItems.IndexOf(item);
                 if (idx > 0)
                 {
-                    Items.Move(idx, idx - 1);
+                    var temp = _backingItems[idx];
+                    _backingItems[idx] = _backingItems[idx - 1];
+                    _backingItems[idx - 1] = temp;
+
+                    RunOnUiSyncOrAsync(() =>
+                    {
+                        int uiIdx = Items.IndexOf(item);
+                        if (uiIdx > 0)
+                        {
+                            Items.Move(uiIdx, uiIdx - 1);
+                        }
+                    });
+
                     EvaluateQueuePriorities();
                     SaveQueueState();
                 }
-            });
+            }
         }
 
         public void MoveItemDown(RuTrackerActiveDownloadItem item)
         {
-            App.RunOnUI(() =>
+            lock (_syncLock)
             {
-                int idx = Items.IndexOf(item);
-                if (idx >= 0 && idx < Items.Count - 1)
+                int idx = _backingItems.IndexOf(item);
+                if (idx >= 0 && idx < _backingItems.Count - 1)
                 {
-                    Items.Move(idx, idx + 1);
+                    var temp = _backingItems[idx];
+                    _backingItems[idx] = _backingItems[idx + 1];
+                    _backingItems[idx + 1] = temp;
+
+                    RunOnUiSyncOrAsync(() =>
+                    {
+                        int uiIdx = Items.IndexOf(item);
+                        if (uiIdx >= 0 && uiIdx < Items.Count - 1)
+                        {
+                            Items.Move(uiIdx, uiIdx + 1);
+                        }
+                    });
+
                     EvaluateQueuePriorities();
                     SaveQueueState();
                 }
-            });
+            }
         }
 
         public void PauseAll()
         {
-            foreach (var item in Items.Where(i => i.StageBadge is not ("ГОТОВО" or "ОТМЕНЕНО" or "ОШИБКА")))
+            lock (_syncLock)
             {
-                if (!item.IsPausedByUser)
+                foreach (var item in _backingItems.Where(i => i.StageBadge is not ("ГОТОВО" or "ОТМЕНЕНО" or "ОШИБКА")))
                 {
-                    TogglePauseItem(item);
+                    if (!item.IsPausedByUser)
+                    {
+                        TogglePauseItem(item);
+                    }
                 }
             }
         }
 
         public void ResumeAll()
         {
-            foreach (var item in Items.Where(i => i.IsPausedByUser || i.StageBadge == "ПАУЗА"))
+            lock (_syncLock)
             {
-                item.IsPausedByUser = false;
-                item.PauseEvent.Set();
+                foreach (var item in _backingItems.Where(i => i.IsPausedByUser || i.StageBadge == "ПАУЗА"))
+                {
+                    item.IsPausedByUser = false;
+                    item.PauseEvent.Set();
+                }
+                EvaluateQueuePriorities();
+                SaveQueueState();
             }
-            EvaluateQueuePriorities();
-            SaveQueueState();
         }
 
         public void ClearFinished()
         {
-            App.RunOnUI(() =>
+            lock (_syncLock)
             {
-                var finished = Items.Where(i => i.StageBadge is "ГОТОВО" or "ОТМЕНЕНО" or "ОШИБКА").ToList();
-                foreach (var item in finished)
+                _backingItems.RemoveAll(i => i.StageBadge is "ГОТОВО" or "ОТМЕНЕНО" or "ОШИБКА");
+                RunOnUiSyncOrAsync(() =>
                 {
-                    Items.Remove(item);
-                }
-                SaveQueueState();
-            });
+                    var finished = Items.Where(i => i.StageBadge is "ГОТОВО" or "ОТМЕНЕНО" or "ОШИБКА").ToList();
+                    foreach (var item in finished)
+                    {
+                        Items.Remove(item);
+                    }
+                    SaveQueueState();
+                });
+            }
         }
 
         private void SaveQueueState()
         {
             try
             {
-                var records = Items.Select(i => new RuTrackerPersistedQueueRecord
+                List<RuTrackerPersistedQueueRecord> records;
+                lock (_syncLock)
                 {
-                    BatchId = i.BatchId,
-                    DisplayTitle = i.DisplayTitle,
-                    StageBadge = i.StageBadge,
-                    ProgressPercent = i.ProgressPercent,
-                    ProgressDetails = i.ProgressDetails,
-                    IsPausedByUser = i.IsPausedByUser,
-                    SavedAt = DateTime.Now
-                }).ToList();
+                    records = _backingItems.Select(i =>
+                    {
+                        var rec = new RuTrackerPersistedQueueRecord
+                        {
+                            BatchId = i.BatchId,
+                            DisplayTitle = i.DisplayTitle,
+                            StageBadge = i.StageBadge,
+                            ProgressPercent = i.ProgressPercent,
+                            ProgressDetails = i.ProgressDetails,
+                            IsPausedByUser = i.IsPausedByUser,
+                            SavedAt = DateTime.Now,
+                            SharedReleaseDir = i.SharedReleaseDir,
+                            HasTorrentSource = i.HasTorrentSource
+                        };
+
+                        if (i.CreatedTasks != null)
+                        {
+                            foreach (var (t, payload, slot) in i.CreatedTasks)
+                            {
+                                rec.Tasks.Add(new RuTrackerPersistedTaskPayload
+                                {
+                                    SlotNumber = payload.SlotNumber,
+                                    SlotGameTitle = payload.SlotGameTitle,
+                                    CustomModTitle = payload.CustomModTitle,
+                                    TargetReleaseDir = payload.TargetReleaseDir,
+                                    OutputFolder = t.OutputFolder,
+                                    OutputFormat = t.TargetFormat,
+                                    AutoBuild = payload.AutoBuild,
+                                    IncludeTechTags = payload.AppendAutoTags,
+                                    DeleteSourceAfterVerify = t.DeleteSourceAfterVerify,
+                                    TopicId = payload.Topic?.TopicId ?? string.Empty,
+                                    TopicTitle = payload.Topic?.Title ?? string.Empty,
+                                    Seeds = payload.Topic?.Seeds ?? 0,
+                                    MagnetLink = payload.MagnetLink?.ToV1String() ?? payload.MagnetLink?.ToString() ?? payload.Topic?.MagnetUri ?? string.Empty,
+                                    TorrentBytesBase64 = payload.TorrentBytes != null ? Convert.ToBase64String(payload.TorrentBytes) : string.Empty,
+                                    TorrentFiles = payload.TorrentFiles.Select(f => new PersistedTorrentFileItem
+                                    {
+                                        RelativePath = f.RelativePath,
+                                        Length = f.Length,
+                                        IsSelected = f.IsSelected,
+                                        CategoryBadge = f.CategoryBadge,
+                                        IsRealTorrentFile = f.IsRealTorrentFile
+                                    }).ToList(),
+                                    CloudLinks = payload.CloudLinks.ToList(),
+                                    TaskTitle = t.GameName
+                                });
+                            }
+                        }
+
+                        return rec;
+                    }).ToList();
+                }
 
                 string json = JsonSerializer.Serialize(records, new JsonSerializerOptions { WriteIndented = true });
                 File.WriteAllText(_queueStatePath, json);
@@ -997,34 +1162,116 @@ namespace StormSwitchBox.Services
                     var records = JsonSerializer.Deserialize<List<RuTrackerPersistedQueueRecord>>(json);
                     if (records != null && records.Count > 0)
                     {
-                        App.RunOnUI(() =>
+                        foreach (var r in records)
                         {
-                            foreach (var r in records)
+                            bool isCompleted = r.StageBadge is "ГОТОВО" or "ОТМЕНЕНО" or "ОШИБКА";
+                            var item = new RuTrackerActiveDownloadItem
                             {
-                                var item = new RuTrackerActiveDownloadItem
+                                BatchId = r.BatchId,
+                                DisplayTitle = r.DisplayTitle,
+                                StageBadge = isCompleted ? r.StageBadge : "ПАУЗА",
+                                ProgressPercent = r.ProgressPercent,
+                                ProgressDetails = r.ProgressDetails,
+                                IsPausedByUser = isCompleted ? r.IsPausedByUser : true,
+                                IsActive = false,
+                                SharedReleaseDir = r.SharedReleaseDir,
+                                HasTorrentSource = r.HasTorrentSource
+                            };
+                            item.RawPercent = r.ProgressPercent;
+                            item.RawDetails = r.ProgressDetails;
+                            item.RawStageBadge = item.StageBadge;
+                            item.RawStageColor = item.StageBadge switch
+                            {
+                                "ГОТОВО" => Windows.UI.Color.FromArgb(255, 34, 197, 94),
+                                "ОТМЕНЕНО" or "ОШИБКА" => Windows.UI.Color.FromArgb(255, 220, 38, 38),
+                                "ПАУЗА" => Windows.UI.Color.FromArgb(255, 217, 119, 6),
+                                _ => Windows.UI.Color.FromArgb(255, 100, 116, 139)
+                            };
+
+                            if (r.Tasks != null && r.Tasks.Count > 0)
+                            {
+                                foreach (var tp in r.Tasks)
                                 {
-                                    BatchId = r.BatchId,
-                                    DisplayTitle = r.DisplayTitle,
-                                    StageBadge = r.StageBadge is "СКАЧИВАНИЕ" or "МОДЫ" or "МЕТАДАННЫЕ" ? "ПАУЗА" : r.StageBadge,
-                                    ProgressPercent = r.ProgressPercent,
-                                    ProgressDetails = r.ProgressDetails,
-                                    IsPausedByUser = r.IsPausedByUser || (r.StageBadge is "СКАЧИВАНИЕ" or "МОДЫ" or "МЕТАДАННЫЕ"),
-                                    IsActive = false
-                                };
-                                item.RawPercent = r.ProgressPercent;
-                                item.RawDetails = r.ProgressDetails;
-                                item.RawStageBadge = item.StageBadge;
-                                item.RawStageColor = item.StageBadge switch
-                                {
-                                    "ГОТОВО" => Windows.UI.Color.FromArgb(255, 34, 197, 94),
-                                    "ОТМЕНЕНО" or "ОШИБКА" => Windows.UI.Color.FromArgb(255, 220, 38, 38),
-                                    "ПАУЗА" => Windows.UI.Color.FromArgb(255, 217, 119, 6),
-                                    _ => Windows.UI.Color.FromArgb(255, 100, 116, 139)
-                                };
-                                item.CommitUiUpdates();
-                                Items.Add(item);
+                                    var task = new ProcessingTask
+                                    {
+                                        GameName = !string.IsNullOrWhiteSpace(tp.TaskTitle) ? tp.TaskTitle : tp.SlotGameTitle,
+                                        TargetFormat = tp.OutputFormat,
+                                        OutputFolder = tp.OutputFolder,
+                                        DeleteSourceAfterVerify = tp.DeleteSourceAfterVerify,
+                                        Progress = r.ProgressPercent,
+                                        Status = isCompleted ? (r.StageBadge == "ГОТОВО" ? "Успешно" : r.StageBadge) : "⏸ Сохранено на паузе",
+                                        IsRuTrackerTask = true,
+                                        IsRunning = false,
+                                        IsPaused = !isCompleted
+                                    };
+
+                                    MonoTorrent.MagnetLink? mag = null;
+                                    if (!string.IsNullOrEmpty(tp.MagnetLink))
+                                    {
+                                        try { MonoTorrent.MagnetLink.TryParse(tp.MagnetLink, out mag); } catch { }
+                                    }
+
+                                    byte[]? tBytes = null;
+                                    if (!string.IsNullOrEmpty(tp.TorrentBytesBase64))
+                                    {
+                                        try { tBytes = Convert.FromBase64String(tp.TorrentBytesBase64); } catch { }
+                                    }
+
+                                    var payload = new RuTrackerTaskPayload
+                                    {
+                                        SlotNumber = tp.SlotNumber,
+                                        SlotGameTitle = tp.SlotGameTitle,
+                                        CustomModTitle = tp.CustomModTitle,
+                                        TargetReleaseDir = tp.TargetReleaseDir,
+                                        AutoBuild = tp.AutoBuild,
+                                        AppendAutoTags = tp.IncludeTechTags,
+                                        SharedReleaseDir = r.SharedReleaseDir,
+                                        HasTorrentSource = r.HasTorrentSource,
+                                        CloudLinks = tp.CloudLinks.ToList(),
+                                        TorrentBytes = tBytes,
+                                        MagnetLink = mag,
+                                        Topic = new RuTrackerTopicItem
+                                        {
+                                            TopicId = tp.TopicId,
+                                            Title = tp.TopicTitle,
+                                            Seeds = tp.Seeds,
+                                            MagnetUri = tp.MagnetLink
+                                        },
+                                        TorrentFiles = tp.TorrentFiles.Select(tf => new TorrentFileSelectionItem
+                                        {
+                                            RelativePath = tf.RelativePath,
+                                            Length = tf.Length,
+                                            IsSelected = tf.IsSelected,
+                                            CategoryBadge = tf.CategoryBadge,
+                                            IsRealTorrentFile = tf.IsRealTorrentFile
+                                        }).ToList()
+                                    };
+
+                                    task.RuTrackerPayload = payload;
+                                    item.CreatedTasks.Add((task, payload, new RuTrackerGameSlotItem { SlotNumber = tp.SlotNumber }));
+                                }
                             }
-                        });
+                            else if (!isCompleted)
+                            {
+                                // Устаревшие записи без данных задач: помечаем "ОТМЕНЕНО", чтобы не блокировать очередь
+                                item.StageBadge = "ОТМЕНЕНО";
+                                item.RawStageBadge = "ОТМЕНЕНО";
+                                item.RawStageColor = Windows.UI.Color.FromArgb(255, 220, 38, 38);
+                                item.RawDetails = "Сессия сброшена";
+                            }
+
+                            item.CommitUiUpdates();
+
+                            lock (_syncLock)
+                            {
+                                _backingItems.Add(item);
+                            }
+
+                            RunOnUiSyncOrAsync(() =>
+                            {
+                                Items.Add(item);
+                            });
+                        }
                     }
                 }
             }

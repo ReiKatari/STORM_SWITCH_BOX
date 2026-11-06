@@ -1,3 +1,12 @@
+## **Релиз 7.0.2**
+
+- **RuTracker: Мгновенный старт очереди закачек**: Устранена асинхронная гонка `DispatcherQueue.TryEnqueue`, внедрён потокобезопасный список `_backingItems`, метод `RunOnUiSyncOrAsync` и 250 мс самовосстанавливающийся сторожевой цикл в `OnUiTimerTick()`.
+- **RuTracker: Высокоскоростная загрузка BitTorrent**: Отключено блокирующее автоопределение UPnP (`AllowPortForwarding = false`), оптимизированы параметры роя (`MaximumConnections = 400`, `MaximumHalfOpenConnections = 80`, `DiskCacheBytes = 64 MB`), мгновенная детекция отсутствия qBittorrent.
+- **RuTracker: Парсинг всех страниц обсуждения темы**: Параллельный сбор страниц темы `&start=30, 60...` через `FetchValidatedTopicPageHtmlAsync` с пулом `SemaphoreSlim(4)` и устойчивым обходом блокировок через DoH и Cloud Race.
+- **RuTracker: Извлечение ссылок из спойлеров и plain-text**: Полнотекстовый парсер спойлеров `[скрытый текст]`, тегов `<var>` и прямых URL-адресов с отсечением блоков подписей пользователей (`sig-body`).
+- **RuTracker: Интеграция 4PDA и автоскачивание модов**: Распознавание ссылок `4pda.to/forum/`, извлечение заголовка и автора перевода из контекста сообщения, декодер постов `ResolveForumPostEmbeddedCloudUrlsAsync` (Windows-1251, `4pda.to/pages/go/?u=`) и прямое автоскачивание облачных архивов.
+- **RuTracker: Персистентность очереди и восстановление**: Сохранение полезной нагрузки задач `RuTrackerPersistedTaskPayload` в `rutracker_download_queue.json`, возобновление закачек при перезапуске приложения и безопасное отсечение пустых записей.
+
 ## **Релиз 7.0.1**
 
 - **RuTracker: Глобальный менеджер очереди (`RuTrackerDownloadQueueService`)**: Сохранение и отображение списка всех закачек при закрытии/открытии диалога, планировщик с лимитом `MaxConcurrentDownloads = 2`, сохранение состояния очереди в `%LOCALAPPDATA%\StormSwitchBox\rutracker_download_queue.json`.
