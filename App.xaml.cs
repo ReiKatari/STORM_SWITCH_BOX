@@ -296,6 +296,7 @@ namespace StormSwitchBox
 
             // Сохраняем UI диспетчер для возможности обновления интерфейса из фоновых потоков (Task.Run)
             MainDispatcher = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
+            InitializeForumBrowserBypass();
 
             // Загружаем настройки перед показом окна
             await Settings.LoadAsync();
@@ -552,6 +553,135 @@ namespace StormSwitchBox
             {
                 Logger.Log($"Предупреждение при рассылке ключей: {ex.Message}", Models.LogLevel.Warning);
             }
+        }
+
+        private static void InitializeForumBrowserBypass()
+        {
+            RuTrackerModService.ExternalBrowserBypassHandler = async (url, interactive, ct) =>
+            {
+                var tcs = new System.Threading.Tasks.TaskCompletionSource<(string? Html, string? DownloadedFilePath, string? CookieHeader)>();
+                var dq = MainDispatcher;
+                if (dq == null) return (null, null, null);
+
+                dq.TryEnqueue(async () =>
+                {
+                    try
+                    {
+                        string profileDir = System.IO.Path.Combine(
+                            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                            "StormSwitchBox",
+                            "WebView2ForumProfile");
+                        System.IO.Directory.CreateDirectory(profileDir);
+
+                        var env = await Microsoft.Web.WebView2.Core.CoreWebView2Environment.CreateWithOptionsAsync(null, profileDir, null);
+
+                        if (!interactive)
+                        {
+                            var hiddenWv = new Microsoft.UI.Xaml.Controls.WebView2();
+                            await hiddenWv.EnsureCoreWebView2Async(env);
+
+                            var timeoutCts = System.Threading.CancellationTokenSource.CreateLinkedTokenSource(ct);
+                            timeoutCts.CancelAfter(TimeSpan.FromSeconds(7));
+
+                            async void OnNavCompleted(object? s, Microsoft.Web.WebView2.Core.CoreWebView2NavigationCompletedEventArgs e)
+                            {
+                                try
+                                {
+                                    string html = await hiddenWv.ExecuteScriptAsync("document.documentElement.outerHTML");
+                                    if (!string.IsNullOrEmpty(html) && html.StartsWith("\"") && html.EndsWith("\""))
+                                    {
+                                        html = System.Text.RegularExpressions.Regex.Unescape(html.Substring(1, html.Length - 2));
+                                    }
+                                    if (!RuTrackerModService.IsAntiBotChallengeOrErrorHtml(html))
+                                    {
+                                        var cookies = await hiddenWv.CoreWebView2.CookieManager.GetCookiesAsync(url);
+                                        string cookieHeader = string.Join("; ", cookies.Select(c => $"{c.Name}={c.Value}"));
+                                        tcs.TrySetResult((html, null, cookieHeader));
+                                    }
+                                }
+                                catch { }
+                            }
+
+                            hiddenWv.NavigationCompleted += OnNavCompleted;
+                            timeoutCts.Token.Register(() =>
+                            {
+                                hiddenWv.NavigationCompleted -= OnNavCompleted;
+                                tcs.TrySetResult((null, null, null));
+                            });
+
+                            hiddenWv.Source = new Uri(url);
+                        }
+                        else
+                        {
+                            var win = new Window
+                            {
+                                Title = "STORM SWITCH BOX — Проверка доступа к файлу"
+                            };
+
+                            var grid = new Microsoft.UI.Xaml.Controls.Grid
+                            {
+                                Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 15, 17, 23))
+                            };
+                            grid.RowDefinitions.Add(new Microsoft.UI.Xaml.Controls.RowDefinition { Height = new Microsoft.UI.Xaml.GridLength(44) });
+                            grid.RowDefinitions.Add(new Microsoft.UI.Xaml.Controls.RowDefinition { Height = new Microsoft.UI.Xaml.GridLength(1, Microsoft.UI.Xaml.GridUnitType.Star) });
+
+                            var headerText = new Microsoft.UI.Xaml.Controls.TextBlock
+                            {
+                                Text = "Пройдите проверку безопасности или выполните вход на сайт для загрузки файла:",
+                                Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 241, 245, 249)),
+                                FontSize = 13,
+                                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                                VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center,
+                                Margin = new Microsoft.UI.Xaml.Thickness(16, 0, 16, 0)
+                            };
+                            Microsoft.UI.Xaml.Controls.Grid.SetRow(headerText, 0);
+                            grid.Children.Add(headerText);
+
+                            var wv = new Microsoft.UI.Xaml.Controls.WebView2();
+                            Microsoft.UI.Xaml.Controls.Grid.SetRow(wv, 1);
+                            grid.Children.Add(wv);
+
+                            win.Content = grid;
+                            win.AppWindow.Resize(new Windows.Graphics.SizeInt32(960, 680));
+                            win.Activate();
+
+                            await wv.EnsureCoreWebView2Async(env);
+
+                            string? downloadedPath = null;
+                            wv.CoreWebView2.DownloadStarting += (s, args) =>
+                            {
+                                string targetFolder = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "StormSwitchBox_Downloads");
+                                System.IO.Directory.CreateDirectory(targetFolder);
+                                string fileName = !string.IsNullOrEmpty(args.ResultFilePath) ? System.IO.Path.GetFileName(args.ResultFilePath) : "mod_download.zip";
+                                string targetFile = System.IO.Path.Combine(targetFolder, fileName);
+                                args.ResultFilePath = targetFile;
+                                downloadedPath = targetFile;
+                                args.DownloadOperation.StateChanged += (os, oargs) =>
+                                {
+                                    if (args.DownloadOperation.State == Microsoft.Web.WebView2.Core.CoreWebView2DownloadState.Completed)
+                                    {
+                                        tcs.TrySetResult((null, downloadedPath, null));
+                                        dq.TryEnqueue(() => { try { win.Close(); } catch { } });
+                                    }
+                                };
+                            };
+
+                            win.Closed += (s, args) =>
+                            {
+                                tcs.TrySetResult((null, downloadedPath, null));
+                            };
+
+                            wv.Source = new Uri(url);
+                        }
+                    }
+                    catch
+                    {
+                        tcs.TrySetResult((null, null, null));
+                    }
+                });
+
+                return await tcs.Task.ConfigureAwait(false);
+            };
         }
     }
 }

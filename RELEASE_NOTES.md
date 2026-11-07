@@ -1,37 +1,38 @@
-> 💡 **Релиз 7.0.3** — *Высокоскоростная 3-уровневая архитектура загрузки RuTracker, встроенный C++ движок libtorrent-rasterbar, авто-старт qBittorrent WebUI и устранение просадки скорости*
+> 💡 **Релиз 7.0.4** — *Устранение зависания статуса «СБОРКА», мгновенное освобождение сетевых слотов очереди, фильтрация строго актуальных версий модов и многоуровневый обход проверок 4PDA/форумов*
 
 ---
 
 ### 🚀 Ключевые изменения и улучшения
-- 🌟 **[RuTracker: 3-уровневая архитектура максимальной скорости (Tier 1 + Tier 2 + Tier 3)]**: Полное устранение просадки скорости до 0.45 МБ/с — восстановлен разгон до 15–25+ МБ/с. Автоматический каскад: внешний qBittorrent WebUI -> встроенный C++ libtorrent-rasterbar -> высокоскоростной MonoTorrent.
-- 🌟 **[RuTracker: Авто-старт qBittorrent в фоне и обход конфликтов портов]**: Добавлен надёжный бутстрап `EnsureLocalQBitReadyAsync`, запускающий `qbittorrent.exe --no-splash` в свернутом виде и гарантирующий активность WebUI с переключением на порт 18080 при конфликтах с Docker/WSL.
-- 🌟 **[RuTracker: Потокобезопасный сборщик пиров с изоляцией по InfoHash]**: Ликвидирована гонка потоков при одновременных ответах `bt..bt4.t-ru.org` и UDP BEP-15. Пулы пиров изолированы по хэшам раздач с многоволновой инжекцией живых сидов на 0с, 2.5с, 6с и каждые 12с.
-- 🌟 **[RuTracker: Встроенный нативный C++ движок libtorrent-rasterbar (Tier 2)]**: Разработан модуль `storm_lt_turbo.py` на базе `libtorrent 2.1.1` (uTP BEP-29 + BEP-55 Holepunch) для ПК без установленного qBittorrent.
-- 🌟 **[RuTracker: Точный селективный прогресс 0%..100%]**: Расчет через `amount_left` и мгновенное выставление приоритетов файлов с поддержкой объединенных каталогов модов.
+- 🌟 **[RuTracker: Устранение блокировки очереди и зависания статуса «СБОРКА»]**: Ликвидировано падение фонового конвейера по `COMException (0x8001010E RPC_E_WRONG_THREAD)` при обращении к `App.MainWindow` из рабочих потоков. Внедрен потокобезопасный `App.MainDispatcher` с прямым доступом к `EffectiveStage`.
+- 🌟 **[RuTracker: Мгновенное освобождение слотов загрузки при старте сборки]**: Задачи в фазе упаковки мульти-контента (`СБОРКА`) больше не расходуют сетевую квоту `MaxConcurrentDownloads = 2`. Следующая игра из статуса «В ОЧЕРЕДИ» начинает загрузку по сети параллельно с локальной сборкой на диске.
+- 🌟 **[RuTracker: Watchdog-самоисцеление и восстановление сохраненного состояния]**: Сторожевой таймер очереди и десериализатор `LoadPersistedState` автоматически переводят завершенные задачи с созданным выходным контейнером в статус `ГОТОВО` (100%), предотвращая застревание пакетов при перезапуске.
+- 🌟 **[Моды: Фильтрация строго максимальной версии (Latest-Version-Only)]**: Реализован семантический парсер версий `TryExtractModVersionTuple` с анализом контекстных префиксов строк (напр. `v0.9.1: MailCloud`). Устаревшие ревизии (как `v0.9` при наличии `v0.9.1`) и старые спойлеры архивов автоматически исключаются как в темах форумов, так и внутри публичных папок Облака Mail.ru и Яндекс.Диска.
+- 🌟 **[Моды: Приоритет открытых облачных зеркал и прямая интеграция Mail.ru]**: Обновлена шкала надежности провайдеров (`cloud.mail.ru` поднят до 94 баллов перед авторизованными вложениями 4PDA). Реализована поддержка API диспетчера Mail.ru (`api=2`) с отдачей прямого бинарного потока `PK\x03\x04` на максимальной скорости.
+- 🌟 **[Моды: Многоуровневый обход проверок 4PDA и защита от HTML-заглушек]**: Четырехступенчатый каскад (прямой запрос Chrome 131 + зеркала 4pda.ws + прокси codetabs/r.jina.ai + бесшумный и интерактивный WebView2) с валидацией целостности архивов `IsHtmlOrErrorStubFile`.
 
 <details>
 <summary><b>📋 Полный список изменений (нажмите, чтобы развернуть)</b></summary>
 
-- 🔹 **[TryDownloadViaLocalQBitAsync Bootstrap]**: Устранен преждевременный выход из метода при незапущенном qBittorrent, внедрен синхронизированный запуск через `_qbitBootstrapLock`.
-- 🔹 **[Port Conflict Auto-Detection]**: Автоматическое переключение порта WebUI на 18080 в `qBittorrent.ini`, если стандартный порт 8080 занят Docker или системными службами.
-- 🔹 **[Thread-Safe Peer Parsing]**: Блокировка списков пиров при десериализации компактных bencoded-списков и UDP-ответов, предотвращающая падение по исключению `List.Add`.
-- 🔹 **[Per-InfoHash Scoped Swarms]**: Разделение коллекций обнаруженных HTTP и DHT пиров по хэшу раздачи во избежание перекрестного загрязнения очередей.
-- 🔹 **[Multi-Wave Peer Feeder]**: Каскадная инжекция найденных сидов в торрент-клиент на T=0с, T=2.5с, T=6с и затем каждые 12 секунд.
-- 🔹 **[Passkey Tracker Injection]**: Автоматическое извлечение персональных passkey-трекеров `http://bt*.t-ru.org/ann?pk=...` из .torrent файла и добавление в сессию загрузки.
-- 🔹 **[Embedded libtorrent Engine]**: Полная интеграция C++ движка `libtorrent-rasterbar 2.1.1` через Python-рантайм `tools\nsz\python.exe` с поддержкой uTP и PEX.
-- 🔹 **[Clean Cancellation]**: Корректное удаление недокачанного торрента из сессии qBittorrent и завершение дочерних процессов при отмене задачи пользователем.
-- 🔹 **[MonoTorrent Tier-3 Restoration]**: Восстановление параметров соединений (800 коннектов, 150 half-open, 256 МБ кэш) в резервном движке.
+- 🔹 **[Dispatcher Thread Isolation]**: Полный отказ от вызовов `App.MainWindow` из рабочих потоков `Task.Run` в пользу изолированного `App.MainDispatcher.TryEnqueue`.
+- 🔹 **[EffectiveStage Immediate Propagation]**: Внедрено вычисляемое свойство `EffectiveStage`, мгновенно передающее статус выполнения планировщику до тика UI-диспетчера.
+- 🔹 **[Non-Blocking Network Slots]**: Исключение стадии «СБОРКА» из пула сетевых кандидатов `shouldBeActive` с защитой от преждевременного вытеснения.
+- 🔹 **[Post-Build Cleanup & Status Transition]**: Гарантированный перевод в `ГОТОВО` (100% Завершено) по завершении сборки мульти-контента и в блоке `finally`.
+- 🔹 **[Context-Aware Mod Versioning]**: Извлечение семантических версий модов из имен файлов, анкоров ссылок и предваряющего текста строки.
+- 🔹 **[Mail.ru Dispatcher API 2]**: Корректная склейка базового URL диспетчера Mail.ru с относительным путем файла и автоматическим определением имени архива.
+- 🔹 **[HTML Stub Rejection]**: Детектирование и удаление веб-страниц ошибок, страниц логина 4PDA и заглушек Cloudflare при сохранении архивов модов.
+- 🔹 **[WebView2 Persistent Forum Profile]**: Сохранение сессий и cookies форумов в `%LOCALAPPDATA%\StormSwitchBox\WebView2ForumProfile`.
+- 🔹 **[Selective Companion Spidering]**: Пропуск паука тем-спутников (Zone of Games) при наличии готовых открытых зеркал в первичном посте для исключения задержек DPI.
 
 </details>
 
 <details>
 <summary><b>🌐 English Changelog (click to expand)</b></summary>
 
-- 🔸 **[3-Tier BitTorrent Architecture]**: Resolved download speed drop to 0.45 MB/s — restored 15–25+ MB/s channel saturation via Tier 1 (qBittorrent WebUI) -> Tier 2 (embedded C++ libtorrent-rasterbar) -> Tier 3 (high-throughput MonoTorrent).
-- 🔸 **[qBittorrent Background Auto-Launch]**: Added thread-safe `EnsureLocalQBitReadyAsync` to bootstrap minimized qBittorrent and automatically bypass port 8080 conflicts.
-- 🔸 **[Thread-Safe Peer Harvest]**: Fixed race conditions during simultaneous tracker announce processing, scoped peer caches per infohash.
-- 🔸 **[Embedded libtorrent Tier 2]**: Integrated `storm_lt_turbo.py` with libtorrent 2.1.1 for users without external torrent clients.
-- 🔸 **[Selective Download Progress]**: Accurate progress via `amount_left` and immediate file priorities matching merged mod folders.
+- 🔸 **[Queue Concurrency & Build Fix]**: Resolved stuck "СБОРКА" state and COMException RPC_E_WRONG_THREAD via isolated `App.MainDispatcher` and immediate `EffectiveStage` evaluation.
+- 🔸 **[Non-Blocking Download Slots]**: Items in local packaging stage no longer consume concurrent network download slots, allowing subsequent queued downloads to proceed immediately.
+- 🔸 **[Latest-Version-Only Mod Selection]**: Integrated semantic version parser with context prefix support, filtering out legacy revisions (e.g. dropping v0.9 when v0.9.1 is present).
+- 🔸 **[Mail.ru Cloud Direct Stream]**: Full integration with Mail.ru Dispatcher API 2 resolving high-speed binary zip streams without 4PDA authentication barriers.
+- 🔸 **[Multi-Layer Anti-Bot Bypass]**: Chrome 131 fingerprint headers, mirror swapping, headless renderer fallback, and WebView2 bridge with HTML error stub rejection.
 
 </details>
 

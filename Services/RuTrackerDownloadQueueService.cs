@@ -28,6 +28,8 @@ namespace StormSwitchBox.Services
         }
 
         private string _stageBadge = "В ОЧЕРЕДИ";
+        public string EffectiveStage => !string.IsNullOrEmpty(RawStageBadge) ? RawStageBadge : StageBadge;
+
         public string StageBadge
         {
             get => _stageBadge;
@@ -208,14 +210,20 @@ namespace StormSwitchBox.Services
 
         private void RunOnUiSyncOrAsync(Action action)
         {
-            if (App.MainWindow?.DispatcherQueue?.HasThreadAccess == true)
+            try
             {
-                action();
+                var dq = App.MainDispatcher;
+                if (dq != null)
+                {
+                    if (dq.HasThreadAccess) action();
+                    else dq.TryEnqueue(() => { try { action(); } catch { } });
+                }
+                else
+                {
+                    action();
+                }
             }
-            else
-            {
-                App.RunOnUI(action);
-            }
+            catch { }
         }
 
         private void OnTimerCallback(object? state)
@@ -243,9 +251,29 @@ namespace StormSwitchBox.Services
 
             foreach (var item in snapshot)
             {
+                // Watchdog: автоматическое исцеление завершенных задач со старым бейджем
+                if (item.ExecutionTask is { IsCompleted: true } &&
+                    item.EffectiveStage is not ("ГОТОВО" or "ОТМЕНЕНО" or "ОШИБКА" or "ПАУЗА"))
+                {
+                    item.IsActive = false;
+                    item.RawStageBadge = item.ExecutionTask.IsFaulted ? "ОШИБКА" : (item.ExecutionTask.IsCanceled ? "ОТМЕНЕНО" : "ГОТОВО");
+                    item.RawStageColor = item.RawStageBadge == "ГОТОВО"
+                        ? Windows.UI.Color.FromArgb(255, 34, 197, 94)
+                        : Windows.UI.Color.FromArgb(255, 220, 38, 38);
+                    if (item.RawStageBadge == "ГОТОВО")
+                    {
+                        item.RawPercent = 100.0;
+                        item.RawSpeedText = "100% Завершено";
+                        item.RawDetails = "Сборка завершена";
+                    }
+                    item.CommitUiUpdates();
+                    SaveQueueState();
+                    EvaluateQueuePriorities();
+                }
+
                 item.CommitUiUpdates();
 
-                if (item.IsActive && item.StageBadge is "СКАЧИВАНИЕ" or "МОДЫ" or "МЕТАДАННЫЕ")
+                if (item.IsActive && item.EffectiveStage is "СКАЧИВАНИЕ" or "МОДЫ" or "МЕТАДАННЫЕ")
                 {
                     runningCount++;
                     totalSpeedBps += item.RawSpeedBps;
@@ -270,7 +298,7 @@ namespace StormSwitchBox.Services
             if (runningCount < MaxConcurrentDownloads)
             {
                 bool hasPending = snapshot.Any(i =>
-                    i.StageBadge is not ("ГОТОВО" or "ОТМЕНЕНО" or "ОШИБКА" or "СБОРКА") &&
+                    i.EffectiveStage is not ("ГОТОВО" or "ОТМЕНЕНО" or "ОШИБКА" or "СБОРКА") &&
                     !i.IsPausedByUser &&
                     (!i.IsPipelineStarted || i.IsPreemptedByQueue) &&
                     i.CreatedTasks.Count > 0);
@@ -315,17 +343,17 @@ namespace StormSwitchBox.Services
         {
             lock (_syncLock)
             {
-                // Находим все кандидаты на загрузку: не завершены, не отменены, не ошибочны, не на паузе пользователем и с непустыми задачами
+                // Находим все кандидаты на загрузку: не завершены, не отменены, не ошибочны, не в сборке, не на паузе пользователем и с непустыми задачами
                 var candidates = _backingItems
-                    .Where(i => i.StageBadge is not ("ГОТОВО" or "ОТМЕНЕНО" or "ОШИБКА") && !i.IsPausedByUser && i.CreatedTasks.Count > 0)
+                    .Where(i => i.EffectiveStage is not ("ГОТОВО" or "ОТМЕНЕНО" or "ОШИБКА" or "СБОРКА") && !i.IsPausedByUser && i.CreatedTasks.Count > 0)
                     .ToList();
 
                 var shouldBeActive = candidates.Take(MaxConcurrentDownloads).ToHashSet();
 
-                // 1. Вытесняем элементы за пределами топ-2 в статус "В ОЧЕРЕДИ"
+                // 1. Вытесняем элементы за пределами топ-2 в статус "В ОЧЕРЕДИ" (никогда не вытесняем задачи в стадии "СБОРКА")
                 foreach (var item in _backingItems)
                 {
-                    if (item.StageBadge is "ГОТОВО" or "ОТМЕНЕНО" or "ОШИБКА" || item.IsPausedByUser)
+                    if (item.EffectiveStage is "ГОТОВО" or "ОТМЕНЕНО" or "ОШИБКА" or "СБОРКА" || item.IsPausedByUser)
                         continue;
 
                     if (!shouldBeActive.Contains(item))
@@ -467,21 +495,24 @@ namespace StormSwitchBox.Services
                 {
                     item.IsActive = false;
                     item.RawSpeedBps = 0;
-                    if (item.RawStageBadge != "ОТМЕНЕНО" && item.RawStageBadge != "ОШИБКА")
+                    try
                     {
-                        item.RawStageBadge = "ГОТОВО";
-                        item.RawStageColor = Windows.UI.Color.FromArgb(255, 34, 197, 94);
-                        item.RawPercent = 100;
-                        item.RawSpeedText = "100% Завершено";
-                        item.RawDetails = "Задачи созданы";
+                        if (item.RawStageBadge != "ОТМЕНЕНО" && item.RawStageBadge != "ОШИБКА")
+                        {
+                            item.RawStageBadge = "ГОТОВО";
+                            item.RawStageColor = Windows.UI.Color.FromArgb(255, 34, 197, 94);
+                            item.RawPercent = 100.0;
+                            item.RawSpeedText = "100% Завершено";
+                            item.RawDetails = "Сборка завершена";
+                        }
+                        item.IsActive = false;
+                        RunOnUiSyncOrAsync(() =>
+                        {
+                            item.CommitUiUpdates();
+                            SaveQueueState();
+                        });
                     }
-
-                    RunOnUiSyncOrAsync(() =>
-                    {
-                        item.CommitUiUpdates();
-                    });
-
-                    SaveQueueState();
+                    catch { }
                     EvaluateQueuePriorities();
                 }
             });
@@ -645,6 +676,8 @@ namespace StormSwitchBox.Services
                 item.RawStageColor = Windows.UI.Color.FromArgb(255, 168, 85, 247); // #A855F7 Purple
                 item.RawDetails = "Сборка мульти-контента...";
                 item.RawSpeedText = "Сборка";
+                RunOnUiSyncOrAsync(() => item.CommitUiUpdates());
+                EvaluateQueuePriorities(); // Немедленно освобождаем сетевой слот для следующей закачки в очереди!
 
                 App.RunOnUI(() =>
                 {
@@ -707,6 +740,22 @@ namespace StormSwitchBox.Services
                     task.Speed = string.Empty;
                     task.FinishedAt = DateTime.Now;
                 });
+
+                if (task.Status != "Ошибка" && task.Status != "Отменено")
+                {
+                    item.RawStageBadge = "ГОТОВО";
+                    item.RawStageColor = Windows.UI.Color.FromArgb(255, 34, 197, 94);
+                    item.RawPercent = 100.0;
+                    item.RawSpeedText = "100% Завершено";
+                    item.RawDetails = "Сборка завершена";
+                    item.IsActive = false;
+                    RunOnUiSyncOrAsync(() =>
+                    {
+                        item.CommitUiUpdates();
+                        SaveQueueState();
+                    });
+                    EvaluateQueuePriorities();
+                }
             }
             else
             {
@@ -1099,9 +1148,9 @@ namespace StormSwitchBox.Services
                         {
                             BatchId = i.BatchId,
                             DisplayTitle = i.DisplayTitle,
-                            StageBadge = i.StageBadge,
-                            ProgressPercent = i.ProgressPercent,
-                            ProgressDetails = i.ProgressDetails,
+                            StageBadge = i.EffectiveStage,
+                            ProgressPercent = i.RawPercent > 0 || i.EffectiveStage == "ГОТОВО" ? i.RawPercent : i.ProgressPercent,
+                            ProgressDetails = !string.IsNullOrEmpty(i.RawDetails) ? i.RawDetails : i.ProgressDetails,
                             IsPausedByUser = i.IsPausedByUser,
                             SavedAt = DateTime.Now,
                             SharedReleaseDir = i.SharedReleaseDir,
@@ -1165,6 +1214,38 @@ namespace StormSwitchBox.Services
                         foreach (var r in records)
                         {
                             bool isCompleted = r.StageBadge is "ГОТОВО" or "ОТМЕНЕНО" or "ОШИБКА";
+                            if (!isCompleted && r.StageBadge == "СБОРКА")
+                            {
+                                bool outputExists = false;
+                                if (r.Tasks != null)
+                                {
+                                    foreach (var tp in r.Tasks)
+                                    {
+                                        string outDir = string.IsNullOrWhiteSpace(tp.OutputFolder)
+                                            ? (string.IsNullOrWhiteSpace(App.Settings.Current.OutputFolder) ? tp.TargetReleaseDir : App.Settings.Current.OutputFolder)
+                                            : tp.OutputFolder;
+                                        string gameName = !string.IsNullOrWhiteSpace(tp.TaskTitle) ? tp.TaskTitle : (!string.IsNullOrWhiteSpace(tp.SlotGameTitle) ? tp.SlotGameTitle : r.DisplayTitle);
+                                        if (Directory.Exists(outDir))
+                                        {
+                                            var files = Directory.GetFiles(outDir, "*.*").Where(f => f.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".xci", StringComparison.OrdinalIgnoreCase));
+                                            if (files.Any(f => Path.GetFileNameWithoutExtension(f).Contains(gameName, StringComparison.OrdinalIgnoreCase) || (!string.IsNullOrWhiteSpace(tp.TopicId) && f.Contains(tp.TopicId))))
+                                            {
+                                                outputExists = true;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                                bool tempCleaned = !string.IsNullOrWhiteSpace(r.SharedReleaseDir) && !Directory.Exists(r.SharedReleaseDir);
+                                if (outputExists || tempCleaned)
+                                {
+                                    isCompleted = true;
+                                    r.StageBadge = "ГОТОВО";
+                                    r.ProgressPercent = 100.0;
+                                    r.ProgressDetails = "Сборка завершена";
+                                }
+                            }
+
                             var item = new RuTrackerActiveDownloadItem
                             {
                                 BatchId = r.BatchId,

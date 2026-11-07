@@ -735,6 +735,9 @@ namespace StormSwitchBox.Services
     /// </summary>
     public sealed class RuTrackerModService : IDisposable
     {
+        public static readonly System.Net.CookieContainer SharedForumCookies = new();
+        public static Func<string, bool, CancellationToken, Task<(string? Html, string? DownloadedFilePath, string? CookieHeader)>>? ExternalBrowserBypassHandler { get; set; }
+
         private static readonly string[] DefaultMirrors =
         {
             "https://rutracker.org",
@@ -2553,22 +2556,20 @@ namespace StormSwitchBox.Services
         {
             string lower = url.ToLowerInvariant();
             if (lower.Contains("pixeldrain.com")) return 100;
-            if (lower.Contains("disk.yandex.") || lower.Contains("yadi.sk")) return 95;
-            if (lower.Contains("4pda.to/forum/dl/post/")) return 92;
-            if (lower.Contains("drive.google.com") || lower.Contains("drive.usercontent.google.com")) return 90;
-            if (lower.Contains("mega.nz") || lower.Contains("mega.co.nz")) return 88;
-            if (lower.Contains("mediafire.com")) return 85;
-            if (lower.Contains("4pda.to/forum/") || lower.Contains("4pda.ru/forum/")) return 85;
-            if (lower.Contains("zoneofgames.ru")) return 84;
-            if (lower.Contains("cloud.mail.ru")) return 82;
-            if (lower.Contains("qiwi.gg") || lower.Contains("send.cm")) return 82;
-            if (lower.Contains("wdfiles.ru") || lower.Contains("wdfiles.com")) return 80;
-            if (lower.Contains("boosty.to") || lower.Contains("telegra.ph")) return 80;
-            if (lower.Contains("dropbox.com")) return 78;
-            if (lower.Contains("workupload.com")) return 75;
-            if (lower.Contains("github.com")) return 70;
-            if (lower.EndsWith(".zip") || lower.EndsWith(".7z") || lower.EndsWith(".rar") || lower.EndsWith(".nsp") || lower.EndsWith(".nsz")) return 65;
-            return 50;
+            if (lower.Contains("disk.yandex.") || lower.Contains("yadi.sk")) return 96;
+            if (lower.Contains("cloud.mail.ru")) return 94;
+            if (lower.Contains("drive.google.com") || lower.Contains("drive.usercontent.google.com")) return 92;
+            if (lower.Contains("github.com")) return 90;
+            if (lower.Contains("mega.nz") || lower.Contains("mega.co.nz")) return 86;
+            if (lower.Contains("mediafire.com") || lower.Contains("workupload.com") || lower.Contains("gofile.io")) return 82;
+            if (lower.Contains("wdfiles.ru") || lower.Contains("wdfiles.com") || lower.Contains("qiwi.gg") || lower.Contains("send.cm")) return 80;
+            if (lower.Contains("boosty.to") || lower.Contains("telegra.ph")) return 75;
+            if (lower.Contains("dropbox.com")) return 70;
+            if (lower.Contains("zoneofgames.ru")) return 65;
+            if (lower.EndsWith(".zip") || lower.EndsWith(".7z") || lower.EndsWith(".rar") || lower.EndsWith(".nsp") || lower.EndsWith(".nsz")) return 60;
+            if (lower.Contains("4pda.to/forum/dl/post/") || lower.Contains("4pda.ru/forum/dl/post/")) return 50;
+            if (lower.Contains("4pda.to/forum/") || lower.Contains("4pda.ru/forum/")) return 45;
+            return 40;
         }
 
         public static List<CloudModLinkItem> ExtractModLinksFromTopicHtml(string html, int pageNumber = 1)
@@ -6348,6 +6349,12 @@ namespace StormSwitchBox.Services
                                 }, mirrorCts.Token, megaKey, pauseEvent).ConfigureAwait(false);
 
                                 if (!File.Exists(archivePath) || new FileInfo(archivePath).Length < 64) continue;
+                                if (IsHtmlOrErrorStubFile(archivePath))
+                                {
+                                    App.Logger?.Log($"[RuTracker Cloud] Загруженный файл {safeFileName} оказался HTML/страницей ошибки вместо архива. Удаление и переход к следующему зеркалу...", LogLevel.Warning);
+                                    try { File.Delete(archivePath); } catch { }
+                                    continue;
+                                }
                                 string ext = Path.GetExtension(archivePath).ToLowerInvariant();
                                 if (ext is ".zip" or ".7z" or ".rar")
                                 {
@@ -6388,13 +6395,49 @@ namespace StormSwitchBox.Services
                                     extractedModPaths.Add(archivePath);
                                 }
 
-                                mirrorSucceeded = true;
-                                break;
+                                if (extractedModPaths.Count > 0)
+                                {
+                                    mirrorSucceeded = true;
+                                    break;
+                                }
                             }
                             catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
                             {
                                 App.Logger?.Log($"[RuTracker Cloud] Ошибка скачивания {targetDownloadUrl}: {ex.Message}", LogLevel.Debug);
                             }
+                        }
+
+                        // Интерактивный обход капчи/авторизации браузером при отказе прямых HTTP ссылок
+                        if (!mirrorSucceeded && ExternalBrowserBypassHandler != null && directUrlsToTry.Any(u => u.Contains("4pda.") || u.Contains("zoneofgames.ru")))
+                        {
+                            try
+                            {
+                                string attachOrForumUrl = directUrlsToTry.FirstOrDefault(u => u.Contains("/dl/post/")) ?? mirrorUrl;
+                                progress?.Report(((i * 100.0 + 50.0) / links.Count, "Ожидание подтверждения доступа в окне браузера..."));
+                                var (_, dlPath, _) = await ExternalBrowserBypassHandler(attachOrForumUrl, true, ct).ConfigureAwait(false);
+                                if (!string.IsNullOrEmpty(dlPath) && File.Exists(dlPath) && !IsHtmlOrErrorStubFile(dlPath))
+                                {
+                                    string ext = Path.GetExtension(dlPath).ToLowerInvariant();
+                                    if (ext is ".zip" or ".7z" or ".rar")
+                                    {
+                                        string extractDir = Path.Combine(modsRoot, Path.GetFileNameWithoutExtension(dlPath));
+                                        Directory.CreateDirectory(extractDir);
+                                        await ExtractArchiveWith7zAsync(dlPath, extractDir, ct).ConfigureAwait(false);
+                                        try { File.Delete(dlPath); } catch { }
+                                        var modFolders = DiscoverModPayloadsInDirectory(extractDir);
+                                        extractedModPaths.AddRange(modFolders);
+                                    }
+                                    else
+                                    {
+                                        extractedModPaths.Add(dlPath);
+                                    }
+                                    if (extractedModPaths.Count > 0)
+                                    {
+                                        mirrorSucceeded = true;
+                                    }
+                                }
+                            }
+                            catch { }
                         }
 
                         if (mirrorSucceeded)
@@ -6560,13 +6603,13 @@ namespace StormSwitchBox.Services
             // 7. Облако Mail.ru
             if (lower.Contains("cloud.mail.ru/public/"))
             {
-                var mrMatch = Regex.Match(url, @"cloud\.mail\.ru/public/([a-zA-Z0-9]+/[a-zA-Z0-9_-]+)", RegexOptions.IgnoreCase);
+                var mrMatch = Regex.Match(url, @"cloud\.mail\.ru/public/([a-zA-Z0-9]+/[a-zA-Z0-9_.-]+)", RegexOptions.IgnoreCase);
                 if (mrMatch.Success)
                 {
                     string weblink = mrMatch.Groups[1].Value;
                     try
                     {
-                        using var dispResp = await client.GetAsync("https://cloud.mail.ru/api/v2/dispatcher", ct).ConfigureAwait(false);
+                        using var dispResp = await client.GetAsync("https://cloud.mail.ru/api/v2/dispatcher?api=2", ct).ConfigureAwait(false);
                         if (dispResp.IsSuccessStatusCode)
                         {
                             string dJson = await dispResp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
@@ -6579,9 +6622,74 @@ namespace StormSwitchBox.Services
                                 string baseUrl = uProp.GetString() ?? "";
                                 if (!string.IsNullOrEmpty(baseUrl))
                                 {
-                                    string direct = baseUrl.TrimEnd('/') + "/" + weblink;
-                                    string fn = Path.GetFileName(weblink) + ".zip";
-                                    return (direct, fn, null);
+                                    string suggestedName = Path.GetFileName(weblink) + ".zip";
+                                    string targetWeblink = weblink;
+
+                                    try
+                                    {
+                                        using var fileResp = await client.GetAsync($"https://cloud.mail.ru/api/v2/file?weblink={Uri.EscapeDataString(weblink)}", ct).ConfigureAwait(false);
+                                        if (fileResp.IsSuccessStatusCode)
+                                        {
+                                            string fJson = await fileResp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                                            using var fDoc = JsonDocument.Parse(fJson);
+                                            if (fDoc.RootElement.TryGetProperty("body", out var fbProp))
+                                            {
+                                                if (fbProp.TryGetProperty("name", out var np))
+                                                    suggestedName = np.GetString() ?? suggestedName;
+
+                                                if (fbProp.TryGetProperty("kind", out var kp) && kp.GetString() == "folder")
+                                                {
+                                                    using var foldResp = await client.GetAsync($"https://cloud.mail.ru/api/v2/folder?weblink={Uri.EscapeDataString(weblink)}", ct).ConfigureAwait(false);
+                                                    if (foldResp.IsSuccessStatusCode)
+                                                    {
+                                                        string foldJson = await foldResp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                                                        using var foldDoc = JsonDocument.Parse(foldJson);
+                                                        if (foldDoc.RootElement.TryGetProperty("body", out var foldBody) &&
+                                                            foldBody.TryGetProperty("list", out var listProp) &&
+                                                            listProp.ValueKind == JsonValueKind.Array)
+                                                        {
+                                                            string? bestWeblink = null;
+                                                            string? bestName = null;
+                                                            (int, int, int, int)? maxVer = null;
+
+                                                            foreach (var item in listProp.EnumerateArray())
+                                                            {
+                                                                string iname = item.TryGetProperty("name", out var inp) ? (inp.GetString() ?? "") : "";
+                                                                string iweblink = item.TryGetProperty("weblink", out var iwp) ? (iwp.GetString() ?? "") : "";
+                                                                if (string.IsNullOrEmpty(iname)) continue;
+
+                                                                var ver = TryExtractModVersionTuple(iname);
+                                                                if (ver != null)
+                                                                {
+                                                                    if (maxVer == null || CompareVersionTuples(ver.Value, maxVer.Value) > 0)
+                                                                    {
+                                                                        maxVer = ver;
+                                                                        bestWeblink = iweblink;
+                                                                        bestName = iname;
+                                                                    }
+                                                                }
+                                                                else if (bestWeblink == null && (iname.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) || iname.EndsWith(".7z", StringComparison.OrdinalIgnoreCase) || iname.EndsWith(".rar", StringComparison.OrdinalIgnoreCase)))
+                                                                {
+                                                                    bestWeblink = iweblink;
+                                                                    bestName = iname;
+                                                                }
+                                                            }
+
+                                                            if (!string.IsNullOrEmpty(bestWeblink))
+                                                            {
+                                                                targetWeblink = bestWeblink;
+                                                                suggestedName = bestName ?? suggestedName;
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    catch { }
+
+                                    string direct = baseUrl.TrimEnd('/') + "/" + targetWeblink.TrimStart('/');
+                                    return (direct, suggestedName, null);
                                 }
                             }
                         }
@@ -7311,63 +7419,260 @@ namespace StormSwitchBox.Services
             return null;
         }
 
+        public static bool IsAntiBotChallengeOrErrorHtml(string? html)
+        {
+            if (string.IsNullOrWhiteSpace(html) || html.Length < 400) return true;
+            string lower = html.ToLowerInvariant();
+            return lower.Contains("just a moment...") ||
+                   lower.Contains("cf-turnstile") ||
+                   lower.Contains("ddos-guard") ||
+                   lower.Contains("проверка браузера") ||
+                   lower.Contains("showcaptcha") ||
+                   lower.Contains("g-recaptcha") ||
+                   lower.Contains("h-captcha") ||
+                   lower.Contains("enable javascript and cookies to continue") ||
+                   lower.Contains("attention required! | cloudflare");
+        }
+
+        public static bool IsHtmlOrErrorStubFile(string filePath)
+        {
+            try
+            {
+                if (!File.Exists(filePath)) return true;
+                var fi = new FileInfo(filePath);
+                if (fi.Length == 0) return true;
+                using var fs = File.OpenRead(filePath);
+                byte[] buf = new byte[Math.Min(1024, (int)fs.Length)];
+                int read = fs.Read(buf, 0, buf.Length);
+                if (read < 4) return true;
+                string text = Encoding.UTF8.GetString(buf, 0, read);
+                string lower = text.ToLowerInvariant();
+                return lower.StartsWith("<!doctype") || lower.StartsWith("<html") || lower.StartsWith("<script") ||
+                       lower.StartsWith("{\"error\"") || lower.Contains("<body") || lower.Contains("обнаружена ошибка") ||
+                       lower.Contains("4pda.to") || lower.Contains("cloudflare") || lower.Contains("just a moment");
+            }
+            catch { return false; }
+        }
+
+        public static (int Major, int Minor, int Patch, int Build)? TryExtractModVersionTuple(string? text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return null;
+            var matches = Regex.Matches(text, @"(?:^|[^0-9a-zA-Z])v?(\d+(?:\.\d+){1,3}[a-zA-Z]?)(?:[^0-9a-zA-Z]|$)", RegexOptions.IgnoreCase);
+            foreach (Match m in matches)
+            {
+                string rawVer = m.Groups[1].Value;
+                string[] parts = rawVer.Split('.');
+                try
+                {
+                    var nums = new List<int>();
+                    foreach (var p in parts)
+                    {
+                        var numMatch = Regex.Match(p, @"^(\d+)");
+                        nums.Add(numMatch.Success ? int.Parse(numMatch.Groups[1].Value) : 0);
+                    }
+                    if (nums.Count == 0 || nums[0] > 1900 || nums.Count > 4) continue;
+                    while (nums.Count < 4) nums.Add(0);
+                    return (nums[0], nums[1], nums[2], nums[3]);
+                }
+                catch { }
+            }
+            return null;
+        }
+
+        public static int CompareVersionTuples((int Major, int Minor, int Patch, int Build) a, (int Major, int Minor, int Patch, int Build) b)
+        {
+            int c = a.Major.CompareTo(b.Major);
+            if (c != 0) return c;
+            c = a.Minor.CompareTo(b.Minor);
+            if (c != 0) return c;
+            c = a.Patch.CompareTo(b.Patch);
+            if (c != 0) return c;
+            return a.Build.CompareTo(b.Build);
+        }
+
+        public static string StripOldVersionSpoilers(string html)
+        {
+            if (string.IsNullOrWhiteSpace(html)) return html;
+            string[] patterns = new[]
+            {
+                @"<div\s+class=[""']sp-wrap[""'][^>]*>.*?<div\s+class=[""']sp-head[^""']*[""'][^>]*>(?:(?!</div>).)*(?:старые|старая|архив|история|предыдущ|old\s*ver|previous|changelog|лог\s*измен).*?</div>\s*<div\s+class=[""']sp-body[""'][^>]*>.*?</div>\s*</div>",
+                @"<div\s+class=[""']ipsSpoiler[""'][^>]*>.*?<div\s+class=[""']ipsSpoiler_header[""'][^>]*>(?:(?!</div>).)*(?:старые|старая|архив|история|предыдущ|old\s*ver|previous|changelog|лог\s*измен).*?</div>\s*<div\s+class=[""']ipsSpoiler_contents[""'][^>]*>.*?</div>\s*</div>",
+                @"<details[^>]*>.*?<summary[^>]*>(?:(?!</summary>).)*(?:старые|старая|архив|история|предыдущ|old\s*ver|previous|changelog|лог\s*измен).*?</summary>.*?</details>"
+            };
+            foreach (var pat in patterns)
+            {
+                html = Regex.Replace(html, pat, "", RegexOptions.Singleline | RegexOptions.IgnoreCase);
+            }
+            return html;
+        }
+
+        public static async Task<string?> FetchForumPageHtmlWithBypassAsync(HttpClient client, string forumUrl, CancellationToken ct)
+        {
+            // Method 1: Прямой запрос с Chrome 131 заголовками и SharedForumCookies
+            try
+            {
+                using var req = new HttpRequestMessage(HttpMethod.Get, forumUrl);
+                req.Headers.TryAddWithoutValidation("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
+                req.Headers.TryAddWithoutValidation("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8");
+                req.Headers.TryAddWithoutValidation("Accept-Language", "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7");
+                req.Headers.TryAddWithoutValidation("sec-ch-ua", "\"Google Chrome\";v=\"131\", \"Chromium\";v=\"131\", \"Not_A Brand\";v=\"24\"");
+                req.Headers.TryAddWithoutValidation("sec-ch-ua-mobile", "?0");
+                req.Headers.TryAddWithoutValidation("sec-ch-ua-platform", "\"Windows\"");
+
+                string cookieHeader = SharedForumCookies.GetCookieHeader(new Uri(forumUrl));
+                if (!string.IsNullOrEmpty(cookieHeader))
+                {
+                    req.Headers.TryAddWithoutValidation("Cookie", cookieHeader);
+                }
+
+                // Для zoneofgames.ru применяем короткий таймаут 3.5с из-за частых зависаний DPI провайдеров
+                var reqCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                if (forumUrl.Contains("zoneofgames.ru", StringComparison.OrdinalIgnoreCase))
+                    reqCts.CancelAfter(TimeSpan.FromSeconds(3.5));
+
+                using var resp = await client.SendAsync(req, HttpCompletionOption.ResponseContentRead, reqCts.Token).ConfigureAwait(false);
+                if (resp.IsSuccessStatusCode)
+                {
+                    byte[] bytes = await resp.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
+                    string html = DecodeRuTrackerHtml(bytes, resp.Content.Headers.ContentType?.CharSet);
+                    if (!IsAntiBotChallengeOrErrorHtml(html))
+                        return html;
+                }
+            }
+            catch { }
+
+            // Method 2: Зеркальные домены и внешние прокси-рендереры
+            try
+            {
+                // Если 4pda.to, пробуем зеркало 4pda.ws
+                if (forumUrl.Contains("4pda.to", StringComparison.OrdinalIgnoreCase))
+                {
+                    string wsUrl = forumUrl.Replace("4pda.to", "4pda.ws");
+                    using var wsReq = new HttpRequestMessage(HttpMethod.Get, wsUrl);
+                    wsReq.Headers.TryAddWithoutValidation("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
+                    using var wsResp = await client.SendAsync(wsReq, HttpCompletionOption.ResponseContentRead, ct).ConfigureAwait(false);
+                    if (wsResp.IsSuccessStatusCode)
+                    {
+                        byte[] bytes = await wsResp.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
+                        string html = DecodeRuTrackerHtml(bytes, wsResp.Content.Headers.ContentType?.CharSet);
+                        if (!IsAntiBotChallengeOrErrorHtml(html))
+                            return html;
+                    }
+                }
+
+                // Cloud proxy: api.codetabs.com
+                string proxyUrl = $"https://api.codetabs.com/v1/proxy?quest={Uri.EscapeDataString(forumUrl)}";
+                using var pReq = new HttpRequestMessage(HttpMethod.Get, proxyUrl);
+                pReq.Headers.TryAddWithoutValidation("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
+                var pCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                pCts.CancelAfter(TimeSpan.FromSeconds(4.5));
+                using var pResp = await client.SendAsync(pReq, HttpCompletionOption.ResponseContentRead, pCts.Token).ConfigureAwait(false);
+                if (pResp.IsSuccessStatusCode)
+                {
+                    string html = await pResp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                    if (!IsAntiBotChallengeOrErrorHtml(html))
+                        return html;
+                }
+            }
+            catch { }
+
+            // Cloud headless renderer: r.jina.ai
+            try
+            {
+                string jinaUrl = $"https://r.jina.ai/{forumUrl}";
+                using var jReq = new HttpRequestMessage(HttpMethod.Get, jinaUrl);
+                jReq.Headers.TryAddWithoutValidation("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
+                var jCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                jCts.CancelAfter(TimeSpan.FromSeconds(7));
+                using var jResp = await client.SendAsync(jReq, HttpCompletionOption.ResponseContentRead, jCts.Token).ConfigureAwait(false);
+                if (jResp.IsSuccessStatusCode)
+                {
+                    string jText = await jResp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                    if (!string.IsNullOrWhiteSpace(jText) && jText.Length > 200)
+                        return jText;
+                }
+            }
+            catch { }
+
+            // Method 3: Бесшумный WebView2 через ExternalBrowserBypassHandler
+            if (ExternalBrowserBypassHandler != null)
+            {
+                try
+                {
+                    var (wvHtml, _, cookies) = await ExternalBrowserBypassHandler(forumUrl, false, ct).ConfigureAwait(false);
+                    if (!string.IsNullOrEmpty(cookies))
+                    {
+                        try { SharedForumCookies.SetCookies(new Uri(forumUrl), cookies); } catch { }
+                    }
+                    if (!IsAntiBotChallengeOrErrorHtml(wvHtml))
+                        return wvHtml;
+                }
+                catch { }
+            }
+
+            return null;
+        }
+
         public static async Task<List<string>> ResolveForumPostEmbeddedCloudUrlsAsync(HttpClient client, string forumUrl, CancellationToken ct)
         {
             var discovered = new List<string>();
             try
             {
-                using var req = new HttpRequestMessage(HttpMethod.Get, forumUrl);
-                req.Headers.TryAddWithoutValidation("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
-                using var resp = await client.SendAsync(req, HttpCompletionOption.ResponseContentRead, ct).ConfigureAwait(false);
-                if (!resp.IsSuccessStatusCode) return discovered;
+                string? html = await FetchForumPageHtmlWithBypassAsync(client, forumUrl, ct).ConfigureAwait(false);
+                if (string.IsNullOrEmpty(html)) return discovered;
 
-                string finalUri = resp.RequestMessage?.RequestUri?.ToString() ?? forumUrl;
-                byte[] bytes = await resp.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
-                string html = DecodeRuTrackerHtml(bytes, resp.Content.Headers.ContentType?.CharSet);
-
-                // Извлекаем идентификатор поста из URL (напр. p=140785061 или #entry140785061)
+                // Извлекаем идентификатор поста из URL (напр. p=140785061 или #entry140785061 или comment=1291955)
                 string? postId = null;
-                var pm = Regex.Match(forumUrl, @"[?&]p=(\d+)|#entry(\d+)", RegexOptions.IgnoreCase);
+                var pm = Regex.Match(forumUrl, @"[?&](?:p|comment)=(\d+)|#(?:entry|elComment_|post-main-)(\d+)", RegexOptions.IgnoreCase);
                 if (pm.Success)
                     postId = !string.IsNullOrEmpty(pm.Groups[1].Value) ? pm.Groups[1].Value : pm.Groups[2].Value;
-
-                if (string.IsNullOrEmpty(postId))
-                {
-                    var fpm = Regex.Match(finalUri, @"[?&]p=(\d+)|#entry(\d+)", RegexOptions.IgnoreCase);
-                    if (fpm.Success)
-                        postId = !string.IsNullOrEmpty(fpm.Groups[1].Value) ? fpm.Groups[1].Value : fpm.Groups[2].Value;
-                }
 
                 string targetHtml = html;
                 if (!string.IsNullOrEmpty(postId))
                 {
-                    var postMarker = Regex.Match(html, $@"(?:data-post=""{postId}""|name=""entry{postId}""|id=""post-main-{postId}"")", RegexOptions.IgnoreCase);
+                    var postMarker = Regex.Match(html, $@"(?:data-post=""{postId}""|name=""entry{postId}""|id=""post-main-{postId}""|id=""elComment_{postId}"")", RegexOptions.IgnoreCase);
                     if (postMarker.Success)
                     {
                         int startPos = postMarker.Index;
-                        var nextPost = Regex.Match(html.Substring(startPos + 100), @"data-post=""\d+""|class=""post_header_container""", RegexOptions.IgnoreCase);
-                        int endPos = nextPost.Success ? startPos + 100 + nextPost.Index : Math.Min(html.Length, startPos + 10000);
+                        var nextPost = Regex.Match(html.Substring(startPos + 100), @"(?:data-post=""\d+""|class=""post_header_container""|id=""elComment_\d+"")", RegexOptions.IgnoreCase);
+                        int endPos = nextPost.Success ? startPos + 100 + nextPost.Index : Math.Min(html.Length, startPos + 15000);
                         targetHtml = html.Substring(startPos, endPos - startPos);
                     }
                 }
 
-                var rawUrls = new List<string>();
-                var hrefMatches = Regex.Matches(targetHtml, @"href=[""'](https?://[^""'\s<>]+)[""']", RegexOptions.IgnoreCase);
+                // 1. Очищаем спойлеры со старыми версиями
+                targetHtml = StripOldVersionSpoilers(targetHtml);
+
+                // 2. Сбор кандидатов: парсим как HTML-ссылки, так и Markdown [текст](url)
+                var rawCandidates = new List<(string Url, string Anchor, string Prefix)>();
+
+                var hrefMatches = Regex.Matches(targetHtml, @"<a\s+[^>]*href=[""'](https?://[^""']+)[""'][^>]*>(.*?)</a>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
                 foreach (Match m in hrefMatches)
                 {
-                    rawUrls.Add(m.Groups[1].Value);
+                    string u = m.Groups[1].Value.Trim();
+                    string anchor = Regex.Replace(m.Groups[2].Value, @"<[^>]+>", " ").Trim();
+                    int startPos = m.Index;
+                    string prefix = targetHtml.Substring(Math.Max(0, startPos - 120), Math.Min(120, startPos));
+                    string cleanPrefix = Regex.Replace(prefix, @"<[^>]+>", " ").Trim();
+                    rawCandidates.Add((u, anchor, cleanPrefix));
                 }
 
-                var textMatches = Regex.Matches(targetHtml, @"(https?://[^\s""'<>]+)", RegexOptions.IgnoreCase);
-                foreach (Match m in textMatches)
+                var mdMatches = Regex.Matches(targetHtml, @"\[([^\]]+)\]\((https?://[^\)]+)\)", RegexOptions.IgnoreCase);
+                foreach (Match m in mdMatches)
                 {
-                    string tu = m.Groups[1].Value.TrimEnd('.', ',', ';', ':', ')', ']', '>');
-                    rawUrls.Add(tu);
+                    string anchor = m.Groups[1].Value.Trim();
+                    string u = m.Groups[2].Value.Trim();
+                    int startPos = m.Index;
+                    string prefix = targetHtml.Substring(Math.Max(0, startPos - 120), Math.Min(120, startPos));
+                    string cleanPrefix = Regex.Replace(prefix, @"<[^>]+>", " ").Trim();
+                    rawCandidates.Add((u, anchor, cleanPrefix));
                 }
 
-                foreach (var raw in rawUrls)
+                var richCandidates = new List<(string Url, (int Major, int Minor, int Patch, int Build)? Version, int? AttachId, bool IsCloud, bool IsCompanion)>();
+
+                foreach (var (rawUrl, anchor, prefix) in rawCandidates)
                 {
-                    string u = WebUtility.HtmlDecode(raw).Trim();
+                    string u = WebUtility.HtmlDecode(rawUrl).Trim();
                     // Разворачиваем редирект 4PDA pages/go/?u=...
                     if (u.Contains("4pda.to/pages/go/?u=", StringComparison.OrdinalIgnoreCase) ||
                         u.Contains("4pda.ru/pages/go/?u=", StringComparison.OrdinalIgnoreCase))
@@ -7378,9 +7683,7 @@ namespace StormSwitchBox.Services
                             var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
                             string? target = query["u"];
                             if (!string.IsNullOrEmpty(target))
-                            {
                                 u = Uri.UnescapeDataString(target);
-                            }
                         }
                         catch { }
                     }
@@ -7394,13 +7697,75 @@ namespace StormSwitchBox.Services
                         lower.Contains("dropbox.com") || lower.Contains("workupload.com") || lower.Contains("gofile.io") ||
                         lower.Contains("buzzheavier.") || lower.Contains("catbox.moe") || lower.Contains("krakenfiles.") ||
                         lower.Contains("modsfire.") || lower.Contains("1fichier.") || lower.Contains("qiwi.gg") ||
-                        lower.Contains("send.cm") || lower.Contains("4pda.to/forum/dl/post/") ||
+                        lower.Contains("send.cm") || lower.Contains("4pda.to/forum/dl/post/") || lower.Contains("4pda.ru/forum/dl/post/") ||
                         (lower.Contains("github.com") && (lower.Contains("/releases") || lower.Contains("/raw/") || lower.Contains("/blob/") || lower.EndsWith(".zip") || lower.EndsWith(".7z") || lower.EndsWith(".rar") || lower.EndsWith(".nsp"))) ||
                         lower.EndsWith(".zip") || lower.EndsWith(".7z") || lower.EndsWith(".rar") || lower.EndsWith(".nsp") || lower.EndsWith(".nsz") || lower.EndsWith(".xci") || lower.EndsWith(".xcz") || lower.EndsWith(".ips") || lower.EndsWith(".pchtxt");
 
-                    if (isCloud && !discovered.Contains(u, StringComparer.OrdinalIgnoreCase))
+                    bool isCompanion = (lower.Contains("zoneofgames.ru") || lower.Contains("boosty.to") || (lower.Contains("github.com") && lower.Contains("/releases"))) && !isCloud;
+
+                    if (!isCloud && !isCompanion) continue;
+
+                    string decodedName = "";
+                    try { decodedName = Uri.UnescapeDataString(Path.GetFileName(new Uri(u).LocalPath)); } catch { }
+
+                    int? attachId = null;
+                    var attMatch = Regex.Match(u, @"/dl/post/(\d+)/");
+                    if (attMatch.Success)
+                        attachId = int.Parse(attMatch.Groups[1].Value);
+
+                    var ver = TryExtractModVersionTuple(decodedName) ??
+                              TryExtractModVersionTuple(anchor) ??
+                              TryExtractModVersionTuple(prefix.Split(' ').LastOrDefault()) ??
+                              TryExtractModVersionTuple(prefix);
+
+                    richCandidates.Add((u, ver, attachId, isCloud, isCompanion));
+                }
+
+                // 3. Фильтрация строго по максимальной версии (Latest-Version-Only Filtering)
+                var cloudCandidates = richCandidates.Where(c => c.IsCloud).ToList();
+                var versions = cloudCandidates.Where(c => c.Version.HasValue).Select(c => c.Version!.Value).ToList();
+                if (versions.Count > 0)
+                {
+                    var maxVer = versions.Aggregate((curMax, next) => CompareVersionTuples(next, curMax) > 0 ? next : curMax);
+                    cloudCandidates = cloudCandidates.Where(c => !c.Version.HasValue || CompareVersionTuples(c.Version.Value, maxVer) == 0).ToList();
+                }
+
+                // Если остались неверсионированные вложения 4PDA, оставляем только вложение с максимальным ID
+                var unversionedAtts = cloudCandidates.Where(c => c.AttachId.HasValue && !c.Version.HasValue).ToList();
+                if (unversionedAtts.Count > 1)
+                {
+                    int maxAid = unversionedAtts.Max(c => c.AttachId!.Value);
+                    cloudCandidates = cloudCandidates.Where(c => !c.AttachId.HasValue || c.Version.HasValue || c.AttachId.Value == maxAid).ToList();
+                }
+
+                foreach (var c in cloudCandidates)
+                {
+                    if (!discovered.Contains(c.Url, StringComparer.OrdinalIgnoreCase))
+                        discovered.Add(c.Url);
+                }
+
+                // 4. Паукообразный сбор ссылок из темы-спутника (только если нет открытых облачных зеркал!)
+                bool hasOpenCloud = discovered.Any(u =>
+                    u.Contains("cloud.mail.ru") || u.Contains("disk.yandex") || u.Contains("yadi.sk") ||
+                    u.Contains("pixeldrain") || u.Contains("drive.google") || u.Contains("mega.nz") ||
+                    u.Contains("mediafire") || u.Contains("workupload") || u.Contains("github.com"));
+
+                if (!hasOpenCloud)
+                {
+                    var companionLinks = richCandidates.Where(c => c.IsCompanion).Select(c => c.Url).ToList();
+                    foreach (var cUrl in companionLinks)
                     {
-                        discovered.Add(u);
+                        if (cUrl.Equals(forumUrl, StringComparison.OrdinalIgnoreCase)) continue;
+                        try
+                        {
+                            var compCloudUrls = await ResolveForumPostEmbeddedCloudUrlsAsync(client, cUrl, ct).ConfigureAwait(false);
+                            foreach (var cu in compCloudUrls)
+                            {
+                                if (!discovered.Contains(cu, StringComparer.OrdinalIgnoreCase))
+                                    discovered.Add(cu);
+                            }
+                        }
+                        catch { }
                     }
                 }
             }
