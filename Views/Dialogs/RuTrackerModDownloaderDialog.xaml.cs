@@ -629,8 +629,16 @@ namespace StormSwitchBox.Views.Dialogs
             _suppressSlotMergeSelection = true;
             try
             {
-                int totalSlots = _gameSlots.Count;
-                var allOptions = Enumerable.Range(1, Math.Max(1, totalSlots))
+                var slotNums = _gameSlots
+                    .Select(s => s.SlotNumber)
+                    .Where(n => n > 0)
+                    .Distinct()
+                    .OrderBy(n => n)
+                    .ToList();
+                if (slotNums.Count == 0)
+                    slotNums.Add(1);
+
+                var allOptions = slotNums
                     .Select(n => new GameSlotTargetOption { SlotNumber = n })
                     .ToList();
 
@@ -785,6 +793,8 @@ namespace StormSwitchBox.Views.Dialogs
             LiveTelemetryText.Text = $"🪄 Авто-разбивка выполнена: распознано частей/игр — {_gameSlots.Count}. Файлы сгруппированы по блокам игр.";
         }
 
+        private bool _pendingManualSlotSync;
+
         private void AddGameSlot_Click(object sender, RoutedEventArgs e)
         {
             if (_gameSlots.Count >= 10)
@@ -792,42 +802,285 @@ namespace StormSwitchBox.Views.Dialogs
                 LiveTelemetryText.Text = "⚠️ Достигнут максимум 10 отдельных слотов в списке быстрой привязки.";
                 return;
             }
-            int nextNum = _gameSlots.Count + 1;
+            int nextNum = Enumerable.Range(1, 10).FirstOrDefault(n => _gameSlots.All(s => s.SlotNumber != n));
+            if (nextNum <= 0) nextNum = _gameSlots.Count + 1;
+
+            string inferred = InferGameTitleForSlot(nextNum);
             string baseName = _gameSlots.Count > 0
                 ? System.Text.RegularExpressions.Regex.Replace(_gameSlots[0].GameTitle, @"\s+\d+$", "").Trim()
                 : (!string.IsNullOrWhiteSpace(_currentTopicTitle) ? _currentTopicTitle : "Игра");
+            string slotTitle = !string.IsNullOrWhiteSpace(inferred) && !inferred.StartsWith("Игра #", StringComparison.OrdinalIgnoreCase)
+                ? inferred
+                : $"{baseName} {nextNum}";
+
             var slot = new RuTrackerGameSlotItem
             {
                 SlotNumber = nextNum,
                 IsEnabled = true,
-                GameTitle = $"{baseName} {nextNum}",
+                IsManuallyAdded = true,
+                GameTitle = slotTitle,
                 TargetFormat = GetDefaultTargetFormat()
             };
             slot.PropertyChanged += (_, _) => UpdateGameSlotsSummary();
-            _gameSlots.Add(slot);
+            InsertSlotSorted(slot);
             RefreshGameSlotTargetOptions();
+            EnrichGameSlotsFromFilesAndTitleDb();
             UpdateGameSlotsSummary();
+            try { GameSlotsListView?.ScrollIntoView(slot); } catch { }
+        }
+
+        private void InsertSlotSorted(RuTrackerGameSlotItem slot)
+        {
+            int insertIdx = 0;
+            while (insertIdx < _gameSlots.Count && _gameSlots[insertIdx].SlotNumber < slot.SlotNumber)
+                insertIdx++;
+            _gameSlots.Insert(insertIdx, slot);
         }
 
         private void RemoveGameSlot_Click(object sender, RoutedEventArgs e)
         {
             if (_gameSlots.Count <= 1) return;
-            int removedSlot = _gameSlots.Count;
+            int removedSlot = _gameSlots[^1].SlotNumber;
             _gameSlots.RemoveAt(_gameSlots.Count - 1);
+            int fallbackSlot = _gameSlots.Count > 0 ? _gameSlots[0].SlotNumber : 1;
             _suppressGroupRebuild = true;
             foreach (var f in _torrentFiles.Where(x => x.TargetGameSlot == removedSlot))
-                f.TargetGameSlot = 1;
+                f.TargetGameSlot = fallbackSlot;
             foreach (var l in _discussionLinks.Where(x => x.TargetGameSlot == removedSlot))
-                l.TargetGameSlot = 1;
+                l.TargetGameSlot = fallbackSlot;
             _suppressGroupRebuild = false;
             RefreshGameSlotTargetOptions();
+            EnrichGameSlotsFromFilesAndTitleDb();
             UpdateGameSlotsSummary();
         }
 
         private void SlotAssignmentCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (_suppressGroupRebuild) return;
+            // Игнорируем первичную инициализацию шаблона WinUI ComboBox при рендеринге списка
+            if (e.RemovedItems.Count == 0 || e.AddedItems.Count == 0) return;
+
+            if (sender is ComboBox cb && cb.SelectedIndex >= 0)
+            {
+                int targetSlot = cb.SelectedIndex;
+                if (cb.DataContext is TorrentFileSelectionItem tf && tf.TargetGameSlot != targetSlot)
+                {
+                    tf.TargetGameSlot = targetSlot;
+                }
+                else if (cb.DataContext is CloudModLinkItem cl && cl.TargetGameSlot != targetSlot)
+                {
+                    cl.TargetGameSlot = targetSlot;
+                }
+            }
+
+            if (_pendingManualSlotSync) return;
+            _pendingManualSlotSync = true;
+
+            if (DispatcherQueue != null)
+            {
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    _pendingManualSlotSync = false;
+                    SyncGameSlotsFromManualAssignments();
+                });
+            }
+            else
+            {
+                _pendingManualSlotSync = false;
+                SyncGameSlotsFromManualAssignments();
+            }
+        }
+
+        private string InferGameTitleForSlot(int slotNumber)
+        {
+            var slotFiles = _torrentFiles.Where(f => f.TargetGameSlot == slotNumber).ToList();
+            if (slotFiles.Count > 0)
+            {
+                // 1. Пробуем найти точное имя по Base TitleID в базе TitleDB
+                foreach (var f in slotFiles)
+                {
+                    string rawTid = !string.IsNullOrWhiteSpace(f.DetectedTitleId)
+                        ? f.DetectedTitleId
+                        : RuTrackerModService.ExtractTitleId(f.RelativePath ?? string.Empty);
+                    string baseTid = RuTrackerModService.NormalizeSwitchBaseApplicationTitleId(rawTid);
+                    if (baseTid.Length == 16 && App.TitleDb != null && App.TitleDb.TryGetTitleInfo(baseTid, out var dbEntry) &&
+                        dbEntry != null && !string.IsNullOrWhiteSpace(dbEntry.Name))
+                    {
+                        return dbEntry.Name.Trim();
+                    }
+                }
+
+                // 2. Пробуем извлечь чистое название из файла базовой игры или любого файла слота
+                var preferred = slotFiles
+                    .OrderBy(f => RuTrackerModService.ClassifyTorrentEntryBadge(f.RelativePath ?? string.Empty) == "ИГРА" ? 0 : 1)
+                    .ThenBy(f => f.Length > 0 ? -f.Length : 0)
+                    .ToList();
+
+                foreach (var f in preferred)
+                {
+                    string clean = RuTrackerModService.ExtractCleanGameTitleFromFilePath(f.RelativePath ?? string.Empty);
+                    if (!string.IsNullOrWhiteSpace(clean))
+                        return clean;
+                }
+
+                // 3. Fallback: имя родительской папки без ведущего номера
+                foreach (var f in preferred)
+                {
+                    string topKey = RuTrackerModService.ExtractGameTopFolderKey(f.RelativePath);
+                    if (!string.IsNullOrWhiteSpace(topKey))
+                    {
+                        string stripped = System.Text.RegularExpressions.Regex.Replace(topKey, @"^\d{1,2}[.)\s_-]+", "").Trim();
+                        if (!string.IsNullOrWhiteSpace(stripped))
+                            return stripped;
+                    }
+                }
+            }
+
+            var slotLinks = _discussionLinks.Where(l => l.TargetGameSlot == slotNumber).ToList();
+            foreach (var l in slotLinks)
+            {
+                string clean = RuTrackerModService.ExtractCleanGameTitleFromFilePath(l.Title ?? string.Empty);
+                if (!string.IsNullOrWhiteSpace(clean))
+                    return clean;
+            }
+
+            return $"Игра #{slotNumber}";
+        }
+
+        private static bool IsGenericPlaceholderSlotTitle(string? title)
+        {
+            if (string.IsNullOrWhiteSpace(title)) return true;
+            return System.Text.RegularExpressions.Regex.IsMatch(title.Trim(), @"^(?:Игра|Game)\s*#?\d+$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        }
+
+        private void SyncGameSlotsFromManualAssignments()
+        {
+            if (_suppressGroupRebuild) return;
+
+            var newlyCreatedSlots = new List<RuTrackerGameSlotItem>();
+
+            _suppressGroupRebuild = true;
+            try
+            {
+                // 1. Восстанавливаем бейдж "ИГРА" у базовых образов ([v0]), которые ранее при слиянии слотов получили бейдж "DLC",
+                //    если пользователь выделил их обратно в отдельный игровой слот.
+                foreach (var grp in _torrentFiles.Where(f => f.TargetGameSlot > 0).GroupBy(f => f.TargetGameSlot))
+                {
+                    var existingBaseTids = grp
+                        .Where(f => f.CategoryBadge == "ИГРА")
+                        .Select(f => RuTrackerModService.NormalizeSwitchBaseApplicationTitleId(
+                            !string.IsNullOrWhiteSpace(f.DetectedTitleId) ? f.DetectedTitleId : RuTrackerModService.ExtractTitleId(f.RelativePath ?? string.Empty)))
+                        .Where(t => t.Length == 16)
+                        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+                    foreach (var f in grp)
+                    {
+                        if (f.CategoryBadge == "DLC" &&
+                            f.IsRealTorrentFile &&
+                            RuTrackerModService.ClassifyTorrentEntryBadge(f.RelativePath ?? string.Empty) == "ИГРА")
+                        {
+                            string fBaseTid = RuTrackerModService.NormalizeSwitchBaseApplicationTitleId(
+                                !string.IsNullOrWhiteSpace(f.DetectedTitleId) ? f.DetectedTitleId : RuTrackerModService.ExtractTitleId(f.RelativePath ?? string.Empty));
+                            if (existingBaseTids.Count == 0 || (fBaseTid.Length == 16 && existingBaseTids.Contains(fBaseTid)))
+                            {
+                                f.CategoryBadge = "ИГРА";
+                                if (fBaseTid.Length == 16)
+                                    existingBaseTids.Add(fBaseTid);
+                            }
+                        }
+                    }
+                }
+
+                // 2. Находим все номера слотов (> 0), которые назначены хотя бы одному файлу или ссылке
+                var referencedSlotNums = _torrentFiles.Select(f => f.TargetGameSlot)
+                    .Concat(_discussionLinks.Select(l => l.TargetGameSlot))
+                    .Where(n => n > 0)
+                    .Distinct()
+                    .OrderBy(n => n)
+                    .ToList();
+
+                string defaultFmt = GetDefaultTargetFormat();
+
+                foreach (int slotNum in referencedSlotNums)
+                {
+                    if (_gameSlots.All(s => s.SlotNumber != slotNum))
+                    {
+                        var newSlot = new RuTrackerGameSlotItem
+                        {
+                            SlotNumber = slotNum,
+                            IsEnabled = true,
+                            GameTitle = InferGameTitleForSlot(slotNum),
+                            TargetFormat = defaultFmt
+                        };
+                        newSlot.PropertyChanged += (_, _) => UpdateGameSlotsSummary();
+                        InsertSlotSorted(newSlot);
+                        newlyCreatedSlots.Add(newSlot);
+                    }
+                }
+
+                // 3. Актуализируем названия существующих слотов, если у них стояла заглушка "Игра #N"
+                //    или если файлы прежней игры были полностью перенесены в другой слот
+                foreach (var slot in _gameSlots)
+                {
+                    if (slot.IsUserEditedMetadata) continue;
+                    var slotFiles = _torrentFiles.Where(f => f.TargetGameSlot == slot.SlotNumber).ToList();
+                    if (slotFiles.Count == 0) continue;
+
+                    var currentBaseTids = slotFiles
+                        .Select(f => RuTrackerModService.NormalizeSwitchBaseApplicationTitleId(
+                            !string.IsNullOrWhiteSpace(f.DetectedTitleId) ? f.DetectedTitleId : RuTrackerModService.ExtractTitleId(f.RelativePath ?? string.Empty)))
+                        .Where(t => t.Length == 16)
+                        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+                    bool oldTidGone = slot.TitleId.Length == 16 &&
+                                      slot.TitleId != "0100000000000000" &&
+                                      currentBaseTids.Count > 0 &&
+                                      !currentBaseTids.Contains(RuTrackerModService.NormalizeSwitchBaseApplicationTitleId(slot.TitleId));
+
+                    if (IsGenericPlaceholderSlotTitle(slot.GameTitle) || oldTidGone)
+                    {
+                        string inferred = InferGameTitleForSlot(slot.SlotNumber);
+                        if (!string.IsNullOrWhiteSpace(inferred) && !IsGenericPlaceholderSlotTitle(inferred))
+                        {
+                            slot.GameTitle = inferred;
+                        }
+                    }
+                }
+
+                // 4. Удаляем опустевшие авто-слоты (без файлов, ссылок и ручных ссылок), оставляя минимум 1 слот
+                if (_gameSlots.Count > 1)
+                {
+                    var emptyAutoSlots = _gameSlots
+                        .Where(s => !s.IsManuallyAdded &&
+                                    string.IsNullOrWhiteSpace(s.ManualExtraLinks) &&
+                                    _torrentFiles.All(f => f.TargetGameSlot != s.SlotNumber) &&
+                                    _discussionLinks.All(l => l.TargetGameSlot != s.SlotNumber))
+                        .ToList();
+
+                    foreach (var emptySlot in emptyAutoSlots)
+                    {
+                        if (_gameSlots.Count <= 1) break;
+                        _gameSlots.Remove(emptySlot);
+                    }
+                }
+
+                RuTrackerModService.SortTorrentFilesBySlotAndRole(_torrentFiles);
+            }
+            finally
+            {
+                _suppressGroupRebuild = false;
+            }
+
+            RefreshGameSlotTargetOptions();
+            EnrichGameSlotsFromFilesAndTitleDb();
             UpdateGameSlotsSummary();
+
+            if (newlyCreatedSlots.Count > 0)
+            {
+                try { GameSlotsListView?.ScrollIntoView(newlyCreatedSlots[^1]); } catch { }
+                string addedDesc = string.Join(", ", newlyCreatedSlots.Select(s => $"Игра #{s.SlotNumber} ({s.GameTitle})"));
+                LiveTelemetryText.Text = $"➕ Автоматически добавлена задача в список игр: {addedDesc}. Всего игр/задач: {_gameSlots.Count}.";
+            }
         }
 
         private void UpdateGameSlotsSummary()
@@ -885,11 +1138,13 @@ namespace StormSwitchBox.Views.Dialogs
                         is3ds = true;
                     }
 
-                    string tid = RuTrackerModService.ExtractTitleId(rel);
+                    string tid = !string.IsNullOrWhiteSpace(f.DetectedTitleId)
+                        ? f.DetectedTitleId
+                        : RuTrackerModService.ExtractTitleId(rel);
                     if (tid.Length == 16)
                     {
-                        string baseTid = tid.Substring(0, 13) + "000";
-                        if (string.IsNullOrEmpty(bestTid) || tid.EndsWith("000", StringComparison.OrdinalIgnoreCase))
+                        string baseTid = RuTrackerModService.NormalizeSwitchBaseApplicationTitleId(tid);
+                        if (baseTid.Length == 16 && (string.IsNullOrEmpty(bestTid) || tid.EndsWith("000", StringComparison.OrdinalIgnoreCase)))
                             bestTid = baseTid;
                     }
 
@@ -905,11 +1160,24 @@ namespace StormSwitchBox.Views.Dialogs
                     }
                 }
 
+                if (string.IsNullOrEmpty(cleanTitleFromFile))
+                {
+                    foreach (var f in slotFiles)
+                    {
+                        string fallbackFromAnyFile = RuTrackerModService.ExtractCleanGameTitleFromFilePath(f.RelativePath ?? string.Empty);
+                        if (!string.IsNullOrWhiteSpace(fallbackFromAnyFile))
+                        {
+                            cleanTitleFromFile = fallbackFromAnyFile;
+                            break;
+                        }
+                    }
+                }
+
                 if (string.IsNullOrEmpty(bestTid))
                 {
                     string fromSlot = RuTrackerModService.ExtractTitleId(slot.GameTitle);
                     if (fromSlot.Length == 16)
-                        bestTid = fromSlot.Substring(0, 13) + "000";
+                        bestTid = RuTrackerModService.NormalizeSwitchBaseApplicationTitleId(fromSlot);
                 }
 
                 if (string.IsNullOrEmpty(cleanTitleFromFile))
@@ -957,6 +1225,11 @@ namespace StormSwitchBox.Views.Dialogs
                         publisher = dbEntry.Developer.Trim();
                     }
                     iconUrl = dbEntry.IconUrl;
+                }
+
+                if (IsGenericPlaceholderSlotTitle(slot.GameTitle) && !string.IsNullOrWhiteSpace(engTitle) && !IsGenericPlaceholderSlotTitle(engTitle))
+                {
+                    slot.GameTitle = engTitle;
                 }
 
                 if (string.IsNullOrWhiteSpace(iconUrl) && _gameSlots.Count == 1 && !string.IsNullOrWhiteSpace(_currentTopicPosterUrl))
@@ -1725,7 +1998,7 @@ namespace StormSwitchBox.Views.Dialogs
                     : (!string.IsNullOrWhiteSpace(_currentTopicTitle) ? _currentTopicTitle : $"Игра {slot.SlotNumber}");
 
                 var slotFiles = _torrentFiles
-                    .Where(f => f.IsSelected && (activeSlots.Count == 1 || f.TargetGameSlot == 0 || f.TargetGameSlot == slot.SlotNumber))
+                    .Where(f => f.IsSelected && (_gameSlots.Count <= 1 || f.TargetGameSlot == 0 || f.TargetGameSlot == slot.SlotNumber))
                     .Select(f => new TorrentFileSelectionItem
                     {
                         IsSelected = true,
@@ -1740,7 +2013,7 @@ namespace StormSwitchBox.Views.Dialogs
                     })
                     .ToList();
 
-                if (slotFiles.Count == 0 && hasTorrentSource)
+                if (slotFiles.Count == 0 && hasTorrentSource && _gameSlots.Count <= 1)
                 {
                     slotFiles = _torrentFiles
                         .Where(f => f.IsSelected)
@@ -1760,7 +2033,7 @@ namespace StormSwitchBox.Views.Dialogs
                 }
 
                 var slotDiscussionLinks = _discussionLinks
-                    .Where(x => x.IsSelected && (activeSlots.Count == 1 || x.TargetGameSlot == 0 || x.TargetGameSlot == slot.SlotNumber))
+                    .Where(x => x.IsSelected && (_gameSlots.Count <= 1 || x.TargetGameSlot == 0 || x.TargetGameSlot == slot.SlotNumber))
                     .Select(x => x.MirrorUrls != null && x.MirrorUrls.Count > 0
                         ? string.Join("|MIRROR|", new[] { x.Url }.Concat(x.MirrorUrls).Distinct(StringComparer.OrdinalIgnoreCase))
                         : x.Url)
@@ -1777,6 +2050,9 @@ namespace StormSwitchBox.Views.Dialogs
                     .Concat(globalManualLinks)
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .ToList();
+
+                if (_gameSlots.Count > 1 && slotFiles.Count == 0 && slotCloudLinks.Count == 0)
+                    continue;
 
                 string slotTargetDir = activeSlots.Count > 1
                     ? Path.Combine(sharedReleaseDir, $"Part_{slot.SlotNumber}_{SanitizeFolderName(slotTitle)}")

@@ -142,6 +142,49 @@ namespace StormSwitchBox.Services
         }
 
         public bool IsPreemptedByQueue { get; set; }
+        public DateTime LastActivatedAtUtc { get; set; } = DateTime.MinValue;
+        public double SmoothedSpeedBps { get; set; }
+
+        public bool IsActivelyDownloading =>
+            IsPipelineStarted &&
+            !IsPreemptedByQueue &&
+            !IsPausedByUser &&
+            EffectiveStage is not ("ГОТОВО" or "ОТМЕНЕНО" or "ОШИБКА" or "СБОРКА" or "ПАУЗА" or "В ОЧЕРЕДИ");
+
+        public void UpdateSmoothedSpeed()
+        {
+            if (IsActivelyDownloading && EffectiveStage is "СКАЧИВАНИЕ" or "МОДЫ" or "МЕТАДАННЫЕ")
+            {
+                double raw = Math.Max(0.0, RawSpeedBps);
+                SmoothedSpeedBps = SmoothedSpeedBps <= 0.0
+                    ? raw
+                    : (SmoothedSpeedBps * 0.65) + (raw * 0.35);
+            }
+            else
+            {
+                SmoothedSpeedBps = 0.0;
+            }
+        }
+
+        /// <summary>
+        /// Возвращает true только если закачка занимает один из 5 основных скоростных слотов.
+        /// Активные закачки со скоростью ниже 200 КБ/с (после стартового прогрева 8 сек) продолжают качаться и НЕ учитываются в лимите 5!
+        /// </summary>
+        public bool CountsTowardConcurrencyLimit(DateTime nowUtc)
+        {
+            if (!IsActivelyDownloading)
+                return false;
+
+            double elapsedSec = LastActivatedAtUtc == DateTime.MinValue
+                ? 0.0
+                : (nowUtc - LastActivatedAtUtc).TotalSeconds;
+
+            if (elapsedSec < RuTrackerDownloadQueueService.StartupWarmupSeconds)
+                return true;
+
+            double effectiveBps = Math.Max(RawSpeedBps, SmoothedSpeedBps);
+            return effectiveBps >= RuTrackerDownloadQueueService.LowSpeedExemptThresholdBps;
+        }
 
         public string PauseResumeGlyph => (IsPausedByUser || StageBadge == "ПАУЗА") ? "\uE768" : "\uE769"; // E768 = Play, E769 = Pause
         public string PauseResumeToolTip => App.Localization.TranslateText((IsPausedByUser || StageBadge == "ПАУЗА") ? "Продолжить скачивание" : "Приостановить скачивание");
@@ -279,7 +322,10 @@ namespace StormSwitchBox.Services
     {
         public static RuTrackerDownloadQueueService Instance { get; } = new();
 
-                public const int MaxConcurrentDownloads = 2;
+        public const int MaxConcurrentDownloads = 5;
+        public const double LowSpeedExemptThresholdBps = 200.0 * 1024.0; // < 200 КБ/с не занимают слот в 5 одновременных закачках
+        public const double StartupWarmupSeconds = 8.0;
+        public const int MaxTotalConcurrentDownloads = 30;
         public ObservableCollection<RuTrackerActiveDownloadItem> Items { get; } = new();
         private readonly List<RuTrackerActiveDownloadItem> _backingItems = new();
 
@@ -378,6 +424,7 @@ namespace StormSwitchBox.Services
                     EvaluateQueuePriorities();
                 }
 
+                item.UpdateSmoothedSpeed();
                 item.CommitUiUpdates();
 
                 if (item.IsActive && item.EffectiveStage is "СКАЧИВАНИЕ" or "МОДЫ" or "МЕТАДАННЫЕ")
@@ -400,9 +447,12 @@ namespace StormSwitchBox.Services
                 }
             }
 
-            // Самовосстанавливающийся планировщик (Self-healing scheduler check):
-            // Если активных слотов меньше MaxConcurrentDownloads, а в очереди есть готовые к запуску задачи:
-            if (runningCount < MaxConcurrentDownloads)
+            DateTime nowUtc = DateTime.UtcNow;
+            int countedFastRunning = snapshot.Count(i => i.CountsTowardConcurrencyLimit(nowUtc));
+
+            // Самовосстанавливающийся планировщик:
+            // Закачки со скоростью < 200 КБ/с качаются параллельно и НЕ занимают слот в MaxConcurrentDownloads (5)!
+            if (countedFastRunning < MaxConcurrentDownloads && runningCount < MaxTotalConcurrentDownloads)
             {
                 bool hasPending = snapshot.Any(i =>
                     i.EffectiveStage is not ("ГОТОВО" or "ОТМЕНЕНО" or "ОШИБКА" or "СБОРКА") &&
@@ -446,36 +496,94 @@ namespace StormSwitchBox.Services
             SaveQueueState();
         }
 
-        public void EvaluateQueuePriorities()
+        public void EvaluateQueuePriorities(bool allowPreemptionForReorder = false)
         {
             lock (_syncLock)
             {
+                DateTime nowUtc = DateTime.UtcNow;
+
                 // Находим все кандидаты на загрузку: не завершены, не отменены, не ошибочны, не в сборке, не на паузе пользователем и с непустыми задачами
                 var candidates = _backingItems
                     .Where(i => i.EffectiveStage is not ("ГОТОВО" or "ОТМЕНЕНО" or "ОШИБКА" or "СБОРКА") && !i.IsPausedByUser && i.CreatedTasks.Count > 0)
                     .ToList();
 
-                var shouldBeActive = candidates.Take(MaxConcurrentDownloads).ToHashSet();
-
-                // 1. Вытесняем элементы за пределами топ-2 в статус "В ОЧЕРЕДИ" (никогда не вытесняем задачи в стадии "СБОРКА")
-                foreach (var item in _backingItems)
+                // Если пользователь вручную поднял ожидающую задачу стрелкой вверх в топ-5 при заполненных слотах —
+                // освобождаем место за счёт самой нижней быстрой задачи (медленные < 200 КБ/с никогда не останавливаем).
+                if (allowPreemptionForReorder)
                 {
-                    if (item.EffectiveStage is "ГОТОВО" or "ОТМЕНЕНО" or "ОШИБКА" or "СБОРКА" || item.IsPausedByUser)
+                    var topRequested = candidates.Take(MaxConcurrentDownloads)
+                        .Where(i => !i.IsPipelineStarted || i.IsPreemptedByQueue)
+                        .ToList();
+
+                    int currentCounted = candidates.Count(i => i.CountsTowardConcurrencyLimit(nowUtc));
+                    if (topRequested.Count > 0 && currentCounted >= MaxConcurrentDownloads)
+                    {
+                        int needToFree = Math.Min(topRequested.Count, currentCounted - MaxConcurrentDownloads + topRequested.Count);
+                        var demotableFast = candidates
+                            .Skip(MaxConcurrentDownloads)
+                            .Where(i => i.CountsTowardConcurrencyLimit(nowUtc))
+                            .Reverse()
+                            .Take(needToFree)
+                            .ToList();
+
+                        foreach (var demote in demotableFast)
+                        {
+                            demote.IsPreemptedByQueue = true;
+                            demote.PauseEvent.Reset();
+                            demote.SmoothedSpeedBps = 0;
+                            if (demote.ActiveTorrentManager != null &&
+                                (demote.ActiveTorrentManager.State == TorrentState.Downloading || demote.ActiveTorrentManager.State == TorrentState.Metadata))
+                            {
+                                try { demote.ActiveTorrentManager.PauseAsync(); } catch { }
+                            }
+                            demote.RawStageBadge = "В ОЧЕРЕДИ";
+                            demote.RawStageColor = Windows.UI.Color.FromArgb(255, 100, 116, 139);
+                            demote.RawDetails = "В очереди закачек...";
+                            demote.RawSpeedText = "В очереди";
+                            demote.RawSpeedBps = 0;
+                        }
+                    }
+                }
+
+                int totalActive = candidates.Count(i => i.IsActivelyDownloading);
+                int fastSlotsUsed = candidates.Count(i => i.CountsTowardConcurrencyLimit(nowUtc));
+
+                // Запускаем или возобновляем очередные задачи по порядку, пока занято меньше 5 быстрых слотов (>= 200 КБ/с).
+                // Все уже запущенные закачки (включая < 200 КБ/с) продолжают качаться без прерываний!
+                foreach (var item in candidates)
+                {
+                    if (item.IsActivelyDownloading)
                         continue;
 
-                    if (!shouldBeActive.Contains(item))
+                    if (fastSlotsUsed < MaxConcurrentDownloads && totalActive < MaxTotalConcurrentDownloads)
                     {
-                        if (item.IsPipelineStarted && !item.IsPreemptedByQueue)
+                        if (item.IsPreemptedByQueue)
                         {
-                            item.IsPreemptedByQueue = true;
-                            item.PauseEvent.Reset();
+                            item.IsPreemptedByQueue = false;
+                            item.LastActivatedAtUtc = nowUtc;
+                            item.SmoothedSpeedBps = 0;
+                            item.PauseEvent.Set();
                             if (item.ActiveTorrentManager != null &&
-                                (item.ActiveTorrentManager.State == TorrentState.Downloading || item.ActiveTorrentManager.State == TorrentState.Metadata))
+                                (item.ActiveTorrentManager.State == TorrentState.Paused || item.ActiveTorrentManager.State == TorrentState.Stopped))
                             {
-                                try { item.ActiveTorrentManager.PauseAsync(); } catch { }
+                                try { item.ActiveTorrentManager.StartAsync(); } catch { }
                             }
+                            item.RawStageBadge = item.HasTorrentSource ? "СКАЧИВАНИЕ" : "МОДЫ";
+                            item.RawStageColor = Windows.UI.Color.FromArgb(255, 2, 132, 199);
+                        }
+                        else if (!item.IsPipelineStarted)
+                        {
+                            item.LastActivatedAtUtc = nowUtc;
+                            item.SmoothedSpeedBps = 0;
+                            StartItemPipeline(item);
                         }
 
+                        fastSlotsUsed++;
+                        totalActive++;
+                    }
+                    else
+                    {
+                        // Ещё не запущенный или ранее вытесненный элемент ожидает свободного слота в очереди
                         item.RawStageBadge = "В ОЧЕРЕДИ";
                         item.RawStageColor = Windows.UI.Color.FromArgb(255, 100, 116, 139);
                         item.RawDetails = "В очереди закачек...";
@@ -493,27 +601,6 @@ namespace StormSwitchBox.Services
                                 }
                             });
                         }
-                    }
-                }
-
-                // 2. Активируем или возобновляем элементы из топ-2
-                foreach (var item in shouldBeActive)
-                {
-                    if (item.IsPreemptedByQueue)
-                    {
-                        item.IsPreemptedByQueue = false;
-                        item.PauseEvent.Set();
-                        if (item.ActiveTorrentManager != null &&
-                            (item.ActiveTorrentManager.State == TorrentState.Paused || item.ActiveTorrentManager.State == TorrentState.Stopped))
-                        {
-                            try { item.ActiveTorrentManager.StartAsync(); } catch { }
-                        }
-                        item.RawStageBadge = item.HasTorrentSource ? "СКАЧИВАНИЕ" : "МОДЫ";
-                        item.RawStageColor = Windows.UI.Color.FromArgb(255, 2, 132, 199);
-                    }
-                    else if (!item.IsPipelineStarted)
-                    {
-                        StartItemPipeline(item);
                     }
                 }
             }
@@ -535,6 +622,8 @@ namespace StormSwitchBox.Services
             item.IsPipelineStarted = true;
             item.IsActive = true;
             item.IsPreemptedByQueue = false;
+            if (item.LastActivatedAtUtc == DateTime.MinValue)
+                item.LastActivatedAtUtc = DateTime.UtcNow;
             item.PauseEvent.Set();
             item.RawStageBadge = item.HasTorrentSource ? "СКАЧИВАНИЕ" : "МОДЫ";
             item.RawStageColor = Windows.UI.Color.FromArgb(255, 2, 132, 199);
@@ -1133,6 +1222,8 @@ namespace StormSwitchBox.Services
                 if (item.IsPausedByUser || item.StageBadge == "ПАУЗА")
                 {
                     item.IsPausedByUser = false;
+                    item.LastActivatedAtUtc = DateTime.UtcNow;
+                    item.SmoothedSpeedBps = 0;
                     item.PauseEvent.Set();
                     if (item.ActiveTorrentManager != null &&
                         (item.ActiveTorrentManager.State == TorrentState.Paused || item.ActiveTorrentManager.State == TorrentState.Stopped))
@@ -1237,7 +1328,7 @@ namespace StormSwitchBox.Services
                         }
                     });
 
-                    EvaluateQueuePriorities();
+                    EvaluateQueuePriorities(allowPreemptionForReorder: true);
                     SaveQueueState();
                 }
             }
@@ -1263,7 +1354,7 @@ namespace StormSwitchBox.Services
                         }
                     });
 
-                    EvaluateQueuePriorities();
+                    EvaluateQueuePriorities(allowPreemptionForReorder: true);
                     SaveQueueState();
                 }
             }
@@ -1287,9 +1378,12 @@ namespace StormSwitchBox.Services
         {
             lock (_syncLock)
             {
+                DateTime nowUtc = DateTime.UtcNow;
                 foreach (var item in _backingItems.Where(i => i.IsPausedByUser || i.StageBadge == "ПАУЗА"))
                 {
                     item.IsPausedByUser = false;
+                    item.LastActivatedAtUtc = nowUtc;
+                    item.SmoothedSpeedBps = 0;
                     item.PauseEvent.Set();
                 }
                 EvaluateQueuePriorities();

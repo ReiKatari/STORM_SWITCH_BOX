@@ -279,6 +279,7 @@ namespace StormSwitchBox.Services
             set => SetProperty(ref _slotIconBitmap, value);
         }
 
+        public bool IsManuallyAdded { get; set; }
         public bool Is3ds { get; set; }
         public bool BadgeRus { get; set; }
         public bool Badge60Fps { get; set; }
@@ -301,6 +302,9 @@ namespace StormSwitchBox.Services
 
         public void SetEnrichedMetadataSilently(string titleId, string version, string engTitle, string rusTitle, string publisher, byte[]? iconBytes)
         {
+            bool titleIdChanged = !string.IsNullOrWhiteSpace(titleId) &&
+                                  !string.Equals(TitleId, titleId, StringComparison.OrdinalIgnoreCase);
+
             if (!string.IsNullOrWhiteSpace(titleId))
                 TitleId = titleId;
             if (!string.IsNullOrWhiteSpace(version))
@@ -325,9 +329,14 @@ namespace StormSwitchBox.Services
                 }
             }
 
-            if (iconBytes != null && iconBytes.Length > 0 && (_originalIconBytes == null || _originalIconBytes.Length == 0))
+            if (iconBytes != null && iconBytes.Length > 0 && (_originalIconBytes == null || _originalIconBytes.Length == 0 || titleIdChanged))
             {
                 _originalIconBytes = iconBytes;
+                RefreshSlotIconBitmap();
+            }
+            else if (titleIdChanged && (iconBytes == null || iconBytes.Length == 0))
+            {
+                _originalIconBytes = null;
                 RefreshSlotIconBitmap();
             }
         }
@@ -452,7 +461,21 @@ namespace StormSwitchBox.Services
         public long Length { get; set; }
         public long SizeBytes { get => Length; set => Length = value; }
         public string SizeFormatted => Length > 0 ? ProcessingTask.FormatSize(Length) : "DHT/Magnet";
-        public string CategoryBadge { get; set; } = "ФАЙЛ";
+
+        private string _categoryBadge = "ФАЙЛ";
+        public string CategoryBadge
+        {
+            get => _categoryBadge;
+            set
+            {
+                if (SetProperty(ref _categoryBadge, value ?? "ФАЙЛ"))
+                {
+                    OnPropertyChanged(nameof(RoleBadgeBackground));
+                    OnPropertyChanged(nameof(RoleBadgeForeground));
+                }
+            }
+        }
+
         public bool IsRealTorrentFile { get; set; } = false;
 
         public string RoleBadgeBackground => CategoryBadge switch
@@ -3219,7 +3242,36 @@ namespace StormSwitchBox.Services
             {
                 return (m.Groups["prefix"].Value.Trim().ToLowerInvariant(), n, t);
             }
-            return (t.ToLowerInvariant(), 1, t);
+            return (t.ToLowerInvariant(), 0, t);
+        }
+
+        public static int ExtractLeadingFolderOrder(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return 999;
+            string norm = path.Replace('\\', '/').TrimStart('.', '/');
+            int slashIdx = norm.IndexOf('/');
+            string firstSeg = slashIdx > 0 ? norm.Substring(0, slashIdx).Trim() : norm.Trim();
+            var m = Regex.Match(firstSeg, @"^(?:Part\s*|Часть\s*|Game\s*|Игра\s*)?(?<num>\d{1,2})(?:[.)\s_-]+)(?<rest>\S.*)$", RegexOptions.IgnoreCase);
+            if (m.Success && int.TryParse(m.Groups["num"].Value, out int orderNum))
+            {
+                string rest = m.Groups["rest"].Value.Trim();
+                if (!Regex.IsMatch(rest, @"^(?:DLCs?|Updates?|Patch(?:es)?|Mods?|Rus|Русификатор)\b", RegexOptions.IgnoreCase))
+                    return orderNum;
+            }
+            return 999;
+        }
+
+        public static string ExtractGameTopFolderKey(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return string.Empty;
+            string norm = path.Replace('\\', '/').TrimStart('.', '/');
+            int slashIdx = norm.IndexOf('/');
+            if (slashIdx <= 0) return string.Empty;
+            string firstSeg = norm.Substring(0, slashIdx).Trim();
+            if (string.IsNullOrWhiteSpace(firstSeg)) return string.Empty;
+            if (Regex.IsMatch(firstSeg, @"^(?:\d+\s*)?(?:DLCs?|Updates?|Patch(?:es)?|Mods?|Rus|Русификатор| Russian\s+Language)\b", RegexOptions.IgnoreCase))
+                return string.Empty;
+            return firstSeg;
         }
 
         public static int GetFileRolePriority(string? categoryBadge) => GetRoleSortOrder(categoryBadge);
@@ -3246,26 +3298,29 @@ namespace StormSwitchBox.Services
             var realFiles = files.Where(f => f.IsRealTorrentFile && f.CategoryBadge != "MAGNET").ToList();
             if (realFiles.Count == 0) return result;
 
-            var byBaseTid = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var byBaseTid = new Dictionary<string, (string CleanName, int FolderOrder)>(StringComparer.OrdinalIgnoreCase);
 
-            // Собираем группы только по настоящим базовым играм (f.CategoryBadge == "ИГРА" или "ИГРА #N")
-            var baseGameFiles = realFiles
-                .Where(f => f.CategoryBadge == "ИГРА" || (f.CategoryBadge != null && f.CategoryBadge.StartsWith("ИГРА #")))
-                .ToList();
-            var targetFilesForTid = baseGameFiles.Count > 0 ? baseGameFiles : realFiles;
-
-            foreach (var f in targetFilesForTid)
+            // Собираем все реальные файлы с валидным Switch BaseTitleID (включая игры, где в папке есть только DLC/Update или все части антологии)
+            foreach (var f in realFiles)
             {
-                string rawTid = ExtractTitleId(f.RelativePath);
+                string rawTid = !string.IsNullOrWhiteSpace(f.DetectedTitleId) ? f.DetectedTitleId : ExtractTitleId(f.RelativePath);
                 string normTid = NormalizeSwitchBaseApplicationTitleId(rawTid);
                 string cleanName = ExtractCleanGameTitleFromFilePath(f.RelativePath);
                 if (string.IsNullOrWhiteSpace(cleanName)) continue;
+                int folderOrder = ExtractLeadingFolderOrder(f.RelativePath);
+                bool isBase = f.CategoryBadge == "ИГРА" || (f.CategoryBadge != null && f.CategoryBadge.StartsWith("ИГРА #"));
 
                 if (normTid.Length == 16)
                 {
-                    if (!byBaseTid.ContainsKey(normTid) || f.CategoryBadge == "ИГРА" || (f.CategoryBadge != null && f.CategoryBadge.StartsWith("ИГРА #")))
+                    if (!byBaseTid.TryGetValue(normTid, out var existing))
                     {
-                        byBaseTid[normTid] = cleanName;
+                        byBaseTid[normTid] = (cleanName, folderOrder);
+                    }
+                    else
+                    {
+                        string chosenName = isBase ? cleanName : existing.CleanName;
+                        int chosenOrder = Math.Min(existing.FolderOrder, folderOrder);
+                        byBaseTid[normTid] = (chosenName, chosenOrder);
                     }
                 }
             }
@@ -3273,21 +3328,31 @@ namespace StormSwitchBox.Services
             if (byBaseTid.Count >= 1)
             {
                 return byBaseTid.Values
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .OrderBy(t => GetNaturalGameSortKey(t).BasePrefix)
-                    .ThenBy(t => GetNaturalGameSortKey(t).PartNumber)
-                    .ThenBy(t => t, StringComparer.OrdinalIgnoreCase)
+                    .GroupBy(x => x.CleanName, StringComparer.OrdinalIgnoreCase)
+                    .Select(g => (CleanName: g.First().CleanName, FolderOrder: g.Min(x => x.FolderOrder)))
+                    .OrderBy(x => x.FolderOrder)
+                    .ThenBy(x => GetNaturalGameSortKey(x.CleanName).BasePrefix)
+                    .ThenBy(x => GetNaturalGameSortKey(x.CleanName).PartNumber)
+                    .ThenBy(x => x.CleanName, StringComparer.OrdinalIgnoreCase)
+                    .Select(x => x.CleanName)
                     .ToList();
             }
 
+            var baseGameFiles = realFiles
+                .Where(f => f.CategoryBadge == "ИГРА" || (f.CategoryBadge != null && f.CategoryBadge.StartsWith("ИГРА #")))
+                .ToList();
+
             // Для игр без TitleID в имени (например, 3DS .3ds / .cia или чистые имена файлов)
             var fallbackCleanNames = (baseGameFiles.Count > 0 ? baseGameFiles : realFiles)
-                .Select(f => ExtractCleanGameTitleFromFilePath(f.RelativePath))
-                .Where(n => !string.IsNullOrWhiteSpace(n))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .OrderBy(t => GetNaturalGameSortKey(t).BasePrefix)
-                .ThenBy(t => GetNaturalGameSortKey(t).PartNumber)
-                .ThenBy(t => t, StringComparer.OrdinalIgnoreCase)
+                .Select(f => (CleanName: ExtractCleanGameTitleFromFilePath(f.RelativePath), FolderOrder: ExtractLeadingFolderOrder(f.RelativePath)))
+                .Where(x => !string.IsNullOrWhiteSpace(x.CleanName))
+                .GroupBy(x => x.CleanName, StringComparer.OrdinalIgnoreCase)
+                .Select(g => (CleanName: g.First().CleanName, FolderOrder: g.Min(x => x.FolderOrder)))
+                .OrderBy(x => x.FolderOrder)
+                .ThenBy(x => GetNaturalGameSortKey(x.CleanName).BasePrefix)
+                .ThenBy(x => GetNaturalGameSortKey(x.CleanName).PartNumber)
+                .ThenBy(x => x.CleanName, StringComparer.OrdinalIgnoreCase)
+                .Select(x => x.CleanName)
                 .ToList();
 
             if (fallbackCleanNames.Count >= 1)
@@ -3321,25 +3386,33 @@ namespace StormSwitchBox.Services
                 return;
             }
 
-            // 1. Строим карту BaseTitleID (16 символов) -> CleanGameName и сортируем группы игр в естественном порядке (Часть 1 -> Часть 2 -> ...)
-            var tidToTitle = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            // 1. Строим карту BaseTitleID (16 символов) -> (CleanGameName, FolderOrder) и сортируем группы игр в естественном порядке (Папка 1..N -> Часть 1..N)
+            var tidToTitle = new Dictionary<string, (string CleanName, int FolderOrder)>(StringComparer.OrdinalIgnoreCase);
             foreach (var f in files)
             {
-                string rawTid = ExtractTitleId(f.RelativePath);
+                string rawTid = !string.IsNullOrEmpty(f.DetectedTitleId) ? f.DetectedTitleId : ExtractTitleId(f.RelativePath);
                 string normTid = NormalizeSwitchBaseApplicationTitleId(rawTid);
                 if (normTid.Length == 16)
                 {
                     string cleanName = ExtractCleanGameTitleFromFilePath(f.RelativePath);
-                    if (!tidToTitle.ContainsKey(normTid) || ((f.CategoryBadge == "ИГРА" || (f.CategoryBadge != null && f.CategoryBadge.StartsWith("ИГРА #"))) && !string.IsNullOrEmpty(cleanName)))
+                    int folderOrder = ExtractLeadingFolderOrder(f.RelativePath);
+                    bool isBase = f.CategoryBadge == "ИГРА" || (f.CategoryBadge != null && f.CategoryBadge.StartsWith("ИГРА #"));
+                    if (!tidToTitle.TryGetValue(normTid, out var existing))
                     {
-                        tidToTitle[normTid] = cleanName;
+                        tidToTitle[normTid] = (cleanName, folderOrder);
+                    }
+                    else
+                    {
+                        string chosenName = (isBase && !string.IsNullOrEmpty(cleanName)) ? cleanName : existing.CleanName;
+                        tidToTitle[normTid] = (chosenName, Math.Min(existing.FolderOrder, folderOrder));
                     }
                 }
             }
 
             var orderedBaseTids = tidToTitle
-                .OrderBy(kv => GetNaturalGameSortKey(kv.Value).BasePrefix)
-                .ThenBy(kv => GetNaturalGameSortKey(kv.Value).PartNumber)
+                .OrderBy(kv => kv.Value.FolderOrder)
+                .ThenBy(kv => GetNaturalGameSortKey(kv.Value.CleanName).BasePrefix)
+                .ThenBy(kv => GetNaturalGameSortKey(kv.Value.CleanName).PartNumber)
                 .ThenBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase)
                 .Select(kv => kv.Key)
                 .ToList();
@@ -3349,11 +3422,12 @@ namespace StormSwitchBox.Services
             for (int tIdx = 0; tIdx < orderedBaseTids.Count; tIdx++)
             {
                 string bTid = orderedBaseTids[tIdx];
-                string cleanTitle = tidToTitle[bTid];
+                string cleanTitle = tidToTitle[bTid].CleanName;
+                int folderOrd = tidToTitle[bTid].FolderOrder;
                 var (_, partNum, _) = GetNaturalGameSortKey(cleanTitle);
 
                 int assignedSlot = 0;
-                // Сначала ищем точное совпадение по TitleID, чистому имени или номеру части в gameSlots
+                // Сначала ищем точное совпадение по TitleID или чистому имени в gameSlots
                 for (int sIdx = gameSlots.Count - 1; sIdx >= 0; sIdx--)
                 {
                     string slotTitle = gameSlots[sIdx];
@@ -3372,11 +3446,16 @@ namespace StormSwitchBox.Services
                         break;
                     }
                     var (_, slotPartNum, _) = GetNaturalGameSortKey(cleanSlotTitle);
-                    if (slotPartNum == partNum && partNum >= 1 && sIdx + 1 == partNum)
+                    if (partNum >= 1 && slotPartNum == partNum && sIdx + 1 == partNum)
                     {
                         assignedSlot = sIdx + 1;
                         break;
                     }
+                }
+
+                if (assignedSlot == 0 && folderOrd >= 1 && folderOrd <= gameSlots.Count)
+                {
+                    assignedSlot = folderOrd;
                 }
 
                 if (assignedSlot == 0)
@@ -3384,6 +3463,19 @@ namespace StormSwitchBox.Services
                     assignedSlot = Math.Min(tIdx + 1, gameSlots.Count);
                 }
                 tidToSlot[bTid] = assignedSlot;
+            }
+
+            var topFolderToSlot = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            foreach (var f in files)
+            {
+                string topKey = ExtractGameTopFolderKey(f.RelativePath);
+                if (string.IsNullOrEmpty(topKey)) continue;
+                string rawFileTid = !string.IsNullOrEmpty(f.DetectedTitleId) ? f.DetectedTitleId : ExtractTitleId(f.RelativePath);
+                string normFileTid = NormalizeSwitchBaseApplicationTitleId(rawFileTid);
+                if (normFileTid.Length == 16 && tidToSlot.TryGetValue(normFileTid, out int sNum))
+                {
+                    topFolderToSlot[topKey] = sNum;
+                }
             }
 
             foreach (var f in files)
@@ -3398,6 +3490,20 @@ namespace StormSwitchBox.Services
                         f.TargetGameSlot = mappedSlot;
                         continue;
                     }
+                }
+
+                string topKey = ExtractGameTopFolderKey(pathNorm);
+                if (!string.IsNullOrEmpty(topKey) && topFolderToSlot.TryGetValue(topKey, out int folderSlot))
+                {
+                    f.TargetGameSlot = folderSlot;
+                    continue;
+                }
+
+                int leadOrder = ExtractLeadingFolderOrder(pathNorm);
+                if (leadOrder >= 1 && leadOrder <= gameSlots.Count)
+                {
+                    f.TargetGameSlot = leadOrder;
+                    continue;
                 }
 
                 string cleanFileTitle = ExtractCleanGameTitleFromFilePath(pathNorm);
@@ -5020,7 +5126,7 @@ namespace StormSwitchBox.Services
                     {
                         var prefsForm = new FormUrlEncodedContent(new[]
                         {
-                            new KeyValuePair<string, string>("json", "{\"dl_limit\":0,\"up_limit\":0,\"dht\":true,\"pex\":true,\"lsd\":true,\"enable_utp\":true,\"utp_tcp_mixed_mode\":0,\"enable_multi_connections_from_same_ip\":true,\"announce_to_all_trackers\":true,\"announce_to_all_tiers\":true,\"connection_speed\":100,\"max_connec\":1000,\"max_connec_per_torrent\":250,\"async_io_threads\":16,\"file_pool_size\":500}")
+                            new KeyValuePair<string, string>("json", "{\"dl_limit\":0,\"up_limit\":0,\"queueing_enabled\":false,\"max_active_downloads\":30,\"max_active_torrents\":30,\"dht\":true,\"pex\":true,\"lsd\":true,\"enable_utp\":true,\"utp_tcp_mixed_mode\":0,\"enable_multi_connections_from_same_ip\":true,\"announce_to_all_trackers\":true,\"announce_to_all_tiers\":true,\"connection_speed\":100,\"max_connec\":2000,\"max_connec_per_torrent\":250,\"async_io_threads\":16,\"file_pool_size\":1024}")
                         });
                         await qClient.PostAsync($"{baseUrl}/api/v2/app/setPreferences", prefsForm, ct).ConfigureAwait(false);
                     }
@@ -5749,11 +5855,11 @@ namespace StormSwitchBox.Services
                     AllowPortForwarding = true,
                     AllowLocalPeerDiscovery = true,
                     UsePartialFiles = false,
-                    MaximumConnections = 800,
+                    MaximumConnections = 1600,
                     MaximumDownloadRate = 0,
                     MaximumUploadRate = 0,
-                    MaximumHalfOpenConnections = 150,
-                    MaximumOpenFiles = 512,
+                    MaximumHalfOpenConnections = 250,
+                    MaximumOpenFiles = 1024,
                     MaximumDiskReadRate = 0,
                     MaximumDiskWriteRate = 0,
                     DiskCacheBytes = 256 * 1024 * 1024,
