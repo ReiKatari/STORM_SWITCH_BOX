@@ -77,7 +77,7 @@ public sealed class VolumetricButton : Button
 public sealed class InstallerForm : Form
 {
     private const string AppDisplayName = "STORM SWITCH BOX";
-    private static readonly string AppVersion = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "7.0.5";
+    private static readonly string AppVersion = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "7.0.6";
     private const string AppFolderName = "STORM SWITCH BOX";
     private const string ExeName = "StormSwitchBox.exe";
     private const string IcoName = "app.ico";
@@ -197,30 +197,48 @@ public sealed class InstallerForm : Form
             "📂 Обзор...",
             "✨ Перетащите любую папку из Проводника Windows прямо в это окно (UAC UIPI активен)",
             "Параметры интеграции (уникальные семантические иконки):",
-            $"🖥️  Создать иконку на Рабочем столе ({AppDisplayName}.lnk)",
-            "🚀  Установить в меню «Пуск» Windows",
-            "🛡️  Добавить в исключения Брандмауэра Windows (Inbound & Outbound)",
-            "🔏  Зарегистрировать единый сертификат STORM SERTIFICATE (SIGNATURE)",
-            $"⚡  Запустить {AppDisplayName} {AppVersion} после завершения установки",
+            $"🖥️  Создать ярлык на Рабочем столе ({AppDisplayName}.lnk)",
+            "📌  Добавить в меню «Пуск» и список приложений Windows",
+            "🛡️  Добавить в исключения Брандмауэра Windows (входящие и исходящие)",
+            "🔐  Установить единый сертификат доверия STORM SERTIFICATE (SIGNATURE)",
+            $"⚡  Запустить {AppDisplayName} сразу после завершения установки",
             "✖ Отмена",
-            "⚡ Установить"
+            "⚡ Установить",
+            $"Остановка запущенных процессов {AppDisplayName}...",
+            "Регистрация единого сертификата STORM SERTIFICATE (SIGNATURE)...",
+            $"Распаковка файлов {AppDisplayName} {AppVersion}...",
+            "Создание ярлыков и регистрация в Windows...",
+            "Настройка правил Брандмауэра Windows (входящие и исходящие)...",
+            $"✨ {AppDisplayName} {AppVersion} успешно установлен!",
+            "✓ Готово",
+            "Закрыть",
+            "✗ Ошибка установки: "
         },
         ["en"] = new[] {
             $"Setup Wizard • Version {AppVersion}",
             "Installation Mode:",
-            $"📦 Standard Installation to C:\\Program Files\\{AppFolderName}",
-            "⚡ Portable Mode (Creates .portable and data/ folder, zero registry writes)",
-            "Destination Folder (Drag-and-Drop folder from Explorer supported):",
+            $"📦 Standard installation to C:\\Program Files\\{AppFolderName}",
+            "⚡ Portable mode (creates .portable and data/ folder, zero registry writes)",
+            "Destination folder (Drag-and-Drop folder from Explorer supported):",
             "📂 Browse...",
-            "✨ Drag & drop any folder from Windows Explorer directly into this window (UAC UIPI enabled)",
-            "System Integration Options:",
-            $"🖥️  Create Desktop Shortcut ({AppDisplayName}.lnk)",
-            "🚀  Install to Windows Start Menu",
-            "🛡️  Add Windows Firewall Inbound & Outbound Exceptions",
-            "🔏  Register Unified Certificate STORM SERTIFICATE (SIGNATURE)",
-            $"⚡  Launch {AppDisplayName} {AppVersion} after installation",
+            "✨ Drag and drop any folder from Windows Explorer directly into this window (UAC UIPI enabled)",
+            "System integration options:",
+            $"🖥️  Create Desktop shortcut ({AppDisplayName}.lnk)",
+            "📌  Add to Windows Start Menu and installed apps",
+            "🛡️  Add Windows Firewall inbound and outbound exceptions",
+            "🔐  Install unified trust certificate STORM SERTIFICATE (SIGNATURE)",
+            $"⚡  Launch {AppDisplayName} immediately after installation",
             "✖ Cancel",
-            "⚡ Install"
+            "⚡ Install",
+            $"Stopping running {AppDisplayName} processes...",
+            "Registering unified certificate STORM SERTIFICATE (SIGNATURE)...",
+            $"Extracting {AppDisplayName} {AppVersion} files...",
+            "Creating shortcuts and registering in Windows...",
+            "Configuring Windows Firewall rules (inbound and outbound)...",
+            $"✨ {AppDisplayName} {AppVersion} installed successfully!",
+            "✓ Done",
+            "Close",
+            "✗ Installation error: "
         },
         ["de"] = new[] {
             $"Installationsassistent • Version {AppVersion}",
@@ -232,29 +250,47 @@ public sealed class InstallerForm : Form
             "✨ Ziehen Sie einen beliebigen Ordner per Drag-and-Drop in dieses Fenster",
             "Integrationsoptionen:",
             $"🖥️  Desktop-Verknüpfung erstellen ({AppDisplayName}.lnk)",
-            "🚀  Im Startmenü installieren",
-            "🛡️  Windows-Firewall-Ausnahmen hinzufügen (Inbound & Outbound)",
-            "🔏  Einheitliches Zertifikat STORM SERTIFICATE (SIGNATURE) registrieren",
-            $"⚡  {AppDisplayName} {AppVersion} nach der Installation starten",
+            "📌  Im Startmenü und in der App-Liste registrieren",
+            "🛡️  Windows-Firewall-Ausnahmen hinzufügen (Ein- und Ausgehend)",
+            "🔐  Einheitliches Zertifikat STORM SERTIFICATE (SIGNATURE) installieren",
+            $"⚡  {AppDisplayName} sofort nach der Installation starten",
             "✖ Abbrechen",
-            "⚡ Installieren"
+            "⚡ Installieren",
+            $"Laufende Prozesse von {AppDisplayName} werden beendet...",
+            "Einheitliches Zertifikat STORM SERTIFICATE (SIGNATURE) wird registriert...",
+            $"Dateien von {AppDisplayName} {AppVersion} werden entpackt...",
+            "Verknüpfungen werden erstellt und in Windows registriert...",
+            "Windows-Firewall-Regeln werden konfiguriert...",
+            $"✨ {AppDisplayName} {AppVersion} wurde erfolgreich installiert!",
+            "✓ Fertig",
+            "Schließen",
+            "✗ Installationsfehler: "
         },
         ["fr"] = new[] {
             $"Assistant d'installation • Version {AppVersion}",
             "Mode d'installation :",
             $"📦 Installation standard dans C:\\Program Files\\{AppFolderName}",
-            "⚡ Mode Portable (Dossier data/ et .portable, sans registre)",
-            "Dossier de destination (Glisser-déposer pris en charge) :",
+            "⚡ Mode portable (dossier data/ et .portable, sans registre)",
+            "Dossier de destination (glisser-déposer pris en charge) :",
             "📂 Parcourir...",
-            "✨ Glissez-déposez un dossier depuis l'Explorateur Windows dans cette fenêtre",
+            "✨ Glissez et déposez un dossier depuis l'Explorateur Windows dans cette fenêtre",
             "Options d'intégration :",
             $"🖥️  Créer un raccourci sur le Bureau ({AppDisplayName}.lnk)",
-            "🚀  Installer dans le menu Démarrer",
-            "🛡️  Ajouter aux exceptions du Pare-feu Windows (Entrant/Sortant)",
-            "🔏  Enregistrer le certificat unifié STORM SERTIFICATE (SIGNATURE)",
-            $"⚡  Lancer {AppDisplayName} {AppVersion} après l'installation",
+            "📌  Ajouter au menu Démarrer de Windows",
+            "🛡️  Ajouter aux exceptions du Pare-feu Windows (entrant et sortant)",
+            "🔐  Installer le certificat unifié STORM SERTIFICATE (SIGNATURE)",
+            $"⚡  Lancer {AppDisplayName} immédiatement après l'installation",
             "✖ Annuler",
-            "⚡ Installer"
+            "⚡ Installer",
+            $"Arrêt des processus {AppDisplayName} en cours...",
+            "Enregistrement du certificat unifié STORM SERTIFICATE (SIGNATURE)...",
+            $"Extraction des fichiers de {AppDisplayName} {AppVersion}...",
+            "Création des raccourcis et enregistrement dans Windows...",
+            "Configuration des règles du Pare-feu Windows...",
+            $"✨ {AppDisplayName} {AppVersion} installé avec succès !",
+            "✓ Terminé",
+            "Fermer",
+            "✗ Erreur d'installation : "
         },
         ["zh"] = new[] {
             $"安装向导 • 版本 {AppVersion}",
@@ -266,12 +302,21 @@ public sealed class InstallerForm : Form
             "✨ 支持将任意文件夹直接拖入此窗口（已启用 UAC UIPI 穿透）",
             "系统集成选项：",
             $"🖥️  创建桌面快捷方式 ({AppDisplayName}.lnk)",
-            "🚀  安装到“开始”菜单",
+            "📌  添加到 Windows“开始”菜单与应用列表",
             "🛡️  添加 Windows 防火墙入站与出站例外规则",
-            "🔏  注册统一数字证书 STORM SERTIFICATE (SIGNATURE)",
-            $"⚡  安装完成后立即启动 {AppDisplayName} {AppVersion}",
+            "🔐  安装统一信任证书 STORM SERTIFICATE (SIGNATURE)",
+            $"⚡  安装完成后立即启动 {AppDisplayName}",
             "✖ 取消",
-            "⚡ 安装"
+            "⚡ 安装",
+            $"正在停止运行中的 {AppDisplayName} 进程...",
+            "正在注册统一数字证书 STORM SERTIFICATE (SIGNATURE)...",
+            $"正在解压 {AppDisplayName} {AppVersion} 文件...",
+            "正在创建快捷方式并注册到 Windows...",
+            "正在配置 Windows 防火墙入站和出站规则...",
+            $"✨ {AppDisplayName} {AppVersion} 安装成功！",
+            "✓ 完成",
+            "关闭",
+            "✗ 安装错误："
         },
         ["ko"] = new[] {
             $"설치 마법사 • 버전 {AppVersion}",
@@ -283,12 +328,21 @@ public sealed class InstallerForm : Form
             "✨ Windows 탐색기에서 폴더를 이 창으로 직접 드래그하세요 (UAC UIPI 우회 적용)",
             "시스템 통합 옵션:",
             $"🖥️  바탕화면 바로가기 생성 ({AppDisplayName}.lnk)",
-            "🚀  시작 메뉴에 등록",
+            "📌  Windows 시작 메뉴 및 앱 목록에 등록",
             "🛡️  Windows 방화벽 인바운드 및 아웃바운드 예외 추가",
-            "🔏  통합 인증서 STORM SERTIFICATE (SIGNATURE) 등록",
-            $"⚡  설치 후 {AppDisplayName} {AppVersion} 바로 실행",
+            "🔐  통합 인증서 STORM SERTIFICATE (SIGNATURE) 설치",
+            $"⚡  설치 완료 후 즉시 {AppDisplayName} 실행",
             "✖ 취소",
-            "⚡ 설치"
+            "⚡ 설치",
+            $"실행 중인 {AppDisplayName} 프로세스 종료 중...",
+            "통합 인증서 STORM SERTIFICATE (SIGNATURE) 등록 중...",
+            $"{AppDisplayName} {AppVersion} 파일 압축 해제 중...",
+            "바로가기 생성 및 Windows 레지스트리 등록 중...",
+            "Windows 방화벽 규칙 설정 중...",
+            $"✨ {AppDisplayName} {AppVersion} 설치가 완료되었습니다!",
+            "✓ 완료",
+            "닫기",
+            "✗ 설치 오류: "
         },
         ["ja"] = new[] {
             $"セットアップウィザード • バージョン {AppVersion}",
@@ -300,63 +354,99 @@ public sealed class InstallerForm : Form
             "✨ フォルダをこのウィンドウにドロップしてパスを変更できます (UAC UIPI 対応)",
             "統合オプション:",
             $"🖥️  デスクトップにショートカットを作成 ({AppDisplayName}.lnk)",
-            "🚀  スタートメニューに登録",
-            "🛡️  Windows ファイアウォールの受信/送信ルールを追加",
-            "🔏  統一証明書 STORM SERTIFICATE (SIGNATURE) を登録",
-            $"⚡  完了後に {AppDisplayName} {AppVersion} を起動",
+            "📌  スタートメニューとアプリ一覧に登録",
+            "🛡️  Windows ファイアウォールの受信および送信ルールを追加",
+            "🔐  統一証明書 STORM SERTIFICATE (SIGNATURE) をインストール",
+            $"⚡  インストール完了後にすぐ {AppDisplayName} を起動",
             "✖ キャンセル",
-            "⚡ インストール"
+            "⚡ インストール",
+            $"実行中の {AppDisplayName} プロセスを終了しています...",
+            "統一証明書 STORM SERTIFICATE (SIGNATURE) を登録しています...",
+            $"{AppDisplayName} {AppVersion} のファイルを展開しています...",
+            "ショートカットを作成し Windows に登録しています...",
+            "Windows ファイアウォールのルールを設定しています...",
+            $"✨ {AppDisplayName} {AppVersion} のインストールが完了しました！",
+            "✓ 完了",
+            "閉じる",
+            "✗ インストールエラー: "
         },
         ["es"] = new[] {
             $"Asistente de instalación • Versión {AppVersion}",
             "Modo de instalación:",
             $"📦 Instalación estándar en C:\\Program Files\\{AppFolderName}",
-            "⚡ Modo Portátil (Crea .portable y data/, sin registro)",
-            "Carpeta de destino (Soporta arrastrar y soltar carpeta):",
+            "⚡ Modo portátil (crea .portable y data/, sin registro)",
+            "Carpeta de destino (soporta arrastrar y soltar carpeta):",
             "📂 Examinar...",
             "✨ Arrastre cualquier carpeta del Explorador de Windows a esta ventana",
             "Opciones de integración:",
-            $"🖥️  Crear icono en el Escritorio ({AppDisplayName}.lnk)",
-            "🚀  Instalar en el menú Inicio",
-            "🛡️  Añadir excepciones al Firewall de Windows (Entrada/Salida)",
-            "🔏  Registrar certificado unificado STORM SERTIFICATE (SIGNATURE)",
-            $"⚡  Iniciar {AppDisplayName} {AppVersion} al finalizar",
+            $"🖥️  Crear acceso directo en el Escritorio ({AppDisplayName}.lnk)",
+            "📌  Añadir al menú Inicio de Windows",
+            "🛡️  Añadir excepciones al Firewall de Windows (entrada y salida)",
+            "🔐  Instalar certificado unificado STORM SERTIFICATE (SIGNATURE)",
+            $"⚡  Iniciar {AppDisplayName} inmediatamente al finalizar",
             "✖ Cancelar",
-            "⚡ Instalar"
+            "⚡ Instalar",
+            $"Deteniendo procesos activos de {AppDisplayName}...",
+            "Registrando certificado unificado STORM SERTIFICATE (SIGNATURE)...",
+            $"Extrayendo archivos de {AppDisplayName} {AppVersion}...",
+            "Creando accesos directos y registrando en Windows...",
+            "Configurando reglas del Firewall de Windows...",
+            $"✨ ¡{AppDisplayName} {AppVersion} instalado correctamente!",
+            "✓ Listo",
+            "Cerrar",
+            "✗ Error de instalación: "
         },
         ["it"] = new[] {
             $"Procedura d'installazione • Versione {AppVersion}",
             "Modalità d'installazione:",
             $"📦 Installazione standard in C:\\Program Files\\{AppFolderName}",
-            "⚡ Modalità Portatile (Crea .portable e data/, senza registro)",
+            "⚡ Modalità portatile (crea .portable e data/, senza registro)",
             "Cartella di destinazione (Drag-and-Drop supportato):",
             "📂 Sfoglia...",
             "✨ Trascina qualsiasi cartella da Esplora file in questa finestra",
-            "Opzioni di integrazione:",
-            $"🖥️  Crea icona sul Desktop ({AppDisplayName}.lnk)",
-            "🚀  Installa nel menu Start",
-            "🛡️  Aggiungi eccezioni a Windows Firewall (Inbound/Outbound)",
-            "🔏  Registra certificato unificato STORM SERTIFICATE (SIGNATURE)",
-            $"⚡  Avvia {AppDisplayName} {AppVersion} dopo l'installazione",
+            "Opzioni d'integrazione:",
+            $"🖥️  Crea collegamento sul Desktop ({AppDisplayName}.lnk)",
+            "📌  Aggiungi al menu Start di Windows",
+            "🛡️  Aggiungi eccezioni a Windows Firewall (entrata e uscita)",
+            "🔐  Installa certificato unificato STORM SERTIFICATE (SIGNATURE)",
+            $"⚡  Avvia {AppDisplayName} subito dopo l'installazione",
             "✖ Annulla",
-            "⚡ Installa"
+            "⚡ Installa",
+            $"Arresto dei processi {AppDisplayName} in esecuzione...",
+            "Registrazione del certificato unificato STORM SERTIFICATE (SIGNATURE)...",
+            $"Estrazione dei file di {AppDisplayName} {AppVersion}...",
+            "Creazione dei collegamenti e registrazione in Windows...",
+            "Configurazione delle regole di Windows Firewall...",
+            $"✨ {AppDisplayName} {AppVersion} installato correttamente!",
+            "✓ Fatto",
+            "Chiudi",
+            "✗ Errore d'installazione: "
         },
         ["pt"] = new[] {
-            $"Assistente de Instalação • Versão {AppVersion}",
+            $"Assistente de instalação • Versão {AppVersion}",
             "Modo de instalação:",
             $"📦 Instalação padrão em C:\\Program Files\\{AppFolderName}",
-            "⚡ Modo Portátil (Cria .portable e pasta data/, sem registro)",
-            "Pasta de destino (Suporta Arrastar e Soltar):",
+            "⚡ Modo portátil (cria .portable e pasta data/, sem registro)",
+            "Pasta de destino (suporta arrastar e soltar):",
             "📂 Procurar...",
             "✨ Arraste qualquer pasta do Windows Explorer diretamente para esta janela",
             "Opções de integração:",
-            $"🖥️  Criar ícone na Área de Trabalho ({AppDisplayName}.lnk)",
-            "🚀  Instalar no menu Iniciar",
-            "🛡️  Adicionar exceções no Firewall do Windows (Entrada/Saída)",
-            "🔏  Registrar certificado unificado STORM SERTIFICATE (SIGNATURE)",
-            $"⚡  Iniciar {AppDisplayName} {AppVersion} após a instalação",
+            $"🖥️  Criar atalho na Área de Trabalho ({AppDisplayName}.lnk)",
+            "📌  Adicionar ao menu Iniciar do Windows",
+            "🛡️  Adicionar exceções no Firewall do Windows (entrada e saída)",
+            "🔐  Instalar certificado unificado STORM SERTIFICATE (SIGNATURE)",
+            $"⚡  Iniciar {AppDisplayName} imediatamente após a instalação",
             "✖ Cancelar",
-            "⚡ Instalar"
+            "⚡ Instalar",
+            $"Encerrando processos ativos do {AppDisplayName}...",
+            "Registrando certificado unificado STORM SERTIFICATE (SIGNATURE)...",
+            $"Extraindo arquivos do {AppDisplayName} {AppVersion}...",
+            "Criando atalhos e registrando no Windows...",
+            "Configurando regras do Firewall do Windows...",
+            $"✨ {AppDisplayName} {AppVersion} instalado com sucesso!",
+            "✓ Concluído",
+            "Fechar",
+            "✗ Erro na instalação: "
         },
         ["hi"] = new[] {
             $"इंस्टॉलेशन विज़ार्ड • संस्करण {AppVersion}",
@@ -367,15 +457,35 @@ public sealed class InstallerForm : Form
             "📂 ब्राउज़ करें...",
             "✨ विंडोज़ एक्सप्लोरर से किसी भी फ़ोल्डर को सीधे इस विंडो में ड्रॉप करें",
             "एकीकरण विकल्प:",
-            $"🖥️  डेस्कटॉप आइकन बनाएँ ({AppDisplayName}.lnk)",
-            "🚀  स्टार्ट मेनू में इंस्टॉल करें",
-            "🛡️  Windows फ़ायरवॉल इनबाउंड/आउटबाउंड अपवाद जोड़ें",
-            "🔏  एकीकृत प्रमाणपत्र STORM SERTIFICATE (SIGNATURE) पंजीकृत करें",
-            $"⚡  इंस्टॉलेशन के बाद {AppDisplayName} {AppVersion} चलाएँ",
+            $"🖥️  डेस्कटॉप शॉर्टकट बनाएँ ({AppDisplayName}.lnk)",
+            "📌  स्टार्ट मेनू और ऐप सूची में जोड़ें",
+            "🛡️  Windows फ़ायरवॉल इनबाउंड और आउटबाउंड अपवाद जोड़ें",
+            "🔐  एकीकृत प्रमाणपत्र STORM SERTIFICATE (SIGNATURE) इंस्टॉल करें",
+            $"⚡  इंस्टॉलेशन के तुरंत बाद {AppDisplayName} चलाएँ",
             "✖ रद्द करें",
-            "⚡ इंस्टॉल"
+            "⚡ इंस्टॉल",
+            $"चल रही {AppDisplayName} प्रक्रियाएँ बंद की जा रही हैं...",
+            "एकीकृत प्रमाणपत्र STORM SERTIFICATE (SIGNATURE) पंजीकृत किया जा रहा है...",
+            $"{AppDisplayName} {AppVersion} फ़ाइलें निकाली जा रही हैं...",
+            "शॉर्टकट बनाए जा रहे हैं और Windows में पंजीकरण हो रहा है...",
+            "Windows फ़ायरवॉल नियम कॉन्फ़िगर किए जा रहे हैं...",
+            $"✨ {AppDisplayName} {AppVersion} सफलतापूर्वक इंस्टॉल हो गया!",
+            "✓ पूर्ण",
+            "बंद करें",
+            "✗ इंस्टॉलेशन त्रुटि: "
         }
     };
+
+    private string T(int index)
+    {
+        if (L10n.TryGetValue(currentLang, out var arr) && index >= 0 && index < arr.Length)
+            return arr[index];
+        if (L10n.TryGetValue("en", out var enArr) && index >= 0 && index < enArr.Length)
+            return enArr[index];
+        if (L10n.TryGetValue("ru", out var ruArr) && index >= 0 && index < ruArr.Length)
+            return ruArr[index];
+        return string.Empty;
+    }
 
     public InstallerForm()
     {
@@ -690,7 +800,7 @@ public sealed class InstallerForm : Form
 
         chkFirewall = new CheckBox
         {
-            Text = "🛡️  Добавить в исключения Брандмауэра Windows (Inbound & Outbound)",
+            Text = "🛡️  Добавить в исключения Брандмауэра Windows (входящие и исходящие)",
             Checked = true,
             Location = new Point(8, 244),
             UseMnemonic = false,
@@ -826,7 +936,10 @@ public sealed class InstallerForm : Form
     private void DetectAndApplyDefaultLanguage()
     {
         int idx = DetectDefaultLanguageIndex();
-        cmbLang.SelectedIndex = idx;
+        if (cmbLang.SelectedIndex != idx)
+            cmbLang.SelectedIndex = idx;
+        else
+            ChangeLanguageByIndex(idx);
     }
 
     private void ChangeLanguageByIndex(int index)
@@ -834,32 +947,29 @@ public sealed class InstallerForm : Form
         string[] langs = { "ru", "en", "de", "fr", "zh", "ko", "ja", "es", "it", "pt", "hi" };
         currentLang = langs[Math.Clamp(index, 0, langs.Length - 1)];
 
-        if (L10n.TryGetValue(currentLang, out var t))
-        {
-            lblSubtitle.Text = t[0];
-            lblModeTitle.Text = t[1];
-            rbStandard.Text = t[2];
-            rbPortable.Text = t[3];
-            lblPathTitle.Text = t[4];
-            btnBrowse.Text = t[5];
-            lblDropHint.Text = t[6];
-            lblOptionsTitle.Text = t[7];
-            chkDesktop.Text = t[8];
-            chkStartMenu.Text = t[9];
-            chkFirewall.Text = t[10];
-            chkInstallCert.Text = t[11];
-            chkRunAfter.Text = t[12];
-            btnCancel.Text = currentInstallStep == 6 ? t[22] : t[13];
-            btnInstall.Text = currentInstallStep == 6 ? t[21] : t[14];
+        lblSubtitle.Text = T(0);
+        lblModeTitle.Text = T(1);
+        rbStandard.Text = T(2);
+        rbPortable.Text = T(3);
+        lblPathTitle.Text = T(4);
+        btnBrowse.Text = T(5);
+        lblDropHint.Text = T(6);
+        lblOptionsTitle.Text = T(7);
+        chkDesktop.Text = T(8);
+        chkStartMenu.Text = T(9);
+        chkFirewall.Text = T(10);
+        chkInstallCert.Text = T(11);
+        chkRunAfter.Text = T(12);
+        btnCancel.Text = currentInstallStep == 6 ? T(22) : T(13);
+        btnInstall.Text = currentInstallStep == 6 ? T(21) : T(14);
 
-            if (currentInstallStep == 1) lblStatus.Text = t[15];
-            else if (currentInstallStep == 2) lblStatus.Text = t[16];
-            else if (currentInstallStep == 3) lblStatus.Text = t[17];
-            else if (currentInstallStep == 4) lblStatus.Text = t[18];
-            else if (currentInstallStep == 5) lblStatus.Text = t[19];
-            else if (currentInstallStep == 6) lblStatus.Text = t[20];
-            else if (currentInstallStep == 7) lblStatus.Text = t[23] + lastErrorMessage;
-        }
+        if (currentInstallStep == 1) lblStatus.Text = T(15);
+        else if (currentInstallStep == 2) lblStatus.Text = T(16);
+        else if (currentInstallStep == 3) lblStatus.Text = T(17);
+        else if (currentInstallStep == 4) lblStatus.Text = T(18);
+        else if (currentInstallStep == 5) lblStatus.Text = T(19);
+        else if (currentInstallStep == 6) lblStatus.Text = T(20);
+        else if (currentInstallStep == 7) lblStatus.Text = T(23) + lastErrorMessage;
     }
 
     private void ApplyTheme(string theme)
@@ -968,7 +1078,7 @@ public sealed class InstallerForm : Form
             Directory.CreateDirectory(targetDir);
 
             // Шаг 1: Остановка запущенных процессов
-            currentInstallStep = 1; lblStatus.Text = L10n[currentLang][15];
+            currentInstallStep = 1; lblStatus.Text = T(15);
             progressBar.Value = 10;
             await Task.Delay(120);
 
@@ -987,7 +1097,7 @@ public sealed class InstallerForm : Form
             // Шаг 2: Установка сертификата STORM
             if (chkInstallCert.Checked)
             {
-                currentInstallStep = 2; lblStatus.Text = L10n[currentLang][16];
+                currentInstallStep = 2; lblStatus.Text = T(16);
                 progressBar.Value = 25;
                 await Task.Delay(100);
                 ExtractResource("STORM_SERTIFICATE.cer", targetCer);
@@ -998,7 +1108,7 @@ public sealed class InstallerForm : Form
             }
 
             // Шаг 3: Распаковка дистрибутива
-            currentInstallStep = 3; lblStatus.Text = L10n[currentLang][17];
+            currentInstallStep = 3; lblStatus.Text = T(17);
             progressBar.Value = 40;
             await Task.Delay(100);
 
@@ -1052,7 +1162,7 @@ public sealed class InstallerForm : Form
             }
 
             // Шаг 4: Создание ярлыков
-            currentInstallStep = 4; lblStatus.Text = L10n[currentLang][18];
+            currentInstallStep = 4; lblStatus.Text = T(18);
             progressBar.Value = 90;
             await Task.Delay(80);
 
@@ -1082,7 +1192,7 @@ public sealed class InstallerForm : Form
             // Шаг 5: Настройка Брандмауэра
             if (chkFirewall.Checked)
             {
-                currentInstallStep = 5; lblStatus.Text = L10n[currentLang][19];
+                currentInstallStep = 5; lblStatus.Text = T(19);
                 progressBar.Value = 95;
                 await Task.Delay(80);
                 AddFirewallRules(targetExe, AppDisplayName);
@@ -1091,10 +1201,10 @@ public sealed class InstallerForm : Form
             // Шаг 6: Финализация
             progressBar.Value = 100;
             currentInstallStep = 6;
-            lblStatus.Text = L10n[currentLang][20];
-            btnInstall.Text = L10n[currentLang][21];
+            lblStatus.Text = T(20);
+            btnInstall.Text = T(21);
             btnInstall.Enabled = false;
-            btnCancel.Text = L10n[currentLang][22];
+            btnCancel.Text = T(22);
             btnCancel.Enabled = false;
 
             SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, IntPtr.Zero, IntPtr.Zero);
@@ -1116,7 +1226,7 @@ public sealed class InstallerForm : Form
         {
             progressBar.Value = 100;
             lblStatus.ForeColor = Color.FromArgb(239, 68, 68);
-            currentInstallStep = 7; lastErrorMessage = ex.Message; lblStatus.Text = L10n[currentLang][23] + ex.Message;
+            currentInstallStep = 7; lastErrorMessage = ex.Message; lblStatus.Text = T(23) + ex.Message;
             btnInstall.Enabled = true;
             isInstalling = false;
         }
