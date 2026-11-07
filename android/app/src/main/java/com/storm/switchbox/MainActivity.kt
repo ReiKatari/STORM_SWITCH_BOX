@@ -793,7 +793,7 @@ class MainActivity : Activity() {
     private var extractRomfsEnabled = true
     private var extractExefsEnabled = true
     private var extractControlEnabled = true
-    private var extractRawPfs0Enabled = true
+    private var extractRawPfs0Enabled = false
     private var fwdAppTitle = "DBI Installer"
     private var fwdAppAuthor = "Nintendo"
     private var fwdAppVersion = "715.0"
@@ -2722,6 +2722,11 @@ class MainActivity : Activity() {
                                     extractRawPartitions = extractRawPfs0Enabled,
                                     onProgress = cb
                                 )
+                                if (rep.success && snapshot.size == 1) {
+                                    mainHandler.post {
+                                        showUnpackSummaryDialog(inFile.name, rep, themes[currentThemeIndex])
+                                    }
+                                }
                                 StormNczEngine.CompressionResult(
                                     success = rep.success,
                                     inputPath = inFile.absolutePath,
@@ -2736,7 +2741,7 @@ class MainActivity : Activity() {
                                     message = if (rep.success) {
                                         if (rep.message.isNotBlank()) rep.message else "Распаковано ${rep.extractedFilesCount} файлов (RomFS + ExeFS)"
                                     } else {
-                                        if (rep.message.isNotBlank()) rep.message else "Ошибка распаковки: файлы RomFS/ExeFS не найдены или нет ключей"
+                                        if (rep.message.isNotBlank()) rep.message else "Ошибка распаковки: недостаточно памяти, файлы не найдены или нет ключей"
                                     }
                                 )
                             }
@@ -2812,6 +2817,12 @@ class MainActivity : Activity() {
                             appendLog("✅ $prefix ${inFile.name} -> ${File(res.outputPath).name} (${StormNczEngine.formatSize(res.compressedBytes)})")
                             if (deleteSourceAfterSuccess && File(res.outputPath).exists() && File(res.outputPath).length() > 0 && inFile.canonicalPath != File(res.outputPath).canonicalPath) {
                                 inFile.delete()
+                            }
+                        } else {
+                            val errMsg = res.message.ifBlank { "Произошла ошибка при обработке файла" }
+                            appendLog("❌ $prefix ${inFile.name}: $errMsg")
+                            mainHandler.post {
+                                showErrorDialog("❌ Ошибка обработки: ${inFile.name}", errMsg, themes[currentThemeIndex])
                             }
                         }
                     }
@@ -2923,7 +2934,7 @@ class MainActivity : Activity() {
                             extractRomfs = true,
                             extractExefs = true,
                             extractControl = true,
-                            extractRawPartitions = true
+                            extractRawPartitions = false
                         ) {}
                         if (rep.success) {
                             appendLog("✅ Извлечено RomFS / ExeFS (${rep.extractedFilesCount} файлов, ${StormNczEngine.formatSize(rep.totalExtractedBytes)}) в ${rep.outputDir.absolutePath}")
@@ -2931,13 +2942,18 @@ class MainActivity : Activity() {
                                 showUnpackSummaryDialog(target.name, rep, th)
                             }
                         } else {
-                            appendLog("❌ Ошибка извлечения RomFS/ExeFS: ${rep.message.ifBlank { "Файлы не найдены или нет ключей для расшифровки" }}")
+                            val errMsg = rep.message.ifBlank { "Файлы не найдены, недостаточно свободного места или отсутствуют ключи prod.keys" }
+                            appendLog("❌ Ошибка извлечения RomFS/ExeFS: $errMsg")
                             mainHandler.post {
-                                Toast.makeText(this@MainActivity, StormLocalization.tr("Ошибка: ${rep.message.ifBlank { "Не удалось извлечь RomFS/ExeFS" }}".toString(), currentLangCode), Toast.LENGTH_LONG).show()
+                                showErrorDialog("❌ Ошибка распаковки RomFS/ExeFS", errMsg, th)
                             }
                         }
                     } catch (e: Exception) {
-                        appendLog("❌ Ошибка извлечения RomFS/ExeFS: ${e.message}")
+                        val errMsg = e.message ?: "Непредвиденная ошибка"
+                        appendLog("❌ Ошибка извлечения RomFS/ExeFS: $errMsg")
+                        mainHandler.post {
+                            showErrorDialog("❌ Ошибка распаковки RomFS/ExeFS", errMsg, th)
+                        }
                     }
                 }
             }
@@ -6557,6 +6573,31 @@ class MainActivity : Activity() {
         )
         card.addView(makeButton("Закрыть проводник", th.bgElevated, th.textPrimary) {
             dlg.dismiss()
+        })
+    }
+
+    private fun showErrorDialog(title: String, message: String, th: StormTheme = themes[currentThemeIndex]) {
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = makeCardDrawable(th.bgCard, th.accent, 14)
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+        }
+        card.addView(makeSectionHeader(
+            title,
+            message,
+            th
+        ))
+        val dlg = showImmersiveDialog(
+            AlertDialog.Builder(this)
+                .setView(makeUnclippedDialogContainer(card))
+                .setCancelable(true)
+        )
+        card.addView(makeButton("Закрыть", th.bgElevated, th.textPrimary) {
+            dlg.dismiss()
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(12)
+            }
         })
     }
 

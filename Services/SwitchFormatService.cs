@@ -1,3 +1,6 @@
+using Path = System.IO.Path;
+using StormNczStorage = StormSwitchBox.Core.NSZ.StormNczStorage;
+using ContentMetaType = LibHac.Ncm.ContentMetaType;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -66,6 +69,35 @@ namespace StormSwitchBox.Services
             }
         }
 
+        public PartitionFileSystem OpenSwitchContainerFileSystem(IStorage rootStorage, string filePath)
+        {
+            bool isXci = filePath.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) ||
+                         filePath.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase);
+
+            if (isXci)
+            {
+                try
+                {
+                    rootStorage.GetSize(out long storageSize).ThrowIfFailure();
+                    if (storageSize > 0x10000)
+                    {
+                        var rootStorageSub = new SubStorage(rootStorage, 0x10000, storageSize - 0x10000);
+                        var rootPfs = new PartitionFileSystem(rootStorageSub);
+                        using var secureFile = new UniqueRef<IFile>();
+                        using var securePath = new LibHac.Fs.Path();
+                        securePath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes("/secure"))).ThrowIfFailure();
+                        if (rootPfs.OpenFile(ref secureFile.Ref, in securePath, OpenMode.Read).IsSuccess())
+                        {
+                            return new PartitionFileSystem(secureFile.Release().AsStorage());
+                        }
+                    }
+                }
+                catch { }
+            }
+
+            return new PartitionFileSystem(rootStorage);
+        }
+
         public Models.SwitchFormatInfo ParseNsp(string filePath)
         {
             var info = new Models.SwitchFormatInfo { SizeBytes = new FileInfo(filePath).Length };
@@ -85,39 +117,46 @@ namespace StormSwitchBox.Services
                 };
             }
 
+            _keysService.EnsureLoadedWithAutoDiscovery(filePath);
             if (!_keysService.IsLoaded) return info;
 
             try
             {
-                bool isXci = filePath.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) || filePath.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase);
-
                 using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
                 IStorage storage = fileStream.AsStorage();
-                
-                IFileSystem? fileSystem = null;
-                PartitionFileSystem? pfs = null;
-
-                if (isXci)
-                {
-                    storage.GetSize(out long storageSize).ThrowIfFailure();
-                    var rootStorage = new SubStorage(storage, 0x10000, storageSize - 0x10000);
-                    var rootPfs = new PartitionFileSystem(rootStorage);
-                    
-                    using var secureFile = new UniqueRef<IFile>();
-                    using var securePath = new LibHac.Fs.Path();
-                    securePath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes("/secure"))).ThrowIfFailure();
-                    rootPfs.OpenFile(ref secureFile.Ref, in securePath, OpenMode.Read).ThrowIfFailure();
-                    
-                    pfs = new PartitionFileSystem(secureFile.Release().AsStorage());
-                    fileSystem = pfs;
-                }
-                else
-                {
-                    pfs = new PartitionFileSystem(storage);
-                    fileSystem = pfs;
-                }
+                IFileSystem fileSystem = OpenSwitchContainerFileSystem(storage, filePath);
 
                 SmartShrinkService.HarvestTicketsFromFileSystem(fileSystem, _keysService.CurrentKeyset);
+
+                foreach (var tikEntry in fileSystem.EnumerateEntries().Where(e => e.Name.EndsWith(".tik", StringComparison.OrdinalIgnoreCase)))
+                {
+                    try
+                    {
+                        using var tikFileRef = new UniqueRef<IFile>();
+                        using var tikPath = new LibHac.Fs.Path();
+                        tikPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(tikEntry.FullPath))).ThrowIfFailure();
+                        if (fileSystem.OpenFile(ref tikFileRef.Ref, in tikPath, OpenMode.Read).IsSuccess())
+                        {
+                            using var tikFile = tikFileRef.Release();
+                            using var ms = new MemoryStream();
+                            tikFile.AsStream().CopyTo(ms);
+                            ms.Position = 0;
+                            var ticket = new LibHac.Tools.Es.Ticket(ms);
+                            byte[] tKey = ticket.GetTitleKey(_keysService.CurrentKeyset);
+                            var rId = new LibHac.Fs.RightsId(ticket.RightsId);
+                            if (!_keysService.CurrentKeyset.ExternalKeySet.Contains(rId))
+                            {
+                                _keysService.CurrentKeyset.ExternalKeySet.Add(rId, new LibHac.Spl.AccessKey(tKey));
+                            }
+                            string rightsIdStr = BitConverter.ToString(ticket.RightsId).Replace("-", "").ToLowerInvariant();
+                            lock (Core.NSZ.StormNczCompressor.TitleKeysCache)
+                            {
+                                Core.NSZ.StormNczCompressor.TitleKeysCache[rightsIdStr] = tKey;
+                            }
+                        }
+                    }
+                    catch { }
+                }
 
                 var baseCnmts = new List<(string Tid, uint Ver)>();
                 var patchCnmts = new List<(string Tid, uint Ver)>();
@@ -125,129 +164,167 @@ namespace StormSwitchBox.Services
                 var programNcas = new List<(string NcaName, ulong Tid)>();
                 var allContainedTids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-                foreach (var entry in fileSystem.EnumerateEntries().Where(e => e.Name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase)))
+                var targetEntries = fileSystem.EnumerateEntries()
+                    .Where(e => e.Name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase) ||
+                                e.Name.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                foreach (var entry in targetEntries)
                 {
                     using var ncaFileRef = new UniqueRef<IFile>();
                     using var ncaPath = new LibHac.Fs.Path();
                     ncaPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(entry.FullPath))).ThrowIfFailure();
-                    fileSystem.OpenFile(ref ncaFileRef.Ref, in ncaPath, OpenMode.Read).ThrowIfFailure();
-                    
-                    IFile ncaFile = ncaFileRef.Release();
-                    IStorage ncaStorage = ncaFile.AsStorage();
-                    
-                    var nca = new Nca(_keysService.CurrentKeyset, ncaStorage);
-                    KeysService.RegisterRightsIdFallback(_keysService.CurrentKeyset, nca);
-                    
-                    if (nca.Header.ContentType == NcaContentType.Meta)
+                    if (fileSystem.OpenFile(ref ncaFileRef.Ref, in ncaPath, OpenMode.Read).IsFailure())
+                        continue;
+
+                    using var ncaFile = ncaFileRef.Release();
+                    IStorage rawStorage = ncaFile.AsStorage();
+
+                    IStorage ncaStorage;
+                    IDisposable? nczDisposable = null;
+                    bool isNcz = entry.Name.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase);
+
+                    if (isNcz)
                     {
-                        IFileSystem? fs = null;
-                        try { fs = nca.OpenFileSystem(0, IntegrityCheckLevel.None); } catch { }
-                        if (fs == null)
+                        if (entry.Size >= 64L * 1024 * 1024)
                         {
-                            try { fs = nca.OpenFileSystem(1, IntegrityCheckLevel.None); } catch { }
+                            // Huge Program NCA in NCZ (e.g. 14 GB) -> read ONLY the uncompressed 0x4000 header in 0 ms!
+                            ncaStorage = new SubStorage(rawStorage, 0, 0x4000);
                         }
-
-                        if (fs != null)
+                        else
                         {
-                            foreach (var cnmtEntry in fs.EnumerateEntries("/", "*.cnmt"))
-                            {
-                                using var cnmtFileRef = new UniqueRef<IFile>();
-                                using var cnmtPath = new LibHac.Fs.Path();
-                                cnmtPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(cnmtEntry.FullPath))).ThrowIfFailure();
-                                fs.OpenFile(ref cnmtFileRef.Ref, in cnmtPath, OpenMode.Read).ThrowIfFailure();
-                                
-                                IFile cnmtFile = cnmtFileRef.Release();
-                                
-                                using var cnmtStream = new MemoryStream();
-                                cnmtFile.AsStream().CopyTo(cnmtStream);
-                                byte[] cnmtBytes = cnmtStream.ToArray();
-
-                                ulong titleId = BitConverter.ToUInt64(cnmtBytes, 0x00);
-                                uint version = BitConverter.ToUInt32(cnmtBytes, 0x08);
-                                byte typeByte = cnmtBytes[0x0C];
-                                string tidStr = titleId.ToString("X16");
-                                allContainedTids.Add(tidStr);
-
-                                if (typeByte == 0x80) baseCnmts.Add((tidStr, version));
-                                else if (typeByte == 0x81) patchCnmts.Add((tidStr, version));
-                                else if (typeByte == 0x82) dlcCnmts.Add((tidStr, version));
-
-                                App.Logger.Log($"[LibHac] Запись CNMT: {tidStr} | Тип: {typeByte:X2} | v{version}", Models.LogLevel.Debug);
-                            }
+                            var ncz = new StormNczStorage(rawStorage, null, null, _keysService.CurrentKeyset);
+                            nczDisposable = ncz;
+                            ncaStorage = ncz;
                         }
                     }
-                    else if (nca.Header.ContentType == NcaContentType.Program)
+                    else
                     {
-                        programNcas.Add((entry.Name, nca.Header.TitleId));
-                        if (nca.Header.TitleId != 0) allContainedTids.Add(nca.Header.TitleId.ToString("X16"));
+                        ncaStorage = rawStorage;
                     }
-                    else if (nca.Header.ContentType == NcaContentType.Control)
+
+                    try
                     {
-                        IFileSystem? fs = null;
-                        try { fs = nca.OpenFileSystem(0, IntegrityCheckLevel.None); } catch { }
-                        
-                        if (fs != null)
+                        var nca = new Nca(_keysService.CurrentKeyset, ncaStorage);
+                        KeysService.RegisterRightsIdFallback(_keysService.CurrentKeyset, nca);
+
+                        if (nca.Header.ContentType == NcaContentType.Meta)
                         {
-                            var iconEntry = fs.EnumerateEntries("/", "icon_*.dat").FirstOrDefault();
-                            if (iconEntry != null)
+                            IFileSystem? fs = null;
+                            try { fs = nca.OpenFileSystem(0, IntegrityCheckLevel.None); } catch { }
+                            if (fs == null)
                             {
-                                using var iconFileRef = new UniqueRef<IFile>();
-                                using var iconPath = new LibHac.Fs.Path();
-                                iconPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(iconEntry.FullPath))).ThrowIfFailure();
-                                fs.OpenFile(ref iconFileRef.Ref, in iconPath, OpenMode.Read).ThrowIfFailure();
-                                
-                                IFile iconFile = iconFileRef.Release();
-                                using var iconStream = new MemoryStream();
-                                iconFile.AsStream().CopyTo(iconStream);
-                                info.IconBytes = iconStream.ToArray();
+                                try { fs = nca.OpenFileSystem(1, IntegrityCheckLevel.None); } catch { }
                             }
 
-                            var nacpEntry = fs.EnumerateEntries("/", "control.nacp").FirstOrDefault();
-                            if (nacpEntry != null)
+                            if (fs != null)
                             {
-                                try
+                                foreach (var cnmtEntry in fs.EnumerateEntries("/", "*.cnmt"))
                                 {
-                                    using var nacpFileRef = new UniqueRef<IFile>();
-                                    using var nacpPath = new LibHac.Fs.Path();
-                                    nacpPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(nacpEntry.FullPath))).ThrowIfFailure();
-                                    fs.OpenFile(ref nacpFileRef.Ref, in nacpPath, OpenMode.Read).ThrowIfFailure();
-                                    
-                                    IFile nacpFile = nacpFileRef.Release();
-                                    using var nacpStream = new MemoryStream();
-                                    nacpFile.AsStream().CopyTo(nacpStream);
-                                    byte[] nacpData = nacpStream.ToArray();
-                                    if (nacpData.Length >= 0x3080)
+                                    using var cnmtFileRef = new UniqueRef<IFile>();
+                                    using var cnmtPath = new LibHac.Fs.Path();
+                                    cnmtPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(cnmtEntry.FullPath))).ThrowIfFailure();
+                                    if (fs.OpenFile(ref cnmtFileRef.Ref, in cnmtPath, OpenMode.Read).IsSuccess())
                                     {
-                                        string ReadNacpString(int offset, int maxLen)
-                                        {
-                                            if (offset >= nacpData.Length) return "";
-                                            int len = 0;
-                                            while (len < maxLen && offset + len < nacpData.Length && nacpData[offset + len] != 0) len++;
-                                            return len > 0 ? System.Text.Encoding.UTF8.GetString(nacpData, offset, len).Trim() : "";
-                                        }
+                                        using var cnmtFile = cnmtFileRef.Release();
+                                        var cnmt = new LibHac.Tools.Ncm.Cnmt(cnmtFile.AsStream());
+                                        allContainedTids.Add(cnmt.TitleId.ToString("X16"));
 
-                                        string ruTitle = ReadNacpString(11 * 0x300, 0x200);
-                                        string enTitle = ReadNacpString(0, 0x200);
-                                        string title = !string.IsNullOrEmpty(ruTitle) ? ruTitle : (!string.IsNullOrEmpty(enTitle) ? enTitle : "");
-                                        if (string.IsNullOrEmpty(title))
-                                        {
-                                            for (int i = 0; i < 16; i++)
-                                            {
-                                                title = ReadNacpString(i * 0x300, 0x200);
-                                                if (!string.IsNullOrEmpty(title)) break;
-                                            }
-                                        }
-                                        if (!string.IsNullOrEmpty(title)) info.GameName = title;
-
-                                        string ruPub = ReadNacpString(11 * 0x300 + 0x200, 0x100);
-                                        string enPub = ReadNacpString(0x200, 0x100);
-                                        string pub = !string.IsNullOrEmpty(ruPub) ? ruPub : (!string.IsNullOrEmpty(enPub) ? enPub : "");
-                                        if (!string.IsNullOrEmpty(pub)) info.Publisher = pub;
+                                        if (cnmt.Type == ContentMetaType.Application)
+                                            baseCnmts.Add((cnmt.TitleId.ToString("X16"), cnmt.TitleVersion.Version));
+                                        else if (cnmt.Type == ContentMetaType.Patch)
+                                            patchCnmts.Add((cnmt.TitleId.ToString("X16"), cnmt.TitleVersion.Version));
+                                        else if (cnmt.Type == ContentMetaType.AddOnContent)
+                                            dlcCnmts.Add((cnmt.TitleId.ToString("X16"), cnmt.TitleVersion.Version));
                                     }
                                 }
-                                catch { }
                             }
                         }
+                        else if (nca.Header.ContentType == NcaContentType.Program)
+                        {
+                            programNcas.Add((entry.Name, nca.Header.TitleId));
+                            allContainedTids.Add(nca.Header.TitleId.ToString("X16"));
+                        }
+                        else if (nca.Header.ContentType == NcaContentType.Control && string.IsNullOrEmpty(info.GameName))
+                        {
+                            allContainedTids.Add(nca.Header.TitleId.ToString("X16"));
+                            IFileSystem? fs = null;
+                            try { fs = nca.OpenFileSystem(0, IntegrityCheckLevel.None); } catch { }
+                            if (fs == null)
+                            {
+                                try { fs = nca.OpenFileSystem(1, IntegrityCheckLevel.None); } catch { }
+                            }
+
+                            if (fs != null)
+                            {
+                                var iconEntry = fs.EnumerateEntries("/", "icon_*.dat").FirstOrDefault();
+                                if (iconEntry != null)
+                                {
+                                    using var iconFileRef = new UniqueRef<IFile>();
+                                    using var iconPath = new LibHac.Fs.Path();
+                                    iconPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(iconEntry.FullPath))).ThrowIfFailure();
+                                    if (fs.OpenFile(ref iconFileRef.Ref, in iconPath, OpenMode.Read).IsSuccess())
+                                    {
+                                        using var iconFile = iconFileRef.Release();
+                                        using var iconStream = new MemoryStream();
+                                        iconFile.AsStream().CopyTo(iconStream);
+                                        info.IconBytes = iconStream.ToArray();
+                                    }
+                                }
+
+                                var nacpEntry = fs.EnumerateEntries("/", "control.nacp").FirstOrDefault();
+                                if (nacpEntry != null)
+                                {
+                                    try
+                                    {
+                                        using var nacpFileRef = new UniqueRef<IFile>();
+                                        using var nacpPath = new LibHac.Fs.Path();
+                                        nacpPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(nacpEntry.FullPath))).ThrowIfFailure();
+                                        if (fs.OpenFile(ref nacpFileRef.Ref, in nacpPath, OpenMode.Read).IsSuccess())
+                                        {
+                                            using var nacpFile = nacpFileRef.Release();
+                                            using var nacpStream = new MemoryStream();
+                                            nacpFile.AsStream().CopyTo(nacpStream);
+                                            byte[] nacpData = nacpStream.ToArray();
+                                            if (nacpData.Length >= 0x3080)
+                                            {
+                                                string ReadNacpString(int offset, int maxLen)
+                                                {
+                                                    if (offset >= nacpData.Length) return "";
+                                                    int len = 0;
+                                                    while (len < maxLen && offset + len < nacpData.Length && nacpData[offset + len] != 0) len++;
+                                                    return len > 0 ? System.Text.Encoding.UTF8.GetString(nacpData, offset, len).Trim() : "";
+                                                }
+
+                                                string ruTitle = ReadNacpString(11 * 0x300, 0x200);
+                                                string enTitle = ReadNacpString(0, 0x200);
+                                                string title = !string.IsNullOrEmpty(ruTitle) ? ruTitle : (!string.IsNullOrEmpty(enTitle) ? enTitle : "");
+                                                if (string.IsNullOrEmpty(title))
+                                                {
+                                                    for (int i = 0; i < 16; i++)
+                                                    {
+                                                        title = ReadNacpString(i * 0x300, 0x200);
+                                                        if (!string.IsNullOrEmpty(title)) break;
+                                                    }
+                                                }
+                                                if (!string.IsNullOrEmpty(title)) info.GameName = title;
+
+                                                string ruPub = ReadNacpString(11 * 0x300 + 0x200, 0x100);
+                                                string enPub = ReadNacpString(0x200, 0x100);
+                                                string pub = !string.IsNullOrEmpty(ruPub) ? ruPub : (!string.IsNullOrEmpty(enPub) ? enPub : "");
+                                                if (!string.IsNullOrEmpty(pub)) info.Publisher = pub;
+                                            }
+                                        }
+                                    }
+                                    catch { }
+                                }
+                            }
+                        }
+                    }
+                    catch { }
+                    finally
+                    {
+                        nczDisposable?.Dispose();
                     }
                 }
 
@@ -262,10 +339,6 @@ namespace StormSwitchBox.Services
 
                 if (baseCnmts.Count > 0 && patchCnmts.Count > 0)
                 {
-                    // Содержит И Base CNMT/NCA (...000), И Patch CNMT (...800)
-                    // ОБЯЗАНО распознаваться как Base/Monolith донор (...000) с EmbeddedPatchVersion = vOld
-                    // и IsMonolithicHardPatch = true/false (содержит ...000 Program NCA + ...800 CNMT без отдельного ...800 Program NCA)
-                    // и НИКОГДА не классифицироваться как standalone Patch (...800) или пропускаться!
                     var b = baseCnmts[0];
                     var p = patchCnmts.OrderByDescending(x => x.Ver).First();
 
@@ -320,147 +393,350 @@ namespace StormSwitchBox.Services
 
         public async System.Threading.Tasks.Task UnpackContainerAsync(Models.ProcessingTask task, string filePath, string baseOutFolder, System.Threading.CancellationToken token)
         {
-            if (!_keysService.IsLoaded) throw new Exception("Криптографические ключи не загружены.");
+            _keysService.EnsureLoadedWithAutoDiscovery(filePath);
+            if (!_keysService.IsLoaded) throw new Exception("Криптографические ключи prod.keys не загружены. Укажите файл prod.keys в Параметрах.");
+
+            string? outRoot = Path.GetPathRoot(Path.GetFullPath(baseOutFolder));
+            if (!string.IsNullOrEmpty(outRoot))
+            {
+                try
+                {
+                    var dInfo = new DriveInfo(outRoot);
+                    if (dInfo.IsReady && dInfo.AvailableFreeSpace < 512L * 1024 * 1024)
+                    {
+                        throw new IOException($"Недостаточно свободного места на диске {outRoot} для распаковки: доступно менее 512 МБ.");
+                    }
+                }
+                catch (IOException) { throw; }
+                catch { }
+            }
 
             App.RunOnUI(() => { task.Status = "Распаковка..."; });
-            
             App.RunOnUI(() => { 
                 task.LogDetails += $"\nРаспаковка контейнера с помощью LibHac (Zero-Disk-IO)..."; 
             });
 
-            var info = ParseNsp(filePath);
-            
-            string subFolder = "basedata";
-            if (info.ContentType.Contains("Patch", StringComparison.OrdinalIgnoreCase)) subFolder = "updatedata";
-            if (info.ContentType.Contains("AddOnContent", StringComparison.OrdinalIgnoreCase)) subFolder = "dlcdata";
+            string baseDataDir = System.IO.Path.Combine(baseOutFolder, "basedata");
+            string dlcDataDir = System.IO.Path.Combine(baseOutFolder, "dlcdata");
+            System.IO.Directory.CreateDirectory(baseDataDir);
 
-            string finalOutPath = System.IO.Path.Combine(baseOutFolder, subFolder);
-
-            App.Logger.Log($"Целевая папка для распаковки: {finalOutPath}", Models.LogLevel.Info);
-            System.IO.Directory.CreateDirectory(finalOutPath);
+            string preferredTemp = !string.IsNullOrEmpty(outRoot) ? Path.Combine(outRoot, "STORM_TMP") : Path.GetTempPath();
 
             await System.Threading.Tasks.Task.Run(() =>
             {
-                bool isXci = filePath.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) || filePath.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase);
-
                 using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
                 IStorage storage = fileStream.AsStorage();
-                
-                IFileSystem? fileSystem = null;
-                PartitionFileSystem? pfs = null;
-
-                if (isXci)
-                {
-                    storage.GetSize(out long storageSize).ThrowIfFailure();
-                    var rootStorage = new SubStorage(storage, 0x10000, storageSize - 0x10000);
-                    var rootPfs = new PartitionFileSystem(rootStorage);
-                    
-                    using var secureFile = new UniqueRef<IFile>();
-                    using var securePath2 = new LibHac.Fs.Path();
-                    securePath2.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes("/secure"))).ThrowIfFailure();
-                    rootPfs.OpenFile(ref secureFile.Ref, in securePath2, OpenMode.Read).ThrowIfFailure();
-                    
-                    pfs = new PartitionFileSystem(secureFile.Release().AsStorage());
-                    fileSystem = pfs;
-                }
-                else
-                {
-                    pfs = new PartitionFileSystem(storage);
-                    fileSystem = pfs;
-                }
+                IFileSystem fileSystem = OpenSwitchContainerFileSystem(storage, filePath);
 
                 SmartShrinkService.HarvestTicketsFromFileSystem(fileSystem, _keysService.CurrentKeyset);
 
-                var titleKeyMap = new System.Collections.Generic.Dictionary<string, byte[]>();
-                foreach (var entry in fileSystem.EnumerateEntries().Where(e => e.Name.EndsWith(".tik", StringComparison.OrdinalIgnoreCase)))
+                var titleKeyMap = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+                string ticketsDir = System.IO.Path.Combine(baseDataDir, "tickets");
+
+                foreach (var entry in fileSystem.EnumerateEntries().Where(e => e.Name.EndsWith(".tik", StringComparison.OrdinalIgnoreCase) || e.Name.EndsWith(".cert", StringComparison.OrdinalIgnoreCase)))
                 {
                     try
                     {
-                        using var tikFileRef = new UniqueRef<IFile>();
-                        using var tikPath = new LibHac.Fs.Path();
-                        tikPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(entry.FullPath))).ThrowIfFailure();
-                        fileSystem.OpenFile(ref tikFileRef.Ref, in tikPath, OpenMode.Read).ThrowIfFailure();
-                        
-                        IFile tikFile = tikFileRef.Release();
-                        using var tikStream = new MemoryStream();
-                        tikFile.AsStream().CopyTo(tikStream);
-                        tikStream.Position = 0;
-                        
-                        var ticket = new LibHac.Tools.Es.Ticket(tikStream);
-                        byte[] tKey = ticket.GetTitleKey(_keysService.CurrentKeyset);
-                        string rightsIdStr = BitConverter.ToString(ticket.RightsId).Replace("-", "").ToLowerInvariant();
-                        titleKeyMap[rightsIdStr] = tKey;
+                        using var fRef = new UniqueRef<IFile>();
+                        using var pRef = new LibHac.Fs.Path();
+                        pRef.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(entry.FullPath))).ThrowIfFailure();
+                        if (fileSystem.OpenFile(ref fRef.Ref, in pRef, OpenMode.Read).IsSuccess())
+                        {
+                            using var iFile = fRef.Release();
+                            using var ms = new MemoryStream();
+                            iFile.AsStream().CopyTo(ms);
+                            byte[] rawBytes = ms.ToArray();
+
+                            if (entry.Name.EndsWith(".tik", StringComparison.OrdinalIgnoreCase))
+                            {
+                                ms.Position = 0;
+                                var ticket = new LibHac.Tools.Es.Ticket(ms);
+                                byte[] tKey = ticket.GetTitleKey(_keysService.CurrentKeyset);
+                                string rightsIdStr = BitConverter.ToString(ticket.RightsId).Replace("-", "").ToLowerInvariant();
+                                titleKeyMap[rightsIdStr] = tKey;
+                                var rId = new LibHac.Fs.RightsId(ticket.RightsId);
+                                if (!_keysService.CurrentKeyset.ExternalKeySet.Contains(rId))
+                                {
+                                    _keysService.CurrentKeyset.ExternalKeySet.Add(rId, new LibHac.Spl.AccessKey(tKey));
+                                }
+                                lock (Core.NSZ.StormNczCompressor.TitleKeysCache)
+                                {
+                                    Core.NSZ.StormNczCompressor.TitleKeysCache[rightsIdStr] = tKey;
+                                }
+                            }
+
+                            System.IO.Directory.CreateDirectory(ticketsDir);
+                            System.IO.File.WriteAllBytes(System.IO.Path.Combine(ticketsDir, entry.Name), rawBytes);
+                        }
                     }
                     catch { }
                 }
 
-                if (pfs != null && _keysService.CurrentKeyset != null)
+                var openedDisposables = new List<IDisposable>();
+                try
                 {
-                    SmartShrinkService.HarvestTicketsFromFileSystem(pfs, _keysService.CurrentKeyset);
-                }
+                    var baseProgList = new List<(Nca Nca, IStorage Storage, string Name)>();
+                    var patchProgList = new List<(Nca Nca, IStorage Storage, string Name)>();
+                    var controlList = new List<(Nca Nca, IStorage Storage, string Name)>();
+                    var dlcList = new List<(Nca Nca, IStorage Storage, string Name)>();
 
-                var entries = fileSystem.EnumerateEntries().ToList();
-                int totalFiles = entries.Count;
-                int currentFile = 0;
-
-                var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-                
-                foreach (var entry in entries)
-                {
-                    token.ThrowIfCancellationRequested();
-                    currentFile++;
-                    string entryName = entry.Name;
-                    
-                    if (stopwatch.ElapsedMilliseconds > 100 || currentFile == totalFiles)
+                    var allEntries = fileSystem.EnumerateEntries().ToList();
+                    foreach (var entry in allEntries)
                     {
-                        App.RunOnUI(() => 
-                        {
-                            task.LogDetails = $"Извлечение: {entryName}";
-                            task.Progress = (currentFile / (double)totalFiles) * 100.0;
-                        });
-                        stopwatch.Restart();
-                    }
+                        token.ThrowIfCancellationRequested();
+                        if (entry.Type == DirectoryEntryType.Directory) continue;
+                        if (entry.Name.EndsWith(".tik", StringComparison.OrdinalIgnoreCase) || entry.Name.EndsWith(".cert", StringComparison.OrdinalIgnoreCase))
+                            continue;
 
-                    using var fileRefOut = new UniqueRef<IFile>();
-                    using var entryPath = new LibHac.Fs.Path();
-                    entryPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(entry.FullPath))).ThrowIfFailure();
-                    fileSystem.OpenFile(ref fileRefOut.Ref, in entryPath, OpenMode.Read).ThrowIfFailure();
-                    IFile fileRef = fileRefOut.Release();
-                    IStorage entryStorage = fileRef.AsStorage();
+                        bool isNca = entry.Name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase);
+                        bool isNcz = entry.Name.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase);
 
-                    if (entryName.EndsWith(".nca", StringComparison.OrdinalIgnoreCase) || entryName.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase))
-                    {
-                        bool isNcz = entryName.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase);
-                        if (isNcz) 
+                        if (!isNca && !isNcz)
                         {
-                            entryStorage = new Core.NSZ.StormNczStorage(entryStorage, titleKeyMap, null, _keysService.CurrentKeyset);
-                            entryName = System.IO.Path.ChangeExtension(entryName, ".nca");
+                            using var rawFileRef = new UniqueRef<IFile>();
+                            using var rawPath = new LibHac.Fs.Path();
+                            rawPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(entry.FullPath))).ThrowIfFailure();
+                            if (fileSystem.OpenFile(ref rawFileRef.Ref, in rawPath, OpenMode.Read).IsSuccess())
+                            {
+                                SaveStorageToFile(rawFileRef.Release().AsStorage(), System.IO.Path.Combine(baseDataDir, entry.Name));
+                            }
+                            continue;
                         }
-                        
-                        var nca = new Nca(_keysService.CurrentKeyset, entryStorage);
-                        if (pfs != null && _keysService.CurrentKeyset != null)
+
+                        using var ncaFileRef = new UniqueRef<IFile>();
+                        using var ncaPath = new LibHac.Fs.Path();
+                        ncaPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(entry.FullPath))).ThrowIfFailure();
+                        if (fileSystem.OpenFile(ref ncaFileRef.Ref, in ncaPath, OpenMode.Read).IsFailure())
+                            continue;
+
+                        IFile ncaFile = ncaFileRef.Release();
+                        openedDisposables.Add(ncaFile);
+                        IStorage rawStorage = ncaFile.AsStorage();
+
+                        byte[] hdrBytes = new byte[0xC00];
+                        if (rawStorage.Read(0, hdrBytes).IsSuccess())
                         {
-                            SmartShrinkService.HarvestTicketsFromFileSystem(pfs, _keysService.CurrentKeyset);
+                            if (hdrBytes.Length >= 0x240)
+                            {
+                                ReadOnlySpan<byte> rIdSpan = new ReadOnlySpan<byte>(hdrBytes, 0x230, 16);
+                                KeysService.RegisterRightsIdFallback(_keysService.CurrentKeyset, rIdSpan);
+                            }
                         }
-                        KeysService.RegisterRightsIdFallback(_keysService.CurrentKeyset, nca);
-                        
+
+                        IStorage effectiveStorage;
+                        if (isNcz)
+                        {
+                            var ncz = new StormNczStorage(rawStorage, titleKeyMap, null, _keysService.CurrentKeyset, preferredTemp);
+                            openedDisposables.Add(ncz);
+                            effectiveStorage = ncz;
+                        }
+                        else
+                        {
+                            effectiveStorage = rawStorage;
+                        }
+
+                        Nca nca;
+                        try
+                        {
+                            nca = new Nca(_keysService.CurrentKeyset, effectiveStorage);
+                            KeysService.RegisterRightsIdFallback(_keysService.CurrentKeyset, nca);
+                        }
+                        catch (Exception ex)
+                        {
+                            App.Logger.Log($"[Unpack] Не удалось открыть NCA {entry.Name}: {ex.Message}", LogLevel.Warning);
+                            SaveStorageToFile(effectiveStorage, System.IO.Path.Combine(baseDataDir, entry.Name));
+                            continue;
+                        }
+
                         if (nca.Header.ContentType == NcaContentType.Program)
                         {
-                            ExtractNcaSection(nca, NcaSectionType.Data, System.IO.Path.Combine(finalOutPath, "romfs"), token, ncaStorage: entryStorage);
-                            ExtractNcaSection(nca, NcaSectionType.Code, System.IO.Path.Combine(finalOutPath, "exefs"), token, ncaStorage: entryStorage);
+                            bool hasData = nca.SectionExists(NcaSectionType.Data);
+                            bool canOpenData = nca.CanOpenSection(NcaSectionType.Data);
+                            bool isPatchProg = !canOpenData || (nca.Header.TitleId & 0xFFFUL) == 0x800;
+
+                            if (hasData && !isPatchProg)
+                            {
+                                baseProgList.Add((nca, effectiveStorage, entry.Name));
+                            }
+                            else
+                            {
+                                patchProgList.Add((nca, effectiveStorage, entry.Name));
+                            }
                         }
                         else if (nca.Header.ContentType == NcaContentType.Control)
                         {
-                            ExtractNcaSection(nca, NcaSectionType.Data, System.IO.Path.Combine(finalOutPath, "control"), token, ncaStorage: entryStorage);
+                            controlList.Add((nca, effectiveStorage, entry.Name));
                         }
-                        else 
+                        else if (nca.Header.ContentType == NcaContentType.PublicData ||
+                                 ((nca.Header.TitleId & 0xFFFUL) > 0 && nca.Header.ContentType != NcaContentType.Meta))
                         {
-                            SaveStorageToFile(entryStorage, System.IO.Path.Combine(finalOutPath, entryName));
+                            dlcList.Add((nca, effectiveStorage, entry.Name));
+                        }
+                        else
+                        {
+                            SaveStorageToFile(effectiveStorage, System.IO.Path.Combine(baseDataDir, entry.Name));
                         }
                     }
-                    else
+
+                    // Process Program NCAs
+                    if (baseProgList.Count > 0 && patchProgList.Count > 0)
                     {
-                        SaveStorageToFile(entryStorage, System.IO.Path.Combine(finalOutPath, entryName));
+                        var baseP = baseProgList[0];
+                        var patchP = patchProgList[0];
+                        App.RunOnUI(() => task.LogDetails += "\n📦 Обнаружен объединённый контейнер 1G+1U: распаковка обновлённого RomFS (BkTR) и ExeFS...");
+                        
+                        var codeNca = patchP.Nca.CanOpenSection(NcaSectionType.Code) ? patchP.Nca : baseP.Nca;
+                        var codeStorage = patchP.Nca.CanOpenSection(NcaSectionType.Code) ? patchP.Storage : baseP.Storage;
+                        ExtractNcaSection(codeNca, NcaSectionType.Code, System.IO.Path.Combine(baseDataDir, "exefs"), token, ncaStorage: codeStorage);
+                        ExtractNcaSection(baseP.Nca, patchP.Nca, NcaSectionType.Data, System.IO.Path.Combine(baseDataDir, "romfs"), token);
+                    }
+                    else if (baseProgList.Count > 0)
+                    {
+                        var baseP = baseProgList[0];
+                        App.RunOnUI(() => task.LogDetails += "\n📦 Распаковка базовой игры 1G (RomFS и ExeFS)...");
+                        if (baseP.Nca.CanOpenSection(NcaSectionType.Code))
+                        {
+                            ExtractNcaSection(baseP.Nca, NcaSectionType.Code, System.IO.Path.Combine(baseDataDir, "exefs"), token, ncaStorage: baseP.Storage);
+                        }
+                        if (baseP.Nca.CanOpenSection(NcaSectionType.Data))
+                        {
+                            ExtractNcaSection(baseP.Nca, NcaSectionType.Data, System.IO.Path.Combine(baseDataDir, "romfs"), token, ncaStorage: baseP.Storage);
+                        }
+                    }
+                    else if (patchProgList.Count > 0)
+                    {
+                        var patchP = patchProgList[0];
+                        ulong baseTid = patchP.Nca.Header.TitleId & ~0xFFFUL;
+
+                        string? inputDir = Path.GetDirectoryName(filePath);
+                        string? siblingBasePath = null;
+                        Nca? siblingBaseProgNca = null;
+                        IFile? siblingFileRef = null;
+                        IDisposable? siblingNcz = null;
+
+                        if (!string.IsNullOrEmpty(inputDir) && Directory.Exists(inputDir))
+                        {
+                            var siblings = Directory.EnumerateFiles(inputDir, "*.*")
+                                .Where(f => !f.Equals(filePath, StringComparison.OrdinalIgnoreCase) &&
+                                            (f.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) ||
+                                             f.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) ||
+                                             f.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) ||
+                                             f.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase)))
+                                .ToList();
+
+                            foreach (var sib in siblings)
+                            {
+                                try
+                                {
+                                    var sibInfo = ParseNsp(sib);
+                                    if (!string.IsNullOrEmpty(sibInfo.TitleId) &&
+                                        ulong.TryParse(sibInfo.TitleId, System.Globalization.NumberStyles.HexNumber, null, out ulong sTid) &&
+                                        (sTid & ~0xFFFUL) == baseTid && sibInfo.HasProgramNca)
+                                    {
+                                        using var sibFs = new FileStream(sib, FileMode.Open, FileAccess.Read, FileShare.Read);
+                                        var sibStorage = sibFs.AsStorage();
+                                        var sibContainerFs = OpenSwitchContainerFileSystem(sibStorage, sib);
+                                        foreach (var sEntry in sibContainerFs.EnumerateEntries().Where(e => e.Name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase) || e.Name.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase)))
+                                        {
+                                            using var sFileRef = new UniqueRef<IFile>();
+                                            using var sPath = new LibHac.Fs.Path();
+                                            sPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(sEntry.FullPath))).ThrowIfFailure();
+                                            if (sibContainerFs.OpenFile(ref sFileRef.Ref, in sPath, OpenMode.Read).IsSuccess())
+                                            {
+                                                var sFile = sFileRef.Release();
+                                                IStorage sRaw = sFile.AsStorage();
+                                                IStorage sEff = sRaw;
+                                                if (sEntry.Name.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase))
+                                                {
+                                                    var sNcz = new StormNczStorage(sRaw, null, null, _keysService.CurrentKeyset, preferredTemp);
+                                                    siblingNcz = sNcz;
+                                                    sEff = sNcz;
+                                                }
+                                                var sNca = new Nca(_keysService.CurrentKeyset, sEff);
+                                                if (sNca.Header.ContentType == NcaContentType.Program && sNca.CanOpenSection(NcaSectionType.Data) && (sNca.Header.TitleId & 0xFFFUL) == 0)
+                                                {
+                                                    siblingBasePath = sib;
+                                                    siblingBaseProgNca = sNca;
+                                                    siblingFileRef = sFile;
+                                                    break;
+                                                }
+                                                else
+                                                {
+                                                    sFile.Dispose();
+                                                    if (siblingNcz is IDisposable sn) { sn.Dispose(); siblingNcz = null; }
+                                                }
+                                            }
+                                        }
+                                        if (siblingBaseProgNca != null) break;
+                                    }
+                                }
+                                catch { }
+                            }
+                        }
+
+                        if (siblingBaseProgNca != null)
+                        {
+                            try
+                            {
+                                App.RunOnUI(() => task.LogDetails += $"\n✅ Найдена базовая игра: {Path.GetFileName(siblingBasePath)}! RomFS успешно пропатчен и извлечён.");
+                                if (patchP.Nca.CanOpenSection(NcaSectionType.Code))
+                                {
+                                    ExtractNcaSection(patchP.Nca, NcaSectionType.Code, System.IO.Path.Combine(baseDataDir, "exefs"), token, ncaStorage: patchP.Storage);
+                                }
+                                ExtractNcaSection(siblingBaseProgNca, patchP.Nca, NcaSectionType.Data, System.IO.Path.Combine(baseDataDir, "romfs"), token);
+                            }
+                            finally
+                            {
+                                siblingFileRef?.Dispose();
+                                if (siblingNcz is IDisposable sn) sn.Dispose();
+                            }
+                        }
+                        else
+                        {
+                            if (patchP.Nca.CanOpenSection(NcaSectionType.Code))
+                            {
+                                ExtractNcaSection(patchP.Nca, NcaSectionType.Code, System.IO.Path.Combine(baseDataDir, "exefs"), token, ncaStorage: patchP.Storage);
+                            }
+                            string warnMsg = "⚠️ Данный файл является патчем обновления (BkTR) без базовой игры: извлечены ExeFS, Control и метаданные; для распаковки полного RomFS поместите базовую игру [v0] рядом или распакуйте объединённый 1G+1U контейнер.";
+                            App.Logger.Log(warnMsg, LogLevel.Warning);
+                            App.RunOnUI(() => task.LogDetails += $"\n{warnMsg}");
+                        }
+                    }
+
+                    // Process Control NCAs
+                    if (controlList.Count > 0)
+                    {
+                        var ctrl = controlList.Last();
+                        ExtractNcaSection(ctrl.Nca, NcaSectionType.Data, System.IO.Path.Combine(baseDataDir, "control"), token, ncaStorage: ctrl.Storage);
+                    }
+
+                    // Process DLC NCAs
+                    if (dlcList.Count == 1)
+                    {
+                        var dlc = dlcList[0];
+                        System.IO.Directory.CreateDirectory(dlcDataDir);
+                        ExtractNcaSection(dlc.Nca, NcaSectionType.Data, System.IO.Path.Combine(dlcDataDir, "romfs"), token, ncaStorage: dlc.Storage);
+                    }
+                    else if (dlcList.Count > 1)
+                    {
+                        System.IO.Directory.CreateDirectory(dlcDataDir);
+                        for (int i = 0; i < dlcList.Count; i++)
+                        {
+                            var dlc = dlcList[i];
+                            string dlcSub = i == 0
+                                ? System.IO.Path.Combine(dlcDataDir, "romfs")
+                                : System.IO.Path.Combine(dlcDataDir, dlc.Nca.Header.TitleId.ToString("X16"), "romfs");
+                            System.IO.Directory.CreateDirectory(dlcSub);
+                            ExtractNcaSection(dlc.Nca, NcaSectionType.Data, dlcSub, token, ncaStorage: dlc.Storage);
+                            App.RunOnUI(() => task.LogDetails += $"\nDLC [{dlc.Nca.Header.TitleId:X16}] распакован в: {dlcSub}");
+                        }
+                    }
+                }
+                finally
+                {
+                    foreach (var d in openedDisposables)
+                    {
+                        try { d.Dispose(); } catch { }
                     }
                 }
             }, token);
@@ -823,7 +1099,7 @@ namespace StormSwitchBox.Services
             if (!baseNca.CanOpenSection(sectionType)) return;
             
             // If patch NCA does not have the section, extract from base NCA directly
-            if (!patchNca.CanOpenSection(sectionType))
+            if (!patchNca.SectionExists(sectionType))
             {
                 ExtractNcaSection(baseNca, sectionType, outDir, token, baseNcaFilePath);
                 return;
@@ -998,10 +1274,14 @@ namespace StormSwitchBox.Services
             string baseDir = AppDomain.CurrentDomain.BaseDirectory;
             string[] candidatePaths = new[]
             {
+                System.IO.Path.Combine(baseDir, "tools", "hactoolnet.exe"),
                 System.IO.Path.Combine(baseDir, "tools", "com.github.nozwock.yanu", "hactoolnet.exe"),
+                System.IO.Path.Combine(baseDir, "..", "tools", "hactoolnet.exe"),
                 System.IO.Path.Combine(baseDir, "..", "tools", "com.github.nozwock.yanu", "hactoolnet.exe"),
-                System.IO.Path.Combine(baseDir, "..", "..", "..", "..", "tools", "com.github.nozwock.yanu", "hactoolnet.exe"),
-                System.IO.Path.Combine(baseDir, "..", "..", "tools", "com.github.nozwock.yanu", "hactoolnet.exe")
+                System.IO.Path.Combine(baseDir, "..", "..", "tools", "hactoolnet.exe"),
+                System.IO.Path.Combine(baseDir, "..", "..", "tools", "com.github.nozwock.yanu", "hactoolnet.exe"),
+                System.IO.Path.Combine(baseDir, "..", "..", "..", "..", "tools", "hactoolnet.exe"),
+                System.IO.Path.Combine(baseDir, "..", "..", "..", "..", "tools", "com.github.nozwock.yanu", "hactoolnet.exe")
             };
             foreach (var candidate in candidatePaths)
             {

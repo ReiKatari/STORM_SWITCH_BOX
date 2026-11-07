@@ -92,6 +92,7 @@ namespace StormSwitchBox.Services
         private readonly string _dbPath;
         private Dictionary<string, TitleDbEntry> _db = new();
         private bool _isLoaded = false;
+        public bool IsLoaded => _isLoaded;
         private readonly HttpClient _httpClient;
         private readonly NintendoEShopService _eShopService;
 

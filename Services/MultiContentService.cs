@@ -55,13 +55,20 @@ namespace StormSwitchBox.Services
             
             string tempDecompDir = string.Empty;
 
+            if (task.SourceSizeBytes <= 0 && inputFiles != null && inputFiles.Count > 0)
+            {
+                task.SourceSizeBytes = ProcessingTask.CalculatePathsTotalBytes(inputFiles);
+            }
+            task.EnsureSourceMetricsPopulated();
+
             try
             {
                 App.RunOnUI(() =>
                 {
-                    App.RunOnUI(() => { task.Status = "Анализ файлов..."; });
-                    App.RunOnUI(() => { task.IsRunning = true; });
-                    App.RunOnUI(() => { task.Progress = 0; });
+                    task.EnsureSourceMetricsPopulated();
+                    task.Status = "Анализ файлов...";
+                    task.IsRunning = true;
+                    task.Progress = 0;
                     task.LogDetails += $"\n📋 [Настройки] Файлов: {inputFiles.Count} | HardPatch: {(patchFirmware ? "Да" : "Нет")}";
                 });
 
@@ -427,29 +434,48 @@ namespace StormSwitchBox.Services
                                     }
 
                                     string mainResultPath = keepUncompressed ? intermediatePath : finalCompressedPath;
+                                    long b1Uncomp = 0, b1Comp = 0, b1Out = 0;
+                                    string b1TargetSize = "-";
+                                    string b1Diff = "-";
+                                    string b1CompLevel = ProcessingTask.ComputeDefaultCompressionLevel(task.TargetFormat, task.IsSwitch2Task);
+
+                                    if (isDualFormat && compressionSuccess && System.IO.File.Exists(intermediatePath) && System.IO.File.Exists(finalCompressedPath))
+                                    {
+                                        b1Uncomp = new FileInfo(intermediatePath).Length;
+                                        b1Comp = new FileInfo(finalCompressedPath).Length;
+                                        b1TargetSize = $"{Models.ProcessingTask.FormatSize(b1Uncomp)} + {Models.ProcessingTask.FormatSize(b1Comp)}";
+                                        if (task.SourceSizeBytes > 0 && b1Comp > 0)
+                                        {
+                                            long diff = task.SourceSizeBytes - b1Comp;
+                                            double percent = (double)diff / task.SourceSizeBytes * 100.0;
+                                            b1Diff = $"{(diff > 0 ? "-" : "+")}{Models.ProcessingTask.FormatSize(Math.Abs(diff))} ({Math.Abs(percent):F1}%)";
+                                        }
+                                    }
+                                    else if (System.IO.File.Exists(mainResultPath))
+                                    {
+                                        b1Out = new System.IO.FileInfo(mainResultPath).Length;
+                                        b1TargetSize = Models.ProcessingTask.FormatSize(b1Out);
+                                        if (task.SourceSizeBytes > 0 && b1Out > 0)
+                                        {
+                                            long diff = task.SourceSizeBytes - b1Out;
+                                            double percent = (double)diff / task.SourceSizeBytes * 100.0;
+                                            b1Diff = $"{(diff > 0 ? "-" : "+")}{Models.ProcessingTask.FormatSize(Math.Abs(diff))} ({Math.Abs(percent):F1}%)";
+                                        }
+                                    }
+
                                     App.RunOnUI(() =>
                                     {
-                                        if (isDualFormat && compressionSuccess && System.IO.File.Exists(intermediatePath) && System.IO.File.Exists(finalCompressedPath))
+                                        task.EnsureSourceMetricsPopulated();
+                                        task.TargetSize = b1TargetSize;
+                                        task.SizeDifference = b1Diff;
+                                        task.CompressionLevel = b1CompLevel;
+                                        task.Progress = 100;
+                                        task.Status = "Успешно";
+                                        task.IsRunning = false;
+                                        if (isDualFormat && compressionSuccess && b1Uncomp > 0 && b1Comp > 0)
                                         {
-                                            long nspSize = new FileInfo(intermediatePath).Length;
-                                            long nszSize = new FileInfo(finalCompressedPath).Length;
-                                            task.TargetSize = $"{Models.ProcessingTask.FormatSize(nspSize)} / {Models.ProcessingTask.FormatSize(nszSize)}";
-                                            task.LogDetails += $"\n📦 [Форматы] Успешно созданы оба файла:\n  • {System.IO.Path.GetFileName(intermediatePath)} ({Models.ProcessingTask.FormatSize(nspSize)})\n  • {System.IO.Path.GetFileName(finalCompressedPath)} ({Models.ProcessingTask.FormatSize(nszSize)})";
+                                            task.LogDetails += $"\n📦 [Форматы] Успешно созданы оба файла:\n  • {System.IO.Path.GetFileName(intermediatePath)} ({Models.ProcessingTask.FormatSize(b1Uncomp)})\n  • {System.IO.Path.GetFileName(finalCompressedPath)} ({Models.ProcessingTask.FormatSize(b1Comp)})";
                                         }
-                                        else if (System.IO.File.Exists(mainResultPath))
-                                        {
-                                            long outSize = new System.IO.FileInfo(mainResultPath).Length;
-                                            task.TargetSize = Models.ProcessingTask.FormatSize(outSize);
-                                            if (task.SourceSizeBytes > 0)
-                                            {
-                                                long diff = task.SourceSizeBytes - outSize;
-                                                double percent = (double)diff / task.SourceSizeBytes * 100.0;
-                                                App.RunOnUI(() => { task.SizeDifference = $"{(diff > 0 ? "-" : "+")}{Models.ProcessingTask.FormatSize(Math.Abs(diff))} ({Math.Abs(percent):F1}%)"; });
-                                            }
-                                        }
-                                        App.RunOnUI(() => { task.Progress = 100; });
-                                        App.RunOnUI(() => { task.Status = "Успешно"; });
-                                        App.RunOnUI(() => { task.IsRunning = false; });
                                         task.LogDetails += "\n✅ [Успех] Монолитный образ игры (Base + Update + ExeFS) успешно собран и готов к запуску!";
                                         StormSwitchBox.Services.HistoryService.AddToHistory(task);
                                     });
@@ -478,15 +504,28 @@ namespace StormSwitchBox.Services
                 {
                     try
                     {
-                        var singleDeltas = DetectDeltaNcasToExclude(finalInputFilesList);
-                        if (singleDeltas.Count > 0) singleFileNeedsCleanRebuild = true;
-                        else
+                        string singleCandidate = finalInputFilesList[0];
+                        if (singleCandidate.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) || singleCandidate.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase))
                         {
-                            using var sChk = new FileStream(finalInputFilesList[0], FileMode.Open, FileAccess.Read, FileShare.Read);
-                            var pfsChk = new PartitionFileSystem(sChk.AsStorage());
-                            if (pfsChk.EnumerateEntries().Any(e => !IsValidNspEntry(e.Name)))
+                            if (Core.NSZ.StormNczStorage.ContainsSolidNcz(singleCandidate, _keysService.CurrentKeyset))
                             {
                                 singleFileNeedsCleanRebuild = true;
+                                App.RunOnUI(() => task.LogDetails += "\n⚡ [Zero-Solid Guard] Обнаружен Solid NCZ в одиночном файле: запуск пересборки в 1 МБ Block NCZBLOCK...");
+                            }
+                        }
+
+                        if (!singleFileNeedsCleanRebuild)
+                        {
+                            var singleDeltas = DetectDeltaNcasToExclude(finalInputFilesList);
+                            if (singleDeltas.Count > 0) singleFileNeedsCleanRebuild = true;
+                            else
+                            {
+                                using var sChk = new FileStream(finalInputFilesList[0], FileMode.Open, FileAccess.Read, FileShare.Read);
+                                var pfsChk = new PartitionFileSystem(sChk.AsStorage());
+                                if (pfsChk.EnumerateEntries().Any(e => !IsValidNspEntry(e.Name)))
+                                {
+                                    singleFileNeedsCleanRebuild = true;
+                                }
                             }
                         }
                     }
@@ -557,29 +596,48 @@ namespace StormSwitchBox.Services
                     }
 
                     string mainResultPath = keepUncompressed ? intermediatePath : finalCompressedPath;
+                    long b2Uncomp = 0, b2Comp = 0, b2Out = 0;
+                    string b2TargetSize = "-";
+                    string b2Diff = "-";
+                    string b2CompLevel = ProcessingTask.ComputeDefaultCompressionLevel(task.TargetFormat, task.IsSwitch2Task);
+
+                    if (isDualFormat && compressionSuccess && System.IO.File.Exists(intermediatePath) && System.IO.File.Exists(finalCompressedPath))
+                    {
+                        b2Uncomp = new FileInfo(intermediatePath).Length;
+                        b2Comp = new FileInfo(finalCompressedPath).Length;
+                        b2TargetSize = $"{Models.ProcessingTask.FormatSize(b2Uncomp)} + {Models.ProcessingTask.FormatSize(b2Comp)}";
+                        if (task.SourceSizeBytes > 0 && b2Comp > 0)
+                        {
+                            long diff = task.SourceSizeBytes - b2Comp;
+                            double percent = (double)diff / task.SourceSizeBytes * 100.0;
+                            b2Diff = $"{(diff > 0 ? "-" : "+")}{Models.ProcessingTask.FormatSize(Math.Abs(diff))} ({Math.Abs(percent):F1}%)";
+                        }
+                    }
+                    else if (System.IO.File.Exists(mainResultPath))
+                    {
+                        b2Out = new System.IO.FileInfo(mainResultPath).Length;
+                        b2TargetSize = Models.ProcessingTask.FormatSize(b2Out);
+                        if (task.SourceSizeBytes > 0 && b2Out > 0)
+                        {
+                            long diff = task.SourceSizeBytes - b2Out;
+                            double percent = (double)diff / task.SourceSizeBytes * 100.0;
+                            b2Diff = $"{(diff > 0 ? "-" : "+")}{Models.ProcessingTask.FormatSize(Math.Abs(diff))} ({Math.Abs(percent):F1}%)";
+                        }
+                    }
+
                     App.RunOnUI(() =>
                     {
-                        if (isDualFormat && compressionSuccess && System.IO.File.Exists(intermediatePath) && System.IO.File.Exists(finalCompressedPath))
+                        task.EnsureSourceMetricsPopulated();
+                        task.TargetSize = b2TargetSize;
+                        task.SizeDifference = b2Diff;
+                        task.CompressionLevel = b2CompLevel;
+                        task.Progress = 100;
+                        task.Status = "Успешно";
+                        task.IsRunning = false;
+                        if (isDualFormat && compressionSuccess && b2Uncomp > 0 && b2Comp > 0)
                         {
-                            long nspSize = new FileInfo(intermediatePath).Length;
-                            long nszSize = new FileInfo(finalCompressedPath).Length;
-                            task.TargetSize = $"{Models.ProcessingTask.FormatSize(nspSize)} / {Models.ProcessingTask.FormatSize(nszSize)}";
-                            task.LogDetails += $"\n📦 [Форматы] Успешно созданы оба файла:\n  • {System.IO.Path.GetFileName(intermediatePath)} ({Models.ProcessingTask.FormatSize(nspSize)})\n  • {System.IO.Path.GetFileName(finalCompressedPath)} ({Models.ProcessingTask.FormatSize(nszSize)})";
+                            task.LogDetails += $"\n📦 [Форматы] Успешно созданы оба файла:\n  • {System.IO.Path.GetFileName(intermediatePath)} ({Models.ProcessingTask.FormatSize(b2Uncomp)})\n  • {System.IO.Path.GetFileName(finalCompressedPath)} ({Models.ProcessingTask.FormatSize(b2Comp)})";
                         }
-                        else if (System.IO.File.Exists(mainResultPath))
-                        {
-                            long outSize = new System.IO.FileInfo(mainResultPath).Length;
-                            task.TargetSize = Models.ProcessingTask.FormatSize(outSize);
-                            if (task.SourceSizeBytes > 0)
-                            {
-                                long diff = task.SourceSizeBytes - outSize;
-                                double percent = (double)diff / task.SourceSizeBytes * 100.0;
-                                App.RunOnUI(() => { task.SizeDifference = $"{(diff > 0 ? "-" : "+")}{Models.ProcessingTask.FormatSize(Math.Abs(diff))} ({Math.Abs(percent):F1}%)"; });
-                            }
-                        }
-                        App.RunOnUI(() => { task.Progress = 100; });
-                        App.RunOnUI(() => { task.Status = "Успешно"; });
-                        App.RunOnUI(() => { task.IsRunning = false; });
                         task.LogDetails += "\n✅ [Успех] Обработка файла успешно завершена!";
                         StormSwitchBox.Services.HistoryService.AddToHistory(task);
                     });
@@ -1285,32 +1343,52 @@ namespace StormSwitchBox.Services
                 }
 
                 string finalMainPath = keepUncompressed ? intermediatePath : (compressionSuccess ? finalCompressedPath : intermediatePath);
+                long b3Uncomp = 0, b3Comp = 0, b3Out = 0;
+                string b3TargetSize = "-";
+                string b3Diff = "-";
+                string b3CompLevel = ProcessingTask.ComputeDefaultCompressionLevel(task.TargetFormat, task.IsSwitch2Task);
+
+                if (isDualFormat && compressionSuccess && System.IO.File.Exists(intermediatePath) && System.IO.File.Exists(finalCompressedPath))
+                {
+                    b3Uncomp = new FileInfo(intermediatePath).Length;
+                    b3Comp = new FileInfo(finalCompressedPath).Length;
+                    b3TargetSize = $"{Models.ProcessingTask.FormatSize(b3Uncomp)} + {Models.ProcessingTask.FormatSize(b3Comp)}";
+                    if (task.SourceSizeBytes > 0 && b3Comp > 0)
+                    {
+                        long diff = task.SourceSizeBytes - b3Comp;
+                        double percent = (double)diff / task.SourceSizeBytes * 100.0;
+                        b3Diff = $"{(diff > 0 ? "-" : "+")}{Models.ProcessingTask.FormatSize(Math.Abs(diff))} ({Math.Abs(percent):F1}%)";
+                    }
+                }
+                else if (System.IO.File.Exists(finalMainPath))
+                {
+                    b3Out = new System.IO.FileInfo(finalMainPath).Length;
+                    b3TargetSize = Models.ProcessingTask.FormatSize(b3Out);
+                    if (task.SourceSizeBytes > 0 && b3Out > 0)
+                    {
+                        long diff = task.SourceSizeBytes - b3Out;
+                        double percent = (double)diff / task.SourceSizeBytes * 100.0;
+                        b3Diff = $"{(diff > 0 ? "-" : "+")}{Models.ProcessingTask.FormatSize(Math.Abs(diff))} ({Math.Abs(percent):F1}%)";
+                    }
+                }
 
                 App.RunOnUI(() =>
                 {
-                    if (isDualFormat && compressionSuccess && System.IO.File.Exists(intermediatePath) && System.IO.File.Exists(finalCompressedPath))
+                    task.EnsureSourceMetricsPopulated();
+                    task.TargetSize = b3TargetSize;
+                    task.SizeDifference = b3Diff;
+                    task.CompressionLevel = b3CompLevel;
+                    task.Progress = 100;
+                    task.Status = "Успешно";
+                    task.IsRunning = false;
+                    if (isDualFormat && compressionSuccess && b3Uncomp > 0 && b3Comp > 0)
                     {
-                        long uncompSize = new FileInfo(intermediatePath).Length;
-                        long compSize = new FileInfo(finalCompressedPath).Length;
-                        task.TargetSize = $"{Models.ProcessingTask.FormatSize(uncompSize)} / {Models.ProcessingTask.FormatSize(compSize)}";
-                        task.LogDetails += $"\n📦 [Форматы] Успешно созданы оба файла:\n  • {System.IO.Path.GetFileName(intermediatePath)} ({Models.ProcessingTask.FormatSize(uncompSize)})\n  • {System.IO.Path.GetFileName(finalCompressedPath)} ({Models.ProcessingTask.FormatSize(compSize)})";
+                        task.LogDetails += $"\n📦 [Форматы] Успешно созданы оба файла:\n  • {System.IO.Path.GetFileName(intermediatePath)} ({Models.ProcessingTask.FormatSize(b3Uncomp)})\n  • {System.IO.Path.GetFileName(finalCompressedPath)} ({Models.ProcessingTask.FormatSize(b3Comp)})";
                     }
-                    else if (System.IO.File.Exists(finalMainPath))
+                    else if (b3Out > 0)
                     {
-                        long outSize = new System.IO.FileInfo(finalMainPath).Length;
-                        task.TargetSize = Models.ProcessingTask.FormatSize(outSize);
-                        if (task.SourceSizeBytes > 0)
-                        {
-                            long diff = task.SourceSizeBytes - outSize;
-                            double percent = (double)diff / task.SourceSizeBytes * 100.0;
-                            App.RunOnUI(() => { task.SizeDifference = $"{(diff > 0 ? "-" : "+")}{Models.ProcessingTask.FormatSize(Math.Abs(diff))} ({Math.Abs(percent):F1}%)"; });
-                        }
                         task.LogDetails += $"\n✅ [Готово] Сохранен: {System.IO.Path.GetFileName(finalMainPath)}";
                     }
-
-                    App.RunOnUI(() => { task.Progress = 100; });
-                    App.RunOnUI(() => { task.Status = "Успешно"; });
-                    App.RunOnUI(() => { task.IsRunning = false; });
                     StormSwitchBox.Services.HistoryService.AddToHistory(task);
                 });
 

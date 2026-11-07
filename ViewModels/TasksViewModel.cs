@@ -1671,16 +1671,12 @@ public partial class TasksViewModel : ObservableObject
 					targetList.Add(task);
 					if (iconBytes != null && iconBytes.Length != 0)
 					{
-						try
-						{
-							using var ms = new MemoryStream(iconBytes);
-							BitmapImage bitmap = new BitmapImage();
-							await bitmap.SetSourceAsync(ms.AsRandomAccessStream());
-							task.GameIcon = bitmap;
-						}
-						catch
-						{
-						}
+						task.IconBytes = iconBytes;
+						HistoryService.SaveTaskIconToCache(task, iconBytes);
+					}
+					else
+					{
+						HistoryService.TryLoadIconForTask(task);
 					}
 					App.Logger.Log($"Добавлена задача: {outputName} ({filesCount} файлов)");
 					App.TicketHarvester.HarvestTicketsBackground(inputFiles);
@@ -1882,18 +1878,21 @@ public partial class TasksViewModel : ObservableObject
 				App.RunOnUI(delegate
 				{
 					runningCount = targetList.Count((ProcessingTask t) => t.IsRunning);
-					hasWaitTasks = targetList.Any((ProcessingTask t) => t.Status == "Ожидание");
+					hasWaitTasks = targetList.Any((ProcessingTask t) => t.Status == "Ожидание" || (t.IsPaused && !t.HasActiveWorker));
 					if (runningCount < maxConcurrent)
 					{
 						var runningTasks = targetList.Where((ProcessingTask t) => t.IsRunning).ToList();
 						nextTask = targetList.FirstOrDefault((ProcessingTask t) => 
-							t.Status == "Ожидание" && 
+							(t.Status == "Ожидание" || (t.IsPaused && !t.HasActiveWorker)) && 
 							!runningTasks.Any(r => HasResourceConflict(t, r)));
 
 						if (nextTask != null)
 						{
-							nextTask.Status = "Подготовка...";
-							nextTask.IsRunning = true;
+							if (!nextTask.IsPaused)
+							{
+								nextTask.Status = "Подготовка...";
+								nextTask.IsRunning = true;
+							}
 						}
 					}
 					tcs.SetResult(result: true);
@@ -1905,7 +1904,14 @@ public partial class TasksViewModel : ObservableObject
 				if (nextTask != null)
 				{
 					executedCount++;
-					_ = ExecuteTaskSafelyAsync(nextTask);
+					if (nextTask.IsPaused && !nextTask.HasActiveWorker)
+					{
+						ResumeTask(nextTask);
+					}
+					else
+					{
+						_ = ExecuteTaskSafelyAsync(nextTask);
+					}
 				}
 				else
 				{
@@ -1990,7 +1996,14 @@ public partial class TasksViewModel : ObservableObject
 	{
 		try
 		{
-			var unfinishedTasks = Tasks.Where(t => 
+			if (App.MainDispatcher != null && !App.MainDispatcher.HasThreadAccess)
+			{
+				App.RunOnUI(() => SavePersistedTasks());
+				return;
+			}
+			List<ProcessingTask> taskList = Tasks.ToList();
+
+			var unfinishedTasks = taskList.Where(t => 
 				t.IsRunning || t.IsPaused || 
 				(t.Status != "Успешно" && t.Status != "Готово" && t.Status != "Отменено" && t.Status != "Отменен")
 			).ToList();
@@ -2023,7 +2036,26 @@ public partial class TasksViewModel : ObservableObject
 					FilesList = new List<string>(t.FilesList ?? new List<string>()),
 					IsRuTrackerTask = t.IsRuTrackerTask,
 					KeepExactOutputFileName = t.KeepExactOutputFileName,
-					DeleteSourceAfterVerify = t.DeleteSourceAfterVerify
+					DeleteSourceAfterVerify = t.DeleteSourceAfterVerify,
+
+					SourceSizeBytes = t.SourceSizeBytes,
+					SizeDifference = t.SizeDifference,
+					CompressionLevel = t.CompressionLevel,
+					FilesCount = t.FilesCount,
+					InputFolders = t.InputFolders,
+					TitleId = t.TitleId,
+					Is3dsTask = t.Is3dsTask,
+					IsSwitch2Task = t.IsSwitch2Task,
+					BuildMode = t.BuildMode,
+					HasRomFs = t.HasRomFs,
+					HasExeFs = t.HasExeFs,
+					HasSaveData = t.HasSaveData,
+					SaveDataFolder = t.SaveDataFolder,
+					SaveFilesCount = t.SaveFilesCount,
+					ModNameRomFs = t.ModNameRomFs,
+					ModNameExeFs = t.ModNameExeFs,
+					IconBytes = t.IconBytes,
+					CustomMetadata = t.CustomMetadata
 				};
 
 				if (t.IsRuTrackerTask && t.RuTrackerPayload != null)
@@ -2053,7 +2085,11 @@ public partial class TasksViewModel : ObservableObject
 						AutoBuild = payload.AutoBuild,
 						HasTorrentSource = payload.HasTorrentSource,
 						SharedReleaseDir = payload.SharedReleaseDir,
-						AppendAutoTags = payload.AppendAutoTags
+						AppendAutoTags = payload.AppendAutoTags,
+						SlotNumber = payload.SlotNumber,
+						TotalSlots = payload.TotalSlots,
+						SlotGameTitle = payload.SlotGameTitle,
+						PosterUrl = payload.PosterUrl
 					};
 				}
 				return snap;
@@ -2120,9 +2156,33 @@ public partial class TasksViewModel : ObservableObject
 					DeleteSourceAfterVerify = snap.DeleteSourceAfterVerify,
 					IsRunning = true,
 					IsPaused = true,
-					HasActiveWorker = false
+					HasActiveWorker = false,
+
+					SourceSizeBytes = snap.SourceSizeBytes,
+					SizeDifference = snap.SizeDifference,
+					CompressionLevel = snap.CompressionLevel,
+					FilesCount = snap.FilesCount,
+					InputFolders = snap.InputFolders,
+					TitleId = snap.TitleId,
+					Is3dsTask = snap.Is3dsTask,
+					IsSwitch2Task = snap.IsSwitch2Task,
+					BuildMode = snap.BuildMode,
+					HasRomFs = snap.HasRomFs,
+					HasExeFs = snap.HasExeFs,
+					HasSaveData = snap.HasSaveData,
+					SaveDataFolder = snap.SaveDataFolder,
+					SaveFilesCount = snap.SaveFilesCount,
+					ModNameRomFs = snap.ModNameRomFs,
+					ModNameExeFs = snap.ModNameExeFs,
+					IconBytes = snap.IconBytes,
+					CustomMetadata = snap.CustomMetadata
 				};
 				task.PauseEvent.Reset();
+
+				if (string.IsNullOrWhiteSpace(task.TitleId))
+				{
+					task.TitleId = HistoryService.ExtractTitleId(task) ?? string.Empty;
+				}
 
 				if (snap.IsRuTrackerTask && snap.RuTrackerSnapshot != null)
 				{
@@ -2161,13 +2221,27 @@ public partial class TasksViewModel : ObservableObject
 						AutoBuild = rtSnap.AutoBuild,
 						HasTorrentSource = rtSnap.HasTorrentSource,
 						SharedReleaseDir = rtSnap.SharedReleaseDir,
-						AppendAutoTags = rtSnap.AppendAutoTags
+						AppendAutoTags = rtSnap.AppendAutoTags,
+						SlotNumber = rtSnap.SlotNumber,
+						TotalSlots = rtSnap.TotalSlots,
+						SlotGameTitle = rtSnap.SlotGameTitle,
+						PosterUrl = rtSnap.PosterUrl
 					};
 					task.RuTrackerPayload = payload;
 				}
 
+				task.EnsureSourceMetricsPopulated();
+				HistoryService.TryLoadIconForTask(task);
+
 				Tasks.Add(task);
 			}
+
+			try
+			{
+				RuTrackerDownloadQueueService.Instance.BindRestoredTasksFromViewModel(this);
+			}
+			catch { }
+
 			App.Logger?.Log($"[Задачник] Восстановлено незавершенных задач с паузы: {snapshots.Count}", LogLevel.Info);
 		}
 		catch (Exception ex)
@@ -2184,6 +2258,21 @@ public partial class TasksViewModel : ObservableObject
 
 	public void ResumeTask(ProcessingTask task)
 	{
+		task.EnsureSourceMetricsPopulated();
+		if (task.GameIcon == null)
+		{
+			HistoryService.TryLoadIconForTask(task);
+		}
+
+		if (task.IsRuTrackerTask && task.RuTrackerPayload != null && !task.HasActiveWorker)
+		{
+			if (RuTrackerDownloadQueueService.Instance.TryResumeTaskFromViewModel(task, this))
+			{
+				SavePersistedTasks();
+				return;
+			}
+		}
+
 		if (!task.HasActiveWorker)
 		{
 			task.HasActiveWorker = true;
@@ -2239,6 +2328,15 @@ public partial class TasksViewModel : ObservableObject
 		task.HasActiveWorker = true;
 		try
 		{
+			App.RunOnUI(() =>
+			{
+				task.EnsureSourceMetricsPopulated();
+				if (task.GameIcon == null)
+				{
+					HistoryService.TryLoadIconForTask(task);
+				}
+			});
+
 			await ExecuteTaskAsync(task);
 			App.RunOnUI(delegate
 			{
@@ -2250,6 +2348,8 @@ public partial class TasksViewModel : ObservableObject
 					}
 				}
 				task.IsRunning = false;
+
+				task.EnsureFinalMetricsPopulated();
 
 				// Удаление исходных файлов после успешной проверки выходного контейнера (отдельно для RuTracker и основных задач)
 				bool shouldDeleteSource = task.IsRuTrackerTask ? task.DeleteSourceAfterVerify : App.Settings.Current.DeleteSourceOnSuccess;
@@ -2351,6 +2451,11 @@ public partial class TasksViewModel : ObservableObject
 				AppendStyledSummary(task, task.Status);
 				HistoryService.AddToHistory(task);
 			});
+		}
+		finally
+		{
+			task.HasActiveWorker = false;
+			App.RunOnUI(() => SavePersistedTasks());
 		}
 	}
 
@@ -2510,13 +2615,26 @@ public partial class TasksViewModel : ObservableObject
 				if (task.Operation == "Unpack")
 				{
 					string inputPath = task.InputFiles.FirstOrDefault() ?? "";
-					await App.Nintendo3ds.Unpack3dsContainerAsync(task, inputPath, task.OutputFolder, cts.Token);
+					string outBaseFolder = ResolveSafeOutputDirectory(task, "3DS_Unpack", inputPath, "Unpack_3DS");
+					string outName = !string.IsNullOrWhiteSpace(task.OutputFileName) ? task.OutputFileName : Path.GetFileNameWithoutExtension(inputPath);
+					string sanitizedName = ProcessingTask.SanitizeFileName(outName);
+					string finalUnpackDir = outBaseFolder.EndsWith("_Unpacked", StringComparison.OrdinalIgnoreCase)
+						? outBaseFolder
+						: Path.Combine(outBaseFolder, $"{sanitizedName}_Unpacked");
+					Directory.CreateDirectory(finalUnpackDir);
+					task.OutputFolder = finalUnpackDir;
+					await App.Nintendo3ds.Unpack3dsContainerAsync(task, inputPath, finalUnpackDir, cts.Token);
+					long dirSize = GetDirectoryTotalSize(finalUnpackDir);
+					task.TargetSize = ProcessingTask.FormatSize(dirSize);
+					task.EnsureFinalMetricsPopulated(finalUnpackDir);
 					return;
 				}
 				if (task.Operation == "Pack")
 				{
 					string inputFolder = task.InputFolders.Split(';').FirstOrDefault()?.Trim() ?? "";
-					await App.Nintendo3ds.Pack3dsContainerAsync(task, inputFolder, task.OutputFolder, task.OutputFileName, cts.Token);
+					string outFolder = ResolveSafeOutputDirectory(task, "3DS_Pack", inputFolder, "Pack_3DS");
+					task.OutputFolder = outFolder;
+					await App.Nintendo3ds.Pack3dsContainerAsync(task, inputFolder, outFolder, task.OutputFileName, cts.Token);
 					return;
 				}
 				if (task.Operation == "Convert")
@@ -2608,11 +2726,15 @@ public partial class TasksViewModel : ObservableObject
 			{
 				return;
 			}
-			string outBaseFolder = task.OutputFolder;
-			if (string.IsNullOrEmpty(outBaseFolder))
-			{
-				outBaseFolder = "E:\\OUT\\Unpack";
-			}
+			string outBaseFolder = ResolveSafeOutputDirectory(task, "Unpack", inputPath, "Unpack");
+			string outName = !string.IsNullOrWhiteSpace(task.OutputFileName) ? task.OutputFileName : Path.GetFileNameWithoutExtension(inputPath);
+			string sanitizedName = ProcessingTask.SanitizeFileName(outName);
+			string finalUnpackDir = outBaseFolder.EndsWith("_Unpacked", StringComparison.OrdinalIgnoreCase)
+				? outBaseFolder
+				: Path.Combine(outBaseFolder, $"{sanitizedName}_Unpacked");
+			Directory.CreateDirectory(finalUnpackDir);
+			task.OutputFolder = finalUnpackDir;
+
 			task.IsRunning = true;
 			task.Status = "Распаковка...";
 			try
@@ -2621,12 +2743,15 @@ public partial class TasksViewModel : ObservableObject
 				{
 					throw new FileNotFoundException($"Исходный файл для распаковки не найден: {inputPath}");
 				}
-				await App.SwitchFormat.UnpackContainerAsync(task, inputPath, outBaseFolder, cts.Token);
+				await App.SwitchFormat.UnpackContainerAsync(task, inputPath, finalUnpackDir, cts.Token);
+				long dirSize = GetDirectoryTotalSize(finalUnpackDir);
+				task.TargetSize = ProcessingTask.FormatSize(dirSize);
+				task.EnsureFinalMetricsPopulated(finalUnpackDir);
 				App.RunOnUI(delegate
 				{
 					task.IsRunning = false;
 					task.Status = "Готово";
-					task.LogDetails = "Распаковка успешно завершена.";
+					task.LogDetails += $"\nРаспаковка успешно завершена в: {finalUnpackDir}";
 				});
 			}
 			catch (Exception ex)
@@ -2637,7 +2762,7 @@ public partial class TasksViewModel : ObservableObject
 				{
 					task.IsRunning = false;
 					task.Status = "Ошибка";
-					task.LogDetails = ex3.Message;
+					task.LogDetails += $"\n❌ {ex3.Message}";
 				});
 			}
 			return;
@@ -2645,11 +2770,8 @@ public partial class TasksViewModel : ObservableObject
 		if (task.Operation == "Pack")
 		{
 			string? inputFolder = task.InputFolders.Split(';').FirstOrDefault()?.Trim();
-			string outBaseFolder2 = task.OutputFolder;
-			if (string.IsNullOrEmpty(outBaseFolder2))
-			{
-				outBaseFolder2 = "E:\\OUT\\Pack";
-			}
+			string outBaseFolder2 = ResolveSafeOutputDirectory(task, "Pack", inputFolder, "Pack");
+			task.OutputFolder = outBaseFolder2;
 			task.IsRunning = true;
 			task.Status = "Сборка...";
 			try
@@ -2743,18 +2865,36 @@ public partial class TasksViewModel : ObservableObject
 			string workingInput = inputPath2;
 			if (inputPath2.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) || inputPath2.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase))
 			{
-				App.RunOnUI(delegate
+				bool needsDecompression = true;
+				if ((task.TargetFormat.Equals("NSZ", StringComparison.OrdinalIgnoreCase) && inputPath2.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase)) ||
+				    (task.TargetFormat.Equals("XCZ", StringComparison.OrdinalIgnoreCase) && inputPath2.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase)))
 				{
-					task.LogDetails += "\nВходной файл сжат. Запуск предварительной декомпрессии...";
-				});
-				tempDecompDirConvert = Path.Combine(Path.GetTempPath(), "StormDecomp_" + Guid.NewGuid().ToString("N").Substring(0, 8));
-				Directory.CreateDirectory(tempDecompDirConvert);
-				TempCleanupService.RegisterActiveTempDirectory(tempDecompDirConvert);
-				task.PauseEvent.Wait(cts.Token);
-				string? decompResult = await App.NszCompression.DecompressNszAsync(task, inputPath2, tempDecompDirConvert, cts.Token);
-				if (!string.IsNullOrEmpty(decompResult) && File.Exists(decompResult))
+					bool isSolid = Core.NSZ.StormNczStorage.ContainsSolidNcz(inputPath2, App.Keys.CurrentKeyset);
+					if (!isSolid)
+					{
+						needsDecompression = false;
+					}
+					else
+					{
+						App.RunOnUI(() => task.LogDetails += "\n⚡ [Zero-Solid Guard] Входной архив содержит Solid NCZ: пересжатие в 1 МБ Block NCZBLOCK...");
+					}
+				}
+
+				if (needsDecompression)
 				{
-					workingInput = decompResult;
+					App.RunOnUI(delegate
+					{
+						task.LogDetails += "\nВходной файл сжат. Запуск предварительной декомпрессии...";
+					});
+					tempDecompDirConvert = Path.Combine(Path.GetTempPath(), "StormDecomp_" + Guid.NewGuid().ToString("N").Substring(0, 8));
+					Directory.CreateDirectory(tempDecompDirConvert);
+					TempCleanupService.RegisterActiveTempDirectory(tempDecompDirConvert);
+					task.PauseEvent.Wait(cts.Token);
+					string? decompResult = await App.NszCompression.DecompressNszAsync(task, inputPath2, tempDecompDirConvert, cts.Token);
+					if (!string.IsNullOrEmpty(decompResult) && File.Exists(decompResult))
+					{
+						workingInput = decompResult;
+					}
 				}
 			}
 			bool isConvertTargetXci = task.TargetFormat.Equals("XCI", StringComparison.OrdinalIgnoreCase) || 
@@ -3100,6 +3240,77 @@ public partial class TasksViewModel : ObservableObject
 				App.Logger.Log($"[PreAnalysis] Ошибка: {ex.Message}", LogLevel.Warning);
 			}
 		});
+	}
+
+	public static string ResolveSafeOutputDirectory(ProcessingTask task, string pageKey, string? inputPath, string defaultSubFolder)
+	{
+		bool IsValidDirectoryRoot(string? path)
+		{
+			if (string.IsNullOrWhiteSpace(path)) return false;
+			try
+			{
+				string full = Path.GetFullPath(path);
+				string? root = Path.GetPathRoot(full);
+				return !string.IsNullOrEmpty(root) && Directory.Exists(root);
+			}
+			catch { return false; }
+		}
+
+		if (IsValidDirectoryRoot(task.OutputFolder))
+		{
+			Directory.CreateDirectory(task.OutputFolder);
+			return task.OutputFolder;
+		}
+
+		try
+		{
+			string pagePath = App.Settings.Current.GetOutPathForPage(pageKey);
+			if (IsValidDirectoryRoot(pagePath))
+			{
+				Directory.CreateDirectory(pagePath);
+				return pagePath;
+			}
+		}
+		catch { }
+
+		try
+		{
+			string globalOut = App.Settings.Current.OutputFolder;
+			if (IsValidDirectoryRoot(globalOut))
+			{
+				Directory.CreateDirectory(globalOut);
+				return globalOut;
+			}
+		}
+		catch { }
+
+		if (!string.IsNullOrWhiteSpace(inputPath))
+		{
+			try
+			{
+				string? inDir = Directory.Exists(inputPath) ? inputPath : Path.GetDirectoryName(inputPath);
+				if (IsValidDirectoryRoot(inDir))
+				{
+					return inDir!;
+				}
+			}
+			catch { }
+		}
+
+		string docs = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "STORM SWITCH BOX", defaultSubFolder);
+		try { Directory.CreateDirectory(docs); } catch { }
+		return docs;
+	}
+
+	private static long GetDirectoryTotalSize(string dirPath)
+	{
+		if (string.IsNullOrEmpty(dirPath) || !Directory.Exists(dirPath)) return 0;
+		try
+		{
+			var dInfo = new DirectoryInfo(dirPath);
+			return dInfo.EnumerateFiles("*", SearchOption.AllDirectories).Sum(fi => fi.Length);
+		}
+		catch { return 0; }
 	}
 
 	public void RecalculateStats()

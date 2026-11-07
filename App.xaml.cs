@@ -321,9 +321,8 @@ namespace StormSwitchBox
                 Logger.Log($"Ошибка регистрации AppNotificationManager: {ex.Message}", Models.LogLevel.Warning);
             }
 
-            // Проверяем и загружаем ключи пользователя
-            string keysPath = Settings.Current.KeysPath;
-            if (!string.IsNullOrEmpty(keysPath) && System.IO.File.Exists(keysPath))
+            // Проверяем и загружаем ключи пользователя с автоматическим поиском prod.keys
+            if (Keys.EnsureLoadedWithAutoDiscovery())
             {
                 try
                 {
@@ -333,7 +332,7 @@ namespace StormSwitchBox
             }
             else
             {
-                Logger.Log("Файл криптографических ключей не найден. Пожалуйста, укажите его в параметрах.", Models.LogLevel.Warning);
+                Logger.Log("Файл криптографических ключей prod.keys не найден. Пожалуйста, укажите его в параметрах.", Models.LogLevel.Warning);
             }
 
             // Handle current process args
@@ -513,10 +512,24 @@ namespace StormSwitchBox
                 System.Threading.Tasks.Task.Run(UnblockAllTools);
             }
 
-            string userKeys = Settings.Current.KeysPath;
+            if (!Keys.IsLoaded && !Keys.EnsureLoadedWithAutoDiscovery())
+            {
+                string configuredKeys = Settings.Current.KeysPath;
+                if (string.IsNullOrEmpty(configuredKeys) || !System.IO.File.Exists(configuredKeys))
+                {
+                    throw new Exception("Криптографические ключи prod.keys не загружены. Укажите файл prod.keys в Параметрах.");
+                }
+            }
+
+            string? userKeys = Keys.KeysFilePath;
             if (string.IsNullOrEmpty(userKeys) || !System.IO.File.Exists(userKeys))
             {
-                throw new Exception("??????????? ????????????????? ????? (prod.keys / keys.txt). ??????????, ???????? ?? ? ??????????.");
+                userKeys = Settings.Current.KeysPath;
+            }
+
+            if (string.IsNullOrEmpty(userKeys) || !System.IO.File.Exists(userKeys))
+            {
+                throw new Exception("Криптографические ключи prod.keys не загружены. Укажите файл prod.keys в Параметрах.");
             }
 
             try
@@ -527,9 +540,12 @@ namespace StormSwitchBox
                 try { System.IO.Directory.CreateDirectory(System.IO.Path.Combine(stormAppData, "temp")); } catch { }
 
                 SwitchFormat.CleanKeysFile(userKeys);
-                Keys.LoadKeys(userKeys);
+                if (!Keys.IsLoaded)
+                {
+                    Keys.LoadKeys(userKeys);
+                }
 
-                // 1. ????????????? ? ??????? ???????????? Windows (.switch) ? ?????? ???????? ??? ???? ??????????????
+                // 1. Распространяем в профиль пользователя Windows (.switch) и создаем дубликат для совместимости
                 string userProfileSwitch = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch");
                 try
                 {
@@ -539,7 +555,7 @@ namespace StormSwitchBox
                 }
                 catch { }
 
-                // 2. ????????????? ? ????????????? ?????????? LocalAppData
+                // 2. Распространяем в изолированную директорию LocalAppData
                 try
                 {
                     string localKeysDir = System.IO.Path.Combine(stormAppData, "keys");

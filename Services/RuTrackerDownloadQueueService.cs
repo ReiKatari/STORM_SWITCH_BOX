@@ -19,6 +19,7 @@ namespace StormSwitchBox.Services
     public sealed class RuTrackerActiveDownloadItem : CommunityToolkit.Mvvm.ComponentModel.ObservableObject
     {
         public string BatchId { get; set; } = string.Empty;
+        public bool IsCompleted => StageBadge == "ГОТОВО" || RawStageBadge == "ГОТОВО" || IsBuildCompletedOnDisk;
 
         private string _displayTitle = string.Empty;
         public string DisplayTitle
@@ -284,6 +285,8 @@ namespace StormSwitchBox.Services
 
         public sealed class RuTrackerPersistedTaskPayload
     {
+        public string TaskId { get; set; } = string.Empty;
+        public string PosterUrl { get; set; } = string.Empty;
         public int SlotNumber { get; set; }
         public string SlotGameTitle { get; set; } = string.Empty;
         public string CustomModTitle { get; set; } = string.Empty;
@@ -952,6 +955,8 @@ namespace StormSwitchBox.Services
                 }
                 catch { }
 
+                task.EnsureFinalMetricsPopulated(builtContainer);
+
                 if (task.DeleteSourceAfterVerify && buildSucceeded)
                 {
                     try
@@ -989,6 +994,7 @@ namespace StormSwitchBox.Services
                     task.IsPaused = false;
                     task.Speed = string.Empty;
                     task.FinishedAt = DateTime.Now;
+                    item.ViewModel?.SavePersistedTasks();
                 });
 
                 if (buildSucceeded && payload.TotalSlots <= 1)
@@ -1408,6 +1414,139 @@ namespace StormSwitchBox.Services
             }
         }
 
+        public void BindRestoredTasksFromViewModel(ViewModels.TasksViewModel? vm)
+        {
+            if (vm == null) return;
+            lock (_syncLock)
+            {
+                foreach (var item in _backingItems)
+                {
+                    item.ViewModel = vm;
+                    if (item.CreatedTasks == null) continue;
+
+                    for (int i = 0; i < item.CreatedTasks.Count; i++)
+                    {
+                        var (oldTask, payload, slot) = item.CreatedTasks[i];
+                        var matchedVmTask = vm.Tasks.FirstOrDefault(t =>
+                            t == oldTask ||
+                            (!string.IsNullOrEmpty(oldTask.Id) && t.Id == oldTask.Id) ||
+                            (!string.IsNullOrEmpty(payload.SlotGameTitle) && t.GameName == payload.SlotGameTitle) ||
+                            (!string.IsNullOrEmpty(oldTask.GameName) && t.GameName == oldTask.GameName) ||
+                            (!string.IsNullOrEmpty(oldTask.OutputFileName) && !string.IsNullOrEmpty(oldTask.OutputFolder) &&
+                             t.OutputFileName == oldTask.OutputFileName && t.OutputFolder == oldTask.OutputFolder));
+
+                        if (matchedVmTask != null)
+                        {
+                            if (matchedVmTask.RuTrackerPayload == null)
+                            {
+                                matchedVmTask.RuTrackerPayload = payload;
+                            }
+                            if (matchedVmTask.Cts == null && oldTask.Cts != null)
+                            {
+                                matchedVmTask.Cts = oldTask.Cts;
+                            }
+                            item.CreatedTasks[i] = (matchedVmTask, payload, slot);
+
+                            bool outputExists = false;
+                            string outDir = string.IsNullOrWhiteSpace(matchedVmTask.OutputFolder)
+                                ? (string.IsNullOrWhiteSpace(App.Settings.Current.OutputFolder) ? payload.TargetReleaseDir : App.Settings.Current.OutputFolder)
+                                : matchedVmTask.OutputFolder;
+                            if (Directory.Exists(outDir))
+                            {
+                                string displayTid = RuTrackerModService.NormalizeSwitchBaseApplicationTitleId(matchedVmTask.GameName);
+                                string san = ProcessingTask.SanitizeFileName(matchedVmTask.GameName);
+                                var files = Directory.GetFiles(outDir, "*.*").Where(f =>
+                                    (f.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) ||
+                                     f.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) ||
+                                     f.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) ||
+                                     f.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase)) &&
+                                    new FileInfo(f).Length > 0);
+                                outputExists = files.Any(f =>
+                                    (!string.IsNullOrWhiteSpace(matchedVmTask.GameName) && Path.GetFileNameWithoutExtension(f).Contains(matchedVmTask.GameName, StringComparison.OrdinalIgnoreCase)) ||
+                                    (!string.IsNullOrWhiteSpace(san) && Path.GetFileNameWithoutExtension(f).Contains(san, StringComparison.OrdinalIgnoreCase)) ||
+                                    (!string.IsNullOrWhiteSpace(displayTid) && f.Contains(displayTid, StringComparison.OrdinalIgnoreCase)));
+                            }
+
+                            if (item.IsCompleted && outputExists && matchedVmTask.Status == "⏸ Сохранено на паузе")
+                            {
+                                matchedVmTask.Status = "Успешно";
+                                matchedVmTask.Progress = 100;
+                                matchedVmTask.IsRunning = false;
+                                matchedVmTask.IsPaused = false;
+                                matchedVmTask.EnsureFinalMetricsPopulated();
+                            }
+                            else
+                            {
+                                matchedVmTask.EnsureSourceMetricsPopulated();
+                            }
+
+                            if (matchedVmTask.GameIcon == null)
+                            {
+                                HistoryService.TryLoadIconForTask(matchedVmTask);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        public bool TryResumeTaskFromViewModel(ProcessingTask task, ViewModels.TasksViewModel vm)
+        {
+            RuTrackerActiveDownloadItem? targetItem = null;
+            lock (_syncLock)
+            {
+                targetItem = _backingItems.FirstOrDefault(item =>
+                    item.CreatedTasks.Any(ct => ct.Task == task ||
+                        (!string.IsNullOrEmpty(ct.Task.Id) && ct.Task.Id == task.Id) ||
+                        (!string.IsNullOrEmpty(ct.Task.GameName) && ct.Task.GameName == task.GameName) ||
+                        (!string.IsNullOrEmpty(ct.Task.OutputFileName) && ct.Task.OutputFileName == task.OutputFileName)));
+            }
+
+            if (targetItem == null)
+            {
+                return false;
+            }
+
+            targetItem.ViewModel = vm;
+            lock (_syncLock)
+            {
+                for (int i = 0; i < targetItem.CreatedTasks.Count; i++)
+                {
+                    if (targetItem.CreatedTasks[i].Task != task &&
+                        (targetItem.CreatedTasks[i].Task.Id == task.Id || targetItem.CreatedTasks[i].Task.GameName == task.GameName))
+                    {
+                        targetItem.CreatedTasks[i] = (task, targetItem.CreatedTasks[i].Payload, targetItem.CreatedTasks[i].Slot);
+                    }
+                }
+
+                targetItem.IsPausedByUser = false;
+                targetItem.LastActivatedAtUtc = DateTime.UtcNow;
+                targetItem.SmoothedSpeedBps = 0;
+                targetItem.PauseEvent.Set();
+
+                if (targetItem.ActiveTorrentManager != null &&
+                    (targetItem.ActiveTorrentManager.State == TorrentState.Paused || targetItem.ActiveTorrentManager.State == TorrentState.Stopped))
+                {
+                    try { targetItem.ActiveTorrentManager.StartAsync(); } catch { }
+                }
+
+                task.IsPaused = false;
+                task.PauseEvent.Set();
+                task.EnsureSourceMetricsPopulated();
+                if (task.GameIcon == null)
+                {
+                    HistoryService.TryLoadIconForTask(task);
+                }
+
+                targetItem.CommitUiUpdates();
+                EvaluateQueuePriorities();
+                SaveQueueState();
+            }
+
+            return true;
+        }
+
+
         private void SaveQueueState()
         {
             try
@@ -1436,6 +1575,8 @@ namespace StormSwitchBox.Services
                             {
                                 rec.Tasks.Add(new RuTrackerPersistedTaskPayload
                                 {
+                                    TaskId = t.Id,
+                                    PosterUrl = payload.PosterUrl ?? payload.Topic?.PosterUrl ?? string.Empty,
                                     SlotNumber = payload.SlotNumber,
                                     SlotGameTitle = payload.SlotGameTitle,
                                     CustomModTitle = payload.CustomModTitle,
@@ -1503,15 +1644,18 @@ namespace StormSwitchBox.Services
                                             ? (string.IsNullOrWhiteSpace(App.Settings.Current.OutputFolder) ? tp.TargetReleaseDir : App.Settings.Current.OutputFolder)
                                             : tp.OutputFolder;
                                         string gameName = !string.IsNullOrWhiteSpace(tp.TaskTitle) ? tp.TaskTitle : (!string.IsNullOrWhiteSpace(tp.SlotGameTitle) ? tp.SlotGameTitle : r.DisplayTitle);
+                                        string sanGameName = ProcessingTask.SanitizeFileName(gameName);
                                         if (Directory.Exists(outDir))
                                         {
                                             var files = Directory.GetFiles(outDir, "*.*").Where(f =>
-                                                f.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) ||
-                                                f.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) ||
-                                                f.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) ||
-                                                f.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase));
+                                                (f.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) ||
+                                                 f.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) ||
+                                                 f.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) ||
+                                                 f.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase)) &&
+                                                new FileInfo(f).Length > 0);
                                             if (files.Any(f =>
                                                 (!string.IsNullOrWhiteSpace(gameName) && Path.GetFileNameWithoutExtension(f).Contains(gameName, StringComparison.OrdinalIgnoreCase)) ||
+                                                (!string.IsNullOrWhiteSpace(sanGameName) && Path.GetFileNameWithoutExtension(f).Contains(sanGameName, StringComparison.OrdinalIgnoreCase)) ||
                                                 (!string.IsNullOrWhiteSpace(displayTid) && f.Contains(displayTid, StringComparison.OrdinalIgnoreCase)) ||
                                                 (!string.IsNullOrWhiteSpace(tp.TopicId) && f.Contains(tp.TopicId, StringComparison.OrdinalIgnoreCase))))
                                             {
@@ -1521,8 +1665,7 @@ namespace StormSwitchBox.Services
                                         }
                                     }
                                 }
-                                bool tempCleaned = r.StageBadge == "СБОРКА" && !string.IsNullOrWhiteSpace(r.SharedReleaseDir) && !Directory.Exists(r.SharedReleaseDir);
-                                if (outputExists || tempCleaned)
+                                if (outputExists)
                                 {
                                     isCompleted = true;
                                     r.StageBadge = "ГОТОВО";
@@ -1561,18 +1704,33 @@ namespace StormSwitchBox.Services
                             {
                                 foreach (var tp in r.Tasks)
                                 {
-                                    var task = new ProcessingTask
+                                    ProcessingTask? task = null;
+                                    if (App.TasksVM != null)
                                     {
-                                        GameName = !string.IsNullOrWhiteSpace(tp.TaskTitle) ? tp.TaskTitle : tp.SlotGameTitle,
-                                        TargetFormat = tp.OutputFormat,
-                                        OutputFolder = tp.OutputFolder,
-                                        DeleteSourceAfterVerify = tp.DeleteSourceAfterVerify,
-                                        Progress = r.ProgressPercent,
-                                        Status = isCompleted ? (r.StageBadge == "ГОТОВО" ? "Успешно" : r.StageBadge) : "⏸ Сохранено на паузе",
-                                        IsRuTrackerTask = true,
-                                        IsRunning = false,
-                                        IsPaused = !isCompleted
-                                    };
+                                        task = App.TasksVM.Tasks.FirstOrDefault(vmTask =>
+                                            (!string.IsNullOrEmpty(tp.TaskId) && vmTask.Id == tp.TaskId) ||
+                                            (!string.IsNullOrEmpty(tp.TaskTitle) && vmTask.GameName == tp.TaskTitle) ||
+                                            (!string.IsNullOrEmpty(tp.SlotGameTitle) && vmTask.GameName == tp.SlotGameTitle) ||
+                                            (!string.IsNullOrEmpty(tp.OutputFolder) && !string.IsNullOrEmpty(tp.TaskTitle) &&
+                                             vmTask.OutputFolder == tp.OutputFolder && vmTask.OutputFileName == ProcessingTask.SanitizeFileName(tp.TaskTitle)));
+                                    }
+
+                                    if (task == null)
+                                    {
+                                        task = new ProcessingTask
+                                        {
+                                            Id = !string.IsNullOrEmpty(tp.TaskId) ? tp.TaskId : Guid.NewGuid().ToString("N").Substring(0, 8),
+                                            GameName = !string.IsNullOrWhiteSpace(tp.TaskTitle) ? tp.TaskTitle : tp.SlotGameTitle,
+                                            TargetFormat = tp.OutputFormat,
+                                            OutputFolder = tp.OutputFolder,
+                                            DeleteSourceAfterVerify = tp.DeleteSourceAfterVerify,
+                                            Progress = r.ProgressPercent,
+                                            Status = isCompleted ? (r.StageBadge == "ГОТОВО" ? "Успешно" : r.StageBadge) : "⏸ Сохранено на паузе",
+                                            IsRuTrackerTask = true,
+                                            IsRunning = false,
+                                            IsPaused = !isCompleted
+                                        };
+                                    }
 
                                     MonoTorrent.MagnetLink? mag = null;
                                     if (!string.IsNullOrEmpty(tp.MagnetLink))
@@ -1589,6 +1747,7 @@ namespace StormSwitchBox.Services
                                     var payload = new RuTrackerTaskPayload
                                     {
                                         SlotNumber = tp.SlotNumber,
+                                        PosterUrl = tp.PosterUrl,
                                         SlotGameTitle = tp.SlotGameTitle,
                                         CustomModTitle = tp.CustomModTitle,
                                         TargetReleaseDir = tp.TargetReleaseDir,

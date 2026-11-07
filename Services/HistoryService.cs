@@ -81,50 +81,182 @@ namespace StormSwitchBox.Services
             }
         }
 
+public static void SaveTaskIconToCache(ProcessingTask task, byte[]? iconBytes)
+        {
+            if (iconBytes == null || iconBytes.Length < 64) return;
+            task.IconBytes = iconBytes;
+
+            string iconsDir = GetIconsDirectory();
+            try { Directory.CreateDirectory(iconsDir); } catch { }
+
+            string? titleId = ExtractTitleId(task);
+            string baseTitleId = !string.IsNullOrEmpty(titleId)
+                ? (titleId.StartsWith("0100", StringComparison.OrdinalIgnoreCase) && titleId.Length == 16
+                    ? RuTrackerModService.NormalizeSwitchBaseApplicationTitleId(titleId)
+                    : titleId)
+                : string.Empty;
+
+            Task.Run(async () =>
+            {
+                try
+                {
+                    if (!string.IsNullOrEmpty(task.Id))
+                    {
+                        await File.WriteAllBytesAsync(Path.Combine(iconsDir, $"{task.Id}.png"), iconBytes);
+                    }
+                    if (!string.IsNullOrEmpty(titleId))
+                    {
+                        await File.WriteAllBytesAsync(Path.Combine(iconsDir, $"{titleId}.png"), iconBytes);
+                    }
+                    if (!string.IsNullOrEmpty(baseTitleId) && !string.Equals(baseTitleId, titleId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        await File.WriteAllBytesAsync(Path.Combine(iconsDir, $"{baseTitleId}.png"), iconBytes);
+                    }
+                    if (!string.IsNullOrEmpty(task.GroupId))
+                    {
+                        string safeGroupId = string.Join("_", task.GroupId.Split(Path.GetInvalidFileNameChars()));
+                        if (!string.IsNullOrEmpty(safeGroupId))
+                        {
+                            await File.WriteAllBytesAsync(Path.Combine(iconsDir, $"{safeGroupId}.png"), iconBytes);
+                        }
+                    }
+                }
+                catch { }
+            });
+
+            App.RunOnUI(async () =>
+            {
+                try
+                {
+                    using var ms = new MemoryStream(iconBytes);
+                    var bmp = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
+                    await bmp.SetSourceAsync(ms.AsRandomAccessStream());
+                    task.GameIcon = bmp;
+                    task.IconBitmap = bmp;
+                }
+                catch { }
+            });
+        }
+
         public static string? ExtractTitleId(ProcessingTask task)
         {
+            // 0. Прямое свойство TitleId задачи
+            if (!string.IsNullOrWhiteSpace(task.TitleId))
+            {
+                var match = System.Text.RegularExpressions.Regex.Match(task.TitleId, @"(?i)(?<![0-9a-f])([0-9a-f]{16})(?![0-9a-f])");
+                if (match.Success)
+                {
+                    string tid = match.Groups[1].Value.ToUpperInvariant();
+                    return NormalizeTitleIdIfSwitch(tid);
+                }
+            }
+
             // 1. Поиск 16-значного hex TitleID в OutputFileName
             if (!string.IsNullOrEmpty(task.OutputFileName))
             {
-                var match = System.Text.RegularExpressions.Regex.Match(task.OutputFileName, @"(?i)\b([0-9a-f]{16})\b");
-                if (match.Success) return match.Groups[1].Value.ToUpperInvariant();
+                var match = System.Text.RegularExpressions.Regex.Match(task.OutputFileName, @"(?i)(?<![0-9a-f])([0-9a-f]{16})(?![0-9a-f])");
+                if (match.Success)
+                {
+                    string tid = match.Groups[1].Value.ToUpperInvariant();
+                    return NormalizeTitleIdIfSwitch(tid);
+                }
             }
 
-            // 2. Поиск в GroupId (16 или 12 символов)
+            // 2. Поиск в GameName
+            if (!string.IsNullOrEmpty(task.GameName))
+            {
+                var match = System.Text.RegularExpressions.Regex.Match(task.GameName, @"(?i)(?<![0-9a-f])([0-9a-f]{16})(?![0-9a-f])");
+                if (match.Success)
+                {
+                    string tid = match.Groups[1].Value.ToUpperInvariant();
+                    return NormalizeTitleIdIfSwitch(tid);
+                }
+            }
+
+            // 3. Поиск в GroupId (16 или 12 символов)
             if (!string.IsNullOrEmpty(task.GroupId))
             {
-                var match16 = System.Text.RegularExpressions.Regex.Match(task.GroupId, @"(?i)\b([0-9a-f]{16})\b");
-                if (match16.Success) return match16.Groups[1].Value.ToUpperInvariant();
+                var match16 = System.Text.RegularExpressions.Regex.Match(task.GroupId, @"(?i)(?<![0-9a-f])([0-9a-f]{16})(?![0-9a-f])");
+                if (match16.Success)
+                {
+                    string tid = match16.Groups[1].Value.ToUpperInvariant();
+                    return NormalizeTitleIdIfSwitch(tid);
+                }
 
                 var match12 = System.Text.RegularExpressions.Regex.Match(task.GroupId, @"(?i)^([0-9a-f]{12})");
                 if (match12.Success) return match12.Groups[1].Value.ToUpperInvariant();
             }
 
-            // 3. Поиск в InputFiles
+            // 4. Поиск в InputFiles
             if (task.InputFiles != null)
             {
                 foreach (var file in task.InputFiles)
                 {
-                    var match = System.Text.RegularExpressions.Regex.Match(Path.GetFileName(file), @"(?i)\b([0-9a-f]{16})\b");
-                    if (match.Success) return match.Groups[1].Value.ToUpperInvariant();
+                    var match = System.Text.RegularExpressions.Regex.Match(Path.GetFileName(file), @"(?i)(?<![0-9a-f])([0-9a-f]{16})(?![0-9a-f])");
+                    if (match.Success)
+                    {
+                        string tid = match.Groups[1].Value.ToUpperInvariant();
+                        return NormalizeTitleIdIfSwitch(tid);
+                    }
+                }
+            }
+
+            // 5. Поиск в RuTracker TorrentFiles
+            if (task.RuTrackerPayload?.TorrentFiles != null)
+            {
+                foreach (var tf in task.RuTrackerPayload.TorrentFiles)
+                {
+                    var match = System.Text.RegularExpressions.Regex.Match(tf.RelativePath, @"(?i)(?<![0-9a-f])([0-9a-f]{16})(?![0-9a-f])");
+                    if (match.Success)
+                    {
+                        string tid = match.Groups[1].Value.ToUpperInvariant();
+                        return NormalizeTitleIdIfSwitch(tid);
+                    }
                 }
             }
 
             return null;
         }
 
+        private static string NormalizeTitleIdIfSwitch(string tid)
+        {
+            if (tid.Length == 16 && tid.StartsWith("0100", StringComparison.OrdinalIgnoreCase))
+            {
+                string norm = RuTrackerModService.NormalizeSwitchBaseApplicationTitleId(tid);
+                if (!string.IsNullOrEmpty(norm)) return norm;
+            }
+            return tid;
+        }
+
+        private static int _titleDbSubscribed = 0;
+
         public static void TryLoadIconForTask(ProcessingTask task)
         {
             if (task.GameIcon != null) return;
 
+            // 1. Проверяем task.IconBytes или кастомные метаданные
+            byte[]? directBytes = task.IconBytes ?? task.CustomMetadata?.CustomIconBytes ?? task.CustomMetadata?.OriginalIconBytes;
+            if (directBytes != null && directBytes.Length > 64)
+            {
+                SaveTaskIconToCache(task, directBytes);
+                return;
+            }
+
             string iconsDir = GetIconsDirectory();
             string? titleId = ExtractTitleId(task);
+            string baseTitleId = !string.IsNullOrEmpty(titleId) && titleId.StartsWith("0100", StringComparison.OrdinalIgnoreCase) && titleId.Length == 16
+                ? RuTrackerModService.NormalizeSwitchBaseApplicationTitleId(titleId)
+                : (titleId ?? string.Empty);
             string safeGroupId = !string.IsNullOrEmpty(task.GroupId) 
                 ? string.Join("_", task.GroupId.Split(Path.GetInvalidFileNameChars())) 
                 : "";
 
-            // Список возможных путей к иконке в кэше
+            // 2. Список возможных путей к иконке в кэше
             var candidatePaths = new System.Collections.Generic.List<string>();
+            if (!string.IsNullOrEmpty(task.Id))
+            {
+                candidatePaths.Add(Path.Combine(iconsDir, $"{task.Id}.png"));
+            }
             if (!string.IsNullOrEmpty(titleId))
             {
                 candidatePaths.Add(Path.Combine(iconsDir, $"{titleId}.png"));
@@ -134,6 +266,10 @@ namespace StormSwitchBox.Services
                     candidatePaths.Add(Path.Combine(iconsDir, $"{baseTid}.png"));
                     candidatePaths.Add(Path.Combine(iconsDir, $"{titleId.Substring(0, 12)}.png"));
                 }
+            }
+            if (!string.IsNullOrEmpty(baseTitleId) && !candidatePaths.Contains(Path.Combine(iconsDir, $"{baseTitleId}.png")))
+            {
+                candidatePaths.Add(Path.Combine(iconsDir, $"{baseTitleId}.png"));
             }
             if (!string.IsNullOrEmpty(safeGroupId))
             {
@@ -154,7 +290,31 @@ namespace StormSwitchBox.Services
                 }
             }
 
-            // Fallback: асинхронное извлечение из файлов или TitleDB в фоне
+            // Подписка на DatabaseLoaded TitleDB если база еще загружается
+            if (App.TitleDb != null && !App.TitleDb.IsLoaded)
+            {
+                if (System.Threading.Interlocked.CompareExchange(ref _titleDbSubscribed, 1, 0) == 0)
+                {
+                    App.TitleDb.DatabaseLoaded += () =>
+                    {
+                        if (App.TasksVM != null)
+                        {
+                            App.RunOnUI(() =>
+                            {
+                                foreach (var t in App.TasksVM.Tasks)
+                                {
+                                    if (t.GameIcon == null)
+                                    {
+                                        TryLoadIconForTask(t);
+                                    }
+                                }
+                            });
+                        }
+                    };
+                }
+            }
+
+            // Fallback: асинхронное извлечение из файлов, TitleDB или постера раздачи
             Task.Run(async () =>
             {
                 try
@@ -162,29 +322,42 @@ namespace StormSwitchBox.Services
                     byte[]? iconBytes = null;
 
                     // Fallback 1: Попытка извлечь из существующих локальных файлов задачи
-                    if (task.InputFiles != null)
+                    var filesToProbe = new List<string>();
+                    if (task.InputFiles != null) filesToProbe.AddRange(task.InputFiles);
+                    if (task.RuTrackerPayload != null && !string.IsNullOrWhiteSpace(task.RuTrackerPayload.TargetReleaseDir) && Directory.Exists(task.RuTrackerPayload.TargetReleaseDir))
                     {
-                        foreach (var f in task.InputFiles)
+                        try
                         {
-                            if (File.Exists(f))
+                            filesToProbe.AddRange(Directory.GetFiles(task.RuTrackerPayload.TargetReleaseDir, "*.*", SearchOption.AllDirectories)
+                                .Where(f => f.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) ||
+                                            f.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) ||
+                                            f.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) ||
+                                            f.EndsWith(".3ds", StringComparison.OrdinalIgnoreCase) ||
+                                            f.EndsWith(".cia", StringComparison.OrdinalIgnoreCase)));
+                        }
+                        catch { }
+                    }
+
+                    foreach (var f in filesToProbe)
+                    {
+                        if (File.Exists(f))
+                        {
+                            if (Nintendo3dsService.Is3dsExtension(Path.GetExtension(f)))
                             {
-                                if (Nintendo3dsService.Is3dsExtension(Path.GetExtension(f)))
+                                var n3ds = App.Nintendo3ds.Parse3dsFile(f);
+                                if (n3ds?.IconBytes != null && n3ds.IconBytes.Length > 64)
                                 {
-                                    var n3ds = App.Nintendo3ds.Parse3dsFile(f);
-                                    if (n3ds?.IconBytes != null && n3ds.IconBytes.Length > 0)
-                                    {
-                                        iconBytes = n3ds.IconBytes;
-                                        break;
-                                    }
+                                    iconBytes = n3ds.IconBytes;
+                                    break;
                                 }
-                                else
+                            }
+                            else
+                            {
+                                var meta = App.SwitchFormat.ParseNsp(f);
+                                if (meta?.IconBytes != null && meta.IconBytes.Length > 64)
                                 {
-                                    var meta = App.SwitchFormat.ParseNsp(f);
-                                    if (meta?.IconBytes != null && meta.IconBytes.Length > 0)
-                                    {
-                                        iconBytes = meta.IconBytes;
-                                        break;
-                                    }
+                                    iconBytes = meta.IconBytes;
+                                    break;
                                 }
                             }
                         }
@@ -205,52 +378,95 @@ namespace StormSwitchBox.Services
                             if (Nintendo3dsService.Is3dsExtension(Path.GetExtension(existingOut)))
                             {
                                 var n3ds = App.Nintendo3ds.Parse3dsFile(existingOut);
-                                if (n3ds?.IconBytes != null && n3ds.IconBytes.Length > 0) iconBytes = n3ds.IconBytes;
+                                if (n3ds?.IconBytes != null && n3ds.IconBytes.Length > 64) iconBytes = n3ds.IconBytes;
                             }
                             else
                             {
                                 var meta = App.SwitchFormat.ParseNsp(existingOut);
-                                if (meta?.IconBytes != null && meta.IconBytes.Length > 0) iconBytes = meta.IconBytes;
+                                if (meta?.IconBytes != null && meta.IconBytes.Length > 64) iconBytes = meta.IconBytes;
                             }
                         }
                     }
 
                     // Fallback 2: Поиск в TitleDB
-                    if (iconBytes == null && !string.IsNullOrEmpty(titleId) && titleId.Length == 16)
+                    if (iconBytes == null && App.TitleDb != null)
                     {
-                        if (App.TitleDb.TryGetTitleInfo(titleId, out var entry) && entry != null && !string.IsNullOrEmpty(entry.IconUrl))
+                        TitleDbEntry? entry = null;
+                        if (!string.IsNullOrEmpty(baseTitleId) && App.TitleDb.TryGetTitleInfo(baseTitleId, out entry))
+                        {
+                        }
+                        else if (!string.IsNullOrEmpty(titleId) && App.TitleDb.TryGetTitleInfo(titleId, out entry))
+                        {
+                        }
+                        else if (!string.IsNullOrWhiteSpace(task.GameName))
+                        {
+                            string cleanName = System.Text.RegularExpressions.Regex.Replace(task.GameName, @"\s*[\[\(].*?[\]\)]", "").Trim();
+                            if (cleanName.Length >= 3)
+                            {
+                                entry = App.TitleDb.GetAllEntries().FirstOrDefault(e =>
+                                    !string.IsNullOrEmpty(e.Name) &&
+                                    string.Equals(e.Name.Trim(), cleanName, StringComparison.OrdinalIgnoreCase));
+                            }
+                        }
+
+                        if (entry != null && !string.IsNullOrEmpty(entry.IconUrl))
                         {
                             try
                             {
                                 using var http = new System.Net.Http.HttpClient();
-                                http.Timeout = TimeSpan.FromSeconds(5);
+                                http.Timeout = TimeSpan.FromSeconds(6);
                                 iconBytes = await http.GetByteArrayAsync(entry.IconUrl);
                             }
                             catch { }
                         }
                     }
 
-                    // Если иконка получена — сохраняем в кэш и отображаем в UI
-                    if (iconBytes != null && iconBytes.Length > 0)
+                    // Fallback 3: PosterUrl из раздачи RuTracker
+                    if (iconBytes == null)
                     {
-                        string saveKey = !string.IsNullOrEmpty(titleId) ? titleId : safeGroupId;
-                        if (!string.IsNullOrEmpty(saveKey))
+                        string posterUrl = task.RuTrackerPayload?.PosterUrl ?? "";
+                        if (string.IsNullOrWhiteSpace(posterUrl) && task.RuTrackerPayload?.Topic != null)
                         {
-                            string savePath = Path.Combine(iconsDir, $"{saveKey}.png");
-                            try { await File.WriteAllBytesAsync(savePath, iconBytes); } catch { }
+                            posterUrl = task.RuTrackerPayload.Topic.PosterUrl;
+                            if (string.IsNullOrWhiteSpace(posterUrl))
+                            {
+                                string topicRef = !string.IsNullOrWhiteSpace(task.RuTrackerPayload.Topic.TopicUrl)
+                                    ? task.RuTrackerPayload.Topic.TopicUrl
+                                    : task.RuTrackerPayload.Topic.TopicId;
+                                if (!string.IsNullOrWhiteSpace(topicRef))
+                                {
+                                    try
+                                    {
+                                        using var ctsTopic = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(8));
+                                        var rtSvc = new RuTrackerModService();
+                                        var details = await rtSvc.FetchTopicDetailsAsync(topicRef, ctsTopic.Token);
+                                        if (details != null && !string.IsNullOrWhiteSpace(details.PosterUrl))
+                                        {
+                                            posterUrl = details.PosterUrl;
+                                            task.RuTrackerPayload.PosterUrl = posterUrl;
+                                            task.RuTrackerPayload.Topic.PosterUrl = posterUrl;
+                                        }
+                                    }
+                                    catch { }
+                                }
+                            }
                         }
-
-                        App.RunOnUI(async () =>
+                        if (!string.IsNullOrWhiteSpace(posterUrl))
                         {
                             try
                             {
-                                using var ms = new MemoryStream(iconBytes);
-                                var bitmap = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
-                                await bitmap.SetSourceAsync(ms.AsRandomAccessStream());
-                                task.GameIcon = bitmap;
+                                using var http = new System.Net.Http.HttpClient();
+                                http.Timeout = TimeSpan.FromSeconds(6);
+                                iconBytes = await http.GetByteArrayAsync(posterUrl);
                             }
                             catch { }
-                        });
+                        }
+                    }
+
+                    // Если иконка получена — сохраняем в кэш и отображаем в UI
+                    if (iconBytes != null && iconBytes.Length > 64)
+                    {
+                        SaveTaskIconToCache(task, iconBytes);
                     }
                 }
                 catch { }
@@ -264,6 +480,7 @@ namespace StormSwitchBox.Services
                 try
                 {
                     var bytes = await File.ReadAllBytesAsync(iconPath);
+                    task.IconBytes = bytes;
                     App.RunOnUI(async () =>
                     {
                         try
@@ -272,6 +489,7 @@ namespace StormSwitchBox.Services
                             var bitmap = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
                             await bitmap.SetSourceAsync(ms.AsRandomAccessStream());
                             task.GameIcon = bitmap;
+                            task.IconBitmap = bitmap;
                         }
                         catch { }
                     });

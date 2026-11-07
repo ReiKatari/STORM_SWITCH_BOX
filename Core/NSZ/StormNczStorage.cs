@@ -1,3 +1,6 @@
+using Path = System.IO.Path;
+using LibHac.Common;
+using LibHac.Fs.Fsa;
 using System;
 using System.IO;
 using System.Collections.Generic;
@@ -135,13 +138,15 @@ namespace StormSwitchBox.Core.NSZ
         private readonly Dictionary<string, byte[]>? _titleKeys;
         private readonly KeySet? _keyset;
         private bool _ncaHeaderInSolidStream = false;
+        private readonly string? _preferredTempDirectory;
 
-        public StormNczStorage(IStorage baseStorage, Dictionary<string, byte[]>? titleKeys = null, IStorage? solidStorage = null, KeySet? keyset = null)
+        public StormNczStorage(IStorage baseStorage, Dictionary<string, byte[]>? titleKeys = null, IStorage? solidStorage = null, KeySet? keyset = null, string? preferredTempDirectory = null)
         {
             _baseStorage = baseStorage;
             _titleKeys = titleKeys;
             _solidStorage = solidStorage;
             _keyset = keyset ?? App.Keys?.CurrentKeyset;
+            _preferredTempDirectory = preferredTempDirectory;
             Initialize();
         }
 
@@ -598,26 +603,35 @@ namespace StormSwitchBox.Core.NSZ
                 }
 
                 // Ищем NCZBLOCK динамически
-                byte[] searchBuffer = new byte[1024];
-                _baseStorage.Read(currentOffset, searchBuffer);
+                _baseStorage.GetSize(out long baseStorageSize).ThrowIfFailure();
+                long remaining = Math.Max(0L, baseStorageSize - currentOffset);
+                int searchLen = (int)Math.Min(4096L, remaining);
+                byte[] searchBuffer = new byte[searchLen];
+                if (searchLen > 0)
+                {
+                    _baseStorage.Read(currentOffset, searchBuffer).ThrowIfFailure();
+                }
                 
                 int blockMagicOffset = -1;
                 byte[] targetMagic = Encoding.ASCII.GetBytes("NCZBLOCK");
-                for (int i = 0; i < searchBuffer.Length - 8; i++)
+                if (searchBuffer.Length >= 8)
                 {
-                    bool match = true;
-                    for (int j = 0; j < 8; j++)
+                    for (int i = 0; i <= searchBuffer.Length - 8; i++)
                     {
-                        if (searchBuffer[i + j] != targetMagic[j])
+                        bool match = true;
+                        for (int j = 0; j < 8; j++)
                         {
-                            match = false;
+                            if (searchBuffer[i + j] != targetMagic[j])
+                            {
+                                match = false;
+                                break;
+                            }
+                        }
+                        if (match)
+                        {
+                            blockMagicOffset = i;
                             break;
                         }
-                    }
-                    if (match)
-                    {
-                        blockMagicOffset = i;
-                        break;
                     }
                 }
 
@@ -630,13 +644,16 @@ namespace StormSwitchBox.Core.NSZ
                 {
                     byte[] zstdMagic = new byte[] { 0x28, 0xB5, 0x2F, 0xFD }; // Little Endian (0xFD2FB528)
                     int zstdMagicOffset = -1;
-                    for (int i = 0; i < searchBuffer.Length - 4; i++)
+                    if (searchBuffer.Length >= 4)
                     {
-                        if (searchBuffer[i] == zstdMagic[0] && searchBuffer[i+1] == zstdMagic[1] &&
-                            searchBuffer[i+2] == zstdMagic[2] && searchBuffer[i+3] == zstdMagic[3])
+                        for (int i = 0; i <= searchBuffer.Length - 4; i++)
                         {
-                            zstdMagicOffset = i;
-                            break;
+                            if (searchBuffer[i] == zstdMagic[0] && searchBuffer[i+1] == zstdMagic[1] &&
+                                searchBuffer[i+2] == zstdMagic[2] && searchBuffer[i+3] == zstdMagic[3])
+                            {
+                                zstdMagicOffset = i;
+                                break;
+                            }
                         }
                     }
                     
@@ -704,62 +721,71 @@ namespace StormSwitchBox.Core.NSZ
             if (_isSolid)
             {
                 // Solid архив: распаковываем во временный файл
-                _tempSolidFile = System.IO.Path.GetTempFileName();
+                string tempDir = ResolveTempDirectoryForSolid(_uncompressedSize);
+                _tempSolidFile = System.IO.Path.Combine(tempDir, $"storm_solid_{Guid.NewGuid():N}.nca");
                 
-                IStorage sourceStorage = _solidStorage ?? _baseStorage;
-                sourceStorage.GetSize(out long sourceSize).ThrowIfFailure();
-                
-                long decompressOffset = _solidStorage != null ? 0 : _zstdStreamOffset;
-                long decompressSize = Math.Max(0, sourceSize - decompressOffset);
-                
-                PhysicalSize = sourceSize; // In solid compression, the entire file is used
-
-                if (decompressSize > 0)
+                try
                 {
-                    // Проверяем наличие валидного Zstd-магика перед запуском DecompressionStream
-                    byte[] checkHeader = new byte[Math.Min(4, (int)decompressSize)];
-                    sourceStorage.Read(decompressOffset, checkHeader);
-                    bool hasZstdMagic = false;
-                    if (checkHeader.Length >= 4)
-                    {
-                        uint mVal = BitConverter.ToUInt32(checkHeader, 0);
-                        hasZstdMagic = (mVal == 0xFD2FB528) || ((mVal & 0xFFFFFFF0) == 0x184D2A50);
-                    }
+                    IStorage sourceStorage = _solidStorage ?? _baseStorage;
+                    sourceStorage.GetSize(out long sourceSize).ThrowIfFailure();
+                    
+                    long decompressOffset = _solidStorage != null ? 0 : _zstdStreamOffset;
+                    long decompressSize = Math.Max(0, sourceSize - decompressOffset);
+                    
+                    PhysicalSize = sourceSize; // In solid compression, the entire file is used
 
-                    if (hasZstdMagic)
+                    if (decompressSize > 0)
                     {
-                        using (var storageStream = new StorageStream(sourceStorage, decompressOffset, decompressSize))
-                        using (var zstdStream = new ZstdSharp.DecompressionStream(storageStream))
-                        using (var fs = new FileStream(_tempSolidFile, FileMode.Create, FileAccess.Write, FileShare.None))
+                        // Проверяем наличие валидного Zstd-магика перед запуском DecompressionStream
+                        byte[] checkHeader = new byte[Math.Min(4, (int)decompressSize)];
+                        sourceStorage.Read(decompressOffset, checkHeader);
+                        bool hasZstdMagic = false;
+                        if (checkHeader.Length >= 4)
                         {
-                            try
+                            uint mVal = BitConverter.ToUInt32(checkHeader, 0);
+                            hasZstdMagic = (mVal == 0xFD2FB528) || ((mVal & 0xFFFFFFF0) == 0x184D2A50);
+                        }
+
+                        if (hasZstdMagic)
+                        {
+                            using (var storageStream = new StorageStream(sourceStorage, decompressOffset, decompressSize))
+                            using (var zstdStream = new ZstdSharp.DecompressionStream(storageStream))
+                            using (var fs = new FileStream(_tempSolidFile, FileMode.Create, FileAccess.Write, FileShare.None))
                             {
-                                zstdStream.CopyTo(fs);
+                                try
+                                {
+                                    zstdStream.CopyTo(fs);
+                                }
+                                catch (Exception ex)
+                                {
+                                    string errMsg = $"ZstdSharp failed to decompress solid stream. Offset: {decompressOffset}. Error: {ex.Message}";
+                                    throw new InvalidDataException(errMsg, ex);
+                                }
                             }
-                            catch (Exception ex)
+                        }
+                        else
+                        {
+                            // Не является сжатым Zstd потоком — сохраняем напрямую во временный файл
+                            using (var storageStream = new StorageStream(sourceStorage, decompressOffset, decompressSize))
+                            using (var fs = new FileStream(_tempSolidFile, FileMode.Create, FileAccess.Write, FileShare.None))
                             {
-                                string errMsg = $"ZstdSharp failed to decompress solid stream. Offset: {decompressOffset}. Error: {ex.Message}";
-                                throw new InvalidDataException(errMsg, ex);
+                                storageStream.CopyTo(fs);
                             }
                         }
                     }
                     else
                     {
-                        // Не является сжатым Zstd потоком — сохраняем напрямую во временный файл
-                        using (var storageStream = new StorageStream(sourceStorage, decompressOffset, decompressSize))
-                        using (var fs = new FileStream(_tempSolidFile, FileMode.Create, FileAccess.Write, FileShare.None))
-                        {
-                            storageStream.CopyTo(fs);
-                        }
+                        // Пустой поток/заглушка заголовка
+                        using (var fs = new FileStream(_tempSolidFile, FileMode.Create, FileAccess.Write, FileShare.None)) { }
                     }
+                    
+                    _tempSolidStream = new FileStream(_tempSolidFile, FileMode.Open, FileAccess.Read, FileShare.Read);
                 }
-                else
+                catch
                 {
-                    // Пустой поток/заглушка заголовка
-                    using (var fs = new FileStream(_tempSolidFile, FileMode.Create, FileAccess.Write, FileShare.None)) { }
+                    CleanupTempSolid();
+                    throw;
                 }
-                
-                _tempSolidStream = new FileStream(_tempSolidFile, FileMode.Open, FileAccess.Read, FileShare.Read);
             }
         }
 
@@ -885,7 +911,11 @@ namespace StormSwitchBox.Core.NSZ
                 }
 
                 // 3. Вычисляем нужный блок Zstd
-                long uncompressedBlockSize = 1L << _blockHeader!.BlockSizeExponent;
+                if (_blockHeader == null)
+                {
+                    break;
+                }
+                long uncompressedBlockSize = 1L << _blockHeader.BlockSizeExponent;
                 
                 // Проверяем выравнивание блоков (Concatenated vs Aligned)
                 long expectedConcatBlocks = (_blockHeader.DecompressedSize + uncompressedBlockSize - 1) / uncompressedBlockSize;
@@ -1242,6 +1272,175 @@ namespace StormSwitchBox.Core.NSZ
 
         public override LibHac.Result Flush() => LibHac.Result.Success;
         public override LibHac.Result SetSize(long size) => LibHac.Fs.ResultFs.NotImplemented.Value;
+        private string ResolveTempDirectoryForSolid(long requiredBytes)
+        {
+            long safetyMargin = 512L * 1024 * 1024;
+            long neededWithMargin = requiredBytes + safetyMargin;
+
+            // 1. Preferred directory if given
+            if (!string.IsNullOrWhiteSpace(_preferredTempDirectory))
+            {
+                try
+                {
+                    var root = Path.GetPathRoot(Path.GetFullPath(_preferredTempDirectory));
+                    if (!string.IsNullOrEmpty(root) && Directory.Exists(root))
+                    {
+                        var dInfo = new DriveInfo(root);
+                        if (dInfo.IsReady && dInfo.AvailableFreeSpace >= neededWithMargin)
+                        {
+                            Directory.CreateDirectory(_preferredTempDirectory);
+                            return _preferredTempDirectory;
+                        }
+                    }
+                }
+                catch { }
+            }
+
+            // 2. OutputFolder from settings -> <OutputDriveRoot>\STORM_TMP
+            try
+            {
+                string? outFolder = App.Settings?.Current?.OutputFolder;
+                if (!string.IsNullOrWhiteSpace(outFolder))
+                {
+                    var root = Path.GetPathRoot(Path.GetFullPath(outFolder));
+                    if (!string.IsNullOrEmpty(root) && Directory.Exists(root))
+                    {
+                        var dInfo = new DriveInfo(root);
+                        if (dInfo.IsReady && dInfo.AvailableFreeSpace >= neededWithMargin)
+                        {
+                            string candidate = Path.Combine(root, "STORM_TMP");
+                            Directory.CreateDirectory(candidate);
+                            return candidate;
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            // 3. Scan all ready fixed drives for sufficient space
+            try
+            {
+                foreach (var drive in DriveInfo.GetDrives())
+                {
+                    if (drive.IsReady && drive.DriveType == DriveType.Fixed && drive.AvailableFreeSpace >= neededWithMargin)
+                    {
+                        string candidate = Path.Combine(drive.RootDirectory.FullName, "STORM_TMP");
+                        Directory.CreateDirectory(candidate);
+                        return candidate;
+                    }
+                }
+            }
+            catch { }
+
+            // 4. Fallback to Path.GetTempPath()
+            string defaultTemp = Path.GetTempPath();
+            try
+            {
+                var root = Path.GetPathRoot(Path.GetFullPath(defaultTemp));
+                if (!string.IsNullOrEmpty(root))
+                {
+                    var dInfo = new DriveInfo(root);
+                    if (dInfo.IsReady && dInfo.AvailableFreeSpace < requiredBytes + (256L * 1024 * 1024))
+                    {
+                        throw new IOException($"Недостаточно свободного места для распаковки Solid NCZ: требуется {requiredBytes / (1024.0 * 1024 * 1024):F2} ГБ.");
+                    }
+                }
+            }
+            catch (IOException)
+            {
+                throw;
+            }
+            catch { }
+
+            return defaultTemp;
+        }
+
+        public static bool ContainsSolidNcz(string containerPath, KeySet? keyset = null)
+        {
+            if (string.IsNullOrWhiteSpace(containerPath) || !System.IO.File.Exists(containerPath))
+                return false;
+
+            try
+            {
+                using var fileStream = new FileStream(containerPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                IStorage storage = fileStream.AsStorage();
+                PartitionFileSystem pfs;
+
+                bool isXci = containerPath.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) ||
+                             containerPath.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase);
+
+                if (isXci)
+                {
+                    storage.GetSize(out long storageSize).ThrowIfFailure();
+                    if (storageSize <= 0x10000) return false;
+
+                    var rootPfsStorage = new SubStorage(storage, 0x10000, storageSize - 0x10000);
+                    var rootPfs = new PartitionFileSystem(rootPfsStorage);
+
+                    using var secureFile = new UniqueRef<IFile>();
+                    using var securePath = new LibHac.Fs.Path();
+                    securePath.Initialize(new U8Span(Encoding.UTF8.GetBytes("/secure"))).ThrowIfFailure();
+                    if (rootPfs.OpenFile(ref secureFile.Ref, in securePath, OpenMode.Read).IsFailure())
+                        return false;
+
+                    pfs = new PartitionFileSystem(secureFile.Release().AsStorage());
+                }
+                else
+                {
+                    pfs = new PartitionFileSystem(storage);
+                }
+
+                foreach (var entry in pfs.EnumerateEntries("/", "*.ncz"))
+                {
+                    if (entry.Size <= 0x4018) continue;
+
+                    using var nczFile = new UniqueRef<IFile>();
+                    using var nczPath = new LibHac.Fs.Path();
+                    nczPath.Initialize(new U8Span(Encoding.UTF8.GetBytes(entry.FullPath))).ThrowIfFailure();
+                    if (pfs.OpenFile(ref nczFile.Ref, in nczPath, OpenMode.Read).IsFailure())
+                        continue;
+
+                    IStorage nczStorage = nczFile.Release().AsStorage();
+                    byte[] sectnHdr = new byte[16];
+                    if (nczStorage.Read(0x4000, sectnHdr).IsFailure())
+                        continue;
+
+                    string magicSectn = Encoding.ASCII.GetString(sectnHdr, 0, 8);
+                    if (magicSectn != "NCZSECTN")
+                        continue;
+
+                    long sectionCount = BitConverter.ToInt64(sectnHdr, 8);
+                    long blockHdrPos = 0x4010 + (sectionCount * 0x40);
+
+                    if (entry.Size <= blockHdrPos)
+                    {
+                        return true;
+                    }
+
+                    int checkLen = (int)Math.Min(64L, entry.Size - blockHdrPos);
+                    byte[] checkBuf = new byte[checkLen];
+                    if (nczStorage.Read(blockHdrPos, checkBuf).IsSuccess())
+                    {
+                        string checkStr = Encoding.ASCII.GetString(checkBuf);
+                        if (!checkStr.Contains("NCZBLOCK"))
+                        {
+                            return true;
+                        }
+                    }
+                    else
+                    {
+                        return true;
+                    }
+                }
+            }
+            catch
+            {
+                return false;
+            }
+
+            return false;
+        }
+
         public override LibHac.Result GetSize(out long size)
         {
             size = _uncompressedSize;

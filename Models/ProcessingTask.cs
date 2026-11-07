@@ -15,6 +15,9 @@ namespace StormSwitchBox.Models
         private Microsoft.UI.Xaml.Media.Imaging.BitmapImage? _gameIcon;
 
         [System.Text.Json.Serialization.JsonIgnore]
+        public byte[]? IconBytes { get; set; }
+
+        [System.Text.Json.Serialization.JsonIgnore]
         public Microsoft.UI.Xaml.Media.Imaging.BitmapImage? IconBitmap
         {
             get => GameIcon;
@@ -296,6 +299,7 @@ namespace StormSwitchBox.Models
 
         // Кастомные метаданные (иконка, название игры, издатель)
         [System.Text.Json.Serialization.JsonIgnore]
+        public string PosterUrl { get; set; } = string.Empty;
         public GameMetadataEditModel? CustomMetadata { get; set; }
 
         public void Pause()
@@ -395,9 +399,332 @@ namespace StormSwitchBox.Models
             }
             try { base.OnPropertyChanged(e); } catch { }
         }
+    
+        public static string SanitizeFileName(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return string.Empty;
+            var invalid = System.IO.Path.GetInvalidFileNameChars();
+            var sb = new System.Text.StringBuilder(name.Length);
+            foreach (char c in name)
+            {
+                sb.Append(invalid.Contains(c) ? '_' : c);
+            }
+            return sb.ToString().Trim();
+        }
+
+        public static long TryParseFormattedSizeToBytes(string? formatted)
+        {
+            if (string.IsNullOrWhiteSpace(formatted)) return 0;
+            string clean = formatted.Trim().Replace('\u00A0', ' ');
+            if (clean == "-" || clean == "0" || clean == "0 Б" || clean == "0 B") return 0;
+
+            long multiplier = 1;
+            string numPart = clean;
+
+            if (clean.EndsWith("ТБ", StringComparison.OrdinalIgnoreCase) || clean.EndsWith("TB", StringComparison.OrdinalIgnoreCase))
+            {
+                multiplier = 1024L * 1024 * 1024 * 1024;
+                numPart = clean.Substring(0, clean.Length - 2).Trim();
+            }
+            else if (clean.EndsWith("ГБ", StringComparison.OrdinalIgnoreCase) || clean.EndsWith("GB", StringComparison.OrdinalIgnoreCase))
+            {
+                multiplier = 1024L * 1024 * 1024;
+                numPart = clean.Substring(0, clean.Length - 2).Trim();
+            }
+            else if (clean.EndsWith("МБ", StringComparison.OrdinalIgnoreCase) || clean.EndsWith("MB", StringComparison.OrdinalIgnoreCase))
+            {
+                multiplier = 1024L * 1024;
+                numPart = clean.Substring(0, clean.Length - 2).Trim();
+            }
+            else if (clean.EndsWith("КБ", StringComparison.OrdinalIgnoreCase) || clean.EndsWith("KB", StringComparison.OrdinalIgnoreCase))
+            {
+                multiplier = 1024L;
+                numPart = clean.Substring(0, clean.Length - 2).Trim();
+            }
+            else if (clean.EndsWith("Bytes", StringComparison.OrdinalIgnoreCase))
+            {
+                multiplier = 1;
+                numPart = clean.Substring(0, clean.Length - 5).Trim();
+            }
+            else if (clean.EndsWith("Б", StringComparison.OrdinalIgnoreCase) || clean.EndsWith("B", StringComparison.OrdinalIgnoreCase))
+            {
+                multiplier = 1;
+                numPart = clean.Substring(0, clean.Length - 1).Trim();
+            }
+
+            numPart = numPart.Replace(" ", "").Replace(",", ".");
+            if (double.TryParse(numPart, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double val))
+            {
+                return (long)(val * multiplier);
+            }
+            return 0;
+        }
+
+        public static long CalculatePathsTotalBytes(IEnumerable<string>? paths)
+        {
+            if (paths == null) return 0;
+            long total = 0;
+            foreach (var path in paths)
+            {
+                if (string.IsNullOrWhiteSpace(path)) continue;
+                try
+                {
+                    if (System.IO.File.Exists(path))
+                    {
+                        total += new System.IO.FileInfo(path).Length;
+                    }
+                    else if (System.IO.Directory.Exists(path))
+                    {
+                        foreach (var f in System.IO.Directory.EnumerateFiles(path, "*.*", System.IO.SearchOption.AllDirectories))
+                        {
+                            try
+                            {
+                                total += new System.IO.FileInfo(f).Length;
+                            }
+                            catch { }
+                        }
+                    }
+                }
+                catch { }
+            }
+            return total;
+        }
+
+        public static string ComputeDefaultCompressionLevel(string? targetFormat, bool isSwitch2)
+        {
+            if (isSwitch2 || string.Equals(targetFormat, "NUP", StringComparison.OrdinalIgnoreCase))
+            {
+                int lvl = App.Settings?.Current?.Switch2CompressionLevel ?? 18;
+                return lvl > 0 ? lvl.ToString() : "18";
+            }
+
+            if (string.IsNullOrWhiteSpace(targetFormat))
+            {
+                int lvl = App.Settings?.Current?.CompressionLevel ?? 22;
+                return lvl > 0 ? lvl.ToString() : "22";
+            }
+
+            string fmt = targetFormat.Trim().ToUpperInvariant();
+            if (fmt.Contains("NSZ") || fmt.Contains("XCZ"))
+            {
+                int lvl = App.Settings?.Current?.CompressionLevel ?? 22;
+                return lvl > 0 ? lvl.ToString() : "22";
+            }
+
+            if (fmt == "NSP" || fmt == "XCI" || fmt == "3DS" || fmt == "CIA" || fmt == "CXI")
+            {
+                return "-";
+            }
+
+            int defaultLvl = App.Settings?.Current?.CompressionLevel ?? 22;
+            return defaultLvl > 0 ? defaultLvl.ToString() : "22";
+        }
+
+        public void EnsureSourceMetricsPopulated()
+        {
+            // 1. SourceSizeBytes
+            if (SourceSizeBytes <= 0)
+            {
+                if (InputFiles != null && InputFiles.Count > 0)
+                {
+                    SourceSizeBytes = CalculatePathsTotalBytes(InputFiles);
+                }
+
+                if (SourceSizeBytes <= 0 && RuTrackerPayload != null)
+                {
+                    if (!string.IsNullOrWhiteSpace(RuTrackerPayload.TargetReleaseDir) && System.IO.Directory.Exists(RuTrackerPayload.TargetReleaseDir))
+                    {
+                        var matchingFiles = new List<string>();
+                        if (RuTrackerPayload.TorrentFiles != null && RuTrackerPayload.TorrentFiles.Count > 0)
+                        {
+                            var selected = RuTrackerPayload.TorrentFiles.Where(f => f.IsSelected).ToList();
+                            var listToMatch = selected.Count > 0 ? selected : RuTrackerPayload.TorrentFiles;
+                            foreach (var tf in listToMatch)
+                            {
+                                string candidate = System.IO.Path.Combine(RuTrackerPayload.TargetReleaseDir, tf.RelativePath);
+                                if (System.IO.File.Exists(candidate)) matchingFiles.Add(candidate);
+                            }
+                        }
+                        if (matchingFiles.Count > 0)
+                        {
+                            SourceSizeBytes = CalculatePathsTotalBytes(matchingFiles);
+                        }
+                        else
+                        {
+                            SourceSizeBytes = CalculatePathsTotalBytes(new[] { RuTrackerPayload.TargetReleaseDir });
+                        }
+                    }
+
+                    if (SourceSizeBytes <= 0 && RuTrackerPayload.TorrentFiles != null && RuTrackerPayload.TorrentFiles.Count > 0)
+                    {
+                        var selected = RuTrackerPayload.TorrentFiles.Where(f => f.IsSelected && f.Length > 0).ToList();
+                        SourceSizeBytes = selected.Count > 0
+                            ? selected.Sum(f => f.Length)
+                            : RuTrackerPayload.TorrentFiles.Where(f => f.Length > 0).Sum(f => f.Length);
+                    }
+                }
+
+                if (SourceSizeBytes <= 0 && !string.IsNullOrWhiteSpace(SourceSize))
+                {
+                    SourceSizeBytes = TryParseFormattedSizeToBytes(SourceSize);
+                }
+            }
+
+            // 2. SourceSize
+            if ((string.IsNullOrWhiteSpace(SourceSize) || SourceSize == "-") && SourceSizeBytes > 0)
+            {
+                SourceSize = FormatSize(SourceSizeBytes);
+            }
+
+            // 3. InputFolders
+            if (string.IsNullOrWhiteSpace(InputFolders))
+            {
+                if (InputFiles != null && InputFiles.Count > 0)
+                {
+                    var dirs = InputFiles
+                        .Select(p => System.IO.Directory.Exists(p) ? p : (System.IO.Path.GetDirectoryName(p) ?? ""))
+                        .Where(p => !string.IsNullOrWhiteSpace(p))
+                        .Distinct(StringComparer.OrdinalIgnoreCase);
+                    InputFolders = string.Join("; ", dirs);
+                }
+                else if (RuTrackerPayload != null)
+                {
+                    if (!string.IsNullOrWhiteSpace(RuTrackerPayload.TargetReleaseDir))
+                        InputFolders = RuTrackerPayload.TargetReleaseDir;
+                    else if (!string.IsNullOrWhiteSpace(RuTrackerPayload.SharedReleaseDir))
+                        InputFolders = RuTrackerPayload.SharedReleaseDir;
+                }
+            }
+
+            // 4. FilesCount
+            if (string.IsNullOrWhiteSpace(FilesCount) || FilesCount == "0" || FilesCount == "0 файл(ов)")
+            {
+                if (InputFiles != null && InputFiles.Count > 0)
+                {
+                    FilesCount = $"{InputFiles.Count} файл(ов)";
+                }
+                else if (RuTrackerPayload?.TorrentFiles != null && RuTrackerPayload.TorrentFiles.Count > 0)
+                {
+                    int selCount = RuTrackerPayload.TorrentFiles.Count(f => f.IsSelected);
+                    int count = selCount > 0 ? selCount : RuTrackerPayload.TorrentFiles.Count;
+                    int clouds = RuTrackerPayload.CloudLinks?.Count ?? 0;
+                    FilesCount = $"{count} файл(ов)" + (clouds > 0 ? $" + {clouds} мод." : "");
+                }
+            }
+
+            // 5. CompressionLevel
+            if (string.IsNullOrWhiteSpace(CompressionLevel) || CompressionLevel == "-")
+            {
+                CompressionLevel = ComputeDefaultCompressionLevel(TargetFormat, IsSwitch2Task);
+            }
+        }
+
+        public void EnsureFinalMetricsPopulated(string? explicitOutputPath = null)
+        {
+            EnsureSourceMetricsPopulated();
+
+            string outDir = !string.IsNullOrWhiteSpace(OutputFolder)
+                ? OutputFolder
+                : (!string.IsNullOrWhiteSpace(App.Settings?.Current?.OutputFolder)
+                    ? App.Settings.Current.OutputFolder
+                    : (RuTrackerPayload?.TargetReleaseDir ?? ""));
+
+            bool isDual = IsDualFormat || (TargetFormat != null && TargetFormat.Contains("+"));
+
+            string? primaryOut = null;
+            string? secondaryOut = null;
+
+            if (!string.IsNullOrWhiteSpace(explicitOutputPath) && System.IO.File.Exists(explicitOutputPath))
+            {
+                primaryOut = explicitOutputPath;
+            }
+
+            if (isDual)
+            {
+                string pExt = GetPrimaryExtension();
+                string sExt = GetSecondaryExtension();
+                if (!string.IsNullOrEmpty(outDir) && System.IO.Directory.Exists(outDir) && !string.IsNullOrEmpty(OutputFileName))
+                {
+                    string pCandidate = System.IO.Path.Combine(outDir, OutputFileName + pExt);
+                    string sCandidate = System.IO.Path.Combine(outDir, OutputFileName + sExt);
+                    if (System.IO.File.Exists(pCandidate)) primaryOut ??= pCandidate;
+                    if (System.IO.File.Exists(sCandidate)) secondaryOut = sCandidate;
+                }
+            }
+
+            if (primaryOut == null && !string.IsNullOrEmpty(outDir) && System.IO.Directory.Exists(outDir))
+            {
+                string pExt = GetPrimaryExtension();
+                if (!string.IsNullOrEmpty(OutputFileName))
+                {
+                    string candidate = System.IO.Path.Combine(outDir, OutputFileName + pExt);
+                    if (System.IO.File.Exists(candidate)) primaryOut = candidate;
+
+                    if (primaryOut == null)
+                    {
+                        string san = SanitizeFileName(OutputFileName);
+                        string sanCandidate = System.IO.Path.Combine(outDir, san + pExt);
+                        if (System.IO.File.Exists(sanCandidate)) primaryOut = sanCandidate;
+                    }
+                }
+
+                if (primaryOut == null)
+                {
+                    string tid = !string.IsNullOrEmpty(TitleId) ? TitleId : (GroupId ?? "");
+                    var candidates = System.IO.Directory.GetFiles(outDir, "*.*").Where(f =>
+                        f.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) ||
+                        f.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) ||
+                        f.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) ||
+                        f.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase) ||
+                        f.EndsWith(".3ds", StringComparison.OrdinalIgnoreCase) ||
+                        f.EndsWith(".cia", StringComparison.OrdinalIgnoreCase) ||
+                        f.EndsWith(".nup", StringComparison.OrdinalIgnoreCase)).ToList();
+
+                    primaryOut = candidates.FirstOrDefault(f =>
+                        (!string.IsNullOrWhiteSpace(OutputFileName) && System.IO.Path.GetFileNameWithoutExtension(f).Contains(OutputFileName, StringComparison.OrdinalIgnoreCase)) ||
+                        (!string.IsNullOrWhiteSpace(GameName) && System.IO.Path.GetFileNameWithoutExtension(f).Contains(GameName, StringComparison.OrdinalIgnoreCase)) ||
+                        (!string.IsNullOrWhiteSpace(tid) && f.Contains(tid, StringComparison.OrdinalIgnoreCase)));
+                }
+            }
+
+            if (primaryOut != null && System.IO.File.Exists(primaryOut))
+            {
+                long pSize = new System.IO.FileInfo(primaryOut).Length;
+                if (isDual && secondaryOut != null && System.IO.File.Exists(secondaryOut))
+                {
+                    long sSize = new System.IO.FileInfo(secondaryOut).Length;
+                    TargetSize = $"{FormatSize(pSize)} + {FormatSize(sSize)}";
+
+                    long compSize = Math.Min(pSize, sSize);
+                    if (SourceSizeBytes > 0 && compSize > 0)
+                    {
+                        long diff = SourceSizeBytes - compSize;
+                        double percent = (double)diff / SourceSizeBytes * 100.0;
+                        SizeDifference = $"{(diff > 0 ? "-" : "+")}{FormatSize(Math.Abs(diff))} ({Math.Abs(percent):F1}%)";
+                    }
+                }
+                else
+                {
+                    TargetSize = FormatSize(pSize);
+                    if (SourceSizeBytes > 0 && pSize > 0)
+                    {
+                        long diff = SourceSizeBytes - pSize;
+                        double percent = (double)diff / SourceSizeBytes * 100.0;
+                        SizeDifference = $"{(diff > 0 ? "-" : "+")}{FormatSize(Math.Abs(diff))} ({Math.Abs(percent):F1}%)";
+                    }
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(CompressionLevel) || CompressionLevel == "-")
+            {
+                CompressionLevel = ComputeDefaultCompressionLevel(TargetFormat, IsSwitch2Task);
+            }
+        }
+
     }
     public sealed class RuTrackerTaskPayload
     {
+        public string PosterUrl { get; set; } = string.Empty;
         public RuTrackerTopicItem? Topic { get; set; }
         public byte[]? TorrentBytes { get; set; }
         public MonoTorrent.MagnetLink? MagnetLink { get; set; }
@@ -436,6 +763,25 @@ namespace StormSwitchBox.Models
         public bool KeepExactOutputFileName { get; set; }
         public bool DeleteSourceAfterVerify { get; set; }
         public RuTrackerTaskSnapshot? RuTrackerSnapshot { get; set; }
+
+        public long SourceSizeBytes { get; set; }
+        public string SizeDifference { get; set; } = string.Empty;
+        public string CompressionLevel { get; set; } = string.Empty;
+        public string FilesCount { get; set; } = string.Empty;
+        public string InputFolders { get; set; } = string.Empty;
+        public string TitleId { get; set; } = string.Empty;
+        public bool Is3dsTask { get; set; }
+        public bool IsSwitch2Task { get; set; }
+        public int BuildMode { get; set; }
+        public string HasRomFs { get; set; } = "-";
+        public string HasExeFs { get; set; } = "-";
+        public string HasSaveData { get; set; } = "-";
+        public string SaveDataFolder { get; set; } = string.Empty;
+        public int SaveFilesCount { get; set; }
+        public string ModNameRomFs { get; set; } = string.Empty;
+        public string ModNameExeFs { get; set; } = string.Empty;
+        public byte[]? IconBytes { get; set; }
+        public GameMetadataEditModel? CustomMetadata { get; set; }
     }
 
     public sealed class RuTrackerTaskSnapshot
@@ -456,6 +802,10 @@ namespace StormSwitchBox.Models
         public bool HasTorrentSource { get; set; } = true;
         public string SharedReleaseDir { get; set; } = string.Empty;
         public bool AppendAutoTags { get; set; } = false;
+        public int SlotNumber { get; set; } = 0;
+        public int TotalSlots { get; set; } = 1;
+        public string SlotGameTitle { get; set; } = string.Empty;
+        public string PosterUrl { get; set; } = string.Empty;
     }
 
     public sealed class PersistedTorrentFileItem

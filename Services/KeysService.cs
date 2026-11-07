@@ -171,6 +171,114 @@ namespace StormSwitchBox.Services
             }
         }
 
+        public bool EnsureLoadedWithAutoDiscovery(string? contextFilePath = null)
+        {
+            if (IsLoaded) return true;
+
+            var candidates = new List<string>();
+
+            // 1. App.Settings?.Current?.KeysPath
+            string? configured = App.Settings?.Current?.KeysPath;
+            if (!string.IsNullOrWhiteSpace(configured))
+            {
+                candidates.Add(configured);
+            }
+
+            // 2. Near contextFilePath (same directory prod.keys or keys\prod.keys) if provided
+            if (!string.IsNullOrWhiteSpace(contextFilePath))
+            {
+                try
+                {
+                    string? ctxDir = Directory.Exists(contextFilePath) ? contextFilePath : Path.GetDirectoryName(contextFilePath);
+                    if (!string.IsNullOrEmpty(ctxDir) && Directory.Exists(ctxDir))
+                    {
+                        candidates.Add(Path.Combine(ctxDir, "prod.keys"));
+                        candidates.Add(Path.Combine(ctxDir, "keys", "prod.keys"));
+                        candidates.Add(Path.Combine(ctxDir, "keys.txt"));
+                    }
+                }
+                catch { }
+            }
+
+            // 3. AppDomain.CurrentDomain.BaseDirectory (prod.keys, keys\prod.keys, tools\prod.keys)
+            string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+            candidates.Add(Path.Combine(baseDir, "prod.keys"));
+            candidates.Add(Path.Combine(baseDir, "keys", "prod.keys"));
+            candidates.Add(Path.Combine(baseDir, "tools", "prod.keys"));
+            candidates.Add(Path.Combine(baseDir, "keys.txt"));
+
+            // 4. %USERPROFILE%\.switch\prod.keys
+            string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            candidates.Add(Path.Combine(userProfile, ".switch", "prod.keys"));
+            candidates.Add(Path.Combine(userProfile, ".switch", "keys.txt"));
+
+            // 5. %LOCALAPPDATA%\StormSwitchBox\keys\prod.keys and %APPDATA%\StormSwitchBox\keys\prod.keys
+            string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            candidates.Add(Path.Combine(localAppData, "StormSwitchBox", "keys", "prod.keys"));
+            candidates.Add(Path.Combine(appData, "StormSwitchBox", "keys", "prod.keys"));
+
+            // 6. %APPDATA%\STORM_SWITCH\keys\prod.keys, %APPDATA%\Eden\keys\prod.keys, %APPDATA%\citron\keys\prod.keys, %APPDATA%\yuzu\keys\prod.keys, %APPDATA%\suyu\keys\prod.keys, %APPDATA%\sudachi\keys\prod.keys, %APPDATA%\Ryujinx\system\prod.keys
+            candidates.Add(Path.Combine(appData, "STORM_SWITCH", "keys", "prod.keys"));
+            candidates.Add(Path.Combine(appData, "Eden", "keys", "prod.keys"));
+            candidates.Add(Path.Combine(appData, "citron", "keys", "prod.keys"));
+            candidates.Add(Path.Combine(appData, "Citron", "keys", "prod.keys"));
+            candidates.Add(Path.Combine(appData, "yuzu", "keys", "prod.keys"));
+            candidates.Add(Path.Combine(appData, "suyu", "keys", "prod.keys"));
+            candidates.Add(Path.Combine(appData, "sudachi", "keys", "prod.keys"));
+            candidates.Add(Path.Combine(appData, "Ryujinx", "system", "prod.keys"));
+
+            // 7. Every folder in App.Settings?.Current?.EmulatorDirectories: <dir>\user\keys\prod.keys, <dir>\keys\prod.keys, <dir>\system\prod.keys
+            try
+            {
+                var emuFolders = App.Settings?.Current?.EmulatorDirectories;
+                if (emuFolders != null)
+                {
+                    foreach (var emuDir in emuFolders)
+                    {
+                        if (string.IsNullOrWhiteSpace(emuDir)) continue;
+                        candidates.Add(Path.Combine(emuDir, "user", "keys", "prod.keys"));
+                        candidates.Add(Path.Combine(emuDir, "keys", "prod.keys"));
+                        candidates.Add(Path.Combine(emuDir, "system", "prod.keys"));
+                        candidates.Add(Path.Combine(emuDir, "prod.keys"));
+                    }
+                }
+            }
+            catch { }
+
+            var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var candidate in candidates)
+            {
+                if (string.IsNullOrWhiteSpace(candidate)) continue;
+                string fullCandidate;
+                try
+                {
+                    fullCandidate = Path.GetFullPath(candidate);
+                }
+                catch
+                {
+                    continue;
+                }
+
+                if (!visited.Add(fullCandidate)) continue;
+
+                if (File.Exists(fullCandidate))
+                {
+                    if (LoadKeys(fullCandidate))
+                    {
+                        if (App.Settings?.Current != null && string.IsNullOrWhiteSpace(App.Settings.Current.KeysPath))
+                        {
+                            App.Settings.Current.KeysPath = fullCandidate;
+                            try { App.Settings.Save(); } catch { }
+                        }
+                        return true;
+                    }
+                }
+            }
+
+            return IsLoaded;
+        }
+
         public async Task<string> EnsureKeysPreparedAsync(string sourceKeysPath, string targetDirectory)
         {
             await _semaphore.WaitAsync();

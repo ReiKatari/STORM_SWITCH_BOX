@@ -123,16 +123,19 @@ namespace StormSwitchBox.Services
         {
             _keysService = keysService;
             string appDir = AppDomain.CurrentDomain.BaseDirectory;
-            string[] searchDirs = 
+            var searchDirs = new List<string>
             {
                 Path.Combine(appDir, "tools"),
                 Path.Combine(appDir, "..", "tools"),
+                Path.Combine(appDir, "..", "..", "tools"),
                 Path.Combine(appDir, "..", "..", "..", "tools"),
                 Path.Combine(appDir, "..", "..", "..", "..", "tools"),
-                Path.Combine(appDir, "..", "..", "..", "..", "..", "tools"),
-                @"F:\STORM SWITCH BOX\tools",
-                @"E:\STORM SWITCH BOX\tools"
+                Path.Combine(appDir, "..", "..", "..", "..", "..", "tools")
             };
+            if (Directory.Exists(@"F:\STORM SWITCH BOX\tools"))
+            {
+                searchDirs.Add(@"F:\STORM SWITCH BOX\tools");
+            }
 
             string foundHacpack = "";
             string foundTools = "";

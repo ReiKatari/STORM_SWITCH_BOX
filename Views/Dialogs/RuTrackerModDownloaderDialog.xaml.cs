@@ -2088,6 +2088,14 @@ namespace StormSwitchBox.Views.Dialogs
                 };
 
                 ProcessingTask task;
+                string effectiveTid = slot.TitleId ?? string.Empty;
+                payload.PosterUrl = !string.IsNullOrWhiteSpace(_currentTopicPosterUrl) ? _currentTopicPosterUrl : (payload.Topic?.PosterUrl ?? string.Empty);
+                var slotIconBytes = slot.CustomIconBytes ?? slot.OriginalIconBytes;
+
+                long initBytes = slotFiles.Where(f => f.IsSelected && f.Length > 0).Sum(f => f.Length);
+                if (initBytes <= 0 && slotFiles.Count > 0)
+                    initBytes = slotFiles.Where(f => f.Length > 0).Sum(f => f.Length);
+
                 if (_targetTask != null && _activeTask == null && idx == 0 && activeSlots.Count == 1)
                 {
                     task = _targetTask;
@@ -2102,13 +2110,30 @@ namespace StormSwitchBox.Views.Dialogs
                     task.DeleteSourceAfterVerify = deleteRtSource;
                     task.RuTrackerPayload = payload;
                     task.CustomMetadata = slotMetadataModel;
-                    if (!string.IsNullOrWhiteSpace(slot.TitleId))
+                    if (!string.IsNullOrWhiteSpace(effectiveTid))
                     {
-                        task.TitleId = slot.TitleId;
-                        task.GroupId = TasksViewModel.GetTitleGroupPrefix(slot.TitleId);
+                        task.TitleId = effectiveTid;
+                        task.GroupId = TasksViewModel.GetTitleGroupPrefix(effectiveTid);
                     }
                     if (slot.SlotIconBitmap != null)
                         task.GameIcon = slot.SlotIconBitmap;
+                    if (slotIconBytes != null && slotIconBytes.Length > 64)
+                    {
+                        HistoryService.SaveTaskIconToCache(task, slotIconBytes);
+                    }
+                    else if (task.GameIcon == null)
+                    {
+                        HistoryService.TryLoadIconForTask(task);
+                    }
+
+                    if (initBytes > 0)
+                    {
+                        task.SourceSizeBytes = initBytes;
+                        task.SourceSize = ProcessingTask.FormatSize(initBytes);
+                    }
+                    task.InputFolders = slotTargetDir;
+                    task.CompressionLevel = ProcessingTask.ComputeDefaultCompressionLevel(chosenFormat, task.IsSwitch2Task);
+                    task.FilesCount = $"{slotFiles.Count} файл(ов)" + (slotCloudLinks.Count > 0 ? $" + {slotCloudLinks.Count} мод." : "");
                     task.Cts = batchCts;
                 }
                 else
@@ -2117,8 +2142,8 @@ namespace StormSwitchBox.Views.Dialogs
                     {
                         Id = Guid.NewGuid().ToString("N").Substring(0, 8),
                         GameName = slotTitle,
-                        TitleId = slot.TitleId ?? string.Empty,
-                        GroupId = !string.IsNullOrWhiteSpace(slot.TitleId) ? TasksViewModel.GetTitleGroupPrefix(slot.TitleId) : string.Empty,
+                        TitleId = effectiveTid,
+                        GroupId = !string.IsNullOrWhiteSpace(effectiveTid) ? TasksViewModel.GetTitleGroupPrefix(effectiveTid) : string.Empty,
                         GameIcon = slot.SlotIconBitmap,
                         CustomMetadata = slotMetadataModel,
                         Operation = "Multi",
@@ -2132,11 +2157,23 @@ namespace StormSwitchBox.Views.Dialogs
                         DeleteSourceAfterVerify = deleteRtSource,
                         OutputFolder = baseDownloadDir,
                         OutputFileName = SanitizeFileName(slotTitle),
+                        SourceSizeBytes = initBytes,
+                        SourceSize = initBytes > 0 ? ProcessingTask.FormatSize(initBytes) : "-",
+                        InputFolders = slotTargetDir,
+                        CompressionLevel = ProcessingTask.ComputeDefaultCompressionLevel(chosenFormat, false),
                         FilesCount = $"{slotFiles.Count} файл(ов)" + (slotCloudLinks.Count > 0 ? $" + {slotCloudLinks.Count} мод." : ""),
                         LogDetails = $"[RuTracker Пакет #{batchShortId}] Старт задачи #{slot.SlotNumber}: {slotTitle} (Формат: {chosenFormat})\nЦелевая папка: {slotTargetDir}",
                         RuTrackerPayload = payload,
                         Cts = batchCts
                     };
+                    if (slotIconBytes != null && slotIconBytes.Length > 64)
+                    {
+                        HistoryService.SaveTaskIconToCache(task, slotIconBytes);
+                    }
+                    else if (task.GameIcon == null)
+                    {
+                        HistoryService.TryLoadIconForTask(task);
+                    }
                     _viewModel.Tasks.Add(task);
                 }
 
@@ -2385,6 +2422,8 @@ namespace StormSwitchBox.Views.Dialogs
                     }
 
                     bool buildSucceeded = task.Status != "Ошибка" && task.Status != "Отменено";
+                    task.EnsureFinalMetricsPopulated(outPath);
+
                     if (task.DeleteSourceAfterVerify && buildSucceeded)
                     {
                         CleanupRuTrackerReleaseDirectory(payload.TargetReleaseDir, outDir);
@@ -2414,6 +2453,7 @@ namespace StormSwitchBox.Views.Dialogs
                         task.IsPaused = false;
                         task.Speed = string.Empty;
                         task.FinishedAt = DateTime.Now;
+                        viewModel.SavePersistedTasks();
                     });
                 }
                 else
@@ -2548,6 +2588,20 @@ namespace StormSwitchBox.Views.Dialogs
             if (totalBytes > 0)
                 task.SourceSize = ProcessingTask.FormatSize(totalBytes);
 
+            if (task.InputFiles.Count > 0)
+            {
+                var distinctDirs = task.InputFiles
+                    .Select(p => Directory.Exists(p) ? p : (Path.GetDirectoryName(p) ?? ""))
+                    .Where(p => !string.IsNullOrWhiteSpace(p))
+                    .Distinct(StringComparer.OrdinalIgnoreCase);
+                task.InputFolders = string.Join("; ", distinctDirs);
+            }
+            else if (!string.IsNullOrWhiteSpace(downloadDir))
+            {
+                task.InputFolders = downloadDir;
+            }
+            task.CompressionLevel = ProcessingTask.ComputeDefaultCompressionLevel(task.TargetFormat, task.IsSwitch2Task);
+
             if (addedRomFs) task.HasRomFs = "Да";
             if (addedExeFs) task.HasExeFs = "Да";
 
@@ -2587,6 +2641,11 @@ namespace StormSwitchBox.Views.Dialogs
 
             // Извлекаем обложку (GameIcon) и GroupId из скачанных игровых файлов для отображения в колонке «Иконка»
             TryExtractAndSetTaskIcon(task, task.InputFiles);
+            if (task.GameIcon == null)
+            {
+                HistoryService.TryLoadIconForTask(task);
+            }
+            App.TasksVM?.SavePersistedTasks();
         }
 
         public static void TryExtractAndSetTaskIcon(ProcessingTask task, IEnumerable<string> candidateFiles)
@@ -2650,6 +2709,11 @@ namespace StormSwitchBox.Views.Dialogs
                     ? task.GroupId
                     : TasksViewModel.GetTitleGroupPrefix(bestTitleId);
 
+                if (bestIconBytes != null && bestIconBytes.Length > 64)
+                {
+                    task.IconBytes = bestIconBytes;
+                    HistoryService.SaveTaskIconToCache(task, bestIconBytes);
+                }
                 if (bestIconBytes != null && bestIconBytes.Length > 0 && !string.IsNullOrEmpty(groupId))
                 {
                     try
@@ -2737,6 +2801,25 @@ namespace StormSwitchBox.Views.Dialogs
 
                 Directory.Delete(dirToDelete, recursive: true);
                 App.Logger?.Log($"[RuTracker] Временный исходный каталог раздачи удалён: {dirToDelete}", LogLevel.Info);
+
+                try
+                {
+                    string? parentDir = Path.GetDirectoryName(fullTarget);
+                    if (!string.IsNullOrEmpty(parentDir) && Directory.Exists(parentDir) &&
+                        !string.Equals(parentDir, fullOut, StringComparison.OrdinalIgnoreCase))
+                    {
+                        string pName = Path.GetFileName(parentDir);
+                        if (pName.Equals("_Staging_", StringComparison.OrdinalIgnoreCase) ||
+                            pName.Equals("RuTracker_Staging", StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (!Directory.EnumerateFileSystemEntries(parentDir).Any())
+                            {
+                                Directory.Delete(parentDir, false);
+                            }
+                        }
+                    }
+                }
+                catch { }
             }
             catch (Exception ex)
             {

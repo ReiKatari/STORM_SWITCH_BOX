@@ -186,6 +186,18 @@ namespace StormSwitchBox.Models
         public string LastOutPath_Unpack { get; set; } = "";
         public string LastOutPath_3ds { get; set; } = "";
         public string LastOutPath_Switch2 { get; set; } = "";
+
+        public string GetOutPathForPage(string pageKey) => (pageKey ?? "").ToLowerInvariant() switch
+        {
+            "unpack" => LastOutPath_Unpack,
+            "pack" => LastOutPath_Pack,
+            "3ds" or "3ds_unpack" or "3ds_pack" => LastOutPath_3ds,
+            "convert" => LastOutPath_Convert,
+            "multi" => LastOutPath_Multi,
+            "homebrew" => LastOutPath_Homebrew,
+            "update" => LastOutPath_Update,
+            _ => OutputFolder
+        };
         
         // Выходная папка по умолчанию для Switch
         public string OutputFolder { get; set; } = "";

@@ -1,3 +1,4 @@
+using System.Text;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -343,15 +344,89 @@ namespace StormSwitchBox.Services
                     }
                     else
                     {
+                        bool isExistingNcz = entryName.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase);
+                        if (isExistingNcz)
+                        {
+                            using var entryFile = OpenFileSafe(pfs, entry.FullPath);
+                            IStorage physicalStorage = entryFile.AsStorage();
+
+                            // Inspect header: does it have NCZBLOCK?
+                            bool isSolidNcz = false;
+                            byte[] sectnBuf = new byte[16];
+                            if (entry.Size > 0x4018 && physicalStorage.Read(0x4000, sectnBuf).IsSuccess())
+                            {
+                                string sMagic = System.Text.Encoding.ASCII.GetString(sectnBuf, 0, 8);
+                                if (sMagic == "NCZSECTN")
+                                {
+                                    long sCount = BitConverter.ToInt64(sectnBuf, 8);
+                                    long bPos = 0x4010 + sCount * 0x40;
+                                    if (entry.Size <= bPos)
+                                    {
+                                        isSolidNcz = true;
+                                    }
+                                    else
+                                    {
+                                        int cLen = (int)Math.Min(64L, entry.Size - bPos);
+                                        byte[] cBuf = new byte[cLen];
+                                        if (physicalStorage.Read(bPos, cBuf).IsSuccess())
+                                        {
+                                            string cStr = System.Text.Encoding.ASCII.GetString(cBuf);
+                                            if (!cStr.Contains("NCZBLOCK")) isSolidNcz = true;
+                                        }
+                                        else
+                                        {
+                                            isSolidNcz = true;
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (!isSolidNcz)
+                            {
+                                App.RunOnUI(() =>
+                                {
+                                    task.LogDetails += $"\n[{entryIdx}/{totalEntries}] Быстрое копирование Block NCZ: {entryName}";
+                                });
+                                var keptFile = OpenFileSafe(pfs, entry.FullPath);
+                                openedFiles.Add(keptFile);
+                                pfsBuilder.AddFile(entryName, new StorageFile(new SafeStorageWrapper(keptFile.AsStorage()), LibHac.Fs.OpenMode.Read));
+                                continue;
+                            }
+
+                            App.RunOnUI(() =>
+                            {
+                                task.Status = $"Пересжатие {entryName}...";
+                                task.LogDetails += $"\n⚡ [Zero-Solid Guard] Обнаружен Solid NCZ: {entryName}. Пересжатие в 1 МБ Block NCZBLOCK...";
+                            });
+
+                            string tempRecompNcz = System.IO.Path.Combine(tempDir, entryName);
+                            using (var nczStorage = new Core.NSZ.StormNczStorage(physicalStorage, harvestedTitleKeys, null, App.Keys.CurrentKeyset))
+                            {
+                                Core.NSZ.StormNczCompressor.CompressNcaToNcz(
+                                    nczStorage,
+                                    tempRecompNcz,
+                                    level,
+                                    App.Keys.CurrentKeyset,
+                                    task,
+                                    cancellationToken,
+                                    harvestedTitleKeys);
+                            }
+
+                            var fs = new FileStream(tempRecompNcz, FileMode.Open, FileAccess.Read, FileShare.Read);
+                            tempStreams.Add(fs);
+                            pfsBuilder.AddFile(entryName, new StorageFile(new SafeStorageWrapper(fs.AsStorage()), LibHac.Fs.OpenMode.Read));
+                            continue;
+                        }
+
                         App.RunOnUI(() =>
                         {
                             task.LogDetails += $"\n[{entryIdx}/{totalEntries}] Копирование метаданных: {entryName}";
                         });
 
-                        var entryFile = OpenFileSafe(pfs, entry.FullPath);
-                        openedFiles.Add(entryFile);
-                        IStorage physicalStorage = entryFile.AsStorage();
-                        pfsBuilder.AddFile(entryName, new StorageFile(new SafeStorageWrapper(physicalStorage), LibHac.Fs.OpenMode.Read));
+                        var defaultEntryFile = OpenFileSafe(pfs, entry.FullPath);
+                        openedFiles.Add(defaultEntryFile);
+                        IStorage physicalStorageDefault = defaultEntryFile.AsStorage();
+                        pfsBuilder.AddFile(entryName, new StorageFile(new SafeStorageWrapper(physicalStorageDefault), LibHac.Fs.OpenMode.Read));
                     }
                 }
 
@@ -641,13 +716,13 @@ namespace StormSwitchBox.Services
                     {
                         byte[] magicBuf = new byte[8];
                         fileStorage.Read(0, magicBuf);
-                        string m1 = System.Text.Encoding.ASCII.GetString(magicBuf);
+                        string m1 = Encoding.ASCII.GetString(magicBuf);
                         if (m1 == "NCZSECTN" || m1 == "NCZBLOCK") return true;
 
                         if (size >= 0x4008)
                         {
                             fileStorage.Read(0x4000, magicBuf);
-                            string m2 = System.Text.Encoding.ASCII.GetString(magicBuf);
+                            string m2 = Encoding.ASCII.GetString(magicBuf);
                             if (m2 == "NCZSECTN" || m2 == "NCZBLOCK") return true;
                         }
                         
