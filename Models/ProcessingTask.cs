@@ -57,6 +57,9 @@ namespace StormSwitchBox.Models
         [ObservableProperty] private string _filesCount = string.Empty;
         [ObservableProperty] private string _status = string.Empty;
 
+        [System.Text.Json.Serialization.JsonIgnore]
+        public string StatusDisplay => App.Localization.TranslateText(Status);
+
         [ObservableProperty] private double _progress;
         [ObservableProperty] private bool _isRunning;
         [ObservableProperty] private bool _isPaused;
@@ -267,6 +270,14 @@ namespace StormSwitchBox.Models
         public void NotifyLocalizationChanged()
         {
             OnPropertyChanged(nameof(OperationDisplay));
+            OnPropertyChanged(nameof(StatusDisplay));
+            if (SourceSizeBytes > 0)
+            {
+                SourceSize = FormatSize(SourceSizeBytes);
+            }
+            OnPropertyChanged(nameof(SourceSize));
+            OnPropertyChanged(nameof(TargetSize));
+            OnPropertyChanged(nameof(FinishedAtDisplay));
         }
 
         partial void OnOperationChanged(string value) => OnPropertyChanged(nameof(OperationDisplay));
@@ -275,34 +286,7 @@ namespace StormSwitchBox.Models
         /// <summary>Форматирование размера: 2 320,21 МБ</summary>
         public static string FormatSize(long bytes)
         {
-            if (bytes <= 0) return "-";
-
-            double value;
-            string unit;
-
-            if (bytes >= 1_073_741_824L)
-            {
-                value = bytes / 1_073_741_824.0;
-                unit = "ГБ";
-            }
-            else if (bytes >= 1_048_576L)
-            {
-                value = bytes / 1_048_576.0;
-                unit = "МБ";
-            }
-            else if (bytes >= 1024L)
-            {
-                value = bytes / 1024.0;
-                unit = "КБ";
-            }
-            else
-            {
-                return $"{bytes} Б";
-            }
-
-            string formatted = value.ToString("N2", System.Globalization.CultureInfo.GetCultureInfo("ru-RU"));
-            formatted = formatted.Replace('\u00A0', ' ');
-            return $"{formatted} {unit}";
+            return App.Localization.FormatSize(bytes);
         }
 
         partial void OnSourceSizeBytesChanged(long value)
@@ -388,6 +372,7 @@ namespace StormSwitchBox.Models
 
         partial void OnStatusChanged(string value)
         {
+            OnPropertyChanged(nameof(StatusDisplay));
             OnPropertyChanged(nameof(StatusColor));
             OnPropertyChanged(nameof(IsCompleted));
             OnPropertyChanged(nameof(CanChangeFormat));
@@ -395,6 +380,20 @@ namespace StormSwitchBox.Models
             OnPropertyChanged(nameof(TargetFormatWeight));
             OnPropertyChanged(nameof(FormatCompletedVisibility));
             OnPropertyChanged(nameof(FormatSelectableVisibility));
+        }
+
+        protected override void OnPropertyChanged(System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            var dq = App.MainDispatcher;
+            if (dq != null && !dq.HasThreadAccess)
+            {
+                dq.TryEnqueue(() =>
+                {
+                    try { base.OnPropertyChanged(e); } catch { }
+                });
+                return;
+            }
+            try { base.OnPropertyChanged(e); } catch { }
         }
     }
     public sealed class RuTrackerTaskPayload

@@ -1510,6 +1510,13 @@ namespace StormSwitchBox.Views
                     t.NotifyLocalizationChanged();
                 }
             }
+            if (ViewModel?.HomebrewTasks != null)
+            {
+                foreach (var t in ViewModel.HomebrewTasks)
+                {
+                    t.NotifyLocalizationChanged();
+                }
+            }
         }
     }
 }

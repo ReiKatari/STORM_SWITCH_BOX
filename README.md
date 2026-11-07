@@ -8,7 +8,7 @@ STORM SWITCH BOX — комплексная оболочка и комбайн �
 
 ## **Технологический стек**
 - **Языки программирования**: C# (.NET 8.0), Kotlin (Android SDK), C++
-- **Интерфейс пользователя**: WinUI 3 (Windows App SDK), XAML, Android Volumetric UI, 8 фирменных тем оформления STORM SOFT, 6 языков локализации
+- **Интерфейс пользователя**: WinUI 3 (Windows App SDK), XAML, Android Volumetric UI, 8 фирменных тем оформления STORM SOFT, 11 языков локализации
 - **Криптографическое и сжимающее ядро**: LibHac, нативная векторная криптография `AES-128-CTR` с аппаратным ускорением SIMD `AVX2` (`Vector256<byte>`) и пулированием памяти `ArrayPool<byte>` (0 байт аллокаций в LOH), нативная 128-битная реализация крипто-движка 3DS (KeyScrambler, SeedDB, AES-CTR/CBC), ZstdSharp и Zstandard JNI (многопоточный Zstandard Block Compression Engine), hactoolnet, yanu-cli, oxipng, 3dstool, makerom
 - **Форматы контейнеров и патчей**: NUP v1.0 (NX Package Format, суперблок `NUP\x01`, таблица `TOC\x01`, TLV-метаданные и дедупликация экстентов SHA-256), CNMT, NACP, Control NCA, PFS0, HFS0, XCI Cartridge Header (`HEAD`), NCCH, NCSD, CIA, SMDH (Morton Z-order RGB565), CBMD/BCWAV (CWAV PCM16), IVFC Level 3 RomFS, NRO/ASET (сжатие LZ4 Frame), IPS/IPS32, BPS, IPSwitch (`.pchtxt`)
 
@@ -36,8 +36,8 @@ STORM SWITCH BOX — комплексная оболочка и комбайн �
 
 ## **Установка и запуск**
 1. Перейдите в раздел **Releases** на GitHub.
-2. Для **Windows**: скачайте инсталлятор `STORM_SWITCH_BOX_7.0.4_Setup.exe` или портативный архив `STORM_SWITCH_BOX_7.0.4.zip`.
-3. Для **Android**: скачайте пакет `STORM_SWITCH_BOX_7.0.4.apk` (для современных 64-битных устройств Android 8.0+) или `STORM_SWITCH_BOX_7.0.4_LEGACY.apk` (универсальная сборка для Android 5.0+ и 32/64-битных процессоров). При первом запуске приложение создаст рабочую структуру папок в `/storage/emulated/0/STORM SWITCH BOX/`.
+2. Для **Windows**: скачайте инсталлятор `STORM_SWITCH_BOX_7.0.5_Setup.exe` или портативный архив `STORM_SWITCH_BOX_7.0.5.zip`.
+3. Для **Android**: скачайте пакет `STORM_SWITCH_BOX_7.0.5.apk` (для современных 64-битных устройств Android 8.0+) или `STORM_SWITCH_BOX_7.0.5_LEGACY.apk` (универсальная сборка для Android 5.0+ и 32/64-битных процессоров). При первом запуске приложение создаст рабочую структуру папок в `/storage/emulated/0/STORM SWITCH BOX/`.
 4. На ПК запустите установщик или распакуйте архив. Все системные инструменты (`hactoolnet`, `yanu-cli`, `oxipng`, `3dstool`, `makerom`, `7za`) и сжатая база каталогов (`catalogs.zst`, `nutdb.json`) уже включены в дистрибутив.
 5. Укажите файлы ключей `prod.keys` / `title.keys` (для Nintendo Switch), `ounce.keys` (для Nintendo Switch 2) и при необходимости `seeddb.bin` / `aes_keys.txt` (для Nintendo 3DS) во вкладке параметров.
 

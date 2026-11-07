@@ -1,35 +1,84 @@
+using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Text.Json.Serialization;
 
 namespace StormSwitchBox.Models
 {
     public class AppSettings
     {
-        private static string GetDefaultOsLanguage()
+        [DllImport("kernel32.dll", SetLastError = false)]
+        private static extern ushort GetUserDefaultUILanguage();
+
+        public static string GetDefaultOsLanguage()
         {
             try
             {
-                string iso = System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName.ToLowerInvariant();
+                string? iso = null;
+                try
+                {
+                    ushort langId = GetUserDefaultUILanguage();
+                    if (langId != 0)
+                    {
+                        var cult = CultureInfo.GetCultureInfo(langId);
+                        iso = cult.TwoLetterISOLanguageName.ToLowerInvariant();
+                    }
+                }
+                catch { }
+
+                if (string.IsNullOrEmpty(iso))
+                {
+                    iso = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName.ToLowerInvariant();
+                }
+
+                if (string.IsNullOrEmpty(iso))
+                {
+                    iso = CultureInfo.InstalledUICulture.TwoLetterISOLanguageName.ToLowerInvariant();
+                }
+
                 return iso switch
                 {
-                    "ru" => "ru",
+                    "ru" or "uk" or "be" or "kk" => "ru",
                     "en" => "en",
                     "de" => "de",
                     "fr" => "fr",
                     "zh" => "zh",
+                    "ko" => "ko",
                     "ja" => "ja",
-                    _ => "ru"
+                    "es" => "es",
+                    "it" => "it",
+                    "pt" => "pt",
+                    "hi" => "hi",
+                    _ => "en"
                 };
             }
             catch
             {
-                return "ru";
+                return "en";
             }
+        }
+
+        public static string NormalizeLanguageCode(string? code)
+        {
+            if (string.IsNullOrWhiteSpace(code) ||
+                string.Equals(code, "system", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(code, "auto", StringComparison.OrdinalIgnoreCase))
+            {
+                return GetDefaultOsLanguage();
+            }
+
+            string clean = code.Trim().ToLowerInvariant();
+            return clean switch
+            {
+                "ru" or "en" or "de" or "fr" or "zh" or "ko" or "ja" or "es" or "it" or "pt" or "hi" => clean,
+                _ => GetDefaultOsLanguage()
+            };
         }
 
         // Окно
         public string AppVersion { get; set; } = App.AppVersionString;
-        public string Language { get; set; } = GetDefaultOsLanguage(); // ru, en, de, fr, zh, ja
+        public string Language { get; set; } = GetDefaultOsLanguage(); // ru, en, de, fr, zh, ko, ja, es, it, pt, hi
         public bool EnableGpuAcceleration { get; set; } = true;
         public int WindowX { get; set; } = -1;
         public int WindowY { get; set; } = -1;

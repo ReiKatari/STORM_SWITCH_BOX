@@ -206,6 +206,17 @@ public partial class TasksViewModel : ObservableObject
 		dispatcherTimer.Start();
 
 		LoadPersistedTasks();
+
+		App.Localization.LanguageChanged += () =>
+		{
+			App.RunOnUI(() =>
+			{
+				foreach (var t in Tasks) t.NotifyLocalizationChanged();
+				foreach (var t in VerifyTasks) t.NotifyLocalizationChanged();
+				foreach (var t in HomebrewTasks) t.NotifyLocalizationChanged();
+				OnPropertyChanged(nameof(CurrentPlatformLabel));
+			});
+		};
 	}
 
 	public void SetPageType(string pageType)

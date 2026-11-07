@@ -20,18 +20,53 @@ namespace StormSwitchBox.Views.Dialogs
         public ObservableCollection<VirtualArchiveEntry> FilteredEntries { get; } = new();
         private string _currentContainerPath = string.Empty;
 
+        private Action? _langHandler;
+
         public RomFsInspectorDialog(string? initialFilePath = null)
         {
             this.InitializeComponent();
-            App.Localization.TranslateRoot(this);
-            this.Opened += (_, _) => App.Localization.TranslateRoot(this);
             this.XamlRoot = App.MainWindow?.Content?.XamlRoot;
             EntriesListView.ItemsSource = FilteredEntries;
+
+            _langHandler = () =>
+            {
+                App.RunOnUI(() =>
+                {
+                    ApplyLocalization();
+                    App.Localization.TranslateRoot(this);
+                });
+            };
+
+            this.Loaded += (_, _) =>
+            {
+                App.Localization.RegisterRoot(this);
+                ApplyLocalization();
+                App.Localization.TranslateRoot(this);
+                App.Localization.LanguageChanged += _langHandler;
+            };
+
+            this.Unloaded += (_, _) =>
+            {
+                App.Localization.UnregisterRoot(this);
+                if (_langHandler != null) App.Localization.LanguageChanged -= _langHandler;
+            };
+
+            this.Closed += (_, _) =>
+            {
+                App.Localization.UnregisterRoot(this);
+                if (_langHandler != null) App.Localization.LanguageChanged -= _langHandler;
+            };
 
             if (!string.IsNullOrWhiteSpace(initialFilePath) && File.Exists(initialFilePath))
             {
                 _ = LoadContainerAsync(initialFilePath);
             }
+        }
+
+        private void ApplyLocalization()
+        {
+            this.Title = App.Localization.TranslateText("🔍 Визуальный инспектор и выборочный распаковщик RomFS / ExeFS (без полной распаковки)");
+            this.CloseButtonText = App.Localization.TranslateText("Закрыть");
         }
 
         private async Task LoadContainerAsync(string path)

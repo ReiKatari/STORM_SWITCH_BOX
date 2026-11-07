@@ -236,12 +236,12 @@ namespace StormSwitchBox
                 Renderer = new WinForms.ToolStripProfessionalRenderer(new StormTrayColorTable())
             };
 
-            var restoreItem = new WinForms.ToolStripMenuItem(App.Localization["Tray_Restore"], null, (s, e) => RestoreWindow())
+            var restoreItem = new WinForms.ToolStripMenuItem(App.Localization.TranslateText("Развернуть STORM SWITCH BOX"), null, (s, e) => RestoreWindow())
             {
                 Font = boldFont,
                 ForeColor = System.Drawing.Color.White
             };
-            var aboutItem = new WinForms.ToolStripMenuItem(App.Localization["Tray_About"], null, (s, e) =>
+            var aboutItem = new WinForms.ToolStripMenuItem(App.Localization.TranslateText("О программе"), null, (s, e) =>
             {
                 RestoreWindow();
                 MainNavigation.SelectedItem = MainNavigation.SettingsItem;
@@ -251,7 +251,7 @@ namespace StormSwitchBox
                 ForeColor = System.Drawing.Color.White
             };
             var separator = new WinForms.ToolStripSeparator();
-            var exitItem = new WinForms.ToolStripMenuItem(App.Localization["Tray_Exit"], null, (s, e) =>
+            var exitItem = new WinForms.ToolStripMenuItem(App.Localization.TranslateText("Выход"), null, (s, e) =>
             {
                 _notifyIcon.Visible = false;
                 _notifyIcon.Dispose();
@@ -282,28 +282,39 @@ namespace StormSwitchBox
                 _notifyIcon.Text = "STORM SWITCH BOX";
                 if (_notifyIcon.ContextMenuStrip != null && _notifyIcon.ContextMenuStrip.Items.Count >= 4)
                 {
-                    _notifyIcon.ContextMenuStrip.Items[0].Text = App.Localization["Tray_Restore"];
-                    _notifyIcon.ContextMenuStrip.Items[1].Text = App.Localization["Tray_About"];
-                    _notifyIcon.ContextMenuStrip.Items[3].Text = App.Localization["Tray_Exit"];
+                    _notifyIcon.ContextMenuStrip.Items[0].Text = App.Localization.TranslateText("Развернуть STORM SWITCH BOX");
+                    _notifyIcon.ContextMenuStrip.Items[1].Text = App.Localization.TranslateText("О программе");
+                    _notifyIcon.ContextMenuStrip.Items[3].Text = App.Localization.TranslateText("Выход");
                 }
             }
 
-            if (NavUpdateItem != null) NavUpdateItem.Content = App.Localization["Nav_Update"];
-            if (NavUnpackItem != null) NavUnpackItem.Content = App.Localization["Nav_Unpack"];
-            if (NavPackItem != null) NavPackItem.Content = App.Localization["Nav_Pack"];
-            if (NavConvertItem != null) NavConvertItem.Content = App.Localization["Nav_Convert"];
-            if (NavMultiItem != null) NavMultiItem.Content = App.Localization["Nav_Multi"];
-            if (NavHomebrewItem != null) NavHomebrewItem.Content = App.Localization["Nav_Homebrew"];
-            if (NavVerifyItem != null) NavVerifyItem.Content = App.Localization["Nav_Verify"];
-            if (NavInstructionItem != null) NavInstructionItem.Content = App.Localization["Nav_Instruction"];
-            if (NavGameLibraryItem != null) NavGameLibraryItem.Content = App.Localization["Nav_GameLibrary"];
-            if (NavCatalogItem != null) NavCatalogItem.Content = App.Localization["Nav_Catalog"];
-            if (NavHistoryItem != null) NavHistoryItem.Content = App.Localization["Nav_History"];
+            if (NavUpdateItem != null) { NavUpdateItem.Content = App.Localization["Nav_Update"]; ToolTipService.SetToolTip(NavUpdateItem, App.Localization["Nav_Update"]); }
+            if (NavUnpackItem != null) { NavUnpackItem.Content = App.Localization["Nav_Unpack"]; ToolTipService.SetToolTip(NavUnpackItem, App.Localization["Nav_Unpack"]); }
+            if (NavPackItem != null) { NavPackItem.Content = App.Localization["Nav_Pack"]; ToolTipService.SetToolTip(NavPackItem, App.Localization["Nav_Pack"]); }
+            if (NavConvertItem != null) { NavConvertItem.Content = App.Localization["Nav_Convert"]; ToolTipService.SetToolTip(NavConvertItem, App.Localization["Nav_Convert"]); }
+            if (NavMultiItem != null) { NavMultiItem.Content = App.Localization["Nav_Multi"]; ToolTipService.SetToolTip(NavMultiItem, App.Localization["Nav_Multi"]); }
+            if (NavHomebrewItem != null) { NavHomebrewItem.Content = App.Localization["Nav_Homebrew"]; ToolTipService.SetToolTip(NavHomebrewItem, App.Localization["Nav_Homebrew"]); }
+            if (NavVerifyItem != null) { NavVerifyItem.Content = App.Localization["Nav_Verify"]; ToolTipService.SetToolTip(NavVerifyItem, App.Localization["Nav_Verify"]); }
+            if (NavInstructionItem != null) { NavInstructionItem.Content = App.Localization["Nav_Instruction"]; ToolTipService.SetToolTip(NavInstructionItem, App.Localization["Nav_Instruction"]); }
+            if (NavGameLibraryItem != null) { NavGameLibraryItem.Content = App.Localization["Nav_GameLibrary"]; ToolTipService.SetToolTip(NavGameLibraryItem, App.Localization["Nav_GameLibrary"]); }
+            if (NavCatalogItem != null) { NavCatalogItem.Content = App.Localization["Nav_Catalog"]; ToolTipService.SetToolTip(NavCatalogItem, App.Localization["Nav_Catalog"]); }
+            if (NavHistoryItem != null) { NavHistoryItem.Content = App.Localization["Nav_History"]; ToolTipService.SetToolTip(NavHistoryItem, App.Localization["Nav_History"]); }
             if (MainNavigation != null && MainNavigation.SettingsItem is NavigationViewItem settingsItem)
             {
                 settingsItem.Content = App.Localization["Nav_Settings"];
+                ToolTipService.SetToolTip(settingsItem, App.Localization["Nav_Settings"]);
             }
             App.Localization.TranslateRoot(this.Content as Microsoft.UI.Xaml.DependencyObject);
+
+            if (ContentFrame?.Content is Microsoft.UI.Xaml.Controls.Page activePage)
+            {
+                App.Localization.TranslateRoot(activePage);
+                if (activePage is SettingsPage sp) sp.ApplyLocalization();
+                else if (activePage is TasksPage tp) tp.ApplyLocalization();
+                else if (activePage is GameLibraryPage glp) glp.ApplyLocalization();
+                else if (activePage is CatalogPage cp) cp.ApplyLocalization();
+                else if (activePage is HistoryPage hp) hp.ApplyLocalization();
+            }
         }
 
         private void AppWindow_Closing(AppWindow sender, AppWindowClosingEventArgs args)
@@ -319,7 +330,7 @@ namespace StormSwitchBox
             if (_notifyIcon != null)
             {
                 _notifyIcon.Visible = true;
-                _notifyIcon.ShowBalloonTip(2000, $"STORM SWITCH BOX {App.AppVersionString}", "Приложение работает в фоновом режиме в системном трее.", WinForms.ToolTipIcon.Info);
+                _notifyIcon.ShowBalloonTip(2000, App.Localization.TranslateText($"STORM SWITCH BOX {App.AppVersionString}"), App.Localization.TranslateText("Приложение работает в фоновом режиме в системном трее."), WinForms.ToolTipIcon.Info);
             }
         }
 
@@ -328,7 +339,7 @@ namespace StormSwitchBox
             if (_notifyIcon != null)
             {
                 _notifyIcon.Visible = true;
-                _notifyIcon.ShowBalloonTip(4000, $"STORM SWITCH BOX {App.AppVersionString}", summaryMessage, WinForms.ToolTipIcon.Info);
+                _notifyIcon.ShowBalloonTip(4000, App.Localization.TranslateText($"STORM SWITCH BOX {App.AppVersionString}"), App.Localization.TranslateText(summaryMessage), WinForms.ToolTipIcon.Info);
             }
         }
 

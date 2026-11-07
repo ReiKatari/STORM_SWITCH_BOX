@@ -34,6 +34,12 @@ namespace StormSwitchBox.Services
         public SettingsService()
         {
             Current = new AppSettings();
+            if (string.IsNullOrWhiteSpace(Current.Language) ||
+                Current.Language.Equals("system", StringComparison.OrdinalIgnoreCase) ||
+                Current.Language.Equals("auto", StringComparison.OrdinalIgnoreCase))
+            {
+                Current.Language = AppSettings.GetDefaultOsLanguage();
+            }
             Instance = this;
         }
 
@@ -61,10 +67,21 @@ namespace StormSwitchBox.Services
                             settings.EmulatorDirectories = new List<string>();
                             isDirty = true;
                         }
-                        if (string.IsNullOrWhiteSpace(settings.Language))
+                        if (string.IsNullOrWhiteSpace(settings.Language) ||
+                            settings.Language.Equals("system", StringComparison.OrdinalIgnoreCase) ||
+                            settings.Language.Equals("auto", StringComparison.OrdinalIgnoreCase))
                         {
-                            settings.Language = new AppSettings().Language;
+                            settings.Language = AppSettings.GetDefaultOsLanguage();
                             isDirty = true;
+                        }
+                        else
+                        {
+                            var normalized = AppSettings.NormalizeLanguageCode(settings.Language);
+                            if (normalized != settings.Language)
+                            {
+                                settings.Language = normalized;
+                                isDirty = true;
+                            }
                         }
 
                         // Миграция / защита уровня сжатия Switch 2: по умолчанию 18
@@ -85,6 +102,21 @@ namespace StormSwitchBox.Services
             {
                 // Миграция старых настроек (ssb.settings)
                 MigrateLegacySettings();
+                if (string.IsNullOrWhiteSpace(Current.Language) ||
+                    Current.Language.Equals("system", StringComparison.OrdinalIgnoreCase) ||
+                    Current.Language.Equals("auto", StringComparison.OrdinalIgnoreCase))
+                {
+                    Current.Language = AppSettings.GetDefaultOsLanguage();
+                }
+            }
+            else
+            {
+                if (string.IsNullOrWhiteSpace(Current.Language) ||
+                    Current.Language.Equals("system", StringComparison.OrdinalIgnoreCase) ||
+                    Current.Language.Equals("auto", StringComparison.OrdinalIgnoreCase))
+                {
+                    Current.Language = AppSettings.GetDefaultOsLanguage();
+                }
             }
         }
 

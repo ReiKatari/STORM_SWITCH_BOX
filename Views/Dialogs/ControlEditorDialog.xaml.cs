@@ -17,17 +17,53 @@ namespace StormSwitchBox.Views.Dialogs
         private byte[]? _baseIconBytes;
         private bool _isInitializing = true;
 
+        private Action? _langHandler;
+
         public ControlEditorDialog(GameMetadataEditModel model)
         {
             this.InitializeComponent();
-            App.Localization.TranslateRoot(this);
-            this.Opened += (_, _) => App.Localization.TranslateRoot(this);
             _model = model;
             this.XamlRoot = App.MainWindow?.Content?.XamlRoot;
+
+            _langHandler = () =>
+            {
+                App.RunOnUI(() =>
+                {
+                    ApplyLocalization();
+                    App.Localization.TranslateRoot(this);
+                });
+            };
+
+            this.Loaded += (_, _) =>
+            {
+                App.Localization.RegisterRoot(this);
+                ApplyLocalization();
+                App.Localization.TranslateRoot(this);
+                App.Localization.LanguageChanged += _langHandler;
+            };
+
+            this.Unloaded += (_, _) =>
+            {
+                App.Localization.UnregisterRoot(this);
+                if (_langHandler != null) App.Localization.LanguageChanged -= _langHandler;
+            };
+
+            this.Closed += (_, _) =>
+            {
+                App.Localization.UnregisterRoot(this);
+                if (_langHandler != null) App.Localization.LanguageChanged -= _langHandler;
+            };
 
             PopulateUI();
             _isInitializing = false;
             RefreshBadgePreview();
+        }
+
+        private void ApplyLocalization()
+        {
+            this.Title = App.Localization.TranslateText("🎨 Студия метаданных, иконок и 3DS баннеров");
+            this.PrimaryButtonText = App.Localization.TranslateText("Сохранить");
+            this.CloseButtonText = App.Localization.TranslateText("Отмена");
         }
 
         private void PopulateUI()

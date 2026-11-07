@@ -43,10 +43,10 @@ namespace StormSwitchBox.Views
         {
             var dialog = new ContentDialog
             {
-                Title = "Очистка истории",
-                Content = "Вы уверены, что хотите полностью удалить историю обработок?",
-                PrimaryButtonText = "Очистить",
-                CloseButtonText = "Отмена",
+                Title = App.Localization.TranslateText("Очистка истории"),
+                Content = App.Localization.TranslateText("Вы уверены, что хотите полностью удалить историю обработок?"),
+                PrimaryButtonText = App.Localization.TranslateText("Очистить"),
+                CloseButtonText = App.Localization.TranslateText("Отмена"),
                 DefaultButton = ContentDialogButton.Close,
                 XamlRoot = this.XamlRoot
             };

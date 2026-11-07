@@ -300,7 +300,7 @@ namespace StormSwitchBox
 
             // Загружаем настройки перед показом окна
             await Settings.LoadAsync();
-            Localization.CurrentLanguage = Settings.Current.Language ?? "ru";
+            Localization.CurrentLanguage = Models.AppSettings.NormalizeLanguageCode(Settings.Current.Language);
             Logger.Log("Приложение запущено. Настройки загружены.", Models.LogLevel.Info);
 
             if (Settings.Current.EnableWatchFolderSwitch)
@@ -615,7 +615,7 @@ namespace StormSwitchBox
                         {
                             var win = new Window
                             {
-                                Title = "STORM SWITCH BOX — Проверка доступа к файлу"
+                                Title = App.Localization.TranslateText("STORM SWITCH BOX — Проверка доступа к файлу")
                             };
 
                             var grid = new Microsoft.UI.Xaml.Controls.Grid

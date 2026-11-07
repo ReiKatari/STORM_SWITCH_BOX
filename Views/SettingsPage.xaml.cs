@@ -108,15 +108,14 @@ namespace StormSwitchBox.Views
 
             // Language combo initialization
             string lang = App.Settings.Current.Language ?? "ru";
-            LanguageCombo.SelectedIndex = lang switch
+            for (int i = 0; i < LanguageCombo.Items.Count; i++)
             {
-                "en" => 1,
-                "de" => 2,
-                "fr" => 3,
-                "zh" => 4,
-                "ja" => 5,
-                _ => 0
-            };
+                if (LanguageCombo.Items[i] is ComboBoxItem cbi && string.Equals(cbi.Tag?.ToString(), lang, StringComparison.OrdinalIgnoreCase))
+                {
+                    LanguageCombo.SelectedIndex = i;
+                    break;
+                }
+            }
 
             UpdateWatchFolderUiState();
             if (App.WatchFolderService != null)
@@ -961,14 +960,14 @@ namespace StormSwitchBox.Views
             ThreeDsTabIcon.Foreground = index == 3 ? accentBrush : secondaryTextBrush;
         }
 
-        private async void LanguageCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        private void LanguageCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (LanguageCombo.SelectedItem is ComboBoxItem item && item.Tag is string langCode)
             {
                 if (App.Settings.Current.Language != langCode)
                 {
                     App.Settings.Current.Language = langCode;
-                    await App.Settings.SaveAsync();
+                    App.Settings.Save();
                     App.Localization.CurrentLanguage = langCode;
                 }
             }
@@ -1107,6 +1106,45 @@ namespace StormSwitchBox.Views
             if (SwitchSettingsPanel != null) App.Localization.TranslateRoot(SwitchSettingsPanel);
             if (Switch2SettingsPanel != null) App.Localization.TranslateRoot(Switch2SettingsPanel);
             if (ThreeDsSettingsPanel != null) App.Localization.TranslateRoot(ThreeDsSettingsPanel);
+
+            // Ensure LanguageCombo autonyms are preserved strictly per STORM standard
+            var nativeAutonyms = new (string Tag, string Name)[]
+            {
+                ("ru", "Русский"),
+                ("en", "English"),
+                ("de", "Deutsch"),
+                ("fr", "Français"),
+                ("zh", "简体中文"),
+                ("ko", "한국어"),
+                ("ja", "日本語"),
+                ("es", "Español"),
+                ("it", "Italiano"),
+                ("pt", "Português"),
+                ("hi", "हिन्दी")
+            };
+            foreach (var item in LanguageCombo.Items)
+            {
+                if (item is ComboBoxItem cbi && cbi.Tag is string tag)
+                {
+                    foreach (var (t, n) in nativeAutonyms)
+                    {
+                        if (string.Equals(tag, t, StringComparison.OrdinalIgnoreCase))
+                        {
+                            cbi.Content = n;
+                            break;
+                        }
+                    }
+                }
+            }
+            string curLang = App.Localization.CurrentLanguage;
+            for (int i = 0; i < LanguageCombo.Items.Count; i++)
+            {
+                if (LanguageCombo.Items[i] is ComboBoxItem cbi && string.Equals(cbi.Tag?.ToString(), curLang, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (LanguageCombo.SelectedIndex != i) LanguageCombo.SelectedIndex = i;
+                    break;
+                }
+            }
         }
 
         // ===== 3DS Ключи и настройки =====

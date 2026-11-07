@@ -83,19 +83,7 @@ class MainActivity : Activity() {
         StormTheme("CRIMSON", "STORM CRIMSON", Color.parseColor("#160709"), Color.parseColor("#260C10"), Color.parseColor("#381218"), Color.parseColor("#FEF2F2"), Color.parseColor("#FCA5A5"), Color.parseColor("#EF4444"), Color.parseColor("#611F2A"))
     )
 
-    private val languages = listOf(
-        "ru" to "Русский (RU)",
-        "en" to "English (EN)",
-        "de" to "Deutsch (DE)",
-        "fr" to "Français (FR)",
-        "es" to "Español (ES)",
-        "it" to "Italiano (IT)",
-        "pt" to "Português (PT)",
-        "pl" to "Polski (PL)",
-        "tr" to "Türkçe (TR)",
-        "zh" to "中文 (ZH)",
-        "ja" to "日本語 (JA)"
-    )
+    private val languages = StormLocalization.SUPPORTED_LANGUAGES
 
     private val stormRoot = File("/storage/emulated/0/STORM SWITCH BOX")
     private val romsDir = File(stormRoot, "roms")
@@ -108,14 +96,7 @@ class MainActivity : Activity() {
     private val settingsFile = File(stormRoot, "settings/settings.json")
 
     private var currentThemeIndex = 0
-    private fun detectDefaultLanguage(): String {
-        val sysLang = java.util.Locale.getDefault().language.lowercase()
-        return when (sysLang) {
-            "ru", "uk", "be", "kk" -> "ru"
-            "en", "de", "fr", "es", "it", "pt", "pl", "tr", "zh", "ja" -> sysLang
-            else -> "en"
-        }
-    }
+    private fun detectDefaultLanguage(): String = StormLocalization.detectDefaultLanguage()
 
     private var currentLangCode = detectDefaultLanguage()
     private var activeTab = 0
@@ -559,7 +540,7 @@ class MainActivity : Activity() {
                 )
                 appendLog("✅ Авто-сборка RuTracker завершена: ${outFile.name} (${StormNczEngine.formatSize(res.compressedBytes)})")
                 mainHandler.post {
-                    Toast.makeText(this@MainActivity, "Готово: ${outFile.name} (${StormNczEngine.formatSize(res.compressedBytes)})", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this@MainActivity, StormLocalization.tr("Готово: ${outFile.name} (${StormNczEngine.formatSize(res.compressedBytes)})".toString(), currentLangCode), Toast.LENGTH_LONG).show()
                 }
             } catch (e: Exception) {
                 if (task.controller.isCancelled) {
@@ -997,6 +978,7 @@ class MainActivity : Activity() {
             w.decorView?.setPadding(0, 0, 0, 0)
             hideSystemBars(w)
             w.clearFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)
+            w.decorView?.let { StormLocalization.localizeViewTree(it, currentLangCode) }
         }
         return dlg
     }
@@ -1045,6 +1027,8 @@ class MainActivity : Activity() {
                 val savedLang = json.optString("lang", "")
                 if (savedLang.isNotBlank() && languages.any { it.first == savedLang }) {
                     currentLangCode = savedLang
+                } else {
+                    currentLangCode = detectDefaultLanguage()
                 }
                 selectedOperationMode = json.optInt("operationMode", 0).coerceIn(0, 4)
                 selectedCompressionMethod = json.optInt("compressionMethod", 0).coerceIn(0, 3)
@@ -1430,7 +1414,8 @@ class MainActivity : Activity() {
 
     private fun appendLog(msg: String) {
         val stamp = SimpleDateFormat("dd.MM.yyyy HH:mm:ss", Locale.getDefault()).format(Date())
-        val line = "[$stamp] $msg"
+        val trMsg = StormLocalization.tr(msg, currentLangCode)
+        val line = "[$stamp] $trMsg"
         mainHandler.post {
             logLines.add(line)
             if (logLines.size > 150) logLines.removeAt(0)
@@ -1692,134 +1677,10 @@ class MainActivity : Activity() {
         return card
     }
 
-    private val TRANSLATION_MAP = mapOf(
-        "Очередь задач" to mapOf(
-            "en" to "Task Queue", "de" to "Aufgaben-Warteschlange", "fr" to "File de tâches",
-            "es" to "Cola de tareas", "it" to "Coda delle attività", "pt" to "Fila de tarefas",
-            "pl" to "Kolejka zadań", "tr" to "Görev Kuyruğu", "zh" to "任务队列", "ja" to "タスクキュー"
-        ),
-        "СБОРКА" to mapOf(
-            "en" to "BUILD", "de" to "ERSTELLEN", "fr" to "ASSEMBLAGE",
-            "es" to "COMPILAR", "it" to "ASSEMBLAGGIO", "pt" to "COMPILAÇÃO",
-            "pl" to "KOMPILACJA", "tr" to "DERLEME", "zh" to "构建", "ja" to "ビルド"
-        ),
-        "ИНСПЕКТОР" to mapOf(
-            "en" to "INSPECTOR", "de" to "INSPEKTOR", "fr" to "INSPECTEUR",
-            "es" to "INSPECTOR", "it" to "ISPETTORE", "pt" to "INSPETOR",
-            "pl" to "INSPEKTOR", "tr" to "DENETÇİ", "zh" to "检测器", "ja" to "インスペクター"
-        ),
-        "СЕТЬ / DBI" to mapOf(
-            "en" to "NETWORK / DBI", "de" to "NETZWERK / DBI", "fr" to "RÉSEAU / DBI",
-            "es" to "RED / DBI", "it" to "RETE / DBI", "pt" to "REDE / DBI",
-            "pl" to "SIEĆ / DBI", "tr" to "AĞ / DBI", "zh" to "网络 / DBI", "ja" to "ネットワーク / DBI"
-        ),
-        "НАСТРОЙКИ" to mapOf(
-            "en" to "SETTINGS", "de" to "EINSTELLUNGEN", "fr" to "PARAMÈTRES",
-            "es" to "AJUSTES", "it" to "IMPOSTAZIONI", "pt" to "CONFIGURAÇÕES",
-            "pl" to "USTAWIENIA", "tr" to "AYARLAR", "zh" to "设置", "ja" to "設定"
-        ),
-        "СПРАВКА" to mapOf(
-            "en" to "HELP", "de" to "HILFE", "fr" to "AIDE",
-            "es" to "AYUDA", "it" to "GUIDA", "pt" to "AJUDA",
-            "pl" to "POMOC", "tr" to "YARDIM", "zh" to "帮助", "ja" to "ヘルプ"
-        ),
-        "🔄 Обновить" to mapOf(
-            "en" to "🔄 Update", "de" to "🔄 Aktualisieren", "fr" to "🔄 Mettre à jour",
-            "es" to "🔄 Actualizar", "it" to "🔄 Aggiorna", "pt" to "🔄 Atualizar",
-            "pl" to "🔄 Aktualizuj", "tr" to "🔄 Güncelle", "zh" to "🔄 更新", "ja" to "🔄 更新"
-        ),
-        "Изменить папку" to mapOf(
-            "en" to "Change folder", "de" to "Ordner ändern", "fr" to "Changer de dossier",
-            "es" to "Cambiar carpeta", "it" to "Cambia cartella", "pt" to "Mudar pasta",
-            "pl" to "Zmień folder", "tr" to "Klasörü değiştir", "zh" to "更改文件夹", "ja" to "フォルダを変更"
-        ),
-        "📂 Выбрать" to mapOf(
-            "en" to "📂 Select", "de" to "📂 Auswählen", "fr" to "📂 Sélectionner",
-            "es" to "📂 Seleccionar", "it" to "📂 Seleziona", "pt" to "📂 Selecionar",
-            "pl" to "📂 Wybierz", "tr" to "📂 Seç", "zh" to "📂 选择", "ja" to "📂 選択"
-        ),
-        "🔄 Сброс" to mapOf(
-            "en" to "🔄 Reset", "de" to "🔄 Zurücksetzen", "fr" to "🔄 Réinitialiser",
-            "es" to "🔄 Restablecer", "it" to "🔄 Ripristina", "pt" to "🔄 Redefinir",
-            "pl" to "🔄 Reset", "tr" to "🔄 Sıfırla", "zh" to "🔄 重置", "ja" to "🔄 リセット"
-        ),
-        "Отмена" to mapOf(
-            "en" to "Cancel", "de" to "Abbrechen", "fr" to "Annuler",
-            "es" to "Cancelar", "it" to "Annulla", "pt" to "Cancelar",
-            "pl" to "Anuluj", "tr" to "İptal", "zh" to "取消", "ja" to "キャンセル"
-        ),
-        "По умолчанию" to mapOf(
-            "en" to "Default", "de" to "Standard", "fr" to "Par défaut",
-            "es" to "Por defecto", "it" to "Predefinito", "pt" to "Padrão",
-            "pl" to "Domyślne", "tr" to "Varsayılan", "zh" to "默认", "ja" to "デフォルト"
-        ),
-        "✅ Выбрать эту папку" to mapOf(
-            "en" to "✅ Select this folder", "de" to "✅ Diesen Ordner auswählen", "fr" to "✅ Choisir ce dossier",
-            "es" to "✅ Seleccionar esta carpeta", "it" to "✅ Seleziona questa cartella", "pt" to "✅ Selecionar esta pasta",
-            "pl" to "✅ Wybierz ten folder", "tr" to "✅ Bu klasörü seç", "zh" to "✅ 选择此文件夹", "ja" to "✅ このフォルダを選択"
-        ),
-        "Тема оформления:" to mapOf(
-            "en" to "Interface theme:", "de" to "Oberflächendesign:", "fr" to "Thème d'interface:",
-            "es" to "Tema de interfaz:", "it" to "Tema interfaccia:", "pt" to "Tema da interface:",
-            "pl" to "Motyw interfejsu:", "tr" to "Arayüz teması:", "zh" to "界面主题:", "ja" to "インターフェーステーマ:"
-        ),
-        "Язык интерфейса:" to mapOf(
-            "en" to "Interface language:", "de" to "Oberflächensprache:", "fr" to "Langue de l'interface:",
-            "es" to "Idioma de la interfaz:", "it" to "Lingua interfaccia:", "pt" to "Idioma da interface:",
-            "pl" to "Język interfejsu:", "tr" to "Arayüz dili:", "zh" to "界面语言:", "ja" to "インターフェース言語:"
-        ),
-        "📁 Выходные папки сохранения по платформам" to mapOf(
-            "en" to "📁 Output Folders by Platform", "de" to "📁 Ausgabeordner nach Plattform",
-            "fr" to "📁 Dossiers de sortie par plateforme", "es" to "📁 Carpetas de salida por plataforma",
-            "it" to "📁 Cartelle di destinazione per piattaforma", "pt" to "📁 Pastas de saída por plataforma",
-            "pl" to "📁 Foldery wyjściowe wg platform", "tr" to "📁 Platforma Göre Çıktı Klasörleri",
-            "zh" to "📁 按平台的输出文件夹", "ja" to "📁 プラットフォーム別出力フォルダ"
-        ),
-        "📋 Журнал операций и телеметрия" to mapOf(
-            "en" to "📋 Operation Log and Telemetry", "de" to "📋 Betriebsprotokoll und Telemetrie",
-            "fr" to "📋 Journal des opérations et télémétrie", "es" to "📋 Registro de operaciones y telemetría",
-            "it" to "📋 Registro delle operazioni e telemetria", "pt" to "📋 Registro de operações e telemetria",
-            "pl" to "📋 Dziennik operacji i telemetria", "tr" to "📋 İşlem Günlüğü ve Telemetri",
-            "zh" to "📋 操作日志与遥测", "ja" to "📋 操作ログとテレメトリ"
-        )
-    )
-
-    private fun translateText(src: String, lang: String): String {
-        if (lang == "ru" || src.isBlank()) return src
-        val trimmed = src.trim()
-        val direct = TRANSLATION_MAP[trimmed]?.get(lang)
-        if (direct != null) return if (src.startsWith(" ") || src.endsWith(" ")) src.replace(trimmed, direct) else direct
-        // Search inside map
-        for ((ruKey, trMap) in TRANSLATION_MAP) {
-            val trans = trMap[lang]
-            if (trans != null && trimmed.contains(ruKey)) {
-                return src.replace(ruKey, trans)
-            }
-        }
-        return src
-    }
-
+    private fun tr(text: String): String = StormLocalization.tr(text, currentLangCode)
+    private fun translateText(src: String, lang: String): String = StormLocalization.tr(src, lang)
     private fun translateUiTree(view: View, lang: String) {
-        if (lang == "ru") return
-        when (view) {
-            is TextView -> {
-                val orig = view.text?.toString() ?: ""
-                if (orig.isNotEmpty()) {
-                    val tr = translateText(orig, lang)
-                    if (tr != orig) view.text = tr
-                }
-                val hint = view.hint?.toString() ?: ""
-                if (hint.isNotEmpty()) {
-                    val trHint = translateText(hint, lang)
-                    if (trHint != hint) view.hint = trHint
-                }
-            }
-            is ViewGroup -> {
-                for (i in 0 until view.childCount) {
-                    translateUiTree(view.getChildAt(i), lang)
-                }
-            }
-        }
+        StormLocalization.localizeViewTree(view, lang)
     }
 
     private fun buildConverterAndQueueTab(parent: LinearLayout, th: StormTheme) {
@@ -2659,7 +2520,7 @@ class MainActivity : Activity() {
         val btnStart = makeButton("🚀 Запустить очередь (Игр: ${gameGroups.size})", th.accent) {
             if (isTaskRunning) return@makeButton
             if (queuedFiles.isEmpty()) {
-                Toast.makeText(this, "Сначала добавьте файлы или папки в очередь!", Toast.LENGTH_LONG).show()
+                Toast.makeText(this@MainActivity, StormLocalization.tr("Сначала добавьте файлы или папки в очередь!".toString(), currentLangCode), Toast.LENGTH_LONG).show()
                 return@makeButton
             }
             executeQueueBatch(progressBar, statusTxt)
@@ -2674,10 +2535,10 @@ class MainActivity : Activity() {
             activeQueueThread?.interrupt()
             if (isTaskRunning) {
                 statusTxt.text = "⏹ Задача отменена пользователем (остановка конвейера...)"
-                Toast.makeText(this, "⏹ Задача отменена пользователем", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, StormLocalization.tr("⏹ Задача отменена пользователем".toString(), currentLangCode), Toast.LENGTH_SHORT).show()
             } else {
                 statusTxt.text = "⏹ Активных задач нет (очередь остановлена)"
-                Toast.makeText(this, "⏹ Активных выполняемых задач нет", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, StormLocalization.tr("⏹ Активных выполняемых задач нет".toString(), currentLangCode), Toast.LENGTH_SHORT).show()
             }
         }
         actionBtnsRow.addView(btnStop)
@@ -3013,9 +2874,9 @@ class MainActivity : Activity() {
         inspBtnRow1.addView(makeButton("🛡️ Проверить SHA-256", th.bgElevated, th.accent) {
             val target = activeFile ?: queuedFiles.firstOrNull()
             if (target == null || !target.exists()) {
-                Toast.makeText(this, "Сначала выберите файл для криптографической проверки SHA-256!", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, StormLocalization.tr("Сначала выберите файл для криптографической проверки SHA-256!".toString(), currentLangCode), Toast.LENGTH_SHORT).show()
             } else {
-                Toast.makeText(this, "⏳ Проверка целостности и SHA-256 ${target.name}...", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, StormLocalization.tr("⏳ Проверка целостности и SHA-256 ${target.name}...".toString(), currentLangCode), Toast.LENGTH_SHORT).show()
                 thread {
                     val rep = StormNczEngine.verifyContainerIntegrity(target)
                     val summary = if (rep.valid) {
@@ -3025,7 +2886,7 @@ class MainActivity : Activity() {
                     }
                     appendLog(summary)
                     mainHandler.post {
-                        Toast.makeText(this, summary, Toast.LENGTH_LONG).show()
+                        Toast.makeText(this@MainActivity, StormLocalization.tr(summary.toString(), currentLangCode), Toast.LENGTH_LONG).show()
                         buildUserInterface()
                     }
                 }
@@ -3040,7 +2901,7 @@ class MainActivity : Activity() {
         romfsActionRow1.addView(makeButton("🌲 Проводник RomFS / HEX", th.accent) {
             val target = activeFile ?: queuedFiles.firstOrNull()
             if (target == null || !target.exists()) {
-                Toast.makeText(this, "Сначала выберите файл (.nsp/.nsz/.xci/.3ds) для открытия в проводнике RomFS!", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, StormLocalization.tr("Сначала выберите файл (.nsp/.nsz/.xci/.3ds) для открытия в проводнике RomFS!".toString(), currentLangCode), Toast.LENGTH_SHORT).show()
             } else {
                 showVirtualRomfsExplorerDialog(target, th)
             }
@@ -3051,9 +2912,9 @@ class MainActivity : Activity() {
         romfsActionRow1.addView(makeButton("📂 Извлечь RomFS и ExeFS", th.bgElevated, th.accent) {
             val target = activeFile ?: queuedFiles.firstOrNull()
             if (target == null || !target.exists()) {
-                Toast.makeText(this, "Выберите игровой файл (.nsp/.nsz/.xci/.3ds) для извлечения RomFS и ExeFS!", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, StormLocalization.tr("Выберите игровой файл (.nsp/.nsz/.xci/.3ds) для извлечения RomFS и ExeFS!".toString(), currentLangCode), Toast.LENGTH_SHORT).show()
             } else {
-                Toast.makeText(this, "⏳ Извлечение RomFS / ExeFS + Control из ${target.name}...", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, StormLocalization.tr("⏳ Извлечение RomFS / ExeFS + Control из ${target.name}...".toString(), currentLangCode), Toast.LENGTH_SHORT).show()
                 thread {
                     try {
                         val rep = StormNczEngine.extractGameRomfsAndExefs(
@@ -3072,7 +2933,7 @@ class MainActivity : Activity() {
                         } else {
                             appendLog("❌ Ошибка извлечения RomFS/ExeFS: ${rep.message.ifBlank { "Файлы не найдены или нет ключей для расшифровки" }}")
                             mainHandler.post {
-                                Toast.makeText(this@MainActivity, "Ошибка: ${rep.message.ifBlank { "Не удалось извлечь RomFS/ExeFS" }}", Toast.LENGTH_LONG).show()
+                                Toast.makeText(this@MainActivity, StormLocalization.tr("Ошибка: ${rep.message.ifBlank { "Не удалось извлечь RomFS/ExeFS" }}".toString(), currentLangCode), Toast.LENGTH_LONG).show()
                             }
                         }
                     } catch (e: Exception) {
@@ -3096,7 +2957,7 @@ class MainActivity : Activity() {
         romfsActionRow2.addView(makeButton("📤 Извлечь разделы NCA/NCZ", th.bgElevated, th.textPrimary) {
             val target = activeFile ?: queuedFiles.firstOrNull()
             if (target == null || !target.exists()) {
-                Toast.makeText(this, "Сначала выберите образ для извлечения внутренних разделов!", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, StormLocalization.tr("Сначала выберите образ для извлечения внутренних разделов!".toString(), currentLangCode), Toast.LENGTH_SHORT).show()
             } else {
                 val targetOut = File(extractedDir, target.nameWithoutExtension)
                 thread {
@@ -3104,7 +2965,7 @@ class MainActivity : Activity() {
                         val extracted = StormNczEngine.extractContainerFiles(target, targetOut, null) {}
                         appendLog("✅ Извлечено ${extracted.size} внутренних файлов в ${targetOut.absolutePath}")
                         mainHandler.post {
-                            Toast.makeText(this, "Извлечено ${extracted.size} файлов в ${targetOut.name}!", Toast.LENGTH_LONG).show()
+                            Toast.makeText(this@MainActivity, StormLocalization.tr("Извлечено ${extracted.size} файлов в ${targetOut.name}!".toString(), currentLangCode), Toast.LENGTH_LONG).show()
                         }
                     } catch (e: Exception) {
                         appendLog("❌ Ошибка извлечения: ${e.message}")
@@ -3211,7 +3072,7 @@ class MainActivity : Activity() {
             }
             activeTab = 0
             buildUserInterface()
-            Toast.makeText(this, "В очередь добавлено $added файлов для оптимизации!", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this@MainActivity, StormLocalization.tr("В очередь добавлено $added файлов для оптимизации!".toString(), currentLangCode), Toast.LENGTH_SHORT).show()
         }.apply {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         })
@@ -3794,7 +3655,7 @@ class MainActivity : Activity() {
                         if (!isDismissed) {
                             isDismissed = true
                             cm.flush()
-                            Toast.makeText(this@MainActivity, "✅ Доступ к RuTracker подтверждён!", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(this@MainActivity, StormLocalization.tr("✅ Доступ к RuTracker подтверждён!".toString(), currentLangCode), Toast.LENGTH_SHORT).show()
                             dialog.dismiss()
                             onPassed()
                         }
@@ -4211,7 +4072,7 @@ class MainActivity : Activity() {
             val inputsLayout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
             fun addUrlRow(prefill: String = "") {
                 if (editList.size >= maxRows) {
-                    Toast.makeText(this, "Достигнут лимит: максимум $maxRows строк!", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@MainActivity, StormLocalization.tr("Достигнут лимит: максимум $maxRows строк!".toString(), currentLangCode), Toast.LENGTH_SHORT).show()
                     return
                 }
                 val row = LinearLayout(this).apply {
@@ -4574,7 +4435,7 @@ class MainActivity : Activity() {
 
             val activeSelection = releaseFiles.filter { it.selected }
             if (activeSelection.isEmpty()) {
-                Toast.makeText(this, "Отметьте хотя бы один файл раздачи для скачивания!", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, StormLocalization.tr("Отметьте хотя бы один файл раздачи для скачивания!".toString(), currentLangCode), Toast.LENGTH_SHORT).show()
                 return
             }
 
@@ -4701,7 +4562,7 @@ class MainActivity : Activity() {
                 updateBgTaskNotification()
                 updateDialogButtons(BgTaskState.CANCELLED)
                 refreshTaskManagerUI(th)
-                Toast.makeText(this@MainActivity, "⏹ Задача отменена", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, StormLocalization.tr("⏹ Задача отменена".toString(), currentLangCode), Toast.LENGTH_SHORT).show()
             }
         }.apply {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
@@ -4713,7 +4574,7 @@ class MainActivity : Activity() {
         val closeBtn = makeButton("✖ В фон / Закрыть", th.bgElevated, th.textPrimary) {
             val task = currentTask
             if (task?.state == BgTaskState.RUNNING || task?.state == BgTaskState.PAUSED) {
-                Toast.makeText(this@MainActivity, "📥 Задача «${item.title.take(30)}…» продолжает работу в фоне", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, StormLocalization.tr("📥 Задача «${item.title.take(30)}…» продолжает работу в фоне".toString(), currentLangCode), Toast.LENGTH_SHORT).show()
             }
             dlg.dismiss()
         }
@@ -5495,7 +5356,7 @@ class MainActivity : Activity() {
                 }
                 appendLog(if (ok) "✅ $msg" else "❌ $msg")
                 mainHandler.post {
-                    Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
+                    Toast.makeText(this@MainActivity, StormLocalization.tr(msg.toString(), currentLangCode), Toast.LENGTH_LONG).show()
                     buildUserInterface()
                 }
             }
@@ -5511,7 +5372,7 @@ class MainActivity : Activity() {
                     onlineKeysCatalog = fresh
                     selectedOnlineKeyIndex = 0
                     buildUserInterface()
-                    Toast.makeText(this, "Каталог ключей обновлён (${fresh.size} версий)!", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@MainActivity, StormLocalization.tr("Каталог ключей обновлён (${fresh.size} версий)!".toString(), currentLangCode), Toast.LENGTH_SHORT).show()
                 }
             }
         })
@@ -5544,10 +5405,10 @@ class MainActivity : Activity() {
             val found = candidates.firstOrNull { it.exists() }
             if (found != null) {
                 found.copyTo(prodKeysFile, overwrite = true)
-                Toast.makeText(this, "Импортирован prod.keys из ${found.absolutePath}!", Toast.LENGTH_LONG).show()
+                Toast.makeText(this@MainActivity, StormLocalization.tr("Импортирован prod.keys из ${found.absolutePath}!".toString(), currentLangCode), Toast.LENGTH_LONG).show()
                 buildUserInterface()
             } else {
-                Toast.makeText(this, "Локальные ключи не найдены. Нажмите «Скачать и установить ключи» выше!", Toast.LENGTH_LONG).show()
+                Toast.makeText(this@MainActivity, StormLocalization.tr("Локальные ключи не найдены. Нажмите «Скачать и установить ключи» выше!".toString(), currentLangCode), Toast.LENGTH_LONG).show()
             }
         }.apply {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
@@ -5713,7 +5574,7 @@ class MainActivity : Activity() {
                     }
                 }
                 if (selectedInputFile == null) selectedInputFile = queuedFiles.firstOrNull()
-                Toast.makeText(this, "Добавлено файлов в очередь: $added", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, StormLocalization.tr("Добавлено файлов в очередь: $added".toString(), currentLangCode), Toast.LENGTH_SHORT).show()
                 buildUserInterface()
             }
             REQ_PICK_FOLDER_TREE -> {
@@ -5721,7 +5582,7 @@ class MainActivity : Activity() {
                     val folder = resolveTreeUriToDirectory(treeUri)
                     if (folder != null && folder.exists()) {
                         val added = addFolderRecursivelyToQueue(folder)
-                        Toast.makeText(this, "Из папки ${folder.name} добавлено файлов: $added", Toast.LENGTH_LONG).show()
+                        Toast.makeText(this@MainActivity, StormLocalization.tr("Из папки ${folder.name} добавлено файлов: $added".toString(), currentLangCode), Toast.LENGTH_LONG).show()
                         buildUserInterface()
                     } else {
                         showMultiSelectFileAndFolderDialog()
@@ -5735,10 +5596,10 @@ class MainActivity : Activity() {
                         contentResolver.openInputStream(uri)?.use { input ->
                             FileOutputStream(outProd).use { output -> input.copyTo(output) }
                         }
-                        Toast.makeText(this, "Файл prod.keys успешно импортирован!", Toast.LENGTH_LONG).show()
+                        Toast.makeText(this@MainActivity, StormLocalization.tr("Файл prod.keys успешно импортирован!".toString(), currentLangCode), Toast.LENGTH_LONG).show()
                         buildUserInterface()
                     } catch (e: Exception) {
-                        Toast.makeText(this, "Ошибка импорта ключей: ${e.message}", Toast.LENGTH_LONG).show()
+                        Toast.makeText(this@MainActivity, StormLocalization.tr("Ошибка импорта ключей: ${e.message}".toString(), currentLangCode), Toast.LENGTH_LONG).show()
                     }
                 }
             }
@@ -5751,7 +5612,7 @@ class MainActivity : Activity() {
                             customOutputDir = folder
                             saveSettings()
                             buildUserInterface()
-                            Toast.makeText(this, "✅ Выходная папка: ${folder.absolutePath}", Toast.LENGTH_LONG).show()
+                            Toast.makeText(this@MainActivity, StormLocalization.tr("✅ Выходная папка: ${folder.absolutePath}".toString(), currentLangCode), Toast.LENGTH_LONG).show()
                         }
                     }
                 }
@@ -5768,10 +5629,10 @@ class MainActivity : Activity() {
                         if (outIconFile.exists() && outIconFile.length() > 0L) {
                             customIconImagePath = outIconFile.absolutePath
                             onCustomIconPickedCallback?.invoke(outIconFile.absolutePath)
-                            Toast.makeText(this, "🖼 Иконка загружена и отмасштабирована в 256×256 JPEG!", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(this@MainActivity, StormLocalization.tr("🖼 Иконка загружена и отмасштабирована в 256×256 JPEG!".toString(), currentLangCode), Toast.LENGTH_SHORT).show()
                         }
                     } catch (e: Exception) {
-                        Toast.makeText(this, "Ошибка загрузки изображения: ${e.message}", Toast.LENGTH_LONG).show()
+                        Toast.makeText(this@MainActivity, StormLocalization.tr("Ошибка загрузки изображения: ${e.message}".toString(), currentLangCode), Toast.LENGTH_LONG).show()
                     }
                 }
             }
@@ -5787,7 +5648,7 @@ class MainActivity : Activity() {
             }
             startActivityForResult(Intent.createChooser(intent, "Выберите иконку или обложку (PNG / JPG / WEBP)"), REQ_PICK_CUSTOM_ICON)
         } catch (e: Exception) {
-            Toast.makeText(this, "Не удалось открыть галерею изображений: ${e.message}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this@MainActivity, StormLocalization.tr("Не удалось открыть галерею изображений: ${e.message}".toString(), currentLangCode), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -5921,7 +5782,7 @@ class MainActivity : Activity() {
 
             listContainer.addView(makeButton("✅ Выбрать всю папку «${currentDir.name}» целиком", th.bgElevated, th.accent) {
                 selectedPaths.add(currentDir)
-                Toast.makeText(this, "Папка ${currentDir.name} отмечена для добавления", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, StormLocalization.tr("Папка ${currentDir.name} отмечена для добавления".toString(), currentLangCode), Toast.LENGTH_SHORT).show()
                 refreshDir()
             }.apply {
                 layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
@@ -6041,7 +5902,7 @@ class MainActivity : Activity() {
                 }
             }
             if (selectedInputFile == null) selectedInputFile = queuedFiles.firstOrNull()
-            Toast.makeText(this, "Добавлено в очередь файлов: $count", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this@MainActivity, StormLocalization.tr("Добавлено в очередь файлов: $count".toString(), currentLangCode), Toast.LENGTH_SHORT).show()
             buildUserInterface()
             dlg.dismiss()
         })
@@ -6221,7 +6082,7 @@ class MainActivity : Activity() {
                 val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
                 startActivityForResult(intent, REQ_PICK_OUTPUT_FOLDER_TREE)
             } catch (_: Exception) {
-                Toast.makeText(this, "Используйте встроенный проводник папок ниже", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, StormLocalization.tr("Используйте встроенный проводник папок ниже".toString(), currentLangCode), Toast.LENGTH_SHORT).show()
             }
         })
         card.addView(newFolderRow)
@@ -6282,7 +6143,7 @@ class MainActivity : Activity() {
                 }
                 saveSettings()
                 buildUserInterface()
-                Toast.makeText(this, "Папка $targetName: ${currentDir.absolutePath}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, StormLocalization.tr("Папка $targetName: ${currentDir.absolutePath}".toString(), currentLangCode), Toast.LENGTH_SHORT).show()
             }
             dlg.dismiss()
         })
@@ -6295,7 +6156,7 @@ class MainActivity : Activity() {
 
     private fun checkForUpdatesFromGitHub(isManualClick: Boolean) {
         if (isManualClick) {
-            Toast.makeText(this, "⏳ Проверка обновлений на GitHub и STORM GAMES WORLD...", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this@MainActivity, StormLocalization.tr("⏳ Проверка обновлений на GitHub и STORM GAMES WORLD...".toString(), currentLangCode), Toast.LENGTH_SHORT).show()
         }
         val preferLegacy = (android.os.Build.SUPPORTED_64_BIT_ABIS.isEmpty()) || Build.VERSION.SDK_INT < 26
         val currentAppVer = try { packageManager.getPackageInfo(packageName, 0).versionName ?: BuildConfig.VERSION_NAME } catch (_: Exception) { BuildConfig.VERSION_NAME }
@@ -6305,11 +6166,7 @@ class MainActivity : Activity() {
                 if (rel != null) {
                     showUpdateAvailableDialog(rel)
                 } else if (isManualClick) {
-                    Toast.makeText(
-                        this,
-                        "✅ У вас установлена актуальная версия STORM SWITCH BOX $currentAppVer (проверено на GitHub и STORM GAMES WORLD)!",
-                        Toast.LENGTH_LONG
-                    ).show()
+                    Toast.makeText(this@MainActivity, StormLocalization.tr("✅ У вас установлена актуальная версия STORM SWITCH BOX $currentAppVer (проверено на GitHub и STORM GAMES WORLD)!".toString(), currentLangCode), Toast.LENGTH_LONG).show()
                 }
             }
         }
@@ -6465,7 +6322,7 @@ class MainActivity : Activity() {
                 if (ok && apkFile.exists()) {
                     promptInstallDownloadedApk(apkFile)
                 } else {
-                    Toast.makeText(this, "❌ Не удалось скачать APK обновление с GitHub.", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this@MainActivity, StormLocalization.tr("❌ Не удалось скачать APK обновление с GitHub.".toString(), currentLangCode), Toast.LENGTH_LONG).show()
                 }
             }
         }
@@ -6475,7 +6332,7 @@ class MainActivity : Activity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             if (!packageManager.canRequestPackageInstalls()) {
                 pendingInstallApkFile = apkFile
-                Toast.makeText(this, "Разрешите установку обновлений из STORM SWITCH BOX", Toast.LENGTH_LONG).show()
+                Toast.makeText(this@MainActivity, StormLocalization.tr("Разрешите установку обновлений из STORM SWITCH BOX".toString(), currentLangCode), Toast.LENGTH_LONG).show()
                 try {
                     val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName"))
                     startActivityForResult(intent, REQ_INSTALL_UNKNOWN_APPS)
@@ -6499,7 +6356,7 @@ class MainActivity : Activity() {
             }
             startActivity(intent)
         } catch (e: Exception) {
-            Toast.makeText(this, "Ошибка запуска установщика APK: ${e.message}", Toast.LENGTH_LONG).show()
+            Toast.makeText(this@MainActivity, StormLocalization.tr("Ошибка запуска установщика APK: ${e.message}".toString(), currentLangCode), Toast.LENGTH_LONG).show()
         }
     }
 
@@ -6669,7 +6526,7 @@ class MainActivity : Activity() {
                     val savedFile = StormNczEngine.extractSingleVirtualNode(containerFile, selectedNode, outDir)
                     appendLog("✅ Извлечён узел ${selectedNode.virtualPath} -> ${savedFile.absolutePath}")
                     mainHandler.post {
-                        Toast.makeText(this, "Сохранено: ${savedFile.absolutePath}", Toast.LENGTH_LONG).show()
+                        Toast.makeText(this@MainActivity, StormLocalization.tr("Сохранено: ${savedFile.absolutePath}".toString(), currentLangCode), Toast.LENGTH_LONG).show()
                     }
                 } catch (e: Exception) {
                     appendLog("❌ Ошибка извлечения узла: ${e.message}")
@@ -6870,7 +6727,7 @@ class MainActivity : Activity() {
                     appendLog("✅ Упакована папка ${chosenFolder.name} -> ${File(res.outputPath).name} (${StormNczEngine.formatSize(res.compressedBytes)})")
                     mainHandler.post {
                         statusTxt.text = "✅ Создан файл: ${File(res.outputPath).name} (${StormNczEngine.formatSize(res.compressedBytes)})"
-                        Toast.makeText(this, "Готово: ${File(res.outputPath).name}!", Toast.LENGTH_LONG).show()
+                        Toast.makeText(this@MainActivity, StormLocalization.tr("Готово: ${File(res.outputPath).name}!".toString(), currentLangCode), Toast.LENGTH_LONG).show()
                     }
                 } catch (e: Exception) {
                     mainHandler.post {
@@ -6956,7 +6813,7 @@ class MainActivity : Activity() {
         }
         topActRow.addView(makeButton("🌐 Найти Homebrew / Порты на RuTracker", th.bgElevated, th.accent) {
             onSearchRuTrackerHomebrew("Homebrew")
-            Toast.makeText(this, "Показаны раздачи Homebrew и NRO-портов в списке RuTracker выше!", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this@MainActivity, StormLocalization.tr("Показаны раздачи Homebrew и NRO-портов в списке RuTracker выше!".toString(), currentLangCode), Toast.LENGTH_SHORT).show()
         }.apply {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) }
         })
@@ -6975,7 +6832,7 @@ class MainActivity : Activity() {
                 authorEditRef?.setText(fwdAppAuthor)
                 verEditRef?.setText(fwdAppVersion)
                 pathEditRef?.setText(fwdSdmcNroPath)
-                Toast.makeText(this, "Считан паспорт NRO0/ASET из ${nroCandidate.name}!", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, StormLocalization.tr("Считан паспорт NRO0/ASET из ${nroCandidate.name}!".toString(), currentLangCode), Toast.LENGTH_SHORT).show()
             } else {
                 showMultiSelectFileAndFolderDialog()
             }
@@ -7136,7 +6993,7 @@ class MainActivity : Activity() {
                     }
                     appendLog("✅ Создан Homebrew Forwarder NSP: ${outNsp.name} (${StormNczEngine.formatSize(outNsp.length())})")
                     mainHandler.post {
-                        Toast.makeText(this, "✅ Создан Forwarder: ${outNsp.name}!", Toast.LENGTH_LONG).show()
+                        Toast.makeText(this@MainActivity, StormLocalization.tr("✅ Создан Forwarder: ${outNsp.name}!".toString(), currentLangCode), Toast.LENGTH_LONG).show()
                     }
                 } catch (e: Exception) {
                     appendLog("❌ Ошибка создания Forwarder NSP: ${e.message}")
@@ -7397,7 +7254,7 @@ class MainActivity : Activity() {
         ftpCard.addView(makeButton("🚀 Отправить выбранный файл по FTP на консоль", th.accent) {
             val targetFile = allFiles.getOrNull(selectedFtpFileIndex)
             if (targetFile == null || !targetFile.exists()) {
-                Toast.makeText(this, "Сначала добавьте файл в очередь или папку output/!", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, StormLocalization.tr("Сначала добавьте файл в очередь или папку output/!".toString(), currentLangCode), Toast.LENGTH_SHORT).show()
                 return@makeButton
             }
             ftpStatusTxt.text = "⏳ Подключение к $ftpConsoleIp:$ftpConsolePort..."
@@ -7584,7 +7441,7 @@ class MainActivity : Activity() {
                     pendingRuTrackerSearchQuery = game.name
                     activeTab = 2
                     buildUserInterface()
-                    Toast.makeText(this, "Переход к раздачам ${game.name} на RuTracker", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@MainActivity, StormLocalization.tr("Переход к раздачам ${game.name} на RuTracker".toString(), currentLangCode), Toast.LENGTH_SHORT).show()
                 }.apply {
                     layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) }
                 })
@@ -7592,7 +7449,7 @@ class MainActivity : Activity() {
                 actRow.addView(makeButton("📋 Копировать TitleID", th.bgElevated, th.textPrimary) {
                     val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                     cm.setPrimaryClip(ClipData.newPlainText("TitleID", game.titleId))
-                    Toast.makeText(this, "Скопирован TitleID: ${game.titleId}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@MainActivity, StormLocalization.tr("Скопирован TitleID: ${game.titleId}".toString(), currentLangCode), Toast.LENGTH_SHORT).show()
                 }.apply {
                     layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
                 })
@@ -7643,7 +7500,7 @@ class MainActivity : Activity() {
                 mainHandler.post {
                     currentCatalog = synced
                     renderActiveList()
-                    Toast.makeText(this, "База TitleDB обновлена (${synced.size} игр)!", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@MainActivity, StormLocalization.tr("База TitleDB обновлена (${synced.size} игр)!".toString(), currentLangCode), Toast.LENGTH_SHORT).show()
                 }
             }
         }.apply {

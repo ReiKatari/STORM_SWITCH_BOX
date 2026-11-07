@@ -320,7 +320,7 @@
                                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="6" VerticalAlignment="Center" Margin="4,0">
                                     <ProgressRing IsActive="{Binding IsRunning}" Width="14" Height="14" VerticalAlignment="Center"/>
                                     <Border Background="{Binding StatusColor}" CornerRadius="6" Padding="12,4">
-                                        <TextBlock Text="{Binding Status}" VerticalAlignment="Center" Foreground="White" FontWeight="Bold" FontSize="13" HorizontalAlignment="Center"/>
+                                        <TextBlock Text="{Binding StatusDisplay}" VerticalAlignment="Center" Foreground="White" FontWeight="Bold" FontSize="13" HorizontalAlignment="Center"/>
                                     </Border>
                                 </StackPanel>
                             </DataTemplate>
@@ -568,7 +568,7 @@
                                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="6" VerticalAlignment="Center" Margin="4,0">
                                     <ProgressRing IsActive="{Binding IsRunning}" Width="14" Height="14" VerticalAlignment="Center"/>
                                     <Border Background="{Binding StatusColor}" CornerRadius="6" Padding="12,4">
-                                        <TextBlock Text="{Binding Status}" VerticalAlignment="Center" Foreground="White" FontWeight="Bold" FontSize="13" HorizontalAlignment="Center"/>
+                                        <TextBlock Text="{Binding StatusDisplay}" VerticalAlignment="Center" Foreground="White" FontWeight="Bold" FontSize="13" HorizontalAlignment="Center"/>
                                     </Border>
                                 </StackPanel>
                             </DataTemplate>
@@ -756,7 +756,7 @@
                                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="6" VerticalAlignment="Center" Margin="4,0">
                                     <ProgressRing IsActive="{Binding IsRunning}" Width="14" Height="14" VerticalAlignment="Center"/>
                                     <Border Background="{Binding StatusColor}" CornerRadius="6" Padding="12,4">
-                                        <TextBlock Text="{Binding Status}" VerticalAlignment="Center" Foreground="White" FontWeight="Bold" FontSize="13" HorizontalAlignment="Center"/>
+                                        <TextBlock Text="{Binding StatusDisplay}" VerticalAlignment="Center" Foreground="White" FontWeight="Bold" FontSize="13" HorizontalAlignment="Center"/>
                                     </Border>
                                 </StackPanel>
                             </DataTemplate>

@@ -20,11 +20,34 @@ namespace StormSwitchBox.Views.Dialogs
         private List<DiscoveredConsoleEndpoint> _discoveredConsoles = new();
         private CancellationTokenSource? _activeOpCts;
 
+        private Action? _langHandler;
+
         public DirectConsoleSenderDialog(IEnumerable<string>? initialFiles = null)
         {
             this.InitializeComponent();
-            App.Localization.TranslateRoot(this);
-            this.Opened += (_, _) => App.Localization.TranslateRoot(this);
+
+            _langHandler = () =>
+            {
+                App.RunOnUI(() =>
+                {
+                    ApplyLocalization();
+                    App.Localization.TranslateRoot(this);
+                });
+            };
+
+            this.Loaded += (_, _) =>
+            {
+                App.Localization.RegisterRoot(this);
+                ApplyLocalization();
+                App.Localization.TranslateRoot(this);
+                App.Localization.LanguageChanged += _langHandler;
+            };
+
+            this.Unloaded += (_, _) =>
+            {
+                App.Localization.UnregisterRoot(this);
+                if (_langHandler != null) App.Localization.LanguageChanged -= _langHandler;
+            };
 
             _senderService.ServerLogAdded += OnServerLogAdded;
             _senderService.TransferProgressChanged += OnTransferProgressChanged;
@@ -310,8 +333,17 @@ namespace StormSwitchBox.Views.Dialogs
 
         private void Dialog_Closed(ContentDialog sender, ContentDialogClosedEventArgs args)
         {
+            App.Localization.UnregisterRoot(this);
+            if (_langHandler != null) App.Localization.LanguageChanged -= _langHandler;
             try { _activeOpCts?.Cancel(); } catch { }
             _senderService.Dispose();
+        }
+
+        private void ApplyLocalization()
+        {
+            this.Title = App.Localization.TranslateText("📡 Прямая отправка на консоль Switch и 3DS (Wi-Fi / FTP / FBI QR / Tinfoil)");
+            this.CloseButtonText = App.Localization.TranslateText("Закрыть");
+            RefreshFilesAndRestartServer();
         }
     }
 }

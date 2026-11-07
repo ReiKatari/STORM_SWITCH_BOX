@@ -18,18 +18,58 @@ namespace StormSwitchBox.Views.Dialogs
         private readonly TasksViewModel? _tasksViewModel;
         private LibraryAuditReport? _lastReport;
 
+        private Action? _langHandler;
+
         public LibraryAuditorDialog(TasksViewModel? tasksViewModel = null)
         {
             this.InitializeComponent();
-            App.Localization.TranslateRoot(this);
-            this.Opened += (_, _) => App.Localization.TranslateRoot(this);
             this.XamlRoot = App.MainWindow?.Content?.XamlRoot;
             _tasksViewModel = tasksViewModel;
             IssuesListView.ItemsSource = Issues;
 
+            _langHandler = () =>
+            {
+                App.RunOnUI(() =>
+                {
+                    ApplyLocalization();
+                    App.Localization.TranslateRoot(this);
+                });
+            };
+
+            this.Loaded += (_, _) =>
+            {
+                App.Localization.RegisterRoot(this);
+                ApplyLocalization();
+                App.Localization.TranslateRoot(this);
+                App.Localization.LanguageChanged += _langHandler;
+            };
+
+            this.Unloaded += (_, _) =>
+            {
+                App.Localization.UnregisterRoot(this);
+                if (_langHandler != null) App.Localization.LanguageChanged -= _langHandler;
+            };
+
+            this.Closed += (_, _) =>
+            {
+                App.Localization.UnregisterRoot(this);
+                if (_langHandler != null) App.Localization.LanguageChanged -= _langHandler;
+            };
+
             LibraryPathBox.Text = !string.IsNullOrWhiteSpace(App.Settings.Current.OutputFolder)
                 ? App.Settings.Current.OutputFolder
                 : "";
+        }
+
+        private void ApplyLocalization()
+        {
+            this.Title = App.Localization.TranslateText("🛡 Аудитор и дедупликатор коллекции игр (Library Health and Space Saver)");
+            this.CloseButtonText = App.Localization.TranslateText("Закрыть");
+            if (_lastReport != null)
+            {
+                CardTotalSize.Text = ProcessingTask.FormatSize(_lastReport.TotalLibraryBytes);
+                CardPotentialSavings.Text = "~" + ProcessingTask.FormatSize(_lastReport.TotalEstimatedSavingsBytes);
+            }
         }
 
         private async void BrowseFolder_Click(object sender, RoutedEventArgs e)
@@ -46,7 +86,7 @@ namespace StormSwitchBox.Views.Dialogs
             string folder = LibraryPathBox.Text.Trim();
             if (string.IsNullOrEmpty(folder) || !Directory.Exists(folder))
             {
-                StatusText.Text = "⚠ Укажите существующую директорию для сканирования.";
+                StatusText.Text = App.Localization.TranslateText("⚠ Укажите существующую директорию для сканирования.");
                 return;
             }
 
@@ -56,7 +96,7 @@ namespace StormSwitchBox.Views.Dialogs
             var prog = new Progress<(int Scanned, int Total, string CurrentFile)>(p =>
             {
                 ScanProgressBar.Value = p.Total > 0 ? (p.Scanned * 100.0 / p.Total) : 0;
-                StatusText.Text = $"Сканирование ({p.Scanned}/{p.Total}): {p.CurrentFile}";
+                StatusText.Text = string.Format(App.Localization.TranslateText("Сканирование ({0}/{1}): {2}"), p.Scanned, p.Total, p.CurrentFile);
             });
 
             try
@@ -72,11 +112,11 @@ namespace StormSwitchBox.Views.Dialogs
                 CardPotentialSavings.Text = "~" + ProcessingTask.FormatSize(_lastReport.TotalEstimatedSavingsBytes);
                 CardIssuesCount.Text = _lastReport.Issues.Count.ToString();
                 ScanProgressBar.Value = 100;
-                StatusText.Text = $"✅ Аудит завершён! Найдено рекомендаций по оптимизации: {_lastReport.Issues.Count}.";
+                StatusText.Text = string.Format(App.Localization.TranslateText("✅ Аудит завершён! Найдено рекомендаций по оптимизации: {0}."), _lastReport.Issues.Count);
             }
             catch (Exception ex)
             {
-                StatusText.Text = "❌ Ошибка сканирования: " + ex.Message;
+                StatusText.Text = App.Localization.TranslateText("❌ Ошибка сканирования: ") + ex.Message;
             }
             finally
             {
@@ -90,7 +130,7 @@ namespace StormSwitchBox.Views.Dialogs
             var selected = Issues.Where(i => i.IsSelected && (i.IssueType == "UnmergedSet" || i.IssueType == "UncompressedContainer")).ToList();
             if (selected.Count == 0)
             {
-                StatusText.Text = "⚠ Отметьте галочкой несшитые или несжатые наборы для отправки в Задачник.";
+                StatusText.Text = App.Localization.TranslateText("⚠ Отметьте галочкой несшитые или несжатые наборы для отправки в Задачник.");
                 return;
             }
 
@@ -101,7 +141,7 @@ namespace StormSwitchBox.Views.Dialogs
                 added++;
             }
 
-            StatusText.Text = $"🚀 В Задачник добавлено наборов для оптимизации: {added}. Закройте окно и нажмите «Запустить всё».";
+            StatusText.Text = string.Format(App.Localization.TranslateText("🚀 В Задачник добавлено наборов для оптимизации: {0}. Закройте окно и нажмите «Запустить всё»."), added);
         }
 
         private async void QuickTrimAndDecrypt_Click(object sender, RoutedEventArgs e)
@@ -109,7 +149,7 @@ namespace StormSwitchBox.Views.Dialogs
             var selected = Issues.Where(i => i.IsSelected && (i.IssueType == "UntrimmedCartridge" || i.IssueType == "Encrypted3ds")).ToList();
             if (selected.Count == 0)
             {
-                StatusText.Text = "⚠ Нет выбранных необрезанных картриджей (XCI/3DS) или зашифрованных 3DS образов.";
+                StatusText.Text = App.Localization.TranslateText("⚠ Нет выбранных необрезанных картриджей (XCI/3DS) или зашифрованных 3DS образов.");
                 return;
             }
 

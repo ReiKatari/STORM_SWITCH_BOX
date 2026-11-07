@@ -16,16 +16,45 @@ namespace StormSwitchBox.Views.Dialogs
         public ObservableCollection<MultiCartridgeItem> Items { get; } = new();
         private CancellationTokenSource? _cts;
 
+        private Action? _langHandler;
+
         public MultiCartridgeDialog(IEnumerable<string>? initialFiles = null)
         {
             this.InitializeComponent();
-            App.Localization.TranslateRoot(this);
-            this.Opened += (_, _) => App.Localization.TranslateRoot(this);
             this.XamlRoot = App.MainWindow?.Content?.XamlRoot;
             ItemsListView.ItemsSource = Items;
             OutputFolderBox.Text = !string.IsNullOrWhiteSpace(App.Settings.Current.OutputFolder)
                 ? App.Settings.Current.OutputFolder
                 : Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+
+            _langHandler = () =>
+            {
+                App.RunOnUI(() =>
+                {
+                    ApplyLocalization();
+                    App.Localization.TranslateRoot(this);
+                });
+            };
+
+            this.Loaded += (_, _) =>
+            {
+                App.Localization.RegisterRoot(this);
+                ApplyLocalization();
+                App.Localization.TranslateRoot(this);
+                App.Localization.LanguageChanged += _langHandler;
+            };
+
+            this.Unloaded += (_, _) =>
+            {
+                App.Localization.UnregisterRoot(this);
+                if (_langHandler != null) App.Localization.LanguageChanged -= _langHandler;
+            };
+
+            this.Closed += (_, _) =>
+            {
+                App.Localization.UnregisterRoot(this);
+                if (_langHandler != null) App.Localization.LanguageChanged -= _langHandler;
+            };
 
             if (initialFiles != null)
             {
@@ -38,10 +67,17 @@ namespace StormSwitchBox.Views.Dialogs
             }
         }
 
+        private void ApplyLocalization()
+        {
+            this.Title = App.Localization.TranslateText("🗂 Конструктор мульти-картриджей XCI / XCZ (Multi-Game Cartridge Builder)");
+            this.CloseButtonText = App.Localization.TranslateText("Закрыть");
+            UpdateSummary();
+        }
+
         private void UpdateSummary()
         {
             long totalBytes = Items.Sum(x => x.SizeBytes);
-            SummaryText.Text = $"Файлов: {Items.Count} | Общий размер: {ProcessingTask.FormatSize(totalBytes)}";
+            SummaryText.Text = string.Format(App.Localization.TranslateText("Файлов: {0} | Общий размер: {1}"), Items.Count, ProcessingTask.FormatSize(totalBytes));
         }
 
         private async void AddFiles_Click(object sender, RoutedEventArgs e)

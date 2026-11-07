@@ -734,7 +734,7 @@
 
                                         <!-- 1. Бейдж этапа -->
                                         <Border Grid.Column="0" Background="{Binding StageBrush}" CornerRadius="3" Padding="6,2" VerticalAlignment="Center" HorizontalAlignment="Center">
-                                            <TextBlock Text="{Binding StageBadge}" FontSize="9.5" Foreground="White" FontWeight="Bold" VerticalAlignment="Center" TextAlignment="Center"/>
+                                            <TextBlock Text="{Binding StageBadgeDisplay}" FontSize="9.5" Foreground="White" FontWeight="Bold" VerticalAlignment="Center" TextAlignment="Center"/>
                                         </Border>
 
                                         <!-- 2. Название игры / раздачи -->
@@ -745,11 +745,11 @@
                                         <ProgressBar Grid.Column="2" Value="{Binding ProgressPercent}" Minimum="0" Maximum="100" Height="6" CornerRadius="3" VerticalAlignment="Center"/>
 
                                         <!-- 4. Объём и точный % -->
-                                        <TextBlock Grid.Column="3" Text="{Binding ProgressDetails}" FontSize="10.5" FontFamily="Consolas" Foreground="#CBD5E1"
+                                        <TextBlock Grid.Column="3" Text="{Binding ProgressDetailsDisplay}" FontSize="10.5" FontFamily="Consolas" Foreground="#CBD5E1"
                                                    VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
 
                                         <!-- 5. Скорость этой закачки -->
-                                        <TextBlock Grid.Column="4" Text="{Binding SpeedAndPeersText}" FontSize="10.5" FontFamily="Consolas" Foreground="#22C55E" FontWeight="SemiBold"
+                                        <TextBlock Grid.Column="4" Text="{Binding SpeedTextDisplay}" FontSize="10.5" FontFamily="Consolas" Foreground="{Binding SpeedBrush}" FontWeight="SemiBold"
                                                    VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
 
                                         <!-- 6. 4 компактные векторные кнопки управления (Single Icon Mandate) -->
@@ -758,7 +758,7 @@
                                             <Button Click="TogglePauseQueueItem_Click" Tag="{Binding}"
                                                     Padding="4,2" Width="26" Height="22" MinHeight="22" CornerRadius="3"
                                                     Background="#25354F" Foreground="#38BDF8" VerticalAlignment="Center"
-                                                    ToolTipService.ToolTip="{Binding PauseResumeToolTip}">
+                                                    ToolTipService.ToolTip="{Binding PauseResumeTooltip}">
                                                 <FontIcon Glyph="{Binding PauseResumeGlyph}" FontSize="11"/>
                                             </Button>
 

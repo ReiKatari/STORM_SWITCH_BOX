@@ -46,11 +46,34 @@ namespace StormSwitchBox.Views.Dialogs
         private readonly object _batchLock = new();
         private int _activeBatchesCount = 0;
 
+        private Action? _langHandler;
+
         public RuTrackerModDownloaderDialog(TasksViewModel viewModel, ProcessingTask? targetTask = null)
         {
             this.InitializeComponent();
-            App.Localization.TranslateRoot(this);
-            this.Opened += (_, _) => App.Localization.TranslateRoot(this);
+
+            _langHandler = () =>
+            {
+                App.RunOnUI(() =>
+                {
+                    ApplyLocalization();
+                    App.Localization.TranslateRoot(this);
+                });
+            };
+
+            this.Loaded += (_, _) =>
+            {
+                App.Localization.RegisterRoot(this);
+                ApplyLocalization();
+                App.Localization.TranslateRoot(this);
+                App.Localization.LanguageChanged += _langHandler;
+            };
+
+            this.Unloaded += (_, _) =>
+            {
+                App.Localization.UnregisterRoot(this);
+                if (_langHandler != null) App.Localization.LanguageChanged -= _langHandler;
+            };
             this.XamlRoot = App.MainWindow.Content.XamlRoot;
             this.RequestedTheme = (App.MainWindow.Content as FrameworkElement)?.RequestedTheme ?? ElementTheme.Dark;
 
@@ -3626,8 +3649,21 @@ namespace StormSwitchBox.Views.Dialogs
             return await tcs.Task.ConfigureAwait(false);
         }
 
+        private void ApplyLocalization()
+        {
+            this.Title = App.Localization.TranslateText("🌐 RuTracker и облачный загрузчик игр, патчей и модов (Nintendo Switch)");
+            this.CloseButtonText = App.Localization.TranslateText("Закрыть");
+            if (StartFullDownloadBtn != null && _targetTask != null)
+            {
+                StartFullDownloadBtn.Content = App.Localization.TranslateText("🚀 Скачать выбранное и привязать к задаче");
+            }
+        }
+
         private void Dialog_Closed(ContentDialog sender, ContentDialogClosedEventArgs args)
         {
+            App.Localization.UnregisterRoot(this);
+            if (_langHandler != null) App.Localization.LanguageChanged -= _langHandler;
+            App.Localization.UnregisterRoot(this);
             if (ActiveInstance == this)
             {
                 ActiveInstance = null;
@@ -3647,34 +3683,34 @@ namespace StormSwitchBox.Views.Dialogs
 
             if (downloading > 0)
             {
-                StageBadgeText.Text = $"АКТИВНО ({downloading})";
+                StageBadgeText.Text = App.Localization.TranslateText($"АКТИВНО ({downloading})");
                 StageBadgeBorder.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 2, 132, 199)); // #0284C7
             }
             else if (inQueue > 0)
             {
-                StageBadgeText.Text = $"В ОЧЕРЕДИ ({inQueue})";
+                StageBadgeText.Text = App.Localization.TranslateText($"В ОЧЕРЕДИ ({inQueue})");
                 StageBadgeBorder.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 100, 116, 139)); // #64748B
             }
             else if (finished > 0)
             {
-                StageBadgeText.Text = "ГОТОВО";
+                StageBadgeText.Text = App.Localization.TranslateText("ГОТОВО");
                 StageBadgeBorder.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 34, 197, 94)); // #22C55E
             }
             else
             {
-                StageBadgeText.Text = "ГОТОВ К РАБОТЕ";
+                StageBadgeText.Text = App.Localization.TranslateText("ГОТОВ К РАБОТЕ");
                 StageBadgeBorder.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 2, 132, 199));
             }
 
-            StatusText.Text = $"В списке: {inList} • Качается: {downloading} • В очереди: {inQueue} • Готово: {finished}";
+            StatusText.Text = App.Localization.TranslateText($"В списке: {inList} • Качается: {downloading} • В очереди: {inQueue} • Готово: {finished}");
 
             if (totalSpeedBps > 1024)
             {
-                SpeedPeersText.Text = $"Скорость скачивания: {totalSpeedBps / (1024.0 * 1024.0):F2} МБ/с | Сиды: {maxSeeds} • Пиры: {maxPeers}";
+                SpeedPeersText.Text = App.Localization.TranslateText($"Скорость скачивания: {totalSpeedBps / (1024.0 * 1024.0):F2} МБ/с | Сиды: {maxSeeds} • Пиры: {maxPeers}");
             }
             else if (downloading > 0)
             {
-                SpeedPeersText.Text = $"Поиск пиров DHT/P2P... | Сиды: {maxSeeds}";
+                SpeedPeersText.Text = App.Localization.TranslateText($"Поиск пиров DHT/P2P... | Сиды: {maxSeeds}");
             }
             else
             {

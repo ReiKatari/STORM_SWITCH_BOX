@@ -77,7 +77,7 @@ public sealed class VolumetricButton : Button
 public sealed class InstallerForm : Form
 {
     private const string AppDisplayName = "STORM SWITCH BOX";
-    private static readonly string AppVersion = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "7.0.4";
+    private static readonly string AppVersion = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "7.0.5";
     private const string AppFolderName = "STORM SWITCH BOX";
     private const string ExeName = "StormSwitchBox.exe";
     private const string IcoName = "app.ico";
@@ -113,7 +113,47 @@ public sealed class InstallerForm : Form
 
     private bool isInstalling = false;
     private Color currentAccent = Color.FromArgb(139, 92, 246);
-    private string currentLang = "ru";
+    private string currentLang = DetectDefaultLanguageCode();
+    private static int DetectDefaultLanguageIndex()
+    {
+        try
+        {
+            string uiLang = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName.ToLowerInvariant();
+            if (string.IsNullOrEmpty(uiLang))
+                uiLang = CultureInfo.InstalledUICulture.TwoLetterISOLanguageName.ToLowerInvariant();
+
+            return uiLang switch
+            {
+                "ru" or "uk" or "be" or "kk" => 0,
+                "en" => 1,
+                "de" => 2,
+                "fr" => 3,
+                "zh" => 4,
+                "ko" => 5,
+                "ja" => 6,
+                "es" => 7,
+                "it" => 8,
+                "pt" => 9,
+                "hi" => 10,
+                _ => 1 // default fallback -> "en"
+            };
+        }
+        catch
+        {
+            return 1;
+        }
+    }
+
+    private static string DetectDefaultLanguageCode()
+    {
+        string[] langs = { "ru", "en", "de", "fr", "zh", "ko", "ja", "es", "it", "pt", "hi" };
+        int idx = DetectDefaultLanguageIndex();
+        return langs[Math.Clamp(idx, 0, langs.Length - 1)];
+    }
+
+    private int currentInstallStep = -1;
+    private string lastErrorMessage = "";
+
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern bool DeleteFileW(string lpFileName);
@@ -502,8 +542,8 @@ public sealed class InstallerForm : Form
             FlatStyle = FlatStyle.Flat
         };
         cmbTheme.Items.AddRange(new object[] {
-            "MIDNIGHT (Фиолет)", "NIGHT (OLED)", "DARK (Тёмная)", "DAY (Светлая)",
-            "FANTASY (Индиго)", "CYBERPUNK (2077)", "WARHAMMER 40K", "ELEMENTAL", "STORM (Шторм)"
+            "MIDNIGHT", "NIGHT", "DARK", "DAY",
+            "FANTASY", "CYBERPUNK", "WARHAMMER 40K", "ELEMENTAL", "STORM"
         });
         cmbTheme.SelectedIndex = 0;
         cmbTheme.SelectedIndexChanged += (s, e) => ApplyTheme(cmbTheme.SelectedItem?.ToString()?.Split(' ')[0] ?? "MIDNIGHT");
@@ -785,29 +825,8 @@ public sealed class InstallerForm : Form
 
     private void DetectAndApplyDefaultLanguage()
     {
-        try
-        {
-            string uiLang = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName.ToLowerInvariant();
-            int idx = uiLang switch
-            {
-                "en" => 1,
-                "de" => 2,
-                "fr" => 3,
-                "zh" => 4,
-                "ko" => 5,
-                "ja" => 6,
-                "es" => 7,
-                "it" => 8,
-                "pt" => 9,
-                "hi" => 10,
-                _ => 0 // ru default
-            };
-            cmbLang.SelectedIndex = idx;
-        }
-        catch
-        {
-            cmbLang.SelectedIndex = 0;
-        }
+        int idx = DetectDefaultLanguageIndex();
+        cmbLang.SelectedIndex = idx;
     }
 
     private void ChangeLanguageByIndex(int index)
@@ -830,8 +849,16 @@ public sealed class InstallerForm : Form
             chkFirewall.Text = t[10];
             chkInstallCert.Text = t[11];
             chkRunAfter.Text = t[12];
-            btnCancel.Text = t[13];
-            btnInstall.Text = t[14];
+            btnCancel.Text = currentInstallStep == 6 ? t[22] : t[13];
+            btnInstall.Text = currentInstallStep == 6 ? t[21] : t[14];
+
+            if (currentInstallStep == 1) lblStatus.Text = t[15];
+            else if (currentInstallStep == 2) lblStatus.Text = t[16];
+            else if (currentInstallStep == 3) lblStatus.Text = t[17];
+            else if (currentInstallStep == 4) lblStatus.Text = t[18];
+            else if (currentInstallStep == 5) lblStatus.Text = t[19];
+            else if (currentInstallStep == 6) lblStatus.Text = t[20];
+            else if (currentInstallStep == 7) lblStatus.Text = t[23] + lastErrorMessage;
         }
     }
 
@@ -941,7 +968,7 @@ public sealed class InstallerForm : Form
             Directory.CreateDirectory(targetDir);
 
             // Шаг 1: Остановка запущенных процессов
-            lblStatus.Text = $"Остановка запущенных процессов {AppDisplayName}...";
+            currentInstallStep = 1; lblStatus.Text = L10n[currentLang][15];
             progressBar.Value = 10;
             await Task.Delay(120);
 
@@ -960,7 +987,7 @@ public sealed class InstallerForm : Form
             // Шаг 2: Установка сертификата STORM
             if (chkInstallCert.Checked)
             {
-                lblStatus.Text = "Регистрация единого сертификата STORM SERTIFICATE (SIGNATURE)...";
+                currentInstallStep = 2; lblStatus.Text = L10n[currentLang][16];
                 progressBar.Value = 25;
                 await Task.Delay(100);
                 ExtractResource("STORM_SERTIFICATE.cer", targetCer);
@@ -971,7 +998,7 @@ public sealed class InstallerForm : Form
             }
 
             // Шаг 3: Распаковка дистрибутива
-            lblStatus.Text = $"Распаковка файлов {AppDisplayName} {AppVersion}...";
+            currentInstallStep = 3; lblStatus.Text = L10n[currentLang][17];
             progressBar.Value = 40;
             await Task.Delay(100);
 
@@ -1025,7 +1052,7 @@ public sealed class InstallerForm : Form
             }
 
             // Шаг 4: Создание ярлыков
-            lblStatus.Text = "Создание ярлыков и регистрация в Windows...";
+            currentInstallStep = 4; lblStatus.Text = L10n[currentLang][18];
             progressBar.Value = 90;
             await Task.Delay(80);
 
@@ -1055,7 +1082,7 @@ public sealed class InstallerForm : Form
             // Шаг 5: Настройка Брандмауэра
             if (chkFirewall.Checked)
             {
-                lblStatus.Text = "Настройка правил Брандмауэра Windows (Inbound & Outbound)...";
+                currentInstallStep = 5; lblStatus.Text = L10n[currentLang][19];
                 progressBar.Value = 95;
                 await Task.Delay(80);
                 AddFirewallRules(targetExe, AppDisplayName);
@@ -1063,10 +1090,11 @@ public sealed class InstallerForm : Form
 
             // Шаг 6: Финализация
             progressBar.Value = 100;
-            lblStatus.Text = $"✨ {AppDisplayName} {AppVersion} успешно установлен!";
-            btnInstall.Text = "✓ Готово";
+            currentInstallStep = 6;
+            lblStatus.Text = L10n[currentLang][20];
+            btnInstall.Text = L10n[currentLang][21];
             btnInstall.Enabled = false;
-            btnCancel.Text = "Закрыть";
+            btnCancel.Text = L10n[currentLang][22];
             btnCancel.Enabled = false;
 
             SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, IntPtr.Zero, IntPtr.Zero);
@@ -1088,7 +1116,7 @@ public sealed class InstallerForm : Form
         {
             progressBar.Value = 100;
             lblStatus.ForeColor = Color.FromArgb(239, 68, 68);
-            lblStatus.Text = $"✗ Ошибка установки: {ex.Message}";
+            currentInstallStep = 7; lastErrorMessage = ex.Message; lblStatus.Text = L10n[currentLang][23] + ex.Message;
             btnInstall.Enabled = true;
             isInstalling = false;
         }

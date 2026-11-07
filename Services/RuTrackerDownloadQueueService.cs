@@ -37,18 +37,50 @@ namespace StormSwitchBox.Services
             {
                 if (SetProperty(ref _stageBadge, value))
                 {
+                    OnPropertyChanged(nameof(StageBadgeDisplay));
                     OnPropertyChanged(nameof(PauseResumeGlyph));
                     OnPropertyChanged(nameof(PauseResumeToolTip));
+                    OnPropertyChanged(nameof(PauseResumeTooltip));
                 }
             }
         }
 
-        private SolidColorBrush _stageBrush = new(Windows.UI.Color.FromArgb(255, 100, 116, 139)); // Slate #64748B
-        public SolidColorBrush StageBrush
+        private SolidColorBrush? _stageBrush;
+        public SolidColorBrush? StageBrush
         {
-            get => _stageBrush;
+            get
+            {
+                if (_stageBrush == null && App.MainDispatcher?.HasThreadAccess != false)
+                {
+                    try { _stageBrush = new SolidColorBrush(RawStageColor); } catch { }
+                }
+                return _stageBrush;
+            }
             set => SetProperty(ref _stageBrush, value);
         }
+
+        private SolidColorBrush? _speedBrush;
+        public SolidColorBrush? SpeedBrush
+        {
+            get
+            {
+                if (_speedBrush == null && App.MainDispatcher?.HasThreadAccess != false)
+                {
+                    try { _speedBrush = new SolidColorBrush(ResolveSpeedColor(EffectiveStage)); } catch { }
+                }
+                return _speedBrush;
+            }
+            set => SetProperty(ref _speedBrush, value);
+        }
+
+        private static Windows.UI.Color ResolveSpeedColor(string stage) => stage switch
+        {
+            "ОШИБКА" or "ОТМЕНЕНО" => Windows.UI.Color.FromArgb(255, 248, 113, 113), // #F87171 Red
+            "ПАУЗА" => Windows.UI.Color.FromArgb(255, 251, 191, 36),                 // #FBBF24 Amber
+            "В ОЧЕРЕДИ" => Windows.UI.Color.FromArgb(255, 148, 163, 184),            // #94A3B8 Slate
+            "СБОРКА" or "МОДЫ" => Windows.UI.Color.FromArgb(255, 192, 132, 252),     // #C084FC Violet
+            _ => Windows.UI.Color.FromArgb(255, 34, 197, 94)                         // #22C55E Emerald
+        };
 
         private double _progressPercent;
         public double ProgressPercent
@@ -61,14 +93,27 @@ namespace StormSwitchBox.Services
         public string ProgressDetails
         {
             get => _progressDetails;
-            set => SetProperty(ref _progressDetails, value);
+            set
+            {
+                if (SetProperty(ref _progressDetails, value))
+                {
+                    OnPropertyChanged(nameof(ProgressDetailsDisplay));
+                }
+            }
         }
 
         private string _speedAndPeersText = string.Empty;
         public string SpeedAndPeersText
         {
             get => _speedAndPeersText;
-            set => SetProperty(ref _speedAndPeersText, value);
+            set
+            {
+                if (SetProperty(ref _speedAndPeersText, value))
+                {
+                    OnPropertyChanged(nameof(SpeedTextDisplay));
+                    OnPropertyChanged(nameof(SpeedAndPeersTextDisplay));
+                }
+            }
         }
 
         public double CurrentSpeedBps { get; set; }
@@ -99,7 +144,23 @@ namespace StormSwitchBox.Services
         public bool IsPreemptedByQueue { get; set; }
 
         public string PauseResumeGlyph => (IsPausedByUser || StageBadge == "ПАУЗА") ? "\uE768" : "\uE769"; // E768 = Play, E769 = Pause
-        public string PauseResumeToolTip => (IsPausedByUser || StageBadge == "ПАУЗА") ? "Продолжить скачивание" : "Приостановить скачивание";
+        public string PauseResumeToolTip => App.Localization.TranslateText((IsPausedByUser || StageBadge == "ПАУЗА") ? "Продолжить скачивание" : "Приостановить скачивание");
+        public string PauseResumeTooltip => PauseResumeToolTip;
+
+        public string StageBadgeDisplay => App.Localization.TranslateText(StageBadge);
+        public string ProgressDetailsDisplay => App.Localization.TranslateText(ProgressDetails);
+        public string SpeedTextDisplay => App.Localization.TranslateText(SpeedAndPeersText);
+        public string SpeedAndPeersTextDisplay => App.Localization.TranslateText(SpeedAndPeersText);
+
+        public void NotifyLocalizationChanged()
+        {
+            OnPropertyChanged(nameof(StageBadgeDisplay));
+            OnPropertyChanged(nameof(ProgressDetailsDisplay));
+            OnPropertyChanged(nameof(SpeedTextDisplay));
+            OnPropertyChanged(nameof(SpeedAndPeersTextDisplay));
+            OnPropertyChanged(nameof(PauseResumeToolTip));
+            OnPropertyChanged(nameof(PauseResumeTooltip));
+        }
 
         public CancellationTokenSource? Cts { get; set; }
         public ManualResetEventSlim PauseEvent { get; } = new(true);
@@ -123,25 +184,55 @@ namespace StormSwitchBox.Services
         public RuTrackerModService? Service { get; set; }
         public TasksViewModel? ViewModel { get; set; }
         public bool IsPipelineStarted { get; set; }
+        public bool IsBuildCompletedOnDisk { get; set; }
         public bool DeleteSourceAfterVerify { get; set; } = true;
         public Task? ExecutionTask { get; set; }
 
+        protected override void OnPropertyChanged(System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            var dq = App.MainDispatcher;
+            if (dq != null && !dq.HasThreadAccess)
+            {
+                dq.TryEnqueue(() =>
+                {
+                    try { base.OnPropertyChanged(e); } catch { }
+                });
+                return;
+            }
+            try { base.OnPropertyChanged(e); } catch { }
+        }
+
         public void CommitUiUpdates()
         {
+            var dq = App.MainDispatcher;
+            if (dq != null && !dq.HasThreadAccess)
+            {
+                dq.TryEnqueue(() =>
+                {
+                    try { CommitUiUpdates(); } catch { }
+                });
+                return;
+            }
+
             if (Math.Abs(ProgressPercent - RawPercent) > 0.05)
                 ProgressPercent = RawPercent;
             if (ProgressDetails != RawDetails && !string.IsNullOrEmpty(RawDetails))
                 ProgressDetails = RawDetails;
-            if (SpeedAndPeersText != RawSpeedText && !string.IsNullOrEmpty(RawSpeedText))
+            if (SpeedAndPeersText != RawSpeedText)
                 SpeedAndPeersText = RawSpeedText;
             if (StageBadge != RawStageBadge && !string.IsNullOrEmpty(RawStageBadge))
             {
                 StageBadge = RawStageBadge;
+                OnPropertyChanged(nameof(StageBadgeDisplay));
                 OnPropertyChanged(nameof(PauseResumeGlyph));
                 OnPropertyChanged(nameof(PauseResumeToolTip));
+                OnPropertyChanged(nameof(PauseResumeTooltip));
             }
-            if (StageBrush.Color != RawStageColor)
+            if (_stageBrush == null || _stageBrush.Color != RawStageColor)
                 StageBrush = new SolidColorBrush(RawStageColor);
+            var targetSpeedColor = ResolveSpeedColor(EffectiveStage);
+            if (_speedBrush == null || _speedBrush.Color != targetSpeedColor)
+                SpeedBrush = new SolidColorBrush(targetSpeedColor);
             CurrentSpeedBps = RawSpeedBps;
             CurrentSeeds = RawSeeds;
             CurrentPeers = RawPeers;
@@ -206,6 +297,22 @@ namespace StormSwitchBox.Services
             _uiTimer = new System.Threading.Timer(OnTimerCallback, null, TimeSpan.FromMilliseconds(250), TimeSpan.FromMilliseconds(250));
 
             LoadPersistedState();
+
+            App.Localization.LanguageChanged += () =>
+            {
+                RunOnUiSyncOrAsync(() =>
+                {
+                    RuTrackerActiveDownloadItem[] snapshot;
+                    lock (_syncLock)
+                    {
+                        snapshot = _backingItems.ToArray();
+                    }
+                    foreach (var item in snapshot)
+                    {
+                        item.NotifyLocalizationChanged();
+                    }
+                });
+            };
         }
 
         private void RunOnUiSyncOrAsync(Action action)
@@ -473,22 +580,35 @@ namespace StormSwitchBox.Services
                 }
                 catch (Exception ex)
                 {
-                    item.IsActive = false;
-                    item.RawSpeedBps = 0;
-                    item.RawStageBadge = "ОШИБКА";
-                    item.RawStageColor = Windows.UI.Color.FromArgb(255, 239, 68, 68);
-                    item.RawSpeedText = "Ошибка";
-                    item.RawDetails = ex.Message;
-                    App.Logger?.Log($"[RuTracker Queue] Ошибка выполнения пакета {item.BatchId}: {ex.Message}", LogLevel.Error);
-                    foreach (var (t, _, _) in item.CreatedTasks)
+                    if (item.IsBuildCompletedOnDisk || item.RawStageBadge == "ГОТОВО")
                     {
-                        RunOnUiSyncOrAsync(() =>
+                        App.Logger?.Log($"[RuTracker Queue] Пост-сборочное исключение проигнорировано (образ уже собран) [{item.BatchId}]: {ex.GetType().Name} {ex.Message}", LogLevel.Warning);
+                    }
+                    else
+                    {
+                        string errMsg = !string.IsNullOrWhiteSpace(ex.Message)
+                            ? ex.Message
+                            : $"{ex.GetType().Name} (0x{ex.HResult:X8})";
+                        item.IsActive = false;
+                        item.RawSpeedBps = 0;
+                        item.RawStageBadge = "ОШИБКА";
+                        item.RawStageColor = Windows.UI.Color.FromArgb(255, 239, 68, 68);
+                        item.RawSpeedText = "Ошибка";
+                        item.RawDetails = errMsg;
+                        App.Logger?.Log($"[RuTracker Queue] Ошибка выполнения пакета {item.BatchId}: {errMsg}", LogLevel.Error);
+                        foreach (var (t, _, _) in item.CreatedTasks)
                         {
-                            t.Status = $"Ошибка: {ex.Message}";
-                            t.IsRunning = false;
-                            t.IsPaused = false;
-                            t.Speed = string.Empty;
-                        });
+                            RunOnUiSyncOrAsync(() =>
+                            {
+                                if (t.Status != "Успешно" && t.Status != "Готово")
+                                {
+                                    t.Status = $"Ошибка: {errMsg}";
+                                }
+                                t.IsRunning = false;
+                                t.IsPaused = false;
+                                t.Speed = string.Empty;
+                            });
+                        }
                     }
                 }
                 finally
@@ -700,37 +820,78 @@ namespace StormSwitchBox.Services
                     patchFirmware: App.Settings.Current.ForceMultiRebuild,
                     ct).ConfigureAwait(false);
 
-                if (task.GameIcon == null)
+                if (App.MainDispatcher != null && !App.MainDispatcher.HasThreadAccess)
                 {
-                    string builtContainer = Path.Combine(outDir, task.OutputFileName + outExt);
-                    if (File.Exists(builtContainer))
+                    var statusFlushTcs = new TaskCompletionSource<bool>();
+                    if (!App.MainDispatcher.TryEnqueue(() => statusFlushTcs.TrySetResult(true)))
+                        statusFlushTcs.TrySetResult(true);
+                    await Task.WhenAny(statusFlushTcs.Task, Task.Delay(500)).ConfigureAwait(false);
+                }
+
+                string builtContainer = Path.Combine(outDir, task.OutputFileName + outExt);
+                if (!File.Exists(builtContainer))
+                {
+                    string fallbackExt = outExt.Equals(".nsz", StringComparison.OrdinalIgnoreCase)
+                        ? ".nsp"
+                        : (outExt.Equals(".xcz", StringComparison.OrdinalIgnoreCase) ? ".xci" : outExt);
+                    string altContainer = Path.Combine(outDir, task.OutputFileName + fallbackExt);
+                    if (File.Exists(altContainer))
+                        builtContainer = altContainer;
+                }
+
+                bool fileExistsOnDisk = File.Exists(builtContainer) && new FileInfo(builtContainer).Length > 0;
+                bool buildSucceeded = fileExistsOnDisk &&
+                                      !task.Status.StartsWith("Ошибка", StringComparison.OrdinalIgnoreCase) &&
+                                      !task.Status.StartsWith("Отмен", StringComparison.OrdinalIgnoreCase);
+
+                if (!buildSucceeded && task.Status.StartsWith("Ошибка", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException(task.Status);
+                }
+
+                if (buildSucceeded && payload.TotalSlots <= 1)
+                {
+                    item.IsBuildCompletedOnDisk = true;
+                }
+
+                try
+                {
+                    if (fileExistsOnDisk)
                     {
                         RuTrackerModDownloaderDialog.TryExtractAndSetTaskIcon(task, new[] { builtContainer });
                     }
                 }
+                catch { }
 
-                bool buildSucceeded = task.Status != "Ошибка" && task.Status != "Отменено";
                 if (task.DeleteSourceAfterVerify && buildSucceeded)
                 {
-                    RuTrackerModDownloaderDialog.CleanupRuTrackerReleaseDirectory(payload.TargetReleaseDir, outDir);
-                    if (!string.IsNullOrWhiteSpace(payload.SharedReleaseDir) &&
-                        !string.Equals(payload.SharedReleaseDir, payload.TargetReleaseDir, StringComparison.OrdinalIgnoreCase))
+                    try
                     {
-                        bool anySiblingStillPending = item.ViewModel != null && item.ViewModel.Tasks.Any(other =>
-                            other != task &&
-                            other.RuTrackerPayload != null &&
-                            string.Equals(other.RuTrackerPayload.SharedReleaseDir, payload.SharedReleaseDir, StringComparison.OrdinalIgnoreCase) &&
-                            (other.IsRunning || other.Status == "Ожидание" || other.Status.Contains("Подключение") || other.Status.Contains("Загрузка") || other.Status.Contains("Сборка")));
-                        if (!anySiblingStillPending)
+                        RuTrackerModDownloaderDialog.CleanupRuTrackerReleaseDirectory(payload.TargetReleaseDir, outDir);
+                        if (!string.IsNullOrWhiteSpace(payload.SharedReleaseDir) &&
+                            !string.Equals(payload.SharedReleaseDir, payload.TargetReleaseDir, StringComparison.OrdinalIgnoreCase))
                         {
-                            RuTrackerModDownloaderDialog.CleanupRuTrackerReleaseDirectory(payload.SharedReleaseDir, outDir);
+                            bool anySiblingStillPending = false;
+                            RunOnUiSyncOrAsync(() =>
+                            {
+                                anySiblingStillPending = item.ViewModel != null && item.ViewModel.Tasks.Any(other =>
+                                    other != task &&
+                                    other.RuTrackerPayload != null &&
+                                    string.Equals(other.RuTrackerPayload.SharedReleaseDir, payload.SharedReleaseDir, StringComparison.OrdinalIgnoreCase) &&
+                                    (other.IsRunning || other.Status == "Ожидание" || other.Status.Contains("Подключение") || other.Status.Contains("Загрузка") || other.Status.Contains("Сборка")));
+                            });
+                            if (!anySiblingStillPending && payload.SlotNumber >= payload.TotalSlots - 1)
+                            {
+                                RuTrackerModDownloaderDialog.CleanupRuTrackerReleaseDirectory(payload.SharedReleaseDir, outDir);
+                            }
                         }
                     }
+                    catch { }
                 }
 
                 App.RunOnUI(() =>
                 {
-                    if (task.Status != "Ошибка" && task.Status != "Отменено")
+                    if (buildSucceeded || (!task.Status.StartsWith("Ошибка", StringComparison.OrdinalIgnoreCase) && !task.Status.StartsWith("Отмен", StringComparison.OrdinalIgnoreCase)))
                     {
                         task.Status = "Успешно";
                         task.Progress = 100;
@@ -741,7 +902,7 @@ namespace StormSwitchBox.Services
                     task.FinishedAt = DateTime.Now;
                 });
 
-                if (task.Status != "Ошибка" && task.Status != "Отменено")
+                if (buildSucceeded && payload.TotalSlots <= 1)
                 {
                     item.RawStageBadge = "ГОТОВО";
                     item.RawStageColor = Windows.UI.Color.FromArgb(255, 34, 197, 94);
@@ -754,11 +915,12 @@ namespace StormSwitchBox.Services
                         item.CommitUiUpdates();
                         SaveQueueState();
                     });
-                    EvaluateQueuePriorities();
+                    try { EvaluateQueuePriorities(); } catch { }
                 }
             }
             else
             {
+                item.IsBuildCompletedOnDisk = true;
                 App.RunOnUI(() =>
                 {
                     task.IsRuTrackerTask = false;
@@ -772,7 +934,10 @@ namespace StormSwitchBox.Services
             }
 
             task.HasActiveWorker = false;
-            item.ViewModel?.SavePersistedTasks();
+            RunOnUiSyncOrAsync(() =>
+            {
+                try { item.ViewModel?.SavePersistedTasks(); } catch { }
+            });
         }
 
         private async Task ExecuteMultiTaskPipelineAsync(
@@ -898,6 +1063,20 @@ namespace StormSwitchBox.Services
 
                 await ExecuteSingleTaskPipelineAsync(item, task, slotExecPayload, ct).ConfigureAwait(false);
             }
+
+            item.IsBuildCompletedOnDisk = true;
+            item.RawStageBadge = "ГОТОВО";
+            item.RawStageColor = Windows.UI.Color.FromArgb(255, 34, 197, 94);
+            item.RawPercent = 100.0;
+            item.RawSpeedText = "100% Завершено";
+            item.RawDetails = "Сборка завершена";
+            item.IsActive = false;
+            RunOnUiSyncOrAsync(() =>
+            {
+                item.CommitUiUpdates();
+                SaveQueueState();
+            });
+            try { EvaluateQueuePriorities(); } catch { }
         }
 
         public static void UpdateItemTorrentProgress(RuTrackerActiveDownloadItem item, TorrentDownloadProgress p)
@@ -1214,9 +1393,14 @@ namespace StormSwitchBox.Services
                         foreach (var r in records)
                         {
                             bool isCompleted = r.StageBadge is "ГОТОВО" or "ОТМЕНЕНО" or "ОШИБКА";
-                            if (!isCompleted && r.StageBadge == "СБОРКА")
+                            bool mayNeedPostBuildHeal = r.StageBadge == "СБОРКА" ||
+                                (r.StageBadge == "ОШИБКА" && (string.IsNullOrWhiteSpace(r.ProgressDetails) || r.ProgressDetails == "Сборка мульти-контента..."));
+                            if (mayNeedPostBuildHeal)
                             {
                                 bool outputExists = false;
+                                var tidMatch = System.Text.RegularExpressions.Regex.Match(r.DisplayTitle ?? string.Empty, @"\b(0100[0-9A-Fa-f]{12})\b");
+                                string displayTid = tidMatch.Success ? tidMatch.Groups[1].Value : string.Empty;
+
                                 if (r.Tasks != null)
                                 {
                                     foreach (var tp in r.Tasks)
@@ -1227,8 +1411,15 @@ namespace StormSwitchBox.Services
                                         string gameName = !string.IsNullOrWhiteSpace(tp.TaskTitle) ? tp.TaskTitle : (!string.IsNullOrWhiteSpace(tp.SlotGameTitle) ? tp.SlotGameTitle : r.DisplayTitle);
                                         if (Directory.Exists(outDir))
                                         {
-                                            var files = Directory.GetFiles(outDir, "*.*").Where(f => f.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".xci", StringComparison.OrdinalIgnoreCase));
-                                            if (files.Any(f => Path.GetFileNameWithoutExtension(f).Contains(gameName, StringComparison.OrdinalIgnoreCase) || (!string.IsNullOrWhiteSpace(tp.TopicId) && f.Contains(tp.TopicId))))
+                                            var files = Directory.GetFiles(outDir, "*.*").Where(f =>
+                                                f.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) ||
+                                                f.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) ||
+                                                f.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) ||
+                                                f.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase));
+                                            if (files.Any(f =>
+                                                (!string.IsNullOrWhiteSpace(gameName) && Path.GetFileNameWithoutExtension(f).Contains(gameName, StringComparison.OrdinalIgnoreCase)) ||
+                                                (!string.IsNullOrWhiteSpace(displayTid) && f.Contains(displayTid, StringComparison.OrdinalIgnoreCase)) ||
+                                                (!string.IsNullOrWhiteSpace(tp.TopicId) && f.Contains(tp.TopicId, StringComparison.OrdinalIgnoreCase))))
                                             {
                                                 outputExists = true;
                                                 break;
@@ -1236,7 +1427,7 @@ namespace StormSwitchBox.Services
                                         }
                                     }
                                 }
-                                bool tempCleaned = !string.IsNullOrWhiteSpace(r.SharedReleaseDir) && !Directory.Exists(r.SharedReleaseDir);
+                                bool tempCleaned = r.StageBadge == "СБОРКА" && !string.IsNullOrWhiteSpace(r.SharedReleaseDir) && !Directory.Exists(r.SharedReleaseDir);
                                 if (outputExists || tempCleaned)
                                 {
                                     isCompleted = true;
@@ -1253,13 +1444,16 @@ namespace StormSwitchBox.Services
                                 StageBadge = isCompleted ? r.StageBadge : "ПАУЗА",
                                 ProgressPercent = r.ProgressPercent,
                                 ProgressDetails = r.ProgressDetails,
+                                SpeedAndPeersText = r.StageBadge == "ГОТОВО" ? "100% Завершено" : string.Empty,
                                 IsPausedByUser = isCompleted ? r.IsPausedByUser : true,
                                 IsActive = false,
+                                IsBuildCompletedOnDisk = r.StageBadge == "ГОТОВО",
                                 SharedReleaseDir = r.SharedReleaseDir,
                                 HasTorrentSource = r.HasTorrentSource
                             };
                             item.RawPercent = r.ProgressPercent;
                             item.RawDetails = r.ProgressDetails;
+                            item.RawSpeedText = r.StageBadge == "ГОТОВО" ? "100% Завершено" : string.Empty;
                             item.RawStageBadge = item.StageBadge;
                             item.RawStageColor = item.StageBadge switch
                             {

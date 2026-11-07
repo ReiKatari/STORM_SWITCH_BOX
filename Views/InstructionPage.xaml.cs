@@ -55,6 +55,11 @@ namespace StormSwitchBox.Views
                 "fr" => "Aperçu interactif et simulation",
                 "zh" => "交互式预览与模拟",
                 "ja" => "インタラクティブプレビュー＆シミュレーション",
+                "ko" => "인터랙티브 미리보기 및 시뮬레이션",
+                "es" => "Vista previa interactiva y simulación",
+                "it" => "Anteprima interattiva e simulazione",
+                "pt" => "Pré-visualização interativa e simulação",
+                "hi" => "इंटरैक्टिव पूर्वावलोकन और सिमुलेशन",
                 _ => "Интерактивный предпросмотр и симуляция"
             };
 
@@ -77,6 +82,11 @@ namespace StormSwitchBox.Views
                 "fr" => GetTopicsFr(),
                 "zh" => GetTopicsZh(),
                 "ja" => GetTopicsJa(),
+                "ko" => GetTopicsKo(),
+                "es" => GetTopicsEs(),
+                "it" => GetTopicsIt(),
+                "pt" => GetTopicsPt(),
+                "hi" => GetTopicsHi(),
                 _ => GetTopicsRu()
             };
 
@@ -1422,6 +1432,321 @@ new TopicItem
                     "Encyclopedia" => "Encyclopédie",
                     "Catalog" => "Catalogue",
                     "Safety" => "Sécurité",
+                    _ => t.Category
+                },
+                Icon = t.Icon,
+                DescriptionText = t.DescriptionText,
+                Tip = t.Tip,
+                SetupPreview = t.SetupPreview
+            }).ToList();
+        }
+
+        private List<TopicItem> GetTopicsKo()
+        {
+            var enList = GetTopicsEn();
+            return enList.Select(t => new TopicItem
+            {
+                Title = t.Title switch
+                {
+                    "Application Overview" => "애플리케이션 개요",
+                    "Smart File Processing" => "스마트 파일 처리",
+                    "Task Grouping Simulator" => "작업 그룹화 시뮬레이터",
+                    "Built-in 7-Zip & Auto-Extraction" => "내장 7-Zip 및 자동 압축 해제",
+                    "Modifications (RomFS, ExeFS & IPS)" => "모드 수정 (RomFS, ExeFS 및 IPS)",
+                    "Metadata & Icon Editor" => "메타데이터 및 아이콘 편집기",
+                    "Smart Folder" => "스마트 폴더",
+                    "Multi-Content & Unlocker" => "멀티 콘텐츠 및 잠금 해제기",
+                    "Emulator Integration and SDMC Sync" => "에뮬레이터 통합 및 SDMC 동기화",
+                    "Homebrew: Engine Ports & Standalone Games" => "Homebrew: 엔진 포트 및 독립 실행형 게임",
+                    "Game Updates (HardPatch & Splicing)" => "게임 업데이트 (HardPatch 및 스플라이싱)",
+                    "Format Conversion (Switch & 3DS)" => "형식 변환 (Switch 및 3DS)",
+                    "Extraction & Packaging" => "압축 해제 및 패키징",
+                    "Settings & Keys" => "설정 및 키",
+                    "Settings and Keys" => "설정 및 키",
+                    "Settings and Tasks: Compatibility Matrix" => "설정 및 작업: 호환성 매트릭스",
+                    "Integrity Verification" => "무결성 검증",
+                    "Nintendo 3DS: Architecture & Multi-Content" => "Nintendo 3DS: 아키텍처 및 멀티 콘텐츠",
+                    "Nintendo 3DS: Formats & Compression" => "Nintendo 3DS: 형식 및 압축",
+                    "Nintendo Game Library (19 Systems)" => "Nintendo 게임 라이브러리 (19개 시스템)",
+                    "Information: Switch & 3DS Database" => "정보: Switch 및 3DS 데이터베이스",
+                    "Dual Smart Folder Services" => "이중 스마트 폴더 서비스",
+                    "Guaranteed Temporary File Cleanup" => "임시 파일 완전 정리 보장",
+                    "RuTracker & Cloud Mod Downloader (Yandex.Disk / GDrive / GitHub)" => "RuTracker 및 클라우드 모드 다운로더 (Yandex.Disk / GDrive / GitHub)",
+                    _ => t.Title
+                },
+                Category = t.Category switch
+                {
+                    "Introduction" => "소개",
+                    "Algorithms" => "알고리즘",
+                    "Interactive" => "인터랙티브",
+                    "Archives" => "아카이브",
+                    "Modding" => "모딩",
+                    "Customization" => "사용자 지정",
+                    "Automation" => "자동화",
+                    "Packaging" => "패키징",
+                    "Emulators" => "에뮬레이터",
+                    "Homebrew" => "홈브류",
+                    "Patching" => "패칭",
+                    "Formats" => "형식",
+                    "Configuration" => "구성",
+                    "Validation" => "검증",
+                    "Nintendo 3DS" => "Nintendo 3DS",
+                    "Encyclopedia" => "백과사전",
+                    "Catalog" => "카탈로그",
+                    "Safety" => "안전",
+                    "Downloads & Mods" => "다운로드 및 모드",
+                    _ => t.Category
+                },
+                Icon = t.Icon,
+                DescriptionText = t.DescriptionText,
+                Tip = t.Tip,
+                SetupPreview = t.SetupPreview
+            }).ToList();
+        }
+
+        private List<TopicItem> GetTopicsEs()
+        {
+            var enList = GetTopicsEn();
+            return enList.Select(t => new TopicItem
+            {
+                Title = t.Title switch
+                {
+                    "Application Overview" => "Descripción de la aplicación",
+                    "Smart File Processing" => "Procesamiento inteligente de archivos",
+                    "Task Grouping Simulator" => "Simulador de agrupación de tareas",
+                    "Built-in 7-Zip & Auto-Extraction" => "7-Zip integrado y auto-extracción",
+                    "Modifications (RomFS, ExeFS & IPS)" => "Modificaciones (RomFS, ExeFS e IPS)",
+                    "Metadata & Icon Editor" => "Editor de metadatos e iconos",
+                    "Smart Folder" => "Carpeta inteligente",
+                    "Multi-Content & Unlocker" => "Multi-contenido y desbloqueador",
+                    "Emulator Integration and SDMC Sync" => "Integración con emuladores y sincronización SDMC",
+                    "Homebrew: Engine Ports & Standalone Games" => "Homebrew: Ports de motores y juegos independientes",
+                    "Game Updates (HardPatch & Splicing)" => "Actualizaciones de juegos (HardPatch y empalme)",
+                    "Format Conversion (Switch & 3DS)" => "Conversión de formatos (Switch y 3DS)",
+                    "Extraction & Packaging" => "Extracción y empaquetado",
+                    "Settings & Keys" => "Configuración y claves",
+                    "Settings and Keys" => "Configuración y claves",
+                    "Settings and Tasks: Compatibility Matrix" => "Configuración y tareas: Matriz de compatibilidad",
+                    "Integrity Verification" => "Verificación de integridad",
+                    "Nintendo 3DS: Architecture & Multi-Content" => "Nintendo 3DS: Arquitectura y multi-contenido",
+                    "Nintendo 3DS: Formats & Compression" => "Nintendo 3DS: Formatos y compresión",
+                    "Nintendo Game Library (19 Systems)" => "Biblioteca de juegos Nintendo (19 sistemas)",
+                    "Information: Switch & 3DS Database" => "Información: Base de datos de Switch y 3DS",
+                    "Dual Smart Folder Services" => "Servicios duales de carpetas inteligentes",
+                    "Guaranteed Temporary File Cleanup" => "Limpieza garantizada de archivos temporales",
+                    "RuTracker & Cloud Mod Downloader (Yandex.Disk / GDrive / GitHub)" => "RuTracker y descargador de mods en la nube (Yandex.Disk / GDrive / GitHub)",
+                    _ => t.Title
+                },
+                Category = t.Category switch
+                {
+                    "Introduction" => "Introducción",
+                    "Algorithms" => "Algoritmos",
+                    "Interactive" => "Interactivo",
+                    "Archives" => "Archivos",
+                    "Modding" => "Modding",
+                    "Customization" => "Personalización",
+                    "Automation" => "Automatización",
+                    "Packaging" => "Empaquetado",
+                    "Emulators" => "Emuladores",
+                    "Homebrew" => "Homebrew",
+                    "Patching" => "Parcheo",
+                    "Formats" => "Formatos",
+                    "Configuration" => "Configuración",
+                    "Validation" => "Validación",
+                    "Nintendo 3DS" => "Nintendo 3DS",
+                    "Encyclopedia" => "Enciclopedia",
+                    "Catalog" => "Catálogo",
+                    "Safety" => "Seguridad",
+                    "Downloads & Mods" => "Descargas y mods",
+                    _ => t.Category
+                },
+                Icon = t.Icon,
+                DescriptionText = t.DescriptionText,
+                Tip = t.Tip,
+                SetupPreview = t.SetupPreview
+            }).ToList();
+        }
+
+        private List<TopicItem> GetTopicsIt()
+        {
+            var enList = GetTopicsEn();
+            return enList.Select(t => new TopicItem
+            {
+                Title = t.Title switch
+                {
+                    "Application Overview" => "Panoramica dell'applicazione",
+                    "Smart File Processing" => "Elaborazione intelligente dei file",
+                    "Task Grouping Simulator" => "Simulatore di raggruppamento attività",
+                    "Built-in 7-Zip & Auto-Extraction" => "7-Zip integrato ed estrazione automatica",
+                    "Modifications (RomFS, ExeFS & IPS)" => "Modifiche (RomFS, ExeFS e IPS)",
+                    "Metadata & Icon Editor" => "Editor di metadati e icone",
+                    "Smart Folder" => "Cartella intelligente",
+                    "Multi-Content & Unlocker" => "Multi-contenuto e sblocco",
+                    "Emulator Integration and SDMC Sync" => "Integrazione con emulatori e sincronizzazione SDMC",
+                    "Homebrew: Engine Ports & Standalone Games" => "Homebrew: Porting di motori e giochi standalone",
+                    "Game Updates (HardPatch & Splicing)" => "Aggiornamenti giochi (HardPatch e splicing)",
+                    "Format Conversion (Switch & 3DS)" => "Conversione formato (Switch e 3DS)",
+                    "Extraction & Packaging" => "Estrazione e confezionamento",
+                    "Settings & Keys" => "Impostazioni e chiavi",
+                    "Settings and Keys" => "Impostazioni e chiavi",
+                    "Settings and Tasks: Compatibility Matrix" => "Impostazioni e attività: Matrice di compatibilità",
+                    "Integrity Verification" => "Verifica dell'integrità",
+                    "Nintendo 3DS: Architecture & Multi-Content" => "Nintendo 3DS: Architettura e multi-contenuto",
+                    "Nintendo 3DS: Formats & Compression" => "Nintendo 3DS: Formati e compressione",
+                    "Nintendo Game Library (19 Systems)" => "Libreria giochi Nintendo (19 sistemi)",
+                    "Information: Switch & 3DS Database" => "Informazioni: Database Switch e 3DS",
+                    "Dual Smart Folder Services" => "Servizi doppi per cartelle intelligenti",
+                    "Guaranteed Temporary File Cleanup" => "Pulizia garantita dei file temporanei",
+                    "RuTracker & Cloud Mod Downloader (Yandex.Disk / GDrive / GitHub)" => "RuTracker e downloader di mod nel cloud (Yandex.Disk / GDrive / GitHub)",
+                    _ => t.Title
+                },
+                Category = t.Category switch
+                {
+                    "Introduction" => "Introduzione",
+                    "Algorithms" => "Algoritmi",
+                    "Interactive" => "Interattivo",
+                    "Archives" => "Archivi",
+                    "Modding" => "Modding",
+                    "Customization" => "Personalizzazione",
+                    "Automation" => "Automazione",
+                    "Packaging" => "Confezionamento",
+                    "Emulators" => "Emulatori",
+                    "Homebrew" => "Homebrew",
+                    "Patching" => "Patching",
+                    "Formats" => "Formati",
+                    "Configuration" => "Configurazione",
+                    "Validation" => "Validazione",
+                    "Nintendo 3DS" => "Nintendo 3DS",
+                    "Encyclopedia" => "Enciclopedia",
+                    "Catalog" => "Catalogo",
+                    "Safety" => "Sicurezza",
+                    "Downloads & Mods" => "Download e mod",
+                    _ => t.Category
+                },
+                Icon = t.Icon,
+                DescriptionText = t.DescriptionText,
+                Tip = t.Tip,
+                SetupPreview = t.SetupPreview
+            }).ToList();
+        }
+
+        private List<TopicItem> GetTopicsPt()
+        {
+            var enList = GetTopicsEn();
+            return enList.Select(t => new TopicItem
+            {
+                Title = t.Title switch
+                {
+                    "Application Overview" => "Visão geral do aplicativo",
+                    "Smart File Processing" => "Processamento inteligente de arquivos",
+                    "Task Grouping Simulator" => "Simulador de agrupamento de tarefas",
+                    "Built-in 7-Zip & Auto-Extraction" => "7-Zip integrado e autoextração",
+                    "Modifications (RomFS, ExeFS & IPS)" => "Modificações (RomFS, ExeFS e IPS)",
+                    "Metadata & Icon Editor" => "Editor de metadados e ícones",
+                    "Smart Folder" => "Pasta inteligente",
+                    "Multi-Content & Unlocker" => "Multi-conteúdo e desbloqueador",
+                    "Emulator Integration and SDMC Sync" => "Integração com emuladores e sincronização SDMC",
+                    "Homebrew: Engine Ports & Standalone Games" => "Homebrew: Ports de motores e jogos independentes",
+                    "Game Updates (HardPatch & Splicing)" => "Atualizações de jogos (HardPatch e união)",
+                    "Format Conversion (Switch & 3DS)" => "Conversão de formatos (Switch e 3DS)",
+                    "Extraction & Packaging" => "Extração e empacotamento",
+                    "Settings & Keys" => "Configurações e chaves",
+                    "Settings and Keys" => "Configurações e chaves",
+                    "Settings and Tasks: Compatibility Matrix" => "Configurações e tarefas: Matriz de compatibilidade",
+                    "Integrity Verification" => "Verificação de integridade",
+                    "Nintendo 3DS: Architecture & Multi-Content" => "Nintendo 3DS: Arquitetura e multi-conteúdo",
+                    "Nintendo 3DS: Formats & Compression" => "Nintendo 3DS: Formatos e compressão",
+                    "Nintendo Game Library (19 Systems)" => "Biblioteca de jogos Nintendo (19 sistemas)",
+                    "Information: Switch & 3DS Database" => "Informações: Banco de dados Switch e 3DS",
+                    "Dual Smart Folder Services" => "Serviços duplos de pastas inteligentes",
+                    "Guaranteed Temporary File Cleanup" => "Limpeza garantida de arquivos temporários",
+                    "RuTracker & Cloud Mod Downloader (Yandex.Disk / GDrive / GitHub)" => "RuTracker e baixador de mods em nuvem (Yandex.Disk / GDrive / GitHub)",
+                    _ => t.Title
+                },
+                Category = t.Category switch
+                {
+                    "Introduction" => "Introdução",
+                    "Algorithms" => "Algoritmos",
+                    "Interactive" => "Interativo",
+                    "Archives" => "Arquivos",
+                    "Modding" => "Modding",
+                    "Customization" => "Personalização",
+                    "Automation" => "Automação",
+                    "Packaging" => "Empacotamento",
+                    "Emulators" => "Emuladores",
+                    "Homebrew" => "Homebrew",
+                    "Patching" => "Patching",
+                    "Formats" => "Formatos",
+                    "Configuration" => "Configuração",
+                    "Validation" => "Validação",
+                    "Nintendo 3DS" => "Nintendo 3DS",
+                    "Encyclopedia" => "Enciclopédia",
+                    "Catalog" => "Catálogo",
+                    "Safety" => "Segurança",
+                    "Downloads & Mods" => "Downloads e mods",
+                    _ => t.Category
+                },
+                Icon = t.Icon,
+                DescriptionText = t.DescriptionText,
+                Tip = t.Tip,
+                SetupPreview = t.SetupPreview
+            }).ToList();
+        }
+
+        private List<TopicItem> GetTopicsHi()
+        {
+            var enList = GetTopicsEn();
+            return enList.Select(t => new TopicItem
+            {
+                Title = t.Title switch
+                {
+                    "Application Overview" => "एप्लिकेशन अवलोकन",
+                    "Smart File Processing" => "स्मार्ट फ़ाइल प्रसंस्करण",
+                    "Task Grouping Simulator" => "कार्य समूहीकरण सिम्युलेटर",
+                    "Built-in 7-Zip & Auto-Extraction" => "एकीकृत 7-Zip और स्वतः निष्कर्षण",
+                    "Modifications (RomFS, ExeFS & IPS)" => "संशोधन (RomFS, ExeFS और IPS)",
+                    "Metadata & Icon Editor" => "मेटाडेटा और आइकन संपादक",
+                    "Smart Folder" => "स्मार्ट फ़ोल्डर",
+                    "Multi-Content & Unlocker" => "मल्टी-सामग्री और अनलॉकर",
+                    "Emulator Integration and SDMC Sync" => "एम्यूलेटर एकीकरण और SDMC सिंक",
+                    "Homebrew: Engine Ports & Standalone Games" => "होमब्रू: इंजन पोर्ट्स और स्टैंडअलोन गेम्स",
+                    "Game Updates (HardPatch & Splicing)" => "गेम अपडेट (HardPatch और स्प्लिसिंग)",
+                    "Format Conversion (Switch & 3DS)" => "प्रारूप रूपांतरण (स्विच और 3DS)",
+                    "Extraction & Packaging" => "निष्कर्षण और पैकेजिंग",
+                    "Settings & Keys" => "सेटिंग्स और कुंजियाँ",
+                    "Settings and Keys" => "सेटिंग्स और कुंजियाँ",
+                    "Settings and Tasks: Compatibility Matrix" => "सेटिंग्स और कार्य: अनुकूलता मैट्रिक्स",
+                    "Integrity Verification" => "अखंडता सत्यापन",
+                    "Nintendo 3DS: Architecture & Multi-Content" => "Nintendo 3DS: आर्किटेक्चर और मल्टी-सामग्री",
+                    "Nintendo 3DS: Formats & Compression" => "Nintendo 3DS: प्रारूप और संपीड़न",
+                    "Nintendo Game Library (19 Systems)" => "Nintendo गेम लाइब्रेरी (19 सिस्टम)",
+                    "Information: Switch & 3DS Database" => "जानकारी: स्विच और 3DS डेटाबेस",
+                    "Dual Smart Folder Services" => "दोहरी स्मार्ट फ़ोल्डर सेवाएँ",
+                    "Guaranteed Temporary File Cleanup" => "अस्थायी फ़ाइलों की गारंटीकृत सफाई",
+                    "RuTracker & Cloud Mod Downloader (Yandex.Disk / GDrive / GitHub)" => "RuTracker और क्लाउड मॉड डाउनलोडर (Yandex.Disk / GDrive / GitHub)",
+                    _ => t.Title
+                },
+                Category = t.Category switch
+                {
+                    "Introduction" => "परिचय",
+                    "Algorithms" => "एल्गोरिदम",
+                    "Interactive" => "इंटरैक्टिव",
+                    "Archives" => "संग्रह",
+                    "Modding" => "मॉडिंग",
+                    "Customization" => "अनुकूलन",
+                    "Automation" => "स्वचालन",
+                    "Packaging" => "पैकेजिंग",
+                    "Emulators" => "एम्यूलेटर",
+                    "Homebrew" => "होमब्रू",
+                    "Patching" => "पैचिंग",
+                    "Formats" => "प्रारूप",
+                    "Configuration" => "कॉन्फ़िगरेशन",
+                    "Validation" => "सत्यापन",
+                    "Nintendo 3DS" => "Nintendo 3DS",
+                    "Encyclopedia" => "विश्वकोश",
+                    "Catalog" => "कैटलॉग",
+                    "Safety" => "सुरक्षा",
+                    "Downloads & Mods" => "डाउनलोड और मॉड",
                     _ => t.Category
                 },
                 Icon = t.Icon,
