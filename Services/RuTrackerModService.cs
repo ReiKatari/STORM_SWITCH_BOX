@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using System.Diagnostics;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
@@ -3961,8 +3962,10 @@ namespace StormSwitchBox.Services
             Directory.CreateDirectory(saveDirectory);
 
             var torrentSettings = new TorrentSettingsBuilder
+
             {
-                MaximumConnections = 300,
+
+                MaximumConnections = 400,
                 UploadSlots = 64,
                 AllowDht = true,
                 AllowPeerExchange = true
@@ -4010,6 +4013,25 @@ namespace StormSwitchBox.Services
             if (qbitResult != null && qbitResult.Count > 0)
             {
                 return qbitResult;
+            }
+
+            // 2. TIER 2: Встроенный C++ libtorrent-rasterbar (storm_lt_turbo.py + tools\nsz\python.exe)
+            // Задействуется автоматически, если внешний qBittorrent не установлен или недоступен.
+            var ltResult = await TryDownloadViaEmbeddedLibtorrentAsync(
+                saveDirectory,
+                fileSelections,
+                progress,
+                ct,
+                rawTorrent,
+                currentHash,
+                resolvedTorrentName,
+                effectiveTopicId,
+                effectiveTopicSeeds,
+                pauseEvent,
+                rawMagnet).ConfigureAwait(false);
+            if (ltResult != null && ltResult.Count > 0)
+            {
+                return ltResult;
             }
 
             ClientEngine engine;
@@ -4112,14 +4134,16 @@ namespace StormSwitchBox.Services
                 {
                     // Пока сидов < 15 или скорость < 2.5 МБ/с, каждые 3 секунды инжектим пул обнаруженных HTTP/UDP/DHT пиров в активный TorrentManager
                     double elapsedReinject = (System.Diagnostics.Stopwatch.GetTimestamp() - lastReinjectTicks) / (double)System.Diagnostics.Stopwatch.Frequency;
-                    if ((manager.Peers.Seeds < 15 || manager.Monitor.DownloadRate < 2621440) && elapsedReinject >= 3.0 &&
-                        (_discoveredHttpPeers.Count > 0 || _discoveredDhtPeers.Count > 0))
+                    var httpPeersScoped = !string.IsNullOrEmpty(currentHash) ? GetHttpPeersForHash(currentHash) : null;
+                    var dhtPeersScoped = !string.IsNullOrEmpty(currentHash) ? GetDhtPeersForHash(currentHash) : null;
+                    int scopedPeerCount = (httpPeersScoped?.Count ?? 0) + (dhtPeersScoped?.Count ?? 0);
+                    if ((manager.Peers.Seeds < 15 || manager.Monitor.DownloadRate < 2621440) && elapsedReinject >= 3.0 && scopedPeerCount > 0)
                     {
                         lastReinjectTicks = System.Diagnostics.Stopwatch.GetTimestamp();
                         try
                         {
-                            var combinedKeys = _discoveredHttpPeers.Keys
-                                .Concat(_discoveredDhtPeers.Keys)
+                            var combinedKeys = (httpPeersScoped?.Keys ?? Enumerable.Empty<string>())
+                                .Concat(dhtPeersScoped?.Keys ?? Enumerable.Empty<string>())
                                 .Distinct(StringComparer.OrdinalIgnoreCase)
                                 .Take(250)
                                 .Select(k => new PeerInfo(new Uri($"ipv4://{k}")))
@@ -4418,12 +4442,13 @@ namespace StormSwitchBox.Services
             }
         }
 
+        private static readonly SemaphoreSlim _qbitBootstrapLock = new(1, 1);
+
         private static (string BaseUrl, string Username, string Password) ResolveLocalQBitConfig()
         {
-            int port = 8080;
+            int port = 18080;
             string username = "admin";
             string password = "";
-            bool webUiEnabled = false;
             try
             {
                 string iniPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "qBittorrent", "qBittorrent.ini");
@@ -4452,58 +4477,35 @@ namespace StormSwitchBox.Services
                             string u = line.Substring(line.IndexOf('=') + 1).Trim();
                             if (!string.IsNullOrEmpty(u)) username = u;
                         }
-                        else if ((inWebUiSection && line.StartsWith("Enabled=", StringComparison.OrdinalIgnoreCase)) ||
-                                 line.StartsWith(@"WebUI\Enabled=", StringComparison.OrdinalIgnoreCase))
-                        {
-                            string val = line.Substring(line.IndexOf('=') + 1).Trim();
-                            webUiEnabled = val.Equals("true", StringComparison.OrdinalIgnoreCase);
-                        }
                     }
-                }
 
-                // Если qBittorrent установлен, но ещё не запущен — гарантируем активность WebUI (LocalHostAuth=false) и запускаем в фоне
-                if (System.Diagnostics.Process.GetProcessesByName("qbittorrent").Length == 0)
-                {
-                    string[] qbitExes = new[]
+                    // Если в INI всё ещё стоит дефолтный 8080, проверяем, не занят ли он посторонним процессом (Docker/WSL)
+                    if (port == 8080)
                     {
-                        @"C:\Program Files\qBittorrent\qbittorrent.exe",
-                        @"C:\Program Files (x86)\qBittorrent\qbittorrent.exe"
-                    };
-                    string? foundExe = qbitExes.FirstOrDefault(File.Exists);
-                    if (!string.IsNullOrEmpty(foundExe))
-                    {
+                        bool isDockerHog = false;
                         try
                         {
-                            if (File.Exists(iniPath) && !webUiEnabled)
-                            {
-                                string iniText = File.ReadAllText(iniPath);
-                                if (iniText.Contains("[WebUI]", StringComparison.OrdinalIgnoreCase))
-                                {
-                                    iniText = Regex.Replace(iniText, @"(?m)^Enabled=false\r?$", "Enabled=true");
-                                    iniText = Regex.Replace(iniText, @"(?m)^LocalHostAuth=true\r?$", "LocalHostAuth=false");
-                                }
-                                else
-                                {
-                                    iniText += "\r\n[WebUI]\r\nEnabled=true\r\nLocalHostAuth=false\r\nPort=8080\r\n";
-                                }
-                                File.WriteAllText(iniPath, iniText);
-                                webUiEnabled = true;
-                            }
+                            using var pingClient = new HttpClient { Timeout = TimeSpan.FromMilliseconds(500) };
+                            var resp = pingClient.GetAsync("http://127.0.0.1:8080/api/v2/app/version").GetAwaiter().GetResult();
+                            if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
+                                isDockerHog = true; // Docker backend возвращает 404 на /api/v2
                         }
-                        catch { }
-
-                        if (webUiEnabled)
+                        catch
                         {
+                            // Если порт вообще не отвечает при запущенном qbittorrent - тоже переключаем
+                            if (Process.GetProcessesByName("qbittorrent").Length > 0)
+                                isDockerHog = true;
+                        }
+
+                        if (isDockerHog)
+                        {
+                            port = 18080;
                             try
                             {
-                                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                                {
-                                    FileName = foundExe,
-                                    Arguments = "--no-splash",
-                                    UseShellExecute = false,
-                                    CreateNoWindow = true,
-                                    WindowStyle = System.Diagnostics.ProcessWindowStyle.Minimized
-                                });
+                                string text = File.ReadAllText(iniPath);
+                                text = Regex.Replace(text, @"(?m)^Port=8080\r?$", "Port=18080");
+                                text = Regex.Replace(text, @"(?m)^WebUI\\Port=8080\r?$", @"WebUI\Port=18080");
+                                File.WriteAllText(iniPath, text);
                             }
                             catch { }
                         }
@@ -4512,6 +4514,158 @@ namespace StormSwitchBox.Services
             }
             catch { }
             return ($"http://127.0.0.1:{port}", username, password);
+        }
+
+        private static async Task<bool> EnsureLocalQBitReadyAsync(CancellationToken ct)
+        {
+            try
+            {
+                bool isRunning = Process.GetProcessesByName("qbittorrent").Length > 0;
+                string[] candidatePaths = new[]
+                {
+                    @"C:\Program Files\qBittorrent\qbittorrent.exe",
+                    @"C:\Program Files (x86)\qBittorrent\qbittorrent.exe",
+                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Programs\qBittorrent\qbittorrent.exe")
+                };
+                string? foundExe = candidatePaths.FirstOrDefault(File.Exists);
+
+                // Если qBittorrent не запущен и не установлен ни по одному из стандартных путей - мгновенный выход (<1 мс)
+                if (!isRunning && string.IsNullOrEmpty(foundExe))
+                    return false;
+
+                var (baseUrl, username, password) = ResolveLocalQBitConfig();
+
+                using var fastHandler = new HttpClientHandler { UseCookies = true, CookieContainer = new System.Net.CookieContainer(), UseProxy = false };
+                using var fastClient = new HttpClient(fastHandler) { Timeout = TimeSpan.FromSeconds(1.2) };
+
+                // Быстрая проверка: возможно, WebUI уже готов к работе прямо сейчас
+                try
+                {
+                    using var pingResp = await fastClient.GetAsync($"{baseUrl}/api/v2/app/version", ct).ConfigureAwait(false);
+                    if (pingResp.IsSuccessStatusCode || pingResp.StatusCode == System.Net.HttpStatusCode.Forbidden || pingResp.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+                        return true;
+                }
+                catch { }
+
+                // Захватываем лок бутстрапа для потокобезопасного запуска и настройки
+                await _qbitBootstrapLock.WaitAsync(ct).ConfigureAwait(false);
+                try
+                {
+                    // Повторная быстрая проверка после захвата блокировки
+                    try
+                    {
+                        using var pingResp2 = await fastClient.GetAsync($"{baseUrl}/api/v2/app/version", ct).ConfigureAwait(false);
+                        if (pingResp2.IsSuccessStatusCode || pingResp2.StatusCode == System.Net.HttpStatusCode.Forbidden || pingResp2.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+                            return true;
+                    }
+                    catch { }
+
+                    // Гарантируем корректные настройки WebUI в qBittorrent.ini
+                    string iniPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "qBittorrent", "qBittorrent.ini");
+                    try
+                    {
+                        if (File.Exists(iniPath))
+                        {
+                            string iniText = File.ReadAllText(iniPath);
+                            bool modified = false;
+
+                            if (iniText.Contains("[WebUI]", StringComparison.OrdinalIgnoreCase))
+                            {
+                                if (Regex.IsMatch(iniText, @"(?m)^Enabled=false\r?$"))
+                                {
+                                    iniText = Regex.Replace(iniText, @"(?m)^Enabled=false\r?$", "Enabled=true");
+                                    modified = true;
+                                }
+                                else if (!Regex.IsMatch(iniText, @"(?m)^Enabled="))
+                                {
+                                    iniText = Regex.Replace(iniText, @"(?m)^\[WebUI\]\r?$", "[WebUI]\r\nEnabled=true");
+                                    modified = true;
+                                }
+
+                                if (Regex.IsMatch(iniText, @"(?m)^LocalHostAuth=true\r?$"))
+                                {
+                                    iniText = Regex.Replace(iniText, @"(?m)^LocalHostAuth=true\r?$", "LocalHostAuth=false");
+                                    modified = true;
+                                }
+                                else if (!Regex.IsMatch(iniText, @"(?m)^LocalHostAuth="))
+                                {
+                                    iniText = Regex.Replace(iniText, @"(?m)^\[WebUI\]\r?$", "[WebUI]\r\nLocalHostAuth=false");
+                                    modified = true;
+                                }
+                            }
+                            else if (iniText.Contains(@"WebUI\Enabled=", StringComparison.OrdinalIgnoreCase))
+                            {
+                                if (Regex.IsMatch(iniText, @"(?m)^WebUI\\Enabled=false\r?$"))
+                                {
+                                    iniText = Regex.Replace(iniText, @"(?m)^WebUI\\Enabled=false\r?$", @"WebUI\Enabled=true");
+                                    modified = true;
+                                }
+                                if (Regex.IsMatch(iniText, @"(?m)^WebUI\\LocalHostAuth=true\r?$"))
+                                {
+                                    iniText = Regex.Replace(iniText, @"(?m)^WebUI\\LocalHostAuth=true\r?$", @"WebUI\LocalHostAuth=false");
+                                    modified = true;
+                                }
+                            }
+                            else
+                            {
+                                iniText += "\r\n[WebUI]\r\nEnabled=true\r\nLocalHostAuth=false\r\nPort=18080\r\n";
+                                modified = true;
+                            }
+
+                            if (modified)
+                                File.WriteAllText(iniPath, iniText);
+                        }
+                        else
+                        {
+                            string? dir = Path.GetDirectoryName(iniPath);
+                            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+                            File.WriteAllText(iniPath, "[WebUI]\r\nEnabled=true\r\nLocalHostAuth=false\r\nPort=18080\r\n");
+                        }
+                    }
+                    catch { }
+
+                    // Запускаем процесс, если он еще не запущен
+                    if (Process.GetProcessesByName("qbittorrent").Length == 0 && !string.IsNullOrEmpty(foundExe))
+                    {
+                        try
+                        {
+                            Process.Start(new ProcessStartInfo
+                            {
+                                FileName = foundExe,
+                                Arguments = "--no-splash",
+                                UseShellExecute = false,
+                                CreateNoWindow = true,
+                                WindowStyle = ProcessWindowStyle.Minimized
+                            });
+                        }
+                        catch { }
+                    }
+
+                    // Опрашиваем WebUI до 30 раз по 300 мс (до 9 секунд)
+                    for (int i = 0; i < 30; i++)
+                    {
+                        ct.ThrowIfCancellationRequested();
+                        try
+                        {
+                            using var checkResp = await fastClient.GetAsync($"{baseUrl}/api/v2/app/version", ct).ConfigureAwait(false);
+                            if (checkResp.IsSuccessStatusCode || checkResp.StatusCode == System.Net.HttpStatusCode.Forbidden || checkResp.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+                                return true;
+                        }
+                        catch { }
+                        await Task.Delay(300, ct).ConfigureAwait(false);
+                    }
+                }
+                finally
+                {
+                    _qbitBootstrapLock.Release();
+                }
+
+                return Process.GetProcessesByName("qbittorrent").Length > 0;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         private static async Task<List<PeerInfo>> QueryUdpTrackersBep15Async(byte[] infoHashBytes, int listenPort, CancellationToken ct)
@@ -4603,7 +4757,8 @@ namespace StormSwitchBox.Services
                                 int pPort = (annResp.Buffer[pos + 4] << 8) | annResp.Buffer[pos + 5];
                                 if (b0 == 0 || b0 == 127 || pPort <= 0 || pPort > 65535) continue;
                                 string key = $"{b0}.{b1}.{b2}.{b3}:{pPort}";
-                                _discoveredHttpPeers[key] = 1;
+                                string hHex = Convert.ToHexString(infoHashBytes).ToUpperInvariant();
+                                GetHttpPeersForHash(hHex)[key] = 1;
                                 discovered.Add(new PeerInfo(new Uri($"ipv4://{key}")));
                             }
                         }
@@ -4677,7 +4832,7 @@ namespace StormSwitchBox.Services
                     .Select(async target =>
                     {
                         byte[]? data = await FetchTrackerViaHttpPipeliningAsync(target.Host, target.PathAndQuery, ct).ConfigureAwait(false);
-                        ExtractCompactPeersFromBencodedData(data, tempPeerInfos);
+                        ExtractCompactPeersFromBencodedData(data, tempPeerInfos, infoHashHex);
                     });
 
                 var udpTask = QueryUdpTrackersBep15Async(hashBytes, listenPort, ct);
@@ -4685,19 +4840,25 @@ namespace StormSwitchBox.Services
 
                 await Task.WhenAll(Task.WhenAll(btTasks), udpTask, dhtTask).ConfigureAwait(false);
 
+                var dhtDict = GetDhtPeersForHash(infoHashHex);
+                var httpDict = GetHttpPeersForHash(infoHashHex);
+
                 foreach (var pi in await udpTask.ConfigureAwait(false))
                     peers.Add($"{pi.ConnectionUri.Host}:{pi.ConnectionUri.Port}");
                 foreach (var dPeer in await dhtTask.ConfigureAwait(false))
                 {
-                    _discoveredDhtPeers[dPeer] = 1;
+                    dhtDict[dPeer] = 1;
                     peers.Add(dPeer);
                 }
-                foreach (var k in _discoveredHttpPeers.Keys)
+                foreach (var k in httpDict.Keys)
                     peers.Add(k);
-                foreach (var k in _discoveredDhtPeers.Keys)
+                foreach (var k in dhtDict.Keys)
                     peers.Add(k);
-                foreach (var pi in tempPeerInfos)
-                    peers.Add($"{pi.ConnectionUri.Host}:{pi.ConnectionUri.Port}");
+                lock (tempPeerInfos)
+                {
+                    foreach (var pi in tempPeerInfos)
+                        peers.Add($"{pi.ConnectionUri.Host}:{pi.ConnectionUri.Port}");
+                }
             }
             catch { }
             return peers.ToList();
@@ -4718,7 +4879,7 @@ namespace StormSwitchBox.Services
             if (string.IsNullOrEmpty(currentHash) || currentHash.Length != 40)
                 return null;
 
-            if (System.Diagnostics.Process.GetProcessesByName("qbittorrent").Length == 0)
+            if (!await EnsureLocalQBitReadyAsync(ct).ConfigureAwait(false))
                 return null;
 
             string hashLower = currentHash.ToLowerInvariant();
@@ -4733,7 +4894,7 @@ namespace StormSwitchBox.Services
             using var qClient = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(3.5) };
 
             bool qbitOnline = false;
-            int maxAttempts = System.Diagnostics.Process.GetProcessesByName("qbittorrent").Length > 0 ? 15 : 2;
+            int maxAttempts = Process.GetProcessesByName("qbittorrent").Length > 0 ? 15 : 4;
             for (int attempt = 0; attempt < maxAttempts; attempt++)
             {
                 try
@@ -4763,8 +4924,8 @@ namespace StormSwitchBox.Services
                     }
                 }
                 catch { }
-                if (System.Diagnostics.Process.GetProcessesByName("qbittorrent").Length > 0)
-                    await Task.Delay(400, ct).ConfigureAwait(false);
+                if (Process.GetProcessesByName("qbittorrent").Length > 0)
+                    await Task.Delay(300, ct).ConfigureAwait(false);
                 else
                     break;
             }
@@ -4796,6 +4957,8 @@ namespace StormSwitchBox.Services
 
             try
             {
+                bool filePrioApplied = false;
+
                 if (!existedBefore)
                 {
                     bool addedOk = false;
@@ -4816,7 +4979,7 @@ namespace StormSwitchBox.Services
                             using var addResp = await qClient.PostAsync($"{baseUrl}/api/v2/torrents/add", byteContent, ct).ConfigureAwait(false);
                             if (addResp.IsSuccessStatusCode)
                             {
-                                await Task.Delay(250, ct).ConfigureAwait(false);
+                                await Task.Delay(150, ct).ConfigureAwait(false);
                                 string verifyJson = await qClient.GetStringAsync($"{baseUrl}/api/v2/torrents/info?hashes={hashLower}", ct).ConfigureAwait(false);
                                 using var verifyDoc = System.Text.Json.JsonDocument.Parse(verifyJson);
                                 addedOk = verifyDoc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Array && verifyDoc.RootElement.GetArrayLength() > 0;
@@ -4849,14 +5012,14 @@ namespace StormSwitchBox.Services
 
                 App.Logger?.Log($"[RuTracker Turbo Engine] Задействован высокоскоростной движок qBittorrent WebUI (uTP BEP-29 + Holepunch BEP-55) для {hashLower}", LogLevel.Info);
 
-                // Снимаем любые лимиты скорости, включаем ForceStart и Reannounce
+                // Снимаем любые лимиты скорости, включаем ForceStart, выставляем параметры сессии libtorrent на максимум
                 _ = Task.Run(async () =>
                 {
                     try
                     {
                         var prefsForm = new FormUrlEncodedContent(new[]
                         {
-                            new KeyValuePair<string, string>("json", "{\"dl_limit\":0,\"up_limit\":0,\"dht\":true,\"pex\":true,\"lsd\":true,\"enable_utp\":true,\"max_connec\":800,\"max_connec_per_torrent\":200}")
+                            new KeyValuePair<string, string>("json", "{\"dl_limit\":0,\"up_limit\":0,\"dht\":true,\"pex\":true,\"lsd\":true,\"enable_utp\":true,\"utp_tcp_mixed_mode\":0,\"enable_multi_connections_from_same_ip\":true,\"announce_to_all_trackers\":true,\"announce_to_all_tiers\":true,\"connection_speed\":100,\"max_connec\":1000,\"max_connec_per_torrent\":250,\"async_io_threads\":16,\"file_pool_size\":500}")
                         });
                         await qClient.PostAsync($"{baseUrl}/api/v2/app/setPreferences", prefsForm, ct).ConfigureAwait(false);
                     }
@@ -4871,12 +5034,29 @@ namespace StormSwitchBox.Services
                         await qClient.PostAsync($"{baseUrl}/api/v2/torrents/setForceStart", forceForm, ct).ConfigureAwait(false);
                     }
                     catch { }
+
+                    // Извлекаем персональные passkey-трекеры (?pk=...) и добавляем в qBittorrent
+                    var trackerUrls = new List<string>(PublicTrackers);
+                    if (rawTorrent != null && rawTorrent.Length > 0)
+                    {
+                        try
+                        {
+                            string rawAscii = Encoding.ASCII.GetString(rawTorrent);
+                            foreach (Match m in Regex.Matches(rawAscii, @"http://(bt\d*\.t-ru\.org/ann\?[^\x00-\x20""'<>\\]+)", RegexOptions.IgnoreCase))
+                            {
+                                if (m.Value.Contains("pk=", StringComparison.OrdinalIgnoreCase))
+                                    trackerUrls.Insert(0, m.Value);
+                            }
+                        }
+                        catch { }
+                    }
+
                     try
                     {
                         var trForm = new FormUrlEncodedContent(new[]
                         {
                             new KeyValuePair<string, string>("hash", hashLower),
-                            new KeyValuePair<string, string>("urls", string.Join("\n", PublicTrackers))
+                            new KeyValuePair<string, string>("urls", string.Join("\n", trackerUrls.Distinct()))
                         });
                         await qClient.PostAsync($"{baseUrl}/api/v2/torrents/addTrackers", trForm, ct).ConfigureAwait(false);
                     }
@@ -4889,22 +5069,104 @@ namespace StormSwitchBox.Services
                     catch { }
                 }, ct);
 
-                // Немедленно опрашиваем bt..bt4.t-ru.org через HTTP/1.1 Pipelining и инжектируем живые сиды напрямую в qBittorrent
+                // Функция применения выбора файлов к торренту в qBittorrent
+                async Task TryApplyFilePrioritiesAsync()
+                {
+                    if (filePrioApplied || fileSelections == null || fileSelections.Count == 0 || !fileSelections.Any(f => !f.IsSelected))
+                        return;
+
+                    try
+                    {
+                        string filesJson = await qClient.GetStringAsync($"{baseUrl}/api/v2/torrents/files?hash={hashLower}", ct).ConfigureAwait(false);
+                        using var fDoc = System.Text.Json.JsonDocument.Parse(filesJson);
+                        if (fDoc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Array && fDoc.RootElement.GetArrayLength() > 0)
+                        {
+                            var skipIds = new List<string>();
+                            var keepIds = new List<string>();
+                            int arrLen = fDoc.RootElement.GetArrayLength();
+                            for (int fi = 0; fi < arrLen; fi++)
+                            {
+                                var fObj = fDoc.RootElement[fi];
+                                int fIdx = fObj.TryGetProperty("index", out var idxEl) ? idxEl.GetInt32() : fi;
+                                string fName = fObj.TryGetProperty("name", out var nmEl) ? (nmEl.GetString() ?? "") : "";
+                                string fFileOnly = Path.GetFileName(fName.Replace('/', Path.DirectorySeparatorChar));
+                                string fNorm = fName.Replace('\\', '/').TrimStart('.').TrimStart('/');
+
+                                var matchedSel = fileSelections.FirstOrDefault(s =>
+                                {
+                                    foreach (var relPath in s.GetEffectiveRelativePaths())
+                                    {
+                                        string sNorm = relPath.Replace('\\', '/').TrimStart('.').TrimStart('/');
+                                        if (sNorm.Equals(fNorm, StringComparison.OrdinalIgnoreCase) ||
+                                            sNorm.EndsWith("/" + fNorm, StringComparison.OrdinalIgnoreCase) ||
+                                            fNorm.EndsWith("/" + sNorm, StringComparison.OrdinalIgnoreCase))
+                                            return true;
+                                        if (Path.GetFileName(relPath).Equals(fFileOnly, StringComparison.OrdinalIgnoreCase))
+                                            return true;
+                                    }
+                                    return false;
+                                });
+
+                                if (matchedSel != null && !matchedSel.IsSelected)
+                                    skipIds.Add(fIdx.ToString());
+                                else
+                                    keepIds.Add(fIdx.ToString());
+                            }
+                            if (skipIds.Count > 0)
+                            {
+                                var prio0 = new FormUrlEncodedContent(new[]
+                                {
+                                    new KeyValuePair<string, string>("hash", hashLower),
+                                    new KeyValuePair<string, string>("id", string.Join("|", skipIds)),
+                                    new KeyValuePair<string, string>("priority", "0")
+                                });
+                                await qClient.PostAsync($"{baseUrl}/api/v2/torrents/filePrio", prio0, ct).ConfigureAwait(false);
+                            }
+                            if (keepIds.Count > 0)
+                            {
+                                var prio1 = new FormUrlEncodedContent(new[]
+                                {
+                                    new KeyValuePair<string, string>("hash", hashLower),
+                                    new KeyValuePair<string, string>("id", string.Join("|", keepIds)),
+                                    new KeyValuePair<string, string>("priority", "1")
+                                });
+                                await qClient.PostAsync($"{baseUrl}/api/v2/torrents/filePrio", prio1, ct).ConfigureAwait(false);
+                            }
+                            filePrioApplied = true;
+                        }
+                    }
+                    catch { }
+                }
+
+                // Пытаемся применить приоритеты файлов немедленно
+                await TryApplyFilePrioritiesAsync().ConfigureAwait(false);
+
+                // Multi-wave peer injection: волны на T=0с, T=2.5с, T=6с и затем каждые 12с
                 _ = Task.Run(async () =>
                 {
-                    var peersList = await HarvestRawPeerStringsFromTrackersAsync(hashLower, qbitListenPort, ct, rawTorrent).ConfigureAwait(false);
-                    if (peersList.Count > 0)
+                    int[] waveDelays = new[] { 0, 2500, 6000 };
+                    for (int w = 0; w < waveDelays.Length; w++)
                     {
-                        var peersForm = new FormUrlEncodedContent(new[]
+                        if (waveDelays[w] > 0)
+                            await Task.Delay(waveDelays[w], ct).ConfigureAwait(false);
+
+                        var peersList = await HarvestRawPeerStringsFromTrackersAsync(hashLower, qbitListenPort, ct, rawTorrent).ConfigureAwait(false);
+                        if (peersList.Count > 0)
                         {
-                            new KeyValuePair<string, string>("hashes", hashLower),
-                            new KeyValuePair<string, string>("peers", string.Join("|", peersList.Take(100)))
-                        });
-                        try { await qClient.PostAsync($"{baseUrl}/api/v2/torrents/addPeers", peersForm, ct).ConfigureAwait(false); } catch { }
+                            for (int chunkStart = 0; chunkStart < peersList.Count; chunkStart += 100)
+                            {
+                                var chunk = peersList.Skip(chunkStart).Take(100);
+                                var peersForm = new FormUrlEncodedContent(new[]
+                                {
+                                    new KeyValuePair<string, string>("hashes", hashLower),
+                                    new KeyValuePair<string, string>("peers", string.Join("|", chunk))
+                                });
+                                try { await qClient.PostAsync($"{baseUrl}/api/v2/torrents/addPeers", peersForm, ct).ConfigureAwait(false); } catch { }
+                            }
+                        }
                     }
                 }, ct);
 
-                bool filePrioApplied = false;
                 bool wasPausedInQbit = false;
                 long lastPeerRefreshTicks = System.Diagnostics.Stopwatch.GetTimestamp();
                 string actualSavePath = saveDirectory;
@@ -4931,25 +5193,6 @@ namespace StormSwitchBox.Services
                         try { await qClient.PostAsync($"{baseUrl}/api/v2/torrents/resume", hForm, ct).ConfigureAwait(false); } catch { }
                     }
 
-                    double elapsedHarvest = (System.Diagnostics.Stopwatch.GetTimestamp() - lastPeerRefreshTicks) / (double)System.Diagnostics.Stopwatch.Frequency;
-                    if (elapsedHarvest >= 15.0)
-                    {
-                        lastPeerRefreshTicks = System.Diagnostics.Stopwatch.GetTimestamp();
-                        _ = Task.Run(async () =>
-                        {
-                            var peersList = await HarvestRawPeerStringsFromTrackersAsync(hashLower, qbitListenPort, ct, rawTorrent).ConfigureAwait(false);
-                            if (peersList.Count > 0)
-                            {
-                                var peersForm = new FormUrlEncodedContent(new[]
-                                {
-                                    new KeyValuePair<string, string>("hashes", hashLower),
-                                    new KeyValuePair<string, string>("peers", string.Join("|", peersList.Take(100)))
-                                });
-                                try { await qClient.PostAsync($"{baseUrl}/api/v2/torrents/addPeers", peersForm, ct).ConfigureAwait(false); } catch { }
-                            }
-                        }, ct);
-                    }
-
                     string infoJson = await qClient.GetStringAsync($"{baseUrl}/api/v2/torrents/info?hashes={hashLower}", ct).ConfigureAwait(false);
                     using var doc = System.Text.Json.JsonDocument.Parse(infoJson);
                     if (doc.RootElement.ValueKind != System.Text.Json.JsonValueKind.Array || doc.RootElement.GetArrayLength() == 0)
@@ -4959,81 +5202,62 @@ namespace StormSwitchBox.Services
                     }
 
                     var item = doc.RootElement[0];
-                    double prog01 = item.TryGetProperty("progress", out var pEl) ? pEl.GetDouble() : 0.0;
                     long dlSpeedBytes = item.TryGetProperty("dlspeed", out var sEl) ? sEl.GetInt64() : 0L;
                     int numSeeds = item.TryGetProperty("num_seeds", out var nsEl) ? nsEl.GetInt32() : 0;
                     int numComplete = item.TryGetProperty("num_complete", out var ncEl) ? ncEl.GetInt32() : 0;
                     int numLeechs = item.TryGetProperty("num_leechs", out var nlEl) ? nlEl.GetInt32() : 0;
                     long completedBytes = item.TryGetProperty("completed", out var cbEl) ? cbEl.GetInt64() : 0L;
-                    long totalBytes = item.TryGetProperty("size", out var szEl) ? szEl.GetInt64() : 0L;
-                    if (totalBytes <= 0 && item.TryGetProperty("total_size", out var tszEl))
-                        totalBytes = tszEl.GetInt64();
+                    long totalBytes = item.TryGetProperty("total_size", out var tszEl) ? tszEl.GetInt64() : 0L;
+                    if (totalBytes <= 0 && item.TryGetProperty("size", out var szEl))
+                        totalBytes = szEl.GetInt64();
+                    long amountLeft = item.TryGetProperty("amount_left", out var alEl) ? alEl.GetInt64() : -1L;
                     string state = item.TryGetProperty("state", out var stEl) ? (stEl.GetString() ?? "") : "";
                     if (item.TryGetProperty("save_path", out var spEl) && !string.IsNullOrWhiteSpace(spEl.GetString()))
                         actualSavePath = spEl.GetString()!;
 
-                    // Применяем выбор файлов (fileSelections), как только метаданные получены
-                    if (!filePrioApplied && totalBytes > 0 && fileSelections.Count > 0 && fileSelections.Any(f => !f.IsSelected))
+                    // Применяем выбор файлов, если ещё не применён
+                    if (!filePrioApplied && totalBytes > 0)
                     {
-                        try
+                        await TryApplyFilePrioritiesAsync().ConfigureAwait(false);
+                    }
+
+                    double speedMb = dlSpeedBytes / (1024.0 * 1024.0);
+                    double elapsedHarvest = (System.Diagnostics.Stopwatch.GetTimestamp() - lastPeerRefreshTicks) / (double)System.Diagnostics.Stopwatch.Frequency;
+                    if (elapsedHarvest >= 12.0 && (speedMb < 15.0 || numSeeds < 20))
+                    {
+                        lastPeerRefreshTicks = System.Diagnostics.Stopwatch.GetTimestamp();
+                        _ = Task.Run(async () =>
                         {
-                            string filesJson = await qClient.GetStringAsync($"{baseUrl}/api/v2/torrents/files?hash={hashLower}", ct).ConfigureAwait(false);
-                            using var fDoc = System.Text.Json.JsonDocument.Parse(filesJson);
-                            if (fDoc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Array && fDoc.RootElement.GetArrayLength() > 0)
+                            var peersList = await HarvestRawPeerStringsFromTrackersAsync(hashLower, qbitListenPort, ct, rawTorrent).ConfigureAwait(false);
+                            if (peersList.Count > 0)
                             {
-                                filePrioApplied = true;
-                                var skipIds = new List<string>();
-                                var keepIds = new List<string>();
-                                int arrLen = fDoc.RootElement.GetArrayLength();
-                                for (int fi = 0; fi < arrLen; fi++)
+                                for (int chunkStart = 0; chunkStart < peersList.Count; chunkStart += 100)
                                 {
-                                    var fObj = fDoc.RootElement[fi];
-                                    int fIdx = fObj.TryGetProperty("index", out var idxEl) ? idxEl.GetInt32() : fi;
-                                    string fName = fObj.TryGetProperty("name", out var nmEl) ? (nmEl.GetString() ?? "") : "";
-                                    string fFileOnly = Path.GetFileName(fName.Replace('/', Path.DirectorySeparatorChar));
-
-                                    string fNorm = fName.Replace('\\', '/').TrimStart('.').TrimStart('/');
-                                    var matchedSel = fileSelections.FirstOrDefault(s =>
+                                    var chunk = peersList.Skip(chunkStart).Take(100);
+                                    var peersForm = new FormUrlEncodedContent(new[]
                                     {
-                                        string sNorm = s.RelativePath.Replace('\\', '/').TrimStart('.').TrimStart('/');
-                                        return sNorm.Equals(fNorm, StringComparison.OrdinalIgnoreCase) ||
-                                               sNorm.EndsWith("/" + fNorm, StringComparison.OrdinalIgnoreCase) ||
-                                               fNorm.EndsWith("/" + sNorm, StringComparison.OrdinalIgnoreCase);
-                                    }) ?? fileSelections.FirstOrDefault(s =>
-                                        Path.GetFileName(s.RelativePath).Equals(fFileOnly, StringComparison.OrdinalIgnoreCase));
-
-                                    if (matchedSel != null && !matchedSel.IsSelected)
-                                        skipIds.Add(fIdx.ToString());
-                                    else
-                                        keepIds.Add(fIdx.ToString());
-                                }
-                                if (skipIds.Count > 0)
-                                {
-                                    var prio0 = new FormUrlEncodedContent(new[]
-                                    {
-                                        new KeyValuePair<string, string>("hash", hashLower),
-                                        new KeyValuePair<string, string>("id", string.Join("|", skipIds)),
-                                        new KeyValuePair<string, string>("priority", "0")
+                                        new KeyValuePair<string, string>("hashes", hashLower),
+                                        new KeyValuePair<string, string>("peers", string.Join("|", chunk))
                                     });
-                                    await qClient.PostAsync($"{baseUrl}/api/v2/torrents/filePrio", prio0, ct).ConfigureAwait(false);
-                                }
-                                if (keepIds.Count > 0)
-                                {
-                                    var prio1 = new FormUrlEncodedContent(new[]
-                                    {
-                                        new KeyValuePair<string, string>("hash", hashLower),
-                                        new KeyValuePair<string, string>("id", string.Join("|", keepIds)),
-                                        new KeyValuePair<string, string>("priority", "1")
-                                    });
-                                    await qClient.PostAsync($"{baseUrl}/api/v2/torrents/filePrio", prio1, ct).ConfigureAwait(false);
+                                    try { await qClient.PostAsync($"{baseUrl}/api/v2/torrents/addPeers", peersForm, ct).ConfigureAwait(false); } catch { }
                                 }
                             }
-                        }
-                        catch { }
+                        }, ct);
+                    }
+
+                    double prog01;
+                    if (amountLeft >= 0 && totalBytes > 0)
+                    {
+                        long wantedCompleted = Math.Max(0, totalBytes - amountLeft);
+                        prog01 = Math.Clamp((double)wantedCompleted / totalBytes, 0.0, 1.0);
+                        completedBytes = wantedCompleted;
+                    }
+                    else
+                    {
+                        prog01 = item.TryGetProperty("progress", out var pEl) ? pEl.GetDouble() : 0.0;
                     }
 
                     double pct = Math.Clamp(prog01 * 100.0, 0.0, 100.0);
-                    double speedMb = dlSpeedBytes / (1024.0 * 1024.0);
                     int swarmTotal = Math.Max(effectiveTopicSeeds, Math.Max(numComplete, Math.Max(_lastSwarmTotalPeers, numSeeds + numLeechs)));
                     string seedsStr = swarmTotal > numSeeds ? $"Сиды: {numSeeds} (в рое: {swarmTotal})" : $"Сиды: {numSeeds}";
                     string topicLabel = !string.IsNullOrEmpty(effectiveTopicId) ? $"RuTracker #1605 (t={effectiveTopicId})" : "RuTracker #1605";
@@ -5055,7 +5279,8 @@ namespace StormSwitchBox.Services
                         TotalBytes = totalBytes
                     });
 
-                    bool isFinishedState = prog01 >= 0.9999 ||
+                    bool isFinishedState = (amountLeft == 0 && totalBytes > 0 && filePrioApplied) ||
+                        prog01 >= 0.9999 ||
                         state.Equals("uploading", StringComparison.OrdinalIgnoreCase) ||
                         state.Equals("stalledUP", StringComparison.OrdinalIgnoreCase) ||
                         state.Equals("forcedUP", StringComparison.OrdinalIgnoreCase) ||
@@ -5160,6 +5385,19 @@ namespace StormSwitchBox.Services
             }
             catch (OperationCanceledException)
             {
+                if (!existedBefore)
+                {
+                    try
+                    {
+                        var delForm = new FormUrlEncodedContent(new[]
+                        {
+                            new KeyValuePair<string, string>("hashes", hashLower),
+                            new KeyValuePair<string, string>("deleteFiles", "false")
+                        });
+                        await qClient.PostAsync($"{baseUrl}/api/v2/torrents/delete", delForm, CancellationToken.None).ConfigureAwait(false);
+                    }
+                    catch { }
+                }
                 throw;
             }
             catch (Exception ex)
@@ -5168,6 +5406,295 @@ namespace StormSwitchBox.Services
                 return null;
             }
         }
+
+        private async Task<List<string>?> TryDownloadViaEmbeddedLibtorrentAsync(
+            string saveDirectory,
+            IReadOnlyList<TorrentFileSelectionItem> fileSelections,
+            IProgress<TorrentDownloadProgress>? progress,
+            CancellationToken ct,
+            byte[]? rawTorrent,
+            string currentHash,
+            string torrentName,
+            string effectiveTopicId,
+            int effectiveTopicSeeds,
+            ManualResetEventSlim? pauseEvent,
+            MagnetLink? rawMagnet)
+        {
+            string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+            string pythonExe = Path.Combine(baseDir, "tools", "nsz", "python.exe");
+            string scriptPath = Path.Combine(baseDir, "tools", "nsz", "storm_lt_turbo.py");
+
+            if (!File.Exists(pythonExe) || !File.Exists(scriptPath))
+            {
+                string altBase = Directory.GetCurrentDirectory();
+                string altPy = Path.Combine(altBase, "tools", "nsz", "python.exe");
+                string altSc = Path.Combine(altBase, "tools", "nsz", "storm_lt_turbo.py");
+                if (File.Exists(altPy) && File.Exists(altSc))
+                {
+                    pythonExe = altPy;
+                    scriptPath = altSc;
+                }
+                else
+                {
+                    return null;
+                }
+            }
+
+            string hashLower = currentHash.ToLowerInvariant();
+            string tempDir = Path.Combine(Path.GetTempPath(), "STORM_LT_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+            string peersFile = Path.Combine(tempDir, "peers.txt");
+            string controlFile = Path.Combine(tempDir, "control.txt");
+            string? tempTorrentFile = null;
+
+            Process? proc = null;
+            CancellationTokenSource? peerFeederCts = null;
+
+            try
+            {
+                var argsList = new List<string>
+                {
+                    $"\"{scriptPath}\"",
+                    $"--save-dir \"{saveDirectory}\"",
+                    $"--peers-file \"{peersFile}\"",
+                    $"--control-file \"{controlFile}\""
+                };
+
+                if (rawTorrent != null && rawTorrent.Length > 0)
+                {
+                    tempTorrentFile = Path.Combine(tempDir, "release.torrent");
+                    await File.WriteAllBytesAsync(tempTorrentFile, rawTorrent, ct).ConfigureAwait(false);
+                    argsList.Add($"--torrent \"{tempTorrentFile}\"");
+                }
+                else if (rawMagnet != null)
+                {
+                    argsList.Add($"--magnet \"{rawMagnet.ToV1String()}\"");
+                }
+                else
+                {
+                    string magnetUri = $"magnet:?xt=urn:btih:{hashLower}&dn={Uri.EscapeDataString(torrentName)}&tr=http%3A%2F%2Fbt.t-ru.org%2Fann%3Fmagnet&tr=http%3A%2F%2Fbt2.t-ru.org%2Fann%3Fmagnet&tr=http%3A%2F%2Fbt3.t-ru.org%2Fann%3Fmagnet&tr=http%3A%2F%2Fbt4.t-ru.org%2Fann%3Fmagnet";
+                    argsList.Add($"--magnet \"{magnetUri}\"");
+                }
+
+                if (fileSelections != null && fileSelections.Count > 0 && fileSelections.Any(f => !f.IsSelected) && rawTorrent != null)
+                {
+                    try
+                    {
+                        if (Torrent.TryLoad(rawTorrent, out var parsedTorrent) && parsedTorrent.Files != null)
+                        {
+                            var skipIdxs = new List<int>();
+                            for (int fi = 0; fi < parsedTorrent.Files.Count; fi++)
+                            {
+                                var tf = parsedTorrent.Files[fi];
+                                string fNorm = tf.Path.Replace('\\', '/').TrimStart('.').TrimStart('/');
+                                string fFileOnly = Path.GetFileName(tf.Path);
+
+                                var matchedSel = fileSelections.FirstOrDefault(s =>
+                                {
+                                    foreach (var relPath in s.GetEffectiveRelativePaths())
+                                    {
+                                        string sNorm = relPath.Replace('\\', '/').TrimStart('.').TrimStart('/');
+                                        if (sNorm.Equals(fNorm, StringComparison.OrdinalIgnoreCase) ||
+                                            sNorm.EndsWith("/" + fNorm, StringComparison.OrdinalIgnoreCase) ||
+                                            fNorm.EndsWith("/" + sNorm, StringComparison.OrdinalIgnoreCase))
+                                            return true;
+                                        if (Path.GetFileName(relPath).Equals(fFileOnly, StringComparison.OrdinalIgnoreCase))
+                                            return true;
+                                    }
+                                    return false;
+                                });
+
+                                if (matchedSel != null && !matchedSel.IsSelected)
+                                    skipIdxs.Add(fi);
+                            }
+                            if (skipIdxs.Count > 0)
+                                argsList.Add($"--skip-indices {string.Join(",", skipIdxs)}");
+                        }
+                    }
+                    catch { }
+                }
+
+                App.Logger?.Log($"[RuTracker Turbo Engine] Задействован встроенный нативный движок libtorrent-rasterbar (Tier 2) для {hashLower}", LogLevel.Info);
+
+                peerFeederCts = new CancellationTokenSource();
+                var feederToken = peerFeederCts.Token;
+
+                _ = Task.Run(async () =>
+                {
+                    var sentPeers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    int[] delaySteps = new[] { 0, 2500, 6000, 12000 };
+                    int step = 0;
+                    while (!feederToken.IsCancellationRequested)
+                    {
+                        int delayMs = step < delaySteps.Length ? delaySteps[step++] : 12000;
+                        if (delayMs > 0)
+                            await Task.Delay(delayMs, feederToken).ConfigureAwait(false);
+
+                        try
+                        {
+                            var peers = await HarvestRawPeerStringsFromTrackersAsync(hashLower, 44859, feederToken, rawTorrent).ConfigureAwait(false);
+                            var newPeers = peers.Where(p => sentPeers.Add(p)).ToList();
+                            if (newPeers.Count > 0)
+                            {
+                                await File.AppendAllLinesAsync(peersFile, newPeers, feederToken).ConfigureAwait(false);
+                            }
+                        }
+                        catch { }
+                    }
+                }, feederToken);
+
+                var psi = new ProcessStartInfo
+                {
+                    FileName = pythonExe,
+                    Arguments = string.Join(" ", argsList),
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true,
+                    WindowStyle = ProcessWindowStyle.Hidden,
+                    WorkingDirectory = Path.GetDirectoryName(pythonExe)
+                };
+
+                proc = new Process { StartInfo = psi };
+                proc.Start();
+                try { proc.PriorityClass = ProcessPriorityClass.BelowNormal; } catch { }
+
+                bool wasPaused = false;
+                string topicLabel = !string.IsNullOrEmpty(effectiveTopicId) ? $"RuTracker #1605 (t={effectiveTopicId})" : "RuTracker #1605";
+
+                while (!proc.HasExited && !ct.IsCancellationRequested)
+                {
+                    if (pauseEvent != null && !pauseEvent.IsSet)
+                    {
+                        if (!wasPaused)
+                        {
+                            wasPaused = true;
+                            try { await File.WriteAllTextAsync(controlFile, "PAUSE", ct).ConfigureAwait(false); } catch { }
+                        }
+                        await Task.Delay(250, ct).ConfigureAwait(false);
+                        continue;
+                    }
+                    else if (wasPaused)
+                    {
+                        wasPaused = false;
+                        try { await File.WriteAllTextAsync(controlFile, "RESUME", ct).ConfigureAwait(false); } catch { }
+                    }
+
+                    string? line = await proc.StandardOutput.ReadLineAsync(ct).ConfigureAwait(false);
+                    if (line == null) break;
+
+                    if (line.StartsWith("{") && line.EndsWith("}"))
+                    {
+                        try
+                        {
+                            using var doc = System.Text.Json.JsonDocument.Parse(line);
+                            var root = doc.RootElement;
+                            double pct = root.TryGetProperty("pct", out var pEl) ? pEl.GetDouble() : 0.0;
+                            long speedBps = root.TryGetProperty("speed_bps", out var spEl) ? spEl.GetInt64() : 0L;
+                            int seeds = root.TryGetProperty("seeds", out var sdEl) ? sdEl.GetInt32() : 0;
+                            int peers = root.TryGetProperty("peers", out var prEl) ? prEl.GetInt32() : 0;
+                            int swarm = root.TryGetProperty("swarm", out var swEl) ? swEl.GetInt32() : 0;
+                            long doneBytes = root.TryGetProperty("done_bytes", out var dbEl) ? dbEl.GetInt64() : 0L;
+                            long totalBytes = root.TryGetProperty("total_bytes", out var tbEl) ? tbEl.GetInt64() : 0L;
+                            string state = root.TryGetProperty("state", out var stEl) ? (stEl.GetString() ?? "") : "";
+                            bool isMeta = root.TryGetProperty("is_meta", out var imEl) && imEl.GetBoolean();
+
+                            double speedMb = speedBps / (1024.0 * 1024.0);
+                            int swarmTotal = Math.Max(effectiveTopicSeeds, Math.Max(swarm, seeds + peers));
+                            string seedsStr = swarmTotal > seeds ? $"Сиды: {seeds} (в рое: {swarmTotal})" : $"Сиды: {seeds}";
+
+                            string stateStr = isMeta
+                                ? $"{topicLabel}: получение метаданных Magnet от пиров (libtorrent)..."
+                                : $"{topicLabel}: скачивание {pct:F1}% ({speedMb:F2} МБ/с | {seedsStr}, Пиры: {peers}) [libtorrent]";
+
+                            progress?.Report(new TorrentDownloadProgress
+                            {
+                                Percent = pct,
+                                SpeedMbPerSec = speedMb,
+                                Seeds = seeds,
+                                SwarmTotal = swarmTotal,
+                                Peers = peers,
+                                StatusText = stateStr,
+                                DownloadedBytes = doneBytes,
+                                TotalBytes = totalBytes
+                            });
+
+                            if (state == "finished")
+                                break;
+                        }
+                        catch { }
+                    }
+                }
+
+                if (ct.IsCancellationRequested)
+                {
+                    try { await File.WriteAllTextAsync(controlFile, "STOP", CancellationToken.None).ConfigureAwait(false); } catch { }
+                    try { proc?.Kill(entireProcessTree: true); } catch { }
+                    ct.ThrowIfCancellationRequested();
+                }
+
+                if (proc != null) await proc.WaitForExitAsync(ct).ConfigureAwait(false);
+
+                // Собираем скачанные файлы
+                var downloadedPaths = new List<string>();
+                if (Directory.Exists(saveDirectory))
+                {
+                    var files = Directory.EnumerateFiles(saveDirectory, "*.*", SearchOption.AllDirectories).ToList();
+                    foreach (var targetPath in files)
+                    {
+                        string ext = Path.GetExtension(targetPath).ToLowerInvariant();
+                        if (ext is ".zip" or ".7z" or ".rar")
+                        {
+                            try
+                            {
+                                string extractDir = Path.Combine(saveDirectory, Path.GetFileNameWithoutExtension(targetPath));
+                                Directory.CreateDirectory(extractDir);
+                                await ExtractArchiveWith7zAsync(targetPath, extractDir, ct).ConfigureAwait(false);
+                                var extractedContainers = Directory.EnumerateFiles(extractDir, "*.*", SearchOption.AllDirectories)
+                                    .Where(p => p.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) ||
+                                                p.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) ||
+                                                p.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) ||
+                                                p.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase))
+                                    .ToList();
+                                if (extractedContainers.Count > 0)
+                                    downloadedPaths.AddRange(extractedContainers);
+                                else
+                                    downloadedPaths.Add(targetPath);
+                            }
+                            catch
+                            {
+                                downloadedPaths.Add(targetPath);
+                            }
+                        }
+                        else
+                        {
+                            downloadedPaths.Add(targetPath);
+                        }
+                    }
+                }
+
+                return downloadedPaths.Count > 0 ? downloadedPaths : null;
+            }
+            catch (OperationCanceledException)
+            {
+                try { proc?.Kill(entireProcessTree: true); } catch { }
+                throw;
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[RuTracker Turbo Engine] Ошибка Tier 2 libtorrent: {ex.Message}", LogLevel.Warning);
+                return null;
+            }
+            finally
+            {
+                try { peerFeederCts?.Cancel(); peerFeederCts?.Dispose(); } catch { }
+                try { if (proc != null && !proc.HasExited) proc.Kill(entireProcessTree: true); } catch { }
+                try { proc?.Dispose(); } catch { }
+                try { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true); } catch { }
+            }
+        }
+
+
 
         private static ClientEngine? _sharedTorrentEngine;
         private static readonly object _engineLock = new();
@@ -5196,9 +5723,21 @@ namespace StormSwitchBox.Services
                     MonoTorrent.Connections.EncryptionType.PlainText
                 };
 
+                int listenPort = 44860;
+                try
+                {
+                    using var testTcp = new System.Net.Sockets.TcpListener(IPAddress.Any, listenPort);
+                    testTcp.Start();
+                    testTcp.Stop();
+                }
+                catch
+                {
+                    listenPort = 0;
+                }
+
                 var listenEps = new Dictionary<string, IPEndPoint>
                 {
-                    ["ipv4"] = new IPEndPoint(IPAddress.Any, 0)
+                    ["ipv4"] = new IPEndPoint(IPAddress.Any, listenPort)
                 };
 
                 var engineSettings = new EngineSettingsBuilder
@@ -5206,18 +5745,18 @@ namespace StormSwitchBox.Services
                     CacheDirectory = sharedCacheDir,
                     AllowedEncryption = encList,
                     ListenEndPoints = listenEps,
-                    AllowPortForwarding = false,
+                    AllowPortForwarding = true,
                     AllowLocalPeerDiscovery = true,
                     UsePartialFiles = false,
-                    MaximumConnections = 400,
+                    MaximumConnections = 800,
                     MaximumDownloadRate = 0,
                     MaximumUploadRate = 0,
-                    MaximumHalfOpenConnections = 80,
-                    MaximumOpenFiles = 256,
+                    MaximumHalfOpenConnections = 150,
+                    MaximumOpenFiles = 512,
                     MaximumDiskReadRate = 0,
                     MaximumDiskWriteRate = 0,
-                    DiskCacheBytes = 64 * 1024 * 1024,
-                    DhtEndPoint = new IPEndPoint(IPAddress.Any, 0),
+                    DiskCacheBytes = 256 * 1024 * 1024,
+                    DhtEndPoint = new IPEndPoint(IPAddress.Any, listenPort),
                     AutoSaveLoadDhtCache = true,
                     AutoSaveLoadFastResume = true,
                     AutoSaveLoadMagnetLinkMetadata = true
@@ -6510,9 +7049,20 @@ namespace StormSwitchBox.Services
             // Тёплый _sharedTorrentEngine сохраняется для поддержания маршрутной таблицы DHT
         }
 
-        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _discoveredHttpPeers = new(StringComparer.OrdinalIgnoreCase);
-        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _discoveredDhtPeers = new(StringComparer.OrdinalIgnoreCase);
-        private static Task<List<string>> QueryDhtPeersViaSpiderAsync(byte[] infoHashBytes, CancellationToken ct) => Task.FromResult(_discoveredDhtPeers.Keys.ToList());
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, System.Collections.Concurrent.ConcurrentDictionary<string, byte>> _discoveredHttpPeersByHash = new(StringComparer.OrdinalIgnoreCase);
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, System.Collections.Concurrent.ConcurrentDictionary<string, byte>> _discoveredDhtPeersByHash = new(StringComparer.OrdinalIgnoreCase);
+
+        private static System.Collections.Concurrent.ConcurrentDictionary<string, byte> GetHttpPeersForHash(string hashHex) =>
+            _discoveredHttpPeersByHash.GetOrAdd(hashHex.ToUpperInvariant(), _ => new System.Collections.Concurrent.ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase));
+
+        private static System.Collections.Concurrent.ConcurrentDictionary<string, byte> GetDhtPeersForHash(string hashHex) =>
+            _discoveredDhtPeersByHash.GetOrAdd(hashHex.ToUpperInvariant(), _ => new System.Collections.Concurrent.ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase));
+
+        private static Task<List<string>> QueryDhtPeersViaSpiderAsync(byte[] infoHashBytes, CancellationToken ct)
+        {
+            string hashHex = Convert.ToHexString(infoHashBytes).ToUpperInvariant();
+            return Task.FromResult(GetDhtPeersForHash(hashHex).Keys.ToList());
+        }
         private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _topicLinksCache = new(StringComparer.OrdinalIgnoreCase);
         private static readonly string _topicCachePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "STORM SWITCH BOX", "rutracker_topic_links_cache.json");
 
@@ -6924,9 +7474,10 @@ namespace StormSwitchBox.Services
             return null;
         }
 
-        private static void ExtractCompactPeersFromBencodedData(byte[]? data, List<PeerInfo> newPeers)
+        private static void ExtractCompactPeersFromBencodedData(byte[]? data, List<PeerInfo> newPeers, string? hashHex = null)
         {
             if (data == null || data.Length == 0) return;
+            var hashDict = !string.IsNullOrEmpty(hashHex) ? GetHttpPeersForHash(hashHex) : null;
 
             // 1. IPv4 компактный список: 5:peers<len>:<6-byte entries>
             int searchOffset = 0;
@@ -6955,7 +7506,8 @@ namespace StormSwitchBox.Services
                             {
                                 var ip = new IPAddress(ipBytes);
                                 string pKey = $"{ip}:{port}";
-                                _discoveredHttpPeers.TryAdd(pKey, 0);
+                                if (hashDict != null)
+                                    hashDict.TryAdd(pKey, 0);
                                 var peer = new PeerInfo(new Uri($"ipv4://{ip}:{port}"));
                                 lock (newPeers)
                                 {
@@ -7050,14 +7602,21 @@ namespace StormSwitchBox.Services
                 var btTasks = announceTargets.Distinct().Select(async target =>
                 {
                     byte[]? data = await FetchTrackerViaHttpPipeliningAsync(target.Host, target.PathAndQuery, ct).ConfigureAwait(false);
-                    ExtractCompactPeersFromBencodedData(data, newPeers);
+                    ExtractCompactPeersFromBencodedData(data, newPeers, infoHashHex);
                 });
                 var udpTask = QueryUdpTrackersBep15Async(hashBytes, listenPort > 0 ? listenPort : 44859, ct);
                 await Task.WhenAll(Task.WhenAll(btTasks), udpTask).ConfigureAwait(false);
                 try
                 {
-                    foreach (var up in await udpTask.ConfigureAwait(false))
-                        newPeers.Add(up);
+                    var udpPeers = await udpTask.ConfigureAwait(false);
+                    lock (newPeers)
+                    {
+                        foreach (var up in udpPeers)
+                        {
+                            if (!newPeers.Any(p => p.ConnectionUri.Equals(up.ConnectionUri)))
+                                newPeers.Add(up);
+                        }
+                    }
                 }
                 catch { }
 
@@ -7066,8 +7625,10 @@ namespace StormSwitchBox.Services
                 {
                     try
                     {
-                        await manager.AddPeersAsync(newPeers.ToList()).ConfigureAwait(false);
-                        _lastSwarmTotalPeers = Math.Max(_lastSwarmTotalPeers, _discoveredHttpPeers.Count);
+                        List<PeerInfo> snapshot;
+                        lock (newPeers) snapshot = newPeers.ToList();
+                        await manager.AddPeersAsync(snapshot).ConfigureAwait(false);
+                        _lastSwarmTotalPeers = Math.Max(_lastSwarmTotalPeers, GetHttpPeersForHash(infoHashHex).Count);
                     }
                     catch { }
                 }
@@ -7095,7 +7656,7 @@ namespace StormSwitchBox.Services
                     try
                     {
                         byte[] data = await client.GetByteArrayAsync(reqUrl, ct).ConfigureAwait(false);
-                        ExtractCompactPeersFromBencodedData(data, newPeers);
+                        ExtractCompactPeersFromBencodedData(data, newPeers, infoHashHex);
                     }
                     catch { }
                 });
@@ -7104,9 +7665,12 @@ namespace StormSwitchBox.Services
                 if (newPeers.Count > 0)
                 {
                     await WaitUntilManagerAcceptsPeersAsync(manager, ct).ConfigureAwait(false);
-                    await manager.AddPeersAsync(newPeers).ConfigureAwait(false);
-                    _lastSwarmTotalPeers = Math.Max(_lastSwarmTotalPeers, _discoveredHttpPeers.Count);
-                    App.Logger?.Log($"[RuTracker HTTP Harvester] Найдено и подключено пиров/сидов: {newPeers.Count} (всего в пуле: {_discoveredHttpPeers.Count})", LogLevel.Info);
+                    List<PeerInfo> snapshotFinal;
+                    lock (newPeers) snapshotFinal = newPeers.ToList();
+                    await manager.AddPeersAsync(snapshotFinal).ConfigureAwait(false);
+                    int totalInPool = GetHttpPeersForHash(infoHashHex).Count;
+                    _lastSwarmTotalPeers = Math.Max(_lastSwarmTotalPeers, totalInPool);
+                    App.Logger?.Log($"[RuTracker HTTP Harvester] Найдено и подключено пиров/сидов: {snapshotFinal.Count} (всего в пуле: {totalInPool})", LogLevel.Info);
                 }
             }
             catch { }
