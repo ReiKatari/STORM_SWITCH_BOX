@@ -49,8 +49,8 @@ namespace StormSwitchBox.Services
         public List<NupPackageInfo> Packages { get; set; } = new();
 
         public string TitleId => Packages.FirstOrDefault(p => p.Kind == 0)?.TitleIdHex ?? Packages.FirstOrDefault()?.TitleIdHex ?? "0000000000000000";
-        public string GameTitle => Packages.FirstOrDefault(p => !string.IsNullOrEmpty(p.TitleName))?.TitleName ?? "Nintendo Switch Game";
-        public string Publisher => Packages.FirstOrDefault(p => !string.IsNullOrEmpty(p.Publisher))?.Publisher ?? "Nintendo";
+        public string GameTitle => Packages.FirstOrDefault(p => p.Kind == 0 && !string.IsNullOrEmpty(p.TitleName))?.TitleName ?? Packages.FirstOrDefault(p => !string.IsNullOrEmpty(p.TitleName))?.TitleName ?? "Nintendo Switch Game";
+        public string Publisher => Packages.FirstOrDefault(p => p.Kind == 0 && !string.IsNullOrEmpty(p.Publisher))?.Publisher ?? Packages.FirstOrDefault(p => !string.IsNullOrEmpty(p.Publisher))?.Publisher ?? "Nintendo";
         public string DisplayVersion
         {
             get
@@ -59,10 +59,10 @@ namespace StormSwitchBox.Services
                 if (upd != null && !string.IsNullOrEmpty(upd.DisplayVersion)) return upd.DisplayVersion;
                 var basePkg = Packages.FirstOrDefault(p => p.Kind == 0);
                 if (basePkg != null && !string.IsNullOrEmpty(basePkg.DisplayVersion)) return basePkg.DisplayVersion;
-                return "v0";
+                return Packages.FirstOrDefault(p => !string.IsNullOrEmpty(p.DisplayVersion))?.DisplayVersion ?? "1.0.0";
             }
         }
-        public byte[]? CoverBytes => Packages.FirstOrDefault(p => p.IconBytes != null && p.IconBytes.Length > 0)?.IconBytes;
+        public byte[]? CoverBytes => Packages.FirstOrDefault(p => p.Kind == 0 && p.IconBytes != null && p.IconBytes.Length > 64)?.IconBytes ?? Packages.FirstOrDefault(p => p.IconBytes != null && p.IconBytes.Length > 64)?.IconBytes;
 
         public string PackageBreakdown
         {
@@ -101,6 +101,32 @@ namespace StormSwitchBox.Services
         public static readonly byte[] NupMagic = new byte[] { 0x4E, 0x55, 0x50, 0x01 }; // "NUP\x01"
         public static readonly byte[] TocMagic = new byte[] { 0x54, 0x4F, 0x43, 0x01 }; // "TOC\x01"
 
+        public static byte[] SynthesizeControlNacp(string title, string publisher, string version, ulong baseTitleId)
+        {
+            byte[] nacp = new byte[0x4000];
+            byte[] titleBytes = Encoding.UTF8.GetBytes(string.IsNullOrWhiteSpace(title) ? "Nintendo Switch Game" : title);
+            byte[] pubBytes = Encoding.UTF8.GetBytes(string.IsNullOrWhiteSpace(publisher) ? "Nintendo" : publisher);
+
+            for (int i = 0; i < 16; i++)
+            {
+                int offset = i * 0x300;
+                Array.Copy(titleBytes, 0, nacp, offset, Math.Min(titleBytes.Length, 0x200));
+                Array.Copy(pubBytes, 0, nacp, offset + 0x200, Math.Min(pubBytes.Length, 0x100));
+            }
+
+            byte[] verBytes = Encoding.UTF8.GetBytes(string.IsNullOrWhiteSpace(version) ? "1.0.0" : version);
+            Array.Copy(verBytes, 0, nacp, 0x3060, Math.Min(verBytes.Length, 0x10));
+
+            ulong aocBaseId = (baseTitleId & ~0xFFFUL) + 0x1000UL;
+            BinaryPrimitives.WriteUInt64LittleEndian(nacp.AsSpan(0x3070, 8), aocBaseId);
+            BinaryPrimitives.WriteUInt64LittleEndian(nacp.AsSpan(0x3078, 8), baseTitleId);
+            BinaryPrimitives.WriteUInt64LittleEndian(nacp.AsSpan(0x3080, 8), 0x1000000UL); // SaveDataSize
+            BinaryPrimitives.WriteUInt64LittleEndian(nacp.AsSpan(0x3088, 8), 0x1000000UL); // JournalSize
+            BinaryPrimitives.WriteUInt64LittleEndian(nacp.AsSpan(0x3100, 8), baseTitleId);
+
+            return nacp;
+        }
+
         // ===== 1. Проверка NUP контейнера =====
         public static bool IsNupFile(string path)
         {
@@ -130,23 +156,42 @@ namespace StormSwitchBox.Services
                 return null;
 
             uint tocPkgCount = BinaryPrimitives.ReadUInt32LittleEndian(tocBytes.AsSpan(0x04, 4));
-            uint dirCount = BinaryPrimitives.ReadUInt32LittleEndian(tocBytes.AsSpan(0x08, 4));
-            uint fileCount = BinaryPrimitives.ReadUInt32LittleEndian(tocBytes.AsSpan(0x0C, 4));
-            uint childrenCount = BinaryPrimitives.ReadUInt32LittleEndian(tocBytes.AsSpan(0x10, 4));
-            ulong strPoolOffset = BinaryPrimitives.ReadUInt64LittleEndian(tocBytes.AsSpan(0x18, 8));
-            ulong strPoolSize = BinaryPrimitives.ReadUInt64LittleEndian(tocBytes.AsSpan(0x20, 8));
+            uint c08 = BinaryPrimitives.ReadUInt32LittleEndian(tocBytes.AsSpan(0x08, 4));
+            uint c0C = tocBytes.Length >= 0x10 ? BinaryPrimitives.ReadUInt32LittleEndian(tocBytes.AsSpan(0x0C, 4)) : 0;
+            uint c10 = tocBytes.Length >= 0x14 ? BinaryPrimitives.ReadUInt32LittleEndian(tocBytes.AsSpan(0x10, 4)) : 0;
+            ulong strPoolOffset = tocBytes.Length >= 0x20 ? BinaryPrimitives.ReadUInt64LittleEndian(tocBytes.AsSpan(0x18, 8)) : 0;
+            ulong strPoolSize = tocBytes.Length >= 0x28 ? BinaryPrimitives.ReadUInt64LittleEndian(tocBytes.AsSpan(0x20, 8)) : 0;
+
+            bool isLegacy28 = c0C > 0 &&
+                (0x28UL + (ulong)tocPkgCount * 0x40UL + (ulong)c08 * 0x18UL + (ulong)c0C * 0x50UL + (ulong)c10 * 4UL) == strPoolOffset;
+
+            int pkgOffset;
+            ulong dirCount;
+            ulong fileCount;
+
+            if (isLegacy28)
+            {
+                pkgOffset = 0x28;
+                dirCount = c08;
+                fileCount = c0C;
+            }
+            else
+            {
+                pkgOffset = 0x30;
+                dirCount = BinaryPrimitives.ReadUInt64LittleEndian(tocBytes.AsSpan(0x08, 8));
+                fileCount = BinaryPrimitives.ReadUInt64LittleEndian(tocBytes.AsSpan(0x10, 8));
+            }
 
             var info = new NupInfo
             {
                 FilePath = path,
                 FileSize = fileSize,
-                DirCount = (int)dirCount,
-                FileCount = (int)fileCount,
+                DirCount = (int)Math.Min(dirCount, int.MaxValue),
+                FileCount = (int)Math.Min(fileCount, int.MaxValue),
                 Uuid = uuid
             };
 
             // Чтение пакетов
-            int pkgOffset = 0x28;
             for (int i = 0; i < tocPkgCount && pkgOffset + 0x40 <= tocBytes.Length; i++, pkgOffset += 0x40)
             {
                 var span = tocBytes.AsSpan(pkgOffset, 0x40);
@@ -172,43 +217,71 @@ namespace StormSwitchBox.Services
                 };
 
                 // Чтение TLV метаданных пакета
-                if (metaOffset > 0 && metaSize > 0 && metaOffset + metaSize <= (ulong)tocBytes.Length)
+                if (metaOffset > 0 && metaSize > 0 && metaSize < 32 * 1024 * 1024)
                 {
-                    int metaCur = (int)metaOffset;
-                    int metaEnd = (int)(metaOffset + metaSize);
-                    while (metaCur + 8 <= metaEnd)
+                    byte[]? metaData = null;
+                    if (fs != null && metaOffset >= (ulong)tocBytes.Length && metaOffset + metaSize <= (ulong)fs.Length)
                     {
-                        ushort tag = BinaryPrimitives.ReadUInt16LittleEndian(tocBytes.AsSpan(metaCur, 2));
-                        uint len = BinaryPrimitives.ReadUInt32LittleEndian(tocBytes.AsSpan(metaCur + 4, 4));
-                        metaCur += 8;
-                        if (metaCur + len > metaEnd) break;
-
-                        byte[] val = tocBytes.AsSpan(metaCur, (int)len).ToArray();
-                        metaCur += (int)len;
-
-                        switch (tag)
+                        try
                         {
-                            case 0x0001: // NPDM
-                                pkg.NpdmBytes = val;
-                                break;
-                            case 0x0002: // NACP
-                                pkg.NacpBytes = val;
-                                break;
-                            case 0x0003: // Icon
-                                pkg.IconBytes = val;
-                                break;
-                            case 0x0004: // Display version
-                                pkg.DisplayVersion = Encoding.UTF8.GetString(val).Trim('\0');
-                                break;
-                            case 0x0005: // Title name
-                                pkg.TitleName = Encoding.UTF8.GetString(val).Trim('\0');
-                                break;
-                            case 0x0006: // Publisher
-                                pkg.Publisher = Encoding.UTF8.GetString(val).Trim('\0');
-                                break;
-                            case 0x0007: // Build ID
-                                pkg.BuildId = Convert.ToHexString(val);
-                                break;
+                            long oldPos = fs.Position;
+                            fs.Seek((long)metaOffset, SeekOrigin.Begin);
+                            byte[] buf = new byte[metaSize];
+                            fs.ReadExactly(buf, 0, (int)metaSize);
+                            fs.Seek(oldPos, SeekOrigin.Begin);
+                            metaData = buf;
+                        }
+                        catch { }
+                    }
+                    else if (metaOffset + metaSize <= (ulong)tocBytes.Length)
+                    {
+                        metaData = tocBytes.AsSpan((int)metaOffset, (int)metaSize).ToArray();
+                    }
+
+                    if (metaData != null)
+                    {
+                        int metaCur = 0;
+                        int metaEnd = metaData.Length;
+                        while (metaCur + 8 <= metaEnd)
+                        {
+                            uint tag = BinaryPrimitives.ReadUInt32LittleEndian(metaData.AsSpan(metaCur, 4));
+                            uint len = BinaryPrimitives.ReadUInt32LittleEndian(metaData.AsSpan(metaCur + 4, 4));
+                            metaCur += 8;
+                            if (metaCur + (int)len > metaEnd) break;
+
+                            byte[] val = metaData.AsSpan(metaCur, (int)len).ToArray();
+                            metaCur += (int)len;
+
+                            switch (tag)
+                            {
+                                case 0x0001: // NPDM
+                                    pkg.NpdmBytes = val;
+                                    break;
+                                case 0x0002: // NACP
+                                    pkg.NacpBytes = val;
+                                    break;
+                                case 0x0003: // Icon
+                                    if (val.Length > 64) pkg.IconBytes = val;
+                                    break;
+                                case 0x0004: // Display version
+                                    pkg.DisplayVersion = Encoding.UTF8.GetString(val).TrimEnd('\0').Trim();
+                                    break;
+                                case 0x0005: // Title name
+                                case 0x0008: // Title name (alternate tag)
+                                    string name = Encoding.UTF8.GetString(val).TrimEnd('\0').Trim();
+                                    if (!string.IsNullOrEmpty(name))
+                                    {
+                                        if (string.IsNullOrEmpty(pkg.TitleName) || tag == 0x0005)
+                                            pkg.TitleName = name;
+                                    }
+                                    break;
+                                case 0x0006: // Publisher
+                                    pkg.Publisher = Encoding.UTF8.GetString(val).TrimEnd('\0').Trim();
+                                    break;
+                                case 0x0007: // Build ID
+                                    pkg.BuildId = Convert.ToHexString(val);
+                                    break;
+                            }
                         }
                     }
                 }
@@ -217,7 +290,7 @@ namespace StormSwitchBox.Services
             }
 
             // Чтение файлов для подсчета размеров и дедупликации
-            int dirsTableOffset = 0x28 + (int)tocPkgCount * 0x40;
+            int dirsTableOffset = (isLegacy28 ? 0x28 : 0x30) + (int)tocPkgCount * 0x40;
             int filesTableOffset = dirsTableOffset + (int)dirCount * 0x18;
 
             var distinctExtents = new HashSet<ulong>();
@@ -225,7 +298,7 @@ namespace StormSwitchBox.Services
             ulong totalCompressed = 0;
 
             int curFileOffset = filesTableOffset;
-            for (int i = 0; i < fileCount && curFileOffset + 0x50 <= tocBytes.Length; i++, curFileOffset += 0x50)
+            for (int i = 0; i < (int)Math.Min(fileCount, int.MaxValue) && curFileOffset + 0x50 <= tocBytes.Length; i++, curFileOffset += 0x50)
             {
                 var span = tocBytes.AsSpan(curFileOffset, 0x50);
                 ulong size = BinaryPrimitives.ReadUInt64LittleEndian(span.Slice(0x08, 8));
@@ -255,11 +328,11 @@ namespace StormSwitchBox.Services
                         int actualLen = (int)len;
                         if (start + actualLen > tocBytes.Length) actualLen = tocBytes.Length - start;
                         if (actualLen <= 0) return string.Empty;
-                        return Encoding.UTF8.GetString(tocBytes, start, actualLen).TrimEnd(' ');
+                        return Encoding.UTF8.GetString(tocBytes, start, actualLen).TrimEnd(' ');
                     }
 
                     int scanFileOffset = filesTableOffset;
-                    for (int i = 0; i < fileCount && scanFileOffset + 0x50 <= tocBytes.Length; i++, scanFileOffset += 0x50)
+                    for (int i = 0; i < (int)Math.Min(fileCount, int.MaxValue) && scanFileOffset + 0x50 <= tocBytes.Length; i++, scanFileOffset += 0x50)
                     {
                         var span = tocBytes.AsSpan(scanFileOffset, 0x50);
                         uint nameOff = BinaryPrimitives.ReadUInt32LittleEndian(span.Slice(0x00, 4));
@@ -308,17 +381,50 @@ namespace StormSwitchBox.Services
             return info;
         }
 
-
         // ===== 2. Анализ NUP контейнера =====
-        public static NupInfo? InspectNupFile(string path) => InspectNupFileAsync(path).GetAwaiter().GetResult();
-
-        public static async Task<NupInfo?> InspectNupFileAsync(string path)
+        public static NupInfo? InspectNupFile(string path)
         {
-            if (!File.Exists(path)) return null;
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return null;
 
             try
             {
-                await using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024, useAsync: true);
+                using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 64 * 1024);
+                if (fs.Length < 0x80) return null;
+
+                byte[] superblock = new byte[0x80];
+                fs.ReadExactly(superblock, 0, 0x80);
+
+                if (!superblock.AsSpan(0, 4).SequenceEqual(NupMagic))
+                    return null;
+
+                ulong tocOffset = BinaryPrimitives.ReadUInt64LittleEndian(superblock.AsSpan(0x08, 8));
+                ulong tocSize = BinaryPrimitives.ReadUInt64LittleEndian(superblock.AsSpan(0x10, 8));
+                ulong blobOffset = BinaryPrimitives.ReadUInt64LittleEndian(superblock.AsSpan(0x38, 8));
+                ulong fileSize = BinaryPrimitives.ReadUInt64LittleEndian(superblock.AsSpan(0x40, 8));
+                byte[] uuid = superblock.AsSpan(0x50, 16).ToArray();
+
+                if (tocOffset + tocSize > (ulong)fs.Length)
+                    return null;
+
+                fs.Seek((long)tocOffset, SeekOrigin.Begin);
+                byte[] tocBytes = new byte[tocSize];
+                fs.ReadExactly(tocBytes, 0, (int)tocSize);
+
+                return ParseTocBytes(tocBytes, path, fileSize > 0 ? fileSize : (ulong)fs.Length, uuid, fs, blobOffset);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        public static async Task<NupInfo?> InspectNupFileAsync(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return null;
+
+            try
+            {
+                await using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 64 * 1024, useAsync: true);
                 if (fs.Length < 0x80) return null;
 
                 byte[] superblock = new byte[0x80];
@@ -327,14 +433,10 @@ namespace StormSwitchBox.Services
                 if (!superblock.AsSpan(0, 4).SequenceEqual(NupMagic))
                     return null;
 
-                ushort headerSize = BinaryPrimitives.ReadUInt16LittleEndian(superblock.AsSpan(0x04, 2));
-                ushort headerVersion = BinaryPrimitives.ReadUInt16LittleEndian(superblock.AsSpan(0x06, 2));
                 ulong tocOffset = BinaryPrimitives.ReadUInt64LittleEndian(superblock.AsSpan(0x08, 8));
                 ulong tocSize = BinaryPrimitives.ReadUInt64LittleEndian(superblock.AsSpan(0x10, 8));
-                byte[] tocSha256 = superblock.AsSpan(0x18, 32).ToArray();
                 ulong blobOffset = BinaryPrimitives.ReadUInt64LittleEndian(superblock.AsSpan(0x38, 8));
                 ulong fileSize = BinaryPrimitives.ReadUInt64LittleEndian(superblock.AsSpan(0x40, 8));
-                uint packageCount = BinaryPrimitives.ReadUInt32LittleEndian(superblock.AsSpan(0x48, 4));
                 byte[] uuid = superblock.AsSpan(0x50, 16).ToArray();
 
                 if (tocOffset + tocSize > (ulong)fs.Length)
@@ -594,18 +696,17 @@ namespace StormSwitchBox.Services
                 using var tocMs = new MemoryStream();
                 using var tocBw = new BinaryWriter(tocMs);
 
-                // Заголовок TOC (0x28 байт)
-                tocBw.Write(TocMagic);
-                tocBw.Write((uint)packagesToBuild.Count);
-                tocBw.Write((uint)allDirs.Count);
-                tocBw.Write((uint)allFiles.Count);
-                tocBw.Write((uint)childrenList.Count);
-                tocBw.Write((uint)0); // reserved
-                tocBw.Write((ulong)0); // str_pool_offset (0x18..0x1F)
-                tocBw.Write((ulong)0); // str_pool_size (0x20..0x27)
+                // Заголовок TOC (0x30 байт - канонический NUP v1.0)
+                tocBw.Write(TocMagic);                    // 0x00..0x03 (4B)
+                tocBw.Write((uint)packagesToBuild.Count); // 0x04..0x07 (4B)
+                tocBw.Write((ulong)allDirs.Count);        // 0x08..0x0F (8B dirCount)
+                tocBw.Write((ulong)allFiles.Count);       // 0x10..0x17 (8B fileCount)
+                tocBw.Write((ulong)0);                    // 0x18..0x1F (8B str_pool_offset)
+                tocBw.Write((ulong)0);                    // 0x20..0x27 (8B str_pool_size)
+                tocBw.Write((ulong)0);                    // 0x28..0x2F (8B reserved)
 
                 // Предварительно резервируем место под NupPackage[]
-                long packagesStartPos = tocMs.Position; // 0x28
+                long packagesStartPos = tocMs.Position; // 0x30
                 for (int i = 0; i < packagesToBuild.Count; i++)
                 {
                     tocBw.Write(new byte[0x40]);
@@ -657,17 +758,20 @@ namespace StormSwitchBox.Services
                     using var metaMs = new MemoryStream();
                     using var metaBw = new BinaryWriter(metaMs);
 
-                    void WriteTlv(ushort tag, byte[] val)
+                    void WriteTlv(uint tag, byte[] val)
                     {
                         if (val == null || val.Length == 0) return;
                         metaBw.Write(tag);
-                        metaBw.Write((ushort)0);
                         metaBw.Write((uint)val.Length);
                         metaBw.Write(val);
                     }
 
                     if (!string.IsNullOrEmpty(pkg.TitleName))
-                        WriteTlv(0x0005, Encoding.UTF8.GetBytes(pkg.TitleName));
+                    {
+                        byte[] tn = Encoding.UTF8.GetBytes(pkg.TitleName);
+                        WriteTlv(0x0005, tn);
+                        WriteTlv(0x0008, tn);
+                    }
                     if (!string.IsNullOrEmpty(pkg.Publisher))
                         WriteTlv(0x0006, Encoding.UTF8.GetBytes(pkg.Publisher));
                     if (!string.IsNullOrEmpty(pkg.DisplayVersion))
@@ -821,21 +925,138 @@ namespace StormSwitchBox.Services
 
             try
             {
-                var nupInfo = InspectNupFile(nupPath);
-                if (nupInfo != null)
+                using var fs = new FileStream(nupPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 64 * 1024);
+                if (fs.Length < 0x80) return false;
+
+                byte[] sb = new byte[0x80];
+                fs.ReadExactly(sb, 0, 0x80);
+                if (!sb.AsSpan(0, 4).SequenceEqual(NupMagic))
+                    return false;
+
+                ulong tocOffset = BinaryPrimitives.ReadUInt64LittleEndian(sb.AsSpan(0x08, 8));
+                ulong tocSize = BinaryPrimitives.ReadUInt64LittleEndian(sb.AsSpan(0x10, 8));
+                if (tocOffset + 0x30 > (ulong)fs.Length) return false;
+
+                fs.Seek((long)tocOffset, SeekOrigin.Begin);
+                byte[] tocHdr = new byte[0x30];
+                fs.ReadExactly(tocHdr, 0, 0x30);
+                if (!tocHdr.AsSpan(0, 4).SequenceEqual(TocMagic)) return false;
+
+                uint pkgCount = BinaryPrimitives.ReadUInt32LittleEndian(tocHdr.AsSpan(0x04, 4));
+                if (pkgCount == 0 || pkgCount > 256) return false;
+
+                // Dual detection for legacy 0x28 TOC
+                uint c08 = BinaryPrimitives.ReadUInt32LittleEndian(tocHdr.AsSpan(0x08, 4));
+                uint c0C = BinaryPrimitives.ReadUInt32LittleEndian(tocHdr.AsSpan(0x0C, 4));
+                uint c10 = BinaryPrimitives.ReadUInt32LittleEndian(tocHdr.AsSpan(0x10, 4));
+                ulong strPoolOff = BinaryPrimitives.ReadUInt64LittleEndian(tocHdr.AsSpan(0x18, 8));
+
+                int pkgStart = (c0C > 0 && (0x28UL + (ulong)pkgCount * 0x40UL + (ulong)c08 * 0x18UL + (ulong)c0C * 0x50UL + (ulong)c10 * 4UL) == strPoolOff)
+                    ? 0x28
+                    : 0x30;
+
+                fs.Seek((long)(tocOffset + (ulong)pkgStart), SeekOrigin.Begin);
+                byte[] pkgBytes = new byte[pkgCount * 0x40];
+                fs.ReadExactly(pkgBytes, 0, pkgBytes.Length);
+
+                var pkgs = new List<NupPackageInfo>();
+                for (int i = 0; i < pkgCount; i++)
                 {
-                    titleId = nupInfo.TitleId;
-                    titleName = nupInfo.GameTitle;
-                    displayVersion = nupInfo.DisplayVersion;
-                    iconBytes = nupInfo.CoverBytes;
+                    var span = pkgBytes.AsSpan(i * 0x40, 0x40);
+                    ulong pTid = BinaryPrimitives.ReadUInt64LittleEndian(span.Slice(0x00, 8));
+                    uint pVer = BinaryPrimitives.ReadUInt32LittleEndian(span.Slice(0x14, 4));
+                    byte pKind = span[0x18];
+                    byte pFlags = span[0x19];
+                    ulong metaOff = BinaryPrimitives.ReadUInt64LittleEndian(span.Slice(0x20, 8));
+                    ulong metaSz = BinaryPrimitives.ReadUInt64LittleEndian(span.Slice(0x28, 8));
 
-                    if (iconBytes != null && iconBytes.Length > 64)
-                        return true;
+                    var pkg = new NupPackageInfo
+                    {
+                        TitleId = pTid,
+                        Version = pVer,
+                        Kind = pKind,
+                        Flags = pFlags
+                    };
+
+                    if (metaOff > 0 && metaSz > 0 && metaSz < 32 * 1024 * 1024 && metaOff + metaSz <= (ulong)fs.Length)
+                    {
+                        byte[] metaData = new byte[metaSz];
+                        long savedPos = fs.Position;
+                        fs.Seek((long)metaOff, SeekOrigin.Begin);
+                        fs.ReadExactly(metaData, 0, (int)metaSz);
+                        fs.Seek(savedPos, SeekOrigin.Begin);
+
+                        int mCur = 0;
+                        int mEnd = metaData.Length;
+                        while (mCur + 8 <= mEnd)
+                        {
+                            uint tag = BinaryPrimitives.ReadUInt32LittleEndian(metaData.AsSpan(mCur, 4));
+                            uint len = BinaryPrimitives.ReadUInt32LittleEndian(metaData.AsSpan(mCur + 4, 4));
+                            mCur += 8;
+                            if (mCur + (int)len > mEnd) break;
+
+                            byte[] val = metaData.AsSpan(mCur, (int)len).ToArray();
+                            mCur += (int)len;
+
+                            switch (tag)
+                            {
+                                case 0x0001: pkg.NpdmBytes = val; break;
+                                case 0x0002: pkg.NacpBytes = val; break;
+                                case 0x0003: if (val.Length > 64) pkg.IconBytes = val; break;
+                                case 0x0004: pkg.DisplayVersion = Encoding.UTF8.GetString(val).TrimEnd('\0').Trim(); break;
+                                case 0x0005:
+                                case 0x0008:
+                                    string name = Encoding.UTF8.GetString(val).TrimEnd('\0').Trim();
+                                    if (!string.IsNullOrEmpty(name))
+                                    {
+                                        if (string.IsNullOrEmpty(pkg.TitleName) || tag == 0x0005)
+                                            pkg.TitleName = name;
+                                    }
+                                    break;
+                                case 0x0006: pkg.Publisher = Encoding.UTF8.GetString(val).TrimEnd('\0').Trim(); break;
+                                case 0x0007: pkg.BuildId = Convert.ToHexString(val); break;
+                            }
+                        }
+                    }
+                    pkgs.Add(pkg);
                 }
-            }
-            catch { }
 
-            return iconBytes != null && iconBytes.Length > 64;
+                var basePkg = pkgs.FirstOrDefault(p => p.Kind == 0) ?? pkgs.FirstOrDefault();
+                var updPkg = pkgs.FirstOrDefault(p => p.Kind == 1);
+
+                titleId = basePkg?.TitleIdHex ?? "0000000000000000";
+                titleName = basePkg != null && !string.IsNullOrEmpty(basePkg.TitleName)
+                    ? basePkg.TitleName
+                    : (pkgs.FirstOrDefault(p => !string.IsNullOrEmpty(p.TitleName))?.TitleName ?? Path.GetFileNameWithoutExtension(nupPath));
+                displayVersion = updPkg != null && !string.IsNullOrEmpty(updPkg.DisplayVersion)
+                    ? updPkg.DisplayVersion
+                    : (basePkg != null && !string.IsNullOrEmpty(basePkg.DisplayVersion) ? basePkg.DisplayVersion : "1.0.0");
+                iconBytes = pkgs.FirstOrDefault(p => p.Kind == 0 && p.IconBytes != null && p.IconBytes.Length > 64)?.IconBytes
+                    ?? pkgs.FirstOrDefault(p => p.IconBytes != null && p.IconBytes.Length > 64)?.IconBytes;
+
+                // Fallback to full TOC file scan only if icon was not found in TLVs
+                if (iconBytes == null || iconBytes.Length <= 64)
+                {
+                    var fullInfo = InspectNupFile(nupPath);
+                    if (fullInfo != null)
+                    {
+                        if (titleId == "0000000000000000" && !string.IsNullOrEmpty(fullInfo.TitleId))
+                            titleId = fullInfo.TitleId;
+                        if ((string.IsNullOrEmpty(titleName) || titleName == Path.GetFileNameWithoutExtension(nupPath)) && !string.IsNullOrEmpty(fullInfo.GameTitle))
+                            titleName = fullInfo.GameTitle;
+                        if ((string.IsNullOrEmpty(displayVersion) || displayVersion == "1.0.0") && !string.IsNullOrEmpty(fullInfo.DisplayVersion))
+                            displayVersion = fullInfo.DisplayVersion;
+                        if (iconBytes == null || iconBytes.Length <= 64)
+                            iconBytes = fullInfo.CoverBytes;
+                    }
+                }
+
+                return iconBytes != null && iconBytes.Length > 64;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         // ===== 4. Распаковка .nup контейнера в каталог =====
@@ -866,12 +1087,22 @@ namespace StormSwitchBox.Services
             byte[] tocBytes = new byte[tocSize];
             await fs.ReadExactlyAsync(tocBytes, 0, (int)tocSize, ct);
 
+            if (tocBytes.Length < 0x28 || !tocBytes.AsSpan(0, 4).SequenceEqual(TocMagic))
+                throw new InvalidDataException("Заголовок TOC поврежден или отсутствует!");
+
             uint packageCount = BinaryPrimitives.ReadUInt32LittleEndian(tocBytes.AsSpan(0x04, 4));
-            uint dirCount = BinaryPrimitives.ReadUInt32LittleEndian(tocBytes.AsSpan(0x08, 4));
-            uint fileCount = BinaryPrimitives.ReadUInt32LittleEndian(tocBytes.AsSpan(0x0C, 4));
-            uint childrenCount = BinaryPrimitives.ReadUInt32LittleEndian(tocBytes.AsSpan(0x10, 4));
+            uint c08 = BinaryPrimitives.ReadUInt32LittleEndian(tocBytes.AsSpan(0x08, 4));
+            uint c0C = tocBytes.Length >= 0x10 ? BinaryPrimitives.ReadUInt32LittleEndian(tocBytes.AsSpan(0x0C, 4)) : 0;
+            uint c10 = tocBytes.Length >= 0x14 ? BinaryPrimitives.ReadUInt32LittleEndian(tocBytes.AsSpan(0x10, 4)) : 0;
             ulong strPoolOffset = BinaryPrimitives.ReadUInt64LittleEndian(tocBytes.AsSpan(0x18, 8));
             ulong strPoolSize = BinaryPrimitives.ReadUInt64LittleEndian(tocBytes.AsSpan(0x20, 8));
+
+            bool isLegacy28 = c0C > 0 &&
+                (0x28UL + (ulong)packageCount * 0x40UL + (ulong)c08 * 0x18UL + (ulong)c0C * 0x50UL + (ulong)c10 * 4UL) == strPoolOffset;
+
+            int pkgStart = isLegacy28 ? 0x28 : 0x30;
+            ulong dirCount = isLegacy28 ? c08 : BinaryPrimitives.ReadUInt64LittleEndian(tocBytes.AsSpan(0x08, 8));
+            ulong fileCount = isLegacy28 ? c0C : BinaryPrimitives.ReadUInt64LittleEndian(tocBytes.AsSpan(0x10, 8));
 
             string GetString(uint off, uint len)
             {
@@ -883,9 +1114,9 @@ namespace StormSwitchBox.Services
             }
 
             // Читаем Dirs
-            int dirsTableOffset = 0x28 + (int)packageCount * 0x40;
+            int dirsTableOffset = pkgStart + (int)packageCount * 0x40;
             var dirs = new List<(uint NameOff, uint NameLen, uint FirstChild, uint ChildCount)>();
-            for (int i = 0; i < dirCount; i++)
+            for (int i = 0; i < (int)dirCount; i++)
             {
                 int off = dirsTableOffset + i * 0x18;
                 dirs.Add((
@@ -899,7 +1130,7 @@ namespace StormSwitchBox.Services
             // Читаем Files
             int filesTableOffset = dirsTableOffset + (int)dirCount * 0x18;
             var files = new List<NupFileEntry>();
-            for (int i = 0; i < fileCount; i++)
+            for (int i = 0; i < (int)fileCount; i++)
             {
                 int off = filesTableOffset + i * 0x50;
                 files.Add(new NupFileEntry
@@ -916,6 +1147,7 @@ namespace StormSwitchBox.Services
 
             // Читаем children[]
             int childrenStart = filesTableOffset + (int)fileCount * 0x50;
+            int childrenCount = (int)((strPoolOffset > (ulong)childrenStart) ? (strPoolOffset - (ulong)childrenStart) / 4 : 0);
             var children = new uint[childrenCount];
             for (int i = 0; i < childrenCount; i++)
             {
@@ -923,7 +1155,7 @@ namespace StormSwitchBox.Services
             }
 
             // Читаем пакеты и распаковываем
-            int pkgStart = 0x28;
+            var packages = new List<NupPackageInfo>();
             for (int p = 0; p < packageCount; p++)
             {
                 int pOff = pkgStart + p * 0x40;
@@ -933,6 +1165,79 @@ namespace StormSwitchBox.Services
                 uint romfsDirIdx = BinaryPrimitives.ReadUInt32LittleEndian(tocBytes.AsSpan(pOff + 16, 4));
                 uint version = BinaryPrimitives.ReadUInt32LittleEndian(tocBytes.AsSpan(pOff + 20, 4));
                 byte kind = tocBytes[pOff + 24];
+                byte flags = tocBytes[pOff + 25];
+                ulong metaOffset = BinaryPrimitives.ReadUInt64LittleEndian(tocBytes.AsSpan(pOff + 0x20, 8));
+                ulong metaSize = BinaryPrimitives.ReadUInt64LittleEndian(tocBytes.AsSpan(pOff + 0x28, 8));
+
+                var pkgInfo = new NupPackageInfo
+                {
+                    TitleId = titleId,
+                    Version = version,
+                    Kind = kind,
+                    Flags = flags,
+                    RootDirIndex = rootDirIdx,
+                    ExeFsDirIndex = exefsDirIdx,
+                    RomFsDirIndex = romfsDirIdx
+                };
+
+                // Read TLV metadata
+                if (metaOffset > 0 && metaSize > 0 && metaSize < 32 * 1024 * 1024)
+                {
+                    byte[]? metaData = null;
+                    if (metaOffset >= (ulong)tocBytes.Length && metaOffset + metaSize <= (ulong)fs.Length)
+                    {
+                        try
+                        {
+                            long curPos = fs.Position;
+                            fs.Seek((long)metaOffset, SeekOrigin.Begin);
+                            byte[] buf = new byte[metaSize];
+                            await fs.ReadExactlyAsync(buf, 0, (int)metaSize, ct);
+                            fs.Seek(curPos, SeekOrigin.Begin);
+                            metaData = buf;
+                        }
+                        catch { }
+                    }
+                    else if (metaOffset + metaSize <= (ulong)tocBytes.Length)
+                    {
+                        metaData = tocBytes.AsSpan((int)metaOffset, (int)metaSize).ToArray();
+                    }
+
+                    if (metaData != null)
+                    {
+                        int mCur = 0;
+                        int mEnd = metaData.Length;
+                        while (mCur + 8 <= mEnd)
+                        {
+                            uint tag = BinaryPrimitives.ReadUInt32LittleEndian(metaData.AsSpan(mCur, 4));
+                            uint len = BinaryPrimitives.ReadUInt32LittleEndian(metaData.AsSpan(mCur + 4, 4));
+                            mCur += 8;
+                            if (mCur + (int)len > mEnd) break;
+                            byte[] val = metaData.AsSpan(mCur, (int)len).ToArray();
+                            mCur += (int)len;
+
+                            switch (tag)
+                            {
+                                case 0x0001: pkgInfo.NpdmBytes = val; break;
+                                case 0x0002: pkgInfo.NacpBytes = val; break;
+                                case 0x0003: if (val.Length > 64) pkgInfo.IconBytes = val; break;
+                                case 0x0004: pkgInfo.DisplayVersion = Encoding.UTF8.GetString(val).TrimEnd('\0').Trim(); break;
+                                case 0x0005:
+                                case 0x0008:
+                                    string name = Encoding.UTF8.GetString(val).TrimEnd('\0').Trim();
+                                    if (!string.IsNullOrEmpty(name))
+                                    {
+                                        if (string.IsNullOrEmpty(pkgInfo.TitleName) || tag == 0x0005)
+                                            pkgInfo.TitleName = name;
+                                    }
+                                    break;
+                                case 0x0006: pkgInfo.Publisher = Encoding.UTF8.GetString(val).TrimEnd('\0').Trim(); break;
+                                case 0x0007: pkgInfo.BuildId = Convert.ToHexString(val); break;
+                            }
+                        }
+                    }
+                }
+
+                packages.Add(pkgInfo);
 
                 string pkgFolder = outputDir;
                 if (kind == 0) // Base
@@ -962,8 +1267,71 @@ namespace StormSwitchBox.Services
                         await ExtractDirRecursiveAsync(fs, blobOffset, romfsDirIdx, Path.Combine(pkgFolder, "romfs"), dirs, files, children, GetString, ct);
                 }
 
-                double pct = 10 + ((double)(p + 1) / packageCount * 85);
+                double pct = 10 + ((double)(p + 1) / packageCount * 80);
                 progress?.Report((pct, $"Распакован пакет [{p + 1}/{packageCount}]: {kind switch { 0 => "Base", 1 => "Update", 2 => "DLC", _ => "Package" }}"));
+            }
+
+            // Материализация контрольной структуры (Control RomFS) для базового пакета
+            var basePkg = packages.FirstOrDefault(p => p.Kind == 0) ?? packages.FirstOrDefault();
+            if (basePkg != null)
+            {
+                string basePkgFolder = Path.Combine(outputDir, "base");
+                string controlDir = Path.Combine(basePkgFolder, "control");
+                Directory.CreateDirectory(controlDir);
+
+                // 1. Иконка (tag 3) -> control/icon_AmericanEnglish.dat
+                byte[]? iconData = basePkg.IconBytes ?? packages.FirstOrDefault(p => p.IconBytes != null && p.IconBytes.Length > 64)?.IconBytes;
+                if (iconData != null && iconData.Length > 64)
+                {
+                    string iconTarget = Path.Combine(controlDir, "icon_AmericanEnglish.dat");
+                    await File.WriteAllBytesAsync(iconTarget, iconData, ct);
+                }
+
+                // 2. NACP (tag 2) -> control/control.nacp или синтез NACP
+                string nacpTarget = Path.Combine(controlDir, "control.nacp");
+                if (basePkg.NacpBytes != null && basePkg.NacpBytes.Length >= 0x4000)
+                {
+                    await File.WriteAllBytesAsync(nacpTarget, basePkg.NacpBytes, ct);
+                }
+                else
+                {
+                    string finalTitle = !string.IsNullOrEmpty(basePkg.TitleName)
+                        ? basePkg.TitleName
+                        : (packages.FirstOrDefault(p => !string.IsNullOrEmpty(p.TitleName))?.TitleName ?? Path.GetFileNameWithoutExtension(nupPath));
+                    string finalPub = !string.IsNullOrEmpty(basePkg.Publisher)
+                        ? basePkg.Publisher
+                        : (packages.FirstOrDefault(p => !string.IsNullOrEmpty(p.Publisher))?.Publisher ?? "Nintendo");
+                    var upd = packages.FirstOrDefault(p => p.Kind == 1);
+                    string finalVer = upd != null && !string.IsNullOrEmpty(upd.DisplayVersion)
+                        ? upd.DisplayVersion
+                        : (!string.IsNullOrEmpty(basePkg.DisplayVersion) ? basePkg.DisplayVersion : "1.0.0");
+
+                    byte[] synthNacp = SynthesizeControlNacp(finalTitle, finalPub, finalVer, basePkg.TitleId);
+                    await File.WriteAllBytesAsync(nacpTarget, synthNacp, ct);
+                }
+
+                // 3. NPDM (tag 1) -> exefs/main.npdm если отсутствует
+                if (basePkg.NpdmBytes != null && basePkg.NpdmBytes.Length > 0)
+                {
+                    string mainNpdm = Path.Combine(basePkgFolder, "exefs", "main.npdm");
+                    if (!File.Exists(mainNpdm))
+                    {
+                        Directory.CreateDirectory(Path.GetDirectoryName(mainNpdm)!);
+                        await File.WriteAllBytesAsync(mainNpdm, basePkg.NpdmBytes, ct);
+                    }
+                }
+            }
+
+            // NPDM для патчей
+            foreach (var updPkg in packages.Where(p => p.Kind == 1 && p.NpdmBytes != null && p.NpdmBytes.Length > 0))
+            {
+                string updFolder = Path.Combine(outputDir, "updates", updPkg.Version.ToString());
+                string updNpdm = Path.Combine(updFolder, "exefs", "main.npdm");
+                if (!File.Exists(updNpdm))
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(updNpdm)!);
+                    await File.WriteAllBytesAsync(updNpdm, updPkg.NpdmBytes, ct);
+                }
             }
 
             progress?.Report((100, "Распаковка .nup завершена успешно!"));

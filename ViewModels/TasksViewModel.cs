@@ -1338,7 +1338,7 @@ public partial class TasksViewModel : ObservableObject
 						if (filesInGroup.Count > 0)
 						{
 							string taskBasePath = ((group.First().Item4 == "ROOT") ? path : Path.Combine(path, group.First().Item4));
-							await AddOrUpdateTask(filesInGroup.Select(m => m.Path).ToList(), group.Key, taskBasePath, filesInGroup.FirstOrDefault(m => m.IconBytes != null).IconBytes);
+							await AddOrUpdateTask(filesInGroup.Select(m => m.Path).ToList(), group.Key, taskBasePath, filesInGroup.FirstOrDefault(m => m.IconBytes != null && m.IconBytes.Length > 64).IconBytes);
 						}
 					}
 					return;
@@ -1461,6 +1461,12 @@ public partial class TasksViewModel : ObservableObject
 
 				if (existingTask != null)
 				{
+					if (existingTask.GameIcon == null && iconBytes != null && iconBytes.Length > 64)
+					{
+						existingTask.IconBytes = iconBytes;
+						HistoryService.SaveTaskIconToCache(existingTask, iconBytes);
+					}
+
 					int added = 0;
 					foreach (string f in files)
 					{
@@ -1682,7 +1688,7 @@ public partial class TasksViewModel : ObservableObject
 						LogDetails = "Готов к обработке..." + dbLogInfo
 					};
 					targetList.Add(task);
-					if (iconBytes != null && iconBytes.Length != 0)
+					if (iconBytes != null && iconBytes.Length > 64)
 					{
 						task.IconBytes = iconBytes;
 						HistoryService.SaveTaskIconToCache(task, iconBytes);

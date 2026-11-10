@@ -12416,6 +12416,31 @@ object StormNczEngine {
         val packages: List<NupPackage>
     )
 
+    fun synthesizeNacp(title: String, publisher: String, version: String, baseTitleId: Long): ByteArray {
+        val nacp = ByteArray(0x4000)
+        val titleBytes = (if (title.isBlank()) "Nintendo Switch Game" else title).toByteArray(StandardCharsets.UTF_8)
+        val pubBytes = (if (publisher.isBlank()) "Nintendo" else publisher).toByteArray(StandardCharsets.UTF_8)
+
+        for (i in 0 until 16) {
+            val offset = i * 0x300
+            System.arraycopy(titleBytes, 0, nacp, offset, minOf(titleBytes.size, 0x200))
+            System.arraycopy(pubBytes, 0, nacp, offset + 0x200, minOf(pubBytes.size, 0x100))
+        }
+
+        val verBytes = (if (version.isBlank()) "1.0.0" else version).toByteArray(StandardCharsets.UTF_8)
+        System.arraycopy(verBytes, 0, nacp, 0x3060, minOf(verBytes.size, 0x10))
+
+        val bb = ByteBuffer.wrap(nacp).order(ByteOrder.LITTLE_ENDIAN)
+        val aocBase = (baseTitleId and 0xFFFL.inv()) + 0x1000L
+        bb.putLong(0x3070, aocBase)
+        bb.putLong(0x3078, baseTitleId)
+        bb.putLong(0x3080, 0x1000000L)
+        bb.putLong(0x3088, 0x1000000L)
+        bb.putLong(0x3100, baseTitleId)
+
+        return nacp
+    }
+
     fun inspectNupFile(file: File): NupFileInfo? {
         if (!file.exists() || !file.isFile || file.length() < 0x80) return null
         try {
@@ -12447,10 +12472,16 @@ object StormNczEngine {
 
                 val tocBb = ByteBuffer.wrap(tocBytes).order(ByteOrder.LITTLE_ENDIAN)
                 val pkgCount = tocBb.getInt(0x04)
-                val dirCount = tocBb.getInt(0x08)
-                val fileCount = tocBb.getInt(0x0C)
+                val c08 = tocBb.getInt(0x08).toLong() and 0xFFFFFFFFL
+                val c0C = tocBb.getInt(0x0C).toLong() and 0xFFFFFFFFL
+                val c10 = tocBb.getInt(0x10).toLong() and 0xFFFFFFFFL
                 val strPoolOffset = tocBb.getLong(0x18)
                 val strPoolSize = tocBb.getLong(0x20)
+
+                val isLegacy28 = (c0C > 0 && (0x28L + pkgCount.toLong() * 0x40L + c08 * 0x18L + c0C * 0x50L + c10 * 4L) == strPoolOffset)
+                val pkgStart = if (isLegacy28) 0x28 else 0x30
+                val dirCount = if (isLegacy28) c08 else tocBb.getLong(0x08)
+                val fileCount = if (isLegacy28) c0C else tocBb.getLong(0x10)
 
                 fun getString(off: Long, len: Long): String {
                     val start = (strPoolOffset + off).toInt()
@@ -12468,7 +12499,7 @@ object StormNczEngine {
                 var displayVer = "1.0.0"
                 var iconBytes: ByteArray? = null
 
-                var pkgPos = 0x28
+                var pkgPos = pkgStart
                 for (i in 0 until minOf(pkgCount, 256)) {
                     if (pkgPos + 0x40 > tocBytes.size) break
                     val pBb = ByteBuffer.wrap(tocBytes, pkgPos, 0x40).order(ByteOrder.LITTLE_ENDIAN)
@@ -12493,26 +12524,47 @@ object StormNczEngine {
                     }
 
                     // Parse package TLV metadata
-                    if (pMetaOff > 0 && pMetaSz > 0 && pMetaOff + pMetaSz <= tocBytes.size) {
-                        var mCur = pMetaOff.toInt()
-                        val mEnd = (pMetaOff + pMetaSz).toInt()
+                    var metaBytes: ByteArray? = null
+                    if (pMetaOff > 0 && pMetaSz > 0 && pMetaSz < 32 * 1024 * 1024) {
+                        if (pMetaOff + pMetaSz <= tocBytes.size) {
+                            metaBytes = tocBytes.copyOfRange(pMetaOff.toInt(), (pMetaOff + pMetaSz).toInt())
+                        } else if (pMetaOff + pMetaSz <= file.length()) {
+                            val curPos = raf.filePointer
+                            raf.seek(pMetaOff)
+                            val buf = ByteArray(pMetaSz.toInt())
+                            raf.readFully(buf)
+                            raf.seek(curPos)
+                            metaBytes = buf
+                        }
+                    }
+
+                    if (metaBytes != null) {
+                        var mCur = 0
+                        val mEnd = metaBytes.size
                         while (mCur + 8 <= mEnd) {
-                            val tag = ByteBuffer.wrap(tocBytes, mCur, 2).order(ByteOrder.LITTLE_ENDIAN).short.toInt() and 0xFFFF
-                            val len = ByteBuffer.wrap(tocBytes, mCur + 4, 4).order(ByteOrder.LITTLE_ENDIAN).int
+                            val tagBb = ByteBuffer.wrap(metaBytes, mCur, 8).order(ByteOrder.LITTLE_ENDIAN)
+                            val tag = tagBb.getInt(0)
+                            val len = tagBb.getInt(4)
                             mCur += 8
                             if (mCur + len > mEnd) break
-                            val valBytes = tocBytes.copyOfRange(mCur, mCur + len)
+                            val valBytes = metaBytes.copyOfRange(mCur, mCur + len)
                             mCur += len
 
                             when (tag) {
-                                0x0003 -> if (iconBytes == null && valBytes.isNotEmpty()) iconBytes = valBytes
+                                0x0003 -> if (iconBytes == null && valBytes.size > 64) iconBytes = valBytes
                                 0x0004 -> {
                                     val v = String(valBytes, StandardCharsets.UTF_8).trimEnd('\u0000').trim()
-                                    if (v.isNotBlank()) displayVer = v
+                                    if (v.isNotBlank()) {
+                                        if (pKind == 1 || displayVer == "1.0.0") displayVer = v
+                                    }
                                 }
-                                0x0005 -> {
+                                0x0005, 0x0008 -> {
                                     val n = String(valBytes, StandardCharsets.UTF_8).trimEnd('\u0000').trim()
-                                    if (n.isNotBlank()) titleName = n
+                                    if (n.isNotBlank()) {
+                                        if (pKind == 0 || titleName == extractCleanGameTitle(file.name)) {
+                                            titleName = n
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -12524,8 +12576,8 @@ object StormNczEngine {
 
                 // If iconBytes not found in TLV, search files table
                 if (iconBytes == null) {
-                    val dirsTableOffset = 0x28 + pkgCount * 0x40
-                    val filesTableOffset = dirsTableOffset + dirCount * 0x18
+                    val dirsTableOffset = pkgStart + pkgCount * 0x40
+                    val filesTableOffset = dirsTableOffset + dirCount.toInt() * 0x18
                     var fPos = filesTableOffset
                     for (i in 0 until minOf(fileCount, 4096)) {
                         if (fPos + 0x50 > tocBytes.size) break
@@ -12760,6 +12812,9 @@ object StormNczEngine {
         )
     }
 
+    data class NupDirEntry(val nameOff: Long, val nameLen: Long, val firstChild: Int, val childCount: Int)
+    data class NupFileEntryInternal(val nameOff: Long, val nameLen: Long, val size: Long, val extentOffset: Long, val extentSize: Long, val codec: Byte)
+
     fun extractNupToTempNspOrDir(
         nupFile: File,
         outputDir: File,
@@ -12771,27 +12826,226 @@ object StormNczEngine {
         outGameDir.mkdirs()
 
         RandomAccessFile(nupFile, "r").use { raf ->
-            val sb = ByteBuffer.allocate(0x80).order(ByteOrder.LITTLE_ENDIAN)
-            raf.readFully(sb.array())
-            sb.position(0x1C) // dataOffset
-            val dataOffset = sb.long
+            val sbBuf = ByteArray(0x80)
+            raf.readFully(sbBuf)
+            if (sbBuf[0] != 0x4E.toByte() || sbBuf[1] != 0x55.toByte() || sbBuf[2] != 0x50.toByte() || sbBuf[3] != 0x01.toByte()) {
+                throw Exception("Неверный заголовок NUP")
+            }
 
-            for ((idx, pkg) in nup.packages.withIndex()) {
-                val pct = ((idx.toFloat() / nup.packages.size) * 100).toInt()
-                onProgress?.invoke(NczProgress(nup.titleName, 1, 1, pct.toLong(), 100L, 0.0, pct, "Распаковка NUP: ${pkg.name}..."))
+            val sbBb = ByteBuffer.wrap(sbBuf).order(ByteOrder.LITTLE_ENDIAN)
+            val tocOffset = sbBb.getLong(0x08)
+            val tocSize = sbBb.getLong(0x10)
+            val blobOffset = sbBb.getLong(0x38)
 
-                val targetFile = File(outGameDir, pkg.name)
-                raf.seek(dataOffset + pkg.offset)
-                val compData = ByteArray(pkg.size.toInt())
-                raf.readFully(compData)
+            raf.seek(tocOffset)
+            val tocBytes = ByteArray(tocSize.toInt())
+            raf.readFully(tocBytes)
+            val tocBb = ByteBuffer.wrap(tocBytes).order(ByteOrder.LITTLE_ENDIAN)
 
-                try {
-                    val decompSize = Zstd.decompressedSize(compData)
-                    val decomp = ByteArray(decompSize.toInt())
-                    Zstd.decompress(decomp, compData)
-                    targetFile.writeBytes(decomp)
-                } catch (_: Exception) {
-                    targetFile.writeBytes(compData)
+            val pkgCount = tocBb.getInt(0x04)
+            val c08 = tocBb.getInt(0x08).toLong() and 0xFFFFFFFFL
+            val c0C = tocBb.getInt(0x0C).toLong() and 0xFFFFFFFFL
+            val c10 = tocBb.getInt(0x10).toLong() and 0xFFFFFFFFL
+            val strPoolOffset = tocBb.getLong(0x18)
+
+            val isLegacy28 = (c0C > 0 && (0x28L + pkgCount.toLong() * 0x40L + c08 * 0x18L + c0C * 0x50L + c10 * 4L) == strPoolOffset)
+            val pkgStart = if (isLegacy28) 0x28 else 0x30
+            val dirCount = if (isLegacy28) c08 else tocBb.getLong(0x08)
+            val fileCount = if (isLegacy28) c0C else tocBb.getLong(0x10)
+
+            fun getString(off: Long, len: Long): String {
+                val start = (strPoolOffset + off).toInt()
+                val actualLen = minOf(len.toInt(), tocBytes.size - start)
+                if (start < 0 || start >= tocBytes.size || actualLen <= 0) return ""
+                return String(tocBytes, start, actualLen, StandardCharsets.UTF_8).trimEnd('\u0000').trim()
+            }
+
+            // Читаем Dirs
+            val dirsTableOffset = pkgStart + pkgCount * 0x40
+            val dirs = ArrayList<NupDirEntry>(dirCount.toInt())
+            for (i in 0 until dirCount.toInt()) {
+                val off = dirsTableOffset + i * 0x18
+                dirs.add(NupDirEntry(
+                    tocBb.getInt(off).toLong() and 0xFFFFFFFFL,
+                    tocBb.getInt(off + 4).toLong() and 0xFFFFFFFFL,
+                    tocBb.getInt(off + 8),
+                    tocBb.getInt(off + 12)
+                ))
+            }
+
+            // Читаем Files
+            val filesTableOffset = dirsTableOffset + dirCount.toInt() * 0x18
+            val files = ArrayList<NupFileEntryInternal>(fileCount.toInt())
+            for (i in 0 until fileCount.toInt()) {
+                val off = filesTableOffset + i * 0x50
+                files.add(NupFileEntryInternal(
+                    tocBb.getInt(off).toLong() and 0xFFFFFFFFL,
+                    tocBb.getInt(off + 4).toLong() and 0xFFFFFFFFL,
+                    tocBb.getLong(off + 8),
+                    tocBb.getLong(off + 16),
+                    tocBb.getLong(off + 24),
+                    tocBytes[off + 64]
+                ))
+            }
+
+            // Читаем children[]
+            val childrenStart = filesTableOffset + fileCount.toInt() * 0x50
+            val childrenCount = if (strPoolOffset > childrenStart) ((strPoolOffset - childrenStart) / 4).toInt() else 0
+            val children = IntArray(childrenCount)
+            for (i in 0 until childrenCount) {
+                children[i] = tocBb.getInt(childrenStart + i * 4)
+            }
+
+            // Распаковываем дерево папок
+            fun extractDirRecursive(dirIdx: Int, currentOutDir: File) {
+                currentOutDir.mkdirs()
+                if (dirIdx !in dirs.indices) return
+                val d = dirs[dirIdx]
+                for (i in 0 until d.childCount) {
+                    val childIdx = d.firstChild + i
+                    if (childIdx !in children.indices) continue
+                    val childVal = children[childIdx]
+                    if (childVal < dirs.size) {
+                        val subName = getString(dirs[childVal].nameOff, dirs[childVal].nameLen)
+                        val subFolder = File(currentOutDir, if (subName.isNotBlank()) subName else "dir_$childVal")
+                        extractDirRecursive(childVal, subFolder)
+                    } else {
+                        val fileIdx = childVal - dirs.size
+                        if (fileIdx in files.indices) {
+                            val fe = files[fileIdx]
+                            val fileName = getString(fe.nameOff, fe.nameLen)
+                            val targetFile = File(currentOutDir, if (fileName.isNotBlank()) fileName else "file_$fileIdx.bin")
+                            val readOff = if (fe.extentOffset < blobOffset) (blobOffset + fe.extentOffset) else fe.extentOffset
+                            raf.seek(readOff)
+                            val compData = ByteArray(fe.extentSize.toInt())
+                            raf.readFully(compData)
+                            val fileBytes = if (fe.codec == 1.toByte()) {
+                                try {
+                                    val decompSize = Zstd.decompressedSize(compData)
+                                    val decomp = ByteArray(decompSize.toInt())
+                                    Zstd.decompress(decomp, compData)
+                                    decomp
+                                } catch (_: Exception) {
+                                    compData
+                                }
+                            } else {
+                                compData
+                            }
+                            targetFile.writeBytes(fileBytes)
+                        }
+                    }
+                }
+            }
+
+            // Читаем пакеты и распаковываем
+            class PkgDetail(val kind: Int, val tidLong: Long, val tid: String, val ver: Long, val rootDir: Int, val exeDir: Int, val romDir: Int, val metaOff: Long, val metaSz: Long)
+            val pkgDetails = mutableListOf<PkgDetail>()
+            var pIconBytes: ByteArray? = null
+            var pNacpBytes: ByteArray? = null
+            var pNpdmBytes: ByteArray? = null
+            var pTitleName: String = nup.titleName
+            var pDisplayVer: String = nup.version
+            var pPublisher: String = "Nintendo"
+            var baseTidLong: Long = 0L
+
+            for (p in 0 until pkgCount) {
+                val pOff = pkgStart + p * 0x40
+                val pTidLong = tocBb.getLong(pOff)
+                val pTid = "%016X".format(pTidLong)
+                val rootDir = tocBb.getInt(pOff + 8)
+                val exeDir = tocBb.getInt(pOff + 12)
+                val romDir = tocBb.getInt(pOff + 16)
+                val ver = tocBb.getInt(pOff + 20).toLong() and 0xFFFFFFFFL
+                val kind = tocBytes[pOff + 24].toInt() and 0xFF
+                val metaOff = tocBb.getLong(pOff + 0x20)
+                val metaSz = tocBb.getLong(pOff + 0x28)
+
+                if (kind == 0) baseTidLong = pTidLong
+
+                // Read TLV metadata
+                var metaBytes: ByteArray? = null
+                if (metaOff > 0 && metaSz > 0 && metaSz < 32 * 1024 * 1024) {
+                    if (metaOff + metaSz <= tocBytes.size) {
+                        metaBytes = tocBytes.copyOfRange(metaOff.toInt(), (metaOff + metaSz).toInt())
+                    } else if (metaOff + metaSz <= raf.length()) {
+                        val curPos = raf.filePointer
+                        raf.seek(metaOff)
+                        val buf = ByteArray(metaSz.toInt())
+                        raf.readFully(buf)
+                        raf.seek(curPos)
+                        metaBytes = buf
+                    }
+                }
+
+                if (metaBytes != null) {
+                    var mCur = 0
+                    val mEnd = metaBytes.size
+                    while (mCur + 8 <= mEnd) {
+                        val tagBb = ByteBuffer.wrap(metaBytes, mCur, 8).order(ByteOrder.LITTLE_ENDIAN)
+                        val tag = tagBb.getInt(0)
+                        val len = tagBb.getInt(4)
+                        mCur += 8
+                        if (mCur + len > mEnd) break
+                        val valBytes = metaBytes.copyOfRange(mCur, mCur + len)
+                        mCur += len
+
+                        when (tag) {
+                            0x0001 -> if (kind == 0) pNpdmBytes = valBytes
+                            0x0002 -> if (kind == 0) pNacpBytes = valBytes
+                            0x0003 -> if (pIconBytes == null && valBytes.size > 64) pIconBytes = valBytes
+                            0x0004 -> {
+                                val v = String(valBytes, StandardCharsets.UTF_8).trimEnd('\u0000').trim()
+                                if (v.isNotBlank() && (kind == 1 || pDisplayVer == "1.0.0")) pDisplayVer = v
+                            }
+                            0x0005, 0x0008 -> {
+                                val n = String(valBytes, StandardCharsets.UTF_8).trimEnd('\u0000').trim()
+                                if (n.isNotBlank() && (kind == 0 || pTitleName == extractCleanGameTitle(nupFile.name))) pTitleName = n
+                            }
+                            0x0006 -> {
+                                val pb = String(valBytes, StandardCharsets.UTF_8).trimEnd('\u0000').trim()
+                                if (pb.isNotBlank() && kind == 0) pPublisher = pb
+                            }
+                        }
+                    }
+                }
+
+                val pkgFolder = when (kind) {
+                    0 -> File(outGameDir, "base")
+                    1 -> File(File(outGameDir, "updates"), ver.toString())
+                    2 -> File(File(outGameDir, "dlc"), pTid)
+                    else -> outGameDir
+                }
+                pkgFolder.mkdirs()
+
+                if (rootDir in dirs.indices) {
+                    extractDirRecursive(rootDir, pkgFolder)
+                } else {
+                    if (exeDir in dirs.indices) extractDirRecursive(exeDir, File(pkgFolder, "exefs"))
+                    if (romDir in dirs.indices) extractDirRecursive(romDir, File(pkgFolder, "romfs"))
+                }
+
+                val pct = (((p + 1).toFloat() / pkgCount) * 85).toInt()
+                onProgress?.invoke(NczProgress(nup.titleName, 1, 1, pct.toLong(), 100L, 0.0, pct, "Распакован пакет [${p + 1}/$pkgCount]..."))
+            }
+
+            // Материализация control & metadata для базового пакета
+            val baseFolder = File(outGameDir, "base")
+            val controlDir = File(baseFolder, "control")
+            controlDir.mkdirs()
+
+            if (pIconBytes != null && pIconBytes.size > 64) {
+                File(controlDir, "icon_AmericanEnglish.dat").writeBytes(pIconBytes)
+            }
+            if (pNacpBytes != null && pNacpBytes.size >= 0x4000) {
+                File(controlDir, "control.nacp").writeBytes(pNacpBytes)
+            } else {
+                File(controlDir, "control.nacp").writeBytes(synthesizeNacp(pTitleName, pPublisher, pDisplayVer, baseTidLong))
+            }
+            if (pNpdmBytes != null && pNpdmBytes.isNotEmpty()) {
+                val mainNpdm = File(File(baseFolder, "exefs"), "main.npdm")
+                if (!mainNpdm.exists()) {
+                    mainNpdm.parentFile?.mkdirs()
+                    mainNpdm.writeBytes(pNpdmBytes)
                 }
             }
         }

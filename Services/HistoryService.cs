@@ -1,7 +1,10 @@
 using System;
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using StormSwitchBox.Models;
 
@@ -81,26 +84,54 @@ namespace StormSwitchBox.Services
             }
         }
 
-public static void SaveTaskIconToCache(ProcessingTask task, byte[]? iconBytes)
+public static string GetDeterministicSourceHash(ProcessingTask task)
         {
-            if (iconBytes == null || iconBytes.Length < 64) return;
+            string? src = task.InputFiles?.FirstOrDefault(f => !string.IsNullOrWhiteSpace(f)) ?? task.OutputFileName;
+            if (string.IsNullOrWhiteSpace(src)) return string.Empty;
+            try
+            {
+                string norm = src.Trim().ToLowerInvariant();
+                byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(norm));
+                return "src_" + Convert.ToHexString(hash)[..12].ToLowerInvariant();
+            }
+            catch
+            {
+                return string.Empty;
+            }
+        }
+
+        public static void SaveTaskIconToCache(ProcessingTask task, byte[]? iconBytes)
+        {
+            if (task == null || iconBytes == null || iconBytes.Length < 64) return;
             task.IconBytes = iconBytes;
+
+            // Set GameIcon and IconBitmap immediately on UI thread
+            App.RunOnUI(async () =>
+            {
+                try
+                {
+                    using var ms = new MemoryStream(iconBytes);
+                    var bmp = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
+                    await bmp.SetSourceAsync(ms.AsRandomAccessStream());
+                    task.GameIcon = bmp;
+                    task.IconBitmap = bmp;
+                }
+                catch { }
+            });
 
             string iconsDir = GetIconsDirectory();
             try { Directory.CreateDirectory(iconsDir); } catch { }
 
             string? titleId = ExtractTitleId(task);
-            string baseTitleId = !string.IsNullOrEmpty(titleId)
-                ? (titleId.StartsWith("0100", StringComparison.OrdinalIgnoreCase) && titleId.Length == 16
-                    ? RuTrackerModService.NormalizeSwitchBaseApplicationTitleId(titleId)
-                    : titleId)
-                : string.Empty;
+            string baseTitleId = !string.IsNullOrEmpty(titleId) ? NormalizeTitleIdIfSwitch(titleId) : string.Empty;
+            string srcHash = GetDeterministicSourceHash(task);
+            bool isGenericTaskId = !string.IsNullOrEmpty(task.Id) && Regex.IsMatch(task.Id, @"^T\d+$", RegexOptions.IgnoreCase);
 
             Task.Run(async () =>
             {
                 try
                 {
-                    if (!string.IsNullOrEmpty(task.Id))
+                    if (!string.IsNullOrEmpty(task.Id) && !isGenericTaskId)
                     {
                         await File.WriteAllBytesAsync(Path.Combine(iconsDir, $"{task.Id}.png"), iconBytes);
                     }
@@ -120,19 +151,10 @@ public static void SaveTaskIconToCache(ProcessingTask task, byte[]? iconBytes)
                             await File.WriteAllBytesAsync(Path.Combine(iconsDir, $"{safeGroupId}.png"), iconBytes);
                         }
                     }
-                }
-                catch { }
-            });
-
-            App.RunOnUI(async () =>
-            {
-                try
-                {
-                    using var ms = new MemoryStream(iconBytes);
-                    var bmp = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
-                    await bmp.SetSourceAsync(ms.AsRandomAccessStream());
-                    task.GameIcon = bmp;
-                    task.IconBitmap = bmp;
+                    if (!string.IsNullOrEmpty(srcHash))
+                    {
+                        await File.WriteAllBytesAsync(Path.Combine(iconsDir, $"{srcHash}.png"), iconBytes);
+                    }
                 }
                 catch { }
             });
@@ -220,10 +242,33 @@ public static void SaveTaskIconToCache(ProcessingTask task, byte[]? iconBytes)
 
         private static string NormalizeTitleIdIfSwitch(string tid)
         {
-            if (tid.Length == 16 && tid.StartsWith("0100", StringComparison.OrdinalIgnoreCase))
+            if (string.IsNullOrWhiteSpace(tid)) return string.Empty;
+            tid = tid.Trim();
+            if (tid.Length == 16)
             {
-                string norm = RuTrackerModService.NormalizeSwitchBaseApplicationTitleId(tid);
-                if (!string.IsNullOrEmpty(norm)) return norm;
+                if (tid.StartsWith("0100", StringComparison.OrdinalIgnoreCase))
+                {
+                    string norm = RuTrackerModService.NormalizeSwitchBaseApplicationTitleId(tid);
+                    if (!string.IsNullOrEmpty(norm)) return norm;
+                }
+                else if (tid.StartsWith("0400", StringComparison.OrdinalIgnoreCase) &&
+                         ulong.TryParse(tid, System.Globalization.NumberStyles.HexNumber, null, out ulong tidVal))
+                {
+                    ulong baseVal;
+                    if ((tidVal & 0xFFFUL) == 0x800UL)
+                    {
+                        baseVal = tidVal & ~0xFFFUL;
+                    }
+                    else if ((tidVal & 0xFFFUL) > 0UL)
+                    {
+                        baseVal = (tidVal - 0x1000UL) & ~0xFFFUL;
+                    }
+                    else
+                    {
+                        baseVal = tidVal;
+                    }
+                    return $"{baseVal:X16}";
+                }
             }
             return tid;
         }
@@ -244,18 +289,18 @@ public static void SaveTaskIconToCache(ProcessingTask task, byte[]? iconBytes)
 
             string iconsDir = GetIconsDirectory();
             string? titleId = ExtractTitleId(task);
-            string baseTitleId = !string.IsNullOrEmpty(titleId) && titleId.StartsWith("0100", StringComparison.OrdinalIgnoreCase) && titleId.Length == 16
-                ? RuTrackerModService.NormalizeSwitchBaseApplicationTitleId(titleId)
-                : (titleId ?? string.Empty);
+            string baseTitleId = !string.IsNullOrEmpty(titleId) ? NormalizeTitleIdIfSwitch(titleId) : string.Empty;
             string safeGroupId = !string.IsNullOrEmpty(task.GroupId) 
                 ? string.Join("_", task.GroupId.Split(Path.GetInvalidFileNameChars())) 
                 : "";
+            string srcHash = GetDeterministicSourceHash(task);
+            bool isGenericTaskId = !string.IsNullOrEmpty(task.Id) && Regex.IsMatch(task.Id, @"^T\d+$", RegexOptions.IgnoreCase);
 
             // 2. Список возможных путей к иконке в кэше
             var candidatePaths = new System.Collections.Generic.List<string>();
-            if (!string.IsNullOrEmpty(task.Id))
+            if (!string.IsNullOrEmpty(srcHash))
             {
-                candidatePaths.Add(Path.Combine(iconsDir, $"{task.Id}.png"));
+                candidatePaths.Add(Path.Combine(iconsDir, $"{srcHash}.png"));
             }
             if (!string.IsNullOrEmpty(titleId))
             {
@@ -278,6 +323,10 @@ public static void SaveTaskIconToCache(ProcessingTask task, byte[]? iconBytes)
             if (!string.IsNullOrEmpty(task.GroupId))
             {
                 candidatePaths.Add(Path.Combine(iconsDir, $"{task.GroupId}.png"));
+            }
+            if (!string.IsNullOrEmpty(task.Id) && !isGenericTaskId)
+            {
+                candidatePaths.Add(Path.Combine(iconsDir, $"{task.Id}.png"));
             }
 
             // Проверяем наличие в локальном кэше
@@ -332,6 +381,8 @@ public static void SaveTaskIconToCache(ProcessingTask task, byte[]? iconBytes)
                                 .Where(f => f.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) ||
                                             f.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) ||
                                             f.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) ||
+                                            f.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase) ||
+                                            f.EndsWith(".nup", StringComparison.OrdinalIgnoreCase) ||
                                             f.EndsWith(".3ds", StringComparison.OrdinalIgnoreCase) ||
                                             f.EndsWith(".cia", StringComparison.OrdinalIgnoreCase)));
                         }
