@@ -15,7 +15,7 @@ if (-not (Test-Path $assemblingDir)) { New-Item -ItemType Directory -Path $assem
 if (-not (Test-Path $filesDir)) { New-Item -ItemType Directory -Path $filesDir | Out-Null }
 if (-not (Test-Path $outputDir)) { New-Item -ItemType Directory -Path $outputDir | Out-Null }
 
-$appVersion = "7.0.11"
+$appVersion = "7.0.12"
 try {
     [xml]$appProjXml = Get-Content (Join-Path $appProjDir "StormSwitchBox.csproj")
     $verFromProj = ($appProjXml.Project.PropertyGroup | ForEach-Object { $_.Version } | Where-Object { $_ } | Select-Object -First 1)
@@ -189,10 +189,12 @@ if (-not (Test-Path $publishedInstaller)) {
 # Copy to Files and Output
 Copy-Item $publishedInstaller $setupExePath -Force
 Copy-Item $publishedInstaller $outputSetupExePath -Force
+Copy-Item $publishedInstaller (Join-Path $filesDir "STORM_SWITCH_BOX_Setup.exe") -Force
 
 # Sign Installers (strictly without version in /d for UAC compliance)
 Invoke-StormSign $setupExePath
 Invoke-StormSign $outputSetupExePath
+Invoke-StormSign (Join-Path $filesDir "STORM_SWITCH_BOX_Setup.exe")
 
 # Install certificate locally into TrustedPublisher for seamless local execution
 try {

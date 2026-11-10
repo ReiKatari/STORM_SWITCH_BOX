@@ -3113,30 +3113,34 @@ class MainActivity : Activity() {
         }
 
         // =========================================================================
-        // КАРТОЧКА: 📋 МЕНЕДЖЕР ФОНОВЫХ ЗАДАЧ ЗАГРУЗКИ И СБОРКИ
+        // КАРТОЧКА: МЕНЕДЖЕР ФОНОВЫХ ЗАДАЧ ЗАГРУЗКИ И СБОРКИ (СВОРАЧИВАЕМАЯ)
         // =========================================================================
         val taskManagerCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = makeCardDrawable(th.bgCard, th.border)
-            setPadding(dp(14), dp(12), dp(14), dp(12))
+            setPadding(dp(14), dp(10), dp(14), dp(10))
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 bottomMargin = dp(10)
             }
         }
+        var isTaskManagerExpanded = bgPipelineTasks.any { it.state == BgTaskState.RUNNING || it.state == BgTaskState.PAUSED }
         val tmHeaderRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
+            isClickable = true
+            isFocusable = true
         }
-        tmHeaderRow.addView(TextView(this).apply {
-            text = "📋 Менеджер фоновых задач загрузки и сборки"
+        val tmTitleText = TextView(this).apply {
+            text = (if (isTaskManagerExpanded) "▾ " else "▸ ") + "Менеджер фоновых задач загрузки и сборки"
             setTextColor(th.accent)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 13.5f)
             typeface = Typeface.DEFAULT_BOLD
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        })
+        }
+        tmHeaderRow.addView(tmTitleText)
         val tmBadge = TextView(this).apply {
             val activeCount = bgPipelineTasks.count { it.state == BgTaskState.RUNNING || it.state == BgTaskState.PAUSED }
-            text = if (activeCount > 0) "Активных задач: $activeCount" else "Все задачи завершены"
+            text = if (activeCount > 0) "Активных задач: $activeCount" else "Задач: ${bgPipelineTasks.size}"
             setTextColor(if (activeCount > 0) th.accent else th.textSecondary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
             typeface = Typeface.DEFAULT_BOLD
@@ -3145,8 +3149,12 @@ class MainActivity : Activity() {
         tmHeaderRow.addView(tmBadge)
         taskManagerCard.addView(tmHeaderRow)
 
-        taskManagerCard.addView(TextView(this).apply {
-            text = "Каждая загрузка выполняется в отдельном фоновом потоке. Задачи продолжают работу в фоне при закрытии окна или переключении вкладок."
+        val tmBodyWrapper = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = if (isTaskManagerExpanded) View.VISIBLE else View.GONE
+        }
+        tmBodyWrapper.addView(TextView(this).apply {
+            text = "Каждая загрузка выполняется в отдельном фоновом потоке и продолжает работу при переключении вкладок."
             setTextColor(th.textSecondary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.8f)
             setPadding(0, dp(2), 0, dp(6))
@@ -3156,7 +3164,13 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
         }
         taskManagerContainerView = tmCardsContainer
-        taskManagerCard.addView(tmCardsContainer)
+        tmBodyWrapper.addView(tmCardsContainer)
+        taskManagerCard.addView(tmBodyWrapper)
+        tmHeaderRow.setOnClickListener {
+            isTaskManagerExpanded = !isTaskManagerExpanded
+            tmBodyWrapper.visibility = if (isTaskManagerExpanded) View.VISIBLE else View.GONE
+            tmTitleText.text = (if (isTaskManagerExpanded) "▾ " else "▸ ") + "Менеджер фоновых задач загрузки и сборки"
+        }
         parent.addView(taskManagerCard)
         refreshTaskManagerUI(th)
 
@@ -3198,7 +3212,10 @@ class MainActivity : Activity() {
         }
         searchInputRow.addView(clearQueryBtn)
 
-        val showTasksBtn = makeButton("📋 Задачи", th.accent) {
+        val showTasksBtn = makeButton("Задачи", th.accent) {
+            isTaskManagerExpanded = true
+            tmBodyWrapper.visibility = View.VISIBLE
+            tmTitleText.text = "▾ Менеджер фоновых задач загрузки и сборки"
             refreshTaskManagerUI(th)
             taskManagerCard.requestFocus()
         }.apply {
@@ -3248,27 +3265,69 @@ class MainActivity : Activity() {
 
         val tagsScroll = HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
-            setPadding(0, dp(6), 0, dp(6))
+            setPadding(0, dp(6), 0, dp(4))
         }
         val tagsRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+
+        // Панель мгновенной сортировки и фильтрации RUS для списка раздач
+        var activeSortMode = 0 // 0 = По сидам, 1 = По размеру, 2 = По названию
+        var onlyRusFilter = false
+        var lastRenderedList: List<RuTrackerCloudEngine.TopicItem> = emptyList()
+        var lastRenderedQuery = ""
+        var lastIsLiveSearching = false
+
+        val sortFilterScroll = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            setPadding(0, dp(2), 0, dp(6))
+        }
+        val sortFilterRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         val resultsLayout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+
+        fun parseApproxSizeBytes(txt: String): Long {
+            val m = Regex("([\\d.,]+)\\s*(TB|GB|MB|KB|B|ТБ|ГБ|МБ|КБ|Б)", RegexOption.IGNORE_CASE).find(txt) ?: return 0L
+            val v = m.groupValues[1].replace(',', '.').toDoubleOrNull() ?: return 0L
+            return when (m.groupValues[2].uppercase()) {
+                "TB", "ТБ" -> (v * 1099511627776.0).toLong()
+                "GB", "ГБ" -> (v * 1073741824.0).toLong()
+                "MB", "МБ" -> (v * 1048576.0).toLong()
+                "KB", "КБ" -> (v * 1024.0).toLong()
+                else -> v.toLong()
+            }
+        }
 
         var searchSeq = 0
         var debounceRunnable: Runnable? = null
         var suppressWatcher = false
 
         fun renderTopicList(found: List<RuTrackerCloudEngine.TopicItem>, q: String, isLiveSearching: Boolean) {
+            lastRenderedList = found
+            lastRenderedQuery = q
+            lastIsLiveSearching = isLiveSearching
+
+            val filtered = found
+                .let { list ->
+                    if (onlyRusFilter) list.filter { it.title.contains("RUS", ignoreCase = true) || it.title.contains("РУС", ignoreCase = true) }
+                    else list
+                }
+                .let { list ->
+                    when (activeSortMode) {
+                        1 -> list.sortedWith(compareByDescending<RuTrackerCloudEngine.TopicItem> { parseApproxSizeBytes(it.sizeText) }.thenByDescending { it.seeds })
+                        2 -> list.sortedBy { StormNczEngine.extractCleanGameTitle(it.title).ifBlank { it.title }.lowercase() }
+                        else -> if (q.isBlank()) list.sortedByDescending { it.seeds } else list
+                    }
+                }
+
             resultsLayout.removeAllViews()
-            if (found.isEmpty() && !isLiveSearching) {
+            if (filtered.isEmpty() && !isLiveSearching) {
                 resultsLayout.addView(TextView(this).apply {
-                    text = "Раздачи Nintendo Switch по запросу «$q» не найдены. Проверьте название или введите часть имени игры."
+                    text = "Раздачи Nintendo Switch по запросу «$q» не найдены. Проверьте название или отключите фильтр RUS."
                     setTextColor(th.textSecondary)
-                    setPadding(0, dp(6), 0, dp(6))
+                    setPadding(0, dp(6), dp(2), dp(6))
                 })
                 return
             }
 
-            val correctionHint = RuTrackerCloudEngine.explainQueryCorrection(q, found)
+            val correctionHint = RuTrackerCloudEngine.explainQueryCorrection(q, filtered)
             if (correctionHint != null) {
                 resultsLayout.addView(TextView(this).apply {
                     text = correctionHint
@@ -3283,16 +3342,16 @@ class MainActivity : Activity() {
                 })
             }
 
-            if (q.isNotBlank() && found.isNotEmpty()) {
+            if (q.isNotBlank() && filtered.isNotEmpty()) {
                 resultsLayout.addView(TextView(this).apply {
-                    text = "📊 Найдено совпадений в каталоге Switch (11 380+ игр и раздач): ${found.size}"
+                    text = "Найдено совпадений в каталоге Switch: ${filtered.size}"
                     setTextColor(th.textSecondary)
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.2f)
                     setPadding(dp(2), dp(6), dp(2), dp(2))
                 })
             }
 
-            found.take(60).forEach { item ->
+            filtered.take(60).forEach { item ->
                 val itemBox = LinearLayout(this).apply {
                     orientation = LinearLayout.VERTICAL
                     background = makeCardDrawable(th.bgPrimary, th.border, 8)
@@ -3418,7 +3477,37 @@ class MainActivity : Activity() {
         tagsScroll.addView(tagsRow)
         rtCard.addView(tagsScroll)
 
-        rtCard.addView(makeButton("🔍 Найти раздачи в разделе Nintendo Switch", th.accent) {
+        fun rebuildSortFilterChips() {
+            sortFilterRow.removeAllViews()
+            val sortOptions = listOf(0 to "По сидам ↓", 1 to "По размеру ↓", 2 to "По названию")
+            sortOptions.forEach { (idx, label) ->
+                val selected = activeSortMode == idx
+                val btn = makeButton(label, if (selected) th.accent else th.bgElevated, if (selected) android.graphics.Color.WHITE else th.textPrimary) {
+                    activeSortMode = idx
+                    rebuildSortFilterChips()
+                    renderTopicList(lastRenderedList, lastRenderedQuery, lastIsLiveSearching)
+                }
+                btn.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    marginEnd = dp(6)
+                }
+                sortFilterRow.addView(btn)
+            }
+            val rusBtn = makeButton(
+                if (onlyRusFilter) "Только RUS ✓" else "Только RUS",
+                if (onlyRusFilter) th.accent else th.bgElevated,
+                if (onlyRusFilter) android.graphics.Color.WHITE else th.textPrimary
+            ) {
+                onlyRusFilter = !onlyRusFilter
+                rebuildSortFilterChips()
+                renderTopicList(lastRenderedList, lastRenderedQuery, lastIsLiveSearching)
+            }
+            sortFilterRow.addView(rusBtn)
+        }
+        rebuildSortFilterChips()
+        sortFilterScroll.addView(sortFilterRow)
+        rtCard.addView(sortFilterScroll)
+
+        rtCard.addView(makeButton("Найти раздачи в разделе Nintendo Switch", th.accent) {
             runSearch(queryEdit.text.toString(), immediateOnly = false)
         })
         rtCard.addView(resultsLayout)

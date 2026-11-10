@@ -26,6 +26,7 @@ namespace StormSwitchBox.Views.Dialogs
         private readonly RuTrackerModService _service = new();
         private ProcessingTask? _activeTask;
 
+        private readonly List<RuTrackerTopicItem> _allFetchedTopics = new();
         private readonly ObservableCollection<RuTrackerTopicItem> _topics = new();
         private readonly ObservableCollection<RuTrackerGameSlotItem> _gameSlots = new();
         private readonly ObservableCollection<TorrentFileSelectionItem> _torrentFiles = new();
@@ -34,8 +35,33 @@ namespace StormSwitchBox.Views.Dialogs
         private readonly ObservableCollection<RuTrackerLinkGroupBlock> _linkGroups = new();
         private readonly ObservableCollection<RuTrackerActiveDownloadItem> _activeDownloadRows = new();
         private DispatcherTimer? _uiAggregationTimer;
+        private DispatcherTimer? _instantSearchDebounceTimer;
+        private bool _isUiInitialized;
+        private bool _suppressInstantSearchWatcher;
+        private bool _suppressTopicSelectionInspect;
         private bool _suppressGroupRebuild;
         private bool _suppressSlotMergeSelection;
+
+        private string _workspaceMode = "Overview";
+        private bool _isTopicsPanelCollapsed;
+        private bool _isCloudPanelCollapsed;
+        private bool _isQueuePanelExpanded = true;
+        private int _lastObservedQueueCount;
+
+        private static readonly Microsoft.UI.Xaml.Media.SolidColorBrush BrushStageActive =
+            new(Windows.UI.Color.FromArgb(255, 2, 132, 199));
+        private static readonly Microsoft.UI.Xaml.Media.SolidColorBrush BrushStageQueue =
+            new(Windows.UI.Color.FromArgb(255, 100, 116, 139));
+        private static readonly Microsoft.UI.Xaml.Media.SolidColorBrush BrushStageDone =
+            new(Windows.UI.Color.FromArgb(255, 34, 197, 94));
+        private static readonly Microsoft.UI.Xaml.Media.SolidColorBrush BrushModeActiveBg =
+            new(Windows.UI.Color.FromArgb(255, 109, 40, 217));
+        private static readonly Microsoft.UI.Xaml.Media.SolidColorBrush BrushModeInactiveBg =
+            new(Windows.UI.Color.FromArgb(0, 0, 0, 0));
+        private static readonly Microsoft.UI.Xaml.Media.SolidColorBrush BrushModeActiveFg =
+            new(Windows.UI.Color.FromArgb(255, 248, 250, 252));
+        private static readonly Microsoft.UI.Xaml.Media.SolidColorBrush BrushModeInactiveFg =
+            new(Windows.UI.Color.FromArgb(255, 203, 213, 225));
 
         private string? _localTorrentPath;
         private string _currentTopicTitle = string.Empty;
@@ -89,6 +115,9 @@ namespace StormSwitchBox.Views.Dialogs
             _uiAggregationTimer.Tick += UiAggregationTimer_Tick;
             _uiAggregationTimer.Start();
 
+            _instantSearchDebounceTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(95) };
+            _instantSearchDebounceTimer.Tick += InstantSearchDebounceTimer_Tick;
+
             string initialFormat = !string.IsNullOrWhiteSpace(_targetTask?.TargetFormat)
                 ? _targetTask.TargetFormat
                 : (!string.IsNullOrWhiteSpace(_viewModel?.SelectedFormat) ? _viewModel.SelectedFormat : "NSP");
@@ -111,19 +140,31 @@ namespace StormSwitchBox.Views.Dialogs
             RuTrackerModService.SameOriginViewTorrentHandler = FetchViewTorrentTreeInDialogAsync;
             RuTrackerModService.SameOriginTorrentBytesHandler = FetchTorrentBytesViaSameOriginInDialogAsync;
             this.Opened += Dialog_Opened;
+            if (this.XamlRoot != null)
+            {
+                this.XamlRoot.Changed += XamlRoot_Changed;
+            }
             CloudflareWebView.Loaded += CloudflareWebView_Loaded;
 
             if (_targetTask != null)
             {
                 TargetTaskBanner.Visibility = Visibility.Visible;
-                TargetTaskBannerText.Text = $"Целевая задача: {_targetTask.GameName} ({_targetTask.SourceFormat} → {_targetTask.TargetFormat})";
-                StartFullDownloadBtn.Content = "🚀 Скачать выбранное и привязать к задаче";
+                TargetTaskBannerText.Text = $"Целевая задача: {_targetTask.GameName} ({_targetTask.SourceFormat} -> {_targetTask.TargetFormat})";
+                if (StartFullDownloadBtnText != null)
+                    StartFullDownloadBtnText.Text = "Скачать выбранное и привязать к задаче";
                 if (!string.IsNullOrWhiteSpace(_targetTask.GameName))
                 {
                     string cleanQuery = System.Text.RegularExpressions.Regex.Replace(_targetTask.GameName, @"\[.*?\]|\(.*?\)", "").Trim();
+                    _suppressInstantSearchWatcher = true;
                     SearchOrUrlBox.Text = cleanQuery;
+                    _suppressInstantSearchWatcher = false;
+                    ClearSearchBoxBtn.Visibility = string.IsNullOrEmpty(cleanQuery) ? Visibility.Collapsed : Visibility.Visible;
                 }
             }
+
+            _isUiInitialized = true;
+            UpdateDialogAdaptiveSize();
+            ApplyWorkspaceLayout();
         }
 
         private void LoadSavedSettings()
@@ -179,8 +220,397 @@ namespace StormSwitchBox.Views.Dialogs
         {
             if (e.Key == Windows.System.VirtualKey.Escape)
             {
+                if (SlotMetadataStudioOverlay.Visibility == Visibility.Visible)
+                {
+                    e.Handled = true;
+                    SlotMetadataStudioOverlay.Visibility = Visibility.Collapsed;
+                    return;
+                }
                 e.Handled = true;
                 this.Hide();
+            }
+        }
+
+        private void CloseDialogTopBtn_Click(object sender, RoutedEventArgs e)
+        {
+            this.Hide();
+        }
+
+        private void XamlRoot_Changed(XamlRoot sender, XamlRootChangedEventArgs args)
+        {
+            UpdateDialogAdaptiveSize();
+        }
+
+        private void UpdateDialogAdaptiveSize()
+        {
+            if (RootWorkspaceGrid == null || this.XamlRoot == null) return;
+            double hostW = this.XamlRoot.Size.Width;
+            double hostH = this.XamlRoot.Size.Height;
+            if (hostW > 400 && hostH > 300)
+            {
+                RootWorkspaceGrid.Width = Math.Clamp(hostW - 32.0, 960.0, 1860.0);
+                RootWorkspaceGrid.Height = Math.Clamp(hostH - 32.0, 610.0, 1020.0);
+            }
+        }
+
+        private void WorkspaceMode_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is FrameworkElement fe && fe.Tag is string mode && !string.IsNullOrWhiteSpace(mode))
+            {
+                _workspaceMode = mode;
+                if (mode == "CloudMods" && ManualCloudLinksExpander != null)
+                {
+                    ManualCloudLinksExpander.IsExpanded = true;
+                }
+                else if (mode == "Downloads")
+                {
+                    _isQueuePanelExpanded = true;
+                }
+                ApplyWorkspaceLayout();
+            }
+        }
+
+        private void ToggleTopicsPanel_Click(object sender, RoutedEventArgs e)
+        {
+            if (_workspaceMode != "Overview")
+            {
+                _workspaceMode = "Overview";
+                _isTopicsPanelCollapsed = false;
+            }
+            else
+            {
+                _isTopicsPanelCollapsed = !_isTopicsPanelCollapsed;
+            }
+            ApplyWorkspaceLayout();
+        }
+
+        private void ToggleCloudPanel_Click(object sender, RoutedEventArgs e)
+        {
+            if (_workspaceMode != "Overview")
+            {
+                _workspaceMode = "Overview";
+                _isCloudPanelCollapsed = false;
+            }
+            else
+            {
+                _isCloudPanelCollapsed = !_isCloudPanelCollapsed;
+            }
+            ApplyWorkspaceLayout();
+        }
+
+        private void ApplyWorkspaceLayout()
+        {
+            if (!_isUiInitialized || MainBentoGrid == null) return;
+
+            void StyleModeBtn(Button? btn, bool active)
+            {
+                if (btn == null) return;
+                btn.Background = active ? BrushModeActiveBg : BrushModeInactiveBg;
+                btn.Foreground = active ? BrushModeActiveFg : BrushModeInactiveFg;
+            }
+
+            StyleModeBtn(ModeOverviewBtn, _workspaceMode == "Overview");
+            StyleModeBtn(ModeGamesFilesBtn, _workspaceMode == "GamesFiles");
+            StyleModeBtn(ModeCloudModsBtn, _workspaceMode == "CloudMods");
+            StyleModeBtn(ModeDownloadsBtn, _workspaceMode == "Downloads");
+
+            if (_workspaceMode == "Downloads")
+            {
+                MainBentoGrid.Visibility = Visibility.Collapsed;
+                WorkspaceBentoRow.Height = new GridLength(0);
+                QueuePanelRow.Height = new GridLength(1, GridUnitType.Star);
+                QueueListRowDef.Height = new GridLength(1, GridUnitType.Star);
+                ActiveDownloadsScrollViewer.Visibility = Visibility.Visible;
+                ActiveDownloadsItemsControl.MaxHeight = 2000;
+                ToggleQueueExpandIcon.Glyph = "\uE70E";
+                RestoreTopicsBtn.Visibility = Visibility.Collapsed;
+                RestoreCloudBtn.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            MainBentoGrid.Visibility = Visibility.Visible;
+            WorkspaceBentoRow.Height = new GridLength(1, GridUnitType.Star);
+            QueuePanelRow.Height = GridLength.Auto;
+            QueueListRowDef.Height = GridLength.Auto;
+            ActiveDownloadsItemsControl.MaxHeight = 132;
+            SyncQueueVisibilityState();
+
+            if (_workspaceMode == "GamesFiles")
+            {
+                // 50% / 50% на всю высоту: Игры и части слева, Файлы в раздаче справа
+                TopicsCardBorder.Visibility = Visibility.Collapsed;
+                CloudCardBorder.Visibility = Visibility.Collapsed;
+                GameSlotsCardBorder.Visibility = Visibility.Visible;
+                TorrentFilesCardBorder.Visibility = Visibility.Visible;
+
+                BentoTopicsCol.Width = new GridLength(0);
+                BentoCenterCol.Width = new GridLength(1.0, GridUnitType.Star);
+                BentoCloudCol.Width = new GridLength(1.08, GridUnitType.Star);
+
+                BentoUpperRow.Height = new GridLength(1.0, GridUnitType.Star);
+                BentoLowerRow.Height = new GridLength(0);
+
+                Grid.SetRow(GameSlotsCardBorder, 0);
+                Grid.SetRowSpan(GameSlotsCardBorder, 2);
+                Grid.SetColumn(GameSlotsCardBorder, 1);
+
+                Grid.SetRow(TorrentFilesCardBorder, 0);
+                Grid.SetRowSpan(TorrentFilesCardBorder, 2);
+                Grid.SetColumn(TorrentFilesCardBorder, 2);
+
+                RestoreTopicsBtn.Visibility = Visibility.Collapsed;
+                RestoreCloudBtn.Visibility = Visibility.Collapsed;
+            }
+            else if (_workspaceMode == "CloudMods")
+            {
+                // Фокус на слотах игр слева и облачных ссылках / параметрах сборки справа
+                TopicsCardBorder.Visibility = Visibility.Collapsed;
+                TorrentFilesCardBorder.Visibility = Visibility.Collapsed;
+                GameSlotsCardBorder.Visibility = Visibility.Visible;
+                CloudCardBorder.Visibility = Visibility.Visible;
+
+                BentoTopicsCol.Width = new GridLength(0);
+                BentoCenterCol.Width = new GridLength(1.05, GridUnitType.Star);
+                BentoCloudCol.Width = new GridLength(1.05, GridUnitType.Star);
+
+                BentoUpperRow.Height = new GridLength(1.0, GridUnitType.Star);
+                BentoLowerRow.Height = new GridLength(0);
+
+                Grid.SetRow(GameSlotsCardBorder, 0);
+                Grid.SetRowSpan(GameSlotsCardBorder, 2);
+                Grid.SetColumn(GameSlotsCardBorder, 1);
+
+                Grid.SetRow(CloudCardBorder, 0);
+                Grid.SetRowSpan(CloudCardBorder, 2);
+                Grid.SetColumn(CloudCardBorder, 2);
+
+                RestoreTopicsBtn.Visibility = Visibility.Collapsed;
+                RestoreCloudBtn.Visibility = Visibility.Collapsed;
+            }
+            else
+            {
+                // Overview: Асимметричная Bento-сетка с полноразмерным списком раздач слева
+                TopicsCardBorder.Visibility = _isTopicsPanelCollapsed ? Visibility.Collapsed : Visibility.Visible;
+                CloudCardBorder.Visibility = _isCloudPanelCollapsed ? Visibility.Collapsed : Visibility.Visible;
+                GameSlotsCardBorder.Visibility = Visibility.Visible;
+                TorrentFilesCardBorder.Visibility = Visibility.Visible;
+
+                BentoTopicsCol.Width = _isTopicsPanelCollapsed ? new GridLength(0) : new GridLength(0.82, GridUnitType.Star);
+                BentoCenterCol.Width = new GridLength(1.48, GridUnitType.Star);
+                BentoCloudCol.Width = _isCloudPanelCollapsed ? new GridLength(0) : new GridLength(0.92, GridUnitType.Star);
+
+                BentoUpperRow.Height = new GridLength(0.96, GridUnitType.Star);
+                BentoLowerRow.Height = new GridLength(1.14, GridUnitType.Star);
+
+                Grid.SetRow(TopicsCardBorder, 0);
+                Grid.SetRowSpan(TopicsCardBorder, 2);
+                Grid.SetColumn(TopicsCardBorder, 0);
+
+                Grid.SetRow(GameSlotsCardBorder, 0);
+                Grid.SetRowSpan(GameSlotsCardBorder, 1);
+                Grid.SetColumn(GameSlotsCardBorder, 1);
+
+                Grid.SetRow(TorrentFilesCardBorder, 1);
+                Grid.SetRowSpan(TorrentFilesCardBorder, 1);
+                Grid.SetColumn(TorrentFilesCardBorder, 1);
+
+                Grid.SetRow(CloudCardBorder, 0);
+                Grid.SetRowSpan(CloudCardBorder, 2);
+                Grid.SetColumn(CloudCardBorder, 2);
+
+                RestoreTopicsBtn.Visibility = _isTopicsPanelCollapsed ? Visibility.Visible : Visibility.Collapsed;
+                RestoreCloudBtn.Visibility = _isCloudPanelCollapsed ? Visibility.Visible : Visibility.Collapsed;
+            }
+        }
+
+        private void SyncQueueVisibilityState()
+        {
+            if (ActiveDownloadsScrollViewer == null) return;
+            int queueCount = RuTrackerDownloadQueueService.Instance.Items.Count;
+            if (_workspaceMode == "Downloads")
+            {
+                ActiveDownloadsScrollViewer.Visibility = Visibility.Visible;
+                ToggleQueueExpandIcon.Glyph = "\uE70E";
+                return;
+            }
+
+            bool showList = queueCount > 0 && _isQueuePanelExpanded;
+            ActiveDownloadsScrollViewer.Visibility = showList ? Visibility.Visible : Visibility.Collapsed;
+            ToggleQueueExpandIcon.Glyph = showList ? "\uE70E" : "\uE70D";
+            ToggleQueueExpandText.Text = queueCount > 0
+                ? (showList ? $"Свернуть ({queueCount})" : $"Очередь ({queueCount})")
+                : "Очередь";
+        }
+
+        private void ToggleQueueExpand_Click(object sender, RoutedEventArgs e)
+        {
+            if (_workspaceMode == "Downloads")
+            {
+                _workspaceMode = "Overview";
+                _isQueuePanelExpanded = false;
+                ApplyWorkspaceLayout();
+                return;
+            }
+
+            if (RuTrackerDownloadQueueService.Instance.Items.Count == 0)
+            {
+                _workspaceMode = "Downloads";
+                ApplyWorkspaceLayout();
+                return;
+            }
+
+            _isQueuePanelExpanded = !_isQueuePanelExpanded;
+            SyncQueueVisibilityState();
+        }
+
+        private void ForumSectionCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (!_isUiInitialized) return;
+            RefreshInstantTopics(SearchOrUrlBox?.Text ?? string.Empty, autoSelectFirst: false);
+        }
+
+        private void SearchOrUrlBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (!_isUiInitialized || _suppressInstantSearchWatcher) return;
+            string text = SearchOrUrlBox.Text ?? string.Empty;
+            ClearSearchBoxBtn.Visibility = string.IsNullOrEmpty(text) ? Visibility.Collapsed : Visibility.Visible;
+
+            if (text.StartsWith("magnet:?", StringComparison.OrdinalIgnoreCase) ||
+                text.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                text.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            _instantSearchDebounceTimer?.Stop();
+            _instantSearchDebounceTimer?.Start();
+        }
+
+        private void InstantSearchDebounceTimer_Tick(object? sender, object e)
+        {
+            _instantSearchDebounceTimer?.Stop();
+            RefreshInstantTopics(SearchOrUrlBox?.Text ?? string.Empty, autoSelectFirst: false);
+        }
+
+        private void ClearSearchBoxBtn_Click(object sender, RoutedEventArgs e)
+        {
+            _suppressInstantSearchWatcher = true;
+            SearchOrUrlBox.Text = string.Empty;
+            _suppressInstantSearchWatcher = false;
+            ClearSearchBoxBtn.Visibility = Visibility.Collapsed;
+            RefreshInstantTopics(string.Empty, autoSelectFirst: false);
+            SearchOrUrlBox.Focus(FocusState.Programmatic);
+        }
+
+        private void QuickPresetQuery_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not FrameworkElement fe) return;
+            string preset = fe.Tag?.ToString() ?? string.Empty;
+            _suppressInstantSearchWatcher = true;
+            SearchOrUrlBox.Text = preset;
+            _suppressInstantSearchWatcher = false;
+            ClearSearchBoxBtn.Visibility = string.IsNullOrEmpty(preset) ? Visibility.Collapsed : Visibility.Visible;
+            if (_workspaceMode != "Overview" || _isTopicsPanelCollapsed)
+            {
+                _workspaceMode = "Overview";
+                _isTopicsPanelCollapsed = false;
+                ApplyWorkspaceLayout();
+            }
+            RefreshInstantTopics(preset, autoSelectFirst: false);
+        }
+
+        private void TopicLocalFilterBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (!_isUiInitialized) return;
+            ApplyTopicFilterAndSort(autoSelectFirst: false);
+        }
+
+        private void TopicSortCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (!_isUiInitialized) return;
+            ApplyTopicFilterAndSort(autoSelectFirst: false);
+        }
+
+        private void RefreshInstantTopics(string query, bool autoSelectFirst)
+        {
+            try
+            {
+                string catFilter = ForumSectionCombo?.SelectedIndex switch
+                {
+                    1 => "SWITCH",
+                    2 => "3DS",
+                    _ => "ALL"
+                };
+
+                var instant = _service.SearchTopicsInstant(query, catFilter, 80);
+                _allFetchedTopics.Clear();
+                _allFetchedTopics.AddRange(instant);
+                ApplyTopicFilterAndSort(autoSelectFirst);
+
+                if (string.IsNullOrWhiteSpace(query))
+                {
+                    StatusText.Text = $"Популярные раздачи каталога Switch ({_topics.Count}). Начните вводить название игры для мгновенного поиска.";
+                }
+                else
+                {
+                    StatusText.Text = _topics.Count > 0
+                        ? $"Мгновенный поиск «{query.Trim()}»: найдено {_topics.Count} раздач. Выберите тему слева или нажмите Enter для сетевого обновления."
+                        : $"В локальном индексе «{query.Trim()}» не найдено — нажмите «Найти и открыть» для живого запроса к RuTracker.";
+                }
+            }
+            catch { }
+        }
+
+        private void ApplyTopicFilterAndSort(bool autoSelectFirst)
+        {
+            if (TopicsListView == null) return;
+            string? prevSelectedTid = (TopicsListView.SelectedItem as RuTrackerTopicItem)?.TopicId;
+
+            string localFilter = TopicLocalFilterBox?.Text?.Trim() ?? string.Empty;
+            IEnumerable<RuTrackerTopicItem> query = _allFetchedTopics;
+
+            if (!string.IsNullOrEmpty(localFilter))
+            {
+                var tokens = localFilter.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                query = query.Where(t => tokens.All(tok =>
+                    (t.Title?.Contains(tok, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                    (t.TopicId?.Contains(tok, StringComparison.OrdinalIgnoreCase) ?? false)));
+            }
+
+            int sortMode = TopicSortCombo?.SelectedIndex ?? 0;
+            var finalItems = sortMode switch
+            {
+                1 => query.OrderByDescending(t => t.EffectiveSizeBytes).ThenByDescending(t => t.Seeds).ToList(),
+                2 => query.OrderBy(t => t.CleanTitleDisplay, StringComparer.OrdinalIgnoreCase).ThenByDescending(t => t.Seeds).ToList(),
+                _ => string.IsNullOrWhiteSpace(SearchOrUrlBox?.Text)
+                    ? query.OrderByDescending(t => t.Seeds).ToList()
+                    : query.ToList()
+            };
+
+            _suppressTopicSelectionInspect = !autoSelectFirst;
+            try
+            {
+                _topics.Clear();
+                foreach (var item in finalItems)
+                    _topics.Add(item);
+
+                if (TopicsCountText != null)
+                    TopicsCountText.Text = $"{_topics.Count} тем";
+
+                if (autoSelectFirst && _topics.Count > 0)
+                {
+                    TopicsListView.SelectedIndex = 0;
+                }
+                else if (!string.IsNullOrEmpty(prevSelectedTid))
+                {
+                    var keep = _topics.FirstOrDefault(x => x.TopicId == prevSelectedTid);
+                    if (keep != null)
+                        TopicsListView.SelectedItem = keep;
+                }
+            }
+            finally
+            {
+                _suppressTopicSelectionInspect = false;
             }
         }
 
@@ -337,17 +767,29 @@ namespace StormSwitchBox.Views.Dialogs
                     _ => "ALL"
                 };
 
-                StatusText.Text = "Выполняется поиск раздач Nintendo Switch / 3DS на RuTracker...";
+                StatusText.Text = "Выполняется сетевой поиск раздач на RuTracker...";
+                var instantHits = _service.SearchTopicsInstant(input, catFilter, 80);
+                if (instantHits.Count > 0)
+                {
+                    _allFetchedTopics.Clear();
+                    _allFetchedTopics.AddRange(instantHits);
+                    ApplyTopicFilterAndSort(autoSelectFirst: false);
+                }
+
                 var results = await _service.SearchTopicsAsync(input, catFilter, CancellationToken.None);
 
-                _topics.Clear();
-                foreach (var r in results)
-                    _topics.Add(r);
+                _allFetchedTopics.Clear();
+                _allFetchedTopics.AddRange(results);
+                ApplyTopicFilterAndSort(autoSelectFirst: true);
 
-                TopicsCountText.Text = $"{_topics.Count} тем";
                 if (_topics.Count > 0)
                 {
-                    TopicsListView.SelectedIndex = 0;
+                    if (_workspaceMode != "Overview" || _isTopicsPanelCollapsed)
+                    {
+                        _workspaceMode = "Overview";
+                        _isTopicsPanelCollapsed = false;
+                        ApplyWorkspaceLayout();
+                    }
                     StatusText.Text = $"Найдено раздач: {_topics.Count}. Выберите раздачу слева для просмотра файлов и модов.";
                 }
                 else
@@ -367,6 +809,8 @@ namespace StormSwitchBox.Views.Dialogs
 
         private async void TopicsListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
+            if (_suppressTopicSelectionInspect)
+                return;
             if (TopicsListView.SelectedItem is not RuTrackerTopicItem topic)
                 return;
 
@@ -429,11 +873,11 @@ namespace StormSwitchBox.Views.Dialogs
 
                 if (entries.Count > 1 || (entries.Count == 1 && entries[0].CategoryBadge != "MAGNET"))
                 {
-                    StatusText.Text = $"Раздача готова: {entries.Count} файлов в .torrent. Отметьте нужные файлы или скачайте всю раздачу.";
+                    StatusText.Text = $"Раздача готова: {entries.Count} файлов в .torrent ({_gameSlots.Count} игр/частей). Отметьте нужные файлы или скачайте раздачу.";
                 }
                 else if (!string.IsNullOrEmpty(topic.MagnetUri))
                 {
-                    TorrentFilesHeader.Text = $"🧲 Magnet-разрешение активно ({topic.SizeText}) — файлы будут получены через DHT/P2P";
+                    TorrentFilesHeader.Text = $"Magnet-разрешение активно ({topic.SizeText}) — файлы будут получены через DHT и P2P";
                     StatusText.Text = "Раздача готова к загрузке по Magnet (без авторизации через публичный API хешей RuTracker).";
                 }
                 else
@@ -458,7 +902,7 @@ namespace StormSwitchBox.Views.Dialogs
                 entry.PropertyChanged += OnItemSelectionChangedForUnlocker;
                 _torrentFiles.Add(entry);
             }
-            TorrentFilesHeader.Text = $"📦 Файлы в раздаче ({entries.Count} шт.)";
+            TorrentFilesHeader.Text = $"Файлы в раздаче ({entries.Count} шт.)";
             UpdateDlcUnlockerAutoState();
             RebuildFileAndLinkGroups();
         }
@@ -496,11 +940,46 @@ namespace StormSwitchBox.Views.Dialogs
 
         private void GlobalSlotFormatCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
+            if (!_isUiInitialized) return;
             string fmt = GetDefaultTargetFormat();
             foreach (var slot in _gameSlots)
             {
                 slot.TargetFormat = fmt;
             }
+        }
+
+        private void ToggleSingleSlotDetails_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is FrameworkElement fe && fe.Tag is RuTrackerGameSlotItem slot)
+            {
+                slot.IsDetailsExpanded = !slot.IsDetailsExpanded;
+                SyncSlotCompactHeaderButton();
+            }
+        }
+
+        private void ToggleAllSlotsCompact_Click(object sender, RoutedEventArgs e)
+        {
+            bool anyExpanded = _gameSlots.Any(s => s.IsDetailsExpanded);
+            bool nextState = !anyExpanded;
+            foreach (var s in _gameSlots)
+                s.IsDetailsExpanded = nextState;
+            SyncSlotCompactHeaderButton();
+        }
+
+        private void ApplyAdaptiveSlotExpansion()
+        {
+            bool expandByDefault = _gameSlots.Count <= 2;
+            foreach (var s in _gameSlots)
+                s.IsDetailsExpanded = expandByDefault;
+            SyncSlotCompactHeaderButton();
+        }
+
+        private void SyncSlotCompactHeaderButton()
+        {
+            if (ToggleAllSlotsCompactIcon == null || ToggleAllSlotsCompactText == null) return;
+            bool anyExpanded = _gameSlots.Any(s => s.IsDetailsExpanded);
+            ToggleAllSlotsCompactIcon.Glyph = anyExpanded ? "\uE70E" : "\uE70D";
+            ToggleAllSlotsCompactText.Text = anyExpanded ? "Компактно" : "Поля NACP";
         }
 
         private void InitializeDefaultGameSlot(string title)
@@ -541,6 +1020,7 @@ namespace StormSwitchBox.Views.Dialogs
                 slot.PropertyChanged += (_, _) => UpdateGameSlotsSummary();
                 _gameSlots.Add(slot);
             }
+            ApplyAdaptiveSlotExpansion();
             RefreshGameSlotTargetOptions();
             UpdateGameSlotsSummary();
         }
@@ -620,6 +1100,7 @@ namespace StormSwitchBox.Views.Dialogs
                 l.TargetGameSlot = 1;
             _suppressGroupRebuild = false;
 
+            ApplyAdaptiveSlotExpansion();
             RefreshGameSlotTargetOptions();
             UpdateGameSlotsSummary();
         }
@@ -1641,10 +2122,21 @@ namespace StormSwitchBox.Views.Dialogs
             {
                 int slotNum = grp.Key;
                 var slotObj = _gameSlots.FirstOrDefault(s => s.SlotNumber == slotNum);
-                string badge = slotNum <= 0 ? "📦 ОБЩИЕ ФАЙЛЫ" : $"🎮 ИГРА #{slotNum}";
+                string badge = slotNum <= 0 ? "ОБЩИЕ ФАЙЛЫ" : $"ИГРА #{slotNum}";
                 string title = slotNum <= 0
                     ? "Для всех частей раздачи"
                     : (!string.IsNullOrWhiteSpace(slotObj?.GameTitle) ? slotObj!.GameTitle : $"Игра #{slotNum}");
+
+                string fileFilter = TorrentFileFilterBox?.Text?.Trim() ?? string.Empty;
+                var visibleGrpFiles = string.IsNullOrEmpty(fileFilter)
+                    ? grp.ToList()
+                    : grp.Where(x =>
+                        (x.DisplayPath?.Contains(fileFilter, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                        (x.RelativePath?.Contains(fileFilter, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                        (x.CategoryBadge?.Contains(fileFilter, StringComparison.OrdinalIgnoreCase) ?? false)).ToList();
+
+                if (visibleGrpFiles.Count == 0 && !string.IsNullOrEmpty(fileFilter))
+                    continue;
 
                 long totalBytes = grp.Sum(x => Math.Max(0L, x.SizeBytes));
                 long selBytes = grp.Where(x => x.IsSelected).Sum(x => Math.Max(0L, x.SizeBytes));
@@ -1662,7 +2154,7 @@ namespace StormSwitchBox.Views.Dialogs
                     GroupTitle = title,
                     GroupSummary = summary
                 };
-                foreach (var fileItem in grp)
+                foreach (var fileItem in visibleGrpFiles)
                     block.Files.Add(fileItem);
                 newFileGroups.Add(block);
             }
@@ -1691,7 +2183,7 @@ namespace StormSwitchBox.Views.Dialogs
 
             if (TorrentFilesHeader != null && _torrentFiles.Count > 0 && (_torrentFiles.Count > 1 || _torrentFiles[0].CategoryBadge != "MAGNET"))
             {
-                TorrentFilesHeader.Text = $"📦 Файлы в раздаче ({_torrentFiles.Count} шт. • блоками по играм: {_fileGroups.Count})";
+                TorrentFilesHeader.Text = $"Файлы в раздаче ({_torrentFiles.Count} шт. • игр: {_fileGroups.Count})";
             }
 
             // 2. Формируем блоки ссылок из темы и обсуждений по играм
@@ -1705,7 +2197,7 @@ namespace StormSwitchBox.Views.Dialogs
             {
                 int slotNum = grp.Key;
                 var slotObj = _gameSlots.FirstOrDefault(s => s.SlotNumber == slotNum);
-                string badge = slotNum <= 0 ? "🌐 ОБЩИЕ ССЫЛКИ" : $"🎮 ИГРА #{slotNum}";
+                string badge = slotNum <= 0 ? "ОБЩИЕ ССЫЛКИ" : $"ИГРА #{slotNum}";
                 string title = slotNum <= 0
                     ? "Применяются ко всем выбранным играм"
                     : (!string.IsNullOrWhiteSpace(slotObj?.GameTitle) ? slotObj!.GameTitle : $"Игра #{slotNum}");
@@ -1744,6 +2236,11 @@ namespace StormSwitchBox.Views.Dialogs
                 foreach (var g in newLinkGroups)
                     _linkGroups.Add(g);
             }
+
+            if (EmptyLinksHintBorder != null)
+                EmptyLinksHintBorder.Visibility = _linkGroups.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            if (RestoreCloudBtnText != null)
+                RestoreCloudBtnText.Text = _discussionLinks.Count > 0 ? $"Ссылки ({_discussionLinks.Count})" : "Ссылки и сборка";
         }
 
         private void OnItemSelectionChangedForUnlocker(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -1769,7 +2266,7 @@ namespace StormSwitchBox.Views.Dialogs
         {
             int total = _discussionLinks.Count;
             int selected = _discussionLinks.Count(x => x.IsSelected);
-            ModLinksHintText.Text = $"Ссылок в теме и обсуждениях: {total} (выбрано: {selected})";
+            ModLinksHintText.Text = total > 0 ? $"Ссылок: {total} (выбр. {selected})" : "Ссылок: 0";
         }
 
         private void UpdateDlcUnlockerAutoState()
@@ -1812,20 +2309,64 @@ namespace StormSwitchBox.Views.Dialogs
             CloudModLinksBox.Text = string.Join(Environment.NewLine, existing);
         }
 
+        private void TorrentFileFilterBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (!_isUiInitialized) return;
+            RebuildFileAndLinkGroups();
+        }
+
         private void SelectAllFiles_Click(object sender, RoutedEventArgs e)
         {
+            _suppressGroupRebuild = true;
             foreach (var f in _torrentFiles)
                 f.IsSelected = true;
+            _suppressGroupRebuild = false;
+            UpdateDlcUnlockerAutoState();
+            EnrichGameSlotsFromFilesAndTitleDb();
+            UpdateGameSlotsSummary();
+        }
+
+        private void DeselectAllFiles_Click(object sender, RoutedEventArgs e)
+        {
+            _suppressGroupRebuild = true;
+            foreach (var f in _torrentFiles)
+                f.IsSelected = false;
+            _suppressGroupRebuild = false;
+            UpdateDlcUnlockerAutoState();
+            UpdateGameSlotsSummary();
+        }
+
+        private void ToggleFileGroupSelection_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not FrameworkElement fe || fe.Tag is not RuTrackerFileGroupBlock groupBlock)
+                return;
+
+            var targetFiles = _torrentFiles.Where(f => f.TargetGameSlot == groupBlock.SlotNumber).ToList();
+            if (targetFiles.Count == 0) return;
+
+            bool selectNext = targetFiles.Any(f => !f.IsSelected);
+            _suppressGroupRebuild = true;
+            foreach (var f in targetFiles)
+                f.IsSelected = selectNext;
+            _suppressGroupRebuild = false;
+            UpdateDlcUnlockerAutoState();
+            EnrichGameSlotsFromFilesAndTitleDb();
+            UpdateGameSlotsSummary();
         }
 
         private void SelectOnlyUpdatesAndMods_Click(object sender, RoutedEventArgs e)
         {
+            _suppressGroupRebuild = true;
             foreach (var f in _torrentFiles)
             {
                 f.IsSelected = f.CategoryBadge.Contains("ОБНОВЛЕНИЕ", StringComparison.OrdinalIgnoreCase) ||
                                f.CategoryBadge.Contains("DLC", StringComparison.OrdinalIgnoreCase) ||
                                f.CategoryBadge.Contains("МОД", StringComparison.OrdinalIgnoreCase);
             }
+            _suppressGroupRebuild = false;
+            UpdateDlcUnlockerAutoState();
+            EnrichGameSlotsFromFilesAndTitleDb();
+            UpdateGameSlotsSummary();
         }
 
         private void OpenTopicInBrowser_Click(object sender, RoutedEventArgs e)
@@ -1847,14 +2388,16 @@ namespace StormSwitchBox.Views.Dialogs
             if (_activeTask.IsPaused)
             {
                 _activeTask.Resume();
-                PauseResumeDownloadBtn.Content = "⏸ Пауза";
+                if (PauseResumeDownloadBtnIcon != null) PauseResumeDownloadBtnIcon.Glyph = "\uE769";
+                if (PauseResumeDownloadBtnText != null) PauseResumeDownloadBtnText.Text = "Пауза";
                 StatusText.Text = "Возобновление загрузки...";
             }
             else
             {
                 _activeTask.Pause();
-                PauseResumeDownloadBtn.Content = "▶️ Продолжить";
-                StatusText.Text = "⏸ Загрузка приостановлена (Пауза)";
+                if (PauseResumeDownloadBtnIcon != null) PauseResumeDownloadBtnIcon.Glyph = "\uE768";
+                if (PauseResumeDownloadBtnText != null) PauseResumeDownloadBtnText.Text = "Продолжить";
+                StatusText.Text = "Загрузка приостановлена (пауза).";
                 SpeedPeersText.Text = string.Empty;
             }
         }
@@ -3243,11 +3786,21 @@ namespace StormSwitchBox.Views.Dialogs
         private void Dialog_Opened(ContentDialog sender, ContentDialogOpenedEventArgs args)
         {
             _visualTreeReadyTcs.TrySetResult(true);
-            if (RuTrackerDownloadQueueService.Instance.Items.Count > 0)
+            UpdateDialogAdaptiveSize();
+
+            int initialQueue = RuTrackerDownloadQueueService.Instance.Items.Count;
+            _lastObservedQueueCount = initialQueue;
+            if (initialQueue > 0)
             {
-                ActiveDownloadsScrollViewer.Visibility = Visibility.Visible;
                 DownloadProgressBar.Visibility = Visibility.Collapsed;
             }
+            SyncQueueVisibilityState();
+
+            if (_topics.Count == 0)
+            {
+                RefreshInstantTopics(SearchOrUrlBox?.Text ?? string.Empty, autoSelectFirst: _targetTask != null);
+            }
+
             if (!_warmupStartedInDialog)
             {
                 _warmupStartedInDialog = true;
@@ -4010,19 +4563,27 @@ namespace StormSwitchBox.Views.Dialogs
 
         private void ApplyLocalization()
         {
-            this.Title = App.Localization.TranslateText("🌐 RuTracker и облачный загрузчик игр, патчей и модов (Nintendo Switch)");
-            this.CloseButtonText = App.Localization.TranslateText("Закрыть");
-            if (StartFullDownloadBtn != null && _targetTask != null)
+            if (DialogHeaderTitleText != null)
+                DialogHeaderTitleText.Text = App.Localization.TranslateText("RuTracker и облачный загрузчик игр, патчей и модов");
+            if (StartFullDownloadBtnText != null)
             {
-                StartFullDownloadBtn.Content = App.Localization.TranslateText("🚀 Скачать выбранное и привязать к задаче");
+                StartFullDownloadBtnText.Text = App.Localization.TranslateText(
+                    _targetTask != null
+                        ? "Скачать выбранное и привязать к задаче"
+                        : "Скачать раздачу с модами и создать задачи");
             }
         }
 
         private void Dialog_Closed(ContentDialog sender, ContentDialogClosedEventArgs args)
         {
+            _instantSearchDebounceTimer?.Stop();
+            _uiAggregationTimer?.Stop();
+            if (this.XamlRoot != null)
+            {
+                this.XamlRoot.Changed -= XamlRoot_Changed;
+            }
             App.Localization.UnregisterRoot(this);
             if (_langHandler != null) App.Localization.LanguageChanged -= _langHandler;
-            App.Localization.UnregisterRoot(this);
             if (ActiveInstance == this)
             {
                 ActiveInstance = null;
@@ -4035,37 +4596,54 @@ namespace StormSwitchBox.Views.Dialogs
             // ВАЖНО: Не отменяем _downloadCts и не глушим сервис!
             // Задача продолжает выполняться в главном задачнике TasksViewModel.Tasks!
         }
+
         public void UpdateHeaderSummary(int inList, int downloading, int inQueue, int finished, double totalSpeedBps, int maxSeeds, int maxPeers)
         {
-            ActiveDownloadsScrollViewer.Visibility = Visibility.Visible;
+            if (_lastObservedQueueCount == 0 && inList > 0)
+            {
+                _isQueuePanelExpanded = true;
+            }
+            _lastObservedQueueCount = inList;
+
             DownloadProgressBar.Visibility = Visibility.Collapsed;
+            SyncQueueVisibilityState();
+
+            if (ModeDownloadsBtnText != null)
+            {
+                ModeDownloadsBtnText.Text = inList > 0 ? $"Закачки ({inList})" : "Закачки";
+            }
 
             if (downloading > 0)
             {
                 StageBadgeText.Text = App.Localization.TranslateText($"АКТИВНО ({downloading})");
-                StageBadgeBorder.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 2, 132, 199)); // #0284C7
+                StageBadgeBorder.Background = BrushStageActive;
             }
             else if (inQueue > 0)
             {
                 StageBadgeText.Text = App.Localization.TranslateText($"В ОЧЕРЕДИ ({inQueue})");
-                StageBadgeBorder.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 100, 116, 139)); // #64748B
+                StageBadgeBorder.Background = BrushStageQueue;
             }
             else if (finished > 0)
             {
                 StageBadgeText.Text = App.Localization.TranslateText("ГОТОВО");
-                StageBadgeBorder.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 34, 197, 94)); // #22C55E
+                StageBadgeBorder.Background = BrushStageDone;
             }
             else
             {
                 StageBadgeText.Text = App.Localization.TranslateText("ГОТОВ К РАБОТЕ");
-                StageBadgeBorder.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 2, 132, 199));
+                StageBadgeBorder.Background = BrushStageActive;
             }
 
-            StatusText.Text = App.Localization.TranslateText($"В списке: {inList} • Качается: {downloading} • В очереди: {inQueue} • Готово: {finished}");
+            if (QueueSummaryText != null)
+            {
+                QueueSummaryText.Text = inList > 0
+                    ? App.Localization.TranslateText($"В списке: {inList} • Качается: {downloading} • В очереди: {inQueue} • Готово: {finished}")
+                    : App.Localization.TranslateText("Активных закачек нет");
+            }
 
             if (totalSpeedBps > 1024)
             {
-                SpeedPeersText.Text = App.Localization.TranslateText($"Скорость скачивания: {totalSpeedBps / (1024.0 * 1024.0):F2} МБ/с | Сиды: {maxSeeds} • Пиры: {maxPeers}");
+                SpeedPeersText.Text = App.Localization.TranslateText($"Скорость: {totalSpeedBps / (1024.0 * 1024.0):F2} МБ/с | Сиды: {maxSeeds} • Пиры: {maxPeers}");
             }
             else if (downloading > 0)
             {

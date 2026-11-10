@@ -27,6 +27,7 @@ namespace StormSwitchBox.Services
         public string Title { get; set; } = string.Empty;
         public string Category { get; set; } = string.Empty;
         public string SizeText { get; set; } = string.Empty;
+        public long SizeBytes { get; set; }
         public int Seeds { get; set; }
         public int Leechers { get; set; }
         public string TopicUrl { get; set; } = string.Empty;
@@ -35,6 +36,42 @@ namespace StormSwitchBox.Services
         public string DirectTorrentUrl { get; set; } = string.Empty;
         public string PosterUrl { get; set; } = string.Empty;
         public List<CloudModLinkItem> ExtractedModLinks { get; set; } = new();
+
+        public string CleanTitleDisplay
+        {
+            get
+            {
+                string clean = RuTrackerModService.ExtractCleanGameTitleFromFilePath(Title);
+                return !string.IsNullOrWhiteSpace(clean) ? clean : Title;
+            }
+        }
+
+        public bool HasRusTag =>
+            Title.Contains("RUS", StringComparison.OrdinalIgnoreCase) ||
+            Title.Contains("РУС", StringComparison.OrdinalIgnoreCase);
+
+        public Microsoft.UI.Xaml.Visibility RusBadgeVisibility =>
+            HasRusTag ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
+
+        public long EffectiveSizeBytes
+        {
+            get
+            {
+                if (SizeBytes > 0) return SizeBytes;
+                if (string.IsNullOrWhiteSpace(SizeText)) return 0L;
+                var m = Regex.Match(SizeText.Replace(',', '.'), @"([\d.]+)\s*(TB|GB|MB|KB|B|ТБ|ГБ|МБ|КБ|Б)", RegexOptions.IgnoreCase);
+                if (!m.Success || !double.TryParse(m.Groups[1].Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double v))
+                    return 0L;
+                return m.Groups[2].Value.ToUpperInvariant() switch
+                {
+                    "TB" or "ТБ" => (long)(v * 1099511627776.0),
+                    "GB" or "ГБ" => (long)(v * 1073741824.0),
+                    "MB" or "МБ" => (long)(v * 1048576.0),
+                    "KB" or "КБ" => (long)(v * 1024.0),
+                    _ => (long)v
+                };
+            }
+        }
     }
 
     public sealed class GameSlotTargetOption
@@ -291,6 +328,30 @@ namespace StormSwitchBox.Services
 
         public bool HasBadges => BadgeRus || Badge60Fps || BadgeMod || BadgeAllDlc || !string.IsNullOrWhiteSpace(CustomBadgeText);
 
+        private bool _isDetailsExpanded = true;
+        public bool IsDetailsExpanded
+        {
+            get => _isDetailsExpanded;
+            set
+            {
+                if (SetProperty(ref _isDetailsExpanded, value))
+                {
+                    OnPropertyChanged(nameof(DetailsVisibility));
+                    OnPropertyChanged(nameof(ExpandChevronGlyph));
+                    OnPropertyChanged(nameof(ExpandDetailsTooltip));
+                }
+            }
+        }
+
+        public Microsoft.UI.Xaml.Visibility DetailsVisibility =>
+            _isDetailsExpanded ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
+
+        public string ExpandChevronGlyph => _isDetailsExpanded ? "\uE70E" : "\uE70D";
+
+        public string ExpandDetailsTooltip => _isDetailsExpanded
+            ? "Свернуть дополнительные поля NACP и ссылок"
+            : "Развернуть поля внутренних имён NACP, издателя и индивидуальных ссылок";
+
         public bool HasCustomMetadata =>
             IsUserEditedMetadata ||
             (CustomIconBytes != null && CustomIconBytes.Length > 0) ||
@@ -298,7 +359,7 @@ namespace StormSwitchBox.Services
             HasBadges ||
             !string.IsNullOrWhiteSpace(CustomAudioWavPath);
 
-        public string MetadataStudioButtonText => HasCustomMetadata ? "🎨 Студия NACP ✓" : "🎨 Студия NACP";
+        public string MetadataStudioButtonText => HasCustomMetadata ? "Студия NACP ✓" : "Студия NACP";
 
         public void SetEnrichedMetadataSilently(string titleId, string version, string engTitle, string rusTitle, string publisher, byte[]? iconBytes)
         {
@@ -508,7 +569,7 @@ namespace StormSwitchBox.Services
         private string _groupBadge = string.Empty;
         public string GroupBadge
         {
-            get => !string.IsNullOrEmpty(_groupBadge) ? _groupBadge : (SlotNumber > 0 ? $"🎮 ИГРА #{SlotNumber}" : "📦 ОБЩИЕ ФАЙЛЫ");
+            get => !string.IsNullOrEmpty(_groupBadge) ? _groupBadge : (SlotNumber > 0 ? $"ИГРА #{SlotNumber}" : "ОБЩИЕ ФАЙЛЫ");
             set => SetProperty(ref _groupBadge, value);
         }
         public string BlockBadge => GroupBadge;
@@ -562,7 +623,7 @@ namespace StormSwitchBox.Services
         private string _groupBadge = string.Empty;
         public string GroupBadge
         {
-            get => !string.IsNullOrEmpty(_groupBadge) ? _groupBadge : (SlotNumber > 0 ? $"🎮 ИГРА #{SlotNumber}" : "🌐 ОБЩИЕ ССЫЛКИ");
+            get => !string.IsNullOrEmpty(_groupBadge) ? _groupBadge : (SlotNumber > 0 ? $"ИГРА #{SlotNumber}" : "ОБЩИЕ ССЫЛКИ");
             set => SetProperty(ref _groupBadge, value);
         }
         public string BlockBadge => GroupBadge;
@@ -627,7 +688,7 @@ namespace StormSwitchBox.Services
         public string PublishedDate { get; set; } = "25.10.2026 14:30";
         public string SourceLocation { get; set; } = "Шапка темы";
         public string RoleCategory { get; set; } = "МОД / РУСИФИКАТОР";
-        public string DisplayMeta => $"📅 {PublishedDate} • {SourceLocation}";
+        public string DisplayMeta => $"{PublishedDate} • {SourceLocation}";
     }
 
     public sealed class TorrentDownloadProgress
@@ -1644,6 +1705,28 @@ namespace StormSwitchBox.Services
             catch { }
         }
         #endregion
+        public List<RuTrackerTopicItem> SearchTopicsInstant(string query, string categoryFilter = "ALL", int limit = 80)
+        {
+            EnsureIndexLoaded();
+            string mirror = NormalizeMirrorUrl(App.Settings.Current.RuTrackerMirror);
+            string cleanQ = query?.Trim() ?? string.Empty;
+
+            var topicIdMatch = Regex.Match(cleanQ, @"(?:t=|viewtopic\.php\?t=|^)(\d{5,8})$");
+            if (topicIdMatch.Success)
+            {
+                string directTid = topicIdMatch.Groups[1].Value;
+                lock (_indexLock)
+                {
+                    if (_topicsById.TryGetValue(directTid, out var indexedTopic))
+                    {
+                        return new List<RuTrackerTopicItem> { BuildTopicItem(indexedTopic, mirror) };
+                    }
+                }
+            }
+
+            return SearchIndex(cleanQ, categoryFilter, mirror, limit);
+        }
+
         public async Task<List<RuTrackerTopicItem>> SearchTopicsAsync(string query, string categoryFilter, CancellationToken ct)
         {
             EnsureIndexLoaded();
@@ -1886,6 +1969,7 @@ namespace StormSwitchBox.Services
                 Title = title,
                 Category = "Nintendo Switch",
                 SizeText = sizeText,
+                SizeBytes = t.SizeBytes,
                 Seeds = t.Seeds,
                 Leechers = Math.Max(1, t.Seeds / 8),
                 TopicUrl = $"{mirror}/forum/viewtopic.php?t={t.TopicId}",
