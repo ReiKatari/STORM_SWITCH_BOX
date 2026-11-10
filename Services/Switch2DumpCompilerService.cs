@@ -24,14 +24,101 @@ namespace StormSwitchBox.Services
         public int DlcCount => DlcFolders.Count;
         public byte[]? CoverBytes { get; set; }
         public string CompositionDescription { get; set; } = string.Empty;
-        public string DisplayVersion => !string.IsNullOrEmpty(MaxUpdateVersion) ? $"v{MaxUpdateVersion}" : "v0";
+        public string DisplayVersion => Switch2DumpHelper.DetectDisplayVersion(BaseDir, UpdateDir, MaxUpdateVersion);
     }
 
     public static class Switch2DumpHelper
     {
-                public static string GenerateCanonicalSwitch2Name(Switch2DumpInfo sw2Info)
+                public static string DetectDisplayVersion(string baseDir, string? updateDir, string maxUpdateVersion)
         {
-            string baseVer = "1.0.0";
+            // 1) Check <updateDir>/control/control.nacp then <baseDir>/control/control.nacp
+            var nacpPaths = new List<string>();
+            if (!string.IsNullOrEmpty(updateDir))
+            {
+                nacpPaths.Add(Path.Combine(updateDir, "control", "control.nacp"));
+            }
+            if (!string.IsNullOrEmpty(baseDir))
+            {
+                nacpPaths.Add(Path.Combine(baseDir, "control", "control.nacp"));
+            }
+
+            foreach (var path in nacpPaths)
+            {
+                if (File.Exists(path))
+                {
+                    try
+                    {
+                        using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                        if (fs.Length >= 0x3070)
+                        {
+                            fs.Seek(0x3060, SeekOrigin.Begin);
+                            byte[] buf = new byte[16];
+                            int read = fs.Read(buf, 0, 16);
+                            if (read == 16)
+                            {
+                                string ver = Encoding.UTF8.GetString(buf).TrimEnd('\0').Trim();
+                                if (!string.IsNullOrEmpty(ver)) return ver;
+                            }
+                        }
+                    }
+                    catch { }
+                }
+            }
+
+            // 2) Check <updateDir>/romfs/System/AddressTable and <updateDir>/romfs/GameData (or <baseDir>/romfs/...)
+            var regex = new Regex(@"Product\.(\d{3,4})\.", RegexOptions.IgnoreCase);
+            var dirs = new List<string>();
+            if (!string.IsNullOrEmpty(updateDir))
+            {
+                dirs.Add(Path.Combine(updateDir, "romfs", "System", "AddressTable"));
+                dirs.Add(Path.Combine(updateDir, "romfs", "GameData"));
+            }
+            if (!string.IsNullOrEmpty(baseDir))
+            {
+                dirs.Add(Path.Combine(baseDir, "romfs", "System", "AddressTable"));
+                dirs.Add(Path.Combine(baseDir, "romfs", "GameData"));
+            }
+
+            foreach (var dir in dirs)
+            {
+                if (Directory.Exists(dir))
+                {
+                    try
+                    {
+                        foreach (var filePath in Directory.EnumerateFiles(dir))
+                        {
+                            string fileName = Path.GetFileName(filePath);
+                            var m = regex.Match(fileName);
+                            if (m.Success)
+                            {
+                                string digits = m.Groups[1].Value;
+                                if (digits.Length == 3)
+                                {
+                                    return $"{digits[0]}.{digits[1]}.{digits[2]}";
+                                }
+                                if (digits.Length == 4)
+                                {
+                                    return $"{digits[0]}.{digits[1]}.{digits.Substring(2)}";
+                                }
+                            }
+                        }
+                    }
+                    catch { }
+                }
+            }
+
+            // 3) Fallback
+            if (string.IsNullOrEmpty(maxUpdateVersion)) return "1.0.0";
+            if (int.TryParse(maxUpdateVersion, out int vNum) && vNum >= 65536)
+            {
+                return $"1.0.{vNum / 65536}";
+            }
+            return "1.0.0";
+        }
+
+        public static string GenerateCanonicalSwitch2Name(Switch2DumpInfo sw2Info)
+        {
+            string baseVer = DetectDisplayVersion(sw2Info.BaseDir, sw2Info.UpdateDir, sw2Info.MaxUpdateVersion);
             string versionPart = !string.IsNullOrEmpty(sw2Info.MaxUpdateVersion)
                 ? $"{baseVer} - {sw2Info.MaxUpdateVersion} - {sw2Info.TitleId}"
                 : $"{baseVer} - {sw2Info.TitleId}";
@@ -292,11 +379,13 @@ namespace StormSwitchBox.Services
             var dlcFolders = new List<string>();
             if (Directory.Exists(dlcDir))
             {
-                foreach (var d in Directory.GetDirectories(dlcDir))
+                foreach (var d in Directory.GetDirectories(dlcDir).OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
                 {
                     try
                     {
-                        if (Directory.EnumerateFileSystemEntries(d).Any())
+                        bool hasRealFiles = Directory.EnumerateFiles(d, "*", SearchOption.AllDirectories)
+                            .Any(f => !Path.GetFileName(f).Equals(".listing", StringComparison.OrdinalIgnoreCase));
+                        if (hasRealFiles)
                         {
                             dlcFolders.Add(d);
                         }
@@ -317,7 +406,45 @@ namespace StormSwitchBox.Services
             compDesc += "]";
 
             string cleanName = CleanGameTitle(Path.GetFileName(targetDir));
-            byte[]? cover = await FetchCoverAsync(cleanName);
+            byte[]? cover = null;
+            var iconDirs = new[]
+            {
+                Path.Combine(targetDir, "control"),
+                Path.Combine(baseDir, "control"),
+                Path.Combine(targetDir, "basedata", "control")
+            };
+            foreach (var cDir in iconDirs)
+            {
+                if (cover != null) break;
+                if (Directory.Exists(cDir))
+                {
+                    var iconFile = Directory.GetFiles(cDir, "icon_*.dat").FirstOrDefault();
+                    if (iconFile != null && File.Exists(iconFile) && new FileInfo(iconFile).Length > 64)
+                    {
+                        try { cover = File.ReadAllBytes(iconFile); } catch { }
+                    }
+                }
+            }
+            if (cover == null)
+            {
+                var imgCandidates = new[]
+                {
+                    Path.Combine(targetDir, "icon.jpg"), Path.Combine(targetDir, "icon.png"),
+                    Path.Combine(targetDir, "cover.jpg"), Path.Combine(targetDir, "cover.png"),
+                    Path.Combine(baseDir, "icon.jpg"), Path.Combine(baseDir, "icon.png")
+                };
+                foreach (var img in imgCandidates)
+                {
+                    if (File.Exists(img) && new FileInfo(img).Length > 64)
+                    {
+                        try { cover = File.ReadAllBytes(img); break; } catch { }
+                    }
+                }
+            }
+            if (cover == null)
+            {
+                cover = await FetchCoverAsync(cleanName);
+            }
 
             return new Switch2DumpInfo
             {
@@ -487,8 +614,14 @@ namespace StormSwitchBox.Services
                 string rusTitle = !string.IsNullOrWhiteSpace(customMeta?.TitleNameRussian) ? customMeta.TitleNameRussian : engTitle;
                 string pubName = !string.IsNullOrWhiteSpace(customMeta?.Publisher) ? customMeta.Publisher : "Nintendo";
 
+                bool isSwitch2 = sw2Info.TitleId.StartsWith("0400", StringComparison.OrdinalIgnoreCase);
+                string baseExeFs = Path.Combine(sw2Info.BaseDir, "exefs");
+                string? updExeFs = sw2Info.UpdateDir != null ? Path.Combine(sw2Info.UpdateDir, "exefs") : null;
+                uint sdkAddonVersion = DetectSdkAddonVersion(!string.IsNullOrEmpty(updExeFs) && Directory.Exists(updExeFs) ? updExeFs : baseExeFs, isSwitch2);
+
                 string ctrlNcaPath = Path.Combine(tempWorkDir, "control.nca");
-                BuildControlNca(sw2Info.TitleId, engTitle, pubName, sw2Info.MaxUpdateVersion.Length > 0 ? $"v{sw2Info.MaxUpdateVersion}" : "1.0.0", iconBytes, ctrlNcaPath, rusTitle);
+                string displayVer = DetectDisplayVersion(sw2Info.BaseDir, sw2Info.UpdateDir, sw2Info.MaxUpdateVersion);
+                BuildControlNca(sw2Info.TitleId, engTitle, pubName, displayVer, iconBytes, ctrlNcaPath, rusTitle, sdkAddonVersion);
 
                 byte[] ctrlSha = ComputeSha256(ctrlNcaPath);
                 string ctrlHex = BitConverter.ToString(ctrlSha, 0, 16).Replace("-", "").ToLowerInvariant();
@@ -505,15 +638,13 @@ namespace StormSwitchBox.Services
                 });
 
                 string progNcaPath = Path.Combine(tempWorkDir, "program.nca");
-                string baseExeFs = Path.Combine(sw2Info.BaseDir, "exefs");
-                string? updExeFs = sw2Info.UpdateDir != null ? Path.Combine(sw2Info.UpdateDir, "exefs") : null;
                 string baseRomFs = Path.Combine(sw2Info.BaseDir, "romfs");
                 string? updRomFs = sw2Info.UpdateDir != null ? Path.Combine(sw2Info.UpdateDir, "romfs") : null;
 
                 BuildProgramNca(sw2Info.TitleId, baseExeFs, updExeFs, baseRomFs, updRomFs, progNcaPath, p =>
                 {
                     App.RunOnUI(() => { task.Progress = 35 + (p * 0.35); });
-                }, ct);
+                }, ct, sdkAddonVersion, normalizeAcidForLegacySwitch1: false);
 
                 byte[] progSha = ComputeSha256(progNcaPath);
                 string progHex = BitConverter.ToString(progSha, 0, 16).Replace("-", "").ToLowerInvariant();
@@ -530,12 +661,119 @@ namespace StormSwitchBox.Services
                 });
 
                 string metaNcaPath = Path.Combine(tempWorkDir, "meta.nca");
-                BuildMetaCnmtNca(sw2Info.TitleId, sw2Info.MaxUpdateVersion.Length > 0 ? sw2Info.MaxUpdateVersion : "0", progSha, progSha.Take(16).ToArray(), progSize, ctrlSha, ctrlSha.Take(16).ToArray(), ctrlSize, metaNcaPath);
+                BuildMetaCnmtNca(sw2Info.TitleId, sw2Info.MaxUpdateVersion.Length > 0 ? sw2Info.MaxUpdateVersion : "0", progSha, progSha.Take(16).ToArray(), progSize, ctrlSha, ctrlSha.Take(16).ToArray(), ctrlSize, metaNcaPath, sdkAddonVersion);
 
                 byte[] metaSha = ComputeSha256(metaNcaPath);
                 string metaHex = BitConverter.ToString(metaSha, 0, 16).Replace("-", "").ToLowerInvariant();
                 string finalMetaNcaPath = Path.Combine(tempWorkDir, $"{metaHex}.cnmt.nca");
                 File.Move(metaNcaPath, finalMetaNcaPath, true);
+
+                var ncaFiles = new List<string> { finalMetaNcaPath, finalCtrlNcaPath, finalProgNcaPath };
+
+                // 3b. DLC Packaging
+                if (sw2Info.DlcFolders.Count > 0)
+                {
+                    ulong baseTidVal = Convert.ToUInt64(sw2Info.TitleId, 16);
+                    int dlcIdx = 0;
+                    foreach (var dlcDir in sw2Info.DlcFolders.OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
+                    {
+                        dlcIdx++;
+                        App.RunOnUI(() =>
+                        {
+                            task.Progress = 75 + (int)((double)dlcIdx / sw2Info.DlcFolders.Count * 9);
+                            task.Status = $"Сборка DLC {dlcIdx}/{sw2Info.DlcFolders.Count}...";
+                            task.LogDetails += $"[DLC {dlcIdx}/{sw2Info.DlcFolders.Count}] Сборка Data NCA и AddOnContent CNMT...\n";
+                        });
+
+                        // 1. Resolve dlcTitleId
+                        string dirName = Path.GetFileName(dlcDir);
+                        string dlcTitleId = "";
+                        if (dirName.Length == 16 && ulong.TryParse(dirName, System.Globalization.NumberStyles.HexNumber, null, out _))
+                        {
+                            dlcTitleId = dirName.ToUpperInvariant();
+                        }
+                        else
+                        {
+                            string npdm = Path.Combine(dlcDir, "exefs", "main.npdm");
+                            if (!File.Exists(npdm))
+                            {
+                                var npdmCandidates = Directory.GetFiles(dlcDir, "main.npdm", SearchOption.AllDirectories);
+                                if (npdmCandidates.Length > 0) npdm = npdmCandidates[0];
+                            }
+                            if (File.Exists(npdm))
+                            {
+                                byte[] npdmBytes = File.ReadAllBytes(npdm);
+                                int aci0 = -1;
+                                for (int i = 0; i <= npdmBytes.Length - 0x20; i++)
+                                {
+                                    if (npdmBytes[i] == 'A' && npdmBytes[i+1] == 'C' && npdmBytes[i+2] == 'I' && npdmBytes[i+3] == '0')
+                                    {
+                                        aci0 = i; break;
+                                    }
+                                }
+                                if (aci0 != -1 && aci0 + 0x18 <= npdmBytes.Length)
+                                {
+                                    ulong t = BitConverter.ToUInt64(npdmBytes, aci0 + 0x10);
+                                    if (t != 0) dlcTitleId = $"{t:X16}";
+                                }
+                            }
+                        }
+
+                        if (string.IsNullOrEmpty(dlcTitleId))
+                        {
+                            ulong calculatedDlcTid = (baseTidVal & ~0xFFFUL) + 0x1000UL + (ulong)dlcIdx;
+                            dlcTitleId = $"{calculatedDlcTid:X16}";
+                        }
+
+                        // 2. Resolve dlcRomFsRoot
+                        string dlcRomFsRoot = dlcDir;
+                        string directRomfs = Path.Combine(dlcDir, "romfs");
+                        if (Directory.Exists(directRomfs))
+                        {
+                            dlcRomFsRoot = directRomfs;
+                        }
+                        else
+                        {
+                            var subDirs = Directory.GetDirectories(dlcDir);
+                            string? foundSubRomfs = null;
+                            foreach (var sub in subDirs)
+                            {
+                                string cand = Path.Combine(sub, "romfs");
+                                if (Directory.Exists(cand))
+                                {
+                                    foundSubRomfs = cand;
+                                    break;
+                                }
+                            }
+                            if (foundSubRomfs != null)
+                            {
+                                dlcRomFsRoot = foundSubRomfs;
+                            }
+                        }
+
+                        // 3. Build DLC Data NCA
+                        string dlcDataNcaPath = Path.Combine(tempWorkDir, $"dlc_data_{dlcIdx}.nca");
+                        BuildDlcDataNca(dlcTitleId, dlcRomFsRoot, dlcDataNcaPath, p => { }, ct, sdkAddonVersion);
+
+                        byte[] dlcDataSha = ComputeSha256(dlcDataNcaPath);
+                        string dlcDataHex = BitConverter.ToString(dlcDataSha, 0, 16).Replace("-", "").ToLowerInvariant();
+                        string finalDlcDataNcaPath = Path.Combine(tempWorkDir, $"{dlcDataHex}.nca");
+                        File.Move(dlcDataNcaPath, finalDlcDataNcaPath, true);
+                        long dlcDataSize = new FileInfo(finalDlcDataNcaPath).Length;
+
+                        // 4. Build DLC Meta CNMT NCA
+                        string dlcMetaNcaPath = Path.Combine(tempWorkDir, $"dlc_meta_{dlcIdx}.nca");
+                        BuildDlcMetaCnmtNca(dlcTitleId, sw2Info.TitleId, dlcDataSha, dlcDataSha.Take(16).ToArray(), dlcDataSize, dlcMetaNcaPath, sdkAddonVersion);
+
+                        byte[] dlcMetaSha = ComputeSha256(dlcMetaNcaPath);
+                        string dlcMetaHex = BitConverter.ToString(dlcMetaSha, 0, 16).Replace("-", "").ToLowerInvariant();
+                        string finalDlcMetaNcaPath = Path.Combine(tempWorkDir, $"{dlcMetaHex}.cnmt.nca");
+                        File.Move(dlcMetaNcaPath, finalDlcMetaNcaPath, true);
+
+                        ncaFiles.Add(finalDlcDataNcaPath);
+                        ncaFiles.Add(finalDlcMetaNcaPath);
+                    }
+                }
 
                 // 4. Pack into final NSP
                 App.RunOnUI(() =>
@@ -545,7 +783,6 @@ namespace StormSwitchBox.Services
                     task.LogDetails += "[4/4] Финальная упаковка контейнера...\n";
                 });
 
-                var ncaFiles = new List<string> { finalMetaNcaPath, finalCtrlNcaPath, finalProgNcaPath };
                 string finalNspPath = Path.Combine(outDir, baseFileName + ".nsp");
                 BuildPfs0Container(ncaFiles, finalNspPath);
 
@@ -673,7 +910,13 @@ namespace StormSwitchBox.Services
             }
         }
 
-        private static readonly byte[] StandardNcaHeaderKey = new byte[]
+        internal static readonly byte[] StandardNcaHeaderKey = new byte[]
+        {
+            0xAE, 0xAA, 0xB1, 0xCA, 0x08, 0xAD, 0xF9, 0xBE, 0xF1, 0x29, 0x91, 0xF3, 0x69, 0xE3, 0xC5, 0x67,
+            0xD6, 0x88, 0x1E, 0x4E, 0x4A, 0x6A, 0x47, 0xA5, 0x1F, 0x6E, 0x48, 0x77, 0x06, 0x2D, 0x54, 0x2D
+        };
+
+        internal static readonly byte[] LegacyStormNcaHeaderKey = new byte[]
         {
             0xAE, 0xA6, 0x82, 0xD2, 0x3F, 0x20, 0x21, 0x1E, 0x8F, 0x99, 0xB8, 0xD3, 0x24, 0x9D, 0x8E, 0xFC,
             0x02, 0x45, 0xA0, 0xFB, 0x16, 0x3A, 0x39, 0x6A, 0x98, 0xAC, 0xCA, 0x6E, 0x07, 0xF3, 0xBF, 0x18
@@ -692,8 +935,60 @@ namespace StormSwitchBox.Services
         /// под стандарт NCA3 / LibHac / Eden / Yuzu / Citron / Ryujinx (RSA-2048 смещение +0x200),
         /// устраняя ошибку «ACID Stream doesn't contain ACID section!» / «ROM зашифрован».
         /// </summary>
-        public static byte[] NormalizeSwitch2NpdmForNca3(byte[] npdmBytes)
+        public static uint DetectSdkAddonVersion(string? exefsDir, bool isSwitch2)
         {
+            uint defaultVer = isSwitch2 ? 0x00140000u : 0x000E0000u;
+            if (string.IsNullOrEmpty(exefsDir) || !Directory.Exists(exefsDir))
+                return defaultVer;
+
+            try
+            {
+                var files = Directory.GetFiles(exefsDir)
+                    .Where(f => {
+                        string n = Path.GetFileName(f).ToLowerInvariant();
+                        return n.StartsWith("sdk") || n.StartsWith("main");
+                    });
+
+                foreach (var file in files)
+                {
+                    long len = new FileInfo(file).Length;
+                    byte[] buf;
+                    if (len > 8 * 1024 * 1024)
+                    {
+                        using var fs = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read);
+                        buf = new byte[Math.Min(2 * 1024 * 1024, (int)len)];
+                        fs.Read(buf, 0, buf.Length);
+                    }
+                    else
+                    {
+                        buf = File.ReadAllBytes(file);
+                    }
+
+                    string text = Encoding.ASCII.GetString(buf);
+                    var m = Regex.Match(text, @"(?:NintendoSDK|NintendoSdk_lib_|NintendoSdk_)(\d+)\.(\d+)\.(\d+)");
+                    if (m.Success)
+                    {
+                        if (uint.TryParse(m.Groups[1].Value, out uint major) &&
+                            uint.TryParse(m.Groups[2].Value, out uint minor) &&
+                            uint.TryParse(m.Groups[3].Value, out uint micro))
+                        {
+                            return (major << 16) | (minor << 8) | micro;
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            return defaultVer;
+        }
+
+        public static byte[] NormalizeSwitch2NpdmForNca3(byte[] npdmBytes, bool normalizeAcidForLegacySwitch1 = false)
+        {
+            if (!normalizeAcidForLegacySwitch1)
+            {
+                return npdmBytes;
+            }
+
             if (npdmBytes == null || npdmBytes.Length < 0x100)
                 return npdmBytes ?? Array.Empty<byte>();
 
@@ -829,7 +1124,7 @@ namespace StormSwitchBox.Services
             }
         }
 
-        public static void BuildControlNca(string titleId, string gameTitle, string publisher, string displayVersion, byte[] iconJpeg, string outPath, string? russianTitle = null)
+        public static void BuildControlNca(string titleId, string gameTitle, string publisher, string displayVersion, byte[] iconJpeg, string outPath, string? russianTitle = null, uint sdkAddonVersion = 0x00140000u)
         {
             byte[] nacp = BuildNacpBytes(titleId, gameTitle, publisher, displayVersion, russianTitle);
             var romfsFiles = new Dictionary<string, byte[]>
@@ -863,7 +1158,7 @@ namespace StormSwitchBox.Services
             ulong tidLong = Convert.ToUInt64(titleId, 16);
             BitConverter.GetBytes(tidLong).CopyTo(header, 0x210);
             BitConverter.GetBytes(0).CopyTo(header, 0x218); // ContentIndex = 0
-            BitConverter.GetBytes(0x000E0000).CopyTo(header, 0x21C); // SdkAddonVersion
+            BitConverter.GetBytes(sdkAddonVersion).CopyTo(header, 0x21C); // SdkAddonVersion
 
             // Section 0
             BitConverter.GetBytes((int)(0x4000 / 0x200)).CopyTo(header, 0x240);
@@ -891,7 +1186,9 @@ namespace StormSwitchBox.Services
             string? updRomFsDir,
             string outPath,
             Action<double> onProgress,
-            CancellationToken ct)
+            CancellationToken ct,
+            uint sdkAddonVersion = 0x00140000u,
+            bool normalizeAcidForLegacySwitch1 = false)
         {
             // 1. Gather ExeFS files
             var exefsMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -917,7 +1214,10 @@ namespace StormSwitchBox.Services
                 byte[] data = File.ReadAllBytes(kv.Value);
                 if (kv.Key.Equals("main.npdm", StringComparison.OrdinalIgnoreCase))
                 {
-                    data = NormalizeSwitch2NpdmForNca3(data);
+                    if (normalizeAcidForLegacySwitch1)
+                    {
+                        data = NormalizeSwitch2NpdmForNca3(data, true);
+                    }
                 }
                 exefsEntries.Add(Tuple.Create(kv.Key, data));
             }
@@ -957,8 +1257,21 @@ namespace StormSwitchBox.Services
                 }
             }
 
-            // Stream RomFS to a temp file
+            // Pre-check free disk space before streaming RomFS
+            long estimatedRomfsBytes = 0;
+            foreach (var f in romfsMap.Values)
+            {
+                try { if (File.Exists(f)) estimatedRomfsBytes += new FileInfo(f).Length; } catch { }
+            }
             string tempRomfsFile = Path.Combine(Path.GetDirectoryName(outPath) ?? Path.GetTempPath(), $"tmp_rfs_{Guid.NewGuid():N}.bin");
+            string tempDir = Path.GetDirectoryName(tempRomfsFile) ?? Path.GetTempPath();
+            var drive = new DriveInfo(Path.GetPathRoot(Path.GetFullPath(tempDir)) ?? tempDir);
+            long requiredSpace = estimatedRomfsBytes + (512L << 20);
+            if (drive.AvailableFreeSpace < requiredSpace)
+            {
+                throw new IOException($"Недостаточно свободного места на диске {drive.Name} для создания Program RomFS: доступно {drive.AvailableFreeSpace / (1024 * 1024)} МБ, требуется {requiredSpace / (1024 * 1024)} МБ.");
+            }
+
             long romfsLv6Len = BuildStreamedRomFs(romfsMap, tempRomfsFile, onProgress, ct);
 
             try
@@ -981,7 +1294,7 @@ namespace StormSwitchBox.Services
                 ulong tidLong = Convert.ToUInt64(titleId, 16);
                 BitConverter.GetBytes(tidLong).CopyTo(ncaHdr, 0x210);
                 BitConverter.GetBytes(0).CopyTo(ncaHdr, 0x218);
-                BitConverter.GetBytes(0x000E0000).CopyTo(ncaHdr, 0x21C);
+                BitConverter.GetBytes(sdkAddonVersion).CopyTo(ncaHdr, 0x21C);
 
                 // Section 0 = ExeFS
                 BitConverter.GetBytes((int)(sec0Offset / 0x200)).CopyTo(ncaHdr, 0x240);
@@ -1042,7 +1355,8 @@ namespace StormSwitchBox.Services
             byte[] ctrlSha,
             byte[] ctrlId,
             long ctrlSize,
-            string outPath)
+            string outPath,
+            uint sdkAddonVersion = 0x00140000u)
         {
             byte[] cnmtBytes = new byte[0x20 + 0x10 + 2 * 0x38 + 0x20];
             ulong tidVal = Convert.ToUInt64(titleId, 16);
@@ -1102,7 +1416,188 @@ namespace StormSwitchBox.Services
             BitConverter.GetBytes(totalNcaSize).CopyTo(ncaHdr, 0x208);
             BitConverter.GetBytes(tidVal).CopyTo(ncaHdr, 0x210);
             BitConverter.GetBytes(0).CopyTo(ncaHdr, 0x218); // ContentIndex = 0
-            BitConverter.GetBytes(0x000E0000).CopyTo(ncaHdr, 0x21C); // SdkAddonVersion = 14.0.0
+            BitConverter.GetBytes(sdkAddonVersion).CopyTo(ncaHdr, 0x21C); // SdkAddonVersion
+
+            // Section 0
+            BitConverter.GetBytes((int)(0x4000 / 0x200)).CopyTo(ncaHdr, 0x240);
+            BitConverter.GetBytes((int)(totalNcaSize / 0x200)).CopyTo(ncaHdr, 0x244);
+            ncaHdr[0x248] = 1;
+
+            int fs0 = 0x400;
+            BitConverter.GetBytes((short)2).CopyTo(ncaHdr, fs0);
+            ncaHdr[fs0 + 2] = 1; // PartitionFs
+            ncaHdr[fs0 + 3] = 2; // HierarchicalSha256
+            ncaHdr[fs0 + 4] = 1; // None
+            Array.Copy(masterHash, 0, ncaHdr, fs0 + 8, 32);
+            int blk = 0x1000;
+            while (blk < rawPfs0.Length) blk <<= 1;
+            BitConverter.GetBytes(blk).CopyTo(ncaHdr, fs0 + 0x28);
+            BitConverter.GetBytes(2).CopyTo(ncaHdr, fs0 + 0x2C);
+            BitConverter.GetBytes(0L).CopyTo(ncaHdr, fs0 + 0x30);
+            BitConverter.GetBytes(32L).CopyTo(ncaHdr, fs0 + 0x38);
+            BitConverter.GetBytes(0x200L).CopyTo(ncaHdr, fs0 + 0x40);
+            BitConverter.GetBytes((long)rawPfs0.Length).CopyTo(ncaHdr, fs0 + 0x48);
+            ncaHdr[fs0 + 0x140] = 2;
+            byte[] fs0Sha = sha.ComputeHash(ncaHdr, fs0, 0x200);
+            Array.Copy(fs0Sha, 0, ncaHdr, 0x280, 32);
+            FinalizeAndEncryptNcaHeaderInPlace(ncaHdr);
+
+            using var outFs = new FileStream(outPath, FileMode.Create, FileAccess.Write, FileShare.None, 64 * 1024);
+            outFs.Write(ncaHdr, 0, ncaHdr.Length);
+            outFs.Write(secAligned, 0, secAligned.Length);
+        }
+
+        public static void BuildDlcDataNca(
+            string dlcTitleId,
+            string dlcRomFsRoot,
+            string outPath,
+            Action<double> onProgress,
+            CancellationToken ct,
+            uint sdkAddonVersion = 0x00140000u)
+        {
+            var romfsMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (Directory.Exists(dlcRomFsRoot))
+            {
+                foreach (var f in Directory.GetFiles(dlcRomFsRoot, "*", SearchOption.AllDirectories))
+                {
+                    string rel = Path.GetRelativePath(dlcRomFsRoot, f).Replace('\\', '/');
+                    if (rel.Equals(".listing", StringComparison.OrdinalIgnoreCase) ||
+                        rel.EndsWith("/.listing", StringComparison.OrdinalIgnoreCase)) continue;
+                    romfsMap[rel] = f;
+                }
+            }
+
+            long estimatedRomfsBytes = 0;
+            foreach (var f in romfsMap.Values)
+            {
+                try { if (File.Exists(f)) estimatedRomfsBytes += new FileInfo(f).Length; } catch { }
+            }
+
+            string tempRomfsFile = Path.Combine(Path.GetDirectoryName(outPath) ?? Path.GetTempPath(), $"tmp_rfs_{Guid.NewGuid():N}.bin");
+            string tempDir = Path.GetDirectoryName(tempRomfsFile) ?? Path.GetTempPath();
+            var drive = new DriveInfo(Path.GetPathRoot(Path.GetFullPath(tempDir)) ?? tempDir);
+            long requiredSpace = estimatedRomfsBytes + (512L << 20);
+            if (drive.AvailableFreeSpace < requiredSpace)
+            {
+                throw new IOException($"Недостаточно свободного места на диске {drive.Name} для создания DLC RomFS: доступно {drive.AvailableFreeSpace / (1024 * 1024)} МБ, требуется {requiredSpace / (1024 * 1024)} МБ.");
+            }
+
+            long romfsLv6Len = BuildStreamedRomFs(romfsMap, tempRomfsFile, onProgress, ct);
+
+            try
+            {
+                var (fsHeader0, ivfcPrefixBytes) = BuildIvfcPrefixForStreamedRomfs(tempRomfsFile, romfsLv6Len);
+
+                long sec0Offset = 0x4000L;
+                long sec0Size = ivfcPrefixBytes.Length + romfsLv6Len;
+                long totalNcaSize = sec0Offset + sec0Size;
+
+                byte[] ncaHdr = new byte[0x4000];
+                Encoding.ASCII.GetBytes("NCA3").CopyTo(ncaHdr, 0x200);
+                ncaHdr[0x204] = 0; // Download
+                ncaHdr[0x205] = 5; // PublicData (5) - standard for AOC RomFS DLC
+                ncaHdr[0x206] = 0; // Crypto None
+                ncaHdr[0x207] = 0;
+                BitConverter.GetBytes(totalNcaSize).CopyTo(ncaHdr, 0x208);
+                ulong tidLong = Convert.ToUInt64(dlcTitleId, 16);
+                BitConverter.GetBytes(tidLong).CopyTo(ncaHdr, 0x210);
+                BitConverter.GetBytes(0).CopyTo(ncaHdr, 0x218);
+                BitConverter.GetBytes(sdkAddonVersion).CopyTo(ncaHdr, 0x21C);
+
+                // Section 0 = RomFS (IVFC)
+                BitConverter.GetBytes((int)(sec0Offset / 0x200)).CopyTo(ncaHdr, 0x240);
+                BitConverter.GetBytes((int)((sec0Offset + sec0Size) / 0x200)).CopyTo(ncaHdr, 0x244);
+                ncaHdr[0x248] = 1;
+
+                // FS Header 0 at 0x400
+                Array.Copy(fsHeader0, 0, ncaHdr, 0x400, fsHeader0.Length);
+                using var sha = SHA256.Create();
+                byte[] fs0Sha = sha.ComputeHash(ncaHdr, 0x400, 0x200);
+                Array.Copy(fs0Sha, 0, ncaHdr, 0x280, 32);
+
+                FinalizeAndEncryptNcaHeaderInPlace(ncaHdr);
+
+                using var outFs = new FileStream(outPath, FileMode.Create, FileAccess.Write, FileShare.None, 1024 * 1024);
+                outFs.Write(ncaHdr, 0, ncaHdr.Length);
+                outFs.Write(ivfcPrefixBytes, 0, ivfcPrefixBytes.Length);
+
+                using (var rfsIn = new FileStream(tempRomfsFile, FileMode.Open, FileAccess.Read, FileShare.Read, 1024 * 1024))
+                {
+                    rfsIn.CopyTo(outFs);
+                }
+            }
+            finally
+            {
+                try { if (File.Exists(tempRomfsFile)) File.Delete(tempRomfsFile); } catch { }
+            }
+        }
+
+        public static void BuildDlcMetaCnmtNca(
+            string dlcTitleId,
+            string baseAppTitleId,
+            byte[] dlcDataSha,
+            byte[] dlcDataId,
+            long dlcDataSize,
+            string outPath,
+            uint sdkAddonVersion = 0x00140000u)
+        {
+            byte[] cnmtBytes = new byte[0x20 + 0x10 + 1 * 0x38 + 0x20];
+            ulong dlcTidVal = Convert.ToUInt64(dlcTitleId, 16);
+            ulong baseTidVal = Convert.ToUInt64(baseAppTitleId, 16) & ~0xFFFUL;
+
+            // CNMTHeader
+            BitConverter.GetBytes(dlcTidVal).CopyTo(cnmtBytes, 0);       // title_id
+            BitConverter.GetBytes(0).CopyTo(cnmtBytes, 8);               // title_version = 0
+            cnmtBytes[0x0C] = 0x82;                                      // TitleType = AOC (0x82)
+            cnmtBytes[0x0D] = 0;                                         // reserved
+            BitConverter.GetBytes((short)0x10).CopyTo(cnmtBytes, 0x0E);  // table_offset = 0x10
+            BitConverter.GetBytes((short)1).CopyTo(cnmtBytes, 0x10);     // number_content_entries = 1
+            BitConverter.GetBytes((short)0).CopyTo(cnmtBytes, 0x12);     // number_meta_entries = 0
+            cnmtBytes[0x14] = 0;                                         // attributes
+            cnmtBytes[0x17] = 1;                                         // is_committed
+
+            // OptionalHeader at 0x20
+            BitConverter.GetBytes(baseTidVal).CopyTo(cnmtBytes, 0x20);   // base application title ID
+            BitConverter.GetBytes(0L).CopyTo(cnmtBytes, 0x28);           // minimum_version = 0
+
+            // ContentRecord 0 at 0x30
+            int r0 = 0x30;
+            Array.Copy(dlcDataSha, 0, cnmtBytes, r0, 32);                // SHA-256
+            Array.Copy(dlcDataId, 0, cnmtBytes, r0 + 32, 16);           // NCA ID
+            BitConverter.GetBytes((int)(dlcDataSize & 0xFFFFFFFFL)).CopyTo(cnmtBytes, r0 + 48);
+            BitConverter.GetBytes((short)((dlcDataSize >> 32) & 0xFFFFL)).CopyTo(cnmtBytes, r0 + 52);
+            cnmtBytes[r0 + 54] = 2;                                      // ContentRecordType::Data (2)
+            cnmtBytes[r0 + 55] = 0;                                      // padding
+
+            string cnmtName = $"AddOnContent_{dlcTitleId.ToLowerInvariant()}.cnmt";
+            byte[] rawPfs0 = BuildMemoryPfs0(new List<Tuple<string, byte[]>> { Tuple.Create(cnmtName, cnmtBytes) });
+            int pfs0AlignedLen = ((rawPfs0.Length + 0x1FF) / 0x200) * 0x200;
+            byte[] pfs0Aligned = new byte[pfs0AlignedLen];
+            Array.Copy(rawPfs0, pfs0Aligned, rawPfs0.Length);
+
+            using var sha = SHA256.Create();
+            byte[] layer1Hash = sha.ComputeHash(rawPfs0);
+            byte[] masterHash = sha.ComputeHash(layer1Hash);
+            byte[] hashAligned = new byte[0x200];
+            Array.Copy(layer1Hash, 0, hashAligned, 0, 32);
+
+            byte[] secRaw = new byte[hashAligned.Length + pfs0Aligned.Length];
+            Array.Copy(hashAligned, 0, secRaw, 0, hashAligned.Length);
+            Array.Copy(pfs0Aligned, 0, secRaw, hashAligned.Length, pfs0Aligned.Length);
+            int secAlignedLen = ((secRaw.Length + 0x1FF) / 0x200) * 0x200;
+            byte[] secAligned = new byte[secAlignedLen];
+            Array.Copy(secRaw, secAligned, secRaw.Length);
+
+            long totalNcaSize = 0x4000L + secAligned.Length;
+            byte[] ncaHdr = new byte[0x4000];
+            Encoding.ASCII.GetBytes("NCA3").CopyTo(ncaHdr, 0x200);
+            ncaHdr[0x204] = 0; // Download
+            ncaHdr[0x205] = 1; // Meta
+            ncaHdr[0x206] = 0; // None
+            BitConverter.GetBytes(totalNcaSize).CopyTo(ncaHdr, 0x208);
+            BitConverter.GetBytes(dlcTidVal).CopyTo(ncaHdr, 0x210);
+            BitConverter.GetBytes(0).CopyTo(ncaHdr, 0x218); // ContentIndex = 0
+            BitConverter.GetBytes(sdkAddonVersion).CopyTo(ncaHdr, 0x21C);
 
             // Section 0
             BitConverter.GetBytes((int)(0x4000 / 0x200)).CopyTo(ncaHdr, 0x240);
@@ -1261,6 +1756,8 @@ namespace StormSwitchBox.Services
 
             ulong tidVal = Convert.ToUInt64(titleId, 16);
             BitConverter.GetBytes(tidVal).CopyTo(nacp, 0x3038);
+            ulong aocBaseId = (tidVal & ~0xFFFUL) + 0x1000UL;
+            BitConverter.GetBytes(aocBaseId).CopyTo(nacp, 0x3070);
 
             nacp[0x30F0] = 0; // LicensedByNintendo
             nacp[0x30F4] = 2; // Auto
@@ -1311,7 +1808,7 @@ namespace StormSwitchBox.Services
             uint hash = parentOffset ^ 123456789u;
             for (int i = 0; i < nameBytes.Length; i++)
             {
-                hash = (hash >> 27) | (hash << 5);
+                hash = (hash >> 5) | (hash << 27);
                 hash ^= nameBytes[i];
             }
             return hash;
@@ -1746,6 +2243,19 @@ namespace StormSwitchBox.Services
 
     public static class Switch2DumpCompilerService
     {
+        public static string DetectDisplayVersion(string baseDir, string? updateDir, string maxUpdateVersion) => Switch2DumpHelper.DetectDisplayVersion(baseDir, updateDir, maxUpdateVersion);
+        public static string GenerateCanonicalSwitch2Name(Switch2DumpInfo sw2Info) => Switch2DumpHelper.GenerateCanonicalSwitch2Name(sw2Info);
+        public static byte[] StandardNcaHeaderKey => Switch2DumpHelper.StandardNcaHeaderKey;
+        public static byte[] LegacyStormNcaHeaderKey => Switch2DumpHelper.LegacyStormNcaHeaderKey;
+        public static uint DetectSdkAddonVersion(string? exefsDir, bool isSwitch2) => Switch2DumpHelper.DetectSdkAddonVersion(exefsDir, isSwitch2);
+        public static byte[] NormalizeSwitch2NpdmForNca3(byte[] npdmBytes, bool normalizeAcidForLegacySwitch1 = false) => Switch2DumpHelper.NormalizeSwitch2NpdmForNca3(npdmBytes, normalizeAcidForLegacySwitch1);
+        public static void BuildControlNca(string titleId, string gameTitle, string publisher, string displayVersion, byte[] iconJpeg, string outPath, string? russianTitle = null, uint sdkAddonVersion = 0x00140000u) => Switch2DumpHelper.BuildControlNca(titleId, gameTitle, publisher, displayVersion, iconJpeg, outPath, russianTitle, sdkAddonVersion);
+        public static void BuildProgramNca(string titleId, string baseExeFsDir, string? updExeFsDir, string baseRomFsDir, string? updRomFsDir, string outPath, Action<double> onProgress, CancellationToken ct, uint sdkAddonVersion = 0x00140000u, bool normalizeAcidForLegacySwitch1 = false) => Switch2DumpHelper.BuildProgramNca(titleId, baseExeFsDir, updExeFsDir, baseRomFsDir, updRomFsDir, outPath, onProgress, ct, sdkAddonVersion, normalizeAcidForLegacySwitch1);
+        public static void BuildMetaCnmtNca(string titleId, string versionStr, byte[] progSha, byte[] progId, long progSize, byte[] ctrlSha, byte[] ctrlId, long ctrlSize, string outPath, uint sdkAddonVersion = 0x00140000u) => Switch2DumpHelper.BuildMetaCnmtNca(titleId, versionStr, progSha, progId, progSize, ctrlSha, ctrlId, ctrlSize, outPath, sdkAddonVersion);
+        public static void BuildDlcDataNca(string dlcTitleId, string dlcRomFsRoot, string outPath, Action<double> onProgress, CancellationToken ct, uint sdkAddonVersion = 0x00140000u) => Switch2DumpHelper.BuildDlcDataNca(dlcTitleId, dlcRomFsRoot, outPath, onProgress, ct, sdkAddonVersion);
+        public static void BuildDlcMetaCnmtNca(string dlcTitleId, string baseAppTitleId, byte[] dlcDataSha, byte[] dlcDataId, long dlcDataSize, string outPath, uint sdkAddonVersion = 0x00140000u) => Switch2DumpHelper.BuildDlcMetaCnmtNca(dlcTitleId, baseAppTitleId, dlcDataSha, dlcDataId, dlcDataSize, outPath, sdkAddonVersion);
+        public static void BuildPfs0Container(List<string> ncaFiles, string outPath) => Switch2DumpHelper.BuildPfs0Container(ncaFiles, outPath);
+
         public static bool IsSwitch2OrExtractedGameDumpDirectory(string dirPath)
             => Switch2DumpHelper.IsSwitch2OrExtractedGameDumpDirectory(dirPath);
 

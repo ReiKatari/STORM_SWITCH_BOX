@@ -180,6 +180,65 @@ namespace StormSwitchBox.Core.NSZ
         }
 
 
+        private static bool TryDecryptWithKey(byte[] headerEncrypted, byte[] decryptedHeader, byte[] key)
+        {
+            try
+            {
+                byte[] key1 = new byte[16];
+                byte[] key2 = new byte[16];
+                Array.Copy(key, 0, key1, 0, 16);
+                Array.Copy(key, 16, key2, 0, 16);
+                Array.Copy(headerEncrypted, 0, decryptedHeader, 0, 0x200);
+                var transform = new LibHac.Tools.FsSystem.Aes128XtsTransform(key1, key2, true);
+                int encryptedLength = 0xC00 - 0x200;
+                Array.Copy(headerEncrypted, 0x200, decryptedHeader, 0x200, encryptedLength);
+                for (int idx = 0; idx < encryptedLength / 0x200; idx++)
+                {
+                    transform.TransformBlock(decryptedHeader, 0x200 + idx * 0x200, 0x200, (ulong)(1 + idx));
+                }
+                return decryptedHeader[0x200] == 'N' && decryptedHeader[0x201] == 'C' && decryptedHeader[0x202] == 'A' && (decryptedHeader[0x203] == '3' || decryptedHeader[0x203] == '2');
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool TryDecryptNcaHeader(byte[] headerEncrypted, byte[] decryptedHeader, KeySet? keyset)
+        {
+            if (headerEncrypted.Length < 0xC00 || decryptedHeader.Length < 0xC00) return false;
+
+            if (headerEncrypted[0x200] == 'N' && headerEncrypted[0x201] == 'C' && headerEncrypted[0x202] == 'A' && (headerEncrypted[0x203] == '3' || headerEncrypted[0x203] == '2'))
+            {
+                Array.Copy(headerEncrypted, decryptedHeader, 0xC00);
+                return true;
+            }
+
+            if (keyset != null)
+            {
+                byte[] hk = new byte[32];
+                ((ReadOnlySpan<byte>)keyset.HeaderKey).CopyTo(hk);
+                bool notAllZero = false;
+                for (int i = 0; i < 32; i++) { if (hk[i] != 0) { notAllZero = true; break; } }
+                if (notAllZero && TryDecryptWithKey(headerEncrypted, decryptedHeader, hk))
+                {
+                    return true;
+                }
+            }
+
+            if (TryDecryptWithKey(headerEncrypted, decryptedHeader, Services.Switch2DumpCompilerService.StandardNcaHeaderKey))
+            {
+                return true;
+            }
+
+            if (TryDecryptWithKey(headerEncrypted, decryptedHeader, Services.Switch2DumpCompilerService.LegacyStormNcaHeaderKey))
+            {
+                return true;
+            }
+
+            return false;
+        }
+
         private void Initialize()
         {
             long ncaHeaderSize = 0x4000;
@@ -225,7 +284,7 @@ namespace StormSwitchBox.Core.NSZ
             string? ncaRightsIdHex = null;
             string? ncaUniqueId = null;
             byte[]? decryptedHeader = null;
-            if (isHeaderUncompressed && _keyset != null)
+            if (isHeaderUncompressed)
             {
                 try
                 {
@@ -233,30 +292,9 @@ namespace StormSwitchBox.Core.NSZ
                     _baseStorage.Read(0, headerEncrypted).ThrowIfFailure();
                     
                     decryptedHeader = new byte[0xC00];
-                    byte[] headerKey = new byte[32];
-                    ((ReadOnlySpan<byte>)_keyset.HeaderKey).CopyTo(headerKey);
-                    
-                    if (headerEncrypted[0x200] == 'N' && headerEncrypted[0x201] == 'C' && headerEncrypted[0x202] == 'A' && headerEncrypted[0x203] == '3')
+                    if (TryDecryptNcaHeader(headerEncrypted, decryptedHeader, _keyset))
                     {
-                        Array.Copy(headerEncrypted, decryptedHeader, 0xC00);
-                    }
-                    else
-                    {
-                        byte[] key1 = new byte[16];
-                        byte[] key2 = new byte[16];
-                        Array.Copy(headerKey, 0, key1, 0, 16);
-                        Array.Copy(headerKey, 16, key2, 0, 16);
-                        Array.Copy(headerEncrypted, 0, decryptedHeader, 0, 0x200);
-                        var transform = new LibHac.Tools.FsSystem.Aes128XtsTransform(key1, key2, true);
-                        int encryptedLength = 0xC00 - 0x200;
-                        Array.Copy(headerEncrypted, 0x200, decryptedHeader, 0x200, encryptedLength);
-                        for (int idx = 0; idx < encryptedLength / 0x200; idx++)
-                        {
-                            transform.TransformBlock(decryptedHeader, 0x200 + idx * 0x200, 0x200, (ulong)(1 + idx));
-                        }
-                    }
-
-                    byte[] rightsId = new byte[16];
+                        byte[] rightsId = new byte[16];
                     string magicStr = System.Text.Encoding.ASCII.GetString(decryptedHeader, 0x200, 4);
                     Console.WriteLine($"[StormNczStorage Debug] Decrypted Header Magic: '{magicStr}' (Hex: {BitConverter.ToString(decryptedHeader, 0x200, 4)})");
                     Array.Copy(decryptedHeader, 0x230, rightsId, 0, 16);
@@ -342,6 +380,7 @@ namespace StormSwitchBox.Core.NSZ
                                 sparseUpperIvArr[idx] = ((ulong)secureValue << 32) | ((ulong)sparseGen << 16);
                             }
                         }
+                    }
                     }
                 }
                 catch { }
@@ -450,30 +489,9 @@ namespace StormSwitchBox.Core.NSZ
                             _baseStorage.Read(0, headerEncrypted).ThrowIfFailure();
                             
                             decryptedHeader = new byte[0xC00];
-                            byte[] headerKey = new byte[32];
-                            ((ReadOnlySpan<byte>)_keyset.HeaderKey).CopyTo(headerKey);
-                            
-                            if (headerEncrypted[0x200] == 'N' && headerEncrypted[0x201] == 'C' && headerEncrypted[0x202] == 'A' && headerEncrypted[0x203] == '3')
+                            if (TryDecryptNcaHeader(headerEncrypted, decryptedHeader, _keyset))
                             {
-                                Array.Copy(headerEncrypted, decryptedHeader, 0xC00);
-                            }
-                            else
-                            {
-                                byte[] key1 = new byte[16];
-                                byte[] key2 = new byte[16];
-                                Array.Copy(headerKey, 0, key1, 0, 16);
-                                Array.Copy(headerKey, 16, key2, 0, 16);
-                                Array.Copy(headerEncrypted, 0, decryptedHeader, 0, 0x200);
-                                var transform = new LibHac.Tools.FsSystem.Aes128XtsTransform(key1, key2, true);
-                                int encryptedLength = 0xC00 - 0x200;
-                                Array.Copy(headerEncrypted, 0x200, decryptedHeader, 0x200, encryptedLength);
-                                for (int idx = 0; idx < encryptedLength / 0x200; idx++)
-                                {
-                                    transform.TransformBlock(decryptedHeader, 0x200 + idx * 0x200, 0x200, (ulong)(1 + idx));
-                                }
-                            }
-
-                            var nca = new LibHac.Tools.FsSystem.NcaUtils.Nca(_keyset, new MemoryStream(headerEncrypted).AsStorage());
+                                var nca = new LibHac.Tools.FsSystem.NcaUtils.Nca(_keyset, new MemoryStream(decryptedHeader).AsStorage());
                             
                             int keysetIndex = Math.Max(0, nca.Header.KeyGeneration - 1);
                             int keyAreaKeyIndex = nca.Header.KeyAreaKeyIndex;
@@ -488,6 +506,7 @@ namespace StormSwitchBox.Core.NSZ
                                 byte[] encryptedKey = new byte[16];
                                 Array.Copy(decryptedHeader, keyOffset, encryptedKey, 0, 16);
                                 expectedKey = AesEcbDecrypt(encryptedKey, areaKey);
+                            }
                             }
                         }
                         catch (Exception ex)

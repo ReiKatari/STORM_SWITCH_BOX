@@ -126,7 +126,7 @@ namespace StormSwitchBox.Models
         {
             AvailableTargetFormats = value
                 ? new List<string> { "3DS", "CIA", "CXI", "3DS + CIA" }
-                : new List<string> { "NSP", "NSZ", "XCI", "XCZ", "NSP + NSZ", "XCI + XCZ" };
+                : new List<string> { "NSP", "NSZ", "XCI", "XCZ", "NUP", "NSP + NSZ", "XCI + XCZ" };
 
             if (_targetFormat == "3DS" || _targetFormat == "CIA" || _targetFormat == "CXI" || _targetFormat == "3DS + CIA")
             {

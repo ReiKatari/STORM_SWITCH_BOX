@@ -422,6 +422,7 @@ namespace StormSwitchBox.Views
                 picker.SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.Desktop;
                 picker.FileTypeFilter.Add(".nsp");
                 picker.FileTypeFilter.Add(".nsz");
+                picker.FileTypeFilter.Add(".nup");
                 picker.FileTypeFilter.Add(".xci");
                 picker.FileTypeFilter.Add(".xcz");
                 picker.FileTypeFilter.Add(".nro");

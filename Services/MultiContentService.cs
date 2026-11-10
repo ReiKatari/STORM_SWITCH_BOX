@@ -102,6 +102,37 @@ namespace StormSwitchBox.Services
                     return;
                 }
 
+                var nupInput = inputFiles.FirstOrDefault(f => f.EndsWith(".nup", StringComparison.OrdinalIgnoreCase) || NupContainerService.IsNupFile(f));
+                if (nupInput != null && File.Exists(nupInput))
+                {
+                    string targetDriveNup = System.IO.Path.GetPathRoot(outPath) ?? "C:\\";
+                    string nupTempDir = Path.Combine(targetDriveNup, "STORM_TMP", "NUP_" + Guid.NewGuid().ToString("N").Substring(0, 6));
+                    Directory.CreateDirectory(nupTempDir);
+                    TempCleanupService.RegisterActiveTempDirectory(nupTempDir);
+                    try
+                    {
+                        App.RunOnUI(() =>
+                        {
+                            task.LogDetails += $"\n[NUP] Распаковка .nup контейнера перед сборкой ({Path.GetFileName(nupInput)})...";
+                            task.Status = "Распаковка NUP...";
+                        });
+                        var nupProg = new Progress<(double pct, string status)>(p => App.RunOnUI(() =>
+                        {
+                            task.Progress = p.pct * 0.3;
+                            task.Status = p.status;
+                        }));
+                        await NupContainerService.ExtractNupToDirectoryAsync(nupInput, nupTempDir, nupProg, cancellationToken);
+                        var sw2Roots = Switch2DumpHelper.FindAllSwitch2DumpRootDirectories(nupTempDir);
+                        string rootToBuild = sw2Roots.Count > 0 ? sw2Roots[0] : nupTempDir;
+                        await Switch2DumpHelper.CompileSwitch2DumpToContainerAsync(task, rootToBuild, new List<string> { rootToBuild }, outPath, cancellationToken);
+                        return;
+                    }
+                    finally
+                    {
+                        TempCleanupService.ForceDeleteDirectory(nupTempDir);
+                    }
+                }
+
                 if (!_keysService.IsLoaded) throw new Exception("Отсутствуют криптографические ключи (prod.keys). Пожалуйста, выберите их в параметрах.");
 
 

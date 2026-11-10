@@ -340,8 +340,44 @@ public static void SaveTaskIconToCache(ProcessingTask task, byte[]? iconBytes)
 
                     foreach (var f in filesToProbe)
                     {
-                        if (File.Exists(f))
+                        if (Directory.Exists(f))
                         {
+                            var iconDirs = new[] { Path.Combine(f, "control"), Path.Combine(f, "basedata", "control") };
+                            foreach (var id in iconDirs)
+                            {
+                                if (Directory.Exists(id))
+                                {
+                                    var ic = Directory.GetFiles(id, "icon_*.dat").FirstOrDefault();
+                                    if (ic != null && File.Exists(ic) && new FileInfo(ic).Length > 64)
+                                    {
+                                        try { iconBytes = File.ReadAllBytes(ic); break; } catch { }
+                                    }
+                                }
+                            }
+                            if (iconBytes == null)
+                            {
+                                var imgs = new[] { Path.Combine(f, "icon.jpg"), Path.Combine(f, "icon.png"), Path.Combine(f, "cover.jpg"), Path.Combine(f, "cover.png") };
+                                foreach (var img in imgs)
+                                {
+                                    if (File.Exists(img) && new FileInfo(img).Length > 64)
+                                    {
+                                        try { iconBytes = File.ReadAllBytes(img); break; } catch { }
+                                    }
+                                }
+                            }
+                            if (iconBytes != null) break;
+                        }
+                        else if (File.Exists(f))
+                        {
+                            if (f.EndsWith(".nup", StringComparison.OrdinalIgnoreCase) || NupContainerService.IsNupFile(f))
+                            {
+                                if (NupContainerService.TryExtractIconAndMetadata(f, out var nupIcon, out _, out _, out _) && nupIcon != null && nupIcon.Length > 64)
+                                {
+                                    iconBytes = nupIcon;
+                                    break;
+                                }
+                            }
+
                             if (Nintendo3dsService.Is3dsExtension(Path.GetExtension(f)))
                             {
                                 var n3ds = App.Nintendo3ds.Parse3dsFile(f);
@@ -357,6 +393,11 @@ public static void SaveTaskIconToCache(ProcessingTask task, byte[]? iconBytes)
                                 if (meta?.IconBytes != null && meta.IconBytes.Length > 64)
                                 {
                                     iconBytes = meta.IconBytes;
+                                    break;
+                                }
+                                if (App.SwitchFormat.TryExtractControlNcaCoverAndMetadata(f, out var fbIcon, out _, out _, out _) && fbIcon != null && fbIcon.Length > 64)
+                                {
+                                    iconBytes = fbIcon;
                                     break;
                                 }
                             }
@@ -398,14 +439,21 @@ public static void SaveTaskIconToCache(ProcessingTask task, byte[]? iconBytes)
                         else if (!string.IsNullOrEmpty(titleId) && App.TitleDb.TryGetTitleInfo(titleId, out entry))
                         {
                         }
-                        else if (!string.IsNullOrWhiteSpace(task.GameName))
+                        else if (!string.IsNullOrWhiteSpace(task.GameName) || !string.IsNullOrWhiteSpace(task.OutputFileName))
                         {
-                            string cleanName = System.Text.RegularExpressions.Regex.Replace(task.GameName, @"\s*[\[\(].*?[\]\)]", "").Trim();
+                            string rawName = !string.IsNullOrWhiteSpace(task.GameName) ? task.GameName : task.OutputFileName;
+                            string cleanName = System.Text.RegularExpressions.Regex.Replace(rawName, @"\s*[\[\(].*?[\]\)]", "").Trim();
+                            cleanName = System.Text.RegularExpressions.Regex.Replace(cleanName, @"\s*[-–—]\s*(?:Update|Патч|DLC|Обновление|v\d).*$", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim();
+                            cleanName = System.Text.RegularExpressions.Regex.Replace(cleanName, @"\s*\+\s*(?:DLC|Патч|Update).*$", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim();
+                            cleanName = cleanName.Trim(' ', '-', '–', '—', '+');
+
                             if (cleanName.Length >= 3)
                             {
                                 entry = App.TitleDb.GetAllEntries().FirstOrDefault(e =>
                                     !string.IsNullOrEmpty(e.Name) &&
-                                    string.Equals(e.Name.Trim(), cleanName, StringComparison.OrdinalIgnoreCase));
+                                    (string.Equals(e.Name.Trim(), cleanName, StringComparison.OrdinalIgnoreCase) ||
+                                     e.Name.Trim().StartsWith(cleanName, StringComparison.OrdinalIgnoreCase) ||
+                                     cleanName.StartsWith(e.Name.Trim(), StringComparison.OrdinalIgnoreCase)));
                             }
                         }
 

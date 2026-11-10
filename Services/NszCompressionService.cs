@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using LibHac;
+using LibHac.Common.Keys;
 using LibHac.Common;
 using LibHac.Fs;
 using LibHac.Fs.Fsa;
@@ -167,7 +168,7 @@ namespace StormSwitchBox.Services
                 var harvestedTitleKeys = new Dictionary<string, byte[]>();
 
                 // Предварительно регистрируем билеты в KeySet и извлекаем TitleKey для расшифровки секций перед Zstd-сжатием
-                SmartShrinkService.HarvestTicketsFromFileSystem(pfs, App.Keys.CurrentKeyset);
+                SmartShrinkService.HarvestTicketsFromFileSystem(pfs, App.Keys.CurrentKeyset ?? new KeySet());
 
                 foreach (var entry in entries)
                 {
@@ -181,7 +182,7 @@ namespace StormSwitchBox.Services
                             byte[] tikData = new byte[tikSize];
                             tikStorage.Read(0, tikData).ThrowIfFailure();
 
-                            var ticketInfo = TicketHarvesterService.ExtractDecryptedTicket(tikData, (int)tikSize, App.Keys.CurrentKeyset);
+                            var ticketInfo = TicketHarvesterService.ExtractDecryptedTicket(tikData, (int)tikSize, App.Keys.CurrentKeyset ?? new KeySet());
                             if (ticketInfo.HasValue && !string.IsNullOrEmpty(ticketInfo.Value.RightsId) && ticketInfo.Value.TitleKey != null && ticketInfo.Value.TitleKey.Length == 16)
                             {
                                 string rId = ticketInfo.Value.RightsId;
@@ -248,7 +249,7 @@ namespace StormSwitchBox.Services
 
                 bool removeDelta = App.Settings.Current.RemoveDeltaNca;
                 var deltaNcas = SmartShrinkService.AnalyzeRedundantEntriesInFileSystem(
-                    pfs, App.Keys.CurrentKeyset, removeDelta, out int deltaCount, out int supCount);
+                    pfs, App.Keys.CurrentKeyset ?? new KeySet(), removeDelta, out int deltaCount, out int supCount);
                 if (removeDelta)
                 {
                     foreach (var d in MultiContentService.DetectDeltaNcasToExclude(new List<string> { inputPath }))
@@ -289,11 +290,69 @@ namespace StormSwitchBox.Services
                         try
                         {
                             using var probeFile = OpenFileSafe(pfs, entry.FullPath);
-                            var probeNca = new Nca(App.Keys.CurrentKeyset, probeFile.AsStorage());
-                            KeysService.RegisterRightsIdFallback(App.Keys.CurrentKeyset, probeNca);
-                            var cType = probeNca.Header.ContentType;
-                            // Сохраняем Meta, Control и Manual NCA несжатыми .nca для 100% совместимости иконок и метаданных во всех эмуляторах
-                            if (cType == NcaContentType.Meta || cType == NcaContentType.Control || cType == NcaContentType.Manual)
+                            IStorage probeStorage = probeFile.AsStorage();
+                            byte cType = 0xFF;
+
+                            try
+                            {
+                                var currentKeyset = App.Keys.CurrentKeyset ?? new KeySet();
+                                var probeNca = new Nca(currentKeyset, probeStorage);
+                                KeysService.RegisterRightsIdFallback(currentKeyset, probeNca);
+                                var nt = probeNca.Header.ContentType;
+                                if (nt == NcaContentType.Meta) cType = 1;
+                                else if (nt == NcaContentType.Control) cType = 2;
+                                else if (nt == NcaContentType.Manual) cType = 3;
+                                else if (nt == NcaContentType.Program) cType = 0;
+                                else cType = 4; // Data / PublicData
+                            }
+                            catch
+                            {
+                                byte[] hBuf = new byte[0x4000];
+                                if (probeStorage.Read(0, hBuf).IsSuccess())
+                                {
+                                    if (hBuf[0x200] == 'N' && hBuf[0x201] == 'C' && hBuf[0x202] == 'A')
+                                    {
+                                        cType = hBuf[0x205];
+                                    }
+                                    else
+                                    {
+                                        byte[] k1 = new byte[16];
+                                        byte[] k2 = new byte[16];
+                                        Array.Copy(Switch2DumpCompilerService.StandardNcaHeaderKey, 0, k1, 0, 16);
+                                        Array.Copy(Switch2DumpCompilerService.StandardNcaHeaderKey, 16, k2, 0, 16);
+                                        var transform = new Aes128XtsTransform(k1, k2, true);
+                                        byte[] decH = new byte[0xC00];
+                                        Array.Copy(hBuf, 0, decH, 0, 0xC00);
+                                        for (int i = 0; i < (0xC00 - 0x200) / 0x200; i++)
+                                        {
+                                            transform.TransformBlock(decH, 0x200 + i * 0x200, 0x200, (ulong)(1 + i));
+                                        }
+                                        if (decH[0x200] == 'N' && decH[0x201] == 'C' && decH[0x202] == 'A' && (decH[0x203] == '3' || decH[0x203] == '2'))
+                                        {
+                                            cType = decH[0x205];
+                                        }
+                                        else
+                                        {
+                                            Array.Copy(Switch2DumpCompilerService.LegacyStormNcaHeaderKey, 0, k1, 0, 16);
+                                            Array.Copy(Switch2DumpCompilerService.LegacyStormNcaHeaderKey, 16, k2, 0, 16);
+                                            var legTransform = new Aes128XtsTransform(k1, k2, true);
+                                            Array.Copy(hBuf, 0, decH, 0, 0xC00);
+                                            for (int i = 0; i < (0xC00 - 0x200) / 0x200; i++)
+                                            {
+                                                legTransform.TransformBlock(decH, 0x200 + i * 0x200, 0x200, (ulong)(1 + i));
+                                            }
+                                            if (decH[0x200] == 'N' && decH[0x201] == 'C' && decH[0x202] == 'A' && (decH[0x203] == '3' || decH[0x203] == '2'))
+                                            {
+                                                cType = decH[0x205];
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Сохраняем Meta (1), Control (2) и Manual (3) NCA несжатыми .nca для 100% совместимости
+                            // Сжимаем Program (0), Data (4) и PublicData (5)
+                            if (cType == 1 || cType == 2 || cType == 3)
                             {
                                 isNca = false;
                             }
@@ -319,7 +378,7 @@ namespace StormSwitchBox.Services
                                 entryStorage,
                                 tempNczPath,
                                 level,
-                                App.Keys.CurrentKeyset,
+                                App.Keys.CurrentKeyset ?? new KeySet(),
                                 task,
                                 cancellationToken,
                                 harvestedTitleKeys);
@@ -773,7 +832,7 @@ namespace StormSwitchBox.Services
                             byte[] tikData = new byte[tikSize];
                             tikStorage.Read(0, tikData).ThrowIfFailure();
 
-                            var ticketInfo = TicketHarvesterService.ExtractDecryptedTicket(tikData, (int)tikSize, App.Keys.CurrentKeyset);
+                            var ticketInfo = TicketHarvesterService.ExtractDecryptedTicket(tikData, (int)tikSize, App.Keys.CurrentKeyset ?? new KeySet());
                             if (ticketInfo.HasValue && !string.IsNullOrEmpty(ticketInfo.Value.RightsId) && ticketInfo.Value.TitleKey != null && ticketInfo.Value.TitleKey.Length == 16)
                             {
                                 string rightsIdStr = ticketInfo.Value.RightsId;
@@ -933,6 +992,11 @@ namespace StormSwitchBox.Services
             {
                 nszExe = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "tools", "nsz", "nsz.exe");
             }
+            if (!System.IO.File.Exists(nszExe))
+            {
+                string globalTools = @"f:\STORM SWITCH BOX\tools\nsz\nsz.exe";
+                if (System.IO.File.Exists(globalTools)) nszExe = globalTools;
+            }
 
             long totalBytes = new FileInfo(inputPath).Length;
             string fileName = System.IO.Path.GetFileNameWithoutExtension(inputPath);
@@ -953,7 +1017,7 @@ namespace StormSwitchBox.Services
             {
                 App.Logger.Log("[NSZ Engine] nsz.exe не найден для сжатия.", LogLevel.Warning);
                 App.RunOnUI(() => task.LogDetails += "\n⚠️ nsz.exe не найден. Переключение на встроенное блочное сжатие...");
-                return;
+                throw new FileNotFoundException("nsz.exe не найден для сжатия, переключение на нативный StormNczCompressor");
             }
 
             string keysParam = "";
@@ -1072,7 +1136,7 @@ namespace StormSwitchBox.Services
                 }
 
                 long genNszLen = new FileInfo(generatedNsz).Length;
-                if (totalBytes > 32 * 1024 * 1024 && genNszLen >= (long)(totalBytes * 0.995))
+                if (genNszLen >= (long)(totalBytes * 0.995))
                 {
                     try { File.Delete(generatedNsz); } catch { }
                     throw new InvalidOperationException("nsz.exe пропустил сжатие секций NCA (NoCrypto / Switch 2), переключение на нативный StormNczCompressor");

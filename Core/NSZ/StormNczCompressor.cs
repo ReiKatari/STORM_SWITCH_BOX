@@ -103,19 +103,20 @@ namespace StormSwitchBox.Core.NSZ
                 return;
             }
 
-            Nca nca;
+            Nca? nca = null;
             try
             {
-                nca = new Nca(keyset, ncaStorage);
+                if (keyset != null)
+                {
+                    nca = new Nca(keyset, ncaStorage);
+                }
             }
             catch
             {
-                using var fsOutFallback = new FileStream(outputNczPath, FileMode.Create, FileAccess.Write);
-                ncaStorage.AsStream().CopyTo(fsOutFallback);
-                return;
+                nca = null;
             }
 
-            if (nca.Header.HasRightsId)
+            if (nca?.Header.HasRightsId == true && keyset != null)
             {
                 Services.KeysService.RegisterRightsIdFallback(keyset, nca);
             }
@@ -135,28 +136,94 @@ namespace StormSwitchBox.Core.NSZ
             Array.Copy(headerBuffer, headerEncrypted, 0xC00);
 
             byte[] headerKey = new byte[32];
-            ((ReadOnlySpan<byte>)keyset.HeaderKey).CopyTo(headerKey);
+            if (keyset != null)
+            {
+                ((ReadOnlySpan<byte>)keyset.HeaderKey).CopyTo(headerKey);
+            }
 
-            if (headerEncrypted[0x200] == 'N' && headerEncrypted[0x201] == 'C' && headerEncrypted[0x202] == 'A' && headerEncrypted[0x203] == '3')
+            if (headerEncrypted[0x200] == 'N' && headerEncrypted[0x201] == 'C' && headerEncrypted[0x202] == 'A' && (headerEncrypted[0x203] == '3' || headerEncrypted[0x203] == '2'))
             {
                 Array.Copy(headerEncrypted, decryptedHeader, 0xC00);
             }
             else
             {
-                byte[] key1 = new byte[16];
-                byte[] key2 = new byte[16];
-                Array.Copy(headerKey, 0, key1, 0, 16);
-                Array.Copy(headerKey, 16, key2, 0, 16);
-
-                Array.Copy(headerEncrypted, 0, decryptedHeader, 0, 0x200);
-
-                var transform = new Aes128XtsTransform(key1, key2, true);
-                int encryptedLength = 0xC00 - 0x200;
-                Array.Copy(headerEncrypted, 0x200, decryptedHeader, 0x200, encryptedLength);
-
-                for (int i = 0; i < encryptedLength / 0x200; i++)
+                bool headerDecrypted = false;
+                if (!IsAllZero(headerKey))
                 {
-                    transform.TransformBlock(decryptedHeader, 0x200 + i * 0x200, 0x200, (ulong)(1 + i));
+                    byte[] key1 = new byte[16];
+                    byte[] key2 = new byte[16];
+                    Array.Copy(headerKey, 0, key1, 0, 16);
+                    Array.Copy(headerKey, 16, key2, 0, 16);
+                    Array.Copy(headerEncrypted, 0, decryptedHeader, 0, 0x200);
+
+                    var transform = new Aes128XtsTransform(key1, key2, true);
+                    int encryptedLength = 0xC00 - 0x200;
+                    Array.Copy(headerEncrypted, 0x200, decryptedHeader, 0x200, encryptedLength);
+
+                    for (int i = 0; i < encryptedLength / 0x200; i++)
+                    {
+                        transform.TransformBlock(decryptedHeader, 0x200 + i * 0x200, 0x200, (ulong)(1 + i));
+                    }
+
+                    if (decryptedHeader[0x200] == 'N' && decryptedHeader[0x201] == 'C' && decryptedHeader[0x202] == 'A' && (decryptedHeader[0x203] == '3' || decryptedHeader[0x203] == '2'))
+                    {
+                        headerDecrypted = true;
+                    }
+                }
+
+                if (!headerDecrypted)
+                {
+                    byte[] fbKey = Services.Switch2DumpCompilerService.StandardNcaHeaderKey;
+                    byte[] key1 = new byte[16];
+                    byte[] key2 = new byte[16];
+                    Array.Copy(fbKey, 0, key1, 0, 16);
+                    Array.Copy(fbKey, 16, key2, 0, 16);
+                    Array.Copy(headerEncrypted, 0, decryptedHeader, 0, 0x200);
+
+                    var transform = new Aes128XtsTransform(key1, key2, true);
+                    int encryptedLength = 0xC00 - 0x200;
+                    Array.Copy(headerEncrypted, 0x200, decryptedHeader, 0x200, encryptedLength);
+
+                    for (int i = 0; i < encryptedLength / 0x200; i++)
+                    {
+                        transform.TransformBlock(decryptedHeader, 0x200 + i * 0x200, 0x200, (ulong)(1 + i));
+                    }
+
+                    if (decryptedHeader[0x200] == 'N' && decryptedHeader[0x201] == 'C' && decryptedHeader[0x202] == 'A' && (decryptedHeader[0x203] == '3' || decryptedHeader[0x203] == '2'))
+                    {
+                        headerDecrypted = true;
+                    }
+                }
+
+                if (!headerDecrypted)
+                {
+                    byte[] legacyKey = Services.Switch2DumpCompilerService.LegacyStormNcaHeaderKey;
+                    byte[] key1 = new byte[16];
+                    byte[] key2 = new byte[16];
+                    Array.Copy(legacyKey, 0, key1, 0, 16);
+                    Array.Copy(legacyKey, 16, key2, 0, 16);
+                    Array.Copy(headerEncrypted, 0, decryptedHeader, 0, 0x200);
+
+                    var transform = new Aes128XtsTransform(key1, key2, true);
+                    int encryptedLength = 0xC00 - 0x200;
+                    Array.Copy(headerEncrypted, 0x200, decryptedHeader, 0x200, encryptedLength);
+
+                    for (int i = 0; i < encryptedLength / 0x200; i++)
+                    {
+                        transform.TransformBlock(decryptedHeader, 0x200 + i * 0x200, 0x200, (ulong)(1 + i));
+                    }
+
+                    if (decryptedHeader[0x200] == 'N' && decryptedHeader[0x201] == 'C' && decryptedHeader[0x202] == 'A' && (decryptedHeader[0x203] == '3' || decryptedHeader[0x203] == '2'))
+                    {
+                        headerDecrypted = true;
+                    }
+                }
+
+                if (!headerDecrypted && !(decryptedHeader[0x200] == 'N' && decryptedHeader[0x201] == 'C' && decryptedHeader[0x202] == 'A'))
+                {
+                    using var fsOutFallback = new FileStream(outputNczPath, FileMode.Create, FileAccess.Write);
+                    ncaStorage.AsStream().CopyTo(fsOutFallback);
+                    return;
                 }
             }
 
@@ -187,10 +254,14 @@ namespace StormSwitchBox.Core.NSZ
             var enabledSections = new List<TempSectionInfo>();
             for (int i = 0; i < 4; i++)
             {
-                if (nca.Header.IsSectionEnabled(i))
+                uint startOffsetUnits = BitConverter.ToUInt32(decryptedHeader, 0x240 + i * 16);
+                uint endOffsetUnits = BitConverter.ToUInt32(decryptedHeader, 0x240 + i * 16 + 4);
+                bool isEnabled = nca != null
+                    ? nca.Header.IsSectionEnabled(i)
+                    : (BitConverter.ToUInt32(decryptedHeader, 0x240 + i * 16 + 8) != 0 && endOffsetUnits > startOffsetUnits);
+
+                if (isEnabled && endOffsetUnits > startOffsetUnits)
                 {
-                    uint startOffsetUnits = BitConverter.ToUInt32(decryptedHeader, 0x240 + i * 16);
-                    uint endOffsetUnits = BitConverter.ToUInt32(decryptedHeader, 0x240 + i * 16 + 4);
                     enabledSections.Add(new TempSectionInfo
                     {
                         Index = i,
@@ -266,7 +337,7 @@ namespace StormSwitchBox.Core.NSZ
                         baseUpperIv = BinaryPrimitives.ReadUInt64BigEndian(new ReadOnlySpan<byte>(cachedCounter, 0, 8));
                     }
                 }
-                else if (encryptionType != 1)
+                else if (encryptionType != 1 && nca != null)
                 {
                     if (nca.Header.HasRightsId)
                     {
@@ -709,7 +780,8 @@ namespace StormSwitchBox.Core.NSZ
             }
             catch { }
 
-            int maxParallelism = Math.Max(1, usedCores > 0 ? usedCores : Environment.ProcessorCount);
+            int lowCpuCap = Math.Max(1, Environment.ProcessorCount / 4);
+            int maxParallelism = usedCores > 0 ? Math.Min(usedCores, lowCpuCap) : lowCpuCap;
             int batchSize = Math.Min(blocksToCompress, Math.Max(4, maxParallelism * 4));
             int maxCompressedBound = Compressor.GetCompressBound(BLOCK_SIZE);
 

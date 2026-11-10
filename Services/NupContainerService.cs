@@ -124,7 +124,7 @@ namespace StormSwitchBox.Services
             }
         }
 
-        private static NupInfo? ParseTocBytes(byte[] tocBytes, string path, ulong fileSize, byte[] uuid)
+        private static NupInfo? ParseTocBytes(byte[] tocBytes, string path, ulong fileSize, byte[] uuid, Stream? fs = null, ulong blobOffset = 0)
         {
             if (tocBytes.Length < 0x28 || !tocBytes.AsSpan(0, 4).SequenceEqual(TocMagic))
                 return null;
@@ -243,6 +243,68 @@ namespace StormSwitchBox.Services
             info.TotalCompressedSize = totalCompressed;
             info.DeduplicatedFileCount = distinctExtents.Count;
 
+            // Если обложка или метаданные не были сохранены в TLV пакетов, читаем их напрямую из таблицы файлов
+            if (fs != null && info.Packages.All(p => p.IconBytes == null || p.IconBytes.Length == 0))
+            {
+                try
+                {
+                    string GetString(uint off, uint len)
+                    {
+                        int start = (int)(strPoolOffset + off);
+                        if (start < 0 || start >= tocBytes.Length) return string.Empty;
+                        int actualLen = (int)len;
+                        if (start + actualLen > tocBytes.Length) actualLen = tocBytes.Length - start;
+                        if (actualLen <= 0) return string.Empty;
+                        return Encoding.UTF8.GetString(tocBytes, start, actualLen).TrimEnd(' ');
+                    }
+
+                    int scanFileOffset = filesTableOffset;
+                    for (int i = 0; i < fileCount && scanFileOffset + 0x50 <= tocBytes.Length; i++, scanFileOffset += 0x50)
+                    {
+                        var span = tocBytes.AsSpan(scanFileOffset, 0x50);
+                        uint nameOff = BinaryPrimitives.ReadUInt32LittleEndian(span.Slice(0x00, 4));
+                        uint nameLen = BinaryPrimitives.ReadUInt32LittleEndian(span.Slice(0x04, 4));
+                        ulong extentOffset = BinaryPrimitives.ReadUInt64LittleEndian(span.Slice(0x10, 8));
+                        ulong extentSize = BinaryPrimitives.ReadUInt64LittleEndian(span.Slice(0x18, 8));
+                        byte codec = tocBytes[scanFileOffset + 64];
+
+                        string fName = GetString(nameOff, nameLen);
+                        bool isIcon = (fName.StartsWith("icon_", StringComparison.OrdinalIgnoreCase) && fName.EndsWith(".dat", StringComparison.OrdinalIgnoreCase)) ||
+                                     fName.Equals("icon.jpg", StringComparison.OrdinalIgnoreCase) || fName.Equals("icon.png", StringComparison.OrdinalIgnoreCase) ||
+                                     fName.Equals("cover.jpg", StringComparison.OrdinalIgnoreCase) || fName.Equals("cover.png", StringComparison.OrdinalIgnoreCase);
+
+                        if (isIcon && extentSize > 64 && extentSize < 4 * 1024 * 1024)
+                        {
+                            ulong readOffset = extentOffset < blobOffset ? (blobOffset + extentOffset) : extentOffset;
+                            fs.Seek((long)readOffset, SeekOrigin.Begin);
+                            byte[] extentBytes = new byte[extentSize];
+                            fs.ReadExactly(extentBytes, 0, (int)extentSize);
+
+                            byte[] imgData;
+                            if (codec == 1)
+                            {
+                                using var dec = new Decompressor();
+                                imgData = dec.Unwrap(extentBytes).ToArray();
+                            }
+                            else
+                            {
+                                imgData = extentBytes;
+                            }
+
+                            if (imgData.Length > 64 &&
+                                ((imgData[0] == 0xFF && imgData[1] == 0xD8 && imgData[2] == 0xFF) ||
+                                 (imgData[0] == 0x89 && imgData[1] == 0x50 && imgData[2] == 0x4E)))
+                            {
+                                var targetPkg = info.Packages.FirstOrDefault(p => p.Kind == 0) ?? info.Packages.FirstOrDefault();
+                                if (targetPkg != null) targetPkg.IconBytes = imgData;
+                                break;
+                            }
+                        }
+                    }
+                }
+                catch { }
+            }
+
             return info;
         }
 
@@ -282,7 +344,7 @@ namespace StormSwitchBox.Services
                 byte[] tocBytes = new byte[tocSize];
                 await fs.ReadExactlyAsync(tocBytes, 0, (int)tocSize);
 
-                return ParseTocBytes(tocBytes, path, fileSize > 0 ? fileSize : (ulong)fs.Length, uuid);
+                return ParseTocBytes(tocBytes, path, fileSize > 0 ? fileSize : (ulong)fs.Length, uuid, fs, blobOffset);
             }
             catch
             {
@@ -739,6 +801,41 @@ namespace StormSwitchBox.Services
                     try { File.Delete(tempBlobFile); } catch { }
                 }
             }
+        }
+
+        // ===== 2.1 Быстрое извлечение обложки и метаданных =====
+        public static bool TryExtractIconAndMetadata(
+            string nupPath,
+            out byte[]? iconBytes,
+            out string? titleId,
+            out string? titleName,
+            out string? displayVersion)
+        {
+            iconBytes = null;
+            titleId = null;
+            titleName = null;
+            displayVersion = null;
+
+            if (string.IsNullOrWhiteSpace(nupPath) || !File.Exists(nupPath))
+                return false;
+
+            try
+            {
+                var nupInfo = InspectNupFile(nupPath);
+                if (nupInfo != null)
+                {
+                    titleId = nupInfo.TitleId;
+                    titleName = nupInfo.GameTitle;
+                    displayVersion = nupInfo.DisplayVersion;
+                    iconBytes = nupInfo.CoverBytes;
+
+                    if (iconBytes != null && iconBytes.Length > 64)
+                        return true;
+                }
+            }
+            catch { }
+
+            return iconBytes != null && iconBytes.Length > 64;
         }
 
         // ===== 4. Распаковка .nup контейнера в каталог =====

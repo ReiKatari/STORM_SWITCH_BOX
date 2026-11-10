@@ -233,6 +233,19 @@ public partial class TasksViewModel : ObservableObject
 			{
 				try
 				{
+					if (NupContainerService.TryExtractIconAndMetadata(filePath, out var nupIcon, out var nupTid, out var nupName, out var nupVer))
+					{
+						return new SwitchFormatInfo
+						{
+							TitleId = nupTid ?? "0000000000000000",
+							ContentType = "Application",
+							Version = nupVer ?? "1.0.0",
+							GameName = nupName ?? Path.GetFileNameWithoutExtension(filePath),
+							Publisher = "Nintendo",
+							IconBytes = nupIcon
+						};
+					}
+
 					var nupInfo = NupContainerService.InspectNupFile(filePath);
 					if (nupInfo != null)
 					{
@@ -1375,7 +1388,7 @@ public partial class TasksViewModel : ObservableObject
 		if (exts.Count == 1)
 		{
 			string singleExt = exts[0];
-			if (singleExt == "NSP" || singleExt == "NSZ" || singleExt == "XCI" || singleExt == "XCZ" ||
+			if (singleExt == "NSP" || singleExt == "NSZ" || singleExt == "XCI" || singleExt == "XCZ" || singleExt == "NUP" ||
 			    singleExt == "3DS" || singleExt == "CIA" || singleExt == "CXI")
 			{
 				return singleExt;

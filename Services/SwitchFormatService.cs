@@ -104,17 +104,34 @@ namespace StormSwitchBox.Services
 
             if (filePath.EndsWith(".nup", StringComparison.OrdinalIgnoreCase) || NupContainerService.IsNupFile(filePath))
             {
-                var nupMeta = NupContainerService.InspectNupFile(filePath);
-                return new Models.SwitchFormatInfo
+                if (NupContainerService.TryExtractIconAndMetadata(filePath, out var nupIcon, out var nupTid, out var nupName, out var nupVer))
                 {
-                    SizeBytes = new FileInfo(filePath).Length,
-                    TitleId = nupMeta.TitleId,
-                    ContentType = nupMeta.ContentType,
-                    Version = nupMeta.Version,
-                    GameName = nupMeta.GameName,
-                    Publisher = nupMeta.Publisher,
-                    IconBytes = nupMeta.IconBytes
-                };
+                    return new Models.SwitchFormatInfo
+                    {
+                        SizeBytes = new FileInfo(filePath).Length,
+                        TitleId = nupTid ?? "0000000000000000",
+                        ContentType = "Application",
+                        Version = nupVer ?? "1.0.0",
+                        GameName = nupName ?? Path.GetFileNameWithoutExtension(filePath),
+                        Publisher = "Nintendo",
+                        IconBytes = nupIcon
+                    };
+                }
+
+                var nupMeta = NupContainerService.InspectNupFile(filePath);
+                if (nupMeta != null)
+                {
+                    return new Models.SwitchFormatInfo
+                    {
+                        SizeBytes = new FileInfo(filePath).Length,
+                        TitleId = nupMeta.TitleId,
+                        ContentType = nupMeta.ContentType,
+                        Version = nupMeta.Version,
+                        GameName = nupMeta.GameName,
+                        Publisher = nupMeta.Publisher,
+                        IconBytes = nupMeta.IconBytes
+                    };
+                }
             }
 
             _keysService.EnsureLoadedWithAutoDiscovery(filePath);
@@ -386,6 +403,17 @@ namespace StormSwitchBox.Services
             catch (Exception ex)
             {
                 App.Logger.Log($"Ошибка парсинга {System.IO.Path.GetFileName(filePath)}: {ex.Message}", Models.LogLevel.Warning);
+            }
+
+            if (info.IconBytes == null || info.IconBytes.Length == 0)
+            {
+                if (TryExtractControlNcaCoverAndMetadata(filePath, out var fbIcon, out var fbTid, out var fbName, out var fbVer))
+                {
+                    info.IconBytes = fbIcon;
+                    if (string.IsNullOrEmpty(info.TitleId) && !string.IsNullOrEmpty(fbTid)) info.TitleId = fbTid;
+                    if (string.IsNullOrEmpty(info.GameName) && !string.IsNullOrEmpty(fbName)) info.GameName = fbName;
+                    if (string.IsNullOrEmpty(info.Version) && !string.IsNullOrEmpty(fbVer)) info.Version = fbVer;
+                }
             }
 
             return info;
@@ -742,6 +770,311 @@ namespace StormSwitchBox.Services
             }, token);
         }
 
+        private static bool TryDecryptNcaHeaderWithKey(byte[] headerEncrypted, byte[] decryptedHeader, byte[] key)
+        {
+            try
+            {
+                byte[] key1 = new byte[16];
+                byte[] key2 = new byte[16];
+                Array.Copy(key, 0, key1, 0, 16);
+                Array.Copy(key, 16, key2, 0, 16);
+                Array.Copy(headerEncrypted, 0, decryptedHeader, 0, 0x200);
+                var transform = new LibHac.Tools.FsSystem.Aes128XtsTransform(key1, key2, true);
+                int encryptedLength = 0xC00 - 0x200;
+                Array.Copy(headerEncrypted, 0x200, decryptedHeader, 0x200, encryptedLength);
+                for (int idx = 0; idx < encryptedLength / 0x200; idx++)
+                {
+                    transform.TransformBlock(decryptedHeader, 0x200 + idx * 0x200, 0x200, (ulong)(1 + idx));
+                }
+                return decryptedHeader[0x200] == 'N' && decryptedHeader[0x201] == 'C' && decryptedHeader[0x202] == 'A' && (decryptedHeader[0x203] == '3' || decryptedHeader[0x203] == '2');
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static void ParseNacpStrings(byte[] nacpData, ref string? titleName, ref string? displayVersion)
+        {
+            if (nacpData.Length < 0x3080) return;
+
+            string ReadNacpString(int offset, int maxLen)
+            {
+                if (offset >= nacpData.Length) return "";
+                int len = 0;
+                while (len < maxLen && offset + len < nacpData.Length && nacpData[offset + len] != 0) len++;
+                return len > 0 ? System.Text.Encoding.UTF8.GetString(nacpData, offset, len).Trim() : "";
+            }
+
+            string ruTitle = ReadNacpString(11 * 0x300, 0x200);
+            string enTitle = ReadNacpString(0, 0x200);
+            string t = !string.IsNullOrEmpty(ruTitle) ? ruTitle : (!string.IsNullOrEmpty(enTitle) ? enTitle : "");
+            if (string.IsNullOrEmpty(t))
+            {
+                for (int i = 0; i < 16; i++)
+                {
+                    t = ReadNacpString(i * 0x300, 0x200);
+                    if (!string.IsNullOrEmpty(t)) break;
+                }
+            }
+            if (!string.IsNullOrEmpty(t) && string.IsNullOrEmpty(titleName))
+            {
+                titleName = t;
+            }
+
+            string ver = ReadNacpString(0x3060, 0x10);
+            if (!string.IsNullOrEmpty(ver) && string.IsNullOrEmpty(displayVersion))
+            {
+                displayVersion = ver;
+            }
+        }
+
+        public bool TryExtractControlNcaCoverAndMetadata(
+            string containerPath,
+            out byte[]? iconBytes,
+            out string? titleId,
+            out string? titleName,
+            out string? displayVersion)
+        {
+            iconBytes = null;
+            titleId = null;
+            titleName = null;
+            displayVersion = null;
+
+            if (string.IsNullOrWhiteSpace(containerPath) || !File.Exists(containerPath))
+                return false;
+
+            try
+            {
+                using var fs = new FileStream(containerPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                IStorage storage = fs.AsStorage();
+                IFileSystem fileSystem = OpenSwitchContainerFileSystem(storage, containerPath);
+
+                var targetEntries = fileSystem.EnumerateEntries()
+                    .Where(e => e.Name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase) ||
+                                e.Name.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase))
+                    .OrderBy(e => e.Size)
+                    .ToList();
+
+                foreach (var entry in targetEntries)
+                {
+                    if (entry.Size < 0x1000L || entry.Size > 64L * 1024 * 1024) continue;
+
+                    using var ncaFileRef = new UniqueRef<IFile>();
+                    using var ncaPath = new LibHac.Fs.Path();
+                    ncaPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(entry.FullPath))).ThrowIfFailure();
+                    if (fileSystem.OpenFile(ref ncaFileRef.Ref, in ncaPath, OpenMode.Read).IsFailure())
+                        continue;
+
+                    using var ncaFile = ncaFileRef.Release();
+                    IStorage rawStorage = ncaFile.AsStorage();
+
+                    byte[] headerEncrypted = new byte[0xC00];
+                    if (rawStorage.Read(0, headerEncrypted).IsFailure()) continue;
+
+                    byte[] decryptedHeader = new byte[0xC00];
+                    bool decSuccess = false;
+                    if (headerEncrypted[0x200] == 'N' && headerEncrypted[0x201] == 'C' && headerEncrypted[0x202] == 'A' && (headerEncrypted[0x203] == '3' || headerEncrypted[0x203] == '2'))
+                    {
+                        Array.Copy(headerEncrypted, decryptedHeader, 0xC00);
+                        decSuccess = true;
+                    }
+                    else
+                    {
+                        if (_keysService.IsLoaded)
+                        {
+                            byte[] hk = new byte[32];
+                            ((ReadOnlySpan<byte>)_keysService.CurrentKeyset.HeaderKey).CopyTo(hk);
+                            if (hk.Any(b => b != 0))
+                            {
+                                decSuccess = TryDecryptNcaHeaderWithKey(headerEncrypted, decryptedHeader, hk);
+                            }
+                        }
+                        if (!decSuccess)
+                        {
+                            decSuccess = TryDecryptNcaHeaderWithKey(headerEncrypted, decryptedHeader, Switch2DumpCompilerService.StandardNcaHeaderKey);
+                        }
+                        if (!decSuccess)
+                        {
+                            decSuccess = TryDecryptNcaHeaderWithKey(headerEncrypted, decryptedHeader, Switch2DumpCompilerService.LegacyStormNcaHeaderKey);
+                        }
+                    }
+
+                    if (!decSuccess) continue;
+
+                    byte cType = decryptedHeader[0x205];
+                    if (cType != 2 && cType != 3 && !entry.Name.Contains("control", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    ulong tIdLong = System.Buffers.Binary.BinaryPrimitives.ReadUInt64LittleEndian(new ReadOnlySpan<byte>(decryptedHeader, 0x210, 8));
+                    if (tIdLong != 0 && string.IsNullOrEmpty(titleId))
+                    {
+                        titleId = $"{tIdLong:X16}";
+                    }
+
+                    uint mediaStart = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(new ReadOnlySpan<byte>(decryptedHeader, 0x240, 4));
+                    uint mediaEnd = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(new ReadOnlySpan<byte>(decryptedHeader, 0x244, 4));
+                    if (mediaEnd <= mediaStart) continue;
+
+                    long secOffset = (long)mediaStart * 0x200L;
+                    long secSize = ((long)mediaEnd - (long)mediaStart) * 0x200L;
+
+                    IStorage ncaStorage;
+                    IDisposable? nczDisp = null;
+                    if (entry.Name.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var ncz = new Core.NSZ.StormNczStorage(rawStorage, null, null, _keysService.CurrentKeyset);
+                        nczDisp = ncz;
+                        ncaStorage = ncz;
+                    }
+                    else
+                    {
+                        ncaStorage = rawStorage;
+                    }
+
+                    try
+                    {
+                        try
+                        {
+                            var nca = new Nca(_keysService.CurrentKeyset, new MemoryStream(decryptedHeader).AsStorage());
+                            IFileSystem? ctrlFs = null;
+                            try { ctrlFs = nca.OpenFileSystem(0, IntegrityCheckLevel.None); } catch { }
+                            if (ctrlFs == null) { try { ctrlFs = nca.OpenFileSystem(1, IntegrityCheckLevel.None); } catch { } }
+
+                            if (ctrlFs != null)
+                            {
+                                var iconEntry = ctrlFs.EnumerateEntries("/", "icon_*.dat").FirstOrDefault();
+                                if (!string.IsNullOrEmpty(iconEntry.Name))
+                                {
+                                    using var iconRef = new UniqueRef<IFile>();
+                                    using var iPath = new LibHac.Fs.Path();
+                                    iPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(iconEntry.FullPath))).ThrowIfFailure();
+                                    if (ctrlFs.OpenFile(ref iconRef.Ref, in iPath, OpenMode.Read).IsSuccess())
+                                    {
+                                        using var iFile = iconRef.Release();
+                                        using var ms = new MemoryStream();
+                                        iFile.AsStream().CopyTo(ms);
+                                        iconBytes = ms.ToArray();
+                                    }
+                                }
+
+                                var nacpEntry = ctrlFs.EnumerateEntries("/", "control.nacp").FirstOrDefault();
+                                if (!string.IsNullOrEmpty(nacpEntry.Name))
+                                {
+                                    using var nacpRef = new UniqueRef<IFile>();
+                                    using var nPath = new LibHac.Fs.Path();
+                                    nPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(nacpEntry.FullPath))).ThrowIfFailure();
+                                    if (ctrlFs.OpenFile(ref nacpRef.Ref, in nPath, OpenMode.Read).IsSuccess())
+                                    {
+                                        using var nFile = nacpRef.Release();
+                                        using var ms = new MemoryStream();
+                                        nFile.AsStream().CopyTo(ms);
+                                        byte[] nacpData = ms.ToArray();
+                                        ParseNacpStrings(nacpData, ref titleName, ref displayVersion);
+                                    }
+                                }
+                            }
+                        }
+                        catch { }
+
+                        if (iconBytes == null || string.IsNullOrEmpty(titleName))
+                        {
+                            var secStorage = new SubStorage(ncaStorage, secOffset, secSize);
+                            try
+                            {
+                                var romfs = new LibHac.Tools.FsSystem.RomFs.RomFsFileSystem(secStorage);
+                                if (iconBytes == null)
+                                {
+                                    var iconEntry = romfs.EnumerateEntries("/", "icon_*.dat").FirstOrDefault();
+                                    if (!string.IsNullOrEmpty(iconEntry.Name))
+                                    {
+                                        using var iconRef = new UniqueRef<IFile>();
+                                        using var iPath = new LibHac.Fs.Path();
+                                        iPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(iconEntry.FullPath))).ThrowIfFailure();
+                                        if (romfs.OpenFile(ref iconRef.Ref, in iPath, OpenMode.Read).IsSuccess())
+                                        {
+                                            using var iFile = iconRef.Release();
+                                            using var ms = new MemoryStream();
+                                            iFile.AsStream().CopyTo(ms);
+                                            iconBytes = ms.ToArray();
+                                        }
+                                    }
+                                }
+
+                                if (string.IsNullOrEmpty(titleName))
+                                {
+                                    var nacpEntry = romfs.EnumerateEntries("/", "control.nacp").FirstOrDefault();
+                                    if (!string.IsNullOrEmpty(nacpEntry.Name))
+                                    {
+                                        using var nacpRef = new UniqueRef<IFile>();
+                                        using var nPath = new LibHac.Fs.Path();
+                                        nPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(nacpEntry.FullPath))).ThrowIfFailure();
+                                        if (romfs.OpenFile(ref nacpRef.Ref, in nPath, OpenMode.Read).IsSuccess())
+                                        {
+                                            using var nFile = nacpRef.Release();
+                                            using var ms = new MemoryStream();
+                                            nFile.AsStream().CopyTo(ms);
+                                            byte[] nacpData = ms.ToArray();
+                                            ParseNacpStrings(nacpData, ref titleName, ref displayVersion);
+                                        }
+                                    }
+                                }
+                            }
+                            catch { }
+
+                            if (iconBytes == null && secSize > 1024)
+                            {
+                                int readLimit = (int)Math.Min(secSize, 4L * 1024 * 1024);
+                                byte[] secBuf = new byte[readLimit];
+                                if (secStorage.Read(0, secBuf).IsSuccess())
+                                {
+                                    int soi = -1;
+                                    for (int i = 0; i < readLimit - 4; i++)
+                                    {
+                                        if (secBuf[i] == 0xFF && secBuf[i + 1] == 0xD8 && secBuf[i + 2] == 0xFF)
+                                        {
+                                            soi = i;
+                                            break;
+                                        }
+                                    }
+                                    if (soi >= 0)
+                                    {
+                                        int eoi = -1;
+                                        for (int j = soi + 10; j < readLimit - 1; j++)
+                                        {
+                                            if (secBuf[j] == 0xFF && secBuf[j + 1] == 0xD9)
+                                            {
+                                                eoi = j + 2;
+                                                break;
+                                            }
+                                        }
+                                        if (eoi > soi && (eoi - soi) >= 1024 && (eoi - soi) <= 512 * 1024)
+                                        {
+                                            byte[] img = new byte[eoi - soi];
+                                            Array.Copy(secBuf, soi, img, 0, eoi - soi);
+                                            iconBytes = img;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    finally
+                    {
+                        nczDisp?.Dispose();
+                    }
+
+                    if (iconBytes != null && iconBytes.Length > 64)
+                    {
+                        return true;
+                    }
+                }
+            }
+            catch { }
+
+            return iconBytes != null && iconBytes.Length > 64;
+        }
+
         public async Task ConvertContainerAsync(ProcessingTask task, string inputPath, string outDir, string targetFormat, CancellationToken cancellationToken)
         {
             if (targetFormat.Equals("NUP", StringComparison.OrdinalIgnoreCase))
@@ -768,6 +1101,17 @@ namespace StormSwitchBox.Services
                         task.Status = p.status;
                     }));
                     await NupContainerService.ExtractNupToDirectoryAsync(inputPath, tempDir, prog, cancellationToken);
+                    var sw2Roots = Switch2DumpHelper.FindAllSwitch2DumpRootDirectories(tempDir);
+                    if (sw2Roots.Count > 0 || Directory.Exists(Path.Combine(tempDir, "base")) || Directory.Exists(Path.Combine(tempDir, "romfs")))
+                    {
+                        string rootToBuild = sw2Roots.Count > 0 ? sw2Roots[0] : tempDir;
+                        string outTargetFmt = targetFormat.ToUpperInvariant();
+                        string outTargetExt = outTargetFmt.Contains("NSZ") ? ".nsz" : (outTargetFmt.Contains("XCI") ? ".xci" : (outTargetFmt.Contains("XCZ") ? ".xcz" : ".nsp"));
+                        string finalTargetFile = Path.Combine(outDir, Path.GetFileNameWithoutExtension(inputPath) + outTargetExt);
+                        task.TargetFormat = outTargetFmt;
+                        await Switch2DumpHelper.CompileSwitch2DumpToContainerAsync(task, rootToBuild, new List<string> { rootToBuild }, finalTargetFile, cancellationToken);
+                        return;
+                    }
                     var ncaFiles = System.IO.Directory.GetFiles(tempDir, "*.nc*", System.IO.SearchOption.AllDirectories);
                     if (ncaFiles.Length > 0)
                     {
