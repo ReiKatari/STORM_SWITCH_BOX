@@ -4849,6 +4849,22 @@ object StormNczEngine {
         require(inputFiles.isNotEmpty()) { "Список входных файлов пуст" }
         outputDir.mkdirs()
 
+        // Если входной файл содержит .nup контейнер — направляем в конвейер сборки Switch 2
+        val nupFile = inputFiles.firstOrNull { it.isFile && it.extension.lowercase() == "nup" }
+        if (nupFile != null) {
+            val extractedDumpDir = extractNupToTempNspOrDir(nupFile, outputDir) { onProgress(it) }
+            try {
+                return compileSwitch2DumpPackage(
+                    inputDir = extractedDumpDir,
+                    outputDir = outputDir,
+                    targetFormatMode = targetFormatMode,
+                    onProgress = onProgress
+                )
+            } finally {
+                extractedDumpDir.deleteRecursively()
+            }
+        }
+
         // Если входной файл является директорией дампа Nintendo Switch 2
         val firstFile = inputFiles.first()
         if (firstFile.isDirectory && isSwitch2DumpDirectory(firstFile)) {
@@ -9127,6 +9143,8 @@ object StormNczEngine {
 
     fun isSwitch2DumpDirectory(dir: File): Boolean {
         if (!dir.exists() || !dir.isDirectory) return false
+        val containers = dir.listFiles()?.any { it.isFile && it.extension.lowercase() in listOf("nsp", "nsz", "xci", "xcz", "nup") } ?: false
+        if (containers) return false
         if (File(dir, "base/exefs/main.npdm").exists() || File(dir, "exefs/main.npdm").exists()) return true
         val subDirs = dir.listFiles()?.filter { it.isDirectory } ?: return false
         for (sub in subDirs) {

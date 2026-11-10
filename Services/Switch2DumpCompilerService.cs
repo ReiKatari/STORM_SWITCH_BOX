@@ -6,9 +6,11 @@ using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Buffers.Binary;
 using System.Threading;
 using System.Threading.Tasks;
 using StormSwitchBox.Models;
+using ZstdSharp;
 
 namespace StormSwitchBox.Services
 {
@@ -169,7 +171,8 @@ namespace StormSwitchBox.Services
                             .Any(f => f.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) ||
                                       f.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) ||
                                       f.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) ||
-                                      f.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase));
+                                      f.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase) ||
+                                      f.EndsWith(".nup", StringComparison.OrdinalIgnoreCase));
                         if (siblingContainersExist)
                         {
                             return false;
@@ -177,6 +180,21 @@ namespace StormSwitchBox.Services
                     }
                     catch { }
                 }
+
+                try
+                {
+                    bool dirContainersExist = Directory.EnumerateFiles(dirPath, "*.*", SearchOption.TopDirectoryOnly)
+                        .Any(f => f.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) ||
+                                  f.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) ||
+                                  f.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) ||
+                                  f.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase) ||
+                                  f.EndsWith(".nup", StringComparison.OrdinalIgnoreCase));
+                    if (dirContainersExist)
+                    {
+                        return false;
+                    }
+                }
+                catch { }
 
                 // Direct dump root with base/exefs/main.npdm + base/romfs
                 if (File.Exists(Path.Combine(dirPath, "base", "exefs", "main.npdm")) &&
@@ -571,7 +589,11 @@ namespace StormSwitchBox.Services
             });
 
             string outDir = Path.GetDirectoryName(outPath) ?? "";
-            if (!string.IsNullOrEmpty(App.Settings.Current.OutputFolderSwitch2) && Directory.Exists(App.Settings.Current.OutputFolderSwitch2))
+            if (string.IsNullOrEmpty(outDir) && !string.IsNullOrEmpty(task.OutputFolder) && Directory.Exists(task.OutputFolder))
+            {
+                outDir = task.OutputFolder;
+            }
+            if (string.IsNullOrEmpty(outDir) && !string.IsNullOrEmpty(App.Settings.Current.OutputFolderSwitch2) && Directory.Exists(App.Settings.Current.OutputFolderSwitch2))
             {
                 outDir = App.Settings.Current.OutputFolderSwitch2;
             }
@@ -588,7 +610,9 @@ namespace StormSwitchBox.Services
 
             App.RunOnUI(() => { task.OutputFileName = baseFileName; });
 
-            string tempWorkDir = Path.Combine(Path.GetTempPath(), "StormSwitch2_" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            string tempRoot = Path.Combine(Path.GetPathRoot(Path.GetFullPath(outDir)) ?? Path.GetTempPath(), "STORM_TMP");
+            Directory.CreateDirectory(tempRoot);
+            string tempWorkDir = Path.Combine(tempRoot, "StormSwitch2_" + Guid.NewGuid().ToString("N").Substring(0, 8));
             Directory.CreateDirectory(tempWorkDir);
             TempCleanupService.RegisterActiveTempDirectory(tempWorkDir);
 
@@ -1188,7 +1212,9 @@ namespace StormSwitchBox.Services
             Action<double> onProgress,
             CancellationToken ct,
             uint sdkAddonVersion = 0x00140000u,
-            bool normalizeAcidForLegacySwitch1 = false)
+            bool normalizeAcidForLegacySwitch1 = false,
+            Stream? nupStream = null,
+            Dictionary<string, string>? prebuiltRomfsMap = null)
         {
             // 1. Gather ExeFS files
             var exefsMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -1237,23 +1263,26 @@ namespace StormSwitchBox.Services
             Array.Copy(exefsAligned, 0, totalSec0, hAligned.Length, exefsAligned.Length);
 
             // 2. Build RomFS
-            var romfsMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            if (Directory.Exists(baseRomFsDir))
+            var romfsMap = prebuiltRomfsMap != null ? prebuiltRomfsMap : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (prebuiltRomfsMap == null)
             {
-                foreach (var f in Directory.GetFiles(baseRomFsDir, "*", SearchOption.AllDirectories))
+                if (Directory.Exists(baseRomFsDir))
                 {
-                    string rel = Path.GetRelativePath(baseRomFsDir, f).Replace('\\', '/');
-                    if (rel.EndsWith(".listing", StringComparison.OrdinalIgnoreCase)) continue;
-                    romfsMap[rel] = f;
+                    foreach (var f in Directory.GetFiles(baseRomFsDir, "*", SearchOption.AllDirectories))
+                    {
+                        string rel = Path.GetRelativePath(baseRomFsDir, f).Replace('\\', '/');
+                        if (rel.EndsWith(".listing", StringComparison.OrdinalIgnoreCase)) continue;
+                        romfsMap[rel] = f;
+                    }
                 }
-            }
-            if (!string.IsNullOrEmpty(updRomFsDir) && Directory.Exists(updRomFsDir))
-            {
-                foreach (var f in Directory.GetFiles(updRomFsDir, "*", SearchOption.AllDirectories))
+                if (!string.IsNullOrEmpty(updRomFsDir) && Directory.Exists(updRomFsDir))
                 {
-                    string rel = Path.GetRelativePath(updRomFsDir, f).Replace('\\', '/');
-                    if (rel.EndsWith(".listing", StringComparison.OrdinalIgnoreCase)) continue;
-                    romfsMap[rel] = f;
+                    foreach (var f in Directory.GetFiles(updRomFsDir, "*", SearchOption.AllDirectories))
+                    {
+                        string rel = Path.GetRelativePath(updRomFsDir, f).Replace('\\', '/');
+                        if (rel.EndsWith(".listing", StringComparison.OrdinalIgnoreCase)) continue;
+                        romfsMap[rel] = f;
+                    }
                 }
             }
 
@@ -1261,7 +1290,16 @@ namespace StormSwitchBox.Services
             long estimatedRomfsBytes = 0;
             foreach (var f in romfsMap.Values)
             {
-                try { if (File.Exists(f)) estimatedRomfsBytes += new FileInfo(f).Length; } catch { }
+                if (f.StartsWith("__NUP__|", StringComparison.Ordinal))
+                {
+                    string[] parts = f.Split('|');
+                    if (parts.Length >= 5 && long.TryParse(parts[4], out long sz))
+                        estimatedRomfsBytes += sz;
+                }
+                else
+                {
+                    try { if (File.Exists(f)) estimatedRomfsBytes += new FileInfo(f).Length; } catch { }
+                }
             }
             string tempRomfsFile = Path.Combine(Path.GetDirectoryName(outPath) ?? Path.GetTempPath(), $"tmp_rfs_{Guid.NewGuid():N}.bin");
             string tempDir = Path.GetDirectoryName(tempRomfsFile) ?? Path.GetTempPath();
@@ -1272,7 +1310,7 @@ namespace StormSwitchBox.Services
                 throw new IOException($"Недостаточно свободного места на диске {drive.Name} для создания Program RomFS: доступно {drive.AvailableFreeSpace / (1024 * 1024)} МБ, требуется {requiredSpace / (1024 * 1024)} МБ.");
             }
 
-            long romfsLv6Len = BuildStreamedRomFs(romfsMap, tempRomfsFile, onProgress, ct);
+            long romfsLv6Len = BuildStreamedRomFs(romfsMap, tempRomfsFile, onProgress, ct, nupStream);
 
             try
             {
@@ -1453,24 +1491,38 @@ namespace StormSwitchBox.Services
             string outPath,
             Action<double> onProgress,
             CancellationToken ct,
-            uint sdkAddonVersion = 0x00140000u)
+            uint sdkAddonVersion = 0x00140000u,
+            Stream? nupStream = null,
+            Dictionary<string, string>? prebuiltRomfsMap = null)
         {
-            var romfsMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            if (Directory.Exists(dlcRomFsRoot))
+            var romfsMap = prebuiltRomfsMap != null ? prebuiltRomfsMap : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (prebuiltRomfsMap == null)
             {
-                foreach (var f in Directory.GetFiles(dlcRomFsRoot, "*", SearchOption.AllDirectories))
+                if (Directory.Exists(dlcRomFsRoot))
                 {
-                    string rel = Path.GetRelativePath(dlcRomFsRoot, f).Replace('\\', '/');
-                    if (rel.Equals(".listing", StringComparison.OrdinalIgnoreCase) ||
-                        rel.EndsWith("/.listing", StringComparison.OrdinalIgnoreCase)) continue;
-                    romfsMap[rel] = f;
+                    foreach (var f in Directory.GetFiles(dlcRomFsRoot, "*", SearchOption.AllDirectories))
+                    {
+                        string rel = Path.GetRelativePath(dlcRomFsRoot, f).Replace('\\', '/');
+                        if (rel.Equals(".listing", StringComparison.OrdinalIgnoreCase) ||
+                            rel.EndsWith("/.listing", StringComparison.OrdinalIgnoreCase)) continue;
+                        romfsMap[rel] = f;
+                    }
                 }
             }
 
             long estimatedRomfsBytes = 0;
             foreach (var f in romfsMap.Values)
             {
-                try { if (File.Exists(f)) estimatedRomfsBytes += new FileInfo(f).Length; } catch { }
+                if (f.StartsWith("__NUP__|", StringComparison.Ordinal))
+                {
+                    string[] parts = f.Split('|');
+                    if (parts.Length >= 5 && long.TryParse(parts[4], out long sz))
+                        estimatedRomfsBytes += sz;
+                }
+                else
+                {
+                    try { if (File.Exists(f)) estimatedRomfsBytes += new FileInfo(f).Length; } catch { }
+                }
             }
 
             string tempRomfsFile = Path.Combine(Path.GetDirectoryName(outPath) ?? Path.GetTempPath(), $"tmp_rfs_{Guid.NewGuid():N}.bin");
@@ -1482,7 +1534,7 @@ namespace StormSwitchBox.Services
                 throw new IOException($"Недостаточно свободного места на диске {drive.Name} для создания DLC RomFS: доступно {drive.AvailableFreeSpace / (1024 * 1024)} МБ, требуется {requiredSpace / (1024 * 1024)} МБ.");
             }
 
-            long romfsLv6Len = BuildStreamedRomFs(romfsMap, tempRomfsFile, onProgress, ct);
+            long romfsLv6Len = BuildStreamedRomFs(romfsMap, tempRomfsFile, onProgress, ct, nupStream);
 
             try
             {
@@ -2081,12 +2133,57 @@ namespace StormSwitchBox.Services
             return Tuple.Create(fsHdr, fullBody);
         }
 
-        private static long BuildStreamedRomFs(Dictionary<string, string> files, string outTempFile, Action<double> onProgress, CancellationToken ct)
+        private class BoundedReadStream : Stream
+        {
+            private readonly Stream _baseStream;
+            private readonly long _length;
+            private long _position;
+
+            public BoundedReadStream(Stream baseStream, long length)
+            {
+                _baseStream = baseStream;
+                _length = length;
+                _position = 0;
+            }
+
+            public override bool CanRead => true;
+            public override bool CanSeek => false;
+            public override bool CanWrite => false;
+            public override long Length => _length;
+            public override long Position { get => _position; set => throw new NotSupportedException(); }
+            public override void Flush() { }
+            public override int Read(byte[] buffer, int offset, int count)
+            {
+                long remaining = _length - _position;
+                if (remaining <= 0) return 0;
+                int toRead = (int)Math.Min(count, remaining);
+                int read = _baseStream.Read(buffer, offset, toRead);
+                _position += read;
+                return read;
+            }
+            public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+            public override void SetLength(long value) => throw new NotSupportedException();
+            public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        }
+
+        private static long BuildStreamedRomFs(Dictionary<string, string> files, string outTempFile, Action<double> onProgress, CancellationToken ct, Stream? nupStream = null)
         {
             var items = new List<(string RelPath, long Size, string FullPath, byte[]? Data)>(files.Count);
             foreach (var kv in files)
             {
-                long sz = new FileInfo(kv.Value).Length;
+                long sz = 0;
+                if (kv.Value.StartsWith("__NUP__|", StringComparison.Ordinal))
+                {
+                    string[] parts = kv.Value.Split('|');
+                    if (parts.Length >= 5 && long.TryParse(parts[4], out long parsedSz))
+                    {
+                        sz = parsedSz;
+                    }
+                }
+                else
+                {
+                    try { sz = new FileInfo(kv.Value).Length; } catch { }
+                }
                 items.Add((kv.Key, sz, kv.Value, null));
             }
 
@@ -2112,14 +2209,70 @@ namespace StormSwitchBox.Services
                     written += pad;
                 }
 
-                using var inFs = new FileStream(f.SourceFullPath, FileMode.Open, FileAccess.Read, FileShare.Read, 1024 * 1024);
-                int r;
-                while ((r = inFs.Read(buf, 0, buf.Length)) > 0)
+                if (f.SourceFullPath.StartsWith("__NUP__|", StringComparison.Ordinal) && nupStream != null)
                 {
-                    outFs.Write(buf, 0, r);
-                    written += r;
+                    string[] parts = f.SourceFullPath.Split('|');
+                    long readOffset = long.Parse(parts[1]);
+                    long extentSize = long.Parse(parts[2]);
+                    byte codec = byte.Parse(parts[3]);
+                    long rawSize = long.Parse(parts[4]);
+
+                    if (rawSize <= 0 || extentSize == 0)
+                    {
+                        if (rawSize > 0)
+                        {
+                            long remZ = rawSize;
+                            while (remZ > 0)
+                            {
+                                int z = (int)Math.Min(remZ, buf.Length);
+                                Array.Clear(buf, 0, z);
+                                outFs.Write(buf, 0, z);
+                                written += z;
+                                remZ -= z;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        nupStream.Seek(readOffset, SeekOrigin.Begin);
+                        if (codec == 1) // Zstd
+                        {
+                            using var bound = new BoundedReadStream(nupStream, extentSize);
+                            using var zstdStream = new ZstdSharp.DecompressionStream(bound);
+                            int r;
+                            while ((r = zstdStream.Read(buf, 0, buf.Length)) > 0)
+                            {
+                                outFs.Write(buf, 0, r);
+                                written += r;
+                            }
+                        }
+                        else // uncompressed
+                        {
+                            long remaining = f.DataSize;
+                            while (remaining > 0)
+                            {
+                                int toRead = (int)Math.Min(remaining, buf.Length);
+                                int r = nupStream.Read(buf, 0, toRead);
+                                if (r <= 0) break;
+                                outFs.Write(buf, 0, r);
+                                written += r;
+                                remaining -= r;
+                            }
+                        }
+                    }
                 }
-                if (i % 20 == 0)
+                else
+                {
+                    using var inFs = new FileStream(f.SourceFullPath, FileMode.Open, FileAccess.Read, FileShare.Read, 1024 * 1024);
+                    int r;
+                    while ((r = inFs.Read(buf, 0, buf.Length)) > 0)
+                    {
+                        outFs.Write(buf, 0, r);
+                        written += r;
+                    }
+                }
+
+                if (i % 200 == 0 || i == orderedFiles.Count - 1)
                 {
                     onProgress((double)i / Math.Max(1, orderedFiles.Count));
                 }
@@ -2135,6 +2288,584 @@ namespace StormSwitchBox.Services
 
             return totalRomFsSize;
         }
+
+        private static async Task ExtractNupExeFsRecursiveAsync(
+            Stream nupStream,
+            ulong blobOffset,
+            uint dirIdx,
+            string currentOutDir,
+            List<(uint NameOff, uint NameLen, uint FirstChild, uint ChildCount)> dirs,
+            List<NupContainerService.NupFileEntry> files,
+            uint[] children,
+            Func<uint, uint, string> getString,
+            CancellationToken ct)
+        {
+            Directory.CreateDirectory(currentOutDir);
+            var d = dirs[(int)dirIdx];
+            for (uint i = 0; i < d.ChildCount; i++)
+            {
+                ct.ThrowIfCancellationRequested();
+                uint childVal = children[d.FirstChild + i];
+                if (childVal < dirs.Count)
+                {
+                    string subName = getString(dirs[(int)childVal].NameOff, dirs[(int)childVal].NameLen);
+                    if (string.IsNullOrEmpty(subName)) subName = $"dir_{childVal}";
+                    string subPath = Path.Combine(currentOutDir, subName);
+                    await ExtractNupExeFsRecursiveAsync(nupStream, blobOffset, childVal, subPath, dirs, files, children, getString, ct);
+                }
+                else
+                {
+                    int fileIdx = (int)(childVal - (uint)dirs.Count);
+                    if (fileIdx >= 0 && fileIdx < files.Count)
+                    {
+                        var fe = files[fileIdx];
+                        string fileName = getString(fe.NameOff, fe.NameLen);
+                        if (string.IsNullOrEmpty(fileName)) fileName = $"file_{fileIdx}.bin";
+                        string filePath = Path.Combine(currentOutDir, fileName);
+
+                        ulong readOffset = fe.ExtentOffset < blobOffset ? (blobOffset + fe.ExtentOffset) : fe.ExtentOffset;
+                        nupStream.Seek((long)readOffset, SeekOrigin.Begin);
+
+                        byte[] extentBytes = new byte[fe.ExtentSize];
+                        await nupStream.ReadExactlyAsync(extentBytes, 0, (int)fe.ExtentSize, ct);
+
+                        byte[] uncompressedData;
+                        if (fe.Codec == 1) // Zstandard
+                        {
+                            using var decompressor = new Decompressor();
+                            uncompressedData = decompressor.Unwrap(extentBytes).ToArray();
+                        }
+                        else
+                        {
+                            uncompressedData = extentBytes;
+                        }
+
+                        await File.WriteAllBytesAsync(filePath, uncompressedData, ct);
+                    }
+                }
+            }
+        }
+
+        private static void CollectNupRomFsRecursive(
+            uint dirIdx,
+            string currentRelPath,
+            List<(uint NameOff, uint NameLen, uint FirstChild, uint ChildCount)> dirs,
+            List<NupContainerService.NupFileEntry> files,
+            uint[] children,
+            Func<uint, uint, string> getString,
+            ulong blobOffset,
+            Dictionary<string, string> targetMap)
+        {
+            var d = dirs[(int)dirIdx];
+            for (uint i = 0; i < d.ChildCount; i++)
+            {
+                uint childVal = children[d.FirstChild + i];
+                if (childVal < dirs.Count)
+                {
+                    string subName = getString(dirs[(int)childVal].NameOff, dirs[(int)childVal].NameLen);
+                    if (string.IsNullOrEmpty(subName)) subName = $"dir_{childVal}";
+                    string subRel = string.IsNullOrEmpty(currentRelPath) ? subName : (currentRelPath + "/" + subName);
+                    CollectNupRomFsRecursive(childVal, subRel, dirs, files, children, getString, blobOffset, targetMap);
+                }
+                else
+                {
+                    int fileIdx = (int)(childVal - (uint)dirs.Count);
+                    if (fileIdx >= 0 && fileIdx < files.Count)
+                    {
+                        var fe = files[fileIdx];
+                        string fileName = getString(fe.NameOff, fe.NameLen);
+                        if (string.IsNullOrEmpty(fileName)) fileName = $"file_{fileIdx}.bin";
+                        if (fileName.Equals(".listing", StringComparison.OrdinalIgnoreCase)) continue;
+                        string rel = string.IsNullOrEmpty(currentRelPath) ? fileName : (currentRelPath + "/" + fileName);
+                        ulong readOffset = fe.ExtentOffset < blobOffset ? (blobOffset + fe.ExtentOffset) : fe.ExtentOffset;
+                        targetMap[rel] = $"__NUP__|{readOffset}|{fe.ExtentSize}|{fe.Codec}|{fe.Size}";
+                    }
+                }
+            }
+        }
+
+        public static async Task CompileNupToSwitch2ContainerAsync(
+            ProcessingTask task,
+            string nupPath,
+            string outPath,
+            CancellationToken ct)
+        {
+            if (string.IsNullOrWhiteSpace(nupPath) || !File.Exists(nupPath))
+            {
+                throw new FileNotFoundException($"Файл .nup не найден: {nupPath}");
+            }
+
+            App.RunOnUI(() =>
+            {
+                task.EnsureSourceMetricsPopulated();
+                task.Status = "Анализ .nup контейнера...";
+                task.IsRunning = true;
+                task.Progress = 5;
+                task.LogDetails += $"\n[NUP Stream] Запуск прямого потокового компилятора Switch 2 без распаковки на диск ({Path.GetFileName(nupPath)})...\n";
+            });
+
+            await using var fs = new FileStream(nupPath, FileMode.Open, FileAccess.Read, FileShare.Read, 2 * 1024 * 1024, useAsync: true);
+            if (fs.Length < 0x80) throw new InvalidDataException("Файл слишком мал для заголовка NUP.");
+
+            byte[] superblock = new byte[0x80];
+            await fs.ReadExactlyAsync(superblock, 0, 0x80, ct);
+            if (!superblock.AsSpan(0, 4).SequenceEqual(NupContainerService.NupMagic))
+            {
+                throw new InvalidDataException("Файл не является валидным NUP v1.0 контейнером!");
+            }
+
+            ulong tocOffset = BinaryPrimitives.ReadUInt64LittleEndian(superblock.AsSpan(0x08, 8));
+            ulong tocSize = BinaryPrimitives.ReadUInt64LittleEndian(superblock.AsSpan(0x10, 8));
+            ulong blobOffset = BinaryPrimitives.ReadUInt64LittleEndian(superblock.AsSpan(0x38, 8));
+            ulong fileSize = BinaryPrimitives.ReadUInt64LittleEndian(superblock.AsSpan(0x40, 8));
+
+            fs.Seek((long)tocOffset, SeekOrigin.Begin);
+            byte[] tocBytes = new byte[tocSize];
+            await fs.ReadExactlyAsync(tocBytes, 0, (int)tocSize, ct);
+
+            if (tocBytes.Length < 0x28 || !tocBytes.AsSpan(0, 4).SequenceEqual(NupContainerService.TocMagic))
+            {
+                throw new InvalidDataException("Заголовок TOC NUP поврежден или отсутствует!");
+            }
+
+            uint packageCount = BinaryPrimitives.ReadUInt32LittleEndian(tocBytes.AsSpan(0x04, 4));
+            uint c08 = BinaryPrimitives.ReadUInt32LittleEndian(tocBytes.AsSpan(0x08, 4));
+            uint c0C = tocBytes.Length >= 0x10 ? BinaryPrimitives.ReadUInt32LittleEndian(tocBytes.AsSpan(0x0C, 4)) : 0;
+            uint c10 = tocBytes.Length >= 0x14 ? BinaryPrimitives.ReadUInt32LittleEndian(tocBytes.AsSpan(0x10, 4)) : 0;
+            ulong strPoolOffset = BinaryPrimitives.ReadUInt64LittleEndian(tocBytes.AsSpan(0x18, 8));
+            ulong strPoolSize = BinaryPrimitives.ReadUInt64LittleEndian(tocBytes.AsSpan(0x20, 8));
+
+            bool isLegacy28 = c0C > 0 &&
+                (0x28UL + (ulong)packageCount * 0x40UL + (ulong)c08 * 0x18UL + (ulong)c0C * 0x50UL + (ulong)c10 * 4UL) == strPoolOffset;
+
+            int pkgStart = isLegacy28 ? 0x28 : 0x30;
+            ulong dirCount = isLegacy28 ? c08 : BinaryPrimitives.ReadUInt64LittleEndian(tocBytes.AsSpan(0x08, 8));
+            ulong fileCount = isLegacy28 ? c0C : BinaryPrimitives.ReadUInt64LittleEndian(tocBytes.AsSpan(0x10, 8));
+
+            string GetString(uint off, uint len)
+            {
+                int start = (int)(strPoolOffset + off);
+                if (start >= tocBytes.Length) return string.Empty;
+                int actualLen = (int)len;
+                if (start + actualLen > tocBytes.Length) actualLen = tocBytes.Length - start;
+                return Encoding.UTF8.GetString(tocBytes, start, actualLen).TrimEnd('\0');
+            }
+
+            // Dirs
+            int dirsTableOffset = pkgStart + (int)packageCount * 0x40;
+            var dirs = new List<(uint NameOff, uint NameLen, uint FirstChild, uint ChildCount)>((int)dirCount);
+            for (int i = 0; i < (int)dirCount; i++)
+            {
+                int off = dirsTableOffset + i * 0x18;
+                dirs.Add((
+                    BinaryPrimitives.ReadUInt32LittleEndian(tocBytes.AsSpan(off, 4)),
+                    BinaryPrimitives.ReadUInt32LittleEndian(tocBytes.AsSpan(off + 4, 4)),
+                    BinaryPrimitives.ReadUInt32LittleEndian(tocBytes.AsSpan(off + 8, 4)),
+                    BinaryPrimitives.ReadUInt32LittleEndian(tocBytes.AsSpan(off + 12, 4))
+                ));
+            }
+
+            // Files
+            int filesTableOffset = dirsTableOffset + (int)dirCount * 0x18;
+            var files = new List<NupContainerService.NupFileEntry>((int)fileCount);
+            for (int i = 0; i < (int)fileCount; i++)
+            {
+                int off = filesTableOffset + i * 0x50;
+                files.Add(new NupContainerService.NupFileEntry
+                {
+                    NameOff = BinaryPrimitives.ReadUInt32LittleEndian(tocBytes.AsSpan(off, 4)),
+                    NameLen = BinaryPrimitives.ReadUInt32LittleEndian(tocBytes.AsSpan(off + 4, 4)),
+                    Size = BinaryPrimitives.ReadUInt64LittleEndian(tocBytes.AsSpan(off + 8, 8)),
+                    ExtentOffset = BinaryPrimitives.ReadUInt64LittleEndian(tocBytes.AsSpan(off + 16, 8)),
+                    ExtentSize = BinaryPrimitives.ReadUInt64LittleEndian(tocBytes.AsSpan(off + 24, 8)),
+                    Sha256 = tocBytes.AsSpan(off + 32, 32).ToArray(),
+                    Codec = tocBytes[off + 64]
+                });
+            }
+
+            // children[]
+            int childrenStart = filesTableOffset + (int)fileCount * 0x50;
+            int childrenCount = (int)((strPoolOffset > (ulong)childrenStart) ? (strPoolOffset - (ulong)childrenStart) / 4 : 0);
+            var children = new uint[childrenCount];
+            for (int i = 0; i < childrenCount; i++)
+            {
+                children[i] = BinaryPrimitives.ReadUInt32LittleEndian(tocBytes.AsSpan(childrenStart + i * 4, 4));
+            }
+
+            // Packages & TLV
+            var packages = new List<NupPackageInfo>();
+            for (int p = 0; p < packageCount; p++)
+            {
+                int pOff = pkgStart + p * 0x40;
+                ulong tid = BinaryPrimitives.ReadUInt64LittleEndian(tocBytes.AsSpan(pOff, 8));
+                uint rootDirIdx = BinaryPrimitives.ReadUInt32LittleEndian(tocBytes.AsSpan(pOff + 8, 4));
+                uint exefsDirIdx = BinaryPrimitives.ReadUInt32LittleEndian(tocBytes.AsSpan(pOff + 12, 4));
+                uint romfsDirIdx = BinaryPrimitives.ReadUInt32LittleEndian(tocBytes.AsSpan(pOff + 16, 4));
+                uint version = BinaryPrimitives.ReadUInt32LittleEndian(tocBytes.AsSpan(pOff + 20, 4));
+                byte kind = tocBytes[pOff + 24];
+                byte flags = tocBytes[pOff + 25];
+                ulong metaOffset = BinaryPrimitives.ReadUInt64LittleEndian(tocBytes.AsSpan(pOff + 0x20, 8));
+                ulong metaSize = BinaryPrimitives.ReadUInt64LittleEndian(tocBytes.AsSpan(pOff + 0x28, 8));
+
+                var pkgInfo = new NupPackageInfo
+                {
+                    TitleId = tid,
+                    Version = version,
+                    Kind = kind,
+                    Flags = flags,
+                    RootDirIndex = rootDirIdx,
+                    ExeFsDirIndex = exefsDirIdx,
+                    RomFsDirIndex = romfsDirIdx
+                };
+
+                if (metaOffset > 0 && metaSize > 0 && metaSize < 32 * 1024 * 1024)
+                {
+                    byte[]? metaData = null;
+                    if (metaOffset >= (ulong)tocBytes.Length && metaOffset + metaSize <= (ulong)fs.Length)
+                    {
+                        try
+                        {
+                            long curPos = fs.Position;
+                            fs.Seek((long)metaOffset, SeekOrigin.Begin);
+                            byte[] buf = new byte[metaSize];
+                            await fs.ReadExactlyAsync(buf, 0, (int)metaSize, ct);
+                            fs.Seek(curPos, SeekOrigin.Begin);
+                            metaData = buf;
+                        }
+                        catch { }
+                    }
+                    else if (metaOffset + metaSize <= (ulong)tocBytes.Length)
+                    {
+                        metaData = tocBytes.AsSpan((int)metaOffset, (int)metaSize).ToArray();
+                    }
+
+                    if (metaData != null)
+                    {
+                        int mCur = 0;
+                        int mEnd = metaData.Length;
+                        while (mCur + 8 <= mEnd)
+                        {
+                            uint tag = BinaryPrimitives.ReadUInt32LittleEndian(metaData.AsSpan(mCur, 4));
+                            uint len = BinaryPrimitives.ReadUInt32LittleEndian(metaData.AsSpan(mCur + 4, 4));
+                            mCur += 8;
+                            if (mCur + (int)len > mEnd) break;
+                            byte[] val = metaData.AsSpan(mCur, (int)len).ToArray();
+                            mCur += (int)len;
+
+                            switch (tag)
+                            {
+                                case 0x0001: pkgInfo.NpdmBytes = val; break;
+                                case 0x0002: pkgInfo.NacpBytes = val; break;
+                                case 0x0003: if (val.Length > 64) pkgInfo.IconBytes = val; break;
+                                case 0x0004: pkgInfo.DisplayVersion = Encoding.UTF8.GetString(val).TrimEnd('\0').Trim(); break;
+                                case 0x0005:
+                                case 0x0008:
+                                    string name = Encoding.UTF8.GetString(val).TrimEnd('\0').Trim();
+                                    if (!string.IsNullOrEmpty(name))
+                                    {
+                                        if (string.IsNullOrEmpty(pkgInfo.TitleName) || tag == 0x0005)
+                                            pkgInfo.TitleName = name;
+                                    }
+                                    break;
+                                case 0x0006: pkgInfo.Publisher = Encoding.UTF8.GetString(val).TrimEnd('\0').Trim(); break;
+                                case 0x0007: pkgInfo.BuildId = Convert.ToHexString(val); break;
+                            }
+                        }
+                    }
+                }
+
+                packages.Add(pkgInfo);
+            }
+
+            var basePkg = packages.FirstOrDefault(p => p.Kind == 0) ?? packages.FirstOrDefault();
+            if (basePkg == null) throw new InvalidDataException("Контейнер .nup не содержит базового пакета!");
+            var updPkg = packages.FirstOrDefault(p => p.Kind == 1);
+            var dlcPackages = packages.Where(p => p.Kind == 2).ToList();
+
+            string titleId = basePkg.TitleIdHex.ToUpperInvariant();
+            bool isSwitch2 = titleId.StartsWith("0400", StringComparison.OrdinalIgnoreCase);
+
+            string outDir = Path.GetDirectoryName(outPath) ?? "";
+            if (string.IsNullOrEmpty(outDir) && !string.IsNullOrEmpty(task.OutputFolder) && Directory.Exists(task.OutputFolder))
+            {
+                outDir = task.OutputFolder;
+            }
+            if (string.IsNullOrEmpty(outDir) && !string.IsNullOrEmpty(App.Settings.Current.OutputFolderSwitch2) && Directory.Exists(App.Settings.Current.OutputFolderSwitch2))
+            {
+                outDir = App.Settings.Current.OutputFolderSwitch2;
+            }
+            if (string.IsNullOrEmpty(outDir)) outDir = Directory.GetCurrentDirectory();
+            Directory.CreateDirectory(outDir);
+
+            DateTime startTime = DateTime.Now;
+            string targetFormat = !string.IsNullOrEmpty(task.TargetFormat) ? task.TargetFormat.ToUpperInvariant() : (!string.IsNullOrEmpty(App.Settings.Current.Switch2DefaultFormat) ? App.Settings.Current.Switch2DefaultFormat.ToUpperInvariant() : "NSZ");
+
+            string canonicalName = CleanGameTitle(!string.IsNullOrEmpty(basePkg.TitleName) ? basePkg.TitleName : Path.GetFileNameWithoutExtension(nupPath));
+            string baseFileName = !string.IsNullOrWhiteSpace(task.OutputFileName) && !task.OutputFileName.Contains("[БАЗА")
+                ? task.OutputFileName
+                : canonicalName;
+
+            App.RunOnUI(() => { task.OutputFileName = baseFileName; });
+
+            string tempRoot = Path.Combine(Path.GetPathRoot(Path.GetFullPath(outDir)) ?? Path.GetTempPath(), "STORM_TMP");
+            Directory.CreateDirectory(tempRoot);
+            string tempWorkDir = Path.Combine(tempRoot, "StormSwitch2_" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            Directory.CreateDirectory(tempWorkDir);
+            TempCleanupService.RegisterActiveTempDirectory(tempWorkDir);
+
+            try
+            {
+                // 1. Control NCA
+                App.RunOnUI(() =>
+                {
+                    task.Progress = 15;
+                    task.Status = "Сборка Control NCA...";
+                    task.LogDetails += "[1/4] Сборка Control NCA (control.nacp на 16 языках + иконка 256×256)...\n";
+                });
+
+                var customMeta = task.CustomMetadata ?? task.RuTrackerPayload?.CustomMetadata;
+                byte[]? iconBytes = customMeta?.CustomIconBytes ?? customMeta?.OriginalIconBytes ?? basePkg.IconBytes ?? await FetchCoverAsync(basePkg.TitleName);
+                if (iconBytes == null || iconBytes.Length == 0)
+                {
+                    iconBytes = GenerateDefaultSwitchCoverBytes(basePkg.TitleName);
+                }
+                iconBytes = SmartShrinkService.OptimizeSwitchIconJpeg(iconBytes);
+
+                string engTitle = !string.IsNullOrWhiteSpace(customMeta?.TitleNameEnglish) ? customMeta.TitleNameEnglish : (!string.IsNullOrEmpty(basePkg.TitleName) ? basePkg.TitleName : "Nintendo Switch Game");
+                string rusTitle = !string.IsNullOrWhiteSpace(customMeta?.TitleNameRussian) ? customMeta.TitleNameRussian : engTitle;
+                string pubName = !string.IsNullOrWhiteSpace(customMeta?.Publisher) ? customMeta.Publisher : (!string.IsNullOrEmpty(basePkg.Publisher) ? basePkg.Publisher : "Nintendo");
+
+                // Extract ExeFS files (~6 files) into tempWorkDir\\base_exefs and tempWorkDir\\upd_exefs
+                string baseExeFsDir = Path.Combine(tempWorkDir, "base_exefs");
+                Directory.CreateDirectory(baseExeFsDir);
+                if (basePkg.ExeFsDirIndex < dirs.Count)
+                {
+                    await ExtractNupExeFsRecursiveAsync(fs, blobOffset, basePkg.ExeFsDirIndex, baseExeFsDir, dirs, files, children, GetString, ct);
+                }
+                if (basePkg.NpdmBytes != null && basePkg.NpdmBytes.Length > 0 && !File.Exists(Path.Combine(baseExeFsDir, "main.npdm")))
+                {
+                    await File.WriteAllBytesAsync(Path.Combine(baseExeFsDir, "main.npdm"), basePkg.NpdmBytes, ct);
+                }
+
+                string? updExeFsDir = null;
+                if (updPkg != null && updPkg.ExeFsDirIndex < dirs.Count)
+                {
+                    updExeFsDir = Path.Combine(tempWorkDir, "upd_exefs");
+                    Directory.CreateDirectory(updExeFsDir);
+                    await ExtractNupExeFsRecursiveAsync(fs, blobOffset, updPkg.ExeFsDirIndex, updExeFsDir, dirs, files, children, GetString, ct);
+                    if (updPkg.NpdmBytes != null && updPkg.NpdmBytes.Length > 0 && !File.Exists(Path.Combine(updExeFsDir, "main.npdm")))
+                    {
+                        await File.WriteAllBytesAsync(Path.Combine(updExeFsDir, "main.npdm"), updPkg.NpdmBytes, ct);
+                    }
+                }
+
+                uint sdkAddonVersion = DetectSdkAddonVersion(!string.IsNullOrEmpty(updExeFsDir) && Directory.Exists(updExeFsDir) ? updExeFsDir : baseExeFsDir, isSwitch2);
+
+                string ctrlNcaPath = Path.Combine(tempWorkDir, "control.nca");
+                string displayVer = updPkg != null && !string.IsNullOrEmpty(updPkg.DisplayVersion)
+                    ? updPkg.DisplayVersion
+                    : (!string.IsNullOrEmpty(basePkg.DisplayVersion) ? basePkg.DisplayVersion : (updPkg != null ? $"v{updPkg.Version}" : "1.0.0"));
+
+                BuildControlNca(titleId, engTitle, pubName, displayVer, iconBytes, ctrlNcaPath, rusTitle, sdkAddonVersion);
+
+                byte[] ctrlSha = ComputeSha256(ctrlNcaPath);
+                string ctrlHex = BitConverter.ToString(ctrlSha, 0, 16).Replace("-", "").ToLowerInvariant();
+                string finalCtrlNcaPath = Path.Combine(tempWorkDir, $"{ctrlHex}.nca");
+                File.Move(ctrlNcaPath, finalCtrlNcaPath, true);
+                long ctrlSize = new FileInfo(finalCtrlNcaPath).Length;
+
+                // 2. Program NCA
+                App.RunOnUI(() =>
+                {
+                    task.Progress = 35;
+                    task.Status = "Сборка Program NCA (ExeFS + RomFS)...";
+                    task.LogDetails += "[2/4] Сборка Program NCA (ExeFS PFS0 + RomFS IVFC)...\n";
+                });
+
+                var romfsMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                if (basePkg.RomFsDirIndex < dirs.Count)
+                {
+                    CollectNupRomFsRecursive(basePkg.RomFsDirIndex, "", dirs, files, children, GetString, blobOffset, romfsMap);
+                }
+                if (updPkg != null && updPkg.RomFsDirIndex < dirs.Count)
+                {
+                    CollectNupRomFsRecursive(updPkg.RomFsDirIndex, "", dirs, files, children, GetString, blobOffset, romfsMap);
+                }
+
+                string progNcaPath = Path.Combine(tempWorkDir, "program.nca");
+                BuildProgramNca(titleId, baseExeFsDir, updExeFsDir, "", null, progNcaPath, p =>
+                {
+                    App.RunOnUI(() => { task.Progress = 35 + (p * 0.35); });
+                }, ct, sdkAddonVersion, normalizeAcidForLegacySwitch1: false, nupStream: fs, prebuiltRomfsMap: romfsMap);
+
+                byte[] progSha = ComputeSha256(progNcaPath);
+                string progHex = BitConverter.ToString(progSha, 0, 16).Replace("-", "").ToLowerInvariant();
+                string finalProgNcaPath = Path.Combine(tempWorkDir, $"{progHex}.nca");
+                File.Move(progNcaPath, finalProgNcaPath, true);
+                long progSize = new FileInfo(finalProgNcaPath).Length;
+
+                // 3. Meta NCA (CNMT)
+                App.RunOnUI(() =>
+                {
+                    task.Progress = 75;
+                    task.Status = "Сборка Meta NCA (.cnmt.nca)...";
+                    task.LogDetails += "[3/4] Сборка Meta NCA (.cnmt.nca дескриптор)...\n";
+                });
+
+                string metaNcaPath = Path.Combine(tempWorkDir, "meta.nca");
+                string metaVer = updPkg != null ? updPkg.Version.ToString() : "0";
+                BuildMetaCnmtNca(titleId, metaVer, progSha, progSha.Take(16).ToArray(), progSize, ctrlSha, ctrlSha.Take(16).ToArray(), ctrlSize, metaNcaPath, sdkAddonVersion);
+
+                byte[] metaSha = ComputeSha256(metaNcaPath);
+                string metaHex = BitConverter.ToString(metaSha, 0, 16).Replace("-", "").ToLowerInvariant();
+                string finalMetaNcaPath = Path.Combine(tempWorkDir, $"{metaHex}.cnmt.nca");
+                File.Move(metaNcaPath, finalMetaNcaPath, true);
+
+                var ncaFiles = new List<string> { finalMetaNcaPath, finalCtrlNcaPath, finalProgNcaPath };
+
+                // 3b. DLC Packaging
+                if (dlcPackages.Count > 0)
+                {
+                    ulong baseTidVal = Convert.ToUInt64(titleId, 16);
+                    int dlcIdx = 0;
+                    foreach (var dlcPkg in dlcPackages)
+                    {
+                        dlcIdx++;
+                        App.RunOnUI(() =>
+                        {
+                            task.Progress = 75 + (int)((double)dlcIdx / dlcPackages.Count * 9);
+                            task.Status = $"Сборка DLC {dlcIdx}/{dlcPackages.Count}...";
+                            task.LogDetails += $"[DLC {dlcIdx}/{dlcPackages.Count}] Сборка Data NCA и AddOnContent CNMT...\n";
+                        });
+
+                        string dlcTitleId = dlcPkg.TitleId != 0 ? dlcPkg.TitleIdHex.ToUpperInvariant() : $"{(baseTidVal & ~0xFFFUL) + 0x1000UL + (ulong)dlcIdx:X16}";
+
+                        var dlcRomfsMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                        if (dlcPkg.RomFsDirIndex < dirs.Count)
+                        {
+                            CollectNupRomFsRecursive(dlcPkg.RomFsDirIndex, "", dirs, files, children, GetString, blobOffset, dlcRomfsMap);
+                        }
+
+                        string dlcDataNcaPath = Path.Combine(tempWorkDir, $"dlc_data_{dlcIdx}.nca");
+                        BuildDlcDataNca(dlcTitleId, "", dlcDataNcaPath, p => { }, ct, sdkAddonVersion, nupStream: fs, prebuiltRomfsMap: dlcRomfsMap);
+
+                        byte[] dlcDataSha = ComputeSha256(dlcDataNcaPath);
+                        string dlcDataHex = BitConverter.ToString(dlcDataSha, 0, 16).Replace("-", "").ToLowerInvariant();
+                        string finalDlcDataNcaPath = Path.Combine(tempWorkDir, $"{dlcDataHex}.nca");
+                        File.Move(dlcDataNcaPath, finalDlcDataNcaPath, true);
+                        long dlcDataSize = new FileInfo(finalDlcDataNcaPath).Length;
+
+                        string dlcMetaNcaPath = Path.Combine(tempWorkDir, $"dlc_meta_{dlcIdx}.nca");
+                        BuildDlcMetaCnmtNca(dlcTitleId, titleId, dlcDataSha, dlcDataSha.Take(16).ToArray(), dlcDataSize, dlcMetaNcaPath, sdkAddonVersion);
+
+                        byte[] dlcMetaSha = ComputeSha256(dlcMetaNcaPath);
+                        string dlcMetaHex = BitConverter.ToString(dlcMetaSha, 0, 16).Replace("-", "").ToLowerInvariant();
+                        string finalDlcMetaNcaPath = Path.Combine(tempWorkDir, $"{dlcMetaHex}.cnmt.nca");
+                        File.Move(dlcMetaNcaPath, finalDlcMetaNcaPath, true);
+
+                        ncaFiles.Add(finalDlcDataNcaPath);
+                        ncaFiles.Add(finalDlcMetaNcaPath);
+                    }
+                }
+
+                // 4. Pack into final NSP
+                App.RunOnUI(() =>
+                {
+                    task.Progress = 85;
+                    task.Status = "Финальная упаковка PFS0 (.nsp)...";
+                    task.LogDetails += "[4/4] Финальная упаковка контейнера...\n";
+                });
+
+                string finalNspPath = Path.Combine(outDir, baseFileName + ".nsp");
+                BuildPfs0Container(ncaFiles, finalNspPath);
+
+                // 5. Target format conversion/compression if needed
+                if (targetFormat == "NSZ" || targetFormat == "NSP + NSZ")
+                {
+                    App.RunOnUI(() =>
+                    {
+                        task.Progress = 90;
+                        task.Status = "Zstandard сжатие в NSZ...";
+                        task.LogDetails += "⚡ [NCZBLOCK v2] Блочное Zstandard сжатие Program NCA в .nsz...\n";
+                    });
+                    await App.NszCompression.CompressToNszAsync(task, finalNspPath, outDir, ct);
+                    if (targetFormat == "NSZ" && File.Exists(finalNspPath))
+                    {
+                        try { File.Delete(finalNspPath); } catch { }
+                    }
+                }
+                else if (targetFormat == "XCI" || targetFormat == "XCZ" || targetFormat == "XCI + XCZ")
+                {
+                    App.RunOnUI(() =>
+                    {
+                        task.Progress = 90;
+                        task.Status = "Конвертация в XCI картридж...";
+                        task.LogDetails += "📦 [XCI Cartridge] Упаковка в HFS0 картридж...\n";
+                    });
+                    await App.SwitchFormat.ConvertContainerAsync(task, finalNspPath, outDir, "XCI", ct);
+                    if (targetFormat == "XCZ" || targetFormat == "XCI + XCZ")
+                    {
+                        string xciPath = Path.Combine(outDir, baseFileName + ".xci");
+                        if (File.Exists(xciPath))
+                        {
+                            await App.NszCompression.CompressToNszAsync(task, xciPath, outDir, ct);
+                            if (targetFormat == "XCZ")
+                            {
+                                try { File.Delete(xciPath); } catch { }
+                            }
+                        }
+                    }
+                    if (!targetFormat.Contains("NSP") && File.Exists(finalNspPath))
+                    {
+                        try { File.Delete(finalNspPath); } catch { }
+                    }
+                }
+
+                string finalOutPath = finalNspPath;
+                if (targetFormat == "NSZ")
+                {
+                    string nsz = Path.Combine(outDir, baseFileName + ".nsz");
+                    if (File.Exists(nsz)) finalOutPath = nsz;
+                }
+                else if (targetFormat == "XCZ")
+                {
+                    string xcz = Path.Combine(outDir, baseFileName + ".xcz");
+                    if (File.Exists(xcz)) finalOutPath = xcz;
+                }
+                else if (targetFormat.Contains("XCI"))
+                {
+                    string xci = Path.Combine(outDir, baseFileName + ".xci");
+                    if (File.Exists(xci)) finalOutPath = xci;
+                }
+                if (!File.Exists(finalOutPath))
+                {
+                    var candidates = Directory.GetFiles(outDir, baseFileName + ".*")
+                        .Where(f => !f.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase))
+                        .OrderByDescending(f => new FileInfo(f).Length)
+                        .ToList();
+                    if (candidates.Count > 0) finalOutPath = candidates[0];
+                }
+
+                task.EnsureFinalMetricsPopulated(finalOutPath);
+
+                App.RunOnUI(() =>
+                {
+                    task.Progress = 100;
+                    task.Status = "Готово";
+                    task.IsRunning = false;
+                    task.FinishedAt = DateTime.Now;
+                    task.LogDetails += $"► Выходной файл: {finalOutPath} ({task.TargetSize})\n";
+                    task.LogDetails += $"✅ Сборка Nintendo Switch 2 из .nup успешно завершена!\n   Выходная папка: {outDir}\n";
+                    HistoryService.AddToHistory(task);
+                });
+                App.Logger.Log($"[Switch 2 NUP] Сборка успешно завершена: {Path.GetFileName(finalOutPath)} ({task.TargetSize})", LogLevel.Success);
+            }
+            finally
+            {
+                try { Directory.Delete(tempWorkDir, true); } catch { }
+            }
+        }
+
 
         private static Tuple<byte[], byte[]> BuildIvfcPrefixForStreamedRomfs(string romfsFile, long romfsLen)
         {
@@ -2250,11 +2981,12 @@ namespace StormSwitchBox.Services
         public static uint DetectSdkAddonVersion(string? exefsDir, bool isSwitch2) => Switch2DumpHelper.DetectSdkAddonVersion(exefsDir, isSwitch2);
         public static byte[] NormalizeSwitch2NpdmForNca3(byte[] npdmBytes, bool normalizeAcidForLegacySwitch1 = false) => Switch2DumpHelper.NormalizeSwitch2NpdmForNca3(npdmBytes, normalizeAcidForLegacySwitch1);
         public static void BuildControlNca(string titleId, string gameTitle, string publisher, string displayVersion, byte[] iconJpeg, string outPath, string? russianTitle = null, uint sdkAddonVersion = 0x00140000u) => Switch2DumpHelper.BuildControlNca(titleId, gameTitle, publisher, displayVersion, iconJpeg, outPath, russianTitle, sdkAddonVersion);
-        public static void BuildProgramNca(string titleId, string baseExeFsDir, string? updExeFsDir, string baseRomFsDir, string? updRomFsDir, string outPath, Action<double> onProgress, CancellationToken ct, uint sdkAddonVersion = 0x00140000u, bool normalizeAcidForLegacySwitch1 = false) => Switch2DumpHelper.BuildProgramNca(titleId, baseExeFsDir, updExeFsDir, baseRomFsDir, updRomFsDir, outPath, onProgress, ct, sdkAddonVersion, normalizeAcidForLegacySwitch1);
+        public static void BuildProgramNca(string titleId, string baseExeFsDir, string? updExeFsDir, string baseRomFsDir, string? updRomFsDir, string outPath, Action<double> onProgress, CancellationToken ct, uint sdkAddonVersion = 0x00140000u, bool normalizeAcidForLegacySwitch1 = false, Stream? nupStream = null, Dictionary<string, string>? prebuiltRomfsMap = null) => Switch2DumpHelper.BuildProgramNca(titleId, baseExeFsDir, updExeFsDir, baseRomFsDir, updRomFsDir, outPath, onProgress, ct, sdkAddonVersion, normalizeAcidForLegacySwitch1, nupStream, prebuiltRomfsMap);
         public static void BuildMetaCnmtNca(string titleId, string versionStr, byte[] progSha, byte[] progId, long progSize, byte[] ctrlSha, byte[] ctrlId, long ctrlSize, string outPath, uint sdkAddonVersion = 0x00140000u) => Switch2DumpHelper.BuildMetaCnmtNca(titleId, versionStr, progSha, progId, progSize, ctrlSha, ctrlId, ctrlSize, outPath, sdkAddonVersion);
-        public static void BuildDlcDataNca(string dlcTitleId, string dlcRomFsRoot, string outPath, Action<double> onProgress, CancellationToken ct, uint sdkAddonVersion = 0x00140000u) => Switch2DumpHelper.BuildDlcDataNca(dlcTitleId, dlcRomFsRoot, outPath, onProgress, ct, sdkAddonVersion);
+        public static void BuildDlcDataNca(string dlcTitleId, string dlcRomFsRoot, string outPath, Action<double> onProgress, CancellationToken ct, uint sdkAddonVersion = 0x00140000u, Stream? nupStream = null, Dictionary<string, string>? prebuiltRomfsMap = null) => Switch2DumpHelper.BuildDlcDataNca(dlcTitleId, dlcRomFsRoot, outPath, onProgress, ct, sdkAddonVersion, nupStream, prebuiltRomfsMap);
         public static void BuildDlcMetaCnmtNca(string dlcTitleId, string baseAppTitleId, byte[] dlcDataSha, byte[] dlcDataId, long dlcDataSize, string outPath, uint sdkAddonVersion = 0x00140000u) => Switch2DumpHelper.BuildDlcMetaCnmtNca(dlcTitleId, baseAppTitleId, dlcDataSha, dlcDataId, dlcDataSize, outPath, sdkAddonVersion);
         public static void BuildPfs0Container(List<string> ncaFiles, string outPath) => Switch2DumpHelper.BuildPfs0Container(ncaFiles, outPath);
+        public static Task CompileNupToSwitch2ContainerAsync(ProcessingTask task, string nupPath, string outPath, CancellationToken ct) => Switch2DumpHelper.CompileNupToSwitch2ContainerAsync(task, nupPath, outPath, ct);
 
         public static bool IsSwitch2OrExtractedGameDumpDirectory(string dirPath)
             => Switch2DumpHelper.IsSwitch2OrExtractedGameDumpDirectory(dirPath);

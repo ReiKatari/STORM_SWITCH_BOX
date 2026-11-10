@@ -1414,44 +1414,29 @@ namespace StormSwitchBox.Services
             if (!File.Exists(inputPath))
                 throw new FileNotFoundException($"Входной файл не найден: {inputPath}");
 
-            // Если входной файл уже .nup, а цель NSP/NSZ/XCI
+            // Если входной файл уже .nup, а цель NSP/NSZ/XCI/XCZ — прямая потоковая сборка без распаковки на диск
             if (IsNupFile(inputPath))
             {
-                string tempExtractDir = Path.Combine(Path.GetTempPath(), $"nup_ext_{Guid.NewGuid():N}");
-                try
+                string targetExt = Path.GetExtension(outputNupPath).ToLowerInvariant();
+                string outDir = Path.GetDirectoryName(outputNupPath) ?? "";
+                if (string.IsNullOrEmpty(outDir)) outDir = Directory.GetCurrentDirectory();
+
+                progress?.Report((10, $"Прямая потоковая компиляция .nup в {targetExt.ToUpperInvariant()}..."));
+
+                var dummyTask = new ProcessingTask
                 {
-                    progress?.Report((15, "Распаковка исходного .nup контейнера во временный дамп..."));
-                    await ExtractNupToDirectoryAsync(inputPath, tempExtractDir, progress, ct);
+                    TargetFormat = targetExt.TrimStart('.').ToUpperInvariant(),
+                    OutputFolder = outDir,
+                    OutputFileName = Path.GetFileNameWithoutExtension(outputNupPath)
+                };
 
-                    string targetExt = Path.GetExtension(outputNupPath).ToLowerInvariant();
-                    string outDir = Path.GetDirectoryName(outputNupPath) ?? "";
-                    if (string.IsNullOrEmpty(outDir)) outDir = Directory.GetCurrentDirectory();
+                await Switch2DumpHelper.CompileNupToSwitch2ContainerAsync(
+                    dummyTask,
+                    inputPath,
+                    outputNupPath,
+                    ct);
 
-                    progress?.Report((60, $"Компиляция в целевой контейнер {targetExt.ToUpperInvariant()}..."));
-
-                    var dummyTask = new ProcessingTask
-                    {
-                        TargetFormat = targetExt.TrimStart('.').ToUpperInvariant(),
-                        OutputFolder = outDir,
-                        OutputFileName = Path.GetFileNameWithoutExtension(outputNupPath)
-                    };
-
-                    await Switch2DumpHelper.CompileSwitch2DumpToContainerAsync(
-                        dummyTask,
-                        tempExtractDir,
-                        new List<string> { tempExtractDir },
-                        outputNupPath,
-                        ct);
-
-                    progress?.Report((100, $"Конвертация .nup -> {targetExt.ToUpperInvariant()} завершена!"));
-                }
-                finally
-                {
-                    if (Directory.Exists(tempExtractDir))
-                    {
-                        try { Directory.Delete(tempExtractDir, recursive: true); } catch { }
-                    }
-                }
+                progress?.Report((100, $"Конвертация .nup -> {targetExt.ToUpperInvariant()} завершена!"));
                 return;
             }
 
@@ -1686,7 +1671,7 @@ namespace StormSwitchBox.Services
             public int FileIndex { get; set; } = -1;
         }
 
-        private class NupFileEntry
+        public class NupFileEntry
         {
             public uint NameOff { get; set; }
             public uint NameLen { get; set; }

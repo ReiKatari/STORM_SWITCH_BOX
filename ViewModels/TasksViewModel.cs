@@ -2684,6 +2684,31 @@ public partial class TasksViewModel : ObservableObject
 				{
 					break;
 				}
+				if (f.EndsWith(".nup", StringComparison.OrdinalIgnoreCase) || NupContainerService.IsNupFile(f))
+				{
+					var nupInfo = NupContainerService.InspectNupFile(f);
+					if (nupInfo != null)
+					{
+						App.RunOnUI(delegate
+						{
+							task.VerifyType = "NUP v1.0 Container";
+							task.VerifyStructure = $"Пакетов: {nupInfo.PackageCount} | Файлов: {nupInfo.FileCount} (дедуп: {nupInfo.DeduplicatedFileCount})";
+							task.VerifyTitleId = nupInfo.TitleId;
+							task.VerifyVersion = nupInfo.DisplayVersion;
+							task.LogDetails += $"\n[NUP Проверка] Контейнер NUP v1.0 валиден: {Path.GetFileName(f)}\n  • Игра: {nupInfo.GameTitle}\n  • Издатель: {nupInfo.Publisher}\n  • Версия: {nupInfo.DisplayVersion}\n  • TitleID: {nupInfo.TitleId}\n  • Состав: {nupInfo.PackageBreakdown}\n  • Исходный размер: {ProcessingTask.FormatSize((long)nupInfo.TotalUncompressedSize)}\n  • Сжатый размер: {ProcessingTask.FormatSize((long)nupInfo.TotalCompressedSize)}\n";
+						});
+					}
+					else
+					{
+						App.RunOnUI(delegate
+						{
+							task.VerifyType = "NUP Container (Invalid)";
+							task.VerifyStructure = "Ошибка заголовка NUP";
+							task.LogDetails += $"\n[NUP Ошибка] Файл поврежден или не является NUP v1.0: {Path.GetFileName(f)}\n";
+						});
+					}
+					continue;
+				}
 				await App.SwitchFormat.VerifyNspAsync(task, f, cts.Token);
 			}
 			if (!cts.IsCancellationRequested)
@@ -2762,7 +2787,14 @@ public partial class TasksViewModel : ObservableObject
 				{
 					throw new FileNotFoundException($"Исходный файл для распаковки не найден: {inputPath}");
 				}
-				await App.SwitchFormat.UnpackContainerAsync(task, inputPath, finalUnpackDir, cts.Token);
+				if (inputPath.EndsWith(".nup", StringComparison.OrdinalIgnoreCase) || NupContainerService.IsNupFile(inputPath))
+				{
+					await NupContainerService.ExtractNupToDirectoryAsync(inputPath, finalUnpackDir, new Progress<(double pct, string status)>(p => App.RunOnUI(() => { task.Progress = p.pct; task.Status = p.status; })), cts.Token);
+				}
+				else
+				{
+					await App.SwitchFormat.UnpackContainerAsync(task, inputPath, finalUnpackDir, cts.Token);
+				}
 				long dirSize = GetDirectoryTotalSize(finalUnpackDir);
 				task.TargetSize = ProcessingTask.FormatSize(dirSize);
 				task.EnsureFinalMetricsPopulated(finalUnpackDir);
@@ -2876,6 +2908,12 @@ public partial class TasksViewModel : ObservableObject
 				task.Status = "Ошибка";
 				task.LogDetails += $"\n🔴 [Ошибка] Исходный файл не найден: {inputPath2}";
 			});
+			return;
+		}
+		if (inputPath2.EndsWith(".nup", StringComparison.OrdinalIgnoreCase) || NupContainerService.IsNupFile(inputPath2))
+		{
+			string outPathNup = Path.Combine(task.OutputFolder, task.OutputFileName + task.GetPrimaryExtension());
+			await Switch2DumpHelper.CompileNupToSwitch2ContainerAsync(task, inputPath2, outPathNup, cts.Token);
 			return;
 		}
 		string tempDecompDirConvert = "";

@@ -72,25 +72,42 @@ namespace StormSwitchBox.Services
                     task.LogDetails += $"\n📋 [Настройки] Файлов: {inputFiles.Count} | HardPatch: {(patchFirmware ? "Да" : "Нет")}";
                 });
 
-                string? sw2Dir = null;
-                if (task.IsSwitch2Task && !string.IsNullOrEmpty(task.InputFolders) && Directory.Exists(task.InputFolders))
+                var nupInput = inputFiles.FirstOrDefault(f => f.EndsWith(".nup", StringComparison.OrdinalIgnoreCase) || NupContainerService.IsNupFile(f));
+                if (nupInput != null && File.Exists(nupInput))
                 {
-                    sw2Dir = task.InputFolders;
+                    await Switch2DumpHelper.CompileNupToSwitch2ContainerAsync(task, nupInput, outPath, cancellationToken);
+                    return;
                 }
-                else
+
+                bool hasContainers = inputFiles.Any(f => File.Exists(f) && (
+                    f.EndsWith(".nup", StringComparison.OrdinalIgnoreCase) ||
+                    f.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) ||
+                    f.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) ||
+                    f.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) ||
+                    f.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase)));
+
+                string? sw2Dir = null;
+                if (!hasContainers)
                 {
-                    sw2Dir = inputFiles.FirstOrDefault(f => Directory.Exists(f) && Switch2DumpHelper.IsSwitch2OrExtractedGameDumpDirectory(f));
-                    if (sw2Dir == null)
+                    if (task.IsSwitch2Task && !string.IsNullOrEmpty(task.InputFolders) && Directory.Exists(task.InputFolders) && Switch2DumpHelper.IsSwitch2OrExtractedGameDumpDirectory(task.InputFolders))
                     {
-                        foreach (var f in inputFiles)
+                        sw2Dir = task.InputFolders;
+                    }
+                    else
+                    {
+                        sw2Dir = inputFiles.FirstOrDefault(f => Directory.Exists(f) && Switch2DumpHelper.IsSwitch2OrExtractedGameDumpDirectory(f));
+                        if (sw2Dir == null)
                         {
-                            if (Directory.Exists(f))
+                            foreach (var f in inputFiles)
                             {
-                                var p = Directory.GetParent(f)?.FullName;
-                                if (p != null && Switch2DumpHelper.IsSwitch2OrExtractedGameDumpDirectory(p))
+                                if (Directory.Exists(f))
                                 {
-                                    sw2Dir = p;
-                                    break;
+                                    var p = Directory.GetParent(f)?.FullName;
+                                    if (p != null && Switch2DumpHelper.IsSwitch2OrExtractedGameDumpDirectory(p))
+                                    {
+                                        sw2Dir = p;
+                                        break;
+                                    }
                                 }
                             }
                         }
@@ -100,37 +117,6 @@ namespace StormSwitchBox.Services
                 {
                     await Switch2DumpHelper.CompileSwitch2DumpToContainerAsync(task, sw2Dir, inputFiles, outPath, cancellationToken);
                     return;
-                }
-
-                var nupInput = inputFiles.FirstOrDefault(f => f.EndsWith(".nup", StringComparison.OrdinalIgnoreCase) || NupContainerService.IsNupFile(f));
-                if (nupInput != null && File.Exists(nupInput))
-                {
-                    string targetDriveNup = System.IO.Path.GetPathRoot(outPath) ?? "C:\\";
-                    string nupTempDir = Path.Combine(targetDriveNup, "STORM_TMP", "NUP_" + Guid.NewGuid().ToString("N").Substring(0, 6));
-                    Directory.CreateDirectory(nupTempDir);
-                    TempCleanupService.RegisterActiveTempDirectory(nupTempDir);
-                    try
-                    {
-                        App.RunOnUI(() =>
-                        {
-                            task.LogDetails += $"\n[NUP] Распаковка .nup контейнера перед сборкой ({Path.GetFileName(nupInput)})...";
-                            task.Status = "Распаковка NUP...";
-                        });
-                        var nupProg = new Progress<(double pct, string status)>(p => App.RunOnUI(() =>
-                        {
-                            task.Progress = p.pct * 0.3;
-                            task.Status = p.status;
-                        }));
-                        await NupContainerService.ExtractNupToDirectoryAsync(nupInput, nupTempDir, nupProg, cancellationToken);
-                        var sw2Roots = Switch2DumpHelper.FindAllSwitch2DumpRootDirectories(nupTempDir);
-                        string rootToBuild = sw2Roots.Count > 0 ? sw2Roots[0] : nupTempDir;
-                        await Switch2DumpHelper.CompileSwitch2DumpToContainerAsync(task, rootToBuild, new List<string> { rootToBuild }, outPath, cancellationToken);
-                        return;
-                    }
-                    finally
-                    {
-                        TempCleanupService.ForceDeleteDirectory(nupTempDir);
-                    }
                 }
 
                 if (!_keysService.IsLoaded) throw new Exception("Отсутствуют криптографические ключи (prod.keys). Пожалуйста, выберите их в параметрах.");
