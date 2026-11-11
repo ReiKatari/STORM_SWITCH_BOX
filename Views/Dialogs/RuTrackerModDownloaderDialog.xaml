@@ -495,7 +495,7 @@
                             <DataTemplate>
                                 <Border Background="#141829" BorderBrush="#293552" BorderThickness="1" CornerRadius="6" Padding="7,5" Margin="0,1">
                                     <StackPanel Spacing="5">
-                                        <!-- Главная строка слота (всегда видна: позволяет видеть сразу 4–6 игр в окне!) -->
+                                        <!-- Главная строка слота (всегда видна: позволяет видеть сразу 4-6 игр в окне!) -->
                                         <Grid ColumnSpacing="6">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="Auto"/>
@@ -638,14 +638,76 @@
                                                     <ColumnDefinition Width="Auto"/>
                                                 </Grid.ColumnDefinitions>
                                                 <TextBox Grid.Column="0" Text="{Binding ManualExtraLinks, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                                         PlaceholderText="Доп. облачные ссылки только для этой части (русификатор, обновление или DLC — через пробел или запятую)..."
+                                                         PlaceholderText="Доп. облачные ссылки только для этой части (русификатор, обновление или DLC - через пробел или запятую)..."
                                                          FontSize="10.5" Height="26" MinHeight="26" Padding="8,0,8,0"
                                                          VerticalAlignment="Center" VerticalContentAlignment="Center"
                                                          Loaded="CenteredInput_Loaded" CornerRadius="5"/>
-                                                <Border Grid.Column="1" Background="#1E1B4B" BorderBrush="#4338CA" BorderThickness="1" CornerRadius="4" Padding="7,2" VerticalAlignment="Center">
-                                                    <TextBlock Text="{Binding TitleIdAndVersionBadge}" FontSize="10" FontFamily="Consolas" Foreground="#A5B4FC" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                                                </Border>
+                                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                                    <Button Click="CopySlotTitleId_Click" Tag="{Binding}"
+                                                            Visibility="{Binding TitleIdChipVisibility}"
+                                                            Height="24" MinHeight="24" Padding="6,0" CornerRadius="4"
+                                                            Background="#1E1B4B" BorderBrush="#4F46E5" BorderThickness="1"
+                                                            VerticalAlignment="Center"
+                                                            ToolTipService.ToolTip="Нажмите, чтобы скопировать TitleID">
+                                                        <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                                            <TextBlock Text="{Binding TitleId}" FontSize="10" FontFamily="Consolas" Foreground="#C7D2FE" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                                            <FontIcon Glyph="&#xE8C8;" FontSize="9" Foreground="#818CF8" VerticalAlignment="Center"/>
+                                                        </StackPanel>
+                                                    </Button>
+                                                    <Button Click="CopySlotVersion_Click" Tag="{Binding}"
+                                                            Height="24" MinHeight="24" Padding="6,0" CornerRadius="4"
+                                                            Background="#172554" BorderBrush="#2563EB" BorderThickness="1"
+                                                            VerticalAlignment="Center"
+                                                            ToolTipService.ToolTip="Нажмите, чтобы скопировать версию (без v)">
+                                                        <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                                            <TextBlock Text="{Binding CleanVersionDisplay}" FontSize="10" FontFamily="Consolas" Foreground="#93C5FD" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                                            <FontIcon Glyph="&#xE8C8;" FontSize="9" Foreground="#60A5FA" VerticalAlignment="Center"/>
+                                                        </StackPanel>
+                                                    </Button>
+                                                    <Button Click="CopySlotInternalVersion_Click" Tag="{Binding}"
+                                                            Height="24" MinHeight="24" Padding="6,0" CornerRadius="4"
+                                                            Background="#0F292E" BorderBrush="#0D9488" BorderThickness="1"
+                                                            VerticalAlignment="Center"
+                                                            ToolTipService.ToolTip="Нажмите, чтобы скопировать внутреннюю версию">
+                                                        <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                                            <TextBlock Text="{Binding InternalVersionDisplay}" FontSize="10" FontFamily="Consolas" Foreground="#99F6E4" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                                            <FontIcon Glyph="&#xE8C8;" FontSize="9" Foreground="#2DD4BF" VerticalAlignment="Center"/>
+                                                        </StackPanel>
+                                                    </Button>
+                                                </StackPanel>
                                             </Grid>
+                                        </StackPanel>
+
+                                        <!-- Компактная строка быстрого копирования при свёрнутых деталях слота -->
+                                        <StackPanel Visibility="{Binding CollapsedDetailsVisibility}" Orientation="Horizontal" Spacing="4" Padding="24,1,0,0">
+                                            <Button Click="CopySlotTitleId_Click" Tag="{Binding}"
+                                                    Visibility="{Binding TitleIdChipVisibility}"
+                                                    Height="22" MinHeight="22" Padding="6,0" CornerRadius="4"
+                                                    Background="#1E1B4B" BorderBrush="#4338CA" BorderThickness="1"
+                                                    ToolTipService.ToolTip="Нажмите, чтобы скопировать TitleID">
+                                                <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding TitleId}" FontSize="9.5" FontFamily="Consolas" Foreground="#C7D2FE" FontWeight="SemiBold"/>
+                                                    <FontIcon Glyph="&#xE8C8;" FontSize="8.5" Foreground="#818CF8"/>
+                                                </StackPanel>
+                                            </Button>
+                                            <Button Click="CopySlotVersion_Click" Tag="{Binding}"
+                                                    Height="22" MinHeight="22" Padding="6,0" CornerRadius="4"
+                                                    Background="#172554" BorderBrush="#2563EB" BorderThickness="1"
+                                                    ToolTipService.ToolTip="Нажмите, чтобы скопировать версию (без v)">
+                                                <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding CleanVersionDisplay}" FontSize="9.5" FontFamily="Consolas" Foreground="#93C5FD" FontWeight="SemiBold"/>
+                                                    <FontIcon Glyph="&#xE8C8;" FontSize="8.5" Foreground="#60A5FA"/>
+                                                </StackPanel>
+                                            </Button>
+                                            <Button Click="CopySlotInternalVersion_Click" Tag="{Binding}"
+                                                    Height="22" MinHeight="22" Padding="6,0" CornerRadius="4"
+                                                    Background="#0F292E" BorderBrush="#0D9488" BorderThickness="1"
+                                                    ToolTipService.ToolTip="Нажмите, чтобы скопировать внутреннюю версию">
+                                                <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding InternalVersionDisplay}" FontSize="9.5" FontFamily="Consolas" Foreground="#99F6E4" FontWeight="SemiBold"/>
+                                                    <FontIcon Glyph="&#xE8C8;" FontSize="8.5" Foreground="#2DD4BF"/>
+                                                </StackPanel>
+                                            </Button>
                                         </StackPanel>
                                     </StackPanel>
                                 </Border>
@@ -911,7 +973,7 @@
                         <StackPanel Spacing="6">
                             <TextBox x:Name="CloudUpdateLinksBox" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="54"
                                      FontSize="11" CornerRadius="6" Padding="8,4"
-                                     Header="Ссылки на обновление игры (по одной на строку — файл или архив):"
+                                     Header="Ссылки на обновление игры (по одной на строку - файл или архив):"
                                      PlaceholderText="Вставьте прямые или облачные ссылки на Update..."/>
                             <TextBox x:Name="CloudDlcLinksBox" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="54"
                                      FontSize="11" CornerRadius="6" Padding="8,4"
@@ -944,7 +1006,7 @@
                             <CheckBox x:Name="AppendAutoTagsCheckBox"
                                       Content="Добавлять технические теги [TitleID] [vXXX] (1G+1U) к имени файла"
                                       IsChecked="False" FontSize="11" MinHeight="24"
-                                      ToolTipService.ToolTip="Если выключено — сохраняется точное имя файла, указанное в карточке игры"/>
+                                      ToolTipService.ToolTip="Если выключено - сохраняется точное имя файла, указанное в карточке игры"/>
                             <CheckBox x:Name="StitchDlcUnlockerCheckBox"
                                       Content="Вшить DLC Unlocker (авторазблокировка всех дополнений в RomFS)"
                                       IsChecked="False" FontSize="11" MinHeight="24"/>
@@ -1119,7 +1181,7 @@
                                Text="Готов к поиску и загрузке игр или облачных модификаций."
                                FontSize="11" Foreground="#38BDF8" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
                     <TextBlock x:Name="LiveTelemetryText" Grid.Column="2"
-                               Text="Выберите раздачу слева — игры и файлы распределятся автоматически по слотам задач."
+                               Text="Выберите раздачу слева - игры и файлы распределятся автоматически по слотам задач."
                                FontSize="10.5" FontFamily="Consolas" Foreground="#94A3B8" HorizontalAlignment="Right" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
                 </Grid>
             </Grid>
@@ -1254,17 +1316,40 @@
                                 </Border>
 
                                 <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="8">
-                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
                                         <TextBlock Text="Title ID:" FontWeight="SemiBold" Foreground="#A78BFA" VerticalAlignment="Center"/>
-                                        <TextBlock x:Name="StudioTitleIdText" Text="0100000000000000" FontFamily="Consolas" FontWeight="Bold" VerticalAlignment="Center"/>
+                                        <Button Click="CopyStudioTitleId_Click" Height="26" MinHeight="26" Padding="8,0" CornerRadius="5"
+                                                Background="#1E1B4B" BorderBrush="#4F46E5" BorderThickness="1" VerticalAlignment="Center"
+                                                ToolTipService.ToolTip="Нажмите, чтобы скопировать TitleID">
+                                            <StackPanel Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
+                                                <TextBlock x:Name="StudioTitleIdText" Text="0100000000000000" FontFamily="Consolas" FontWeight="Bold" Foreground="#C7D2FE" VerticalAlignment="Center"/>
+                                                <FontIcon Glyph="&#xE8C8;" FontSize="10" Foreground="#818CF8" VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                        </Button>
                                         <Border Background="#0284C7" CornerRadius="4" Padding="6,2" VerticalAlignment="Center">
                                             <TextBlock x:Name="StudioPlatformBadgeText" Text="SWITCH" FontSize="10" FontWeight="Bold" Foreground="White"/>
                                         </Border>
                                     </StackPanel>
 
-                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
                                         <TextBlock Text="Версия:" FontWeight="SemiBold" Foreground="#A78BFA" VerticalAlignment="Center"/>
-                                        <TextBlock x:Name="StudioVersionText" Text="1.0.0" FontFamily="Consolas" FontWeight="Bold" VerticalAlignment="Center"/>
+                                        <Button Click="CopyStudioVersion_Click" Height="26" MinHeight="26" Padding="8,0" CornerRadius="5"
+                                                Background="#172554" BorderBrush="#2563EB" BorderThickness="1" VerticalAlignment="Center"
+                                                ToolTipService.ToolTip="Нажмите, чтобы скопировать версию (без v)">
+                                            <StackPanel Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
+                                                <TextBlock x:Name="StudioVersionText" Text="1.0.0" FontFamily="Consolas" FontWeight="Bold" Foreground="#93C5FD" VerticalAlignment="Center"/>
+                                                <FontIcon Glyph="&#xE8C8;" FontSize="10" Foreground="#60A5FA" VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                        </Button>
+                                        <TextBlock Text="Внутр.:" FontWeight="SemiBold" Foreground="#A78BFA" VerticalAlignment="Center" Margin="4,0,0,0"/>
+                                        <Button Click="CopyStudioInternalVersion_Click" Height="26" MinHeight="26" Padding="8,0" CornerRadius="5"
+                                                Background="#0F292E" BorderBrush="#0D9488" BorderThickness="1" VerticalAlignment="Center"
+                                                ToolTipService.ToolTip="Нажмите, чтобы скопировать внутреннюю версию">
+                                            <StackPanel Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
+                                                <TextBlock x:Name="StudioInternalVersionText" Text="0" FontFamily="Consolas" FontWeight="Bold" Foreground="#99F6E4" VerticalAlignment="Center"/>
+                                                <FontIcon Glyph="&#xE8C8;" FontSize="10" Foreground="#2DD4BF" VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                        </Button>
                                     </StackPanel>
 
                                     <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">

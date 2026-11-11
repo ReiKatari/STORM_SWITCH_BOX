@@ -91,6 +91,8 @@ namespace StormSwitchBox.Services
     {
         private readonly string _dbPath;
         private Dictionary<string, TitleDbEntry> _db = new();
+        private Dictionary<string, TitleDbEntry> _byNormalizedName = new(StringComparer.OrdinalIgnoreCase);
+        private Dictionary<string, TitleDbEntry> _byCoreName = new(StringComparer.OrdinalIgnoreCase);
         private bool _isLoaded = false;
         public bool IsLoaded => _isLoaded;
         private readonly HttpClient _httpClient;
@@ -98,7 +100,7 @@ namespace StormSwitchBox.Services
 
         public event Action? DatabaseLoaded;
 
-        // URL для загрузки базы TitleDB (RU мертва — tinfoil 523, github 404)
+        // URL для загрузки базы TitleDB (RU мертва - tinfoil 523, github 404)
         // Используем общую базу + US зеркало
         private const string DbUrl = "https://tinfoil.media/repo/db/titles.json";
         private const string FallbackDbUrl = "https://raw.githubusercontent.com/blawar/titledb/master/US.en.json";
@@ -119,7 +121,7 @@ namespace StormSwitchBox.Services
             // Приоритет: 1) eShop описание (русское), 2) TitleDB описание (русское), 3) TitleDB описание (оригинал), 4) заглушка
             string desc = entry?.Description ?? item.Description;
             
-            // Если описание есть и оно не пустое/не заглушка — возвращаем как есть
+            // Если описание есть и оно не пустое/не заглушка - возвращаем как есть
             if (!string.IsNullOrWhiteSpace(desc) && desc != "Нет описания" && desc != "No description available.")
             {
                 return desc.Trim();
@@ -149,6 +151,55 @@ namespace StormSwitchBox.Services
 
         public IReadOnlyDictionary<string, TitleDbEntry> Database => _db;
         public IEnumerable<TitleDbEntry> GetAllEntries() => _db.Values;
+
+        public static string NormalizeTitleLookupKey(string? rawName, bool stripEditionWords = false)
+        {
+            if (string.IsNullOrWhiteSpace(rawName))
+                return string.Empty;
+
+            string s = rawName
+                .Replace("™", " ")
+                .Replace("®", " ")
+                .Replace("©", " ")
+                .Replace("&", " and ")
+                .Replace("’", "'")
+                .ToLowerInvariant();
+
+            s = System.Text.RegularExpressions.Regex.Replace(s, @"\[[^\]]*\]|\([^)]*\)", " ");
+            if (stripEditionWords)
+            {
+                s = System.Text.RegularExpressions.Regex.Replace(
+                    s,
+                    @"\b(definitive|deluxe|complete|ultimate|gold|goty|edition|remastered|hd|collection|nintendo|switch|version|digital)\b",
+                    " ");
+            }
+            s = System.Text.RegularExpressions.Regex.Replace(s, @"[^a-z0-9а-яё]+", " ");
+            s = System.Text.RegularExpressions.Regex.Replace(s, @"\s+", " ").Trim();
+            return s;
+        }
+
+        public bool TryFindTitleByName(string? gameName, out TitleDbEntry? entry)
+        {
+            entry = null;
+            if (string.IsNullOrWhiteSpace(gameName) || !_isLoaded)
+                return false;
+
+            string norm = NormalizeTitleLookupKey(gameName, stripEditionWords: false);
+            if (!string.IsNullOrEmpty(norm) && _byNormalizedName.TryGetValue(norm, out entry) && entry != null)
+                return true;
+
+            string core = NormalizeTitleLookupKey(gameName, stripEditionWords: true);
+            if (!string.IsNullOrEmpty(core) && core.Length >= 3)
+            {
+                if (_byCoreName.TryGetValue(core, out entry) && entry != null)
+                    return true;
+                if (_byNormalizedName.TryGetValue(core, out entry) && entry != null)
+                    return true;
+            }
+
+            return false;
+        }
+
 
         private async Task LoadLocalDbAsync()
         {
@@ -200,7 +251,28 @@ namespace StormSwitchBox.Services
 
                 if (reindexedDb.Count > 0)
                 {
+                    var normMap = new Dictionary<string, TitleDbEntry>(StringComparer.OrdinalIgnoreCase);
+                    var coreMap = new Dictionary<string, TitleDbEntry>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var entry in reindexedDb.Values)
+                    {
+                        if (entry == null || string.IsNullOrWhiteSpace(entry.Name) || string.IsNullOrWhiteSpace(entry.Id))
+                            continue;
+                        string tidUpper = entry.Id.Trim().ToUpperInvariant();
+                        if (tidUpper.Length != 16 || !tidUpper.EndsWith("000", StringComparison.Ordinal) || entry.Name.Contains("(Demo)", StringComparison.OrdinalIgnoreCase) || entry.Name.EndsWith(" Demo", StringComparison.OrdinalIgnoreCase))
+                            continue;
+
+                        string normKey = NormalizeTitleLookupKey(entry.Name, stripEditionWords: false);
+                        if (!string.IsNullOrEmpty(normKey) && !normMap.ContainsKey(normKey))
+                            normMap[normKey] = entry;
+
+                        string coreKey = NormalizeTitleLookupKey(entry.Name, stripEditionWords: true);
+                        if (!string.IsNullOrEmpty(coreKey) && !coreMap.ContainsKey(coreKey))
+                            coreMap[coreKey] = entry;
+                    }
+
                     _db = reindexedDb;
+                    _byNormalizedName = normMap;
+                    _byCoreName = coreMap;
                     _isLoaded = true;
                     DatabaseLoaded?.Invoke();
                 }
@@ -443,7 +515,7 @@ namespace StormSwitchBox.Services
                     {
                         App.RunOnUI(() =>
                         {
-                            // Описание — eShop RU имеет приоритет
+                            // Описание - eShop RU имеет приоритет
                             if (!string.IsNullOrWhiteSpace(eshopData.Description) && (string.IsNullOrEmpty(entry?.Description) || !ContainsRussian(entry.Description)))
                             {
                                 item.Description = eshopData.Description;

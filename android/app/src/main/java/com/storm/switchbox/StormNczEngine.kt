@@ -225,18 +225,24 @@ object StormNczEngine {
     }
 
     fun extractCleanGameTitle(fileName: String): String {
-        val knownExtRegex = Regex("""(?i)\.(nsp|nsz|xci|xcz|3ds|cia|nca|ncz|zip|rar|7z)$""")
-        val noExt = fileName.replace(knownExtRegex, "")
-        val stripped = noExt
-            .replace(Regex("""\[[^\]]*\]"""), " ")
-            .replace(Regex("""\([^)]*\)"""), " ")
+        val knownExtRegex = Regex("""(?i)\.(nsp|nsz|xci|xcz|nup|3ds|cia|nca|ncz|zip|rar|7z)$""")
+        var work = fileName.replace(knownExtRegex, "")
+        repeat(4) {
+            val next = work.replace(Regex("""\([^()]*\)|\[[^\[\]]*\]|\{[^{}]*\}"""), " ")
+            if (next == work) return@repeat
+            work = next
+        }
+        val stripped = work
             .replace("[", " ")
             .replace("]", " ")
+            .replace("(", " ")
+            .replace(")", " ")
+            .replace(Regex("""(?i)\s*\+\s*(wave\s*\d+\s*dlc|\d*\s*dlcs?|updates?|patch(es)?).*$"""), " ")
             .replace(Regex("""(?i)\b(v\d+(?:\.\d+)*|upd|update|patch|dlc|base|mod|rus|multi\d*|nintendo|switch|nsp|nsz|xci|xcz)\b"""), " ")
             .replace(Regex("""[_\-]+|\.+"""), " ")
             .replace(Regex("""\s+"""), " ")
             .trim()
-        return stripped.ifBlank { noExt.replace("[", "").replace("]", "").trim().take(32) }
+        return stripped.ifBlank { work.replace("[", "").replace("]", "").trim().take(32) }
     }
 
     fun extractVersionFromCnmtNca(
@@ -2629,7 +2635,7 @@ object StormNczEngine {
             )
         }
 
-        // 2. Для XCI / XCZ — сборка картриджа
+        // 2. Для XCI / XCZ - сборка картриджа
         val isXciTarget = outputFile.extension.equals("xci", ignoreCase = true) || outputFile.extension.equals("xcz", ignoreCase = true)
         if (isXciTarget) {
             val tempDir = File(outputFile.parentFile, ".storm_unncz_${System.currentTimeMillis()}")
@@ -4457,7 +4463,7 @@ object StormNczEngine {
     /**
      * Этап 1 (как в ПК-версии MultiContentService.cs):
      * Приводит любой входной контейнер (.nsz, .xci, .xcz) к единому промежуточному формату .nsp (PFS0 с чистыми .nca, .tik, .cert).
-     * Если файл уже является .nsp или папкой мода — возвращает его без лишнего копирования.
+     * Если файл уже является .nsp или папкой мода - возвращает его без лишнего копирования.
      */
     private fun extractDecryptedKeyFromNczSlice(raf: RandomAccessFile, sliceOffset: Long, sliceSize: Long): ByteArray? {
         try {
@@ -4723,7 +4729,7 @@ object StormNczEngine {
                         val rawHdr = ByteArray(0xC00)
                         raf.seek(e.dataStartOffset)
                         raf.readFully(rawHdr)
-                        // Если заголовок NCA3 зашифрован розничным ключом AES-XTS, это настоящий контейнер — не трогаем
+                        // Если заголовок NCA3 зашифрован розничным ключом AES-XTS, это настоящий контейнер - не трогаем
                         val rawMagic = String(rawHdr, 0x200, 4, StandardCharsets.US_ASCII)
                         if (rawMagic != "NCA3" && rawMagic != "NCA2") {
                             return currentFile
@@ -4782,7 +4788,7 @@ object StormNczEngine {
     /**
      * Проверяет, требуется ли пересжатие NCZ-разделов внутри контейнера (.nsz или .xcz).
      * Если целевой формат требует блочное сжатие (targetUseBlockNcz = true), а внутри находится Solid NCZ
-     * (потоковый Zstandard без заголовка NCZBLOCK), либо наоборот — возвращает true.
+     * (потоковый Zstandard без заголовка NCZBLOCK), либо наоборот - возвращает true.
      */
     private fun containerNeedsNczRecompression(file: File, targetUseBlockNcz: Boolean): Boolean {
         if (!file.exists() || file.length() < 0x4010L) return false
@@ -4849,7 +4855,7 @@ object StormNczEngine {
         require(inputFiles.isNotEmpty()) { "Список входных файлов пуст" }
         outputDir.mkdirs()
 
-        // Если входной файл содержит .nup контейнер — направляем в конвейер сборки Switch 2
+        // Если входной файл содержит .nup контейнер - направляем в конвейер сборки Switch 2
         val nupFile = inputFiles.firstOrNull { it.isFile && it.extension.lowercase() == "nup" }
         if (nupFile != null) {
             val extractedDumpDir = extractNupToTempNspOrDir(nupFile, outputDir) { onProgress(it) }
@@ -4922,7 +4928,7 @@ object StormNczEngine {
         tempNormDir.mkdirs()
 
         // Автоизвлечение архивов (.zip) при обработке (как в ПК-версии MultiContentService.cs):
-        // если на вход подан архив с обновлением, DLC, анлокером или модами RomFS/ExeFS — распаковываем автоматически!
+        // если на вход подан архив с обновлением, DLC, анлокером или модами RomFS/ExeFS - распаковываем автоматически!
         val expandedInputFiles = mutableListOf<File>()
         for ((archIdx, inFile) in inputFiles.filter { it.exists() }.withIndex()) {
             if (inFile.isFile && isModArchiveFile(inFile)) {
@@ -5514,7 +5520,7 @@ object StormNczEngine {
 
             if (embeddedModsCount > 0 && !hardPatchApplied) {
                 val why = if (baseProgEntry == null) {
-                    "в пакете нет базовой игры (Program NCA с TitleID ${primaryTid.take(13)}000) — добавьте файл [БАЗА] этой игры"
+                    "в пакете нет базовой игры (Program NCA с TitleID ${primaryTid.take(13)}000) - добавьте файл [БАЗА] этой игры"
                 } else {
                     hardPatchFailure ?: "неизвестная ошибка Hard-Patch"
                 }
@@ -6151,25 +6157,25 @@ object StormNczEngine {
             return "Ключи не установлены" to emptyList()
         }
         val fwMap = linkedMapOf(
-            "master_key_00" to "HOS 1.0.0 — 2.3.0 (KeyGen 1)",
+            "master_key_00" to "HOS 1.0.0 - 2.3.0 (KeyGen 1)",
             "master_key_01" to "HOS 3.0.0 (KeyGen 2)",
-            "master_key_02" to "HOS 3.0.1 — 3.0.2 (KeyGen 3)",
-            "master_key_03" to "HOS 4.0.0 — 4.1.0 (KeyGen 4)",
-            "master_key_04" to "HOS 5.0.0 — 5.1.0 (KeyGen 5)",
-            "master_key_05" to "HOS 6.0.0 — 6.1.0 (KeyGen 6)",
+            "master_key_02" to "HOS 3.0.1 - 3.0.2 (KeyGen 3)",
+            "master_key_03" to "HOS 4.0.0 - 4.1.0 (KeyGen 4)",
+            "master_key_04" to "HOS 5.0.0 - 5.1.0 (KeyGen 5)",
+            "master_key_05" to "HOS 6.0.0 - 6.1.0 (KeyGen 6)",
             "master_key_06" to "HOS 6.2.0 (KeyGen 7)",
-            "master_key_07" to "HOS 7.0.0 — 8.0.1 (KeyGen 8)",
-            "master_key_08" to "HOS 8.1.0 — 8.1.1 (KeyGen 9)",
-            "master_key_09" to "HOS 9.0.0 — 9.0.1 (KeyGen 10)",
-            "master_key_0a" to "HOS 9.1.0 — 12.0.3 (KeyGen 11)",
+            "master_key_07" to "HOS 7.0.0 - 8.0.1 (KeyGen 8)",
+            "master_key_08" to "HOS 8.1.0 - 8.1.1 (KeyGen 9)",
+            "master_key_09" to "HOS 9.0.0 - 9.0.1 (KeyGen 10)",
+            "master_key_0a" to "HOS 9.1.0 - 12.0.3 (KeyGen 11)",
             "master_key_0b" to "HOS 12.1.0 (KeyGen 12)",
-            "master_key_0c" to "HOS 13.0.0 — 13.2.1 (KeyGen 13)",
-            "master_key_0d" to "HOS 14.0.0 — 14.1.2 (KeyGen 14)",
-            "master_key_0e" to "HOS 15.0.0 — 15.0.1 (KeyGen 15)",
-            "master_key_0f" to "HOS 16.0.0 — 16.1.0 (KeyGen 16)",
-            "master_key_10" to "HOS 17.0.0 — 17.0.1 (KeyGen 17)",
-            "master_key_11" to "HOS 18.0.0 — 18.1.0 (KeyGen 18)",
-            "master_key_12" to "HOS 19.0.0 — 19.0.1 (KeyGen 19)",
+            "master_key_0c" to "HOS 13.0.0 - 13.2.1 (KeyGen 13)",
+            "master_key_0d" to "HOS 14.0.0 - 14.1.2 (KeyGen 14)",
+            "master_key_0e" to "HOS 15.0.0 - 15.0.1 (KeyGen 15)",
+            "master_key_0f" to "HOS 16.0.0 - 16.1.0 (KeyGen 16)",
+            "master_key_10" to "HOS 17.0.0 - 17.0.1 (KeyGen 17)",
+            "master_key_11" to "HOS 18.0.0 - 18.1.0 (KeyGen 18)",
+            "master_key_12" to "HOS 19.0.0 - 19.0.1 (KeyGen 19)",
             "master_key_13" to "HOS 20.0.0 (KeyGen 20)",
             "master_key_14" to "HOS 21.0.0 (KeyGen 21)",
             "master_key_15" to "HOS 22.0.0 (KeyGen 22)",
@@ -6763,7 +6769,7 @@ object StormNczEngine {
                     }
                 }
             } else {
-                // СЦЕНАРИЙ Б: В папке лежат romfs/, exefs/, control/ — собираем настоящий загружаемый Program NCA!
+                // СЦЕНАРИЙ Б: В папке лежат romfs/, exefs/, control/ - собираем настоящий загружаемый Program NCA!
                 onProgress(makeProg(25, "Сборка загружаемого Program NCA (ExeFS + RomFS IVFC)...", cleanName, origSize / 4, origSize))
                 val progNca = buildCustomNcaFromRomfsAndExefs(
                     romfsDir = if (romfsSub.exists()) romfsSub else inputFolder,
@@ -7460,7 +7466,7 @@ object StormNczEngine {
             val magic4 = String(rawBytes, 0, 4, StandardCharsets.US_ASCII)
             when {
                 magic4 == "META" -> {
-                    textSb.appendLine("• Сигнатура: NPDM (META — Дескриптор прав и ядра Switch)")
+                    textSb.appendLine("• Сигнатура: NPDM (META - Дескриптор прав и ядра Switch)")
                     if (rawBytes.size >= 0x80) {
                         val procName = String(rawBytes, 0x10, 16, StandardCharsets.UTF_8).trimEnd('\u0000')
                         textSb.appendLine("• Имя процесса: $procName")
@@ -7476,7 +7482,7 @@ object StormNczEngine {
                 node.virtualPath.endsWith("control.nacp") && rawBytes.size >= 0x300 -> {
                     val title = String(rawBytes, 0, 0x200, StandardCharsets.UTF_8).trimEnd('\u0000')
                     val pub = String(rawBytes, 0x200, 0x100, StandardCharsets.UTF_8).trimEnd('\u0000')
-                    textSb.appendLine("• Структура: NACP (Nintendo Application Control Property — 16 языков)")
+                    textSb.appendLine("• Структура: NACP (Nintendo Application Control Property - 16 языков)")
                     textSb.appendLine("• Название игры: $title")
                     textSb.appendLine("• Издатель / Автор: $pub")
                 }
@@ -8812,9 +8818,9 @@ object StormNczEngine {
         TitleDbGameEntry("01007EF00011E000", "01007EF00011E800", "The Legend of Zelda: Breath of the Wild", "Nintendo", "2017", "14,40 ГБ", "Switch", "Официальный русский язык + Озвучка", 2, "Открытый мир / Приключения", "Легендарное приключение Линка в открытом мире Хайрула с 2 сюжетными DLC."),
         TitleDbGameEntry("010015100B514000", "010015100B514800", "Super Mario Bros. Wonder", "Nintendo", "2023", "3,60 ГБ", "Switch", "Официальный русский язык + Озвучка", 0, "Платформер", "Новое 2D-приключение Марио в Цветочном королевстве с Чудо-цветами, меняющими реальность."),
         TitleDbGameEntry("0100000000010000", "0100000000010800", "Super Mario Odyssey", "Nintendo", "2017", "5,60 ГБ", "Switch", "Официальный русский язык", 0, "3D-платформер", "Кругосветное 3D-путешествие Марио и шляпы Кеппи на корабле «Одиссея»."),
-        TitleDbGameEntry("0100152000022000", "0100152000022800", "Mario Kart 8 Deluxe", "Nintendo", "2017", "10,20 ГБ", "Switch", "Официальный русский язык", 6, "Аркадные гонки", "96 трасс (включая Booster Course Pass Волны 1–6) и локальный/сетевой мультиплеер."),
+        TitleDbGameEntry("0100152000022000", "0100152000022800", "Mario Kart 8 Deluxe", "Nintendo", "2017", "10,20 ГБ", "Switch", "Официальный русский язык", 6, "Аркадные гонки", "96 трасс (включая Booster Course Pass Волны 1-6) и локальный/сетевой мультиплеер."),
         TitleDbGameEntry("01006A800016E000", "01006A800016E800", "Super Smash Bros. Ultimate", "Nintendo / Sora", "2018", "17,10 ГБ", "Switch", "Официальный русский язык", 13, "Файтинг", "Крупнейший кроссовер-файтинг в истории видеоигр со всеми бойцами Fighters Pass 1 и 2."),
-        TitleDbGameEntry("0100D870045B6000", "0100D870045B6800", "The Witcher 3: Wild Hunt — Complete Edition", "CD Projekt RED", "2019", "31,80 ГБ", "Switch", "Полная русская озвучка и текст", 18, "RPG", "Полное издание «Ведьмак 3: Дикая Охота» со всеми дополнениями «Каменные сердца» и «Кровь и вино»."),
+        TitleDbGameEntry("0100D870045B6000", "0100D870045B6800", "The Witcher 3: Wild Hunt - Complete Edition", "CD Projekt RED", "2019", "31,80 ГБ", "Switch", "Полная русская озвучка и текст", 18, "RPG", "Полное издание «Ведьмак 3: Дикая Охота» со всеми дополнениями «Каменные сердца» и «Кровь и вино»."),
         TitleDbGameEntry("010049900F546000", "010049900F546800", "Metroid Dread", "Nintendo / MercurySteam", "2021", "4,20 ГБ", "Switch", "Официальный русский язык", 0, "Метроидвания / Экшен", "Самус Аран исследует смертельно опасную планету ZDR и противостоит роботам Э.М.М.И."),
         TitleDbGameEntry("0100A66003384000", "0100A66003384800", "Hollow Knight", "Team Cherry", "2018", "5,30 ГБ", "Switch", "Официальный русский язык", 4, "Метроидвания", "Путешествие по подземному королевству Халлоунест со всеми 4 дополнениями (Godmaster, Grimm Troupe)."),
         TitleDbGameEntry("0100535012974000", "0100535012974800", "Hades", "Supergiant Games", "2020", "5,80 ГБ", "Switch", "Официальный русский язык", 0, "Рогалик / Экшен", "Побег принца Загрея из подземного мира Аида."),
@@ -8831,7 +8837,7 @@ object StormNczEngine {
     val builtInSwitchErrorCodes: List<SwitchErrorCodeEntry> = listOf(
         SwitchErrorCodeEntry(
             code = "2002-4153 / 2002-4000..4999",
-            moduleName = "Модуль 2002 (FS — Файловая система / Повреждение данных NCA)",
+            moduleName = "Модуль 2002 (FS - Файловая система / Повреждение данных NCA)",
             title = "Ошибка чтения данных игры или повреждённый контейнер NSP/NSZ",
             cause = "Повреждённый сектор на карте памяти microSD (особенно при использовании файловой системы exFAT), битый NCA-раздел после некорректной загрузки или устаревшие патчи подписи (sigpatches / sys-patch).",
             solution = "1) Проверьте образ кнопкой «🛡️ Проверить целостность (SHA-256)» во вкладке Инспектор.\n2) Убедитесь, что microSD отформатирована в FAT32 (кластер 32 КБ), а не exFAT.\n3) Обновите sys-patch / sigpatches для вашей версии Atmosphère."
@@ -8841,25 +8847,25 @@ object StormNczEngine {
             moduleName = "Модуль 2168 (Userland Crash / Исключение данных в процессе)",
             title = "Аварийное завершение игры или хоумбрю (Data Abort / Нехватка ОЗУ)",
             cause = "Самая частая ошибка при запуске: (1) запуск тяжёлого хоумбрю (RetroArch, эмуляторы) в режиме Applet Mode (через Альбом), где доступно всего ~400 МБ ОЗУ; (2) несовместимый мод LayeredFS или чит Edizon в папке atmosphere/contents/<TitleID>/.",
-            solution = "1) Запускайте Homebrew в режиме полного доступа к ОЗУ (Title Override: удерживайте кнопку R при запуске любой игры) или создайте NSP-форвардер во вкладке «🌐 RuTracker и Форвардер»!\n2) Если вылетает игра после установки мода — временно переименуйте папку /atmosphere/contents/<TitleID>/ для проверки."
+            solution = "1) Запускайте Homebrew в режиме полного доступа к ОЗУ (Title Override: удерживайте кнопку R при запуске любой игры) или создайте NSP-форвардер во вкладке «🌐 RuTracker и Форвардер»!\n2) Если вылетает игра после установки мода - временно переименуйте папку /atmosphere/contents/<TitleID>/ для проверки."
         ),
         SwitchErrorCodeEntry(
             code = "2016-0641 / 2002-0001",
-            moduleName = "Модуль 2016 (NS — Менеджер приложений и лицензий)",
+            moduleName = "Модуль 2016 (NS - Менеджер приложений и лицензий)",
             title = "Невозможно запустить программное обеспечение (Отсутствуют Sigpatches / Sys-Patch)",
             cause = "Система Horizon OS блокирует запуск установленного NSP/NSZ/XCI или сшитого мульти-контента из-за отсутствия актуальных патчей проверки цифровой подписи (ES/FS/LDR patches).",
-            solution = "Установите свежий системный модуль sys-patch (универсальный авто-патчер в памяти для всех прошивок HOS 17.0.0 — 21.0.0+) в папку /atmosphere/contents/0100000000000BEE/ и перезагрузите консоль."
+            solution = "Установите свежий системный модуль sys-patch (универсальный авто-патчер в памяти для всех прошивок HOS 17.0.0 - 21.0.0+) в папку /atmosphere/contents/0100000000000BEE/ и перезагрузите консоль."
         ),
         SwitchErrorCodeEntry(
             code = "2162-0002 (0x4a2)",
             moduleName = "Модуль 2162 (General System / Сбой системного демона sysmodule)",
             title = "Критическая ошибка системного модуля Atmosphère (Program ID 010000000000xxxx)",
             cause = "Конфликт устаревшего фонового плагина (MissionControl, Tesla ovlloader, sys-clk, ldn_mitm) или кастомной темы NXThemes после обновления прошивки Switch.",
-            solution = "1) Посмотрите на строку Program (TitleID) на экране ошибки: если это 0100000000001000 — удалите старую тему (/atmosphere/contents/0100000000001000).\n2) Если другой системный ID — удалите или обновите соответствующую папку в /atmosphere/contents/."
+            solution = "1) Посмотрите на строку Program (TitleID) на экране ошибки: если это 0100000000001000 - удалите старую тему (/atmosphere/contents/0100000000001000).\n2) Если другой системный ID - удалите или обновите соответствующую папку в /atmosphere/contents/."
         ),
         SwitchErrorCodeEntry(
             code = "2155-8007 / 2124-4007 / 2124-4508",
-            moduleName = "Модуль 2155 / 2124 (NPNS / NIM — Сетевые сервисы Nintendo)",
+            moduleName = "Модуль 2155 / 2124 (NPNS / NIM - Сетевые сервисы Nintendo)",
             title = "Доступ к серверам Nintendo заблокирован (90DNS / Exosphere / MITM)",
             cause = "Сработала защита от бана консоли (exosphere.ini blank_prodinfo_emummc=1 и default.txt в /atmosphere/hosts/), блокирующая обращение игры к серверам проверки лицензий Nintendo.",
             solution = "Это штатная работа защиты от бана на прошивке Atmosphère! Для отключения назойливой проверки облачных сохранений используйте утилиту Linkalho (отвязка/привязка оффлайн-аккаунта)."
@@ -8876,14 +8882,14 @@ object StormNczEngine {
             moduleName = "Модуль 2005 (Обновление системы / Нехватка места)",
             title = "Недостаточно свободного места в памяти или ошибка кэша установки",
             cause = "При установке мульти-контента или распаковке остались незавершённые временные фрагменты (PlaceHolder) в папке /Nintendo/Contents/placehld/.",
-            solution = "Откройте DBI на консоли -> выберите пункт «Cleanup orphaned files» (Очистка осиротевших файлов) — это мгновенно освободит занятые гигабайты на SD-карте."
+            solution = "Откройте DBI на консоли -> выберите пункт «Cleanup orphaned files» (Очистка осиротевших файлов) - это мгновенно освободит занятые гигабайты на SD-карте."
         ),
         SwitchErrorCodeEntry(
             code = "MasterKey / KeyGeneration Error (NCA Header)",
             moduleName = "Криптография NCA3 (master_key_00 .. master_key_16)",
-            title = "Игра требует более новую версию прошивки (KeyGeneration 17..20 / HOS 18.0.0 — 21.0.0+)",
-            cause = "Новые игры и патчи 2024–2026 годов зашифрованы ключами master_key_11..master_key_13. Если на приставке или в эмуляторе стоят старые prod.keys, игра не распознаётся.",
-            solution = "Перейдите во вкладку «🔑 Ключи и параметры» и нажмите «⚡ Скачать и установить ключи (Авто)» — STORM SWITCH BOX автоматически загрузит все ключи вплоть до master_key_13 (HOS 21.0.0+)!"
+            title = "Игра требует более новую версию прошивки (KeyGeneration 17..20 / HOS 18.0.0 - 21.0.0+)",
+            cause = "Новые игры и патчи 2024-2026 годов зашифрованы ключами master_key_11..master_key_13. Если на приставке или в эмуляторе стоят старые prod.keys, игра не распознаётся.",
+            solution = "Перейдите во вкладку «🔑 Ключи и параметры» и нажмите «⚡ Скачать и установить ключи (Авто)» - STORM SWITCH BOX автоматически загрузит все ключи вплоть до master_key_13 (HOS 21.0.0+)!"
         )
     )
 
@@ -8900,7 +8906,7 @@ object StormNczEngine {
             TitleDbGameEntry("000400000011C400", "0004000E0011C400", "Pokémon Omega Ruby / Alpha Sapphire", "Nintendo / Game Freak", "2014", "1,80 ГБ", "3DS", "Русификатор (.CIA / CCI)", 0, "RPG (3DS)", "Полный 3D-ремейк третьего поколения Pokémon в регионе Хоэнн для Nintendo 3DS."),
             TitleDbGameEntry("0004000000055D00", "0004000E00055D00", "Pokémon X / Y", "Nintendo / Game Freak", "2013", "1,75 ГБ", "3DS", "Русификатор (.CIA / CCI)", 0, "RPG (3DS)", "Шестое поколение Pokémon в регионе Калос для Nintendo 3DS."),
             TitleDbGameEntry("00040000001B5000", "0004000E001B5000", "Pokémon Ultra Sun / Ultra Moon", "Nintendo / Game Freak", "2017", "3,60 ГБ", "3DS", "Русификатор (.CIA / CCI)", 0, "RPG (3DS)", "Расширенное приключение в тропическом архипелаге Алола для Nintendo 3DS."),
-            TitleDbGameEntry("0004000000086300", "0004000E00086300", "Animal Crossing: New Leaf — Welcome amiibo", "Nintendo", "2013", "980 МБ", "3DS", "Русификатор (.CIA / CCI)", 0, "Симулятор жизни (3DS)", "Развитие собственного города в роли мэра для Nintendo 3DS."),
+            TitleDbGameEntry("0004000000086300", "0004000E00086300", "Animal Crossing: New Leaf - Welcome amiibo", "Nintendo", "2013", "980 МБ", "3DS", "Русификатор (.CIA / CCI)", 0, "Симулятор жизни (3DS)", "Развитие собственного города в роли мэра для Nintendo 3DS."),
             TitleDbGameEntry("0004000000033600", "0004000E00033600", "Mario Kart 7", "Nintendo", "2011", "660 МБ", "3DS", "Официальный русский язык", 0, "Аркадные гонки (3DS)", "Культовые гонки с дельтапланами и подводными трассами для Nintendo 3DS."),
             TitleDbGameEntry("0004000000054000", "0004000E00054000", "Super Mario 3D Land", "Nintendo", "2011", "295 МБ", "3DS", "Официальный русский язык", 0, "3D-платформер (3DS)", "Эталонный стереоскопический 3D-платформер с костюмом Тануки для Nintendo 3DS."),
             TitleDbGameEntry("00040000000A0500", "0004000E000A0500", "Fire Emblem Awakening", "Nintendo / Intelligent Systems", "2012", "1,05 ГБ", "3DS", "Русификатор (.CIA / CCI)", 25, "Тактическая RPG (3DS)", "Легендарная тактическая RPG для Nintendo 3DS."),
@@ -8999,7 +9005,7 @@ object StormNczEngine {
                         if (name.isEmpty()) continue
                         val pub = o.optString("publisher", "Nintendo Switch").trim().ifEmpty { "Nintendo Switch" }
                         val szBytes = o.optLong("size", 0L)
-                        val szStr = if (szBytes > 0L) formatSize(szBytes) else (mapByTid[rawId]?.sizeText ?: "—")
+                        val szStr = if (szBytes > 0L) formatSize(szBytes) else (mapByTid[rawId]?.sizeText ?: "-")
                         val intro = o.optString("intro", "").trim()
                         val descRaw = o.optString("description", "").trim()
                         val existing = mapByTid[rawId]
@@ -10098,7 +10104,7 @@ object StormNczEngine {
         val error: String?
     )
 
-    /** Определяет формат архива по сигнатуре (а не по расширению). Пустая строка — не архив. */
+    /** Определяет формат архива по сигнатуре (а не по расширению). Пустая строка - не архив. */
     fun detectArchiveFormat(file: File): String {
         if (!file.isFile || file.length() < 4L) return ""
         val head = ByteArray(minOf(file.length(), 512L).toInt())
@@ -10122,7 +10128,7 @@ object StormNczEngine {
         }
     }
 
-    /** true — файл является архивом мода/русификатора (по сигнатуре или расширению). */
+    /** true - файл является архивом мода/русификатора (по сигнатуре или расширению). */
     fun isModArchiveFile(file: File): Boolean {
         if (!file.isFile) return false
         if (detectArchiveFormat(file).isNotEmpty()) return true
@@ -11808,7 +11814,7 @@ object StormNczEngine {
                 }
             }
             if (mergedExefs.isEmpty() || !mergedExefs.containsKey("main")) {
-                onFailure("не удалось прочитать ExeFS (main) базовой игры — проверьте prod.keys / title.keys и целостность файла")
+                onFailure("не удалось прочитать ExeFS (main) базовой игры - проверьте prod.keys / title.keys и целостность файла")
                 return null
             }
             val npdmBytes = mergedExefs["main.npdm"]
@@ -12006,7 +12012,7 @@ object StormNczEngine {
             } else {
                 val parsedRomfs = parseRomfsMetadataFromReader(activeRomfsReader, activeLv6Off)
                 if (parsedRomfs.files.isEmpty()) {
-                    onFailure("RomFS игры пуст или не расшифрован — вероятно, нет ключа раздачи (title key) или устарели prod.keys")
+                    onFailure("RomFS игры пуст или не расшифрован - вероятно, нет ключа раздачи (title key) или устарели prod.keys")
                     return null
                 }
                 for ((relPath, metaPair) in parsedRomfs.files) {

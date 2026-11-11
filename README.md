@@ -1,10 +1,10 @@
 <h1 align="center">STORM SWITCH BOX</h1>
 
 ## **О проекте**
-STORM SWITCH BOX — высокопроизводительный комбайн, графическая рабочая станция для сборки и пакетной обработки контента Nintendo Switch, Nintendo Switch 2 и Nintendo 3DS под операционные системы Windows и Android, дополненная интерактивной энциклопедической базой 19 поколений игровых систем Nintendo. Программа объединяет интеллектуальное сжатие данных и устранение мусорного объёма без потери данных (Lossless Shrink Engine), нативную автоматическую дешифровку образов Nintendo 3DS (SeedDB и NCCH Crypto), кастомизацию Switch-иконок и 3DS-баннеров со звуковыми джинглами (3D Banner and Animated Audio Studio), сборку мульти-игровых картриджей XCI/XCZ (Multi-Game Cartridge Builder), виртуальное инспектирование и выборочное извлечение RomFS/ExeFS без полной распаковки образов, аудит и дедупликацию игровых коллекций (Library Health and Space Saver), парсинг метаданных CNMT/Control NCA/SMDH, блочное сжатие в NSZ/XCZ (Zstandard), монолитный открытый контейнер NUP v1.0 с поблочной дедупликацией экстентов по SHA-256, слияние обновлений, DLC и модификаций в монолитные пакеты (Multi-Content 4-в-1 и HardPatch), пофайловый апгрейд RomFS без повторного скачивания базы («Путь Б»), обратимый патчер эмуляторов Switch 2 (NSP-Box Direct Boot), конвертацию между NUP, NSP, NSZ, XCI, XCZ, 3DS, CIA и CXI, сборку Homebrew-портов и форвардеров, встроенный загрузчик раздач и облачных модификаций (RuTracker, Яндекс.Диск, Google Drive, GitHub Releases) с автопривязкой русификаторов к задачам, а также прямую беспроводную и проводную отправку игр на консоли Switch и 3DS (FTP, HTTP Tinfoil/DBI, USB MTP и QR-коды FBI).
+STORM SWITCH BOX - высокопроизводительный комбайн, графическая рабочая станция для сборки и пакетной обработки контента Nintendo Switch, Nintendo Switch 2 и Nintendo 3DS под операционные системы Windows и Android, дополненная интерактивной энциклопедической базой 19 поколений игровых систем Nintendo. Программа объединяет интеллектуальное сжатие данных и устранение мусорного объёма без потери данных (Lossless Shrink Engine), нативную автоматическую дешифровку образов Nintendo 3DS (SeedDB и NCCH Crypto), кастомизацию Switch-иконок и 3DS-баннеров со звуковыми джинглами (3D Banner and Animated Audio Studio), сборку мульти-игровых картриджей XCI/XCZ (Multi-Game Cartridge Builder), виртуальное инспектирование и выборочное извлечение RomFS/ExeFS без полной распаковки образов, аудит и дедупликацию игровых коллекций (Library Health and Space Saver), парсинг метаданных CNMT/Control NCA/SMDH, блочное сжатие в NSZ/XCZ (Zstandard), монолитный открытый контейнер NUP v1.0 с поблочной дедупликацией экстентов по SHA-256, слияние обновлений, DLC и модификаций в монолитные пакеты (Multi-Content 4-в-1 и HardPatch), пофайловый апгрейд RomFS без повторного скачивания базы («Путь Б»), обратимый патчер эмуляторов Switch 2 (NSP-Box Direct Boot), конвертацию между NUP, NSP, NSZ, XCI, XCZ, 3DS, CIA и CXI, сборку Homebrew-портов и форвардеров, встроенный загрузчик раздач и облачных модификаций (RuTracker, Яндекс.Диск, Google Drive, GitHub Releases) с автопривязкой русификаторов к задачам, а также прямую беспроводную и проводную отправку игр на консоли Switch и 3DS (FTP, HTTP Tinfoil/DBI, USB MTP и QR-коды FBI).
 
 ## **Происхождение и основа**
-STORM SWITCH BOX — комплексная оболочка и комбайн контента Nintendo Switch 1/2 и Nintendo 3DS на базе нативных библиотек и утилит **LibHac** и **hactoolnet** (Thealexbarney), **nsz** (NicoBosshard), открытого контейнера **NUP** (a55uka), архитектуры прямого запуска **NSP-Box** (smarkyie), **yanu-cli** (nozwock), **oxipng** (shnatsel), **3dstool** (dnasdw), **makerom** (3DSGuy), загрузчиков **Atmosphere** (SciresM) и архитектуры форвардеров **NSP-Auto-Installer-Maker** (CNX17) с нативным графическим интерфейсом WinUI 3, движком мульти-контент инжектинга модов и высокоскоростным конвейером сжатия.
+STORM SWITCH BOX - комплексная оболочка и комбайн контента Nintendo Switch 1/2 и Nintendo 3DS на базе нативных библиотек и утилит **LibHac** и **hactoolnet** (Thealexbarney), **nsz** (NicoBosshard), открытого контейнера **NUP** (a55uka), архитектуры прямого запуска **NSP-Box** (smarkyie), **yanu-cli** (nozwock), **oxipng** (shnatsel), **3dstool** (dnasdw), **makerom** (3DSGuy), загрузчиков **Atmosphere** (SciresM) и архитектуры форвардеров **NSP-Auto-Installer-Maker** (CNX17) с нативным графическим интерфейсом WinUI 3, движком мульти-контент инжектинга модов и высокоскоростным конвейером сжатия.
 
 ## **Технологический стек**
 - **Языки программирования**: C# (.NET 8.0), Kotlin (Android SDK), C++
@@ -13,9 +13,9 @@ STORM SWITCH BOX — комплексная оболочка и комбайн �
 - **Форматы контейнеров и патчей**: NUP v1.0 (NX Package Format, суперблок `NUP\x01`, таблица `TOC\x01`, TLV-метаданные и дедупликация экстентов SHA-256), CNMT, NACP, Control NCA, PFS0, HFS0, XCI Cartridge Header (`HEAD`), NCCH, NCSD, CIA, SMDH (Morton Z-order RGB565), CBMD/BCWAV (CWAV PCM16), IVFC Level 3 RomFS, NRO/ASET (сжатие LZ4 Frame), IPS/IPS32, BPS, IPSwitch (`.pchtxt`)
 
 ## **Ключевые возможности**
-- **Поддержка Nintendo Switch 2 (Ounce / NVN2) и монолитного формата NUP v1.0**: автоматическая идентификация дампов Switch 2 по TitleID `0400...` из `main.npdm` (секция ACI0 + 0x10), сборка монолитных контейнеров из папок дампа (base + updates + dlc), поблочная дедупликация экстентов по хешам SHA-256 с блочным сжатием Zstandard (экономия до 30–50% дискового пространства), а также полноценная поддержка ключей Switch 2 (`ounce.keys`, `prod.keys`, `title.keys`) до Master Key 16 (HOS 23.0.x / Atmosphere 1.12.1).
+- **Поддержка Nintendo Switch 2 (Ounce / NVN2) и монолитного формата NUP v1.0**: автоматическая идентификация дампов Switch 2 по TitleID `0400...` из `main.npdm` (секция ACI0 + 0x10), сборка монолитных контейнеров из папок дампа (base + updates + dlc), поблочная дедупликация экстентов по хешам SHA-256 с блочным сжатием Zstandard (экономия до 30-50% дискового пространства), а также полноценная поддержка ключей Switch 2 (`ounce.keys`, `prod.keys`, `title.keys`) до Master Key 16 (HOS 23.0.x / Atmosphere 1.12.1).
 - **Обратимый патчер эмуляторов Switch 2 (NSP-Box Direct Boot by smarkyie)**: встроенный патчер бинарных файлов эмуляторов (Eden sx2a, PokeDinner, Eglantine, Selevet), позволяющий запускать собранные образы `.nup` и Plaintext `.nsp` напрямую без генерации внешнего файла-компаньона `main.npdm` рядом с дампом, с переключением частотного таймера на 31.25 МГц и мгновенным откатом через автоматические резервные копии `.bak`.
-- **Актуализация готовых контейнеров без повторной распаковки («Путь Б» — пофайловый апгрейд RomFS)**: на лету анализирует структуру CNMT, извлекает обновленные ассеты из свежего патча обновления (.nsp / .nsz) или папки DLC и бесшовно запекает дельту в уже существующий монолитный образ игры (.nup, .nsz, .nsp, .xci), сокращая время обновления 50-гигабайтных дампов до считанных минут.
+- **Актуализация готовых контейнеров без повторной распаковки («Путь Б» - пофайловый апгрейд RomFS)**: на лету анализирует структуру CNMT, извлекает обновленные ассеты из свежего патча обновления (.nsp / .nsz) или папки DLC и бесшовно запекает дельту в уже существующий монолитный образ игры (.nup, .nsz, .nsp, .xci), сокращая время обновления 50-гигабайтных дампов до считанных минут.
 - **Встроенный мульти-трекерный загрузчик RuTracker и облачных модификаций (Яндекс.Диск, Google Drive, GitHub Releases)**: прямое подключение к базе раздач Nintendo Switch и Nintendo 3DS (встроенный индекс проверенных релизов RuTracker + живой параллельный опрос публичных индексов `ApiBay`, `Rutor`, `TheRarbg` и `TorrentsCSV`), обход DNS-блокировок через **DNS-over-HTTPS (DoH Cloudflare 1.1.1.1 / Google 8.8.8.8)**, выборочная загрузка отдельных файлов внутри раздачи на базе движка **MonoTorrent**, а также автоматический парсинг шапки темы на внешние ссылки (Яндекс.Диск, Google Drive, GitHub), прямое скачивание архивов модов/русификаторов, автораспаковка `romfs`/`exefs`/`ips` и мгновенная привязка к задаче.
 - **Нативная мобильная версия для Android (ARM64 NEON Block NSZ и NUP Engine)**: полноценный пакет для смартфонов, планшетов и портативных консолей на базе Android (`Odin 2`, `Retroid Pocket`, `Razer Edge`), выполняющий упаковку и распаковку `.NUP` v1.0, блочное сжатие `.NSP` ↔ `.NSZ` (`NCZSECTN` + `NCZBLOCK` 1 МБ на базе `Zstandard` JNI), обрезку пустых областей картриджей `.XCI` и `.3DS` (`SmartShrink`), инспекцию контейнеров `PFS0`/`XCI`, мульти-трекерный поиск раздач RuTracker и прямое скачивание русификаторов с Яндекс.Диска и Google Drive напрямую в корневую директорию `/storage/emulated/0/STORM SWITCH BOX` с поддержкой `Samsung Game Booster` и режимов `120/144 Гц`.
 - **Сверхбыстрое нативное ядро NSZ/XCZ и векторная криптография SIMD AVX2**: переработанный движок `StormNczCompressor` выполняет пакетную генерацию ключевого потока `AES-128-CTR` пачками по 64 КБ с наложением гаммы через 256-битные инструкции `Vector256<byte>` и полным переиспользованием буферов через `ArrayPool<byte>.Shared` (0 аллокаций в Large Object Heap), а база из 40 349 игр 19 консолей упакована в единый сжатый бинарный ресурс `catalogs.zst`.
@@ -29,32 +29,32 @@ STORM SWITCH BOX — комплексная оболочка и комбайн �
 - **Умная сборка модификаций и мульти-контента Switch и 3DS (4-в-1)**: автоматический выбор между склейкой контейнера PFS0 и физическим перепаковыванием разделов `Program` NCA (`HardPatch`) для Switch 1 и Switch 2, а также полная сборка `Игра + Обновление + Все DLC + Русификатор/Мод (RomFS/ExeFS/IPS/BPS)` в единый файл `.3ds` или `.cia` для Nintendo 3DS.
 
 ## **Поддерживаемые платформы и эмуляторы**
-- **Операционные системы**: Windows 10, Windows 11 (x64), Android 8.0–17+ (ARM64 / x86_64) и Android 5.0+ (Legacy ARMv7 / ARM64)
+- **Операционные системы**: Windows 10, Windows 11 (x64), Android 8.0-17+ (ARM64 / x86_64) и Android 5.0+ (Legacy ARMv7 / ARM64)
 - **Поддерживаемые форматы**: NUP, NSP, NSZ, XCI, XCZ, NRO, NCA, CNMT, 3DS, CCI, CIA, CXI
 - **Поддерживаемые консоли**: Nintendo Switch, Nintendo Switch 2 (Ounce / NVN2), Nintendo 3DS и база знаний 19 поколений систем Nintendo
 - **Поддерживаемые эмуляторы**: STORM SWITCH, Eden (включая sx2a), Citron, Eglantine, PokeDinner, Selevet, Sudachi, Yuzu, Ryujinx, Suyu, Torzu, Citra, Lime3DS, Azahar
 
 ## **Установка и запуск**
 1. Перейдите в раздел **Releases** на GitHub.
-2. Для **Windows**: скачайте инсталлятор `STORM_SWITCH_BOX_7.0.12_Setup.exe` или портативный архив `STORM_SWITCH_BOX_7.0.12.zip`.
-3. Для **Android**: скачайте пакет `STORM_SWITCH_BOX_7.0.12.apk` (для современных 64-битных устройств Android 8.0+) или `STORM_SWITCH_BOX_7.0.12_LEGACY.apk` (универсальная сборка для Android 5.0+ и 32/64-битных процессоров). При первом запуске приложение создаст рабочую структуру папок в `/storage/emulated/0/STORM SWITCH BOX/`.
+2. Для **Windows**: скачайте инсталлятор `STORM_SWITCH_BOX_7.0.13_Setup.exe` или портативный архив `STORM_SWITCH_BOX_7.0.13.zip`.
+3. Для **Android**: скачайте пакет `STORM_SWITCH_BOX_7.0.13.apk` (для современных 64-битных устройств Android 8.0+) или `STORM_SWITCH_BOX_7.0.13_LEGACY.apk` (универсальная сборка для Android 5.0+ и 32/64-битных процессоров). При первом запуске приложение создаст рабочую структуру папок в `/storage/emulated/0/STORM SWITCH BOX/`.
 4. На ПК запустите установщик или распакуйте архив. Все системные инструменты (`hactoolnet`, `yanu-cli`, `oxipng`, `3dstool`, `makerom`, `7za`) и сжатая база каталогов (`catalogs.zst`, `nutdb.json`) уже включены в дистрибутив.
 5. Укажите файлы ключей `prod.keys` / `title.keys` (для Nintendo Switch), `ounce.keys` (для Nintendo Switch 2) и при необходимости `seeddb.bin` / `aes_keys.txt` (для Nintendo 3DS) во вкладке параметров.
 
 ## **Благодарности**
-- **Thealexbarney** — за библиотеку LibHac и утилиту hactoolnet.
-- **NicoBosshard** — за стандарт сжатия NSZ/NCZ и утилиту nsz.
-- **smarkyie** — за архитектуру прямого запуска NSP-Box (Direct Boot) и исследования бинарных патчей эмуляторов Switch 2.
-- **a55uka** — за концепцию открытого монолитного контейнера NUP v1.0 (NX Package Format) и алгоритм дедупликации экстентов.
-- **JulesHM** — за инструментарий NSC_Builder и концепцию пакетной перепаковки Switch.
-- **nozwock** — за высокоскоростной движок патчинга yanu-cli.
-- **Josh Holmer (shnatsel)** — за оптимизатор изображений без потерь oxipng.
-- **SciresM и команда Atmosphere-NX** — за кастомную прошивку Atmosphere и документацию по архитектуре Horizon OS.
-- **CNX17** — за проект NSP-Auto-Installer-Maker и методологию генерации NRO-форвардеров.
-- **dnasdw и 3DSGuy** — за утилиты 3dstool и makerom для работы с образами Nintendo 3DS.
-- **duckbill** — за утилиту DBI и протоколы установки игр по MTP и HTTP.
-- **Steveice10** — за менеджер пакетов FBI и протокол установки CIA по QR-кодам на Nintendo 3DS.
-- **blawar** — за поддержку баз метаданных TitleDB и NutDB.
-- **Команда MonoTorrent (Alan McGovern)** — за высокопроизводительную кроссплатформенную библиотеку протокола BitTorrent.
-- **Lubomir Marinov (luben)** — за высокопроизводительный интерфейс Zstandard JNI для Android.
-- **Команды эмуляторов Eden, Citron, Eglantine, PokeDinner, Selevet, Sudachi, Yuzu, Ryujinx, Citra, Azahar и Lime3DS** — за развитие открытой эмуляции консолей Nintendo Switch 1, Nintendo Switch 2 и Nintendo 3DS.
+- **Thealexbarney** - за библиотеку LibHac и утилиту hactoolnet.
+- **NicoBosshard** - за стандарт сжатия NSZ/NCZ и утилиту nsz.
+- **smarkyie** - за архитектуру прямого запуска NSP-Box (Direct Boot) и исследования бинарных патчей эмуляторов Switch 2.
+- **a55uka** - за концепцию открытого монолитного контейнера NUP v1.0 (NX Package Format) и алгоритм дедупликации экстентов.
+- **JulesHM** - за инструментарий NSC_Builder и концепцию пакетной перепаковки Switch.
+- **nozwock** - за высокоскоростной движок патчинга yanu-cli.
+- **Josh Holmer (shnatsel)** - за оптимизатор изображений без потерь oxipng.
+- **SciresM и команда Atmosphere-NX** - за кастомную прошивку Atmosphere и документацию по архитектуре Horizon OS.
+- **CNX17** - за проект NSP-Auto-Installer-Maker и методологию генерации NRO-форвардеров.
+- **dnasdw и 3DSGuy** - за утилиты 3dstool и makerom для работы с образами Nintendo 3DS.
+- **duckbill** - за утилиту DBI и протоколы установки игр по MTP и HTTP.
+- **Steveice10** - за менеджер пакетов FBI и протокол установки CIA по QR-кодам на Nintendo 3DS.
+- **blawar** - за поддержку баз метаданных TitleDB и NutDB.
+- **Команда MonoTorrent (Alan McGovern)** - за высокопроизводительную кроссплатформенную библиотеку протокола BitTorrent.
+- **Lubomir Marinov (luben)** - за высокопроизводительный интерфейс Zstandard JNI для Android.
+- **Команды эмуляторов Eden, Citron, Eglantine, PokeDinner, Selevet, Sudachi, Yuzu, Ryujinx, Citra, Azahar и Lime3DS** - за развитие открытой эмуляции консолей Nintendo Switch 1, Nintendo Switch 2 и Nintendo 3DS.

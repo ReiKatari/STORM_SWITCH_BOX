@@ -510,7 +510,7 @@ namespace StormSwitchBox.Services
                     .Where(i => i.EffectiveStage is not ("ГОТОВО" or "ОТМЕНЕНО" or "ОШИБКА" or "СБОРКА") && !i.IsPausedByUser && i.CreatedTasks.Count > 0)
                     .ToList();
 
-                // Если пользователь вручную поднял ожидающую задачу стрелкой вверх в топ-5 при заполненных слотах —
+                // Если пользователь вручную поднял ожидающую задачу стрелкой вверх в топ-5 при заполненных слотах -
                 // освобождаем место за счёт самой нижней быстрой задачи (медленные < 200 КБ/с никогда не останавливаем).
                 if (allowPreemptionForReorder)
                 {
@@ -560,9 +560,24 @@ namespace StormSwitchBox.Services
 
                     if (fastSlotsUsed < MaxConcurrentDownloads && totalActive < MaxTotalConcurrentDownloads)
                     {
-                        if (item.IsPreemptedByQueue)
+                        bool pipelineNotRunning = !item.IsPipelineStarted ||
+                                                  item.ExecutionTask == null ||
+                                                  item.ExecutionTask.IsCompleted;
+
+                        if (pipelineNotRunning)
+                        {
+                            if (item.Cts == null || item.Cts.IsCancellationRequested)
+                                item.Cts = new CancellationTokenSource();
+                            item.IsPreemptedByQueue = false;
+                            item.IsPausedByUser = false;
+                            item.LastActivatedAtUtc = nowUtc;
+                            item.SmoothedSpeedBps = 0;
+                            StartItemPipeline(item);
+                        }
+                        else
                         {
                             item.IsPreemptedByQueue = false;
+                            item.IsPausedByUser = false;
                             item.LastActivatedAtUtc = nowUtc;
                             item.SmoothedSpeedBps = 0;
                             item.PauseEvent.Set();
@@ -572,13 +587,22 @@ namespace StormSwitchBox.Services
                                 try { item.ActiveTorrentManager.StartAsync(); } catch { }
                             }
                             item.RawStageBadge = item.HasTorrentSource ? "СКАЧИВАНИЕ" : "МОДЫ";
+                            item.StageBadge = item.RawStageBadge;
                             item.RawStageColor = Windows.UI.Color.FromArgb(255, 2, 132, 199);
-                        }
-                        else if (!item.IsPipelineStarted)
-                        {
-                            item.LastActivatedAtUtc = nowUtc;
-                            item.SmoothedSpeedBps = 0;
-                            StartItemPipeline(item);
+                            if (string.IsNullOrWhiteSpace(item.RawDetails) || item.RawDetails.Contains("Приостановлено") || item.RawDetails.Contains("очереди"))
+                                item.RawDetails = "Возобновление скачивания...";
+
+                            foreach (var (t, _, _) in item.CreatedTasks)
+                            {
+                                RunOnUiSyncOrAsync(() =>
+                                {
+                                    t.IsPaused = false;
+                                    t.IsRunning = true;
+                                    t.PauseEvent.Set();
+                                    if (t.Status == "Пауза" || t.Status.Contains("Сохранено на паузе") || t.Status.Contains("очереди"))
+                                        t.Status = "Возобновление скачивания...";
+                                });
+                            }
                         }
 
                         fastSlotsUsed++;
@@ -1074,15 +1098,22 @@ namespace StormSwitchBox.Services
                     });
                 });
 
+                byte[]? effectiveTorrentBytes = service.LoadedTorrentBytes
+                    ?? createdTasks.Select(c => c.Payload.TorrentBytes).FirstOrDefault(b => b != null && b.Length > 0);
+                var effectiveMagnet = service.LoadedMagnet
+                    ?? createdTasks.Select(c => c.Payload.MagnetLink).FirstOrDefault(m => m != null);
+                var fallbackTopic = currentTopic
+                    ?? createdTasks.Select(c => c.Payload.Topic).FirstOrDefault(tp => tp != null);
+
                 await service.DownloadTorrentAsync(
                     sharedReleaseDir,
                     unionFiles,
                     torrentProg,
                     ct,
-                    service.LoadedTorrentBytes,
-                    service.LoadedMagnet,
-                    currentTopic?.TopicId,
-                    currentTopic?.Seeds ?? 0,
+                    effectiveTorrentBytes,
+                    effectiveMagnet,
+                    fallbackTopic?.TopicId,
+                    fallbackTopic?.Seeds ?? 0,
                     item.PauseEvent,
                     mgr =>
                     {
@@ -1176,6 +1207,8 @@ namespace StormSwitchBox.Services
 
         public static void UpdateItemTorrentProgress(RuTrackerActiveDownloadItem item, TorrentDownloadProgress p)
         {
+            if (item.IsPausedByUser || item.IsPreemptedByQueue)
+                return;
             item.RawPercent = Math.Clamp(p.Percent, 0, 100);
             item.RawSpeedBps = p.SpeedMbPerSec * 1024.0 * 1024.0;
             item.RawSeeds = p.Seeds;
@@ -1208,6 +1241,8 @@ namespace StormSwitchBox.Services
 
         public static void UpdateItemCloudProgress(RuTrackerActiveDownloadItem item, (double Percent, string Status) mp)
         {
+            if (item.IsPausedByUser || item.IsPreemptedByQueue)
+                return;
             item.RawPercent = Math.Clamp(mp.Percent, 0, 100);
             item.RawDetails = $"{mp.Percent:F1}%";
             item.RawStageBadge = "МОДЫ";
@@ -1225,11 +1260,14 @@ namespace StormSwitchBox.Services
         {
             lock (_syncLock)
             {
-                if (item.IsPausedByUser || item.StageBadge == "ПАУЗА")
+                if (item.IsPausedByUser || item.StageBadge == "ПАУЗА" || item.RawStageBadge == "ПАУЗА")
                 {
                     item.IsPausedByUser = false;
+                    item.IsPreemptedByQueue = false;
                     item.LastActivatedAtUtc = DateTime.UtcNow;
                     item.SmoothedSpeedBps = 0;
+                    item.RawStageBadge = "В ОЧЕРЕДИ";
+                    item.StageBadge = "В ОЧЕРЕДИ";
                     item.PauseEvent.Set();
                     if (item.ActiveTorrentManager != null &&
                         (item.ActiveTorrentManager.State == TorrentState.Paused || item.ActiveTorrentManager.State == TorrentState.Stopped))
@@ -1237,6 +1275,8 @@ namespace StormSwitchBox.Services
                         try { item.ActiveTorrentManager.StartAsync(); } catch { }
                     }
                     EvaluateQueuePriorities();
+                    RunOnUiSyncOrAsync(() => item.CommitUiUpdates());
+                    SaveQueueState();
                 }
                 else
                 {
@@ -1385,14 +1425,22 @@ namespace StormSwitchBox.Services
             lock (_syncLock)
             {
                 DateTime nowUtc = DateTime.UtcNow;
-                foreach (var item in _backingItems.Where(i => i.IsPausedByUser || i.StageBadge == "ПАУЗА"))
+                foreach (var item in _backingItems.Where(i => i.IsPausedByUser || i.StageBadge == "ПАУЗА" || i.RawStageBadge == "ПАУЗА"))
                 {
                     item.IsPausedByUser = false;
+                    item.IsPreemptedByQueue = false;
                     item.LastActivatedAtUtc = nowUtc;
                     item.SmoothedSpeedBps = 0;
+                    item.RawStageBadge = "В ОЧЕРЕДИ";
+                    item.StageBadge = "В ОЧЕРЕДИ";
                     item.PauseEvent.Set();
                 }
                 EvaluateQueuePriorities();
+                RunOnUiSyncOrAsync(() =>
+                {
+                    foreach (var item in _backingItems)
+                        item.CommitUiUpdates();
+                });
                 SaveQueueState();
             }
         }
@@ -1520,8 +1568,14 @@ namespace StormSwitchBox.Services
                 }
 
                 targetItem.IsPausedByUser = false;
+                targetItem.IsPreemptedByQueue = false;
                 targetItem.LastActivatedAtUtc = DateTime.UtcNow;
                 targetItem.SmoothedSpeedBps = 0;
+                if (targetItem.RawStageBadge == "ПАУЗА" || targetItem.StageBadge == "ПАУЗА")
+                {
+                    targetItem.RawStageBadge = "В ОЧЕРЕДИ";
+                    targetItem.StageBadge = "В ОЧЕРЕДИ";
+                }
                 targetItem.PauseEvent.Set();
 
                 if (targetItem.ActiveTorrentManager != null &&
@@ -1776,9 +1830,15 @@ namespace StormSwitchBox.Services
                                     };
 
                                     task.RuTrackerPayload = payload;
+                                    task.OnPauseRequested = () => TogglePauseItem(item);
+                                    task.OnResumeRequested = () => TogglePauseItem(item);
+                                    task.OnCancelRequested = () => CancelOrRemoveItem(item);
                                     item.CreatedTasks.Add((task, payload, new RuTrackerGameSlotItem { SlotNumber = tp.SlotNumber }));
                                 }
                             }
+                            item.Cts = new CancellationTokenSource();
+                            if (!isCompleted)
+                                item.PauseEvent.Reset();
                             else if (!isCompleted)
                             {
                                 // Устаревшие записи без данных задач: помечаем "ОТМЕНЕНО", чтобы не блокировать очередь

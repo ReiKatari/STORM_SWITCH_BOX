@@ -310,7 +310,7 @@ class MainActivity : Activity() {
                 obj.put("targetFormat", task.targetFormat)
                 val savedState = if (task.state == BgTaskState.RUNNING) BgTaskState.PAUSED.name else task.state.name
                 obj.put("state", savedState)
-                obj.put("stageTitle", if (task.state == BgTaskState.RUNNING) "⏸ Сохранено на паузе — нажмите ▶️ Продолжить" else task.stageTitle)
+                obj.put("stageTitle", if (task.state == BgTaskState.RUNNING) "⏸ Сохранено на паузе - нажмите ▶️ Продолжить" else task.stageTitle)
                 obj.put("progressPct", task.progressPct)
                 obj.put("detailText", task.detailText)
                 obj.put("resultFilePath", task.resultFile?.absolutePath ?: "")
@@ -1773,7 +1773,7 @@ class MainActivity : Activity() {
 
         if (queuedFiles.isEmpty()) {
             queueCard.addView(TextView(this).apply {
-                text = "Очередь пуста. Добавьте файлы или папки выше — программа автоматически распознает Базу, Патчи, DLC и Моды и сгруппирует их отдельно по каждой игре."
+                text = "Очередь пуста. Добавьте файлы или папки выше - программа автоматически распознает Базу, Патчи, DLC и Моды и сгруппирует их отдельно по каждой игре."
                 setTextColor(th.textSecondary)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
                 setPadding(0, dp(6), 0, dp(2))
@@ -1954,7 +1954,7 @@ class MainActivity : Activity() {
                         }
                         detailBox.addView(TextView(this).apply {
                             val tidInfo = if (part.titleId.isNotEmpty()) " [TID: ${part.titleId}]" else ""
-                            text = "  ${idx + 1}. [${part.roleBadge}]$tidInfo ${part.name} — ${StormNczEngine.formatSize(part.sizeBytes)}"
+                            text = "  ${idx + 1}. [${part.roleBadge}]$tidInfo ${part.name} - ${StormNczEngine.formatSize(part.sizeBytes)}"
                             setTextColor(badgeColor)
                             setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
                             typeface = Typeface.MONOSPACE
@@ -2035,14 +2035,14 @@ class MainActivity : Activity() {
         })
 
         val outputFormats = listOf(
-            "NSZ — Сжатый цифровой контейнер Switch (Блочный NCZBLOCK, рекомендуется)",
-            "XCZ — Сжатый мульти-картридж Switch (Блочный NCZBLOCK, без тикетов)",
-            "NSP — Оригинальный цифровой контейнер Switch (PFS0, без сжатия NCA)",
-            "XCI — Оригинальный мульти-картридж Switch (HEAD + HFS0, без сжатия NCA)",
-            "CCI — Образ картриджа Nintendo 3DS / Citra / Azahar (NCSD + NoCrypto)",
-            "3DS — Образ картриджа Nintendo 3DS (NCSD Decrypted + Trim 0xFF)",
-            "CIA — Установочный архив Nintendo 3DS (CTR Importable Archive)",
-            "NUP — Монолитный контейнер Switch 2 / Eden (NUP v1.0, Zstd + Дедупликация)"
+            "NSZ - Сжатый цифровой контейнер Switch (Блочный NCZBLOCK, рекомендуется)",
+            "XCZ - Сжатый мульти-картридж Switch (Блочный NCZBLOCK, без тикетов)",
+            "NSP - Оригинальный цифровой контейнер Switch (PFS0, без сжатия NCA)",
+            "XCI - Оригинальный мульти-картридж Switch (HEAD + HFS0, без сжатия NCA)",
+            "CCI - Образ картриджа Nintendo 3DS / Citra / Azahar (NCSD + NoCrypto)",
+            "3DS - Образ картриджа Nintendo 3DS (NCSD Decrypted + Trim 0xFF)",
+            "CIA - Установочный архив Nintendo 3DS (CTR Importable Archive)",
+            "NUP - Монолитный контейнер Switch 2 / Eden (NUP v1.0, Zstd + Дедупликация)"
         )
         val formatDropdown = makeStormDropdown(outputFormats, selectedOutputFormat, th) { pos ->
             selectedOutputFormat = pos
@@ -2109,7 +2109,7 @@ class MainActivity : Activity() {
                 }
             }
             val levelLabel = TextView(this).apply {
-                text = "Уровень сжатия Zstandard: $zstdLevel (18 — эталон скорости и сжатия)"
+                text = "Уровень сжатия Zstandard: $zstdLevel (18 - эталон скорости и сжатия)"
                 setTextColor(th.textPrimary)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
                 setPadding(0, 0, 0, dp(2))
@@ -2121,7 +2121,7 @@ class MainActivity : Activity() {
                 setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                     override fun onProgressChanged(sb: SeekBar?, p: Int, fromUser: Boolean) {
                         zstdLevel = p + 1
-                        levelLabel.text = "Уровень сжатия Zstandard: $zstdLevel (18 — эталон скорости и сжатия)"
+                        levelLabel.text = "Уровень сжатия Zstandard: $zstdLevel (18 - эталон скорости и сжатия)"
                         saveSettings()
                     }
                     override fun onStartTrackingTouch(sb: SeekBar?) {}
@@ -3627,7 +3627,7 @@ class MainActivity : Activity() {
                 })
 
                 bodyContent.addView(TextView(this).apply {
-                    text = "${details.forumSection}\nТема #${details.topicId} • Размер: ${details.totalSizeText} • Сиды: ${if (details.seeds > 0) "▲${details.seeds}" else "нет данных"} • Личи: ${if (details.seeds > 0) "▼${details.leechers}" else "—"}\nBTIH: ${details.infoHash}"
+                    text = "${details.forumSection}\nТема #${details.topicId} • Размер: ${details.totalSizeText} • Сиды: ${if (details.seeds > 0) "▲${details.seeds}" else "нет данных"} • Личи: ${if (details.seeds > 0) "▼${details.leechers}" else "-"}\nBTIH: ${details.infoHash}"
                     setTextColor(th.textSecondary)
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.2f)
                     setPadding(0, 0, 0, dp(8))
@@ -3661,7 +3661,7 @@ class MainActivity : Activity() {
 
                 details.files.forEach { rf ->
                     bodyContent.addView(TextView(this).apply {
-                        text = "📄 [${rf.roleBadge}] ${rf.fileName} — ${StormNczEngine.formatSize(rf.sizeBytes)}"
+                        text = "📄 [${rf.roleBadge}] ${rf.fileName} - ${StormNczEngine.formatSize(rf.sizeBytes)}"
                         setTextColor(th.textPrimary)
                         setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
                         background = makeCardDrawable(th.bgPrimary, th.border, 6)
@@ -3841,6 +3841,61 @@ class MainActivity : Activity() {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.6f)
             setPadding(0, dp(2), 0, 0)
         })
+
+        val copyTid = RuTrackerCloudEngine.resolveAuthenticBaseTitleId(item.title, item.infoHash, item.topicId)
+        val allTextForVer = buildString {
+            append(item.title)
+            releaseFiles.forEach { append(' ').append(it.fileName) }
+        }
+        val semVerClean = Regex("(?:\\[|\\(|\\b(?:v|upd|update|patch)\\s*)(\\d+\\.\\d+(?:\\.\\d+){0,2})(?=\\]|\\)|\\b)", RegexOption.IGNORE_CASE)
+            .findAll(allTextForVer)
+            .map { it.groupValues[1] }
+            .lastOrNull { v -> !(v.split('.').let { p -> p.size == 3 && p[2].length == 4 }) }
+        val maxIntVer = Regex("\\[v?(\\d{5,10})\\]", RegexOption.IGNORE_CASE)
+            .findAll(allTextForVer)
+            .mapNotNull { it.groupValues[1].toIntOrNull() }
+            .maxOrNull() ?: 0
+        val cleanVerNoV = semVerClean ?: if (maxIntVer >= 65536) "1.${maxIntVer / 65536}.0" else "1.0.0"
+        val internalVerStr = maxIntVer.toString()
+
+        fun makeQuickCopyChip(chipText: String, copyVal: String, labelRu: String): TextView {
+            return TextView(this).apply {
+                text = "$chipText ⧉"
+                setTextColor(th.accent)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.2f)
+                typeface = Typeface.MONOSPACE
+                background = makeCardDrawable(th.bgElevated, th.border, 5)
+                setPadding(dp(7), dp(3), dp(7), dp(3))
+                setOnClickListener {
+                    val cm = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    cm.setPrimaryClip(android.content.ClipData.newPlainText(labelRu, copyVal))
+                    Toast.makeText(this@MainActivity, StormLocalization.tr("Скопировано ($labelRu): $copyVal", currentLangCode), Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+
+        val quickCopyRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(5)
+            }
+        }
+        if (copyTid.isNotBlank()) {
+            quickCopyRow.addView(makeQuickCopyChip(copyTid, copyTid, "TitleID").apply {
+                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    marginEnd = dp(5)
+                }
+            })
+        }
+        quickCopyRow.addView(makeQuickCopyChip(cleanVerNoV, cleanVerNoV, "Версия").apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                marginEnd = dp(5)
+            }
+        })
+        quickCopyRow.addView(makeQuickCopyChip(internalVerStr, internalVerStr, "Внутр. версия"))
+        topicMetaBanner.addView(quickCopyRow)
+
         card.addView(topicMetaBanner)
 
         // Прокручиваемая область с 4 чёткими сгруппированными блоками
@@ -3894,7 +3949,7 @@ class MainActivity : Activity() {
             updateFilesSummaryHeader()
             releaseFiles.forEach { rf ->
                 val cbRow = makeStormCheckBox(
-                    "[${rf.roleBadge}] ${rf.fileName} — ${StormNczEngine.formatSize(rf.sizeBytes)}",
+                    "[${rf.roleBadge}] ${rf.fileName} - ${StormNczEngine.formatSize(rf.sizeBytes)}",
                     rf.selected,
                     th
                 ) { checked ->
@@ -4074,13 +4129,13 @@ class MainActivity : Activity() {
         })
 
         val formatNames = listOf(
-            "NSZ — Сжатый цифровой контейнер Switch (Блочный NCZBLOCK)",
-            "XCZ — Сжатый мульти-картридж Switch (Блочный NCZBLOCK)",
-            "NSP — Оригинальный цифровой контейнер Switch (Без сжатия)",
-            "XCI — Оригинальный мульти-картридж Switch (Без сжатия)",
-            "CCI — Образ картриджа Nintendo 3DS (NCSD + NoCrypto)",
-            "3DS — Образ картриджа Nintendo 3DS (Decrypted + Trim)",
-            "CIA — Установочный архив Nintendo 3DS"
+            "NSZ - Сжатый цифровой контейнер Switch (Блочный NCZBLOCK)",
+            "XCZ - Сжатый мульти-картридж Switch (Блочный NCZBLOCK)",
+            "NSP - Оригинальный цифровой контейнер Switch (Без сжатия)",
+            "XCI - Оригинальный мульти-картридж Switch (Без сжатия)",
+            "CCI - Образ картриджа Nintendo 3DS (NCSD + NoCrypto)",
+            "3DS - Образ картриджа Nintendo 3DS (Decrypted + Trim)",
+            "CIA - Установочный архив Nintendo 3DS"
         )
 
         val cleanDefaultTitle = StormNczEngine.extractCleanGameTitle(item.title)
@@ -4424,7 +4479,7 @@ class MainActivity : Activity() {
         root.addView(dlgRenameBox)
 
         // =========================================================================
-        // НИЖНЯЯ ЗАКРЕПЛЁННАЯ ПАНЕЛЬ (ВНЕ SCROLLVIEW — ВСЕГДА НА ВИДУ!):
+        // НИЖНЯЯ ЗАКРЕПЛЁННАЯ ПАНЕЛЬ (ВНЕ SCROLLVIEW - ВСЕГДА НА ВИДУ!):
         // Прогресс-бар + Кнопка «🚀 Скачать и собрать» + Кнопка «⏹ Отменить задачу» + «✖ Закрыть»
         // =========================================================================
         val processBox = LinearLayout(this).apply {
@@ -4742,23 +4797,23 @@ class MainActivity : Activity() {
                     "21. Nintendo Switch 2 (Ounce / 0400...) и формат NUP (NUP v1.0)",
                     "Экосистемы",
                     "SWITCH 2",
-                    "STORM SWITCH BOX включает всестороннюю поддержку следующего поколения игровых систем Nintendo — Nintendo Switch 2 (кодовое имя «Ounce» / API «NVN2») и нового открытого стандарта монолитных контейнеров NUP v1.0 (NX Package Format):\n" +
+                    "STORM SWITCH BOX включает всестороннюю поддержку следующего поколения игровых систем Nintendo - Nintendo Switch 2 (кодовое имя «Ounce» / API «NVN2») и нового открытого стандарта монолитных контейнеров NUP v1.0 (NX Package Format):\n" +
                     "• Идентификация дампов: TitleID игр Switch 2 начинается с префикса «0400...» (в отличие от «0100...» у Switch 1), извлекаемый напрямую из main.npdm (заголовок META -> секция ACI0 + 0x10).\n" +
                     "• Монолитный формат NUP v1.0: открытый контейнер без шифрования с суперблоком NUP\\x01 (0x80 байт), таблицей пакетов TOC\\x01 (0=Base, 1=Update, 2=DLC) и метаданными TLV (иконка 0x0003, версия 0x0004, имя игры 0x0005).\n" +
-                    "• Дедупликация экстентов по SHA-256: при упаковке в .nup одинаковые блоки и повторяющиеся ассеты сохраняются в одном экземпляре, экономя до 30–50% места.\n" +
+                    "• Дедупликация экстентов по SHA-256: при упаковке в .nup одинаковые блоки и повторяющиеся ассеты сохраняются в одном экземпляре, экономя до 30-50% места.\n" +
                     "• Авто-сборка из папок дампа: при перетаскивании каталога дампа Switch 2 (содержащего base/exefs/main.npdm, base/romfs, updates/<версия> и dlc/<tid>) программа автоматически объединяет базовую игру, самое свежее обновление, все DLC и моды в 1 монолитный контейнер (.nup, .nsp, .nsz, .xci, .xcz).\n" +
                     "• Прямая конвертация: лёгкое двустороннее преобразование между .nup, Plaintext .nsp и .nsz в очереди задач.",
                     "Совет: Для максимального сжатия и дедупликации выбирайте формат NUP в настройках Switch 2!"
                 ),
                 InstructionTopicItem(
                     23,
-                    "23. Актуализация готовых контейнеров («Путь Б» — пофайловый апгрейд RomFS)",
+                    "23. Актуализация готовых контейнеров («Путь Б» - пофайловый апгрейд RomFS)",
                     "Алгоритмы",
                     "ПУТЬ Б",
                     "Механизм «Путь Б» позволяет мгновенно обновлять уже собранные монолитные контейнеры (.nsz, .nsp, .nup, .xci) без необходимости повторного скачивания или распаковки базовой игры:\n" +
                     "• Принцип работы: при выходе нового патча обновления или набора DLC достаточно перетащить в задачник старый монолитный файл игры вместе со свежим файлом патча (.nsp / .nsz) или папкой дополнений.\n" +
                     "• Пофайловый апгрейд RomFS: движок анализирует заголовки CNMT, извлекает обновленные файлы и на лету запекает дельту в монолитный контейнер, сохраняя структуру 1G+1U+ND.\n" +
-                    "• Экономия трафика и времени: пользователю не нужно заново пересобирать 50-гигабайтные образы с нуля — операция пофайлового обновления занимает считанные минуты.",
+                    "• Экономия трафика и времени: пользователю не нужно заново пересобирать 50-гигабайтные образы с нуля - операция пофайлового обновления занимает считанные минуты.",
                     "Совет: «Путь Б» работает полностью автоматически при перетаскивании монолита и свежего обновления в очередь!"
                 ),
                 InstructionTopicItem(
@@ -4789,7 +4844,7 @@ class MainActivity : Activity() {
                 "1. Обзор приложения и архитектура STORM SWITCH BOX",
                 "Основы и Сборка",
                 "ОБЗОР",
-                "STORM SWITCH BOX — единая кроссплатформенная рабочая станция для Nintendo Switch и Nintendo 3DS.\n" +
+                "STORM SWITCH BOX - единая кроссплатформенная рабочая станция для Nintendo Switch и Nintendo 3DS.\n" +
                     "• Объединяет 5 ключевых модулей: Умный сборщик Мульти-контента (4-в-1), Блочный компрессор Zstandard (NCZSECTN + NCZBLOCK), Инспектор и Аудитор коллекций, Поисковик и загрузчик RuTracker (#1605) с облачными модами и Локальный HTTP сервер DBI / Tinfoil.\n" +
                     "• Все операции выполняются потоково (Streaming I/O) без распаковки многогигабайтных образов в оперативную память.",
                 "Совет: Начните с вкладки «Ключи и параметры» и нажмите «⬇️ Скачать и установить ключи», чтобы активировать полную поддержку всех прошивок HOS в 1 клик."
@@ -4800,7 +4855,7 @@ class MainActivity : Activity() {
                 "Основы и Сборка",
                 "NCZBLOCK",
                 "В отличие от обычного потокового сжатия, блочный режим NCZBLOCK разбивает данные разделов NCA (после отступа заголовка 0x4000) на независимые блоки по 1 МБ (2^20) или 2 МБ (2^21).\n" +
-                    "• Перед сжатием Zstandard (уровни 1..22) движок расшифровывает заголовок NCA (AES-128-XTS 0xC00) и секции AES-128-CTR, что позволяет сжимать игровые данные на 35–55%.\n" +
+                    "• Перед сжатием Zstandard (уровни 1..22) движок расшифровывает заголовок NCA (AES-128-XTS 0xC00) и секции AES-128-CTR, что позволяет сжимать игровые данные на 35-55%.\n" +
                     "• Встроенный механизм SmartSize Guard проверяет каждый блок и каждый NCA: если раздел уже сжат, сохраняется меньший вариант.\n" +
                     "• Сжатые контейнеры .nsz и .xcz позволяют эмуляторам (Eden, Citron, Yuzu, Ryujinx) выполнять мгновенный Random-Access Seek без полной распаковки файла.",
                 "Совет: Профиль «Умный автоматический» (блок 1 МБ, Zstandard 18) обеспечивает идеальный баланс скорости чтения и экономии памяти."
@@ -4814,7 +4869,7 @@ class MainActivity : Activity() {
                     "• Вычисляет 16-символьный TitleID из заголовков NCA или имени файла и нормализует его к базовому ID приложения (суффикс 000).\n" +
                     "• Присваивает роли: [БАЗА] (суффикс 000), [ПАТЧ] (суффикс 800), [DLC] (суффиксы 001..7FF), [МОД] (.zip / romfs / exefs / .ips) или [3DS].\n" +
                     "• Разные игры никогда не смешиваются между собой: каждая игра собирается в собственный независимый мульти-контейнер.",
-                "Совет: Вы можете выбрать сразу всю папку roms или Download через «🗂 Мульти-проводник» — программа сама разложит файлы по играм."
+                "Совет: Вы можете выбрать сразу всю папку roms или Download через «🗂 Мульти-проводник» - программа сама разложит файлы по играм."
             ),
             InstructionTopicItem(
                 4,
@@ -4849,7 +4904,7 @@ class MainActivity : Activity() {
                     "• Отображаемая версия (Display Version) записывается по смещению 0x3060.\n" +
                     "• Кнопка «🖼 Сменить иконку / обложку» позволяет выбрать любую картинку из памяти телефона: она автоматически масштабируется в 256×256 Baseline JPEG (без прогрессивного кодирования) и снабжается выбранным бейджем (RUS, RUS + MOD, 60 FPS, MULTI, 4K MOD).\n" +
                     "• Также вы можете задать точное имя итогового выходного файла на диске.",
-                "Совет: Nintendo Switch и эмуляторы требуют строго Baseline JPEG 256×256 — встроенная студия иконок формирует этот формат автоматически."
+                "Совет: Nintendo Switch и эмуляторы требуют строго Baseline JPEG 256×256 - встроенная студия иконок формирует этот формат автоматически."
             ),
             InstructionTopicItem(
                 7,
@@ -4867,10 +4922,10 @@ class MainActivity : Activity() {
                 "Форматы Switch и 3DS",
                 "SWITCH",
                 "Поддерживаются все контейнеры и разделы экосистемы Nintendo Switch:\n" +
-                    "• NSP (PFS0) — цифровой установочный контейнер (содержит .nca, .tik, .cert).\n" +
-                    "• NSZ (PFS0 + NCZBLOCK) — сжатый цифровой контейнер с блочным сжатием разделов .ncz.\n" +
-                    "• XCI (HEAD 0x100 + Root HFS0 0x10000) — образ игрового картриджа с разделами update, normal и secure (без привязки к тикетам).\n" +
-                    "• XCZ (HEAD + HFS0 + NCZBLOCK) — сжатый мульти-картридж с разделами .ncz внутри secure HFS0.",
+                    "• NSP (PFS0) - цифровой установочный контейнер (содержит .nca, .tik, .cert).\n" +
+                    "• NSZ (PFS0 + NCZBLOCK) - сжатый цифровой контейнер с блочным сжатием разделов .ncz.\n" +
+                    "• XCI (HEAD 0x100 + Root HFS0 0x10000) - образ игрового картриджа с разделами update, normal и secure (без привязки к тикетам).\n" +
+                    "• XCZ (HEAD + HFS0 + NCZBLOCK) - сжатый мульти-картридж с разделами .ncz внутри secure HFS0.",
                 "Совет: Вы можете свободно конвертировать NSP <-> XCI и NSZ <-> XCZ в любом направлении, выбирая нужный конечный формат в выпадающем списке."
             ),
             InstructionTopicItem(
@@ -4882,7 +4937,7 @@ class MainActivity : Activity() {
                     "• Аппаратный 128-битный генератор ключей KeyScrambler: NormalKey = ROL128((ROL128(KeyX, 2) xor KeyY) + C, 87).\n" +
                     "• Расшифровка разделов NCCH и установка флага NoCrypto (0x04 по смещению +0x18F) для запуска в эмуляторах без aes_keys.txt.\n" +
                     "• Прямая взаимная конвертация установочных архивов CIA <-> картриджей CCI / 3DS (с пересборкой таблицы разделов NCSD 0x120 и заголовков CIA).",
-                "Совет: Для эмуляторов Azahar и Citra на Android рекомендуется выбирать выходной формат «CCI — Образ картриджа Nintendo 3DS»."
+                "Совет: Для эмуляторов Azahar и Citra на Android рекомендуется выбирать выходной формат «CCI - Образ картриджа Nintendo 3DS»."
             ),
             InstructionTopicItem(
                 10,
@@ -4944,8 +4999,8 @@ class MainActivity : Activity() {
                 "Сеть, Ключи и База",
                 "КЛЮЧИ HOS",
                 "На вкладке «🔑 Ключи и параметры» реализован менеджер криптографических ключей Nintendo Switch (как в проекте STORM SWITCH):\n" +
-                    "• Выберите нужную версию прошивки HOS из выпадающего списка и нажмите «⬇️ Скачать и установить ключи» — архив автоматически скачается с GitHub и распакуется в папки STORM SWITCH BOX/keys и STORM SWITCH/keys.\n" +
-                    "• Встроенный анализатор Master Key определяет максимальную поддерживаемую прошивку (от master_key_00 [HOS 1.0.0] до master_key_13 [HOS 20.0.0 — 21.0.0+]).\n" +
+                    "• Выберите нужную версию прошивки HOS из выпадающего списка и нажмите «⬇️ Скачать и установить ключи» - архив автоматически скачается с GitHub и распакуется в папки STORM SWITCH BOX/keys и STORM SWITCH/keys.\n" +
+                    "• Встроенный анализатор Master Key определяет максимальную поддерживаемую прошивку (от master_key_00 [HOS 1.0.0] до master_key_13 [HOS 20.0.0 - 21.0.0+]).\n" +
                     "• Кнопка «🔍 Автопоиск из эмуляторов» автоматически находит и импортирует ключи из папок Eden, Citron и Yuzu.",
                 "Совет: Нажмите «🔄 Обновить список», чтобы проверить выход новых ревизий ключей на GitHub."
             ),
@@ -5010,8 +5065,8 @@ class MainActivity : Activity() {
                 "Полный цикл распаковки и обратной сборки игровых контейнеров прямо на Android (как на ПК):\n" +
                     "• Во вкладке «🔍 Инспектор и RomFS» нажмите «📂 Извлечь RomFS + ExeFS» (или выберите режим «Полная распаковка игры» в Конвейере).\n" +
                     "• Движок автоматически декомпрессирует сжатые потоки NCZ, разбирает Program NCA и Control NCA и раскладывает данные по папкам: romfs/ (игровые ресурсы и конфиги), exefs/ (исполняемые модули main, main.npdm, rtld, sdk), control/ (control.nacp + обложка 256×256 JPEG), pfs0/ (сырые разделы) и готовый шаблон atmosphere/contents/<TitleID>/romfs/.\n" +
-                    "• После внесения правок или добавления русификатора нажмите «📦 Упаковать папку в NSP/NSZ» — программа соберёт модифицированные файлы обратно в монолитный .nsp или сжатый .nsz!",
-                "Совет: Вам больше не нужен ПК для вшивания перевода или редактирования config.ini внутри игры — распакуйте RomFS, замените файлы и упакуйте обратно в NSZ прямо на смартфоне."
+                    "• После внесения правок или добавления русификатора нажмите «📦 Упаковать папку в NSP/NSZ» - программа соберёт модифицированные файлы обратно в монолитный .nsp или сжатый .nsz!",
+                "Совет: Вам больше не нужен ПК для вшивания перевода или редактирования config.ini внутри игры - распакуйте RomFS, замените файлы и упакуйте обратно в NSZ прямо на смартфоне."
             ),
             InstructionTopicItem(
                 22,
@@ -5033,7 +5088,7 @@ class MainActivity : Activity() {
                 "Создание установочных ярлыков (.nsp) для главного экрана Nintendo Switch (Horizon OS) из любого хоумбрю (.nro) или ретро-игры:\n" +
                     "• Откройте вкладку «🌐 RuTracker и Форвардер» и прокрутите к карточке «🚀 Генератор Homebrew Forwarder (.nro → .nsp)».\n" +
                     "• Выберите один из готовых пресетов (DBI, RetroArch, JKSV, Moonlight-NX), нажмите «🌐 Найти Homebrew на RuTracker» или выберите локальный .nro файл со смартфона (название, автор, версия и иконка 256×256 JPEG автоматически считаются из секции ASET!).\n" +
-                    "• Нажмите «⚡ Собрать Forwarder .NSP» — программа сформирует валидный PFS0 NSP с ExeFS (NSO0 nx-hbloader + NPDM) и RomFS (nextNroPath / nextArgv).",
+                    "• Нажмите «⚡ Собрать Forwarder .NSP» - программа сформирует валидный PFS0 NSP с ExeFS (NSO0 nx-hbloader + NPDM) и RomFS (nextNroPath / nextArgv).",
                 "Совет: Запуск хоумбрю и эмуляторов через установленный NSP-форвардер автоматически выделяет приложению все 4 ГБ оперативной памяти Switch (Title Override Mode) и предотвращает вылеты с ошибкой 2168-0002!"
             ),
             InstructionTopicItem(
@@ -5042,7 +5097,7 @@ class MainActivity : Activity() {
                 "Сеть, Ключи и База",
                 "3DS QR + FTP",
                 "Беспроводная передача игр на консоли Nintendo 3DS и Nintendo Switch во вкладке «📡 Сеть, 3DS QR и FTP»:\n" +
-                    "• Установка на 3DS по QR-коду: выберите любой .cia файл и нажмите «📷 Показать QR-код для установки через FBI (Nintendo 3DS)». На консоли 3DS откройте FBI -> Remote Install -> Scan QR Code и наведите камеру на экран телефона — игра сразу скачается и установится по Wi-Fi!\n" +
+                    "• Установка на 3DS по QR-коду: выберите любой .cia файл и нажмите «📷 Показать QR-код для установки через FBI (Nintendo 3DS)». На консоли 3DS откройте FBI -> Remote Install -> Scan QR Code и наведите камеру на экран телефона - игра сразу скачается и установится по Wi-Fi!\n" +
                     "• Встроенный FTP-клиент: нажмите «🔍 Найти в Wi-Fi» (автопоиск портов 5000 и 21 для sys-ftpd / DBI / FTPD), выберите целевую папку (/switch/, /cia/, /atmosphere/contents/) и отправьте игру или мод напрямую с живым индикатором скорости.",
                 "Совет: Для работы QR-установки 3DS и смартфон должны находиться в одной локальной сети Wi-Fi (или подключены к точке доступа смартфона)."
             ),
@@ -5261,9 +5316,9 @@ class MainActivity : Activity() {
                     appendLine("🎮 Пресет #1: Animal Well [010020D01AD24000]")
                     appendLine("────────────────────────────────────────────")
                     appendLine("Входные файлы раздачи:")
-                    appendLine("  1. [БАЗА] Animal Well [010020D01AD24000][v0].nsp — 54,28 МБ")
-                    appendLine("  2. [ПАТЧ] Animal Well [010020D01AD24800][v1.0.2].nsp — 19,07 МБ")
-                    appendLine("  3. [МОД]  Animal_Well_RUS_Mod.zip (LayeredFS romfs) — 1,40 МБ")
+                    appendLine("  1. [БАЗА] Animal Well [010020D01AD24000][v0].nsp - 54,28 МБ")
+                    appendLine("  2. [ПАТЧ] Animal Well [010020D01AD24800][v1.0.2].nsp - 19,07 МБ")
+                    appendLine("  3. [МОД]  Animal_Well_RUS_Mod.zip (LayeredFS romfs) - 1,40 МБ")
                     appendLine("Этапы конвейера STORM SWITCH BOX:")
                     appendLine("  ✔ Шаг 1: Разворачивание PFS0 -> 9 плоских разделов (.nca/.tik/.cert)")
                     appendLine("  ✔ Шаг 2: Сохранение БАЗЫ (54,28 МБ) + ПАТЧА (19,07 МБ) + упаковка МОДА в RomFS NCA")
@@ -5274,9 +5329,9 @@ class MainActivity : Activity() {
                     appendLine("🎮 Пресет #2: The Legend of Zelda: Echoes of Wisdom (Дедупликация патчей)")
                     appendLine("────────────────────────────────────────────")
                     appendLine("Входные файлы в очереди:")
-                    appendLine("  1. [БАЗА] Zelda Echoes of Wisdom [01008CF01BAAC000][v0].xci — 6,00 ГБ (из них 0,48 ГБ пустых 0xFF)")
-                    appendLine("  2. [ПАТЧ] Update v1.0.1 [01008CF01BAAC800].nsp — 112,00 МБ (Устаревший -> Пропущен автоматически)")
-                    appendLine("  3. [ПАТЧ] Update v1.0.2 [01008CF01BAAC800].nsp — 184,50 МБ (Актуальный -> Включён в сшивку)")
+                    appendLine("  1. [БАЗА] Zelda Echoes of Wisdom [01008CF01BAAC000][v0].xci - 6,00 ГБ (из них 0,48 ГБ пустых 0xFF)")
+                    appendLine("  2. [ПАТЧ] Update v1.0.1 [01008CF01BAAC800].nsp - 112,00 МБ (Устаревший -> Пропущен автоматически)")
+                    appendLine("  3. [ПАТЧ] Update v1.0.2 [01008CF01BAAC800].nsp - 184,50 МБ (Актуальный -> Включён в сшивку)")
                     appendLine("Этапы конвейера STORM SWITCH BOX:")
                     appendLine("  ✔ Шаг 1: SmartShrink XCI отсекает 480 МБ пустых байт 0xFF (6,00 ГБ -> 5,52 ГБ)")
                     appendLine("  ✔ Шаг 2: Дедупликация отбрасывает старый патч v1.0.1 и сшивает Базу + Патч v1.0.2")
@@ -5286,7 +5341,7 @@ class MainActivity : Activity() {
                     appendLine("🎮 Пресет #3: Nintendo 3DS Картридж -> Расшифрованный CCI (Azahar / Citra)")
                     appendLine("────────────────────────────────────────────")
                     appendLine("Входной файл:")
-                    appendLine("  1. [3DS] Metroid Samus Returns (EUR).3ds — 1,00 ГБ (ёмкость чипа 1 ГБ)")
+                    appendLine("  1. [3DS] Metroid Samus Returns (EUR).3ds - 1,00 ГБ (ёмкость чипа 1 ГБ)")
                     appendLine("Этапы конвейера STORM SWITCH BOX:")
                     appendLine("  ✔ Шаг 1: Анализ 8 разделов таблицы NCSD (0x120..0x15F) -> отсечение 312 МБ пустых 0xFF")
                     appendLine("  ✔ Шаг 2: 128-битный KeyScrambler + установка флага NCCH NoCrypto (0x04 по +0x18F)")
@@ -5401,7 +5456,7 @@ class MainActivity : Activity() {
             }
         }
         keysCard.addView(makeSectionHeader(
-            "1. Ключи Nintendo Switch (prod.keys / title.keys) — Онлайн-загрузка STORM SWITCH",
+            "1. Ключи Nintendo Switch (prod.keys / title.keys) - Онлайн-загрузка STORM SWITCH",
             "Скачивайте актуальные ключи прошивок HOS в 1 клик или импортируйте из папок эмуляторов",
             th
         ))
@@ -5430,7 +5485,7 @@ class MainActivity : Activity() {
 
         val keysSpinnerLabels = onlineKeysCatalog.map { asset ->
             val rec = if (asset.isRecommended) " (Рекомендуется)" else ""
-            "Ключи HOS ${asset.version}$rec — ${StormNczEngine.formatSize(asset.sizeBytes)}"
+            "Ключи HOS ${asset.version}$rec - ${StormNczEngine.formatSize(asset.sizeBytes)}"
         }
         val keysDropdown = makeStormDropdown(
             keysSpinnerLabels,
@@ -7289,7 +7344,7 @@ class MainActivity : Activity() {
         hostRow.addView(portInput)
 
         val ftpStatusTxt = TextView(this).apply {
-            text = "Готов к передаче по FTP (Порт 5000 — стандарт sys-ftpd / DBI / 3DS FTPD)"
+            text = "Готов к передаче по FTP (Порт 5000 - стандарт sys-ftpd / DBI / 3DS FTPD)"
             setTextColor(th.textSecondary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
             setPadding(0, dp(4), 0, dp(6))

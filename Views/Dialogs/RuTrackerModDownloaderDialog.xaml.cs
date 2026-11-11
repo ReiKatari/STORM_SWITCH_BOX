@@ -555,7 +555,7 @@ namespace StormSwitchBox.Views.Dialogs
                 {
                     StatusText.Text = _topics.Count > 0
                         ? $"Мгновенный поиск «{query.Trim()}»: найдено {_topics.Count} раздач. Выберите тему слева или нажмите Enter для сетевого обновления."
-                        : $"В локальном индексе «{query.Trim()}» не найдено — нажмите «Найти и открыть» для живого запроса к RuTracker.";
+                        : $"В локальном индексе «{query.Trim()}» не найдено - нажмите «Найти и открыть» для живого запроса к RuTracker.";
                 }
             }
             catch { }
@@ -807,6 +807,9 @@ namespace StormSwitchBox.Views.Dialogs
             }
         }
 
+        private CancellationTokenSource? _topicSelectionCts;
+        private long _topicSelectionSeq;
+
         private async void TopicsListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (_suppressTopicSelectionInspect)
@@ -814,24 +817,130 @@ namespace StormSwitchBox.Views.Dialogs
             if (TopicsListView.SelectedItem is not RuTrackerTopicItem topic)
                 return;
 
-            _discussionLinks.Clear();
-            ModLinksHintText.Text = "Поиск внешних ссылок...";
-            RebuildFileAndLinkGroups();
+            var prevCts = System.Threading.Interlocked.Exchange(ref _topicSelectionCts, null);
+            if (prevCts != null)
+            {
+                try { prevCts.Cancel(); prevCts.Dispose(); } catch { }
+            }
+
+            var selCts = new CancellationTokenSource();
+            _topicSelectionCts = selCts;
+            var ct = selCts.Token;
+            long mySeq = System.Threading.Interlocked.Increment(ref _topicSelectionSeq);
 
             _localTorrentPath = null;
             _currentTopicTitle = topic.Title;
             _currentTopicUrl = topic.TopicUrl;
             _currentTopicPosterUrl = topic.PosterUrl ?? string.Empty;
-            StatusText.Text = $"Анализ темы [{topic.TopicId}]: парсинг шапки на русификаторы/моды и чтение списка файлов...";
+
+            // МГНОВЕННАЯ ФАЗА (< 3 мс): сразу наполняем слоты, TitleID/версию/иконку из TitleDB, Magnet и кэшированные файлы!
+            _service.PrimeQuickTopicState(topic);
+
+            _discussionLinks.Clear();
+            if (topic.ExtractedModLinks != null && topic.ExtractedModLinks.Count > 0)
+            {
+                PopulateDiscussionLinks(topic.ExtractedModLinks);
+            }
+            else
+            {
+                ModLinksHintText.Text = "Поиск внешних ссылок...";
+            }
+
+            RebuildGameSlotsForTopic(topic.Title, topic.TopicId);
+
+            var instantCachedFiles = _service.TryGetInstantCachedTorrentFiles(topic);
+            if (instantCachedFiles != null && instantCachedFiles.Count > 0)
+            {
+                SyncGameSlotsWithDiscoveredFiles(instantCachedFiles);
+                PopulateTorrentFiles(instantCachedFiles);
+            }
+            else if (!string.IsNullOrWhiteSpace(topic.MagnetUri))
+            {
+                var quickMagnetEntry = new List<TorrentFileSelectionItem>
+                {
+                    new TorrentFileSelectionItem
+                    {
+                        IsSelected = true,
+                        TargetGameSlot = 1,
+                        RelativePath = $"{topic.CleanTitleDisplay} - загрузка списка файлов раздачи...",
+                        Length = topic.EffectiveSizeBytes,
+                        CategoryBadge = "MAGNET"
+                    }
+                };
+                PopulateTorrentFiles(quickMagnetEntry);
+                TorrentFilesHeader.Text = "Чтение списка файлов раздачи...";
+            }
+            else
+            {
+                _torrentFiles.Clear();
+                TorrentFilesHeader.Text = "Чтение списка файлов раздачи...";
+                RebuildFileAndLinkGroups();
+            }
+
+            var initialSlotTitles = _gameSlots.Select(s => s.GameTitle).ToList();
+            _suppressGroupRebuild = true;
+            if (_torrentFiles.Count > 0)
+                RuTrackerModService.AutoAssignFilesToGameSlots(_torrentFiles, initialSlotTitles);
+            if (_discussionLinks.Count > 0)
+                RuTrackerModService.AutoAssignLinksToGameSlots(_discussionLinks, initialSlotTitles);
+            _suppressGroupRebuild = false;
+            EnrichGameSlotsFromFilesAndTitleDb();
+            UpdateGameSlotsSummary();
+            RebuildFileAndLinkGroups();
+
+            if (instantCachedFiles != null && instantCachedFiles.Count > 0)
+                StatusText.Text = $"Раздача готова мгновенно из кэша: {instantCachedFiles.Count} файлов ({_gameSlots.Count} игр/частей).";
+            else
+                StatusText.Text = $"Быстрая подгрузка файлов и ссылок темы [{topic.TopicId}]...";
+
             try
             {
-                if (topic.ExtractedModLinks != null && topic.ExtractedModLinks.Count > 0)
+                // ПАРАЛЛЕЛЬНАЯ ФАЗА (~0.3-0.6 сек): список файлов .torrent и 1-я страница темы грузятся ОДНОВРЕМЕННО!
+                Task<List<TorrentFileSelectionItem>>? filesTask = (instantCachedFiles == null || instantCachedFiles.Count == 0)
+                    ? _service.InspectTorrentFilesAsync(topic, null, ct)
+                    : null;
+
+                Task<RuTrackerTopicItem?> detailsTask = _service.FetchTopicDetailsAsync(topic.TopicId, ct, includeCommentPages: false);
+
+                if (filesTask != null)
                 {
-                    PopulateDiscussionLinks(topic.ExtractedModLinks);
+                    _ = filesTask.ContinueWith(t =>
+                    {
+                        if (t.IsCanceled || t.IsFaulted || ct.IsCancellationRequested) return;
+                        var entries = t.Result;
+                        App.RunOnUI(() =>
+                        {
+                            if (ct.IsCancellationRequested || mySeq != System.Threading.Interlocked.Read(ref _topicSelectionSeq))
+                                return;
+
+                            SyncGameSlotsWithDiscoveredFiles(entries);
+                            PopulateTorrentFiles(entries);
+                            var slotTitles = _gameSlots.Select(s => s.GameTitle).ToList();
+                            _suppressGroupRebuild = true;
+                            RuTrackerModService.AutoAssignFilesToGameSlots(_torrentFiles, slotTitles);
+                            RuTrackerModService.AutoAssignLinksToGameSlots(_discussionLinks, slotTitles);
+                            _suppressGroupRebuild = false;
+                            EnrichGameSlotsFromFilesAndTitleDb();
+                            UpdateGameSlotsSummary();
+                            RebuildFileAndLinkGroups();
+
+                            if (entries.Count > 1 || (entries.Count == 1 && entries[0].CategoryBadge != "MAGNET"))
+                            {
+                                StatusText.Text = $"Раздача готова: {entries.Count} файлов в .torrent ({_gameSlots.Count} игр/частей). Отметьте нужные файлы или скачайте раздачу.";
+                            }
+                            else if (!string.IsNullOrEmpty(topic.MagnetUri))
+                            {
+                                TorrentFilesHeader.Text = $"Magnet-разрешение активно ({topic.SizeText}) - файлы будут получены через P2P";
+                                StatusText.Text = "Раздача готова к высокоскоростной загрузке.";
+                            }
+                        });
+                    }, TaskScheduler.Default);
                 }
 
-                // 1. Детальный парсинг темы (извлекает Magnet, InfoHash и ссылки на Яндекс.Диск / Google Drive / GitHub из шапки)
-                var detailed = await _service.FetchTopicDetailsAsync(topic.TopicId, CancellationToken.None);
+                var detailed = await detailsTask;
+                if (ct.IsCancellationRequested || mySeq != System.Threading.Interlocked.Read(ref _topicSelectionSeq))
+                    return;
+
                 if (detailed != null)
                 {
                     if (!string.IsNullOrEmpty(detailed.MagnetUri))
@@ -843,52 +952,78 @@ namespace StormSwitchBox.Views.Dialogs
                         topic.PosterUrl = detailed.PosterUrl;
                         _currentTopicPosterUrl = detailed.PosterUrl;
                     }
+                    _service.PrimeQuickTopicState(topic);
 
                     if (detailed.ExtractedModLinks.Count > 0)
                     {
+                        topic.ExtractedModLinks = detailed.ExtractedModLinks;
                         PopulateDiscussionLinks(detailed.ExtractedModLinks);
+                        var slotTitles = _gameSlots.Select(s => s.GameTitle).ToList();
+                        _suppressGroupRebuild = true;
+                        RuTrackerModService.AutoAssignLinksToGameSlots(_discussionLinks, slotTitles);
+                        _suppressGroupRebuild = false;
+                        RebuildFileAndLinkGroups();
+                        UpdateGameSlotsSummary();
                     }
-                    else if (topic.ExtractedModLinks == null || topic.ExtractedModLinks.Count == 0)
+                    else if (_discussionLinks.Count == 0)
                     {
-                        ModLinksHintText.Text = "Внешних ссылок в теме не найдено";
+                        ModLinksHintText.Text = "Внешних ссылок в шапке не найдено (проверка комментариев...)";
                     }
-                }
-                else if (topic.ExtractedModLinks == null || topic.ExtractedModLinks.Count == 0)
-                {
-                    ModLinksHintText.Text = "Готов к вставке облачных ссылок";
+
+                    EnrichGameSlotsFromFilesAndTitleDb();
                 }
 
-                // 2. Инспектируем .torrent (если есть bb_session) или Magnet + авто-разбивка на отдельные игры/части
-                RebuildGameSlotsForTopic(topic.Title, topic.TopicId);
-                var entries = await _service.InspectTorrentFilesAsync(topic, null, CancellationToken.None);
-                SyncGameSlotsWithDiscoveredFiles(entries);
-                PopulateTorrentFiles(entries);
-                var slotTitles = _gameSlots.Select(s => s.GameTitle).ToList();
-                _suppressGroupRebuild = true;
-                RuTrackerModService.AutoAssignFilesToGameSlots(_torrentFiles, slotTitles);
-                RuTrackerModService.AutoAssignLinksToGameSlots(_discussionLinks, slotTitles);
-                _suppressGroupRebuild = false;
-                EnrichGameSlotsFromFilesAndTitleDb();
-                UpdateGameSlotsSummary();
+                // ФОНОВАЯ ФАЗА: тихо догружаем ссылки на русификаторы/моды из комментариев без блокировки интерфейса
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        var fullLinks = await _service.FetchTopicCommentLinksAsync(topic.TopicId, ct).ConfigureAwait(false);
+                        if (ct.IsCancellationRequested) return;
+                        App.RunOnUI(() =>
+                        {
+                            if (ct.IsCancellationRequested || mySeq != System.Threading.Interlocked.Read(ref _topicSelectionSeq))
+                                return;
 
-                if (entries.Count > 1 || (entries.Count == 1 && entries[0].CategoryBadge != "MAGNET"))
-                {
-                    StatusText.Text = $"Раздача готова: {entries.Count} файлов в .torrent ({_gameSlots.Count} игр/частей). Отметьте нужные файлы или скачайте раздачу.";
-                }
-                else if (!string.IsNullOrEmpty(topic.MagnetUri))
-                {
-                    TorrentFilesHeader.Text = $"Magnet-разрешение активно ({topic.SizeText}) — файлы будут получены через DHT и P2P";
-                    StatusText.Text = "Раздача готова к загрузке по Magnet (без авторизации через публичный API хешей RuTracker).";
-                }
-                else
-                {
-                    TorrentFilesHeader.Text = "Для просмотра отдельных файлов войдите в аккаунт или используйте Magnet";
-                    StatusText.Text = "Тема прочитана. Вы можете скачать прикреплённые облачные моды или войти в аккаунт для .torrent.";
-                }
+                            if (fullLinks != null && fullLinks.Count > _discussionLinks.Count)
+                            {
+                                var previouslySelectedUrls = new HashSet<string>(
+                                    _discussionLinks.Where(x => x.IsSelected).Select(x => x.Url),
+                                    StringComparer.OrdinalIgnoreCase);
+
+                                topic.ExtractedModLinks = fullLinks;
+                                PopulateDiscussionLinks(fullLinks);
+                                foreach (var lnk in _discussionLinks)
+                                {
+                                    if (previouslySelectedUrls.Contains(lnk.Url))
+                                        lnk.IsSelected = true;
+                                }
+                                var slotTitles = _gameSlots.Select(s => s.GameTitle).ToList();
+                                _suppressGroupRebuild = true;
+                                RuTrackerModService.AutoAssignLinksToGameSlots(_discussionLinks, slotTitles);
+                                _suppressGroupRebuild = false;
+                                RebuildFileAndLinkGroups();
+                                UpdateGameSlotsSummary();
+                            }
+                            else if (_discussionLinks.Count == 0)
+                            {
+                                ModLinksHintText.Text = "Внешних ссылок в теме не найдено";
+                            }
+                        });
+                    }
+                    catch { }
+                }, ct);
+
+                if (filesTask != null)
+                    await filesTask;
+            }
+            catch (OperationCanceledException)
+            {
             }
             catch (Exception ex)
             {
-                StatusText.Text = $"Ошибка чтения темы: {ex.Message}";
+                if (!ct.IsCancellationRequested)
+                    StatusText.Text = $"Ошибка чтения темы: {ex.Message}";
             }
         }
 
@@ -1271,7 +1406,7 @@ namespace StormSwitchBox.Views.Dialogs
             _suppressGroupRebuild = false;
             EnrichGameSlotsFromFilesAndTitleDb();
             UpdateGameSlotsSummary();
-            LiveTelemetryText.Text = $"🪄 Авто-разбивка выполнена: распознано частей/игр — {_gameSlots.Count}. Файлы сгруппированы по блокам игр.";
+            LiveTelemetryText.Text = $"🪄 Авто-разбивка выполнена: распознано частей/игр - {_gameSlots.Count}. Файлы сгруппированы по блокам игр.";
         }
 
         private bool _pendingManualSlotSync;
@@ -1661,31 +1796,124 @@ namespace StormSwitchBox.Views.Dialogs
                         bestTid = RuTrackerModService.NormalizeSwitchBaseApplicationTitleId(fromSlot);
                 }
 
+                if (string.IsNullOrEmpty(bestTid) && _gameSlots.Count == 1 && !string.IsNullOrWhiteSpace(_currentTopicTitle))
+                {
+                    string fromTopic = RuTrackerModService.ExtractTitleId(_currentTopicTitle);
+                    if (fromTopic.Length == 16)
+                        bestTid = RuTrackerModService.NormalizeSwitchBaseApplicationTitleId(fromTopic);
+                }
+
                 if (string.IsNullOrEmpty(cleanTitleFromFile))
                 {
-                    cleanTitleFromFile = RuTrackerModService.ExtractCleanGameTitleFromFilePath(slot.GameTitle);
+                    cleanTitleFromFile = RuTrackerModService.ExtractCleanTopicTitle(slot.GameTitle);
+                    if (string.IsNullOrWhiteSpace(cleanTitleFromFile) && _gameSlots.Count == 1)
+                        cleanTitleFromFile = RuTrackerModService.ExtractCleanTopicTitle(_currentTopicTitle);
                     if (string.IsNullOrWhiteSpace(cleanTitleFromFile))
                         cleanTitleFromFile = slot.GameTitle.Trim();
                 }
 
-                string displayVer = "1.0.0";
-                var dispVerMatch = System.Text.RegularExpressions.Regex.Match(slot.GameTitle, @"\((?<dv>\d+\.\d+(?:\.\d+)?)\s*-\s*\d+");
-                if (dispVerMatch.Success)
+                TitleDbEntry? dbEntry = null;
+                if (!string.IsNullOrEmpty(bestTid) && App.TitleDb != null && App.TitleDb.TryGetTitleInfo(bestTid, out var tidEntry) && tidEntry != null)
                 {
-                    displayVer = dispVerMatch.Groups["dv"].Value;
+                    dbEntry = tidEntry;
+                }
+                else if (App.TitleDb != null && App.TitleDb.TryFindTitleByName(cleanTitleFromFile, out var nameEntry) && nameEntry != null)
+                {
+                    dbEntry = nameEntry;
+                    if (string.IsNullOrEmpty(bestTid) && !string.IsNullOrWhiteSpace(nameEntry.Id))
+                        bestTid = RuTrackerModService.NormalizeSwitchBaseApplicationTitleId(nameEntry.Id.Trim().ToUpperInvariant());
+                }
+
+                // Извлекаем семантическую версию (строго без 'v', например 1.15.0) и внутреннюю числовую версию (например 983040)
+                string? explicitSemanticVer = null;
+                var candidateVerSources = new List<string>();
+                foreach (var sf in slotFiles)
+                {
+                    if (!string.IsNullOrWhiteSpace(sf.RelativePath))
+                        candidateVerSources.Add(sf.RelativePath);
+                }
+                if (!string.IsNullOrWhiteSpace(slot.GameTitle))
+                    candidateVerSources.Add(slot.GameTitle);
+                if (_gameSlots.Count == 1 && !string.IsNullOrWhiteSpace(_currentTopicTitle))
+                    candidateVerSources.Add(_currentTopicTitle);
+
+                foreach (var srcText in candidateVerSources)
+                {
+                    var comboMatch = System.Text.RegularExpressions.Regex.Match(srcText, @"\((?<dv>\d+\.\d+(?:\.\d+)*)\s*-\s*(?<iv>\d+)\)");
+                    if (comboMatch.Success)
+                    {
+                        if (string.IsNullOrEmpty(explicitSemanticVer))
+                            explicitSemanticVer = comboMatch.Groups["dv"].Value;
+                        if (int.TryParse(comboMatch.Groups["iv"].Value, out int ivCombo) && ivCombo > maxPatchVer)
+                            maxPatchVer = ivCombo;
+                    }
+
+                    foreach (System.Text.RegularExpressions.Match vm in System.Text.RegularExpressions.Regex.Matches(
+                        srcText,
+                        @"(?:\[|\(|\b(?:[vV]|Update|UPD|Patch)\s*)(?<sv>\d+\.\d+(?:\.\d+){0,2})(?=\]|\)|\b)",
+                        System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                    {
+                        string cand = vm.Groups["sv"].Value.Trim();
+                        // Отсекаем даты вида 12.05.2024 и размеры
+                        var parts = cand.Split('.');
+                        if (parts.Length == 3 && parts[2].Length == 4) continue;
+                        int afterIdx = vm.Index + vm.Length;
+                        string tail = afterIdx < srcText.Length ? srcText.Substring(afterIdx, Math.Min(8, srcText.Length - afterIdx)) : string.Empty;
+                        if (System.Text.RegularExpressions.Regex.IsMatch(tail, @"^\s*(?:GB|MB|KB|TB|ГБ|МБ|КБ|ТБ)\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                            continue;
+                        explicitSemanticVer = cand;
+                    }
+
+                    foreach (System.Text.RegularExpressions.Match ivm in System.Text.RegularExpressions.Regex.Matches(
+                        srcText,
+                        @"\[v?(?<iv>\d{5,10})\]",
+                        System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                    {
+                        if (int.TryParse(ivm.Groups["iv"].Value, out int ivVal) && ivVal > maxPatchVer)
+                            maxPatchVer = ivVal;
+                    }
+                }
+
+                if (dbEntry?.VersionsDictionary != null && dbEntry.VersionsDictionary.Count > 0)
+                {
+                    if (maxPatchVer > 0 && string.IsNullOrEmpty(explicitSemanticVer) &&
+                        dbEntry.VersionsDictionary.TryGetValue(maxPatchVer.ToString(), out var mappedSem) &&
+                        !string.IsNullOrWhiteSpace(mappedSem))
+                    {
+                        explicitSemanticVer = mappedSem.Trim().TrimStart('v', 'V');
+                    }
+                    else if (maxPatchVer == 0 && !string.IsNullOrEmpty(explicitSemanticVer))
+                    {
+                        var rev = dbEntry.VersionsDictionary.FirstOrDefault(kv =>
+                            string.Equals(kv.Value?.Trim().TrimStart('v', 'V'), explicitSemanticVer, StringComparison.OrdinalIgnoreCase));
+                        if (!string.IsNullOrEmpty(rev.Key) && int.TryParse(rev.Key, out int mappedIv) && mappedIv > 0)
+                            maxPatchVer = mappedIv;
+                    }
+                }
+
+                string displayVer;
+                if (!string.IsNullOrWhiteSpace(explicitSemanticVer))
+                {
+                    displayVer = explicitSemanticVer.Trim().TrimStart('v', 'V');
                 }
                 else if (maxPatchVer >= 65536)
                 {
                     int major = maxPatchVer / 65536;
-                    displayVer = $"1.{major}.0 ({maxPatchVer})";
+                    displayVer = $"1.{major}.0";
                 }
+                else
+                {
+                    displayVer = "1.0.0";
+                }
+
+                string internalVerStr = maxPatchVer > 0 ? maxPatchVer.ToString() : "0";
 
                 string engTitle = cleanTitleFromFile;
                 string rusTitle = cleanTitleFromFile;
                 string publisher = "Nintendo";
                 string? iconUrl = null;
 
-                if (!string.IsNullOrEmpty(bestTid) && App.TitleDb != null && App.TitleDb.TryGetTitleInfo(bestTid, out var dbEntry) && dbEntry != null)
+                if (dbEntry != null)
                 {
                     if (!string.IsNullOrWhiteSpace(dbEntry.Name))
                     {
@@ -1718,7 +1946,7 @@ namespace StormSwitchBox.Views.Dialogs
 
                 byte[]? cachedIcon = TryLoadCachedIconBytes(bestTid, cleanTitleFromFile);
                 slot.Is3ds = is3ds;
-                slot.SetEnrichedMetadataSilently(bestTid, displayVer, engTitle, rusTitle, publisher, cachedIcon);
+                slot.SetEnrichedMetadataSilently(bestTid, displayVer, internalVerStr, engTitle, rusTitle, publisher, cachedIcon);
 
                 if ((cachedIcon == null || cachedIcon.Length == 0) && !string.IsNullOrWhiteSpace(iconUrl))
                 {
@@ -1875,6 +2103,66 @@ namespace StormSwitchBox.Views.Dialogs
             }
         }
 
+
+        private void CopyTextToClipboardWithFeedback(string? textToCopy, string label)
+        {
+            string clean = (textToCopy ?? string.Empty).Trim();
+            if (string.IsNullOrEmpty(clean))
+                return;
+
+            try
+            {
+                var pkg = new Windows.ApplicationModel.DataTransfer.DataPackage();
+                pkg.SetText(clean);
+                Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(pkg);
+                Windows.ApplicationModel.DataTransfer.Clipboard.Flush();
+                StatusText.Text = $"Скопировано ({label}): {clean}";
+            }
+            catch (Exception ex)
+            {
+                StatusText.Text = $"Не удалось скопировать {label}: {ex.Message}";
+            }
+        }
+
+        private void CopySlotTitleId_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is FrameworkElement fe && fe.Tag is RuTrackerGameSlotItem slot && !string.IsNullOrWhiteSpace(slot.TitleId))
+            {
+                CopyTextToClipboardWithFeedback(slot.TitleId, "TitleID");
+            }
+        }
+
+        private void CopySlotVersion_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is FrameworkElement fe && fe.Tag is RuTrackerGameSlotItem slot)
+            {
+                CopyTextToClipboardWithFeedback(slot.CleanVersionDisplay.TrimStart('v', 'V'), "Версия");
+            }
+        }
+
+        private void CopySlotInternalVersion_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is FrameworkElement fe && fe.Tag is RuTrackerGameSlotItem slot)
+            {
+                CopyTextToClipboardWithFeedback(slot.InternalVersionDisplay, "Внутренняя версия");
+            }
+        }
+
+        private void CopyStudioTitleId_Click(object sender, RoutedEventArgs e)
+        {
+            CopyTextToClipboardWithFeedback(StudioTitleIdText?.Text, "TitleID");
+        }
+
+        private void CopyStudioVersion_Click(object sender, RoutedEventArgs e)
+        {
+            CopyTextToClipboardWithFeedback(StudioVersionText?.Text?.TrimStart('v', 'V'), "Версия");
+        }
+
+        private void CopyStudioInternalVersion_Click(object sender, RoutedEventArgs e)
+        {
+            CopyTextToClipboardWithFeedback(StudioInternalVersionText?.Text, "Внутренняя версия");
+        }
+
         private void OpenSlotMetadataStudio_Click(object sender, RoutedEventArgs e)
         {
             if (sender is not FrameworkElement fe || fe.Tag is not RuTrackerGameSlotItem slot)
@@ -1886,7 +2174,9 @@ namespace StormSwitchBox.Views.Dialogs
             _isInitializingStudioOverlay = true;
             StudioSlotBadgeText.Text = slot.SlotBadge;
             StudioTitleIdText.Text = !string.IsNullOrWhiteSpace(_activeStudioModel.TitleId) ? _activeStudioModel.TitleId : "0100000000000000";
-            StudioVersionText.Text = !string.IsNullOrWhiteSpace(_activeStudioModel.Version) ? _activeStudioModel.Version : "1.0.0";
+            StudioVersionText.Text = (!string.IsNullOrWhiteSpace(_activeStudioModel.Version) ? _activeStudioModel.Version : "1.0.0").TrimStart('v', 'V');
+            if (StudioInternalVersionText != null)
+                StudioInternalVersionText.Text = slot.InternalVersionDisplay;
             StudioPlatformBadgeText.Text = _activeStudioModel.Is3ds ? "3DS SMDH" : "SWITCH";
 
             StudioTitleEnglishBox.Text = _activeStudioModel.TitleNameEnglish;
@@ -2479,12 +2769,32 @@ namespace StormSwitchBox.Views.Dialogs
                                     globalManualLinks.Count > 0 ||
                                     activeSlots.Any(s => !string.IsNullOrWhiteSpace(s.ManualExtraLinks));
 
+            var selectedUiTopic = TopicsListView.SelectedItem as RuTrackerTopicItem;
+            if (downloadTorrent && _torrentFiles.Count == 0 && selectedUiTopic != null)
+            {
+                _service.PrimeQuickTopicState(selectedUiTopic);
+                if (_service.LoadedTorrentBytes != null || _service.LoadedMagnet != null || !string.IsNullOrWhiteSpace(selectedUiTopic.InfoHash))
+                {
+                    _torrentFiles.Add(new TorrentFileSelectionItem
+                    {
+                        IsSelected = true,
+                        TargetGameSlot = 1,
+                        RelativePath = $"{selectedUiTopic.CleanTitleDisplay} - Полный пакет раздачи",
+                        Length = selectedUiTopic.EffectiveSizeBytes,
+                        CategoryBadge = "MAGNET"
+                    });
+                }
+            }
+
             if (downloadTorrent && _torrentFiles.Count > 0 && !_torrentFiles.Any(f => f.IsSelected))
             {
                 StatusText.Text = "Выберите хотя бы один файл из раздачи (отметьте галочкой) или скачайте только моды.";
                 return;
             }
-            bool hasTorrentSource = downloadTorrent && _torrentFiles.Count > 0 && _torrentFiles.Any(f => f.IsSelected);
+            bool hasTorrentSource = downloadTorrent && (
+                (_torrentFiles.Count > 0 && _torrentFiles.Any(f => f.IsSelected)) ||
+                _service.LoadedTorrentBytes != null ||
+                _service.LoadedMagnet != null);
             if (!hasTorrentSource && !anyLinksSelected)
             {
                 StatusText.Text = "Выберите раздачу RuTracker / .torrent файл или отметьте ссылки на русификатор / облачный мод.";
@@ -2764,7 +3074,8 @@ namespace StormSwitchBox.Views.Dialogs
             ActiveDownloadsScrollViewer.Visibility = Visibility.Visible;
             DownloadProgressBar.Visibility = Visibility.Collapsed;
             PauseResumeDownloadBtn.Visibility = Visibility.Visible;
-            PauseResumeDownloadBtn.Content = "⏸ Пауза";
+            if (PauseResumeDownloadBtnIcon != null) PauseResumeDownloadBtnIcon.Glyph = "";
+            if (PauseResumeDownloadBtnText != null) PauseResumeDownloadBtnText.Text = App.Localization.TranslateText("Пауза");
             CancelDownloadBtn.IsEnabled = true;
 
             await Task.CompletedTask;
@@ -3001,7 +3312,7 @@ namespace StormSwitchBox.Views.Dialogs
                 }
                 else
                 {
-                    // Если автосборка отключена пользователем — переводим задачу в статус «Ожидание», чтобы её можно было запустить из очереди задач
+                    // Если автосборка отключена пользователем - переводим задачу в статус «Ожидание», чтобы её можно было запустить из очереди задач
                     App.RunOnUI(() =>
                     {
                         task.IsRuTrackerTask = false;
@@ -4576,6 +4887,7 @@ namespace StormSwitchBox.Views.Dialogs
 
         private void Dialog_Closed(ContentDialog sender, ContentDialogClosedEventArgs args)
         {
+            try { _topicSelectionCts?.Cancel(); _topicSelectionCts?.Dispose(); _topicSelectionCts = null; } catch { }
             _instantSearchDebounceTimer?.Stop();
             _uiAggregationTimer?.Stop();
             if (this.XamlRoot != null)
