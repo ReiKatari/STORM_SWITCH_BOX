@@ -2274,7 +2274,7 @@ namespace StormSwitchBox.Services
 
                 if (i % 200 == 0 || i == orderedFiles.Count - 1)
                 {
-                    onProgress((double)i / Math.Max(1, orderedFiles.Count));
+                    onProgress?.Invoke((double)i / Math.Max(1, orderedFiles.Count));
                 }
             }
 

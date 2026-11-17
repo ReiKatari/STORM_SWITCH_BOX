@@ -2520,11 +2520,19 @@ namespace StormSwitchBox.Services
                 psi.EnvironmentVariables["USERPROFILE"] = userProfile;
             }
             using var proc = System.Diagnostics.Process.Start(psi);
-            if (proc == null) return -1;
+            if (proc == null) throw new Exception("Не удалось запустить hacpack.exe.");
             var outTask = proc.StandardOutput.ReadToEndAsync(ct);
             var errTask = proc.StandardError.ReadToEndAsync(ct);
             await Task.WhenAll(outTask, errTask);
             await proc.WaitForExitAsync(ct);
+            if (proc.ExitCode != 0)
+            {
+                // hacpack при ошибке (например "Invalid Title Name in control.nacp") может оставить
+                // частично записанный NCA - такой результат нельзя упаковывать в контейнер.
+                string details = (errTask.Result + "\n" + outTask.Result).Trim();
+                if (details.Length > 600) details = details.Substring(details.Length - 600);
+                throw new Exception($"hacpack.exe завершился с кодом {proc.ExitCode}: {details}");
+            }
             return proc.ExitCode;
         }
     }

@@ -883,7 +883,11 @@ namespace StormSwitchBox.Core.NSZ
                 }
 
                 long offsetInSection = targetSection != null ? currentOffset - targetSection.Offset : 0;
-                long mappedDataOffset = targetSection != null ? targetSection.SolidStreamOffset + offsetInSection : currentOffset;
+                // Секции, начинающиеся до 0x4000 (например 0xC00 у PublicData/DLC), хранят
+                // байты [Offset..0x4000) в несжатом заголовке, а Zstd-поток начинается с 0x4000.
+                // Поэтому смещение в потоке считается от Max(Offset, 0x4000), как и bytesInZstd.
+                long streamOffsetInSection = targetSection != null ? currentOffset - Math.Max(targetSection.Offset, ncaHeaderSize) : 0;
+                long mappedDataOffset = targetSection != null ? targetSection.SolidStreamOffset + streamOffsetInSection : currentOffset;
                 long dataRemainingInSection = targetSection != null ? targetSection.Size - offsetInSection : _uncompressedSize - currentOffset;
 
                 // 2. Если Solid-архив (используем временный распакованный файл)

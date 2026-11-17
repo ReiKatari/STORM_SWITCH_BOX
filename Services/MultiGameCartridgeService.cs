@@ -217,7 +217,8 @@ namespace StormSwitchBox.Services
                     int hfs0EntryCount = BitConverter.ToInt32(hfs0HeaderPrefix, 4);
                     int hfs0StringTableSize = BitConverter.ToInt32(hfs0HeaderPrefix, 8);
                     int hfs0HeaderSize = 0x10 + (0x40 * hfs0EntryCount) + hfs0StringTableSize;
-                    int hfs0HeaderAligned = (hfs0HeaderSize + 0x1FF) & ~0x1FF;
+                    // 0x138/0x140 описывают ровно заголовок корневого HFS0 (RootPartitionHeaderSize + SHA256)
+                    int hfs0HeaderAligned = hfs0HeaderSize;
 
                     byte[] rootHeader = new byte[hfs0HeaderAligned];
                     rootHfs0.Read(0, rootHeader).ThrowIfFailure();
@@ -244,7 +245,7 @@ namespace StormSwitchBox.Services
                     ulong validDataEnd = (ulong)((totalXciSize + 0x1FF) / 0x200);
                     Array.Copy(BitConverter.GetBytes(validDataEnd), 0, header, 0x118, 8);
                     Array.Copy(BitConverter.GetBytes((ulong)rootOffset), 0, header, 0x130, 8);
-                    Array.Copy(BitConverter.GetBytes((ulong)rootSize), 0, header, 0x138, 8);
+                    Array.Copy(BitConverter.GetBytes((ulong)hfs0HeaderAligned), 0, header, 0x138, 8);
                     Array.Copy(rootHeaderHash, 0, header, 0x140, 32);
                     Array.Copy(BitConverter.GetBytes(securePage), 0, header, 0x18C, 4);
 

@@ -61,8 +61,9 @@ namespace StormSwitchBox.Core.NCA
             int hfs0EntryCount = BitConverter.ToInt32(hfs0HeaderPrefix, 4);
             int hfs0StringTableSize = BitConverter.ToInt32(hfs0HeaderPrefix, 8);
             int hfs0HeaderSize = 0x10 + (0x40 * hfs0EntryCount) + hfs0StringTableSize;
-            // Align header size to 0x200
-            int hfs0HeaderAligned = (hfs0HeaderSize + 0x1FF) & ~0x1FF;
+            // 0x138 (RootPartitionHeaderSize) и 0x140 (SHA256) обязаны описывать ровно заголовок
+            // корневого HFS0, иначе hactool/LibHac/эмуляторы отвергают XCI (Partition Header Hash FAIL).
+            int hfs0HeaderAligned = hfs0HeaderSize;
 
             byte[] rootHeaderHash;
             using (var sha = System.Security.Cryptography.SHA256.Create())
@@ -103,8 +104,8 @@ namespace StormSwitchBox.Core.NCA
             // 0x120: info_iv (u128 = 16 bytes) - leave zeros
             // 0x130: hfs_offset (u64) - root HFS0 offset
             Array.Copy(BitConverter.GetBytes((ulong)rootOffset), 0, header, 0x130, 8);
-            // 0x138: hfs_size (u64) - root HFS0 size
-            Array.Copy(BitConverter.GetBytes((ulong)rootSize), 0, header, 0x138, 8);
+            // 0x138: root HFS0 header size (RootPartitionHeaderSize), НЕ размер всего раздела
+            Array.Copy(BitConverter.GetBytes((ulong)hfs0HeaderAligned), 0, header, 0x138, 8);
             // 0x140: hfs_header_hash (0x20 bytes) - SHA256 of root HFS0 header
             Array.Copy(rootHeaderHash, 0, header, 0x140, 32);
             // 0x160: initial_data_hash (0x20 bytes) - leave zeros

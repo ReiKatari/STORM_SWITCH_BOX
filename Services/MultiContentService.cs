@@ -549,6 +549,14 @@ namespace StormSwitchBox.Services
                     catch { }
                 }
 
+                // Быстрый путь (копирование файла 1-в-1) допустим только для PFS0-контейнеров (.nsp/.nsz).
+                // XCI/XCZ нельзя копировать байт-в-байт в .nsp: требуется извлечение раздела /secure.
+                if (finalInputFilesList.Count == 1)
+                {
+                    string singleExt = System.IO.Path.GetExtension(finalInputFilesList[0]).ToLowerInvariant();
+                    if (singleExt == ".xci" || singleExt == ".xcz") singleFileNeedsCleanRebuild = true;
+                }
+
                 if (finalInputFilesList.Count == 1 && !hasPatchedBase && !isTargetXci && !singleFileNeedsCleanRebuild)
                 {
                     string singleFile = finalInputFilesList[0];
@@ -819,7 +827,9 @@ namespace StormSwitchBox.Services
                             string fPath = scanList[i];
                             string ext = System.IO.Path.GetExtension(fPath).ToLowerInvariant();
 
-                            if (!isCompressedFormat && (ext == ".nsz" || ext == ".xcz" || ext == ".xci"))
+                            // .xci читается напрямую через раздел /secure (OpenSwitchContainerFileSystem),
+                            // распаковка нужна только для сжатых .nsz/.xcz при несжатом целевом формате.
+                            if (!isCompressedFormat && (ext == ".nsz" || ext == ".xcz"))
                             {
                                 string nspName = $"src_{i}_{System.IO.Path.GetFileNameWithoutExtension(fPath)}.nsp";
                                 string targetNspPath = System.IO.Path.Combine(tempDecompDir, nspName);
@@ -831,12 +841,17 @@ namespace StormSwitchBox.Services
                                 string? decompResult = await App.NszCompression.DecompressNszAsync(task, fPath, itemDecompDir, cancellationToken);
                                 if (decompResult != null)
                                 {
-                                    var producedNsp = new DirectoryInfo(itemDecompDir).GetFiles("*.nsp")
+                                    var producedNsp = new DirectoryInfo(itemDecompDir).GetFiles("*.*")
+                                        .Where(f => f.Extension.Equals(".nsp", StringComparison.OrdinalIgnoreCase) ||
+                                                    f.Extension.Equals(".xci", StringComparison.OrdinalIgnoreCase))
                                         .OrderByDescending(f => f.Length)
                                         .FirstOrDefault();
 
                                     if (producedNsp != null)
                                     {
+                                        // nsz.exe распаковывает .xcz в настоящий .xci - сохраняем расширение,
+                                        // чтобы далее открыть его через раздел /secure.
+                                        targetNspPath = System.IO.Path.ChangeExtension(targetNspPath, producedNsp.Extension.ToLowerInvariant());
                                         targetNspPath = await SafeFileOperations.SafeMoveOrReplaceFileAsync(producedNsp.FullName, targetNspPath, task, cancellationToken);
                                         try { Directory.Delete(itemDecompDir, true); } catch { }
                                         processedScanList.Add(targetNspPath);
@@ -865,7 +880,7 @@ namespace StormSwitchBox.Services
                             try
                             {
                                 using var bStream = new FileStream(mainApp, FileMode.Open, FileAccess.Read, FileShare.Read);
-                                var bPfs = new PartitionFileSystem(bStream.AsStorage());
+                                var bPfs = App.SwitchFormat.OpenSwitchContainerFileSystem(bStream.AsStorage(), mainApp);
                                 bool isMonolith = false;
                                 try { isMonolith = App.SwitchFormat.ParseNsp(mainApp).IsMonolithicHardPatch; } catch { }
 
@@ -892,7 +907,7 @@ namespace StormSwitchBox.Services
                             
                             var stream = new FileStream(nspPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
                             openedStreams.Add(stream);
-                            var fs = new PartitionFileSystem(stream.AsStorage());
+                            var fs = App.SwitchFormat.OpenSwitchContainerFileSystem(stream.AsStorage(), nspPath);
                             openedFs.Add(fs);
 
                             bool isMainGame = (scanIdx == 0);
@@ -957,7 +972,7 @@ namespace StormSwitchBox.Services
                             {
                                 var stream = new FileStream(extraPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
                                 openedStreams.Add(stream);
-                                var fs = new PartitionFileSystem(stream.AsStorage());
+                                var fs = App.SwitchFormat.OpenSwitchContainerFileSystem(stream.AsStorage(), extraPath);
                                 openedFs.Add(fs);
 
                                 foreach (var entry in fs.EnumerateEntries())

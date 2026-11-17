@@ -359,9 +359,9 @@ namespace StormSwitchBox.Services
                                 var nca = new Nca(App.Keys.CurrentKeyset, ef.AsStorage());
                                 KeysService.RegisterRightsIdFallback(App.Keys.CurrentKeyset, nca);
                                 string ncaTid = nca.Header.TitleId.ToString("X16");
-                                bool tidMatch = ncaTid.Equals(titleId, StringComparison.OrdinalIgnoreCase) ||
-                                                (titleId.Length >= 13 && ncaTid.Length >= 13 &&
-                                                 ncaTid.Substring(0, 13).Equals(titleId.Substring(0, 13), StringComparison.OrdinalIgnoreCase));
+                                // Строгое совпадение TitleID: Base (...000) и Patch (...800) имеют одинаковые
+                                // первые 13 символов, поэтому сравнение по префиксу смешивало их CNMT/Control.
+                                bool tidMatch = ncaTid.Equals(titleId, StringComparison.OrdinalIgnoreCase);
 
                                 if (nca.Header.ContentType == NcaContentType.Meta && tidMatch)
                                 {

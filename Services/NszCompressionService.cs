@@ -751,10 +751,13 @@ namespace StormSwitchBox.Services
 
                 using var fileStream = new FileStream(inputPath, FileMode.Open, FileAccess.Read, FileShare.Read);
                 IStorage storage = fileStream.AsStorage();
-                long pfsOffset = expectedExt == ".xci" ? 0x10000 : 0;
-                
-                IStorage pfsStorage = pfsOffset > 0 ? new SubStorage(storage, pfsOffset, storage.GetSize(out long sz).IsSuccess() ? sz - pfsOffset : 0) : storage;
-                var fileSystem = new PartitionFileSystem(pfsStorage);
+                // XCI/XCZ: читаем содержимое раздела /secure (а не корневой HFS0 с /update, /normal, /secure).
+                // Результат Zero-Disk-IO всегда PFS0, поэтому файл обязан иметь расширение .nsp, а не .xci.
+                var fileSystem = App.SwitchFormat.OpenSwitchContainerFileSystem(storage, inputPath);
+                if (expectedExt == ".xci")
+                {
+                    outNspPath = System.IO.Path.Combine(outDir, fileName + ".nsp");
+                }
 
                 var pfsBuilder = new PartitionFileSystemBuilder();
                 int entryIdx = 0;
