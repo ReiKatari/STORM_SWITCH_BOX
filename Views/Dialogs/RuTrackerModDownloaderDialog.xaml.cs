@@ -21,7 +21,7 @@ namespace StormSwitchBox.Views.Dialogs
     {
         public static RuTrackerModDownloaderDialog? ActiveInstance { get; private set; }
         private TaskCompletionSource<string?>? _cfTcs;
-        private readonly TasksViewModel _viewModel;
+        private readonly TasksViewModel _viewModel = null!;
         private readonly ProcessingTask? _targetTask;
         private readonly RuTrackerModService _service = new();
         private ProcessingTask? _activeTask;
@@ -33,8 +33,6 @@ namespace StormSwitchBox.Views.Dialogs
         private readonly ObservableCollection<CloudModLinkItem> _discussionLinks = new();
         private readonly ObservableCollection<RuTrackerFileGroupBlock> _fileGroups = new();
         private readonly ObservableCollection<RuTrackerLinkGroupBlock> _linkGroups = new();
-        private readonly ObservableCollection<RuTrackerActiveDownloadItem> _activeDownloadRows = new();
-        private DispatcherTimer? _uiAggregationTimer;
         private DispatcherTimer? _instantSearchDebounceTimer;
         private bool _isUiInitialized;
         private bool _suppressInstantSearchWatcher;
@@ -73,10 +71,12 @@ namespace StormSwitchBox.Views.Dialogs
         private int _activeBatchesCount = 0;
 
         private Action? _langHandler;
+        private readonly string? _initialSearchQuery;
 
-        public RuTrackerModDownloaderDialog(TasksViewModel viewModel, ProcessingTask? targetTask = null)
+        public RuTrackerModDownloaderDialog(TasksViewModel viewModel, ProcessingTask? targetTask = null, string? initialSearchQuery = null)
         {
             this.InitializeComponent();
+            _initialSearchQuery = string.IsNullOrWhiteSpace(initialSearchQuery) ? null : initialSearchQuery.Trim();
 
             _langHandler = () =>
             {
@@ -92,6 +92,7 @@ namespace StormSwitchBox.Views.Dialogs
                 App.Localization.RegisterRoot(this);
                 ApplyLocalization();
                 App.Localization.TranslateRoot(this);
+                App.Localization.LanguageChanged -= _langHandler;
                 App.Localization.LanguageChanged += _langHandler;
             };
 
@@ -100,8 +101,8 @@ namespace StormSwitchBox.Views.Dialogs
                 App.Localization.UnregisterRoot(this);
                 if (_langHandler != null) App.Localization.LanguageChanged -= _langHandler;
             };
-            this.XamlRoot = App.MainWindow.Content.XamlRoot;
-            this.RequestedTheme = (App.MainWindow.Content as FrameworkElement)?.RequestedTheme ?? ElementTheme.Dark;
+            this.XamlRoot = App.MainWindow?.Content?.XamlRoot;
+            this.RequestedTheme = (App.MainWindow?.Content as FrameworkElement)?.RequestedTheme ?? ElementTheme.Dark;
 
             _viewModel = viewModel;
             _targetTask = targetTask;
@@ -111,9 +112,6 @@ namespace StormSwitchBox.Views.Dialogs
             TorrentFilesListView.ItemsSource = _fileGroups;
             DiscussionLinksListView.ItemsSource = _linkGroups;
             ActiveDownloadsItemsControl.ItemsSource = RuTrackerDownloadQueueService.Instance.Items;
-            _uiAggregationTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
-            _uiAggregationTimer.Tick += UiAggregationTimer_Tick;
-            _uiAggregationTimer.Start();
 
             _instantSearchDebounceTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(95) };
             _instantSearchDebounceTimer.Tick += InstantSearchDebounceTimer_Tick;
@@ -160,6 +158,13 @@ namespace StormSwitchBox.Views.Dialogs
                     _suppressInstantSearchWatcher = false;
                     ClearSearchBoxBtn.Visibility = string.IsNullOrEmpty(cleanQuery) ? Visibility.Collapsed : Visibility.Visible;
                 }
+            }
+            else if (!string.IsNullOrWhiteSpace(_initialSearchQuery))
+            {
+                _suppressInstantSearchWatcher = true;
+                SearchOrUrlBox.Text = _initialSearchQuery;
+                _suppressInstantSearchWatcher = false;
+                ClearSearchBoxBtn.Visibility = Visibility.Visible;
             }
 
             _isUiInitialized = true;
@@ -653,19 +658,29 @@ namespace StormSwitchBox.Views.Dialogs
 
             LoginBtn.IsEnabled = false;
             StatusText.Text = "Выполняется вход на RuTracker...";
-            var (ok, cookieOrError) = await _service.LoginAsync(LoginUserBox.Text.Trim(), LoginPassBox.Password, CancellationToken.None);
-            LoginBtn.IsEnabled = true;
-
-            if (ok)
+            try
             {
-                CookieBox.Text = cookieOrError;
-                AuthStatusText.Text = "✅ Вход выполнен успешно (сессия bb_session сохранена).";
-                StatusText.Text = "Авторизация на RuTracker прошла успешно!";
+                var (ok, cookieOrError) = await _service.LoginAsync(LoginUserBox.Text.Trim(), LoginPassBox.Password, CancellationToken.None);
+                if (ok)
+                {
+                    CookieBox.Text = cookieOrError;
+                    AuthStatusText.Text = "✅ Вход выполнен успешно (сессия bb_session сохранена).";
+                    StatusText.Text = "Авторизация на RuTracker прошла успешно!";
+                }
+                else
+                {
+                    AuthStatusText.Text = $"⚠ {cookieOrError}";
+                    StatusText.Text = cookieOrError;
+                }
             }
-            else
+            catch (Exception ex)
             {
-                AuthStatusText.Text = $"⚠ {cookieOrError}";
-                StatusText.Text = cookieOrError;
+                AuthStatusText.Text = $"⚠ {ex.Message}";
+                StatusText.Text = $"Ошибка авторизации: {ex.Message}";
+            }
+            finally
+            {
+                LoginBtn.IsEnabled = true;
             }
         }
 
@@ -743,17 +758,29 @@ namespace StormSwitchBox.Views.Dialogs
             // Если это Magnet-ссылка
             if (input.StartsWith("magnet:?", StringComparison.OrdinalIgnoreCase))
             {
-                _localTorrentPath = null;
-                _currentTopicTitle = "Magnet_Release";
-                var magnetTopic = new RuTrackerTopicItem
+                SearchBtn.IsEnabled = false;
+                try
                 {
-                    Title = "Magnet Release",
-                    MagnetUri = input,
-                    Category = "Magnet"
-                };
-                var entries = await _service.InspectTorrentFilesAsync(magnetTopic, null, CancellationToken.None);
-                PopulateTorrentFiles(entries);
-                StatusText.Text = "Magnet-ссылка распознана. Нажмите кнопку скачивания для старта.";
+                    _localTorrentPath = null;
+                    _currentTopicTitle = "Magnet_Release";
+                    var magnetTopic = new RuTrackerTopicItem
+                    {
+                        Title = "Magnet Release",
+                        MagnetUri = input,
+                        Category = "Magnet"
+                    };
+                    var entries = await _service.InspectTorrentFilesAsync(magnetTopic, null, CancellationToken.None);
+                    PopulateTorrentFiles(entries);
+                    StatusText.Text = "Magnet-ссылка распознана. Нажмите кнопку скачивания для старта.";
+                }
+                catch (Exception ex)
+                {
+                    StatusText.Text = $"Ошибка разбора Magnet: {ex.Message}";
+                }
+                finally
+                {
+                    SearchBtn.IsEnabled = true;
+                }
                 return;
             }
 
@@ -2007,10 +2034,13 @@ namespace StormSwitchBox.Views.Dialogs
                     }
                     catch { }
 
-                    if (slot.OriginalIconBytes == null || slot.OriginalIconBytes.Length == 0)
+                    App.RunOnUI(() =>
                     {
-                        slot.OriginalIconBytes = bytes;
-                    }
+                        if (slot.OriginalIconBytes == null || slot.OriginalIconBytes.Length == 0)
+                        {
+                            slot.OriginalIconBytes = bytes;
+                        }
+                    });
                 }
             }
             catch { }
@@ -2085,21 +2115,31 @@ namespace StormSwitchBox.Views.Dialogs
 
         private async void SlotIconPreview_Drop(object sender, DragEventArgs e)
         {
-            if (sender is not FrameworkElement fe || fe.Tag is not RuTrackerGameSlotItem slot)
-                return;
-
-            if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+            e.Handled = true;
+            var deferral = e.GetDeferral();
+            try
             {
-                var items = await e.DataView.GetStorageItemsAsync();
-                var file = items.OfType<Windows.Storage.StorageFile>().FirstOrDefault();
-                if (file != null)
+                if (sender is not FrameworkElement fe || fe.Tag is not RuTrackerGameSlotItem slot)
+                    return;
+
+                if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
                 {
-                    string ext = Path.GetExtension(file.Path).ToLowerInvariant();
-                    if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".bmp" || ext == ".webp")
+                    var items = await e.DataView.GetStorageItemsAsync();
+                    var file = items.OfType<Windows.Storage.StorageFile>().FirstOrDefault();
+                    if (file != null)
                     {
-                        ApplyCustomIconFileToSlot(slot, file.Path);
+                        string ext = Path.GetExtension(file.Path).ToLowerInvariant();
+                        if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".bmp" || ext == ".webp")
+                        {
+                            ApplyCustomIconFileToSlot(slot, file.Path);
+                        }
                     }
                 }
+            }
+            catch { }
+            finally
+            {
+                deferral.Complete();
             }
         }
 
@@ -2361,20 +2401,30 @@ namespace StormSwitchBox.Views.Dialogs
 
         private async void StudioIconBorder_Drop(object sender, DragEventArgs e)
         {
-            if (_activeStudioModel == null) return;
-            if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+            e.Handled = true;
+            var deferral = e.GetDeferral();
+            try
             {
-                var items = await e.DataView.GetStorageItemsAsync();
-                var file = items.OfType<Windows.Storage.StorageFile>().FirstOrDefault();
-                if (file != null)
+                if (_activeStudioModel == null) return;
+                if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
                 {
-                    string ext = Path.GetExtension(file.Path).ToLowerInvariant();
-                    if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".bmp" || ext == ".webp")
+                    var items = await e.DataView.GetStorageItemsAsync();
+                    var file = items.OfType<Windows.Storage.StorageFile>().FirstOrDefault();
+                    if (file != null)
                     {
-                        _activeStudioModel.CustomIconPath = file.Path;
-                        RefreshStudioOverlayIconPreview();
+                        string ext = Path.GetExtension(file.Path).ToLowerInvariant();
+                        if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".bmp" || ext == ".webp")
+                        {
+                            _activeStudioModel.CustomIconPath = file.Path;
+                            RefreshStudioOverlayIconPreview();
+                        }
                     }
                 }
+            }
+            catch { }
+            finally
+            {
+                deferral.Complete();
             }
         }
 
@@ -3035,6 +3085,12 @@ namespace StormSwitchBox.Views.Dialogs
 
             _viewModel.SavePersistedTasks();
 
+            if (createdTasks.Count == 0)
+            {
+                StatusText.Text = "Не создано ни одной задачи для скачивания.";
+                return;
+            }
+
             var primaryTask = createdTasks[0].Task;
             _activeTask = primaryTask;
 
@@ -3186,6 +3242,7 @@ namespace StormSwitchBox.Views.Dialogs
                         .Select(p => p.Replace('/', '\\').Trim('\\'))
                         .Select(p => p.Split('\\').FirstOrDefault(s => !string.IsNullOrEmpty(s)))
                         .Where(s => !string.IsNullOrEmpty(s))
+                        .Select(s => s!)
                         .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
                     foreach (var p in RuTrackerModService.DiscoverModPayloadsInDirectory(payload.TargetReleaseDir))
@@ -3221,10 +3278,10 @@ namespace StormSwitchBox.Views.Dialogs
 
                 var matchedContainers = FilterDownloadedContainersForSlot(
                     candidateContainers,
-                    payload.TorrentFiles,
+                    payload.TorrentFiles ?? new List<TorrentFileSelectionItem>(),
                     payload.SlotNumber,
-                    payload.SlotGameTitle,
-                    new List<string> { payload.SlotGameTitle });
+                    payload.SlotGameTitle ?? string.Empty,
+                    new List<string> { payload.SlotGameTitle ?? string.Empty });
 
                 // 3. Привязка файлов к задаче (на UI-потоке во избежание RPC_E_WRONG_THREAD)
                 var bindTcs = new TaskCompletionSource<bool>();
@@ -3401,7 +3458,7 @@ namespace StormSwitchBox.Views.Dialogs
                 if (allowedContainerPaths != null && allowedContainerPaths.Count > 0)
                 {
                     allowedFull = new HashSet<string>(allowedContainerPaths.Select(Path.GetFullPath), StringComparer.OrdinalIgnoreCase);
-                    allowedNames = new HashSet<string>(allowedContainerPaths.Select(Path.GetFileName), StringComparer.OrdinalIgnoreCase);
+                    allowedNames = new HashSet<string>(allowedContainerPaths.Select(p => Path.GetFileName(p) ?? p), StringComparer.OrdinalIgnoreCase);
                 }
 
                 foreach (var f in discoveredFiles)
@@ -3409,7 +3466,7 @@ namespace StormSwitchBox.Views.Dialogs
                     if (allowedFull != null && allowedNames != null)
                     {
                         string fullF = Path.GetFullPath(f);
-                        string nameF = Path.GetFileName(f);
+                        string nameF = Path.GetFileName(f) ?? f;
                         if (!allowedFull.Contains(fullF) && !allowedNames.Contains(nameF))
                         {
                             continue; // не выбран пользователем для этой задачи!
@@ -3419,7 +3476,7 @@ namespace StormSwitchBox.Views.Dialogs
                     if (!task.InputFiles.Contains(f, StringComparer.OrdinalIgnoreCase))
                     {
                         task.InputFiles.Add(f);
-                        task.FilesList.Add(Path.GetFileName(f));
+                        task.FilesList.Add(Path.GetFileName(f) ?? f);
                     }
                 }
             }
@@ -3678,40 +3735,6 @@ namespace StormSwitchBox.Views.Dialogs
             catch (Exception ex)
             {
                 App.Logger?.Log($"[RuTracker] Не удалось удалить временный каталог {dirToDelete}: {ex.Message}", LogLevel.Debug);
-            }
-        }
-
-        private void UiAggregationTimer_Tick(object? sender, object e)
-        {
-            if (_activeDownloadRows.Count == 0) return;
-
-            foreach (var r in _activeDownloadRows)
-            {
-                r.CommitUiUpdates();
-            }
-
-            int total = _activeDownloadRows.Count;
-            int active = _activeDownloadRows.Count(r => r.IsActive);
-            int completed = _activeDownloadRows.Count(r => r.StageBadge == "ГОТОВО");
-
-            StatusText.Text = $"Добавлено на закачку: {total} (активно: {active}, завершено: {completed})";
-
-            if (active > 0)
-            {
-                double totalSpeedBps = _activeDownloadRows.Where(r => r.IsActive).Sum(r => r.CurrentSpeedBps);
-                int totalSeeds = _activeDownloadRows.Where(r => r.IsActive).Sum(r => r.CurrentSeeds);
-                int totalPeers = _activeDownloadRows.Where(r => r.IsActive).Sum(r => r.CurrentPeers);
-                double totalSpeedMb = totalSpeedBps / (1024.0 * 1024.0);
-
-                SpeedPeersText.Text = $"Скорость скачивания: {totalSpeedMb:F2} МБ/с  |  Сиды: {totalSeeds} • Пиры: {totalPeers}";
-                StageBadgeText.Text = $"АКТИВНО ({active})";
-                StageBadgeBorder.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 2, 132, 199));
-            }
-            else
-            {
-                SpeedPeersText.Text = completed > 0 ? "Все загрузки завершены" : "";
-                StageBadgeText.Text = completed == total ? "ГОТОВО" : "ЗАВЕРШЕНО";
-                StageBadgeBorder.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 34, 197, 94));
             }
         }
 
@@ -4062,9 +4085,9 @@ namespace StormSwitchBox.Views.Dialogs
 
         private void SetUiBusy(bool busy)
         {
-            StartFullDownloadBtn.IsEnabled = true;
-            DownloadOnlyModsBtn.IsEnabled = true;
-            SearchBtn.IsEnabled = true;
+            StartFullDownloadBtn.IsEnabled = !busy;
+            DownloadOnlyModsBtn.IsEnabled = !busy;
+            SearchBtn.IsEnabled = !busy;
             CancelDownloadBtn.IsEnabled = true;
         }
 
@@ -4109,7 +4132,12 @@ namespace StormSwitchBox.Views.Dialogs
 
             if (_topics.Count == 0)
             {
-                RefreshInstantTopics(SearchOrUrlBox?.Text ?? string.Empty, autoSelectFirst: _targetTask != null);
+                RefreshInstantTopics(SearchOrUrlBox?.Text ?? string.Empty, autoSelectFirst: _targetTask != null || !string.IsNullOrWhiteSpace(_initialSearchQuery));
+            }
+
+            if (!string.IsNullOrWhiteSpace(_initialSearchQuery))
+            {
+                SearchOrInspect_Click(this, new RoutedEventArgs());
             }
 
             if (!_warmupStartedInDialog)
@@ -4889,7 +4917,17 @@ namespace StormSwitchBox.Views.Dialogs
         {
             try { _topicSelectionCts?.Cancel(); _topicSelectionCts?.Dispose(); _topicSelectionCts = null; } catch { }
             _instantSearchDebounceTimer?.Stop();
-            _uiAggregationTimer?.Stop();
+            ActiveDownloadsItemsControl.ItemsSource = null;
+            try
+            {
+                if (CloudflareWebView != null)
+                {
+                    CloudflareWebView.Loaded -= CloudflareWebView_Loaded;
+                    CloudflareWebView.NavigationCompleted -= OnWarmupNavigationCompleted;
+                    CloudflareWebView.Close();
+                }
+            }
+            catch { }
             if (this.XamlRoot != null)
             {
                 this.XamlRoot.Changed -= XamlRoot_Changed;

@@ -1,7 +1,5 @@
 #nullable enable
 
-#nullable disable
-
 using System;
 using System.Buffers;
 using System.Buffers.Binary;
@@ -50,7 +48,7 @@ namespace StormSwitchBox.Core.NSZ
             public readonly Compressor ZstdCompressor;
             public readonly byte[] CounterBatch = new byte[CTR_BATCH_BYTES];
             public readonly byte[] KeystreamBatch = new byte[CTR_BATCH_BYTES];
-            private readonly Dictionary<SectionDecryptInfo, ICryptoTransform> _encryptors = new();
+            private readonly Dictionary<string, ICryptoTransform> _encryptors = new(StringComparer.Ordinal);
 
             public ThreadCompressionWorkspace(int compressionLevel)
             {
@@ -62,7 +60,8 @@ namespace StormSwitchBox.Core.NSZ
 
             public ICryptoTransform GetOrCreateEncryptor(SectionDecryptInfo sec)
             {
-                if (_encryptors.TryGetValue(sec, out var enc))
+                string keyId = Convert.ToHexString(sec.CryptoKey);
+                if (_encryptors.TryGetValue(keyId, out var enc))
                     return enc;
 
                 using var aes = Aes.Create();
@@ -70,7 +69,7 @@ namespace StormSwitchBox.Core.NSZ
                 aes.Padding = PaddingMode.None;
                 aes.Key = sec.CryptoKey;
                 enc = aes.CreateEncryptor();
-                _encryptors[sec] = enc;
+                _encryptors[keyId] = enc;
                 return enc;
             }
 
@@ -89,8 +88,8 @@ namespace StormSwitchBox.Core.NSZ
             IStorage ncaStorage,
             string outputNczPath,
             int compressionLevel,
-            KeySet keyset,
-            ProcessingTask task,
+            KeySet? keyset,
+            ProcessingTask? task,
             CancellationToken cancellationToken,
             Dictionary<string, byte[]>? externalTitleKeys = null)
         {
@@ -121,12 +120,9 @@ namespace StormSwitchBox.Core.NSZ
                 Services.KeysService.RegisterRightsIdFallback(keyset, nca);
             }
 
-            using var fsOut = new FileStream(outputNczPath, FileMode.Create, FileAccess.ReadWrite, FileShare.None, 4 * 1024 * 1024);
-
-            // 1. NCA Header
+            // 1. Read and validate NCA Header before opening fsOut (avoids FileShare.None conflict on fallback)
             byte[] headerBuffer = new byte[NCA_HEADER_SIZE];
             ncaStorage.Read(0, headerBuffer).ThrowIfFailure();
-            fsOut.Write(headerBuffer, 0, headerBuffer.Length);
 
             // 2. NCZSECTN
             var sections = new List<NczSection>();
@@ -221,13 +217,16 @@ namespace StormSwitchBox.Core.NSZ
 
                 if (!headerDecrypted && !(decryptedHeader[0x200] == 'N' && decryptedHeader[0x201] == 'C' && decryptedHeader[0x202] == 'A'))
                 {
-                    using var fsOutFallback = new FileStream(outputNczPath, FileMode.Create, FileAccess.Write);
+                    using var fsOutFallback = new FileStream(outputNczPath, FileMode.Create, FileAccess.Write, FileShare.None);
                     ncaStorage.AsStream().CopyTo(fsOutFallback);
                     return;
                 }
             }
 
-            string ncaUniqueId = null;
+            using var fsOut = new FileStream(outputNczPath, FileMode.Create, FileAccess.ReadWrite, FileShare.None, 4 * 1024 * 1024);
+            fsOut.Write(headerBuffer, 0, headerBuffer.Length);
+
+            string? ncaUniqueId = null;
             byte[] rightsIdBytes = new byte[16];
             Array.Copy(decryptedHeader, 0x230, rightsIdBytes, 0, 16);
             bool hasRightsId = false;
@@ -295,7 +294,7 @@ namespace StormSwitchBox.Core.NSZ
 
                 byte encryptionType = fsHeader[0x4];
                 byte[] cryptoCounter = new byte[16];
-                if (encryptionType == 2 || encryptionType == 3 || encryptionType == 4)
+                if (encryptionType == 2 || encryptionType == 3 || encryptionType == 4 || encryptionType == 5 || encryptionType == 6)
                 {
                     for (int j = 0; j < 8; j++)
                     {
@@ -307,9 +306,9 @@ namespace StormSwitchBox.Core.NSZ
                 byte[] cryptoKey = new byte[16];
                 byte nczCryptoType = 1;
 
-                byte[] cachedKey = null;
+                byte[]? cachedKey = null;
                 byte cachedCryptoType = 1;
-                byte[] cachedCounter = null;
+                byte[]? cachedCounter = null;
                 if (ncaUniqueId != null)
                 {
                     lock (NcaKeysCache)
@@ -337,7 +336,7 @@ namespace StormSwitchBox.Core.NSZ
                         baseUpperIv = BinaryPrimitives.ReadUInt64BigEndian(new ReadOnlySpan<byte>(cachedCounter, 0, 8));
                     }
                 }
-                else if (encryptionType != 1 && nca != null)
+                else if (encryptionType != 1 && nca != null && keyset != null)
                 {
                     if (nca.Header.HasRightsId)
                     {
@@ -345,7 +344,7 @@ namespace StormSwitchBox.Core.NSZ
                         try
                         {
                             byte[] rIdBytes = nca.Header.RightsId.ToArray();
-                            byte[] tKey = GetTitleKeyFromKeyset(keyset, rIdBytes, externalTitleKeys);
+                            byte[]? tKey = GetTitleKeyFromKeyset(keyset, rIdBytes, externalTitleKeys);
                             if (tKey != null && !IsAllZero(tKey))
                             {
                                 tKey.CopyTo((Span<byte>)cryptoKey);
@@ -453,7 +452,7 @@ namespace StormSwitchBox.Core.NSZ
                                         if (distinct < lowestDistinctBytes)
                                         {
                                             lowestDistinctBytes = distinct;
-                                            bestKey ??= decKey;
+                                            bestKey = decKey;
                                         }
                                     }
                                     else if (bestKey == null)
@@ -537,15 +536,16 @@ namespace StormSwitchBox.Core.NSZ
                             {
                                 var subsectionEntries = new List<(long vOff, long nextVOff, int ctrVal)>();
                                 long currentBucketCursor = 16;
+                                bool bktrParseFailed = false;
                                 for (int b = 0; b < bucketCount; b++)
                                 {
                                     long bOff = (subSize >= 0x4000L * (1 + bucketCount)) ? (0x4000L + b * 0x4000L) : currentBucketCursor;
-                                    if (bOff + 16 > subBuf.Length) break;
+                                    if (bOff + 16 > subBuf.Length) { bktrParseFailed = true; break; }
                                     int entryCount = BitConverter.ToInt32(subBuf, (int)bOff + 4);
                                     long bucketEnd = BitConverter.ToInt64(subBuf, (int)bOff + 8);
-                                    if (entryCount < 1 || entryCount > 1023) break;
+                                    if (entryCount < 1 || entryCount > 1023) { bktrParseFailed = true; break; }
                                     long entriesEnd = bOff + 16 + entryCount * 16;
-                                    if (entriesEnd > subBuf.Length) break;
+                                    if (entriesEnd > subBuf.Length) { bktrParseFailed = true; break; }
 
                                     for (int e = 0; e < entryCount; e++)
                                     {
@@ -559,6 +559,11 @@ namespace StormSwitchBox.Core.NSZ
                                         }
                                     }
                                     currentBucketCursor = entriesEnd;
+                                }
+
+                                if (bktrParseFailed)
+                                {
+                                    subsectionEntries.Clear();
                                 }
 
                                 if (subsectionEntries.Count > 0)
@@ -667,7 +672,7 @@ namespace StormSwitchBox.Core.NSZ
                 if (!handledBktr)
                 {
                     bool isAlreadyDecrypted = false;
-                    if (encryptionType == 3 || encryptionType == 4)
+                    if (encryptionType == 3 || encryptionType == 4 || encryptionType == 5)
                     {
                         uint magicVal = BitConverter.ToUInt32(startMagic, 0);
                         if (magicVal == 0x30534650 || magicVal == 0x43465649) // 'PFS0' or 'IVFC'
@@ -676,45 +681,100 @@ namespace StormSwitchBox.Core.NSZ
                         }
                     }
 
-                    if (keyIsZero && (nczCryptoType == 3 || nczCryptoType == 4))
+                    // Safe passthrough (CryptoType = 1) for AesXts (2), Sparse NCA, failed BKTR (4), AesCtrExSkipLayerHash (6),
+                    // zero keys, or non-standard skipBytes
+                    if (isSparse ||
+                        encryptionType == 2 ||
+                        encryptionType == 4 ||
+                        encryptionType == 6 ||
+                        nczCryptoType == 2 ||
+                        nczCryptoType == 4 ||
+                        nczCryptoType == 6 ||
+                        keyIsZero ||
+                        (encryptionType == 5 && (skipBytes < 0 || skipBytes >= vSize || (skipBytes & 0xF) != 0)))
                     {
                         nczCryptoType = 1;
                     }
 
-                    long effNczOff = isSparse ? vOffset : pOffset;
-                    long effNczSize = isSparse ? vSize : pSize;
-                    if (effNczSize > 0)
+                    if (pSize > 0)
                     {
-                        decryptInfos.Add(new SectionDecryptInfo
+                        if (nczCryptoType == 5 && !isAlreadyDecrypted)
                         {
-                            Offset = vOffset,
-                            Size = vSize,
-                            PhysicalOffset = pOffset,
-                            PhysicalSize = pSize,
-                            EncryptionType = nczCryptoType,
-                            CryptoKey = cryptoKey,
-                            IsZeroKey = keyIsZero,
-                            BaseUpperIv = baseUpperIv,
-                            IsSparse = isSparse,
-                            SparsePhysicalOffset = sparsePhysicalOffset,
-                            SparseBucketStart = sparseBucketStart,
-                            SparseBucketEnd = sparseBucketEnd,
-                            SparseUpperIv = sparseUpperIv,
-                            SkipBytes = skipBytes,
-                            IsAlreadyDecrypted = isAlreadyDecrypted,
-                            CryptoCounter = (byte[])cryptoCounter.Clone()
-                        });
+                            decryptInfos.Add(new SectionDecryptInfo
+                            {
+                                Offset = vOffset,
+                                Size = vSize,
+                                PhysicalOffset = pOffset,
+                                PhysicalSize = pSize,
+                                EncryptionType = 5,
+                                CryptoKey = cryptoKey,
+                                IsZeroKey = keyIsZero,
+                                BaseUpperIv = baseUpperIv,
+                                SkipBytes = skipBytes,
+                                IsAlreadyDecrypted = false,
+                                CryptoCounter = (byte[])cryptoCounter.Clone()
+                            });
 
-                        sections.Add(new NczSection
+                            long vEnd = vOffset + vSize;
+                            long skipEnd = Math.Min(vEnd, vOffset + skipBytes);
+                            if (skipEnd > pOffset)
+                            {
+                                sections.Add(new NczSection
+                                {
+                                    Offset = pOffset,
+                                    Size = skipEnd - pOffset,
+                                    PhysicalOffset = pOffset,
+                                    CryptoType = 1,
+                                    CryptoKey = new byte[16],
+                                    CryptoCounter = new byte[16],
+                                    SolidStreamOffset = i
+                                });
+                            }
+                            long encStart = Math.Max(pOffset, skipEnd);
+                            if (vEnd > encStart)
+                            {
+                                sections.Add(new NczSection
+                                {
+                                    Offset = encStart,
+                                    Size = vEnd - encStart,
+                                    PhysicalOffset = encStart,
+                                    CryptoType = 3,
+                                    CryptoKey = cryptoKey,
+                                    CryptoCounter = (byte[])cryptoCounter.Clone(),
+                                    SolidStreamOffset = i
+                                });
+                            }
+                        }
+                        else
                         {
-                            Offset = effNczOff,
-                            Size = effNczSize,
-                            PhysicalOffset = pOffset,
-                            CryptoType = nczCryptoType,
-                            CryptoKey = cryptoKey,
-                            CryptoCounter = cryptoCounter,
-                            SolidStreamOffset = i
-                        });
+                            if (nczCryptoType == 5) nczCryptoType = 1;
+                            decryptInfos.Add(new SectionDecryptInfo
+                            {
+                                Offset = vOffset,
+                                Size = vSize,
+                                PhysicalOffset = pOffset,
+                                PhysicalSize = pSize,
+                                EncryptionType = nczCryptoType,
+                                CryptoKey = cryptoKey,
+                                IsZeroKey = keyIsZero,
+                                BaseUpperIv = baseUpperIv,
+                                IsSparse = false,
+                                SkipBytes = skipBytes,
+                                IsAlreadyDecrypted = isAlreadyDecrypted,
+                                CryptoCounter = (byte[])cryptoCounter.Clone()
+                            });
+
+                            sections.Add(new NczSection
+                            {
+                                Offset = pOffset,
+                                Size = pSize,
+                                PhysicalOffset = pOffset,
+                                CryptoType = nczCryptoType,
+                                CryptoKey = cryptoKey,
+                                CryptoCounter = cryptoCounter,
+                                SolidStreamOffset = i
+                            });
+                        }
                     }
                 }
             }
@@ -813,6 +873,7 @@ namespace StormSwitchBox.Core.NSZ
 
                 for (int batchStart = 0; batchStart < blocksToCompress; batchStart += batchSize)
                 {
+                    task?.PauseEvent.Wait(cancellationToken);
                     cancellationToken.ThrowIfCancellationRequested();
 
                     int currentBatchCount = Math.Min(batchSize, blocksToCompress - batchStart);
@@ -828,9 +889,9 @@ namespace StormSwitchBox.Core.NSZ
                     }
 
                     // 2. Параллельная дешифровка AES-CTR (64 КБ батчи + Vector256 SIMD) и Zstandard-компрессия во всех потоках
-                    Parallel.For(0, currentBatchCount, new ParallelOptions { MaxDegreeOfParallelism = maxParallelism }, i =>
+                    Parallel.For(0, currentBatchCount, new ParallelOptions { MaxDegreeOfParallelism = maxParallelism, CancellationToken = cancellationToken }, i =>
                     {
-                        var ws = threadWorkspace.Value;
+                        var ws = threadWorkspace.Value!;
                         int toRead = currentRawSizes[i];
                         long blockOffset = blockGlobalOffsets[i];
                         byte[] rawBuf = pooledRaw[i];
@@ -838,7 +899,7 @@ namespace StormSwitchBox.Core.NSZ
                         for (int secIdx = 0; secIdx < decryptInfos.Count; secIdx++)
                         {
                             var sec = decryptInfos[secIdx];
-                            if ((sec.EncryptionType == 3 || sec.EncryptionType == 4) && !sec.IsZeroKey && !sec.IsAlreadyDecrypted)
+                            if ((sec.EncryptionType == 3 || sec.EncryptionType == 4 || sec.EncryptionType == 5) && !sec.IsZeroKey && !sec.IsAlreadyDecrypted)
                             {
                                 long overlapStart = Math.Max(blockOffset, sec.PhysicalOffset);
                                 long overlapEnd = Math.Min(blockOffset + toRead, sec.PhysicalOffset + sec.PhysicalSize);
@@ -1142,7 +1203,7 @@ namespace StormSwitchBox.Core.NSZ
             public long PhysicalOffset { get; set; }
             public long PhysicalSize { get; set; }
             public byte EncryptionType { get; set; }
-            public byte[] CryptoKey { get; set; }
+            public byte[] CryptoKey { get; set; } = Array.Empty<byte>();
             public bool IsZeroKey { get; set; }
             public ulong BaseUpperIv { get; set; }
             public bool IsSparse { get; set; }
@@ -1152,10 +1213,10 @@ namespace StormSwitchBox.Core.NSZ
             public ulong SparseUpperIv { get; set; }
             public long SkipBytes { get; set; }
             public bool IsAlreadyDecrypted { get; set; }
-            public byte[] CryptoCounter { get; set; }
+            public byte[] CryptoCounter { get; set; } = Array.Empty<byte>();
         }
 
-        private static byte[] GetTitleKeyFromKeyset(KeySet keyset, byte[] targetRightsIdBytes, Dictionary<string, byte[]>? externalTitleKeys = null)
+        private static byte[]? GetTitleKeyFromKeyset(KeySet? keyset, byte[] targetRightsIdBytes, Dictionary<string, byte[]>? externalTitleKeys = null)
         {
             try
             {

@@ -39,7 +39,7 @@ namespace StormSwitchBox.Services
         };
 
         private static readonly Dictionary<ulong, byte[]> _seedCache = new();
-        private static bool _seedCacheLoaded;
+        private static string _lastSeedSignature = string.Empty;
         private static readonly object _seedLock = new();
 
         /// <summary>
@@ -239,6 +239,12 @@ namespace StormSwitchBox.Services
                 catch (Exception ex)
                 {
                     App.Logger.Log($"[3DS Crypto] Ошибка расшифровки {Path.GetFileName(sourcePath)}: {ex.Message}", LogLevel.Warning);
+                    try
+                    {
+                        if (!string.Equals(Path.GetFullPath(sourcePath), Path.GetFullPath(outputPath), StringComparison.OrdinalIgnoreCase) && File.Exists(outputPath))
+                            File.Delete(outputPath);
+                    }
+                    catch { }
                     return false;
                 }
             }, ct);
@@ -269,21 +275,28 @@ namespace StormSwitchBox.Services
             long tmdOffset = ticketOffset + Align64(ticketSize);
             long contentOffset = tmdOffset + Align64(tmdSize);
 
-            if (tmdOffset + 0x204 > fs.Length) return false;
+            if (tmdOffset + 0x104 > fs.Length) return false;
 
-            // Читаем количество контентов из TMD (смещение +0x1DE в TMD с RSA-2048 подписью)
-            fs.Seek(tmdOffset + 0x1DE, SeekOrigin.Begin);
+            fs.Seek(tmdOffset, SeekOrigin.Begin);
+            uint tmdSigType = BinaryPrimitives.ReadUInt32BigEndian(reader.ReadBytes(4));
+            int tmdBodyRel = Get3dsSignatureBlockSize(tmdSigType);
+            long tmdBody = tmdOffset + tmdBodyRel;
+            if (tmdBody + 0x9C4 > fs.Length) return false;
+
+            // Читаем количество контентов из TMD (смещение tmdBody + 0x9E)
+            fs.Seek(tmdBody + 0x9E, SeekOrigin.Begin);
             ushort contentCount = BinaryPrimitives.ReadUInt16BigEndian(reader.ReadBytes(2));
             if (contentCount == 0 || contentCount > 256) contentCount = 1;
 
             // Проверяем, зашифрован ли сам CIA слой (AES-CBC по TitleKey из Ticket)
             byte[]? decryptedTitleKey = TryExtractCiaTitleKey(fs, reader, ticketOffset, ticketSize);
 
+            long chunkTableOffset = tmdBody + 0x9C4;
             long currentContentPos = contentOffset;
             for (int c = 0; c < contentCount; c++)
             {
                 ct.ThrowIfCancellationRequested();
-                long recordOffset = tmdOffset + 0xB04 + (long)c * 0x30;
+                long recordOffset = chunkTableOffset + (long)c * 0x30;
                 if (recordOffset + 0x30 > contentOffset) break;
 
                 fs.Seek(recordOffset + 4, SeekOrigin.Begin);
@@ -334,17 +347,60 @@ namespace StormSwitchBox.Services
                 currentContentPos += Align64((long)cSize);
             }
 
+            // Пересчитываем SHA-256 в ContentInfoRecords (64 записи * 0x24 байт) и InfoRecordsHash в заголовке TMD
+            int chunkBytesLen = contentCount * 0x30;
+            if (chunkTableOffset + chunkBytesLen <= contentOffset)
+            {
+                fs.Seek(chunkTableOffset, SeekOrigin.Begin);
+                byte[] chunkRecords = reader.ReadBytes(chunkBytesLen);
+
+                long infoRecordsOffset = tmdBody + 0xC4;
+                fs.Seek(infoRecordsOffset, SeekOrigin.Begin);
+                byte[] infoRecords = reader.ReadBytes(64 * 0x24);
+
+                for (int r = 0; r < 64; r++)
+                {
+                    int recOff = r * 0x24;
+                    ushort idxOff = BinaryPrimitives.ReadUInt16BigEndian(infoRecords.AsSpan(recOff, 2));
+                    ushort cmdCount = BinaryPrimitives.ReadUInt16BigEndian(infoRecords.AsSpan(recOff + 2, 2));
+                    if (cmdCount > 0 && (idxOff + cmdCount) <= contentCount)
+                    {
+                        byte[] recHash = SHA256.HashData(chunkRecords.AsSpan(idxOff * 0x30, cmdCount * 0x30));
+                        Buffer.BlockCopy(recHash, 0, infoRecords, recOff + 4, 32);
+                    }
+                }
+
+                fs.Seek(infoRecordsOffset, SeekOrigin.Begin);
+                writer.Write(infoRecords);
+
+                byte[] infoRecordsHash = SHA256.HashData(infoRecords);
+                fs.Seek(tmdBody + 0xA4, SeekOrigin.Begin);
+                writer.Write(infoRecordsHash);
+            }
+
             return true;
         }
+
+        private static int Get3dsSignatureBlockSize(uint sigTypeBE) => sigTypeBE switch
+        {
+            0x00010000 or 0x00010003 => 0x240, // RSA-4096
+            0x00010001 or 0x00010004 => 0x140, // RSA-2048
+            0x00010002 or 0x00010005 => 0x80,  // ECDSA
+            _ => 0x140
+        };
 
         private static byte[]? TryExtractCiaTitleKey(FileStream fs, BinaryReader reader, long ticketOffset, uint ticketSize)
         {
             try
             {
-                if (ticketSize < 0x210 || ticketOffset + 0x210 > fs.Length) return null;
+                if (ticketSize < 0x140 || ticketOffset + 4 > fs.Length) return null;
 
-                // Смещение данных Ticket после RSA-2048 подписи (0x140)
-                long tikData = ticketOffset + 0x140;
+                fs.Seek(ticketOffset, SeekOrigin.Begin);
+                uint sigType = BinaryPrimitives.ReadUInt32BigEndian(reader.ReadBytes(4));
+                int sigBlockSize = Get3dsSignatureBlockSize(sigType);
+                long tikData = ticketOffset + sigBlockSize;
+                if (tikData + 0xB2 > fs.Length) return null;
+
                 fs.Seek(tikData + 0x7F, SeekOrigin.Begin);
                 byte[] encryptedTitleKey = reader.ReadBytes(16);
 
@@ -405,22 +461,22 @@ namespace StormSwitchBox.Services
             if (usesSeed)
             {
                 byte[]? seed = LookupSeed(programId, header.AsSpan(0x114, 4).ToArray());
-                if (seed != null)
+                if (seed == null)
                 {
-                    byte[] combined = new byte[32];
-                    Array.Copy(keyY0, 0, combined, 0, 16);
-                    Array.Copy(seed, 0, combined, 16, 16);
-                    byte[] sha = SHA256.HashData(combined);
-                    Array.Copy(sha, 0, keyY1, 0, 16);
-                }
-                else
-                {
+                    string msg = $"[SeedDB] Не найден Seed для ProgramID {programId:X16}. Поместите актуальный seeddb.bin в tools/3ds/.";
                     App.RunOnUI(() =>
                     {
                         if (task != null)
-                            task.LogDetails += $"\n  ⚠️ [SeedDB] Не найден Seed для ProgramID {programId:X16}. Поместите актуальный seeddb.bin в tools/3ds/.";
+                            task.LogDetails += $"\n  ⚠️ {msg}";
                     });
+                    throw new InvalidOperationException(msg);
                 }
+
+                byte[] combined = new byte[32];
+                Array.Copy(keyY0, 0, combined, 0, 16);
+                Array.Copy(seed, 0, combined, 16, 16);
+                byte[] sha = SHA256.HashData(combined);
+                Array.Copy(sha, 0, keyY1, 0, 16);
             }
 
             byte[] normalKey0;
@@ -448,11 +504,11 @@ namespace StormSwitchBox.Services
                 normalKey1 = Derive3dsNormalKey(keyX1, keyY1);
             }
 
-            // 1. Расшифровка ExHeader (0x800 байт на смещении ncchOffset + 0x200)
+            // 1. Расшифровка ExHeader (0x800 байт на локальном смещении 0x200 внутри NCCH)
             uint exHeaderSize = BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(0x180, 4));
             if (exHeaderSize > 0 && ncchOffset + 0x200 + 0x800 <= fs.Length)
             {
-                byte[] ctrExh = BuildNcchCounter(partitionId, ncchVersion, sectionType: 1, ncchOffset + 0x200);
+                byte[] ctrExh = BuildNcchCounter(partitionId, ncchVersion, sectionType: 1, 0x200L);
                 TransformAesCtrRegionInPlace(fs, ncchOffset + 0x200, 0x800, normalKey0, ctrExh, ct);
             }
 
@@ -461,11 +517,12 @@ namespace StormSwitchBox.Services
             uint exefsSizeUnits = BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(0x1A4, 4));
             if (exefsOffsetUnits > 0 && exefsSizeUnits > 0)
             {
-                long exefsOffset = ncchOffset + (long)exefsOffsetUnits * 0x200;
-                long exefsSize = (long)exefsSizeUnits * 0x200;
+                long exefsLocalOffset = (long)exefsOffsetUnits * 0x200L;
+                long exefsOffset = ncchOffset + exefsLocalOffset;
+                long exefsSize = (long)exefsSizeUnits * 0x200L;
                 if (exefsOffset + exefsSize <= fs.Length && exefsSize >= 0x200)
                 {
-                    byte[] baseExefsCtr = BuildNcchCounter(partitionId, ncchVersion, sectionType: 2, exefsOffset);
+                    byte[] baseExefsCtr = BuildNcchCounter(partitionId, ncchVersion, sectionType: 2, exefsLocalOffset);
 
                     // Сначала расшифровываем заголовок ExeFS (0x200 байт) ключом normalKey0
                     TransformAesCtrRegionInPlace(fs, exefsOffset, 0x200, normalKey0, (byte[])baseExefsCtr.Clone(), ct);
@@ -512,11 +569,12 @@ namespace StormSwitchBox.Services
             uint romfsSizeUnits = BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(0x1B4, 4));
             if (romfsOffsetUnits > 0 && romfsSizeUnits > 0)
             {
-                long romfsOffset = ncchOffset + (long)romfsOffsetUnits * 0x200;
-                long romfsSize = (long)romfsSizeUnits * 0x200;
+                long romfsLocalOffset = (long)romfsOffsetUnits * 0x200L;
+                long romfsOffset = ncchOffset + romfsLocalOffset;
+                long romfsSize = (long)romfsSizeUnits * 0x200L;
                 if (romfsOffset + romfsSize <= fs.Length)
                 {
-                    byte[] ctrRomfs = BuildNcchCounter(partitionId, ncchVersion, sectionType: 3, romfsOffset);
+                    byte[] ctrRomfs = BuildNcchCounter(partitionId, ncchVersion, sectionType: 3, romfsLocalOffset);
                     TransformAesCtrRegionInPlace(fs, romfsOffset, romfsSize, normalKey1, ctrRomfs, ct);
                 }
             }
@@ -792,9 +850,6 @@ namespace StormSwitchBox.Services
         {
             lock (_seedLock)
             {
-                if (_seedCacheLoaded) return;
-                _seedCacheLoaded = true;
-
                 var candidatePaths = new List<string>
                 {
                     Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tools", "3ds", "seeddb.bin"),
@@ -805,22 +860,49 @@ namespace StormSwitchBox.Services
                     Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Azahar", "sysdata", "seeddb.bin")
                 };
 
-                if (!string.IsNullOrEmpty(App.Settings.Current.KeysPath3ds))
+                string? keysPath3ds = App.Settings?.Current?.KeysPath3ds;
+                if (!string.IsNullOrEmpty(keysPath3ds))
                 {
-                    string? customDir = Path.GetDirectoryName(App.Settings.Current.KeysPath3ds);
-                    if (!string.IsNullOrEmpty(customDir))
+                    if (keysPath3ds.EndsWith("seeddb.bin", StringComparison.OrdinalIgnoreCase) && File.Exists(keysPath3ds))
                     {
-                        candidatePaths.Insert(0, Path.Combine(customDir, "seeddb.bin"));
+                        candidatePaths.Insert(0, keysPath3ds);
+                    }
+                    else
+                    {
+                        string? customDir = Path.GetDirectoryName(keysPath3ds);
+                        if (!string.IsNullOrEmpty(customDir))
+                        {
+                            candidatePaths.Insert(0, Path.Combine(customDir, "seeddb.bin"));
+                        }
                     }
                 }
 
-                foreach (var path in candidatePaths)
+                var sigBuilder = new StringBuilder();
+                var existingPaths = new List<string>();
+                foreach (var path in candidatePaths.Distinct(StringComparer.OrdinalIgnoreCase))
                 {
                     if (File.Exists(path))
                     {
-                        LoadSeedDbFile(path);
+                        existingPaths.Add(path);
+                        try
+                        {
+                            var fi = new FileInfo(path);
+                            sigBuilder.Append(path).Append('|').Append(fi.Length).Append('|').Append(fi.LastWriteTimeUtc.Ticks).Append(';');
+                        }
+                        catch { }
                     }
                 }
+
+                string newSignature = sigBuilder.ToString();
+                if (newSignature == _lastSeedSignature && _seedCache.Count > 0)
+                    return;
+
+                _seedCache.Clear();
+                foreach (var path in existingPaths)
+                {
+                    LoadSeedDbFile(path);
+                }
+                _lastSeedSignature = newSignature;
             }
         }
 

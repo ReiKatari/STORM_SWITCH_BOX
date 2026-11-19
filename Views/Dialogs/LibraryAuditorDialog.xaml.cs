@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
@@ -74,119 +74,162 @@ namespace StormSwitchBox.Views.Dialogs
 
         private async void BrowseFolder_Click(object sender, RoutedEventArgs e)
         {
-            string? folder = await SystemDialogService.OpenFolderDialogAsync("Выберите папку с коллекцией игр Switch / 3DS", LibraryPathBox.Text);
-            if (!string.IsNullOrWhiteSpace(folder))
+            try
             {
-                LibraryPathBox.Text = folder;
+                string? folder = await SystemDialogService.OpenFolderDialogAsync("Выберите папку с коллекцией игр Switch / 3DS", LibraryPathBox.Text);
+                if (!string.IsNullOrWhiteSpace(folder))
+                {
+                    LibraryPathBox.Text = folder;
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[LibraryAuditorDialog.xaml.cs] {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
         private async void ScanLibrary_Click(object sender, RoutedEventArgs e)
         {
-            string folder = LibraryPathBox.Text.Trim();
-            if (string.IsNullOrEmpty(folder) || !Directory.Exists(folder))
-            {
-                StatusText.Text = App.Localization.TranslateText("⚠ Укажите существующую директорию для сканирования.");
-                return;
-            }
-
-            ScanButton.IsEnabled = false;
-            Issues.Clear();
-
-            var prog = new Progress<(int Scanned, int Total, string CurrentFile)>(p =>
-            {
-                ScanProgressBar.Value = p.Total > 0 ? (p.Scanned * 100.0 / p.Total) : 0;
-                StatusText.Text = string.Format(App.Localization.TranslateText("Сканирование ({0}/{1}): {2}"), p.Scanned, p.Total, p.CurrentFile);
-            });
-
             try
             {
-                _lastReport = await LibraryAuditorService.ScanLibraryFolderAsync(folder, prog, CancellationToken.None);
-                foreach (var issue in _lastReport.Issues)
+                string folder = LibraryPathBox.Text.Trim();
+                if (string.IsNullOrEmpty(folder) || !Directory.Exists(folder))
                 {
-                    Issues.Add(issue);
+                    StatusText.Text = App.Localization.TranslateText("⚠ Укажите существующую директорию для сканирования.");
+                    return;
                 }
 
-                CardTotalFiles.Text = _lastReport.TotalFilesScanned.ToString();
-                CardTotalSize.Text = ProcessingTask.FormatSize(_lastReport.TotalLibraryBytes);
-                CardPotentialSavings.Text = "~" + ProcessingTask.FormatSize(_lastReport.TotalEstimatedSavingsBytes);
-                CardIssuesCount.Text = _lastReport.Issues.Count.ToString();
-                ScanProgressBar.Value = 100;
-                StatusText.Text = string.Format(App.Localization.TranslateText("✅ Аудит завершён! Найдено рекомендаций по оптимизации: {0}."), _lastReport.Issues.Count);
+                ScanButton.IsEnabled = false;
+                Issues.Clear();
+
+                var prog = new Progress<(int Scanned, int Total, string CurrentFile)>(p =>
+                {
+                    ScanProgressBar.Value = p.Total > 0 ? (p.Scanned * 100.0 / p.Total) : 0;
+                    StatusText.Text = string.Format(App.Localization.TranslateText("Сканирование ({0}/{1}): {2}"), p.Scanned, p.Total, p.CurrentFile);
+                });
+
+                try
+                {
+                    _lastReport = await LibraryAuditorService.ScanLibraryFolderAsync(folder, prog, CancellationToken.None);
+                    foreach (var issue in _lastReport.Issues)
+                    {
+                        Issues.Add(issue);
+                    }
+
+                    CardTotalFiles.Text = _lastReport.TotalFilesScanned.ToString();
+                    CardTotalSize.Text = ProcessingTask.FormatSize(_lastReport.TotalLibraryBytes);
+                    CardPotentialSavings.Text = "~" + ProcessingTask.FormatSize(_lastReport.TotalEstimatedSavingsBytes);
+                    CardIssuesCount.Text = _lastReport.Issues.Count.ToString();
+                    ScanProgressBar.Value = 100;
+                    StatusText.Text = string.Format(App.Localization.TranslateText("✅ Аудит завершён! Найдено рекомендаций по оптимизации: {0}."), _lastReport.Issues.Count);
+                }
+                catch (Exception ex)
+                {
+                    StatusText.Text = App.Localization.TranslateText("❌ Ошибка сканирования: ") + ex.Message;
+                }
+                finally
+                {
+                    ScanButton.IsEnabled = true;
+                }
             }
             catch (Exception ex)
             {
-                StatusText.Text = App.Localization.TranslateText("❌ Ошибка сканирования: ") + ex.Message;
-            }
-            finally
-            {
-                ScanButton.IsEnabled = true;
+                App.Logger?.Log($"[LibraryAuditorDialog.xaml.cs] {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
         private async void SendToTasks_Click(object sender, RoutedEventArgs e)
         {
-            if (_tasksViewModel == null) return;
-            var selected = Issues.Where(i => i.IsSelected && (i.IssueType == "UnmergedSet" || i.IssueType == "UncompressedContainer")).ToList();
-            if (selected.Count == 0)
+            try
             {
-                StatusText.Text = App.Localization.TranslateText("⚠ Отметьте галочкой несшитые или несжатые наборы для отправки в Задачник.");
-                return;
-            }
+                if (_tasksViewModel == null) return;
+                var selected = Issues.Where(i => i.IsSelected && (i.IssueType == "UnmergedSet" || i.IssueType == "UncompressedContainer")).ToList();
+                if (selected.Count == 0)
+                {
+                    StatusText.Text = App.Localization.TranslateText("⚠ Отметьте галочкой несшитые или несжатые наборы для отправки в Задачник.");
+                    return;
+                }
 
-            int added = 0;
-            foreach (var issue in selected)
+                int added = 0;
+                foreach (var issue in selected)
+                {
+                    await _tasksViewModel.AddDroppedFilesBatchAsync(issue.RelatedFiles);
+                    added++;
+                }
+
+                StatusText.Text = string.Format(App.Localization.TranslateText("🚀 В Задачник добавлено наборов для оптимизации: {0}. Закройте окно и нажмите «Запустить всё»."), added);
+            }
+            catch (Exception ex)
             {
-                await _tasksViewModel.AddDroppedFilesBatchAsync(issue.RelatedFiles);
-                added++;
+                App.Logger?.Log($"[LibraryAuditorDialog.xaml.cs] {ex.Message}", Models.LogLevel.Warning);
             }
-
-            StatusText.Text = string.Format(App.Localization.TranslateText("🚀 В Задачник добавлено наборов для оптимизации: {0}. Закройте окно и нажмите «Запустить всё»."), added);
         }
 
         private async void QuickTrimAndDecrypt_Click(object sender, RoutedEventArgs e)
         {
-            var selected = Issues.Where(i => i.IsSelected && (i.IssueType == "UntrimmedCartridge" || i.IssueType == "Encrypted3ds")).ToList();
-            if (selected.Count == 0)
+            try
             {
-                StatusText.Text = App.Localization.TranslateText("⚠ Нет выбранных необрезанных картриджей (XCI/3DS) или зашифрованных 3DS образов.");
-                return;
-            }
+                var selected = Issues.Where(i => i.IsSelected && (i.IssueType == "UntrimmedCartridge" || i.IssueType == "Encrypted3ds")).ToList();
+                if (selected.Count == 0)
+                {
+                    StatusText.Text = App.Localization.TranslateText("⚠ Нет выбранных необрезанных картриджей (XCI/3DS) или зашифрованных 3DS образов.");
+                    return;
+                }
 
-            int processed = 0;
-            long totalSaved = 0;
-            foreach (var issue in selected)
+                if (sender is Control ctrl) ctrl.IsEnabled = false;
+                try
+                {
+                    int processed = 0;
+                    long totalSaved = 0;
+                    int totalCount = selected.Count;
+                    for (int idx = 0; idx < totalCount; idx++)
+                    {
+                        var issue = selected[idx];
+                        string file = issue.PrimaryFile;
+                        if (!File.Exists(file)) continue;
+
+                        StatusText.Text = $"[{idx + 1}/{totalCount}] Обработка: {Path.GetFileName(file)}...";
+
+                        if (issue.IssueType == "UntrimmedCartridge")
+                        {
+                            string ext = Path.GetExtension(file).ToLowerInvariant();
+                            long saved = await Task.Run(() =>
+                            {
+                                if (ext == ".xci") return SmartShrinkService.TrimXciCardImage(file);
+                                if (ext == ".3ds" || ext == ".cci") return SmartShrinkService.Trim3dsCardImage(file);
+                                return 0L;
+                            });
+                            if (saved > 0)
+                            {
+                                totalSaved += saved;
+                                processed++;
+                                Issues.Remove(issue);
+                            }
+                        }
+                        else if (issue.IssueType == "Encrypted3ds")
+                        {
+                            string ext = Path.GetExtension(file);
+                            string decPath = Path.Combine(Path.GetDirectoryName(file) ?? "", Path.GetFileNameWithoutExtension(file) + " [Decrypted]" + ext);
+                            bool ok = await Nintendo3dsCryptoService.Decrypt3dsFileAsync(file, decPath, null, null, CancellationToken.None);
+                            if (ok)
+                            {
+                                processed++;
+                                Issues.Remove(issue);
+                            }
+                        }
+                    }
+
+                    StatusText.Text = $"✅ Выполнено быстрых оптимизаций (Trim / 3DS Decrypt): {processed} (освобождено: {ProcessingTask.FormatSize(totalSaved)}).";
+                }
+                finally
+                {
+                    if (sender is Control ctrl2) ctrl2.IsEnabled = true;
+                }
+            }
+            catch (Exception ex)
             {
-                string file = issue.PrimaryFile;
-                if (!File.Exists(file)) continue;
-
-                if (issue.IssueType == "UntrimmedCartridge")
-                {
-                    string ext = Path.GetExtension(file).ToLowerInvariant();
-                    long saved = 0;
-                    if (ext == ".xci") saved = SmartShrinkService.TrimXciCardImage(file);
-                    else if (ext == ".3ds" || ext == ".cci") saved = SmartShrinkService.Trim3dsCardImage(file);
-                    if (saved > 0)
-                    {
-                        totalSaved += saved;
-                        processed++;
-                        Issues.Remove(issue);
-                    }
-                }
-                else if (issue.IssueType == "Encrypted3ds")
-                {
-                    string ext = Path.GetExtension(file);
-                    string decPath = Path.Combine(Path.GetDirectoryName(file) ?? "", Path.GetFileNameWithoutExtension(file) + " [Decrypted]" + ext);
-                    bool ok = await Nintendo3dsCryptoService.Decrypt3dsFileAsync(file, decPath, null, null, CancellationToken.None);
-                    if (ok)
-                    {
-                        processed++;
-                        Issues.Remove(issue);
-                    }
-                }
+                StatusText.Text = $"Ошибка оптимизации: {ex.Message}";
             }
-
-            StatusText.Text = $"✅ Выполнено быстрых оптимизаций (Trim / 3DS Decrypt): {processed} (освобождено: {ProcessingTask.FormatSize(totalSaved)}).";
         }
 
         private void DeleteSupersededPatches_Click(object sender, RoutedEventArgs e)
@@ -224,31 +267,38 @@ namespace StormSwitchBox.Views.Dialogs
 
         private async void ExportReport_Click(object sender, RoutedEventArgs e)
         {
-            if (_lastReport == null) return;
-            string? folder = await SystemDialogService.OpenFolderDialogAsync("Выберите папку для сохранения отчёта аудита");
-            if (string.IsNullOrWhiteSpace(folder)) return;
-
-            string reportPath = Path.Combine(folder, $"STORM_Library_Audit_{DateTime.Now:yyyyMMdd_HHmmss}.txt");
-            var sb = new StringBuilder();
-            sb.AppendLine("======================================================================");
-            sb.AppendLine("   STORM SWITCH BOX — ОТЧЁТ АУДИТОРА И ДЕДУПЛИКАТОРА КОЛЛЕКЦИИ ИГР");
-            sb.AppendLine("======================================================================");
-            sb.AppendLine($"Просканировано файлов: {_lastReport.TotalFilesScanned}");
-            sb.AppendLine($"Общий объём коллекции: {ProcessingTask.FormatSize(_lastReport.TotalLibraryBytes)}");
-            sb.AppendLine($"Потенциальная экономия: ~{ProcessingTask.FormatSize(_lastReport.TotalEstimatedSavingsBytes)}");
-            sb.AppendLine($"Найдено рекомендаций: {_lastReport.Issues.Count}");
-            sb.AppendLine("----------------------------------------------------------------------");
-            foreach (var issue in _lastReport.Issues)
+            try
             {
-                sb.AppendLine($"[{issue.Platform}] {issue.IssueLabel} | {issue.GameName} [{issue.TitleId}] | Экономия: {issue.SavingsFormatted}");
-                sb.AppendLine($"  Рекомендация: {issue.Recommendation}");
-                foreach (var rf in issue.RelatedFiles)
-                    sb.AppendLine($"  • {rf}");
-                sb.AppendLine();
-            }
+                if (_lastReport == null) return;
+                string? folder = await SystemDialogService.OpenFolderDialogAsync("Выберите папку для сохранения отчёта аудита");
+                if (string.IsNullOrWhiteSpace(folder)) return;
 
-            await File.WriteAllTextAsync(reportPath, sb.ToString(), Encoding.UTF8);
-            StatusText.Text = $"📄 Отчёт аудита сохранён: {reportPath}";
+                string reportPath = Path.Combine(folder, $"STORM_Library_Audit_{DateTime.Now:yyyyMMdd_HHmmss}.txt");
+                var sb = new StringBuilder();
+                sb.AppendLine("======================================================================");
+                sb.AppendLine("   STORM SWITCH BOX — ОТЧЁТ АУДИТОРА И ДЕДУПЛИКАТОРА КОЛЛЕКЦИИ ИГР");
+                sb.AppendLine("======================================================================");
+                sb.AppendLine($"Просканировано файлов: {_lastReport.TotalFilesScanned}");
+                sb.AppendLine($"Общий объём коллекции: {ProcessingTask.FormatSize(_lastReport.TotalLibraryBytes)}");
+                sb.AppendLine($"Потенциальная экономия: ~{ProcessingTask.FormatSize(_lastReport.TotalEstimatedSavingsBytes)}");
+                sb.AppendLine($"Найдено рекомендаций: {_lastReport.Issues.Count}");
+                sb.AppendLine("----------------------------------------------------------------------");
+                foreach (var issue in _lastReport.Issues)
+                {
+                    sb.AppendLine($"[{issue.Platform}] {issue.IssueLabel} | {issue.GameName} [{issue.TitleId}] | Экономия: {issue.SavingsFormatted}");
+                    sb.AppendLine($"  Рекомендация: {issue.Recommendation}");
+                    foreach (var rf in issue.RelatedFiles)
+                        sb.AppendLine($"  • {rf}");
+                    sb.AppendLine();
+                }
+
+                await File.WriteAllTextAsync(reportPath, sb.ToString(), Encoding.UTF8);
+                StatusText.Text = $"📄 Отчёт аудита сохранён: {reportPath}";
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[LibraryAuditorDialog.xaml.cs] {ex.Message}", Models.LogLevel.Warning);
+            }
         }
     }
 }

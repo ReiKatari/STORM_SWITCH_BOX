@@ -18,7 +18,6 @@ namespace StormSwitchBox.Services
     /// </summary>
     public static class CoverCacheService
     {
-        private static readonly HttpClient _httpClient;
         private static readonly string _baseCoversDirectory;
         private static readonly ConcurrentDictionary<string, string> _memoryUrlMap = new(StringComparer.OrdinalIgnoreCase);
         private static readonly ConcurrentDictionary<string, bool> _queuedUrls = new(StringComparer.OrdinalIgnoreCase);
@@ -39,20 +38,6 @@ namespace StormSwitchBox.Services
 
         static CoverCacheService()
         {
-            var handler = new HttpClientHandler
-            {
-                AutomaticDecompression = System.Net.DecompressionMethods.GZip | System.Net.DecompressionMethods.Deflate,
-                ServerCertificateCustomValidationCallback = (sender, cert, chain, sslPolicyErrors) => true
-            };
-
-            _httpClient = new HttpClient(handler)
-            {
-                Timeout = TimeSpan.FromSeconds(15)
-            };
-
-            _httpClient.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36");
-            _httpClient.DefaultRequestHeaders.Add("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8");
-
             string targetDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "covers");
             try
             {
@@ -93,6 +78,7 @@ namespace StormSwitchBox.Services
             {
                 while (reader.TryRead(out var item))
                 {
+                    bool downloaded = false;
                     try
                     {
                         if (App.Settings?.Current?.AutoDownloadCovers != true)
@@ -103,6 +89,7 @@ namespace StormSwitchBox.Services
                         if (File.Exists(item.LocalPath) && new FileInfo(item.LocalPath).Length > 200)
                         {
                             _memoryUrlMap[item.OriginalKey] = item.LocalPath;
+                            downloaded = true;
                             continue;
                         }
 
@@ -111,21 +98,22 @@ namespace StormSwitchBox.Services
                             Directory.CreateDirectory(item.FolderPath);
                         }
 
-                        bool downloaded = false;
                         foreach (var url in item.CandidateUrls)
                         {
                             if (string.IsNullOrWhiteSpace(url) || url.StartsWith("ms-appx", StringComparison.OrdinalIgnoreCase)) continue;
 
                             try
                             {
+                                using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(15));
                                 using var req = new HttpRequestMessage(HttpMethod.Get, url);
-                                using var res = await _httpClient.SendAsync(req, HttpCompletionOption.ResponseContentRead).ConfigureAwait(false);
+                                req.Headers.TryAddWithoutValidation("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8");
+                                using var res = await StormHttpClientFactory.Shared.SendAsync(req, HttpCompletionOption.ResponseContentRead, cts.Token).ConfigureAwait(false);
                                 if (res.IsSuccessStatusCode)
                                 {
-                                    byte[] bytes = await res.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
-                                    if (bytes.Length > 200)
+                                    byte[] bytes = await res.Content.ReadAsByteArrayAsync(cts.Token).ConfigureAwait(false);
+                                    if (bytes.Length > 200 && StormHttpClientFactory.IsValidImageBytes(bytes))
                                     {
-                                        await File.WriteAllBytesAsync(item.LocalPath, bytes).ConfigureAwait(false);
+                                        await File.WriteAllBytesAsync(item.LocalPath, bytes, cts.Token).ConfigureAwait(false);
                                         _memoryUrlMap[item.OriginalKey] = item.LocalPath;
                                         downloaded = true;
                                         break;
@@ -141,6 +129,10 @@ namespace StormSwitchBox.Services
                     }
                     finally
                     {
+                        if (!downloaded)
+                        {
+                            _queuedUrls.TryRemove(item.OriginalKey, out _);
+                        }
                         await Task.Delay(15).ConfigureAwait(false);
                     }
                 }
@@ -233,14 +225,16 @@ namespace StormSwitchBox.Services
                 {
                     if (string.IsNullOrWhiteSpace(url) || url.StartsWith("ms-appx", StringComparison.OrdinalIgnoreCase)) continue;
 
+                    using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(15));
                     using var req = new HttpRequestMessage(HttpMethod.Get, url);
-                    using var res = await _httpClient.SendAsync(req, HttpCompletionOption.ResponseContentRead).ConfigureAwait(false);
+                    req.Headers.TryAddWithoutValidation("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8");
+                    using var res = await StormHttpClientFactory.Shared.SendAsync(req, HttpCompletionOption.ResponseContentRead, cts.Token).ConfigureAwait(false);
                     if (res.IsSuccessStatusCode)
                     {
-                        byte[] bytes = await res.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
-                        if (bytes.Length > 200)
+                        byte[] bytes = await res.Content.ReadAsByteArrayAsync(cts.Token).ConfigureAwait(false);
+                        if (bytes.Length > 200 && StormHttpClientFactory.IsValidImageBytes(bytes))
                         {
-                            await File.WriteAllBytesAsync(localFilePath, bytes).ConfigureAwait(false);
+                            await File.WriteAllBytesAsync(localFilePath, bytes, cts.Token).ConfigureAwait(false);
                             _memoryUrlMap[key] = localFilePath;
                             return localFilePath;
                         }

@@ -216,12 +216,36 @@ object RuTrackerCloudEngine {
         }
     }
 
+    fun detachHostActivity(activity: android.app.Activity) {
+        if (hostActivityRef?.get() === activity) {
+            hostActivityRef = null
+        }
+        synchronized(backgroundWvLock) {
+            val wv = persistentBackgroundWv ?: return
+            try {
+                (wv.parent as? android.view.ViewGroup)?.removeView(wv)
+                val mcw = wv.context as? android.content.MutableContextWrapper
+                mcw?.baseContext = activity.applicationContext
+            } catch (_: Throwable) {}
+        }
+    }
+
     fun ensureBackgroundWebViewAttached(activity: android.app.Activity): android.webkit.WebView? {
         if (activity.isFinishing || (android.os.Build.VERSION.SDK_INT >= 17 && activity.isDestroyed)) return null
         synchronized(backgroundWvLock) {
-            persistentBackgroundWv?.let { return it }
+            persistentBackgroundWv?.let { existing ->
+                try {
+                    val decor = activity.window?.decorView as? android.view.ViewGroup
+                    if (decor != null && existing.parent !== decor) {
+                        (existing.parent as? android.view.ViewGroup)?.removeView(existing)
+                        decor.addView(existing, 0)
+                    }
+                } catch (_: Throwable) {}
+                return existing
+            }
             try {
-                val wv = android.webkit.WebView(activity).apply {
+                val safeCtx = android.content.MutableContextWrapper(activity.applicationContext)
+                val wv = android.webkit.WebView(safeCtx).apply {
                     addJavascriptInterface(StormWvFetchBridge(pendingWvFetches), "StormWvBridge")
                     val dm = activity.resources.displayMetrics
                     val w = (360 * dm.density).toInt()
@@ -697,79 +721,43 @@ object RuTrackerCloudEngine {
     private var realIndexTopics: List<Map<String, Any>>? = null
     private val realIndexLock = Any()
 
-    // Load real pre-built index from assets
-    private fun loadRealIndexFromAssets(context: Context): List<Map<String, Any>> {
-        return try {
-            val (rawStream, isGzip) = try {
-                context.assets.open("rutracker_switch_index.json.gz") to true
-            } catch (_: Exception) {
-                context.assets.open("rutracker_switch_index.json") to false
-            }
-            val jsonStr = if (isGzip) {
-                java.util.zip.GZIPInputStream(rawStream).bufferedReader(Charsets.UTF_8).use { it.readText() }
-            } else {
-                rawStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-            }
-            val jsonObj = org.json.JSONObject(jsonStr)
-            val topicsArr = jsonObj.getJSONArray("topics")
-            val result = mutableListOf<Map<String, Any>>()
-            for (i in 0 until topicsArr.length()) {
-                val t = topicsArr.getJSONObject(i)
-                result.add(mapOf(
-                    "t" to t.getInt("t"),
-                    "h" to t.getString("h"),
-                    "sd" to t.optInt("sd", 0),
-                    "sz" to t.optLong("sz", 0L),
-                    "rt" to t.optLong("rt", 0L),
-                    "n" to t.optString("n", "")
-                ))
-            }
-            result
-        } catch (e: Exception) {
-            Log.e("RuTracker", "Failed to load real index: ${e.message}")
-            emptyList()
-        }
-    }
-
     fun getOrLoadRealIndex(context: Context? = appContext): List<Map<String, Any>> {
         val existing = realIndexTopics
         if (existing != null) return existing
-        synchronized(realIndexLock) {
-            realIndexTopics?.let { return it }
-            val ctx = context ?: appContext
-            val list = if (ctx != null) {
-                loadRealIndexFromAssets(ctx)
+        val ctx = context ?: appContext
+        if (RuTrackerSwitchIndex.assetOpener == null) {
+            if (ctx != null) {
+                val appCtx = ctx.applicationContext
+                RuTrackerSwitchIndex.assetOpener = { appCtx.assets.open(RuTrackerSwitchIndex.ASSET_NAME) }
             } else {
-                try {
-                    val fallbackFile = listOf(
-                        File("f:/STORM SWITCH BOX/android/app/src/main/assets/rutracker_switch_index.json.gz"),
-                        File("android/app/src/main/assets/rutracker_switch_index.json.gz"),
-                        File("app/src/main/assets/rutracker_switch_index.json.gz")
-                    ).firstOrNull { it.isFile }
-                    if (fallbackFile != null) {
-                        val gzipStream = java.util.zip.GZIPInputStream(fallbackFile.inputStream())
-                        val jsonStr = gzipStream.bufferedReader(Charsets.UTF_8).readText()
-                        val jsonObj = org.json.JSONObject(jsonStr)
-                        val topicsArr = jsonObj.getJSONArray("topics")
-                        val result = mutableListOf<Map<String, Any>>()
-                        for (i in 0 until topicsArr.length()) {
-                            val t = topicsArr.getJSONObject(i)
-                            result.add(mapOf(
-                                "t" to t.getInt("t"),
-                                "h" to t.getString("h"),
-                                "sd" to t.optInt("sd", 0),
-                                "sz" to t.optLong("sz", 0L),
-                                "rt" to t.optLong("rt", 0L),
-                                "n" to t.optString("n", "")
-                            ))
-                        }
-                        result
-                    } else emptyList()
-                } catch (e: Exception) {
-                    Log.e("RuTracker", "Failed to load real index fallback: ${e.message}")
-                    emptyList()
+                val fallbackFile = listOf(
+                    File("android/app/src/main/assets/${RuTrackerSwitchIndex.ASSET_NAME}"),
+                    File("app/src/main/assets/${RuTrackerSwitchIndex.ASSET_NAME}")
+                ).firstOrNull { it.isFile }
+                if (fallbackFile != null) {
+                    RuTrackerSwitchIndex.assetOpener = { fallbackFile.inputStream() }
                 }
             }
+        }
+        if (RuTrackerSwitchIndex.cacheDir == null) {
+            RuTrackerSwitchIndex.cacheDir = cacheRootDir ?: ctx?.filesDir
+        }
+        val idxData = RuTrackerSwitchIndex.ensureLoaded()
+        synchronized(realIndexLock) {
+            realIndexTopics?.let { return it }
+            val list: List<Map<String, Any>> = idxData?.topics?.map { t ->
+                val map = HashMap<String, Any>(9)
+                map["t"] = t.topicId.toIntOrNull() ?: t.topicId
+                map["h"] = t.infoHash
+                map["sd"] = t.seeds
+                map["sz"] = t.sizeBytes
+                map["rt"] = t.regTime
+                map["n"] = t.torrentName
+                if (t.topicTitle.isNotEmpty()) map["tt"] = t.topicTitle
+                if (t.gameName.isNotEmpty()) map["g"] = t.gameName
+                if (t.titleId.isNotEmpty()) map["tid"] = t.titleId
+                map
+            } ?: emptyList()
             val delta = Dynamic1605DeltaManager.getAllDeltaTopics()
             val merged = if (delta.isNotEmpty()) {
                 val mapByTid = LinkedHashMap<String, Map<String, Any>>()
@@ -790,7 +778,9 @@ object RuTrackerCloudEngine {
             } else {
                 list
             }
-            realIndexTopics = merged
+            if (merged.isNotEmpty()) {
+                realIndexTopics = merged
+            }
             return merged
         }
     }
@@ -912,7 +902,7 @@ object RuTrackerCloudEngine {
                 val xml = conn.inputStream.bufferedReader(StandardCharsets.UTF_8).use { it.readText() }
                 val entryRegex = Regex("""<entry>(.*?)</entry>""", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
                 val titleRegex = Regex("""<title[^>]*><!\[CDATA\[(.*?)]]></title>|<title[^>]*>(.*?)</title>""", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
-                val linkRegex = Regex("""<link[^>]*href="([^"*viewtopic\.php\?t=(\d+)[^"]*)" """, RegexOption.IGNORE_CASE)
+                val linkRegex = Regex("""<link[^>]*href=["']([^"']*viewtopic\.php\?t=(\d+)[^"']*)["']""", RegexOption.IGNORE_CASE)
                 val titlesMap = mutableMapOf<String, String>()
                 for (em in entryRegex.findAll(xml)) {
                     val block = em.groupValues[1]
@@ -1933,11 +1923,6 @@ object RuTrackerCloudEngine {
             val sgwDirect = "https://stormgamesworld.ru/uploads/programs/storm_switch_box/${release.apkName}"
             if (!candidates.contains(sgwDirect)) candidates.add(sgwDirect)
         }
-        if (baseUrl.startsWith("https://github.com/")) {
-            candidates.add("https://ghfast.top/$baseUrl")
-            candidates.add("https://gh.llkk.cc/$baseUrl")
-            candidates.add("https://gh.con.sh/$baseUrl")
-        }
 
         destFile.parentFile?.mkdirs()
         for (dlUrl in candidates) {
@@ -2920,7 +2905,7 @@ object RuTrackerCloudEngine {
             val t = iso.groupValues[2].ifBlank { "12:00" }
             return "$d $t"
         }
-        return "25.10.2026 14:30"
+        return ""
     }
 
     private fun classifyCloudProviderName(url: String): String? {
@@ -2987,7 +2972,7 @@ object RuTrackerCloudEngine {
                 val authorMatch = Regex("""<p[^>]+class="nick[^"]*"[^>]*>([\s\S]*?)</p>""", RegexOption.IGNORE_CASE).find(blockHtml)
                 val author = authorMatch?.groupValues?.get(1)?.replace(Regex("<.*?>"), "")?.trim()?.take(24) ?: ""
                 val dateMatch = Regex("""<a[^>]+class="p-link[^"]*"[^>]*>([^<]+)</a>""", RegexOption.IGNORE_CASE).find(blockHtml)
-                val pubDate = if (dateMatch != null) normalizeRuTrackerDate(dateMatch.groupValues[1]) else "26.10.2026 15:20"
+                val pubDate = if (dateMatch != null) normalizeRuTrackerDate(dateMatch.groupValues[1]) else ""
                 val sourceLabel = if (isFirstTopicPost) {
                     "Шапка темы"
                 } else if (author.isNotBlank()) {
@@ -3042,7 +3027,7 @@ object RuTrackerCloudEngine {
                         title = title,
                         roleCategory = role,
                         provider = provider,
-                        publishedDate = "26.10.2026 14:00",
+                        publishedDate = "",
                         sourceLocation = if (pageNumber == 1) "Шапка темы" else "Обсуждение (стр. $pageNumber)",
                         selected = false
                     )
@@ -3381,30 +3366,30 @@ object RuTrackerCloudEngine {
     fun resolveAuthenticBaseTitleId(rawTitle: String, fallbackHash: String = "", fallbackTopicId: String = ""): String {
         val tidMatch = Regex("""([0-9A-Fa-f]{16})""").find(rawTitle)
         if (tidMatch != null) {
-            val normalized = StormNczEngine.normalizeBaseTitleId(tidMatch.groupValues[1])
-            if (normalized == "0100C9801A8C2000") return "010020D01AD24000"
-            return normalized
+            return StormNczEngine.normalizeBaseTitleId(tidMatch.groupValues[1])
         }
-        val lower = rawTitle.lowercase()
-        if (lower.contains("mario") && lower.contains("brothership")) return "01006D0017F7A000"
-        if (lower.contains("mario vs") && lower.contains("donkey kong")) return "0100B99019412000"
-        val clean = StormNczEngine.extractCleanGameTitle(rawTitle).lowercase().trim()
-        if (clean.contains("animal well") || lower.contains("animal well")) return "010020D01AD24000"
         try {
-            val dbMatch = StormNczEngine.loadFullTitleDbFromAssets().firstOrNull {
-                it.platform.equals("Switch", ignoreCase = true) &&
-                    (clean.equals(it.name.lowercase(), ignoreCase = true) ||
-                        clean.contains(it.name.lowercase()) ||
-                        it.name.lowercase().contains(clean))
-            }
-            if (dbMatch != null && dbMatch.titleId.length == 16) {
-                val norm = StormNczEngine.normalizeBaseTitleId(dbMatch.titleId)
-                return if (norm == "0100C9801A8C2000") "010020D01AD24000" else norm
+            val idxTopic = (if (fallbackTopicId.isNotBlank()) RuTrackerSwitchIndex.topicById(fallbackTopicId) else null)
+                ?: (if (fallbackHash.length == 40) RuTrackerSwitchIndex.topicByHash(fallbackHash) else null)
+            if (idxTopic != null && idxTopic.titleId.length == 16) {
+                return StormNczEngine.normalizeBaseTitleId(idxTopic.titleId)
             }
         } catch (_: Throwable) {}
-        val hashSeed = fallbackHash.takeIf { it.length >= 12 }?.take(12)?.uppercase()
-            ?: fallbackTopicId.filter { it.isDigit() }.padStart(12, '0').take(12)
-        return "0100" + hashSeed.drop(4).padEnd(9, '0').take(9) + "000"
+        val clean = StormNczEngine.extractCleanGameTitle(rawTitle).lowercase().trim()
+        if (clean.isNotEmpty()) {
+            try {
+                val dbMatch = StormNczEngine.loadFullTitleDbFromAssets().firstOrNull {
+                    it.platform.equals("Switch", ignoreCase = true) &&
+                        (clean.equals(it.name.lowercase(), ignoreCase = true) ||
+                            clean.contains(it.name.lowercase()) ||
+                            it.name.lowercase().contains(clean))
+                }
+                if (dbMatch != null && dbMatch.titleId.length == 16) {
+                    return StormNczEngine.normalizeBaseTitleId(dbMatch.titleId)
+                }
+            } catch (_: Throwable) {}
+        }
+        return ""
     }
 
     // =========================================================================
@@ -3593,8 +3578,9 @@ object RuTrackerCloudEngine {
     fun getReleaseFilesList(topic: TopicItem): List<ReleaseContentFile> {
         val totalBytes = StormNczEngine.parseSizeToBytes(topic.sizeText).coerceAtLeast(32L * 1024L * 1024L)
         val baseTid = resolveAuthenticBaseTitleId(topic.title, topic.infoHash, topic.topicId)
-        val updTid = baseTid.dropLast(3) + "800"
-        val dlcTid = baseTid.dropLast(3) + "001"
+        val hasTid = baseTid.length == 16
+        val updTid = if (hasTid) baseTid.dropLast(3) + "800" else ""
+        val dlcTid = if (hasTid) baseTid.dropLast(3) + "001" else ""
 
         // Если метаданные раздачи уже получены (BitTorrent), показываем НАСТОЯЩИЙ список файлов с реальными размерами
         var knownHash = (cachedForumTopicMap?.get(topic.topicId)?.first ?: topic.infoHash).uppercase()
@@ -3641,23 +3627,27 @@ object RuTrackerCloudEngine {
         val hasExplicitUnlocker = Regex("""\b(Unlocker|Анлокер|All DLC)\b""", RegexOption.IGNORE_CASE).containsMatchIn(topic.title)
 
         val files = mutableListOf<ReleaseContentFile>()
+        val baseTag = if (hasTid) "[$baseTid]" else ""
+        val updTag = if (updTid.isNotEmpty()) "[$updTid]" else ""
+        val dlcTag = if (dlcTid.isNotEmpty()) "[$dlcTid]" else ""
         if (hasDlc) {
-            val dlcPackTid = baseTid.dropLast(3) + "002"
+            val dlcPackTid = if (hasTid) baseTid.dropLast(3) + "002" else ""
+            val dlcPackTag = if (dlcPackTid.isNotEmpty()) "[$dlcPackTid]" else ""
             val unlockerBytes = if (hasExplicitUnlocker) 256L * 1024L else 0L
             val baseBytes = (totalBytes * 76L) / 100L
             val patchBytes = (totalBytes * 16L) / 100L
             val dlcBytes = (totalBytes - baseBytes - patchBytes - unlockerBytes).coerceAtLeast(2L * 1024L * 1024L)
-            files.add(ReleaseContentFile("$cleanGameName [$baseTid][v0].nsp", "БАЗА", baseBytes, baseTid, true))
-            files.add(ReleaseContentFile("$cleanGameName [$updTid][$verTag].nsp", "ПАТЧ", patchBytes, updTid, true))
-            files.add(ReleaseContentFile("$cleanGameName [$dlcPackTid][DLC Pack].nsp", "DLC", dlcBytes, dlcPackTid, true))
+            files.add(ReleaseContentFile("$cleanGameName $baseTag[v0].nsp".replace("  ", " "), "БАЗА", baseBytes, baseTid, true))
+            files.add(ReleaseContentFile("$cleanGameName $updTag[$verTag].nsp".replace("  ", " "), "ПАТЧ", patchBytes, updTid, true))
+            files.add(ReleaseContentFile("$cleanGameName $dlcPackTag[DLC Pack].nsp".replace("  ", " "), "DLC", dlcBytes, dlcPackTid, true))
             if (hasExplicitUnlocker) {
-                files.add(ReleaseContentFile("$cleanGameName [$dlcTid][DLC Unlocker].nsp", "UNLOCKER", unlockerBytes, dlcTid, true))
+                files.add(ReleaseContentFile("$cleanGameName $dlcTag[DLC Unlocker].nsp".replace("  ", " "), "UNLOCKER", unlockerBytes, dlcTid, true))
             }
         } else {
             val baseBytes = (totalBytes * 88L) / 100L
             val patchBytes = (totalBytes - baseBytes).coerceAtLeast(1024L * 1024L)
-            files.add(ReleaseContentFile("$cleanGameName [$baseTid][v0].nsp", "БАЗА", baseBytes, baseTid, true))
-            files.add(ReleaseContentFile("$cleanGameName [$updTid][$verTag].nsp", "ПАТЧ", patchBytes, updTid, true))
+            files.add(ReleaseContentFile("$cleanGameName $baseTag[v0].nsp".replace("  ", " "), "БАЗА", baseBytes, baseTid, true))
+            files.add(ReleaseContentFile("$cleanGameName $updTag[$verTag].nsp".replace("  ", " "), "ПАТЧ", patchBytes, updTid, true))
         }
         return files
     }
@@ -3917,7 +3907,7 @@ object RuTrackerCloudEngine {
      * опрашивает бутстрап-роутеры по UDP BEP 5 get_peers, сортирует обнаруженные узлы по XOR-расстоянию
      * до целевого info_hash, парсит 6-байтные пиры и мгновенно подключает их напрямую через th.swig().connect_peer().
      */
-    val discoveredSwarmEndpoints = java.util.concurrent.ConcurrentHashMap<String, Pair<String, Int>>()
+    val discoveredSwarmEndpoints = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, Pair<String, Int>>>()
 
     val PUBLIC_TRACKERS = listOf(
         "http://bt.t-ru.org/ann?magnet",
@@ -3957,6 +3947,10 @@ object RuTrackerCloudEngine {
     fun parseAndInjectBencodedPeers(raw: ByteArray, hashKey: String, th: org.libtorrent4j.TorrentHandle) {
         if (raw.size < 10) return
         val str = String(raw, Charsets.ISO_8859_1)
+        val normHashKey = hashKey.trim().uppercase()
+        val swarmMap = discoveredSwarmEndpoints.computeIfAbsent(normHashKey) {
+            java.util.concurrent.ConcurrentHashMap()
+        }
 
         // 1. 5:peers<len>:<compact 6-byte IPv4 peers>
         val pIdx = str.indexOf("5:peers")
@@ -3975,7 +3969,7 @@ object RuTrackerCloudEngine {
                     if (b0 != 0 && port in 1..65535) {
                         val ipStr = "$b0.$b1.$b2.$b3"
                         val key = "$ipStr:$port"
-                        discoveredSwarmEndpoints[key] = ipStr to port
+                        swarmMap[key] = ipStr to port
                         try {
                             val ep = org.libtorrent4j.TcpEndpoint(ipStr, port)
                             th.swig().connect_peer(ep.swig())
@@ -4003,7 +3997,7 @@ object RuTrackerCloudEngine {
                             val ipStr = inet6.hostAddress ?: ""
                             if (ipStr.isNotEmpty()) {
                                 val key = "[$ipStr]:$port"
-                                discoveredSwarmEndpoints[key] = ipStr to port
+                                swarmMap[key] = ipStr to port
                                 val ep = org.libtorrent4j.TcpEndpoint(ipStr, port)
                                 th.swig().connect_peer(ep.swig())
                             }
@@ -4484,7 +4478,8 @@ object RuTrackerCloudEngine {
                         injectPeersViaTurboDhtAsync(hashHex, handle, isCancelled)
                     } catch (_: Throwable) {}
                     if (st.numPeers() < 60) {
-                        for ((_, endpoint) in discoveredSwarmEndpoints) {
+                        val swarmPeers = discoveredSwarmEndpoints[hashHex.uppercase()]?.values ?: emptyList()
+                        for (endpoint in swarmPeers) {
                             try {
                                 val ep = org.libtorrent4j.TcpEndpoint(endpoint.first, endpoint.second)
                                 handle.swig().connect_peer(ep.swig())
@@ -5192,6 +5187,13 @@ object RuTrackerCloudEngine {
             try { serverSocket?.close() } catch (_: Exception) {}
         }
 
+        private fun escapeHtml(s: String): String = s
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("\"", "&quot;")
+            .replace("'", "&#39;")
+
         private fun handleClient(socket: java.net.Socket) {
             socket.use { s ->
                 val reader = s.getInputStream().bufferedReader()
@@ -5203,12 +5205,14 @@ object RuTrackerCloudEngine {
 
                 var rangeStart = 0L
                 var rangeEnd = -1L
+                var hasRangeHeader = false
                 while (true) {
                     val line = reader.readLine()
                     if (line.isNullOrEmpty()) break
                     if (line.startsWith("Range:", ignoreCase = true)) {
                         val m = Regex("""bytes=(\d+)-(\d*)""").find(line)
                         if (m != null) {
+                            hasRangeHeader = true
                             rangeStart = m.groupValues[1].toLongOrNull() ?: 0L
                             rangeEnd = m.groupValues[2].toLongOrNull() ?: -1L
                         }
@@ -5232,10 +5236,10 @@ object RuTrackerCloudEngine {
                         out.write(hdr.toByteArray())
                         out.write(body)
                     } else {
-                        val sb = StringBuilder("<html><head><meta charset='utf-8'><title>STORM SWITCH BOX DBI Server</title></head><body style='background:#0F0C1D;color:#F8FAFC;font-family:sans-serif;'><h2>STORM SWITCH BOX — Сервер DBI / Tinfoil</h2><ul>")
+                        val sb = StringBuilder("<html><head><meta charset='utf-8'><title>STORM SWITCH BOX DBI Server</title></head><body style='background:#0F0C1D;color:#F8FAFC;font-family:sans-serif;'><h2>STORM SWITCH BOX - Сервер DBI / Tinfoil</h2><ul>")
                         files.forEach { f ->
                             val enc = URLEncoder.encode(f.name, "UTF-8").replace("+", "%20")
-                            sb.append("<li><a style='color:#00F0FF' href='/files/$enc'>${f.name}</a> (${StormNczEngine.formatSize(f.length())})</li>")
+                            sb.append("<li><a style='color:#00F0FF' href='/files/$enc'>${escapeHtml(f.name)}</a> (${StormNczEngine.formatSize(f.length())})</li>")
                         }
                         sb.append("</ul></body></html>")
                         val body = sb.toString().toByteArray(StandardCharsets.UTF_8)
@@ -5248,16 +5252,22 @@ object RuTrackerCloudEngine {
                 }
 
                 if (path.startsWith("/files/")) {
-                    val fileName = path.removePrefix("/files/")
+                    val fileName = File(path.removePrefix("/files/")).name
                     val target = files.firstOrNull { it.name == fileName }
                     if (target == null) {
                         out.write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n".toByteArray())
+                        out.flush()
                         return
                     }
                     val totalLen = target.length()
+                    if (hasRangeHeader && (rangeStart < 0L || rangeStart >= totalLen)) {
+                        out.write("HTTP/1.1 416 Range Not Satisfiable\r\nContent-Range: bytes */$totalLen\r\nContent-Length: 0\r\n\r\n".toByteArray())
+                        out.flush()
+                        return
+                    }
                     val end = if (rangeEnd in rangeStart until totalLen) rangeEnd else (totalLen - 1L)
                     val contentLen = (end - rangeStart + 1L).coerceAtLeast(0L)
-                    val isPartial = rangeStart > 0L || rangeEnd >= 0L
+                    val isPartial = hasRangeHeader
 
                     val status = if (isPartial) "206 Partial Content" else "200 OK"
                     val hdr = buildString {

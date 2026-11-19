@@ -16,7 +16,7 @@ namespace StormSwitchBox
                 if (v != null) return $"{v.Major}.{v.Minor}.{Math.Max(0, v.Build)}";
             }
             catch { }
-            return "6.4.0";
+            return "8.0.0";
         }
         public static Window? MainWindow { get; private set; }
         public static IntPtr MainWindowHandle { get; set; }
@@ -76,6 +76,35 @@ namespace StormSwitchBox
                     Logger?.Log($"[UI Exception Intercepted] {ex.Message}{loc}", Models.LogLevel.Warning);
                 }
             }
+        }
+
+        public static Task RunOnUIAsync(Func<Task> action)
+        {
+            var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            async void Execute()
+            {
+                try
+                {
+                    await action();
+                    tcs.TrySetResult(true);
+                }
+                catch (Exception ex)
+                {
+                    string loc = ex.TargetSite != null ? $" ({ex.TargetSite.DeclaringType?.Name}.{ex.TargetSite.Name})" : "";
+                    Logger?.Log($"[UI Exception Intercepted] {ex.Message}{loc}", Models.LogLevel.Warning);
+                    tcs.TrySetResult(false);
+                }
+            }
+
+            if (MainDispatcher == null || MainDispatcher.HasThreadAccess)
+            {
+                Execute();
+            }
+            else if (!MainDispatcher.TryEnqueue(Execute))
+            {
+                tcs.TrySetResult(false);
+            }
+            return tcs.Task;
         }
 
         public static void NotifyTaskCompleted(StormSwitchBox.Models.ProcessingTask task)
@@ -250,7 +279,7 @@ namespace StormSwitchBox
             Services.TempCleanupService.PurgeStaleTempDirectories();
 
             // Start NamedPipe Server to listen for other instances
-            _ = Task.Run(() =>
+            _ = Task.Run(async () =>
             {
                 while (true)
                 {
@@ -290,7 +319,10 @@ namespace StormSwitchBox
                             }
                         }
                     }
-                    catch { }
+                    catch
+                    {
+                        await Task.Delay(500);
+                    }
                 }
             });
 
@@ -299,15 +331,22 @@ namespace StormSwitchBox
             InitializeForumBrowserBypass();
 
             // Загружаем настройки перед показом окна
-            await Settings.LoadAsync();
-            Localization.CurrentLanguage = Models.AppSettings.NormalizeLanguageCode(Settings.Current.Language);
-            Logger.Log("Приложение запущено. Настройки загружены.", Models.LogLevel.Info);
+            try
+            {
+                await Settings.LoadAsync();
+            }
+            catch (Exception ex)
+            {
+                Logger?.Log($"Ошибка загрузки настроек: {ex.Message}", Models.LogLevel.Warning);
+            }
+            Localization.CurrentLanguage = Models.AppSettings.NormalizeLanguageCode(Settings?.Current?.Language);
+            Logger?.Log("Приложение запущено. Настройки загружены.", Models.LogLevel.Info);
 
-            if (Settings.Current.EnableWatchFolderSwitch)
+            if (Settings?.Current?.EnableWatchFolderSwitch == true)
             {
                 WatchFolderService.StartSwitch();
             }
-            if (Settings.Current.EnableWatchFolder3ds)
+            if (Settings?.Current?.EnableWatchFolder3ds == true)
             {
                 WatchFolderService.Start3ds();
             }
@@ -318,7 +357,7 @@ namespace StormSwitchBox
             }
             catch (Exception ex)
             {
-                Logger.Log($"Ошибка регистрации AppNotificationManager: {ex.Message}", Models.LogLevel.Warning);
+                Logger?.Log($"Ошибка регистрации AppNotificationManager: {ex.Message}", Models.LogLevel.Warning);
             }
 
             // Проверяем и загружаем ключи пользователя с автоматическим поиском prod.keys
@@ -332,7 +371,7 @@ namespace StormSwitchBox
             }
             else
             {
-                Logger.Log("Файл криптографических ключей prod.keys не найден. Пожалуйста, укажите его в параметрах.", Models.LogLevel.Warning);
+                Logger?.Log("Файл криптографических ключей prod.keys не найден. Пожалуйста, укажите его в параметрах.", Models.LogLevel.Warning);
             }
 
             // Handle current process args
@@ -594,9 +633,7 @@ namespace StormSwitchBox
                         if (!interactive)
                         {
                             var hiddenWv = new Microsoft.UI.Xaml.Controls.WebView2();
-                            await hiddenWv.EnsureCoreWebView2Async(env);
-
-                            var timeoutCts = System.Threading.CancellationTokenSource.CreateLinkedTokenSource(ct);
+                            using var timeoutCts = System.Threading.CancellationTokenSource.CreateLinkedTokenSource(ct);
                             timeoutCts.CancelAfter(TimeSpan.FromSeconds(7));
 
                             async void OnNavCompleted(object? s, Microsoft.Web.WebView2.Core.CoreWebView2NavigationCompletedEventArgs e)
@@ -608,7 +645,7 @@ namespace StormSwitchBox
                                     {
                                         html = System.Text.RegularExpressions.Regex.Unescape(html.Substring(1, html.Length - 2));
                                     }
-                                    if (!RuTrackerModService.IsAntiBotChallengeOrErrorHtml(html))
+                                    if (!RuTrackerModService.IsAntiBotChallengeOrErrorHtml(html) && hiddenWv.CoreWebView2 != null)
                                     {
                                         var cookies = await hiddenWv.CoreWebView2.CookieManager.GetCookiesAsync(url);
                                         string cookieHeader = string.Join("; ", cookies.Select(c => $"{c.Name}={c.Value}"));
@@ -618,20 +655,29 @@ namespace StormSwitchBox
                                 catch { }
                             }
 
-                            hiddenWv.NavigationCompleted += OnNavCompleted;
-                            timeoutCts.Token.Register(() =>
+                            using var reg = timeoutCts.Token.Register(() =>
                             {
-                                hiddenWv.NavigationCompleted -= OnNavCompleted;
                                 tcs.TrySetResult((null, null, null));
                             });
 
-                            hiddenWv.Source = new Uri(url);
+                            try
+                            {
+                                await hiddenWv.EnsureCoreWebView2Async(env);
+                                hiddenWv.NavigationCompleted += OnNavCompleted;
+                                hiddenWv.Source = new Uri(url);
+                                await tcs.Task;
+                            }
+                            finally
+                            {
+                                hiddenWv.NavigationCompleted -= OnNavCompleted;
+                                try { hiddenWv.Close(); } catch { }
+                            }
                         }
                         else
                         {
                             var win = new Window
                             {
-                                Title = App.Localization.TranslateText("STORM SWITCH BOX — Проверка доступа к файлу")
+                                Title = App.Localization.TranslateText("STORM SWITCH BOX - Проверка доступа к файлу")
                             };
 
                             var grid = new Microsoft.UI.Xaml.Controls.Grid

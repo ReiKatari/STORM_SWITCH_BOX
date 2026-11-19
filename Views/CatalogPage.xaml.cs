@@ -16,6 +16,7 @@ namespace StormSwitchBox.Views
         private CatalogScannerService _scannerService;
         private CancellationTokenSource? _scanCts;
         private CatalogItem? _selectedCatalogItem;
+        private Action? _langHandler;
 
         public CatalogPage()
         {
@@ -26,11 +27,20 @@ namespace StormSwitchBox.Views
             
             // Загружаем папки
             FoldersListView.ItemsSource = App.Settings.Current.CatalogFolders;
+            _langHandler = () => App.RunOnUI(ApplyLocalization);
             this.Loaded += CatalogPage_Loaded;
-            App.TaskCompleted += App_TaskCompleted;
+            this.Unloaded += CatalogPage_Unloaded;
 
             ApplyLocalization();
-            App.Localization.LanguageChanged += () => App.RunOnUI(ApplyLocalization);
+        }
+
+        private void CatalogPage_Unloaded(object sender, RoutedEventArgs e)
+        {
+            App.TaskCompleted -= App_TaskCompleted;
+            if (_langHandler != null)
+            {
+                App.Localization.LanguageChanged -= _langHandler;
+            }
         }
 
         private async void App_TaskCompleted(Models.ProcessingTask task)
@@ -65,6 +75,13 @@ namespace StormSwitchBox.Views
 
         private void CatalogPage_Loaded(object sender, RoutedEventArgs e)
         {
+            App.TaskCompleted -= App_TaskCompleted;
+            App.TaskCompleted += App_TaskCompleted;
+            if (_langHandler != null)
+            {
+                App.Localization.LanguageChanged -= _langHandler;
+                App.Localization.LanguageChanged += _langHandler;
+            }
             ApplyLocalization();
             if (_allCatalogItems.Count == 0 && App.Settings.Current.CatalogFolders.Any())
             {
@@ -132,15 +149,30 @@ namespace StormSwitchBox.Views
                 });
             });
 
-            bool success = await App.TitleDb.UpdateDatabaseAsync(progress);
-            
-            App.MainDispatcher?.TryEnqueue(() =>
+            try
             {
-                ScanStatusText.Text = success ? "База TitleDB успешно обновлена!" : "Ошибка скачивания базы!";
-                ScanProgress.IsActive = false;
-                UpdateDbButton.IsEnabled = true;
-                UpdateDbStatusUI();
-            });
+                bool success = await App.TitleDb.UpdateDatabaseAsync(progress);
+                App.MainDispatcher?.TryEnqueue(() =>
+                {
+                    ScanStatusText.Text = success ? "База TitleDB успешно обновлена!" : "Ошибка скачивания базы!";
+                    UpdateDbStatusUI();
+                });
+            }
+            catch (Exception ex)
+            {
+                App.MainDispatcher?.TryEnqueue(() =>
+                {
+                    ScanStatusText.Text = $"Ошибка: {ex.Message}";
+                });
+            }
+            finally
+            {
+                App.MainDispatcher?.TryEnqueue(() =>
+                {
+                    ScanProgress.IsActive = false;
+                    UpdateDbButton.IsEnabled = true;
+                });
+            }
         }
 
         private async void StartScan()
@@ -255,9 +287,10 @@ namespace StormSwitchBox.Views
                     if (token.IsCancellationRequested) return;
                 }
 
+                var itemsSnapshot = _allCatalogItems.ToList();
                 var filtered = await Task.Run(() => 
                 {
-                    var itemsCopy = _allCatalogItems.ToList();
+                    var itemsCopy = itemsSnapshot;
                     
                     // Filter by platform
                     if (_selectedPlatformFilter == 1) // Switch only
@@ -481,7 +514,7 @@ namespace StormSwitchBox.Views
                     try
                     {
                         var eShopService = new Services.NintendoEShopService();
-                        var eshopData = await eShopService.SearchGameInfoAsync(item.TitleName);
+                        var eshopData = await eShopService.SearchGameInfoAsync(item.TitleName ?? string.Empty);
                         if (eshopData != null)
                         {
                             // Описание
@@ -558,97 +591,24 @@ namespace StormSwitchBox.Views
 
         private async void DownloadUpdatesDlcButton_Click(object sender, RoutedEventArgs e)
         {
-            if (_selectedCatalogItem == null || string.IsNullOrEmpty(_selectedCatalogItem.TitleId)) return;
+            if (_selectedCatalogItem == null) return;
 
             DownloadUpdatesDlcButton.IsEnabled = false;
             try
             {
-                var downloads = await TinfoilDownloaderService.Instance.GetAvailableDownloadsAsync(_selectedCatalogItem.TitleId, _selectedCatalogItem.TitleName ?? "");
-                if (downloads.Count == 0)
+                string query = !string.IsNullOrWhiteSpace(_selectedCatalogItem.TitleName) && _selectedCatalogItem.TitleName != "Unknown Game"
+                    ? _selectedCatalogItem.TitleName
+                    : (_selectedCatalogItem.TitleId ?? string.Empty);
+
+                var dlg = new Dialogs.RuTrackerModDownloaderDialog(App.TasksVM, null, query)
                 {
-                    var noItemsDialog = new ContentDialog
-                    {
-                        Title = "TitleDB / Tinfoil Загрузчик",
-                        Content = $"Для игры «{_selectedCatalogItem.TitleName}» [{_selectedCatalogItem.TitleId}] в публичном индексе нет доступных дополнений.",
-                        CloseButtonText = "OK",
-                        XamlRoot = this.XamlRoot
-                    };
-                    await noItemsDialog.ShowAsync();
-                    return;
-                }
-
-                var sp = new StackPanel { Spacing = 10, MaxWidth = 480 };
-                sp.Children.Add(new TextBlock 
-                { 
-                    Text = $"Доступно для загрузки ({downloads.Count} шт.):", 
-                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold 
-                });
-
-                var listView = new ListView 
-                { 
-                    ItemsSource = downloads, 
-                    MaxHeight = 240,
-                    SelectionMode = ListViewSelectionMode.Multiple
-                };
-                listView.SelectAll();
-                sp.Children.Add(listView);
-
-                var targetDir = !string.IsNullOrEmpty(App.Settings.Current.OutputFolder) 
-                    ? App.Settings.Current.OutputFolder 
-                    : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
-
-                sp.Children.Add(new TextBlock 
-                { 
-                    Text = $"Каталог сохранения: {targetDir}", 
-                    FontSize = 12, 
-                    Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorSecondaryBrush"] 
-                });
-
-                var dialog = new ContentDialog
-                {
-                    Title = "📥 Загрузка обновлений и DLC (TitleDB / Tinfoil)",
-                    Content = sp,
-                    PrimaryButtonText = "Загрузить выбранное",
-                    CloseButtonText = "Отмена",
                     XamlRoot = this.XamlRoot
                 };
-
-                var res = await dialog.ShowAsync();
-                if (res == ContentDialogResult.Primary)
-                {
-                    var selected = listView.SelectedItems.Cast<AvailableDownloadItem>().ToList();
-                    App.Logger.Log($"[Downloader] Запуск фоновой загрузки {selected.Count} элементов для {_selectedCatalogItem.TitleName}...", LogLevel.Info);
-                    App.ShowToastNotification("TitleDB / Tinfoil Загрузчик", $"Запущена загрузка {selected.Count} файлов в фоне.");
-
-                    _ = Task.Run(async () =>
-                    {
-                        var downloadedPaths = new List<string>();
-                        foreach (var item in selected)
-                        {
-                            string fileName = $"{_selectedCatalogItem.TitleName} [{item.TitleId}][{item.Version}].nsp";
-                            foreach (char c in Path.GetInvalidFileNameChars()) fileName = fileName.Replace(c, '_');
-
-                            string? dl = await TinfoilDownloaderService.Instance.DownloadFileAsync(item.DownloadUrl, targetDir, fileName);
-                            if (!string.IsNullOrEmpty(dl) && File.Exists(dl))
-                            {
-                                downloadedPaths.Add(dl);
-                            }
-                        }
-
-                        if (downloadedPaths.Count > 0)
-                        {
-                            App.RunOnUI(async () =>
-                            {
-                                await App.TasksVM.AddDroppedFilesBatchAsync(downloadedPaths);
-                                App.ShowToastNotification("TitleDB / Tinfoil", $"Загрузка завершена! Добавлено в Задачник: {downloadedPaths.Count} файлов.");
-                            });
-                        }
-                    });
-                }
+                await dlg.ShowAsync();
             }
             catch (Exception ex)
             {
-                App.Logger.Log($"[Downloader] Ошибка: {ex.Message}", LogLevel.Error);
+                App.Logger.Log($"[RuTracker] Ошибка открытия загрузчика: {ex.Message}", LogLevel.Error);
             }
             finally
             {
@@ -804,17 +764,50 @@ namespace StormSwitchBox.Views
 
         private int _currentScreenshotIndex = 0;
 
-        private void CopyCoverImage_Click(object sender, RoutedEventArgs e)
+        private async void CopyCoverImage_Click(object sender, RoutedEventArgs e)
         {
-            if (_selectedCatalogItem != null && _selectedCatalogItem.CoverImage != null)
+            if (_selectedCatalogItem == null) return;
+            try
             {
-                try
+                byte[]? bytes = _selectedCatalogItem.CoverBytes;
+                if ((bytes == null || bytes.Length == 0) && _selectedCatalogItem.CoverImage?.UriSource != null)
                 {
-                    var dataPackage = new Windows.ApplicationModel.DataTransfer.DataPackage();
-                    dataPackage.SetText(_selectedCatalogItem.TitleName);
-                    Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(dataPackage);
+                    var uri = _selectedCatalogItem.CoverImage.UriSource;
+                    if (uri.IsFile && File.Exists(uri.LocalPath))
+                    {
+                        bytes = await File.ReadAllBytesAsync(uri.LocalPath);
+                    }
+                    else if (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
+                    {
+                        bytes = await StormHttpClientFactory.Shared.GetByteArrayAsync(uri);
+                    }
+                    if (bytes != null && bytes.Length > 0)
+                    {
+                        _selectedCatalogItem.CoverBytes = bytes;
+                    }
                 }
-                catch { }
+
+                if (bytes != null && bytes.Length > 0)
+                {
+                    var ras = new Windows.Storage.Streams.InMemoryRandomAccessStream();
+                    using (var writer = new Windows.Storage.Streams.DataWriter(ras.GetOutputStreamAt(0)))
+                    {
+                        writer.WriteBytes(bytes);
+                        await writer.StoreAsync();
+                        await writer.FlushAsync();
+                        writer.DetachStream();
+                    }
+                    ras.Seek(0);
+                    var streamRef = Windows.Storage.Streams.RandomAccessStreamReference.CreateFromStream(ras);
+                    var dataPackage = new Windows.ApplicationModel.DataTransfer.DataPackage();
+                    dataPackage.SetBitmap(streamRef);
+                    Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(dataPackage);
+                    Windows.ApplicationModel.DataTransfer.Clipboard.Flush();
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Catalog] Ошибка копирования обложки: {ex.Message}", LogLevel.Warning);
             }
         }
 
@@ -867,10 +860,14 @@ namespace StormSwitchBox.Views
 
             try
             {
+                int idx = Math.Clamp(_currentScreenshotIndex, 0, _selectedCatalogItem.Screenshots.Count - 1);
+                var bmp = _selectedCatalogItem.Screenshots[idx];
+                var uri = bmp?.UriSource;
+
                 var savePicker = new Windows.Storage.Pickers.FileSavePicker();
                 savePicker.SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.PicturesLibrary;
                 savePicker.FileTypeChoices.Add("PNG Image", new List<string>() { ".png" });
-                savePicker.SuggestedFileName = $"{_selectedCatalogItem.TitleName}_Screenshot_{_currentScreenshotIndex + 1}";
+                savePicker.SuggestedFileName = $"{StormToolResolver.SanitizeFileName(_selectedCatalogItem.TitleName)}_Screenshot_{idx + 1}";
 
                 var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindow);
                 WinRT.Interop.InitializeWithWindow.Initialize(savePicker, hwnd);
@@ -878,7 +875,26 @@ namespace StormSwitchBox.Views
                 var file = await savePicker.PickSaveFileAsync();
                 if (file != null)
                 {
-                    // Уведомление об успешном сохранении
+                    byte[]? bytes = null;
+                    if (uri != null)
+                    {
+                        if (uri.IsFile && File.Exists(uri.LocalPath))
+                        {
+                            bytes = await File.ReadAllBytesAsync(uri.LocalPath);
+                        }
+                        else if (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
+                        {
+                            bytes = await StormHttpClientFactory.Shared.GetByteArrayAsync(uri);
+                        }
+                    }
+
+                    if (bytes == null || bytes.Length == 0)
+                    {
+                        throw new InvalidOperationException("Не удалось загрузить данные скриншота.");
+                    }
+
+                    await Windows.Storage.FileIO.WriteBytesAsync(file, bytes);
+
                     var dialog = new ContentDialog
                     {
                         Title = "Сохранение скриншота",
@@ -889,7 +905,10 @@ namespace StormSwitchBox.Views
                     await dialog.ShowAsync();
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Catalog] Ошибка сохранения скриншота: {ex.Message}", LogLevel.Warning);
+            }
         }
 
         private void FullscreenImageOverlay_PointerPressed(object sender, PointerRoutedEventArgs e)

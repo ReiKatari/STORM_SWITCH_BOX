@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -124,58 +124,72 @@ namespace StormSwitchBox.Views.Dialogs
 
         private async void BrowseFolder_Click(object sender, RoutedEventArgs e)
         {
-            string? folder = await SystemDialogService.OpenFolderDialogAsync("Выберите выходную папку для мульти-картриджа", OutputFolderBox.Text);
-            if (!string.IsNullOrWhiteSpace(folder))
+            try
             {
-                OutputFolderBox.Text = folder;
+                string? folder = await SystemDialogService.OpenFolderDialogAsync("Выберите выходную папку для мульти-картриджа", OutputFolderBox.Text);
+                if (!string.IsNullOrWhiteSpace(folder))
+                {
+                    OutputFolderBox.Text = folder;
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[MultiCartridgeDialog.xaml.cs] {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
         private async void BuildCartridge_Click(object sender, RoutedEventArgs e)
         {
-            if (Items.Count == 0)
-            {
-                StatusTextBlock.Text = "⚠ Сначала добавьте хотя бы один игровой контейнер (.NSP / .NSZ / .XCI / .XCZ).";
-                return;
-            }
-
-            string outFolder = OutputFolderBox.Text.Trim();
-            string outName = CartridgeNameBox.Text.Trim();
-            if (string.IsNullOrEmpty(outName)) outName = "STORM_MultiCartridge";
-
-            bool compressXcz = (OutputFormatCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() == "XCZ";
-            string outPath = Path.Combine(outFolder, outName + (compressXcz ? ".xcz" : ".xci"));
-
-            BuildButton.IsEnabled = false;
-            _cts = new CancellationTokenSource();
-
-            var progress = new Progress<(double Percent, string Status)>(p =>
-            {
-                BuildProgressBar.Value = p.Percent;
-                StatusTextBlock.Text = p.Status;
-            });
-
             try
             {
-                string finalFile = await MultiGameCartridgeService.BuildMultiGameCartridgeAsync(
-                    Items.Select(i => i.FilePath).ToList(),
-                    outPath,
-                    compressXcz,
-                    null,
-                    progress,
-                    _cts.Token);
+                if (Items.Count == 0)
+                {
+                    StatusTextBlock.Text = "⚠ Сначала добавьте хотя бы один игровой контейнер (.NSP / .NSZ / .XCI / .XCZ).";
+                    return;
+                }
 
-                StatusTextBlock.Text = $"✅ Мульти-картридж успешно собран: {finalFile}";
-                App.Logger.Log($"[Multi-Cartridge] Собран мульти-картридж ({Items.Count} файлов): {finalFile}", LogLevel.Success);
+                string outFolder = OutputFolderBox.Text.Trim();
+                string outName = CartridgeNameBox.Text.Trim();
+                if (string.IsNullOrEmpty(outName)) outName = "STORM_MultiCartridge";
+
+                bool compressXcz = (OutputFormatCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() == "XCZ";
+                string outPath = Path.Combine(outFolder, outName + (compressXcz ? ".xcz" : ".xci"));
+
+                BuildButton.IsEnabled = false;
+                _cts = new CancellationTokenSource();
+
+                var progress = new Progress<(double Percent, string Status)>(p =>
+                {
+                    BuildProgressBar.Value = p.Percent;
+                    StatusTextBlock.Text = p.Status;
+                });
+
+                try
+                {
+                    string finalFile = await MultiGameCartridgeService.BuildMultiGameCartridgeAsync(
+                        Items.Select(i => i.FilePath).ToList(),
+                        outPath,
+                        compressXcz,
+                        null,
+                        progress,
+                        _cts.Token);
+
+                    StatusTextBlock.Text = $"✅ Мульти-картридж успешно собран: {finalFile}";
+                    App.Logger.Log($"[Multi-Cartridge] Собран мульти-картридж ({Items.Count} файлов): {finalFile}", LogLevel.Success);
+                }
+                catch (Exception ex)
+                {
+                    StatusTextBlock.Text = "❌ Ошибка сборки: " + ex.Message;
+                    App.Logger.Log($"[Multi-Cartridge] Ошибка: {ex.Message}", LogLevel.Error);
+                }
+                finally
+                {
+                    BuildButton.IsEnabled = true;
+                }
             }
             catch (Exception ex)
             {
-                StatusTextBlock.Text = "❌ Ошибка сборки: " + ex.Message;
-                App.Logger.Log($"[Multi-Cartridge] Ошибка: {ex.Message}", LogLevel.Error);
-            }
-            finally
-            {
-                BuildButton.IsEnabled = true;
+                App.Logger?.Log($"[MultiCartridgeDialog.xaml.cs] {ex.Message}", Models.LogLevel.Warning);
             }
         }
     }

@@ -85,9 +85,8 @@ namespace StormSwitchBox.Services
                 ? Path.ChangeExtension(outputFilePath, ".xci")
                 : (outputFilePath.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) ? outputFilePath : Path.ChangeExtension(outputFilePath, ".xci"));
 
-            var openedStreams = new List<FileStream>();
+            var openedContainers = new List<SwitchContainerHandle>();
             var openedFiles = new List<IFile>();
-            var openedFileSystems = new List<IFileSystem>();
             var keepAlive = new List<object>();
 
             try
@@ -119,7 +118,7 @@ namespace StormSwitchBox.Services
                 }
 
                 if (workingFiles.Count == 0)
-                    throw new InvalidOperationException("Не найдено ключей шифрования для сборки XCI.");
+                    throw new InvalidOperationException("Не найдено ни одного подходящего файла (.nsp/.nsz/.xci/.xcz) для сборки XCI.");
 
                 progress?.Report((30, "Формирование единого HFS0 раздела /secure и дедупликация NCA..."));
 
@@ -134,35 +133,9 @@ namespace StormSwitchBox.Services
                     foreach (var containerPath in workingFiles)
                     {
                         ct.ThrowIfCancellationRequested();
-                        var fs = new FileStream(containerPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-                        openedStreams.Add(fs);
-                        IStorage storage = fs.AsStorage();
-                        keepAlive.Add(storage);
-
-                        PartitionFileSystem pfs;
-                        if (containerPath.EndsWith(".xci", StringComparison.OrdinalIgnoreCase))
-                        {
-                            storage.GetSize(out long sz).ThrowIfFailure();
-                            var rootSub = new SubStorage(storage, 0x10000, sz - 0x10000);
-                            keepAlive.Add(rootSub);
-                            var rootPfs = new PartitionFileSystem(rootSub);
-                            openedFileSystems.Add(rootPfs);
-
-                            using var secRef = new UniqueRef<IFile>();
-                            using var secPath = new LibHac.Fs.Path();
-                            secPath.Initialize(new U8Span(Encoding.UTF8.GetBytes("/secure"))).ThrowIfFailure();
-                            rootPfs.OpenFile(ref secRef.Ref, in secPath, OpenMode.Read).ThrowIfFailure();
-                            IFile secFile = secRef.Release();
-                            openedFiles.Add(secFile);
-                            IStorage secStorage = secFile.AsStorage();
-                            keepAlive.Add(secStorage);
-                            pfs = new PartitionFileSystem(secStorage);
-                        }
-                        else
-                        {
-                            pfs = new PartitionFileSystem(storage);
-                        }
-                        openedFileSystems.Add(pfs);
+                        var container = SwitchContainerHandle.Open(containerPath);
+                        openedContainers.Add(container);
+                        IFileSystem pfs = container.FileSystem;
 
                         SmartShrinkService.HarvestTicketsFromFileSystem(pfs, App.Keys.CurrentKeyset);
                         var redundant = SmartShrinkService.AnalyzeRedundantEntriesInFileSystem(
@@ -224,7 +197,9 @@ namespace StormSwitchBox.Services
                     rootHfs0.Read(0, rootHeader).ThrowIfFailure();
                     byte[] rootHeaderHash = SHA256.HashData(rootHeader);
 
-                    long totalXciSize = rootOffset + rootSize;
+                    long unalignedTotalXciSize = rootOffset + rootSize;
+                    long totalXciSize = (unalignedTotalXciSize + 0x1FFL) & ~0x1FFL;
+                    long tailPadding = totalXciSize - unalignedTotalXciSize;
                     byte cartSizeByte = GetCartridgeCapacityByte(totalXciSize);
 
                     string? outDir = Path.GetDirectoryName(targetXciPath);
@@ -242,7 +217,8 @@ namespace StormSwitchBox.Services
                     header[0x10D] = cartSizeByte;
                     header[0x10E] = 0x00;
                     header[0x10F] = 0x00;
-                    ulong validDataEnd = (ulong)((totalXciSize + 0x1FF) / 0x200);
+                    long totalPages = totalXciSize / 0x200L;
+                    ulong validDataEnd = (ulong)Math.Max(0L, totalPages - 1L);
                     Array.Copy(BitConverter.GetBytes(validDataEnd), 0, header, 0x118, 8);
                     Array.Copy(BitConverter.GetBytes((ulong)rootOffset), 0, header, 0x130, 8);
                     Array.Copy(BitConverter.GetBytes((ulong)hfs0HeaderAligned), 0, header, 0x138, 8);
@@ -265,6 +241,13 @@ namespace StormSwitchBox.Services
 
                         double pct = 30.0 + (offset * 55.0 / Math.Max(1, rootSize));
                         progress?.Report((pct, $"Сборка мульти-картриджа XCI: {ProcessingTask.FormatSize(offset)} / {ProcessingTask.FormatSize(rootSize)}"));
+                    }
+
+                    if (tailPadding > 0)
+                    {
+                        byte[] padBuf = new byte[tailPadding];
+                        Array.Fill(padBuf, (byte)0xFF);
+                        outFs.Write(padBuf, 0, padBuf.Length);
                     }
                 }, ct);
 
@@ -293,8 +276,7 @@ namespace StormSwitchBox.Services
             finally
             {
                 foreach (var f in openedFiles) { try { f.Dispose(); } catch { } }
-                foreach (var fs in openedFileSystems) { try { fs.Dispose(); } catch { } }
-                foreach (var s in openedStreams) { try { s.Dispose(); } catch { } }
+                foreach (var c in openedContainers) { try { c.Dispose(); } catch { } }
                 TempCleanupService.ForceDeleteDirectory(tempDecompDir);
             }
         }
@@ -307,7 +289,8 @@ namespace StormSwitchBox.Services
             if (sizeBytes <= 4 * GB) return 0xF0; // 4 GB
             if (sizeBytes <= 8 * GB) return 0xE0; // 8 GB
             if (sizeBytes <= 16 * GB) return 0xE1; // 16 GB
-            return 0xE2; // 32 GB
+            if (sizeBytes <= 32 * GB) return 0xE2; // 32 GB
+            return 0xE3; // 64 GB
         }
     }
 }

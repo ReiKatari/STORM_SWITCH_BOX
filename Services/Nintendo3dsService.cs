@@ -128,21 +128,29 @@ namespace StormSwitchBox.Services
                         if (headerSize >= 0x20 && headerSize <= 0x4000 && certSize > 0 && tmdSize > 0)
                         {
                             long tmdOffset = Align64(headerSize) + Align64(certSize) + Align64(ticketSize);
-                            if (tmdOffset + 0x1A0 <= fs.Length)
+                            if (tmdOffset + 4 <= fs.Length)
                             {
-                                fs.Seek(tmdOffset + 0x18C, SeekOrigin.Begin);
-                                ulong titleId = 0;
-                                for (int i = 0; i < 8; i++)
+                                fs.Seek(tmdOffset, SeekOrigin.Begin);
+                                uint tmdSigType = (uint)((reader.ReadByte() << 24) | (reader.ReadByte() << 16) | (reader.ReadByte() << 8) | reader.ReadByte());
+                                int sigSize = Get3dsSignatureBlockSize(tmdSigType);
+                                long tmdBody = tmdOffset + sigSize;
+
+                                if (tmdBody + 0x9E <= fs.Length)
                                 {
-                                    titleId = (titleId << 8) | reader.ReadByte();
+                                    fs.Seek(tmdBody + 0x4C, SeekOrigin.Begin);
+                                    ulong titleId = 0;
+                                    for (int i = 0; i < 8; i++)
+                                    {
+                                        titleId = (titleId << 8) | reader.ReadByte();
+                                    }
+                                    info.TitleId = titleId.ToString("X16");
+
+                                    fs.Seek(tmdBody + 0x9C, SeekOrigin.Begin);
+                                    ushort ver = (ushort)((reader.ReadByte() << 8) | reader.ReadByte());
+                                    info.Version = $"v{ver}";
+
+                                    Classify3dsTitleId(info);
                                 }
-                                info.TitleId = titleId.ToString("X16");
-
-                                fs.Seek(tmdOffset + 0x19C, SeekOrigin.Begin);
-                                ushort ver = (ushort)((reader.ReadByte() << 8) | reader.ReadByte());
-                                info.Version = $"v{ver}";
-
-                                Classify3dsTitleId(info);
                             }
 
                             long contentOffset = tmdOffset + Align64(tmdSize);
@@ -177,6 +185,14 @@ namespace StormSwitchBox.Services
 
         private static long Align64(long val) => (val + 0x3F) & ~0x3FL;
 
+        private static int Get3dsSignatureBlockSize(uint sigTypeBE) => sigTypeBE switch
+        {
+            0x00010000 or 0x00010003 => 0x240, // RSA-4096
+            0x00010001 or 0x00010004 => 0x140, // RSA-2048
+            0x00010002 or 0x00010005 => 0x80,  // ECDSA
+            _ => 0x140
+        };
+
         private static void Classify3dsTitleId(Nintendo3dsInfo info)
         {
             if (string.IsNullOrEmpty(info.TitleId)) return;
@@ -194,14 +210,14 @@ namespace StormSwitchBox.Services
                 string magic = Encoding.ASCII.GetString(reader.ReadBytes(4));
                 if (magic != "NCCH") return;
 
-                fs.Seek(ncchOffset + 0x108, SeekOrigin.Begin);
+                fs.Seek(ncchOffset + 0x118, SeekOrigin.Begin);
                 ulong progId = reader.ReadUInt64();
                 if (string.IsNullOrEmpty(info.TitleId) || info.TitleId == "0000000000000000")
                 {
                     info.TitleId = progId.ToString("X16");
                 }
 
-                fs.Seek(ncchOffset + 0x118, SeekOrigin.Begin);
+                fs.Seek(ncchOffset + 0x112, SeekOrigin.Begin);
                 ushort ver = reader.ReadUInt16();
                 if (string.IsNullOrEmpty(info.Version) || info.Version == "v0")
                 {
@@ -515,12 +531,6 @@ namespace StormSwitchBox.Services
                     Directory.CreateDirectory(dlcExtractDir);
 
                     await Extract3dsContainerToDirAsync(dlcFile, dlcExtractDir, tempDir, cancellationToken, extractSecondaryCfa: true);
-
-                    string dlcRomfs = Path.Combine(dlcExtractDir, "romfs");
-                    if (Directory.Exists(dlcRomfs) && Directory.EnumerateFileSystemEntries(dlcRomfs).Any())
-                    {
-                        CopyDirectoryMerged(dlcRomfs, Path.Combine(extractedBaseDir, "romfs"));
-                    }
 
                     foreach (var cfa in Directory.GetFiles(dlcExtractDir, "cfa_*.cfa").OrderBy(f => f))
                     {
@@ -918,6 +928,14 @@ namespace StormSwitchBox.Services
             ulong metadataSize = ReadVarInt();
             pos += (int)metadataSize;
 
+            if ((ulong)source.Length != sourceSize)
+                throw new InvalidDataException($"BPS source size mismatch: expected {sourceSize} bytes, got {source.Length} bytes.");
+
+            uint expectedSourceCrc = BitConverter.ToUInt32(patch, patch.Length - 12);
+            uint actualSourceCrc = ComputeCrc32(source);
+            if (actualSourceCrc != expectedSourceCrc)
+                throw new InvalidDataException($"BPS source CRC32 mismatch: expected 0x{expectedSourceCrc:X8}, got 0x{actualSourceCrc:X8}.");
+
             byte[] target = new byte[targetSize];
             int outputOffset = 0;
             long sourceRelOffset = 0;
@@ -957,7 +975,27 @@ namespace StormSwitchBox.Services
                     }
                 }
             }
+
+            uint expectedTargetCrc = BitConverter.ToUInt32(patch, patch.Length - 8);
+            uint actualTargetCrc = ComputeCrc32(target);
+            if (actualTargetCrc != expectedTargetCrc)
+                throw new InvalidDataException($"BPS target CRC32 mismatch: expected 0x{expectedTargetCrc:X8}, got 0x{actualTargetCrc:X8}.");
+
             return target;
+        }
+
+        private static uint ComputeCrc32(byte[] data)
+        {
+            uint crc = 0xFFFFFFFFu;
+            for (int i = 0; i < data.Length; i++)
+            {
+                crc ^= data[i];
+                for (int b = 0; b < 8; b++)
+                {
+                    crc = (crc & 1) != 0 ? (crc >> 1) ^ 0xEDB88320u : (crc >> 1);
+                }
+            }
+            return ~crc;
         }
 
         private async Task Build3dsFromExtractedDirAsync(
@@ -1194,131 +1232,142 @@ namespace StormSwitchBox.Services
                 await Build3dsMultiContentAsync(task, new List<string> { inputPath }, outPath, targetFormat, cancellationToken, forceRebuild: true);
                 return;
             }
-            if (Nintendo3dsCryptoService.Is3dsFileEncrypted(inputPath))
+            string? decTemp = null;
+            try
             {
-                string decTemp = Path.Combine(Path.GetTempPath(), $"Storm3DS_DecConv_{Guid.NewGuid():N}");
-                Directory.CreateDirectory(decTemp);
-                TempCleanupService.RegisterActiveTempDirectory(decTemp);
-                inputPath = await Nintendo3dsCryptoService.EnsureDecrypted3dsFileAsync(inputPath, decTemp, task, cancellationToken);
-            }
-
-            App.RunOnUI(() =>
-            {
-                task.IsRunning = true;
-                task.Progress = 30;
-                task.Status = $"Конвертация {inExt.ToUpper()} -> {targetFormat}...";
-                task.LogDetails += $"\n🔄 [3DS Convert] Конвертация {Path.GetFileName(inputPath)} -> {targetFormat}...";
-            });
-
-            if (isDual3ds)
-            {
-                string target3ds = Path.Combine(outputFolder, Path.GetFileNameWithoutExtension(inputPath) + ".3ds");
-                string targetCia = Path.Combine(outputFolder, Path.GetFileNameWithoutExtension(inputPath) + ".cia");
-
-                if (inExt == "3ds" || inExt == "cci")
+                if (Nintendo3dsCryptoService.Is3dsFileEncrypted(inputPath))
                 {
-                    if (!string.Equals(inputPath, target3ds, StringComparison.OrdinalIgnoreCase))
-                    {
-                        File.Copy(inputPath, target3ds, overwrite: true);
-                    }
-                    await RunProcessAsync(makerom, $"-ccitocia \"{target3ds}\" -o \"{targetCia}\"", outputFolder, cancellationToken);
-                    if (!File.Exists(targetCia))
-                    {
-                        await RunProcessAsync(makerom, $"-ccitocia \"{target3ds}\" \"{targetCia}\"", outputFolder, cancellationToken);
-                    }
-                }
-                else if (inExt == "cia")
-                {
-                    if (!string.Equals(inputPath, targetCia, StringComparison.OrdinalIgnoreCase))
-                    {
-                        File.Copy(inputPath, targetCia, overwrite: true);
-                    }
-                    await RunProcessAsync(makerom, $"-ciatocci \"{targetCia}\" -o \"{target3ds}\"", outputFolder, cancellationToken);
-                    if (!File.Exists(target3ds))
-                    {
-                        await RunProcessAsync(makerom, $"-ciatocci \"{targetCia}\" \"{target3ds}\"", outputFolder, cancellationToken);
-                    }
+                    decTemp = Path.Combine(Path.GetTempPath(), $"Storm3DS_DecConv_{Guid.NewGuid():N}");
+                    Directory.CreateDirectory(decTemp);
+                    TempCleanupService.RegisterActiveTempDirectory(decTemp);
+                    inputPath = await Nintendo3dsCryptoService.EnsureDecrypted3dsFileAsync(inputPath, decTemp, task, cancellationToken);
                 }
 
-                if (!File.Exists(target3ds) || !File.Exists(targetCia))
+                App.RunOnUI(() =>
                 {
-                    await Build3dsMultiContentAsync(task, new List<string> { inputPath }, target3ds, targetFormat, cancellationToken, forceRebuild: true);
+                    task.IsRunning = true;
+                    task.Progress = 30;
+                    task.Status = $"Конвертация {inExt.ToUpper()} -> {targetFormat}...";
+                    task.LogDetails += $"\n🔄 [3DS Convert] Конвертация {Path.GetFileName(inputPath)} -> {targetFormat}...";
+                });
+
+                if (isDual3ds)
+                {
+                    string target3ds = Path.Combine(outputFolder, Path.GetFileNameWithoutExtension(inputPath) + ".3ds");
+                    string targetCia = Path.Combine(outputFolder, Path.GetFileNameWithoutExtension(inputPath) + ".cia");
+
+                    if (inExt == "3ds" || inExt == "cci")
+                    {
+                        if (!string.Equals(inputPath, target3ds, StringComparison.OrdinalIgnoreCase))
+                        {
+                            File.Copy(inputPath, target3ds, overwrite: true);
+                        }
+                        try { await RunProcessAsync(makerom, $"-ccitocia \"{target3ds}\" -o \"{targetCia}\"", outputFolder, cancellationToken); } catch { }
+                        if (!File.Exists(targetCia))
+                        {
+                            try { await RunProcessAsync(makerom, $"-ccitocia \"{target3ds}\" \"{targetCia}\"", outputFolder, cancellationToken); } catch { }
+                        }
+                    }
+                    else if (inExt == "cia")
+                    {
+                        if (!string.Equals(inputPath, targetCia, StringComparison.OrdinalIgnoreCase))
+                        {
+                            File.Copy(inputPath, targetCia, overwrite: true);
+                        }
+                        try { await RunProcessAsync(makerom, $"-ciatocci \"{targetCia}\" -o \"{target3ds}\"", outputFolder, cancellationToken); } catch { }
+                        if (!File.Exists(target3ds))
+                        {
+                            try { await RunProcessAsync(makerom, $"-ciatocci \"{targetCia}\" \"{target3ds}\"", outputFolder, cancellationToken); } catch { }
+                        }
+                    }
+
+                    if (!File.Exists(target3ds) || !File.Exists(targetCia))
+                    {
+                        await Build3dsMultiContentAsync(task, new List<string> { inputPath }, target3ds, targetFormat, cancellationToken, forceRebuild: true);
+                        return;
+                    }
+
+                    if (File.Exists(target3ds))
+                    {
+                        SmartShrinkService.Trim3dsCardImage(target3ds, task);
+                    }
+
+                    App.RunOnUI(() =>
+                    {
+                        task.Progress = 100;
+                        task.Status = "Успешно";
+                        task.IsRunning = false;
+                        long s3ds = File.Exists(target3ds) ? new FileInfo(target3ds).Length : 0;
+                        long scia = File.Exists(targetCia) ? new FileInfo(targetCia).Length : 0;
+                        task.TargetSize = $"{ProcessingTask.FormatSize(s3ds)} / {ProcessingTask.FormatSize(scia)}";
+                        task.LogDetails += $"\n📦 [Форматы 3DS] Сохранены оба файла:\n  • {Path.GetFileName(target3ds)} ({ProcessingTask.FormatSize(s3ds)})\n  • {Path.GetFileName(targetCia)} ({ProcessingTask.FormatSize(scia)})";
+                    });
                     return;
                 }
 
-                if (File.Exists(target3ds))
+                bool isSameFormat = (inExt == outExt) || (inExt == "cci" && outExt == "3ds");
+                if (isSameFormat)
                 {
-                    SmartShrinkService.Trim3dsCardImage(target3ds, task);
+                    if (!string.Equals(Path.GetFullPath(inputPath), Path.GetFullPath(outPath), StringComparison.OrdinalIgnoreCase))
+                    {
+                        File.Copy(inputPath, outPath, overwrite: true);
+                    }
+                }
+                else if ((inExt == "3ds" || inExt == "cci") && outExt == "cia")
+                {
+                    try { await RunProcessAsync(makerom, $"-ccitocia \"{inputPath}\" -o \"{outPath}\"", outputFolder, cancellationToken); } catch { }
+                    if (!File.Exists(outPath))
+                    {
+                        try { await RunProcessAsync(makerom, $"-ccitocia \"{inputPath}\" \"{outPath}\"", outputFolder, cancellationToken); } catch { }
+                    }
+                }
+                else if (inExt == "cia" && (outExt == "3ds" || outExt == "cci"))
+                {
+                    try { await RunProcessAsync(makerom, $"-ciatocci \"{inputPath}\" -o \"{outPath}\"", outputFolder, cancellationToken); } catch { }
+                    if (!File.Exists(outPath))
+                    {
+                        try { await RunProcessAsync(makerom, $"-ciatocci \"{inputPath}\" \"{outPath}\"", outputFolder, cancellationToken); } catch { }
+                    }
                 }
 
-                App.RunOnUI(() =>
-                {
-                    task.Progress = 100;
-                    task.Status = "Успешно";
-                    task.IsRunning = false;
-                    long s3ds = File.Exists(target3ds) ? new FileInfo(target3ds).Length : 0;
-                    long scia = File.Exists(targetCia) ? new FileInfo(targetCia).Length : 0;
-                    task.TargetSize = $"{ProcessingTask.FormatSize(s3ds)} / {ProcessingTask.FormatSize(scia)}";
-                    task.LogDetails += $"\n📦 [Форматы 3DS] Сохранены оба файла:\n  • {Path.GetFileName(target3ds)} ({ProcessingTask.FormatSize(s3ds)})\n  • {Path.GetFileName(targetCia)} ({ProcessingTask.FormatSize(scia)})";
-                });
-                return;
-            }
-
-            bool isSameFormat = (inExt == outExt) || (inExt == "cci" && outExt == "3ds");
-            if (isSameFormat)
-            {
-                if (!string.Equals(Path.GetFullPath(inputPath), Path.GetFullPath(outPath), StringComparison.OrdinalIgnoreCase))
-                {
-                    File.Copy(inputPath, outPath, overwrite: true);
-                }
-            }
-            else if ((inExt == "3ds" || inExt == "cci") && outExt == "cia")
-            {
-                await RunProcessAsync(makerom, $"-ccitocia \"{inputPath}\" -o \"{outPath}\"", outputFolder, cancellationToken);
                 if (!File.Exists(outPath))
                 {
-                    await RunProcessAsync(makerom, $"-ccitocia \"{inputPath}\" \"{outPath}\"", outputFolder, cancellationToken);
+                    // Fallback to full extraction & rebuild (handles CXI -> 3DS/CIA, 3DS/CIA -> CXI, and non-standard headers)
+                    await Build3dsMultiContentAsync(task, new List<string> { inputPath }, outPath, targetFormat, cancellationToken, forceRebuild: true);
+                    return;
                 }
-            }
-            else if (inExt == "cia" && (outExt == "3ds" || outExt == "cci"))
-            {
-                await RunProcessAsync(makerom, $"-ciatocci \"{inputPath}\" -o \"{outPath}\"", outputFolder, cancellationToken);
-                if (!File.Exists(outPath))
-                {
-                    await RunProcessAsync(makerom, $"-ciatocci \"{inputPath}\" \"{outPath}\"", outputFolder, cancellationToken);
-                }
-            }
 
-            if (!File.Exists(outPath))
-            {
-                // Fallback to full extraction & rebuild (handles CXI -> 3DS/CIA, 3DS/CIA -> CXI, and non-standard headers)
-                await Build3dsMultiContentAsync(task, new List<string> { inputPath }, outPath, targetFormat, cancellationToken, forceRebuild: true);
-                return;
-            }
-
-            if (File.Exists(outPath))
-            {
-                if (task.CustomMetadata != null && task.CustomMetadata.HasModifications)
+                if (File.Exists(outPath))
                 {
-                    IconBadgeStudioService.Patch3dsSmdhInPlace(outPath, task.CustomMetadata);
+                    if (task.CustomMetadata != null && task.CustomMetadata.HasModifications)
+                    {
+                        IconBadgeStudioService.Patch3dsSmdhInPlace(outPath, task.CustomMetadata);
+                    }
+                    if (outExt == "3ds" || outExt == "cci")
+                    {
+                        SmartShrinkService.Trim3dsCardImage(outPath, task);
+                    }
+                    long finalSize = new FileInfo(outPath).Length;
+                    App.RunOnUI(() =>
+                    {
+                        task.Progress = 100;
+                        task.Status = "Успешно";
+                        task.IsRunning = false;
+                        task.TargetSize = ProcessingTask.FormatSize(finalSize);
+                        task.LogDetails += $"\n✅ [Готово] Сохранен: {outFileName} ({task.TargetSize})";
+                    });
                 }
-                if (outExt == "3ds" || outExt == "cci")
+                else
                 {
-                    SmartShrinkService.Trim3dsCardImage(outPath, task);
+                    throw new Exception($"Конвертация 3DS завершилась с ошибкой. Выходной файл не создан.");
                 }
-                long finalSize = new FileInfo(outPath).Length;
-                App.RunOnUI(() =>
-                {
-                    task.Progress = 100;
-                    task.Status = "Успешно";
-                    task.IsRunning = false;
-                    task.TargetSize = ProcessingTask.FormatSize(finalSize);
-                    task.LogDetails += $"\n✅ [Готово] Сохранен: {outFileName} ({task.TargetSize})";
-                });
             }
-            else
+            finally
             {
-                throw new Exception($"Конвертация 3DS завершилась с ошибкой. Выходной файл не создан.");
+                if (!string.IsNullOrEmpty(decTemp))
+                {
+                    TempCleanupService.ForceDeleteDirectory(decTemp);
+                }
             }
         }
 
@@ -1451,33 +1500,14 @@ namespace StormSwitchBox.Services
 
         private async Task RunProcessAsync(string exePath, string args, string workingDir, CancellationToken cancellationToken)
         {
-            var psi = new ProcessStartInfo
+            var (exitCode, stdout, stderr) = await ExternalProcessRunner.RunCaptureAsync(exePath, null, args, workingDir, cancellationToken);
+            if (exitCode != 0)
             {
-                FileName = exePath,
-                Arguments = args,
-                WorkingDirectory = workingDir,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true
-            };
-
-            using var process = new Process { StartInfo = psi };
-            var output = new StringBuilder();
-            var error = new StringBuilder();
-
-            process.OutputDataReceived += (s, e) => { if (e.Data != null) output.AppendLine(e.Data); };
-            process.ErrorDataReceived += (s, e) => { if (e.Data != null) error.AppendLine(e.Data); };
-
-            process.Start();
-            process.BeginOutputReadLine();
-            process.BeginErrorReadLine();
-
-            await process.WaitForExitAsync(cancellationToken);
-
-            if (process.ExitCode != 0)
-            {
-                App.Logger.Log($"[3DS Tool Error ({Path.GetFileName(exePath)}) Exit={process.ExitCode}]: {error}\n{output}", LogLevel.Warning);
+                string details = $"{stderr}\n{stdout}".Trim();
+                if (details.Length > 600) details = details.Substring(details.Length - 600);
+                string msg = $"[3DS Tool Error ({Path.GetFileName(exePath)}) Exit={exitCode}]: {details}";
+                App.Logger.Log(msg, LogLevel.Error);
+                throw new InvalidOperationException(msg);
             }
         }
     }

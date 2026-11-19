@@ -512,9 +512,10 @@ public static string GetDeterministicSourceHash(ProcessingTask task)
                         {
                             try
                             {
-                                using var http = new System.Net.Http.HttpClient();
-                                http.Timeout = TimeSpan.FromSeconds(6);
-                                iconBytes = await http.GetByteArrayAsync(entry.IconUrl);
+                                using var imgCts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(6));
+                                byte[] downloadedBytes = await StormHttpClientFactory.Shared.GetByteArrayAsync(entry.IconUrl, imgCts.Token).ConfigureAwait(false);
+                                if (StormHttpClientFactory.IsValidImageBytes(downloadedBytes))
+                                    iconBytes = downloadedBytes;
                             }
                             catch { }
                         }
@@ -554,9 +555,10 @@ public static string GetDeterministicSourceHash(ProcessingTask task)
                         {
                             try
                             {
-                                using var http = new System.Net.Http.HttpClient();
-                                http.Timeout = TimeSpan.FromSeconds(6);
-                                iconBytes = await http.GetByteArrayAsync(posterUrl);
+                                using var imgCts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(6));
+                                byte[] downloadedBytes = await StormHttpClientFactory.Shared.GetByteArrayAsync(posterUrl, imgCts.Token).ConfigureAwait(false);
+                                if (StormHttpClientFactory.IsValidImageBytes(downloadedBytes))
+                                    iconBytes = downloadedBytes;
                             }
                             catch { }
                         }
@@ -601,11 +603,39 @@ public static string GetDeterministicSourceHash(ProcessingTask task)
 
         public static async Task SaveHistoryAsync()
         {
-            await _saveLock.WaitAsync();
+            await _saveLock.WaitAsync().ConfigureAwait(false);
             try
             {
-                var json = JsonSerializer.Serialize(HistoryTasks, new JsonSerializerOptions { WriteIndented = true });
-                await File.WriteAllTextAsync(HistoryFilePath, json);
+                // Снимаем потокобезопасную копию HistoryTasks на UI-потоке до сериализации
+                List<ProcessingTask> snapshot;
+                if (App.MainDispatcher != null && !App.MainDispatcher.HasThreadAccess)
+                {
+                    var tcs = new TaskCompletionSource<List<ProcessingTask>>();
+                    if (!App.MainDispatcher.TryEnqueue(() =>
+                    {
+                        try { tcs.TrySetResult(HistoryTasks.ToList()); }
+                        catch (Exception ex) { tcs.TrySetException(ex); }
+                    }))
+                    {
+                        tcs.TrySetResult(HistoryTasks.ToList());
+                    }
+                    snapshot = await tcs.Task.ConfigureAwait(false);
+                }
+                else
+                {
+                    snapshot = HistoryTasks.ToList();
+                }
+
+                var json = JsonSerializer.Serialize(snapshot, new JsonSerializerOptions { WriteIndented = true });
+                string tmpPath = HistoryFilePath + ".tmp";
+                using (var fs = new FileStream(tmpPath, FileMode.Create, FileAccess.Write, FileShare.None))
+                using (var sw = new StreamWriter(fs, new UTF8Encoding(false)))
+                {
+                    await sw.WriteAsync(json).ConfigureAwait(false);
+                    await sw.FlushAsync().ConfigureAwait(false);
+                    fs.Flush(true);
+                }
+                File.Move(tmpPath, HistoryFilePath, overwrite: true);
             }
             catch (Exception ex)
             {

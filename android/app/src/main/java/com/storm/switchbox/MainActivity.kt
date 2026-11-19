@@ -104,7 +104,23 @@ class MainActivity : Activity() {
     private var navScrollX = 0
 
     // Параметры движка и пакетной очереди (сохраняются локально)
-    private val queuedFiles = mutableListOf<File>()
+    private val queuedFiles = java.util.concurrent.CopyOnWriteArrayList<File>()
+    private val metadataCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Boolean, StormNczEngine.ContainerMetadataInfo?>>()
+    private val metadataLoadingKeys = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+    private val containerEntriesCache = java.util.concurrent.ConcurrentHashMap<String, List<Pfs0Entry>>()
+    private val containerEntriesLoadingKeys = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+
+    private fun getShareableConsoleFiles(): List<File> {
+        val list = mutableListOf<File>()
+        list.addAll(queuedFiles)
+        romsDir.listFiles()?.filter { it.isFile }?.let { list.addAll(it) }
+        customOutputDir.listFiles()?.filter { it.isFile }?.let { list.addAll(it) }
+        customSwitch2OutputDir.listFiles()?.filter { it.isFile }?.let { list.addAll(it) }
+        custom3dsOutputDir.listFiles()?.filter { it.isFile }?.let { list.addAll(it) }
+        return list.filter { it.exists() && it.isFile }.distinctBy {
+            try { it.canonicalPath } catch (_: Exception) { it.absolutePath }
+        }
+    }
     private var selectedInputFile: File? = null
     private val expandedQueueGroups = mutableSetOf<String>()
     private var selectedOperationMode = 0
@@ -836,7 +852,11 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        RuTrackerCloudEngine.detachHostActivity(this)
         if (isFinishing) {
+            try { dbiServer?.stop() } catch (_: Throwable) {}
+            dbiServer = null
+            dbiServerRunning = false
             for (t in bgPipelineTasks) {
                 if (t.state == BgTaskState.RUNNING) {
                     t.controller.pause()
@@ -998,6 +1018,11 @@ class MainActivity : Activity() {
                     requestPermissions(arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE), 101)
                 }
             }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                    requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 102)
+                }
+            }
             listOf(
                 romsDir,
                 customOutputDir,
@@ -1030,9 +1055,9 @@ class MainActivity : Activity() {
                 } else {
                     currentLangCode = detectDefaultLanguage()
                 }
-                selectedOperationMode = json.optInt("operationMode", 0).coerceIn(0, 4)
+                selectedOperationMode = json.optInt("operationMode", 0).coerceIn(0, 7)
                 selectedCompressionMethod = json.optInt("compressionMethod", 0).coerceIn(0, 3)
-                selectedOutputFormat = json.optInt("outputFormat", 0).coerceIn(0, 6)
+                selectedOutputFormat = json.optInt("outputFormat", 0).coerceIn(0, 7)
                 useBlockNcz = json.optBoolean("useBlockNcz", true)
                 smartMergeDedup = json.optBoolean("smartMergeDedup", true)
                 autoEmbedMods = json.optBoolean("autoEmbedMods", true)
@@ -1042,6 +1067,7 @@ class MainActivity : Activity() {
                 smartSizeGuard = json.optBoolean("smartSizeGuard", true)
                 trimXciBeforeCompress = json.optBoolean("trimXci", true)
                 deleteSourceAfterSuccess = json.optBoolean("deleteSource", false)
+                deleteRuTrackerSourceAfterSuccess = json.optBoolean("deleteRuTrackerSource", deleteRuTrackerSourceAfterSuccess)
                 autoCheckUpdatesOnStartup = json.optBoolean("autoCheckUpdates", true)
                 lastBrowseDirPath = json.optString("lastBrowseDir", "/storage/emulated/0")
                 val savedOut = json.optString("outputDir", "")
@@ -2246,7 +2272,25 @@ class MainActivity : Activity() {
 
         // ГРУППА 3.5: Предварительное переименование внутри (control.nacp / SMDH), смена иконки/обложки (256x256) и имя итогового файла (как в ПК-версии)
         val activeMetaFile = selectedInputFile ?: queuedFiles.firstOrNull()
-        val detectedMeta = if (activeMetaFile != null) StormNczEngine.readContainerMetadata(activeMetaFile) else null
+        val metaCacheKey = activeMetaFile?.let { "${it.absolutePath}|${it.length()}|${it.lastModified()}" }
+        val cachedMetaEntry = if (metaCacheKey != null) metadataCache[metaCacheKey] else null
+        if (activeMetaFile != null && metaCacheKey != null && cachedMetaEntry == null && metadataLoadingKeys.add(metaCacheKey)) {
+            thread(name = "meta-reader", isDaemon = true) {
+                try {
+                    val m = StormNczEngine.readContainerMetadata(activeMetaFile)
+                    metadataCache[metaCacheKey] = true to m
+                    if (m != null) {
+                        mainHandler.post {
+                            if (activeTab == 0 && !isFinishing) buildUserInterface()
+                        }
+                    }
+                } catch (_: Throwable) {
+                } finally {
+                    metadataLoadingKeys.remove(metaCacheKey)
+                }
+            }
+        }
+        val detectedMeta = cachedMetaEntry?.second
         val defaultCleanTitle = detectedMeta?.internalTitle ?: (gameGroups.firstOrNull()?.displayTitle ?: "Switch Game")
         val highestQueueVer = queuedFiles.mapNotNull { StormNczEngine.extractDisplayVersionFromFileName(it.name) }.lastOrNull()
         val defaultVer = highestQueueVer ?: (detectedMeta?.displayVersion ?: "1.0.0")
@@ -2476,8 +2520,11 @@ class MainActivity : Activity() {
         }
         editorBody.addView(outFileInput)
 
-        editorBody.visibility = View.GONE
-        val toggleEditorBtn = makeButton("🔽 Развернуть редактор NACP, обложки 256×256 и имени файла", th.bgElevated, th.accent) {
+        val toggleEditorBtn = makeButton(
+            if (editorBody.visibility == View.VISIBLE) "🔼 Свернуть редактор NACP, обложки 256×256 и имени файла" else "🔽 Развернуть редактор NACP, обложки 256×256 и имени файла",
+            th.bgElevated,
+            th.accent
+        ) {
             val nowVisible = editorBody.visibility != View.VISIBLE
             editorBody.visibility = if (nowVisible) View.VISIBLE else View.GONE
         }.apply {
@@ -2994,36 +3041,59 @@ class MainActivity : Activity() {
         inspCard.addView(romfsActionRow2)
 
         if (activeFile != null && activeFile.exists()) {
-            val entries = StormNczEngine.inspectContainer(activeFile)
-            val ncaCount = entries.count { it.name.endsWith(".nca", true) }
-            val nczCount = entries.count { it.name.endsWith(".ncz", true) }
-            val tikCount = entries.count { it.name.endsWith(".tik", true) }
-
+            val inspKey = "${activeFile.absolutePath}|${activeFile.length()}|${activeFile.lastModified()}"
+            val cachedEntries = containerEntriesCache[inspKey]
             val summaryBox = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 background = makeCardDrawable(th.bgPrimary, th.border, 8)
                 setPadding(dp(12), dp(10), dp(12), dp(10))
             }
-            summaryBox.addView(TextView(this).apply {
-                text = "📊 Паспорт образа: ${activeFile.name}\n" +
-                    "• Размер: ${StormNczEngine.formatSize(activeFile.length())}  |  Разделов: ${entries.size} (NCA: $ncaCount, NCZ: $nczCount, Ticket: $tikCount)"
+            val headerTxt = TextView(this).apply {
                 setTextColor(th.accent)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.8f)
                 typeface = Typeface.DEFAULT_BOLD
                 setPadding(0, 0, 0, dp(6))
-            })
-
-            val sb = StringBuilder()
-            entries.forEachIndexed { idx, e ->
-                sb.appendLine("${idx + 1}. ${e.name}")
-                sb.appendLine("   Размер: ${StormNczEngine.formatSize(e.size)}  •  Смещение: 0x${e.offset.coerceAtLeast(0L).toString(16).uppercase()}")
             }
-            summaryBox.addView(TextView(this).apply {
-                text = sb.toString().trimEnd()
+            val entriesTxt = TextView(this).apply {
                 setTextColor(th.textPrimary)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.2f)
                 typeface = Typeface.MONOSPACE
-            })
+            }
+            fun applyEntries(entries: List<Pfs0Entry>) {
+                val ncaCount = entries.count { it.name.endsWith(".nca", true) }
+                val nczCount = entries.count { it.name.endsWith(".ncz", true) }
+                val tikCount = entries.count { it.name.endsWith(".tik", true) }
+                headerTxt.text = "📊 Паспорт образа: ${activeFile.name}\n" +
+                    "• Размер: ${StormNczEngine.formatSize(activeFile.length())}  |  Разделов: ${entries.size} (NCA: $ncaCount, NCZ: $nczCount, Ticket: $tikCount)"
+                val sb = StringBuilder()
+                entries.forEachIndexed { idx, e ->
+                    sb.appendLine("${idx + 1}. ${e.name}")
+                    sb.appendLine("   Размер: ${StormNczEngine.formatSize(e.size)}  •  Смещение: 0x${e.offset.coerceAtLeast(0L).toString(16).uppercase()}")
+                }
+                entriesTxt.text = sb.toString().trimEnd()
+            }
+            if (cachedEntries != null) {
+                applyEntries(cachedEntries)
+            } else {
+                headerTxt.text = "⏳ Анализ структуры образа: ${activeFile.name} (${StormNczEngine.formatSize(activeFile.length())})..."
+                entriesTxt.text = "Чтение заголовков контейнера в фоновом потоке..."
+                if (containerEntriesLoadingKeys.add(inspKey)) {
+                    thread(name = "container-inspector", isDaemon = true) {
+                        try {
+                            val entries = StormNczEngine.inspectContainer(activeFile)
+                            containerEntriesCache[inspKey] = entries
+                            mainHandler.post {
+                                if (!isFinishing) applyEntries(entries)
+                            }
+                        } catch (_: Throwable) {
+                        } finally {
+                            containerEntriesLoadingKeys.remove(inspKey)
+                        }
+                    }
+                }
+            }
+            summaryBox.addView(headerTxt)
+            summaryBox.addView(entriesTxt)
             inspCard.addView(summaryBox)
         }
         parent.addView(inspCard)
@@ -3375,7 +3445,8 @@ class MainActivity : Activity() {
                     setPadding(0, dp(2), 0, dp(4))
                 })
                 itemBox.addView(TextView(this).apply {
-                    text = "📦 Размер: ${StormNczEngine.localizeSizeText(item.sizeText)}  •  🌱 Сиды: ${if (item.seeds > 0) "▲${item.seeds}" else "нет данных"}  •  🆔 TitleID: $resolvedTid"
+                    val tidText = if (resolvedTid.isNotEmpty()) resolvedTid else "не определён"
+                    text = "📦 Размер: ${StormNczEngine.localizeSizeText(item.sizeText)}  •  🌱 Сиды: ${if (item.seeds > 0) "▲${item.seeds}" else "нет данных"}  •  🆔 TitleID: $tidText"
                     setTextColor(th.accent)
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.2f)
                     typeface = Typeface.DEFAULT_BOLD
@@ -3790,7 +3861,7 @@ class MainActivity : Activity() {
         th: StormTheme,
         autoStartMagnet: Boolean = false
     ) {
-        var dialogFormatMode = selectedOutputFormat
+        var dialogFormatMode = selectedOutputFormat.coerceIn(0, 3)
         var embedCloudModsChecked = false
         var isRunningPipeline = false
         var cancelPipeline = false
@@ -4132,10 +4203,7 @@ class MainActivity : Activity() {
             "NSZ - Сжатый цифровой контейнер Switch (Блочный NCZBLOCK)",
             "XCZ - Сжатый мульти-картридж Switch (Блочный NCZBLOCK)",
             "NSP - Оригинальный цифровой контейнер Switch (Без сжатия)",
-            "XCI - Оригинальный мульти-картридж Switch (Без сжатия)",
-            "CCI - Образ картриджа Nintendo 3DS (NCSD + NoCrypto)",
-            "3DS - Образ картриджа Nintendo 3DS (Decrypted + Trim)",
-            "CIA - Установочный архив Nintendo 3DS"
+            "XCI - Оригинальный мульти-картридж Switch (Без сжатия)"
         )
 
         val cleanDefaultTitle = StormNczEngine.extractCleanGameTitle(item.title)
@@ -4146,9 +4214,6 @@ class MainActivity : Activity() {
             1 -> "xcz"
             2 -> "nsp"
             3 -> "xci"
-            4 -> "cci"
-            5 -> "3ds"
-            6 -> "cia"
             else -> "nsz"
         }
 
@@ -4793,8 +4858,8 @@ class MainActivity : Activity() {
     private val instructionTopics: List<InstructionTopicItem> by lazy {
         listOf(
                 InstructionTopicItem(
-                    21,
-                    "21. Nintendo Switch 2 (Ounce / 0400...) и формат NUP (NUP v1.0)",
+                    26,
+                    "26. Nintendo Switch 2 (Ounce / 0400...) и формат NUP (NUP v1.0)",
                     "Экосистемы",
                     "SWITCH 2",
                     "STORM SWITCH BOX включает всестороннюю поддержку следующего поколения игровых систем Nintendo - Nintendo Switch 2 (кодовое имя «Ounce» / API «NVN2») и нового открытого стандарта монолитных контейнеров NUP v1.0 (NX Package Format):\n" +
@@ -4806,8 +4871,8 @@ class MainActivity : Activity() {
                     "Совет: Для максимального сжатия и дедупликации выбирайте формат NUP в настройках Switch 2!"
                 ),
                 InstructionTopicItem(
-                    23,
-                    "23. Актуализация готовых контейнеров («Путь Б» - пофайловый апгрейд RomFS)",
+                    27,
+                    "27. Актуализация готовых контейнеров («Путь Б» - пофайловый апгрейд RomFS)",
                     "Алгоритмы",
                     "ПУТЬ Б",
                     "Механизм «Путь Б» позволяет мгновенно обновлять уже собранные монолитные контейнеры (.nsz, .nsp, .nup, .xci) без необходимости повторного скачивания или распаковки базовой игры:\n" +
@@ -4817,8 +4882,8 @@ class MainActivity : Activity() {
                     "Совет: «Путь Б» работает полностью автоматически при перетаскивании монолита и свежего обновления в очередь!"
                 ),
                 InstructionTopicItem(
-                    24,
-                    "24. Патчер эмуляторов Switch 2 (NSP-Box Direct Boot) и менеджер ключей",
+                    28,
+                    "28. Патчер эмуляторов Switch 2 (NSP-Box Direct Boot) и менеджер ключей",
                     "Эмуляторы",
                     "DIRECT BOOT",
                     "Для прямого запуска собранных дампов Switch 2 (.nup и Plaintext .nsp) в приложении реализован обратимый патчер эмуляторов (архитектура NSP-Box Direct Boot by smarkyie):\n" +
@@ -4829,8 +4894,8 @@ class MainActivity : Activity() {
                     "Совет: Патчите эмулятор только при закрытом процессе эмулятора через вкладку «Параметры -> Nintendo Switch 2»!"
                 ),
                 InstructionTopicItem(
-                    22,
-                    "22. RuTracker: Чеклист ссылок обсуждения и DLC Unlocker",
+                    29,
+                    "29. RuTracker: Чеклист ссылок обсуждения и DLC Unlocker",
                     "Сеть, Ключи и База",
                     "RUTRACKER",
                     "В версии 6.9.0 усовершенствован модуль интеграции с RuTracker (#1605):\n" +
@@ -5417,15 +5482,7 @@ class MainActivity : Activity() {
             } else {
                 dbiServer = RuTrackerCloudEngine.DbiHttpServer(
                     port = 8080,
-                    sharedFiles = {
-                        val list = mutableListOf<File>()
-                        list.addAll(queuedFiles)
-                        romsDir.listFiles()?.let { list.addAll(it) }
-                        customOutputDir.listFiles()?.let { list.addAll(it) }
-                        customSwitch2OutputDir.listFiles()?.let { list.addAll(it) }
-                        custom3dsOutputDir.listFiles()?.let { list.addAll(it) }
-                        list.distinctBy { it.canonicalPath }
-                    },
+                    sharedFiles = { getShareableConsoleFiles() },
                     onLog = { msg -> appendLog("[DBI HTTP] $msg") }
                 )
                 dbiServer?.start()
@@ -5514,6 +5571,7 @@ class MainActivity : Activity() {
                 val (ok, msg) = RuTrackerCloudEngine.downloadAndInstallSwitchKeys(asset, targetDirs) { st ->
                     mainHandler.post { keyStatusTxt.text = "⏳ $st" }
                 }
+                if (ok) StormNczEngine.invalidateKeysCache()
                 appendLog(if (ok) "✅ $msg" else "❌ $msg")
                 mainHandler.post {
                     Toast.makeText(this@MainActivity, StormLocalization.tr(msg.toString(), currentLangCode), Toast.LENGTH_LONG).show()
@@ -5565,6 +5623,7 @@ class MainActivity : Activity() {
             val found = candidates.firstOrNull { it.exists() }
             if (found != null) {
                 found.copyTo(prodKeysFile, overwrite = true)
+                StormNczEngine.invalidateKeysCache()
                 Toast.makeText(this@MainActivity, StormLocalization.tr("Импортирован prod.keys из ${found.absolutePath}!".toString(), currentLangCode), Toast.LENGTH_LONG).show()
                 buildUserInterface()
             } else {
@@ -5711,31 +5770,38 @@ class MainActivity : Activity() {
 
         when (requestCode) {
             REQ_PICK_MULTIPLE_FILES -> {
-                var added = 0
+                val uris = mutableListOf<Uri>()
                 val clip = data.clipData
                 if (clip != null) {
                     for (i in 0 until clip.itemCount) {
-                        val uri = clip.getItemAt(i).uri
-                        resolveOrCopyUriToFile(uri)?.let { f ->
-                            if (queuedFiles.none { it.canonicalPath == f.canonicalPath }) {
-                                queuedFiles.add(f)
-                                added++
-                            }
-                        }
+                        uris.add(clip.getItemAt(i).uri)
                     }
                 } else {
-                    data.data?.let { uri ->
-                        resolveOrCopyUriToFile(uri)?.let { f ->
-                            if (queuedFiles.none { it.canonicalPath == f.canonicalPath }) {
-                                queuedFiles.add(f)
-                                added++
+                    data.data?.let { uris.add(it) }
+                }
+                if (uris.isNotEmpty()) {
+                    Toast.makeText(this@MainActivity, StormLocalization.tr("⏳ Импорт выбранных файлов (${uris.size})...".toString(), currentLangCode), Toast.LENGTH_SHORT).show()
+                    thread(name = "uri-import", isDaemon = true) {
+                        var added = 0
+                        for (uri in uris) {
+                            resolveOrCopyUriToFile(uri)?.let { f ->
+                                val fCanon = try { f.canonicalPath } catch (_: Exception) { f.absolutePath }
+                                if (queuedFiles.none {
+                                    val qCanon = try { it.canonicalPath } catch (_: Exception) { it.absolutePath }
+                                    qCanon == fCanon
+                                }) {
+                                    queuedFiles.add(f)
+                                    added++
+                                }
                             }
+                        }
+                        mainHandler.post {
+                            if (selectedInputFile == null) selectedInputFile = queuedFiles.firstOrNull()
+                            Toast.makeText(this@MainActivity, StormLocalization.tr("Добавлено файлов в очередь: $added".toString(), currentLangCode), Toast.LENGTH_SHORT).show()
+                            if (!isFinishing) buildUserInterface()
                         }
                     }
                 }
-                if (selectedInputFile == null) selectedInputFile = queuedFiles.firstOrNull()
-                Toast.makeText(this@MainActivity, StormLocalization.tr("Добавлено файлов в очередь: $added".toString(), currentLangCode), Toast.LENGTH_SHORT).show()
-                buildUserInterface()
             }
             REQ_PICK_FOLDER_TREE -> {
                 data.data?.let { treeUri ->
@@ -5756,6 +5822,7 @@ class MainActivity : Activity() {
                         contentResolver.openInputStream(uri)?.use { input ->
                             FileOutputStream(outProd).use { output -> input.copyTo(output) }
                         }
+                        StormNczEngine.invalidateKeysCache()
                         Toast.makeText(this@MainActivity, StormLocalization.tr("Файл prod.keys успешно импортирован!".toString(), currentLangCode), Toast.LENGTH_LONG).show()
                         buildUserInterface()
                     } catch (e: Exception) {
@@ -5815,12 +5882,15 @@ class MainActivity : Activity() {
     private fun resolveTreeUriToDirectory(treeUri: Uri): File? {
         try {
             val docId = DocumentsContract.getTreeDocumentId(treeUri)
+            if (docId.startsWith("raw:", ignoreCase = true)) {
+                return File(docId.substring(4))
+            }
             val parts = docId.split(":")
             if (parts.size >= 2) {
                 val type = parts[0]
                 val rel = parts[1]
                 return if (type.equals("primary", ignoreCase = true)) {
-                    File("/storage/emulated/0/$rel")
+                    File(Environment.getExternalStorageDirectory(), rel)
                 } else {
                     File("/storage/$type/$rel")
                 }
@@ -5833,10 +5903,14 @@ class MainActivity : Activity() {
         try {
             if (DocumentsContract.isDocumentUri(this, uri)) {
                 val docId = DocumentsContract.getDocumentId(uri)
+                if (docId.startsWith("raw:", ignoreCase = true)) {
+                    val rawFile = File(docId.substring(4))
+                    if (rawFile.exists()) return rawFile
+                }
                 val parts = docId.split(":")
                 if (parts.size == 2) {
                     val candidate = if (parts[0].equals("primary", ignoreCase = true)) {
-                        File("/storage/emulated/0/${parts[1]}")
+                        File(Environment.getExternalStorageDirectory(), parts[1])
                     } else {
                         File("/storage/${parts[0]}/${parts[1]}")
                     }
@@ -5847,10 +5921,23 @@ class MainActivity : Activity() {
             contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
                 if (c.moveToFirst()) {
                     val idx = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                    if (idx >= 0) displayName = c.getString(idx)
+                    if (idx >= 0) {
+                        val rawName = c.getString(idx) ?: ""
+                        val safeName = File(rawName).name.trim()
+                        if (safeName.isNotEmpty() && safeName != "." && safeName != "..") {
+                            displayName = safeName
+                        }
+                    }
                 }
             }
+            displayName = File(displayName).name
+            if (displayName.isBlank() || displayName == "." || displayName == "..") {
+                displayName = "rom_${System.currentTimeMillis()}.nsp"
+            }
+            romsDir.mkdirs()
             val dest = File(romsDir, displayName)
+            val romsCanon = romsDir.canonicalPath
+            if (!dest.canonicalPath.startsWith(romsCanon + File.separator)) return null
             if (!dest.exists()) {
                 contentResolver.openInputStream(uri)?.use { input ->
                     FileOutputStream(dest).use { output -> input.copyTo(output) }
@@ -6554,12 +6641,12 @@ class MainActivity : Activity() {
             th
         ))
 
-        val allNodes = StormNczEngine.inspectVirtualRomfsTree(containerFile)
-        var selectedNode: StormNczEngine.VirtualFsNode = allNodes.firstOrNull() ?: StormNczEngine.VirtualFsNode(
+        val allNodes = mutableListOf<StormNczEngine.VirtualFsNode>()
+        var selectedNode: StormNczEngine.VirtualFsNode = StormNczEngine.VirtualFsNode(
             virtualPath = "/romfs/config.ini",
-            displayName = "📄 /romfs/config.ini",
+            displayName = "⏳ Загрузка дерева...",
             categoryBadge = "RomFS",
-            size = 256L,
+            size = 0L,
             containerOffset = 0L
         )
         var viewHexMode = true
@@ -6609,12 +6696,27 @@ class MainActivity : Activity() {
             setTextColor(th.textPrimary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.5f)
             typeface = Typeface.MONOSPACE
+            text = "⏳ Инспекция узлов контейнера в фоновом потоке..."
         }
         viewerScroll.addView(hexAndTextOutput)
 
         fun updateInspectorView() {
-            val (hexStr, txtStr) = StormNczEngine.inspectVirtualNodeHexAndText(containerFile, selectedNode, 2048)
-            hexAndTextOutput.text = if (viewHexMode) hexStr else txtStr
+            if (allNodes.isEmpty()) return
+            val targetNode = selectedNode
+            val hexMode = viewHexMode
+            hexAndTextOutput.text = "⏳ Чтение ${targetNode.virtualPath}..."
+            thread(name = "romfs-node-hex", isDaemon = true) {
+                val (hexStr, txtStr) = try {
+                    StormNczEngine.inspectVirtualNodeHexAndText(containerFile, targetNode, 2048)
+                } catch (e: Throwable) {
+                    "Ошибка чтения: ${e.message}" to "Ошибка чтения: ${e.message}"
+                }
+                mainHandler.post {
+                    if (!isFinishing && selectedNode.virtualPath == targetNode.virtualPath) {
+                        hexAndTextOutput.text = if (hexMode) hexStr else txtStr
+                    }
+                }
+            }
         }
 
         fun renderTreeNodes(q: String) {
@@ -6708,7 +6810,28 @@ class MainActivity : Activity() {
         })
 
         renderTreeNodes("")
-        updateInspectorView()
+        thread(name = "romfs-tree-loader", isDaemon = true) {
+            val loaded = try {
+                StormNczEngine.inspectVirtualRomfsTree(containerFile)
+            } catch (_: Throwable) {
+                emptyList()
+            }
+            mainHandler.post {
+                if (!isFinishing) {
+                    allNodes.clear()
+                    allNodes.addAll(loaded)
+                    selectedNode = allNodes.firstOrNull() ?: StormNczEngine.VirtualFsNode(
+                        virtualPath = "/romfs/config.ini",
+                        displayName = "📄 /romfs/config.ini",
+                        categoryBadge = "RomFS",
+                        size = 0L,
+                        containerOffset = 0L
+                    )
+                    renderTreeNodes(filterInput.text.toString())
+                    updateInspectorView()
+                }
+            }
+        }
 
         val dlg = showImmersiveDialog(
             AlertDialog.Builder(this)
@@ -7206,11 +7329,7 @@ class MainActivity : Activity() {
             th
         ))
 
-        val allShareable = mutableListOf<File>().apply {
-            addAll(queuedFiles)
-            romsDir.listFiles()?.filter { it.isFile }?.let { addAll(it) }
-            customOutputDir.listFiles()?.filter { it.isFile }?.let { addAll(it) }
-        }.distinctBy { it.canonicalPath }
+        val allShareable = getShareableConsoleFiles()
 
         val qrImageView = ImageView(this).apply {
             layoutParams = LinearLayout.LayoutParams(dp(230), dp(230)).apply {
@@ -7251,32 +7370,28 @@ class MainActivity : Activity() {
         }
 
         qrCard.addView(makeButton("📷 Показать QR-код для установки через FBI (Nintendo 3DS)", th.accent) {
+            val chosenFile = allShareable.getOrNull(selectedQrFileIndex)
+            if (chosenFile == null || !chosenFile.exists()) {
+                Toast.makeText(this@MainActivity, StormLocalization.tr("Добавьте .cia или .3dsx файл в очередь (или в папку output/), чтобы сгенерировать QR-код для камеры Nintendo 3DS.".toString(), currentLangCode), Toast.LENGTH_SHORT).show()
+                return@makeButton
+            }
             if (!dbiServerRunning) {
                 dbiServer = RuTrackerCloudEngine.DbiHttpServer(
                     port = 8080,
-                    sharedFiles = {
-                        val list = mutableListOf<File>()
-                        list.addAll(queuedFiles)
-                        romsDir.listFiles()?.let { list.addAll(it) }
-                        customOutputDir.listFiles()?.let { list.addAll(it) }
-                        customSwitch2OutputDir.listFiles()?.let { list.addAll(it) }
-                        custom3dsOutputDir.listFiles()?.let { list.addAll(it) }
-                        list.distinctBy { it.canonicalPath }
-                    },
+                    sharedFiles = { getShareableConsoleFiles() },
                     onLog = { msg -> appendLog("[3DS QR HTTP] $msg") }
                 )
                 dbiServer?.start()
                 dbiServerRunning = true
             }
-            val chosenFile = allShareable.getOrNull(selectedQrFileIndex)
-            val encodedName = java.net.URLEncoder.encode(chosenFile?.name ?: "game.cia", "UTF-8").replace("+", "%20")
-            val directUrl = "http://$localIp:8080/files/${selectedQrFileIndex}_$encodedName"
+            val encodedName = java.net.URLEncoder.encode(chosenFile.name, "UTF-8").replace("+", "%20")
+            val directUrl = "http://$localIp:8080/files/$encodedName"
             val qrBmp = StormNczEngine.generateQrCodeBitmap(directUrl, scale = 9)
             qrImageView.setImageBitmap(qrBmp)
             qrImageView.visibility = View.VISIBLE
             qrUrlTxt.text = "🔗 Прямая ссылка для FBI: $directUrl\nОткройте на 3DS: FBI -> Remote Install -> Scan QR Code"
             qrUrlTxt.visibility = View.VISIBLE
-            appendLog("📷 Сгенерирован QR-код FBI для ${chosenFile?.name ?: "game.cia"}: $directUrl")
+            appendLog("📷 Сгенерирован QR-код FBI для ${chosenFile.name}: $directUrl")
         })
 
         qrCard.addView(qrImageView)
@@ -7407,11 +7522,7 @@ class MainActivity : Activity() {
         }
         ftpCard.addView(dirChipsRow)
 
-        val allFiles = mutableListOf<File>().apply {
-            addAll(queuedFiles)
-            customOutputDir.listFiles()?.filter { it.isFile }?.let { addAll(it) }
-            romsDir.listFiles()?.filter { it.isFile }?.let { addAll(it) }
-        }.distinctBy { it.canonicalPath }
+        val allFiles = getShareableConsoleFiles()
 
         if (allFiles.isNotEmpty()) {
             selectedFtpFileIndex = selectedFtpFileIndex.coerceIn(0, allFiles.size - 1)

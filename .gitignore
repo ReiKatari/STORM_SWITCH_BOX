@@ -6,8 +6,11 @@ build/
 out/
 target/
 Assembling/
+publish/
 scratch/
 gar_data/
+installer/Output/
+installer/StormInstaller/publish/
 *.exe
 *.dll
 *.obj
@@ -26,9 +29,8 @@ gar_data/
 !tools/**/*.dll
 !tools/forwarder/**
 
-# Keep branding icons
-!Files/*.ico
-!Files/*.png
+# Keep branding icons & screenshots
+!Files/Screenshots/*.png
 !Files/*.svg
 
 # IDE & Environment
@@ -43,39 +45,28 @@ Desktop.ini
 yanu.log*
 *.tmp
 *.tmp*
+*.wal
 node_modules/
-
-# Additional ignores
-installer/Output/
-*.tmp*
-Assembling/
-
+.repowise/
 
 # STORM SOFT Security & Large File Shield
 .env
 .env.*
 *credential*.json
 *secret*
-*.pfx
-*.cer
 *.key
 deepseek_key.txt
 google-credentials.json
-installer/Output/
-*.tmp*
-*.wal
-
-
-# Build output & AI index
-publish/
-.repowise/
 
 # Console encryption keys & proprietary data
 *.keys
 *keys.txt
+**/keys.dat
 title.keys
 prod.keys
+ounce.keys
 
+# Python bytecode
 __pycache__/
 *.pyc
 

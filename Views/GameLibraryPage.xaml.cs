@@ -24,6 +24,7 @@ namespace StormSwitchBox.Views
         private NintendoGameEntry? _selectedGame;
         private readonly List<Button> _systemButtons = new();
         private bool _isLoaded = false;
+        private Action? _langHandler;
 
         // Pagination state
         private List<NintendoGameEntry> _allFilteredGames = new();
@@ -36,14 +37,35 @@ namespace StormSwitchBox.Views
         {
             this.InitializeComponent();
             this.NavigationCacheMode = Microsoft.UI.Xaml.Navigation.NavigationCacheMode.Required;
+            _langHandler = () => App.RunOnUI(ApplyLocalization);
             this.Loaded += GameLibraryPage_Loaded;
-            App.Localization.LanguageChanged += () => App.RunOnUI(ApplyLocalization);
+            this.Unloaded += GameLibraryPage_Unloaded;
+        }
+
+        private void GameLibraryPage_Unloaded(object sender, RoutedEventArgs e)
+        {
+            App.NintendoLibrary.LibraryUpdated -= OnLibraryUpdated;
+            App.TitleDb.DatabaseLoaded -= OnTitleDbLoaded;
+            if (_langHandler != null)
+            {
+                App.Localization.LanguageChanged -= _langHandler;
+            }
         }
 
         private CancellationTokenSource? _filterCts;
 
         private async void GameLibraryPage_Loaded(object sender, RoutedEventArgs e)
         {
+            App.NintendoLibrary.LibraryUpdated -= OnLibraryUpdated;
+            App.NintendoLibrary.LibraryUpdated += OnLibraryUpdated;
+            App.TitleDb.DatabaseLoaded -= OnTitleDbLoaded;
+            App.TitleDb.DatabaseLoaded += OnTitleDbLoaded;
+            if (_langHandler != null)
+            {
+                App.Localization.LanguageChanged -= _langHandler;
+                App.Localization.LanguageChanged += _langHandler;
+            }
+
             if (!_isLoaded)
             {
                 GamesGridView.ItemsSource = _pagedGames;
@@ -51,9 +73,6 @@ namespace StormSwitchBox.Views
 
                 ApplyLocalization();
                 InitializeSystemTabsAndDropdown();
-
-                App.NintendoLibrary.LibraryUpdated += OnLibraryUpdated;
-                App.TitleDb.DatabaseLoaded += OnTitleDbLoaded;
 
                 // Асинхронная загрузка базы Switch в фоне без подвисания UI
                 _ = App.NintendoLibrary.EnsureSwitchGamesLoadedAsync(App.TitleDb);

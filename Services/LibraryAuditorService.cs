@@ -122,7 +122,7 @@ namespace StormSwitchBox.Services
                                         Platform = "3DS",
                                         CurrentSizeBytes = size,
                                         EstimatedSavingsBytes = trimSavings,
-                                        Recommendation = $"Обрезать пустые 0xFF/0x00 блоки в конце картриджа 3DS (-{ProcessingTask.FormatSize(trimSavings)})",
+                                        Recommendation = $"Обрезать пустые 0xFF блоки в конце картриджа 3DS (-{ProcessingTask.FormatSize(trimSavings)})",
                                         RelatedFiles = new List<string> { f }
                                     });
                                 }
@@ -183,6 +183,10 @@ namespace StormSwitchBox.Services
                             }
                         }
                     });
+
+                var fileSizes = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+                foreach (var rec in switchRecords) fileSizes[rec.Path] = rec.Size;
+                foreach (var rec in threeDsRecords) fileSizes[rec.Path] = rec.Size;
 
                 report.TotalLibraryBytes = totalBytes;
                 report.Issues.AddRange(issuesBag);
@@ -274,7 +278,40 @@ namespace StormSwitchBox.Services
                 }
 
                 report.Issues = report.Issues.OrderByDescending(i => i.EstimatedSavingsBytes).ThenBy(i => i.GameName).ToList();
-                report.TotalEstimatedSavingsBytes = report.Issues.Sum(i => i.EstimatedSavingsBytes);
+
+                // Группируем потенциальную экономию по FilePath, чтобы один файл не давал >100% своего размера
+                var perFileSavings = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+                foreach (var issue in report.Issues)
+                {
+                    if (issue.EstimatedSavingsBytes <= 0 || issue.RelatedFiles == null || issue.RelatedFiles.Count == 0)
+                        continue;
+
+                    if (issue.RelatedFiles.Count == 1)
+                    {
+                        string f = issue.RelatedFiles[0];
+                        long cap = fileSizes.TryGetValue(f, out long sz) ? sz : issue.CurrentSizeBytes;
+                        long clamped = Math.Min(cap, issue.EstimatedSavingsBytes);
+                        if (!perFileSavings.TryGetValue(f, out long cur) || clamped > cur)
+                            perFileSavings[f] = clamped;
+                    }
+                    else
+                    {
+                        long groupTotalSize = issue.RelatedFiles.Sum(f => fileSizes.TryGetValue(f, out long sz) ? sz : 0L);
+                        foreach (var f in issue.RelatedFiles)
+                        {
+                            long fSize = fileSizes.TryGetValue(f, out long sz) ? sz : 0L;
+                            if (fSize <= 0) continue;
+                            long share = groupTotalSize > 0
+                                ? (long)Math.Round(issue.EstimatedSavingsBytes * ((double)fSize / groupTotalSize))
+                                : (issue.EstimatedSavingsBytes / issue.RelatedFiles.Count);
+                            long cur = perFileSavings.GetValueOrDefault(f, 0L);
+                            long combined = Math.Min(fSize, cur + Math.Max(0L, share));
+                            perFileSavings[f] = combined;
+                        }
+                    }
+                }
+
+                report.TotalEstimatedSavingsBytes = Math.Min(report.TotalLibraryBytes, perFileSavings.Values.Sum());
                 return report;
             }, ct);
         }
@@ -300,8 +337,7 @@ namespace StormSwitchBox.Services
                     int nonPadIdx = -1;
                     for (int i = read - 1; i >= 0; i--)
                     {
-                        byte b = buf[i];
-                        if (b != 0xFF && b != 0x00)
+                        if (buf[i] != 0xFF)
                         {
                             nonPadIdx = i;
                             break;

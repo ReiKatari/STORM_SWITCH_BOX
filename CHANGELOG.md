@@ -1,3 +1,73 @@
+## **8.0.0** (19.11.2026)
+
+> 💡 **Релиз 8.0.0** - *Крупное мажорное обновление архитектуры, безопасности и совместимости Nintendo Switch 1/2 и Nintendo 3DS: полное устранение 95 выявленных дефектов аудита, 100% соответствие формату NUP v1.0 для эмулятора STORM SWITCH (Windows и Android), исправление заголовков XCI/NSZ/XCZ и 3DS для Citra/Azahar, единый крипто- и сетевой контур, усиленная защита ключей и сертификатов, сокращение размера дистрибутива за счёт Zstd-сжатия `nutdb.json.zst` и сквозная проверка 26/26 сценариев на реальных образах игр*
+
+---
+
+### 🚀 Ключевые исправления и улучшения (STORM SWITCH BOX 8.0.0)
+
+- 🌟 **[100% совместимость NUP v1.0 с эмулятором STORM SWITCH (Windows + Android)]**: В `NupContainerService.cs` и `StormNczEngine.kt` исправлены 3 критических дефекта бинарного формата NUP v1.0 - абсолютное смещение `meta_offset` теперь выносится строго после таблицы оглавления `TOC`, записи `children[]` сортируются побайтно по UTF-8 именам, выравнивание `blob_offset`/`extent_offset` кратно 16 байтам, а для файлов нулевой длины пишется `extent_offset = 0`. Подтверждено прохождением эталонного верификатора `nup.py` и прямым запуском игр Nintendo Switch 1 и Switch 2 в `STORM_SWITCH-cli.exe`.
+- 🌟 **[Исправление сборки XCI, XCZ, NSZ и NSP (`StormXciBuilder.cs`, `NszCompressionService.cs`)]**: Устранён дефект смещения поля `nameOffset` (`+0x10` вместо `+0x38`) в `WriteHfs0Entry`, восстановлено автоопределение корневого смещения `HFS0` в `CreatePfsFromStorage` вместо жёсткого `0x10000`, внедрены `SwitchContainerHandle` для безопасного освобождения потоков, `TitleIdHelper` для точного разбора идентификаторов и `StormToolResolver` для единого поиска внешних утилит. Все собранные контейнеры проходят `hactoolnet`, `nsz --verify` и запуск в эмуляторе.
+- 🌟 **[Nintendo 3DS (3DS / CCI / CIA / CXI) - совместимость с Citra и Azahar]**: Проверены и стабилизированы нативная дешифровка `SeedDB`/`NCCH Crypto`, упаковка и распаковка `3DS`/`CIA`/`CXI`, инъекция `SMDH`-баннеров и `BCWAV`-звука, обрезка картриджей `SmartShrink` и подтверждена валидность собранных образов через `ctrtool --verify` (все 100% разделов `GOOD`) для стабильного запуска в Citra и Azahar.
+- 🌟 **[Безопасность, сеть, сертификаты и гигиена репозитория]**: Полностью удалены захардкоженные ключи (`keys.dat`) и приватный `.pfx` из исходников и дистрибутивов, закрыты уязвимости `Command Injection`, `Zip-Slip` / `Path Traversal` (Windows, Android и `StormInstaller`), добавлена проверка `Host`/`Origin` в локальных HTTP-серверах (`DbiInstallService`, `DirectConsoleSenderService`), внедрён единый пул `StormHttpClientFactory` (устранены утечки сокетов и глобальное отключение TLS-проверок) и настроен строгий `network_security_config.xml` на Android.
+- 🌟 **[WinUI 3, локализация, оптимизация памяти и дистрибутива]**: Устранены утечки подписок событий (`Loaded`/`LanguageChanged`/`ThemeChanged`), введено кэширование кистей (`UiBrushCache`), исправлены гонки и блокировки UI-потока в `MainWindow` и диалогах, доведена до 0 предупреждений компиляция C# (`0 errors, 0 warnings`), база `nutdb.json` (47.18 МБ) сжата в `nutdb.json.zst` (10.21 МБ), а из дистрибутива удалены неиспользуемые бинарники (`texconv.exe`, `hacbrewpack.exe`, `hac2l.exe`), дубликаты иконок, `kivy` и `__pycache__` (итоговый архив уменьшен на ~12 МБ).
+- 🌟 **[Android Engine, StormInstaller и Python Turbo-загрузчик]**: В `StormNczEngine.kt` исправлены смещения `NACP` (`0x30A0`/`0x30B0`) и добавлен набор модульных тестов `StormBinaryAndLocTest.kt`; в `StormInstaller` устранена проблема извлечения и блокировки файлов с проверкой путей, а в `storm_lt_turbo.py` исправлена обработка исключений, тайм-аутов и корректное завершение потоков.
+
+<details>
+<summary><b>📋 Полный список изменений (нажмите, чтобы развернуть)</b></summary>
+
+- 🔹 **[Core/NCA/StormXciBuilder.cs]**: Исправлено смещение поля `nameOffset` (`+0x10`) в `WriteHfs0Entry` для 100% валидности HFS0-разделов в картриджах XCI/XCZ.
+- 🔹 **[Services/NupContainerService.cs & android/.../StormNczEngine.kt]**: Полный бинарный паритет NUP v1.0 с `STORM SWITCH` (`nup_container.cpp`) и `nup.py` - размещение TLV-метаданных строго после TOC, сортировка `children[]` по UTF-8, 16-байтное выравнивание экстентов и `extent_offset = 0` для пустых файлов.
+- 🔹 **[Services/NszCompressionService.cs]**: Автоопределение смещения корневого HFS0 (`TryDetectXciRootHfs0Offset`) в `CreatePfsFromStorage` вместо жёсткого `0x10000` и корректное освобождение потоков.
+- 🔹 **[Services/StormToolResolver.cs, StormHttpClientFactory.cs, TitleIdHelper.cs, SwitchContainerHandle.cs]**: Вынесены общие переиспользуемые сервисы поиска утилит, HTTP-клиентов с безопасным TLS, разбора TitleID и управления дескрипторами контейнеров Switch.
+- 🔹 **[Models/UiBrushCache.cs & Views/*]**: Кэширование кистей WinUI 3, устранение утечек подписок на события смены языка/темы, удаление дублирующихся ветвей в `InstructionPage.xaml.cs` и исправление предупреждения `CS8602` в `SwitchFormatService.cs`.
+- 🔹 **[Services/TitleDbService.cs & tools/db/nutdb.json.zst]**: Переход на Zstd-сжатую базу `nutdb.json.zst` (10.21 МБ вместо 47.18 МБ) с прозрачной распаковкой в памяти.
+- 🔹 **[Services/DbiInstallService.cs, DirectConsoleSenderService.cs, ExternalProcessRunner.cs]**: Защита от Path Traversal, экранирование аргументов процессов (`ArgumentList`), проверка заголовков локальных серверов и безопасный запуск внешних утилит.
+- 🔹 **[installer/StormInstaller]**: Исправление обработки путей при распаковке `Payload.zip` (защита от Zip-Slip), корректная установка сертификата и компиляция с `0 errors, 0 warnings`.
+- 🔹 **[android/app]**: Добавлены `network_security_config.xml` и unit-тесты `StormBinaryAndLocTest.kt`, исправлены смещения `NACP` (`0x30A0`/`0x30B0`) и очищена упаковка от `keys.dat`.
+- 🔹 **[Гигиена репозитория и дистрибутива]**: Удалены неиспользуемые и устаревшие файлы (`GpuAccelerationService.cs`, `VirtualRamDriveService.cs`, `TinfoilDownloaderService.cs`, `StormIvfcBuilder.cs`, `DebugLogger.cs`, `keys.dat`, `STORM_CodeSign.pfx`, старые `.slnx`/`.iss`, лишние бинарники, дубликаты иконок, `kivy` и `__pycache__`).
+
+</details>
+
+---
+
+<details>
+<summary><b>🌐 English Changelog (click to expand)</b></summary>
+
+### 🚀 Key Improvements & Fixes (STORM SWITCH BOX 8.0.0)
+
+- 🔸 **[100% NUP v1.0 Parity with STORM SWITCH Emulator (Windows + Android)]**: Fixed three critical binary layout issues in `NupContainerService.cs` and `StormNczEngine.kt` - post-TOC absolute `meta_offset`, UTF-8 byte-sorted `children[]` entries, 16-byte aligned `blob_offset`/`extent_offset`, and `extent_offset = 0` for zero-byte files. Verified with `nup.py` and live Switch 1 & Switch 2 boot tests in `STORM_SWITCH-cli.exe`.
+- 🔸 **[XCI, XCZ, NSZ & NSP Container Pipeline Fixes (`StormXciBuilder.cs`, `NszCompressionService.cs`)]**: Fixed `WriteHfs0Entry` `nameOffset` write position (`+0x10` instead of `+0x38`), replaced hardcoded `0x10000` XCI HFS0 offset with dynamic `TryDetectXciRootHfs0Offset`, and introduced shared `StormToolResolver`, `TitleIdHelper`, and `SwitchContainerHandle` services. Verified with `hactoolnet` and `nsz --verify`.
+- 🔸 **[Nintendo 3DS (3DS / CCI / CIA / CXI) Citra & Azahar Verification]**: Hardened native `SeedDB`/`NCCH Crypto` decryption, `3DS`/`CIA`/`CXI` repacking, `SMDH` banner and `BCWAV` audio injection, and `SmartShrink` trimming; verified 100% valid partitions via `ctrtool --verify` for Citra and Azahar.
+- 🔸 **[Security Hardening, Network Pool & Repo Hygiene]**: Removed bundled `keys.dat` and `.pfx` files from source and packages, fixed command injection and Zip-Slip/path traversal vectors across Windows, Android, and `StormInstaller`, introduced `StormHttpClientFactory` with proper TLS validation, and added Android `network_security_config.xml`.
+- 🔸 **[WinUI 3 Stability, Zero Warnings & Distribution Size Reduction]**: Fixed event handler leaks, added `UiBrushCache`, achieved `0 errors, 0 warnings` on Windows and `StormInstaller`, compressed `nutdb.json` (47.18 MB) into `nutdb.json.zst` (10.21 MB), and stripped unused binaries (`texconv.exe`, `hacbrewpack.exe`, `hac2l.exe`), duplicate icons, `kivy`, and `__pycache__`.
+- 🔸 **[Android Engine, StormInstaller & Python Turbo Downloader]**: Fixed `NACP` offsets (`0x30A0`/`0x30B0`) in `StormNczEngine.kt`, added JUnit tests (`StormBinaryAndLocTest.kt`), hardened `StormInstaller` extraction/cleanup, and stabilized `storm_lt_turbo.py`.
+
+</details>
+
+---
+
+<details>
+<summary><b>📦 Файлы и вложения к релизу (нажмите, чтобы развернуть)</b></summary>
+
+- 💻 **STORM_SWITCH_BOX_8.0.0_Setup.exe** (218.40 МБ)
+  - `SHA-256: 0B51B76EDCECE13B389791745FE52C47698E37D55CC1E5084B8E77910314EBDF`
+  - Установщик для Windows с интеграцией в систему и единым стилем оформления.
+- 📦 **STORM_SWITCH_BOX_8.0.0_win-x64.zip** / **STORM_SWITCH_BOX_8.0.0.zip** (149.85 МБ)
+  - `SHA-256: 8E7A2B0EDBE00EC84CB27C8ABC3336CD4EDA13F5F222BC282A63C2B02F6EB49C`
+  - Портативная версия для Windows x64 (распакуйте и запустите без установки).
+- 📱 **STORM_SWITCH_BOX_8.0.0.apk** (14.38 МБ)
+  - `SHA-256: 6DDC3DE9FF0DE3C63ECD94F31D5EA8B23D308ED113C9D803F5E387D7AB16CE1D`
+  - Мобильная версия для 64-битных устройств под управлением Android 8.0+.
+- 📱 **STORM_SWITCH_BOX_8.0.0_LEGACY.apk** (25.95 МБ)
+  - `SHA-256: F29E36FA919AF8F7433B310A1FEADA6AA448324D7365E6E79B9A5FD955B40BD5`
+  - Универсальная сборка для Android 5.0+ и 32/64-битных архитектур (ARMv7, ARM64, x86, x86_64).
+- 🛡️ **Контроль целостности**: Все бинарные файлы собраны из официального исходного кода и подписаны цифровой подписью STORM TEAM.
+
+</details>
+
+---
+
 ## **7.0.14** (17.11.2026)
 
 > 💡 **Релиз 7.0.14** - *Критическое исправление совместимости собранных игр Nintendo Switch 1 со стандартными эмуляторами (Ryujinx, Eden, Citron, Yuzu) и инструментарием (hactoolnet, nsz): устранены сбои заголовков PFS0 и XCI HFS0, искажение смещений NCZ с секциями от 0xC00, нарезки файлов > 32 МБ на Android, принудительного Hard-Patch 1G+1U с конфликтом CNMT, перехвата распакованных папок Switch 1 и перепаковки входных XCI/XCZ*
@@ -178,12 +248,12 @@
 
 ## **7.0.11** (10.11.2026)
 
-> 💡 **Релиз 7.0.11** — *Прямой потоковый компилятор NUP без извлечения на диск NTFS, устранение дискового узкого горлышка (150,000+ файлов RomFS за доли секунды), защита папочного анализа Switch 2 дампов и сквозная интеграция NUP во все режимы на Windows и Android*
+> 💡 **Релиз 7.0.11** - *Прямой потоковый компилятор NUP без извлечения на диск NTFS, устранение дискового узкого горлышка (150,000+ файлов RomFS за доли секунды), защита папочного анализа Switch 2 дампов и сквозная интеграция NUP во все режимы на Windows и Android*
 
 ---
 
 ### 🚀 Ключевые изменения и улучшения
-- 🌟 **[Direct Zero-NTFS-Extraction NUP Streaming Compiler]**: Реализована прямая потоковая сборка Switch 2 контейнеров (NSP, NSZ, XCI, XCZ) из открытого монолитного архива `.nup` без предварительного извлечения файлов RomFS на диск. Полностью устранено узкое горлышко файловой системы NTFS: сборка масштабных дампов (например, Donkey Kong Bananza на 159,858 файлов) больше не требует 15–30 минут на запись и чтение десятков тысяч мелких файлов, а построение виртуальной иерархии RomFS выполняется в оперативной памяти за доли секунды.
+- 🌟 **[Direct Zero-NTFS-Extraction NUP Streaming Compiler]**: Реализована прямая потоковая сборка Switch 2 контейнеров (NSP, NSZ, XCI, XCZ) из открытого монолитного архива `.nup` без предварительного извлечения файлов RomFS на диск. Полностью устранено узкое горлышко файловой системы NTFS: сборка масштабных дампов (например, Donkey Kong Bananza на 159,858 файлов) больше не требует 15-30 минут на запись и чтение десятков тысяч мелких файлов, а построение виртуальной иерархии RomFS выполняется в оперативной памяти за доли секунды.
 - 🌟 **[In-Memory RomFS Streaming & Zstd Decompression]**: Метод `BuildStreamedRomFs` получил нативную поддержку виртуальных дескрипторов экстентов NUP (`__NUP__|offset|extentSize|codec|size`). Чтение несжатых данных и декомпрессия блоков Zstandard выполняются на лету через `BoundedReadStream` и `ZstdSharp.DecompressionStream` непосредственно в выходной поток NCA-раздела с минимальным расходом оперативной памяти (1 МБ буфер потока).
 - 🌟 **[Защита от ошибочного папочного анализа Switch 2]**: Устранена критическая ошибка в `MultiContentService`, при которой задачи с Title ID Switch 2 (`04...`) передавали родительскую директорию контейнера в анализатор распакованных дампов с ошибкой «Не удалось проанализировать дамп Nintendo Switch 2». Добавлены строгие проверки наличия файлов-контейнеров (`.nup`, `.nsp`, `.nsz`, `.xci`, `.xcz`) и приоритетная маршрутизация файлов перед папочным режимом на Windows и Android.
 - 🌟 **[Сквозная маршрутизация NUP во всех операциях]**: Поддержка формата `.nup` интегрирована во все сценарии работы приложения: Конвертация (`Convert`), Распаковка (`Unpack`), Проверка и верификация (`Verify`), а также прямая конвертация контейнеров в `NupContainerService`.
@@ -225,7 +295,7 @@
 
 ## **7.0.10** (10.11.2026)
 
-> 💡 **Релиз 7.0.10** — *Каноническая спецификация оглавления NUP v1.0 (TOC 0x30, 64-битные счетчики каталогов и файлов, двойное автоопределение TOC), чтение метаданных TLV по абсолютным смещениям контейнера, сверхбыстрое синхронное извлечение обложек (< 1 мс), устранение коллизий кэша иконок задач и сквозная материализация структуры Control на Windows и Android*
+> 💡 **Релиз 7.0.10** - *Каноническая спецификация оглавления NUP v1.0 (TOC 0x30, 64-битные счетчики каталогов и файлов, двойное автоопределение TOC), чтение метаданных TLV по абсолютным смещениям контейнера, сверхбыстрое синхронное извлечение обложек (< 1 мс), устранение коллизий кэша иконок задач и сквозная материализация структуры Control на Windows и Android*
 
 ---
 
@@ -273,7 +343,7 @@
 
 ## **7.0.9** (10.11.2026)
 
-> 💡 **Релиз 7.0.9** — *Полный паритет Nintendo Switch 2 (эталонный хэш RomFS, розничный header_key, нативный RSA-3072 ACID, автоопределение версий NACP/CNMT и упаковка DLC), поддержка контейнеров .nup, блочное сжатие NoCrypto NCA3 и упреждающий контроль дискового пространства*
+> 💡 **Релиз 7.0.9** - *Полный паритет Nintendo Switch 2 (эталонный хэш RomFS, розничный header_key, нативный RSA-3072 ACID, автоопределение версий NACP/CNMT и упаковка DLC), поддержка контейнеров .nup, блочное сжатие NoCrypto NCA3 и упреждающий контроль дискового пространства*
 
 ---
 
@@ -298,7 +368,7 @@
 - 🔹 **[NoCrypto NCA3 Compression Parity]**: Полноценное блочное сжатие несжатых разделов Switch 2 в `NCZBLOCK v2` (1024 КБ) с ограничением параллелизма до 25% ядер ЦП.
 - 🔹 **[Full .nup Container Extension Support]**: Распознавание `.nup` файлов в проводнике, очередях задач, конвертере и сборщике мульти-контента.
 - 🔹 **[Sub-5ms Cover Extraction for Switch 2 & NUP]**: Мгновенное считывание обложек и паспорта из заголовков Switch 2 `NoCrypto` Control NCA и TOC/extents контейнеров `.nup`.
-- 🔹 **[Intelligent TitleDB Cleanup]**: Нормализация названий игр с удалением суффиксов «– Update ...» и «+ DLC» для надёжного сопоставления в базе данных.
+- 🔹 **[Intelligent TitleDB Cleanup]**: Нормализация названий игр с удалением суффиксов «- Update ...» и «+ DLC» для надёжного сопоставления в базе данных.
 
 </details>
 
@@ -327,14 +397,14 @@
 
 ## **7.0.8** (08.11.2026)
 
-> 💡 **Релиз 7.0.8** — *Защита от непрерывного сжатия Zero-Solid NCZ Guard (1 МБ NCZBLOCK), модульная распаковка NSP/NSZ/XCI/XCZ со слиянием 1G+1U BkTR, бескэшевый стриминг BlockNczByteReader на Android без дублирования памяти и персистентное сохранение обложек, задач и метрик сжатия*
+> 💡 **Релиз 7.0.8** - *Защита от непрерывного сжатия Zero-Solid NCZ Guard (1 МБ NCZBLOCK), модульная распаковка NSP/NSZ/XCI/XCZ со слиянием 1G+1U BkTR, бескэшевый стриминг BlockNczByteReader на Android без дублирования памяти и персистентное сохранение обложек, задач и метрик сжатия*
 
 ---
 
 ### 🚀 Ключевые изменения и улучшения
 - 🌟 **[Zero-Solid NCZ Guard (NCZSECTN -> 1 МБ NCZBLOCK)]**: Автоматическое выявление и динамическое пережатие устаревших непрерывных Solid NCZ (`NCZSECTN`) в стандартный блочный формат `NCZBLOCK` с шагом 1 МБ при сборке мульти-контента, сжатии и конвертации. Это обеспечивает мгновенный запуск и чтение игр в эмуляторах без необходимости предварительной распаковки гигабайтного кэша во временные директории.
 - 🌟 **[Windows: Полное обновление движка распаковки (NSP / NSZ / XCI / XCZ, 1G+1U BkTR, Multi-DLC)]**: Устранены сбои при обработке малых `.ncz` файлов (< 1024 байт), добавлена поддержка чтения разделов `HFS0 / Secure` для картриджей `XCI / XCZ`, внедрено автообнаружение `prod.keys` в путях установленных эмуляторов, реализовано автоматическое слияние базы и патча обновления (`BkTR`) при распаковке `1G+1U` контейнеров, изолированы выходные папки `<Имя>_Unpacked` и обеспечено безопасное размещение временных потоков `STORM_TMP` на накопителе с максимальным объёмом свободного места.
-- 🌟 **[Android: Прямая потоковая распаковка без дублирования памяти (Zero-Bloat и BlockNczByteReader)]**: Внедрён движок `BlockNczByteReader` с 4 МБ LRU-кэшем в оперативной памяти и прямой сквозной стриминг `PFS0`. Полностью исключено создание промежуточных 14+ ГБ копий `temp_program.nca`, дублирование в `atmosphere/contents` и авто-дамп `pfs0/` (расход дискового пространства при распаковке 14 ГБ игры снижен с 30–56 ГБ до ~14 ГБ). Добавлена предварительная проверка доступного пространства `StatFs` и перехват системной ошибки `ENOSPC` с автоочисткой неполных файлов и информативным диалогом.
+- 🌟 **[Android: Прямая потоковая распаковка без дублирования памяти (Zero-Bloat и BlockNczByteReader)]**: Внедрён движок `BlockNczByteReader` с 4 МБ LRU-кэшем в оперативной памяти и прямой сквозной стриминг `PFS0`. Полностью исключено создание промежуточных 14+ ГБ копий `temp_program.nca`, дублирование в `atmosphere/contents` и авто-дамп `pfs0/` (расход дискового пространства при распаковке 14 ГБ игры снижен с 30-56 ГБ до ~14 ГБ). Добавлена предварительная проверка доступного пространства `StatFs` и перехват системной ошибки `ENOSPC` с автоочисткой неполных файлов и информативным диалогом.
 - 🌟 **[Сохранение состояния задач, обложек и метрик сжатия при перезапуске]**: Реализовано многоуровневое кэширование и восстановление постеров (`IconCache` / `TitleDB` / `RuTracker`), персистентное сохранение списка входных каталогов и корректный перерасчёт параметров «Нач. размер», «Кон. размер», «Разница» и коэффициента сжатия после паузы или перезапуска приложения.
 
 <details>
@@ -344,7 +414,7 @@
 - 🔹 **[Advanced Unpack Pipeline]**: Обработка `NSP`, `NSZ`, `XCI`, `XCZ` с извлечением `HFS0/Secure`, расшифровкой и применением патчей обновления `BkTR` на лету.
 - 🔹 **[Smart Keys Auto-Discovery]**: Автоматический поиск и загрузка ключей `prod.keys` и `title.keys` из системных каталогов Yuzu, Ryujinx, Citron, Eden и Suyu.
 - 🔹 **[BlockNczByteReader LRU Cache]**: Прямой поблочный доступ к сжатым секциям NCZ через кольцевой 4 МБ LRU-буфер на Android без создания временных файлов на диске.
-- 🔹 **[Zero-Bloat Memory Footprint]**: Снижение пикового расхода памяти на Android до фактического размера распакованных данных (~14 ГБ вместо 30–56 ГБ).
+- 🔹 **[Zero-Bloat Memory Footprint]**: Снижение пикового расхода памяти на Android до фактического размера распакованных данных (~14 ГБ вместо 30-56 ГБ).
 - 🔹 **[StatFs & ENOSPC Guard]**: Упреждающий контроль свободного места на накопителе устройства с защитой от повреждения файловой системы при исчерпании квоты.
 - 🔹 **[Persistent Task State]**: Бесшовное сохранение очереди, статусов прогресса, списка каталогов и вычисленных объёмов экономии диска между сессиями.
 - 🔹 **[Multi-Tier Icon Cache]**: Кэширование игровых обложек в локальном хранилище с запасными каналами TitleDB и сетевых метаданных.
@@ -356,7 +426,7 @@
 
 - 🔸 **[Zero-Solid NCZ Guard (NCZSECTN -> 1 MB NCZBLOCK)]**: Automatically detects and recompresses legacy streaming solid NCZ files into 1 MB block-based `NCZBLOCK` format during multi-content packaging, compression, and conversion, enabling instantaneous loading in emulators without multi-gigabyte cache decompression.
 - 🔸 **[Windows: Unpack Engine Overhaul (NSP / NSZ / XCI / XCZ, 1G+1U BkTR, Multi-DLC)]**: Fixed small `.ncz` (< 1024 bytes) decompression edge cases, added `HFS0 / Secure` partition extraction for `XCI / XCZ`, integrated automatic `prod.keys` discovery from installed emulators, implemented automated base and update patch (`BkTR`) merging for `1G+1U` containers, safely routed `STORM_TMP` streams to the drive with maximum free space, and isolated output folders.
-- 🔸 **[Android: Direct Zero-Bloat Stream Decompression (BlockNczByteReader)]**: Implemented `BlockNczByteReader` with 4 MB in-memory LRU cache and direct `PFS0` streaming, eliminating 14+ GB temporary `temp_program.nca` copies, `atmosphere/contents` duplicates, and auto-dump `pfs0/` folders (reducing storage overhead from 30–56 GB down to ~14 GB for a 14 GB game). Added pre-flight `StatFs` storage checks and robust `ENOSPC` handling with clean file rollbacks.
+- 🔸 **[Android: Direct Zero-Bloat Stream Decompression (BlockNczByteReader)]**: Implemented `BlockNczByteReader` with 4 MB in-memory LRU cache and direct `PFS0` streaming, eliminating 14+ GB temporary `temp_program.nca` copies, `atmosphere/contents` duplicates, and auto-dump `pfs0/` folders (reducing storage overhead from 30-56 GB down to ~14 GB for a 14 GB game). Added pre-flight `StatFs` storage checks and robust `ENOSPC` handling with clean file rollbacks.
 - 🔸 **[Session Persistence: Task State, Game Covers, and Compression Metrics]**: Multi-tiered cover caching and recovery (`IconCache` / `TitleDB` / `RuTracker`), persistent input folder history, and accurate recalculation of initial size, final size, space saved, and compression ratio across application restarts.
 
 </details>
@@ -373,7 +443,7 @@
 
 ## **7.0.7** (07.11.2026)
 
-> 💡 **Релиз 7.0.7** — *Динамическая синхронизация игр и слотов в раздачах RuTracker, интеллектуальная 5+ потоковая очередь с обходом медленных сидов (< 200 КБ/с) и автоматическая раскладка антологий*
+> 💡 **Релиз 7.0.7** - *Динамическая синхронизация игр и слотов в раздачах RuTracker, интеллектуальная 5+ потоковая очередь с обходом медленных сидов (< 200 КБ/с) и автоматическая раскладка антологий*
 
 ---
 
@@ -416,7 +486,7 @@
 
 ## **7.0.6** (07.11.2026)
 
-> 💡 **Релиз 7.0.6** — *Хотфикс автономного установщика StormInstaller (устранение IndexOutOfRangeException при установке на всех 11 языках и безопасный доступ к локализации T(index)), стабилизация статуса очереди RuTracker и полная мультиязычность*
+> 💡 **Релиз 7.0.6** - *Хотфикс автономного установщика StormInstaller (устранение IndexOutOfRangeException при установке на всех 11 языках и безопасный доступ к локализации T(index)), стабилизация статуса очереди RuTracker и полная мультиязычность*
 
 ---
 
@@ -463,7 +533,7 @@
 
 ## **7.0.5** (07.11.2026)
 
-> 💡 **Релиз 7.0.5** — *Устранение ложного статуса «ОШИБКА» после успешной сборки в очереди RuTracker, барьер синхронизации UI-потока, 100% мультиязычность на 11 языках и автоопределение системного языка ОС*
+> 💡 **Релиз 7.0.5** - *Устранение ложного статуса «ОШИБКА» после успешной сборки в очереди RuTracker, барьер синхронизации UI-потока, 100% мультиязычность на 11 языках и автоопределение системного языка ОС*
 
 ---
 
@@ -471,7 +541,7 @@
 - 🌟 **[RuTracker: Устранение ложного статуса «ОШИБКА» после успешной сборки]**: Исправлена межпоточная синхронизация `PropertyChanged` (`COMException 0x8001010E RPC_E_WRONG_THREAD`) при финализации и очистке временной папки раздачи после успешного создания мульти-контентного контейнера (`.nsz`/`.nsp`/`.xci`/`.xcz`). Устранены ложные падения задач при корректно собранном образе.
 - 🌟 **[RuTracker: Барьер синхронизации UI-потока и защита IsBuildCompletedOnDisk]**: Добавлен барьер ожидания применения статуса в UI-потоке (`StatusSyncBarrier`) перед очисткой временных файлов. Внедрена проверка `IsBuildCompletedOnDisk`, предотвращающая перезапись успешного статуса сборки кодами ошибок пост-очистки.
 - 🌟 **[RuTracker: Автоисцеление сохранённой очереди]**: При загрузке и валидации очереди задач из постоянного хранилища (`LoadPersistedState`) задачи с готовым выходным образом на диске автоматически валидируются и восстанавливают статус `ГОТОВО` (100%), ликвидируя залипание в «ОШИБКА».
-- 🌟 **[RuTracker: Семантическая цветовая индикация статуса и скорости]**: Реализовано динамическое свойство `SpeedBrush` для столбца скорости и состояния — адаптивная цветовая дифференциация активной сборки, паузы, ошибок и завершённых задач в тёмных и светлых темах оформления.
+- 🌟 **[RuTracker: Семантическая цветовая индикация статуса и скорости]**: Реализовано динамическое свойство `SpeedBrush` для столбца скорости и состояния - адаптивная цветовая дифференциация активной сборки, паузы, ошибок и завершённых задач в тёмных и светлых темах оформления.
 - 🌟 **[Локализация: 100% покрытие 11 языков экосистемы STORM SOFT]**: Полная динамическая мультиязычность всех экранов, таблиц, диалоговых окон, контекстных меню, всплывающих подсказок (ToolTips), справочника и установщика `StormInstaller` на 11 языках: русский (RU), английский (EN), немецкий (DE), французский (FR), китайский (ZH), корейский (KO), японский (JA), испанский (ES), итальянский (IT), португальский (PT) и хинди (HI).
 - 🌟 **[Локализация: Автоопределение системного языка ОС и переключение на лету]**: Интеллектуальный выбор языка операционной системы при первом запуске приложения и мгновенное реактивное переключение языка через настройки без необходимости перезапуска программы как на Windows (WinUI 3), так и на Android.
 
@@ -515,7 +585,7 @@
 
 ## **7.0.4**
 
-> 💡 **Релиз 7.0.4** — *Устранение зависания статуса «СБОРКА», мгновенное освобождение сетевых слотов очереди, фильтрация строго актуальных версий модов и многоуровневый обход проверок 4PDA/форумов*
+> 💡 **Релиз 7.0.4** - *Устранение зависания статуса «СБОРКА», мгновенное освобождение сетевых слотов очереди, фильтрация строго актуальных версий модов и многоуровневый обход проверок 4PDA/форумов*
 
 ---
 
@@ -566,7 +636,7 @@
 ---
 
 ### 🚀 Ключевые изменения и улучшения
-- 🌟 **[RuTracker: 3-уровневая архитектура максимальной скорости (Tier 1 + Tier 2 + Tier 3)]**: Ликвидирована регрессия скорости загрузки (0.45 МБ/с, 1 сид) — восстановлен полноценный разгон до 15–25+ МБ/с и поддержка сотен сидов в рое. Внедрена отказоустойчивая трёхуровневая архитектура: **Tier 1** (внешний qBittorrent WebUI) -> **Tier 2** (встроенный C++ `libtorrent-rasterbar 2.1.1` с uTP BEP-29 и Holepunch BEP-55) -> **Tier 3** (высокоскоростной MonoTorrent).
+- 🌟 **[RuTracker: 3-уровневая архитектура максимальной скорости (Tier 1 + Tier 2 + Tier 3)]**: Ликвидирована регрессия скорости загрузки (0.45 МБ/с, 1 сид) - восстановлен полноценный разгон до 15-25+ МБ/с и поддержка сотен сидов в рое. Внедрена отказоустойчивая трёхуровневая архитектура: **Tier 1** (внешний qBittorrent WebUI) -> **Tier 2** (встроенный C++ `libtorrent-rasterbar 2.1.1` с uTP BEP-29 и Holepunch BEP-55) -> **Tier 3** (высокоскоростной MonoTorrent).
 - 🌟 **[RuTracker: Устранение преждевременного выхода qBittorrent и авто-старт в фоне]**: Исправлена ошибка, из-за которой отсутствие запущенного процесса qbittorrent приводило к моментальному откату на резервный движок. Добавлен потокобезопасный бутстрап `EnsureLocalQBitReadyAsync` с авто-запуском `qbittorrent.exe --no-splash`, валидацией WebUI и авто-обходом конфликтов портов на 18080.
 - 🌟 **[RuTracker: Потокобезопасный сбор пиров с изоляцией по InfoHash]**: Устранено состояние гонки при конкурентном парсинге bencoded-ответов трекеров `bt..bt4.t-ru.org` и UDP-анонсов. Пул пиров теперь строго изолирован по хэшам раздач, исключая взаимное загрязнение роя между задачами очереди.
 - 🌟 **[RuTracker: Встроенный нативный движок libtorrent-rasterbar (Tier 2)]**: Интегрирован скрипт `storm_lt_turbo.py` на базе `libtorrent-rasterbar` внутри встроенного Python-окружения (`tools\nsz`). Позволяет скачивать раздачи на полной скорости канала без необходимости установки сторонних торрент-клиентов на ПК пользователя.
@@ -611,9 +681,9 @@
 
 ### 🚀 Ключевые изменения и улучшения
 - 🌟 **[RuTracker: строгая передача только выбранных файлов и очистка граничных кусков]**: Исправлена фильтрация контейнеров и архивов модов строго по отмеченным чекбоксам (`IsSelected == true`) во всех режимах (1 слот и мульти-слот), мгновенное применение `Priority.DoNotDownload` в момент `MetadataReceived`, автоматическое удаление частичных граничных файлов BitTorrent и живой пересчёт выбранной версии и размера в карточке игры.
-- 🌟 **[RuTracker: неблокирующий пакетный запуск нескольких загрузок подряд]**: Добавлены изолированные сессии `CreateIsolatedDownloadSession()` с динамическим портом `0` и отдельными подпапками пакетов — теперь сразу после старта скачивания можно выбрать другой набор файлов или следующую раздачу и запустить новую загрузку без отмены текущей и без переоткрытия окна.
+- 🌟 **[RuTracker: неблокирующий пакетный запуск нескольких загрузок подряд]**: Добавлены изолированные сессии `CreateIsolatedDownloadSession()` с динамическим портом `0` и отдельными подпапками пакетов - теперь сразу после старта скачивания можно выбрать другой набор файлов или следующую раздачу и запустить новую загрузку без отмены текущей и без переоткрытия окна.
 - 🌟 **[Windows: полное восстановление Распаковки, Упаковки, Обновления, Конвертации и Инспектора RomFS/ExeFS]**: Устранено отравление `ExternalKeySet` через `RegisterRightsIdFallback`, исправлена расшифровка `TitleKey` через `TitleKek` в `StormNczStorage` и устранено двойное шифрование билетов `.tik`, возвращена прямая маршрутизация режимов `Convert`, `Pack` и `Update` в `TasksViewModel` без перехвата в `Multi`, устранены дедлоки пайпов и поддержана обратная сборка распакованных папок `exefs/` + `romfs/` в загружаемые `NSP`/`NSZ`/`XCI`.
-- 🌟 **[Android: полноценная криптография `.tik` (`TitleKey`), потоковая Распаковка 13+ ГБ, сборка `NCA3` (`IVFC Lv1–Lv6`) и Инспектор RomFS]**: Внедрён сбор и расшифровка билетов `.tik` (`titlekek_XX` AES-128-ECB) перед распаковкой и Zstd-сжатием `NCZ`, прямое чтение слайсов `RomFS`/`ExeFS` без переполнения памяти, замена заглушек упаковки и виртуального проводника на полноценную компиляцию `Program/Control/Meta NCA3` и чтение реального дерева `IVFC Level 6`.
+- 🌟 **[Android: полноценная криптография `.tik` (`TitleKey`), потоковая Распаковка 13+ ГБ, сборка `NCA3` (`IVFC Lv1-Lv6`) и Инспектор RomFS]**: Внедрён сбор и расшифровка билетов `.tik` (`titlekek_XX` AES-128-ECB) перед распаковкой и Zstd-сжатием `NCZ`, прямое чтение слайсов `RomFS`/`ExeFS` без переполнения памяти, замена заглушек упаковки и виртуального проводника на полноценную компиляцию `Program/Control/Meta NCA3` и чтение реального дерева `IVFC Level 6`.
 
 ### 📋 Полный список изменений
 - 🔹 **RuTrackerModService.cs**: Добавлена очистка граничных файлов BitTorrent (piece boundary leftovers), селективное применение `Priority.DoNotDownload` по маске отмеченных элементов и динамическое выделение изолированных торрент-сессий `CreateIsolatedDownloadSession()` с отдельными рабочими директориями.
@@ -622,7 +692,7 @@
 - 🔹 **StormNczStorage.cs & SwitchFormatService.cs**: Восстановление корректной последовательности расшифровки заголовков NCA и сжатия блоков NCZ с сохранением валидной структуры билетов `.tik` без повторного шифрования.
 - 🔹 **TasksViewModel.cs & MultiContentService.cs**: Исправлена маршрутизация задач в очереди: режимы `Convert`, `Pack` и `Update` теперь исполняются через соответствующие целевые конвейеры без принудительного перехвата в multi-merge.
 - 🔹 **VirtualRomFsInspectorService.cs**: Полная ликвидация блокировок анонимных каналов при чтении списков файлов RomFS/ExeFS, корректная распаковка выбранных поддиректорий и сборка готовых контейнеров из папок.
-- 🔹 **Android StormNczEngine.kt & MainActivity.kt**: Реализация аппаратной расшифровки билетов `.tik` по таблице `titlekek_XX`, потоковое чтение больших контейнеров (13+ ГБ) с нулевым оверхедом по памяти, компилятор `NCA3` с генерацией структур `IVFC` уровней 1–6 и интеграция инспектора RomFS в мобильный интерфейс.
+- 🔹 **Android StormNczEngine.kt & MainActivity.kt**: Реализация аппаратной расшифровки билетов `.tik` по таблице `titlekek_XX`, потоковое чтение больших контейнеров (13+ ГБ) с нулевым оверхедом по памяти, компилятор `NCA3` с генерацией структур `IVFC` уровней 1-6 и интеграция инспектора RomFS в мобильный интерфейс.
 
 
 ## [6.9.8] - 2026-11-06

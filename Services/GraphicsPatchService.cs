@@ -1,78 +1,18 @@
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text;
-using System.Threading.Tasks;
 using StormSwitchBox.Models;
 
 namespace StormSwitchBox.Services
 {
     public class GraphicsPatchService
     {
-        public class GamePatchInfo
-        {
-            public string TitleId { get; set; } = "";
-            public string Name { get; set; } = "";
-            public string TargetBuildId { get; set; } = "";
-            public string Description { get; set; } = "";
-            public byte[] IpsData { get; set; } = Array.Empty<byte>();
-        }
-
-        // Каталог встроенных проверенных IPS патчей 60 FPS для популярных игр
-        private readonly Dictionary<string, List<GamePatchInfo>> _knownPatches = new(StringComparer.OrdinalIgnoreCase);
-
         public GraphicsPatchService()
         {
-            InitializeKnownPatches();
-        }
-
-        private void InitializeKnownPatches()
-        {
-            // Пример встроенных патчей 60 FPS (standard IPS: 'IPS32' magic or standard 3-byte offset)
-            // Добавляем патчи для ключевых тайтлов
-            AddPatch("0100F3400332C000", "The Legend of Zelda: Tears of the Kingdom", "60 FPS Unlocked", new byte[]
-            {
-                0x49, 0x50, 0x53, 0x33, 0x32, // IPS32
-                0x00, 0x01, 0x2A, 0x40, // Offset
-                0x00, 0x04, // Size 4
-                0x1F, 0x20, 0x03, 0xD5, // NOP (or 60fps opcode)
-                0x45, 0x45, 0x4F, 0x46 // EEOF
-            });
-
-            AddPatch("01007EF00011E000", "The Legend of Zelda: Breath of the Wild", "60 FPS Patch", new byte[]
-            {
-                0x49, 0x50, 0x53, 0x33, 0x32,
-                0x00, 0x00, 0x50, 0x00,
-                0x00, 0x04,
-                0x1F, 0x20, 0x03, 0xD5,
-                0x45, 0x45, 0x4F, 0x46
-            });
-
-            AddPatch("0100000000010000", "Super Mario Odyssey", "60 FPS / Dynamic Resolution Lock", new byte[]
-            {
-                0x49, 0x50, 0x53, 0x33, 0x32,
-                0x00, 0x02, 0x10, 0x00,
-                0x00, 0x04,
-                0x1F, 0x20, 0x03, 0xD5,
-                0x45, 0x45, 0x4F, 0x46
-            });
-        }
-
-        private void AddPatch(string titleId, string name, string desc, byte[] ips)
-        {
-            if (!_knownPatches.TryGetValue(titleId, out var list))
-            {
-                list = new List<GamePatchInfo>();
-                _knownPatches[titleId] = list;
-            }
-            list.Add(new GamePatchInfo
-            {
-                TitleId = titleId,
-                Name = name,
-                Description = desc,
-                IpsData = ips
-            });
         }
 
         /// <summary>
@@ -184,38 +124,6 @@ namespace StormSwitchBox.Services
                 if (appliedAny) return true;
             }
 
-            // 2. Проверка базы встроенных патчей (строго при совпадении TargetBuildId, чтобы не повредить другие версии игры)
-            if (_knownPatches.TryGetValue(cleanTid, out var patches) && patches.Count > 0 && !string.IsNullOrEmpty(currentBuildId))
-            {
-                var matchingPatch = patches.FirstOrDefault(p =>
-                    !string.IsNullOrEmpty(p.TargetBuildId) &&
-                    currentBuildId.StartsWith(p.TargetBuildId, StringComparison.OrdinalIgnoreCase));
-
-                if (matchingPatch != null)
-                {
-                    string tempPatch = Path.Combine(Path.GetTempPath(), $"patch_{cleanTid}.ips");
-                    try
-                    {
-                        File.WriteAllBytes(tempPatch, matchingPatch.IpsData);
-                        HardPatchEngine.ApplyIpsPatchToFile(tempPatch, mainPath);
-                        App.RunOnUI(() =>
-                        {
-                            if (task != null)
-                                task.LogDetails += $"\n⚡ [60 FPS и графика] Внедрен проверенный патч 60 FPS ({matchingPatch.Description}, BuildID: {matchingPatch.TargetBuildId})";
-                        });
-                        return true;
-                    }
-                    catch (Exception ex)
-                    {
-                        App.Logger.Log($"[GraphicsPatch] Ошибка инъекции встроенного патча: {ex.Message}", LogLevel.Warning);
-                    }
-                    finally
-                    {
-                        try { if (File.Exists(tempPatch)) File.Delete(tempPatch); } catch { }
-                    }
-                }
-            }
-
             return false;
         }
 
@@ -223,6 +131,15 @@ namespace StormSwitchBox.Services
         {
             if (!File.Exists(pchtxtPath) || !File.Exists(mainBinaryPath)) return false;
 
+            byte[] nsoBytes = File.ReadAllBytes(mainBinaryPath);
+            if (nsoBytes.Length < 0x100 ||
+                nsoBytes[0] != (byte)'N' || nsoBytes[1] != (byte)'S' || nsoBytes[2] != (byte)'O' || nsoBytes[3] != (byte)'0')
+            {
+                return false;
+            }
+
+            // Сверяем ModuleId (0x40..0x5F) с @nsobid- из pchtxt и с currentBuildId
+            string moduleIdHex = Convert.ToHexString(nsoBytes.AsSpan(0x40, 32));
             string[] lines = File.ReadAllLines(pchtxtPath);
             foreach (var raw in lines)
             {
@@ -230,18 +147,29 @@ namespace StormSwitchBox.Services
                 if (line.StartsWith("@nsobid-", StringComparison.OrdinalIgnoreCase))
                 {
                     string targetBid = line.Substring(8).Trim();
-                    if (!string.IsNullOrEmpty(targetBid) && (string.IsNullOrEmpty(currentBuildId) || !currentBuildId.StartsWith(targetBid, StringComparison.OrdinalIgnoreCase)))
+                    if (!string.IsNullOrEmpty(targetBid))
                     {
-                        return false;
+                        if (!moduleIdHex.StartsWith(targetBid, StringComparison.OrdinalIgnoreCase))
+                            return false;
+                        if (!string.IsNullOrEmpty(currentBuildId) && !currentBuildId.StartsWith(targetBid, StringComparison.OrdinalIgnoreCase))
+                            return false;
                     }
                 }
+            }
+
+            uint flags = BinaryPrimitives.ReadUInt32LittleEndian(nsoBytes.AsSpan(0x0C, 4));
+            if ((flags & 0x07u) != 0)
+            {
+                nsoBytes = DecompressNso0Segments(nsoBytes);
+                flags = BinaryPrimitives.ReadUInt32LittleEndian(nsoBytes.AsSpan(0x0C, 4));
+                if ((flags & 0x07u) != 0)
+                    return false;
             }
 
             bool enabledBlock = false;
             int appliedCount = 0;
             uint nsoHeaderShift = 0x100; // NSO0 header offset
 
-            using var fs = new FileStream(mainBinaryPath, FileMode.Open, FileAccess.ReadWrite, FileShare.Read);
             foreach (var raw in lines)
             {
                 string line = raw.Trim();
@@ -284,17 +212,170 @@ namespace StormSwitchBox.Services
                     {
                         byte[] patchBytes = Convert.FromHexString(hexPayload);
                         long fileOffset = (long)relOffset + nsoHeaderShift;
-                        if (fileOffset + patchBytes.Length <= fs.Length)
+                        if (fileOffset >= 0x100 && fileOffset + patchBytes.Length <= nsoBytes.Length)
                         {
-                            fs.Seek(fileOffset, SeekOrigin.Begin);
-                            fs.Write(patchBytes, 0, patchBytes.Length);
+                            Buffer.BlockCopy(patchBytes, 0, nsoBytes, (int)fileOffset, patchBytes.Length);
                             appliedCount++;
                         }
                     }
                 }
             }
 
-            return appliedCount > 0;
+            if (appliedCount == 0) return false;
+
+            // Пересчитываем SHA-256 сегментов заголовка NSO0 (.text -> 0xA0, .rodata -> 0xC0, .data -> 0xE0)
+            RecalculateNso0SegmentHashes(nsoBytes);
+            File.WriteAllBytes(mainBinaryPath, nsoBytes);
+            return true;
+        }
+
+        private static void RecalculateNso0SegmentHashes(byte[] nsoBytes)
+        {
+            (int SegHeaderOff, int HashOff)[] segments =
+            {
+                (0x10, 0xA0), // .text
+                (0x20, 0xC0), // .rodata
+                (0x30, 0xE0)  // .data
+            };
+
+            foreach (var (segOff, hashOff) in segments)
+            {
+                uint fileOff = BinaryPrimitives.ReadUInt32LittleEndian(nsoBytes.AsSpan(segOff, 4));
+                uint size = BinaryPrimitives.ReadUInt32LittleEndian(nsoBytes.AsSpan(segOff + 8, 4));
+                if (size > 0 && (long)fileOff + size <= nsoBytes.Length)
+                {
+                    byte[] hash = SHA256.HashData(nsoBytes.AsSpan((int)fileOff, (int)size));
+                    Buffer.BlockCopy(hash, 0, nsoBytes, hashOff, 32);
+                }
+            }
+        }
+
+        private static byte[] DecompressNso0Segments(byte[] nso)
+        {
+            uint flags = BinaryPrimitives.ReadUInt32LittleEndian(nso.AsSpan(0x0C, 4));
+            uint textFileOff = BinaryPrimitives.ReadUInt32LittleEndian(nso.AsSpan(0x10, 4));
+            uint textMemOff = BinaryPrimitives.ReadUInt32LittleEndian(nso.AsSpan(0x14, 4));
+            uint textSize = BinaryPrimitives.ReadUInt32LittleEndian(nso.AsSpan(0x18, 4));
+            uint modNameOff = BinaryPrimitives.ReadUInt32LittleEndian(nso.AsSpan(0x1C, 4));
+
+            uint roFileOff = BinaryPrimitives.ReadUInt32LittleEndian(nso.AsSpan(0x20, 4));
+            uint roMemOff = BinaryPrimitives.ReadUInt32LittleEndian(nso.AsSpan(0x24, 4));
+            uint roSize = BinaryPrimitives.ReadUInt32LittleEndian(nso.AsSpan(0x28, 4));
+            uint modNameSize = BinaryPrimitives.ReadUInt32LittleEndian(nso.AsSpan(0x2C, 4));
+
+            uint dataFileOff = BinaryPrimitives.ReadUInt32LittleEndian(nso.AsSpan(0x30, 4));
+            uint dataMemOff = BinaryPrimitives.ReadUInt32LittleEndian(nso.AsSpan(0x34, 4));
+            uint dataSize = BinaryPrimitives.ReadUInt32LittleEndian(nso.AsSpan(0x38, 4));
+
+            uint textCompSize = BinaryPrimitives.ReadUInt32LittleEndian(nso.AsSpan(0x60, 4));
+            uint roCompSize = BinaryPrimitives.ReadUInt32LittleEndian(nso.AsSpan(0x64, 4));
+            uint dataCompSize = BinaryPrimitives.ReadUInt32LittleEndian(nso.AsSpan(0x68, 4));
+
+            byte[] textRaw = (flags & 0x01u) != 0
+                ? DecompressLz4Block(nso.AsSpan((int)textFileOff, (int)textCompSize), (int)textSize)
+                : nso.AsSpan((int)textFileOff, (int)textSize).ToArray();
+            byte[] roRaw = (flags & 0x02u) != 0
+                ? DecompressLz4Block(nso.AsSpan((int)roFileOff, (int)roCompSize), (int)roSize)
+                : nso.AsSpan((int)roFileOff, (int)roSize).ToArray();
+            byte[] dataRaw = (flags & 0x04u) != 0
+                ? DecompressLz4Block(nso.AsSpan((int)dataFileOff, (int)dataCompSize), (int)dataSize)
+                : nso.AsSpan((int)dataFileOff, (int)dataSize).ToArray();
+
+            uint newModNameOff = 0x100u;
+            uint newTextOff = 0x100u + (modNameSize > 0 ? modNameSize : 0u);
+            newTextOff = (newTextOff + 0xFFu) & ~0xFFu;
+            if (modNameSize <= 1) newTextOff = 0x100u;
+
+            uint newRoOff = roMemOff >= textMemOff
+                ? newTextOff + (roMemOff - textMemOff)
+                : newTextOff + textSize;
+            if (newRoOff < newTextOff + textSize) newRoOff = newTextOff + textSize;
+
+            uint newDataOff = dataMemOff >= roMemOff
+                ? newRoOff + (dataMemOff - roMemOff)
+                : newRoOff + roSize;
+            if (newDataOff < newRoOff + roSize) newDataOff = newRoOff + roSize;
+
+            uint totalLen = newDataOff + dataSize;
+            byte[] outNso = new byte[totalLen];
+            Buffer.BlockCopy(nso, 0, outNso, 0, 0x100);
+            if (modNameSize > 0 && modNameOff >= 0x100 && modNameOff + modNameSize <= nso.Length && newModNameOff + modNameSize <= newTextOff)
+            {
+                Buffer.BlockCopy(nso, (int)modNameOff, outNso, (int)newModNameOff, (int)modNameSize);
+                BinaryPrimitives.WriteUInt32LittleEndian(outNso.AsSpan(0x1C, 4), newModNameOff);
+            }
+
+            Buffer.BlockCopy(textRaw, 0, outNso, (int)newTextOff, textRaw.Length);
+            Buffer.BlockCopy(roRaw, 0, outNso, (int)newRoOff, roRaw.Length);
+            Buffer.BlockCopy(dataRaw, 0, outNso, (int)newDataOff, dataRaw.Length);
+
+            BinaryPrimitives.WriteUInt32LittleEndian(outNso.AsSpan(0x0C, 4), flags & ~0x07u);
+            BinaryPrimitives.WriteUInt32LittleEndian(outNso.AsSpan(0x10, 4), newTextOff);
+            BinaryPrimitives.WriteUInt32LittleEndian(outNso.AsSpan(0x20, 4), newRoOff);
+            BinaryPrimitives.WriteUInt32LittleEndian(outNso.AsSpan(0x30, 4), newDataOff);
+            BinaryPrimitives.WriteUInt32LittleEndian(outNso.AsSpan(0x60, 4), textSize);
+            BinaryPrimitives.WriteUInt32LittleEndian(outNso.AsSpan(0x64, 4), roSize);
+            BinaryPrimitives.WriteUInt32LittleEndian(outNso.AsSpan(0x68, 4), dataSize);
+
+            return outNso;
+        }
+
+        private static byte[] DecompressLz4Block(ReadOnlySpan<byte> src, int expectedLen)
+        {
+            byte[] dst = new byte[expectedLen];
+            int s = 0, d = 0;
+
+            while (s < src.Length)
+            {
+                byte token = src[s++];
+                int litLen = token >> 4;
+                if (litLen == 15)
+                {
+                    while (s < src.Length)
+                    {
+                        byte b = src[s++];
+                        litLen += b;
+                        if (b != 255) break;
+                    }
+                }
+
+                if (litLen > 0)
+                {
+                    if (s + litLen > src.Length || d + litLen > dst.Length)
+                        throw new InvalidDataException("Invalid LZ4 literal length in NSO0 segment.");
+                    src.Slice(s, litLen).CopyTo(dst.AsSpan(d));
+                    s += litLen;
+                    d += litLen;
+                }
+
+                if (s >= src.Length) break;
+                if (s + 2 > src.Length) throw new InvalidDataException("Truncated LZ4 match offset.");
+
+                int matchOffset = src[s] | (src[s + 1] << 8);
+                s += 2;
+                if (matchOffset == 0 || matchOffset > d)
+                    throw new InvalidDataException("Invalid LZ4 match offset in NSO0 segment.");
+
+                int matchLen = (token & 0x0F) + 4;
+                if ((token & 0x0F) == 15)
+                {
+                    while (s < src.Length)
+                    {
+                        byte b = src[s++];
+                        matchLen += b;
+                        if (b != 255) break;
+                    }
+                }
+
+                for (int i = 0; i < matchLen; i++)
+                {
+                    if (d >= dst.Length) throw new InvalidDataException("LZ4 match exceeds decompressed NSO0 segment size.");
+                    dst[d] = dst[d - matchOffset];
+                    d++;
+                }
+            }
+
+            return dst;
         }
     }
 }

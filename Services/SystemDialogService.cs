@@ -5,204 +5,272 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using Windows.Storage.Pickers;
+using WinRT.Interop;
 
 namespace StormSwitchBox.Services
 {
     /// <summary>
-    /// Надежный сервис вызова нативных диалоговых окон проводника Windows (STA Thread)
-    /// с гарантией открытия Проводника на всех версиях Windows 10/11 без сбоев WinUI COM-инициализации.
+    /// Безопасный сервис вызова диалоговых окон выбора файлов и папок:
+    /// на UI-потоке использует WinUI StoragePickers с InitializeWithWindow, а при fallback на STA-поток не передаёт чужой WinUI HWND (исключает Win32 deadlock).
     /// </summary>
     public static class SystemDialogService
     {
-        private class WindowWrapper : IWin32Window
+        private static Task<T> RunOnUiAsync<T>(Func<Task<T>> uiFunc)
         {
-            public WindowWrapper(IntPtr handle) { Handle = handle; }
-            public IntPtr Handle { get; }
-        }
+            var dq = App.MainDispatcher;
+            if (dq == null)
+                return Task.FromException<T>(new InvalidOperationException("MainDispatcher unavailable"));
 
-        public static Task<List<string>?> OpenMultipleFilesDialogAsync(string title, string filter, string? initialDirectory = null)
-        {
-            var tcs = new TaskCompletionSource<List<string>?>();
-            var thread = new Thread(() =>
+            if (dq.HasThreadAccess)
+                return uiFunc();
+
+            var tcs = new TaskCompletionSource<T>();
+            if (!dq.TryEnqueue(async () =>
             {
                 try
                 {
-                    using var ofd = new OpenFileDialog
-                    {
-                        Title = title,
-                        Filter = filter,
-                        CheckFileExists = true,
-                        Multiselect = true,
-                        RestoreDirectory = true,
-                        AutoUpgradeEnabled = true
-                    };
-
-                    if (!string.IsNullOrEmpty(initialDirectory) && Directory.Exists(initialDirectory))
-                    {
-                        ofd.InitialDirectory = initialDirectory;
-                    }
-
-                    IWin32Window? owner = (App.MainWindowHandle != IntPtr.Zero) ? new WindowWrapper(App.MainWindowHandle) : null;
-                    var res = owner != null ? ofd.ShowDialog(owner) : ofd.ShowDialog();
-                    if (res == DialogResult.OK && ofd.FileNames != null && ofd.FileNames.Length > 0)
-                    {
-                        tcs.SetResult(ofd.FileNames.ToList());
-                    }
-                    else
-                    {
-                        tcs.SetResult(null);
-                    }
+                    T res = await uiFunc();
+                    tcs.TrySetResult(res);
                 }
                 catch (Exception ex)
                 {
-                    App.Logger?.Log($"[Dialog] Ошибка открытия OpenMultipleFilesDialog: {ex.Message}", Models.LogLevel.Warning);
-                    tcs.SetResult(null);
+                    tcs.TrySetException(ex);
                 }
-            });
-
-            thread.SetApartmentState(ApartmentState.STA);
-            thread.IsBackground = true;
-            thread.Start();
-
+            }))
+            {
+                tcs.TrySetException(new InvalidOperationException("Failed to enqueue UI dialog"));
+            }
             return tcs.Task;
         }
 
-        public static Task<string?> OpenFileDialogAsync(string title, string filter, string? initialDirectory = null)
+        private static List<string> ParseFileExtensions(string? filter)
         {
-            var tcs = new TaskCompletionSource<string?>();
-            var thread = new Thread(() =>
+            var exts = new List<string>();
+            if (!string.IsNullOrWhiteSpace(filter))
             {
-                try
+                string[] parts = filter.Split('|');
+                for (int i = 1; i < parts.Length; i += 2)
                 {
-                    using var ofd = new OpenFileDialog
+                    foreach (string token in parts[i].Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
                     {
-                        Title = title,
-                        Filter = filter,
-                        CheckFileExists = true,
-                        Multiselect = false,
-                        RestoreDirectory = true,
-                        AutoUpgradeEnabled = true
-                    };
-
-                    if (!string.IsNullOrEmpty(initialDirectory) && Directory.Exists(initialDirectory))
-                    {
-                        ofd.InitialDirectory = initialDirectory;
-                    }
-
-                    IWin32Window? owner = (App.MainWindowHandle != IntPtr.Zero) ? new WindowWrapper(App.MainWindowHandle) : null;
-                    var res = owner != null ? ofd.ShowDialog(owner) : ofd.ShowDialog();
-                    if (res == DialogResult.OK && !string.IsNullOrWhiteSpace(ofd.FileName))
-                    {
-                        tcs.SetResult(ofd.FileName);
-                    }
-                    else
-                    {
-                        tcs.SetResult(null);
+                        if (token == "*.*" || token == "*")
+                        {
+                            if (!exts.Contains("*")) exts.Add("*");
+                        }
+                        else if (token.StartsWith("*.", StringComparison.Ordinal))
+                        {
+                            string ext = token.Substring(1);
+                            if (!exts.Contains(ext, StringComparer.OrdinalIgnoreCase))
+                                exts.Add(ext);
+                        }
                     }
                 }
-                catch (Exception ex)
-                {
-                    App.Logger?.Log($"[Dialog] Ошибка открытия OpenFileDialog: {ex.Message}", Models.LogLevel.Warning);
-                    tcs.SetResult(null);
-                }
-            });
-
-            thread.SetApartmentState(ApartmentState.STA);
-            thread.IsBackground = true;
-            thread.Start();
-
-            return tcs.Task;
+            }
+            if (exts.Count == 0)
+                exts.Add("*");
+            return exts;
         }
 
-        public static Task<string?> OpenFolderDialogAsync(string description, string? initialDirectory = null)
+        public static async Task<List<string>?> OpenMultipleFilesDialogAsync(string title, string filter, string? initialDirectory = null)
         {
-            var tcs = new TaskCompletionSource<string?>();
-            var thread = new Thread(() =>
+            if (App.MainWindowHandle != IntPtr.Zero && App.MainDispatcher != null)
             {
                 try
                 {
-                    using var fbd = new FolderBrowserDialog
+                    var picked = await RunOnUiAsync(async () =>
                     {
-                        Description = description,
-                        UseDescriptionForTitle = true,
-                        ShowNewFolderButton = true,
-                        AutoUpgradeEnabled = true
-                    };
-
-                    if (!string.IsNullOrEmpty(initialDirectory) && Directory.Exists(initialDirectory))
-                    {
-                        fbd.SelectedPath = initialDirectory;
-                    }
-
-                    IWin32Window? owner = (App.MainWindowHandle != IntPtr.Zero) ? new WindowWrapper(App.MainWindowHandle) : null;
-                    var res = owner != null ? fbd.ShowDialog(owner) : fbd.ShowDialog();
-                    if (res == DialogResult.OK && !string.IsNullOrWhiteSpace(fbd.SelectedPath))
-                    {
-                        tcs.SetResult(fbd.SelectedPath);
-                    }
-                    else
-                    {
-                        tcs.SetResult(null);
-                    }
+                        var picker = new FileOpenPicker();
+                        InitializeWithWindow.Initialize(picker, App.MainWindowHandle);
+                        picker.SuggestedStartLocation = PickerLocationId.ComputerFolder;
+                        foreach (string ext in ParseFileExtensions(filter))
+                            picker.FileTypeFilter.Add(ext);
+                        var files = await picker.PickMultipleFilesAsync();
+                        return files?.Select(f => f.Path).Where(p => !string.IsNullOrWhiteSpace(p)).ToList();
+                    });
+                    if (picked != null && picked.Count > 0)
+                        return picked;
+                    return null;
                 }
-                catch (Exception ex)
+                catch { }
+            }
+
+            return await RunStaDialogAsync<List<string>?>(() =>
+            {
+                using var ofd = new OpenFileDialog
                 {
-                    App.Logger?.Log($"[Dialog] Ошибка открытия FolderBrowserDialog: {ex.Message}", Models.LogLevel.Warning);
-                    tcs.SetResult(null);
-                }
-            });
+                    Title = title,
+                    Filter = filter,
+                    CheckFileExists = true,
+                    Multiselect = true,
+                    RestoreDirectory = true,
+                    AutoUpgradeEnabled = true
+                };
+                if (!string.IsNullOrEmpty(initialDirectory) && Directory.Exists(initialDirectory))
+                    ofd.InitialDirectory = initialDirectory;
 
-            thread.SetApartmentState(ApartmentState.STA);
-            thread.IsBackground = true;
-            thread.Start();
-
-            return tcs.Task;
+                var res = ofd.ShowDialog();
+                return (res == DialogResult.OK && ofd.FileNames != null && ofd.FileNames.Length > 0)
+                    ? ofd.FileNames.ToList()
+                    : null;
+            }, "OpenMultipleFilesDialog");
         }
 
-        public static Task<string?> SaveFileDialogAsync(string title, string defaultFileName, string filter, string? initialDirectory = null)
+        public static async Task<string?> OpenFileDialogAsync(string title, string filter, string? initialDirectory = null)
         {
-            var tcs = new TaskCompletionSource<string?>();
+            if (App.MainWindowHandle != IntPtr.Zero && App.MainDispatcher != null)
+            {
+                try
+                {
+                    var picked = await RunOnUiAsync(async () =>
+                    {
+                        var picker = new FileOpenPicker();
+                        InitializeWithWindow.Initialize(picker, App.MainWindowHandle);
+                        picker.SuggestedStartLocation = PickerLocationId.ComputerFolder;
+                        foreach (string ext in ParseFileExtensions(filter))
+                            picker.FileTypeFilter.Add(ext);
+                        var file = await picker.PickSingleFileAsync();
+                        return file?.Path;
+                    });
+                    return string.IsNullOrWhiteSpace(picked) ? null : picked;
+                }
+                catch { }
+            }
+
+            return await RunStaDialogAsync<string?>(() =>
+            {
+                using var ofd = new OpenFileDialog
+                {
+                    Title = title,
+                    Filter = filter,
+                    CheckFileExists = true,
+                    Multiselect = false,
+                    RestoreDirectory = true,
+                    AutoUpgradeEnabled = true
+                };
+                if (!string.IsNullOrEmpty(initialDirectory) && Directory.Exists(initialDirectory))
+                    ofd.InitialDirectory = initialDirectory;
+
+                var res = ofd.ShowDialog();
+                return (res == DialogResult.OK && !string.IsNullOrWhiteSpace(ofd.FileName)) ? ofd.FileName : null;
+            }, "OpenFileDialog");
+        }
+
+        public static async Task<string?> OpenFolderDialogAsync(string description, string? initialDirectory = null)
+        {
+            if (App.MainWindowHandle != IntPtr.Zero && App.MainDispatcher != null)
+            {
+                try
+                {
+                    var picked = await RunOnUiAsync(async () =>
+                    {
+                        var picker = new FolderPicker();
+                        InitializeWithWindow.Initialize(picker, App.MainWindowHandle);
+                        picker.SuggestedStartLocation = PickerLocationId.ComputerFolder;
+                        picker.FileTypeFilter.Add("*");
+                        var folder = await picker.PickSingleFolderAsync();
+                        return folder?.Path;
+                    });
+                    return string.IsNullOrWhiteSpace(picked) ? null : picked;
+                }
+                catch { }
+            }
+
+            return await RunStaDialogAsync<string?>(() =>
+            {
+                using var fbd = new FolderBrowserDialog
+                {
+                    Description = description,
+                    UseDescriptionForTitle = true,
+                    ShowNewFolderButton = true,
+                    AutoUpgradeEnabled = true
+                };
+                if (!string.IsNullOrEmpty(initialDirectory) && Directory.Exists(initialDirectory))
+                    fbd.SelectedPath = initialDirectory;
+
+                var res = fbd.ShowDialog();
+                return (res == DialogResult.OK && !string.IsNullOrWhiteSpace(fbd.SelectedPath)) ? fbd.SelectedPath : null;
+            }, "FolderBrowserDialog");
+        }
+
+        public static async Task<string?> SaveFileDialogAsync(string title, string defaultFileName, string filter, string? initialDirectory = null)
+        {
+            if (App.MainWindowHandle != IntPtr.Zero && App.MainDispatcher != null)
+            {
+                try
+                {
+                    var picked = await RunOnUiAsync(async () =>
+                    {
+                        var picker = new FileSavePicker();
+                        InitializeWithWindow.Initialize(picker, App.MainWindowHandle);
+                        picker.SuggestedStartLocation = PickerLocationId.ComputerFolder;
+                        picker.SuggestedFileName = defaultFileName;
+
+                        string[] parts = (filter ?? string.Empty).Split('|');
+                        for (int i = 0; i + 1 < parts.Length; i += 2)
+                        {
+                            string label = string.IsNullOrWhiteSpace(parts[i]) ? "Files" : parts[i].Trim();
+                            var exts = parts[i + 1]
+                                .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                                .Where(t => t.StartsWith("*.", StringComparison.Ordinal) && t != "*.*")
+                                .Select(t => t.Substring(1))
+                                .Distinct(StringComparer.OrdinalIgnoreCase)
+                                .ToList();
+                            if (exts.Count > 0 && !picker.FileTypeChoices.ContainsKey(label))
+                                picker.FileTypeChoices.Add(label, exts);
+                        }
+                        if (picker.FileTypeChoices.Count == 0)
+                        {
+                            string fallbackExt = Path.GetExtension(defaultFileName);
+                            picker.FileTypeChoices.Add("File", new List<string> { string.IsNullOrEmpty(fallbackExt) ? ".dat" : fallbackExt });
+                        }
+
+                        var file = await picker.PickSaveFileAsync();
+                        return file?.Path;
+                    });
+                    return string.IsNullOrWhiteSpace(picked) ? null : picked;
+                }
+                catch { }
+            }
+
+            return await RunStaDialogAsync<string?>(() =>
+            {
+                using var sfd = new SaveFileDialog
+                {
+                    Title = title,
+                    FileName = defaultFileName,
+                    Filter = filter,
+                    OverwritePrompt = true,
+                    RestoreDirectory = true,
+                    AutoUpgradeEnabled = true
+                };
+                if (!string.IsNullOrEmpty(initialDirectory) && Directory.Exists(initialDirectory))
+                    sfd.InitialDirectory = initialDirectory;
+
+                var res = sfd.ShowDialog();
+                return (res == DialogResult.OK && !string.IsNullOrWhiteSpace(sfd.FileName)) ? sfd.FileName : null;
+            }, "SaveFileDialog");
+        }
+
+        private static Task<T> RunStaDialogAsync<T>(Func<T> dialogAction, string dialogName)
+        {
+            var tcs = new TaskCompletionSource<T>();
             var thread = new Thread(() =>
             {
                 try
                 {
-                    using var sfd = new SaveFileDialog
-                    {
-                        Title = title,
-                        FileName = defaultFileName,
-                        Filter = filter,
-                        OverwritePrompt = true,
-                        RestoreDirectory = true,
-                        AutoUpgradeEnabled = true
-                    };
-
-                    if (!string.IsNullOrEmpty(initialDirectory) && Directory.Exists(initialDirectory))
-                    {
-                        sfd.InitialDirectory = initialDirectory;
-                    }
-
-                    IWin32Window? owner = (App.MainWindowHandle != IntPtr.Zero) ? new WindowWrapper(App.MainWindowHandle) : null;
-                    var res = owner != null ? sfd.ShowDialog(owner) : sfd.ShowDialog();
-                    if (res == DialogResult.OK && !string.IsNullOrWhiteSpace(sfd.FileName))
-                    {
-                        tcs.SetResult(sfd.FileName);
-                    }
-                    else
-                    {
-                        tcs.SetResult(null);
-                    }
+                    tcs.SetResult(dialogAction());
                 }
                 catch (Exception ex)
                 {
-                    App.Logger?.Log($"[Dialog] Ошибка открытия SaveFileDialog: {ex.Message}", Models.LogLevel.Warning);
-                    tcs.SetResult(null);
+                    App.Logger?.Log($"[Dialog] Ошибка открытия {dialogName}: {ex.Message}", Models.LogLevel.Warning);
+                    tcs.SetResult(default!);
                 }
             });
 
             thread.SetApartmentState(ApartmentState.STA);
             thread.IsBackground = true;
             thread.Start();
-
             return tcs.Task;
         }
     }

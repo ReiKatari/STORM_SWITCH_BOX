@@ -1,27 +1,28 @@
 using System;
+using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 using StormSwitchBox.Models;
 
 namespace StormSwitchBox.Services
 {
-    /// <summary>
-    /// Высокопроизводительный сервисный буферизатор логов.
-    /// Накапливает консольный вывод и отправляет его в UI-поток пакетами, исключая фризы интерфейса.
-    /// </summary>
-    public class LogBatcher
+    public sealed class LogBatcher : IDisposable
     {
+        private static readonly Regex PercentRegex = new(@"(\d{1,3}(?:\.\d+)?)\s*%", RegexOptions.Compiled);
+
         private readonly ProcessingTask _task;
         private readonly StringBuilder _buffer = new();
         private readonly object _lock = new();
         private readonly System.Timers.Timer _timer;
         private string? _latestStatus;
         private double? _latestProgress;
+        private bool _completed;
 
         public LogBatcher(ProcessingTask task, int intervalMs = 150)
         {
             _task = task;
             _timer = new System.Timers.Timer(intervalMs);
-            _timer.Elapsed += (s, e) => Flush();
+            _timer.Elapsed += (_, _) => Flush();
             _timer.Start();
         }
 
@@ -30,10 +31,11 @@ namespace StormSwitchBox.Services
             if (string.IsNullOrWhiteSpace(line)) return;
             lock (_lock)
             {
+                if (_completed) return;
                 _buffer.AppendLine(line);
 
-                // Интеллектуальный анализ прогресса и статуса утилит (hacpack, yanu, nsz, 3dstool, makerom)
-                if (line.Contains("Creating Section 0", StringComparison.OrdinalIgnoreCase) || line.Contains("RomFS", StringComparison.OrdinalIgnoreCase) && line.Contains("Creating", StringComparison.OrdinalIgnoreCase))
+                if (line.Contains("Creating Section 0", StringComparison.OrdinalIgnoreCase) ||
+                    (line.Contains("RomFS", StringComparison.OrdinalIgnoreCase) && line.Contains("Creating", StringComparison.OrdinalIgnoreCase)))
                 {
                     _latestStatus = "Создание секции RomFS...";
                 }
@@ -41,7 +43,8 @@ namespace StormSwitchBox.Services
                 {
                     _latestStatus = "Запись тела NCA архива...";
                 }
-                else if (line.Contains("Creating Section 1", StringComparison.OrdinalIgnoreCase) || line.Contains("ExeFS", StringComparison.OrdinalIgnoreCase) && line.Contains("Creating", StringComparison.OrdinalIgnoreCase))
+                else if (line.Contains("Creating Section 1", StringComparison.OrdinalIgnoreCase) ||
+                         (line.Contains("ExeFS", StringComparison.OrdinalIgnoreCase) && line.Contains("Creating", StringComparison.OrdinalIgnoreCase)))
                 {
                     _latestStatus = "Создание секции ExeFS...";
                 }
@@ -62,28 +65,25 @@ namespace StormSwitchBox.Services
                     _latestStatus = "Извлечение ресурсов...";
                 }
 
-                // Поиск процента выполнения в выводе (напр. "45%" или "78.5%")
-                var match = System.Text.RegularExpressions.Regex.Match(line, @"\b(\d{1,3}(?:\.\d+)?)\s*%\b");
-                if (match.Success && double.TryParse(match.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double p))
+                var match = PercentRegex.Match(line);
+                if (match.Success && double.TryParse(match.Groups[1].Value, NumberStyles.Any, CultureInfo.InvariantCulture, out double p) && p >= 0 && p <= 100)
                 {
-                    if (p >= 0 && p <= 100)
-                    {
-                        _latestProgress = p;
-                    }
+                    _latestProgress = p;
                 }
             }
         }
 
-        public void Flush()
+        public void Flush(bool allowWhenCompleting = false)
         {
             if (_task == null) return;
 
             string chunk;
-            string? statusToSet = null;
-            double? progressToSet = null;
+            string? statusToSet;
+            double? progressToSet;
 
             lock (_lock)
             {
+                if (_completed && !allowWhenCompleting) return;
                 chunk = _buffer.ToString();
                 _buffer.Clear();
                 statusToSet = _latestStatus;
@@ -97,33 +97,31 @@ namespace StormSwitchBox.Services
             App.RunOnUI(() =>
             {
                 if (_task == null) return;
-                
-                if (statusToSet != null)
-                {
-                    _task.Status = statusToSet;
-                }
-
-                if (progressToSet.HasValue)
-                {
-                    _task.Progress = progressToSet.Value;
-                }
+                if (statusToSet != null) _task.Status = statusToSet;
+                if (progressToSet.HasValue) _task.Progress = progressToSet.Value;
 
                 if (chunk.Length > 0)
                 {
-                    if (_task.LogDetails != null && _task.LogDetails.Length > 150_000)
-                    {
-                        _task.LogDetails = "..." + _task.LogDetails.Substring(_task.LogDetails.Length - 80_000);
-                    }
-                    _task.LogDetails = (_task.LogDetails ?? "") + chunk;
+                    string existing = _task.LogDetails ?? string.Empty;
+                    if (existing.Length > 80_000)
+                        existing = "..." + existing.Substring(existing.Length - 40_000);
+                    _task.LogDetails = existing + chunk;
                 }
             });
         }
 
         public void Complete()
         {
-            _timer.Stop();
-            _timer.Dispose();
-            Flush();
+            lock (_lock)
+            {
+                if (_completed) return;
+                _completed = true;
+            }
+            try { _timer.Stop(); } catch { }
+            try { _timer.Dispose(); } catch { }
+            Flush(allowWhenCompleting: true);
         }
+
+        public void Dispose() => Complete();
     }
 }

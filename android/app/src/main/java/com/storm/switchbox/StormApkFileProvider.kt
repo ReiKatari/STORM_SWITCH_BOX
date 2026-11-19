@@ -6,6 +6,7 @@ import android.content.Context
 import android.database.Cursor
 import android.database.MatrixCursor
 import android.net.Uri
+import android.os.Environment
 import android.os.ParcelFileDescriptor
 import android.provider.OpenableColumns
 import java.io.File
@@ -13,7 +14,7 @@ import java.io.FileNotFoundException
 
 /**
  * Нативный ContentProvider для безопасной передачи скачанного APK обновления
- * системному установщику пакетов Android (Android 7.0 – Android 16).
+ * системному установщику пакетов Android (Android 7.0 - Android 16).
  */
 class StormApkFileProvider : ContentProvider() {
 
@@ -30,12 +31,25 @@ class StormApkFileProvider : ContentProvider() {
 
         fun resolveApkFile(context: Context, fileName: String): File {
             val cleanName = File(fileName).name
-            val candidates = listOfNotNull(
-                context.externalCacheDir?.let { File(it, cleanName) },
-                File(context.cacheDir, cleanName),
-                File("/storage/emulated/0/STORM SWITCH BOX/downloads", cleanName)
+            if (cleanName.isBlank() || cleanName == "." || cleanName == "..") {
+                return File(context.cacheDir, "update.apk")
+            }
+            val allowedRoots = listOfNotNull(
+                context.externalCacheDir,
+                context.cacheDir,
+                File(Environment.getExternalStorageDirectory(), "STORM SWITCH BOX/downloads")
             )
-            return candidates.firstOrNull { it.exists() } ?: File(context.cacheDir, cleanName)
+            for (root in allowedRoots) {
+                try {
+                    val rootCanon = root.canonicalPath
+                    val candidate = File(root, cleanName)
+                    val candCanon = candidate.canonicalPath
+                    if (candCanon.startsWith(rootCanon + File.separator) && candidate.exists() && candidate.isFile) {
+                        return candidate
+                    }
+                } catch (_: Exception) {}
+            }
+            return File(context.cacheDir, cleanName)
         }
     }
 

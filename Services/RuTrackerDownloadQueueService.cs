@@ -16,8 +16,9 @@ using StormSwitchBox.Views.Dialogs;
 
 namespace StormSwitchBox.Services
 {
-    public sealed class RuTrackerActiveDownloadItem : CommunityToolkit.Mvvm.ComponentModel.ObservableObject
+    public sealed class RuTrackerActiveDownloadItem : CommunityToolkit.Mvvm.ComponentModel.ObservableObject, IDisposable
     {
+        private int _disposed = 0;
         public string BatchId { get; set; } = string.Empty;
         public bool IsCompleted => StageBadge == "ГОТОВО" || RawStageBadge == "ГОТОВО" || IsBuildCompletedOnDisk;
 
@@ -280,6 +281,17 @@ namespace StormSwitchBox.Services
             CurrentSpeedBps = RawSpeedBps;
             CurrentSeeds = RawSeeds;
             CurrentPeers = RawPeers;
+        }
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0)
+                return;
+
+            try { Cts?.Cancel(); } catch { }
+            try { Cts?.Dispose(); } catch { }
+            Cts = null;
+            try { PauseEvent.Dispose(); } catch { }
         }
     }
 
@@ -862,6 +874,7 @@ namespace StormSwitchBox.Services
                     .Select(p => p.Replace('/', '\\').Trim('\\'))
                     .Select(p => p.Split('\\').FirstOrDefault(s => !string.IsNullOrEmpty(s)))
                     .Where(s => !string.IsNullOrEmpty(s))
+                    .Select(s => s!)
                     .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
                 foreach (var p in RuTrackerModService.DiscoverModPayloadsInDirectory(payload.TargetReleaseDir))
@@ -885,7 +898,7 @@ namespace StormSwitchBox.Services
                                     p.EndsWith(".nro", StringComparison.OrdinalIgnoreCase))
                         .ToList()
                     : new List<string>(),
-                payload.TorrentFiles,
+                payload.TorrentFiles ?? new List<TorrentFileSelectionItem>(),
                 payload.SlotNumber,
                 payload.SlotGameTitle,
                 new List<string> { payload.SlotGameTitle });
@@ -1322,6 +1335,7 @@ namespace StormSwitchBox.Services
                         Items.Remove(item);
                         SaveQueueState();
                     });
+                    item.Dispose();
                     return;
                 }
 
@@ -1449,6 +1463,7 @@ namespace StormSwitchBox.Services
         {
             lock (_syncLock)
             {
+                var toDispose = _backingItems.Where(i => i.StageBadge is "ГОТОВО" or "ОТМЕНЕНО" or "ОШИБКА").ToList();
                 _backingItems.RemoveAll(i => i.StageBadge is "ГОТОВО" or "ОТМЕНЕНО" or "ОШИБКА");
                 RunOnUiSyncOrAsync(() =>
                 {
@@ -1459,6 +1474,10 @@ namespace StormSwitchBox.Services
                     }
                     SaveQueueState();
                 });
+                foreach (var item in toDispose)
+                {
+                    item.Dispose();
+                }
             }
         }
 
@@ -1601,6 +1620,33 @@ namespace StormSwitchBox.Services
         }
 
 
+        private static bool GetInjectDlcUnlockerFlag(RuTrackerTaskPayload payload)
+        {
+            try
+            {
+                var prop = typeof(RuTrackerTaskPayload).GetProperty("InjectDlcUnlocker");
+                if (prop != null && prop.PropertyType == typeof(bool) && prop.GetValue(payload) is bool val)
+                    return val;
+            }
+            catch { }
+
+            return payload.TorrentFiles != null && payload.TorrentFiles.Any(f =>
+                f.IsSelected &&
+                (f.CategoryBadge.Contains("UNLOCKER", StringComparison.OrdinalIgnoreCase) ||
+                 f.RelativePath.Contains("unlocker", StringComparison.OrdinalIgnoreCase)));
+        }
+
+        private static void SetInjectDlcUnlockerFlag(RuTrackerTaskPayload payload, bool value)
+        {
+            try
+            {
+                var prop = typeof(RuTrackerTaskPayload).GetProperty("InjectDlcUnlocker");
+                if (prop != null && prop.CanWrite && prop.PropertyType == typeof(bool))
+                    prop.SetValue(payload, value);
+            }
+            catch { }
+        }
+
         private void SaveQueueState()
         {
             try
@@ -1639,13 +1685,14 @@ namespace StormSwitchBox.Services
                                     OutputFormat = t.TargetFormat,
                                     AutoBuild = payload.AutoBuild,
                                     IncludeTechTags = payload.AppendAutoTags,
+                                    InjectDlcUnlocker = GetInjectDlcUnlockerFlag(payload),
                                     DeleteSourceAfterVerify = t.DeleteSourceAfterVerify,
                                     TopicId = payload.Topic?.TopicId ?? string.Empty,
                                     TopicTitle = payload.Topic?.Title ?? string.Empty,
                                     Seeds = payload.Topic?.Seeds ?? 0,
                                     MagnetLink = payload.MagnetLink?.ToV1String() ?? payload.MagnetLink?.ToString() ?? payload.Topic?.MagnetUri ?? string.Empty,
                                     TorrentBytesBase64 = payload.TorrentBytes != null ? Convert.ToBase64String(payload.TorrentBytes) : string.Empty,
-                                    TorrentFiles = payload.TorrentFiles.Select(f => new PersistedTorrentFileItem
+                                    TorrentFiles = (payload.TorrentFiles ?? new List<TorrentFileSelectionItem>()).Select(f => new PersistedTorrentFileItem
                                     {
                                         RelativePath = f.RelativePath,
                                         Length = f.Length,
@@ -1653,7 +1700,7 @@ namespace StormSwitchBox.Services
                                         CategoryBadge = f.CategoryBadge,
                                         IsRealTorrentFile = f.IsRealTorrentFile
                                     }).ToList(),
-                                    CloudLinks = payload.CloudLinks.ToList(),
+                                    CloudLinks = (payload.CloudLinks ?? new List<string>()).ToList(),
                                     TaskTitle = t.GameName
                                 });
                             }
@@ -1664,7 +1711,17 @@ namespace StormSwitchBox.Services
                 }
 
                 string json = JsonSerializer.Serialize(records, new JsonSerializerOptions { WriteIndented = true });
-                File.WriteAllText(_queueStatePath, json);
+                string? dir = Path.GetDirectoryName(_queueStatePath);
+                if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+                string tmpPath = _queueStatePath + ".tmp";
+                using (var fs = new FileStream(tmpPath, FileMode.Create, FileAccess.Write, FileShare.None))
+                using (var sw = new StreamWriter(fs, new System.Text.UTF8Encoding(false)))
+                {
+                    sw.Write(json);
+                    sw.Flush();
+                    fs.Flush(true);
+                }
+                File.Move(tmpPath, _queueStatePath, overwrite: true);
             }
             catch { }
         }
@@ -1695,11 +1752,13 @@ namespace StormSwitchBox.Services
                                     foreach (var tp in r.Tasks)
                                     {
                                         string outDir = string.IsNullOrWhiteSpace(tp.OutputFolder)
-                                            ? (string.IsNullOrWhiteSpace(App.Settings.Current.OutputFolder) ? tp.TargetReleaseDir : App.Settings.Current.OutputFolder)
+                                            ? (string.IsNullOrWhiteSpace(App.Settings.Current.OutputFolder) ? (tp.TargetReleaseDir ?? string.Empty) : App.Settings.Current.OutputFolder)
                                             : tp.OutputFolder;
-                                        string gameName = !string.IsNullOrWhiteSpace(tp.TaskTitle) ? tp.TaskTitle : (!string.IsNullOrWhiteSpace(tp.SlotGameTitle) ? tp.SlotGameTitle : r.DisplayTitle);
-                                        string sanGameName = ProcessingTask.SanitizeFileName(gameName);
-                                        if (Directory.Exists(outDir))
+                                        string gameName = !string.IsNullOrWhiteSpace(tp.TaskTitle)
+                                            ? tp.TaskTitle
+                                            : (!string.IsNullOrWhiteSpace(tp.SlotGameTitle) ? tp.SlotGameTitle : (r.DisplayTitle ?? string.Empty));
+                                        string sanGameName = ProcessingTask.SanitizeFileName(gameName ?? string.Empty);
+                                        if (!string.IsNullOrWhiteSpace(outDir) && Directory.Exists(outDir))
                                         {
                                             var files = Directory.GetFiles(outDir, "*.*").Where(f =>
                                                 (f.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) ||
@@ -1730,20 +1789,20 @@ namespace StormSwitchBox.Services
 
                             var item = new RuTrackerActiveDownloadItem
                             {
-                                BatchId = r.BatchId,
-                                DisplayTitle = r.DisplayTitle,
-                                StageBadge = isCompleted ? r.StageBadge : "ПАУЗА",
+                                BatchId = r.BatchId ?? string.Empty,
+                                DisplayTitle = r.DisplayTitle ?? string.Empty,
+                                StageBadge = isCompleted ? (r.StageBadge ?? "ОТМЕНЕНО") : "ПАУЗА",
                                 ProgressPercent = r.ProgressPercent,
-                                ProgressDetails = r.ProgressDetails,
+                                ProgressDetails = r.ProgressDetails ?? string.Empty,
                                 SpeedAndPeersText = r.StageBadge == "ГОТОВО" ? "100% Завершено" : string.Empty,
                                 IsPausedByUser = isCompleted ? r.IsPausedByUser : true,
                                 IsActive = false,
                                 IsBuildCompletedOnDisk = r.StageBadge == "ГОТОВО",
-                                SharedReleaseDir = r.SharedReleaseDir,
+                                SharedReleaseDir = r.SharedReleaseDir ?? string.Empty,
                                 HasTorrentSource = r.HasTorrentSource
                             };
                             item.RawPercent = r.ProgressPercent;
-                            item.RawDetails = r.ProgressDetails;
+                            item.RawDetails = r.ProgressDetails ?? string.Empty;
                             item.RawSpeedText = r.StageBadge == "ГОТОВО" ? "100% Завершено" : string.Empty;
                             item.RawStageBadge = item.StageBadge;
                             item.RawStageColor = item.StageBadge switch
@@ -1774,12 +1833,12 @@ namespace StormSwitchBox.Services
                                         task = new ProcessingTask
                                         {
                                             Id = !string.IsNullOrEmpty(tp.TaskId) ? tp.TaskId : Guid.NewGuid().ToString("N").Substring(0, 8),
-                                            GameName = !string.IsNullOrWhiteSpace(tp.TaskTitle) ? tp.TaskTitle : tp.SlotGameTitle,
-                                            TargetFormat = tp.OutputFormat,
-                                            OutputFolder = tp.OutputFolder,
+                                            GameName = !string.IsNullOrWhiteSpace(tp.TaskTitle) ? tp.TaskTitle : (tp.SlotGameTitle ?? string.Empty),
+                                            TargetFormat = tp.OutputFormat ?? "NSP",
+                                            OutputFolder = tp.OutputFolder ?? string.Empty,
                                             DeleteSourceAfterVerify = tp.DeleteSourceAfterVerify,
                                             Progress = r.ProgressPercent,
-                                            Status = isCompleted ? (r.StageBadge == "ГОТОВО" ? "Успешно" : r.StageBadge) : "⏸ Сохранено на паузе",
+                                            Status = isCompleted ? (r.StageBadge == "ГОТОВО" ? "Успешно" : (r.StageBadge ?? "ОТМЕНЕНО")) : "⏸ Сохранено на паузе",
                                             IsRuTrackerTask = true,
                                             IsRunning = false,
                                             IsPaused = !isCompleted
@@ -1801,33 +1860,34 @@ namespace StormSwitchBox.Services
                                     var payload = new RuTrackerTaskPayload
                                     {
                                         SlotNumber = tp.SlotNumber,
-                                        PosterUrl = tp.PosterUrl,
-                                        SlotGameTitle = tp.SlotGameTitle,
-                                        CustomModTitle = tp.CustomModTitle,
-                                        TargetReleaseDir = tp.TargetReleaseDir,
+                                        PosterUrl = tp.PosterUrl ?? string.Empty,
+                                        SlotGameTitle = tp.SlotGameTitle ?? string.Empty,
+                                        CustomModTitle = tp.CustomModTitle ?? string.Empty,
+                                        TargetReleaseDir = tp.TargetReleaseDir ?? string.Empty,
                                         AutoBuild = tp.AutoBuild,
                                         AppendAutoTags = tp.IncludeTechTags,
-                                        SharedReleaseDir = r.SharedReleaseDir,
+                                        SharedReleaseDir = r.SharedReleaseDir ?? string.Empty,
                                         HasTorrentSource = r.HasTorrentSource,
-                                        CloudLinks = tp.CloudLinks.ToList(),
+                                        CloudLinks = (tp.CloudLinks ?? new List<string>()).ToList(),
                                         TorrentBytes = tBytes,
                                         MagnetLink = mag,
                                         Topic = new RuTrackerTopicItem
                                         {
-                                            TopicId = tp.TopicId,
-                                            Title = tp.TopicTitle,
+                                            TopicId = tp.TopicId ?? string.Empty,
+                                            Title = tp.TopicTitle ?? string.Empty,
                                             Seeds = tp.Seeds,
-                                            MagnetUri = tp.MagnetLink
+                                            MagnetUri = tp.MagnetLink ?? string.Empty
                                         },
-                                        TorrentFiles = tp.TorrentFiles.Select(tf => new TorrentFileSelectionItem
+                                        TorrentFiles = (tp.TorrentFiles ?? new List<PersistedTorrentFileItem>()).Select(tf => new TorrentFileSelectionItem
                                         {
-                                            RelativePath = tf.RelativePath,
+                                            RelativePath = tf.RelativePath ?? string.Empty,
                                             Length = tf.Length,
                                             IsSelected = tf.IsSelected,
-                                            CategoryBadge = tf.CategoryBadge,
+                                            CategoryBadge = tf.CategoryBadge ?? string.Empty,
                                             IsRealTorrentFile = tf.IsRealTorrentFile
                                         }).ToList()
                                     };
+                                    SetInjectDlcUnlockerFlag(payload, tp.InjectDlcUnlocker);
 
                                     task.RuTrackerPayload = payload;
                                     task.OnPauseRequested = () => TogglePauseItem(item);
@@ -1837,15 +1897,17 @@ namespace StormSwitchBox.Services
                                 }
                             }
                             item.Cts = new CancellationTokenSource();
-                            if (!isCompleted)
-                                item.PauseEvent.Reset();
-                            else if (!isCompleted)
+                            if (!isCompleted && item.CreatedTasks.Count == 0)
                             {
                                 // Устаревшие записи без данных задач: помечаем "ОТМЕНЕНО", чтобы не блокировать очередь
                                 item.StageBadge = "ОТМЕНЕНО";
                                 item.RawStageBadge = "ОТМЕНЕНО";
                                 item.RawStageColor = Windows.UI.Color.FromArgb(255, 220, 38, 38);
                                 item.RawDetails = "Сессия сброшена";
+                            }
+                            else if (!isCompleted)
+                            {
+                                item.PauseEvent.Reset();
                             }
 
                             item.CommitUiUpdates();

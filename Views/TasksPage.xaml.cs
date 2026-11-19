@@ -1,4 +1,4 @@
-using Microsoft.UI.Xaml;
+﻿using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Navigation;
@@ -17,27 +17,39 @@ namespace StormSwitchBox.Views
         public TasksViewModel ViewModel => App.TasksVM;
 
         public ObservableCollection<LogMessage> AppLogs => App.Logger.Logs;
+        private Action? _langHandler;
 
         public TasksPage()
         {
             this.InitializeComponent();
             this.NavigationCacheMode = Microsoft.UI.Xaml.Navigation.NavigationCacheMode.Required;
             FormatComboBox.SelectedIndex = App.Settings.Current.SelectedFormatIndex;
-            
+
+            _langHandler = () => App.RunOnUI(ApplyLocalization);
+
             this.Loaded += (s, e) =>
             {
                 if (App.Settings.Current.LogPanelHeight > 50)
                 {
                     LogRow.Height = new GridLength(App.Settings.Current.LogPanelHeight);
                 }
+                App.Localization.LanguageChanged -= _langHandler;
+                App.Localization.LanguageChanged += _langHandler;
                 ApplyLocalization();
+            };
+
+            this.Unloaded += (s, e) =>
+            {
+                if (_langHandler != null)
+                {
+                    App.Localization.LanguageChanged -= _langHandler;
+                }
             };
 
             // Перехватываем PointerPressed ДО того, как DataGrid его обработает и изменит Selection
             TasksGrid.AddHandler(Microsoft.UI.Xaml.UIElement.PointerPressedEvent, new Microsoft.UI.Xaml.Input.PointerEventHandler(TasksGrid_PointerPressed), true);
 
             ApplyLocalization();
-            App.Localization.LanguageChanged += () => App.RunOnUI(ApplyLocalization);
         }
 
         private void LogResizer_DragDelta(object sender, Microsoft.UI.Xaml.Controls.Primitives.DragDeltaEventArgs e)
@@ -51,8 +63,15 @@ namespace StormSwitchBox.Views
 
         private async void LogResizer_DragCompleted(object sender, Microsoft.UI.Xaml.Controls.Primitives.DragCompletedEventArgs e)
         {
-            App.Settings.Current.LogPanelHeight = LogRow.Height.Value;
-            await App.Settings.SaveAsync();
+            try
+            {
+                App.Settings.Current.LogPanelHeight = LogRow.Height.Value;
+                await App.Settings.SaveAsync();
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[TasksPage] {ex.Message}", LogLevel.Warning);
+            }
         }
 
         private void LogResizerThumb_PointerEntered(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
@@ -67,68 +86,78 @@ namespace StormSwitchBox.Views
 
         protected override async void OnNavigatedTo(NavigationEventArgs e)
         {
-            base.OnNavigatedTo(e);
-            if (e.Parameter is TasksStartupArgs startupArgs)
+            try
             {
-                // Вызов из контекстного меню: задать тип страницы, добавить файлы и запустить
-                ViewModel.SetPageType(startupArgs.Action);
-                TasksGrid.Visibility = Visibility.Visible;
-                TasksGrid.ItemsSource = ViewModel.Tasks;
-                if (VerifyGrid != null)
+                base.OnNavigatedTo(e);
+                if (e.Parameter is TasksStartupArgs startupArgs)
                 {
-                    VerifyGrid.Visibility = Visibility.Collapsed;
-                }
-
-                // Применить переданный формат, если он указан
-                if (!string.IsNullOrEmpty(startupArgs.Format))
-                {
-                    int formatIndex = startupArgs.Format.ToUpper() switch
-                    {
-                        "NSP" => 0,
-                        "NSZ" => 1,
-                        "XCI" => 2,
-                        "XCZ" => 3,
-                        _ => -1
-                    };
-                    if (formatIndex >= 0)
-                    {
-                        FormatComboBox.SelectedIndex = formatIndex;
-                    }
-                }
-                
-                // Добавить файлы из аргументов командной строки
-                if (startupArgs.Paths.Length > 0)
-                {
-                    await ViewModel.AddDroppedFilesBatchAsync(new System.Collections.Generic.List<string>(startupArgs.Paths));
-                    
-                    // Автоматически запустить обработку
-                    if (ViewModel.Tasks.Count > 0)
-                    {
-                        ViewModel.StartAllTasksCommand.Execute(null);
-                    }
-                }
-            }
-            else if (e.Parameter is string pageType)
-            {
-                ViewModel.SetPageType(pageType);
-                if (pageType == "Verify")
-                {
-                    TasksGrid.Visibility = Visibility.Collapsed;
-                    if (VerifyGrid != null)
-                    {
-                        VerifyGrid.Visibility = Visibility.Visible;
-                        VerifyGrid.ItemsSource = ViewModel.VerifyTasks;
-                    }
-                }
-                else
-                {
+                    // Вызов из контекстного меню: задать тип страницы, добавить файлы и запустить
+                    ViewModel.SetPageType(startupArgs.Action);
                     TasksGrid.Visibility = Visibility.Visible;
                     TasksGrid.ItemsSource = ViewModel.Tasks;
                     if (VerifyGrid != null)
                     {
                         VerifyGrid.Visibility = Visibility.Collapsed;
                     }
+
+                    // Применить переданный формат, если он указан
+                    if (!string.IsNullOrEmpty(startupArgs.Format))
+                    {
+                        int formatIndex = startupArgs.Format.Trim().ToUpperInvariant() switch
+                        {
+                            "NSP" => 0,
+                            "NSZ" => 1,
+                            "XCI" => 2,
+                            "XCZ" => 3,
+                            "NUP" => 4,
+                            "NSP + NSZ" => 5,
+                            "XCI + XCZ" => 6,
+                            _ => -1
+                        };
+                        if (formatIndex >= 0)
+                        {
+                            FormatComboBox.SelectedIndex = formatIndex;
+                        }
+                    }
+                
+                    // Добавить файлы из аргументов командной строки
+                    if (startupArgs.Paths.Length > 0)
+                    {
+                        await ViewModel.AddDroppedFilesBatchAsync(new System.Collections.Generic.List<string>(startupArgs.Paths));
+                    
+                        // Автоматически запустить обработку
+                        if (ViewModel.Tasks.Count > 0)
+                        {
+                            ViewModel.StartAllTasksCommand.Execute(null);
+                        }
+                    }
                 }
+                else if (e.Parameter is string pageType)
+                {
+                    ViewModel.SetPageType(pageType);
+                    if (pageType == "Verify")
+                    {
+                        TasksGrid.Visibility = Visibility.Collapsed;
+                        if (VerifyGrid != null)
+                        {
+                            VerifyGrid.Visibility = Visibility.Visible;
+                            VerifyGrid.ItemsSource = ViewModel.VerifyTasks;
+                        }
+                    }
+                    else
+                    {
+                        TasksGrid.Visibility = Visibility.Visible;
+                        TasksGrid.ItemsSource = ViewModel.Tasks;
+                        if (VerifyGrid != null)
+                        {
+                            VerifyGrid.Visibility = Visibility.Collapsed;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[TasksPage] {ex.Message}", LogLevel.Warning);
             }
         }
 
@@ -246,10 +275,22 @@ namespace StormSwitchBox.Views
                 if (elem.DataContext is ProcessingTask dcTask) return dcTask;
             }
             if (TasksGrid?.SelectedItem is ProcessingTask selTask) return selTask;
-            if (HomebrewGrid?.SelectedItem is ProcessingTask selHbTask) return selHbTask;
             if (VerifyGrid?.SelectedItem is ProcessingTask selVerTask) return selVerTask;
             if (_activeDetailTask != null) return _activeDetailTask;
             return null;
+        }
+
+        private void TasksContextFlyout_Opening(object sender, object e)
+        {
+            var task = TasksGrid?.SelectedItem as ProcessingTask ?? _activeDetailTask;
+            if (PauseContextMenuItem != null)
+            {
+                PauseContextMenuItem.Visibility = (task != null && task.IsRunning && !task.IsPaused) ? Visibility.Visible : Visibility.Collapsed;
+            }
+            if (ResumeContextMenuItem != null)
+            {
+                ResumeContextMenuItem.Visibility = (task != null && task.IsRunning && task.IsPaused) ? Visibility.Visible : Visibility.Collapsed;
+            }
         }
 
         private void CopyLog_Click(object sender, RoutedEventArgs e)
@@ -266,101 +307,108 @@ namespace StormSwitchBox.Views
 
                 private async void InstallViaDbi_Click(object sender, RoutedEventArgs e)
         {
-            var task = GetTargetTask(sender);
-            if (task == null) return;
-
-            string targetFile = "";
-            string outDir = string.IsNullOrEmpty(task.OutputFolder) ? App.Settings.Current.OutputFolder : task.OutputFolder;
-            if (System.IO.Directory.Exists(outDir))
+            try
             {
-                var files = System.IO.Directory.GetFiles(outDir, "*.*")
-                    .Where(f => f.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) ||
-                                f.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) ||
-                                f.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) ||
-                                f.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase))
-                    .OrderByDescending(f => System.IO.File.GetLastWriteTimeUtc(f))
-                    .ToList();
-                targetFile = files.FirstOrDefault() ?? "";
-            }
+                var task = GetTargetTask(sender);
+                if (task == null) return;
 
-            if (string.IsNullOrEmpty(targetFile) || !System.IO.File.Exists(targetFile))
-            {
-                targetFile = task.InputFiles?.FirstOrDefault(f => System.IO.File.Exists(f)) ?? "";
-            }
-
-            if (string.IsNullOrEmpty(targetFile) || !System.IO.File.Exists(targetFile))
-            {
-                var noFileDlg = new ContentDialog
+                string targetFile = "";
+                string outDir = string.IsNullOrEmpty(task.OutputFolder) ? App.Settings.Current.OutputFolder : task.OutputFolder;
+                if (System.IO.Directory.Exists(outDir))
                 {
-                    Title = "Файл не найден",
-                    Content = "Не удалось найти скомпилированный файл игры для установки. Убедитесь, что задача завершена успешно.",
-                    CloseButtonText = "ОК",
-                    XamlRoot = this.XamlRoot
-                };
-                await noFileDlg.ShowAsync();
-                return;
-            }
+                    var files = System.IO.Directory.GetFiles(outDir, "*.*")
+                        .Where(f => f.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) ||
+                                    f.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) ||
+                                    f.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) ||
+                                    f.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase))
+                        .OrderByDescending(f => System.IO.File.GetLastWriteTimeUtc(f))
+                        .ToList();
+                    targetFile = files.FirstOrDefault() ?? "";
+                }
 
-            if (App.DbiInstall.DetectDbiMtp(out dynamic? mtpFolder, out string statusMsg))
-            {
-                var confirmDlg = new ContentDialog
+                if (string.IsNullOrEmpty(targetFile) || !System.IO.File.Exists(targetFile))
                 {
-                    Title = "Установка по USB (DBI MTP)",
-                    Content = $"Обнаружена консоль Nintendo Switch!\n\nФайл: {System.IO.Path.GetFileName(targetFile)}\n\nНачать передачу и установку на карту памяти через DBI?",
-                    PrimaryButtonText = "Установить",
-                    CloseButtonText = "Отмена",
-                    DefaultButton = ContentDialogButton.Primary,
-                    XamlRoot = this.XamlRoot
-                };
+                    targetFile = task.InputFiles?.FirstOrDefault(f => System.IO.File.Exists(f)) ?? "";
+                }
 
-                var res = await confirmDlg.ShowAsync();
-                if (res == ContentDialogResult.Primary)
+                if (string.IsNullOrEmpty(targetFile) || !System.IO.File.Exists(targetFile))
                 {
-                    try
+                    var noFileDlg = new ContentDialog
                     {
-                        await App.DbiInstall.InstallViaMtpAsync(targetFile, task, System.Threading.CancellationToken.None);
-                    }
-                    catch (Exception ex)
+                        Title = "Файл не найден",
+                        Content = "Не удалось найти скомпилированный файл игры для установки. Убедитесь, что задача завершена успешно.",
+                        CloseButtonText = "ОК",
+                        XamlRoot = this.XamlRoot
+                    };
+                    await noFileDlg.ShowAsync();
+                    return;
+                }
+
+                if (App.DbiInstall.DetectDbiMtp(out dynamic? mtpFolder, out string statusMsg))
+                {
+                    var confirmDlg = new ContentDialog
                     {
-                        var errDlg = new ContentDialog
+                        Title = "Установка по USB (DBI MTP)",
+                        Content = $"Обнаружена консоль Nintendo Switch!\n\nФайл: {System.IO.Path.GetFileName(targetFile)}\n\nНачать передачу и установку на карту памяти через DBI?",
+                        PrimaryButtonText = "Установить",
+                        CloseButtonText = "Отмена",
+                        DefaultButton = ContentDialogButton.Primary,
+                        XamlRoot = this.XamlRoot
+                    };
+
+                    var res = await confirmDlg.ShowAsync();
+                    if (res == ContentDialogResult.Primary)
+                    {
+                        try
                         {
-                            Title = "Ошибка установки",
-                            Content = ex.Message,
-                            CloseButtonText = "Закрыть",
-                            XamlRoot = this.XamlRoot
-                        };
-                        await errDlg.ShowAsync();
+                            await App.DbiInstall.InstallViaMtpAsync(targetFile, task, System.Threading.CancellationToken.None);
+                        }
+                        catch (Exception ex)
+                        {
+                            var errDlg = new ContentDialog
+                            {
+                                Title = "Ошибка установки",
+                                Content = ex.Message,
+                                CloseButtonText = "Закрыть",
+                                XamlRoot = this.XamlRoot
+                            };
+                            await errDlg.ShowAsync();
+                        }
+                    }
+                }
+                else
+                {
+                    string ip = App.DbiInstall.GetLocalIpAddress();
+                    string folder = System.IO.Path.GetDirectoryName(targetFile) ?? outDir;
+                    App.DbiInstall.StartHttpServer(folder, 8080);
+
+                    var networkDlg = new ContentDialog
+                    {
+                        Title = "Установка на Switch (DBI)",
+                        Content = $"Режим DBI MTP Responder не обнаружен на USB.\n\nЗапущен локальный сетевой сервер для установки по Wi-Fi:\n• URL: http://{ip}:8080/\n• Каталог: {folder}\n\nИнструкция для Switch:\n1. В DBI выберите: «Install title from Web / HTTP».\n2. Введите адрес: http://{ip}:8080/\n3. Выберите игру из списка для установки.",
+                        PrimaryButtonText = "Открыть в браузере",
+                        CloseButtonText = "Готово",
+                        XamlRoot = this.XamlRoot
+                    };
+
+                    var res = await networkDlg.ShowAsync();
+                    if (res == ContentDialogResult.Primary)
+                    {
+                        try
+                        {
+                            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                            {
+                                FileName = "http://localhost:8080/",
+                                UseShellExecute = true
+                            });
+                        }
+                        catch { }
                     }
                 }
             }
-            else
+            catch (Exception ex)
             {
-                string ip = App.DbiInstall.GetLocalIpAddress();
-                string folder = System.IO.Path.GetDirectoryName(targetFile) ?? outDir;
-                App.DbiInstall.StartHttpServer(folder, 8080);
-
-                var networkDlg = new ContentDialog
-                {
-                    Title = "Установка на Switch (DBI)",
-                    Content = $"Режим DBI MTP Responder не обнаружен на USB.\n\nЗапущен локальный сетевой сервер для установки по Wi-Fi:\n• URL: http://{ip}:8080/\n• Каталог: {folder}\n\nИнструкция для Switch:\n1. В DBI выберите: «Install title from Web / HTTP».\n2. Введите адрес: http://{ip}:8080/\n3. Выберите игру из списка для установки.",
-                    PrimaryButtonText = "Открыть в браузере",
-                    CloseButtonText = "Готово",
-                    XamlRoot = this.XamlRoot
-                };
-
-                var res = await networkDlg.ShowAsync();
-                if (res == ContentDialogResult.Primary)
-                {
-                    try
-                    {
-                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                        {
-                            FileName = "http://localhost:8080/",
-                            UseShellExecute = true
-                        });
-                    }
-                    catch { }
-                }
+                App.Logger?.Log($"[TasksPage] {ex.Message}", LogLevel.Warning);
             }
         }
 
@@ -530,7 +578,6 @@ namespace StormSwitchBox.Views
             _activeDetailTask = null;
             UpdateDetailsVisibility();
             if (TasksGrid != null) TasksGrid.SelectedItem = null;
-            if (HomebrewGrid != null) HomebrewGrid.SelectedItem = null;
             if (VerifyGrid != null) VerifyGrid.SelectedItem = null;
         }
 
@@ -682,251 +729,258 @@ namespace StormSwitchBox.Views
         // ===== Редактирование иконки и названия игры =====
         private async void EditMetadata_Click(object sender, RoutedEventArgs e)
         {
-            var task = GetTargetTask(sender);
-
-            if (task == null)
-            {
-                App.Logger.Log("Выберите задачу для редактирования метаданных.", LogLevel.Warning);
-                return;
-            }
-
-            string? sourceFile = task.InputFiles?.FirstOrDefault(f => System.IO.File.Exists(f) &&
-                (f.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) || 
-                 f.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) || 
-                 f.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) ||
-                 f.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase) ||
-                 f.EndsWith(".3ds", StringComparison.OrdinalIgnoreCase) ||
-                 f.EndsWith(".cci", StringComparison.OrdinalIgnoreCase) ||
-                 f.EndsWith(".cia", StringComparison.OrdinalIgnoreCase) ||
-                 f.EndsWith(".cxi", StringComparison.OrdinalIgnoreCase)));
-
-            string? builtOutputFile = null;
-            if (!string.IsNullOrWhiteSpace(task.OutputFolder) && !string.IsNullOrWhiteSpace(task.OutputFileName))
-            {
-                string[] candidateExts = new[] { task.GetPrimaryExtension(), ".nsz", ".nsp", ".xci", ".xcz", ".3ds", ".cia", ".cci" };
-                foreach (var ext in candidateExts.Distinct(StringComparer.OrdinalIgnoreCase))
-                {
-                    string candidatePath = Path.Combine(task.OutputFolder, task.OutputFileName + ext);
-                    if (File.Exists(candidatePath))
-                    {
-                        builtOutputFile = candidatePath;
-                        break;
-                    }
-                }
-            }
-
-            if (string.IsNullOrEmpty(sourceFile) && !string.IsNullOrEmpty(builtOutputFile))
-            {
-                sourceFile = builtOutputFile;
-            }
-
-            string rawLabel = !string.IsNullOrWhiteSpace(task.GameName) ? task.GameName : task.OutputFileName;
-            string cleanFallbackTitle = RuTrackerModService.ExtractCleanGameTitleFromFilePath(rawLabel);
-            if (string.IsNullOrWhiteSpace(cleanFallbackTitle)) cleanFallbackTitle = rawLabel;
-
-            string resolvedTid = !string.IsNullOrWhiteSpace(task.TitleId) ? task.TitleId : RuTrackerModService.ExtractTitleId(rawLabel);
-            if (resolvedTid.Length == 16 && !resolvedTid.EndsWith("000", StringComparison.OrdinalIgnoreCase))
-            {
-                resolvedTid = resolvedTid.Substring(0, 13) + "000";
-            }
-
-            string resolvedVersion = "1.0.0";
-            var verMatch = System.Text.RegularExpressions.Regex.Match(rawLabel, @"\((?<dv>\d+\.\d+(?:\.\d+)?)\s*-\s*\d+");
-            if (verMatch.Success)
-            {
-                resolvedVersion = verMatch.Groups["dv"].Value;
-            }
-
-            string resolvedPublisher = task.Operation == "Homebrew" ? "Homebrew Developer" : "Nintendo";
-            if (!string.IsNullOrEmpty(resolvedTid) && App.TitleDb != null && App.TitleDb.TryGetTitleInfo(resolvedTid, out var dbEntry) && dbEntry != null)
-            {
-                if (!string.IsNullOrWhiteSpace(dbEntry.Name))
-                    cleanFallbackTitle = dbEntry.Name.Trim();
-                if (!string.IsNullOrWhiteSpace(dbEntry.Publisher) && !string.IsNullOrWhiteSpace(dbEntry.Developer) &&
-                    !string.Equals(dbEntry.Publisher.Trim(), dbEntry.Developer.Trim(), StringComparison.OrdinalIgnoreCase))
-                {
-                    resolvedPublisher = $"{dbEntry.Publisher.Trim()} / {dbEntry.Developer.Trim()}";
-                }
-                else if (!string.IsNullOrWhiteSpace(dbEntry.Publisher))
-                {
-                    resolvedPublisher = dbEntry.Publisher.Trim();
-                }
-                else if (!string.IsNullOrWhiteSpace(dbEntry.Developer))
-                {
-                    resolvedPublisher = dbEntry.Developer.Trim();
-                }
-            }
-
-            byte[]? cachedIcon = null;
             try
             {
-                string iconsDir = HistoryService.GetIconsDirectory();
-                var iconCandidates = new List<string>();
-                if (!string.IsNullOrWhiteSpace(task.GroupId))
-                    iconCandidates.Add(Path.Combine(iconsDir, $"{task.GroupId}.png"));
-                if (!string.IsNullOrWhiteSpace(resolvedTid))
-                {
-                    iconCandidates.Add(Path.Combine(iconsDir, $"{resolvedTid}.png"));
-                    iconCandidates.Add(Path.Combine(iconsDir, $"{TasksViewModel.GetTitleGroupPrefix(resolvedTid)}.png"));
-                }
-                foreach (var ic in iconCandidates)
-                {
-                    if (File.Exists(ic))
-                    {
-                        cachedIcon = File.ReadAllBytes(ic);
-                        if (cachedIcon.Length > 0) break;
-                    }
-                }
-            }
-            catch { }
+                var task = GetTargetTask(sender);
 
-            GameMetadataEditModel? model = task.CustomMetadata ?? task.RuTrackerPayload?.CustomMetadata;
-            if (model == null)
-            {
-                if (!string.IsNullOrEmpty(sourceFile) && System.IO.File.Exists(sourceFile))
+                if (task == null)
                 {
-                    if (task.Is3dsTask || Nintendo3dsService.Is3dsExtension(Path.GetExtension(sourceFile)))
+                    App.Logger.Log("Выберите задачу для редактирования метаданных.", LogLevel.Warning);
+                    return;
+                }
+
+                string? sourceFile = task.InputFiles?.FirstOrDefault(f => System.IO.File.Exists(f) &&
+                    (f.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) || 
+                     f.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) || 
+                     f.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) ||
+                     f.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase) ||
+                     f.EndsWith(".3ds", StringComparison.OrdinalIgnoreCase) ||
+                     f.EndsWith(".cci", StringComparison.OrdinalIgnoreCase) ||
+                     f.EndsWith(".cia", StringComparison.OrdinalIgnoreCase) ||
+                     f.EndsWith(".cxi", StringComparison.OrdinalIgnoreCase)));
+
+                string? builtOutputFile = null;
+                if (!string.IsNullOrWhiteSpace(task.OutputFolder) && !string.IsNullOrWhiteSpace(task.OutputFileName))
+                {
+                    string[] candidateExts = new[] { task.GetPrimaryExtension(), ".nsz", ".nsp", ".xci", ".xcz", ".3ds", ".cia", ".cci" };
+                    foreach (var ext in candidateExts.Distinct(StringComparer.OrdinalIgnoreCase))
                     {
-                        var info3ds = App.Nintendo3ds.Parse3dsFile(sourceFile);
-                        model = new GameMetadataEditModel
+                        string candidatePath = Path.Combine(task.OutputFolder, task.OutputFileName + ext);
+                        if (File.Exists(candidatePath))
                         {
-                            SourceFilePath = sourceFile,
-                            TitleId = !string.IsNullOrEmpty(info3ds?.TitleId) ? info3ds.TitleId : resolvedTid,
-                            Version = !string.IsNullOrEmpty(info3ds?.Version) ? info3ds.Version : resolvedVersion,
-                            TitleNameEnglish = !string.IsNullOrEmpty(info3ds?.GameName) ? info3ds.GameName : cleanFallbackTitle,
-                            TitleNameRussian = !string.IsNullOrEmpty(info3ds?.GameName) ? info3ds.GameName : cleanFallbackTitle,
-                            Publisher = !string.IsNullOrEmpty(info3ds?.Publisher) ? info3ds.Publisher : resolvedPublisher,
-                            OriginalIconBytes = info3ds?.IconBytes ?? cachedIcon
-                        };
-                    }
-                    else
-                    {
-                        model = await App.ControlEditor.ExtractMetadataAsync(sourceFile);
+                            builtOutputFile = candidatePath;
+                            break;
+                        }
                     }
                 }
 
+                if (string.IsNullOrEmpty(sourceFile) && !string.IsNullOrEmpty(builtOutputFile))
+                {
+                    sourceFile = builtOutputFile;
+                }
+
+                string rawLabel = !string.IsNullOrWhiteSpace(task.GameName) ? task.GameName : task.OutputFileName;
+                string cleanFallbackTitle = RuTrackerModService.ExtractCleanGameTitleFromFilePath(rawLabel);
+                if (string.IsNullOrWhiteSpace(cleanFallbackTitle)) cleanFallbackTitle = rawLabel;
+
+                string resolvedTid = !string.IsNullOrWhiteSpace(task.TitleId) ? task.TitleId : RuTrackerModService.ExtractTitleId(rawLabel);
+                if (resolvedTid.Length == 16 && !resolvedTid.EndsWith("000", StringComparison.OrdinalIgnoreCase))
+                {
+                    resolvedTid = resolvedTid.Substring(0, 13) + "000";
+                }
+
+                string resolvedVersion = "1.0.0";
+                var verMatch = System.Text.RegularExpressions.Regex.Match(rawLabel, @"\((?<dv>\d+\.\d+(?:\.\d+)?)\s*-\s*\d+");
+                if (verMatch.Success)
+                {
+                    resolvedVersion = verMatch.Groups["dv"].Value;
+                }
+
+                string resolvedPublisher = task.Operation == "Homebrew" ? "Homebrew Developer" : "Nintendo";
+                if (!string.IsNullOrEmpty(resolvedTid) && App.TitleDb != null && App.TitleDb.TryGetTitleInfo(resolvedTid, out var dbEntry) && dbEntry != null)
+                {
+                    if (!string.IsNullOrWhiteSpace(dbEntry.Name))
+                        cleanFallbackTitle = dbEntry.Name.Trim();
+                    if (!string.IsNullOrWhiteSpace(dbEntry.Publisher) && !string.IsNullOrWhiteSpace(dbEntry.Developer) &&
+                        !string.Equals(dbEntry.Publisher.Trim(), dbEntry.Developer.Trim(), StringComparison.OrdinalIgnoreCase))
+                    {
+                        resolvedPublisher = $"{dbEntry.Publisher.Trim()} / {dbEntry.Developer.Trim()}";
+                    }
+                    else if (!string.IsNullOrWhiteSpace(dbEntry.Publisher))
+                    {
+                        resolvedPublisher = dbEntry.Publisher.Trim();
+                    }
+                    else if (!string.IsNullOrWhiteSpace(dbEntry.Developer))
+                    {
+                        resolvedPublisher = dbEntry.Developer.Trim();
+                    }
+                }
+
+                byte[]? cachedIcon = null;
+                try
+                {
+                    string iconsDir = HistoryService.GetIconsDirectory();
+                    var iconCandidates = new List<string>();
+                    if (!string.IsNullOrWhiteSpace(task.GroupId))
+                        iconCandidates.Add(Path.Combine(iconsDir, $"{task.GroupId}.png"));
+                    if (!string.IsNullOrWhiteSpace(resolvedTid))
+                    {
+                        iconCandidates.Add(Path.Combine(iconsDir, $"{resolvedTid}.png"));
+                        iconCandidates.Add(Path.Combine(iconsDir, $"{TasksViewModel.GetTitleGroupPrefix(resolvedTid)}.png"));
+                    }
+                    foreach (var ic in iconCandidates)
+                    {
+                        if (File.Exists(ic))
+                        {
+                            cachedIcon = File.ReadAllBytes(ic);
+                            if (cachedIcon.Length > 0) break;
+                        }
+                    }
+                }
+                catch { }
+
+                GameMetadataEditModel? model = task.CustomMetadata ?? task.RuTrackerPayload?.CustomMetadata;
                 if (model == null)
                 {
-                    model = new GameMetadataEditModel
+                    if (!string.IsNullOrEmpty(sourceFile) && System.IO.File.Exists(sourceFile))
                     {
-                        SourceFilePath = sourceFile ?? task.InputFiles?.FirstOrDefault() ?? "",
-                        TitleId = !string.IsNullOrEmpty(resolvedTid) ? resolvedTid : "0100000000000000",
-                        TitleNameEnglish = cleanFallbackTitle,
-                        TitleNameRussian = cleanFallbackTitle,
-                        Publisher = resolvedPublisher,
-                        Version = resolvedVersion,
-                        OriginalIconBytes = cachedIcon
-                    };
-                }
-            }
-
-            // Дообогащаем модель, если в ней остались плейсхолдеры или длинное имя файла с тегами
-            if (string.IsNullOrWhiteSpace(model.TitleId) || model.TitleId == "0100000000000000")
-            {
-                if (!string.IsNullOrWhiteSpace(resolvedTid))
-                    model.TitleId = resolvedTid;
-            }
-            if (string.IsNullOrWhiteSpace(model.Version) || model.Version == "1.0.0")
-            {
-                if (!string.IsNullOrWhiteSpace(resolvedVersion) && resolvedVersion != "1.0.0")
-                    model.Version = resolvedVersion;
-            }
-            if (string.IsNullOrWhiteSpace(model.Publisher) || model.Publisher == "Nintendo")
-            {
-                if (!string.IsNullOrWhiteSpace(resolvedPublisher) && resolvedPublisher != "Nintendo")
-                    model.Publisher = resolvedPublisher;
-            }
-            if (model.TitleNameEnglish == rawLabel && rawLabel != cleanFallbackTitle)
-                model.TitleNameEnglish = cleanFallbackTitle;
-            if (model.TitleNameRussian == rawLabel && rawLabel != cleanFallbackTitle)
-                model.TitleNameRussian = cleanFallbackTitle;
-            if ((model.OriginalIconBytes == null || model.OriginalIconBytes.Length == 0) && cachedIcon != null && cachedIcon.Length > 0)
-                model.OriginalIconBytes = cachedIcon;
-
-            model.Is3ds = task.Is3dsTask || (sourceFile != null && Nintendo3dsService.Is3dsExtension(Path.GetExtension(sourceFile)));
-            model.HasRomFs = task.HasRomFs != "-";
-            model.HasExeFs = task.HasExeFs != "-";
-            model.ModNameRomFs = task.ModNameRomFs;
-            model.ModNameExeFs = task.ModNameExeFs;
-
-            var dialog = new Dialogs.ControlEditorDialog(model);
-            var result = await dialog.ShowAsync();
-            if (result == ContentDialogResult.Primary)
-            {
-                task.CustomMetadata = model;
-                if (task.RuTrackerPayload != null)
-                    task.RuTrackerPayload.CustomMetadata = model;
-                task.ModNameRomFs = model.ModNameRomFs;
-                task.ModNameExeFs = model.ModNameExeFs;
-
-                string newTitle = !string.IsNullOrEmpty(model.TitleNameRussian) ? model.TitleNameRussian : model.TitleNameEnglish;
-                if (!string.IsNullOrEmpty(newTitle) && string.IsNullOrEmpty(task.OutputFileName))
-                {
-                    task.OutputFileName = newTitle;
-                }
-
-                byte[]? activeIconBytes = model.CustomIconBytes ?? model.OriginalIconBytes;
-                if (activeIconBytes != null && activeIconBytes.Length > 0)
-                {
-                    using var ms = new System.IO.MemoryStream(activeIconBytes);
-                    var bmp = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
-                    bmp.SetSource(ms.AsRandomAccessStream());
-                    task.GameIcon = bmp;
-
-                    try
-                    {
-                        string iconsDir = HistoryService.GetIconsDirectory();
-                        if (!string.IsNullOrEmpty(task.GroupId))
+                        if (task.Is3dsTask || Nintendo3dsService.Is3dsExtension(Path.GetExtension(sourceFile)))
                         {
-                            File.WriteAllBytes(Path.Combine(iconsDir, $"{task.GroupId}.png"), activeIconBytes);
+                            var info3ds = App.Nintendo3ds.Parse3dsFile(sourceFile);
+                            model = new GameMetadataEditModel
+                            {
+                                SourceFilePath = sourceFile,
+                                TitleId = !string.IsNullOrEmpty(info3ds?.TitleId) ? info3ds.TitleId : resolvedTid,
+                                Version = !string.IsNullOrEmpty(info3ds?.Version) ? info3ds.Version : resolvedVersion,
+                                TitleNameEnglish = !string.IsNullOrEmpty(info3ds?.GameName) ? info3ds.GameName : cleanFallbackTitle,
+                                TitleNameRussian = !string.IsNullOrEmpty(info3ds?.GameName) ? info3ds.GameName : cleanFallbackTitle,
+                                Publisher = !string.IsNullOrEmpty(info3ds?.Publisher) ? info3ds.Publisher : resolvedPublisher,
+                                OriginalIconBytes = info3ds?.IconBytes ?? cachedIcon
+                            };
                         }
-                        if (!string.IsNullOrEmpty(model.TitleId) && model.TitleId != "0100000000000000")
+                        else
                         {
-                            File.WriteAllBytes(Path.Combine(iconsDir, $"{model.TitleId}.png"), activeIconBytes);
+                            model = await App.ControlEditor.ExtractMetadataAsync(sourceFile);
                         }
                     }
-                    catch { }
+
+                    if (model == null)
+                    {
+                        model = new GameMetadataEditModel
+                        {
+                            SourceFilePath = sourceFile ?? task.InputFiles?.FirstOrDefault() ?? "",
+                            TitleId = !string.IsNullOrEmpty(resolvedTid) ? resolvedTid : "0100000000000000",
+                            TitleNameEnglish = cleanFallbackTitle,
+                            TitleNameRussian = cleanFallbackTitle,
+                            Publisher = resolvedPublisher,
+                            Version = resolvedVersion,
+                            OriginalIconBytes = cachedIcon
+                        };
+                    }
                 }
 
-                // Если контейнер уже собран на диске (задача завершена), сразу вшиваем обновлённые NACP + иконку в готовый файл!
-                if (!string.IsNullOrEmpty(builtOutputFile) && File.Exists(builtOutputFile) && !task.IsRunning)
+                // Дообогащаем модель, если в ней остались плейсхолдеры или длинное имя файла с тегами
+                if (string.IsNullOrWhiteSpace(model.TitleId) || model.TitleId == "0100000000000000")
                 {
-                    string targetContainer = builtOutputFile;
-                    _ = Task.Run(async () =>
+                    if (!string.IsNullOrWhiteSpace(resolvedTid))
+                        model.TitleId = resolvedTid;
+                }
+                if (string.IsNullOrWhiteSpace(model.Version) || model.Version == "1.0.0")
+                {
+                    if (!string.IsNullOrWhiteSpace(resolvedVersion) && resolvedVersion != "1.0.0")
+                        model.Version = resolvedVersion;
+                }
+                if (string.IsNullOrWhiteSpace(model.Publisher) || model.Publisher == "Nintendo")
+                {
+                    if (!string.IsNullOrWhiteSpace(resolvedPublisher) && resolvedPublisher != "Nintendo")
+                        model.Publisher = resolvedPublisher;
+                }
+                if (model.TitleNameEnglish == rawLabel && rawLabel != cleanFallbackTitle)
+                    model.TitleNameEnglish = cleanFallbackTitle;
+                if (model.TitleNameRussian == rawLabel && rawLabel != cleanFallbackTitle)
+                    model.TitleNameRussian = cleanFallbackTitle;
+                if ((model.OriginalIconBytes == null || model.OriginalIconBytes.Length == 0) && cachedIcon != null && cachedIcon.Length > 0)
+                    model.OriginalIconBytes = cachedIcon;
+
+                model.Is3ds = task.Is3dsTask || (sourceFile != null && Nintendo3dsService.Is3dsExtension(Path.GetExtension(sourceFile)));
+                model.HasRomFs = task.HasRomFs != "-";
+                model.HasExeFs = task.HasExeFs != "-";
+                model.ModNameRomFs = task.ModNameRomFs;
+                model.ModNameExeFs = task.ModNameExeFs;
+
+                var dialog = new Dialogs.ControlEditorDialog(model);
+                var result = await dialog.ShowAsync();
+                if (result == ContentDialogResult.Primary)
+                {
+                    task.CustomMetadata = model;
+                    if (task.RuTrackerPayload != null)
+                        task.RuTrackerPayload.CustomMetadata = model;
+                    task.ModNameRomFs = model.ModNameRomFs;
+                    task.ModNameExeFs = model.ModNameExeFs;
+
+                    string newTitle = !string.IsNullOrEmpty(model.TitleNameRussian) ? model.TitleNameRussian : model.TitleNameEnglish;
+                    if (!string.IsNullOrEmpty(newTitle) && string.IsNullOrEmpty(task.OutputFileName))
                     {
+                        task.OutputFileName = newTitle;
+                    }
+
+                    byte[]? activeIconBytes = model.CustomIconBytes ?? model.OriginalIconBytes;
+                    if (activeIconBytes != null && activeIconBytes.Length > 0)
+                    {
+                        using var ms = new System.IO.MemoryStream(activeIconBytes);
+                        var bmp = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
+                        bmp.SetSource(ms.AsRandomAccessStream());
+                        task.GameIcon = bmp;
+
                         try
                         {
-                            App.RunOnUI(() =>
+                            string iconsDir = HistoryService.GetIconsDirectory();
+                            if (!string.IsNullOrEmpty(task.GroupId))
                             {
-                                task.Status = "Обновление NACP...";
-                                task.LogDetails += $"\n🎨 [ControlEditor] Вшивание обновлённых метаданных (EN: «{model.TitleNameEnglish}», RU: «{model.TitleNameRussian}», Издатель: «{model.Publisher}») в {Path.GetFileName(targetContainer)}...\n";
-                            });
-
-                            bool patched;
-                            if (model.Is3ds)
-                            {
-                                patched = IconBadgeStudioService.Patch3dsSmdhInPlace(targetContainer, model);
+                                File.WriteAllBytes(Path.Combine(iconsDir, $"{task.GroupId}.png"), activeIconBytes);
                             }
-                            else
+                            if (!string.IsNullOrEmpty(model.TitleId) && model.TitleId != "0100000000000000")
                             {
-                                patched = await App.ControlEditor.ApplyCustomMetadataAsync(model, targetContainer, task, CancellationToken.None);
+                                File.WriteAllBytes(Path.Combine(iconsDir, $"{model.TitleId}.png"), activeIconBytes);
                             }
-
-                            App.RunOnUI(() =>
-                            {
-                                task.Status = patched ? "Готово" : "Готово (без патча NACP)";
-                                if (patched)
-                                    task.LogDetails += $"✅ [ControlEditor] Иконка и названия NACP успешно обновлены в {Path.GetFileName(targetContainer)}!\n";
-                            });
                         }
-                        catch (Exception ex)
+                        catch { }
+                    }
+
+                    // Если контейнер уже собран на диске (задача завершена), сразу вшиваем обновлённые NACP + иконку в готовый файл!
+                    if (!string.IsNullOrEmpty(builtOutputFile) && File.Exists(builtOutputFile) && !task.IsRunning)
+                    {
+                        string targetContainer = builtOutputFile;
+                        _ = Task.Run(async () =>
                         {
-                            App.Logger.Log($"[ControlEditor] Ошибка применения метаданных к готовому файлу: {ex.Message}", LogLevel.Warning);
-                        }
-                    });
-                }
+                            try
+                            {
+                                App.RunOnUI(() =>
+                                {
+                                    task.Status = "Обновление NACP...";
+                                    task.LogDetails += $"\n🎨 [ControlEditor] Вшивание обновлённых метаданных (EN: «{model.TitleNameEnglish}», RU: «{model.TitleNameRussian}», Издатель: «{model.Publisher}») в {Path.GetFileName(targetContainer)}...\n";
+                                });
 
-                App.Logger.Log($"Кастомные метаданные сохранены для задачи: {task.GameName}", LogLevel.Success);
+                                bool patched;
+                                if (model.Is3ds)
+                                {
+                                    patched = IconBadgeStudioService.Patch3dsSmdhInPlace(targetContainer, model);
+                                }
+                                else
+                                {
+                                    patched = await App.ControlEditor.ApplyCustomMetadataAsync(model, targetContainer, task, CancellationToken.None);
+                                }
+
+                                App.RunOnUI(() =>
+                                {
+                                    task.Status = patched ? "Готово" : "Готово (без патча NACP)";
+                                    if (patched)
+                                        task.LogDetails += $"✅ [ControlEditor] Иконка и названия NACP успешно обновлены в {Path.GetFileName(targetContainer)}!\n";
+                                });
+                            }
+                            catch (Exception ex)
+                            {
+                                App.Logger.Log($"[ControlEditor] Ошибка применения метаданных к готовому файлу: {ex.Message}", LogLevel.Warning);
+                            }
+                        });
+                    }
+
+                    App.Logger.Log($"Кастомные метаданные сохранены для задачи: {task.GameName}", LogLevel.Success);
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[TasksPage] {ex.Message}", LogLevel.Warning);
             }
         }
 
@@ -944,128 +998,132 @@ namespace StormSwitchBox.Views
         // ===== Список файлов (широкий диалог с бэйджами) =====
         private async void FilesCount_Click(object sender, RoutedEventArgs e)
         {
-            if (sender is Button btn && btn.Tag is ProcessingTask task)
+            try
             {
-                var displayItems = (task.InputFiles != null && task.InputFiles.Count > 0)
-                    ? task.InputFiles
-                    : task.FilesList;
-
-                if (displayItems == null || displayItems.Count == 0) return;
-
-                var stackPanel = new StackPanel
+                if (sender is Button btn && btn.Tag is ProcessingTask task)
                 {
-                    Spacing = 8,
-                    Margin = new Thickness(0, 4, 16, 16)
-                };
+                    var displayItems = (task.InputFiles != null && task.InputFiles.Count > 0)
+                        ? task.InputFiles
+                        : task.FilesList;
 
-                foreach (var itemPath in displayItems)
-                {
-                    string fileName = System.IO.Path.GetFileName(itemPath);
-                    var (label, bgBrushHex, fgBrushHex) = ClassifyFileForUi(fileName, itemPath);
+                    if (displayItems == null || displayItems.Count == 0) return;
 
-                    string displayText;
-                    if (System.IO.Directory.Exists(itemPath))
+                    var stackPanel = new StackPanel
                     {
-                        long folderSize = CalculateFolderSize(itemPath);
-                        int fileCount = 0;
-                        try { fileCount = System.IO.Directory.GetFiles(itemPath, "*", System.IO.SearchOption.AllDirectories).Length; } catch { }
-                        
-                        string normPath = itemPath.Replace('/', '\\');
-                        int atmoIdx = normPath.IndexOf(@"atmosphere\contents", StringComparison.OrdinalIgnoreCase);
-                        string dirLabel = atmoIdx >= 0 ? normPath.Substring(atmoIdx) : fileName;
-                        
-                        displayText = $"{dirLabel}  •  {ProcessingTask.FormatSize(folderSize)} ({fileCount} файлов)";
-                    }
-                    else if (System.IO.File.Exists(itemPath))
-                    {
-                        long fSize = 0;
-                        try { fSize = new System.IO.FileInfo(itemPath).Length; } catch { }
-                        displayText = $"{fileName}  •  {ProcessingTask.FormatSize(fSize)}";
-                    }
-                    else
-                    {
-                        displayText = fileName;
-                    }
+                        Spacing = 8,
+                        Margin = new Thickness(0, 4, 16, 16)
+                    };
 
-                    var rowGrid = new Grid
+                    foreach (var itemPath in displayItems)
                     {
-                        ColumnDefinitions =
+                        string fileName = System.IO.Path.GetFileName(itemPath);
+                        var (label, bgBrushHex, fgBrushHex) = ClassifyFileForUi(fileName, itemPath);
+
+                        string displayText;
+                        if (System.IO.Directory.Exists(itemPath))
                         {
-                            new ColumnDefinition { Width = GridLength.Auto },
-                            new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }
-                        },
-                        Margin = new Thickness(0, 2, 0, 2)
-                    };
+                            var (folderSize, fileCount) = await System.Threading.Tasks.Task.Run(() =>
+                            {
+                                long sz = StormToolResolver.CalculateDirectorySize(itemPath);
+                                int cnt = 0;
+                                try { cnt = System.IO.Directory.EnumerateFiles(itemPath, "*", System.IO.SearchOption.AllDirectories).Count(); } catch { }
+                                return (sz, cnt);
+                            });
 
-                    var badgeBorder = new Border
+                            string normPath = itemPath.Replace('/', '\\');
+                            int atmoIdx = normPath.IndexOf(@"atmosphere\contents", StringComparison.OrdinalIgnoreCase);
+                            string dirLabel = atmoIdx >= 0 ? normPath.Substring(atmoIdx) : fileName;
+
+                            displayText = $"{dirLabel}  •  {ProcessingTask.FormatSize(folderSize)} ({fileCount} файлов)";
+                        }
+                        else if (System.IO.File.Exists(itemPath))
+                        {
+                            long fSize = 0;
+                            try { fSize = new System.IO.FileInfo(itemPath).Length; } catch { }
+                            displayText = $"{fileName}  •  {ProcessingTask.FormatSize(fSize)}";
+                        }
+                        else
+                        {
+                            displayText = fileName;
+                        }
+
+                        var rowGrid = new Grid
+                        {
+                            ColumnDefinitions =
+                            {
+                                new ColumnDefinition { Width = GridLength.Auto },
+                                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }
+                            },
+                            Margin = new Thickness(0, 2, 0, 2)
+                        };
+
+                        var badgeBorder = new Border
+                        {
+                            Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(ParseColor(bgBrushHex)),
+                            CornerRadius = new CornerRadius(4),
+                            Padding = new Thickness(8, 3, 8, 3),
+                            Margin = new Thickness(0, 0, 12, 0),
+                            VerticalAlignment = VerticalAlignment.Center
+                        };
+
+                        var badgeText = new TextBlock
+                        {
+                            Text = label,
+                            Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(ParseColor(fgBrushHex)),
+                            FontSize = 11,
+                            FontWeight = Microsoft.UI.Text.FontWeights.Bold
+                        };
+                        badgeBorder.Child = badgeText;
+                        Grid.SetColumn(badgeBorder, 0);
+
+                        var fileNameText = new TextBlock
+                        {
+                            Text = displayText,
+                            FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas"),
+                            FontSize = 13,
+                            VerticalAlignment = VerticalAlignment.Center,
+                            IsTextSelectionEnabled = true,
+                            TextWrapping = TextWrapping.Wrap
+                        };
+                        Grid.SetColumn(fileNameText, 1);
+
+                        rowGrid.Children.Add(badgeBorder);
+                        rowGrid.Children.Add(fileNameText);
+
+                        stackPanel.Children.Add(rowGrid);
+                    }
+
+                    var scrollViewer = new ScrollViewer
                     {
-                        Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(ParseColor(bgBrushHex)),
-                        CornerRadius = new CornerRadius(4),
-                        Padding = new Thickness(8, 3, 8, 3),
-                        Margin = new Thickness(0, 0, 12, 0),
-                        VerticalAlignment = VerticalAlignment.Center
+                        MaxHeight = 680,
+                        Padding = new Thickness(0, 0, 16, 20),
+                        VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                        HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                        Content = stackPanel
                     };
 
-                    var badgeText = new TextBlock
+                    var dialog = new ContentDialog
                     {
-                        Text = label,
-                        Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(ParseColor(fgBrushHex)),
-                        FontSize = 11,
-                        FontWeight = Microsoft.UI.Text.FontWeights.Bold
+                        Title = $"Список файлов ({displayItems.Count})",
+                        CloseButtonText = "Закрыть",
+                        XamlRoot = this.XamlRoot,
+                        MinWidth = 1425,
+                        MaxWidth = 1725,
+                        Content = scrollViewer
                     };
-                    badgeBorder.Child = badgeText;
-                    Grid.SetColumn(badgeBorder, 0);
 
-                    var fileNameText = new TextBlock
-                    {
-                        Text = displayText,
-                        FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas"),
-                        FontSize = 13,
-                        VerticalAlignment = VerticalAlignment.Center,
-                        IsTextSelectionEnabled = true,
-                        TextWrapping = TextWrapping.Wrap
-                    };
-                    Grid.SetColumn(fileNameText, 1);
-
-                    rowGrid.Children.Add(badgeBorder);
-                    rowGrid.Children.Add(fileNameText);
-
-                    stackPanel.Children.Add(rowGrid);
+                    await dialog.ShowAsync();
                 }
-
-                var scrollViewer = new ScrollViewer
-                {
-                    MaxHeight = 680,
-                    Padding = new Thickness(0, 0, 16, 20),
-                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                    HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-                    Content = stackPanel
-                };
-
-                var dialog = new ContentDialog
-                {
-                    Title = $"Список файлов ({displayItems.Count})",
-                    CloseButtonText = "Закрыть",
-                    XamlRoot = this.XamlRoot,
-                    MinWidth = 1425,
-                    MaxWidth = 1725,
-                    Content = scrollViewer
-                };
-
-                await dialog.ShowAsync();
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[TasksPage] {ex.Message}", LogLevel.Warning);
             }
         }
 
         private static long CalculateFolderSize(string folderPath)
         {
-            try
-            {
-                return System.IO.Directory.GetFiles(folderPath, "*", System.IO.SearchOption.AllDirectories).Sum(f => new System.IO.FileInfo(f).Length);
-            }
-            catch
-            {
-                return 0;
-            }
+            return StormToolResolver.CalculateDirectorySize(folderPath);
         }
 
         private static (string Label, string BgHex, string FgHex) ClassifyFileForUi(string fileName, string fullPath)
@@ -1157,47 +1215,66 @@ namespace StormSwitchBox.Views
         private async void OutputFolder_Drop(object sender, DragEventArgs e)
         {
             e.Handled = true;
-            if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+            var deferral = e.GetDeferral();
+            try
             {
-                var items = await e.DataView.GetStorageItemsAsync();
-                if (items.Count > 0)
+                if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
                 {
-                    var item = items[0];
-                    string path = item.Path;
-                    // Если перетащили файл — берем его директорию
-                    if (System.IO.File.Exists(path))
-                        path = System.IO.Path.GetDirectoryName(path) ?? path;
-
-                    if (sender is TextBox textBox)
+                    var items = await e.DataView.GetStorageItemsAsync();
+                    if (items.Count > 0)
                     {
-                        textBox.Text = path;
-                        var task = textBox.DataContext as ProcessingTask;
-                        if (task != null) task.OutputFolder = path;
+                        var item = items[0];
+                        string path = item.Path;
+                        // Если перетащили файл — берем его директорию
+                        if (System.IO.File.Exists(path))
+                            path = System.IO.Path.GetDirectoryName(path) ?? path;
+
+                        if (sender is TextBox textBox)
+                        {
+                            textBox.Text = path;
+                            var task = textBox.DataContext as ProcessingTask;
+                            if (task != null) task.OutputFolder = path;
+                        }
                     }
                 }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[TasksPage Drop] {ex.Message}", LogLevel.Warning);
+            }
+            finally
+            {
+                deferral.Complete();
             }
         }
 
         // ===== Кнопка "Обзор..." для выходной папки задачи =====
         private async void BrowseOutputFolder_Click(object sender, RoutedEventArgs e)
         {
-            ProcessingTask? task = null;
-            if (sender is Button btn) task = btn.Tag as ProcessingTask;
-
             try
             {
-                var folder = await SystemDialogService.OpenFolderDialogAsync(
-                    "Выберите выходную папку задачи",
-                    !string.IsNullOrEmpty(task?.OutputFolder) ? task.OutputFolder : null);
+                ProcessingTask? task = null;
+                if (sender is Button btn) task = btn.Tag as ProcessingTask;
 
-                if (!string.IsNullOrWhiteSpace(folder) && Directory.Exists(folder) && task != null)
+                try
                 {
-                    task.OutputFolder = folder;
+                    var folder = await SystemDialogService.OpenFolderDialogAsync(
+                        "Выберите выходную папку задачи",
+                        !string.IsNullOrEmpty(task?.OutputFolder) ? task.OutputFolder : null);
+
+                    if (!string.IsNullOrWhiteSpace(folder) && Directory.Exists(folder) && task != null)
+                    {
+                        task.OutputFolder = folder;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    App.Logger.Log($"Ошибка при выборе выходной папки: {ex.Message}", LogLevel.Warning);
                 }
             }
             catch (Exception ex)
             {
-                App.Logger.Log($"Ошибка при выборе выходной папки: {ex.Message}", LogLevel.Warning);
+                App.Logger?.Log($"[TasksPage] {ex.Message}", LogLevel.Warning);
             }
         }
 
@@ -1326,20 +1403,32 @@ namespace StormSwitchBox.Views
         private async void OutputName_Drop(object sender, DragEventArgs e)
         {
             e.Handled = true;
-            if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+            var deferral = e.GetDeferral();
+            try
             {
-                var items = await e.DataView.GetStorageItemsAsync();
-                if (items.Count > 0)
+                if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
                 {
-                    var item = items[0];
-                    if (sender is TextBox textBox)
+                    var items = await e.DataView.GetStorageItemsAsync();
+                    if (items.Count > 0)
                     {
-                        string name = System.IO.Path.GetFileNameWithoutExtension(item.Path);
-                        textBox.Text = name;
-                        var task = textBox.DataContext as ProcessingTask;
-                        if (task != null) task.OutputFileName = name;
+                        var item = items[0];
+                        if (sender is TextBox textBox)
+                        {
+                            string name = System.IO.Path.GetFileNameWithoutExtension(item.Path);
+                            textBox.Text = name;
+                            var task = textBox.DataContext as ProcessingTask;
+                            if (task != null) task.OutputFileName = name;
+                        }
                     }
                 }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[TasksPage Drop] {ex.Message}", LogLevel.Warning);
+            }
+            finally
+            {
+                deferral.Complete();
             }
         }
 
@@ -1364,11 +1453,18 @@ namespace StormSwitchBox.Views
         private async void OpenRuTrackerDownloader_Click(object sender, RoutedEventArgs e)
 
         {
+            try
+            {
 
-            var dlg = new Dialogs.RuTrackerModDownloaderDialog(ViewModel, null);
+                var dlg = new Dialogs.RuTrackerModDownloaderDialog(ViewModel, null);
 
-            await dlg.ShowAsync();
+                await dlg.ShowAsync();
 
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[TasksPage] {ex.Message}", LogLevel.Warning);
+            }
         }
 
 
@@ -1376,113 +1472,162 @@ namespace StormSwitchBox.Views
         private async void AttachCloudModToTask_Click(object sender, RoutedEventArgs e)
 
         {
+            try
+            {
 
-            var task = GetTargetTask(sender);
+                var task = GetTargetTask(sender);
 
-            var dlg = new Dialogs.RuTrackerModDownloaderDialog(ViewModel, task);
+                var dlg = new Dialogs.RuTrackerModDownloaderDialog(ViewModel, task);
 
-            await dlg.ShowAsync();
+                await dlg.ShowAsync();
 
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[TasksPage] {ex.Message}", LogLevel.Warning);
+            }
         }
 
 
 
         private async void OpenDirectConsoleSender_Click(object sender, RoutedEventArgs e)
         {
-            var task = GetTargetTask(sender);
-            var filesToSend = new List<string>();
-
-            if (task != null)
+            try
             {
-                string outDir = string.IsNullOrEmpty(task.OutputFolder) ? App.Settings.Current.OutputFolder : task.OutputFolder;
-                if (!string.IsNullOrEmpty(outDir) && System.IO.Directory.Exists(outDir))
+                var task = GetTargetTask(sender);
+                var filesToSend = new List<string>();
+
+                if (task != null)
                 {
-                    var built = System.IO.Directory.GetFiles(outDir, "*.*")
-                        .Where(f => DirectConsoleSenderService.IsSupportedPackage(f))
-                        .OrderByDescending(f => System.IO.File.GetLastWriteTimeUtc(f))
-                        .FirstOrDefault();
-                    if (!string.IsNullOrEmpty(built))
-                        filesToSend.Add(built);
+                    string outDir = string.IsNullOrEmpty(task.OutputFolder) ? App.Settings.Current.OutputFolder : task.OutputFolder;
+                    if (!string.IsNullOrEmpty(outDir) && System.IO.Directory.Exists(outDir))
+                    {
+                        var built = System.IO.Directory.GetFiles(outDir, "*.*")
+                            .Where(f => DirectConsoleSenderService.IsSupportedPackage(f))
+                            .OrderByDescending(f => System.IO.File.GetLastWriteTimeUtc(f))
+                            .FirstOrDefault();
+                        if (!string.IsNullOrEmpty(built))
+                            filesToSend.Add(built);
+                    }
+
+                    if (filesToSend.Count == 0 && task.InputFiles != null)
+                    {
+                        filesToSend.AddRange(task.InputFiles.Where(f => System.IO.File.Exists(f) && DirectConsoleSenderService.IsSupportedPackage(f)));
+                    }
+                }
+                else
+                {
+                    filesToSend.AddRange(ViewModel.Tasks
+                        .SelectMany(t => t.InputFiles ?? new List<string>())
+                        .Where(f => System.IO.File.Exists(f) && DirectConsoleSenderService.IsSupportedPackage(f))
+                        .Distinct(StringComparer.OrdinalIgnoreCase));
                 }
 
-                if (filesToSend.Count == 0 && task.InputFiles != null)
-                {
-                    filesToSend.AddRange(task.InputFiles.Where(f => System.IO.File.Exists(f) && DirectConsoleSenderService.IsSupportedPackage(f)));
-                }
+                var dlg = new Dialogs.DirectConsoleSenderDialog(filesToSend);
+                await dlg.ShowAsync();
             }
-            else
+            catch (Exception ex)
             {
-                filesToSend.AddRange(ViewModel.Tasks
-                    .SelectMany(t => t.InputFiles ?? new List<string>())
-                    .Where(f => System.IO.File.Exists(f) && DirectConsoleSenderService.IsSupportedPackage(f))
-                    .Distinct(StringComparer.OrdinalIgnoreCase));
+                App.Logger?.Log($"[TasksPage] {ex.Message}", LogLevel.Warning);
             }
-
-            var dlg = new Dialogs.DirectConsoleSenderDialog(filesToSend);
-            await dlg.ShowAsync();
         }
 
         private async void OpenRomFsInspector_Click(object sender, RoutedEventArgs e)
         {
-            var task = GetTargetTask(sender);
-            string? initialFile = task?.InputFiles?.FirstOrDefault(f => System.IO.File.Exists(f));
-            var dlg = new Dialogs.RomFsInspectorDialog(initialFile);
-            await dlg.ShowAsync();
+            try
+            {
+                var task = GetTargetTask(sender);
+                string? initialFile = task?.InputFiles?.FirstOrDefault(f => System.IO.File.Exists(f));
+                var dlg = new Dialogs.RomFsInspectorDialog(initialFile);
+                await dlg.ShowAsync();
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[TasksPage] {ex.Message}", LogLevel.Warning);
+            }
         }
 
         private async void InspectTaskRomFs_Click(object sender, RoutedEventArgs e)
         {
-            var task = GetTargetTask(sender);
-            string? initialFile = task?.InputFiles?.FirstOrDefault(f => System.IO.File.Exists(f));
-            var dlg = new Dialogs.RomFsInspectorDialog(initialFile);
-            await dlg.ShowAsync();
+            try
+            {
+                var task = GetTargetTask(sender);
+                string? initialFile = task?.InputFiles?.FirstOrDefault(f => System.IO.File.Exists(f));
+                var dlg = new Dialogs.RomFsInspectorDialog(initialFile);
+                await dlg.ShowAsync();
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[TasksPage] {ex.Message}", LogLevel.Warning);
+            }
         }
 
         private async void OpenMultiCartridgeBuilder_Click(object sender, RoutedEventArgs e)
         {
-            var selectedFiles = ViewModel.Tasks
-                .SelectMany(t => t.InputFiles ?? new List<string>())
-                .Where(f => System.IO.File.Exists(f) && (f.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase)))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
-            var dlg = new Dialogs.MultiCartridgeDialog(selectedFiles);
-            await dlg.ShowAsync();
+            try
+            {
+                var selectedFiles = ViewModel.Tasks
+                    .SelectMany(t => t.InputFiles ?? new List<string>())
+                    .Where(f => System.IO.File.Exists(f) && (f.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase)))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                var dlg = new Dialogs.MultiCartridgeDialog(selectedFiles);
+                await dlg.ShowAsync();
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[TasksPage] {ex.Message}", LogLevel.Warning);
+            }
         }
 
         private async void OpenLibraryAuditor_Click(object sender, RoutedEventArgs e)
         {
-            var dlg = new Dialogs.LibraryAuditorDialog(ViewModel);
-            await dlg.ShowAsync();
+            try
+            {
+                var dlg = new Dialogs.LibraryAuditorDialog(ViewModel);
+                await dlg.ShowAsync();
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[TasksPage] {ex.Message}", LogLevel.Warning);
+            }
         }
 
         private async void Decrypt3dsTask_Click(object sender, RoutedEventArgs e)
         {
-            var task = GetTargetTask(sender);
-            if (task == null) return;
-
-            string? src3ds = task.InputFiles?.FirstOrDefault(f => System.IO.File.Exists(f) && Nintendo3dsService.Is3dsExtension(System.IO.Path.GetExtension(f)));
-            if (string.IsNullOrEmpty(src3ds))
+            try
             {
-                App.Logger.Log("Для дешифровки выберите задачу Nintendo 3DS (.3ds, .cci, .cia, .cxi).", LogLevel.Warning);
-                return;
+                var task = GetTargetTask(sender);
+                if (task == null) return;
+
+                string? src3ds = task.InputFiles?.FirstOrDefault(f => System.IO.File.Exists(f) && Nintendo3dsService.Is3dsExtension(System.IO.Path.GetExtension(f)));
+                if (string.IsNullOrEmpty(src3ds))
+                {
+                    App.Logger.Log("Для дешифровки выберите задачу Nintendo 3DS (.3ds, .cci, .cia, .cxi).", LogLevel.Warning);
+                    return;
+                }
+
+                string outDir = !string.IsNullOrWhiteSpace(task.OutputFolder) ? task.OutputFolder : (System.IO.Path.GetDirectoryName(src3ds) ?? "");
+                string ext = System.IO.Path.GetExtension(src3ds);
+                string decOutPath = System.IO.Path.Combine(outDir, System.IO.Path.GetFileNameWithoutExtension(src3ds) + " [Decrypted]" + ext);
+
+                task.IsRunning = true;
+                task.Status = "Дешифровка 3DS...";
+                var prog = new Progress<(double Percent, string Status)>(p =>
+                {
+                    task.Progress = p.Percent;
+                    task.Status = p.Status;
+                });
+
+                bool ok = await Nintendo3dsCryptoService.Decrypt3dsFileAsync(src3ds, decOutPath, task, prog, System.Threading.CancellationToken.None);
+                task.IsRunning = false;
+                task.Progress = 100;
+                task.Status = ok ? "Дешифровано" : "Без изменений";
             }
-
-            string outDir = !string.IsNullOrWhiteSpace(task.OutputFolder) ? task.OutputFolder : (System.IO.Path.GetDirectoryName(src3ds) ?? "");
-            string ext = System.IO.Path.GetExtension(src3ds);
-            string decOutPath = System.IO.Path.Combine(outDir, System.IO.Path.GetFileNameWithoutExtension(src3ds) + " [Decrypted]" + ext);
-
-            task.IsRunning = true;
-            task.Status = "Дешифровка 3DS...";
-            var prog = new Progress<(double Percent, string Status)>(p =>
+            catch (Exception ex)
             {
-                task.Progress = p.Percent;
-                task.Status = p.Status;
-            });
-
-            bool ok = await Nintendo3dsCryptoService.Decrypt3dsFileAsync(src3ds, decOutPath, task, prog, System.Threading.CancellationToken.None);
-            task.IsRunning = false;
-            task.Progress = 100;
-            task.Status = ok ? "Дешифровано" : "Без изменений";
+                App.Logger?.Log($"[TasksPage] {ex.Message}", LogLevel.Warning);
+            }
         }
 
         public void ApplyLocalization()
@@ -1494,7 +1639,7 @@ namespace StormSwitchBox.Views
             if (StartAllButton != null) StartAllButton.Label = loc["Tasks_StartAll"];
             if (StopAllButton != null) StopAllButton.Label = loc["Tasks_StopAll"];
             if (ClearButton != null) ClearButton.Label = loc["Tasks_ClearList"];
-            if (ColumnsFlyoutTitle != null) ColumnsFlyoutTitle.Text = loc["Tasks_Col_Actions"];
+            if (ColumnsFlyoutTitle != null) ColumnsFlyoutTitle.Text = loc.TranslateText("Отображение столбцов");
 
             App.Localization.TranslateRoot(this);
             if (ViewModel?.Tasks != null)
@@ -1507,13 +1652,6 @@ namespace StormSwitchBox.Views
             if (ViewModel?.VerifyTasks != null)
             {
                 foreach (var t in ViewModel.VerifyTasks)
-                {
-                    t.NotifyLocalizationChanged();
-                }
-            }
-            if (ViewModel?.HomebrewTasks != null)
-            {
-                foreach (var t in ViewModel.HomebrewTasks)
                 {
                     t.NotifyLocalizationChanged();
                 }

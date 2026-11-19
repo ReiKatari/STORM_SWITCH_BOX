@@ -99,9 +99,6 @@ public partial class TasksViewModel : ObservableObject
 	private RelayCommand<ProcessingTask>? deleteTaskCommand;
 
 	[GeneratedCode("CommunityToolkit.Mvvm.SourceGenerators.RelayCommandGenerator", "8.2.0.0")]
-	private RelayCommand? addTestTaskCommand;
-
-	[GeneratedCode("CommunityToolkit.Mvvm.SourceGenerators.RelayCommandGenerator", "8.2.0.0")]
 	private RelayCommand? clearTasksCommand;
 
 	[GeneratedCode("CommunityToolkit.Mvvm.SourceGenerators.RelayCommandGenerator", "8.2.0.0")]
@@ -113,9 +110,8 @@ public partial class TasksViewModel : ObservableObject
 	public ObservableCollection<ProcessingTask> Tasks { get; } = new ObservableCollection<ProcessingTask>();
 
 	public ObservableCollection<ProcessingTask> VerifyTasks { get; } = new ObservableCollection<ProcessingTask>();
-	public ObservableCollection<ProcessingTask> HomebrewTasks { get; } = new ObservableCollection<ProcessingTask>();
 
-	public bool IsAnyTaskRunning => Tasks.Any((ProcessingTask t) => t.IsRunning) || VerifyTasks.Any((ProcessingTask t) => t.IsRunning) || HomebrewTasks.Any((ProcessingTask t) => t.IsRunning);
+	public bool IsAnyTaskRunning => Tasks.Any((ProcessingTask t) => t.IsRunning) || VerifyTasks.Any((ProcessingTask t) => t.IsRunning);
 
 	[GeneratedCode("CommunityToolkit.Mvvm.SourceGenerators.ObservablePropertyGenerator", "8.2.0.0")]
 	[ExcludeFromCodeCoverage]
@@ -164,10 +160,6 @@ public partial class TasksViewModel : ObservableObject
 
 	[GeneratedCode("CommunityToolkit.Mvvm.SourceGenerators.RelayCommandGenerator", "8.2.0.0")]
 	[ExcludeFromCodeCoverage]
-	public IRelayCommand AddTestTaskCommand => addTestTaskCommand ?? (addTestTaskCommand = new RelayCommand(AddTestTask));
-
-	[GeneratedCode("CommunityToolkit.Mvvm.SourceGenerators.RelayCommandGenerator", "8.2.0.0")]
-	[ExcludeFromCodeCoverage]
 	public IRelayCommand ClearTasksCommand => clearTasksCommand ?? (clearTasksCommand = new RelayCommand(ClearTasks));
 
 	[GeneratedCode("CommunityToolkit.Mvvm.SourceGenerators.RelayCommandGenerator", "8.2.0.0")]
@@ -178,6 +170,9 @@ public partial class TasksViewModel : ObservableObject
 	[ExcludeFromCodeCoverage]
 	public IRelayCommand StartAllTasksCommand => startAllTasksCommand ?? (startAllTasksCommand = new RelayCommand(StartAllTasks));
 
+	private volatile bool _isDirty;
+	private readonly SemaphoreSlim _persistSemaphore = new(1, 1);
+
 	public TasksViewModel()
 	{
 		int selectedFormatIndex = App.Settings.Current.SelectedFormatIndex;
@@ -187,8 +182,10 @@ public partial class TasksViewModel : ObservableObject
 			_selectedFormat = FormatNames[selectedFormatIndex];
 		}
 		_selectedFormatIndex3ds = Math.Clamp(App.Settings.Current.SelectedFormatIndex3ds, 0, FormatNames3ds.Length - 1);
-		_selectedPlatform = Math.Clamp(App.Settings.Current.SelectedPlatformIndex, 0, 1);
-		
+		_selectedPlatform = Math.Clamp(App.Settings.Current.SelectedPlatformIndex, 0, 2);
+
+		Tasks.CollectionChanged += (_, _) => _isDirty = true;
+
 		int autoSaveTicks = 0;
 		DispatcherTimer dispatcherTimer = new DispatcherTimer
 		{
@@ -198,9 +195,16 @@ public partial class TasksViewModel : ObservableObject
 		{
 			OnPropertyChanged("IsAnyTaskRunning");
 			autoSaveTicks++;
-			if (autoSaveTicks % 10 == 0) // Каждые 5 секунд автосохранение состояния
+			if (autoSaveTicks % 10 == 0) // Каждые 5 секунд автосохранение состояния при изменениях
 			{
-				SavePersistedTasks();
+				if (Tasks.Any(t => t.IsRunning))
+				{
+					_isDirty = true;
+				}
+				if (_isDirty)
+				{
+					_ = SavePersistedTasksInternalAsync();
+				}
 			}
 		};
 		dispatcherTimer.Start();
@@ -213,7 +217,6 @@ public partial class TasksViewModel : ObservableObject
 			{
 				foreach (var t in Tasks) t.NotifyLocalizationChanged();
 				foreach (var t in VerifyTasks) t.NotifyLocalizationChanged();
-				foreach (var t in HomebrewTasks) t.NotifyLocalizationChanged();
 				OnPropertyChanged(nameof(CurrentPlatformLabel));
 			});
 		};
@@ -666,7 +669,7 @@ public partial class TasksViewModel : ObservableObject
 						CompressionLevel = App.Settings.Current.CompressionLevel.ToString(),
 						FilesCount = pkg.InputFiles.Count.ToString(),
 						InputFiles = pkg.InputFiles,
-						FilesList = pkg.InputFiles.Select(Path.GetFileName).ToList(),
+						FilesList = pkg.InputFiles.Select(p => Path.GetFileName(p) ?? p).ToList(),
 						HasRomFs = pkg.RomFsDir != null ? "1" : "-",
 						HasExeFs = pkg.ExeFsDir != null ? "1" : "-",
 						HasSaveData = pkg.SaveFilesCount > 0 ? $"Да ({pkg.SaveFilesCount})" : "-",
@@ -709,7 +712,7 @@ public partial class TasksViewModel : ObservableObject
 
 					if (pkg.IconBytes != null && pkg.IconBytes.Length > 0)
 					{
-						Task.Run(() =>
+						_ = Task.Run(() =>
 						{
 							try
 							{
@@ -1045,7 +1048,7 @@ public partial class TasksViewModel : ObservableObject
 								string dlcTidStr = dlcName;
 								if (!System.Text.RegularExpressions.Regex.IsMatch(dlcTidStr, @"^[0-9A-Fa-f]{16}$"))
 								{
-									ulong dlcTid = (baseTid & ~0xFFFFUL) | 0x1000UL | (ulong)(d + 1);
+									ulong dlcTid = TitleIdHelper.ComputeDlcTitleId(baseTid, d + 1);
 									dlcTidStr = $"{dlcTid:X16}";
 								}
 								else
@@ -1405,7 +1408,7 @@ public partial class TasksViewModel : ObservableObject
 			return Task.CompletedTask;
 		}
 		var tcs = new TaskCompletionSource();
-		App.RunOnUI(async delegate
+		App.RunOnUI(delegate
 		{
 			try
 			{
@@ -1475,7 +1478,7 @@ public partial class TasksViewModel : ObservableObject
 							existingTask.InputFiles.Add(f);
 							if (!Directory.Exists(f))
 							{
-								existingTask.FilesList.Add(Path.GetFileName(f));
+								existingTask.FilesList.Add(Path.GetFileName(f) ?? f);
 							}
 							added++;
 						}
@@ -1551,11 +1554,11 @@ public partial class TasksViewModel : ObservableObject
 					}
 					else
 					{
-						outputName = (isDirectory ? Path.GetFileName(firstFile) : Path.GetFileNameWithoutExtension(firstFile));
+						outputName = (isDirectory ? Path.GetFileName(firstFile) : Path.GetFileNameWithoutExtension(firstFile)) ?? "Game";
 					}
 					if (App.Settings.Current.ComplexFolders && basePath != null)
 					{
-						string dirName2 = Path.GetFileName(basePath);
+						string dirName2 = Path.GetFileName(basePath) ?? string.Empty;
 						if (dirName2.StartsWith("["))
 						{
 							string parentDir = Path.GetFileName(Path.GetDirectoryName(basePath) ?? string.Empty);
@@ -1616,7 +1619,7 @@ public partial class TasksViewModel : ObservableObject
 					long sizeBytes = files.Sum((string path) => CalculateSize(path));
 					int filesCount = files.Count((string path) => File.Exists(path));
 					List<string> inputFiles = new List<string>(files);
-					List<string> filesList = files.Where((string path) => !Directory.Exists(path)).Select((string path) => Path.GetFileName(path)).ToList();
+					List<string> filesList = files.Where((string path) => !Directory.Exists(path)).Select((string path) => Path.GetFileName(path) ?? path).ToList();
 					bool rFs = false;
 					bool eFs = false;
 					foreach (string f3 in files)
@@ -1656,6 +1659,7 @@ public partial class TasksViewModel : ObservableObject
 					ObservableCollection<ProcessingTask> targetList = _currentPageType == "Verify" ? VerifyTasks : Tasks;
 					string effectiveOp = _currentPageType;
 					string effectiveSrcFmt = ext;
+					inputFiles ??= new List<string>();
 					if ((rFs || eFs || inputFiles.Count > 1) && _currentPageType != "Verify" && _currentPageType != "Homebrew" && _currentPageType != "Unpack" && _currentPageType != "Pack" && _currentPageType != "Convert" && _currentPageType != "Update")
 					{
 						effectiveOp = "Multi";
@@ -1682,7 +1686,7 @@ public partial class TasksViewModel : ObservableObject
 						HasExeFs = (eFs ? "1" : "-"),
 						Status = "Ожидание",
 						Progress = 0.0,
-						InputFolders = string.Join("; ", inputFiles.Select((string path) => Path.GetDirectoryName(path)).Distinct()),
+						InputFolders = string.Join("; ", inputFiles.Select((string path) => Path.GetDirectoryName(path) ?? string.Empty).Where(d => !string.IsNullOrEmpty(d)).Distinct()),
 						OutputFolder = outFolder,
 						OutputFileName = outputName,
 						LogDetails = "Готов к обработке..." + dbLogInfo
@@ -1748,9 +1752,6 @@ public partial class TasksViewModel : ObservableObject
 
 	private string GetOutPathForPage(string pageType)
 	{
-		if (1 == 0)
-		{
-		}
 		string result = pageType switch
 		{
 			"Update" => App.Settings.Current.LastOutPath_Update, 
@@ -1765,9 +1766,6 @@ public partial class TasksViewModel : ObservableObject
 		if (string.IsNullOrEmpty(result))
 		{
 			result = App.Settings.Current.OutputFolder;
-		}
-		if (1 == 0)
-		{
 		}
 		return result;
 	}
@@ -1788,6 +1786,8 @@ public partial class TasksViewModel : ObservableObject
 			try
 			{
 				targetList.Remove(task);
+				task.Dispose();
+				_isDirty = true;
 				App.Logger.Log("Задача " + task.Id + " удалена");
 				for (int i = 0; i < targetList.Count; i++)
 				{
@@ -1801,45 +1801,20 @@ public partial class TasksViewModel : ObservableObject
 		});
 	}
 
-	private void AddTestTask()
-	{
-		bool flag = Tasks.Count % 2 == 0;
-		Tasks.Add(new ProcessingTask
-		{
-			Id = $"T{Tasks.Count + 1:D3}",
-			Operation = (flag ? "Multi" : "Convert"),
-			SourceFormat = (flag ? "NSP" : "XCI"),
-			TargetFormat = SelectedFormat,
-			SourceSizeBytes = (flag ? 15400000000L : 8200000000L),
-			TargetSize = "-",
-			SizeDifference = "-",
-			CompressionLevel = (flag ? "0" : App.Settings.Current.CompressionLevel.ToString()),
-			FilesCount = (flag ? "3" : "1"),
-			InputFiles = (flag ? new List<string> { "C:\\Games\\Zelda\\Base.nsp", "C:\\Games\\Updates\\Update_v2.nsp", "C:\\Games\\DLC\\DLC_Pack.nsp" } : new List<string> { "C:\\Games\\Dumps\\game.xci" }),
-			FilesList = (flag ? new List<string> { "Base.nsp", "Update_v2.nsp", "DLC_Pack.nsp" } : new List<string> { "game.xci" }),
-			HasRomFs = "-",
-			HasExeFs = "-",
-			Status = "Ожидание",
-			Progress = 0.0,
-			InputFolders = (flag ? "C:\\Games\\Zelda; C:\\Games\\Updates" : "C:\\Games\\Dumps"),
-			OutputFolder = App.Settings.Current.OutputFolder,
-			OutputFileName = (flag ? "Zelda_TotK_Multi" : "New_Game_Dump"),
-			LogDetails = "Ожидает запуска"
-		});
-		App.Logger.Log($"Добавлена тестовая задача T{Tasks.Count:D3}", LogLevel.Debug);
-	}
-
 	private void ClearTasks()
 	{
 		if (_currentPageType == "Verify")
 		{
+			foreach (var t in VerifyTasks) t.Dispose();
 			VerifyTasks.Clear();
-			HomebrewTasks.Clear();
 			App.Logger.Log("Список проверок очищен");
 		}
 		else
 		{
+			foreach (var t in Tasks) t.Dispose();
 			Tasks.Clear();
+			_isDirty = true;
+			SavePersistedTasks();
 			App.Logger.Log("Список задач очищен");
 		}
 	}
@@ -1847,7 +1822,7 @@ public partial class TasksViewModel : ObservableObject
 	private void StopAllTasks()
 	{
 		App.Logger.Log("Остановка всех запущенных задач...", LogLevel.Warning);
-		List<ProcessingTask> list = Tasks.Concat(VerifyTasks).Concat(HomebrewTasks).ToList();
+		List<ProcessingTask> list = Tasks.Concat(VerifyTasks).ToList();
 		foreach (ProcessingTask item in list)
 		{
 			if (item.IsRunning && item.Cts != null)
@@ -1929,7 +1904,8 @@ public partial class TasksViewModel : ObservableObject
 					}
 					else
 					{
-						_ = ExecuteTaskSafelyAsync(nextTask);
+						var taskToRun = nextTask;
+						_ = Task.Run(() => ExecuteTaskSafelyAsync(taskToRun));
 					}
 				}
 				else
@@ -2013,114 +1989,159 @@ public partial class TasksViewModel : ObservableObject
 
 	public void SavePersistedTasks()
 	{
+		_isDirty = true;
+		_ = SavePersistedTasksInternalAsync();
+	}
+
+	private async Task SavePersistedTasksInternalAsync()
+	{
 		try
 		{
-			if (App.MainDispatcher != null && !App.MainDispatcher.HasThreadAccess)
-			{
-				App.RunOnUI(() => SavePersistedTasks());
-				return;
-			}
-			List<ProcessingTask> taskList = Tasks.ToList();
+			List<PersistedTaskSnapshot>? snapshots = await CapturePersistedSnapshotsAsync();
+			if (snapshots == null) return;
 
-			var unfinishedTasks = taskList.Where(t => 
-				t.IsRunning || t.IsPaused || 
-				(t.Status != "Успешно" && t.Status != "Готово" && t.Status != "Отменено" && t.Status != "Отменен")
-			).ToList();
-
-			string p = GetPersistedTasksPath();
-			if (unfinishedTasks.Count == 0)
+			await Task.Run(async () =>
 			{
-				if (File.Exists(p)) File.Delete(p);
-				return;
-			}
-
-			var snapshots = unfinishedTasks.Select(t =>
-			{
-				var snap = new PersistedTaskSnapshot
+				await _persistSemaphore.WaitAsync().ConfigureAwait(false);
+				try
 				{
-					Id = t.Id,
-					GameName = t.GameName,
-					Operation = t.Operation,
-					SourceFormat = t.SourceFormat,
-					TargetFormat = t.TargetFormat,
-					Status = t.Status,
-					Progress = t.Progress,
-					SourceSize = t.SourceSize,
-					TargetSize = t.TargetSize,
-					OutputFolder = t.OutputFolder,
-					OutputFileName = t.OutputFileName,
-					LogDetails = t.LogDetails,
-					GroupId = t.GroupId,
-					InputFiles = new List<string>(t.InputFiles ?? new List<string>()),
-					FilesList = new List<string>(t.FilesList ?? new List<string>()),
-					IsRuTrackerTask = t.IsRuTrackerTask,
-					KeepExactOutputFileName = t.KeepExactOutputFileName,
-					DeleteSourceAfterVerify = t.DeleteSourceAfterVerify,
-
-					SourceSizeBytes = t.SourceSizeBytes,
-					SizeDifference = t.SizeDifference,
-					CompressionLevel = t.CompressionLevel,
-					FilesCount = t.FilesCount,
-					InputFolders = t.InputFolders,
-					TitleId = t.TitleId,
-					Is3dsTask = t.Is3dsTask,
-					IsSwitch2Task = t.IsSwitch2Task,
-					BuildMode = t.BuildMode,
-					HasRomFs = t.HasRomFs,
-					HasExeFs = t.HasExeFs,
-					HasSaveData = t.HasSaveData,
-					SaveDataFolder = t.SaveDataFolder,
-					SaveFilesCount = t.SaveFilesCount,
-					ModNameRomFs = t.ModNameRomFs,
-					ModNameExeFs = t.ModNameExeFs,
-					IconBytes = t.IconBytes,
-					CustomMetadata = t.CustomMetadata
-				};
-
-				if (t.IsRuTrackerTask && t.RuTrackerPayload != null)
-				{
-					var payload = t.RuTrackerPayload;
-					snap.RuTrackerSnapshot = new RuTrackerTaskSnapshot
-					{
-						TopicId = payload.Topic?.TopicId ?? "",
-						TopicTitle = payload.Topic?.Title ?? t.GameName,
-						Category = payload.Topic?.Category ?? "",
-						Seeds = payload.Topic?.Seeds ?? 0,
-						MagnetUri = payload.MagnetLink?.ToV1String() ?? payload.MagnetLink?.ToString() ?? payload.Topic?.MagnetUri ?? "",
-						InfoHash = payload.Topic?.InfoHash ?? "",
-						DirectTorrentUrl = payload.Topic?.DirectTorrentUrl ?? "",
-						TorrentBytes = payload.TorrentBytes,
-						TorrentFiles = payload.TorrentFiles.Select(tf => new PersistedTorrentFileItem
-						{
-							RelativePath = tf.RelativePath,
-							Length = tf.Length,
-							IsSelected = tf.IsSelected,
-							CategoryBadge = tf.CategoryBadge,
-							IsRealTorrentFile = tf.IsRealTorrentFile
-						}).ToList(),
-						CloudLinks = new List<string>(payload.CloudLinks ?? new List<string>()),
-						TargetReleaseDir = payload.TargetReleaseDir,
-						CustomModTitle = payload.CustomModTitle,
-						AutoBuild = payload.AutoBuild,
-						HasTorrentSource = payload.HasTorrentSource,
-						SharedReleaseDir = payload.SharedReleaseDir,
-						AppendAutoTags = payload.AppendAutoTags,
-						SlotNumber = payload.SlotNumber,
-						TotalSlots = payload.TotalSlots,
-						SlotGameTitle = payload.SlotGameTitle,
-						PosterUrl = payload.PosterUrl
-					};
+					await WritePersistedSnapshotsAsync(snapshots).ConfigureAwait(false);
 				}
-				return snap;
-			}).ToList();
-
-			string json = System.Text.Json.JsonSerializer.Serialize(snapshots, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
-			File.WriteAllText(p, json);
+				finally
+				{
+					_persistSemaphore.Release();
+				}
+			}).ConfigureAwait(false);
 		}
 		catch (Exception ex)
 		{
 			App.Logger?.Log($"[Задачник] Ошибка сохранения задач: {ex.Message}", LogLevel.Warning);
 		}
+	}
+
+	private Task<List<PersistedTaskSnapshot>?> CapturePersistedSnapshotsAsync()
+	{
+		if (App.MainDispatcher != null && !App.MainDispatcher.HasThreadAccess)
+		{
+			var tcs = new TaskCompletionSource<List<PersistedTaskSnapshot>?>(TaskCreationOptions.RunContinuationsAsynchronously);
+			if (!App.MainDispatcher.TryEnqueue(() =>
+			{
+				try { tcs.TrySetResult(BuildPersistedSnapshotsOnUI()); }
+				catch { tcs.TrySetResult(null); }
+			}))
+			{
+				tcs.TrySetResult(null);
+			}
+			return tcs.Task;
+		}
+		return Task.FromResult<List<PersistedTaskSnapshot>?>(BuildPersistedSnapshotsOnUI());
+	}
+
+	private List<PersistedTaskSnapshot> BuildPersistedSnapshotsOnUI()
+	{
+		_isDirty = false;
+		List<ProcessingTask> taskList = Tasks.ToList();
+
+		var unfinishedTasks = taskList.Where(t =>
+			t.IsRunning || t.IsPaused ||
+			(t.Status != "Успешно" && t.Status != "Готово" && t.Status != "Отменено" && t.Status != "Отменен")
+		).ToList();
+
+		return unfinishedTasks.Select(t =>
+		{
+			var snap = new PersistedTaskSnapshot
+			{
+				Id = t.Id,
+				GameName = t.GameName,
+				Operation = t.Operation,
+				SourceFormat = t.SourceFormat,
+				TargetFormat = t.TargetFormat,
+				Status = t.Status,
+				Progress = t.Progress,
+				SourceSize = t.SourceSize,
+				TargetSize = t.TargetSize,
+				OutputFolder = t.OutputFolder,
+				OutputFileName = t.OutputFileName,
+				LogDetails = t.LogDetails,
+				GroupId = t.GroupId,
+				InputFiles = new List<string>(t.InputFiles ?? new List<string>()),
+				FilesList = new List<string>(t.FilesList ?? new List<string>()),
+				IsRuTrackerTask = t.IsRuTrackerTask,
+				KeepExactOutputFileName = t.KeepExactOutputFileName,
+				DeleteSourceAfterVerify = t.DeleteSourceAfterVerify,
+
+				SourceSizeBytes = t.SourceSizeBytes,
+				SizeDifference = t.SizeDifference,
+				CompressionLevel = t.CompressionLevel,
+				FilesCount = t.FilesCount,
+				InputFolders = t.InputFolders,
+				TitleId = t.TitleId,
+				Is3dsTask = t.Is3dsTask,
+				IsSwitch2Task = t.IsSwitch2Task,
+				BuildMode = t.BuildMode,
+				HasRomFs = t.HasRomFs,
+				HasExeFs = t.HasExeFs,
+				HasSaveData = t.HasSaveData,
+				SaveDataFolder = t.SaveDataFolder,
+				SaveFilesCount = t.SaveFilesCount,
+				ModNameRomFs = t.ModNameRomFs,
+				ModNameExeFs = t.ModNameExeFs,
+				IconBytes = t.IconBytes,
+				CustomMetadata = t.CustomMetadata
+			};
+
+			if (t.IsRuTrackerTask && t.RuTrackerPayload != null)
+			{
+				var payload = t.RuTrackerPayload;
+				snap.RuTrackerSnapshot = new RuTrackerTaskSnapshot
+				{
+					TopicId = payload.Topic?.TopicId ?? "",
+					TopicTitle = payload.Topic?.Title ?? t.GameName,
+					Category = payload.Topic?.Category ?? "",
+					Seeds = payload.Topic?.Seeds ?? 0,
+					MagnetUri = payload.MagnetLink?.ToV1String() ?? payload.MagnetLink?.ToString() ?? payload.Topic?.MagnetUri ?? "",
+					InfoHash = payload.Topic?.InfoHash ?? "",
+					DirectTorrentUrl = payload.Topic?.DirectTorrentUrl ?? "",
+					TorrentBytes = payload.TorrentBytes,
+					TorrentFiles = payload.TorrentFiles.Select(tf => new PersistedTorrentFileItem
+					{
+						RelativePath = tf.RelativePath,
+						Length = tf.Length,
+						IsSelected = tf.IsSelected,
+						CategoryBadge = tf.CategoryBadge,
+						IsRealTorrentFile = tf.IsRealTorrentFile
+					}).ToList(),
+					CloudLinks = new List<string>(payload.CloudLinks ?? new List<string>()),
+					TargetReleaseDir = payload.TargetReleaseDir,
+					CustomModTitle = payload.CustomModTitle,
+					AutoBuild = payload.AutoBuild,
+					HasTorrentSource = payload.HasTorrentSource,
+					SharedReleaseDir = payload.SharedReleaseDir,
+					AppendAutoTags = payload.AppendAutoTags,
+					SlotNumber = payload.SlotNumber,
+					TotalSlots = payload.TotalSlots,
+					SlotGameTitle = payload.SlotGameTitle,
+					PosterUrl = payload.PosterUrl
+				};
+			}
+			return snap;
+		}).ToList();
+	}
+
+	private static async Task WritePersistedSnapshotsAsync(List<PersistedTaskSnapshot> snapshots)
+	{
+		string p = GetPersistedTasksPath();
+		string tmp = p + ".tmp";
+		if (snapshots.Count == 0)
+		{
+			if (File.Exists(p)) File.Delete(p);
+			if (File.Exists(tmp)) File.Delete(tmp);
+			return;
+		}
+
+		string json = System.Text.Json.JsonSerializer.Serialize(snapshots, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+		await File.WriteAllTextAsync(tmp, json).ConfigureAwait(false);
+		File.Move(tmp, p, overwrite: true);
 	}
 
 	public void SaveTasksOnExit()
@@ -2135,7 +2156,28 @@ public partial class TasksViewModel : ObservableObject
 					task.Status = "⏸ Сохранено на паузе";
 				}
 			}
-			SavePersistedTasks();
+			var snapshots = BuildPersistedSnapshotsOnUI();
+			_persistSemaphore.Wait();
+			try
+			{
+				string p = GetPersistedTasksPath();
+				string tmp = p + ".tmp";
+				if (snapshots.Count == 0)
+				{
+					if (File.Exists(p)) File.Delete(p);
+					if (File.Exists(tmp)) File.Delete(tmp);
+				}
+				else
+				{
+					string json = System.Text.Json.JsonSerializer.Serialize(snapshots, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+					File.WriteAllText(tmp, json);
+					File.Move(tmp, p, overwrite: true);
+				}
+			}
+			finally
+			{
+				_persistSemaphore.Release();
+			}
 		}
 		catch { }
 	}
@@ -3150,18 +3192,21 @@ public partial class TasksViewModel : ObservableObject
 						totalNspFiles++;
 						string fileNameNup = Path.GetFileName(filePath);
 						var nupInfo = NupContainerService.InspectNupFile(filePath);
-						string typeLabelNup = nupInfo.ContentType switch
+						if (nupInfo != null)
 						{
-							"Application" => "🎮 ИГРА (NUP)",
-							"Patch" => "🔄 ОБНОВЛЕНИЕ (NUP)",
-							"AddOnContent" => "📦 DLC (NUP)",
-							_ => $"📦 NUP ({nupInfo.ContentType})"
-						};
-						sb.AppendLine($"\n{typeLabelNup}  {fileNameNup}");
-						sb.AppendLine($"  ├ TitleID:     {nupInfo.TitleId}");
-						sb.AppendLine($"  ├ Версия:      {nupInfo.Version}  Размер: {ProcessingTask.FormatSize(new FileInfo(filePath).Length)}");
-						sb.AppendLine($"  └ Пакетов:     {nupInfo.Packages.Count}  Файлов: {nupInfo.FileCount}");
-						if (!string.IsNullOrEmpty(nupInfo.TitleId)) allTitleIds.Add(nupInfo.TitleId);
+							string typeLabelNup = nupInfo.ContentType switch
+							{
+								"Application" => "🎮 ИГРА (NUP)",
+								"Patch" => "🔄 ОБНОВЛЕНИЕ (NUP)",
+								"AddOnContent" => "📦 DLC (NUP)",
+								_ => $"📦 NUP ({nupInfo.ContentType})"
+							};
+							sb.AppendLine($"\n{typeLabelNup}  {fileNameNup}");
+							sb.AppendLine($"  ├ TitleID:     {nupInfo.TitleId}");
+							sb.AppendLine($"  ├ Версия:      {nupInfo.Version}  Размер: {ProcessingTask.FormatSize(new FileInfo(filePath).Length)}");
+							sb.AppendLine($"  └ Пакетов:     {nupInfo.Packages.Count}  Файлов: {nupInfo.FileCount}");
+							if (!string.IsNullOrEmpty(nupInfo.TitleId)) allTitleIds.Add(nupInfo.TitleId);
+						}
 						continue;
 					}
 					if (ext != ".nsp" && ext != ".nsz" && ext != ".xci" && ext != ".xcz") continue;

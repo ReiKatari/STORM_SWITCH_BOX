@@ -1,26 +1,29 @@
-> 💡 **Релиз 7.0.14** - *Критическое исправление совместимости собранных игр Nintendo Switch 1 со стандартными эмуляторами (Ryujinx, Eden, Citron, Yuzu) и инструментарием (hactoolnet, nsz): устранены сбои заголовков PFS0 и XCI HFS0, искажение смещений NCZ с секциями от 0xC00, нарезки файлов > 32 МБ на Android, принудительного Hard-Patch 1G+1U с конфликтом CNMT, перехвата распакованных папок Switch 1 и перепаковки входных XCI/XCZ*
+> 💡 **Релиз 8.0.0** - *Крупное мажорное обновление архитектуры, безопасности и совместимости Nintendo Switch 1/2 и Nintendo 3DS: полное устранение 95 выявленных дефектов аудита, 100% соответствие формату NUP v1.0 для эмулятора STORM SWITCH (Windows и Android), исправление заголовков XCI/NSZ/XCZ и 3DS для Citra/Azahar, единый крипто- и сетевой контур, усиленная защита ключей и сертификатов, сокращение размера дистрибутива за счёт Zstd-сжатия `nutdb.json.zst` и сквозная проверка 26/26 сценариев на реальных образах игр*
 
 ---
 
-### 🚀 Ключевые исправления и улучшения (STORM SWITCH BOX 7.0.14)
+### 🚀 Ключевые исправления и улучшения (STORM SWITCH BOX 8.0.0)
 
-- 🌟 **[Android PFS0 Alignment & ExeFS/CNMT Integrity Fix (`StormNczEngine.kt`)]**: Исправлен расчёт размера таблицы строк `PFS0` (`stringTableSize` теперь включает выравнивание до `alignedHeaderSize` кратно `0x20`) в трёх сборщиках NCA для `compileSwitch2DumpPackage`. Ранее данные начинались после выравнивания, из-за чего `ExeFS` и `.cnmt` внутри собранных NCA читались как нули.
-- 🌟 **[Android >32 MB Slice Copy & XCI/XCZ Output Support (`StormNczEngine.kt`)]**: Устранён критический баг, при котором непережатые разделы `> 32 МБ` со смещением `offset > 0` передавали в упаковщик `src.parentFile` целиком с нуля вместо нужного фрагмента NCA. Также `compileSwitch2DumpPackage` теперь корректно собирает `XCI` и `XCZ` при выборе картриджного формата (`packXciOrXczContainer`).
-- 🌟 **[Android 1G+1U Multi-Content & Hard-Patch Parity (`StormNczEngine.kt`)]**: Возвращена логика сборки `5.5.7` - обычные `1G+1U` наборы больше не подвергаются принудительному `Hard-Patch` (он запускается только при вшивании модов/русификаторов или обновлении уже монолитной базы), а сам `Hard-Patch` больше не создаёт конфликтующий второй `...800.cnmt.nca` с тем же `progSha256`. Восстановлены запрет сжатия `BKTR`, запрет подстановки `RightsId` вместо реального `titleKey`, проверка ключей в режиме `reader != null`, определение папок Switch 2 строго по `ProgramId` `04...` в `main.npdm` и синхронное обновление `.cnmt.nca` при кастомизации `Control NCA`.
-- 🌟 **[Windows NCZ 0xC00 Offset Mapping Fix (`StormNczStorage.cs`)]**: Исправлено отображение смещения внутри Zstd-потока (`streamOffsetInSection = currentOffset - Math.Max(targetSection.Offset, 0x4000)`) для NCZ с началом секции до `0x4000` (например `0xC00` у `PublicData`/DLC). Устранено пропускание первых `0x3400` байт потока и ошибки `Hash error (2002-4604)`.
-- 🌟 **[Windows XCI 0x138 Header & XCI/XCZ Unpack/Repack Pipeline (`StormXciBuilder.cs`, `MultiGameCartridgeService.cs`, `MultiContentService.cs`, `NszCompressionService.cs`)]**: Исправлена запись поля `0x138` (`RootHfs0HeaderSize`) в заголовке XCI (размер заголовка HFS0 вместо размера всего раздела - восстановлено прохождение `Partition Header Hash (GOOD)` в `hactoolnet`). Исправлена перепаковка входных `.xci` в `NSZ`/`XCZ`/`NSP`, отключено ошибочное копирование `.xci` байт-в-байт в `.nsp`, а Zero-Disk-IO fallback для `.xcz` теперь читает раздел `/secure` и формирует валидный `.nsp`.
-- 🌟 **[Windows CNMT Collision, hacpack ExitCode & Null Progress Guards (`ControlEditorService.cs`, `SwitchFormatService.cs`, `Switch2DumpCompilerService.cs`)]**: В `ControlEditorService` введено точное сравнение 16-символьного `TitleId` без коллизий базы `...000` и патча `...800`. В `RunHacpackAsync` добавлена проверка кода возврата (ошибочные неполные NCA больше не попадают в контейнер), а в `BuildStreamedRomFs` исправлен вылет `NullReferenceException` при отсутствии коллбэка прогресса.
+- 🌟 **[100% совместимость NUP v1.0 с эмулятором STORM SWITCH (Windows + Android)]**: В `NupContainerService.cs` и `StormNczEngine.kt` исправлены 3 критических дефекта бинарного формата NUP v1.0 - абсолютное смещение `meta_offset` теперь выносится строго после таблицы оглавления `TOC`, записи `children[]` сортируются побайтно по UTF-8 именам, выравнивание `blob_offset`/`extent_offset` кратно 16 байтам, а для файлов нулевой длины пишется `extent_offset = 0`. Подтверждено прохождением эталонного верификатора `nup.py` и прямым запуском игр Nintendo Switch 1 и Switch 2 в `STORM_SWITCH-cli.exe`.
+- 🌟 **[Исправление сборки XCI, XCZ, NSZ и NSP (`StormXciBuilder.cs`, `NszCompressionService.cs`)]**: Устранён дефект смещения поля `nameOffset` (`+0x10` вместо `+0x38`) в `WriteHfs0Entry`, восстановлено автоопределение корневого смещения `HFS0` в `CreatePfsFromStorage` вместо жёсткого `0x10000`, внедрены `SwitchContainerHandle` для безопасного освобождения потоков, `TitleIdHelper` для точного разбора идентификаторов и `StormToolResolver` для единого поиска внешних утилит. Все собранные контейнеры проходят `hactoolnet`, `nsz --verify` и запуск в эмуляторе.
+- 🌟 **[Nintendo 3DS (3DS / CCI / CIA / CXI) - совместимость с Citra и Azahar]**: Проверены и стабилизированы нативная дешифровка `SeedDB`/`NCCH Crypto`, упаковка и распаковка `3DS`/`CIA`/`CXI`, инъекция `SMDH`-баннеров и `BCWAV`-звука, обрезка картриджей `SmartShrink` и подтверждена валидность собранных образов через `ctrtool --verify` (все 100% разделов `GOOD`) для стабильного запуска в Citra и Azahar.
+- 🌟 **[Безопасность, сеть, сертификаты и гигиена репозитория]**: Полностью удалены захардкоженные ключи (`keys.dat`) и приватный `.pfx` из исходников и дистрибутивов, закрыты уязвимости `Command Injection`, `Zip-Slip` / `Path Traversal` (Windows, Android и `StormInstaller`), добавлена проверка `Host`/`Origin` в локальных HTTP-серверах (`DbiInstallService`, `DirectConsoleSenderService`), внедрён единый пул `StormHttpClientFactory` (устранены утечки сокетов и глобальное отключение TLS-проверок) и настроен строгий `network_security_config.xml` на Android.
+- 🌟 **[WinUI 3, локализация, оптимизация памяти и дистрибутива]**: Устранены утечки подписок событий (`Loaded`/`LanguageChanged`/`ThemeChanged`), введено кэширование кистей (`UiBrushCache`), исправлены гонки и блокировки UI-потока в `MainWindow` и диалогах, доведена до 0 предупреждений компиляция C# (`0 errors, 0 warnings`), база `nutdb.json` (47.18 МБ) сжата в `nutdb.json.zst` (10.21 МБ), а из дистрибутива удалены неиспользуемые бинарники (`texconv.exe`, `hacbrewpack.exe`, `hac2l.exe`), дубликаты иконок, `kivy` и `__pycache__` (итоговый архив уменьшен на ~12 МБ).
+- 🌟 **[Android Engine, StormInstaller и Python Turbo-загрузчик]**: В `StormNczEngine.kt` исправлены смещения `NACP` (`0x30A0`/`0x30B0`) и добавлен набор модульных тестов `StormBinaryAndLocTest.kt`; в `StormInstaller` устранена проблема извлечения и блокировки файлов с проверкой путей, а в `storm_lt_turbo.py` исправлена обработка исключений, тайм-аутов и корректное завершение потоков.
 
 <details>
 <summary><b>📋 Полный список изменений (нажмите, чтобы развернуть)</b></summary>
 
-- 🔹 **[Core/NSZ/StormNczStorage.cs]**: Корректный расчёт `streamOffsetInSection` относительно `Math.Max(targetSection.Offset, ncaHeaderSize)` для секций `< 0x4000` (`0xC00`).
-- 🔹 **[Core/NCA/StormXciBuilder.cs & Services/MultiGameCartridgeService.cs]**: Запись точного `hfs0HeaderSize` в смещение XCI `0x138` (`RootPartitionHeaderSize`) для 100% соответствия `SHA-256` в `0x140`.
-- 🔹 **[Services/MultiContentService.cs]**: Поддержка входных `.xci`/`.xcz` через `OpenSwitchContainerFileSystem` (`/secure`) при сборке в сжатые и несжатые форматы; сохранение `.xci` при распаковке через `nsz.exe`.
-- 🔹 **[Services/NszCompressionService.cs]**: В Zero-Disk-IO декомпрессии `.xcz` открывается раздел `/secure` вместо корневого `HFS0` с сохранением корректного расширения `.nsp`.
-- 🔹 **[Services/ControlEditorService.cs]**: Строгое сравнение `TitleId` при сопоставлении `Control` и `Meta` NCA вместо префикса из 13 символов.
-- 🔹 **[Services/SwitchFormatService.cs & Services/Switch2DumpCompilerService.cs]**: Явный контроль `ExitCode` в `RunHacpackAsync` и безопасный вызов `onProgress?.Invoke(...)` в `BuildStreamedRomFs`.
-- 🔹 **[android/.../StormNczEngine.kt]**: Выровненная запись `stringTableSize` в `PFS0`, потоковая передача `Pfs0Item(name, file, offset, size)` для срезов `> 32 МБ`, отмена авто-HardPatch для обычных `1G+1U` и удаление дублирующего `.800.cnmt.nca`, запрет подмены `RightsId` как ключа, защита `BKTR` от сжатия, изоляция папок Switch 1 по `ACI0 ProgramId`, поддержка `XCI`/`XCZ` в `compileSwitch2DumpPackage` и пересборка `.cnmt.nca` при кастомизации `Control`.
+- 🔹 **[Core/NCA/StormXciBuilder.cs]**: Исправлено смещение поля `nameOffset` (`+0x10`) в `WriteHfs0Entry` для 100% валидности HFS0-разделов в картриджах XCI/XCZ.
+- 🔹 **[Services/NupContainerService.cs & android/.../StormNczEngine.kt]**: Полный бинарный паритет NUP v1.0 с `STORM SWITCH` (`nup_container.cpp`) и `nup.py` - размещение TLV-метаданных строго после TOC, сортировка `children[]` по UTF-8, 16-байтное выравнивание экстентов и `extent_offset = 0` для пустых файлов.
+- 🔹 **[Services/NszCompressionService.cs]**: Автоопределение смещения корневого HFS0 (`TryDetectXciRootHfs0Offset`) в `CreatePfsFromStorage` вместо жёсткого `0x10000` и корректное освобождение потоков.
+- 🔹 **[Services/StormToolResolver.cs, StormHttpClientFactory.cs, TitleIdHelper.cs, SwitchContainerHandle.cs]**: Вынесены общие переиспользуемые сервисы поиска утилит, HTTP-клиентов с безопасным TLS, разбора TitleID и управления дескрипторами контейнеров Switch.
+- 🔹 **[Models/UiBrushCache.cs & Views/*]**: Кэширование кистей WinUI 3, устранение утечек подписок на события смены языка/темы, удаление дублирующихся ветвей в `InstructionPage.xaml.cs` и исправление предупреждения `CS8602` в `SwitchFormatService.cs`.
+- 🔹 **[Services/TitleDbService.cs & tools/db/nutdb.json.zst]**: Переход на Zstd-сжатую базу `nutdb.json.zst` (10.21 МБ вместо 47.18 МБ) с прозрачной распаковкой в памяти.
+- 🔹 **[Services/DbiInstallService.cs, DirectConsoleSenderService.cs, ExternalProcessRunner.cs]**: Защита от Path Traversal, экранирование аргументов процессов (`ArgumentList`), проверка заголовков локальных серверов и безопасный запуск внешних утилит.
+- 🔹 **[installer/StormInstaller]**: Исправление обработки путей при распаковке `Payload.zip` (защита от Zip-Slip), корректная установка сертификата и компиляция с `0 errors, 0 warnings`.
+- 🔹 **[android/app]**: Добавлены `network_security_config.xml` и unit-тесты `StormBinaryAndLocTest.kt`, исправлены смещения `NACP` (`0x30A0`/`0x30B0`) и очищена упаковка от `keys.dat`.
+- 🔹 **[Гигиена репозитория и дистрибутива]**: Удалены неиспользуемые и устаревшие файлы (`GpuAccelerationService.cs`, `VirtualRamDriveService.cs`, `TinfoilDownloaderService.cs`, `StormIvfcBuilder.cs`, `DebugLogger.cs`, `keys.dat`, `STORM_CodeSign.pfx`, старые `.slnx`/`.iss`, лишние бинарники, дубликаты иконок, `kivy` и `__pycache__`).
 
 </details>
 
@@ -29,14 +32,14 @@
 <details>
 <summary><b>🌐 English Changelog (click to expand)</b></summary>
 
-### 🚀 Key Improvements & Fixes (STORM SWITCH BOX 7.0.14)
+### 🚀 Key Improvements & Fixes (STORM SWITCH BOX 8.0.0)
 
-- 🔸 **[Android PFS0 Alignment & ExeFS/CNMT Integrity Fix (`StormNczEngine.kt`)]**: Fixed unaligned `PFS0` `stringTableSize` header writes across three NCA builders in `compileSwitch2DumpPackage`, preventing zero-filled `ExeFS` and `.cnmt` reads inside generated NCAs.
-- 🔸 **[Android >32 MB Slice Streaming & XCI/XCZ Export (`StormNczEngine.kt`)]**: Fixed `> 32 MB` non-zero-offset NCA slices embedding the entire `src.parentFile` instead of copying `(offset, size)` via `Pfs0Item`; enabled `packXciOrXczContainer` output in `compileSwitch2DumpPackage`.
-- 🔸 **[Android 1G+1U Multi-Content & Hard-Patch Parity (`StormNczEngine.kt`)]**: Restored 5.5.7 `1G+1U` multi-content packing (no automatic Hard-Patch unless applying mods or updating a monolith), removed conflicting duplicate `...800.cnmt.nca` output, restored `BKTR` uncompressed guard, removed fake `RightsId` title key fallback, restored `reader` key verification, restricted Switch 2 folder detection to `04...` `ACI0` `ProgramId`, and synchronized `.cnmt.nca` hashes when customizing Control NCAs.
-- 🔸 **[Windows NCZ 0xC00 Offset Mapping Fix (`StormNczStorage.cs`)]**: Fixed Zstd stream offset calculation (`currentOffset - Math.Max(targetSection.Offset, 0x4000)`) for `0xC00`-offset NCZ sections, eliminating `Hash error (2002-4604)`.
-- 🔸 **[Windows XCI Header 0x138 & Input Container Pipeline (`StormXciBuilder.cs`, `MultiGameCartridgeService.cs`, `MultiContentService.cs`, `NszCompressionService.cs`)]**: Fixed XCI `0x138` `RootPartitionHeaderSize` (`hactoolnet` `Partition Header Hash (GOOD)`), fixed `.xci` input handling when targeting compressed formats, prevented raw `.xci` copy into `.nsp`, and fixed `.xcz` Zero-Disk-IO fallback to mount `/secure` as `.nsp`.
-- 🔸 **[Windows CNMT Collision, hacpack ExitCode & Null Progress Guards (`ControlEditorService.cs`, `SwitchFormatService.cs`, `Switch2DumpCompilerService.cs`)]**: Enforced exact 16-char `TitleId` matching in `ControlEditorService`, checked `hacpack.exe` exit codes, and guarded null `onProgress` callbacks in `BuildStreamedRomFs`.
+- 🔸 **[100% NUP v1.0 Parity with STORM SWITCH Emulator (Windows + Android)]**: Fixed three critical binary layout issues in `NupContainerService.cs` and `StormNczEngine.kt` - post-TOC absolute `meta_offset`, UTF-8 byte-sorted `children[]` entries, 16-byte aligned `blob_offset`/`extent_offset`, and `extent_offset = 0` for zero-byte files. Verified with `nup.py` and live Switch 1 & Switch 2 boot tests in `STORM_SWITCH-cli.exe`.
+- 🔸 **[XCI, XCZ, NSZ & NSP Container Pipeline Fixes (`StormXciBuilder.cs`, `NszCompressionService.cs`)]**: Fixed `WriteHfs0Entry` `nameOffset` write position (`+0x10` instead of `+0x38`), replaced hardcoded `0x10000` XCI HFS0 offset with dynamic `TryDetectXciRootHfs0Offset`, and introduced shared `StormToolResolver`, `TitleIdHelper`, and `SwitchContainerHandle` services. Verified with `hactoolnet` and `nsz --verify`.
+- 🔸 **[Nintendo 3DS (3DS / CCI / CIA / CXI) Citra & Azahar Verification]**: Hardened native `SeedDB`/`NCCH Crypto` decryption, `3DS`/`CIA`/`CXI` repacking, `SMDH` banner and `BCWAV` audio injection, and `SmartShrink` trimming; verified 100% valid partitions via `ctrtool --verify` for Citra and Azahar.
+- 🔸 **[Security Hardening, Network Pool & Repo Hygiene]**: Removed bundled `keys.dat` and `.pfx` files from source and packages, fixed command injection and Zip-Slip/path traversal vectors across Windows, Android, and `StormInstaller`, introduced `StormHttpClientFactory` with proper TLS validation, and added Android `network_security_config.xml`.
+- 🔸 **[WinUI 3 Stability, Zero Warnings & Distribution Size Reduction]**: Fixed event handler leaks, added `UiBrushCache`, achieved `0 errors, 0 warnings` on Windows and `StormInstaller`, compressed `nutdb.json` (47.18 MB) into `nutdb.json.zst` (10.21 MB), and stripped unused binaries (`texconv.exe`, `hacbrewpack.exe`, `hac2l.exe`), duplicate icons, `kivy`, and `__pycache__`.
+- 🔸 **[Android Engine, StormInstaller & Python Turbo Downloader]**: Fixed `NACP` offsets (`0x30A0`/`0x30B0`) in `StormNczEngine.kt`, added JUnit tests (`StormBinaryAndLocTest.kt`), hardened `StormInstaller` extraction/cleanup, and stabilized `storm_lt_turbo.py`.
 
 </details>
 
@@ -45,17 +48,17 @@
 <details>
 <summary><b>📦 Файлы и вложения к релизу (нажмите, чтобы развернуть)</b></summary>
 
-- 💻 **STORM_SWITCH_BOX_7.0.14_Setup.exe** (230.52 МБ)
-  - `SHA-256: 305032707C350864C6EEC1BBBB00560A001E7A3A0C8CC8050672DF8A2614C470`
+- 💻 **STORM_SWITCH_BOX_8.0.0_Setup.exe** (218.40 МБ)
+  - `SHA-256: 0B51B76EDCECE13B389791745FE52C47698E37D55CC1E5084B8E77910314EBDF`
   - Установщик для Windows с интеграцией в систему и единым стилем оформления.
-- 📦 **STORM_SWITCH_BOX_7.0.14_Portable.zip** / **STORM_SWITCH_BOX_7.0.14.zip** (162.07 МБ)
-  - `SHA-256: 4D6DB93AC0E5502A56F811F92B55221E3DF9C6979A80D0F371392849F2257F69`
+- 📦 **STORM_SWITCH_BOX_8.0.0_win-x64.zip** / **STORM_SWITCH_BOX_8.0.0.zip** (149.85 МБ)
+  - `SHA-256: 8E7A2B0EDBE00EC84CB27C8ABC3336CD4EDA13F5F222BC282A63C2B02F6EB49C`
   - Портативная версия для Windows x64 (распакуйте и запустите без установки).
-- 📱 **STORM_SWITCH_BOX_7.0.14_Android.apk** / **STORM_SWITCH_BOX_7.0.14.apk** (14.37 МБ)
-  - `SHA-256: 196BFC9F87C3D3FC3BEA54C43395FD9474DCFED4E330861C604B4409C941D1D1`
+- 📱 **STORM_SWITCH_BOX_8.0.0.apk** (14.38 МБ)
+  - `SHA-256: 6DDC3DE9FF0DE3C63ECD94F31D5EA8B23D308ED113C9D803F5E387D7AB16CE1D`
   - Мобильная версия для 64-битных устройств под управлением Android 8.0+.
-- 📱 **STORM_SWITCH_BOX_7.0.14_Android_Legacy.apk** / **STORM_SWITCH_BOX_7.0.14_LEGACY.apk** (25.94 МБ)
-  - `SHA-256: FEBEC7555ABBC3B2CEB59B3571949F595B65A9FC85C98043CB5DB04DDC938965`
+- 📱 **STORM_SWITCH_BOX_8.0.0_LEGACY.apk** (25.95 МБ)
+  - `SHA-256: F29E36FA919AF8F7433B310A1FEADA6AA448324D7365E6E79B9A5FD955B40BD5`
   - Универсальная сборка для Android 5.0+ и 32/64-битных архитектур (ARMv7, ARM64, x86, x86_64).
 - 🛡️ **Контроль целостности**: Все бинарные файлы собраны из официального исходного кода и подписаны цифровой подписью STORM TEAM.
 

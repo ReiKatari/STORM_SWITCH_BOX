@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading;
@@ -55,7 +55,12 @@ namespace StormSwitchBox.Services
             
             string tempDecompDir = string.Empty;
 
-            if (task.SourceSizeBytes <= 0 && inputFiles != null && inputFiles.Count > 0)
+            if (inputFiles == null || inputFiles.Count == 0)
+            {
+                throw new ArgumentException("Список входных файлов не может быть пустым.", nameof(inputFiles));
+            }
+
+            if (task.SourceSizeBytes <= 0)
             {
                 task.SourceSizeBytes = ProcessingTask.CalculatePathsTotalBytes(inputFiles);
             }
@@ -121,13 +126,6 @@ namespace StormSwitchBox.Services
 
                 if (!_keysService.IsLoaded) throw new Exception("Отсутствуют криптографические ключи (prod.keys). Пожалуйста, выберите их в параметрах.");
 
-
-                // Анализ файлов
-                foreach (var f in inputFiles)
-                {
-                    // var info = App.SwitchFormat.ParseNsp(f);
-                }
-
                 // Если это сборка 1G+1U или 1G+1U+1M, мы делегируем сборку напрямую в NSC_Builder.
                 // Для 1G+1U+1M сюда приходит только один файл: prepatch.nsp (который уже содержит слитые данные базы, патча и мода).
                 // Это избегает создания кривого "сырого" PFS0 и позволяет squirrel.exe правильно слить CNMT или пропатчить версию.
@@ -192,9 +190,6 @@ namespace StormSwitchBox.Services
                     // Для чистого сжатого формата (NSZ/XCZ) несжатый файл формируется исключительно во временном каталоге
                     intermediatePath = System.IO.Path.Combine(tempDecompDir, "inter_" + Guid.NewGuid().ToString("N").Substring(0, 6) + uncompressedExt);
                 }
-
-                string listFile = System.IO.Path.Combine(tempDecompDir, $"list_conv_{Guid.NewGuid().ToString("N").Substring(0, 8)}.txt");
-                System.IO.File.WriteAllLines(listFile, finalInputFilesList, new System.Text.UTF8Encoding(false));
 
                 bool hasMods = (task.HasRomFs == "1" || task.HasRomFs == "Да" || task.HasExeFs == "1" || task.HasExeFs == "Да") ||
                     finalInputFilesList.Any(d =>
@@ -278,7 +273,7 @@ namespace StormSwitchBox.Services
                     }
                 }
 
-                // Если обнаружено несколько обновлений для одной базовой игры — оставляем только самое свежее (максимальный TitleVersion)
+                // Если обнаружено несколько обновлений для одной базовой игры - оставляем только самое свежее (максимальный TitleVersion)
                 if (patchCandidates.Count > 0)
                 {
                     foreach (var grp in patchCandidates.GroupBy(p => p.BaseTid, StringComparer.OrdinalIgnoreCase))
@@ -367,7 +362,7 @@ namespace StormSwitchBox.Services
                             {
                                 long patchedSize = new FileInfo(tempHardPatchedNsp).Length;
                                 long minValidSize = Math.Max(4L * 1024 * 1024, (long)(baseSize * 0.65));
-                                // Валидация: если исходная база > 50 МБ, а результат хардпатча меньше минимального порога (20% базы или < 25 МБ) — это поврежденный огрызок без RomFS!
+                                // Валидация: если исходная база > 50 МБ, а результат хардпатча меньше минимального порога (20% базы или < 25 МБ) - это поврежденный огрызок без RomFS!
                                 if (baseSize > 50 * 1024 * 1024 && patchedSize < minValidSize)
                                 {
                                     App.Logger.Log($"[HardPatch] Размер пересобранного файла ({patchedSize} байт) аномально мал относительно базы ({baseSize} байт). Откат к нативной сборке.", Models.LogLevel.Warning);
@@ -398,7 +393,7 @@ namespace StormSwitchBox.Services
                             }
                             else
                             {
-                                // Обычная игра — пересобранная база полностью заменяет базу и обновление, исключая дубликаты
+                                // Обычная игра - пересобранная база полностью заменяет базу и обновление, исключая дубликаты
                                 hasPatchedBase = true;
                                 finalInputFilesList.RemoveAll(f =>
                                     (!string.IsNullOrEmpty(baseFile) && string.Equals(f, baseFile, StringComparison.OrdinalIgnoreCase)) ||
@@ -413,7 +408,7 @@ namespace StormSwitchBox.Services
                                 {
                                     intermediatePath = await SafeFileOperations.SafeMoveOrReplaceFileAsync(tempHardPatchedNsp, intermediatePath, task, cancellationToken);
 
-                                    if (task.CustomMetadata != null && !hasPatchedBase && System.IO.File.Exists(intermediatePath))
+                                    if (task.CustomMetadata != null && System.IO.File.Exists(intermediatePath))
                                     {
                                         await App.ControlEditor.ApplyCustomMetadataAsync(task.CustomMetadata, intermediatePath, task, cancellationToken);
                                     }
@@ -510,12 +505,12 @@ namespace StormSwitchBox.Services
                 }
                 else if (skipHardPatch)
                 {
-                    App.RunOnUI(() => task.LogDetails += "\n⚠️ [HardPatch] Мульти-программный тайтл — пропуск yanu-cli, используем оригинальные файлы.");
+                    App.RunOnUI(() => task.LogDetails += "\n⚠️ [HardPatch] Мульти-программный тайтл - пропуск yanu-cli, используем оригинальные файлы.");
                     App.Logger.Log("[HardPatch] Skipped: multi-program title detected by pre-analysis", LogLevel.Info);
                 }
 
                 // 4.3 Быстрый путь для одиночного файла (Single-File Fast Path):
-                // Если входной файл ровно один (базовая игра), не содержит избыточных DeltaFragment или .xml-мусора, и нет обновлений/DLC/модов — напрямую перемещаем/сжимаем
+                // Если входной файл ровно один (базовая игра), не содержит избыточных DeltaFragment или .xml-мусора, и нет обновлений/DLC/модов - напрямую перемещаем/сжимаем
                 bool singleFileNeedsCleanRebuild = false;
                 if (finalInputFilesList.Count == 1 && !hasPatchedBase && !isTargetXci)
                 {
@@ -820,7 +815,7 @@ namespace StormSwitchBox.Services
                                 scanList.Add(f);
                         }
 
-                        // Если целевой формат несжатый NSP/XCI, а часть файлов — NSZ/XCZ/XCI, предварительно распаковываем их
+                        // Если целевой формат несжатый NSP/XCI, а часть файлов - NSZ/XCZ/XCI, предварительно распаковываем их
                         var processedScanList = new List<string>();
                         for (int i = 0; i < scanList.Count; i++)
                         {
@@ -1079,9 +1074,9 @@ namespace StormSwitchBox.Services
                             }
                         }
 
-                        if (App.Settings.Current.EnableRsvCap && App.Settings.Current.RsvCap > 0)
+                        if (App.Settings?.Current?.EnableRsvCap == true && App.Settings.Current.RsvCap > 0)
                         {
-                            App.RunOnUI(() => task.LogDetails += $"\n🛡️ [RSV Cap] Применен лимит минимальной версии системы (RSV Cap: {App.Settings.Current.RsvCap})");
+                            App.RunOnUI(() => task.LogDetails += $"\n⚠️ [RSV Cap] Параметр RSV Cap ({App.Settings.Current.RsvCap}) при прямом сшивании готовых NCA не изменяет CNMT (применяется только при пересборке CNMT).");
                         }
 
                         // Гарантируем наличие валидных .tik и .cert для каждого раздела с RightsID != 0
@@ -1111,12 +1106,18 @@ namespace StormSwitchBox.Services
                             string lower = name.ToLowerInvariant();
                             if (lower.EndsWith(".nca") || lower.EndsWith(".ncz"))
                             {
+                                Core.NSZ.StormNczStorage? nczStorageTemp = null;
                                 try
                                 {
                                     LibHac.Fs.IStorage st = kvp.Value.AsStorage();
                                     if (lower.EndsWith(".ncz"))
                                     {
-                                        try { st = new Core.NSZ.StormNczStorage(st, null, null, _keysService.CurrentKeyset); } catch { }
+                                        try
+                                        {
+                                            nczStorageTemp = new Core.NSZ.StormNczStorage(st, null, null, _keysService.CurrentKeyset);
+                                            st = nczStorageTemp;
+                                        }
+                                        catch { }
                                     }
                                     var nca = new LibHac.Tools.FsSystem.NcaUtils.Nca(_keysService.CurrentKeyset, st);
                                     if (nca.Header.HasRightsId)
@@ -1131,42 +1132,35 @@ namespace StormSwitchBox.Services
                                                 byte[]? titleKey = null;
                                                 bool isAlreadyEncrypted = false;
 
-                                                // 1. First check if we already have the raw encrypted TitleKeyBlock in ExternalKeySet
-                                                if (_keysService.CurrentKeyset?.ExternalKeySet != null)
+                                                // 1. Сначала проверяем TitleKeysCache (содержит расшифрованные ключи)
+                                                lock (Core.NSZ.StormNczCompressor.TitleKeysCache)
+                                                {
+                                                    if (Core.NSZ.StormNczCompressor.TitleKeysCache.TryGetValue(rIdHex, out var cachedDecKey))
+                                                    {
+                                                        titleKey = cachedDecKey;
+                                                        isAlreadyEncrypted = false;
+                                                    }
+                                                }
+
+                                                // 2. Если нет в TitleKeysCache, проверяем ExternalKeySet (содержит зашифрованный TitleKeyBlock)
+                                                if (titleKey == null && _keysService.CurrentKeyset != null)
                                                 {
                                                     var rIdObj = new LibHac.Fs.RightsId(rIdBytes);
-                                                    if (_keysService.CurrentKeyset.ExternalKeySet.Get(rIdObj, out var aKey).IsSuccess())
+                                                    if (KeysService.TryGetExternalKey(_keysService.CurrentKeyset, rIdObj, out var aKey))
                                                     {
                                                         titleKey = aKey.Value.ToArray();
                                                         isAlreadyEncrypted = true;
                                                     }
                                                 }
 
-                                                // 2. If not found in ExternalKeySet, check TitleKeysCache (holds decrypted keys)
-                                                if (titleKey == null)
+                                                if (titleKey != null && _keysService.CurrentKeyset != null)
                                                 {
-                                                    lock (Core.NSZ.StormNczCompressor.TitleKeysCache)
+                                                    var tikBytes = BuildValidCommonTicketBytes(rIdBytes, kGen, titleKey, _keysService.CurrentKeyset, isAlreadyEncrypted);
+                                                    if (tikBytes != null)
                                                     {
-                                                        if (Core.NSZ.StormNczCompressor.TitleKeysCache.TryGetValue(rIdHex, out var cachedDecKey))
-                                                        {
-                                                            titleKey = cachedDecKey;
-                                                            isAlreadyEncrypted = false;
-                                                        }
+                                                        pendingTicketsToAdd[$"{rIdHex}.tik"] = tikBytes;
+                                                        existingTikRightsIds.Add(rIdHex);
                                                     }
-                                                }
-
-                                                // 3. Fallback: use rIdBytes as titleKey (direct dump without ticket)
-                                                if (titleKey == null)
-                                                {
-                                                    titleKey = rIdBytes;
-                                                    isAlreadyEncrypted = true;
-                                                }
-
-                                                var tikBytes = BuildValidCommonTicketBytes(rIdBytes, kGen, titleKey, _keysService.CurrentKeyset, isAlreadyEncrypted);
-                                                if (tikBytes != null)
-                                                {
-                                                    pendingTicketsToAdd[$"{rIdHex}.tik"] = tikBytes;
-                                                    existingTikRightsIds.Add(rIdHex);
                                                 }
                                             }
 
@@ -1179,6 +1173,10 @@ namespace StormSwitchBox.Services
                                     }
                                 }
                                 catch { }
+                                finally
+                                {
+                                    nczStorageTemp?.Dispose();
+                                }
                             }
                         }
 
@@ -1297,7 +1295,7 @@ namespace StormSwitchBox.Services
 
                 if (!buildDone)
                 {
-                    throw new Exception("Не удалось создать мультиконтент — сшивание завершилось без результата.");
+                    throw new Exception("Не удалось создать мультиконтент - сшивание завершилось без результата.");
                 }
 
                 // Search for the actual content file (.nsp/.xci), skipping metadata like .cnmt.xml
@@ -1460,7 +1458,7 @@ namespace StormSwitchBox.Services
         {
             if (Directory.Exists(sourcePath)) return sourcePath;
 
-            // Если это уже NSP файл и его путь безопасный (< 240 символов) — используем его напрямую без копирования
+            // Если это уже NSP файл и его путь безопасный (< 240 символов) - используем его напрямую без копирования
             if (sourcePath.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) && sourcePath.Length < 240 && File.Exists(sourcePath))
             {
                 return sourcePath;
@@ -1492,7 +1490,7 @@ namespace StormSwitchBox.Services
                         return destPath;
                     }
 
-                    // Если файл небольшой (< 300 МБ) — копируем в быстрый STORM_TMP
+                    // Если файл небольшой (< 300 МБ) - копируем в быстрый STORM_TMP
                     var fi = new FileInfo(sourcePath);
                     if (fi.Length < 300L * 1024 * 1024)
                     {
@@ -1523,7 +1521,7 @@ namespace StormSwitchBox.Services
         }
         private static LibHac.Fs.Fsa.IFile OpenFileSafe(PartitionFileSystem fs, string fullPath)
         {
-            var path = new LibHac.Fs.Path();
+            using var path = new LibHac.Fs.Path();
             path.Initialize(new LibHac.Common.U8Span(System.Text.Encoding.UTF8.GetBytes(fullPath))).ThrowIfFailure();
             using var fileRef = new LibHac.Common.UniqueRef<LibHac.Fs.Fsa.IFile>();
             fs.OpenFile(ref fileRef.Ref, in path, LibHac.Fs.OpenMode.Read).ThrowIfFailure();
@@ -1660,7 +1658,7 @@ namespace StormSwitchBox.Services
                 (origFileName.Contains($"v{patchVer}", StringComparison.OrdinalIgnoreCase) ||
                  origFileName.Contains(patchVer, StringComparison.OrdinalIgnoreCase));
 
-            // Удаляем любой существующий тег содержимого (1G+1U+4D), (1G+1U+4D+1M), (1G+1U+1M), (1G+5D) и т.д. — он всегда пересчитывается заново
+            // Удаляем любой существующий тег содержимого (1G+1U+4D), (1G+1U+4D+1M), (1G+1U+1M), (1G+5D) и т.д. - он всегда пересчитывается заново
             baseGameTitle = System.Text.RegularExpressions.Regex.Replace(baseGameTitle, @"\s*\(\d+[A-Za-z](?:\+\d+[A-Za-z])*\)", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
             // Удаляем квадратные теги [TitleID] и [vXXX] ТОЛЬКО если их нет в оригинале
@@ -1778,7 +1776,7 @@ namespace StormSwitchBox.Services
             tik[0x280] = 0x02;
             tik[0x281] = 0x00;
             tik[0x285] = (byte)(masterKeyGen & 0xFF);
-            tik[0x286] = (byte)(masterKeyGen & 0xFF);
+            tik[0x286] = 0x00; // PropertyMask
             Array.Copy(rightsIdBytes, 0, tik, 0x2A0, 16);
             return tik;
         }
@@ -1822,6 +1820,7 @@ namespace StormSwitchBox.Services
                 return 21; // DLC / Mod CNMT
             }
 
+            Core.NSZ.StormNczStorage? nczStorage = null;
             try
             {
                 LibHac.Fs.IStorage storage = file.AsStorage();
@@ -1829,13 +1828,13 @@ namespace StormSwitchBox.Services
                 {
                     try
                     {
-                        storage = new Core.NSZ.StormNczStorage(storage, null, null, _keysService.CurrentKeyset);
+                        nczStorage = new Core.NSZ.StormNczStorage(storage, null, null, _keysService.CurrentKeyset);
+                        storage = nczStorage;
                     }
                     catch { }
                 }
 
                 var nca = new LibHac.Tools.FsSystem.NcaUtils.Nca(_keysService.CurrentKeyset, storage);
-                KeysService.RegisterRightsIdFallback(_keysService.CurrentKeyset, nca);
                 var type = nca.Header.ContentType;
                 ulong tid = nca.Header.TitleId;
 
@@ -1860,6 +1859,7 @@ namespace StormSwitchBox.Services
                     try
                     {
                         var metaFs = nca.OpenFileSystem(NcaSectionType.Data, IntegrityCheckLevel.None);
+                        using var metaFsDisp = metaFs as IDisposable;
                         foreach (var entry in metaFs.EnumerateEntries("/", "*.cnmt"))
                         {
                             using var cnmtFile = new UniqueRef<LibHac.Fs.Fsa.IFile>();
@@ -1867,7 +1867,9 @@ namespace StormSwitchBox.Services
                             cPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(entry.FullPath))).ThrowIfFailure();
                             if (metaFs.OpenFile(ref cnmtFile.Ref, in cPath, OpenMode.Read).IsSuccess())
                             {
-                                var cnmt = new LibHac.Tools.Ncm.Cnmt(cnmtFile.Release().AsStream());
+                                using IFile cnmtIFile = cnmtFile.Release();
+                                using var cnmtStream = cnmtIFile.AsStream();
+                                var cnmt = new LibHac.Tools.Ncm.Cnmt(cnmtStream);
                                 if (cnmt.Type == LibHac.Ncm.ContentMetaType.Patch || (byte)cnmt.Type == 0x81)
                                 {
                                     isUpdateTitle = true;
@@ -1879,7 +1881,7 @@ namespace StormSwitchBox.Services
                     catch { }
                 }
 
-                // Защита от коллизии Full Program NCA: исполняемый код из контейнера обновления или не из базы — это ВСЕГДА Update Program, а не Base
+                // Защита от коллизии Full Program NCA: исполняемый код из контейнера обновления или не из базы - это ВСЕГДА Update Program, а не Base
                 if (type == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Program && (isFromUpdate || (!isFromBase && baseEntries != null && baseEntries.Count > 0)))
                 {
                     isUpdateTitle = true;
@@ -1948,6 +1950,10 @@ namespace StormSwitchBox.Services
                 if (lower.Contains("control")) return 22;
                 if (lower.Contains("program")) return 23;
             }
+            finally
+            {
+                nczStorage?.Dispose();
+            }
 
             return isFromBase ? 7 : 25;
         }
@@ -1986,15 +1992,15 @@ namespace StormSwitchBox.Services
 
                 if (!isUnlockerName && !isSmallDlc) continue;
 
-                // Активируем ультрабыстрый RAM-кэш для RomFS/Unlocker
-                string targetRomfs = VirtualRamDriveService.Instance.CreateRamBackedWorkspace($"unlocker_romfs_{unlockerIndex}_");
-                App.RunOnUI(() => task.LogDetails += $"\n🧠 [RAM Cache] Активирован виртуальный RAM-кэш для RomFS токенов ({fname})");
+                string targetRomfs = Path.Combine(tempDir, $"unlocker_romfs_{unlockerIndex}_{Guid.NewGuid().ToString("N").Substring(0, 6)}");
+                Directory.CreateDirectory(targetRomfs);
+                TempCleanupService.RegisterActiveTempDirectory(targetRomfs);
 
                 bool extracted = false;
                 try
                 {
                     using var fileStream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read);
-                    var pfs = new PartitionFileSystem(fileStream.AsStorage());
+                    using var pfs = new PartitionFileSystem(fileStream.AsStorage());
                     foreach (var entry in pfs.EnumerateEntries())
                     {
                         if (entry.Type == LibHac.Fs.DirectoryEntryType.Directory) continue;
@@ -2005,10 +2011,10 @@ namespace StormSwitchBox.Services
                             using var entryPath = new LibHac.Fs.Path();
                             entryPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(entry.FullPath))).ThrowIfFailure();
                             pfs.OpenFile(ref ncaFile.Ref, in entryPath, OpenMode.Read).ThrowIfFailure();
-                            
-                            var nca = new LibHac.Tools.FsSystem.NcaUtils.Nca(_keysService.CurrentKeyset, ncaFile.Release().AsStorage());
-                            KeysService.RegisterRightsIdFallback(_keysService.CurrentKeyset, nca);
-                            
+
+                            using IFile ncaIFile = ncaFile.Release();
+                            var nca = new LibHac.Tools.FsSystem.NcaUtils.Nca(_keysService.CurrentKeyset, ncaIFile.AsStorage());
+
                             for (int sec = 0; sec < 2; sec++)
                             {
                                 if (nca.SectionExists(sec) && nca.CanOpenSection(sec))
@@ -2016,6 +2022,7 @@ namespace StormSwitchBox.Services
                                     try
                                     {
                                         var romfsFs = nca.OpenFileSystem(sec, IntegrityCheckLevel.None);
+                                        using var romfsFsDisp = romfsFs as IDisposable;
                                         ExtractAllEntriesFromRomFs(romfsFs, targetRomfs, ct);
                                         if (Directory.GetFiles(targetRomfs, "*", SearchOption.AllDirectories).Length > 0)
                                         {
@@ -2043,16 +2050,11 @@ namespace StormSwitchBox.Services
                 {
                     try
                     {
-                        string appDir = AppDomain.CurrentDomain.BaseDirectory;
-                        string hactoolPath = System.IO.Path.Combine(appDir, "tools", "com.github.nozwock.yanu", "hactoolnet.exe");
-                        if (!File.Exists(hactoolPath))
-                            hactoolPath = System.IO.Path.Combine(appDir, "..", "tools", "com.github.nozwock.yanu", "hactoolnet.exe");
-                        if (!File.Exists(hactoolPath))
-                            hactoolPath = System.IO.Path.Combine(appDir, "tools", "hactoolnet.exe");
+                        string? hactoolPath = StormToolResolver.ResolveHactoolnet();
 
-                        if (File.Exists(hactoolPath))
+                        if (!string.IsNullOrEmpty(hactoolPath) && File.Exists(hactoolPath))
                         {
-                            string keysPath = App.Settings.Current.KeysPath;
+                            string? keysPath = App.Settings?.Current?.KeysPath;
                             if (string.IsNullOrEmpty(keysPath) || !File.Exists(keysPath))
                                 keysPath = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "prod.keys");
 
@@ -2060,35 +2062,41 @@ namespace StormSwitchBox.Services
                             string tempExtractDir = System.IO.Path.Combine(tempDir, $"hactool_extract_{unlockerIndex}");
                             Directory.CreateDirectory(tempExtractDir);
 
-                            var psi = new System.Diagnostics.ProcessStartInfo
+                            try
                             {
-                                FileName = hactoolPath,
-                                Arguments = $"{keyArg} -t pfs0 --outdir \"{tempExtractDir}\" \"{file}\"",
-                                UseShellExecute = false,
-                                CreateNoWindow = true
-                            };
-                            using (var proc = System.Diagnostics.Process.Start(psi))
-                            {
-                                proc?.WaitForExit(15000);
-                            }
-
-                            var extractedNcas = Directory.GetFiles(tempExtractDir, "*.nca");
-                            foreach (var ncaPath in extractedNcas)
-                            {
-                                if (ncaPath.EndsWith(".cnmt.nca", StringComparison.OrdinalIgnoreCase)) continue;
-                                var romfsPsi = new System.Diagnostics.ProcessStartInfo
+                                var psi = new System.Diagnostics.ProcessStartInfo
                                 {
                                     FileName = hactoolPath,
-                                    Arguments = $"{keyArg} --romfsdir \"{targetRomfs}\" \"{ncaPath}\"",
+                                    Arguments = $"{keyArg} -t pfs0 --outdir \"{tempExtractDir}\" \"{file}\"",
                                     UseShellExecute = false,
                                     CreateNoWindow = true
                                 };
-                                using (var rproc = System.Diagnostics.Process.Start(romfsPsi))
+                                using (var proc = System.Diagnostics.Process.Start(psi))
                                 {
-                                    rproc?.WaitForExit(15000);
+                                    proc?.WaitForExit(15000);
+                                }
+
+                                var extractedNcas = Directory.GetFiles(tempExtractDir, "*.nca");
+                                foreach (var ncaPath in extractedNcas)
+                                {
+                                    if (ncaPath.EndsWith(".cnmt.nca", StringComparison.OrdinalIgnoreCase)) continue;
+                                    var romfsPsi = new System.Diagnostics.ProcessStartInfo
+                                    {
+                                        FileName = hactoolPath,
+                                        Arguments = $"{keyArg} --romfsdir \"{targetRomfs}\" \"{ncaPath}\"",
+                                        UseShellExecute = false,
+                                        CreateNoWindow = true
+                                    };
+                                    using (var rproc = System.Diagnostics.Process.Start(romfsPsi))
+                                    {
+                                        rproc?.WaitForExit(15000);
+                                    }
                                 }
                             }
-                            try { Directory.Delete(tempExtractDir, true); } catch { }
+                            finally
+                            {
+                                TempCleanupService.ForceDeleteDirectory(tempExtractDir);
+                            }
                             extracted = Directory.GetFiles(targetRomfs, "*", SearchOption.AllDirectories).Length > 0;
                         }
                     }
@@ -2111,7 +2119,7 @@ namespace StormSwitchBox.Services
                 }
                 else
                 {
-                    try { Directory.Delete(targetRomfs, true); } catch { }
+                    TempCleanupService.ForceDeleteDirectory(targetRomfs);
                 }
             }
 
@@ -2137,7 +2145,7 @@ namespace StormSwitchBox.Services
                 using var filePath = new LibHac.Fs.Path();
                 filePath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(rentry.FullPath))).ThrowIfFailure();
                 fs.OpenFile(ref fileRef.Ref, in filePath, OpenMode.Read).ThrowIfFailure();
-                var f = fileRef.Release();
+                using var f = fileRef.Release();
 
                 f.GetSize(out long fSize).ThrowIfFailure();
                 using var outFs = new FileStream(localPath, FileMode.Create, FileAccess.Write, FileShare.None);
@@ -2302,7 +2310,7 @@ namespace StormSwitchBox.Services
                         string targetFile = Path.GetFullPath(Path.Combine(outCheatsDir, Path.GetFileName(cheatFile)));
                         if (string.Equals(cheatFile, targetFile, StringComparison.OrdinalIgnoreCase))
                         {
-                            // Файл уже находится в целевой папке выходного каталога — пропускаем перезапись самого себя
+                            // Файл уже находится в целевой папке выходного каталога - пропускаем перезапись самого себя
                             continue;
                         }
 
@@ -2319,216 +2327,6 @@ namespace StormSwitchBox.Services
             }
         }
 
-        private async Task<List<string>> GenerateModAddonEntriesAsync(
-            ulong baseTitleId, 
-            string tempDir, 
-            bool hasRomFs, 
-            bool hasExeFs, 
-            int existingDlcCount,
-            Models.ProcessingTask task, 
-            CancellationToken ct)
-        {
-            var generatedNcas = new List<string>();
-            try
-            {
-                string toolsDir = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tools");
-                if (!Directory.Exists(toolsDir))
-                {
-                    string parentTools = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "tools");
-                    if (Directory.Exists(parentTools)) toolsDir = parentTools;
-                }
-
-                string hacpackExe = Path.Combine(toolsDir, "com.github.nozwock.yanu", "hacpack.exe");
-                if (!File.Exists(hacpackExe)) return generatedNcas;
-
-                string? keysFile = App.Settings.Current.KeysPath;
-                if (string.IsNullOrEmpty(keysFile) || !File.Exists(keysFile))
-                {
-                    string userKeys = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "prod.keys");
-                    if (File.Exists(userKeys)) keysFile = userKeys;
-                }
-                if (string.IsNullOrEmpty(keysFile) || !File.Exists(keysFile))
-                {
-                    string toolsKeys = Path.Combine(toolsDir, "keys", ".switch", "prod.keys");
-                    if (File.Exists(toolsKeys)) keysFile = toolsKeys;
-                }
-                if (string.IsNullOrEmpty(keysFile) || !File.Exists(keysFile))
-                {
-                    string nscbKeys = Path.Combine(toolsDir, "nscb", "ztools", "keys.txt");
-                    if (File.Exists(nscbKeys)) keysFile = nscbKeys;
-                }
-
-                if (string.IsNullOrEmpty(keysFile) || !File.Exists(keysFile))
-                {
-                    App.Logger.Log("[ModAddon] Файл ключей не найден. Пропуск создания метаданных дополнений.", LogLevel.Warning);
-                    return generatedNcas;
-                }
-
-                string modTempDir = Path.Combine(tempDir, "mod_addon_gen");
-                Directory.CreateDirectory(modTempDir);
-
-                // Извлекаем или генерируем иконку для Control NCA (256x256 JPEG)
-                byte[]? iconBytes = task.CustomMetadata?.CustomIconBytes ?? task.CustomMetadata?.OriginalIconBytes;
-                if (iconBytes == null || iconBytes.Length == 0)
-                {
-                    try
-                    {
-                        using var bmp = new System.Drawing.Bitmap(256, 256);
-                        using (var g = System.Drawing.Graphics.FromImage(bmp))
-                        {
-                            g.Clear(System.Drawing.Color.FromArgb(30, 130, 230));
-                            using var font = new System.Drawing.Font("Arial", 28, System.Drawing.FontStyle.Bold);
-                            using var brush = new System.Drawing.SolidBrush(System.Drawing.Color.White);
-                            g.DrawString("MOD", font, brush, 75, 105);
-                        }
-                        using var ms = new MemoryStream();
-                        bmp.Save(ms, System.Drawing.Imaging.ImageFormat.Jpeg);
-                        iconBytes = ms.ToArray();
-                    }
-                    catch { }
-                }
-                if (iconBytes != null && iconBytes.Length > 0)
-                {
-                    iconBytes = SmartShrinkService.OptimizeSwitchIconJpeg(iconBytes);
-                }
-
-                ulong baseTitleIdClean = baseTitleId & ~0xFFFUL;
-                int currentDlcIdx = existingDlcCount + 1;
-
-                if (hasRomFs)
-                {
-                    ulong modTid = baseTitleIdClean | 0x1000 | (ulong)currentDlcIdx;
-                    string modTidHex = modTid.ToString("X16");
-
-                    string romfsControlDir = Path.Combine(modTempDir, "romfs_mod_control");
-                    Directory.CreateDirectory(romfsControlDir);
-
-                    string romFsTitle = !string.IsNullOrWhiteSpace(task.ModNameRomFs) ? task.ModNameRomFs : "Модификации: RomFS";
-
-                    byte[] nacp = new byte[0x4000];
-                    byte[] nameBytes = System.Text.Encoding.UTF8.GetBytes(romFsTitle);
-                    byte[] devBytes = System.Text.Encoding.UTF8.GetBytes("STORM MODS");
-
-                    // Записываем имя и разработчика во все языковые слоты NACP (16 языков по 0x300 байт)
-                    for (int l = 0; l < 16; l++)
-                    {
-                        int titleOffset = l * 0x300;
-                        int devOffset = titleOffset + 0x200;
-                        Array.Copy(nameBytes, 0, nacp, titleOffset, Math.Min(nameBytes.Length, 0x200));
-                        Array.Copy(devBytes, 0, nacp, devOffset, Math.Min(devBytes.Length, 0x100));
-                    }
-                    File.WriteAllBytes(Path.Combine(romfsControlDir, "control.nacp"), nacp);
-
-                    if (iconBytes != null && iconBytes.Length > 0)
-                    {
-                        File.WriteAllBytes(Path.Combine(romfsControlDir, "icon_AmericanEnglish.dat"), iconBytes);
-                        File.WriteAllBytes(Path.Combine(romfsControlDir, "icon_Russian.dat"), iconBytes);
-                    }
-
-                    string dataRomfsDir = Path.Combine(modTempDir, "romfs_mod_data");
-                    Directory.CreateDirectory(dataRomfsDir);
-                    File.WriteAllText(Path.Combine(dataRomfsDir, "mod.txt"), "Storm Switch Box Integrated RomFS Mod");
-
-                    string outControlDir = Path.Combine(modTempDir, "out_romfs_control");
-                    string outDataDir = Path.Combine(modTempDir, "out_romfs_data");
-                    string outMetaDir = Path.Combine(modTempDir, "out_romfs_meta");
-                    Directory.CreateDirectory(outControlDir);
-                    Directory.CreateDirectory(outDataDir);
-                    Directory.CreateDirectory(outMetaDir);
-
-                    // 1. Control NCA
-                    await ExternalProcessRunner.RunAsync(hacpackExe, $"-k \"{keysFile}\" --type nca --ncatype control --titleid {modTidHex} --romfsdir \"{romfsControlDir}\" -o \"{outControlDir}\"", modTempDir, task, ct);
-                    // 2. PublicData NCA
-                    await ExternalProcessRunner.RunAsync(hacpackExe, $"-k \"{keysFile}\" --type nca --ncatype publicdata --titleid {modTidHex} --romfsdir \"{dataRomfsDir}\" -o \"{outDataDir}\"", modTempDir, task, ct);
-
-                    var controlNcas = Directory.GetFiles(outControlDir, "*.nca");
-                    var dataNcas = Directory.GetFiles(outDataDir, "*.nca");
-
-                    if (controlNcas.Length > 0 && dataNcas.Length > 0)
-                    {
-                        string controlNca = controlNcas[0];
-                        string publicDataNca = dataNcas[0];
-
-                        // 3. Addon CNMT NCA
-                        await ExternalProcessRunner.RunAsync(hacpackExe, $"-k \"{keysFile}\" --type nca --ncatype meta --titletype addon --titleid {modTidHex} --titleversion 0x0 --publicdatanca \"{publicDataNca}\" --controlnca \"{controlNca}\" -o \"{outMetaDir}\"", modTempDir, task, ct);
-                        
-                        generatedNcas.Add(controlNca);
-                        generatedNcas.Add(publicDataNca);
-                        generatedNcas.AddRange(Directory.GetFiles(outMetaDir, "*.nca"));
-                    }
-
-                    currentDlcIdx++;
-                }
-
-                if (hasExeFs)
-                {
-                    ulong modTid = baseTitleIdClean | 0x1000 | (ulong)currentDlcIdx;
-                    string modTidHex = modTid.ToString("X16");
-
-                    string exefsControlDir = Path.Combine(modTempDir, "exefs_mod_control");
-                    Directory.CreateDirectory(exefsControlDir);
-
-                    string exeFsTitle = !string.IsNullOrWhiteSpace(task.ModNameExeFs) ? task.ModNameExeFs : "Модификации: ExeFS";
-
-                    byte[] nacp = new byte[0x4000];
-                    byte[] nameBytes = System.Text.Encoding.UTF8.GetBytes(exeFsTitle);
-                    byte[] devBytes = System.Text.Encoding.UTF8.GetBytes("STORM MODS");
-
-                    for (int l = 0; l < 16; l++)
-                    {
-                        int titleOffset = l * 0x300;
-                        int devOffset = titleOffset + 0x200;
-                        Array.Copy(nameBytes, 0, nacp, titleOffset, Math.Min(nameBytes.Length, 0x200));
-                        Array.Copy(devBytes, 0, nacp, devOffset, Math.Min(devBytes.Length, 0x100));
-                    }
-                    File.WriteAllBytes(Path.Combine(exefsControlDir, "control.nacp"), nacp);
-
-                    if (iconBytes != null && iconBytes.Length > 0)
-                    {
-                        File.WriteAllBytes(Path.Combine(exefsControlDir, "icon_AmericanEnglish.dat"), iconBytes);
-                        File.WriteAllBytes(Path.Combine(exefsControlDir, "icon_Russian.dat"), iconBytes);
-                    }
-
-                    string dataRomfsDir = Path.Combine(modTempDir, "exefs_mod_data");
-                    Directory.CreateDirectory(dataRomfsDir);
-                    File.WriteAllText(Path.Combine(dataRomfsDir, "mod.txt"), "Storm Switch Box Integrated ExeFS Mod");
-
-                    string outControlDir = Path.Combine(modTempDir, "out_exefs_control");
-                    string outDataDir = Path.Combine(modTempDir, "out_exefs_data");
-                    string outMetaDir = Path.Combine(modTempDir, "out_exefs_meta");
-                    Directory.CreateDirectory(outControlDir);
-                    Directory.CreateDirectory(outDataDir);
-                    Directory.CreateDirectory(outMetaDir);
-
-                    // 1. Control NCA
-                    await ExternalProcessRunner.RunAsync(hacpackExe, $"-k \"{keysFile}\" --type nca --ncatype control --titleid {modTidHex} --romfsdir \"{exefsControlDir}\" -o \"{outControlDir}\"", modTempDir, task, ct);
-                    // 2. PublicData NCA
-                    await ExternalProcessRunner.RunAsync(hacpackExe, $"-k \"{keysFile}\" --type nca --ncatype publicdata --titleid {modTidHex} --romfsdir \"{dataRomfsDir}\" -o \"{outDataDir}\"", modTempDir, task, ct);
-
-                    var controlNcas = Directory.GetFiles(outControlDir, "*.nca");
-                    var dataNcas = Directory.GetFiles(outDataDir, "*.nca");
-
-                    if (controlNcas.Length > 0 && dataNcas.Length > 0)
-                    {
-                        string controlNca = controlNcas[0];
-                        string publicDataNca = dataNcas[0];
-
-                        // 3. Addon CNMT NCA
-                        await ExternalProcessRunner.RunAsync(hacpackExe, $"-k \"{keysFile}\" --type nca --ncatype meta --titletype addon --titleid {modTidHex} --titleversion 0x0 --publicdatanca \"{publicDataNca}\" --controlnca \"{controlNca}\" -o \"{outMetaDir}\"", modTempDir, task, ct);
-                        
-                        generatedNcas.Add(controlNca);
-                        generatedNcas.Add(publicDataNca);
-                        generatedNcas.AddRange(Directory.GetFiles(outMetaDir, "*.nca"));
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                App.Logger.Log($"[ModAddon] Ошибка создания метаданных модификаций: {ex.Message}", Models.LogLevel.Warning);
-            }
-            return generatedNcas;
-        }
-
         public static HashSet<string> DetectDeltaNcasToExclude(List<string> nspPaths)
         {
             var deltaNcas = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -2538,7 +2336,7 @@ namespace StormSwitchBox.Services
                 try
                 {
                     using var chkStream = new FileStream(nspPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-                    var chkFs = new PartitionFileSystem(chkStream.AsStorage());
+                    using var chkFs = new PartitionFileSystem(chkStream.AsStorage());
 
                     SmartShrinkService.HarvestTicketsFromFileSystem(chkFs, App.Keys.CurrentKeyset);
                     var redundantEntries = SmartShrinkService.AnalyzeRedundantEntriesInFileSystem(chkFs, App.Keys.CurrentKeyset, true, out _, out _);
@@ -2555,7 +2353,8 @@ namespace StormSwitchBox.Services
                                 using var p = new LibHac.Fs.Path();
                                 p.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(ent.FullPath))).ThrowIfFailure();
                                 chkFs.OpenFile(ref fRef.Ref, in p, OpenMode.Read).ThrowIfFailure();
-                                using var sr = new StreamReader(fRef.Release().AsStream());
+                                using IFile fIFile = fRef.Release();
+                                using var sr = new StreamReader(fIFile.AsStream());
                                 string xml = sr.ReadToEnd();
                                 var matches = System.Text.RegularExpressions.Regex.Matches(xml, @"(?s)<Content>.*?<Type>DeltaFragment</Type>.*?<Id>([a-fA-F0-9]{32})</Id>.*?</Content>");
                                 foreach (System.Text.RegularExpressions.Match m in matches)

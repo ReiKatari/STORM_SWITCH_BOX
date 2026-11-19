@@ -64,9 +64,9 @@ namespace StormSwitchBox.Services
                     cardBg = ParseHexColor("#10121D");
                     cardSecBg = ParseHexColor("#191C2E");
                     cardBorder = ParseHexColor("#FF007F");
-                    textPrimary = ParseHexColor("#FCEE09");
+                    textPrimary = ParseHexColor("#F8FAFC");
                     textSecondary = ParseHexColor("#00F0FF");
-                    textTertiary = ParseHexColor("#8A95C0");
+                    textTertiary = ParseHexColor("#94A3B8");
                     break;
 
                 case "STORM FANTASY": // Королевское золото (#F59E0B на глубоком ночном фоне)
@@ -90,11 +90,11 @@ namespace StormSwitchBox.Services
                     break;
 
                 case "STORM MIDNIGHT":
-                default: // Аметистовая ночь (тёмно-фиолетовый фон, фиолетовый акцент)
-                    bg = ParseHexColor("#120F1D");
-                    cardBg = ParseHexColor("#1C172E");
-                    cardSecBg = ParseHexColor("#26203D");
-                    cardBorder = ParseHexColor("#3D305C");
+                default: // Аметистовая ночь (тёмно-фиолетовый фон #15112B, фиолетовый акцент #A855F7)
+                    bg = ParseHexColor("#15112B");
+                    cardBg = ParseHexColor("#1E183B");
+                    cardSecBg = ParseHexColor("#29214D");
+                    cardBorder = ParseHexColor("#453678");
                     textPrimary = ParseHexColor("#FFFFFF");
                     textSecondary = ParseHexColor("#C4B5FD");
                     textTertiary = ParseHexColor("#8B7AA8");
@@ -151,7 +151,7 @@ namespace StormSwitchBox.Services
                     "STORM CYBERPUNK" => ParseHexColor("#FF007F"),
                     "STORM FANTASY" => ParseHexColor("#F59E0B"),
                     "STORM WARHAMMER 40K" => ParseHexColor("#D4AF37"),
-                    _ => ParseHexColor("#8E44AD") // STORM MIDNIGHT
+                    _ => ParseHexColor("#A855F7") // STORM MIDNIGHT
                 };
             }
             else
@@ -253,7 +253,7 @@ namespace StormSwitchBox.Services
                 }
 
                 // Асинхронно подтверждаем обновление через 1 кадр на DispatcherQueue для 100% плавного и моментального изменения
-                App.RunOnUI(async () =>
+                _ = App.RunOnUIAsync(async () =>
                 {
                     await Task.Delay(16);
                     root.RequestedTheme = targetTheme;

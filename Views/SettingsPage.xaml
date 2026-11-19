@@ -317,12 +317,14 @@
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
-                            <Border Width="96" Height="96" CornerRadius="12" Background="Transparent" Margin="0,0,24,0" VerticalAlignment="Top">
-                                <Image Source="ms-appx:///Assets/logo.png" Stretch="Uniform" Width="96" Height="96"/>
+                            <Border Width="96" Height="96" CornerRadius="16" Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}" BorderBrush="{ThemeResource SystemAccentColor}" BorderThickness="1.5" Margin="0,0,24,0" VerticalAlignment="Top">
+                                <Viewbox Width="52" Height="52" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                    <PathIcon Data="M12,2 L21,7 L21,17 L12,22 L3,17 L3,7 Z M12,4.3 L5.2,8.1 L12,11.9 L18.8,8.1 Z M5,10.2 L5,15.8 L11,19.2 L11,13.6 Z M19,10.2 L13,13.6 L13,19.2 L19,15.8 Z" Foreground="{ThemeResource SystemAccentColor}"/>
+                                </Viewbox>
                             </Border>
                             <StackPanel Grid.Column="1" Spacing="6">
                                 <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                                    <TextBlock x:Name="AppTitleVersionTxt" Text="STORM SWITCH BOX 6.9.3" FontWeight="Bold" FontSize="22"/>
+                                    <TextBlock x:Name="AppTitleVersionTxt" Text="STORM SWITCH BOX" FontWeight="Bold" FontSize="22"/>
                                     <Border Background="{ThemeResource SystemAccentColor}" CornerRadius="4" Padding="6,2" VerticalAlignment="Center">
                                         <TextBlock Text="WinUI 3 Native" Foreground="White" FontSize="11" FontWeight="Bold"/>
                                     </Border>

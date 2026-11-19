@@ -1,6 +1,6 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
-using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -8,13 +8,21 @@ using StormSwitchBox.Models;
 
 namespace StormSwitchBox.Services
 {
-    /// <summary>
-    /// Универсальный сервисный движок выполнения внешних консольных утилит (yanu-cli, squirrel, nsz, hacpack).
-    /// Гарантирует Юникод UTF-8, безопасную работу в фоновом режиме и сжатие логов через LogBatcher.
-    /// </summary>
     public static class ExternalProcessRunner
     {
-        public static async Task<int> RunAsync(
+        public static Task<int> RunAsync(
+            string fileName,
+            IReadOnlyList<string> argumentList,
+            string workingDirectory,
+            ProcessingTask? task,
+            CancellationToken cancellationToken,
+            string? isolatedUserProfile = null,
+            string? isolatedLocalAppData = null)
+        {
+            return RunCoreAsync(fileName, null, argumentList, workingDirectory, task, cancellationToken, isolatedUserProfile, isolatedLocalAppData);
+        }
+
+        public static Task<int> RunAsync(
             string fileName,
             string arguments,
             string workingDirectory,
@@ -24,12 +32,121 @@ namespace StormSwitchBox.Services
             string? isolatedLocalAppData = null,
             bool forceUtf8Console = false)
         {
-            var batcher = task != null ? new LogBatcher(task) : null;
+            return RunCoreAsync(fileName, arguments, null, workingDirectory, task, cancellationToken, isolatedUserProfile, isolatedLocalAppData);
+        }
 
+        public static async Task<(int ExitCode, string StdOut, string StdErr)> RunCaptureAsync(
+            string fileName,
+            IReadOnlyList<string>? argumentList,
+            string? rawArguments,
+            string workingDirectory,
+            CancellationToken cancellationToken)
+        {
+            var psi = CreateBaseStartInfo(fileName, rawArguments, argumentList, workingDirectory, null, null);
+            var stdOut = new StringBuilder();
+            var stdErr = new StringBuilder();
+
+            using var process = new Process { StartInfo = psi };
+            process.OutputDataReceived += (_, e) => { if (e.Data != null) lock (stdOut) stdOut.AppendLine(e.Data); };
+            process.ErrorDataReceived += (_, e) => { if (e.Data != null) lock (stdErr) stdErr.AppendLine(e.Data); };
+
+            process.Start();
+            int pid = process.Id;
+            TryLowerPriority(process);
+            JobObjectManager.AddProcess(process);
+            try { process.StandardInput.Close(); } catch { }
+
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
+
+            try
+            {
+                await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+                return (process.ExitCode, stdOut.ToString(), stdErr.ToString());
+            }
+            catch (OperationCanceledException)
+            {
+                TryKillTree(process);
+                throw;
+            }
+            finally
+            {
+                TryKillIfStillRunningOnCancel(process, cancellationToken);
+                JobObjectManager.UnregisterProcess(pid);
+            }
+        }
+
+        private static async Task<int> RunCoreAsync(
+            string fileName,
+            string? arguments,
+            IReadOnlyList<string>? argumentList,
+            string workingDirectory,
+            ProcessingTask? task,
+            CancellationToken cancellationToken,
+            string? isolatedUserProfile,
+            string? isolatedLocalAppData)
+        {
+            using var batcher = task != null ? new LogBatcher(task) : null;
+            var psi = CreateBaseStartInfo(fileName, arguments, argumentList, workingDirectory, isolatedUserProfile, isolatedLocalAppData);
+
+            using var process = new Process { StartInfo = psi };
+            DataReceivedEventHandler handler = (_, e) =>
+            {
+                if (e.Data != null && batcher != null)
+                {
+                    string line = e.Data.TrimEnd('\r', '\n');
+                    if (line.Contains("[tqdm]", StringComparison.Ordinal) ||
+                        line.Contains("100%|", StringComparison.Ordinal) ||
+                        line.StartsWith("[WARN]: Failed to match key", StringComparison.Ordinal))
+                        return;
+                    batcher.AppendLine(line);
+                }
+            };
+
+            process.OutputDataReceived += handler;
+            process.ErrorDataReceived += handler;
+
+            process.Start();
+            int pid = process.Id;
+            TryLowerPriority(process);
+            JobObjectManager.AddProcess(process);
+            try { process.StandardInput.Close(); } catch { }
+
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
+
+            try
+            {
+                await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+                return process.ExitCode;
+            }
+            catch (OperationCanceledException)
+            {
+                TryKillTree(process);
+                throw;
+            }
+            finally
+            {
+                TryKillIfStillRunningOnCancel(process, cancellationToken);
+                JobObjectManager.UnregisterProcess(pid);
+                batcher?.Complete();
+            }
+        }
+
+        private static ProcessStartInfo CreateBaseStartInfo(
+            string fileName,
+            string? arguments,
+            IReadOnlyList<string>? argumentList,
+            string workingDirectory,
+            string? isolatedUserProfile,
+            string? isolatedLocalAppData)
+        {
             var psi = new ProcessStartInfo
             {
-                WorkingDirectory = workingDirectory,
+                FileName = fileName,
+                WorkingDirectory = string.IsNullOrWhiteSpace(workingDirectory) ? AppContext.BaseDirectory : workingDirectory,
                 UseShellExecute = false,
+                CreateNoWindow = true,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 RedirectStandardInput = true,
@@ -37,20 +154,16 @@ namespace StormSwitchBox.Services
                 StandardErrorEncoding = Encoding.UTF8
             };
 
-            if (forceUtf8Console)
+            if (argumentList != null)
             {
-                psi.FileName = "cmd.exe";
-                psi.Arguments = $"/c \"chcp 65001 >nul && \"{fileName}\" {arguments}\"";
-                psi.CreateNoWindow = true;
+                foreach (var arg in argumentList)
+                    psi.ArgumentList.Add(arg);
             }
-            else
+            else if (!string.IsNullOrEmpty(arguments))
             {
-                psi.FileName = fileName;
                 psi.Arguments = arguments;
-                psi.CreateNoWindow = true;
             }
 
-            // Гарантия Юникода для Python и утилит (включая PyInstaller-замороженные .exe)
             psi.EnvironmentVariables["PYTHONIOENCODING"] = "utf-8:replace";
             psi.EnvironmentVariables["PYTHONUTF8"] = "1";
             psi.EnvironmentVariables["PYTHONLEGACYWINDOWSSTDIO"] = "0";
@@ -62,39 +175,33 @@ namespace StormSwitchBox.Services
             if (!string.IsNullOrEmpty(isolatedLocalAppData))
                 psi.EnvironmentVariables["LOCALAPPDATA"] = isolatedLocalAppData;
 
-            using var process = new Process { StartInfo = psi };
+            return psi;
+        }
 
-            DataReceivedEventHandler handler = (s, e) =>
+        private static void TryLowerPriority(Process process)
+        {
+            try
             {
-                if (e.Data != null && batcher != null)
-                {
-                    string line = e.Data.TrimEnd('\r', '\n');
-                    // Подавляем спам прогресс-баров (tqdm) и некритичных предупреждений о неиспользуемых ключах hacpack
-                    if (line.Contains("[tqdm]") || line.Contains("100%|██████████") || line.StartsWith("[WARN]: Failed to match key")) return;
-                    batcher.AppendLine(line);
-                }
-            };
-
-            process.OutputDataReceived += handler;
-            process.ErrorDataReceived += handler;
-
-            process.Start();
-            JobObjectManager.AddProcess(process);
-            process.StandardInput.Close(); // Закрываем stdin чтобы процесс не ждал ввода
-            process.BeginOutputReadLine();
-            process.BeginErrorReadLine();
-
-            using (cancellationToken.Register(() =>
-            {
-                try { if (!process.HasExited) process.Kill(true); } catch { }
-            }))
-            {
-                await process.WaitForExitAsync(cancellationToken);
+                if (!process.HasExited)
+                    process.PriorityClass = ProcessPriorityClass.BelowNormal;
             }
+            catch { }
+        }
 
-            batcher?.Complete();
+        private static void TryKillIfStillRunningOnCancel(Process process, CancellationToken ct)
+        {
+            if (ct.IsCancellationRequested)
+                TryKillTree(process);
+        }
 
-            return process.ExitCode;
+        private static void TryKillTree(Process process)
+        {
+            try
+            {
+                if (!process.HasExited)
+                    process.Kill(entireProcessTree: true);
+            }
+            catch { }
         }
     }
 }

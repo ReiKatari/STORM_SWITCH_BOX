@@ -129,7 +129,7 @@ namespace StormSwitchBox.Core.NSZ
 
 
         // Архитектура многопоточного чтения и кэширования
-        private readonly LruBlockCache _blockCache = new LruBlockCache(256); // кэш на 256 блоков (обычно ~4MB)
+        private readonly LruBlockCache _blockCache = new LruBlockCache(32); // кэш на 32 блока (~32MB макс. при 1MB блоках)
         private readonly object _baseStorageLock = new object(); // защита потокобезопасности при чтении из базового стораджа
 
         public Stream? TempSolidStream => _tempSolidStream;
@@ -279,8 +279,6 @@ namespace StormSwitchBox.Core.NSZ
             byte[] hashTypeArr = new byte[4];
             byte[] encTypeArr = new byte[4];
 
-            Console.WriteLine($"[StormNczStorage Debug] Initialize: isHeaderUncompressed={isHeaderUncompressed}, keysetIsNull={_keyset == null}");
-
             string? ncaRightsIdHex = null;
             string? ncaUniqueId = null;
             byte[]? decryptedHeader = null;
@@ -290,97 +288,93 @@ namespace StormSwitchBox.Core.NSZ
                 {
                     byte[] headerEncrypted = new byte[0xC00];
                     _baseStorage.Read(0, headerEncrypted).ThrowIfFailure();
-                    
+
                     decryptedHeader = new byte[0xC00];
                     if (TryDecryptNcaHeader(headerEncrypted, decryptedHeader, _keyset))
                     {
                         byte[] rightsId = new byte[16];
-                    string magicStr = System.Text.Encoding.ASCII.GetString(decryptedHeader, 0x200, 4);
-                    Console.WriteLine($"[StormNczStorage Debug] Decrypted Header Magic: '{magicStr}' (Hex: {BitConverter.ToString(decryptedHeader, 0x200, 4)})");
-                    Array.Copy(decryptedHeader, 0x230, rightsId, 0, 16);
-                    bool hasRightsId = false;
-                    for (int j = 0; j < 16; j++) if (rightsId[j] != 0) { hasRightsId = true; break; }
-                    if (hasRightsId)
-                    {
-                        ncaRightsIdHex = BitConverter.ToString(rightsId).Replace("-", "").ToLowerInvariant();
-                        Console.WriteLine($"[StormNczStorage Debug] Found RightsId in NCA header: {ncaRightsIdHex}");
-                    }
-                    
-                    if (ncaRightsIdHex != null)
-                    {
-                        ncaUniqueId = ncaRightsIdHex;
-                    }
-                    else
-                    {
-                        using (var sha = System.Security.Cryptography.SHA256.Create())
+                        Array.Copy(decryptedHeader, 0x230, rightsId, 0, 16);
+                        bool hasRightsId = false;
+                        for (int j = 0; j < 16; j++) if (rightsId[j] != 0) { hasRightsId = true; break; }
+                        if (hasRightsId)
                         {
-                            byte[] hash = sha.ComputeHash(decryptedHeader, 0, 0x200);
-                            ncaUniqueId = BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
+                            ncaRightsIdHex = BitConverter.ToString(rightsId).Replace("-", "").ToLowerInvariant();
                         }
-                    }
-                    
-                    for (int idx = 0; idx < 4; idx++)
-                    {
-                        uint startOffsetUnits = BitConverter.ToUInt32(decryptedHeader, 0x240 + idx * 16);
-                        uint endOffsetUnits = BitConverter.ToUInt32(decryptedHeader, 0x240 + idx * 16 + 4);
-                        if (startOffsetUnits != endOffsetUnits)
+
+                        if (ncaRightsIdHex != null)
                         {
-                            byte[] fsHeader = new byte[0x200];
-                            Array.Copy(decryptedHeader, 0x400 + idx * 0x200, fsHeader, 0, 0x200);
-                            
-                            long skip = 0;
-                            byte hashType = fsHeader[0x03];
-                            byte encType = fsHeader[0x04];
-                            
-                            hashTypeArr[idx] = hashType;
-                            encTypeArr[idx] = encType;
-                            if (encType == 5 || encType == 6)
+                            ncaUniqueId = ncaRightsIdHex;
+                        }
+                        else
+                        {
+                            using (var sha = System.Security.Cryptography.SHA256.Create())
                             {
-                                if (hashType == 2 || hashType == 5)
-                                {
-                                    int layerCount = BitConverter.ToInt32(fsHeader, 0x2C);
-                                    if (layerCount > 0 && layerCount <= 5)
-                                    {
-                                        skip = BitConverter.ToInt64(fsHeader, 0x30 + (layerCount - 1) * 16);
-                                    }
-                                }
-                                else if (hashType == 3 || hashType == 6)
-                                {
-                                    int maxLayers = BitConverter.ToInt32(fsHeader, 0x14);
-                                    if (maxLayers >= 2 && maxLayers <= 7)
-                                    {
-                                        skip = BitConverter.ToInt64(fsHeader, 0x18 + (maxLayers - 2) * 24);
-                                    }
-                                }
-                            }
-                            
-                            long currentStartOffset = (long)startOffsetUnits * 0x200;
-                            Console.WriteLine($"[StormNczStorage Debug] Header Section {idx}: startOffsetUnits={startOffsetUnits}, startOffset={currentStartOffset}, endOffsetUnits={endOffsetUnits}");
-
-                            if (idx == 0) { skipBytes0 = skip; startOffset0 = currentStartOffset; }
-                            else if (idx == 1) { skipBytes1 = skip; startOffset1 = currentStartOffset; }
-                            else if (idx == 2) { skipBytes2 = skip; startOffset2 = currentStartOffset; }
-                            else if (idx == 3) { skipBytes3 = skip; startOffset3 = currentStartOffset; }
-
-                            ulong baseUpperIv = System.Buffers.Binary.BinaryPrimitives.ReadUInt64LittleEndian(new ReadOnlySpan<byte>(fsHeader, 0x140, 8));
-                            ushort sparseGen = BitConverter.ToUInt16(fsHeader, 0x170);
-                            bool isSparse = (sparseGen != 0);
-                            isSparseArr[idx] = isSparse;
-                            if (isSparse)
-                            {
-                                long sparsePhysicalOffset = BitConverter.ToInt64(fsHeader, 0x168);
-                                long bucketOffset = BitConverter.ToInt64(fsHeader, 0x148);
-                                long bucketSize = BitConverter.ToInt64(fsHeader, 0x150);
-                                
-                                sparsePhysOffsetArr[idx] = sparsePhysicalOffset;
-                                sparseBucketStartArr[idx] = sparsePhysicalOffset + bucketOffset;
-                                sparseBucketEndArr[idx] = sparseBucketStartArr[idx] + bucketSize;
-                                
-                                uint secureValue = (uint)(baseUpperIv >> 32);
-                                sparseUpperIvArr[idx] = ((ulong)secureValue << 32) | ((ulong)sparseGen << 16);
+                                byte[] hash = sha.ComputeHash(decryptedHeader, 0, 0x200);
+                                ncaUniqueId = BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
                             }
                         }
-                    }
+
+                        for (int idx = 0; idx < 4; idx++)
+                        {
+                            uint startOffsetUnits = BitConverter.ToUInt32(decryptedHeader, 0x240 + idx * 16);
+                            uint endOffsetUnits = BitConverter.ToUInt32(decryptedHeader, 0x240 + idx * 16 + 4);
+                            if (startOffsetUnits != endOffsetUnits)
+                            {
+                                byte[] fsHeader = new byte[0x200];
+                                Array.Copy(decryptedHeader, 0x400 + idx * 0x200, fsHeader, 0, 0x200);
+
+                                long skip = 0;
+                                byte hashType = fsHeader[0x03];
+                                byte encType = fsHeader[0x04];
+
+                                hashTypeArr[idx] = hashType;
+                                encTypeArr[idx] = encType;
+                                if (encType == 5 || encType == 6)
+                                {
+                                    if (hashType == 2 || hashType == 5)
+                                    {
+                                        int layerCount = BitConverter.ToInt32(fsHeader, 0x2C);
+                                        if (layerCount > 0 && layerCount <= 5)
+                                        {
+                                            skip = BitConverter.ToInt64(fsHeader, 0x30 + (layerCount - 1) * 16);
+                                        }
+                                    }
+                                    else if (hashType == 3 || hashType == 6)
+                                    {
+                                        int maxLayers = BitConverter.ToInt32(fsHeader, 0x14);
+                                        if (maxLayers >= 2 && maxLayers <= 7)
+                                        {
+                                            skip = BitConverter.ToInt64(fsHeader, 0x18 + (maxLayers - 2) * 24);
+                                        }
+                                    }
+                                }
+
+                                long currentStartOffset = (long)startOffsetUnits * 0x200;
+
+                                if (idx == 0) { skipBytes0 = skip; startOffset0 = currentStartOffset; }
+                                else if (idx == 1) { skipBytes1 = skip; startOffset1 = currentStartOffset; }
+                                else if (idx == 2) { skipBytes2 = skip; startOffset2 = currentStartOffset; }
+                                else if (idx == 3) { skipBytes3 = skip; startOffset3 = currentStartOffset; }
+
+                                ulong baseUpperIv = System.Buffers.Binary.BinaryPrimitives.ReadUInt64LittleEndian(new ReadOnlySpan<byte>(fsHeader, 0x140, 8));
+                                ushort sparseGen = BitConverter.ToUInt16(fsHeader, 0x170);
+                                bool isSparse = (sparseGen != 0);
+                                isSparseArr[idx] = isSparse;
+                                if (isSparse)
+                                {
+                                    long sparsePhysicalOffset = BitConverter.ToInt64(fsHeader, 0x168);
+                                    long bucketOffset = BitConverter.ToInt64(fsHeader, 0x148);
+                                    long bucketSize = BitConverter.ToInt64(fsHeader, 0x150);
+
+                                    sparsePhysOffsetArr[idx] = sparsePhysicalOffset;
+                                    sparseBucketStartArr[idx] = sparsePhysicalOffset + bucketOffset;
+                                    sparseBucketEndArr[idx] = sparseBucketStartArr[idx] + bucketSize;
+
+                                    uint secureValue = (uint)(baseUpperIv >> 32);
+                                    sparseUpperIvArr[idx] = ((ulong)secureValue << 32) | ((ulong)sparseGen << 16);
+                                }
+                            }
+                        }
                     }
                 }
                 catch { }
@@ -394,21 +388,24 @@ namespace StormSwitchBox.Core.NSZ
                     currentSolidOffset = 0x4000;
                 }
                 currentOffset += 8;
-                
+
                 byte[] countBytes = new byte[8];
-                _baseStorage.Read(currentOffset, countBytes);
+                _baseStorage.Read(currentOffset, countBytes).ThrowIfFailure();
                 long sectionCount = BitConverter.ToInt64(countBytes, 0);
+                if (sectionCount < 0 || sectionCount > 262144)
+                {
+                    throw new InvalidDataException($"Invalid NCZSECTN sectionCount: {sectionCount}");
+                }
                 currentOffset += 8;
-                
+
                 _baseStorage.GetSize(out long baseSizeLimit).ThrowIfFailure();
                 long currentPhysicalOffset = 0x4000;
                 for (int i = 0; i < sectionCount; i++)
                 {
                     if (currentOffset + 64 > baseSizeLimit) break;
                     byte[] sectionData = new byte[64];
-                    _baseStorage.Read(currentOffset, sectionData);
-                    Console.WriteLine($"[StormNczStorage Debug] Raw sectionData for i={i}: {BitConverter.ToString(sectionData).Replace("-","").ToLowerInvariant()}");
-                    
+                    _baseStorage.Read(currentOffset, sectionData).ThrowIfFailure();
+
                     NczSection section = new NczSection
                     {
                         Offset = BitConverter.ToInt64(sectionData, 0),
@@ -419,12 +416,10 @@ namespace StormSwitchBox.Core.NSZ
                         CryptoCounter = new byte[16],
                         SolidStreamOffset = currentSolidOffset
                     };
-                    
+
                     Array.Copy(sectionData, 32, section.CryptoKey, 0, 16);
                     Array.Copy(sectionData, 48, section.CryptoCounter, 0, 16);
-                    
 
-                    
                     long skip = 0;
                     int targetIdx = -1;
                     if (section.Offset == startOffset0) { skip = skipBytes0; targetIdx = 0; }
@@ -432,100 +427,62 @@ namespace StormSwitchBox.Core.NSZ
                     else if (section.Offset == startOffset2) { skip = skipBytes2; targetIdx = 2; }
                     else if (section.Offset == startOffset3) { skip = skipBytes3; targetIdx = 3; }
 
-                    byte[]? expectedKey = null;
-                    // TitleKey detection: use ncaRightsIdHex as primary signal
-                    // CryptoType 2 = old Storm TitleKey format, 3/4 = standard NSZ CTR/BKTR
-                    bool usesTitleKey = (ncaRightsIdHex != null) || (section.CryptoType == 2);
-                    
-                    if (usesTitleKey)
+                    // Never overwrite a non-zero CryptoKey already stored in NCZSECTN.
+                    // Also do not apply AES-CTR to CryptoType == 2 (XTS/passthrough).
+                    bool sectionKeyIsZero = StormNczCompressor.IsAllZero(section.CryptoKey);
+                    if (sectionKeyIsZero && (section.CryptoType == 3 || section.CryptoType == 4))
                     {
+                        byte[]? expectedKey = null;
                         if (ncaRightsIdHex != null)
                         {
-                            if (_titleKeys != null && _titleKeys.TryGetValue(ncaRightsIdHex, out expectedKey))
+                            if (_titleKeys == null || !_titleKeys.TryGetValue(ncaRightsIdHex, out expectedKey))
                             {
-                                // Found in passed titleKeys
-                            }
-                            else
-                            {
-                                int headerKeyGen = Math.Max((int)decryptedHeader[0x220], (int)decryptedHeader[0x206]);
+                                int headerKeyGen = decryptedHeader != null
+                                    ? Math.Max((int)decryptedHeader[0x220], (int)decryptedHeader[0x206])
+                                    : 0;
                                 expectedKey = GetTitleKeyFromKeysetHex(ncaRightsIdHex, _keyset, headerKeyGen);
                             }
-
-                            if (expectedKey == null && _titleKeys != null && _titleKeys.Count > 0)
+                        }
+                        else if (_keyset != null)
+                        {
+                            try
                             {
-                                expectedKey = _titleKeys.Values.First();
-                            }
+                                byte[] headerEncrypted = new byte[0xC00];
+                                _baseStorage.Read(0, headerEncrypted).ThrowIfFailure();
 
-                            // Eden direct dump TitleKey fallback:
-                            // If expectedKey is still null and ncaRightsIdHex is present (32 hex characters),
-                            // fall back to raw RightsId 16-byte value as the TitleKey and register in keyset.ExternalKeySet
-                            if (expectedKey == null && ncaRightsIdHex.Length == 32)
-                            {
-                                try
+                                byte[] decHdr = new byte[0xC00];
+                                if (TryDecryptNcaHeader(headerEncrypted, decHdr, _keyset))
                                 {
-                                    byte[] rIdBytes = Convert.FromHexString(ncaRightsIdHex);
-                                    if (rIdBytes.Length == 16 && !StormNczCompressor.IsAllZero(rIdBytes))
+                                    var nca = new LibHac.Tools.FsSystem.NcaUtils.Nca(_keyset, new MemoryStream(decHdr).AsStorage());
+                                    int keysetIndex = Math.Max(0, nca.Header.KeyGeneration - 1);
+                                    int keyAreaKeyIndex = nca.Header.KeyAreaKeyIndex;
+
+                                    if (keysetIndex >= 0 && keysetIndex < _keyset.KeyAreaKeys.Length &&
+                                        keyAreaKeyIndex >= 0 && keyAreaKeyIndex < 3)
                                     {
-                                        expectedKey = rIdBytes;
-                                        Services.KeysService.RegisterRightsIdFallback(_keyset, rIdBytes);
+                                        int keyOffset = 0x320;
+                                        byte[] areaKey = new byte[16];
+                                        ((ReadOnlySpan<byte>)_keyset.KeyAreaKeys[keysetIndex][keyAreaKeyIndex]).CopyTo(areaKey);
+
+                                        byte[] encryptedKey = new byte[16];
+                                        Array.Copy(decHdr, keyOffset, encryptedKey, 0, 16);
+                                        expectedKey = AesEcbDecrypt(encryptedKey, areaKey);
                                     }
                                 }
-                                catch { }
                             }
+                            catch { }
                         }
-                        else
+
+                        if (expectedKey != null && expectedKey.Length == 16 && !StormNczCompressor.IsAllZero(expectedKey))
                         {
-                            if (_titleKeys != null && _titleKeys.Count > 0)
-                            {
-                                expectedKey = _titleKeys.Values.First();
-                            }
-                        }
-                    }
-                    else if ((section.CryptoType == 2 || section.CryptoType == 3 || section.CryptoType == 4) && _keyset != null)
-                    {
-                        try
-                        {
-                            byte[] headerEncrypted = new byte[0xC00];
-                            _baseStorage.Read(0, headerEncrypted).ThrowIfFailure();
-                            
-                            decryptedHeader = new byte[0xC00];
-                            if (TryDecryptNcaHeader(headerEncrypted, decryptedHeader, _keyset))
-                            {
-                                var nca = new LibHac.Tools.FsSystem.NcaUtils.Nca(_keyset, new MemoryStream(decryptedHeader).AsStorage());
-                            
-                            int keysetIndex = Math.Max(0, nca.Header.KeyGeneration - 1);
-                            int keyAreaKeyIndex = nca.Header.KeyAreaKeyIndex;
-                            
-                            if (keysetIndex >= 0 && keysetIndex < _keyset.KeyAreaKeys.Length &&
-                                keyAreaKeyIndex >= 0 && keyAreaKeyIndex < 3)
-                            {
-                                int keyOffset = 0x320;
-                                byte[] areaKey = new byte[16];
-                                ((ReadOnlySpan<byte>)_keyset.KeyAreaKeys[keysetIndex][keyAreaKeyIndex]).CopyTo(areaKey);
-                                
-                                byte[] encryptedKey = new byte[16];
-                                Array.Copy(decryptedHeader, keyOffset, encryptedKey, 0, 16);
-                                expectedKey = AesEcbDecrypt(encryptedKey, areaKey);
-                            }
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            Console.WriteLine($"[StormNczStorage Debug] Error manually decrypting Key Area Key for Section offset {section.Offset}: {ex.Message}");
+                            Array.Copy(expectedKey, section.CryptoKey, 16);
                         }
                     }
 
-                    if (expectedKey != null)
-                    {
-                        Array.Copy(expectedKey, section.CryptoKey, 16);
-                    }
                     section.ExpectedKey = section.CryptoKey;
-                    Console.WriteLine($"[StormNczStorage Debug] Section {section.Offset}: CompressorKey/ExpectedKey={BitConverter.ToString(section.CryptoKey).Replace("-","").ToLowerInvariant()}");
-                    
                     section.SkipBytes = skip;
                     section.FsIndex = targetIdx != -1 ? targetIdx : i;
-                    Console.WriteLine($"[StormNczStorage Debug] Match section: section.Offset={section.Offset}, startOffset0={startOffset0}, startOffset1={startOffset1}, startOffset2={startOffset2}, startOffset3={startOffset3}, matched targetIdx={targetIdx}");
-                    
+
                     if (targetIdx != -1)
                     {
                         section.IsSparse = isSparseArr[targetIdx];
@@ -533,10 +490,7 @@ namespace StormSwitchBox.Core.NSZ
                         section.SparseBucketStart = sparseBucketStartArr[targetIdx];
                         section.SparseBucketEnd = sparseBucketEndArr[targetIdx];
                         section.SparseUpperIv = sparseUpperIvArr[targetIdx];
-                        
-                        // CryptoCounter из NCZSECTN (строка 368) уже содержит правильный IV,
-                        // записанный компрессором. Используем IV из NCA-заголовка ТОЛЬКО
-                        // как fallback, если NCZSECTN counter пуст (все нули).
+
                         if (decryptedHeader != null)
                         {
                             bool isNczCounterZero = true;
@@ -544,11 +498,9 @@ namespace StormSwitchBox.Core.NSZ
                             {
                                 if (section.CryptoCounter[ci] != 0) { isNczCounterZero = false; break; }
                             }
-                            
+
                             if (isNczCounterZero)
                             {
-                                // Fallback: пересчитать IV из NCA-заголовка
-                                Console.WriteLine($"[StormNczStorage Debug] Section {targetIdx}: NCZSECTN CryptoCounter is zero, reconstructing from NCA header");
                                 int hdrBase = 0x400 + targetIdx * 0x200;
                                 byte[] actualIv = new byte[16];
                                 for (int j = 0; j < 8; j++)
@@ -557,29 +509,23 @@ namespace StormSwitchBox.Core.NSZ
                                 }
                                 section.CryptoCounter = actualIv;
                             }
-                            else
-                            {
-                                Console.WriteLine($"[StormNczStorage Debug] Section {targetIdx}: Using CryptoCounter from NCZSECTN: {BitConverter.ToString(section.CryptoCounter).Replace("-","")}");
-                            }
                         }
                     }
-                    
 
-                    
                     _sections.Add(section);
                     long bytesInZstd = Math.Max(0, (section.Offset + section.Size) - Math.Max(section.Offset, 0x4000));
                     currentSolidOffset += bytesInZstd;
-                    
+
                     long sectionEnd = section.Offset + section.Size;
                     if (sectionEnd > calculatedNcaSize) calculatedNcaSize = sectionEnd;
-                    
+
                     currentOffset += 64;
                 }
 
                 // Сортируем секции по виртуальному Offset для правильного расчета PhysicalOffset последовательно
                 var physicalSortedSections = new List<NczSection>(_sections);
                 physicalSortedSections.Sort((a, b) => a.Offset.CompareTo(b.Offset));
-                
+
                 currentPhysicalOffset = 0x4000;
                 foreach (var section in physicalSortedSections)
                 {
@@ -590,11 +536,6 @@ namespace StormSwitchBox.Core.NSZ
                     section.PhysicalSize = pSize;
                     currentPhysicalOffset += pSize;
                 }
-                
-                foreach (var section in _sections)
-                {
-                    Console.WriteLine($"[StormNczStorage Debug] Section FsIndex={section.FsIndex}: Offset={section.Offset}, Size={section.Size}, SkipBytes={section.SkipBytes}, CryptoType={section.CryptoType}, PhysicalOffset={section.PhysicalOffset}, PhysicalSize={section.PhysicalSize}, IsSparse={section.IsSparse}, CryptoKey={BitConverter.ToString(section.CryptoKey).Replace("-","").ToLowerInvariant()}");
-                }
 
                 if (ncaUniqueId != null)
                 {
@@ -602,7 +543,7 @@ namespace StormSwitchBox.Core.NSZ
                     for (int sIdx = 0; sIdx < 4; sIdx++)
                     {
                         var s = _sections.Find(sec => sec.FsIndex == sIdx);
-                        if (s != null && s.CryptoKey != null && s.CryptoKey.Length == 16)
+                        if (s != null && s.CryptoKey != null && s.CryptoKey.Length == 16 && s.CryptoType != 2)
                         {
                             byte[] key = new byte[16];
                             Array.Copy(s.CryptoKey, key, 16);
@@ -618,7 +559,6 @@ namespace StormSwitchBox.Core.NSZ
                     {
                         StormNczCompressor.NcaKeysCache[ncaUniqueId] = cachedKeys;
                     }
-                    Console.WriteLine($"[StormNczStorage] Cached {_sections.Count} keys and IVs for NCA={ncaUniqueId}");
                 }
 
                 // Ищем NCZBLOCK динамически
@@ -698,9 +638,9 @@ namespace StormSwitchBox.Core.NSZ
                 currentOffset += 8; // Смещение сразу после "NCZBLOCK"
                 
                 byte[] blockHeaderInfo = new byte[16];
-                _baseStorage.Read(currentOffset, blockHeaderInfo);
+                _baseStorage.Read(currentOffset, blockHeaderInfo).ThrowIfFailure();
                 currentOffset += 16;
-                
+
                 _blockHeader = new NczBlockHeader
                 {
                     Version = blockHeaderInfo[0],
@@ -710,13 +650,21 @@ namespace StormSwitchBox.Core.NSZ
                     NumberOfBlocks = BitConverter.ToInt32(blockHeaderInfo, 4),
                     DecompressedSize = BitConverter.ToInt64(blockHeaderInfo, 8)
                 };
-                
+
+                if (_blockHeader.NumberOfBlocks < 0 || _blockHeader.NumberOfBlocks > 262144)
+                {
+                    throw new InvalidDataException($"Invalid NCZBLOCK NumberOfBlocks: {_blockHeader.NumberOfBlocks}");
+                }
+
                 // DecompressedSize stores only the body bytes AFTER the 0x4000 NCA header.
                 // The full virtual NCA size = header + body.
                 calculatedNcaSize = ncaHeaderSize + _blockHeader.DecompressedSize;
 
                 byte[] blockSizes = new byte[_blockHeader.NumberOfBlocks * 4];
-                _baseStorage.Read(currentOffset, blockSizes);
+                if (blockSizes.Length > 0)
+                {
+                    _baseStorage.Read(currentOffset, blockSizes).ThrowIfFailure();
+                }
                 currentOffset += blockSizes.Length;
 
                 long tempBlockOffset = currentOffset;
@@ -757,7 +705,7 @@ namespace StormSwitchBox.Core.NSZ
                     {
                         // Проверяем наличие валидного Zstd-магика перед запуском DecompressionStream
                         byte[] checkHeader = new byte[Math.Min(4, (int)decompressSize)];
-                        sourceStorage.Read(decompressOffset, checkHeader);
+                        sourceStorage.Read(decompressOffset, checkHeader).ThrowIfFailure();
                         bool hasZstdMagic = false;
                         if (checkHeader.Length >= 4)
                         {
@@ -824,22 +772,26 @@ namespace StormSwitchBox.Core.NSZ
                     int toRead = (int)Math.Min((long)remaining, ncaHeaderSize - currentOffset);
                     lock (_baseStorageLock)
                     {
-                        try
+                        var slice = destination.Slice(bytesRead, toRead);
+                        if (_isSolid && _ncaHeaderInSolidStream)
                         {
-                            var slice = destination.Slice(bytesRead, toRead);
-                            if (_isSolid && _ncaHeaderInSolidStream)
+                            long availHdr = Math.Max(0L, _tempSolidStream!.Length - currentOffset);
+                            int readHdr = (int)Math.Min(toRead, availHdr);
+                            if (readHdr > 0)
                             {
-                                _tempSolidStream!.Position = currentOffset;
-                                byte[] tempBuf = new byte[toRead];
-                                _tempSolidStream.Read(tempBuf, 0, toRead);
-                                tempBuf.AsSpan().CopyTo(slice);
+                                _tempSolidStream.Position = currentOffset;
+                                _tempSolidStream.ReadExactly(slice.Slice(0, readHdr));
                             }
-                            else
+                            if (readHdr < toRead)
                             {
-                                _baseStorage.Read(currentOffset, slice);
+                                slice.Slice(readHdr).Fill(0);
                             }
                         }
-                        catch (Exception) { }
+                        else
+                        {
+                            var hdrReadRes = _baseStorage.Read(currentOffset, slice);
+                            if (hdrReadRes.IsFailure()) return hdrReadRes;
+                        }
                     }
                     bytesRead += toRead;
                     currentOffset += toRead;
@@ -900,22 +852,12 @@ namespace StormSwitchBox.Core.NSZ
                         int toReadSolid = (int)Math.Min((long)remaining, Math.Min(dataRemainingInSection, availableInStream > 0 ? availableInStream : 0));
                         if (toReadSolid <= 0) break;
                         byte[] buf = new byte[toReadSolid];
-                        _tempSolidStream.Read(buf, 0, toReadSolid);
-                        
-                        if (targetSection != null && currentOffset == targetSection.Offset)
-                        {
-                            Console.WriteLine($"[Diagnostic] Section Offset={currentOffset}: Raw ZSTD bytes={BitConverter.ToString(buf, 0, Math.Min(16, buf.Length))}");
-                        }
-                        
+                        _tempSolidStream.ReadExactly(buf, 0, toReadSolid);
+
                         // Восстановление оригинального шифрования NCA (Re-encryption)
-                        if (targetSection != null && (targetSection.CryptoType == 2 || targetSection.CryptoType == 3 || targetSection.CryptoType == 4))
+                        if (targetSection != null && (targetSection.CryptoType == 3 || targetSection.CryptoType == 4))
                         {
                             EncryptSectionRegion(buf, 0, toReadSolid, currentOffset, targetSection);
-                        }
-                        
-                        if (targetSection != null && currentOffset == targetSection.Offset)
-                        {
-                            Console.WriteLine($"[Diagnostic] Section Offset={currentOffset}: Encrypted bytes={BitConverter.ToString(buf, 0, Math.Min(16, buf.Length))}");
                         }
                         
                         try
@@ -1003,15 +945,10 @@ namespace StormSwitchBox.Core.NSZ
                     {
                         if (compressedSize > 0)
                         {
-                            try
+                            var blockReadRes = _baseStorage.Read(compressedOffset, compressedData);
+                            if (blockReadRes.IsFailure())
                             {
-                                _baseStorage.Read(compressedOffset, compressedData);
-                            }
-                            catch (Exception)
-                            {
-                                // Файл физически усечен (truncated) и попытка чтения вышла за пределы физического FileStream.
-                                // Заполняем нулями, чтобы не крашить парсер.
-                                Array.Clear(compressedData, 0, compressedData.Length);
+                                return blockReadRes;
                             }
                         }
                     }
@@ -1076,20 +1013,10 @@ namespace StormSwitchBox.Core.NSZ
                 if (toReadFromBlock <= 0) break;
                 byte[] finalBuf = new byte[toReadFromBlock];
                 Array.Copy(decompressedBlock, (int)offsetInBlock, finalBuf, 0, toReadFromBlock);
-                
-                if (targetSection != null && currentOffset == targetSection.Offset)
-                {
-                    Console.WriteLine($"[Diagnostic] Block Offset={currentOffset}: Raw ZSTD bytes={BitConverter.ToString(finalBuf, 0, Math.Min(16, finalBuf.Length))}");
-                }
-                
-                if (targetSection != null && (targetSection.CryptoType == 2 || targetSection.CryptoType == 3 || targetSection.CryptoType == 4))
+
+                if (targetSection != null && (targetSection.CryptoType == 3 || targetSection.CryptoType == 4))
                 {
                     EncryptSectionRegion(finalBuf, 0, toReadFromBlock, currentOffset, targetSection);
-                }
-                
-                if (targetSection != null && currentOffset == targetSection.Offset)
-                {
-                    Console.WriteLine($"[Diagnostic] Block Offset={currentOffset}: Encrypted bytes={BitConverter.ToString(finalBuf, 0, Math.Min(16, finalBuf.Length))}");
                 }
                 
                 new Span<byte>(finalBuf, 0, toReadFromBlock).CopyTo(destination.Slice(bytesRead, toReadFromBlock));
@@ -1385,33 +1312,8 @@ namespace StormSwitchBox.Core.NSZ
 
             try
             {
-                using var fileStream = new FileStream(containerPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-                IStorage storage = fileStream.AsStorage();
-                PartitionFileSystem pfs;
-
-                bool isXci = containerPath.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) ||
-                             containerPath.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase);
-
-                if (isXci)
-                {
-                    storage.GetSize(out long storageSize).ThrowIfFailure();
-                    if (storageSize <= 0x10000) return false;
-
-                    var rootPfsStorage = new SubStorage(storage, 0x10000, storageSize - 0x10000);
-                    var rootPfs = new PartitionFileSystem(rootPfsStorage);
-
-                    using var secureFile = new UniqueRef<IFile>();
-                    using var securePath = new LibHac.Fs.Path();
-                    securePath.Initialize(new U8Span(Encoding.UTF8.GetBytes("/secure"))).ThrowIfFailure();
-                    if (rootPfs.OpenFile(ref secureFile.Ref, in securePath, OpenMode.Read).IsFailure())
-                        return false;
-
-                    pfs = new PartitionFileSystem(secureFile.Release().AsStorage());
-                }
-                else
-                {
-                    pfs = new PartitionFileSystem(storage);
-                }
+                using var handle = Services.SwitchContainerHandle.Open(containerPath);
+                var pfs = handle.FileSystem;
 
                 foreach (var entry in pfs.EnumerateEntries("/", "*.ncz"))
                 {
@@ -1423,7 +1325,8 @@ namespace StormSwitchBox.Core.NSZ
                     if (pfs.OpenFile(ref nczFile.Ref, in nczPath, OpenMode.Read).IsFailure())
                         continue;
 
-                    IStorage nczStorage = nczFile.Release().AsStorage();
+                    using IFile openedNcz = nczFile.Release();
+                    IStorage nczStorage = openedNcz.AsStorage();
                     byte[] sectnHdr = new byte[16];
                     if (nczStorage.Read(0x4000, sectnHdr).IsFailure())
                         continue;
@@ -1433,6 +1336,8 @@ namespace StormSwitchBox.Core.NSZ
                         continue;
 
                     long sectionCount = BitConverter.ToInt64(sectnHdr, 8);
+                    if (sectionCount < 0 || sectionCount > 262144)
+                        continue;
                     long blockHdrPos = 0x4010 + (sectionCount * 0x40);
 
                     if (entry.Size <= blockHdrPos)
@@ -1493,9 +1398,10 @@ namespace StormSwitchBox.Core.NSZ
                     }
                 }
 
-                byte[]? rawEncryptedKey = null;
+                byte[]? plaintextKey = null;
                 var effectiveKeySet = keyset ?? App.Keys?.CurrentKeyset;
 
+                // LibHac ExternalKeySet already stores decrypted (plaintext) 16-byte TitleKeys
                 if (effectiveKeySet?.ExternalKeySet != null && targetRightsIdHex.Length == 32)
                 {
                     try
@@ -1504,13 +1410,14 @@ namespace StormSwitchBox.Core.NSZ
                         var rId = new RightsId(rIdBytes);
                         if (effectiveKeySet.ExternalKeySet.Get(rId, out var accKey).IsSuccess())
                         {
-                            rawEncryptedKey = accKey.Value.ToArray();
+                            plaintextKey = accKey.Value.ToArray();
                         }
                     }
                     catch { }
                 }
 
-                if (rawEncryptedKey == null)
+                // title.keys files also store decrypted (plaintext) 16-byte TitleKeys
+                if (plaintextKey == null)
                 {
                     string titleKeysPath1 = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "title.keys");
                     string titleKeysPath2 = "title.keys"; // Current directory fallback
@@ -1543,81 +1450,31 @@ namespace StormSwitchBox.Core.NSZ
                                 {
                                     string rightsIdStr = parts[0].Trim().ToLowerInvariant();
                                     string keyStr = parts[1].Trim().ToLowerInvariant();
-                                    
-                                    if (rightsIdStr == targetRightsIdHex)
+
+                                    if (rightsIdStr == targetRightsIdHex && keyStr.Length >= 32)
                                     {
-                                        rawEncryptedKey = Convert.FromHexString(keyStr);
+                                        plaintextKey = Convert.FromHexString(keyStr.Substring(0, 32));
                                         break;
                                     }
                                 }
                             }
                         }
-                        if (rawEncryptedKey != null) break;
+                        if (plaintextKey != null) break;
                     }
                 }
 
-                if (rawEncryptedKey == null || rawEncryptedKey.Length < 16)
+                if (plaintextKey == null || plaintextKey.Length < 16 || StormNczCompressor.IsAllZero(plaintextKey.AsSpan(0, 16)))
                 {
                     return null;
                 }
 
-                // AES-128-ECB Decryption of TitleKeyBlock via TitleKek[masterKeyRev] for AES-CTR
-                byte[] rIdB = Convert.FromHexString(targetRightsIdHex);
-                if (keyGen == 0 && rIdB.Length == 16)
-                {
-                    keyGen = rIdB[15];
-                }
-                int masterKeyRev = Math.Max(0, keyGen - 1);
-
-                byte[]? titleKek = null;
-                if (effectiveKeySet != null)
-                {
-                    if (effectiveKeySet.TitleKeks != null && masterKeyRev < effectiveKeySet.TitleKeks.Length && effectiveKeySet.TitleKeks[masterKeyRev].DataRo.Length >= 16)
-                    {
-                        var tkCandidate = effectiveKeySet.TitleKeks[masterKeyRev].DataRo.ToArray();
-                        if (tkCandidate != null && tkCandidate.Length == 16 && (tkCandidate[0] != 0 || tkCandidate[1] != 0))
-                        {
-                            titleKek = tkCandidate;
-                        }
-                    }
-
-                    if (titleKek == null && effectiveKeySet.MasterKeys != null && masterKeyRev < effectiveKeySet.MasterKeys.Length && effectiveKeySet.MasterKeys[masterKeyRev].DataRo.Length >= 16)
-                    {
-                        byte[] mKey = effectiveKeySet.MasterKeys[masterKeyRev].DataRo.ToArray();
-                        if (mKey != null && mKey.Length == 16 && (mKey[0] != 0 || mKey[1] != 0))
-                        {
-                            byte[] titleKekSource = Convert.FromHexString("1EDC7B3B60E6B4D878B81715985E629B");
-                            using var aesKek = System.Security.Cryptography.Aes.Create();
-                            aesKek.Mode = System.Security.Cryptography.CipherMode.ECB;
-                            aesKek.Padding = System.Security.Cryptography.PaddingMode.None;
-                            aesKek.Key = mKey;
-                            using var decKek = aesKek.CreateDecryptor();
-                            titleKek = decKek.TransformFinalBlock(titleKekSource, 0, 16);
-                        }
-                    }
-                }
-
-                byte[] decryptedKey = new byte[16];
-                if (titleKek != null && titleKek.Length == 16 && (titleKek[0] != 0 || titleKek[1] != 0))
-                {
-                    using var aes = System.Security.Cryptography.Aes.Create();
-                    aes.Mode = System.Security.Cryptography.CipherMode.ECB;
-                    aes.Padding = System.Security.Cryptography.PaddingMode.None;
-                    aes.Key = titleKek;
-                    using var dec = aes.CreateDecryptor();
-                    dec.TransformBlock(rawEncryptedKey, 0, 16, decryptedKey, 0);
-                }
-                else
-                {
-                    Array.Copy(rawEncryptedKey, 0, decryptedKey, 0, 16);
-                }
-
+                byte[] resolvedKey = plaintextKey.Length == 16 ? plaintextKey : plaintextKey.AsSpan(0, 16).ToArray();
                 lock (StormNczCompressor.TitleKeysCache)
                 {
-                    StormNczCompressor.TitleKeysCache[targetRightsIdHex] = decryptedKey;
+                    StormNczCompressor.TitleKeysCache[targetRightsIdHex] = resolvedKey;
                 }
 
-                return decryptedKey;
+                return resolvedKey;
             }
             catch { }
             return null;

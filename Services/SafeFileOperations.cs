@@ -42,7 +42,7 @@ namespace StormSwitchBox.Services
             bool isCrossVolume = !string.IsNullOrEmpty(srcRoot) && !string.IsNullOrEmpty(destRoot) && 
                                  !string.Equals(srcRoot, destRoot, StringComparison.OrdinalIgnoreCase);
 
-            // 1. Попытка перемещения или замены (для разных дисков — надёжное копирование с заменой)
+            // 1. Попытка перемещения или замены (для разных дисков - атомарное копирование через .storm_tmp)
             for (int attempt = 1; attempt <= 12; attempt++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -50,15 +50,31 @@ namespace StormSwitchBox.Services
                 {
                     if (isCrossVolume)
                     {
-                        if (File.Exists(destinationPath))
+                        string tmpDest = destinationPath + ".storm_tmp";
+                        try
                         {
-                            ResetFileAttributesSafe(destinationPath);
-                            try { File.Delete(destinationPath); } catch { }
+                            if (File.Exists(tmpDest))
+                            {
+                                ResetFileAttributesSafe(tmpDest);
+                                File.Delete(tmpDest);
+                            }
+                            await CopyFileAsync(sourcePath, tmpDest, bufferSize: 4 * 1024 * 1024, cancellationToken: cancellationToken).ConfigureAwait(false);
+                            ResetFileAttributesSafe(tmpDest);
+                            if (File.Exists(destinationPath))
+                            {
+                                ResetFileAttributesSafe(destinationPath);
+                            }
+                            File.Move(tmpDest, destinationPath, overwrite: true);
+                            SafeDeleteFile(sourcePath);
+                            return destinationPath;
                         }
-                        await CopyFileAsync(sourcePath, destinationPath, bufferSize: 4 * 1024 * 1024, cancellationToken: cancellationToken);
-                        ResetFileAttributesSafe(destinationPath);
-                        SafeDeleteFile(sourcePath);
-                        return destinationPath;
+                        finally
+                        {
+                            if (File.Exists(tmpDest))
+                            {
+                                try { File.Delete(tmpDest); } catch { }
+                            }
+                        }
                     }
                     else
                     {
@@ -78,36 +94,26 @@ namespace StormSwitchBox.Services
                 {
                     if (attempt < 12)
                     {
-                        if (attempt % 3 == 0)
-                        {
-                            GC.Collect();
-                            GC.WaitForPendingFinalizers();
-                        }
-                        await Task.Delay(250, cancellationToken);
+                        await Task.Delay(250, cancellationToken).ConfigureAwait(false);
                     }
                 }
                 catch (UnauthorizedAccessException)
                 {
                     ResetFileAttributesSafe(destinationPath);
-                    if (File.Exists(destinationPath))
-                    {
-                        try { File.Delete(destinationPath); } catch { }
-                    }
                     if (attempt < 12)
                     {
-                        if (attempt % 3 == 0)
-                        {
-                            GC.Collect();
-                            GC.WaitForPendingFinalizers();
-                        }
-                        await Task.Delay(300, cancellationToken);
+                        await Task.Delay(300, cancellationToken).ConfigureAwait(false);
                     }
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
                 }
                 catch (Exception)
                 {
                     if (attempt < 12)
                     {
-                        await Task.Delay(300, cancellationToken);
+                        await Task.Delay(300, cancellationToken).ConfigureAwait(false);
                     }
                 }
             }
@@ -136,8 +142,17 @@ namespace StormSwitchBox.Services
                         {
                             if (isCrossVolume)
                             {
-                                File.Copy(sourcePath, destinationPath, overwrite: true);
-                                SafeDeleteFile(sourcePath);
+                                string tmpDest = destinationPath + ".storm_tmp";
+                                try
+                                {
+                                    await CopyFileAsync(sourcePath, tmpDest, bufferSize: 4 * 1024 * 1024, cancellationToken: cancellationToken).ConfigureAwait(false);
+                                    File.Move(tmpDest, destinationPath, overwrite: true);
+                                    SafeDeleteFile(sourcePath);
+                                }
+                                finally
+                                {
+                                    if (File.Exists(tmpDest)) try { File.Delete(tmpDest); } catch { }
+                                }
                             }
                             else
                             {
@@ -146,25 +161,33 @@ namespace StormSwitchBox.Services
                             SafeDeleteFile(tempBackup);
                             return destinationPath;
                         }
+                        catch (OperationCanceledException)
+                        {
+                            try { if (!File.Exists(destinationPath)) File.Move(tempBackup, destinationPath); } catch { }
+                            throw;
+                        }
                         catch (Exception)
                         {
                             if (mAttempt < 4)
                             {
-                                await Task.Delay(250, cancellationToken);
+                                await Task.Delay(250, cancellationToken).ConfigureAwait(false);
                             }
                         }
                     }
 
-                    // Если перемещение нового файла не удалось, пробуем скопировать
+                    // Если перемещение нового файла не удалось, пробуем копировать через .storm_tmp
+                    string tmpCopy = destinationPath + ".storm_tmp";
                     try
                     {
-                        File.Copy(sourcePath, destinationPath, overwrite: true);
+                        await CopyFileAsync(sourcePath, tmpCopy, bufferSize: 4 * 1024 * 1024, cancellationToken: cancellationToken).ConfigureAwait(false);
+                        File.Move(tmpCopy, destinationPath, overwrite: true);
                         SafeDeleteFile(sourcePath);
                         SafeDeleteFile(tempBackup);
                         return destinationPath;
                     }
                     catch
                     {
+                        if (File.Exists(tmpCopy)) try { File.Delete(tmpCopy); } catch { }
                         // Восстанавливаем бэкап при неудаче
                         try { if (!File.Exists(destinationPath)) File.Move(tempBackup, destinationPath); } catch { }
                     }
@@ -187,8 +210,17 @@ namespace StormSwitchBox.Services
             {
                 if (isCrossVolume)
                 {
-                    File.Copy(sourcePath, altPath, overwrite: true);
-                    SafeDeleteFile(sourcePath);
+                    string tmpAlt = altPath + ".storm_tmp";
+                    try
+                    {
+                        await CopyFileAsync(sourcePath, tmpAlt, bufferSize: 4 * 1024 * 1024, cancellationToken: cancellationToken).ConfigureAwait(false);
+                        File.Move(tmpAlt, altPath, overwrite: true);
+                        SafeDeleteFile(sourcePath);
+                    }
+                    finally
+                    {
+                        if (File.Exists(tmpAlt)) try { File.Delete(tmpAlt); } catch { }
+                    }
                 }
                 else
                 {
@@ -197,8 +229,17 @@ namespace StormSwitchBox.Services
             }
             catch
             {
-                CopyFileAsync(sourcePath, altPath, bufferSize: 4 * 1024 * 1024).GetAwaiter().GetResult();
-                SafeDeleteFile(sourcePath);
+                string tmpAlt = altPath + ".storm_tmp";
+                try
+                {
+                    await CopyFileAsync(sourcePath, tmpAlt, bufferSize: 4 * 1024 * 1024, cancellationToken: cancellationToken).ConfigureAwait(false);
+                    File.Move(tmpAlt, altPath, overwrite: true);
+                    SafeDeleteFile(sourcePath);
+                }
+                finally
+                {
+                    if (File.Exists(tmpAlt)) try { File.Delete(tmpAlt); } catch { }
+                }
             }
 
             string warnMsg = $"\n⚠️ [Внимание] Файл {Path.GetFileName(destinationPath)} заблокирован другим процессом (например, эмулятором или проводником).\n     Результат успешно сохранен рядом как: {Path.GetFileName(altPath)}";

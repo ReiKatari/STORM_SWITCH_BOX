@@ -4,6 +4,8 @@ VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "StormSwitchBox", "StormSwitchBox.csproj", "{B88BE9B8-436C-4581-817D-3522E9B3B8B8}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "StormInstaller", "installer\StormInstaller\StormInstaller.csproj", "{D4E2B611-94F2-476D-A93D-6E6F9B10A501}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -14,5 +16,9 @@ Global
 		{B88BE9B8-436C-4581-817D-3522E9B3B8B8}.Debug|x64.Build.0 = Debug|x64
 		{B88BE9B8-436C-4581-817D-3522E9B3B8B8}.Release|x64.ActiveCfg = Release|x64
 		{B88BE9B8-436C-4581-817D-3522E9B3B8B8}.Release|x64.Build.0 = Release|x64
+		{D4E2B611-94F2-476D-A93D-6E6F9B10A501}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{D4E2B611-94F2-476D-A93D-6E6F9B10A501}.Debug|x64.Build.0 = Debug|Any CPU
+		{D4E2B611-94F2-476D-A93D-6E6F9B10A501}.Release|x64.ActiveCfg = Release|Any CPU
+		{D4E2B611-94F2-476D-A93D-6E6F9B10A501}.Release|x64.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

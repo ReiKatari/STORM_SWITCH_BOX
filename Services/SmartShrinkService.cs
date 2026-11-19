@@ -62,10 +62,17 @@ namespace StormSwitchBox.Services
                     path.Initialize(new U8Span(Encoding.UTF8.GetBytes(entry.FullPath))).ThrowIfFailure();
                     if (pfs.OpenFile(ref tikFile.Ref, in path, OpenMode.Read).IsSuccess())
                     {
-                        using var stream = tikFile.Release().AsStream();
+                        using IFile tikIFile = tikFile.Release();
+                        using var stream = tikIFile.AsStream();
                         byte[] tikBytes = new byte[stream.Length];
-                        int read = stream.Read(tikBytes, 0, tikBytes.Length);
-                        if (read >= 0x2B0 && TryRegisterTicketBytes(tikBytes, entry.Name, keySet))
+                        int totalRead = 0;
+                        while (totalRead < tikBytes.Length)
+                        {
+                            int r = stream.Read(tikBytes, totalRead, tikBytes.Length - totalRead);
+                            if (r <= 0) break;
+                            totalRead += r;
+                        }
+                        if (totalRead >= 0x2B0 && TryRegisterTicketBytes(tikBytes, entry.Name, keySet))
                         {
                             harvested++;
                         }
@@ -116,6 +123,9 @@ namespace StormSwitchBox.Services
                 int rightsIdOffset = bodyOffset + 0x160;
                 if (tikBytes.Length < rightsIdOffset + 16) return false;
 
+                // Проверяем TitleKeyType == 0 (Common Ticket) по смещению bodyOffset + 0x141
+                if (tikBytes[bodyOffset + 0x141] != 0) return false;
+
                 byte[] ridBytes = tikBytes.AsSpan(rightsIdOffset, 16).ToArray();
                 byte[] tkeyBytes = tikBytes.AsSpan(titleKeyOffset, 16).ToArray();
 
@@ -126,13 +136,17 @@ namespace StormSwitchBox.Services
                     ridBytes = Convert.FromHexString(cleanName);
                 }
 
+                // Проверка rIdBytes[8..14] == 0
+                for (int i = 8; i < 14; i++)
+                {
+                    if (ridBytes[i] != 0) return false;
+                }
+
                 if (!ridBytes.All(b => b == 0) && !tkeyBytes.All(b => b == 0))
                 {
                     var rightsId = new RightsId(ridBytes);
                     var accessKey = new AccessKey(tkeyBytes);
-                    KeysService.RemoveFallbackRightsId(rightsId);
-                    keySet.ExternalKeySet.Remove(rightsId);
-                    keySet.ExternalKeySet.Add(rightsId, accessKey);
+                    KeysService.TryAddExternalKey(keySet, rightsId, accessKey);
 
                     try
                     {
@@ -140,17 +154,20 @@ namespace StormSwitchBox.Services
                         string tKeyHex = Convert.ToHexString(tkeyBytes).ToLowerInvariant();
                         string userSwitchDir = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch");
                         string titleKeysFile = System.IO.Path.Combine(userSwitchDir, "title.keys");
-                        Directory.CreateDirectory(userSwitchDir);
-                        if (!File.Exists(titleKeysFile))
+                        lock (KeysService.TitleKeysFileLock)
                         {
-                            File.WriteAllText(titleKeysFile, $"{rIdHex} = {tKeyHex}{Environment.NewLine}");
-                        }
-                        else
-                        {
-                            string tContent = File.ReadAllText(titleKeysFile);
-                            if (!tContent.Contains(rIdHex, StringComparison.OrdinalIgnoreCase))
+                            Directory.CreateDirectory(userSwitchDir);
+                            if (!File.Exists(titleKeysFile))
                             {
-                                File.AppendAllText(titleKeysFile, $"{rIdHex} = {tKeyHex}{Environment.NewLine}");
+                                File.WriteAllText(titleKeysFile, $"{rIdHex} = {tKeyHex}{Environment.NewLine}");
+                            }
+                            else
+                            {
+                                string tContent = File.ReadAllText(titleKeysFile);
+                                if (!tContent.Contains(rIdHex, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    File.AppendAllText(titleKeysFile, $"{rIdHex} = {tKeyHex}{Environment.NewLine}");
+                                }
                             }
                         }
                     }
@@ -175,6 +192,7 @@ namespace StormSwitchBox.Services
         /// Анализирует файловую систему контейнера (PFS0 / HFS0) и возвращает список избыточных файлов NCA/NCZ:
         /// 1. Все DeltaFragment (.nca и .ncz), если включен removeDelta.
         /// 2. Устаревшие (перекрытые более новым патчем) Update NCA, если в одном контейнере несколько Patch CNMT для одного TitleId.
+        /// Общие базовые NCA (используемые базовой игрой, DLC или актуальным патчем) никогда не удаляются.
         /// </summary>
         public static HashSet<string> AnalyzeRedundantEntriesInFileSystem(
             IFileSystem pfs,
@@ -192,8 +210,13 @@ namespace StormSwitchBox.Services
             HarvestTicketsFromFileSystem(pfs, keySet);
 
             var patchCnmtByTitleId = new Dictionary<ulong, List<(uint Version, string CnmtFileName, List<string> ContentFiles)>>();
+            var activeNonPatchFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (var entry in pfs.EnumerateEntries("/", "*.cnmt.nca"))
+            var cnmtEntries = pfs.EnumerateEntries("/", "*")
+                .Where(e => e.Name.EndsWith(".cnmt.nca", StringComparison.OrdinalIgnoreCase) ||
+                            e.Name.EndsWith(".cnmt.ncz", StringComparison.OrdinalIgnoreCase));
+
+            foreach (var entry in cnmtEntries)
             {
                 try
                 {
@@ -202,8 +225,14 @@ namespace StormSwitchBox.Services
                     path.Initialize(new U8Span(Encoding.UTF8.GetBytes(entry.FullPath))).ThrowIfFailure();
                     if (!pfs.OpenFile(ref ncaFile.Ref, in path, OpenMode.Read).IsSuccess()) continue;
 
-                    var nca = new Nca(keySet, ncaFile.Release().AsStorage());
-                    KeysService.RegisterRightsIdFallback(keySet, nca);
+                    using IFile ncaIFile = ncaFile.Release();
+                    IStorage rawStorage = ncaIFile.AsStorage();
+                    using var nczStorage = entry.Name.EndsWith(".cnmt.ncz", StringComparison.OrdinalIgnoreCase)
+                        ? new Core.NSZ.StormNczStorage(rawStorage, null, null, keySet)
+                        : null;
+                    IStorage effStorage = nczStorage ?? rawStorage;
+
+                    var nca = new Nca(keySet, effStorage);
                     if (nca.Header.ContentType != NcaContentType.Meta || !nca.CanOpenSection(0)) continue;
 
                     IFileSystem? cnmtFs = null;
@@ -214,6 +243,7 @@ namespace StormSwitchBox.Services
                     }
                     if (cnmtFs == null) continue;
 
+                    using var cnmtFsDisp = cnmtFs as IDisposable;
                     foreach (var cnmtEntry in cnmtFs.EnumerateEntries("/", "*.cnmt"))
                     {
                         using var cnmtFile = new UniqueRef<IFile>();
@@ -221,7 +251,9 @@ namespace StormSwitchBox.Services
                         cPath.Initialize(new U8Span(Encoding.UTF8.GetBytes(cnmtEntry.FullPath))).ThrowIfFailure();
                         if (!cnmtFs.OpenFile(ref cnmtFile.Ref, in cPath, OpenMode.Read).IsSuccess()) continue;
 
-                        var cnmt = new Cnmt(cnmtFile.Release().AsStream());
+                        using IFile cnmtIFile = cnmtFile.Release();
+                        using var cnmtStream = cnmtIFile.AsStream();
+                        var cnmt = new Cnmt(cnmtStream);
                         var contentFiles = new List<string>();
 
                         foreach (var contentEntry in cnmt.ContentEntries)
@@ -252,21 +284,25 @@ namespace StormSwitchBox.Services
                             }
                             list.Add((ver, entry.Name, contentFiles));
                         }
+                        else
+                        {
+                            activeNonPatchFiles.Add(entry.Name);
+                            foreach (var cf in contentFiles) activeNonPatchFiles.Add(cf);
+                        }
                     }
                 }
                 catch { }
             }
 
-            // Если для одного TitleId найдено несколько Patch CNMT разных версий — оставляем только самую новую версию!
+            // Если для одного TitleId найдено несколько Patch CNMT разных версий - оставляем только самую новую версию!
             foreach (var kvp in patchCnmtByTitleId)
             {
                 if (kvp.Value.Count <= 1) continue;
                 var ordered = kvp.Value.OrderByDescending(x => x.Version).ToList();
                 var newest = ordered[0];
-                var newestKeepSet = new HashSet<string>(newest.ContentFiles, StringComparer.OrdinalIgnoreCase)
-                {
-                    newest.CnmtFileName
-                };
+                var newestKeepSet = new HashSet<string>(activeNonPatchFiles, StringComparer.OrdinalIgnoreCase);
+                newestKeepSet.Add(newest.CnmtFileName);
+                foreach (var cf in newest.ContentFiles) newestKeepSet.Add(cf);
 
                 for (int i = 1; i < ordered.Count; i++)
                 {
@@ -290,20 +326,21 @@ namespace StormSwitchBox.Services
         }
 
         /// <summary>
-        /// Анализирует папку с распакованными файлами NCA/NCZ перед упаковкой в NSP/XCI и возвращает список избыточных файлов.
-        /// </summary>
-        
-        /// <summary>
         /// Обнаруживает все файлы устаревшего обновления (Patch CNMT, Program NCA, Control NCA, Delta) внутри контейнера.
         /// </summary>
         public static HashSet<string> DetectUpdateEntriesInFileSystem(IFileSystem pfs, KeySet? keySet, bool isMonolithic = false)
         {
             var updateFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var protectedBaseFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if (keySet == null) return updateFiles;
 
             HarvestTicketsFromFileSystem(pfs, keySet);
 
-            foreach (var entry in pfs.EnumerateEntries("/", "*.cnmt.nca"))
+            var cnmtEntries = pfs.EnumerateEntries("/", "*")
+                .Where(e => e.Name.EndsWith(".cnmt.nca", StringComparison.OrdinalIgnoreCase) ||
+                            e.Name.EndsWith(".cnmt.ncz", StringComparison.OrdinalIgnoreCase));
+
+            foreach (var entry in cnmtEntries)
             {
                 try
                 {
@@ -312,8 +349,14 @@ namespace StormSwitchBox.Services
                     path.Initialize(new U8Span(Encoding.UTF8.GetBytes(entry.FullPath))).ThrowIfFailure();
                     if (!pfs.OpenFile(ref ncaFile.Ref, in path, OpenMode.Read).IsSuccess()) continue;
 
-                    var nca = new Nca(keySet, ncaFile.Release().AsStorage());
-                    KeysService.RegisterRightsIdFallback(keySet, nca);
+                    using IFile ncaIFile = ncaFile.Release();
+                    IStorage rawStorage = ncaIFile.AsStorage();
+                    using var nczStorage = entry.Name.EndsWith(".cnmt.ncz", StringComparison.OrdinalIgnoreCase)
+                        ? new Core.NSZ.StormNczStorage(rawStorage, null, null, keySet)
+                        : null;
+                    IStorage effStorage = nczStorage ?? rawStorage;
+
+                    var nca = new Nca(keySet, effStorage);
                     if (nca.Header.ContentType != NcaContentType.Meta || !nca.CanOpenSection(0)) continue;
 
                     IFileSystem? cnmtFs = null;
@@ -324,6 +367,7 @@ namespace StormSwitchBox.Services
                     }
                     if (cnmtFs == null) continue;
 
+                    using var cnmtFsDisp = cnmtFs as IDisposable;
                     foreach (var cnmtEntry in cnmtFs.EnumerateEntries("/", "*.cnmt"))
                     {
                         using var cnmtFile = new UniqueRef<IFile>();
@@ -331,7 +375,9 @@ namespace StormSwitchBox.Services
                         cPath.Initialize(new U8Span(Encoding.UTF8.GetBytes(cnmtEntry.FullPath))).ThrowIfFailure();
                         if (!cnmtFs.OpenFile(ref cnmtFile.Ref, in cPath, OpenMode.Read).IsSuccess()) continue;
 
-                        var cnmt = new Cnmt(cnmtFile.Release().AsStream());
+                        using IFile cnmtIFile = cnmtFile.Release();
+                        using var cnmtStream = cnmtIFile.AsStream();
+                        var cnmt = new Cnmt(cnmtStream);
                         if (cnmt.Type == ContentMetaType.Patch || cnmt.TitleId.ToString("X16").EndsWith("800", StringComparison.OrdinalIgnoreCase))
                         {
                             updateFiles.Add(entry.Name);
@@ -345,6 +391,16 @@ namespace StormSwitchBox.Services
                                 }
                             }
                         }
+                        else
+                        {
+                            protectedBaseFiles.Add(entry.Name);
+                            foreach (var contentEntry in cnmt.ContentEntries)
+                            {
+                                string hexId = BitConverter.ToString(contentEntry.NcaId).Replace("-", "").ToLowerInvariant();
+                                protectedBaseFiles.Add(hexId + ".nca");
+                                protectedBaseFiles.Add(hexId + ".ncz");
+                            }
+                        }
                     }
                 }
                 catch { }
@@ -352,9 +408,13 @@ namespace StormSwitchBox.Services
 
             if (!isMonolithic)
             {
-                foreach (var entry in pfs.EnumerateEntries("/", "*.nca"))
+                var regularEntries = pfs.EnumerateEntries("/", "*")
+                    .Where(e => (e.Name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase) || e.Name.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase)) &&
+                                !e.Name.EndsWith(".cnmt.nca", StringComparison.OrdinalIgnoreCase) &&
+                                !e.Name.EndsWith(".cnmt.ncz", StringComparison.OrdinalIgnoreCase));
+
+                foreach (var entry in regularEntries)
                 {
-                    if (entry.Name.EndsWith(".cnmt.nca", StringComparison.OrdinalIgnoreCase)) continue;
                     try
                     {
                         using var ncaFile = new UniqueRef<IFile>();
@@ -362,7 +422,12 @@ namespace StormSwitchBox.Services
                         path.Initialize(new U8Span(Encoding.UTF8.GetBytes(entry.FullPath))).ThrowIfFailure();
                         if (pfs.OpenFile(ref ncaFile.Ref, in path, OpenMode.Read).IsSuccess())
                         {
-                            var nca = new Nca(keySet, ncaFile.Release().AsStorage());
+                            using IFile ncaIFile = ncaFile.Release();
+                            IStorage rawStorage = ncaIFile.AsStorage();
+                            using var nczStorage = entry.Name.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase)
+                                ? new Core.NSZ.StormNczStorage(rawStorage, null, null, keySet)
+                                : null;
+                            var nca = new Nca(keySet, nczStorage ?? rawStorage);
                             if (nca.Header.TitleId.ToString("X16").EndsWith("800", StringComparison.OrdinalIgnoreCase))
                             {
                                 updateFiles.Add(entry.Name);
@@ -373,6 +438,7 @@ namespace StormSwitchBox.Services
                 }
             }
 
+            updateFiles.ExceptWith(protectedBaseFiles);
             return updateFiles;
         }
 
@@ -398,7 +464,11 @@ namespace StormSwitchBox.Services
             }
             if (newDlcMap.Count == 0) return supersededDlcFiles;
 
-            foreach (var entry in pfs.EnumerateEntries("/", "*.cnmt.nca"))
+            var cnmtEntries = pfs.EnumerateEntries("/", "*")
+                .Where(e => e.Name.EndsWith(".cnmt.nca", StringComparison.OrdinalIgnoreCase) ||
+                            e.Name.EndsWith(".cnmt.ncz", StringComparison.OrdinalIgnoreCase));
+
+            foreach (var entry in cnmtEntries)
             {
                 try
                 {
@@ -407,14 +477,19 @@ namespace StormSwitchBox.Services
                     path.Initialize(new U8Span(Encoding.UTF8.GetBytes(entry.FullPath))).ThrowIfFailure();
                     if (!pfs.OpenFile(ref ncaFile.Ref, in path, OpenMode.Read).IsSuccess()) continue;
 
-                    var nca = new Nca(keySet, ncaFile.Release().AsStorage());
-                    KeysService.RegisterRightsIdFallback(keySet, nca);
+                    using IFile ncaIFile = ncaFile.Release();
+                    IStorage rawStorage = ncaIFile.AsStorage();
+                    using var nczStorage = entry.Name.EndsWith(".cnmt.ncz", StringComparison.OrdinalIgnoreCase)
+                        ? new Core.NSZ.StormNczStorage(rawStorage, null, null, keySet)
+                        : null;
+                    var nca = new Nca(keySet, nczStorage ?? rawStorage);
                     if (nca.Header.ContentType != NcaContentType.Meta || !nca.CanOpenSection(0)) continue;
 
                     IFileSystem? cnmtFs = null;
                     try { cnmtFs = nca.OpenFileSystem(0, IntegrityCheckLevel.None); } catch { }
                     if (cnmtFs == null) continue;
 
+                    using var cnmtFsDisp = cnmtFs as IDisposable;
                     foreach (var cnmtEntry in cnmtFs.EnumerateEntries("/", "*.cnmt"))
                     {
                         using var cnmtFile = new UniqueRef<IFile>();
@@ -422,7 +497,9 @@ namespace StormSwitchBox.Services
                         cPath.Initialize(new U8Span(Encoding.UTF8.GetBytes(cnmtEntry.FullPath))).ThrowIfFailure();
                         if (!cnmtFs.OpenFile(ref cnmtFile.Ref, in cPath, OpenMode.Read).IsSuccess()) continue;
 
-                        var cnmt = new Cnmt(cnmtFile.Release().AsStream());
+                        using IFile cnmtIFile = cnmtFile.Release();
+                        using var cnmtStream = cnmtIFile.AsStream();
+                        var cnmt = new Cnmt(cnmtStream);
                         if (cnmt.Type == ContentMetaType.AddOnContent)
                         {
                             string dlcTidStr = cnmt.TitleId.ToString("X16").ToUpperInvariant();
@@ -461,14 +538,22 @@ namespace StormSwitchBox.Services
             HarvestTicketsFromDirectory(directoryPath, keySet);
 
             var patchCnmtByTitleId = new Dictionary<ulong, List<(uint Version, string CnmtFileName, List<string> ContentFiles)>>();
+            var activeNonPatchFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (var cnmtNcaPath in Directory.GetFiles(directoryPath, "*.cnmt.nca", SearchOption.TopDirectoryOnly))
+            var cnmtPaths = Directory.GetFiles(directoryPath, "*.*", SearchOption.TopDirectoryOnly)
+                .Where(f => f.EndsWith(".cnmt.nca", StringComparison.OrdinalIgnoreCase) ||
+                            f.EndsWith(".cnmt.ncz", StringComparison.OrdinalIgnoreCase));
+
+            foreach (var cnmtNcaPath in cnmtPaths)
             {
                 try
                 {
                     using var fs = new FileStream(cnmtNcaPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-                    var nca = new Nca(keySet, fs.AsStorage());
-                    KeysService.RegisterRightsIdFallback(keySet, nca);
+                    IStorage rawStorage = fs.AsStorage();
+                    using var nczStorage = cnmtNcaPath.EndsWith(".cnmt.ncz", StringComparison.OrdinalIgnoreCase)
+                        ? new Core.NSZ.StormNczStorage(rawStorage, null, null, keySet)
+                        : null;
+                    var nca = new Nca(keySet, nczStorage ?? rawStorage);
                     if (nca.Header.ContentType != NcaContentType.Meta || !nca.CanOpenSection(0)) continue;
 
                     IFileSystem? cnmtFs = null;
@@ -481,6 +566,7 @@ namespace StormSwitchBox.Services
 
                     string cnmtFileName = System.IO.Path.GetFileName(cnmtNcaPath);
 
+                    using var cnmtFsDisp = cnmtFs as IDisposable;
                     foreach (var cnmtEntry in cnmtFs.EnumerateEntries("/", "*.cnmt"))
                     {
                         using var cnmtFile = new UniqueRef<IFile>();
@@ -488,7 +574,9 @@ namespace StormSwitchBox.Services
                         cPath.Initialize(new U8Span(Encoding.UTF8.GetBytes(cnmtEntry.FullPath))).ThrowIfFailure();
                         if (!cnmtFs.OpenFile(ref cnmtFile.Ref, in cPath, OpenMode.Read).IsSuccess()) continue;
 
-                        var cnmt = new Cnmt(cnmtFile.Release().AsStream());
+                        using IFile cnmtIFile = cnmtFile.Release();
+                        using var cnmtStream = cnmtIFile.AsStream();
+                        var cnmt = new Cnmt(cnmtStream);
                         var contentFiles = new List<string>();
 
                         foreach (var contentEntry in cnmt.ContentEntries)
@@ -519,6 +607,11 @@ namespace StormSwitchBox.Services
                             }
                             list.Add((ver, cnmtFileName, contentFiles));
                         }
+                        else
+                        {
+                            activeNonPatchFiles.Add(cnmtFileName);
+                            foreach (var cf in contentFiles) activeNonPatchFiles.Add(cf);
+                        }
                     }
                 }
                 catch { }
@@ -529,10 +622,9 @@ namespace StormSwitchBox.Services
                 if (kvp.Value.Count <= 1) continue;
                 var ordered = kvp.Value.OrderByDescending(x => x.Version).ToList();
                 var newest = ordered[0];
-                var newestKeepSet = new HashSet<string>(newest.ContentFiles, StringComparer.OrdinalIgnoreCase)
-                {
-                    newest.CnmtFileName
-                };
+                var newestKeepSet = new HashSet<string>(activeNonPatchFiles, StringComparer.OrdinalIgnoreCase);
+                newestKeepSet.Add(newest.CnmtFileName);
+                foreach (var cf in newest.ContentFiles) newestKeepSet.Add(cf);
 
                 for (int i = 1; i < ordered.Count; i++)
                 {
@@ -586,7 +678,7 @@ namespace StormSwitchBox.Services
                     using var outMs = new MemoryStream();
                     targetBmp.Save(outMs, jpegCodec, encParams);
                     byte[] optimized = outMs.ToArray();
-                    // Если исходник уже был валидным JPEG 256x256 меньшего размера без EXIF — оставляем меньший
+                    // Если исходник уже был валидным JPEG 256x256 меньшего размера без EXIF - оставляем меньший
                     if (srcImg.Width == 256 && srcImg.Height == 256 &&
                         rawIconBytes.Length >= 2 && rawIconBytes[0] == 0xFF && rawIconBytes[1] == 0xD8 &&
                         rawIconBytes.Length < optimized.Length)
@@ -645,33 +737,73 @@ namespace StormSwitchBox.Services
                 ulong hfsOffset = br.ReadUInt64();
                 ulong hfsSize = br.ReadUInt64();
 
-                long endByPageCount = hdrBase + (long)validDataEndPage * 0x200L;
-                long endByLastPageInclusive = hdrBase + (long)(validDataEndPage + 1) * 0x200L;
+                long endByLastPageInclusive = hdrBase + ((long)validDataEndPage + 1L) * 0x200L;
                 long endByHfs = (hfsOffset > 0 && hfsSize > 0) ? (hdrBase + (long)(hfsOffset + hfsSize)) : 0;
+                long endByHfsEntries = 0;
 
-                long maxValidEnd = Math.Max(endByPageCount, endByHfs);
-                maxValidEnd = (maxValidEnd + 0x1FFL) & ~0x1FFL;
-
-                if (endByLastPageInclusive <= fs.Length && maxValidEnd < endByLastPageInclusive)
+                if (hfsOffset > 0)
                 {
-                    fs.Seek(maxValidEnd, SeekOrigin.Begin);
-                    byte[] pageCheck = br.ReadBytes((int)Math.Min(0x200, fs.Length - maxValidEnd));
-                    if (pageCheck.Any(b => b != 0xFF && b != 0x00))
+                    long rootHfsAbs = hdrBase + (long)hfsOffset;
+                    if (rootHfsAbs + 0x10 <= fs.Length)
                     {
-                        maxValidEnd = endByLastPageInclusive;
+                        fs.Seek(rootHfsAbs, SeekOrigin.Begin);
+                        byte[] hfsMagic = br.ReadBytes(4);
+                        if (Encoding.ASCII.GetString(hfsMagic) == "HFS0")
+                        {
+                            uint fileCount = br.ReadUInt32();
+                            uint strTableSize = br.ReadUInt32();
+                            br.ReadUInt32(); // reserved
+                            long dataStart = rootHfsAbs + 0x10L + (long)fileCount * 0x40L + strTableSize;
+                            endByHfsEntries = dataStart;
+
+                            if (fileCount <= 4096 && rootHfsAbs + 0x10L + (long)fileCount * 0x40L <= fs.Length)
+                            {
+                                for (uint i = 0; i < fileCount; i++)
+                                {
+                                    long entryPos = rootHfsAbs + 0x10L + (long)i * 0x40L;
+                                    fs.Seek(entryPos, SeekOrigin.Begin);
+                                    ulong eOff = br.ReadUInt64();
+                                    ulong eSize = br.ReadUInt64();
+                                    long entryEnd = dataStart + (long)eOff + (long)eSize;
+                                    if (entryEnd > endByHfsEntries)
+                                        endByHfsEntries = entryEnd;
+                                }
+                            }
+                        }
                     }
                 }
+
+                long maxValidEnd = Math.Max(endByLastPageInclusive, Math.Max(endByHfs, endByHfsEntries));
+                maxValidEnd = (maxValidEnd + 0x1FFL) & ~0x1FFL;
 
                 if (maxValidEnd > 0x10000 && maxValidEnd < fs.Length)
                 {
                     long tailBytes = fs.Length - maxValidEnd;
                     if (tailBytes >= 0x200)
                     {
+                        // Обрезаем строго только хвостовой паддинг 0xFF (никогда не режем нули 0x00 внутри последнего NCA!)
                         fs.Seek(maxValidEnd, SeekOrigin.Begin);
-                        int checkLen = (int)Math.Min(4096, tailBytes);
-                        byte[] sample = br.ReadBytes(checkLen);
-                        bool isPadding = sample.All(b => b == 0xFF || b == 0x00);
-                        if (isPadding)
+                        byte[] buf = new byte[65536];
+                        long remaining = tailBytes;
+                        bool allFf = true;
+                        while (remaining > 0)
+                        {
+                            int toRead = (int)Math.Min(buf.Length, remaining);
+                            int read = fs.Read(buf, 0, toRead);
+                            if (read <= 0) { allFf = false; break; }
+                            for (int i = 0; i < read; i++)
+                            {
+                                if (buf[i] != 0xFF)
+                                {
+                                    allFf = false;
+                                    break;
+                                }
+                            }
+                            if (!allFf) break;
+                            remaining -= read;
+                        }
+
+                        if (allFf)
                         {
                             fs.SetLength(maxValidEnd);
                             if (task != null)
@@ -712,7 +844,7 @@ namespace StormSwitchBox.Services
                     uint partLengthMu = br.ReadUInt32();
                     if (partOffsetMu > 0 && partLengthMu > 0)
                     {
-                        long partEnd = (long)(partOffsetMu + partLengthMu) * 0x200L;
+                        long partEnd = ((long)partOffsetMu + partLengthMu) * 0x200L;
                         if (partEnd > maxValidEnd)
                         {
                             maxValidEnd = partEnd;

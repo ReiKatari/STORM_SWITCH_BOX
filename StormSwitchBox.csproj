@@ -14,13 +14,14 @@
     <SelfContained>true</SelfContained>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
     <PublishReadyToRun>false</PublishReadyToRun>
     <TieredCompilation>true</TieredCompilation>
     <SuppressNETCoreSdkPreviewMessage>true</SuppressNETCoreSdkPreviewMessage>
-    <Version>7.0.14</Version>
-    <AssemblyVersion>7.0.14.0</AssemblyVersion>
-    <FileVersion>7.0.14.0</FileVersion>
-    <ApplicationIcon>storm_switch_box.ico</ApplicationIcon>
+    <Version>8.0.0</Version>
+    <AssemblyVersion>8.0.0.0</AssemblyVersion>
+    <FileVersion>8.0.0.0</FileVersion>
+    <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
     <DefaultItemExcludes>$(DefaultItemExcludes);obj\**;bin\**;installer\**;Assembling\**;Files\**;publish\**;temp\**;*.bmp;*.zip;*.cer;*.pfx;*.log</DefaultItemExcludes>
   </PropertyGroup>
 
@@ -28,7 +29,6 @@
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260317003" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.4654" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.2.2" />
-    <!-- Библиотеки, которые понадобятся на следующих этапах -->
     <PackageReference Include="LibHac" Version="0.18.0" />
     <PackageReference Include="MonoTorrent" Version="3.0.2" />
     <PackageReference Include="ZstdSharp.Port" Version="0.8.0" />
@@ -44,37 +44,26 @@
     <Compile Remove="installer\**;Assembling\**;Files\**;publish\**;temp\**;*.bmp;*.zip;*.cer;*.pfx;*.log" />
     <None Remove="installer\**;Assembling\**;Files\**;publish\**;temp\**;*.bmp;*.zip;*.cer;*.pfx;*.log" />
     <Content Remove="installer\**;Assembling\**;Files\**;publish\**;temp\**;*.bmp;*.zip;*.cer;*.pfx;*.log" />
-    <Compile Remove="test_*.cs" />
-    <Compile Remove="scratch_*.cs" />
-    <Compile Remove="test_xts_app\**" />
-    <Compile Remove="scratch_xts\**" />
-    <Compile Remove="test_unpack\**" />
-    <None Include="test_*.cs" />
-    <None Include="scratch_*.cs" />
-    <None Include="test_xts_app\**" />
-    <None Include="scratch_xts\**" />
-    <None Include="test_unpack\**" />
+    <Compile Remove="test_*.cs;scratch_*.cs;test_xts_app\**;scratch_xts\**;test_unpack\**" />
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="tools\**\*" CopyToOutputDirectory="PreserveNewest" Link="tools\%(RecursiveDir)%(Filename)%(Extension)" />
+    <None Include="tools\**\*" Exclude="tools\**\__pycache__\**;tools\**\*.pyc;tools\**\keys.dat" CopyToOutputDirectory="PreserveNewest" Link="tools\%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>
+    <Content Include="Assets\AppIcon.ico" CopyToOutputDirectory="PreserveNewest" Link="Assets\AppIcon.ico" TargetPath="Assets\AppIcon.ico" />
     <Content Include="storm_switch_box.ico" CopyToOutputDirectory="PreserveNewest" Link="assets\storm_switch_box.ico" TargetPath="assets\storm_switch_box.ico" />
     <Content Include="logo.png" CopyToOutputDirectory="PreserveNewest" Link="Assets\logo.png" TargetPath="Assets\logo.png" />
-        <Content Include="Assets\rutracker_switch_index.json.gz" CopyToOutputDirectory="PreserveNewest" />
-<Content Include="Assets\StoreLogo.png" CopyToOutputDirectory="PreserveNewest" Link="Assets\StoreLogo.png" TargetPath="Assets\StoreLogo.png" />
+    <Content Include="Assets\rutracker_switch_index.json.gz" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <Target Name="PostBuild" AfterTargets="PostBuildEvent">
     <Exec Command="powershell -ExecutionPolicy Bypass -Command &quot;$cert = Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.Subject -like '*CN=STORM TEAM*' -and $_.Subject -notlike '*Dev*' } | Select-Object -First 1; if ($cert -and (Test-Path '$(TargetDir)$(TargetName).exe')) { Set-AuthenticodeSignature -FilePath '$(TargetDir)$(TargetName).exe' -Certificate $cert -HashAlgorithm SHA256 | Out-Null }&quot;" />
   </Target>
 
-  <!-- Ensure StormSwitchBox.pri is copied to publish output (WinUI3 does not do this automatically for WindowsPackageType=None) -->
   <Target Name="CopyPriToPublish" AfterTargets="Publish">
     <Copy SourceFiles="$(TargetDir)$(AssemblyName).pri" DestinationFolder="$(PublishDir)" Condition="Exists('$(TargetDir)$(AssemblyName).pri')" />
-    <!-- Подписание опубликованного StormSwitchBox.exe в папке publish для разблокировки Smart App Control -->
     <Exec Command="powershell -ExecutionPolicy Bypass -Command &quot;$cert = Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.Subject -like '*CN=STORM TEAM*' -and $_.Subject -notlike '*Dev*' } | Select-Object -First 1; if ($cert -and (Test-Path '$(PublishDir)$(TargetName).exe')) { Set-AuthenticodeSignature -FilePath '$(PublishDir)$(TargetName).exe' -Certificate $cert -HashAlgorithm SHA256 | Out-Null }&quot;" ContinueOnError="true" />
   </Target>
 </Project>

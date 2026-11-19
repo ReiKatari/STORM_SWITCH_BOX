@@ -283,6 +283,11 @@ namespace StormSwitchBox.Services
                                     break;
                             }
                         }
+
+                        if (pkg.NacpBytes != null && pkg.NacpBytes.Length >= 0x4000)
+                        {
+                            ApplyNacpMetadataFallback(pkg);
+                        }
                     }
                 }
 
@@ -328,7 +333,7 @@ namespace StormSwitchBox.Services
                         int actualLen = (int)len;
                         if (start + actualLen > tocBytes.Length) actualLen = tocBytes.Length - start;
                         if (actualLen <= 0) return string.Empty;
-                        return Encoding.UTF8.GetString(tocBytes, start, actualLen).TrimEnd(' ');
+                        return Encoding.UTF8.GetString(tocBytes, start, actualLen).TrimEnd('\0');
                     }
 
                     int scanFileOffset = filesTableOffset;
@@ -403,12 +408,16 @@ namespace StormSwitchBox.Services
                 ulong fileSize = BinaryPrimitives.ReadUInt64LittleEndian(superblock.AsSpan(0x40, 8));
                 byte[] uuid = superblock.AsSpan(0x50, 16).ToArray();
 
-                if (tocOffset + tocSize > (ulong)fs.Length)
+                if (tocOffset + tocSize > (ulong)fs.Length || tocSize > int.MaxValue)
                     return null;
 
                 fs.Seek((long)tocOffset, SeekOrigin.Begin);
                 byte[] tocBytes = new byte[tocSize];
                 fs.ReadExactly(tocBytes, 0, (int)tocSize);
+
+                ReadOnlySpan<byte> expectedTocSha = superblock.AsSpan(0x18, 32);
+                if (!IsAllZero(expectedTocSha) && !SHA256.HashData(tocBytes).AsSpan().SequenceEqual(expectedTocSha))
+                    return null;
 
                 return ParseTocBytes(tocBytes, path, fileSize > 0 ? fileSize : (ulong)fs.Length, uuid, fs, blobOffset);
             }
@@ -439,12 +448,16 @@ namespace StormSwitchBox.Services
                 ulong fileSize = BinaryPrimitives.ReadUInt64LittleEndian(superblock.AsSpan(0x40, 8));
                 byte[] uuid = superblock.AsSpan(0x50, 16).ToArray();
 
-                if (tocOffset + tocSize > (ulong)fs.Length)
+                if (tocOffset + tocSize > (ulong)fs.Length || tocSize > int.MaxValue)
                     return null;
 
                 fs.Seek((long)tocOffset, SeekOrigin.Begin);
                 byte[] tocBytes = new byte[tocSize];
                 await fs.ReadExactlyAsync(tocBytes, 0, (int)tocSize);
+
+                ReadOnlySpan<byte> expectedTocSha = superblock.AsSpan(0x18, 32);
+                if (!IsAllZero(expectedTocSha) && !SHA256.HashData(tocBytes).AsSpan().SequenceEqual(expectedTocSha))
+                    return null;
 
                 return ParseTocBytes(tocBytes, path, fileSize > 0 ? fileSize : (ulong)fs.Length, uuid, fs, blobOffset);
             }
@@ -546,6 +559,12 @@ namespace StormSwitchBox.Services
                 }
             }
 
+            // Считываем реальные control.nacp (если есть) для TitleName / Publisher / DisplayVersion и TLV 0x0002
+            foreach (var pkgSource in packagesToBuild)
+            {
+                TryPopulateMetadataFromControlNacp(pkgSource);
+            }
+
             // Создаем виртуальное дерево директорий и файлов
             var allDirs = new List<VirtualNupDir>();
             var allFiles = new List<VirtualNupFile>();
@@ -589,18 +608,22 @@ namespace StormSwitchBox.Services
             for (int i = 0; i < allDirs.Count; i++) allDirs[i].DirIndex = i;
             for (int i = 0; i < allFiles.Count; i++) allFiles[i].FileIndex = i;
 
-            // Подготавливаем children массив
+            // Подготавливаем children массив (строго отсортированный по UTF-8 байтам имен для бинарного поиска)
             var childrenList = new List<uint>();
             foreach (var dir in allDirs)
             {
-                dir.FirstChild = (uint)childrenList.Count;
-                dir.ChildCount = (uint)(dir.SubDirs.Count + dir.Files.Count);
-
+                var combinedKids = new List<(byte[] Utf8Name, uint ChildId)>(dir.SubDirs.Count + dir.Files.Count);
                 foreach (var sub in dir.SubDirs)
-                    childrenList.Add((uint)sub.DirIndex);
-
+                    combinedKids.Add((Encoding.UTF8.GetBytes(sub.Name), (uint)sub.DirIndex));
                 foreach (var f in dir.Files)
-                    childrenList.Add((uint)(allDirs.Count + f.FileIndex));
+                    combinedKids.Add((Encoding.UTF8.GetBytes(f.Name), (uint)(allDirs.Count + f.FileIndex)));
+
+                combinedKids.Sort((a, b) => a.Utf8Name.AsSpan().SequenceCompareTo(b.Utf8Name));
+
+                dir.FirstChild = (uint)childrenList.Count;
+                dir.ChildCount = (uint)combinedKids.Count;
+                foreach (var item in combinedKids)
+                    childrenList.Add(item.ChildId);
             }
 
             // Временный файл блоба сжатых данных
@@ -614,67 +637,122 @@ namespace StormSwitchBox.Services
                     int totalFiles = allFiles.Count;
                     int processedFiles = 0;
 
-                    for (int i = 0; i < allFiles.Count; i++)
+                    const int StreamBufferSize = 256 * 1024;
+                    byte[] ioBuffer = ArrayPool<byte>.Shared.Rent(StreamBufferSize);
+                    try
                     {
-                        ct.ThrowIfCancellationRequested();
-                        var f = allFiles[i];
-
-                        byte[] fileData = await File.ReadAllBytesAsync(f.DiskPath, ct);
-                        f.Size = (ulong)fileData.Length;
-                        f.Sha256 = SHA256.HashData(fileData);
-                        string hashHex = Convert.ToHexString(f.Sha256);
-
-                        if (extentDedup.TryGetValue(hashHex, out var existing))
+                        for (int i = 0; i < allFiles.Count; i++)
                         {
-                            // Дедупликация: повторно используем экстент без записи на диск
-                            f.ExtentOffsetInBlob = existing.OffsetInBlob;
-                            f.ExtentSize = existing.ExtentSize;
-                            f.Codec = existing.Codec;
-                        }
-                        else
-                        {
-                            // 16-байт выравнивание в блобе
-                            long curPos = blobStream.Position;
-                            long rem = curPos % 16;
-                            if (rem != 0)
+                            ct.ThrowIfCancellationRequested();
+                            var f = allFiles[i];
+
+                            // 1. Потоковый расчет размера и SHA-256 (поддержка файлов >= 2 ГБ и > 4 ГБ)
+                            await using (var inFs = new FileStream(f.DiskPath, FileMode.Open, FileAccess.Read, FileShare.Read, StreamBufferSize, useAsync: true))
+                            using (var incHash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256))
                             {
-                                byte[] pad = new byte[16 - rem];
-                                await blobStream.WriteAsync(pad, ct);
+                                f.Size = (ulong)inFs.Length;
+                                int r;
+                                while ((r = await inFs.ReadAsync(ioBuffer, 0, ioBuffer.Length, ct)) > 0)
+                                {
+                                    incHash.AppendData(ioBuffer, 0, r);
+                                }
+                                f.Sha256 = incHash.GetHashAndReset();
                             }
 
-                            ulong offsetInBlob = (ulong)blobStream.Position;
-                            byte[] dataToWrite = fileData;
-                            byte codec = 0;
+                            string hashHex = Convert.ToHexString(f.Sha256);
 
-                            if (zstdLevel > 0 && fileData.Length > 64)
+                            if (f.Size == 0)
                             {
-                                try
+                                f.ExtentOffsetInBlob = 0;
+                                f.ExtentSize = 0;
+                                f.Codec = 0;
+                            }
+                            else if (extentDedup.TryGetValue(hashHex, out var existing))
+                            {
+                                // Дедупликация: повторно используем экстент без записи на диск
+                                f.ExtentOffsetInBlob = existing.OffsetInBlob;
+                                f.ExtentSize = existing.ExtentSize;
+                                f.Codec = existing.Codec;
+                            }
+                            else
+                            {
+                                // 16-байт выравнивание в блобе
+                                long curPos = blobStream.Position;
+                                long rem = curPos % 16;
+                                if (rem != 0)
                                 {
-                                    using var compressor = new Compressor(Math.Clamp(zstdLevel, 1, 22));
-                                    byte[] compressed = compressor.Wrap(fileData).ToArray();
-                                    if (compressed.Length < fileData.Length)
+                                    byte[] pad = new byte[16 - rem];
+                                    await blobStream.WriteAsync(pad, ct);
+                                }
+
+                                ulong offsetInBlob = (ulong)blobStream.Position;
+                                byte codec = 0;
+                                ulong extentSize = 0;
+
+                                if (zstdLevel > 0 && f.Size > 64)
+                                {
+                                    try
                                     {
-                                        dataToWrite = compressed;
-                                        codec = 1; // Zstandard
+                                        await using (var inFs = new FileStream(f.DiskPath, FileMode.Open, FileAccess.Read, FileShare.Read, StreamBufferSize, useAsync: true))
+                                        await using (var compStream = new CompressionStream(blobStream, Math.Clamp(zstdLevel, 1, 22), StreamBufferSize, leaveOpen: true))
+                                        {
+                                            int r;
+                                            while ((r = await inFs.ReadAsync(ioBuffer, 0, ioBuffer.Length, ct)) > 0)
+                                            {
+                                                await compStream.WriteAsync(ioBuffer.AsMemory(0, r), ct);
+                                            }
+                                            await compStream.FlushAsync(ct);
+                                        }
+
+                                        ulong compressedLen = (ulong)(blobStream.Position - (long)offsetInBlob);
+                                        if (compressedLen > 0 && compressedLen < f.Size)
+                                        {
+                                            codec = 1; // Zstandard
+                                            extentSize = compressedLen;
+                                        }
+                                        else
+                                        {
+                                            blobStream.Seek((long)offsetInBlob, SeekOrigin.Begin);
+                                            blobStream.SetLength((long)offsetInBlob);
+                                        }
+                                    }
+                                    catch
+                                    {
+                                        blobStream.Seek((long)offsetInBlob, SeekOrigin.Begin);
+                                        blobStream.SetLength((long)offsetInBlob);
+                                        codec = 0;
                                     }
                                 }
-                                catch { }
+
+                                if (codec == 0)
+                                {
+                                    await using var inFs = new FileStream(f.DiskPath, FileMode.Open, FileAccess.Read, FileShare.Read, StreamBufferSize, useAsync: true);
+                                    int r;
+                                    while ((r = await inFs.ReadAsync(ioBuffer, 0, ioBuffer.Length, ct)) > 0)
+                                    {
+                                        await blobStream.WriteAsync(ioBuffer.AsMemory(0, r), ct);
+                                    }
+                                    extentSize = (ulong)(blobStream.Position - (long)offsetInBlob);
+                                }
+
+                                f.ExtentOffsetInBlob = offsetInBlob;
+                                f.ExtentSize = extentSize;
+                                f.Codec = codec;
+
+                                extentDedup[hashHex] = (offsetInBlob, extentSize, codec);
                             }
 
-                            await blobStream.WriteAsync(dataToWrite, ct);
-                            f.ExtentOffsetInBlob = offsetInBlob;
-                            f.ExtentSize = (ulong)dataToWrite.Length;
-                            f.Codec = codec;
-
-                            extentDedup[hashHex] = (offsetInBlob, f.ExtentSize, codec);
+                            processedFiles++;
+                            if (processedFiles % 10 == 0 || processedFiles == totalFiles)
+                            {
+                                double pct = 10 + ((double)processedFiles / totalFiles * 70);
+                                progress?.Report((pct, $"Сжатие и дедупликация файлов: {processedFiles}/{totalFiles}..."));
+                            }
                         }
-
-                        processedFiles++;
-                        if (processedFiles % 10 == 0 || processedFiles == totalFiles)
-                        {
-                            double pct = 10 + ((double)processedFiles / totalFiles * 70);
-                            progress?.Report((pct, $"Сжатие и дедупликация файлов: {processedFiles}/{totalFiles}..."));
-                        }
+                    }
+                    finally
+                    {
+                        ArrayPool<byte>.Shared.Return(ioBuffer);
                     }
                 }
 
@@ -750,11 +828,16 @@ namespace StormSwitchBox.Services
                 tocBw.Write(stringPoolBytes.ToArray());
                 long strPoolEndPos = tocMs.Position;
 
-                // Запись Metadata TLV blocks для каждого пакета
+                ulong finalTocSize = (ulong)tocMs.Length;
+                ulong tocOffset = 0x80;
+                ulong metaSectionStartAbs = tocOffset + finalTocSize;
+
+                // Сборка Metadata TLV blocks для каждого пакета строго ПОСЛЕ TOC (meta_offset >= toc_offset + toc_size)
+                using var allMetaMs = new MemoryStream();
                 var packageMetaRanges = new List<(ulong Offset, ulong Size)>();
                 foreach (var pkg in packagesToBuild)
                 {
-                    ulong metaStart = (ulong)tocMs.Position;
+                    ulong metaStartAbs = metaSectionStartAbs + (ulong)allMetaMs.Position;
                     using var metaMs = new MemoryStream();
                     using var metaBw = new BinaryWriter(metaMs);
 
@@ -778,6 +861,8 @@ namespace StormSwitchBox.Services
                         WriteTlv(0x0004, Encoding.UTF8.GetBytes(pkg.DisplayVersion));
                     if (pkg.IconBytes != null && pkg.IconBytes.Length > 0)
                         WriteTlv(0x0003, pkg.IconBytes);
+                    if (pkg.NacpBytes != null && pkg.NacpBytes.Length > 0)
+                        WriteTlv(0x0002, pkg.NacpBytes);
 
                     // NPDM из exefs/main.npdm
                     string npdmFile = Path.Combine(pkg.ExeFsDir, "main.npdm");
@@ -787,13 +872,19 @@ namespace StormSwitchBox.Services
                     }
 
                     byte[] metaBytes = metaMs.ToArray();
-                    tocBw.Write(metaBytes);
-                    packageMetaRanges.Add((metaStart, (ulong)metaBytes.Length));
+                    if (metaBytes.Length > 0)
+                    {
+                        allMetaMs.Write(metaBytes, 0, metaBytes.Length);
+                        packageMetaRanges.Add((metaStartAbs, (ulong)metaBytes.Length));
+                    }
+                    else
+                    {
+                        packageMetaRanges.Add((0UL, 0UL));
+                    }
                 }
 
-                ulong finalTocSize = (ulong)tocMs.Length;
-                ulong tocOffset = 0x80;
-                ulong blobOffset = (tocOffset + finalTocSize + 15) & ~15UL;
+                byte[] allMetaBytes = allMetaMs.ToArray();
+                ulong blobOffset = (metaSectionStartAbs + (ulong)allMetaBytes.Length + 15UL) & ~15UL;
 
                 // Обновляем офсеты в TOC
                 // 1. str_pool_offset в заголовке TOC
@@ -821,11 +912,15 @@ namespace StormSwitchBox.Services
                     tocBw.Write(new byte[16]); // reserved2
                 }
 
-                // 3. Скорректировать ExtentOffset в NupFile[] (абсолютный офсет >= blobOffset)
+                // 3. Скорректировать ExtentOffset в NupFile[] (абсолютный офсет >= blobOffset; для пустых файлов строго 0)
                 tocMs.Seek(filesStartPos, SeekOrigin.Begin);
                 foreach (var f in allFiles)
                 {
-                    f.ExtentOffsetInBlob += blobOffset;
+                    if (f.Size > 0)
+                        f.ExtentOffsetInBlob += blobOffset;
+                    else
+                        f.ExtentOffsetInBlob = 0;
+
                     tocBw.Write(f.NameOff);
                     tocBw.Write(f.NameLen);
                     tocBw.Write(f.Size);
@@ -880,6 +975,12 @@ namespace StormSwitchBox.Services
 
                     // TOC
                     await outFs.WriteAsync(finalTocBytes, ct);
+
+                    // Package TLV metadata blocks (between toc_offset + toc_size and blob_offset)
+                    if (allMetaBytes.Length > 0)
+                    {
+                        await outFs.WriteAsync(allMetaBytes, ct);
+                    }
 
                     // Padding до blobOffset
                     long curWritten = outFs.Position;
@@ -978,11 +1079,12 @@ namespace StormSwitchBox.Services
                         Flags = pFlags
                     };
 
-                    if (metaOff > 0 && metaSz > 0 && metaSz < 32 * 1024 * 1024 && metaOff + metaSz <= (ulong)fs.Length)
+                    ulong fileMetaOff = (metaOff < tocSize) ? (tocOffset + metaOff) : metaOff;
+                    if (metaOff > 0 && metaSz > 0 && metaSz < 32 * 1024 * 1024 && fileMetaOff + metaSz <= (ulong)fs.Length)
                     {
                         byte[] metaData = new byte[metaSz];
                         long savedPos = fs.Position;
-                        fs.Seek((long)metaOff, SeekOrigin.Begin);
+                        fs.Seek((long)fileMetaOff, SeekOrigin.Begin);
                         fs.ReadExactly(metaData, 0, (int)metaSz);
                         fs.Seek(savedPos, SeekOrigin.Begin);
 
@@ -1016,6 +1118,10 @@ namespace StormSwitchBox.Services
                                 case 0x0006: pkg.Publisher = Encoding.UTF8.GetString(val).TrimEnd('\0').Trim(); break;
                                 case 0x0007: pkg.BuildId = Convert.ToHexString(val); break;
                             }
+                        }
+                        if (pkg.NacpBytes != null && pkg.NacpBytes.Length >= 0x4000)
+                        {
+                            ApplyNacpMetadataFallback(pkg);
                         }
                     }
                     pkgs.Add(pkg);
@@ -1083,9 +1189,16 @@ namespace StormSwitchBox.Services
             ulong tocSize = BinaryPrimitives.ReadUInt64LittleEndian(superblock.AsSpan(0x10, 8));
             ulong blobOffset = BinaryPrimitives.ReadUInt64LittleEndian(superblock.AsSpan(0x38, 8));
 
+            if (tocSize > int.MaxValue || tocOffset + tocSize > (ulong)fs.Length)
+                throw new InvalidDataException("Размер или смещение TOC выходят за пределы файла NUP!");
+
             fs.Seek((long)tocOffset, SeekOrigin.Begin);
             byte[] tocBytes = new byte[tocSize];
             await fs.ReadExactlyAsync(tocBytes, 0, (int)tocSize, ct);
+
+            ReadOnlySpan<byte> expectedTocSha = superblock.AsSpan(0x18, 32);
+            if (!IsAllZero(expectedTocSha) && !SHA256.HashData(tocBytes).AsSpan().SequenceEqual(expectedTocSha))
+                throw new InvalidDataException("Контрольная сумма SHA-256 оглавления (TOC) NUP не совпадает!");
 
             if (tocBytes.Length < 0x28 || !tocBytes.AsSpan(0, 4).SequenceEqual(TocMagic))
                 throw new InvalidDataException("Заголовок TOC поврежден или отсутствует!");
@@ -1234,6 +1347,11 @@ namespace StormSwitchBox.Services
                                 case 0x0007: pkgInfo.BuildId = Convert.ToHexString(val); break;
                             }
                         }
+
+                        if (pkgInfo.NacpBytes != null && pkgInfo.NacpBytes.Length >= 0x4000)
+                        {
+                            ApplyNacpMetadataFallback(pkgInfo);
+                        }
                     }
                 }
 
@@ -1323,14 +1441,15 @@ namespace StormSwitchBox.Services
             }
 
             // NPDM для патчей
-            foreach (var updPkg in packages.Where(p => p.Kind == 1 && p.NpdmBytes != null && p.NpdmBytes.Length > 0))
+            foreach (var updPkg in packages.Where(p => p.Kind == 1))
             {
+                if (updPkg.NpdmBytes is not byte[] updNpdmBytes || updNpdmBytes.Length == 0) continue;
                 string updFolder = Path.Combine(outputDir, "updates", updPkg.Version.ToString());
                 string updNpdm = Path.Combine(updFolder, "exefs", "main.npdm");
                 if (!File.Exists(updNpdm))
                 {
                     Directory.CreateDirectory(Path.GetDirectoryName(updNpdm)!);
-                    await File.WriteAllBytesAsync(updNpdm, updPkg.NpdmBytes, ct);
+                    await File.WriteAllBytesAsync(updNpdm, updNpdmBytes, ct);
                 }
             }
 
@@ -1351,47 +1470,80 @@ namespace StormSwitchBox.Services
             Directory.CreateDirectory(currentOutDir);
             var d = dirs[(int)dirIdx];
 
+            const int StreamBufferSize = 256 * 1024;
             for (uint i = 0; i < d.ChildCount; i++)
             {
                 ct.ThrowIfCancellationRequested();
                 uint childVal = children[d.FirstChild + i];
                 if (childVal < dirs.Count)
                 {
-                    // Подпапка
+                    // Подпапка (защита от Path Traversal)
                     string subName = getString(dirs[(int)childVal].NameOff, dirs[(int)childVal].NameLen);
                     if (string.IsNullOrEmpty(subName)) subName = $"dir_{childVal}";
-                    string subPath = Path.Combine(currentOutDir, subName);
+                    string subPath = StormToolResolver.EnsureSafeSubPath(currentOutDir, subName);
                     await ExtractDirRecursiveAsync(nupStream, blobOffset, childVal, subPath, dirs, files, children, getString, ct);
                 }
                 else
                 {
-                    // Файл
+                    // Файл (потоковая распаковка >= 2 ГБ и > 4 ГБ + проверка SHA-256)
                     int fileIdx = (int)(childVal - (uint)dirs.Count);
                     if (fileIdx >= 0 && fileIdx < files.Count)
                     {
                         var fe = files[fileIdx];
                         string fileName = getString(fe.NameOff, fe.NameLen);
                         if (string.IsNullOrEmpty(fileName)) fileName = $"file_{fileIdx}.bin";
-                        string filePath = Path.Combine(currentOutDir, fileName);
+                        string filePath = StormToolResolver.EnsureSafeSubPath(currentOutDir, fileName);
 
                         ulong readOffset = fe.ExtentOffset < blobOffset ? (blobOffset + fe.ExtentOffset) : fe.ExtentOffset;
                         nupStream.Seek((long)readOffset, SeekOrigin.Begin);
 
-                        byte[] extentBytes = new byte[fe.ExtentSize];
-                        await nupStream.ReadExactlyAsync(extentBytes, 0, (int)fe.ExtentSize, ct);
-
-                        byte[] uncompressedData;
-                        if (fe.Codec == 1) // Zstandard
+                        byte[] ioBuffer = ArrayPool<byte>.Shared.Rent(StreamBufferSize);
+                        using var incHash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+                        try
                         {
-                            using var decompressor = new Decompressor();
-                            uncompressedData = decompressor.Unwrap(extentBytes).ToArray();
-                        }
-                        else
-                        {
-                            uncompressedData = extentBytes;
-                        }
+                            await using (var outFs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None, StreamBufferSize, useAsync: true))
+                            {
+                                if (fe.ExtentSize > 0)
+                                {
+                                    if (fe.Codec == 1) // Zstandard streaming
+                                    {
+                                        using var bounded = new BoundedReadOnlyStream(nupStream, (long)fe.ExtentSize);
+                                        await using var zstdStream = new DecompressionStream(bounded);
+                                        int r;
+                                        while ((r = await zstdStream.ReadAsync(ioBuffer, 0, ioBuffer.Length, ct)) > 0)
+                                        {
+                                            await outFs.WriteAsync(ioBuffer.AsMemory(0, r), ct);
+                                            incHash.AppendData(ioBuffer, 0, r);
+                                        }
+                                    }
+                                    else // Raw streaming
+                                    {
+                                        ulong remaining = fe.ExtentSize;
+                                        while (remaining > 0)
+                                        {
+                                            int toRead = (int)Math.Min(remaining, (ulong)ioBuffer.Length);
+                                            await nupStream.ReadExactlyAsync(ioBuffer.AsMemory(0, toRead), ct);
+                                            await outFs.WriteAsync(ioBuffer.AsMemory(0, toRead), ct);
+                                            incHash.AppendData(ioBuffer, 0, toRead);
+                                            remaining -= (ulong)toRead;
+                                        }
+                                    }
+                                }
+                            }
 
-                        await File.WriteAllBytesAsync(filePath, uncompressedData, ct);
+                            if (fe.Sha256 != null && fe.Sha256.Length == 32 && !IsAllZero(fe.Sha256))
+                            {
+                                byte[] actualSha = incHash.GetHashAndReset();
+                                if (!actualSha.AsSpan().SequenceEqual(fe.Sha256))
+                                {
+                                    throw new InvalidDataException($"Ошибка целостности SHA-256 при распаковке файла: {fileName}");
+                                }
+                            }
+                        }
+                        finally
+                        {
+                            ArrayPool<byte>.Shared.Return(ioBuffer);
+                        }
                     }
                 }
             }
@@ -1487,8 +1639,8 @@ namespace StormSwitchBox.Services
                 // Паттерн 1: inline-pokedinner signature check bypass
                 // Сигнатура: 48 8D 4D ? 48 89 44 24 ? E8
                 int[] p1 = new int[] { 0x48, 0x8D, 0x4D, -1, 0x48, 0x89, 0x44, 0x24, -1, 0xE8 };
-                int idx = FindPattern(exeBytes, p1);
-                if (idx != -1)
+                int idx = FindUniquePattern(exeBytes, p1, out int p1Matches);
+                if (idx != -1 && p1Matches == 1)
                 {
                     int callOffset = idx + 9;
                     if (callOffset + 5 <= exeBytes.Length)
@@ -1506,8 +1658,8 @@ namespace StormSwitchBox.Services
                 // Паттерн 2: msvc-read9 external NPDM check bypass
                 // Сигнатура: 48 85 C0 74 ? 48 8B
                 int[] p2 = new int[] { 0x48, 0x85, 0xC0, 0x74, -1, 0x48, 0x8B };
-                int idx2 = FindPattern(exeBytes, p2);
-                if (idx2 != -1)
+                int idx2 = FindUniquePattern(exeBytes, p2, out int p2Matches);
+                if (idx2 != -1 && p2Matches == 1)
                 {
                     // Заменяем 74 (JZ) на EB (JMP) для обхода проверки внешнего main.npdm
                     exeBytes[idx2 + 3] = 0xEB;
@@ -1523,10 +1675,16 @@ namespace StormSwitchBox.Services
 
                 // Проверяем, был ли файл уже пропатчен ранее
                 int[] p1Patched = new int[] { 0x48, 0x8D, 0x4D, -1, 0x48, 0x89, 0x44, 0x24, -1, 0x90, 0x90, 0x90, 0x90, 0x90 };
-                if (FindPattern(exeBytes, p1Patched) != -1)
+                if (FindUniquePattern(exeBytes, p1Patched, out int p1PatchedMatches) != -1 && p1PatchedMatches == 1)
                 {
                     message = "Исполняемый файл эмулятора уже пропатчен.";
                     return true;
+                }
+
+                if (p1Matches > 1 || p2Matches > 1)
+                {
+                    message = $"Обнаружено неоднозначное число совпадений сигнатуры (p1={p1Matches}, p2={p2Matches}). Патч отменён во избежание повреждения бинарника.";
+                    return false;
                 }
 
                 message = "Сигнатуры патча не обнаружены в данном исполняемом файле (возможно, неподдерживаемая версия эмулятора).";
@@ -1583,8 +1741,10 @@ namespace StormSwitchBox.Services
             }
         }
 
-        private static int FindPattern(byte[] src, int[] pattern)
+        private static int FindUniquePattern(byte[] src, int[] pattern, out int matchCount)
         {
+            matchCount = 0;
+            int foundIdx = -1;
             int max = src.Length - pattern.Length;
             for (int i = 0; i <= max; i++)
             {
@@ -1597,9 +1757,132 @@ namespace StormSwitchBox.Services
                         break;
                     }
                 }
-                if (match) return i;
+                if (match)
+                {
+                    matchCount++;
+                    if (matchCount == 1)
+                        foundIdx = i;
+                    else
+                        return -1;
+                }
             }
-            return -1;
+            return matchCount == 1 ? foundIdx : -1;
+        }
+
+        private static bool IsAllZero(ReadOnlySpan<byte> data)
+        {
+            for (int i = 0; i < data.Length; i++)
+            {
+                if (data[i] != 0) return false;
+            }
+            return true;
+        }
+
+        private static void TryPopulateMetadataFromControlNacp(DumpPackageSource pkg)
+        {
+            try
+            {
+                string nacpPath = Path.Combine(pkg.RootDir, "control", "control.nacp");
+                if (!File.Exists(nacpPath)) return;
+                var fi = new FileInfo(nacpPath);
+                if (fi.Length < 0x4000 || fi.Length > 1024 * 1024) return;
+
+                byte[] nacp = File.ReadAllBytes(nacpPath);
+                pkg.NacpBytes = nacp;
+
+                string? parsedTitle = null;
+                string? parsedPublisher = null;
+                for (int i = 0; i < 16; i++)
+                {
+                    int off = i * 0x300;
+                    string t = Encoding.UTF8.GetString(nacp, off, 0x200).TrimEnd('\0').Trim();
+                    string p = Encoding.UTF8.GetString(nacp, off + 0x200, 0x100).TrimEnd('\0').Trim();
+                    if (!string.IsNullOrEmpty(t) && string.IsNullOrEmpty(parsedTitle)) parsedTitle = t;
+                    if (!string.IsNullOrEmpty(p) && string.IsNullOrEmpty(parsedPublisher)) parsedPublisher = p;
+                    if (i == 0 && !string.IsNullOrEmpty(t) && !string.IsNullOrEmpty(p)) break;
+                }
+
+                string parsedVer = Encoding.UTF8.GetString(nacp, 0x3060, 0x10).TrimEnd('\0').Trim();
+                if (!string.IsNullOrEmpty(parsedTitle)) pkg.TitleName = parsedTitle;
+                if (!string.IsNullOrEmpty(parsedPublisher)) pkg.Publisher = parsedPublisher;
+                if (!string.IsNullOrEmpty(parsedVer)) pkg.DisplayVersion = parsedVer;
+            }
+            catch { }
+        }
+
+        private static void ApplyNacpMetadataFallback(NupPackageInfo pkg)
+        {
+            if (pkg.NacpBytes == null || pkg.NacpBytes.Length < 0x4000) return;
+            byte[] nacp = pkg.NacpBytes;
+
+            if (string.IsNullOrEmpty(pkg.TitleName) || string.IsNullOrEmpty(pkg.Publisher))
+            {
+                for (int i = 0; i < 16; i++)
+                {
+                    int off = i * 0x300;
+                    if (string.IsNullOrEmpty(pkg.TitleName))
+                    {
+                        string t = Encoding.UTF8.GetString(nacp, off, 0x200).TrimEnd('\0').Trim();
+                        if (!string.IsNullOrEmpty(t)) pkg.TitleName = t;
+                    }
+                    if (string.IsNullOrEmpty(pkg.Publisher))
+                    {
+                        string p = Encoding.UTF8.GetString(nacp, off + 0x200, 0x100).TrimEnd('\0').Trim();
+                        if (!string.IsNullOrEmpty(p)) pkg.Publisher = p;
+                    }
+                    if (!string.IsNullOrEmpty(pkg.TitleName) && !string.IsNullOrEmpty(pkg.Publisher)) break;
+                }
+            }
+
+            if (string.IsNullOrEmpty(pkg.DisplayVersion))
+            {
+                string ver = Encoding.UTF8.GetString(nacp, 0x3060, 0x10).TrimEnd('\0').Trim();
+                if (!string.IsNullOrEmpty(ver)) pkg.DisplayVersion = ver;
+            }
+        }
+
+        private sealed class BoundedReadOnlyStream : Stream
+        {
+            private readonly Stream _baseStream;
+            private readonly long _length;
+            private long _position;
+
+            public BoundedReadOnlyStream(Stream baseStream, long length)
+            {
+                _baseStream = baseStream;
+                _length = length;
+            }
+
+            public override bool CanRead => true;
+            public override bool CanSeek => false;
+            public override bool CanWrite => false;
+            public override long Length => _length;
+            public override long Position { get => _position; set => throw new NotSupportedException(); }
+            public override void Flush() { }
+
+            public override int Read(byte[] buffer, int offset, int count)
+            {
+                long remaining = _length - _position;
+                if (remaining <= 0) return 0;
+                int toRead = (int)Math.Min(count, remaining);
+                int read = _baseStream.Read(buffer, offset, toRead);
+                _position += read;
+                return read;
+            }
+
+            public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+            {
+                long remaining = _length - _position;
+                if (remaining <= 0) return 0;
+                int toRead = (int)Math.Min(buffer.Length, remaining);
+                int read = await _baseStream.ReadAsync(buffer.Slice(0, toRead), cancellationToken);
+                _position += read;
+                return read;
+            }
+
+            public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+            public override void SetLength(long value) => throw new NotSupportedException();
+            public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
         }
 
         private static VirtualNupDir BuildVirtualTree(string sourceDir, List<VirtualNupDir> allDirs, List<VirtualNupFile> allFiles, string dirName)
@@ -1639,6 +1922,7 @@ namespace StormSwitchBox.Services
             public string Publisher { get; set; } = string.Empty;
             public string DisplayVersion { get; set; } = string.Empty;
             public byte[]? IconBytes { get; set; }
+            public byte[]? NacpBytes { get; set; }
 
             public VirtualNupDir? VirtualRootDir { get; set; }
             public VirtualNupDir? VirtualExeFsDir { get; set; }

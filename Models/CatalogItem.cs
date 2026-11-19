@@ -49,10 +49,10 @@ namespace StormSwitchBox.Models
             : (CheckIsSwitch2 ? "Nintendo Switch 2" : "Nintendo Switch");
         public string PlatformBadgeGlyph => (Is3ds || Platform == "3DS" || Platform == "Nintendo 3DS") ? "\uE8EA" : "\uE7FC";
         public Microsoft.UI.Xaml.Media.SolidColorBrush PlatformBadgeBackground => (Is3ds || Platform == "3DS" || Platform == "Nintendo 3DS") 
-            ? new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(230, 211, 47, 47))
+            ? UiBrushCache.Get(Windows.UI.Color.FromArgb(230, 211, 47, 47))
             : (CheckIsSwitch2 
-                ? new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(230, 142, 68, 173))
-                : new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(230, 0, 120, 215)));
+                ? UiBrushCache.Get(Windows.UI.Color.FromArgb(230, 142, 68, 173))
+                : UiBrushCache.Get(Windows.UI.Color.FromArgb(230, 0, 120, 215)));
 
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(RegionsVisibility))]

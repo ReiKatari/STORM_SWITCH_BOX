@@ -743,7 +743,7 @@ namespace StormSwitchBox.Services
         public string Url { get; set; } = string.Empty;
         public List<string> MirrorUrls { get; set; } = new();
         public string Provider { get; set; } = string.Empty;
-        public string PublishedDate { get; set; } = "25.10.2026 14:30";
+        public string PublishedDate { get; set; } = string.Empty;
         public string SourceLocation { get; set; } = "Шапка темы";
         public string RoleCategory { get; set; } = "МОД / РУСИФИКАТОР";
         public string DisplayMeta => $"{PublishedDate} • {SourceLocation}";
@@ -878,6 +878,9 @@ namespace StormSwitchBox.Services
     public sealed class RuTrackerModService : IDisposable
     {
         public static readonly System.Net.CookieContainer SharedForumCookies = new();
+        private static readonly System.Net.CookieContainer _cookieContainer = SharedForumCookies;
+        private static readonly System.Net.CookieContainer _qbitCookies = new();
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, SocketsHttpHandler> _customHttpHandlers = new(StringComparer.Ordinal);
         public static Func<string, bool, CancellationToken, Task<(string? Html, string? DownloadedFilePath, string? CookieHeader)>>? ExternalBrowserBypassHandler { get; set; }
 
         private static readonly string[] DefaultMirrors =
@@ -955,8 +958,7 @@ namespace StormSwitchBox.Services
                 {
                     using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(2.5));
                     using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
-                    var handler = new HttpClientHandler { AllowAutoRedirect = false };
-                    using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(2.5) };
+                    using var client = StormHttpClientFactory.CreateCookieClient(_cookieContainer, TimeSpan.FromSeconds(2.5), allowAutoRedirect: false);
                     client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36");
 
                     using var resp = await client.GetAsync($"{m}/forum/index.php", HttpCompletionOption.ResponseHeadersRead, linked.Token).ConfigureAwait(false);
@@ -1351,54 +1353,68 @@ namespace StormSwitchBox.Services
             bool useDoh = settings.RuTrackerUseDoH;
             string proxyUrl = (settings.RuTrackerProxy ?? "").Trim();
 
-            var handler = new SocketsHttpHandler
+            HttpClient client;
+            if (string.IsNullOrEmpty(proxyUrl) && !useDoh)
             {
-                AllowAutoRedirect = allowAutoRedirect,
-                AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate | DecompressionMethods.Brotli,
-                ConnectTimeout = TimeSpan.FromSeconds(12),
-                UseCookies = false
-            };
-
-            if (!string.IsNullOrEmpty(proxyUrl))
-            {
-                try
-                {
-                    handler.Proxy = new WebProxy(proxyUrl);
-                    handler.UseProxy = true;
-                }
-                catch { }
+                client = StormHttpClientFactory.CreateCookieClient(_cookieContainer, TimeSpan.FromSeconds(30), allowAutoRedirect);
             }
-            else if (useDoh)
+            else
             {
-                handler.ConnectCallback = async (context, token) =>
+                string handlerKey = $"{proxyUrl}|{useDoh}|{allowAutoRedirect}";
+                var handler = _customHttpHandlers.GetOrAdd(handlerKey, _ =>
                 {
-                    string host = context.DnsEndPoint.Host;
-                    int port = context.DnsEndPoint.Port;
+                    var h = new SocketsHttpHandler
+                    {
+                        AllowAutoRedirect = allowAutoRedirect,
+                        AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate | DecompressionMethods.Brotli,
+                        PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+                        PooledConnectionIdleTimeout = TimeSpan.FromMinutes(2),
+                        ConnectTimeout = TimeSpan.FromSeconds(12),
+                        CookieContainer = _cookieContainer,
+                        UseCookies = true
+                    };
 
-                    IPAddress? resolvedIp = await ResolveHostViaDoHAsync(host, token).ConfigureAwait(false);
-                    var socket = new Socket(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
-                    try
+                    if (!string.IsNullOrEmpty(proxyUrl))
                     {
-                        if (resolvedIp != null)
+                        try
                         {
-                            await socket.ConnectAsync(new IPEndPoint(resolvedIp, port), token).ConfigureAwait(false);
+                            h.Proxy = new WebProxy(proxyUrl);
+                            h.UseProxy = true;
                         }
-                        else
-                        {
-                            await socket.ConnectAsync(context.DnsEndPoint, token).ConfigureAwait(false);
-                        }
-                        return new NetworkStream(socket, ownsSocket: true);
+                        catch { }
                     }
-                    catch
+                    else if (useDoh)
                     {
-                        socket.Dispose();
-                        throw;
+                        h.ConnectCallback = async (context, token) =>
+                        {
+                            string host = context.DnsEndPoint.Host;
+                            int port = context.DnsEndPoint.Port;
+
+                            IPAddress? resolvedIp = await ResolveHostViaDoHAsync(host, token).ConfigureAwait(false);
+                            var socket = new Socket(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+                            try
+                            {
+                                if (resolvedIp != null)
+                                    await socket.ConnectAsync(new IPEndPoint(resolvedIp, port), token).ConfigureAwait(false);
+                                else
+                                    await socket.ConnectAsync(context.DnsEndPoint, token).ConfigureAwait(false);
+                                return new NetworkStream(socket, ownsSocket: true);
+                            }
+                            catch
+                            {
+                                socket.Dispose();
+                                throw;
+                            }
+                        };
                     }
-                };
+                    return h;
+                });
+
+                client = new HttpClient(handler, disposeHandler: false) { Timeout = TimeSpan.FromSeconds(30) };
             }
 
-            var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
             string ua = !string.IsNullOrEmpty(SharedUserAgent) ? SharedUserAgent : "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+            client.DefaultRequestHeaders.Remove("User-Agent");
             client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", ua);
             client.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
             client.DefaultRequestHeaders.TryAddWithoutValidation("Accept-Language", "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7");
@@ -1448,11 +1464,12 @@ namespace StormSwitchBox.Services
             {
                 try
                 {
-                    using var handler = new SocketsHttpHandler { ConnectTimeout = TimeSpan.FromSeconds(3) };
-                    using var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(4) };
-                    http.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/dns-json");
+                    using var dohCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                    dohCts.CancelAfter(TimeSpan.FromSeconds(4));
+                    using var req = new HttpRequestMessage(HttpMethod.Get, ep);
+                    req.Headers.TryAddWithoutValidation("Accept", "application/dns-json");
 
-                    using var resp = await http.GetAsync(ep, ct).ConfigureAwait(false);
+                    using var resp = await StormHttpClientFactory.Shared.SendAsync(req, dohCts.Token).ConfigureAwait(false);
                     if (!resp.IsSuccessStatusCode) continue;
 
                     string json = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
@@ -1702,9 +1719,13 @@ namespace StormSwitchBox.Services
         {
             try
             {
-                using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
-                client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "STORM-SWITCH-BOX");
-                string xml = await client.GetStringAsync("https://feed.rutracker.cc/atom/f/1605.atom", ct).ConfigureAwait(false);
+                using var reqCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                reqCts.CancelAfter(TimeSpan.FromSeconds(10));
+                using var req = new HttpRequestMessage(HttpMethod.Get, "https://feed.rutracker.cc/atom/f/1605.atom");
+                req.Headers.TryAddWithoutValidation("User-Agent", "STORM-SWITCH-BOX");
+                using var resp = await StormHttpClientFactory.Shared.SendAsync(req, reqCts.Token).ConfigureAwait(false);
+                if (!resp.IsSuccessStatusCode) return;
+                string xml = await resp.Content.ReadAsStringAsync(reqCts.Token).ConfigureAwait(false);
                 if (string.IsNullOrWhiteSpace(xml)) return;
 
                 var entries = Regex.Matches(xml, @"<entry>(.*?)</entry>", RegexOptions.Singleline);
@@ -1753,9 +1774,13 @@ namespace StormSwitchBox.Services
         {
             try
             {
-                using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(12) };
-                client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "STORM-SWITCH-BOX");
-                string json = await client.GetStringAsync("https://api.rutracker.cc/v1/static/pvc/f/1605", ct).ConfigureAwait(false);
+                using var reqCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                reqCts.CancelAfter(TimeSpan.FromSeconds(12));
+                using var req = new HttpRequestMessage(HttpMethod.Get, "https://api.rutracker.cc/v1/static/pvc/f/1605");
+                req.Headers.TryAddWithoutValidation("User-Agent", "STORM-SWITCH-BOX");
+                using var resp = await StormHttpClientFactory.Shared.SendAsync(req, reqCts.Token).ConfigureAwait(false);
+                if (!resp.IsSuccessStatusCode) return;
+                string json = await resp.Content.ReadAsStringAsync(reqCts.Token).ConfigureAwait(false);
                 if (string.IsNullOrWhiteSpace(json)) return;
 
                 using var doc = JsonDocument.Parse(json);
@@ -2782,7 +2807,7 @@ namespace StormSwitchBox.Services
 
         public static string NormalizeRuTrackerPostDate(string rawDate)
         {
-            if (string.IsNullOrWhiteSpace(rawDate)) return "25.10.2026 14:30";
+            if (string.IsNullOrWhiteSpace(rawDate)) return string.Empty;
             string clean = WebUtility.HtmlDecode(Regex.Replace(rawDate, "<.*?>", "")).Trim();
             var months = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             {
@@ -2814,7 +2839,7 @@ namespace StormSwitchBox.Services
                 return $"{d} {t}";
             }
 
-            return "25.10.2026 14:30";
+            return clean;
         }
 
         private static (string Role, string Label) ClassifyRoleAndLabel(string url, string anchorText, string postContext)
@@ -2885,7 +2910,7 @@ namespace StormSwitchBox.Services
                 postBody = Regex.Replace(postBody, @"<td class=""signature"">.*?</td>", "", RegexOptions.Singleline | RegexOptions.IgnoreCase);
                 postBody = Regex.Replace(postBody, @"<div class=""signature"">.*?</div>", "", RegexOptions.Singleline | RegexOptions.IgnoreCase);
 
-                string postDate = "25.10.2026 14:30";
+                string postDate = string.Empty;
                 var dateMatch = Regex.Match(postBody, @"class=""p-link""[^>]*>(.*?)</a>|class=""post-time""[^>]*>(.*?)</span>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
                 if (dateMatch.Success)
                 {
@@ -3241,15 +3266,9 @@ namespace StormSwitchBox.Services
             {
                 try
                 {
-                    var handler = new HttpClientHandler
-                    {
-                        AllowAutoRedirect = true,
-                        AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate
-                    };
-                    using var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(3.5) };
-                    http.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
-                    http.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "*/*");
-                    using var resp = await http.GetAsync(cacheUrl, rct).ConfigureAwait(false);
+                    using var req = new HttpRequestMessage(HttpMethod.Get, cacheUrl);
+                    req.Headers.TryAddWithoutValidation("Accept", "*/*");
+                    using var resp = await StormHttpClientFactory.Shared.SendAsync(req, rct).ConfigureAwait(false);
                     if (!resp.IsSuccessStatusCode) return null;
 
                     byte[] bytes = await resp.Content.ReadAsByteArrayAsync(rct).ConfigureAwait(false);
@@ -4825,7 +4844,7 @@ namespace StormSwitchBox.Services
             bool hashAlreadyInShared = false;
             if (!string.IsNullOrEmpty(currentHash))
             {
-                lock (_queueEngineLock)
+                lock (_engineLock)
                 {
                     hashAlreadyInShared = sharedEngine.Torrents.Any(t =>
                         string.Equals(t.InfoHashes.V1OrV2.ToHex(), currentHash, StringComparison.OrdinalIgnoreCase) ||
@@ -4982,7 +5001,7 @@ namespace StormSwitchBox.Services
                     long totalWantedBytes = 0;
                     long downloadedWantedBytes = 0;
                     var wantedFiles = new List<ITorrentManagerFile>();
-                    if (manager.HasMetadata && manager.Files.Count > 0)
+                    if (manager.HasMetadata && manager.Files != null && manager.Files.Count > 0)
                     {
                         foreach (var tf in manager.Files)
                         {
@@ -5060,14 +5079,14 @@ namespace StormSwitchBox.Services
                         }
                     }
 
-                    if (manager.HasMetadata && manager.Files.Count > 0)
+                    if (manager.HasMetadata && manager.Files != null && manager.Files.Count > 0)
                     {
                         bool allSelectedDone = wantedFiles.Count > 0
                             ? wantedFiles.All(f => f.BitField.AllTrue)
                             : (manager.PartialProgress >= 99.99 || manager.Progress >= 99.99);
 
                         if ((allSelectedDone || manager.PartialProgress >= 99.99 || manager.State == TorrentState.Seeding) &&
-                            fileSelections.Any(x => x.IsSelected))
+                            fileSelections != null && fileSelections.Any(x => x.IsSelected))
                         {
                             progress?.Report(new TorrentDownloadProgress
                             {
@@ -5119,7 +5138,7 @@ namespace StormSwitchBox.Services
                             {
                                 string targetPath = !string.IsNullOrEmpty(f.FullPath) && File.Exists(f.FullPath)
                                     ? f.FullPath
-                                    : Path.Combine(saveDirectory, f.Path);
+                                    : StormToolResolver.EnsureSafeSubPath(saveDirectory, f.Path);
 
                                 if (File.Exists(targetPath))
                                 {
@@ -5132,7 +5151,7 @@ namespace StormSwitchBox.Services
                 }
 
                 var downloadedPaths = new List<string>();
-                if (manager.HasMetadata)
+                if (manager.HasMetadata && manager.Files != null)
                 {
                     var selectedRelSet = fileSelections != null && fileSelections.Count > 0
                         ? fileSelections
@@ -5152,9 +5171,17 @@ namespace StormSwitchBox.Services
 
                         if (!isUnwanted && f.BitField.AllTrue)
                         {
-                            string fullPath = !string.IsNullOrEmpty(f.FullPath) && File.Exists(f.FullPath)
-                                ? f.FullPath
-                                : Path.Combine(saveDirectory, f.Path);
+                            string fullPath;
+                            try
+                            {
+                                fullPath = !string.IsNullOrEmpty(f.FullPath) && File.Exists(f.FullPath)
+                                    ? f.FullPath
+                                    : StormToolResolver.EnsureSafeSubPath(saveDirectory, f.Path);
+                            }
+                            catch
+                            {
+                                continue;
+                            }
 
                             if (File.Exists(fullPath))
                             {
@@ -5163,9 +5190,9 @@ namespace StormSwitchBox.Services
                                 {
                                     try
                                     {
-                                        string extractDir = Path.Combine(saveDirectory, Path.GetFileNameWithoutExtension(fullPath));
+                                        string extractDir = StormToolResolver.EnsureSafeSubPath(saveDirectory, StormToolResolver.SanitizeFileName(Path.GetFileNameWithoutExtension(fullPath), "Extracted"));
                                         Directory.CreateDirectory(extractDir);
-                                        ExtractArchiveWith7zAsync(fullPath, extractDir, ct).GetAwaiter().GetResult();
+                                        await ExtractArchiveWith7zAsync(fullPath, extractDir, ct).ConfigureAwait(false);
 
                                         var extractedContainers = Directory.EnumerateFiles(extractDir, "*.*", SearchOption.AllDirectories)
                                             .Where(p => p.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) ||
@@ -5227,7 +5254,7 @@ namespace StormSwitchBox.Services
 
         private static readonly SemaphoreSlim _qbitBootstrapLock = new(1, 1);
 
-        private static (string BaseUrl, string Username, string Password) ResolveLocalQBitConfig()
+        private static async Task<(string BaseUrl, string Username, string Password)> ResolveLocalQBitConfigAsync(CancellationToken ct)
         {
             int port = 18080;
             string username = "admin";
@@ -5262,20 +5289,20 @@ namespace StormSwitchBox.Services
                         }
                     }
 
-                    // Если в INI всё ещё стоит дефолтный 8080, проверяем, не занят ли он посторонним процессом (Docker/WSL)
+                    // Только проверяем порт без изменения пользовательского qBittorrent.ini
                     if (port == 8080)
                     {
                         bool isDockerHog = false;
                         try
                         {
-                            using var pingClient = new HttpClient { Timeout = TimeSpan.FromMilliseconds(500) };
-                            var resp = pingClient.GetAsync("http://127.0.0.1:8080/api/v2/app/version").GetAwaiter().GetResult();
+                            using var pingCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                            pingCts.CancelAfter(TimeSpan.FromMilliseconds(500));
+                            using var resp = await StormHttpClientFactory.Shared.GetAsync("http://127.0.0.1:8080/api/v2/app/version", pingCts.Token).ConfigureAwait(false);
                             if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
-                                isDockerHog = true; // Docker backend возвращает 404 на /api/v2
+                                isDockerHog = true;
                         }
                         catch
                         {
-                            // Если порт вообще не отвечает при запущенном qbittorrent - тоже переключаем
                             if (Process.GetProcessesByName("qbittorrent").Length > 0)
                                 isDockerHog = true;
                         }
@@ -5283,14 +5310,6 @@ namespace StormSwitchBox.Services
                         if (isDockerHog)
                         {
                             port = 18080;
-                            try
-                            {
-                                string text = File.ReadAllText(iniPath);
-                                text = Regex.Replace(text, @"(?m)^Port=8080\r?$", "Port=18080");
-                                text = Regex.Replace(text, @"(?m)^WebUI\\Port=8080\r?$", @"WebUI\Port=18080");
-                                File.WriteAllText(iniPath, text);
-                            }
-                            catch { }
                         }
                     }
                 }
@@ -5310,10 +5329,9 @@ namespace StormSwitchBox.Services
                 if (!isRunning)
                     return false;
 
-                var (baseUrl, username, password) = ResolveLocalQBitConfig();
+                var (baseUrl, username, password) = await ResolveLocalQBitConfigAsync(ct).ConfigureAwait(false);
 
-                using var fastHandler = new HttpClientHandler { UseCookies = true, CookieContainer = new System.Net.CookieContainer(), UseProxy = false };
-                using var fastClient = new HttpClient(fastHandler) { Timeout = TimeSpan.FromSeconds(1.2) };
+                using var fastClient = StormHttpClientFactory.CreateCookieClient(_qbitCookies, TimeSpan.FromSeconds(1.2));
 
                 // Быстрая проверка: возможно, WebUI уже готов к работе прямо сейчас
                 try
@@ -5324,84 +5342,10 @@ namespace StormSwitchBox.Services
                 }
                 catch { }
 
-                // Захватываем лок бутстрапа для потокобезопасного запуска и настройки
+                // Захватываем лок бутстрапа и проверяем готовность WebUI без модификации пользовательского qBittorrent.ini
                 await _qbitBootstrapLock.WaitAsync(ct).ConfigureAwait(false);
                 try
                 {
-                    // Повторная быстрая проверка после захвата блокировки
-                    try
-                    {
-                        using var pingResp2 = await fastClient.GetAsync($"{baseUrl}/api/v2/app/version", ct).ConfigureAwait(false);
-                        if (pingResp2.IsSuccessStatusCode || pingResp2.StatusCode == System.Net.HttpStatusCode.Forbidden || pingResp2.StatusCode == System.Net.HttpStatusCode.Unauthorized)
-                            return true;
-                    }
-                    catch { }
-
-                    // Гарантируем корректные настройки WebUI в qBittorrent.ini
-                    string iniPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "qBittorrent", "qBittorrent.ini");
-                    try
-                    {
-                        if (File.Exists(iniPath))
-                        {
-                            string iniText = File.ReadAllText(iniPath);
-                            bool modified = false;
-
-                            if (iniText.Contains("[WebUI]", StringComparison.OrdinalIgnoreCase))
-                            {
-                                if (Regex.IsMatch(iniText, @"(?m)^Enabled=false\r?$"))
-                                {
-                                    iniText = Regex.Replace(iniText, @"(?m)^Enabled=false\r?$", "Enabled=true");
-                                    modified = true;
-                                }
-                                else if (!Regex.IsMatch(iniText, @"(?m)^Enabled="))
-                                {
-                                    iniText = Regex.Replace(iniText, @"(?m)^\[WebUI\]\r?$", "[WebUI]\r\nEnabled=true");
-                                    modified = true;
-                                }
-
-                                if (Regex.IsMatch(iniText, @"(?m)^LocalHostAuth=true\r?$"))
-                                {
-                                    iniText = Regex.Replace(iniText, @"(?m)^LocalHostAuth=true\r?$", "LocalHostAuth=false");
-                                    modified = true;
-                                }
-                                else if (!Regex.IsMatch(iniText, @"(?m)^LocalHostAuth="))
-                                {
-                                    iniText = Regex.Replace(iniText, @"(?m)^\[WebUI\]\r?$", "[WebUI]\r\nLocalHostAuth=false");
-                                    modified = true;
-                                }
-                            }
-                            else if (iniText.Contains(@"WebUI\Enabled=", StringComparison.OrdinalIgnoreCase))
-                            {
-                                if (Regex.IsMatch(iniText, @"(?m)^WebUI\\Enabled=false\r?$"))
-                                {
-                                    iniText = Regex.Replace(iniText, @"(?m)^WebUI\\Enabled=false\r?$", @"WebUI\Enabled=true");
-                                    modified = true;
-                                }
-                                if (Regex.IsMatch(iniText, @"(?m)^WebUI\\LocalHostAuth=true\r?$"))
-                                {
-                                    iniText = Regex.Replace(iniText, @"(?m)^WebUI\\LocalHostAuth=true\r?$", @"WebUI\LocalHostAuth=false");
-                                    modified = true;
-                                }
-                            }
-                            else
-                            {
-                                iniText += "\r\n[WebUI]\r\nEnabled=true\r\nLocalHostAuth=false\r\nPort=18080\r\n";
-                                modified = true;
-                            }
-
-                            if (modified)
-                                File.WriteAllText(iniPath, iniText);
-                        }
-                        else
-                        {
-                            string? dir = Path.GetDirectoryName(iniPath);
-                            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-                            File.WriteAllText(iniPath, "[WebUI]\r\nEnabled=true\r\nLocalHostAuth=false\r\nPort=18080\r\n");
-                        }
-                    }
-                    catch { }
-
-                    // Если внешний qBittorrent запущен без включённого WebUI, проверяем не дольше 0.9 сек и сразу переключаемся на встроенный libtorrent
                     for (int i = 0; i < 3; i++)
                     {
                         ct.ThrowIfCancellationRequested();
@@ -5659,15 +5603,9 @@ namespace StormSwitchBox.Services
                 return null;
 
             string hashLower = currentHash.ToLowerInvariant();
-            var (baseUrl, username, password) = ResolveLocalQBitConfig();
+            var (baseUrl, username, password) = await ResolveLocalQBitConfigAsync(ct).ConfigureAwait(false);
 
-            using var handler = new HttpClientHandler
-            {
-                UseCookies = true,
-                CookieContainer = new System.Net.CookieContainer(),
-                UseProxy = false
-            };
-            using var qClient = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(3.5) };
+            using var qClient = StormHttpClientFactory.CreateCookieClient(_qbitCookies, TimeSpan.FromSeconds(3.5));
 
             bool qbitOnline = false;
             int maxAttempts = Process.GetProcessesByName("qbittorrent").Length > 0 ? 15 : 4;
@@ -5788,18 +5726,9 @@ namespace StormSwitchBox.Services
 
                 App.Logger?.Log($"[RuTracker Turbo Engine] Задействован высокоскоростной движок qBittorrent WebUI (uTP BEP-29 + Holepunch BEP-55) для {hashLower}", LogLevel.Info);
 
-                // Снимаем любые лимиты скорости, включаем ForceStart, выставляем параметры сессии libtorrent на максимум
+                // Включаем ForceStart только для текущего торрента (без изменения глобальных настроек qBittorrent)
                 _ = Task.Run(async () =>
                 {
-                    try
-                    {
-                        var prefsForm = new FormUrlEncodedContent(new[]
-                        {
-                            new KeyValuePair<string, string>("json", "{\"dl_limit\":0,\"up_limit\":0,\"queueing_enabled\":false,\"max_active_downloads\":30,\"max_active_torrents\":30,\"dht\":true,\"pex\":true,\"lsd\":true,\"enable_utp\":true,\"utp_tcp_mixed_mode\":0,\"enable_multi_connections_from_same_ip\":true,\"announce_to_all_trackers\":true,\"announce_to_all_tiers\":true,\"connection_speed\":100,\"max_connec\":2000,\"max_connec_per_torrent\":250,\"async_io_threads\":16,\"file_pool_size\":1024}")
-                        });
-                        await qClient.PostAsync($"{baseUrl}/api/v2/app/setPreferences", prefsForm, ct).ConfigureAwait(false);
-                    }
-                    catch { }
                     try
                     {
                         var forceForm = new FormUrlEncodedContent(new[]
@@ -6100,8 +6029,17 @@ namespace StormSwitchBox.Services
                             if (string.IsNullOrEmpty(relName)) continue;
 
                             string normRel = relName.Replace('/', Path.DirectorySeparatorChar);
-                            string srcFull = Path.Combine(actualSavePath, normRel);
-                            string dstFull = Path.Combine(saveDirectory, normRel);
+                            string srcFull;
+                            string dstFull;
+                            try
+                            {
+                                srcFull = StormToolResolver.EnsureSafeSubPath(actualSavePath, normRel);
+                                dstFull = StormToolResolver.EnsureSafeSubPath(saveDirectory, normRel);
+                            }
+                            catch
+                            {
+                                continue;
+                            }
 
                             if (!File.Exists(dstFull) && File.Exists(srcFull) && !string.Equals(srcFull, dstFull, StringComparison.OrdinalIgnoreCase))
                             {
@@ -6118,7 +6056,7 @@ namespace StormSwitchBox.Services
                                 {
                                     try
                                     {
-                                        string extractDir = Path.Combine(saveDirectory, Path.GetFileNameWithoutExtension(targetPath));
+                                        string extractDir = StormToolResolver.EnsureSafeSubPath(saveDirectory, StormToolResolver.SanitizeFileName(Path.GetFileNameWithoutExtension(targetPath), "Extracted"));
                                         Directory.CreateDirectory(extractDir);
                                         await ExtractArchiveWith7zAsync(targetPath, extractDir, ct).ConfigureAwait(false);
                                         var extractedContainers = Directory.EnumerateFiles(extractDir, "*.*", SearchOption.AllDirectories)
@@ -6196,24 +6134,16 @@ namespace StormSwitchBox.Services
             ManualResetEventSlim? pauseEvent,
             MagnetLink? rawMagnet)
         {
-            string baseDir = AppDomain.CurrentDomain.BaseDirectory;
-            string pythonExe = Path.Combine(baseDir, "tools", "nsz", "python.exe");
-            string scriptPath = Path.Combine(baseDir, "tools", "nsz", "storm_lt_turbo.py");
+            string pythonExe = StormToolResolver.ResolvePythonExe()
+                ?? StormToolResolver.ResolveTool(Path.Combine("tools", "nsz", "python.exe"))
+                ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tools", "nsz", "python.exe");
+            string scriptPath = StormToolResolver.ResolveLtTurboScript()
+                ?? StormToolResolver.ResolveTool(Path.Combine("tools", "nsz", "storm_lt_turbo.py"))
+                ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tools", "nsz", "storm_lt_turbo.py");
 
             if (!File.Exists(pythonExe) || !File.Exists(scriptPath))
             {
-                string altBase = Directory.GetCurrentDirectory();
-                string altPy = Path.Combine(altBase, "tools", "nsz", "python.exe");
-                string altSc = Path.Combine(altBase, "tools", "nsz", "storm_lt_turbo.py");
-                if (File.Exists(altPy) && File.Exists(altSc))
-                {
-                    pythonExe = altPy;
-                    scriptPath = altSc;
-                }
-                else
-                {
-                    return null;
-                }
+                return null;
             }
 
             string hashLower = currentHash.ToLowerInvariant();
@@ -6224,6 +6154,7 @@ namespace StormSwitchBox.Services
             string? tempTorrentFile = null;
 
             Process? proc = null;
+            int? procId = null;
             CancellationTokenSource? peerFeederCts = null;
 
             try
@@ -6233,7 +6164,8 @@ namespace StormSwitchBox.Services
                     $"\"{scriptPath}\"",
                     $"--save-dir \"{saveDirectory}\"",
                     $"--peers-file \"{peersFile}\"",
-                    $"--control-file \"{controlFile}\""
+                    $"--control-file \"{controlFile}\"",
+                    $"--parent-pid {Environment.ProcessId}"
                 };
 
                 if (rawTorrent != null && rawTorrent.Length > 0)
@@ -6371,6 +6303,8 @@ namespace StormSwitchBox.Services
 
                 proc = new Process { StartInfo = psi };
                 proc.Start();
+                procId = proc.Id;
+                JobObjectManager.AddProcess(proc);
                 try { proc.PriorityClass = ProcessPriorityClass.BelowNormal; } catch { }
 
                 var stderrBuilder = new StringBuilder();
@@ -6531,7 +6465,7 @@ namespace StormSwitchBox.Services
                         {
                             try
                             {
-                                string extractDir = Path.Combine(saveDirectory, Path.GetFileNameWithoutExtension(targetPath));
+                                string extractDir = StormToolResolver.EnsureSafeSubPath(saveDirectory, StormToolResolver.SanitizeFileName(Path.GetFileNameWithoutExtension(targetPath), "Extracted"));
                                 Directory.CreateDirectory(extractDir);
                                 await ExtractArchiveWith7zAsync(targetPath, extractDir, ct).ConfigureAwait(false);
                                 var extractedContainers = Directory.EnumerateFiles(extractDir, "*.*", SearchOption.AllDirectories)
@@ -6573,6 +6507,7 @@ namespace StormSwitchBox.Services
             {
                 try { peerFeederCts?.Cancel(); peerFeederCts?.Dispose(); } catch { }
                 try { if (proc != null && !proc.HasExited) proc.Kill(entireProcessTree: true); } catch { }
+                if (procId.HasValue) JobObjectManager.UnregisterProcess(procId.Value);
                 try { proc?.Dispose(); } catch { }
                 try { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true); } catch { }
             }
@@ -6583,72 +6518,11 @@ namespace StormSwitchBox.Services
         private static ClientEngine? _sharedTorrentEngine;
         private static readonly object _engineLock = new();
 
-        private static ClientEngine? _sharedQueueEngine;
-        private static readonly object _queueEngineLock = new();
-
         public static ClientEngine GetOrCreateSharedQueueEngine()
         {
-            if (_sharedQueueEngine != null)
-                return _sharedQueueEngine;
-
-            lock (_queueEngineLock)
-            {
-                if (_sharedQueueEngine != null)
-                    return _sharedQueueEngine;
-
-                string dhtCacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "STORM SWITCH BOX", "dht_cache");
-                string sharedCacheDir = Path.Combine(dhtCacheDir, "shared_engine");
-                Directory.CreateDirectory(sharedCacheDir);
-
-                var encList = new List<MonoTorrent.Connections.EncryptionType>
-                {
-                    MonoTorrent.Connections.EncryptionType.RC4Full,
-                    MonoTorrent.Connections.EncryptionType.RC4Header,
-                    MonoTorrent.Connections.EncryptionType.PlainText
-                };
-
-                int listenPort = 44860;
-                try
-                {
-                    using var testTcp = new System.Net.Sockets.TcpListener(IPAddress.Any, listenPort);
-                    testTcp.Start();
-                    testTcp.Stop();
-                }
-                catch
-                {
-                    listenPort = 0;
-                }
-
-                var listenEps = new Dictionary<string, IPEndPoint>
-                {
-                    ["ipv4"] = new IPEndPoint(IPAddress.Any, listenPort)
-                };
-
-                var engineSettings = new EngineSettingsBuilder
-                {
-                    CacheDirectory = sharedCacheDir,
-                    AllowedEncryption = encList,
-                    ListenEndPoints = listenEps,
-                    AllowPortForwarding = true,
-                    AllowLocalPeerDiscovery = true,
-                    UsePartialFiles = false,
-                    MaximumConnections = 1600,
-                    MaximumDownloadRate = 0,
-                    MaximumUploadRate = 0,
-                    MaximumHalfOpenConnections = 250,
-                    MaximumOpenFiles = 1024,
-                    MaximumDiskReadRate = 0,
-                    MaximumDiskWriteRate = 0,
-                    DiskCacheBytes = 256 * 1024 * 1024,
-                    DhtEndPoint = new IPEndPoint(IPAddress.Any, listenPort),
-                    AutoSaveLoadDhtCache = true,
-                    AutoSaveLoadFastResume = true,
-                    AutoSaveLoadMagnetLinkMetadata = true
-                }.ToSettings();
-
-                _sharedQueueEngine = new ClientEngine(engineSettings);
-                return _sharedQueueEngine;
-            }
+            string dhtCacheDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "STORM SWITCH BOX", "dht_cache");
+            string sharedCacheDir = Path.Combine(dhtCacheDir, "shared_engine");
+            return GetOrCreateEngine(sharedCacheDir);
         }
 
         private static ClientEngine CreateTemporaryFallbackEngine(string sessionCacheDir)
@@ -6702,6 +6576,8 @@ namespace StormSwitchBox.Services
                 if (_sharedTorrentEngine != null)
                     return _sharedTorrentEngine;
 
+                Directory.CreateDirectory(cacheDirectory);
+
                 var encList = new List<MonoTorrent.Connections.EncryptionType>
                 {
                     MonoTorrent.Connections.EncryptionType.RC4Full,
@@ -6709,9 +6585,21 @@ namespace StormSwitchBox.Services
                     MonoTorrent.Connections.EncryptionType.PlainText
                 };
 
+                int listenPort = 44860;
+                try
+                {
+                    using var testTcp = new System.Net.Sockets.TcpListener(IPAddress.Any, listenPort);
+                    testTcp.Start();
+                    testTcp.Stop();
+                }
+                catch
+                {
+                    listenPort = 0;
+                }
+
                 var listenEps = new Dictionary<string, IPEndPoint>
                 {
-                    ["ipv4"] = new IPEndPoint(IPAddress.Any, 44860)
+                    ["ipv4"] = new IPEndPoint(IPAddress.Any, listenPort)
                 };
 
                 var engineSettings = new EngineSettingsBuilder
@@ -6722,15 +6610,15 @@ namespace StormSwitchBox.Services
                     AllowPortForwarding = true,
                     AllowLocalPeerDiscovery = true,
                     UsePartialFiles = false,
-                    MaximumConnections = 800,
+                    MaximumConnections = 1600,
                     MaximumDownloadRate = 0,
                     MaximumUploadRate = 0,
-                    MaximumHalfOpenConnections = 150,
-                    MaximumOpenFiles = 256,
+                    MaximumHalfOpenConnections = 250,
+                    MaximumOpenFiles = 1024,
                     MaximumDiskReadRate = 0,
                     MaximumDiskWriteRate = 0,
-                    DiskCacheBytes = 256 * 1024 * 1024,
-                    DhtEndPoint = new IPEndPoint(IPAddress.Any, 44860),
+                    DiskCacheBytes = 64 * 1024 * 1024,
+                    DhtEndPoint = new IPEndPoint(IPAddress.Any, listenPort),
                     AutoSaveLoadDhtCache = true,
                     AutoSaveLoadFastResume = true,
                     AutoSaveLoadMagnetLinkMetadata = true
@@ -7217,7 +7105,7 @@ namespace StormSwitchBox.Services
                                 if (string.IsNullOrEmpty(Path.GetExtension(safeFileName)))
                                     safeFileName += ".zip";
 
-                                string archivePath = Path.Combine(modsRoot, safeFileName);
+                                string archivePath = StormToolResolver.EnsureSafeSubPath(modsRoot, safeFileName);
                                 progress?.Report(((i * 100.0 + 10.0) / links.Count, $"Скачивание: {safeFileName}..."));
 
                                 await DownloadFileWithProgressAsync(client, directUrl, archivePath, (info) =>
@@ -7241,7 +7129,7 @@ namespace StormSwitchBox.Services
                                 string ext = Path.GetExtension(archivePath).ToLowerInvariant();
                                 if (ext is ".zip" or ".7z" or ".rar")
                                 {
-                                    string extractDir = Path.Combine(modsRoot, Path.GetFileNameWithoutExtension(safeFileName));
+                                    string extractDir = StormToolResolver.EnsureSafeSubPath(modsRoot, StormToolResolver.SanitizeFileName(Path.GetFileNameWithoutExtension(safeFileName), "Extracted"));
                                     Directory.CreateDirectory(extractDir);
                                     progress?.Report(((i + 0.85) * 100.0 / links.Count, $"Распаковка архива {safeFileName}..."));
 
@@ -7253,7 +7141,7 @@ namespace StormSwitchBox.Services
                                         string nExt = Path.GetExtension(nestedRom).ToLowerInvariant();
                                         if (nExt is ".nsp" or ".nsz" or ".xci" or ".xcz")
                                         {
-                                            string promotedPath = Path.Combine(workDirectory, Path.GetFileName(nestedRom));
+                                            string promotedPath = StormToolResolver.EnsureSafeSubPath(workDirectory, StormToolResolver.SanitizeFileName(Path.GetFileName(nestedRom), "Game" + nExt));
                                             if (!string.Equals(nestedRom, promotedPath, StringComparison.OrdinalIgnoreCase))
                                             {
                                                 try { File.Copy(nestedRom, promotedPath, overwrite: true); } catch { }
@@ -7266,7 +7154,7 @@ namespace StormSwitchBox.Services
                                 }
                                 else if (ext is ".nsp" or ".nsz" or ".xci" or ".xcz")
                                 {
-                                    string promotedPath = Path.Combine(workDirectory, Path.GetFileName(archivePath));
+                                    string promotedPath = StormToolResolver.EnsureSafeSubPath(workDirectory, StormToolResolver.SanitizeFileName(Path.GetFileName(archivePath), "Game" + ext));
                                     if (!string.Equals(archivePath, promotedPath, StringComparison.OrdinalIgnoreCase))
                                     {
                                         try { File.Move(archivePath, promotedPath, overwrite: true); } catch { }
@@ -7303,7 +7191,7 @@ namespace StormSwitchBox.Services
                                     string ext = Path.GetExtension(dlPath).ToLowerInvariant();
                                     if (ext is ".zip" or ".7z" or ".rar")
                                     {
-                                        string extractDir = Path.Combine(modsRoot, Path.GetFileNameWithoutExtension(dlPath));
+                                        string extractDir = StormToolResolver.EnsureSafeSubPath(modsRoot, StormToolResolver.SanitizeFileName(Path.GetFileNameWithoutExtension(dlPath), "Extracted"));
                                         Directory.CreateDirectory(extractDir);
                                         await ExtractArchiveWith7zAsync(dlPath, extractDir, ct).ConfigureAwait(false);
                                         try { File.Delete(dlPath); } catch { }
@@ -7953,26 +7841,39 @@ namespace StormSwitchBox.Services
 
         public static async Task ExtractArchiveWith7zAsync(string archivePath, string extractDir, CancellationToken ct)
         {
-            string tools7z = Path.Combine(AppContext.BaseDirectory, "tools", "7z", "7za.exe");
-            if (!File.Exists(tools7z))
-            {
-                tools7z = Path.Combine(Environment.CurrentDirectory, "tools", "7z", "7za.exe");
-            }
+            string fullExtractDir = Path.GetFullPath(extractDir);
+            Directory.CreateDirectory(fullExtractDir);
 
-            if (!File.Exists(tools7z))
+            string? tools7z = StormToolResolver.Resolve7Zip()
+                ?? StormToolResolver.ResolveTool(Path.Combine("tools", "7z", "7za.exe"));
+
+            if (string.IsNullOrEmpty(tools7z) || !File.Exists(tools7z))
             {
                 if (archivePath.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
                 {
-                    System.IO.Compression.ZipFile.ExtractToDirectory(archivePath, extractDir, overwriteFiles: true);
+                    using var archive = System.IO.Compression.ZipFile.OpenRead(archivePath);
+                    foreach (var entry in archive.Entries)
+                    {
+                        if (string.IsNullOrEmpty(entry.Name))
+                        {
+                            string dirOut = StormToolResolver.EnsureSafeSubPath(fullExtractDir, entry.FullName);
+                            Directory.CreateDirectory(dirOut);
+                            continue;
+                        }
+                        string destFile = StormToolResolver.EnsureSafeSubPath(fullExtractDir, entry.FullName);
+                        string? parent = Path.GetDirectoryName(destFile);
+                        if (!string.IsNullOrEmpty(parent)) Directory.CreateDirectory(parent);
+                        System.IO.Compression.ZipFileExtensions.ExtractToFile(entry, destFile, overwrite: true);
+                    }
                     return;
                 }
-                throw new FileNotFoundException($"Архиватор 7za.exe не найден по пути: {tools7z}");
+                throw new FileNotFoundException($"Архиватор 7za.exe не найден в tools/7z.");
             }
 
             var psi = new System.Diagnostics.ProcessStartInfo
             {
                 FileName = tools7z,
-                Arguments = $"x \"{archivePath}\" -o\"{extractDir}\" -y -aoa",
+                Arguments = $"x \"{archivePath}\" -o\"{fullExtractDir}\" -y -aoa",
                 CreateNoWindow = true,
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
@@ -7981,17 +7882,22 @@ namespace StormSwitchBox.Services
 
             using var proc = new System.Diagnostics.Process { StartInfo = psi };
             proc.Start();
+            JobObjectManager.AddProcess(proc);
+            int procPid = proc.Id;
 
             try
             {
-                proc.PriorityClass = System.Diagnostics.ProcessPriorityClass.BelowNormal;
+                try { proc.PriorityClass = System.Diagnostics.ProcessPriorityClass.BelowNormal; } catch { }
+                await proc.WaitForExitAsync(ct).ConfigureAwait(false);
+                if (proc.ExitCode != 0)
+                {
+                    string err = await proc.StandardError.ReadToEndAsync(ct).ConfigureAwait(false);
+                    throw new InvalidOperationException($"Ошибка 7z распаковки (код {proc.ExitCode}): {err}");
+                }
             }
-            catch { }
-            await proc.WaitForExitAsync(ct).ConfigureAwait(false);
-            if (proc.ExitCode != 0)
+            finally
             {
-                string err = await proc.StandardError.ReadToEndAsync(ct).ConfigureAwait(false);
-                throw new InvalidOperationException($"Ошибка 7z распаковки (код {proc.ExitCode}): {err}");
+                JobObjectManager.UnregisterProcess(procPid);
             }
         }
 
@@ -8291,10 +8197,13 @@ namespace StormSwitchBox.Services
             {
                 try
                 {
-                    using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
-                    client.DefaultRequestHeaders.Add("X-Return-Format", "html");
-                    string url = $"https://r.jina.ai/{targetUrl}";
-                    string html = await client.GetStringAsync(url, lct).ConfigureAwait(false);
+                    using var reqCts = CancellationTokenSource.CreateLinkedTokenSource(lct);
+                    reqCts.CancelAfter(TimeSpan.FromSeconds(8));
+                    using var req = new HttpRequestMessage(HttpMethod.Get, $"https://r.jina.ai/{targetUrl}");
+                    req.Headers.TryAddWithoutValidation("X-Return-Format", "html");
+                    using var resp = await StormHttpClientFactory.Shared.SendAsync(req, reqCts.Token).ConfigureAwait(false);
+                    if (!resp.IsSuccessStatusCode) return null;
+                    string html = await resp.Content.ReadAsStringAsync(reqCts.Token).ConfigureAwait(false);
                     if (IsValidRuTrackerTopicHtml(html))
                     {
                         return html;
@@ -8309,9 +8218,10 @@ namespace StormSwitchBox.Services
             {
                 try
                 {
-                    using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
+                    using var reqCts = CancellationTokenSource.CreateLinkedTokenSource(lct);
+                    reqCts.CancelAfter(TimeSpan.FromSeconds(8));
                     string url = $"https://api.codetabs.com/v1/proxy?quest={Uri.EscapeDataString(targetUrl)}";
-                    string html = await client.GetStringAsync(url, lct).ConfigureAwait(false);
+                    string html = await StormHttpClientFactory.Shared.GetStringAsync(url, reqCts.Token).ConfigureAwait(false);
                     if (IsValidRuTrackerTopicHtml(html))
                     {
                         return html;
@@ -8326,9 +8236,10 @@ namespace StormSwitchBox.Services
             {
                 try
                 {
-                    using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
+                    using var reqCts = CancellationTokenSource.CreateLinkedTokenSource(lct);
+                    reqCts.CancelAfter(TimeSpan.FromSeconds(8));
                     string url = $"https://api.allorigins.win/raw?url={Uri.EscapeDataString(targetUrl)}";
-                    string html = await client.GetStringAsync(url, lct).ConfigureAwait(false);
+                    string html = await StormHttpClientFactory.Shared.GetStringAsync(url, reqCts.Token).ConfigureAwait(false);
                     if (IsValidRuTrackerTopicHtml(html))
                     {
                         return html;
@@ -8343,9 +8254,10 @@ namespace StormSwitchBox.Services
             {
                 try
                 {
-                    using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
+                    using var reqCts = CancellationTokenSource.CreateLinkedTokenSource(lct);
+                    reqCts.CancelAfter(TimeSpan.FromSeconds(8));
                     string url = $"https://corsproxy.io/?{Uri.EscapeDataString(targetUrl)}";
-                    string html = await client.GetStringAsync(url, lct).ConfigureAwait(false);
+                    string html = await StormHttpClientFactory.Shared.GetStringAsync(url, reqCts.Token).ConfigureAwait(false);
                     if (IsValidRuTrackerTopicHtml(html))
                     {
                         return html;
@@ -8483,7 +8395,7 @@ namespace StormSwitchBox.Services
                 }
 
                 // Для zoneofgames.ru применяем короткий таймаут 3.5с из-за частых зависаний DPI провайдеров
-                var reqCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                using var reqCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 if (forumUrl.Contains("zoneofgames.ru", StringComparison.OrdinalIgnoreCase))
                     reqCts.CancelAfter(TimeSpan.FromSeconds(3.5));
 
@@ -8521,7 +8433,7 @@ namespace StormSwitchBox.Services
                 string proxyUrl = $"https://api.codetabs.com/v1/proxy?quest={Uri.EscapeDataString(forumUrl)}";
                 using var pReq = new HttpRequestMessage(HttpMethod.Get, proxyUrl);
                 pReq.Headers.TryAddWithoutValidation("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
-                var pCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                using var pCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 pCts.CancelAfter(TimeSpan.FromSeconds(4.5));
                 using var pResp = await client.SendAsync(pReq, HttpCompletionOption.ResponseContentRead, pCts.Token).ConfigureAwait(false);
                 if (pResp.IsSuccessStatusCode)
@@ -8539,7 +8451,7 @@ namespace StormSwitchBox.Services
                 string jinaUrl = $"https://r.jina.ai/{forumUrl}";
                 using var jReq = new HttpRequestMessage(HttpMethod.Get, jinaUrl);
                 jReq.Headers.TryAddWithoutValidation("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
-                var jCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                using var jCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 jCts.CancelAfter(TimeSpan.FromSeconds(7));
                 using var jResp = await client.SendAsync(jReq, HttpCompletionOption.ResponseContentRead, jCts.Token).ConfigureAwait(false);
                 if (jResp.IsSuccessStatusCode)
@@ -8570,9 +8482,13 @@ namespace StormSwitchBox.Services
             return null;
         }
 
-        public static async Task<List<string>> ResolveForumPostEmbeddedCloudUrlsAsync(HttpClient client, string forumUrl, CancellationToken ct)
+        public static async Task<List<string>> ResolveForumPostEmbeddedCloudUrlsAsync(HttpClient client, string forumUrl, CancellationToken ct, HashSet<string>? visitedUrls = null)
         {
             var discovered = new List<string>();
+            visitedUrls ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (string.IsNullOrWhiteSpace(forumUrl) || !visitedUrls.Add(forumUrl) || visitedUrls.Count > 12)
+                return discovered;
+
             try
             {
                 string? html = await FetchForumPageHtmlWithBypassAsync(client, forumUrl, ct).ConfigureAwait(false);
@@ -8712,10 +8628,10 @@ namespace StormSwitchBox.Services
                     var companionLinks = richCandidates.Where(c => c.IsCompanion).Select(c => c.Url).ToList();
                     foreach (var cUrl in companionLinks)
                     {
-                        if (cUrl.Equals(forumUrl, StringComparison.OrdinalIgnoreCase)) continue;
+                        if (cUrl.Equals(forumUrl, StringComparison.OrdinalIgnoreCase) || visitedUrls.Contains(cUrl)) continue;
                         try
                         {
-                            var compCloudUrls = await ResolveForumPostEmbeddedCloudUrlsAsync(client, cUrl, ct).ConfigureAwait(false);
+                            var compCloudUrls = await ResolveForumPostEmbeddedCloudUrlsAsync(client, cUrl, ct, visitedUrls).ConfigureAwait(false);
                             foreach (var cu in compCloudUrls)
                             {
                                 if (!discovered.Contains(cu, StringComparer.OrdinalIgnoreCase))
@@ -8969,15 +8885,19 @@ namespace StormSwitchBox.Services
                     "http://retracker.local/announce"
                 };
 
-                using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
-                client.DefaultRequestHeaders.UserAgent.ParseAdd("uTorrent/3550");
                 var queryTasks = globalAnnounceUrls.Select(async announceUrl =>
                 {
                     string sep = announceUrl.Contains('?') ? "&" : "?";
                     string reqUrl = $"{announceUrl}{sep}{stdParams}";
                     try
                     {
-                        byte[] data = await client.GetByteArrayAsync(reqUrl, ct).ConfigureAwait(false);
+                        using var trkCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                        trkCts.CancelAfter(TimeSpan.FromSeconds(5));
+                        using var req = new HttpRequestMessage(HttpMethod.Get, reqUrl);
+                        req.Headers.TryAddWithoutValidation("User-Agent", "uTorrent/3550");
+                        using var resp = await StormHttpClientFactory.Shared.SendAsync(req, trkCts.Token).ConfigureAwait(false);
+                        if (!resp.IsSuccessStatusCode) return;
+                        byte[] data = await resp.Content.ReadAsByteArrayAsync(trkCts.Token).ConfigureAwait(false);
                         ExtractCompactPeersFromBencodedData(data, newPeers, infoHashHex);
                     }
                     catch { }

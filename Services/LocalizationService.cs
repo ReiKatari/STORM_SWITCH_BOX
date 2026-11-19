@@ -37,6 +37,12 @@ namespace StormSwitchBox.Services
                 return val;
             }
 
+            if (string.Equals(_currentLanguage, "zh-TW", StringComparison.OrdinalIgnoreCase) &&
+                _strings.TryGetValue("zh", out var zhDict) && zhDict.TryGetValue(key, out var zhVal))
+            {
+                return zhVal;
+            }
+
             // Fallback to Russian
             if (_strings.TryGetValue("ru", out var ruDict) && ruDict.TryGetValue(key, out var ruVal))
             {
@@ -1234,9 +1240,9 @@ namespace StormSwitchBox.Services
                 ["Settings_Switch_LangTrim_Desc"] = "NSP/NSZ → XCI/XCZ 변환 및 HardPatch(Base+Update 재구축) 사용 시 작동",
                 ["Settings_Switch_LangTrim_Sub"] = "잘라낼 때 유지하려는 언어를 선택하세요.",
                 ["Settings_Switch_WatchFolder_Header"] = "닌텐도 스위치 스마트 폴더",
-                ["Settings_Switch_WatchFolder_Title"] = "자동 감시 폴더 전환",
+                ["Settings_Switch_WatchFolder_Title"] = "Switch 자동 감시 폴더",
                 ["Settings_Switch_WatchFolder_Desc"] = "스위치 파일(.nsp, .nsz, .xci, .xcz, .zip, .rar, .7z 아카이브)을 자동으로 감지하여 작업으로 보냅니다.",
-                ["Settings_Switch_WatchFolder_Badge"] = "⚡ 자동 처리 전환:",
+                ["Settings_Switch_WatchFolder_Badge"] = "⚡ Switch 자동 처리:",
                 ["Settings_Switch_WatchFolder_Pick"] = "폴더 선택...",
                 ["Settings_Switch_WatchFolder_Start"] = "▶ 추적 시작",
                 ["Settings_Switch_WatchFolder_Stop"] = "⏹ 추적 중지",
@@ -1648,9 +1654,9 @@ namespace StormSwitchBox.Services
                 ["Settings_Switch_LangTrim_Desc"] = "Funciona al convertir NSP/NSZ → XCI/XCZ y con HardPatch (reconstrucción Base+Actualización)",
                 ["Settings_Switch_LangTrim_Sub"] = "Seleccione los idiomas que desea MANTENER al cortar:",
                 ["Settings_Switch_WatchFolder_Header"] = "Carpeta inteligente de Nintendo Switch",
-                ["Settings_Switch_WatchFolder_Title"] = "Cambiar carpeta de vigilancia automática",
+                ["Settings_Switch_WatchFolder_Title"] = "Carpeta de vigilancia automática Switch",
                 ["Settings_Switch_WatchFolder_Desc"] = "Detecta automáticamente archivos Switch (archivos .nsp, .nsz, .xci, .xcz, .zip, .rar, .7z) y los envía a tareas",
-                ["Settings_Switch_WatchFolder_Badge"] = "⚡ Cambiar el procesamiento automático:",
+                ["Settings_Switch_WatchFolder_Badge"] = "⚡ Procesamiento automático Switch:",
                 ["Settings_Switch_WatchFolder_Pick"] = "Seleccionar carpeta...",
                 ["Settings_Switch_WatchFolder_Start"] = "▶ Iniciar seguimiento",
                 ["Settings_Switch_WatchFolder_Stop"] = "⏹ Dejar de rastrear",
@@ -1855,9 +1861,9 @@ namespace StormSwitchBox.Services
                 ["Settings_Switch_LangTrim_Desc"] = "Funziona durante la conversione di NSP/NSZ → XCI/XCZ e con HardPatch (ricostruzione Base+Aggiornamento)",
                 ["Settings_Switch_LangTrim_Sub"] = "Seleziona le lingue che vuoi MANTENERE durante il taglio:",
                 ["Settings_Switch_WatchFolder_Header"] = "Cartella intelligente per Nintendo Switch",
-                ["Settings_Switch_WatchFolder_Title"] = "Cambia cartella controllata automaticamente",
+                ["Settings_Switch_WatchFolder_Title"] = "Cartella di monitoraggio automatico Switch",
                 ["Settings_Switch_WatchFolder_Desc"] = "Rileva automaticamente i file Switch (archivi .nsp, .nsz, .xci, .xcz, .zip, .rar, .7z) e li invia alle attività",
-                ["Settings_Switch_WatchFolder_Badge"] = "⚡ Cambia l'elaborazione automatica:",
+                ["Settings_Switch_WatchFolder_Badge"] = "⚡ Elaborazione automatica Switch:",
                 ["Settings_Switch_WatchFolder_Pick"] = "Seleziona cartella...",
                 ["Settings_Switch_WatchFolder_Start"] = "▶ Inizia il monitoraggio",
                 ["Settings_Switch_WatchFolder_Stop"] = "⏹ Interrompi il monitoraggio",
@@ -2062,9 +2068,9 @@ namespace StormSwitchBox.Services
                 ["Settings_Switch_LangTrim_Desc"] = "Funciona ao converter NSP/NSZ → XCI/XCZ e com HardPatch (reconstrução Base + Atualização)",
                 ["Settings_Switch_LangTrim_Sub"] = "Selecione os idiomas que deseja MANTER ao cortar:",
                 ["Settings_Switch_WatchFolder_Header"] = "Pasta Inteligente Nintendo Switch",
-                ["Settings_Switch_WatchFolder_Title"] = "Alternar pasta de monitoramento automático",
+                ["Settings_Switch_WatchFolder_Title"] = "Pasta de monitoramento automático Switch",
                 ["Settings_Switch_WatchFolder_Desc"] = "Detecta automaticamente arquivos Switch (arquivos .nsp, .nsz, .xci, .xcz, .zip, .rar, .7z) e os envia para tarefas",
-                ["Settings_Switch_WatchFolder_Badge"] = "⚡ Alternar processamento automático:",
+                ["Settings_Switch_WatchFolder_Badge"] = "⚡ Processamento automático Switch:",
                 ["Settings_Switch_WatchFolder_Pick"] = "Selecione a pasta...",
                 ["Settings_Switch_WatchFolder_Start"] = "▶ Comece a rastrear",
                 ["Settings_Switch_WatchFolder_Stop"] = "⏹ Pare de rastrear",
@@ -2269,9 +2275,9 @@ namespace StormSwitchBox.Services
                 ["Settings_Switch_LangTrim_Desc"] = "एनएसपी/एनएसजेड → एक्ससीआई/एक्ससीजेड और हार्डपैच (बेस+अपडेट पुनर्निर्माण) के साथ परिवर्तित करते समय काम करता है",
                 ["Settings_Switch_LangTrim_Sub"] = "वे भाषाएँ चुनें जिन्हें आप काटते समय रखना चाहते हैं:",
                 ["Settings_Switch_WatchFolder_Header"] = "निंटेंडो स्विच स्मार्ट फोल्डर",
-                ["Settings_Switch_WatchFolder_Title"] = "ऑटो वॉच फ़ोल्डर स्विच करें",
+                ["Settings_Switch_WatchFolder_Title"] = "Switch स्वचालित वॉच फ़ोल्डर",
                 ["Settings_Switch_WatchFolder_Desc"] = "स्वचालित रूप से स्विच फ़ाइलों (.nsp, .nsz, .xci, .xcz, .zip, .rar, .7z संग्रह) का पता लगाता है और उन्हें कार्यों पर भेजता है",
-                ["Settings_Switch_WatchFolder_Badge"] = "⚡ ऑटो-प्रोसेसिंग स्विच करें:",
+                ["Settings_Switch_WatchFolder_Badge"] = "⚡ Switch स्वचालित प्रोसेसिंग:",
                 ["Settings_Switch_WatchFolder_Pick"] = "फ़ोल्डर चुनें...",
                 ["Settings_Switch_WatchFolder_Start"] = "▶ ट्रैकिंग प्रारंभ करें",
                 ["Settings_Switch_WatchFolder_Stop"] = "⏹ ट्रैकिंग बंद करो",

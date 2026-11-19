@@ -48,36 +48,11 @@ namespace StormSwitchBox.Services
         {
             string titleKeysPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "title.keys");
 
-            bool isXci = filePath.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) || filePath.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase);
-
-            using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-            IStorage storage = fileStream.AsStorage();
-            
-            PartitionFileSystem? pfs = null;
-
-            if (isXci)
-            {
-                storage.GetSize(out long storageSize).ThrowIfFailure();
-                var rootStorage = new SubStorage(storage, 0x10000, storageSize - 0x10000);
-                var rootPfs = new PartitionFileSystem(rootStorage);
-                
-                
-                using var secureFile = new UniqueRef<IFile>();
-                using var securePath = new LibHac.Fs.Path();
-                securePath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes("/secure"))).ThrowIfFailure();
-                rootPfs.OpenFile(ref secureFile.Ref, in securePath, OpenMode.Read).ThrowIfFailure();
-                
-                pfs = new PartitionFileSystem(secureFile.Release().AsStorage());
-                
-            }
-            else
-            {
-                pfs = new PartitionFileSystem(storage);
-                
-            }
+            using var container = SwitchContainerHandle.Open(filePath);
+            var pfs = container.FileSystem;
 
             var entries = pfs.EnumerateEntries().Where(e => e.Name.EndsWith(".tik", StringComparison.OrdinalIgnoreCase)).ToList();
-            
+
             if (entries.Count > 0)
             {
                 var keysToAdd = new List<string>();
@@ -88,16 +63,27 @@ namespace StormSwitchBox.Services
                     using var entryPath = new LibHac.Fs.Path();
                     entryPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(entry.FullPath))).ThrowIfFailure();
                     pfs.OpenFile(ref tikFileRef.Ref, in entryPath, OpenMode.Read).ThrowIfFailure();
-                    
-                    IFile tikFile = tikFileRef.Release();
-                    byte[] tikBytes = new byte[0x300];
-                    tikFile.Read(out long bytesRead, 0, tikBytes).ThrowIfFailure();
 
-                    if (bytesRead >= 0x100)
+                    using IFile tikFile = tikFileRef.Release();
+                    tikFile.GetSize(out long actualSize).ThrowIfFailure();
+                    long targetSize = Math.Max(actualSize, entry.Size);
+                    if (targetSize < 0x100) continue;
+
+                    int readLen = (int)Math.Min(targetSize, 1024 * 1024);
+                    byte[] tikBytes = new byte[readLen];
+                    long totalRead = 0;
+                    while (totalRead < readLen)
+                    {
+                        tikFile.Read(out long chunkRead, totalRead, tikBytes.AsSpan((int)totalRead, readLen - (int)totalRead)).ThrowIfFailure();
+                        if (chunkRead <= 0) break;
+                        totalRead += chunkRead;
+                    }
+
+                    if (totalRead >= 0x100)
                     {
                         // В title.keys и ExternalKeySet (для LibHac / hactoolnet / yanu-cli) обязан храниться сырой TitleKeyBlock из .tik (зашифрованный TitleKek),
                         // так как LibHac и hactoolnet всегда расшифровывают ключ из title.keys через TitleKek!
-                        var rawInfo = ExtractTicketInfo(tikBytes, (int)bytesRead);
+                        var rawInfo = ExtractTicketInfo(tikBytes, (int)totalRead);
                         if (rawInfo.HasValue && !string.IsNullOrEmpty(rawInfo.Value.RightsId) && !string.IsNullOrEmpty(rawInfo.Value.TitleKey))
                         {
                             string rIdNorm = rawInfo.Value.RightsId.Trim().ToLowerInvariant();
@@ -105,26 +91,29 @@ namespace StormSwitchBox.Services
                             keysToAdd.Add($"{rIdNorm} = {rawKeyHex}");
                             try
                             {
-                                if (App.Keys?.CurrentKeyset?.ExternalKeySet != null)
+                                var keyset = App.Keys?.CurrentKeyset;
+                                if (keyset?.ExternalKeySet != null)
                                 {
                                     byte[] ridB = Convert.FromHexString(rIdNorm);
                                     byte[] keyB = Convert.FromHexString(rawKeyHex);
                                     var rIdObj = new LibHac.Fs.RightsId(ridB);
                                     var aKeyObj = new LibHac.Spl.AccessKey(keyB);
-                                    KeysService.RemoveFallbackRightsId(rIdObj);
-                                    App.Keys.CurrentKeyset.ExternalKeySet.Remove(rIdObj);
-                                    App.Keys.CurrentKeyset.ExternalKeySet.Add(rIdObj, aKeyObj);
+                                    KeysService.TryAddExternalKey(keyset, rIdObj, aKeyObj);
                                 }
                             }
                             catch { }
                         }
 
-                        var decTicketInfo = ExtractDecryptedTicket(tikBytes, (int)bytesRead, App.Keys.CurrentKeyset);
-                        if (decTicketInfo.HasValue && !string.IsNullOrEmpty(decTicketInfo.Value.RightsId) && decTicketInfo.Value.TitleKey != null && decTicketInfo.Value.TitleKey.Length == 16)
+                        var currentKeyset = App.Keys?.CurrentKeyset;
+                        if (currentKeyset != null)
                         {
-                            lock (Core.NSZ.StormNczCompressor.TitleKeysCache)
+                            var decTicketInfo = ExtractDecryptedTicket(tikBytes, (int)totalRead, currentKeyset);
+                            if (decTicketInfo.HasValue && !string.IsNullOrEmpty(decTicketInfo.Value.RightsId) && decTicketInfo.Value.TitleKey != null && decTicketInfo.Value.TitleKey.Length == 16)
                             {
-                                Core.NSZ.StormNczCompressor.TitleKeysCache[decTicketInfo.Value.RightsId] = decTicketInfo.Value.TitleKey;
+                                lock (Core.NSZ.StormNczCompressor.TitleKeysCache)
+                                {
+                                    Core.NSZ.StormNczCompressor.TitleKeysCache[decTicketInfo.Value.RightsId] = decTicketInfo.Value.TitleKey;
+                                }
                             }
                         }
                     }
@@ -132,10 +121,10 @@ namespace StormSwitchBox.Services
 
                 if (keysToAdd.Count > 0)
                 {
-                    lock (_lockObj)
+                    lock (KeysService.TitleKeysFileLock)
                     {
                         var dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                        try 
+                        try
                         {
                             if (File.Exists(titleKeysPath))
                             {
@@ -151,9 +140,11 @@ namespace StormSwitchBox.Services
                             }
                             else
                             {
-                                Directory.CreateDirectory(Path.GetDirectoryName(titleKeysPath)!);
+                                string? tkDir = Path.GetDirectoryName(titleKeysPath);
+                                if (!string.IsNullOrEmpty(tkDir))
+                                    Directory.CreateDirectory(tkDir);
                             }
-                        } 
+                        }
                         catch { }
 
                         bool changed = false;
@@ -181,7 +172,7 @@ namespace StormSwitchBox.Services
                             App.Logger.Log($"[Ticket Harvester] Найдено и обновлено {newCount} билетов из {Path.GetFileName(filePath)}", Models.LogLevel.Success);
                             App.RunOnUI(() =>
                             {
-                                if (App.Keys.KeysFilePath != null && File.Exists(App.Keys.KeysFilePath))
+                                if (App.Keys?.KeysFilePath != null && File.Exists(App.Keys.KeysFilePath))
                                 {
                                     App.Keys.LoadKeys(App.Keys.KeysFilePath);
                                     App.Logger.Log("[Ticket Harvester] Ключи LibHac были автоматически обновлены.", Models.LogLevel.Info);
@@ -193,23 +184,45 @@ namespace StormSwitchBox.Services
             }
         }
 
+        private static bool IsValidSwitchRightsIdBytes(ReadOnlySpan<byte> rIdBytes)
+        {
+            if (rIdBytes.Length < 16) return false;
+            bool allZero = true;
+            for (int i = 0; i < 16; i++)
+            {
+                if (rIdBytes[i] != 0) { allZero = false; break; }
+            }
+            if (allZero) return false;
+            for (int i = 8; i < 14; i++)
+            {
+                if (rIdBytes[i] != 0) return false;
+            }
+            return true;
+        }
+
         /// <summary>
         /// Извлекает и расшифровывает TitleKey из билета Switch с использованием TitleKek.
+        /// При отсутствии TitleKek возвращает null, не подставляя сырой зашифрованный ключ.
         /// </summary>
-        public static (string RightsId, byte[] TitleKey)? ExtractDecryptedTicket(byte[] tikBytes, int length, KeySet keyset)
+        public static (string RightsId, byte[] TitleKey)? ExtractDecryptedTicket(byte[] tikBytes, int length, KeySet? keyset)
         {
-            if (tikBytes == null || length < 0x100) return null;
+            if (tikBytes == null || length < 0x100 || keyset == null) return null;
 
             string rId = string.Empty;
             byte[]? encKeyBytes = null;
             byte[]? rIdBytes = null;
+            bool parsedValidTicketHeader = false;
 
             try
             {
                 using var ms = new MemoryStream(tikBytes, 0, length);
                 var ticket = new LibHac.Tools.Es.Ticket(ms);
+                parsedValidTicketHeader = true;
+                if ((int)ticket.TitleKeyType != 0)
+                    return null;
+
                 rIdBytes = ticket.RightsId;
-                if (rIdBytes != null && rIdBytes.Length == 16)
+                if (rIdBytes != null && rIdBytes.Length == 16 && IsValidSwitchRightsIdBytes(rIdBytes))
                 {
                     rId = BitConverter.ToString(rIdBytes).Replace("-", "").ToLowerInvariant();
                 }
@@ -217,7 +230,7 @@ namespace StormSwitchBox.Services
             }
             catch { }
 
-            if (encKeyBytes == null || encKeyBytes.Length < 16 || string.IsNullOrEmpty(rId) || IsAllZero(rId))
+            if (!parsedValidTicketHeader && (encKeyBytes == null || encKeyBytes.Length < 16 || string.IsNullOrEmpty(rId)))
             {
                 var rawInfo = ExtractTicketInfo(tikBytes, length);
                 if (rawInfo.HasValue && !string.IsNullOrEmpty(rawInfo.Value.RightsId))
@@ -228,58 +241,55 @@ namespace StormSwitchBox.Services
                 }
             }
 
-            if (encKeyBytes == null || encKeyBytes.Length < 16 || rIdBytes == null || rIdBytes.Length < 16 || string.IsNullOrEmpty(rId) || IsAllZero(rId))
+            if (encKeyBytes == null || encKeyBytes.Length < 16 || rIdBytes == null || rIdBytes.Length < 16 ||
+                string.IsNullOrEmpty(rId) || !IsValidSwitchRightsIdBytes(rIdBytes))
             {
                 return null;
             }
 
-            byte[] decryptedKey = new byte[16];
-            Array.Copy(encKeyBytes, 0, decryptedKey, 0, 16);
-
             try
             {
                 int masterKeyRev = Math.Max(0, (int)rIdBytes[15] - 1);
-                if (keyset != null)
+                byte[]? titleKek = null;
+                if (keyset.TitleKeks != null && masterKeyRev < keyset.TitleKeks.Length && keyset.TitleKeks[masterKeyRev].DataRo.Length >= 16)
                 {
-                    byte[]? titleKek = null;
-                    if (keyset.TitleKeks != null && masterKeyRev < keyset.TitleKeks.Length && keyset.TitleKeks[masterKeyRev].DataRo.Length >= 16)
+                    var tkCandidate = keyset.TitleKeks[masterKeyRev].DataRo.ToArray();
+                    if (tkCandidate != null && tkCandidate.Length == 16 && (tkCandidate[0] != 0 || tkCandidate[1] != 0))
                     {
-                        var tkCandidate = keyset.TitleKeks[masterKeyRev].DataRo.ToArray();
-                        if (tkCandidate != null && tkCandidate.Length == 16 && (tkCandidate[0] != 0 || tkCandidate[1] != 0))
-                        {
-                            titleKek = tkCandidate;
-                        }
+                        titleKek = tkCandidate;
                     }
+                }
 
-                    if (titleKek == null && keyset.MasterKeys != null && masterKeyRev < keyset.MasterKeys.Length && keyset.MasterKeys[masterKeyRev].DataRo.Length >= 16)
+                if (titleKek == null && keyset.MasterKeys != null && masterKeyRev < keyset.MasterKeys.Length && keyset.MasterKeys[masterKeyRev].DataRo.Length >= 16)
+                {
+                    byte[] mKey = keyset.MasterKeys[masterKeyRev].DataRo.ToArray();
+                    if (mKey != null && mKey.Length == 16 && (mKey[0] != 0 || mKey[1] != 0))
                     {
-                        byte[] mKey = keyset.MasterKeys[masterKeyRev].DataRo.ToArray();
-                        if (mKey != null && mKey.Length == 16 && (mKey[0] != 0 || mKey[1] != 0))
-                        {
-                            byte[] titleKekSource = Convert.FromHexString("1EDC7B3B60E6B4D878B81715985E629B");
-                            using var aesKek = System.Security.Cryptography.Aes.Create();
-                            aesKek.Mode = System.Security.Cryptography.CipherMode.ECB;
-                            aesKek.Padding = System.Security.Cryptography.PaddingMode.None;
-                            aesKek.Key = mKey;
-                            using var decKek = aesKek.CreateDecryptor();
-                            titleKek = decKek.TransformFinalBlock(titleKekSource, 0, 16);
-                        }
+                        byte[] titleKekSource = Convert.FromHexString("1EDC7B3B60E6B4D878B81715985E629B");
+                        using var aesKek = System.Security.Cryptography.Aes.Create();
+                        aesKek.Mode = System.Security.Cryptography.CipherMode.ECB;
+                        aesKek.Padding = System.Security.Cryptography.PaddingMode.None;
+                        aesKek.Key = mKey;
+                        using var decKek = aesKek.CreateDecryptor();
+                        titleKek = decKek.TransformFinalBlock(titleKekSource, 0, 16);
                     }
+                }
 
-                    if (titleKek != null && titleKek.Length == 16 && (titleKek[0] != 0 || titleKek[1] != 0))
-                    {
-                        using var aes = System.Security.Cryptography.Aes.Create();
-                        aes.Mode = System.Security.Cryptography.CipherMode.ECB;
-                        aes.Padding = System.Security.Cryptography.PaddingMode.None;
-                        aes.Key = titleKek;
-                        using var dec = aes.CreateDecryptor();
-                        dec.TransformBlock(encKeyBytes, 0, 16, decryptedKey, 0);
-                    }
+                if (titleKek != null && titleKek.Length == 16 && (titleKek[0] != 0 || titleKek[1] != 0))
+                {
+                    byte[] decryptedKey = new byte[16];
+                    using var aes = System.Security.Cryptography.Aes.Create();
+                    aes.Mode = System.Security.Cryptography.CipherMode.ECB;
+                    aes.Padding = System.Security.Cryptography.PaddingMode.None;
+                    aes.Key = titleKek;
+                    using var dec = aes.CreateDecryptor();
+                    dec.TransformBlock(encKeyBytes, 0, 16, decryptedKey, 0);
+                    return (rId, decryptedKey);
                 }
             }
             catch { }
 
-            return (rId, decryptedKey);
+            return null;
         }
 
         /// <summary>
@@ -296,16 +306,24 @@ namespace StormSwitchBox.Services
             {
                 using var ms = new MemoryStream(tikBytes, 0, length);
                 var ticket = new LibHac.Tools.Es.Ticket(ms);
-                string rId = BitConverter.ToString(ticket.RightsId).Replace("-", "").ToLowerInvariant();
+                if ((int)ticket.TitleKeyType != 0)
+                    return null;
+
+                byte[]? rIdBytes = ticket.RightsId;
+                if (rIdBytes == null || rIdBytes.Length < 16 || !IsValidSwitchRightsIdBytes(rIdBytes))
+                    return null;
+
+                string rId = BitConverter.ToString(rIdBytes).Replace("-", "").ToLowerInvariant();
                 byte[] tKeyBytes = ticket.TitleKeyBlock;
                 if (tKeyBytes != null && tKeyBytes.Length >= 16)
                 {
                     string tKey = BitConverter.ToString(tKeyBytes, 0, 16).Replace("-", "").ToLowerInvariant();
-                    if (!IsAllZero(tKey) && !IsAllZero(rId))
+                    if (!IsAllZero(tKey))
                     {
                         return (rId, tKey);
                     }
                 }
+                return null;
             }
             catch { }
 
@@ -333,30 +351,44 @@ namespace StormSwitchBox.Services
 
             if (bodyOffset > 0 && length >= bodyOffset + 0x170)
             {
+                // TitleKeyType == 0 (Common) at bodyOffset + 0x141
+                if (tikBytes[bodyOffset + 0x141] != 0)
+                    return null;
+
                 byte[] tKeyBytes = new byte[16];
                 Array.Copy(tikBytes, bodyOffset + 0x40, tKeyBytes, 0, 16);
-                
+
                 byte[] rIdBytes = new byte[16];
                 Array.Copy(tikBytes, bodyOffset + 0x160, rIdBytes, 0, 16);
+
+                if (!IsValidSwitchRightsIdBytes(rIdBytes))
+                    return null;
 
                 string tKey = BitConverter.ToString(tKeyBytes).Replace("-", "").ToLowerInvariant();
                 string rId = BitConverter.ToString(rIdBytes).Replace("-", "").ToLowerInvariant();
 
-                if (!IsAllZero(tKey) && !IsAllZero(rId))
+                if (!IsAllZero(tKey))
                 {
                     return (rId, tKey);
                 }
+                return null;
             }
 
             // 3. Эвристический глубокий поиск (Deep Scanner)
-            // Ищем 16-байтный паттерн RightsId: 8 байт TitleID (начинается с 0100...) + 8 байт Key Generation/Padding
+            // Ищем 16-байтный паттерн RightsId: 8 байт TitleID (начинается с 0100...) + 6 нулевых байт [8..14] + KeyGeneration
             for (int offset = 0; offset <= length - 16; offset++)
             {
-                // Проверяем префикс TitleID в Big-Endian (0100...)
                 if (tikBytes[offset] == 0x01 && tikBytes[offset + 1] == 0x00)
                 {
                     byte[] rIdBytes = new byte[16];
                     Array.Copy(tikBytes, offset, rIdBytes, 0, 16);
+                    if (!IsValidSwitchRightsIdBytes(rIdBytes))
+                        continue;
+
+                    // Если заголовок помещается перед RightsId, проверяем TitleKeyType == 0 (body + 0x141, т.е. offset - 0x1F)
+                    if (offset >= 0x1F && tikBytes[offset - 0x1F] != 0)
+                        continue;
+
                     string rId = BitConverter.ToString(rIdBytes).Replace("-", "").ToLowerInvariant();
 
                     // TitleKey обычно расположен на 0x120 байт перед RightsId (в стандартном теле: 0x40 против 0x160)
@@ -367,7 +399,7 @@ namespace StormSwitchBox.Services
                         Array.Copy(tikBytes, expectedKeyOffset, tKeyBytes, 0, 16);
                         string tKey = BitConverter.ToString(tKeyBytes).Replace("-", "").ToLowerInvariant();
 
-                        if (!IsAllZero(tKey) && !IsAllZero(rId))
+                        if (!IsAllZero(tKey))
                         {
                             return (rId, tKey);
                         }

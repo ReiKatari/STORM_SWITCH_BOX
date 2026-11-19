@@ -11,6 +11,10 @@ namespace StormSwitchBox
     public sealed partial class MainWindow : Window
     {
         private WinForms.NotifyIcon? _notifyIcon;
+        private System.Drawing.Icon? _trayIcon;
+        private System.Drawing.Font? _trayBaseFont;
+        private System.Drawing.Font? _trayBoldFont;
+        private Action? _langChangedHandler;
 
         private static class Win32
         {
@@ -81,13 +85,35 @@ namespace StormSwitchBox
 
             // Инициализация локализации
             UpdateLocalization();
-            App.Localization.LanguageChanged += () => App.RunOnUI(UpdateLocalization);
+            _langChangedHandler = () => App.RunOnUI(UpdateLocalization);
+            App.Localization.LanguageChanged += _langChangedHandler;
 
             // Загружаем историю обработок
             _ = StormSwitchBox.Services.HistoryService.LoadHistoryAsync();
             
             // По умолчанию загружаем Мульти-контент
-            MainNavigation.SelectedItem = MainNavigation.MenuItems[4];
+            SelectNavigationItemByTag("Multi");
+        }
+
+        private void SelectNavigationItemByTag(string tag)
+        {
+            if (MainNavigation == null || string.IsNullOrEmpty(tag)) return;
+            foreach (var obj in MainNavigation.MenuItems)
+            {
+                if (obj is NavigationViewItem item && string.Equals(item.Tag?.ToString(), tag, StringComparison.OrdinalIgnoreCase))
+                {
+                    MainNavigation.SelectedItem = item;
+                    return;
+                }
+            }
+            foreach (var obj in MainNavigation.FooterMenuItems)
+            {
+                if (obj is NavigationViewItem item && string.Equals(item.Tag?.ToString(), tag, StringComparison.OrdinalIgnoreCase))
+                {
+                    MainNavigation.SelectedItem = item;
+                    return;
+                }
+            }
         }
 
         private void RestoreWindowState()
@@ -122,20 +148,19 @@ namespace StormSwitchBox
 
         public void NavigateToAction(string action, string[] paths, string? format = null)
         {
-            // Map CLI action to XAML navigation Tag and nav item index
-            var (tag, index) = action switch
+            var tag = (action ?? string.Empty).ToLowerInvariant() switch
             {
-                "update"   => ("Update",   0),
-                "unpack"   => ("Unpack",   1),
-                "pack"     => ("Pack",     2),
-                "convert"  => ("Convert",  3),
-                "multi"    => ("Multi",    4),
-                "homebrew" => ("Homebrew", 5),
-                _          => ("Multi",    4)
+                "update"   => "Update",
+                "unpack"   => "Unpack",
+                "pack"     => "Pack",
+                "convert"  => "Convert",
+                "multi"    => "Multi",
+                "homebrew" => "Homebrew",
+                "verify"   => "Verify",
+                _          => "Multi"
             };
-            
-            // Select the appropriate nav item
-            MainNavigation.SelectedItem = MainNavigation.MenuItems[index];
+
+            SelectNavigationItemByTag(tag);
             ContentFrame.Navigate(typeof(Views.TasksPage), new Views.TasksStartupArgs { Action = tag, Paths = paths, Format = format });
         }
 
@@ -210,7 +235,8 @@ namespace StormSwitchBox
             var iconPath = System.IO.Path.Combine(System.AppContext.BaseDirectory, "assets", "storm_switch_box.ico");
             if (System.IO.File.Exists(iconPath))
             {
-                _notifyIcon.Icon = new System.Drawing.Icon(iconPath);
+                _trayIcon = new System.Drawing.Icon(iconPath);
+                _notifyIcon.Icon = _trayIcon;
             }
             _notifyIcon.Text = "STORM SWITCH BOX";
             _notifyIcon.Visible = false;
@@ -224,21 +250,21 @@ namespace StormSwitchBox
                 }
             };
             
-            var baseFont = System.Drawing.SystemFonts.MenuFont ?? new System.Drawing.Font("Segoe UI", 9f, System.Drawing.FontStyle.Regular);
-            var boldFont = new System.Drawing.Font(baseFont.FontFamily, baseFont.Size, System.Drawing.FontStyle.Bold);
+            _trayBaseFont = System.Drawing.SystemFonts.MenuFont ?? new System.Drawing.Font("Segoe UI", 9f, System.Drawing.FontStyle.Regular);
+            _trayBoldFont = new System.Drawing.Font(_trayBaseFont.FontFamily, _trayBaseFont.Size, System.Drawing.FontStyle.Bold);
 
             var contextMenu = new WinForms.ContextMenuStrip
             {
                 ShowImageMargin = false,
                 BackColor = System.Drawing.Color.FromArgb(0x14, 0x10, 0x26),
                 ForeColor = System.Drawing.Color.White,
-                Font = baseFont,
+                Font = _trayBaseFont,
                 Renderer = new WinForms.ToolStripProfessionalRenderer(new StormTrayColorTable())
             };
 
             var restoreItem = new WinForms.ToolStripMenuItem(App.Localization.TranslateText("Развернуть STORM SWITCH BOX"), null, (s, e) => RestoreWindow())
             {
-                Font = boldFont,
+                Font = _trayBoldFont,
                 ForeColor = System.Drawing.Color.White
             };
             var aboutItem = new WinForms.ToolStripMenuItem(App.Localization.TranslateText("О программе"), null, (s, e) =>
@@ -253,8 +279,7 @@ namespace StormSwitchBox
             var separator = new WinForms.ToolStripSeparator();
             var exitItem = new WinForms.ToolStripMenuItem(App.Localization.TranslateText("Выход"), null, (s, e) =>
             {
-                _notifyIcon.Visible = false;
-                _notifyIcon.Dispose();
+                DisposeTrayResources();
                 SaveWindowState();
                 try { App.TasksVM?.SaveTasksOnExit(); } catch { }
                 try { App.Settings?.Save(); } catch { }
@@ -271,6 +296,23 @@ namespace StormSwitchBox
             contextMenu.Items.Add(separator);
             contextMenu.Items.Add(exitItem);
             _notifyIcon.ContextMenuStrip = contextMenu;
+        }
+
+        private void DisposeTrayResources()
+        {
+            if (_notifyIcon != null)
+            {
+                try { _notifyIcon.Visible = false; } catch { }
+                try { _notifyIcon.ContextMenuStrip?.Dispose(); } catch { }
+                try { _notifyIcon.Dispose(); } catch { }
+                _notifyIcon = null;
+            }
+            try { _trayIcon?.Dispose(); } catch { }
+            _trayIcon = null;
+            try { _trayBoldFont?.Dispose(); } catch { }
+            _trayBoldFont = null;
+            try { _trayBaseFont?.Dispose(); } catch { }
+            _trayBaseFont = null;
         }
 
         public void UpdateLocalization()
@@ -380,8 +422,8 @@ namespace StormSwitchBox
             RestoreWindow();
             if (GlobalAlertInfoBar != null)
             {
-                GlobalAlertInfoBar.Title = $"STORM SWITCH BOX {App.Settings.Current.AppVersion}";
-                GlobalAlertInfoBar.Message = "⚡ Приложение уже запущено. Повторный запуск заблокирован.";
+                GlobalAlertInfoBar.Title = $"STORM SWITCH BOX {App.AppVersionString}";
+                GlobalAlertInfoBar.Message = App.Localization.TranslateText("Приложение уже запущено. Повторный запуск заблокирован.");
                 GlobalAlertInfoBar.Severity = InfoBarSeverity.Informational;
                 GlobalAlertInfoBar.IsOpen = true;
 
@@ -432,7 +474,7 @@ namespace StormSwitchBox
                         {
                             if (!(ContentFrame.Content is Views.TasksPage))
                             {
-                                MainNavigation.SelectedItem = MainNavigation.MenuItems[0];
+                                SelectNavigationItemByTag("Update");
                                 ContentFrame.Navigate(typeof(Views.TasksPage), "Update");
                             }
                             await App.TasksVM.AddDroppedFilesBatchAsync(paths);
@@ -452,14 +494,16 @@ namespace StormSwitchBox
 
         private void Window_Closed(object sender, WindowEventArgs args)
         {
+            if (_langChangedHandler != null)
+            {
+                App.Localization.LanguageChanged -= _langChangedHandler;
+                _langChangedHandler = null;
+            }
+
             // Сохраняем позицию и размер окна перед закрытием
             SaveWindowState();
             
-            if (_notifyIcon != null)
-            {
-                _notifyIcon.Visible = false;
-                _notifyIcon.Dispose();
-            }
+            DisposeTrayResources();
             
             try { App.TasksVM?.SaveTasksOnExit(); } catch { }
             try { App.Settings?.Save(); } catch { }

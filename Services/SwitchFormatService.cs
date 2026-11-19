@@ -71,31 +71,36 @@ namespace StormSwitchBox.Services
 
         public PartitionFileSystem OpenSwitchContainerFileSystem(IStorage rootStorage, string filePath)
         {
+            rootStorage.GetSize(out long storageSize).ThrowIfFailure();
+            long? hfs0Offset = SwitchContainerHandle.TryDetectXciRootHfs0Offset(rootStorage, storageSize);
             bool isXci = filePath.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) ||
                          filePath.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase);
 
-            if (isXci)
+            if (isXci || hfs0Offset.HasValue)
             {
-                try
+                long rootOff = hfs0Offset ?? 0xF000L;
+                if (rootOff < 0 || rootOff >= storageSize)
+                    throw new InvalidDataException($"Некорректное смещение Root HFS0 в XCI: 0x{rootOff:X}");
+
+                var rootStorageSub = new SubStorage(rootStorage, rootOff, storageSize - rootOff);
+                var rootPfs = new PartitionFileSystem(rootStorageSub);
+
+                using var secureFile = new UniqueRef<IFile>();
+                using var securePath = new LibHac.Fs.Path();
+                securePath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes("/secure"))).ThrowIfFailure();
+                var openRes = rootPfs.OpenFile(ref secureFile.Ref, in securePath, OpenMode.Read);
+                if (openRes.IsFailure())
                 {
-                    rootStorage.GetSize(out long storageSize).ThrowIfFailure();
-                    if (storageSize > 0x10000)
-                    {
-                        var rootStorageSub = new SubStorage(rootStorage, 0x10000, storageSize - 0x10000);
-                        var rootPfs = new PartitionFileSystem(rootStorageSub);
-                        using var secureFile = new UniqueRef<IFile>();
-                        using var securePath = new LibHac.Fs.Path();
-                        securePath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes("/secure"))).ThrowIfFailure();
-                        if (rootPfs.OpenFile(ref secureFile.Ref, in securePath, OpenMode.Read).IsSuccess())
-                        {
-                            return new PartitionFileSystem(secureFile.Release().AsStorage());
-                        }
-                    }
+                    rootPfs.Dispose();
+                    throw new InvalidDataException($"Не удалось открыть раздел /secure в XCI ({openRes}).");
                 }
-                catch { }
+
+                var securePfs = new PartitionFileSystem(secureFile.Release().AsStorage());
+                return securePfs;
             }
 
-            return new PartitionFileSystem(rootStorage);
+            var pfs = new PartitionFileSystem(rootStorage);
+            return pfs;
         }
 
         public Models.SwitchFormatInfo ParseNsp(string filePath)
@@ -157,18 +162,24 @@ namespace StormSwitchBox.Services
                             using var tikFile = tikFileRef.Release();
                             using var ms = new MemoryStream();
                             tikFile.AsStream().CopyTo(ms);
+                            byte[] tikBytes = ms.ToArray();
                             ms.Position = 0;
                             var ticket = new LibHac.Tools.Es.Ticket(ms);
-                            byte[] tKey = ticket.GetTitleKey(_keysService.CurrentKeyset);
-                            var rId = new LibHac.Fs.RightsId(ticket.RightsId);
-                            if (!_keysService.CurrentKeyset.ExternalKeySet.Contains(rId))
+                            if ((int)ticket.TitleKeyType == 0 && ticket.RightsId != null && ticket.RightsId.Length == 16)
                             {
-                                _keysService.CurrentKeyset.ExternalKeySet.Add(rId, new LibHac.Spl.AccessKey(tKey));
-                            }
-                            string rightsIdStr = BitConverter.ToString(ticket.RightsId).Replace("-", "").ToLowerInvariant();
-                            lock (Core.NSZ.StormNczCompressor.TitleKeysCache)
-                            {
-                                Core.NSZ.StormNczCompressor.TitleKeysCache[rightsIdStr] = tKey;
+                                var rId = new LibHac.Fs.RightsId(ticket.RightsId);
+                                if (ticket.TitleKeyBlock != null && ticket.TitleKeyBlock.Length >= 16)
+                                {
+                                    KeysService.TryAddExternalKeyIfMissing(_keysService.CurrentKeyset, rId, new LibHac.Spl.AccessKey(ticket.TitleKeyBlock.AsSpan(0, 16)));
+                                }
+                                var decInfo = TicketHarvesterService.ExtractDecryptedTicket(tikBytes, tikBytes.Length, _keysService.CurrentKeyset);
+                                if (decInfo.HasValue)
+                                {
+                                    lock (Core.NSZ.StormNczCompressor.TitleKeysCache)
+                                    {
+                                        Core.NSZ.StormNczCompressor.TitleKeysCache[decInfo.Value.RightsId] = decInfo.Value.TitleKey;
+                                    }
+                                }
                             }
                         }
                     }
@@ -479,17 +490,22 @@ namespace StormSwitchBox.Services
                             {
                                 ms.Position = 0;
                                 var ticket = new LibHac.Tools.Es.Ticket(ms);
-                                byte[] tKey = ticket.GetTitleKey(_keysService.CurrentKeyset);
-                                string rightsIdStr = BitConverter.ToString(ticket.RightsId).Replace("-", "").ToLowerInvariant();
-                                titleKeyMap[rightsIdStr] = tKey;
-                                var rId = new LibHac.Fs.RightsId(ticket.RightsId);
-                                if (!_keysService.CurrentKeyset.ExternalKeySet.Contains(rId))
+                                if ((int)ticket.TitleKeyType == 0 && ticket.RightsId != null && ticket.RightsId.Length == 16)
                                 {
-                                    _keysService.CurrentKeyset.ExternalKeySet.Add(rId, new LibHac.Spl.AccessKey(tKey));
-                                }
-                                lock (Core.NSZ.StormNczCompressor.TitleKeysCache)
-                                {
-                                    Core.NSZ.StormNczCompressor.TitleKeysCache[rightsIdStr] = tKey;
+                                    var rId = new LibHac.Fs.RightsId(ticket.RightsId);
+                                    if (ticket.TitleKeyBlock != null && ticket.TitleKeyBlock.Length >= 16)
+                                    {
+                                        KeysService.TryAddExternalKeyIfMissing(_keysService.CurrentKeyset, rId, new LibHac.Spl.AccessKey(ticket.TitleKeyBlock.AsSpan(0, 16)));
+                                    }
+                                    var decInfo = TicketHarvesterService.ExtractDecryptedTicket(rawBytes, rawBytes.Length, _keysService.CurrentKeyset);
+                                    if (decInfo.HasValue)
+                                    {
+                                        titleKeyMap[decInfo.Value.RightsId] = decInfo.Value.TitleKey;
+                                        lock (Core.NSZ.StormNczCompressor.TitleKeysCache)
+                                        {
+                                            Core.NSZ.StormNczCompressor.TitleKeysCache[decInfo.Value.RightsId] = decInfo.Value.TitleKey;
+                                        }
+                                    }
                                 }
                             }
 
@@ -641,6 +657,8 @@ namespace StormSwitchBox.Services
                         Nca? siblingBaseProgNca = null;
                         IFile? siblingFileRef = null;
                         IDisposable? siblingNcz = null;
+                        FileStream? siblingFs = null;
+                        PartitionFileSystem? siblingContainerFs = null;
 
                         if (!string.IsNullOrEmpty(inputDir) && Directory.Exists(inputDir))
                         {
@@ -654,6 +672,8 @@ namespace StormSwitchBox.Services
 
                             foreach (var sib in siblings)
                             {
+                                FileStream? candFs = null;
+                                PartitionFileSystem? candContainerFs = null;
                                 try
                                 {
                                     var sibInfo = ParseNsp(sib);
@@ -661,44 +681,57 @@ namespace StormSwitchBox.Services
                                         ulong.TryParse(sibInfo.TitleId, System.Globalization.NumberStyles.HexNumber, null, out ulong sTid) &&
                                         (sTid & ~0xFFFUL) == baseTid && sibInfo.HasProgramNca)
                                     {
-                                        using var sibFs = new FileStream(sib, FileMode.Open, FileAccess.Read, FileShare.Read);
-                                        var sibStorage = sibFs.AsStorage();
-                                        var sibContainerFs = OpenSwitchContainerFileSystem(sibStorage, sib);
-                                        foreach (var sEntry in sibContainerFs.EnumerateEntries().Where(e => e.Name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase) || e.Name.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase)))
+                                        candFs = new FileStream(sib, FileMode.Open, FileAccess.Read, FileShare.Read);
+                                        var sibStorage = candFs.AsStorage();
+                                        candContainerFs = OpenSwitchContainerFileSystem(sibStorage, sib);
+                                        if (candContainerFs == null) continue;
+                                        foreach (var sEntry in candContainerFs.EnumerateEntries().Where(e => e.Name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase) || e.Name.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase)))
                                         {
                                             using var sFileRef = new UniqueRef<IFile>();
                                             using var sPath = new LibHac.Fs.Path();
                                             sPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(sEntry.FullPath))).ThrowIfFailure();
-                                            if (sibContainerFs.OpenFile(ref sFileRef.Ref, in sPath, OpenMode.Read).IsSuccess())
+                                            if (candContainerFs != null && candContainerFs.OpenFile(ref sFileRef.Ref, in sPath, OpenMode.Read).IsSuccess())
                                             {
                                                 var sFile = sFileRef.Release();
                                                 IStorage sRaw = sFile.AsStorage();
                                                 IStorage sEff = sRaw;
-                                                if (sEntry.Name.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase))
+                                                IDisposable? candNcz = null;
+                                                if (sEntry.Name != null && sEntry.Name.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase))
                                                 {
-                                                    var sNcz = new StormNczStorage(sRaw, null, null, _keysService.CurrentKeyset, preferredTemp);
-                                                    siblingNcz = sNcz;
+                                                    var sNcz = new StormNczStorage(sRaw, null, null, _keysService?.CurrentKeyset, preferredTemp);
+                                                    candNcz = sNcz;
                                                     sEff = sNcz;
                                                 }
-                                                var sNca = new Nca(_keysService.CurrentKeyset, sEff);
-                                                if (sNca.Header.ContentType == NcaContentType.Program && sNca.CanOpenSection(NcaSectionType.Data) && (sNca.Header.TitleId & 0xFFFUL) == 0)
+                                                try
                                                 {
-                                                    siblingBasePath = sib;
-                                                    siblingBaseProgNca = sNca;
-                                                    siblingFileRef = sFile;
-                                                    break;
+                                                    var sNca = new Nca(_keysService?.CurrentKeyset, sEff);
+                                                    if (sNca.Header.ContentType == NcaContentType.Program && sNca.CanOpenSection(NcaSectionType.Data) && (sNca.Header.TitleId & 0xFFFUL) == 0)
+                                                    {
+                                                        siblingBasePath = sib;
+                                                        siblingBaseProgNca = sNca;
+                                                        siblingFileRef = sFile;
+                                                        siblingNcz = candNcz;
+                                                        siblingFs = candFs;
+                                                        siblingContainerFs = candContainerFs;
+                                                        candFs = null;
+                                                        candContainerFs = null;
+                                                        break;
+                                                    }
                                                 }
-                                                else
-                                                {
-                                                    sFile.Dispose();
-                                                    if (siblingNcz is IDisposable sn) { sn.Dispose(); siblingNcz = null; }
-                                                }
+                                                catch { }
+                                                sFile.Dispose();
+                                                candNcz?.Dispose();
                                             }
                                         }
                                         if (siblingBaseProgNca != null) break;
                                     }
                                 }
                                 catch { }
+                                finally
+                                {
+                                    candContainerFs?.Dispose();
+                                    candFs?.Dispose();
+                                }
                             }
                         }
 
@@ -715,8 +748,10 @@ namespace StormSwitchBox.Services
                             }
                             finally
                             {
-                                siblingFileRef?.Dispose();
                                 if (siblingNcz is IDisposable sn) sn.Dispose();
+                                siblingFileRef?.Dispose();
+                                siblingContainerFs?.Dispose();
+                                siblingFs?.Dispose();
                             }
                         }
                         else
@@ -944,7 +979,7 @@ namespace StormSwitchBox.Services
                             if (ctrlFs != null)
                             {
                                 var iconEntry = ctrlFs.EnumerateEntries("/", "icon_*.dat").FirstOrDefault();
-                                if (!string.IsNullOrEmpty(iconEntry.Name))
+                                if (iconEntry != null && !string.IsNullOrEmpty(iconEntry.Name))
                                 {
                                     using var iconRef = new UniqueRef<IFile>();
                                     using var iPath = new LibHac.Fs.Path();
@@ -959,7 +994,7 @@ namespace StormSwitchBox.Services
                                 }
 
                                 var nacpEntry = ctrlFs.EnumerateEntries("/", "control.nacp").FirstOrDefault();
-                                if (!string.IsNullOrEmpty(nacpEntry.Name))
+                                if (nacpEntry != null && !string.IsNullOrEmpty(nacpEntry.Name))
                                 {
                                     using var nacpRef = new UniqueRef<IFile>();
                                     using var nPath = new LibHac.Fs.Path();
@@ -986,7 +1021,7 @@ namespace StormSwitchBox.Services
                                 if (iconBytes == null)
                                 {
                                     var iconEntry = romfs.EnumerateEntries("/", "icon_*.dat").FirstOrDefault();
-                                    if (!string.IsNullOrEmpty(iconEntry.Name))
+                                    if (iconEntry != null && !string.IsNullOrEmpty(iconEntry.Name))
                                     {
                                         using var iconRef = new UniqueRef<IFile>();
                                         using var iPath = new LibHac.Fs.Path();
@@ -1004,7 +1039,7 @@ namespace StormSwitchBox.Services
                                 if (string.IsNullOrEmpty(titleName))
                                 {
                                     var nacpEntry = romfs.EnumerateEntries("/", "control.nacp").FirstOrDefault();
-                                    if (!string.IsNullOrEmpty(nacpEntry.Name))
+                                    if (nacpEntry != null && !string.IsNullOrEmpty(nacpEntry.Name))
                                     {
                                         using var nacpRef = new UniqueRef<IFile>();
                                         using var nPath = new LibHac.Fs.Path();
@@ -1157,10 +1192,10 @@ namespace StormSwitchBox.Services
 
             string expectedNsp = System.IO.Path.ChangeExtension(System.IO.Path.Combine(outDir, System.IO.Path.GetFileName(inputPath)), ".nsp");
 
-            // If input is NSP and target is XCI — build Trimmed XCI directly with SmartShrink filtering
+            // If input is NSP and target is XCI - build Trimmed XCI directly with SmartShrink filtering
             if (!isInputXci && targetExt == ".xci")
             {
-                App.RunOnUI(() => task.LogDetails += "\nКонвертация NSP → XCI (HFS0 Trimmed)...");
+                App.RunOnUI(() => task.LogDetails += "\nКонвертация NSP -> XCI (HFS0 Trimmed)...");
                 string expectedXci = System.IO.Path.ChangeExtension(expectedNsp, ".xci");
                 Core.NCA.StormXciBuilder.BuildXciFromPfs0(inputPath, expectedXci, _keysService.CurrentKeyset);
                 expectedNsp = expectedXci;
@@ -1174,7 +1209,7 @@ namespace StormSwitchBox.Services
                 return;
             }
             
-            // If input is NSP and target is NSP — rebuild with SmartShrink if Delta/junk exist, else copy
+            // If input is NSP and target is NSP - rebuild with SmartShrink if Delta/junk exist, else copy
             if (!isInputXci && targetExt == ".nsp")
             {
                 bool rebuiltShrunk = false;
@@ -1637,32 +1672,18 @@ namespace StormSwitchBox.Services
 
         private int RunHactool(string hactoolPath, string arguments, System.Threading.CancellationToken token)
         {
-            var psi = new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = hactoolPath,
-                Arguments = arguments,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true,
-                StandardOutputEncoding = System.Text.Encoding.UTF8,
-                StandardErrorEncoding = System.Text.Encoding.UTF8
-            };
-
-            using var process = System.Diagnostics.Process.Start(psi);
-            if (process == null) return -1;
-
-            string stdout = process.StandardOutput.ReadToEnd();
-            string stderr = process.StandardError.ReadToEnd();
-            process.WaitForExit();
             token.ThrowIfCancellationRequested();
+            string workDir = System.IO.Path.GetDirectoryName(hactoolPath) ?? AppContext.BaseDirectory;
+            var (exitCode, _, stderr) = Task.Run(
+                () => ExternalProcessRunner.RunCaptureAsync(hactoolPath, null, arguments, workDir, token),
+                token).GetAwaiter().GetResult();
 
-            if (process.ExitCode != 0 && !string.IsNullOrWhiteSpace(stderr))
+            if (exitCode != 0 && !string.IsNullOrWhiteSpace(stderr))
             {
-                App.Logger.Log($"[hactoolnet] exit={process.ExitCode} stderr: {stderr.Trim()}", Models.LogLevel.Debug);
+                App.Logger.Log($"[hactoolnet] exit={exitCode} stderr: {stderr.Trim()}", Models.LogLevel.Debug);
             }
 
-            return process.ExitCode;
+            return exitCode;
         }
 
         public void TrimLanguages(string romfsDir)
@@ -1906,7 +1927,7 @@ namespace StormSwitchBox.Services
                         catch { }
                     }
 
-                    string keysPath = _keysService.KeysFilePath ?? App.Settings.Current.KeysPath;
+                    string? keysPath = _keysService.KeysFilePath ?? App.Settings?.Current?.KeysPath;
                     if (string.IsNullOrEmpty(keysPath) || !File.Exists(keysPath))
                     {
                         keysPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tools", "keys.txt");
@@ -1946,7 +1967,7 @@ namespace StormSwitchBox.Services
                         string builtNspPath = "";
                         bool yanuSuccess = false;
 
-                        // Сценарий 1: Если есть базовые control.nca и baseProgramNca, и доступен yanu-cli — пробуем yanu-cli pack (без дедлока пайпа)
+                        // Сценарий 1: Если есть базовые control.nca и baseProgramNca, и доступен yanu-cli - пробуем yanu-cli pack (без дедлока пайпа)
                         if (!string.IsNullOrEmpty(controlNca) && !string.IsNullOrEmpty(baseProgramNca) && File.Exists(yanuCliPath))
                         {
                             if (string.IsNullOrEmpty(titleId)) titleId = "0100000000000000";
@@ -1968,14 +1989,22 @@ namespace StormSwitchBox.Services
                             packPsi.EnvironmentVariables["APPDATA"] = System.IO.Path.Combine(localAppDataDir, "cache");
                             packPsi.EnvironmentVariables["TEMP"] = tempOut;
                             packPsi.EnvironmentVariables["TMP"] = tempOut;
-                            
+
                             using var packProcess = System.Diagnostics.Process.Start(packPsi);
                             if (packProcess != null)
                             {
                                 var stdoutTask = packProcess.StandardOutput.ReadToEndAsync(cancellationToken);
                                 var stderrTask = packProcess.StandardError.ReadToEndAsync(cancellationToken);
-                                await Task.WhenAll(stdoutTask, stderrTask);
-                                await packProcess.WaitForExitAsync(cancellationToken);
+                                try
+                                {
+                                    await Task.WhenAll(stdoutTask, stderrTask);
+                                    await packProcess.WaitForExitAsync(cancellationToken);
+                                }
+                                catch (OperationCanceledException)
+                                {
+                                    try { if (!packProcess.HasExited) packProcess.Kill(entireProcessTree: true); } catch { }
+                                    throw;
+                                }
 
                                 var genFiles = System.IO.Directory.GetFiles(tempOut, "*.nsp");
                                 if (packProcess.ExitCode == 0 && genFiles.Length > 0)
@@ -1986,7 +2015,7 @@ namespace StormSwitchBox.Services
                             }
                         }
 
-                        // Сценарий 2: Если yanu-cli не сработал или нет controlNca/baseProgramNca — собираем через hacpack
+                        // Сценарий 2: Если yanu-cli не сработал или нет controlNca/baseProgramNca - собираем через hacpack
                         if (!yanuSuccess)
                         {
                             string hacpackPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tools", "hacpack.exe");
@@ -2237,15 +2266,25 @@ namespace StormSwitchBox.Services
                                 tikPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(entry.FullPath))).ThrowIfFailure();
                                 pfs.OpenFile(ref tikFileRef.Ref, in tikPath, OpenMode.Read).ThrowIfFailure();
                                 
-                                IFile tikFile = tikFileRef.Release();
+                                using var tikFile = tikFileRef.Release();
                                 using var tikStream = new MemoryStream();
                                 tikFile.AsStream().CopyTo(tikStream);
+                                byte[] tikBytes = tikStream.ToArray();
                                 tikStream.Position = 0;
-                                
+
                                 var ticket = new LibHac.Tools.Es.Ticket(tikStream);
-                                byte[] tKey = ticket.GetTitleKey(_keysService.CurrentKeyset);
-                                string rightsIdStr = BitConverter.ToString(ticket.RightsId).Replace("-", "").ToLowerInvariant();
-                                titleKeyMap[rightsIdStr] = tKey;
+                                if ((int)ticket.TitleKeyType == 0 && ticket.RightsId != null && ticket.RightsId.Length == 16)
+                                {
+                                    if (ticket.TitleKeyBlock != null && ticket.TitleKeyBlock.Length >= 16)
+                                    {
+                                        KeysService.TryAddExternalKeyIfMissing(_keysService.CurrentKeyset, new LibHac.Fs.RightsId(ticket.RightsId), new LibHac.Spl.AccessKey(ticket.TitleKeyBlock.AsSpan(0, 16)));
+                                    }
+                                    var decInfo = TicketHarvesterService.ExtractDecryptedTicket(tikBytes, tikBytes.Length, _keysService.CurrentKeyset);
+                                    if (decInfo.HasValue)
+                                    {
+                                        titleKeyMap[decInfo.Value.RightsId] = decInfo.Value.TitleKey;
+                                    }
+                                }
                             }
                             catch { }
                         }
@@ -2495,7 +2534,7 @@ namespace StormSwitchBox.Services
             {
                 BitConverter.GetBytes(tid).CopyTo(nacp, 0x3078);
                 BitConverter.GetBytes(tid).CopyTo(nacp, 0x3038);
-                BitConverter.GetBytes(tid).CopyTo(nacp, 0x3070);
+                BitConverter.GetBytes(TitleIdHelper.ComputeDlcBaseId(tid)).CopyTo(nacp, 0x3070);
             }
 
             return nacp;
@@ -2523,8 +2562,16 @@ namespace StormSwitchBox.Services
             if (proc == null) throw new Exception("Не удалось запустить hacpack.exe.");
             var outTask = proc.StandardOutput.ReadToEndAsync(ct);
             var errTask = proc.StandardError.ReadToEndAsync(ct);
-            await Task.WhenAll(outTask, errTask);
-            await proc.WaitForExitAsync(ct);
+            try
+            {
+                await Task.WhenAll(outTask, errTask);
+                await proc.WaitForExitAsync(ct);
+            }
+            catch (OperationCanceledException)
+            {
+                try { if (!proc.HasExited) proc.Kill(entireProcessTree: true); } catch { }
+                throw;
+            }
             if (proc.ExitCode != 0)
             {
                 // hacpack при ошибке (например "Invalid Title Name in control.nacp") может оставить
@@ -2553,13 +2600,28 @@ namespace StormSwitchBox.Services
 
         public override Result Read(long offset, Span<byte> destination)
         {
+            if (destination.Length == 0) return Result.Success;
+
             long alignedOffset = offset & ~0xFL;
             long offsetDiff = offset - alignedOffset;
-            int alignedSize = (int)((destination.Length + offsetDiff + 15) & ~0xFL);
+            long alignedSizeLong = ((long)destination.Length + offsetDiff + 15L) & ~0xFL;
 
-            if (alignedOffset == offset && alignedSize == destination.Length)
+            if (alignedOffset == offset && alignedSizeLong == destination.Length)
             {
                 return _baseStorage.Read(offset, destination);
+            }
+
+            if (alignedSizeLong > int.MaxValue)
+                return _baseStorage.Read(offset, destination);
+
+            int alignedSize = (int)alignedSizeLong;
+            if (_baseStorage.GetSize(out long baseSize).IsSuccess() && alignedOffset + alignedSize > baseSize)
+            {
+                long avail = baseSize - alignedOffset;
+                if (avail > 0 && avail < alignedSize)
+                {
+                    alignedSize = (int)avail;
+                }
             }
 
             byte[] tempBuffer = System.Buffers.ArrayPool<byte>.Shared.Rent(alignedSize);
@@ -2568,7 +2630,9 @@ namespace StormSwitchBox.Services
                 Result res = _baseStorage.Read(alignedOffset, tempBuffer.AsSpan(0, alignedSize));
                 if (res.IsFailure()) return res;
 
-                tempBuffer.AsSpan((int)offsetDiff, destination.Length).CopyTo(destination);
+                int copyLen = Math.Min(destination.Length, Math.Max(0, alignedSize - (int)offsetDiff));
+                if (copyLen > 0)
+                    tempBuffer.AsSpan((int)offsetDiff, copyLen).CopyTo(destination);
                 return Result.Success;
             }
             finally

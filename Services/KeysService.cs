@@ -13,69 +13,68 @@ namespace StormSwitchBox.Services
     {
         private static readonly SemaphoreSlim _semaphore = new(1, 1);
 
-        private static readonly HashSet<LibHac.Fs.RightsId> _fallbackRightsIds = new();
-        private static readonly object _fallbackLock = new();
+        public static readonly object KeysetLock = new();
+        public static readonly object TitleKeysFileLock = new();
 
-        public static bool IsFallbackRightsId(LibHac.Fs.RightsId rId)
-        {
-            lock (_fallbackLock) return _fallbackRightsIds.Contains(rId);
-        }
+        public static bool IsFallbackRightsId(LibHac.Fs.RightsId rId) => false;
 
-        public static void RemoveFallbackRightsId(LibHac.Fs.RightsId rId)
-        {
-            lock (_fallbackLock) _fallbackRightsIds.Remove(rId);
-        }
+        public static void RemoveFallbackRightsId(LibHac.Fs.RightsId rId) { }
 
         /// <summary>
-        /// Eden TitleKey fallback: Registers RightsId as TitleKey into ExternalKeySet for direct dumps without tickets/external keys.
-        /// Only registers fallback if no real ticket key already exists for this RightsId.
+        /// No-op: RightsId fallback intentionally disabled so RightsId never enters ExternalKeySet as a key.
         /// </summary>
-        public static void RegisterRightsIdFallback(KeySet? keyset, ReadOnlySpan<byte> rIdBytes)
+        public static void RegisterRightsIdFallback(KeySet? keyset, ReadOnlySpan<byte> rIdBytes) { }
+
+        public static void RegisterRightsIdFallback(KeySet? keyset, LibHac.Fs.RightsId rId) { }
+
+        public static void RegisterRightsIdFallback(KeySet? keyset, Nca? nca) { }
+
+        public static bool TryAddExternalKey(KeySet? keyset, LibHac.Fs.RightsId rId, LibHac.Spl.AccessKey aKey)
         {
-            if (keyset?.ExternalKeySet == null || rIdBytes.Length < 16) return;
-            try
+            if (keyset?.ExternalKeySet == null) return false;
+            lock (KeysetLock)
             {
-                bool isZero = true;
-                for (int i = 0; i < 16; i++)
+                try
                 {
-                    if (rIdBytes[i] != 0) { isZero = false; break; }
+                    keyset.ExternalKeySet.Remove(rId);
+                    keyset.ExternalKeySet.Add(rId, aKey);
+                    return true;
                 }
-                if (isZero) return;
-
-                var rId = new LibHac.Fs.RightsId(rIdBytes.Slice(0, 16));
-                if (keyset.ExternalKeySet.Contains(rId)) return;
-
-                var aKey = new LibHac.Spl.AccessKey(rIdBytes.Slice(0, 16));
-                keyset.ExternalKeySet.Add(rId, aKey);
-                lock (_fallbackLock)
+                catch
                 {
-                    _fallbackRightsIds.Add(rId);
+                    return false;
                 }
             }
-            catch { }
         }
 
-        public static void RegisterRightsIdFallback(KeySet? keyset, LibHac.Fs.RightsId rId)
+        public static bool TryAddExternalKeyIfMissing(KeySet? keyset, LibHac.Fs.RightsId rId, LibHac.Spl.AccessKey aKey)
         {
-            if (keyset?.ExternalKeySet == null) return;
-            try
+            if (keyset?.ExternalKeySet == null) return false;
+            lock (KeysetLock)
             {
-                if (keyset.ExternalKeySet.Contains(rId)) return;
-
-                var aKey = new LibHac.Spl.AccessKey(rId.Value);
-                keyset.ExternalKeySet.Add(rId, aKey);
-                lock (_fallbackLock)
+                try
                 {
-                    _fallbackRightsIds.Add(rId);
+                    if (!keyset.ExternalKeySet.Contains(rId))
+                    {
+                        keyset.ExternalKeySet.Add(rId, aKey);
+                    }
+                    return true;
+                }
+                catch
+                {
+                    return false;
                 }
             }
-            catch { }
         }
 
-        public static void RegisterRightsIdFallback(KeySet? keyset, Nca? nca)
+        public static bool TryGetExternalKey(KeySet? keyset, LibHac.Fs.RightsId rId, out LibHac.Spl.AccessKey aKey)
         {
-            if (keyset == null || nca == null || !nca.Header.HasRightsId) return;
-            RegisterRightsIdFallback(keyset, (ReadOnlySpan<byte>)nca.Header.RightsId);
+            aKey = default;
+            if (keyset?.ExternalKeySet == null) return false;
+            lock (KeysetLock)
+            {
+                return keyset.ExternalKeySet.Get(rId, out aKey).IsSuccess();
+            }
         }
 
         public KeySet CurrentKeyset { get; set; }
@@ -119,61 +118,73 @@ namespace StormSwitchBox.Services
                 return false;
             }
 
-            try
+            lock (KeysetLock)
             {
-                App.Logger.Log("Загрузка криптографических ключей (prod.keys)...", LogLevel.Info);
-
-                string? titleKeysPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(keysPath) ?? "", "title.keys");
-                if (!File.Exists(titleKeysPath))
-                {
-                    titleKeysPath = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "title.keys");
-                }
-                if (!File.Exists(titleKeysPath)) titleKeysPath = null;
-                
-                CurrentKeyset = ExternalKeyReader.ReadKeyFile(keysPath, titleKeysPath);
-                CurrentKeyset.DeriveKeys();
-                IsLoaded = true;
-                KeysFilePath = keysPath;
-
-                // Определяем максимальную ревизию master_key_XX (включая прошивки 22.0.0 - 23.0.1 / Atmosphere 1.12.1)
-                int maxRev = 0;
                 try
                 {
-                    foreach (var line in File.ReadLines(keysPath))
+                    App.Logger.Log("Загрузка криптографических ключей (prod.keys)...", LogLevel.Info);
+
+                    string? titleKeysPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(keysPath) ?? "", "title.keys");
+                    if (!File.Exists(titleKeysPath))
                     {
-                        string trimmed = line.Trim();
-                        if (trimmed.StartsWith("master_key_", StringComparison.OrdinalIgnoreCase))
+                        titleKeysPath = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "title.keys");
+                    }
+                    if (!File.Exists(titleKeysPath)) titleKeysPath = null;
+
+                    KeySet loadedSet;
+                    lock (TitleKeysFileLock)
+                    {
+                        loadedSet = ExternalKeyReader.ReadKeyFile(keysPath, titleKeysPath);
+                    }
+                    loadedSet.DeriveKeys();
+
+                    CurrentKeyset = loadedSet;
+                    IsLoaded = true;
+                    KeysFilePath = keysPath;
+
+                    // Определяем максимальную ревизию master_key_XX (включая прошивки 22.0.0 - 23.0.1 / Atmosphere 1.12.1)
+                    int maxRev = 0;
+                    try
+                    {
+                        foreach (var line in File.ReadLines(keysPath))
                         {
-                            int eqIdx = trimmed.IndexOf('=');
-                            if (eqIdx > 11)
+                            string trimmed = line.Trim();
+                            if (trimmed.StartsWith("master_key_", StringComparison.OrdinalIgnoreCase))
                             {
-                                string hexRev = trimmed.Substring(11, eqIdx - 11).Trim();
-                                if (int.TryParse(hexRev, System.Globalization.NumberStyles.HexNumber, null, out int rev) && rev > maxRev)
+                                int eqIdx = trimmed.IndexOf('=');
+                                if (eqIdx > 11)
                                 {
-                                    maxRev = rev;
+                                    string hexRev = trimmed.Substring(11, eqIdx - 11).Trim();
+                                    if (int.TryParse(hexRev, System.Globalization.NumberStyles.HexNumber, null, out int rev) && rev > maxRev)
+                                    {
+                                        maxRev = rev;
+                                    }
                                 }
                             }
                         }
                     }
+                    catch { }
+                    MaxMasterKeyRevision = maxRev;
+                    MaxSupportedFirmware = GetFirmwareByMasterKeyRevision(maxRev);
+
+                    App.Logger.Log($"Ключи успешно загружены! Макс. master_key_{maxRev:X2} (Поддержка HOS до {MaxSupportedFirmware})", LogLevel.Success);
+                    return true;
                 }
-                catch { }
-                MaxMasterKeyRevision = maxRev;
-                MaxSupportedFirmware = GetFirmwareByMasterKeyRevision(maxRev);
-                
-                App.Logger.Log($"Ключи успешно загружены! Макс. master_key_{maxRev:X2} (Поддержка HOS до {MaxSupportedFirmware})", LogLevel.Success);
-                return true;
-            }
-            catch (Exception ex)
-            {
-                IsLoaded = false;
-                App.Logger.Log($"Ошибка при загрузке ключей: {ex.Message}", LogLevel.Error);
-                return false;
+                catch (Exception ex)
+                {
+                    IsLoaded = false;
+                    App.Logger.Log($"Ошибка при загрузке ключей: {ex.Message}", LogLevel.Error);
+                    return false;
+                }
             }
         }
 
         public bool EnsureLoadedWithAutoDiscovery(string? contextFilePath = null)
         {
-            if (IsLoaded) return true;
+            lock (KeysetLock)
+            {
+                if (IsLoaded) return true;
+            }
 
             var candidates = new List<string>();
 
@@ -406,7 +417,7 @@ namespace StormSwitchBox.Services
                 }
                 else if (hasOunce)
                 {
-                    result.FirmwareDescription = "Horizon OS 20.x–23.x (Ounce / NVN2)";
+                    result.FirmwareDescription = "Horizon OS 20.x-23.x (Ounce / NVN2)";
                 }
                 else
                 {
@@ -457,16 +468,12 @@ namespace StormSwitchBox.Services
         {
             var candidates = new List<string>
             {
-                @"Q:\CONSOLES\Nintendo Switch 2\prod.keys",
-                @"Q:\CONSOLES\Nintendo Switch 2\ounce.keys",
-                @"Q:\CONSOLES\Nintendo Switch 2\keys.txt",
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "prod.keys"),
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "keys.txt"),
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "StormSwitchBox", "keys", "prod.keys"),
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Ryujinx", "system", "prod.keys"),
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Eden", "keys", "prod.keys"),
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Citron", "keys", "prod.keys"),
-                Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tools", "keys.dat"),
                 Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "keys", "prod.keys")
             };
 
@@ -506,7 +513,6 @@ namespace StormSwitchBox.Services
                     candidates.Add(Path.Combine(dir, "title.keys.txt"));
                 }
             }
-            candidates.Add(@"Q:\CONSOLES\Nintendo Switch 2\title.keys");
             candidates.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "title.keys"));
             candidates.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "StormSwitchBox", "keys", "title.keys"));
 

@@ -8,14 +8,14 @@ namespace StormSwitchBox.Services
 {
     /// <summary>
     /// Ленивый загрузчик базы данных каталогов 19 поколений Nintendo из единого сжатого бинарного ресурса (tools/db/catalogs.zst).
-    /// Заменяет 17 статических C#-файлов объёмом 13.8 МБ (~38 000 строк), ускоряя JIT-компиляцию и экономя 40–60 МБ ОЗУ.
+    /// Заменяет 17 статических C#-файлов объёмом 13.8 МБ (~38 000 строк), ускоряя JIT-компиляцию и экономя 40-60 МБ ОЗУ.
     /// </summary>
     public static class CatalogDataStore
     {
         private static readonly object _syncLock = new();
-        private static Dictionary<string, List<NintendoCatalogItem>>? _cache;
+        private static Dictionary<string, IReadOnlyList<NintendoCatalogItem>>? _cache;
 
-        public static List<NintendoCatalogItem> GetCatalog(string catalogKey)
+        public static IReadOnlyList<NintendoCatalogItem> GetCatalog(string catalogKey)
         {
             lock (_syncLock)
             {
@@ -29,85 +29,119 @@ namespace StormSwitchBox.Services
                     return list;
                 }
 
-                return new List<NintendoCatalogItem>();
+                return Array.Empty<NintendoCatalogItem>();
             }
         }
 
-        private static Dictionary<string, List<NintendoCatalogItem>> LoadAllCatalogs()
+        private static Dictionary<string, IReadOnlyList<NintendoCatalogItem>> LoadAllCatalogs()
         {
-            var result = new Dictionary<string, List<NintendoCatalogItem>>(StringComparer.OrdinalIgnoreCase);
+            var result = new Dictionary<string, IReadOnlyList<NintendoCatalogItem>>(StringComparer.OrdinalIgnoreCase);
             try
             {
                 string baseDir = AppDomain.CurrentDomain.BaseDirectory;
-                string[] candidates =
+                string? dbPath = StormToolResolver.ResolveCatalogsZst();
+                if (dbPath == null)
                 {
-                    Path.Combine(baseDir, "tools", "db", "catalogs.zst"),
-                    Path.Combine(baseDir, "..", "..", "..", "tools", "db", "catalogs.zst"),
-                    Path.Combine(baseDir, "..", "..", "..", "..", "tools", "db", "catalogs.zst")
-                };
-
-                string? dbPath = null;
-                foreach (var c in candidates)
-                {
-                    if (File.Exists(c))
+                    string[] candidates =
                     {
-                        dbPath = c;
-                        break;
+                        Path.Combine(baseDir, "tools", "db", "catalogs.zst"),
+                        Path.Combine(baseDir, "..", "..", "..", "tools", "db", "catalogs.zst"),
+                        Path.Combine(baseDir, "..", "..", "..", "..", "tools", "db", "catalogs.zst")
+                    };
+
+                    foreach (var c in candidates)
+                    {
+                        if (File.Exists(c))
+                        {
+                            dbPath = c;
+                            break;
+                        }
                     }
                 }
 
                 if (dbPath == null) return result;
 
                 using var fs = new FileStream(dbPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-                using var gz = new GZipStream(fs, CompressionMode.Decompress);
+                Span<byte> hdr = stackalloc byte[4];
+                int hdrRead = fs.Read(hdr);
+                fs.Position = 0;
+
                 using var ms = new MemoryStream();
-                gz.CopyTo(ms);
+                if (hdrRead >= 2 && hdr[0] == 0x1F && hdr[1] == 0x8B)
+                {
+                    using var gz = new GZipStream(fs, CompressionMode.Decompress);
+                    gz.CopyTo(ms);
+                }
+                else if (hdrRead >= 4 && hdr[0] == 0x28 && hdr[1] == 0xB5 && hdr[2] == 0x2F && hdr[3] == 0xFD)
+                {
+                    using var zst = new ZstdSharp.DecompressionStream(fs);
+                    zst.CopyTo(ms);
+                }
+                else
+                {
+                    return result;
+                }
+
                 ms.Position = 0;
 
                 using var br = new BinaryReader(ms, Encoding.UTF8, leaveOpen: true);
-                byte[] magic = br.ReadBytes(4);
-                if (magic.Length < 4 || Encoding.ASCII.GetString(magic) != "SCAT")
+                Span<byte> magic = stackalloc byte[4];
+                ms.ReadExactly(magic);
+                if (Encoding.ASCII.GetString(magic) != "SCAT")
                     return result;
+
+                // Локальный пул повторяющихся справочных значений (не засоряет глобальный CLR string.Intern пул)
+                var sharedStrings = new Dictionary<string, string>(StringComparer.Ordinal);
+                string Deduplicate(string val)
+                {
+                    if (string.IsNullOrEmpty(val)) return string.Empty;
+                    if (sharedStrings.TryGetValue(val, out var existing)) return existing;
+                    sharedStrings[val] = val;
+                    return val;
+                }
 
                 uint catalogCount = br.ReadUInt32();
                 for (uint c = 0; c < catalogCount; c++)
                 {
                     ushort nameLen = br.ReadUInt16();
-                    string catName = Encoding.UTF8.GetString(br.ReadBytes(nameLen));
+                    byte[] nameBuf = new byte[nameLen];
+                    if (nameLen > 0) ms.ReadExactly(nameBuf);
+                    string catName = Encoding.UTF8.GetString(nameBuf);
+
                     uint entryCount = br.ReadUInt32();
                     var list = new List<NintendoCatalogItem>((int)entryCount);
 
                     for (uint i = 0; i < entryCount; i++)
                     {
-                        string title = ReadString(br);
-                        string genre = ReadString(br);
+                        string title = ReadString(br, ms);
+                        string genre = Deduplicate(ReadString(br, ms));
                         int year = br.ReadInt32();
-                        string dev = ReadString(br);
-                        string pub = ReadString(br);
-                        string reg = ReadString(br);
-                        string desc = ReadString(br);
-                        string tid = ReadString(br);
-                        string ed = ReadString(br);
-                        string ver = ReadString(br);
-                        string lang = ReadString(br);
+                        string dev = Deduplicate(ReadString(br, ms));
+                        string pub = Deduplicate(ReadString(br, ms));
+                        string reg = Deduplicate(ReadString(br, ms));
+                        string desc = ReadString(br, ms);
+                        string tid = ReadString(br, ms);
+                        string ed = Deduplicate(ReadString(br, ms));
+                        string ver = Deduplicate(ReadString(br, ms));
+                        string lang = Deduplicate(ReadString(br, ms));
 
                         list.Add(new NintendoCatalogItem
                         {
-                            Title = string.Intern(title),
-                            Genre = string.Intern(genre),
+                            Title = title,
+                            Genre = genre,
                             Year = year,
-                            Developer = string.Intern(dev),
-                            Publisher = string.Intern(pub),
-                            Region = string.Intern(reg),
+                            Developer = dev,
+                            Publisher = pub,
+                            Region = reg,
                             Desc = desc,
                             TitleId = string.IsNullOrEmpty(tid) ? null : tid,
-                            Edition = string.Intern(ed),
-                            Version = string.Intern(ver),
-                            Languages = string.Intern(lang)
+                            Edition = ed,
+                            Version = ver,
+                            Languages = lang
                         });
                     }
 
-                    result[catName] = list;
+                    result[catName] = list.AsReadOnly();
                 }
             }
             catch (Exception ex)
@@ -118,29 +152,31 @@ namespace StormSwitchBox.Services
             return result;
         }
 
-        private static string ReadString(BinaryReader br)
+        private static string ReadString(BinaryReader br, Stream stream)
         {
             ushort len = br.ReadUInt16();
             if (len == 0) return string.Empty;
-            return Encoding.UTF8.GetString(br.ReadBytes(len));
+            byte[] buf = new byte[len];
+            stream.ReadExactly(buf);
+            return Encoding.UTF8.GetString(buf);
         }
     }
 
-    public static class BsxCatalogData { public static List<NintendoCatalogItem> GetCatalog() => CatalogDataStore.GetCatalog("BsxCatalogData"); }
-    public static class FdsCatalogData { public static List<NintendoCatalogItem> GetCatalog() => CatalogDataStore.GetCatalog("FdsCatalogData"); }
-    public static class GameBoyCatalogData { public static List<NintendoCatalogItem> GetCatalog() => CatalogDataStore.GetCatalog("GameBoyCatalogData"); }
-    public static class GameCubeCatalogData { public static List<NintendoCatalogItem> GetCatalog() => CatalogDataStore.GetCatalog("GameCubeCatalogData"); }
-    public static class GbaCatalogData { public static List<NintendoCatalogItem> GetCatalog() => CatalogDataStore.GetCatalog("GbaCatalogData"); }
-    public static class GbcCatalogData { public static List<NintendoCatalogItem> GetCatalog() => CatalogDataStore.GetCatalog("GbcCatalogData"); }
-    public static class N64CatalogData { public static List<NintendoCatalogItem> GetCatalog() => CatalogDataStore.GetCatalog("N64CatalogData"); }
-    public static class NdsCatalogData { public static List<NintendoCatalogItem> GetCatalog() => CatalogDataStore.GetCatalog("NdsCatalogData"); }
-    public static class NesCatalogData { public static List<NintendoCatalogItem> GetCatalog() => CatalogDataStore.GetCatalog("NesCatalogData"); }
-    public static class PokemonMiniCatalogData { public static List<NintendoCatalogItem> GetCatalog() => CatalogDataStore.GetCatalog("PokemonMiniCatalogData"); }
-    public static class SnesCatalogData { public static List<NintendoCatalogItem> GetCatalog() => CatalogDataStore.GetCatalog("SnesCatalogData"); }
-    public static class Switch2CatalogData { public static List<NintendoCatalogItem> GetCatalog() => CatalogDataStore.GetCatalog("Switch2CatalogData"); }
-    public static class SwitchExtraCatalogData { public static List<NintendoCatalogItem> GetCatalog() => CatalogDataStore.GetCatalog("SwitchExtraCatalogData"); }
-    public static class ThreeDsCatalogData { public static List<NintendoCatalogItem> GetCatalog() => CatalogDataStore.GetCatalog("ThreeDsCatalogData"); }
-    public static class VirtualBoyCatalogData { public static List<NintendoCatalogItem> GetCatalog() => CatalogDataStore.GetCatalog("VirtualBoyCatalogData"); }
-    public static class WiiCatalogData { public static List<NintendoCatalogItem> GetCatalog() => CatalogDataStore.GetCatalog("WiiCatalogData"); }
-    public static class WiiUCatalogData { public static List<NintendoCatalogItem> GetCatalog() => CatalogDataStore.GetCatalog("WiiUCatalogData"); }
+    public static class BsxCatalogData { public static IReadOnlyList<NintendoCatalogItem> GetCatalog() => CatalogDataStore.GetCatalog("BsxCatalogData"); }
+    public static class FdsCatalogData { public static IReadOnlyList<NintendoCatalogItem> GetCatalog() => CatalogDataStore.GetCatalog("FdsCatalogData"); }
+    public static class GameBoyCatalogData { public static IReadOnlyList<NintendoCatalogItem> GetCatalog() => CatalogDataStore.GetCatalog("GameBoyCatalogData"); }
+    public static class GameCubeCatalogData { public static IReadOnlyList<NintendoCatalogItem> GetCatalog() => CatalogDataStore.GetCatalog("GameCubeCatalogData"); }
+    public static class GbaCatalogData { public static IReadOnlyList<NintendoCatalogItem> GetCatalog() => CatalogDataStore.GetCatalog("GbaCatalogData"); }
+    public static class GbcCatalogData { public static IReadOnlyList<NintendoCatalogItem> GetCatalog() => CatalogDataStore.GetCatalog("GbcCatalogData"); }
+    public static class N64CatalogData { public static IReadOnlyList<NintendoCatalogItem> GetCatalog() => CatalogDataStore.GetCatalog("N64CatalogData"); }
+    public static class NdsCatalogData { public static IReadOnlyList<NintendoCatalogItem> GetCatalog() => CatalogDataStore.GetCatalog("NdsCatalogData"); }
+    public static class NesCatalogData { public static IReadOnlyList<NintendoCatalogItem> GetCatalog() => CatalogDataStore.GetCatalog("NesCatalogData"); }
+    public static class PokemonMiniCatalogData { public static IReadOnlyList<NintendoCatalogItem> GetCatalog() => CatalogDataStore.GetCatalog("PokemonMiniCatalogData"); }
+    public static class SnesCatalogData { public static IReadOnlyList<NintendoCatalogItem> GetCatalog() => CatalogDataStore.GetCatalog("SnesCatalogData"); }
+    public static class Switch2CatalogData { public static IReadOnlyList<NintendoCatalogItem> GetCatalog() => CatalogDataStore.GetCatalog("Switch2CatalogData"); }
+    public static class SwitchExtraCatalogData { public static IReadOnlyList<NintendoCatalogItem> GetCatalog() => CatalogDataStore.GetCatalog("SwitchExtraCatalogData"); }
+    public static class ThreeDsCatalogData { public static IReadOnlyList<NintendoCatalogItem> GetCatalog() => CatalogDataStore.GetCatalog("ThreeDsCatalogData"); }
+    public static class VirtualBoyCatalogData { public static IReadOnlyList<NintendoCatalogItem> GetCatalog() => CatalogDataStore.GetCatalog("VirtualBoyCatalogData"); }
+    public static class WiiCatalogData { public static IReadOnlyList<NintendoCatalogItem> GetCatalog() => CatalogDataStore.GetCatalog("WiiCatalogData"); }
+    public static class WiiUCatalogData { public static IReadOnlyList<NintendoCatalogItem> GetCatalog() => CatalogDataStore.GetCatalog("WiiUCatalogData"); }
 }

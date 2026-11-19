@@ -15,7 +15,7 @@ if (-not (Test-Path $assemblingDir)) { New-Item -ItemType Directory -Path $assem
 if (-not (Test-Path $filesDir)) { New-Item -ItemType Directory -Path $filesDir | Out-Null }
 if (-not (Test-Path $outputDir)) { New-Item -ItemType Directory -Path $outputDir | Out-Null }
 
-$appVersion = "7.0.14"
+$appVersion = "8.0.0"
 try {
     [xml]$appProjXml = Get-Content (Join-Path $appProjDir "StormSwitchBox.csproj")
     $verFromProj = ($appProjXml.Project.PropertyGroup | ForEach-Object { $_.Version } | Where-Object { $_ } | Select-Object -First 1)
@@ -104,11 +104,7 @@ Copy-Item $cerRoot $cerInstaller -Force
 Copy-Item $cerRoot $cerOutput -Force
 Copy-Item $cerRoot (Join-Path $publishDir "STORM_Certificate.cer") -Force
 
-$pfxSource = "E:\STORM SYSTEM OPTIMIZER\Files\STORM_CodeSign.pfx"
-if (Test-Path $pfxSource) {
-    Copy-Item $pfxSource (Join-Path $filesDir "STORM_CodeSign.pfx") -Force
-    Copy-Item $pfxSource (Join-Path $baseDir "STORM_CodeSign.pfx") -Force
-}
+# PFX private key is never copied into workspace; signing uses Cert:\CurrentUser\My thumbprint
 
 # Unblock published files
 Get-ChildItem $publishDir -Recurse | Unblock-File -ErrorAction SilentlyContinue
@@ -171,11 +167,7 @@ if (Test-Path "$baseDir\tools\7z.exe") {
 } else {
     Compress-Archive -Path "$publishDir\*" -DestinationPath $portableZipPath -Force
 }
-Copy-Item $portableZipPath $filesDir -Force
 Copy-Item $portableZipPath (Join-Path $outputDir "STORM_SWITCH_BOX_${appVersion}.zip") -Force
-Copy-Item $portableZipPath (Join-Path $filesDir "STORM_SWITCH_BOX_${appVersion}.zip") -Force
-Copy-Item $portableZipPath (Join-Path $outputDir "STORM_SWITCH_BOX_${appVersion}_Portable.zip") -Force
-Copy-Item $portableZipPath (Join-Path $filesDir "STORM_SWITCH_BOX_${appVersion}_Portable.zip") -Force
 
 # Step 4: Build Custom StormInstaller
 Write-Host "[5/6] Building and Signing StormInstaller (Cyber Dark UI)..." -ForegroundColor Yellow
@@ -199,7 +191,6 @@ Invoke-StormSign (Join-Path $filesDir "STORM_SWITCH_BOX_Setup.exe")
 # Install certificate locally into TrustedPublisher for seamless local execution
 try {
     Import-Certificate -FilePath $cerRoot -CertStoreLocation "Cert:\CurrentUser\TrustedPublisher" -ErrorAction SilentlyContinue | Out-Null
-    Import-Certificate -FilePath $cerRoot -CertStoreLocation "Cert:\CurrentUser\Root" -ErrorAction SilentlyContinue | Out-Null
 } catch { }
 
 # Step 5: Packaging Smart App Control Setup Bundle

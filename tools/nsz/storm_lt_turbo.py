@@ -7,8 +7,11 @@ without requiring external qBittorrent installation.
 """
 
 import argparse
+import ctypes
+import ipaddress
 import json
 import os
+import re
 import sys
 import time
 import libtorrent as lt
@@ -69,6 +72,95 @@ def build_turbo_settings():
     return {k: v for k, v in desired.items() if k in default_keys}
 
 
+def is_parent_alive(parent_pid):
+    if not parent_pid or parent_pid <= 0:
+        return True
+    if os.name == "nt":
+        try:
+            SYNCHRONIZE = 0x00100000
+            WAIT_TIMEOUT = 0x00000102
+            kernel32 = ctypes.windll.kernel32
+            h = kernel32.OpenProcess(SYNCHRONIZE, False, int(parent_pid))
+            if not h:
+                return False
+            try:
+                res = kernel32.WaitForSingleObject(h, 0)
+                return res == WAIT_TIMEOUT
+            finally:
+                kernel32.CloseHandle(h)
+        except Exception:
+            return True
+    else:
+        try:
+            os.kill(int(parent_pid), 0)
+            return True
+        except OSError:
+            return False
+
+
+def parse_peer_endpoint(entry):
+    entry = (entry or "").strip()
+    if not entry:
+        return None
+    if entry.startswith("["):
+        m = re.match(r"^\[([^\]]+)\]:(\d+)$", entry)
+        if not m:
+            return None
+        host_part, port_str = m.group(1).strip(), m.group(2)
+        try:
+            ipaddress.ip_address(host_part)
+        except ValueError:
+            return None
+        port_num = int(port_str)
+        return (host_part, port_num) if 0 < port_num <= 65535 else None
+
+    if ":" not in entry:
+        return None
+
+    # Если это голый IPv6 без порта (например 2001:db8::1), не путаем последний хекстет с портом
+    if entry.count(":") > 1:
+        try:
+            ipaddress.ip_address(entry)
+            return None
+        except ValueError:
+            pass
+
+    host_part, port_part = entry.rsplit(":", 1)
+    host_part = host_part.strip()
+    if not host_part or not port_part.isdigit():
+        return None
+    port_num = int(port_part)
+    if not (0 < port_num <= 65535):
+        return None
+    if ":" in host_part:
+        try:
+            ipaddress.ip_address(host_part)
+        except ValueError:
+            return None
+    return (host_part, port_num)
+
+
+def flush_torrent_cache(ses, handle, timeout_sec=5.0):
+    try:
+        ses.set_alert_mask(lt.alert.category_t.storage_notification)
+    except Exception:
+        pass
+    try:
+        handle.flush_cache()
+    except Exception:
+        return
+    deadline = time.time() + timeout_sec
+    while time.time() < deadline:
+        try:
+            alerts = ses.pop_alerts()
+            for a in alerts:
+                if type(a).__name__ == "cache_flushed_alert":
+                    return
+        except Exception:
+            return
+        time.sleep(0.05)
+
+
 def main():
     parser = argparse.ArgumentParser(description="STORM SWITCH BOX Embedded Libtorrent Turbo Engine")
     parser.add_argument("--torrent", type=str, default=None, help="Path to .torrent file")
@@ -77,6 +169,7 @@ def main():
     parser.add_argument("--skip-indices", type=str, default=None, help="Comma-separated 0-based file indices to ignore")
     parser.add_argument("--peers-file", type=str, default=None, help="Path to text file with harvested ip:port peers")
     parser.add_argument("--control-file", type=str, default=None, help="Path to command control file (PAUSE/RESUME/STOP)")
+    parser.add_argument("--parent-pid", type=int, default=None, help="Parent process PID to auto-exit if parent dies")
     args = parser.parse_args()
 
     if not args.torrent and not args.magnet:
@@ -87,6 +180,10 @@ def main():
 
     ses = lt.session()
     ses.apply_settings(build_turbo_settings())
+    try:
+        ses.set_alert_mask(lt.alert.category_t.storage_notification)
+    except Exception:
+        pass
 
     skip_set = set()
     if args.skip_indices:
@@ -116,7 +213,7 @@ def main():
             except Exception:
                 pass
         handle = ses.add_torrent(atp)
-    else:
+    elif args.magnet:
         atp = lt.parse_magnet_uri(args.magnet)
         atp.save_path = args.save_dir
         existing_tr = set(atp.trackers) if getattr(atp, "trackers", None) else set()
@@ -129,6 +226,9 @@ def main():
         except Exception:
             pass
         handle = ses.add_torrent(atp)
+    else:
+        sys.stderr.write("Error: Torrent file does not exist and no valid --magnet was provided.\n")
+        sys.exit(1)
 
     try:
         handle.force_reannounce()
@@ -176,24 +276,33 @@ def main():
                 lines = pf.readlines()
             for raw in lines:
                 entry = raw.strip()
-                if not entry or entry in connected_peers or ":" not in entry:
+                if not entry or entry in connected_peers:
                     continue
                 connected_peers.add(entry)
-                host_part, port_part = entry.rsplit(":", 1)
-                host_part = host_part.strip("[] ")
-                if port_part.isdigit():
-                    port_num = int(port_part)
-                    if 0 < port_num <= 65535 and host_part:
-                        try:
-                            handle.connect_peer((host_part, port_num))
-                        except Exception:
-                            pass
+                parsed = parse_peer_endpoint(entry)
+                if parsed is not None:
+                    try:
+                        handle.connect_peer(parsed)
+                    except Exception:
+                        pass
         except Exception:
             pass
 
+    last_parent_check = 0.0
     try:
         inject_new_peers(force_now=True)
         while handle.is_valid():
+            now_check = time.time()
+            if args.parent_pid and (now_check - last_parent_check) >= 1.0:
+                last_parent_check = now_check
+                if not is_parent_alive(args.parent_pid):
+                    try:
+                        handle.pause()
+                    except Exception:
+                        pass
+                    flush_torrent_cache(ses, handle)
+                    break
+
             if args.control_file and os.path.exists(args.control_file):
                 try:
                     with open(args.control_file, "r", encoding="utf-8", errors="ignore") as cf:
@@ -203,6 +312,7 @@ def main():
                             handle.pause()
                         except Exception:
                             pass
+                        flush_torrent_cache(ses, handle)
                         emit_status(last_pct, 0, 0, 0, last_swarm, last_done, last_total, "stopped", is_meta=last_is_meta)
                         break
                     elif cmd == "PAUSE" and not was_paused:
@@ -277,6 +387,7 @@ def main():
 
             is_finished = st.is_finished or (total_wanted > 0 and total_wanted_done >= total_wanted)
             if is_finished:
+                flush_torrent_cache(ses, handle)
                 emit_status(100.0, 0, st.num_seeds, st.num_peers, swarm, total_wanted, total_wanted, "finished")
                 break
 
@@ -284,7 +395,7 @@ def main():
             time.sleep(0.3)
 
     except KeyboardInterrupt:
-        pass
+        flush_torrent_cache(ses, handle)
     except Exception as ex:
         sys.stderr.write(f"Libtorrent error: {ex}\n")
         sys.exit(2)

@@ -61,12 +61,34 @@ namespace StormSwitchBox.Services
         private readonly Dictionary<string, List<string>> _cachedLanguages = new(StringComparer.OrdinalIgnoreCase);
 
         private bool _isInitialized = false;
+        private Task? _initTask;
 
         public event Action? LibraryUpdated;
 
         public NintendoLibraryService()
         {
-            InitializeDatabase();
+            // Ленивая/фоновая инициализация без блокировки конструктора
+        }
+
+        public Task EnsureInitializedAsync()
+        {
+            if (_isInitialized) return Task.CompletedTask;
+            lock (_dbLock)
+            {
+                if (_isInitialized) return Task.CompletedTask;
+                _initTask ??= Task.Run(() =>
+                {
+                    InitializeDatabase();
+                    LibraryUpdated?.Invoke();
+                });
+                return _initTask;
+            }
+        }
+
+        private void EnsureInitializedSync()
+        {
+            if (!_isInitialized)
+                InitializeDatabase();
         }
 
         #region Formatting Helpers
@@ -129,6 +151,7 @@ namespace StormSwitchBox.Services
 
         public async Task EnsureSwitchGamesLoadedAsync(TitleDbService? titleDb)
         {
+            await EnsureInitializedAsync().ConfigureAwait(false);
             if (titleDb == null) return;
 
             await Task.Run(() =>
@@ -647,6 +670,7 @@ namespace StormSwitchBox.Services
 
         public int GetGameCountForSystem(string systemFullName)
         {
+            EnsureInitializedSync();
             lock (_dbLock)
             {
                 if (string.IsNullOrEmpty(systemFullName) || systemFullName == "Все системы")
@@ -660,7 +684,7 @@ namespace StormSwitchBox.Services
             }
         }
 
-                public List<NintendoGameEntry> QueryGames(
+        public List<NintendoGameEntry> QueryGames(
             IEnumerable<string>? systems = null,
             IEnumerable<string>? genres = null,
             IEnumerable<string>? developers = null,
@@ -669,6 +693,7 @@ namespace StormSwitchBox.Services
             string? searchQuery = null,
             string? sortBy = "Title")
         {
+            EnsureInitializedSync();
             var systemList = systems?.Where(s => !string.IsNullOrWhiteSpace(s) && s != "Все системы").ToList();
             var genreList = genres?.Where(g => !string.IsNullOrWhiteSpace(g) && g != "Все жанры").ToList();
             var devList = developers?.Where(d => !string.IsNullOrWhiteSpace(d) && d != "Все разработчики").ToList();
@@ -759,12 +784,31 @@ namespace StormSwitchBox.Services
 
             result = sortBy switch
             {
-                "ReleaseDate" => result.OrderByDescending(g => g.ReleaseDate),
+                "ReleaseDate" => result.OrderByDescending(g => ParseReleaseDateForSort(g.ReleaseDate)).ThenBy(g => g.Title),
                 "System" => result.OrderBy(g => g.System).ThenBy(g => g.Title),
                 _ => result.OrderBy(g => g.Title)
             };
 
             return result.ToList();
+        }
+
+        private static DateTime ParseReleaseDateForSort(string? releaseDate)
+        {
+            if (string.IsNullOrWhiteSpace(releaseDate) || releaseDate.Equals("N/A", StringComparison.OrdinalIgnoreCase))
+                return DateTime.MinValue;
+
+            string s = releaseDate.Trim();
+            if (DateTime.TryParseExact(s, "dd.MM.yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var dt))
+                return dt;
+
+            string[] formats = { "yyyy-MM-dd", "yyyy/MM/dd", "yyyyMMdd", "d.M.yyyy", "dd-MM-yyyy" };
+            if (DateTime.TryParseExact(s, formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dtAlt))
+                return dtAlt;
+
+            if (int.TryParse(s, out int year) && year >= 1970 && year <= 2035)
+                return new DateTime(year, 1, 1);
+
+            return DateTime.MinValue;
         }
 
         public List<NintendoGameEntry> QueryGames(
@@ -785,6 +829,7 @@ namespace StormSwitchBox.Services
 
         public List<string> GetDistinctGenres(string? systemFullName = null)
         {
+            EnsureInitializedSync();
             string key = systemFullName ?? "Все системы";
             lock (_cachedGenres)
             {
@@ -827,6 +872,7 @@ namespace StormSwitchBox.Services
 
         public List<string> GetDistinctDevelopers(string? systemFullName = null)
         {
+            EnsureInitializedSync();
             string key = systemFullName ?? "Все системы";
             lock (_cachedDevelopers)
             {
@@ -864,6 +910,7 @@ namespace StormSwitchBox.Services
 
         public List<string> GetDistinctPublishers(string? systemFullName = null)
         {
+            EnsureInitializedSync();
             string key = systemFullName ?? "Все системы";
             lock (_cachedPublishers)
             {
@@ -901,6 +948,7 @@ namespace StormSwitchBox.Services
 
         public List<string> GetDistinctLanguages(string? systemFullName = null)
         {
+            EnsureInitializedSync();
             string key = systemFullName ?? "Все системы";
             lock (_cachedLanguages)
             {

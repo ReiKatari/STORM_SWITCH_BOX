@@ -23,34 +23,34 @@ namespace StormSwitchBox.Models
         // Цвет текста сообщения
         public SolidColorBrush ColorBrush => Level switch
         {
-            LogLevel.Info    => new SolidColorBrush(Color.FromArgb(255, 180, 198, 220)),  // Серо-голубой
-            LogLevel.Warning => new SolidColorBrush(Color.FromArgb(255, 255, 193, 7)),    // Янтарный
-            LogLevel.Error   => new SolidColorBrush(Color.FromArgb(255, 255, 82, 82)),    // Красный
-            LogLevel.Success => new SolidColorBrush(Color.FromArgb(255, 76, 175, 80)),    // Зелёный
-            LogLevel.Debug   => new SolidColorBrush(Color.FromArgb(255, 108, 117, 125)),  // Тёмно-серый
-            _                => new SolidColorBrush(Colors.White)
+            LogLevel.Info    => UiBrushCache.Get(Color.FromArgb(255, 180, 198, 220)),  // Серо-голубой
+            LogLevel.Warning => UiBrushCache.Get(Color.FromArgb(255, 255, 193, 7)),    // Янтарный
+            LogLevel.Error   => UiBrushCache.Get(Color.FromArgb(255, 255, 82, 82)),    // Красный
+            LogLevel.Success => UiBrushCache.Get(Color.FromArgb(255, 76, 175, 80)),    // Зелёный
+            LogLevel.Debug   => UiBrushCache.Get(Color.FromArgb(255, 108, 117, 125)),  // Тёмно-серый
+            _                => UiBrushCache.Get(Colors.White)
         };
 
         // Цвет фона бейджа уровня
         public SolidColorBrush LevelBadgeBackground => Level switch
         {
-            LogLevel.Info    => new SolidColorBrush(Color.FromArgb(40, 100, 149, 237)),   // Синий полупрозрачный
-            LogLevel.Warning => new SolidColorBrush(Color.FromArgb(50, 255, 193, 7)),     // Янтарный полупрозрачный
-            LogLevel.Error   => new SolidColorBrush(Color.FromArgb(50, 255, 82, 82)),     // Красный полупрозрачный
-            LogLevel.Success => new SolidColorBrush(Color.FromArgb(40, 76, 175, 80)),     // Зелёный полупрозрачный
-            LogLevel.Debug   => new SolidColorBrush(Color.FromArgb(30, 108, 117, 125)),   // Серый полупрозрачный
-            _                => new SolidColorBrush(Colors.Transparent)
+            LogLevel.Info    => UiBrushCache.Get(Color.FromArgb(40, 100, 149, 237)),   // Синий полупрозрачный
+            LogLevel.Warning => UiBrushCache.Get(Color.FromArgb(50, 255, 193, 7)),     // Янтарный полупрозрачный
+            LogLevel.Error   => UiBrushCache.Get(Color.FromArgb(50, 255, 82, 82)),     // Красный полупрозрачный
+            LogLevel.Success => UiBrushCache.Get(Color.FromArgb(40, 76, 175, 80)),     // Зелёный полупрозрачный
+            LogLevel.Debug   => UiBrushCache.Get(Color.FromArgb(30, 108, 117, 125)),   // Серый полупрозрачный
+            _                => UiBrushCache.Get(Colors.Transparent)
         };
 
         // Цвет текста бейджа
         public SolidColorBrush LevelBadgeForeground => Level switch
         {
-            LogLevel.Info    => new SolidColorBrush(Color.FromArgb(255, 130, 177, 255)),
-            LogLevel.Warning => new SolidColorBrush(Color.FromArgb(255, 255, 213, 79)),
-            LogLevel.Error   => new SolidColorBrush(Color.FromArgb(255, 255, 120, 120)),
-            LogLevel.Success => new SolidColorBrush(Color.FromArgb(255, 129, 199, 132)),
-            LogLevel.Debug   => new SolidColorBrush(Color.FromArgb(255, 158, 158, 158)),
-            _                => new SolidColorBrush(Colors.White)
+            LogLevel.Info    => UiBrushCache.Get(Color.FromArgb(255, 130, 177, 255)),
+            LogLevel.Warning => UiBrushCache.Get(Color.FromArgb(255, 255, 213, 79)),
+            LogLevel.Error   => UiBrushCache.Get(Color.FromArgb(255, 255, 120, 120)),
+            LogLevel.Success => UiBrushCache.Get(Color.FromArgb(255, 129, 199, 132)),
+            LogLevel.Debug   => UiBrushCache.Get(Color.FromArgb(255, 158, 158, 158)),
+            _                => UiBrushCache.Get(Colors.White)
         };
 
         // Текст бейджа
@@ -78,11 +78,11 @@ namespace StormSwitchBox.Models
         // Цвет фона строки для подсветки ошибок/предупреждений
         public SolidColorBrush RowBackground => Level switch
         {
-            LogLevel.Error   => new SolidColorBrush(Color.FromArgb(15, 255, 82, 82)),
-            LogLevel.Warning => new SolidColorBrush(Color.FromArgb(10, 255, 193, 7)),
-            _                => new SolidColorBrush(Colors.Transparent)
+            LogLevel.Error   => UiBrushCache.Get(Color.FromArgb(15, 255, 82, 82)),
+            LogLevel.Warning => UiBrushCache.Get(Color.FromArgb(10, 255, 193, 7)),
+            _                => UiBrushCache.Get(Colors.Transparent)
         };
 
-        public string FormattedTime => Timestamp.ToString("HH:mm:ss.ff");
+        public string FormattedTime => Timestamp.ToString("HH:mm");
     }
 }

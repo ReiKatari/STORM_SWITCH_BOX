@@ -1,16 +1,31 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Threading;
 using System.Threading.Tasks;
 using StormSwitchBox.Models;
-using System.Text.Json.Serialization;
 
 namespace StormSwitchBox.Services
 {
     public class TitleDbEntry
     {
+        internal static bool TryParseVersionKey(string? key, out uint versionNum)
+        {
+            versionNum = 0;
+            if (string.IsNullOrWhiteSpace(key)) return false;
+            string k = key.Trim();
+            if (k.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+                return uint.TryParse(k.AsSpan(2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out versionNum);
+            if (uint.TryParse(k, NumberStyles.Integer, CultureInfo.InvariantCulture, out versionNum))
+                return true;
+            return uint.TryParse(k, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out versionNum);
+        }
+
         [JsonPropertyName("id")] public string? Id { get; set; }
         [JsonPropertyName("name")] public string? Name { get; set; }
         [JsonPropertyName("description")] public string? Description { get; set; }
@@ -35,13 +50,13 @@ namespace StormSwitchBox.Services
             {
                 try
                 {
-                    // Сначала пробуем взять из словаря versions максимальную версию
+                    // Берём максимальную версию по числовому uint-ключу
                     if (VersionsDictionary != null && VersionsDictionary.Count > 0)
                     {
-                        var highestVer = VersionsDictionary.Values.LastOrDefault();
-                        if (!string.IsNullOrEmpty(highestVer)) return highestVer;
+                        var highest = VersionsDictionary.MaxBy(kv => TryParseVersionKey(kv.Key, out uint v) ? v : 0u);
+                        if (!string.IsNullOrEmpty(highest.Value)) return highest.Value;
                     }
-                    if (VersionElement?.ValueKind == JsonValueKind.Number) return VersionElement.Value.GetDouble().ToString();
+                    if (VersionElement?.ValueKind == JsonValueKind.Number) return VersionElement.Value.GetDouble().ToString(CultureInfo.InvariantCulture);
                     if (VersionElement?.ValueKind == JsonValueKind.String) return VersionElement.Value.GetString();
                 } catch { }
                 return null;
@@ -95,7 +110,7 @@ namespace StormSwitchBox.Services
         private Dictionary<string, TitleDbEntry> _byCoreName = new(StringComparer.OrdinalIgnoreCase);
         private bool _isLoaded = false;
         public bool IsLoaded => _isLoaded;
-        private readonly HttpClient _httpClient;
+        private readonly SemaphoreSlim _dbLoadLock = new(1, 1);
         private readonly NintendoEShopService _eShopService;
 
         public event Action? DatabaseLoaded;
@@ -108,8 +123,6 @@ namespace StormSwitchBox.Services
         public TitleDbService()
         {
             _dbPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "titledb.json");
-            _httpClient = new HttpClient();
-            _httpClient.DefaultRequestHeaders.Add("User-Agent", $"StormSwitchBox/{App.AppVersionString}");
             _eShopService = new NintendoEShopService();
             
             // Асинхронно загружаем базу из локального кэша
@@ -203,16 +216,28 @@ namespace StormSwitchBox.Services
 
         private async Task LoadLocalDbAsync()
         {
+            await _dbLoadLock.WaitAsync().ConfigureAwait(false);
             try
             {
                 var reindexedDb = new Dictionary<string, TitleDbEntry>(StringComparer.OrdinalIgnoreCase);
 
-                // 1. Сначала всегда загружаем встроенную полную базу nutdb.json (20 711 записей: 11 256 базовых игр + DLC)
-                string nutDbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tools", "db", "nutdb.json");
-                if (!File.Exists(nutDbPath))
+                void MergeEntries(Dictionary<string, TitleDbEntry>? rawDb)
                 {
-                    string parentNut = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "tools", "db", "nutdb.json");
-                    if (File.Exists(parentNut)) nutDbPath = parentNut;
+                    if (rawDb == null) return;
+                    foreach (var kvp in rawDb)
+                    {
+                        var entry = kvp.Value;
+                        if (entry == null) continue;
+                        if (string.IsNullOrEmpty(entry.Id))
+                        {
+                            entry.Id = kvp.Key;
+                        }
+                        reindexedDb[kvp.Key] = entry;
+                        if (!string.IsNullOrEmpty(entry.Id))
+                        {
+                            reindexedDb[entry.Id.ToUpperInvariant()] = entry;
+                        }
+                    }
                 }
 
                 async Task MergeJsonDbFileAsync(string filePath)
@@ -221,32 +246,48 @@ namespace StormSwitchBox.Services
                     try
                     {
                         using var stream = File.OpenRead(filePath);
-                        var rawDb = await JsonSerializer.DeserializeAsync<Dictionary<string, TitleDbEntry>>(stream);
-                        if (rawDb == null) return;
-                        foreach (var kvp in rawDb)
-                        {
-                            var entry = kvp.Value;
-                            if (entry == null) continue;
-                            if (string.IsNullOrEmpty(entry.Id))
-                            {
-                                entry.Id = kvp.Key;
-                            }
-                            reindexedDb[kvp.Key] = entry;
-                            if (!string.IsNullOrEmpty(entry.Id))
-                            {
-                                reindexedDb[entry.Id.ToUpperInvariant()] = entry;
-                            }
-                        }
+                        var rawDb = await JsonSerializer.DeserializeAsync<Dictionary<string, TitleDbEntry>>(stream).ConfigureAwait(false);
+                        MergeEntries(rawDb);
                     }
                     catch { }
                 }
 
-                await MergeJsonDbFileAsync(nutDbPath);
+                async Task MergeZstJsonDbFileAsync(string filePath)
+                {
+                    if (!File.Exists(filePath)) return;
+                    try
+                    {
+                        using var stream = File.OpenRead(filePath);
+                        using var zstd = new ZstdSharp.DecompressionStream(stream);
+                        var rawDb = await JsonSerializer.DeserializeAsync<Dictionary<string, TitleDbEntry>>(zstd).ConfigureAwait(false);
+                        MergeEntries(rawDb);
+                    }
+                    catch { }
+                }
+
+                // 1. Загружаем встроенную базу из tools/db/nutdb.json.zst с fallback на nutdb.json
+                string? nutDbZstPath = StormToolResolver.ResolveNutDbZst()
+                    ?? StormToolResolver.ResolveTool(Path.Combine("tools", "db", "nutdb.json.zst"));
+                string? nutDbJsonPath = StormToolResolver.ResolveNutDbJson()
+                    ?? StormToolResolver.ResolveTool(Path.Combine("tools", "db", "nutdb.json"));
+
+                if (!string.IsNullOrEmpty(nutDbZstPath) && File.Exists(nutDbZstPath))
+                {
+                    await MergeZstJsonDbFileAsync(nutDbZstPath).ConfigureAwait(false);
+                }
+
+                if (reindexedDb.Count == 0 && !string.IsNullOrEmpty(nutDbJsonPath) && File.Exists(nutDbJsonPath))
+                {
+                    await MergeJsonDbFileAsync(nutDbJsonPath).ConfigureAwait(false);
+                }
 
                 // 2. Поверх накладываем свежий пользовательский кэш .switch/titledb.json (если он обновлялся из сети)
-                if (File.Exists(_dbPath) && !string.Equals( Path.GetFullPath(_dbPath), Path.GetFullPath(nutDbPath), StringComparison.OrdinalIgnoreCase))
+                string? activeBuiltInPath = !string.IsNullOrEmpty(nutDbZstPath) ? nutDbZstPath : nutDbJsonPath;
+                if (File.Exists(_dbPath) &&
+                    (string.IsNullOrEmpty(activeBuiltInPath) ||
+                     !string.Equals(Path.GetFullPath(_dbPath), Path.GetFullPath(activeBuiltInPath), StringComparison.OrdinalIgnoreCase)))
                 {
-                    await MergeJsonDbFileAsync(_dbPath);
+                    await MergeJsonDbFileAsync(_dbPath).ConfigureAwait(false);
                 }
 
                 if (reindexedDb.Count > 0)
@@ -281,6 +322,10 @@ namespace StormSwitchBox.Services
             {
                 System.Diagnostics.Debug.WriteLine($"Ошибка загрузки локальной БД TitleDB: {ex.Message}");
             }
+            finally
+            {
+                _dbLoadLock.Release();
+            }
         }
 
         public async Task<bool> UpdateDatabaseAsync(IProgress<int>? progress = null)
@@ -293,25 +338,28 @@ namespace StormSwitchBox.Services
                 "https://ghfast.top/https://raw.githubusercontent.com/blawar/titledb/master/ru.json"
             };
 
+            string tmpPath = _dbPath + ".tmp";
             foreach (var mirrorUrl in mirrors)
             {
                 try
                 {
-                    using var response = await _httpClient.GetAsync(mirrorUrl, HttpCompletionOption.ResponseHeadersRead);
+                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(45));
+                    using var req = new HttpRequestMessage(HttpMethod.Get, mirrorUrl);
+                    req.Headers.TryAddWithoutValidation("User-Agent", $"StormSwitchBox/{App.AppVersionString}");
+                    using var response = await StormHttpClientFactory.Shared.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, cts.Token).ConfigureAwait(false);
                     if (!response.IsSuccessStatusCode) continue;
 
                     var totalBytes = response.Content.Headers.ContentLength ?? -1L;
                     Directory.CreateDirectory(Path.GetDirectoryName(_dbPath)!);
-                    string tmpPath = _dbPath + ".tmp";
                     using (var fileStream = new FileStream(tmpPath, FileMode.Create, FileAccess.Write, FileShare.None))
-                    using (var stream = await response.Content.ReadAsStreamAsync())
+                    using (var stream = await response.Content.ReadAsStreamAsync(cts.Token).ConfigureAwait(false))
                     {
                         var buffer = new byte[16384];
                         long totalRead = 0;
                         int read;
-                        while ((read = await stream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+                        while ((read = await stream.ReadAsync(buffer, 0, buffer.Length, cts.Token).ConfigureAwait(false)) > 0)
                         {
-                            await fileStream.WriteAsync(buffer, 0, read);
+                            await fileStream.WriteAsync(buffer, 0, read, cts.Token).ConfigureAwait(false);
                             totalRead += read;
                             if (totalBytes > 0 && progress != null)
                             {
@@ -320,21 +368,28 @@ namespace StormSwitchBox.Services
                         }
                     }
 
-                    if (new FileInfo(tmpPath).Length > 1024)
+                    if (File.Exists(tmpPath) && new FileInfo(tmpPath).Length > 1024)
                     {
                         File.Move(tmpPath, _dbPath, true);
-                        await LoadLocalDbAsync();
+                        await LoadLocalDbAsync().ConfigureAwait(false);
                         return true;
+                    }
+                    else if (File.Exists(tmpPath))
+                    {
+                        try { File.Delete(tmpPath); } catch { }
                     }
                 }
                 catch (Exception ex)
                 {
                     System.Diagnostics.Debug.WriteLine($"Ошибка зеркала TitleDB ({mirrorUrl}): {ex.Message}");
+                    if (File.Exists(tmpPath))
+                    {
+                        try { File.Delete(tmpPath); } catch { }
+                    }
                 }
             }
 
-            await LoadLocalDbAsync();
-            return _db.Count > 0;
+            return false;
         }
 
         public TitleDbEntry? GetEntry(string titleId) => TryGetEntry(titleId, out var entry) ? entry : null;
@@ -573,7 +628,7 @@ namespace StormSwitchBox.Services
                 });
 
                     // Проверка обновлений
-                    TitleDbEntry updateEntry = entry;
+                    TitleDbEntry? updateEntry = entry;
                     bool hasUpdateEntry = false;
                     if (item.TitleId.EndsWith("000") && item.TitleId.Length == 16)
                     {
@@ -636,7 +691,7 @@ namespace StormSwitchBox.Services
 
                     if (dictToUse != null && dictToUse.Count > 0)
                     {
-                        var highest = dictToUse.LastOrDefault();
+                        var highest = dictToUse.MaxBy(kv => TitleDbEntry.TryParseVersionKey(kv.Key, out uint v) ? v : 0u);
                         remoteVerStr = highest.Value;
                         remoteVerCode = highest.Key;
                     }
@@ -718,16 +773,22 @@ namespace StormSwitchBox.Services
                         }
                     }
 
-                    if (!string.IsNullOrEmpty(entry?.IconUrl))
+                    if ((item.CoverBytes == null || item.CoverBytes.Length == 0) &&
+                        item.CoverImage == null &&
+                        !string.IsNullOrEmpty(entry?.IconUrl))
                     {
                         try
                         {
-                            var imgBytes = await _httpClient.GetByteArrayAsync(entry!.IconUrl);
-                            var bmp = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
-                            using var ms = new System.IO.MemoryStream(imgBytes);
-                            await bmp.SetSourceAsync(ms.AsRandomAccessStream());
-                            item.CoverImage = bmp;
-                            item.CoverBytes = imgBytes;
+                            using var imgCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                            var imgBytes = await StormHttpClientFactory.Shared.GetByteArrayAsync(entry.IconUrl, imgCts.Token);
+                            if (StormHttpClientFactory.IsValidImageBytes(imgBytes))
+                            {
+                                var bmp = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
+                                using var ms = new System.IO.MemoryStream(imgBytes);
+                                await bmp.SetSourceAsync(ms.AsRandomAccessStream());
+                                item.CoverImage = bmp;
+                                item.CoverBytes = imgBytes;
+                            }
                         }
                         catch { }
                     }

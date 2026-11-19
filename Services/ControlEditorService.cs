@@ -56,7 +56,6 @@ namespace StormSwitchBox.Services
         {
             return await Task.Run(() =>
             {
-                FileStream? stream = null;
                 try
                 {
                     if (!File.Exists(filePath)) return null;
@@ -66,43 +65,33 @@ namespace StormSwitchBox.Services
                         SourceFilePath = filePath
                     };
 
-                    stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
-                    IStorage storage = stream.AsStorage();
+                    using var container = SwitchContainerHandle.Open(filePath);
+                    IFileSystem pfs = container.FileSystem;
 
-                    IFileSystem pfs;
-                    if (filePath.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) || filePath.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase))
-                    {
-                        storage.GetSize(out long storageSize).ThrowIfFailure();
-                        var rootStorage = new SubStorage(storage, 0x10000, storageSize - 0x10000);
-                        var rootPfs = new PartitionFileSystem(rootStorage);
-
-                        using var secureFile = OpenFileSafe(rootPfs, "/secure");
-                        pfs = new PartitionFileSystem(secureFile.AsStorage());
-                    }
-                    else
-                    {
-                        pfs = new PartitionFileSystem(storage);
-                    }
-
-                    // Ищем Control NCA
+                    // Ищем Control NCA (.nca или .ncz)
                     foreach (var entry in pfs.EnumerateEntries())
                     {
                         if (entry.Type == DirectoryEntryType.Directory) continue;
                         string name = entry.Name;
-                        if (!name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase)) continue;
+                        bool isNca = name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase);
+                        bool isNcz = name.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase);
+                        if (!isNca && !isNcz) continue;
 
                         try
                         {
                             using var ncaFile = OpenFileSafe(pfs, "/" + name);
-                            var ncaStorage = ncaFile.AsStorage();
-                            var nca = new Nca(App.Keys.CurrentKeyset, ncaStorage);
-                            KeysService.RegisterRightsIdFallback(App.Keys.CurrentKeyset, nca);
+                            IStorage rawStorage = ncaFile.AsStorage();
+                            using var nczStorage = isNcz
+                                ? new Core.NSZ.StormNczStorage(rawStorage, null, null, App.Keys.CurrentKeyset)
+                                : null;
+                            var nca = new Nca(App.Keys.CurrentKeyset, nczStorage ?? rawStorage);
 
                             if (nca.Header.ContentType == NcaContentType.Control)
                             {
                                 model.TitleId = nca.Header.TitleId.ToString("X16");
 
                                 var controlFs = nca.OpenFileSystem(NcaSectionType.Data, IntegrityCheckLevel.None);
+                                using var controlFsDisp = controlFs as IDisposable;
 
                                 // Чтение control.nacp
                                 try
@@ -171,15 +160,11 @@ namespace StormSwitchBox.Services
                     App.Logger.Log($"[ControlEditor] Ошибка чтения метаданных из {filePath}: {ex.Message}", LogLevel.Warning);
                     return null;
                 }
-                finally
-                {
-                    stream?.Dispose();
-                }
             });
         }
 
         /// <summary>
-        /// Применяет кастомные метаданные (название, издатель, иконка) и пересобирает Control NCA для целевого NSP.
+        /// Применяет кастомные метаданные (название, издатель, иконка) и пересобирает Control NCA для целевого NSP/XCI.
         /// </summary>
         public async Task<bool> ApplyCustomMetadataAsync(
             GameMetadataEditModel model, 
@@ -190,6 +175,7 @@ namespace StormSwitchBox.Services
             string tempDir = Path.Combine(Path.GetTempPath(), "StormControl_" + Guid.NewGuid().ToString("N").Substring(0, 8));
             string romfsDir = Path.Combine(tempDir, "control_romfs");
             string outNcaDir = Path.Combine(tempDir, "out_nca");
+            TempCleanupService.RegisterActiveTempDirectory(tempDir);
 
             try
             {
@@ -236,24 +222,67 @@ namespace StormSwitchBox.Services
                         ? (byte[])model.RawNacpBytes.Clone()
                         : new byte[0x4000]);
 
-                string finalEngName = !string.IsNullOrEmpty(model.TitleNameEnglish) ? model.TitleNameEnglish : model.TitleNameRussian;
-                string finalRusName = !string.IsNullOrEmpty(model.TitleNameRussian) ? model.TitleNameRussian : model.TitleNameEnglish;
-                string finalPub = !string.IsNullOrEmpty(model.Publisher) ? model.Publisher : "Nintendo";
-
-                // Заполняем названия для языков
-                for (int i = 0; i < 16; i++)
+                string origEng = Encoding.UTF8.GetString(nacpData, 0, 0x200).TrimEnd('\0');
+                string origRus = Encoding.UTF8.GetString(nacpData, 11 * 0x300, 0x200).TrimEnd('\0');
+                string origPub = Encoding.UTF8.GetString(nacpData, 0x200, 0x100).TrimEnd('\0');
+                if (string.IsNullOrEmpty(origPub))
                 {
-                    string nameToUse = (i == 11) ? finalRusName : finalEngName;
-                    if (!string.IsNullOrEmpty(nameToUse))
+                    for (int i = 0; i < 16; i++)
                     {
-                        byte[] nameBytes = Encoding.UTF8.GetBytes(nameToUse);
-                        byte[] pubBytes = Encoding.UTF8.GetBytes(finalPub);
+                        string sp = Encoding.UTF8.GetString(nacpData, i * 0x300 + 0x200, 0x100).TrimEnd('\0');
+                        if (!string.IsNullOrEmpty(sp)) { origPub = sp; break; }
+                    }
+                }
 
-                        Array.Clear(nacpData, i * 0x300, 0x200);
-                        Array.Copy(nameBytes, 0, nacpData, i * 0x300, Math.Min(nameBytes.Length, 0x1FF));
+                bool hasExistingNacp = currentTargetNacp != null || (model.RawNacpBytes != null && model.RawNacpBytes.Length >= 0x4000);
 
-                        Array.Clear(nacpData, i * 0x300 + 0x200, 0x100);
-                        Array.Copy(pubBytes, 0, nacpData, i * 0x300 + 0x200, Math.Min(pubBytes.Length, 0xFF));
+                // Обновляем только измененные языковые слоты (не затирая остальные 16 слотов)
+                if (!string.IsNullOrEmpty(model.TitleNameEnglish) && (!hasExistingNacp || !string.Equals(model.TitleNameEnglish, origEng, StringComparison.Ordinal)))
+                {
+                    byte[] engBytes = Encoding.UTF8.GetBytes(model.TitleNameEnglish);
+                    if (!hasExistingNacp)
+                    {
+                        for (int i = 0; i < 16; i++)
+                        {
+                            if (i == 11 && !string.IsNullOrEmpty(model.TitleNameRussian)) continue;
+                            Array.Clear(nacpData, i * 0x300, 0x200);
+                            Array.Copy(engBytes, 0, nacpData, i * 0x300, Math.Min(engBytes.Length, 0x1FF));
+                        }
+                    }
+                    else
+                    {
+                        Array.Clear(nacpData, 0, 0x200);
+                        Array.Copy(engBytes, 0, nacpData, 0, Math.Min(engBytes.Length, 0x1FF));
+                        string brEng = Encoding.UTF8.GetString(nacpData, 1 * 0x300, 0x200).TrimEnd('\0');
+                        if (string.IsNullOrEmpty(brEng) || string.Equals(brEng, origEng, StringComparison.Ordinal))
+                        {
+                            Array.Clear(nacpData, 1 * 0x300, 0x200);
+                            Array.Copy(engBytes, 0, nacpData, 1 * 0x300, Math.Min(engBytes.Length, 0x1FF));
+                        }
+                    }
+                }
+
+                if (!string.IsNullOrEmpty(model.TitleNameRussian) && (!hasExistingNacp || !string.Equals(model.TitleNameRussian, origRus, StringComparison.Ordinal)))
+                {
+                    byte[] rusBytes = Encoding.UTF8.GetBytes(model.TitleNameRussian);
+                    Array.Clear(nacpData, 11 * 0x300, 0x200);
+                    Array.Copy(rusBytes, 0, nacpData, 11 * 0x300, Math.Min(rusBytes.Length, 0x1FF));
+                }
+
+                // Издатель обновляется независимо от изменения имени игры
+                string? pubToWrite = !string.IsNullOrEmpty(model.Publisher) ? model.Publisher : (!hasExistingNacp ? "Nintendo" : null);
+                if (!string.IsNullOrEmpty(pubToWrite) && (!hasExistingNacp || !string.Equals(pubToWrite, origPub, StringComparison.Ordinal)))
+                {
+                    byte[] pubBytes = Encoding.UTF8.GetBytes(pubToWrite);
+                    for (int i = 0; i < 16; i++)
+                    {
+                        string slotTitle = Encoding.UTF8.GetString(nacpData, i * 0x300, 0x200).TrimEnd('\0');
+                        string slotPub = Encoding.UTF8.GetString(nacpData, i * 0x300 + 0x200, 0x100).TrimEnd('\0');
+                        if (!hasExistingNacp || i == 0 || i == 11 || !string.IsNullOrEmpty(slotTitle) || !string.IsNullOrEmpty(slotPub))
+                        {
+                            Array.Clear(nacpData, i * 0x300 + 0x200, 0x100);
+                            Array.Copy(pubBytes, 0, nacpData, i * 0x300 + 0x200, Math.Min(pubBytes.Length, 0xFF));
+                        }
                     }
                 }
 
@@ -341,23 +370,27 @@ namespace StormSwitchBox.Services
                     }
                     catch { }
 
-                    // Сканируем целевой NSP для поиска оригинального CNMT и Control NCA для данного TitleId
-                    using (var srcStream = new FileStream(targetNspPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                    // Сканируем целевой NSP/XCI для поиска оригинального CNMT и Control NCA для данного TitleId
+                    using (var srcContainer = SwitchContainerHandle.Open(targetNspPath))
                     {
-                        IStorage srcStorage = srcStream.AsStorage();
-                        var srcPfs = new PartitionFileSystem(srcStorage);
+                        IFileSystem srcPfs = srcContainer.FileSystem;
 
                         foreach (var entry in srcPfs.EnumerateEntries())
                         {
                             if (entry.Type == DirectoryEntryType.Directory) continue;
                             string name = entry.Name;
-                            if (!name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase)) continue;
+                            bool isNca = name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase);
+                            bool isNcz = name.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase);
+                            if (!isNca && !isNcz) continue;
 
                             try
                             {
                                 using var ef = OpenFileSafe(srcPfs, "/" + name);
-                                var nca = new Nca(App.Keys.CurrentKeyset, ef.AsStorage());
-                                KeysService.RegisterRightsIdFallback(App.Keys.CurrentKeyset, nca);
+                                IStorage rawEfStorage = ef.AsStorage();
+                                using var nczEfStorage = isNcz
+                                    ? new Core.NSZ.StormNczStorage(rawEfStorage, null, null, App.Keys.CurrentKeyset)
+                                    : null;
+                                var nca = new Nca(App.Keys.CurrentKeyset, nczEfStorage ?? rawEfStorage);
                                 string ncaTid = nca.Header.TitleId.ToString("X16");
                                 // Строгое совпадение TitleID: Base (...000) и Patch (...800) имеют одинаковые
                                 // первые 13 символов, поэтому сравнение по префиксу смешивало их CNMT/Control.
@@ -377,6 +410,7 @@ namespace StormSwitchBox.Services
 
                                         if (romfs != null)
                                         {
+                                            using var romfsDisp = romfs as IDisposable;
                                             foreach (var f in romfs.EnumerateEntries())
                                             {
                                                 if (f.Name.EndsWith(".cnmt", StringComparison.OrdinalIgnoreCase))
@@ -510,9 +544,8 @@ namespace StormSwitchBox.Services
                     {
                         try
                         {
-                            using var fsSrc = new FileStream(targetNspPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-                            var pfsSrc = new PartitionFileSystem(fsSrc.AsStorage());
-                            using var ef = OpenFileSafe(pfsSrc, "/" + progNcaEntryName);
+                            using var srcContainer = SwitchContainerHandle.Open(targetNspPath);
+                            using var ef = OpenFileSafe(srcContainer.FileSystem, "/" + progNcaEntryName);
                             using var ps = ef.AsStream();
                             using var fs = new FileStream(extractedProgNca, FileMode.Create, FileAccess.Write);
                             ps.CopyTo(fs);
@@ -568,16 +601,16 @@ namespace StormSwitchBox.Services
                         }
                     }
 
-                // 5. Замена Control NCA и Meta NCA в targetNspPath с помощью LibHac PartitionFileSystemBuilder
+                // 5. Замена Control NCA и Meta NCA в targetNspPath (NSP или XCI) с помощью LibHac PartitionFileSystemBuilder
                 await Task.Run(async () =>
                 {
+                    bool isTargetXci = targetNspPath.EndsWith(".xci", StringComparison.OrdinalIgnoreCase);
                     string tempPatchedNsp = Path.Combine(tempDir, "patched_target.nsp");
                     var pfsBuilder = new PartitionFileSystemBuilder();
 
-                    using (var srcStream = new FileStream(targetNspPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                    using (var srcContainer = SwitchContainerHandle.Open(targetNspPath))
                     {
-                        IStorage srcStorage = srcStream.AsStorage();
-                        var srcPfs = new PartitionFileSystem(srcStorage);
+                        IFileSystem srcPfs = srcContainer.FileSystem;
                         var openedFiles = new List<IFile>();
                         var openedStreams = new List<FileStream>();
                         var entryDict = new Dictionary<string, IStorage>(StringComparer.OrdinalIgnoreCase);
@@ -673,11 +706,15 @@ namespace StormSwitchBox.Services
                         }
                     }
 
-                    // Очищаем дескрипторы перед заменой целевого файла
-                    GC.Collect();
-                    GC.WaitForPendingFinalizers();
+                    string finalPatchedFile = tempPatchedNsp;
+                    if (isTargetXci)
+                    {
+                        string tempPatchedXci = Path.Combine(tempDir, "patched_target.xci");
+                        Core.NCA.StormXciBuilder.BuildXciFromPfs0(tempPatchedNsp, tempPatchedXci, App.Keys.CurrentKeyset);
+                        finalPatchedFile = tempPatchedXci;
+                    }
 
-                    await SafeFileOperations.SafeMoveOrReplaceFileAsync(tempPatchedNsp, targetNspPath, task, ct);
+                    await SafeFileOperations.SafeMoveOrReplaceFileAsync(finalPatchedFile, targetNspPath, task, ct);
                 }, ct);
                 }
 
@@ -692,7 +729,7 @@ namespace StormSwitchBox.Services
             }
             finally
             {
-                try { Directory.Delete(tempDir, true); } catch { }
+                TempCleanupService.ForceDeleteDirectory(tempDir);
             }
         }
     }

@@ -59,93 +59,74 @@ namespace StormSwitchBox.Services
         private static void InspectSwitchContainer(string containerPath, List<VirtualArchiveEntry> results, CancellationToken ct)
         {
             string ext = Path.GetExtension(containerPath).ToLowerInvariant();
-            using var fs = new FileStream(containerPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            IStorage storage = fs.AsStorage();
-
             if (ext == ".nca")
             {
-                InspectSingleNca(storage, Path.GetFileName(containerPath), results, ct);
+                using var fs = new FileStream(containerPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                InspectSingleNca(fs.AsStorage(), Path.GetFileName(containerPath), results, ct);
                 return;
             }
 
-            IFileSystem rootFs;
-            UniqueRef<IFile> secureFileRef = default;
-            PartitionFileSystem? rootHfs = null;
+            using var container = SwitchContainerHandle.Open(containerPath);
+            IFileSystem rootFs = container.FileSystem;
 
-            if (ext == ".xci" || ext == ".xcz")
+            SmartShrinkService.HarvestTicketsFromFileSystem(rootFs, App.Keys.CurrentKeyset);
+
+            var titleKeyMap = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+            foreach (var tikEntry in rootFs.EnumerateEntries().Where(e => e.Name.EndsWith(".tik", StringComparison.OrdinalIgnoreCase)))
             {
-                storage.GetSize(out long sz).ThrowIfFailure();
-                var sub = new SubStorage(storage, 0x10000, sz - 0x10000);
-                rootHfs = new PartitionFileSystem(sub);
-                using var secPath = new LibHac.Fs.Path();
-                secPath.Initialize(new U8Span(Encoding.UTF8.GetBytes("/secure"))).ThrowIfFailure();
-                rootHfs.OpenFile(ref secureFileRef.Ref, in secPath, OpenMode.Read).ThrowIfFailure();
-                rootFs = new PartitionFileSystem(secureFileRef.Get.AsStorage());
+                try
+                {
+                    using var fRef = new UniqueRef<IFile>();
+                    using var pth = new LibHac.Fs.Path();
+                    pth.Initialize(new U8Span(Encoding.UTF8.GetBytes(tikEntry.FullPath))).ThrowIfFailure();
+                    rootFs.OpenFile(ref fRef.Ref, in pth, OpenMode.Read).ThrowIfFailure();
+                    using IFile tikFile = fRef.Release();
+                    using var ms = new MemoryStream();
+                    tikFile.AsStream().CopyTo(ms);
+                    byte[] tikBytes = ms.ToArray();
+                    var decInfo = TicketHarvesterService.ExtractDecryptedTicket(tikBytes, tikBytes.Length, App.Keys.CurrentKeyset);
+                    if (decInfo.HasValue)
+                    {
+                        titleKeyMap[decInfo.Value.RightsId] = decInfo.Value.TitleKey;
+                    }
+                }
+                catch { }
             }
-            else
-            {
-                rootFs = new PartitionFileSystem(storage);
-            }
 
-            using (secureFileRef)
+            foreach (var entry in rootFs.EnumerateEntries("/", "*"))
             {
-                SmartShrinkService.HarvestTicketsFromFileSystem(rootFs, App.Keys.CurrentKeyset);
+                ct.ThrowIfCancellationRequested();
+                if (entry.Type == DirectoryEntryType.Directory) continue;
 
-                var titleKeyMap = new Dictionary<string, byte[]>();
-                foreach (var tikEntry in rootFs.EnumerateEntries().Where(e => e.Name.EndsWith(".tik", StringComparison.OrdinalIgnoreCase)))
+                results.Add(new VirtualArchiveEntry
+                {
+                    Name = entry.Name,
+                    FullPath = "/" + entry.Name,
+                    Section = "Контейнер",
+                    Size = entry.Size,
+                    SourceNcaName = entry.Name,
+                    NcaSectionIndex = -1
+                });
+
+                if (entry.Name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase) ||
+                    entry.Name.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase))
                 {
                     try
                     {
                         using var fRef = new UniqueRef<IFile>();
                         using var pth = new LibHac.Fs.Path();
-                        pth.Initialize(new U8Span(Encoding.UTF8.GetBytes(tikEntry.FullPath))).ThrowIfFailure();
+                        pth.Initialize(new U8Span(Encoding.UTF8.GetBytes(entry.FullPath))).ThrowIfFailure();
                         rootFs.OpenFile(ref fRef.Ref, in pth, OpenMode.Read).ThrowIfFailure();
-                        using var ms = new MemoryStream();
-                        fRef.Release().AsStream().CopyTo(ms);
-                        ms.Position = 0;
-                        var ticket = new LibHac.Tools.Es.Ticket(ms);
-                        byte[] tKey = ticket.GetTitleKey(App.Keys.CurrentKeyset);
-                        string rId = BitConverter.ToString(ticket.RightsId).Replace("-", "").ToLowerInvariant();
-                        titleKeyMap[rId] = tKey;
+                        using IFile ncaFile = fRef.Release();
+                        IStorage rawStorage = ncaFile.AsStorage();
+
+                        using var nczStorage = entry.Name.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase)
+                            ? new Core.NSZ.StormNczStorage(rawStorage, titleKeyMap, null, App.Keys.CurrentKeyset)
+                            : null;
+
+                        InspectSingleNca(nczStorage ?? rawStorage, entry.Name, results, ct);
                     }
                     catch { }
-                }
-
-                foreach (var entry in rootFs.EnumerateEntries("/", "*"))
-                {
-                    ct.ThrowIfCancellationRequested();
-                    if (entry.Type == DirectoryEntryType.Directory) continue;
-
-                    results.Add(new VirtualArchiveEntry
-                    {
-                        Name = entry.Name,
-                        FullPath = "/" + entry.Name,
-                        Section = "Контейнер",
-                        Size = entry.Size,
-                        SourceNcaName = entry.Name,
-                        NcaSectionIndex = -1
-                    });
-
-                    if (entry.Name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase) ||
-                        entry.Name.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase))
-                    {
-                        try
-                        {
-                            using var fRef = new UniqueRef<IFile>();
-                            using var pth = new LibHac.Fs.Path();
-                            pth.Initialize(new U8Span(Encoding.UTF8.GetBytes(entry.FullPath))).ThrowIfFailure();
-                            rootFs.OpenFile(ref fRef.Ref, in pth, OpenMode.Read).ThrowIfFailure();
-                            IStorage ncaStorage = fRef.Release().AsStorage();
-
-                            if (entry.Name.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase))
-                            {
-                                ncaStorage = new Core.NSZ.StormNczStorage(ncaStorage, titleKeyMap, null, App.Keys.CurrentKeyset);
-                            }
-
-                            InspectSingleNca(ncaStorage, entry.Name, results, ct);
-                        }
-                        catch { }
-                    }
                 }
             }
         }
@@ -153,7 +134,6 @@ namespace StormSwitchBox.Services
         private static void InspectSingleNca(IStorage ncaStorage, string ncaName, List<VirtualArchiveEntry> results, CancellationToken ct)
         {
             var nca = new Nca(App.Keys.CurrentKeyset, ncaStorage);
-            KeysService.RegisterRightsIdFallback(App.Keys.CurrentKeyset, nca);
             string tid = nca.Header.TitleId.ToString("X16");
             string cType = nca.Header.ContentType.ToString();
 
@@ -166,6 +146,7 @@ namespace StormSwitchBox.Services
                 {
                     IFileSystem? secFs = OpenNcaSectionFileSystem(nca, secIdx);
                     if (secFs == null) continue;
+                    using var secFsDisp = secFs as IDisposable;
 
                     foreach (var subEntry in secFs.EnumerateEntries("/", "*", SearchOptions.RecurseSubdirectories))
                     {
@@ -272,7 +253,7 @@ namespace StormSwitchBox.Services
                         {
                             results.Add(new VirtualArchiveEntry
                             {
-                                Name = "exefs.bin (зашифрован — используйте Дешифровку 3DS)",
+                                Name = "exefs.bin (зашифрован - используйте Дешифровку 3DS)",
                                 FullPath = "/exefs.bin",
                                 Section = "ExeFS",
                                 Size = (long)exefsSizeUnits * 0x200L,
@@ -311,7 +292,7 @@ namespace StormSwitchBox.Services
                         {
                             results.Add(new VirtualArchiveEntry
                             {
-                                Name = "romfs.bin (зашифрован — используйте Дешифровку 3DS)",
+                                Name = "romfs.bin (зашифрован - используйте Дешифровку 3DS)",
                                 FullPath = "/romfs.bin",
                                 Section = "RomFS",
                                 Size = romfsByteLen,
@@ -346,7 +327,29 @@ namespace StormSwitchBox.Services
         {
             try
             {
-                long[] candidateOffsets = { romfsStart + 0x1000, romfsStart };
+                var candidateOffsets = new List<long>();
+                if (romfsStart + 0x60 <= fs.Length)
+                {
+                    fs.Position = romfsStart;
+                    byte[] ivfcHdr = br.ReadBytes(0x60);
+                    if (ivfcHdr.Length >= 0x60 &&
+                        ivfcHdr[0] == (byte)'I' && ivfcHdr[1] == (byte)'V' && ivfcHdr[2] == (byte)'F' && ivfcHdr[3] == (byte)'C')
+                    {
+                        uint masterHashSize = BitConverter.ToUInt32(ivfcHdr, 0x08);
+                        uint l3BlockLog2 = BitConverter.ToUInt32(ivfcHdr, 0x44);
+                        if (l3BlockLog2 >= 9 && l3BlockLog2 <= 20)
+                        {
+                            long blockSize = 1L << (int)l3BlockLog2;
+                            long alignedOff = (0x60L + masterHashSize + blockSize - 1L) & ~(blockSize - 1L);
+                            candidateOffsets.Add(romfsStart + alignedOff);
+                        }
+                    }
+                }
+                if (!candidateOffsets.Contains(romfsStart + 0x1000))
+                    candidateOffsets.Add(romfsStart + 0x1000);
+                if (!candidateOffsets.Contains(romfsStart))
+                    candidateOffsets.Add(romfsStart);
+
                 foreach (long l3Pos in candidateOffsets)
                 {
                     if (l3Pos + 0x28 > fs.Length) continue;
@@ -495,92 +498,83 @@ namespace StormSwitchBox.Services
                 if (string.IsNullOrEmpty(containerPath) || !File.Exists(containerPath) || entry == null)
                     return Array.Empty<byte>();
 
-                using var fs = new FileStream(containerPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-
                 if (entry.Is3dsDirectSlice)
                 {
-                    if (entry.SliceOffset < 0 || entry.SliceOffset >= fs.Length) return Array.Empty<byte>();
+                    using var fs3ds = new FileStream(containerPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                    if (entry.SliceOffset < 0 || entry.SliceOffset >= fs3ds.Length) return Array.Empty<byte>();
                     long len = entry.SliceLength;
                     if (maxBytes > 0 && len > maxBytes) len = maxBytes;
-                    if (entry.SliceOffset + len > fs.Length) len = fs.Length - entry.SliceOffset;
-                    byte[] data = new byte[len];
-                    fs.Position = entry.SliceOffset;
-                    int read = fs.Read(data, 0, data.Length);
-                    return read == data.Length ? data : data.Take(read).ToArray();
+                    if (entry.SliceOffset + len > fs3ds.Length) len = fs3ds.Length - entry.SliceOffset;
+                    long cap = maxBytes > 0 ? len : Math.Min(len, 64L * 1024 * 1024);
+                    byte[] data = new byte[(int)cap];
+                    fs3ds.Position = entry.SliceOffset;
+                    int total = 0;
+                    while (total < data.Length)
+                    {
+                        int r = fs3ds.Read(data, total, data.Length - total);
+                        if (r <= 0) break;
+                        total += r;
+                    }
+                    return total == data.Length ? data : data.Take(total).ToArray();
                 }
 
-                IStorage storage = fs.AsStorage();
                 string ext = Path.GetExtension(containerPath).ToLowerInvariant();
-
                 if (ext == ".nca")
                 {
-                    var nca = new Nca(App.Keys.CurrentKeyset, storage);
-                    KeysService.RegisterRightsIdFallback(App.Keys.CurrentKeyset, nca);
-                    var secFs = OpenNcaSectionFileSystem(nca, entry.NcaSectionIndex);
-                    return ReadFromFileSystem(secFs, entry.FullPath, maxBytes);
+                    using var fsNca = new FileStream(containerPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                    var nca = new Nca(App.Keys.CurrentKeyset, fsNca.AsStorage());
+                    using var secFs = OpenNcaSectionFileSystem(nca, entry.NcaSectionIndex) as IDisposable;
+                    return ReadFromFileSystem(secFs as IFileSystem, entry.FullPath, maxBytes);
                 }
 
-                IFileSystem rootFs;
-                UniqueRef<IFile> secureFileRef = default;
-                PartitionFileSystem? rootHfs = null;
+                using var container = SwitchContainerHandle.Open(containerPath);
+                IFileSystem rootFs = container.FileSystem;
+                SmartShrinkService.HarvestTicketsFromFileSystem(rootFs, App.Keys.CurrentKeyset);
 
-                if (ext == ".xci" || ext == ".xcz")
+                if (entry.NcaSectionIndex < 0)
+                    return ReadFromFileSystem(rootFs, entry.FullPath, maxBytes);
+
+                using var ncaRef = new UniqueRef<IFile>();
+                using var ncaPath = new LibHac.Fs.Path();
+                ncaPath.Initialize(new U8Span(Encoding.UTF8.GetBytes("/" + entry.SourceNcaName))).ThrowIfFailure();
+                rootFs.OpenFile(ref ncaRef.Ref, in ncaPath, OpenMode.Read).ThrowIfFailure();
+                using IFile ncaFile = ncaRef.Release();
+                IStorage rawStorage = ncaFile.AsStorage();
+
+                Dictionary<string, byte[]>? titleKeyMap = null;
+                if (entry.SourceNcaName.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase))
                 {
-                    storage.GetSize(out long sz).ThrowIfFailure();
-                    var sub = new SubStorage(storage, 0x10000, sz - 0x10000);
-                    rootHfs = new PartitionFileSystem(sub);
-                    using var secPath = new LibHac.Fs.Path();
-                    secPath.Initialize(new U8Span(Encoding.UTF8.GetBytes("/secure"))).ThrowIfFailure();
-                    rootHfs.OpenFile(ref secureFileRef.Ref, in secPath, OpenMode.Read).ThrowIfFailure();
-                    rootFs = new PartitionFileSystem(secureFileRef.Get.AsStorage());
-                }
-                else
-                {
-                    rootFs = new PartitionFileSystem(storage);
-                }
-
-                using (secureFileRef)
-                {
-                    SmartShrinkService.HarvestTicketsFromFileSystem(rootFs, App.Keys.CurrentKeyset);
-
-                    if (entry.NcaSectionIndex < 0)
-                        return ReadFromFileSystem(rootFs, entry.FullPath, maxBytes);
-
-                    using var ncaRef = new UniqueRef<IFile>();
-                    using var ncaPath = new LibHac.Fs.Path();
-                    ncaPath.Initialize(new U8Span(Encoding.UTF8.GetBytes("/" + entry.SourceNcaName))).ThrowIfFailure();
-                    rootFs.OpenFile(ref ncaRef.Ref, in ncaPath, OpenMode.Read).ThrowIfFailure();
-                    IStorage ncaStorage = ncaRef.Release().AsStorage();
-
-                    if (entry.SourceNcaName.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase))
+                    titleKeyMap = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var tikEntry in rootFs.EnumerateEntries("/", "*.tik"))
                     {
-                        var titleKeyMap = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
-                        foreach (var tikEntry in rootFs.EnumerateEntries("/", "*.tik"))
+                        try
                         {
-                            try
+                            using var fRef = new UniqueRef<IFile>();
+                            using var pth = new LibHac.Fs.Path();
+                            pth.Initialize(new U8Span(Encoding.UTF8.GetBytes(tikEntry.FullPath))).ThrowIfFailure();
+                            rootFs.OpenFile(ref fRef.Ref, in pth, OpenMode.Read).ThrowIfFailure();
+                            using IFile tikFile = fRef.Release();
+                            using var ms = new MemoryStream();
+                            tikFile.AsStream().CopyTo(ms);
+                            byte[] tikBytes = ms.ToArray();
+                            var decInfo = TicketHarvesterService.ExtractDecryptedTicket(tikBytes, tikBytes.Length, App.Keys.CurrentKeyset);
+                            if (decInfo.HasValue)
                             {
-                                using var fRef = new UniqueRef<IFile>();
-                                using var pth = new LibHac.Fs.Path();
-                                pth.Initialize(new U8Span(Encoding.UTF8.GetBytes(tikEntry.FullPath))).ThrowIfFailure();
-                                rootFs.OpenFile(ref fRef.Ref, in pth, OpenMode.Read).ThrowIfFailure();
-                                using var ms = new MemoryStream();
-                                fRef.Release().AsStream().CopyTo(ms);
-                                ms.Position = 0;
-                                var ticket = new LibHac.Tools.Es.Ticket(ms);
-                                byte[] tKey = ticket.GetTitleKey(App.Keys.CurrentKeyset);
-                                string rId = BitConverter.ToString(ticket.RightsId).Replace("-", "").ToLowerInvariant();
-                                titleKeyMap[rId] = tKey;
+                                titleKeyMap[decInfo.Value.RightsId] = decInfo.Value.TitleKey;
                             }
-                            catch { }
                         }
-                        ncaStorage = new Core.NSZ.StormNczStorage(ncaStorage, titleKeyMap, null, App.Keys.CurrentKeyset);
+                        catch { }
                     }
-
-                    var nca = new Nca(App.Keys.CurrentKeyset, ncaStorage);
-            KeysService.RegisterRightsIdFallback(App.Keys.CurrentKeyset, nca);
-                    var secFs = OpenNcaSectionFileSystem(nca, entry.NcaSectionIndex);
-                    return ReadFromFileSystem(secFs, entry.FullPath, maxBytes);
                 }
+
+                using var nczStorage = titleKeyMap != null
+                    ? new Core.NSZ.StormNczStorage(rawStorage, titleKeyMap, null, App.Keys.CurrentKeyset)
+                    : null;
+
+                var switchNca = new Nca(App.Keys.CurrentKeyset, nczStorage ?? rawStorage);
+                var switchSecFs = OpenNcaSectionFileSystem(switchNca, entry.NcaSectionIndex);
+                using var switchSecFsDisp = switchSecFs as IDisposable;
+                return ReadFromFileSystem(switchSecFs, entry.FullPath, maxBytes);
             });
         }
 
@@ -593,10 +587,25 @@ namespace StormSwitchBox.Services
             fs.OpenFile(ref fRef.Ref, in pth, OpenMode.Read).ThrowIfFailure();
             using IFile file = fRef.Release();
             file.GetSize(out long fSize).ThrowIfFailure();
-            int toRead = (int)(maxBytes > 0 ? Math.Min(fSize, maxBytes) : Math.Min(fSize, 256 * 1024 * 1024));
-            byte[] buf = new byte[toRead];
+            long limit = maxBytes > 0 ? Math.Min(fSize, maxBytes) : Math.Min(fSize, 64L * 1024 * 1024);
+            byte[] buf = new byte[(int)limit];
             file.Read(out long bytesRead, 0, buf).ThrowIfFailure();
             return bytesRead == buf.Length ? buf : buf.Take((int)bytesRead).ToArray();
+        }
+
+        private static async Task CopyIFileToStreamAsync(IFile sourceFile, Stream destStream, byte[] buffer, CancellationToken ct)
+        {
+            sourceFile.GetSize(out long totalSize).ThrowIfFailure();
+            long offset = 0;
+            while (offset < totalSize)
+            {
+                ct.ThrowIfCancellationRequested();
+                int toRead = (int)Math.Min(buffer.Length, totalSize - offset);
+                sourceFile.Read(out long bytesRead, offset, buffer.AsSpan(0, toRead)).ThrowIfFailure();
+                if (bytesRead <= 0) break;
+                await destStream.WriteAsync(buffer.AsMemory(0, (int)bytesRead), ct);
+                offset += bytesRead;
+            }
         }
 
         public static async Task<int> ExtractEntriesAsync(
@@ -606,8 +615,100 @@ namespace StormSwitchBox.Services
             IProgress<(int Done, int Total, string CurrentFile)>? progress,
             CancellationToken ct)
         {
+            const int ChunkSize = 1024 * 1024;
             var list = entries.ToList();
+            if (list.Count == 0 || string.IsNullOrEmpty(containerPath) || !File.Exists(containerPath))
+                return 0;
+
             int extracted = 0;
+            byte[] buffer = new byte[ChunkSize];
+            string ext = Path.GetExtension(containerPath).ToLowerInvariant();
+            bool is3ds = Nintendo3dsService.Is3dsExtension(ext);
+
+            if (is3ds)
+            {
+                using var srcFs = new FileStream(containerPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                for (int i = 0; i < list.Count; i++)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    var entry = list[i];
+                    progress?.Report((i + 1, list.Count, entry.FullPath));
+
+                    string sectionRoot = StormToolResolver.EnsureSafeSubPath(destinationFolder, StormToolResolver.SanitizeFileName(entry.Section, "Section"));
+                    string outPath = StormToolResolver.EnsureSafeSubPath(sectionRoot, entry.FullPath);
+                    string? dir = Path.GetDirectoryName(outPath);
+                    if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                        Directory.CreateDirectory(dir);
+
+                    if (entry.SliceOffset < 0 || entry.SliceOffset >= srcFs.Length) continue;
+                    long remaining = Math.Min(entry.SliceLength, srcFs.Length - entry.SliceOffset);
+                    srcFs.Position = entry.SliceOffset;
+
+                    using var outFs = new FileStream(outPath, FileMode.Create, FileAccess.Write, FileShare.None, ChunkSize);
+                    while (remaining > 0)
+                    {
+                        ct.ThrowIfCancellationRequested();
+                        int toRead = (int)Math.Min(buffer.Length, remaining);
+                        int read = await srcFs.ReadAsync(buffer.AsMemory(0, toRead), ct);
+                        if (read <= 0) break;
+                        await outFs.WriteAsync(buffer.AsMemory(0, read), ct);
+                        remaining -= read;
+                    }
+                    extracted++;
+                }
+                return extracted;
+            }
+
+            if (ext == ".nca")
+            {
+                using var fsNca = new FileStream(containerPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                var nca = new Nca(App.Keys.CurrentKeyset, fsNca.AsStorage());
+                for (int i = 0; i < list.Count; i++)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    var entry = list[i];
+                    progress?.Report((i + 1, list.Count, entry.FullPath));
+
+                    string sectionRoot = StormToolResolver.EnsureSafeSubPath(destinationFolder, StormToolResolver.SanitizeFileName(entry.Section, "Section"));
+                    string outPath = StormToolResolver.EnsureSafeSubPath(sectionRoot, entry.FullPath);
+                    string? dir = Path.GetDirectoryName(outPath);
+                    if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                        Directory.CreateDirectory(dir);
+
+                    var secFs = OpenNcaSectionFileSystem(nca, entry.NcaSectionIndex);
+                    if (secFs == null) continue;
+                    using var secFsDisp = secFs as IDisposable;
+
+                    using IFile srcFile = OpenIFileSync(secFs, entry.FullPath);
+
+                    using var outFs = new FileStream(outPath, FileMode.Create, FileAccess.Write, FileShare.None, ChunkSize);
+                    await CopyIFileToStreamAsync(srcFile, outFs, buffer, ct);
+                    extracted++;
+                }
+                return extracted;
+            }
+
+            using var container = SwitchContainerHandle.Open(containerPath);
+            IFileSystem rootFs = container.FileSystem;
+            SmartShrinkService.HarvestTicketsFromFileSystem(rootFs, App.Keys.CurrentKeyset);
+
+            var titleKeyMap = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+            foreach (var tikEntry in rootFs.EnumerateEntries("/", "*.tik"))
+            {
+                try
+                {
+                    using IFile tikFile = OpenIFileSync(rootFs, tikEntry.FullPath);
+                    using var ms = new MemoryStream();
+                    tikFile.AsStream().CopyTo(ms);
+                    byte[] tikBytes = ms.ToArray();
+                    var decInfo = TicketHarvesterService.ExtractDecryptedTicket(tikBytes, tikBytes.Length, App.Keys.CurrentKeyset);
+                    if (decInfo.HasValue)
+                    {
+                        titleKeyMap[decInfo.Value.RightsId] = decInfo.Value.TitleKey;
+                    }
+                }
+                catch { }
+            }
 
             for (int i = 0; i < list.Count; i++)
             {
@@ -615,18 +716,52 @@ namespace StormSwitchBox.Services
                 var entry = list[i];
                 progress?.Report((i + 1, list.Count, entry.FullPath));
 
-                byte[] bytes = await ReadEntryBytesAsync(containerPath, entry, maxBytes: 0);
-                string relPath = entry.FullPath.TrimStart('/', '\\').Replace('/', Path.DirectorySeparatorChar);
-                string outPath = Path.Combine(destinationFolder, entry.Section, relPath);
+                string sectionRoot = StormToolResolver.EnsureSafeSubPath(destinationFolder, StormToolResolver.SanitizeFileName(entry.Section, "Section"));
+                string outPath = StormToolResolver.EnsureSafeSubPath(sectionRoot, entry.FullPath);
                 string? dir = Path.GetDirectoryName(outPath);
                 if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
                     Directory.CreateDirectory(dir);
 
-                await File.WriteAllBytesAsync(outPath, bytes, ct);
-                extracted++;
+                if (entry.NcaSectionIndex < 0)
+                {
+                    using IFile srcFile = OpenIFileSync(rootFs, entry.FullPath);
+
+                    using var outFs = new FileStream(outPath, FileMode.Create, FileAccess.Write, FileShare.None, ChunkSize);
+                    await CopyIFileToStreamAsync(srcFile, outFs, buffer, ct);
+                    extracted++;
+                }
+                else
+                {
+                    using IFile ncaFile = OpenIFileSync(rootFs, "/" + entry.SourceNcaName);
+                    IStorage rawStorage = ncaFile.AsStorage();
+
+                    using var nczStorage = entry.SourceNcaName.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase)
+                        ? new Core.NSZ.StormNczStorage(rawStorage, titleKeyMap, null, App.Keys.CurrentKeyset)
+                        : null;
+
+                    var nca = new Nca(App.Keys.CurrentKeyset, nczStorage ?? rawStorage);
+                    var secFs = OpenNcaSectionFileSystem(nca, entry.NcaSectionIndex);
+                    if (secFs == null) continue;
+                    using var secFsDisp = secFs as IDisposable;
+
+                    using IFile srcFile = OpenIFileSync(secFs, entry.FullPath);
+
+                    using var outFs = new FileStream(outPath, FileMode.Create, FileAccess.Write, FileShare.None, ChunkSize);
+                    await CopyIFileToStreamAsync(srcFile, outFs, buffer, ct);
+                    extracted++;
+                }
             }
 
             return extracted;
+        }
+
+        private static IFile OpenIFileSync(IFileSystem fs, string fullPath)
+        {
+            using var fRef = new UniqueRef<IFile>();
+            using var pth = new LibHac.Fs.Path();
+            pth.Initialize(new U8Span(Encoding.UTF8.GetBytes(fullPath))).ThrowIfFailure();
+            fs.OpenFile(ref fRef.Ref, in pth, OpenMode.Read).ThrowIfFailure();
+            return fRef.Release();
         }
     }
 }

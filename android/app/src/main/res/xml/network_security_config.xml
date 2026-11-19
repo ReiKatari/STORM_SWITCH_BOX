@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">localhost</domain>
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="true">retracker.local</domain>
+        <domain includeSubdomains="false">bt.t-ru.org</domain>
+        <domain includeSubdomains="false">bt2.t-ru.org</domain>
+        <domain includeSubdomains="false">bt3.t-ru.org</domain>
+        <domain includeSubdomains="false">bt4.t-ru.org</domain>
+        <domain includeSubdomains="false">tracker.dler.org</domain>
+        <domain includeSubdomains="false">open.acgnxtracker.com</domain>
+        <domain includeSubdomains="false">tracker.mywaifu.best</domain>
+        <domain includeSubdomains="false">tracker.bt4g.com</domain>
+    </domain-config>
+</network-security-config>

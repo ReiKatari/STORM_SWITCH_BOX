@@ -1,7 +1,11 @@
 using System;
 using System.IO;
 using System.Collections.Generic;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Threading;
 using System.Threading.Tasks;
 using StormSwitchBox.Models;
 
@@ -9,6 +13,8 @@ namespace StormSwitchBox.Services
 {
     public class SettingsService
     {
+        private const string DpapiPrefix = "dpapi:";
+
         private static string GetSettingsFilePath()
         {
             string localAppDataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "StormSwitchBox");
@@ -26,21 +32,79 @@ namespace StormSwitchBox.Services
         private static readonly string SettingsPath = GetSettingsFilePath();
         private static readonly string LegacySettingsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "ssb.settings");
         private static readonly object _saveLock = new object();
+        private static SettingsService? _instance;
+        private static AppSettings _sharedCurrent = CreateDefaultSettings();
 
-        public static SettingsService Instance { get; set; } = new SettingsService();
+        public static SettingsService Instance => _instance ?? CreateCanonicalInstance();
 
-        public AppSettings Current { get; private set; }
+        private static SettingsService CreateCanonicalInstance()
+        {
+            var created = new SettingsService();
+            return _instance ?? created;
+        }
+
+        private static AppSettings CreateDefaultSettings()
+        {
+            var s = new AppSettings();
+            if (string.IsNullOrWhiteSpace(s.Language) ||
+                s.Language.Equals("system", StringComparison.OrdinalIgnoreCase) ||
+                s.Language.Equals("auto", StringComparison.OrdinalIgnoreCase))
+            {
+                s.Language = AppSettings.GetDefaultOsLanguage();
+            }
+            return s;
+        }
+
+        public AppSettings Current
+        {
+            get => _sharedCurrent;
+            private set => _sharedCurrent = value;
+        }
 
         public SettingsService()
         {
-            Current = new AppSettings();
-            if (string.IsNullOrWhiteSpace(Current.Language) ||
-                Current.Language.Equals("system", StringComparison.OrdinalIgnoreCase) ||
-                Current.Language.Equals("auto", StringComparison.OrdinalIgnoreCase))
+            Interlocked.CompareExchange(ref _instance, this, null);
+        }
+
+        private static string ProtectSecret(string? plainText)
+        {
+            if (string.IsNullOrWhiteSpace(plainText))
+                return string.Empty;
+            if (plainText.StartsWith(DpapiPrefix, StringComparison.Ordinal))
+                return plainText;
+            try
             {
-                Current.Language = AppSettings.GetDefaultOsLanguage();
+                byte[] raw = Encoding.UTF8.GetBytes(plainText);
+                byte[] encrypted = ProtectedData.Protect(raw, null, DataProtectionScope.CurrentUser);
+                return DpapiPrefix + Convert.ToBase64String(encrypted);
             }
-            Instance = this;
+            catch
+            {
+                return plainText;
+            }
+        }
+
+        private static string UnprotectSecret(string? storedValue, out bool wasPlaintext)
+        {
+            wasPlaintext = false;
+            if (string.IsNullOrWhiteSpace(storedValue))
+                return string.Empty;
+            if (!storedValue.StartsWith(DpapiPrefix, StringComparison.Ordinal))
+            {
+                wasPlaintext = true;
+                return storedValue;
+            }
+            try
+            {
+                string b64 = storedValue.Substring(DpapiPrefix.Length);
+                byte[] encrypted = Convert.FromBase64String(b64);
+                byte[] raw = ProtectedData.Unprotect(encrypted, null, DataProtectionScope.CurrentUser);
+                return Encoding.UTF8.GetString(raw);
+            }
+            catch
+            {
+                return string.Empty;
+            }
         }
 
         public async Task LoadAsync()
@@ -49,7 +113,7 @@ namespace StormSwitchBox.Services
             {
                 try
                 {
-                    var json = await File.ReadAllTextAsync(SettingsPath);
+                    var json = await File.ReadAllTextAsync(SettingsPath).ConfigureAwait(false);
                     var settings = JsonSerializer.Deserialize<AppSettings>(json);
                     if (settings != null)
                     {
@@ -57,11 +121,17 @@ namespace StormSwitchBox.Services
                         if (settings.AppVersion != App.AppVersionString)
                         {
                             settings.AppVersion = App.AppVersionString;
-                            settings.SmartProcessing = true;
-                            settings.RemoveDeltaNca = true;
-                            settings.OptimizeModAssets = true;
                             isDirty = true;
                         }
+
+                        // Расшифровываем DPAPI-секреты и помечаем старые открытые строки для перезаписи в зашифрованном виде
+                        settings.RuTrackerCookie = UnprotectSecret(settings.RuTrackerCookie, out bool cookiePlain);
+                        settings.RuTrackerCfClearance = UnprotectSecret(settings.RuTrackerCfClearance, out bool cfPlain);
+                        if (cookiePlain || cfPlain)
+                        {
+                            isDirty = true;
+                        }
+
                         if (settings.EmulatorDirectories == null)
                         {
                             settings.EmulatorDirectories = new List<string>();
@@ -93,10 +163,18 @@ namespace StormSwitchBox.Services
                         }
                         
                         Current = settings;
-                        if (isDirty) await SaveAsync();
+                        if (isDirty) await SaveAsync().ConfigureAwait(false);
                     }
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    try
+                    {
+                        File.Copy(SettingsPath, SettingsPath + ".bak", overwrite: true);
+                    }
+                    catch { }
+                    App.Logger?.Log($"[SettingsService] Ошибка чтения файла настроек (создана резервная копия .bak): {ex.Message}", LogLevel.Warning);
+                }
             }
             else if (File.Exists(LegacySettingsPath))
             {
@@ -127,7 +205,19 @@ namespace StormSwitchBox.Services
                 try
                 {
                     var options = new JsonSerializerOptions { WriteIndented = true };
-                    var json = JsonSerializer.Serialize(Current, options);
+                    var node = JsonSerializer.SerializeToNode(Current, options) as JsonObject;
+                    string json;
+                    if (node != null)
+                    {
+                        node[nameof(AppSettings.RuTrackerCookie)] = ProtectSecret(Current.RuTrackerCookie);
+                        node[nameof(AppSettings.RuTrackerCfClearance)] = ProtectSecret(Current.RuTrackerCfClearance);
+                        json = node.ToJsonString(options);
+                    }
+                    else
+                    {
+                        json = JsonSerializer.Serialize(Current, options);
+                    }
+
                     string dir = Path.GetDirectoryName(SettingsPath) ?? "";
                     if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
                     string tmpPath = SettingsPath + ".tmp";

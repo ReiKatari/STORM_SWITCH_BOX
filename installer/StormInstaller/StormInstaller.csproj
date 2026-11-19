@@ -13,9 +13,9 @@
     <RootNamespace>StormSwitchBox.Installer</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <Version>7.0.14</Version>
-    <AssemblyVersion>7.0.14.0</AssemblyVersion>
-    <FileVersion>7.0.14.0</FileVersion>
+    <Version>8.0.0</Version>
+    <AssemblyVersion>8.0.0.0</AssemblyVersion>
+    <FileVersion>8.0.0.0</FileVersion>
     <Product>STORM SWITCH BOX</Product>
     <Company>STORM TEAM</Company>
     <Copyright>Copyright © 2026 STORM TEAM. All rights reserved.</Copyright>
@@ -24,9 +24,13 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="..\..\Files\STORM_SWITCH_BOX_$(Version)_win-x64.zip" Link="Payload.zip" />
+    <EmbeddedResource Include="..\..\Files\STORM_SWITCH_BOX_$(Version)_win-x64.zip" Link="Payload.zip" Condition="Exists('..\..\Files\STORM_SWITCH_BOX_$(Version)_win-x64.zip')" />
+    <EmbeddedResource Include="..\..\installer\Output\STORM_SWITCH_BOX_$(Version).zip" Link="Payload.zip" Condition="!Exists('..\..\Files\STORM_SWITCH_BOX_$(Version)_win-x64.zip') and Exists('..\..\installer\Output\STORM_SWITCH_BOX_$(Version).zip')" />
     <EmbeddedResource Include="..\..\Assets\AppIcon.ico" Link="app.ico" />
-    <EmbeddedResource Include="F:\STORM ALL PROJECTS\.storm-secrets\STORM_SERTIFICATE.cer" Link="STORM_SERTIFICATE.cer" />
+    <EmbeddedResource Include="header_badge.png" Link="storm_logo.png" Condition="Exists('header_badge.png')" />
+    <EmbeddedResource Include="$(STORM_CERT_PATH)" Link="STORM_CERTIFICATE.cer" Condition="'$(STORM_CERT_PATH)' != '' and Exists('$(STORM_CERT_PATH)')" />
+    <EmbeddedResource Include="..\STORM_Certificate.cer" Link="STORM_CERTIFICATE.cer" Condition="('$(STORM_CERT_PATH)' == '' or !Exists('$(STORM_CERT_PATH)')) and Exists('..\STORM_Certificate.cer')" />
+    <EmbeddedResource Include="..\..\bin\Release\net8.0-windows10.0.19041.0\win-x64\STORM_Certificate.cer" Link="STORM_CERTIFICATE.cer" Condition="('$(STORM_CERT_PATH)' == '' or !Exists('$(STORM_CERT_PATH)')) and !Exists('..\STORM_Certificate.cer') and Exists('..\..\bin\Release\net8.0-windows10.0.19041.0\win-x64\STORM_Certificate.cer')" />
   </ItemGroup>
 
 </Project>

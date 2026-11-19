@@ -7,7 +7,7 @@ STORM SWITCH BOX - высокопроизводительный комбайн, 
 STORM SWITCH BOX - комплексная оболочка и комбайн контента Nintendo Switch 1/2 и Nintendo 3DS на базе нативных библиотек и утилит **LibHac** и **hactoolnet** (Thealexbarney), **nsz** (NicoBosshard), открытого контейнера **NUP** (a55uka), архитектуры прямого запуска **NSP-Box** (smarkyie), **yanu-cli** (nozwock), **oxipng** (shnatsel), **3dstool** (dnasdw), **makerom** (3DSGuy), загрузчиков **Atmosphere** (SciresM) и архитектуры форвардеров **NSP-Auto-Installer-Maker** (CNX17) с нативным графическим интерфейсом WinUI 3, движком мульти-контент инжектинга модов и высокоскоростным конвейером сжатия.
 
 ## **Технологический стек**
-- **Языки программирования**: C# (.NET 8.0), Kotlin (Android SDK), C++
+- **Языки программирования**: C# (.NET 8.0), Kotlin (Android SDK), Python 3.10
 - **Интерфейс пользователя**: WinUI 3 (Windows App SDK), XAML, Android Volumetric UI, 8 фирменных тем оформления STORM SOFT, 11 языков локализации
 - **Криптографическое и сжимающее ядро**: LibHac, нативная векторная криптография `AES-128-CTR` с аппаратным ускорением SIMD `AVX2` (`Vector256<byte>`) и пулированием памяти `ArrayPool<byte>` (0 байт аллокаций в LOH), нативная 128-битная реализация крипто-движка 3DS (KeyScrambler, SeedDB, AES-CTR/CBC), ZstdSharp и Zstandard JNI (многопоточный Zstandard Block Compression Engine), hactoolnet, yanu-cli, oxipng, 3dstool, makerom
 - **Форматы контейнеров и патчей**: NUP v1.0 (NX Package Format, суперблок `NUP\x01`, таблица `TOC\x01`, TLV-метаданные и дедупликация экстентов SHA-256), CNMT, NACP, Control NCA, PFS0, HFS0, XCI Cartridge Header (`HEAD`), NCCH, NCSD, CIA, SMDH (Morton Z-order RGB565), CBMD/BCWAV (CWAV PCM16), IVFC Level 3 RomFS, NRO/ASET (сжатие LZ4 Frame), IPS/IPS32, BPS, IPSwitch (`.pchtxt`)
@@ -36,9 +36,9 @@ STORM SWITCH BOX - комплексная оболочка и комбайн к�
 
 ## **Установка и запуск**
 1. Перейдите в раздел **Releases** на GitHub.
-2. Для **Windows**: скачайте инсталлятор `STORM_SWITCH_BOX_7.0.14_Setup.exe` или портативный архив `STORM_SWITCH_BOX_7.0.14.zip`.
-3. Для **Android**: скачайте пакет `STORM_SWITCH_BOX_7.0.14.apk` (для современных 64-битных устройств Android 8.0+) или `STORM_SWITCH_BOX_7.0.14_LEGACY.apk` (универсальная сборка для Android 5.0+ и 32/64-битных процессоров). При первом запуске приложение создаст рабочую структуру папок в `/storage/emulated/0/STORM SWITCH BOX/`.
-4. На ПК запустите установщик или распакуйте архив. Все системные инструменты (`hactoolnet`, `yanu-cli`, `oxipng`, `3dstool`, `makerom`, `7za`) и сжатая база каталогов (`catalogs.zst`, `nutdb.json`) уже включены в дистрибутив.
+2. Для **Windows**: скачайте инсталлятор `STORM_SWITCH_BOX_8.0.0_Setup.exe` или портативный архив `STORM_SWITCH_BOX_8.0.0.zip`.
+3. Для **Android**: скачайте пакет `STORM_SWITCH_BOX_8.0.0.apk` (для современных 64-битных устройств Android 8.0+) или `STORM_SWITCH_BOX_8.0.0_LEGACY.apk` (универсальная сборка для Android 5.0+ и 32/64-битных процессоров). При первом запуске приложение создаст рабочую структуру папок в `/storage/emulated/0/STORM SWITCH BOX/`.
+4. На ПК запустите установщик или распакуйте архив. Все системные инструменты (`hactoolnet`, `yanu-cli`, `oxipng`, `3dstool`, `makerom`, `7za`) и сжатая база каталогов (`catalogs.zst`, `nutdb.json.zst`) уже включены в дистрибутив.
 5. Укажите файлы ключей `prod.keys` / `title.keys` (для Nintendo Switch), `ounce.keys` (для Nintendo Switch 2) и при необходимости `seeddb.bin` / `aes_keys.txt` (для Nintendo 3DS) во вкладке параметров.
 
 ## **Благодарности**

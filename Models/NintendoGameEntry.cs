@@ -17,7 +17,7 @@ namespace StormSwitchBox.Models
         [ObservableProperty] private string _releaseDate = "N/A";
         [ObservableProperty] private string _developer = "Nintendo";
         [ObservableProperty] private string _publisher = "Nintendo";
-        [ObservableProperty] private string _version = "v1.0";
+        [ObservableProperty] private string _version = "1.0";
         [ObservableProperty] private string _edition = "Standard Edition";
         [ObservableProperty] private string _region = "WW";
         [ObservableProperty] private string _coverUrl = "";
@@ -31,13 +31,13 @@ namespace StormSwitchBox.Models
         private BitmapImage? _coverBitmap;
 
         [JsonIgnore]
-        public SolidColorBrush SystemBadgeBrush => new SolidColorBrush(GetSystemColor(SystemShort));
+        public SolidColorBrush SystemBadgeBrush => UiBrushCache.Get(GetSystemColor(SystemShort));
 
         [JsonIgnore]
-        public SolidColorBrush RegionBadgeBrush => new SolidColorBrush(GetRegionColor(Region));
+        public SolidColorBrush RegionBadgeBrush => UiBrushCache.Get(GetRegionColor(Region));
 
         [JsonIgnore]
-        public SolidColorBrush EditionBadgeBrush => new SolidColorBrush(GetEditionColor(Edition));
+        public SolidColorBrush EditionBadgeBrush => UiBrushCache.Get(GetEditionColor(Edition));
 
         private static Color GetRegionColor(string? reg)
         {

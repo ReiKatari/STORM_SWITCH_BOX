@@ -12,6 +12,7 @@ namespace StormSwitchBox.Views
     {
         public ObservableCollection<ProcessingTask> HistoryTasks => HistoryService.HistoryTasks;
         private object? _itemAtPointerPressed;
+        private Action? _langHandler;
 
         public HistoryPage()
         {
@@ -19,8 +20,20 @@ namespace StormSwitchBox.Views
             this.NavigationCacheMode = Microsoft.UI.Xaml.Navigation.NavigationCacheMode.Required;
 
             ApplyLocalization();
-            App.Localization.LanguageChanged += () => App.RunOnUI(ApplyLocalization);
-            this.Loaded += (_, _) => ApplyLocalization();
+            _langHandler = () => App.RunOnUI(ApplyLocalization);
+            this.Loaded += (_, _) =>
+            {
+                App.Localization.LanguageChanged -= _langHandler;
+                App.Localization.LanguageChanged += _langHandler;
+                ApplyLocalization();
+            };
+            this.Unloaded += (_, _) =>
+            {
+                if (_langHandler != null)
+                {
+                    App.Localization.LanguageChanged -= _langHandler;
+                }
+            };
         }
 
         public void ApplyLocalization()
@@ -120,33 +133,7 @@ namespace StormSwitchBox.Views
             string statusFilter = (HistoryStatusCombo?.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "";
 
             var allTasks = HistoryService.HistoryTasks;
-            
-            foreach (var task in allTasks)
-            {
-                bool visible = true;
-                
-                if (!string.IsNullOrEmpty(search))
-                {
-                    bool matchName = (task.OutputFileName ?? "").ToLower().Contains(search);
-                    bool matchOp = (task.OperationDisplay ?? "").ToLower().Contains(search);
-                    visible = matchName || matchOp;
-                }
-                
-                if (visible && !string.IsNullOrEmpty(opFilter))
-                {
-                    visible = string.Equals(task.Operation, opFilter, System.StringComparison.OrdinalIgnoreCase);
-                }
-                
-                if (visible && !string.IsNullOrEmpty(statusFilter))
-                {
-                    visible = (task.Status ?? "").Contains(statusFilter, System.StringComparison.OrdinalIgnoreCase);
-                }
-                
-                // Use DataGrid row visibility approach — hide via RowStyle isn't easy,
-                // so we set a filter property if available, or just re-bind filtered list
-            }
-            
-            // Simple approach: re-bind a filtered view
+
             if (string.IsNullOrEmpty(search) && string.IsNullOrEmpty(opFilter) && string.IsNullOrEmpty(statusFilter))
             {
                 HistoryGrid.ItemsSource = HistoryService.HistoryTasks;
@@ -161,7 +148,8 @@ namespace StormSwitchBox.Views
                     {
                         bool matchName = (task.OutputFileName ?? "").ToLower().Contains(search);
                         bool matchOp = (task.OperationDisplay ?? "").ToLower().Contains(search);
-                        visible = matchName || matchOp;
+                        bool matchDate = task.FinishedAt.ToString("dd.MM.yyyy HH:mm").Contains(search, System.StringComparison.OrdinalIgnoreCase);
+                        visible = matchName || matchOp || matchDate;
                     }
                     if (visible && !string.IsNullOrEmpty(opFilter))
                         visible = string.Equals(task.Operation, opFilter, System.StringComparison.OrdinalIgnoreCase);

@@ -149,18 +149,73 @@ namespace StormSwitchBox.Services
         }
 
         /// <summary>
-        /// Глобальная очистка всех временных папок STORM_TMP_* и StormDecomp_* со всех дисков и системных папок.
+        /// Глобальная очистка временных папок STORM_TMP_* и StormDecomp_* в рабочих и системных каталогах без сканирования корней дисков и без сноса заблокированных (.lock) папок.
         /// </summary>
         public static void PurgeAllTempDirectories()
+        {
+            PurgeStaleTempDirectories(maxAgeHours: 0);
+        }
+
+        private static bool HasActiveLockFile(string dirPath)
+        {
+            try
+            {
+                string fullPath = Path.GetFullPath(dirPath);
+                if (_activeTempDirs.ContainsKey(fullPath))
+                    return true;
+
+                foreach (var lockFile in Directory.EnumerateFiles(dirPath, "*.lock", SearchOption.AllDirectories))
+                {
+                    try
+                    {
+                        using var fs = new FileStream(lockFile, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+                        // Если lock-файл свежий (<= 24 часов), считаем его активным маркером процесса
+                        if ((DateTime.UtcNow - File.GetLastWriteTimeUtc(lockFile)).TotalHours < 24)
+                            return true;
+                    }
+                    catch
+                    {
+                        return true;
+                    }
+                }
+            }
+            catch
+            {
+                return true;
+            }
+            return false;
+        }
+
+        private static bool IsOlderThanMaxAge(string path, bool isDirectory, int maxAgeHours)
+        {
+            if (maxAgeHours <= 0) return true;
+            try
+            {
+                DateTime lastWriteUtc = isDirectory
+                    ? Directory.GetLastWriteTimeUtc(path)
+                    : File.GetLastWriteTimeUtc(path);
+                return (DateTime.UtcNow - lastWriteUtc).TotalHours >= maxAgeHours;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Очистка устаревших временных директорий и файлов с учётом maxAgeHours по LastWriteTimeUtc.
+        /// </summary>
+        public static void PurgeStaleTempDirectories(int maxAgeHours = 0)
         {
             Task.Run(() =>
             {
                 try
                 {
-                    // 1. Очистка зарегистрированных активных папок
-                    PurgeActiveTempDirectories();
+                    if (maxAgeHours <= 0)
+                    {
+                        PurgeActiveTempDirectories();
+                    }
 
-                    // Шаблоны временных папок и файлов
                     string[] tempDirPatterns = new[]
                     {
                         "STORM_TMP_*",
@@ -181,30 +236,20 @@ namespace StormSwitchBox.Services
                         "aes_keys_temp_*.txt"
                     };
 
-                    // 2. Сканирование корней ВСЕХ доступных логических дисков (C:\, D:\, E:\ и т.д.)
-                    try
+                    void TryDeleteTempDirIfEligible(string dir)
                     {
-                        var drives = DriveInfo.GetDrives().Where(d => d.IsReady);
-                        foreach (var drive in drives)
-                        {
-                            try
-                            {
-                                string root = drive.RootDirectory.FullName;
-                                foreach (var pattern in tempDirPatterns)
-                                {
-                                    foreach (var dir in Directory.GetDirectories(root, pattern))
-                                    {
-                                        ForceDeleteDirectory(dir);
-                                        App.Logger?.Log($"[TempCleanup] Удалена временная папка с диска {root}: {dir}", Models.LogLevel.Info);
-                                    }
-                                }
-                            }
-                            catch { }
-                        }
+                        if (HasActiveLockFile(dir)) return;
+                        if (!IsOlderThanMaxAge(dir, isDirectory: true, maxAgeHours)) return;
+                        ForceDeleteDirectory(dir);
                     }
-                    catch { }
 
-                    // 3. Сканирование папки temp внутри директории приложения
+                    void TryDeleteTempFileIfEligible(string file)
+                    {
+                        if (!IsOlderThanMaxAge(file, isDirectory: false, maxAgeHours)) return;
+                        ForceDeleteFile(file);
+                    }
+
+                    // 1. Сканирование папки temp внутри директории приложения
                     try
                     {
                         string appTemp = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "temp");
@@ -214,24 +259,23 @@ namespace StormSwitchBox.Services
                             {
                                 foreach (var dir in Directory.GetDirectories(appTemp, pattern, SearchOption.AllDirectories))
                                 {
-                                    ForceDeleteDirectory(dir);
+                                    TryDeleteTempDirIfEligible(dir);
                                 }
                             }
 
-                            // Очистка старых распакованных архивов
                             string archivesTemp = Path.Combine(appTemp, "archives");
                             if (Directory.Exists(archivesTemp))
                             {
                                 foreach (var dir in Directory.GetDirectories(archivesTemp))
                                 {
-                                    ForceDeleteDirectory(dir);
+                                    TryDeleteTempDirIfEligible(dir);
                                 }
                             }
                         }
                     }
                     catch { }
 
-                    // 4. Сканирование системной папки временных файлов %TEMP%
+                    // 2. Сканирование системной папки временных файлов %TEMP%
                     try
                     {
                         string sysTemp = Path.GetTempPath();
@@ -241,7 +285,7 @@ namespace StormSwitchBox.Services
                             {
                                 foreach (var dir in Directory.GetDirectories(sysTemp, pattern))
                                 {
-                                    ForceDeleteDirectory(dir);
+                                    TryDeleteTempDirIfEligible(dir);
                                 }
                             }
 
@@ -249,14 +293,14 @@ namespace StormSwitchBox.Services
                             {
                                 foreach (var file in Directory.GetFiles(sysTemp, pattern))
                                 {
-                                    ForceDeleteFile(file);
+                                    TryDeleteTempFileIfEligible(file);
                                 }
                             }
                         }
                     }
                     catch { }
 
-                    // 5. Сканирование настроенных пользователем выходных папок
+                    // 3. Сканирование настроенных пользователем выходных папок
                     try
                     {
                         var customFolders = new List<string>();
@@ -275,8 +319,7 @@ namespace StormSwitchBox.Services
                                 {
                                     foreach (var dir in Directory.GetDirectories(folder, pattern))
                                     {
-                                        ForceDeleteDirectory(dir);
-                                        App.Logger?.Log($"[TempCleanup] Удалена временная папка из выходного каталога: {dir}", Models.LogLevel.Info);
+                                        TryDeleteTempDirIfEligible(dir);
                                     }
                                 }
 
@@ -284,7 +327,7 @@ namespace StormSwitchBox.Services
                                 {
                                     foreach (var file in Directory.GetFiles(folder, pattern))
                                     {
-                                        ForceDeleteFile(file);
+                                        TryDeleteTempFileIfEligible(file);
                                     }
                                 }
                             }
@@ -297,14 +340,6 @@ namespace StormSwitchBox.Services
                     App.Logger?.Log($"[TempCleanup] Ошибка общей очистки временных папок: {ex.Message}", Models.LogLevel.Warning);
                 }
             });
-        }
-
-        /// <summary>
-        /// Очистка устаревших директорий.
-        /// </summary>
-        public static void PurgeStaleTempDirectories(int maxAgeHours = 0)
-        {
-            PurgeAllTempDirectories();
         }
     }
 }

@@ -16,6 +16,7 @@ namespace StormSwitchBox.Models
             try
             {
                 string? iso = null;
+                string? cultureName = null;
                 try
                 {
                     ushort langId = GetUserDefaultUILanguage();
@@ -23,18 +24,32 @@ namespace StormSwitchBox.Models
                     {
                         var cult = CultureInfo.GetCultureInfo(langId);
                         iso = cult.TwoLetterISOLanguageName.ToLowerInvariant();
+                        cultureName = cult.Name;
                     }
                 }
                 catch { }
 
                 if (string.IsNullOrEmpty(iso))
                 {
-                    iso = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName.ToLowerInvariant();
+                    var currentUi = CultureInfo.CurrentUICulture;
+                    iso = currentUi.TwoLetterISOLanguageName.ToLowerInvariant();
+                    cultureName = currentUi.Name;
                 }
 
                 if (string.IsNullOrEmpty(iso))
                 {
-                    iso = CultureInfo.InstalledUICulture.TwoLetterISOLanguageName.ToLowerInvariant();
+                    var installedUi = CultureInfo.InstalledUICulture;
+                    iso = installedUi.TwoLetterISOLanguageName.ToLowerInvariant();
+                    cultureName = installedUi.Name;
+                }
+
+                if (!string.IsNullOrEmpty(cultureName) &&
+                    (cultureName.Equals("zh-TW", StringComparison.OrdinalIgnoreCase) ||
+                     cultureName.Equals("zh-HK", StringComparison.OrdinalIgnoreCase) ||
+                     cultureName.Equals("zh-MO", StringComparison.OrdinalIgnoreCase) ||
+                     cultureName.StartsWith("zh-Hant", StringComparison.OrdinalIgnoreCase)))
+                {
+                    return "zh-TW";
                 }
 
                 return iso switch
@@ -71,6 +86,7 @@ namespace StormSwitchBox.Models
             string clean = code.Trim().ToLowerInvariant();
             return clean switch
             {
+                "zh-tw" or "zh-hant" or "zh-hant-tw" => "zh-TW",
                 "ru" or "en" or "de" or "fr" or "zh" or "ko" or "ja" or "es" or "it" or "pt" or "hi" => clean,
                 _ => GetDefaultOsLanguage()
             };
@@ -78,8 +94,7 @@ namespace StormSwitchBox.Models
 
         // Окно
         public string AppVersion { get; set; } = App.AppVersionString;
-        public string Language { get; set; } = GetDefaultOsLanguage(); // ru, en, de, fr, zh, ko, ja, es, it, pt, hi
-        public bool EnableGpuAcceleration { get; set; } = true;
+        public string Language { get; set; } = GetDefaultOsLanguage(); // ru, en, de, fr, zh, zh-TW, ko, ja, es, it, pt, hi
         public int WindowX { get; set; } = -1;
         public int WindowY { get; set; } = -1;
         public int WindowWidth { get; set; } = 1200;

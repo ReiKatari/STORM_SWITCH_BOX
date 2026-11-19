@@ -1,4 +1,4 @@
-using Microsoft.UI.Xaml;
+﻿using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using System;
 using System.Threading.Tasks;
@@ -14,12 +14,13 @@ namespace StormSwitchBox.Views
         public Visibility Keys3dsSelectedVisibility => string.IsNullOrEmpty(App.Settings.Current.KeysPath3ds) ? Visibility.Collapsed : Visibility.Visible;
         private System.Collections.ObjectModel.ObservableCollection<string> _emulatorDirs = new();
         private bool _isSettingsPageLoaded = false;
+        private Action? _langHandler;
 
         public SettingsPage()
         {
             this.InitializeComponent();
             this.NavigationCacheMode = Microsoft.UI.Xaml.Navigation.NavigationCacheMode.Required;
-            if (AppTitleVersionTxt != null) AppTitleVersionTxt.Text = $"STORM SWITCH BOX {App.Settings.Current.AppVersion}";
+            if (AppTitleVersionTxt != null) AppTitleVersionTxt.Text = $"STORM SWITCH BOX {App.AppVersionString}";
 
             _emulatorDirs = new System.Collections.ObjectModel.ObservableCollection<string>(App.Settings.Current.EmulatorDirectories ?? new System.Collections.Generic.List<string>());
             if (EmulatorDirsListView != null)
@@ -37,8 +38,24 @@ namespace StormSwitchBox.Views
             // BuildStrategy combo initialization
             if (BuildStrategyCombo != null)
             {
-                int bMode = App.Settings.Current.MultiContentBuildMode;
-                BuildStrategyCombo.SelectedIndex = Math.Clamp(bMode, 0, 2);
+                string targetModeTag = App.Settings.Current.MultiContentBuildMode.ToString();
+                ComboBoxItem? matchedItem = null;
+                foreach (var item in BuildStrategyCombo.Items)
+                {
+                    if (item is ComboBoxItem cbi && string.Equals(cbi.Tag?.ToString(), targetModeTag, StringComparison.Ordinal))
+                    {
+                        matchedItem = cbi;
+                        break;
+                    }
+                }
+                if (matchedItem != null)
+                {
+                    BuildStrategyCombo.SelectedItem = matchedItem;
+                }
+                else if (BuildStrategyCombo.Items.Count > 0)
+                {
+                    BuildStrategyCombo.SelectedIndex = 0;
+                }
             }
 
             // RsvCap combo initialization
@@ -131,8 +148,20 @@ namespace StormSwitchBox.Views
             SelectTab(0);
 
             ApplyLocalization();
-            App.Localization.LanguageChanged += () => App.RunOnUI(ApplyLocalization);
-            this.Loaded += (_, _) => ApplyLocalization();
+            _langHandler = () => App.RunOnUI(ApplyLocalization);
+            this.Loaded += (_, _) =>
+            {
+                App.Localization.LanguageChanged -= _langHandler;
+                App.Localization.LanguageChanged += _langHandler;
+                ApplyLocalization();
+            };
+            this.Unloaded += (_, _) =>
+            {
+                if (_langHandler != null)
+                {
+                    App.Localization.LanguageChanged -= _langHandler;
+                }
+            };
             _isSettingsPageLoaded = true;
         }
 
@@ -197,19 +226,33 @@ namespace StormSwitchBox.Views
 
         private async void BuildStrategyCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (BuildStrategyCombo.SelectedItem is ComboBoxItem item && int.TryParse(item.Tag?.ToString(), out int mode))
+            try
             {
-                App.Settings.Current.MultiContentBuildMode = mode;
-                await SettingsService.Instance.SaveAsync();
+                if (BuildStrategyCombo.SelectedItem is ComboBoxItem item && int.TryParse(item.Tag?.ToString(), out int mode))
+                {
+                    App.Settings.Current.MultiContentBuildMode = mode;
+                    await SettingsService.Instance.SaveAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
         private async void RsvCapCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (RsvCapCombo.SelectedItem is ComboBoxItem item && item.Tag is string tagStr && int.TryParse(tagStr, out int val))
+            try
             {
-                App.Settings.Current.RsvCap = val;
-                await App.Settings.SaveAsync();
+                if (RsvCapCombo.SelectedItem is ComboBoxItem item && item.Tag is string tagStr && int.TryParse(tagStr, out int val))
+                {
+                    App.Settings.Current.RsvCap = val;
+                    await App.Settings.SaveAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
@@ -217,46 +260,74 @@ namespace StormSwitchBox.Views
 
         private async void WatchFolderActionComboSwitch_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (WatchFolderActionComboSwitch.SelectedItem is ComboBoxItem item && item.Tag is string tagStr && int.TryParse(tagStr, out int val))
+            try
             {
-                App.Settings.Current.WatchFolderActionSwitch = val;
-                await App.Settings.SaveAsync();
-                UpdateWatchFolderUiState();
+                if (WatchFolderActionComboSwitch.SelectedItem is ComboBoxItem item && item.Tag is string tagStr && int.TryParse(tagStr, out int val))
+                {
+                    App.Settings.Current.WatchFolderActionSwitch = val;
+                    await App.Settings.SaveAsync();
+                    UpdateWatchFolderUiState();
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
         private async void WatchFolderFormatComboSwitch_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (WatchFolderFormatComboSwitch.SelectedItem is ComboBoxItem item && item.Tag is string tagStr && int.TryParse(tagStr, out int val))
+            try
             {
-                App.Settings.Current.WatchFolderFormatSwitch = val;
-                await App.Settings.SaveAsync();
-                UpdateWatchFolderUiState();
+                if (WatchFolderFormatComboSwitch.SelectedItem is ComboBoxItem item && item.Tag is string tagStr && int.TryParse(tagStr, out int val))
+                {
+                    App.Settings.Current.WatchFolderFormatSwitch = val;
+                    await App.Settings.SaveAsync();
+                    UpdateWatchFolderUiState();
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
         private async void WatchFolderSwitchToggle_Toggled(object sender, RoutedEventArgs e)
         {
-            await App.Settings.SaveAsync();
-            if (!App.Settings.Current.EnableWatchFolderSwitch && App.WatchFolderService != null && App.WatchFolderService.IsSwitchRunning)
+            try
             {
-                App.WatchFolderService.StopSwitch();
+                await App.Settings.SaveAsync();
+                if (!App.Settings.Current.EnableWatchFolderSwitch && App.WatchFolderService != null && App.WatchFolderService.IsSwitchRunning)
+                {
+                    App.WatchFolderService.StopSwitch();
+                }
+                UpdateWatchFolderUiState();
             }
-            UpdateWatchFolderUiState();
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
+            }
         }
 
         private async void SelectWatchFolderSwitch_Click(object sender, RoutedEventArgs e)
         {
-            string? folder = await SystemDialogService.OpenFolderDialogAsync(
-                "Выберите «Умную» папку Switch",
-                !string.IsNullOrEmpty(App.Settings.Current.WatchFolderSwitch) ? App.Settings.Current.WatchFolderSwitch : null);
-
-            if (!string.IsNullOrWhiteSpace(folder) && System.IO.Directory.Exists(folder))
+            try
             {
-                App.Settings.Current.WatchFolderSwitch = folder;
-                WatchFolderBoxSwitch.Text = folder;
-                await App.Settings.SaveAsync();
-                App.Logger?.Log($"[WatchFolder Switch] Папка выбрана: {folder}", Models.LogLevel.Success);
+                string? folder = await SystemDialogService.OpenFolderDialogAsync(
+                    "Выберите «Умную» папку Switch",
+                    !string.IsNullOrEmpty(App.Settings.Current.WatchFolderSwitch) ? App.Settings.Current.WatchFolderSwitch : null);
+
+                if (!string.IsNullOrWhiteSpace(folder) && System.IO.Directory.Exists(folder))
+                {
+                    App.Settings.Current.WatchFolderSwitch = folder;
+                    WatchFolderBoxSwitch.Text = folder;
+                    await App.Settings.SaveAsync();
+                    App.Logger?.Log($"[WatchFolder Switch] Папка выбрана: {folder}", Models.LogLevel.Success);
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
@@ -272,33 +343,52 @@ namespace StormSwitchBox.Views
         private async void WatchFolderBoxSwitch_Drop(object sender, DragEventArgs e)
         {
             e.Handled = true;
-            if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+            var deferral = e.GetDeferral();
+            try
             {
-                var items = await e.DataView.GetStorageItemsAsync();
-                if (items.Count > 0)
+                if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
                 {
-                    var item = items[0];
-                    string path = item.Path;
-                    if (System.IO.File.Exists(path)) path = System.IO.Path.GetDirectoryName(path) ?? path;
-                    if (System.IO.Directory.Exists(path))
+                    var items = await e.DataView.GetStorageItemsAsync();
+                    if (items.Count > 0)
                     {
-                        App.Settings.Current.WatchFolderSwitch = path;
-                        WatchFolderBoxSwitch.Text = path;
-                        await App.Settings.SaveAsync();
-                        App.Logger.Log($"[WatchFolder Switch] Папка установлена: {path}", Models.LogLevel.Success);
+                        var item = items[0];
+                        string path = item.Path;
+                        if (System.IO.File.Exists(path)) path = System.IO.Path.GetDirectoryName(path) ?? path;
+                        if (System.IO.Directory.Exists(path))
+                        {
+                            App.Settings.Current.WatchFolderSwitch = path;
+                            WatchFolderBoxSwitch.Text = path;
+                            await App.Settings.SaveAsync();
+                            App.Logger.Log($"[WatchFolder Switch] Папка установлена: {path}", Models.LogLevel.Success);
+                        }
                     }
                 }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings Drop] {ex.Message}", Models.LogLevel.Warning);
+            }
+            finally
+            {
+                deferral.Complete();
             }
         }
 
         private async void AutoDownloadCoversCheckBox_Click(object sender, RoutedEventArgs e)
         {
-            if (AutoDownloadCoversCheckBox != null)
+            try
             {
-                App.Settings.Current.AutoDownloadCovers = AutoDownloadCoversCheckBox.IsChecked == true;
-                await App.Settings.SaveAsync();
-                App.Logger?.Log($"[Covers Cache] Фоновая предзагрузка обложек: {(App.Settings.Current.AutoDownloadCovers ? "ВКЛЮЧЕНА" : "ОТКЛЮЧЕНА (экономия места на диске)")}", Models.LogLevel.Info);
-                RefreshCoversCacheStatsUi();
+                if (AutoDownloadCoversCheckBox != null)
+                {
+                    App.Settings.Current.AutoDownloadCovers = AutoDownloadCoversCheckBox.IsChecked == true;
+                    await App.Settings.SaveAsync();
+                    App.Logger?.Log($"[Covers Cache] Фоновая предзагрузка обложек: {(App.Settings.Current.AutoDownloadCovers ? "ВКЛЮЧЕНА" : "ОТКЛЮЧЕНА (экономия места на диске)")}", Models.LogLevel.Info);
+                    RefreshCoversCacheStatsUi();
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
@@ -340,23 +430,30 @@ namespace StormSwitchBox.Views
 
         private async void ToggleWatchFolderSwitchBtn_Click(object sender, RoutedEventArgs e)
         {
-            if (App.WatchFolderService == null) return;
+            try
+            {
+                if (App.WatchFolderService == null) return;
 
-            if (App.WatchFolderService.IsSwitchRunning)
-            {
-                App.WatchFolderService.StopSwitch();
-            }
-            else
-            {
-                if (string.IsNullOrWhiteSpace(App.Settings.Current.WatchFolderSwitch) || !System.IO.Directory.Exists(App.Settings.Current.WatchFolderSwitch))
+                if (App.WatchFolderService.IsSwitchRunning)
                 {
-                    App.Logger.Log("[WatchFolder Switch] Укажите корректную существующую папку для отслеживания", Models.LogLevel.Warning);
-                    return;
+                    App.WatchFolderService.StopSwitch();
                 }
-                App.WatchFolderService.StartSwitch();
-                await ScanWatchFolderSwitchAsync();
+                else
+                {
+                    if (string.IsNullOrWhiteSpace(App.Settings.Current.WatchFolderSwitch) || !System.IO.Directory.Exists(App.Settings.Current.WatchFolderSwitch))
+                    {
+                        App.Logger.Log("[WatchFolder Switch] Укажите корректную существующую папку для отслеживания", Models.LogLevel.Warning);
+                        return;
+                    }
+                    App.WatchFolderService.StartSwitch();
+                    await ScanWatchFolderSwitchAsync();
+                }
+                UpdateWatchFolderUiState();
             }
-            UpdateWatchFolderUiState();
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
+            }
         }
 
         private async Task ScanWatchFolderSwitchAsync()
@@ -444,46 +541,74 @@ namespace StormSwitchBox.Views
 
         private async void WatchFolderActionCombo3ds_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (WatchFolderActionCombo3ds.SelectedItem is ComboBoxItem item && item.Tag is string tagStr && int.TryParse(tagStr, out int val))
+            try
             {
-                App.Settings.Current.WatchFolderAction3ds = val;
-                await App.Settings.SaveAsync();
-                UpdateWatchFolderUiState();
+                if (WatchFolderActionCombo3ds.SelectedItem is ComboBoxItem item && item.Tag is string tagStr && int.TryParse(tagStr, out int val))
+                {
+                    App.Settings.Current.WatchFolderAction3ds = val;
+                    await App.Settings.SaveAsync();
+                    UpdateWatchFolderUiState();
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
         private async void WatchFolderFormatCombo3ds_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (WatchFolderFormatCombo3ds.SelectedItem is ComboBoxItem item && item.Tag is string tagStr && int.TryParse(tagStr, out int val))
+            try
             {
-                App.Settings.Current.WatchFolderFormat3ds = val;
-                await App.Settings.SaveAsync();
-                UpdateWatchFolderUiState();
+                if (WatchFolderFormatCombo3ds.SelectedItem is ComboBoxItem item && item.Tag is string tagStr && int.TryParse(tagStr, out int val))
+                {
+                    App.Settings.Current.WatchFolderFormat3ds = val;
+                    await App.Settings.SaveAsync();
+                    UpdateWatchFolderUiState();
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
         private async void WatchFolder3dsToggle_Toggled(object sender, RoutedEventArgs e)
         {
-            await App.Settings.SaveAsync();
-            if (!App.Settings.Current.EnableWatchFolder3ds && App.WatchFolderService != null && App.WatchFolderService.Is3dsRunning)
+            try
             {
-                App.WatchFolderService.Stop3ds();
+                await App.Settings.SaveAsync();
+                if (!App.Settings.Current.EnableWatchFolder3ds && App.WatchFolderService != null && App.WatchFolderService.Is3dsRunning)
+                {
+                    App.WatchFolderService.Stop3ds();
+                }
+                UpdateWatchFolderUiState();
             }
-            UpdateWatchFolderUiState();
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
+            }
         }
 
         private async void SelectWatchFolder3ds_Click(object sender, RoutedEventArgs e)
         {
-            string? folder = await SystemDialogService.OpenFolderDialogAsync(
-                "Выберите «Умную» папку 3DS",
-                !string.IsNullOrEmpty(App.Settings.Current.WatchFolder3ds) ? App.Settings.Current.WatchFolder3ds : null);
-
-            if (!string.IsNullOrWhiteSpace(folder) && System.IO.Directory.Exists(folder))
+            try
             {
-                App.Settings.Current.WatchFolder3ds = folder;
-                WatchFolderBox3ds.Text = folder;
-                await App.Settings.SaveAsync();
-                App.Logger?.Log($"[WatchFolder 3DS] Папка выбрана: {folder}", Models.LogLevel.Success);
+                string? folder = await SystemDialogService.OpenFolderDialogAsync(
+                    "Выберите «Умную» папку 3DS",
+                    !string.IsNullOrEmpty(App.Settings.Current.WatchFolder3ds) ? App.Settings.Current.WatchFolder3ds : null);
+
+                if (!string.IsNullOrWhiteSpace(folder) && System.IO.Directory.Exists(folder))
+                {
+                    App.Settings.Current.WatchFolder3ds = folder;
+                    WatchFolderBox3ds.Text = folder;
+                    await App.Settings.SaveAsync();
+                    App.Logger?.Log($"[WatchFolder 3DS] Папка выбрана: {folder}", Models.LogLevel.Success);
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
@@ -499,44 +624,63 @@ namespace StormSwitchBox.Views
         private async void WatchFolderBox3ds_Drop(object sender, DragEventArgs e)
         {
             e.Handled = true;
-            if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+            var deferral = e.GetDeferral();
+            try
             {
-                var items = await e.DataView.GetStorageItemsAsync();
-                if (items.Count > 0)
+                if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
                 {
-                    var item = items[0];
-                    string path = item.Path;
-                    if (System.IO.File.Exists(path)) path = System.IO.Path.GetDirectoryName(path) ?? path;
-                    if (System.IO.Directory.Exists(path))
+                    var items = await e.DataView.GetStorageItemsAsync();
+                    if (items.Count > 0)
                     {
-                        App.Settings.Current.WatchFolder3ds = path;
-                        WatchFolderBox3ds.Text = path;
-                        await App.Settings.SaveAsync();
-                        App.Logger.Log($"[WatchFolder 3DS] Папка установлена: {path}", Models.LogLevel.Success);
+                        var item = items[0];
+                        string path = item.Path;
+                        if (System.IO.File.Exists(path)) path = System.IO.Path.GetDirectoryName(path) ?? path;
+                        if (System.IO.Directory.Exists(path))
+                        {
+                            App.Settings.Current.WatchFolder3ds = path;
+                            WatchFolderBox3ds.Text = path;
+                            await App.Settings.SaveAsync();
+                            App.Logger.Log($"[WatchFolder 3DS] Папка установлена: {path}", Models.LogLevel.Success);
+                        }
                     }
                 }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings Drop] {ex.Message}", Models.LogLevel.Warning);
+            }
+            finally
+            {
+                deferral.Complete();
             }
         }
 
         private async void ToggleWatchFolder3dsBtn_Click(object sender, RoutedEventArgs e)
         {
-            if (App.WatchFolderService == null) return;
+            try
+            {
+                if (App.WatchFolderService == null) return;
 
-            if (App.WatchFolderService.Is3dsRunning)
-            {
-                App.WatchFolderService.Stop3ds();
-            }
-            else
-            {
-                if (string.IsNullOrWhiteSpace(App.Settings.Current.WatchFolder3ds) || !System.IO.Directory.Exists(App.Settings.Current.WatchFolder3ds))
+                if (App.WatchFolderService.Is3dsRunning)
                 {
-                    App.Logger.Log("[WatchFolder 3DS] Укажите корректную существующую папку для отслеживания", Models.LogLevel.Warning);
-                    return;
+                    App.WatchFolderService.Stop3ds();
                 }
-                App.WatchFolderService.Start3ds();
-                await ScanWatchFolder3dsAsync();
+                else
+                {
+                    if (string.IsNullOrWhiteSpace(App.Settings.Current.WatchFolder3ds) || !System.IO.Directory.Exists(App.Settings.Current.WatchFolder3ds))
+                    {
+                        App.Logger.Log("[WatchFolder 3DS] Укажите корректную существующую папку для отслеживания", Models.LogLevel.Warning);
+                        return;
+                    }
+                    App.WatchFolderService.Start3ds();
+                    await ScanWatchFolder3dsAsync();
+                }
+                UpdateWatchFolderUiState();
             }
-            UpdateWatchFolderUiState();
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
+            }
         }
 
         private async Task ScanWatchFolder3dsAsync()
@@ -570,7 +714,7 @@ namespace StormSwitchBox.Views
 
                 if (rootFiles.Count > 0)
                 {
-                    App.TasksVM.SelectedPlatform = 1;
+                    App.TasksVM.SelectedPlatform = 2;
                     App.TasksVM.SetPageType(pageType3ds);
                     App.TasksVM.SelectedFormatIndex3ds = fmtIdx3ds;
                     await App.TasksVM.AddDroppedFilesBatchAsync(rootFiles);
@@ -597,7 +741,7 @@ namespace StormSwitchBox.Views
 
                     if (hasGameFiles)
                     {
-                        App.TasksVM.SelectedPlatform = 1;
+                        App.TasksVM.SelectedPlatform = 2;
                         App.TasksVM.SetPageType(pageType3ds);
                         App.TasksVM.SelectedFormatIndex3ds = fmtIdx3ds;
                         await App.TasksVM.AddDroppedFilesBatchAsync(new System.Collections.Generic.List<string> { subDir });
@@ -620,21 +764,35 @@ namespace StormSwitchBox.Views
 
         private async void ThemeCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (ThemeCombo.SelectedItem is ComboBoxItem item && item.Tag is string tagStr)
+            try
             {
-                App.Settings.Current.AppTheme = tagStr;
-                await App.Settings.SaveAsync();
-                Services.ThemeService.ApplyTheme(tagStr);
+                if (ThemeCombo.SelectedItem is ComboBoxItem item && item.Tag is string tagStr)
+                {
+                    App.Settings.Current.AppTheme = tagStr;
+                    await App.Settings.SaveAsync();
+                    Services.ThemeService.ApplyTheme(tagStr);
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
         private async void AccentColorCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (AccentColorCombo.SelectedItem is ComboBoxItem item && item.Tag is string tagStr)
+            try
             {
-                App.Settings.Current.AccentColorTheme = tagStr;
-                await App.Settings.SaveAsync();
-                Services.ThemeService.ApplyAccentColor(tagStr);
+                if (AccentColorCombo.SelectedItem is ComboBoxItem item && item.Tag is string tagStr)
+                {
+                    App.Settings.Current.AccentColorTheme = tagStr;
+                    await App.Settings.SaveAsync();
+                    Services.ThemeService.ApplyAccentColor(tagStr);
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
@@ -723,181 +881,208 @@ namespace StormSwitchBox.Views
 
         private async void KeysFile_Drop(object sender, Microsoft.UI.Xaml.DragEventArgs e)
         {
-            // Сброс подсветки
-            if (sender is Grid grid)
+            e.Handled = true;
+            var deferral = e.GetDeferral();
+            try
             {
-                grid.BorderBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent);
-            }
-            
-            if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
-            {
-                var items = await e.DataView.GetStorageItemsAsync();
-                if (items.Count > 0)
+                // Сброс подсветки
+                if (sender is Grid grid)
                 {
-                    string filePath = items[0].Path;
-                    if (System.IO.File.Exists(filePath))
+                    grid.BorderBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent);
+                }
+            
+                if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+                {
+                    var items = await e.DataView.GetStorageItemsAsync();
+                    if (items.Count > 0)
                     {
-                        string ext = System.IO.Path.GetExtension(filePath).ToLower();
-                        if (ext == ".keys" || ext == ".txt" || ext == ".dat")
+                        string filePath = items[0].Path;
+                        if (System.IO.File.Exists(filePath))
                         {
-                            App.Settings.Current.KeysPath = filePath;
-                            TryAutoDetectKeysVersionFromPath(filePath);
-                            await App.Settings.SaveAsync();
-                            App.EnsureUserKeysAvailable();
-                            App.Logger.Log($"Файл ключей применен (drag-and-drop): {filePath}", Models.LogLevel.Success);
-                            this.Bindings.Update();
-                        }
-                        else
-                        {
-                            App.Logger.Log($"Неподдерживаемый формат файла ключей: {ext}", Models.LogLevel.Warning);
+                            string ext = System.IO.Path.GetExtension(filePath).ToLower();
+                            if (ext == ".keys" || ext == ".txt" || ext == ".dat")
+                            {
+                                App.Settings.Current.KeysPath = filePath;
+                                TryAutoDetectKeysVersionFromPath(filePath);
+                                await App.Settings.SaveAsync();
+                                App.EnsureUserKeysAvailable();
+                                App.Logger.Log($"Файл ключей применен (drag-and-drop): {filePath}", Models.LogLevel.Success);
+                                this.Bindings.Update();
+                            }
+                            else
+                            {
+                                App.Logger.Log($"Неподдерживаемый формат файла ключей: {ext}", Models.LogLevel.Warning);
+                            }
                         }
                     }
                 }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings Drop] {ex.Message}", Models.LogLevel.Warning);
+            }
+            finally
+            {
+                deferral.Complete();
             }
         }
 
 
         private async void DownloadOnlineKeysButton_Click(object sender, RoutedEventArgs e)
         {
-            string version = "23.0.0";
-            if (OnlineKeysVersionCombo?.SelectedItem is ComboBoxItem cbi && cbi.Tag is string tagVer && !string.IsNullOrWhiteSpace(tagVer))
-            {
-                version = tagVer.Trim();
-            }
-
-            if (DownloadOnlineKeysBtn != null) DownloadOnlineKeysBtn.IsEnabled = false;
-            if (OnlineKeysStatusTxt != null) OnlineKeysStatusTxt.Text = $"⏳ Подключение к репозиторию STORM SWITCH TOOLS и скачивание ключей {version}...";
-
             try
             {
-                string baseUrl = $"https://github.com/ReiKatari/STORM_SWITCH_TOOLS/releases/download/STORM_SWITCH_TOOLS_KEYS/{version}.zip";
-                string[] candidateUrls = new[]
+                string version = "23.0.0";
+                if (OnlineKeysVersionCombo?.SelectedItem is ComboBoxItem cbi && cbi.Tag is string tagVer && !string.IsNullOrWhiteSpace(tagVer))
                 {
-                    baseUrl,
-                    "https://gh.con.sh/" + baseUrl,
-                    "https://gh.llkk.cc/" + baseUrl,
-                    "https://ghfast.top/" + baseUrl
-                };
-
-                byte[]? zipBytes = null;
-                using var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(20) };
-                http.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "STORM_SWITCH_BOX_KeysDownloader");
-
-                foreach (var url in candidateUrls)
-                {
-                    try
-                    {
-                        using var resp = await http.GetAsync(url);
-                        if (!resp.IsSuccessStatusCode) continue;
-                        var bytes = await resp.Content.ReadAsByteArrayAsync();
-                        if (bytes.Length > 200 && bytes[0] == 0x50 && bytes[1] == 0x4B)
-                        {
-                            zipBytes = bytes;
-                            break;
-                        }
-                    }
-                    catch { }
+                    version = tagVer.Trim();
                 }
 
-                if (zipBytes == null)
+                if (DownloadOnlineKeysBtn != null) DownloadOnlineKeysBtn.IsEnabled = false;
+                if (OnlineKeysStatusTxt != null) OnlineKeysStatusTxt.Text = $"⏳ Подключение к репозиторию STORM SWITCH TOOLS и скачивание ключей {version}...";
+
+                try
                 {
-                    throw new Exception("Не удалось скачать архив ключей ни с одного зеркала GitHub.");
-                }
-
-                string localKeysDir = System.IO.Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "StormSwitchBox", "keys");
-                System.IO.Directory.CreateDirectory(localKeysDir);
-
-                string userSwitchDir = System.IO.Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                    ".switch");
-                System.IO.Directory.CreateDirectory(userSwitchDir);
-
-                string prodKeysDest = System.IO.Path.Combine(localKeysDir, "prod.keys");
-                int extractedCount = 0;
-
-                using (var ms = new System.IO.MemoryStream(zipBytes))
-                using (var archive = new System.IO.Compression.ZipArchive(ms, System.IO.Compression.ZipArchiveMode.Read))
-                {
-                    foreach (var entry in archive.Entries)
+                    string baseUrl = $"https://github.com/ReiKatari/STORM_SWITCH_TOOLS/releases/download/STORM_SWITCH_TOOLS_KEYS/{version}.zip";
+                    string[] candidateUrls = new[]
                     {
-                        string name = System.IO.Path.GetFileName(entry.FullName);
-                        bool isProd = name.Equals("prod.keys", StringComparison.OrdinalIgnoreCase);
-                        bool isTitle = name.Equals("title.keys", StringComparison.OrdinalIgnoreCase);
-                        if (!isProd && !isTitle) continue;
+                        baseUrl,
+                        "https://gh.con.sh/" + baseUrl,
+                        "https://gh.llkk.cc/" + baseUrl,
+                        "https://ghfast.top/" + baseUrl
+                    };
 
-                        using var entryStream = entry.Open();
-                        using var outMs = new System.IO.MemoryStream();
-                        if (isProd)
-                        {
-                            byte[] header = System.Text.Encoding.UTF8.GetBytes($"# STORM SWITCH KEYS: {version}\n");
-                            outMs.Write(header, 0, header.Length);
-                        }
-                        await entryStream.CopyToAsync(outMs);
-                        byte[] finalBytes = outMs.ToArray();
+                    byte[]? zipBytes = null;
+                    using var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(20) };
+                    http.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "STORM_SWITCH_BOX_KeysDownloader");
 
-                        string target1 = System.IO.Path.Combine(localKeysDir, name.ToLowerInvariant());
-                        await System.IO.File.WriteAllBytesAsync(target1, finalBytes);
-
+                    foreach (var url in candidateUrls)
+                    {
                         try
                         {
-                            string target2 = System.IO.Path.Combine(userSwitchDir, name.ToLowerInvariant());
-                            await System.IO.File.WriteAllBytesAsync(target2, finalBytes);
+                            using var resp = await http.GetAsync(url);
+                            if (!resp.IsSuccessStatusCode) continue;
+                            var bytes = await resp.Content.ReadAsByteArrayAsync();
+                            if (bytes.Length > 200 && bytes[0] == 0x50 && bytes[1] == 0x4B)
+                            {
+                                zipBytes = bytes;
+                                break;
+                            }
                         }
                         catch { }
-
-                        extractedCount++;
                     }
-                }
 
-                if (extractedCount == 0 || !System.IO.File.Exists(prodKeysDest))
+                    if (zipBytes == null)
+                    {
+                        throw new Exception("Не удалось скачать архив ключей ни с одного зеркала GitHub.");
+                    }
+
+                    string localKeysDir = System.IO.Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                        "StormSwitchBox", "keys");
+                    System.IO.Directory.CreateDirectory(localKeysDir);
+
+                    string userSwitchDir = System.IO.Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                        ".switch");
+                    System.IO.Directory.CreateDirectory(userSwitchDir);
+
+                    string prodKeysDest = System.IO.Path.Combine(localKeysDir, "prod.keys");
+                    int extractedCount = 0;
+
+                    using (var ms = new System.IO.MemoryStream(zipBytes))
+                    using (var archive = new System.IO.Compression.ZipArchive(ms, System.IO.Compression.ZipArchiveMode.Read))
+                    {
+                        foreach (var entry in archive.Entries)
+                        {
+                            string name = System.IO.Path.GetFileName(entry.FullName);
+                            bool isProd = name.Equals("prod.keys", StringComparison.OrdinalIgnoreCase);
+                            bool isTitle = name.Equals("title.keys", StringComparison.OrdinalIgnoreCase);
+                            if (!isProd && !isTitle) continue;
+
+                            using var entryStream = entry.Open();
+                            using var outMs = new System.IO.MemoryStream();
+                            if (isProd)
+                            {
+                                byte[] header = System.Text.Encoding.UTF8.GetBytes($"# STORM SWITCH KEYS: {version}\n");
+                                outMs.Write(header, 0, header.Length);
+                            }
+                            await entryStream.CopyToAsync(outMs);
+                            byte[] finalBytes = outMs.ToArray();
+
+                            string target1 = System.IO.Path.Combine(localKeysDir, name.ToLowerInvariant());
+                            await System.IO.File.WriteAllBytesAsync(target1, finalBytes);
+
+                            try
+                            {
+                                string target2 = System.IO.Path.Combine(userSwitchDir, name.ToLowerInvariant());
+                                await System.IO.File.WriteAllBytesAsync(target2, finalBytes);
+                            }
+                            catch { }
+
+                            extractedCount++;
+                        }
+                    }
+
+                    if (extractedCount == 0 || !System.IO.File.Exists(prodKeysDest))
+                    {
+                        throw new Exception("В скачанном архиве не найден файл prod.keys.");
+                    }
+
+                    App.Settings.Current.KeysPath = prodKeysDest;
+                    App.Settings.Current.KeysVersion = version;
+                    PopulateKeysVersion(version);
+                    await App.Settings.SaveAsync();
+                    App.EnsureUserKeysAvailable();
+                    this.Bindings.Update();
+
+                    if (OnlineKeysStatusTxt != null)
+                    {
+                        OnlineKeysStatusTxt.Text = $"✅ Ключи prod.keys и title.keys (версия {version}) успешно скачаны и установлены!";
+                    }
+                    App.Logger?.Log($"[Keys] Онлайн-ключи STORM SWITCH TOOLS ({version}) успешно установлены в {prodKeysDest}", Models.LogLevel.Success);
+                }
+                catch (Exception ex)
                 {
-                    throw new Exception("В скачанном архиве не найден файл prod.keys.");
+                    if (OnlineKeysStatusTxt != null)
+                    {
+                        OnlineKeysStatusTxt.Text = $"❌ Ошибка загрузки ключей: {ex.Message}";
+                    }
+                    App.Logger?.Log($"[Keys] Ошибка онлайн-загрузки ключей: {ex.Message}", Models.LogLevel.Error);
                 }
-
-                App.Settings.Current.KeysPath = prodKeysDest;
-                App.Settings.Current.KeysVersion = version;
-                PopulateKeysVersion(version);
-                await App.Settings.SaveAsync();
-                App.EnsureUserKeysAvailable();
-                this.Bindings.Update();
-
-                if (OnlineKeysStatusTxt != null)
+                finally
                 {
-                    OnlineKeysStatusTxt.Text = $"✅ Ключи prod.keys и title.keys (версия {version}) успешно скачаны и установлены!";
+                    if (DownloadOnlineKeysBtn != null) DownloadOnlineKeysBtn.IsEnabled = true;
                 }
-                App.Logger?.Log($"[Keys] Онлайн-ключи STORM SWITCH TOOLS ({version}) успешно установлены в {prodKeysDest}", Models.LogLevel.Success);
             }
             catch (Exception ex)
             {
-                if (OnlineKeysStatusTxt != null)
-                {
-                    OnlineKeysStatusTxt.Text = $"❌ Ошибка загрузки ключей: {ex.Message}";
-                }
-                App.Logger?.Log($"[Keys] Ошибка онлайн-загрузки ключей: {ex.Message}", Models.LogLevel.Error);
-            }
-            finally
-            {
-                if (DownloadOnlineKeysBtn != null) DownloadOnlineKeysBtn.IsEnabled = true;
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
         private async void SelectKeysButton_Click(object sender, RoutedEventArgs e)
         {
-            string? filePath = await SystemDialogService.OpenFileDialogAsync(
-                "Выберите файл ключей Nintendo Switch (prod.keys / keys.txt)",
-                "Файлы ключей (*.keys;*.txt;*.dat)|*.keys;*.txt;*.dat|Все файлы (*.*)|*.*",
-                !string.IsNullOrEmpty(App.Settings.Current.KeysPath) ? System.IO.Path.GetDirectoryName(App.Settings.Current.KeysPath) : null);
-
-            if (!string.IsNullOrWhiteSpace(filePath) && System.IO.File.Exists(filePath))
+            try
             {
-                App.Settings.Current.KeysPath = filePath;
-                TryAutoDetectKeysVersionFromPath(filePath);
-                await App.Settings.SaveAsync();
-                App.EnsureUserKeysAvailable();
-                App.Logger.Log($"Файл ключей применен: {filePath}", Models.LogLevel.Success);
-                this.Bindings.Update();
+                string? filePath = await SystemDialogService.OpenFileDialogAsync(
+                    "Выберите файл ключей Nintendo Switch (prod.keys / keys.txt)",
+                    "Файлы ключей (*.keys;*.txt;*.dat)|*.keys;*.txt;*.dat|Все файлы (*.*)|*.*",
+                    !string.IsNullOrEmpty(App.Settings.Current.KeysPath) ? System.IO.Path.GetDirectoryName(App.Settings.Current.KeysPath) : null);
+
+                if (!string.IsNullOrWhiteSpace(filePath) && System.IO.File.Exists(filePath))
+                {
+                    App.Settings.Current.KeysPath = filePath;
+                    TryAutoDetectKeysVersionFromPath(filePath);
+                    await App.Settings.SaveAsync();
+                    App.EnsureUserKeysAvailable();
+                    App.Logger.Log($"Файл ключей применен: {filePath}", Models.LogLevel.Success);
+                    this.Bindings.Update();
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
@@ -1011,7 +1196,7 @@ namespace StormSwitchBox.Views
             if (ThreadsDescTxt != null) ThreadsDescTxt.Text = loc["Settings_General_Threads_Desc"];
 
             if (AboutHeaderTxt != null) AboutHeaderTxt.Text = loc["Settings_General_About_Header"];
-            if (AppTitleVersionTxt != null) AppTitleVersionTxt.Text = $"STORM SWITCH BOX {App.Settings.Current.AppVersion}";
+            if (AppTitleVersionTxt != null) AppTitleVersionTxt.Text = $"STORM SWITCH BOX {App.AppVersionString}";
             if (AboutDescriptionTxt != null) AboutDescriptionTxt.Text = loc["Settings_General_About_Desc"];
             if (CheckUpdatesButton != null) CheckUpdatesButton.Content = loc["Settings_General_CheckUpdates"];
             if (OpenLogsButton != null) OpenLogsButton.Content = loc["Settings_General_OpenLogs"];
@@ -1150,17 +1335,24 @@ namespace StormSwitchBox.Views
         // ===== 3DS Ключи и настройки =====
         private async void SelectKeys3dsButton_Click(object sender, RoutedEventArgs e)
         {
-            string? filePath = await SystemDialogService.OpenFileDialogAsync(
-                "Выберите файл ключей Nintendo 3DS (aes_keys.txt / encTitleKeys.bin)",
-                "Ключи Nintendo 3DS (*.txt;*.bin;*.dat)|*.txt;*.bin;*.dat|Все файлы (*.*)|*.*",
-                !string.IsNullOrEmpty(App.Settings.Current.KeysPath3ds) ? System.IO.Path.GetDirectoryName(App.Settings.Current.KeysPath3ds) : null);
-
-            if (!string.IsNullOrWhiteSpace(filePath) && System.IO.File.Exists(filePath))
+            try
             {
-                App.Settings.Current.KeysPath3ds = filePath;
-                await App.Settings.SaveAsync();
-                App.Logger.Log($"[3DS Keys] Подключен файл ключей: {filePath}", Models.LogLevel.Success);
-                this.Bindings.Update();
+                string? filePath = await SystemDialogService.OpenFileDialogAsync(
+                    "Выберите файл ключей Nintendo 3DS (aes_keys.txt / encTitleKeys.bin)",
+                    "Ключи Nintendo 3DS (*.txt;*.bin;*.dat)|*.txt;*.bin;*.dat|Все файлы (*.*)|*.*",
+                    !string.IsNullOrEmpty(App.Settings.Current.KeysPath3ds) ? System.IO.Path.GetDirectoryName(App.Settings.Current.KeysPath3ds) : null);
+
+                if (!string.IsNullOrWhiteSpace(filePath) && System.IO.File.Exists(filePath))
+                {
+                    App.Settings.Current.KeysPath3ds = filePath;
+                    await App.Settings.SaveAsync();
+                    App.Logger.Log($"[3DS Keys] Подключен файл ключей: {filePath}", Models.LogLevel.Success);
+                    this.Bindings.Update();
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
@@ -1174,64 +1366,105 @@ namespace StormSwitchBox.Views
 
         private async void KeysFile3ds_Drop(object sender, DragEventArgs e)
         {
-            if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+            e.Handled = true;
+            var deferral = e.GetDeferral();
+            try
             {
-                var items = await e.DataView.GetStorageItemsAsync();
-                if (items.Count > 0)
+                if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
                 {
-                    var file = items[0];
-                    if (System.IO.File.Exists(file.Path))
+                    var items = await e.DataView.GetStorageItemsAsync();
+                    if (items.Count > 0)
                     {
-                        App.Settings.Current.KeysPath3ds = file.Path;
-                        await App.Settings.SaveAsync();
-                        App.Logger.Log($"[3DS Keys] Установлен файл ключей: {file.Path}", Models.LogLevel.Success);
-                        this.Bindings.Update();
+                        var file = items[0];
+                        if (System.IO.File.Exists(file.Path))
+                        {
+                            App.Settings.Current.KeysPath3ds = file.Path;
+                            await App.Settings.SaveAsync();
+                            App.Logger.Log($"[3DS Keys] Установлен файл ключей: {file.Path}", Models.LogLevel.Success);
+                            this.Bindings.Update();
+                        }
                     }
                 }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings Drop] {ex.Message}", Models.LogLevel.Warning);
+            }
+            finally
+            {
+                deferral.Complete();
             }
         }
 
         private async void Format3dsCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (Format3dsCombo?.SelectedItem is ComboBoxItem item && item.Tag is string tagStr)
+            try
             {
-                App.Settings.Current.DefaultFormat3ds = tagStr;
-                App.Settings.Current.SelectedFormatIndex3ds = Format3dsCombo.SelectedIndex;
-                if (App.TasksVM != null)
+                if (Format3dsCombo?.SelectedItem is ComboBoxItem item && item.Tag is string tagStr)
                 {
-                    App.TasksVM.SelectedFormatIndex3ds = Format3dsCombo.SelectedIndex;
+                    App.Settings.Current.DefaultFormat3ds = tagStr;
+                    App.Settings.Current.SelectedFormatIndex3ds = Format3dsCombo.SelectedIndex;
+                    if (App.TasksVM != null)
+                    {
+                        App.TasksVM.SelectedFormatIndex3ds = Format3dsCombo.SelectedIndex;
+                    }
+                    await App.Settings.SaveAsync();
                 }
-                await App.Settings.SaveAsync();
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
         private async void Toggle3ds_Changed(object sender, RoutedEventArgs e)
         {
-            await App.Settings.SaveAsync();
+            try
+            {
+                await App.Settings.SaveAsync();
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
+            }
         }
 
         // ===== Выбор и очистка выходной папки Switch =====
         private async void SelectOutputFolder_Click(object sender, RoutedEventArgs e)
         {
-            string? folder = await SystemDialogService.OpenFolderDialogAsync(
-                "Выберите выходную папку Switch по умолчанию",
-                !string.IsNullOrEmpty(App.Settings.Current.OutputFolder) ? App.Settings.Current.OutputFolder : null);
-
-            if (!string.IsNullOrWhiteSpace(folder) && System.IO.Directory.Exists(folder))
+            try
             {
-                App.Settings.Current.OutputFolder = folder;
-                OutputFolderBox.Text = folder;
-                await App.Settings.SaveAsync();
-                App.Logger.Log($"Выходная папка Switch: {folder}", Models.LogLevel.Success);
+                string? folder = await SystemDialogService.OpenFolderDialogAsync(
+                    "Выберите выходную папку Switch по умолчанию",
+                    !string.IsNullOrEmpty(App.Settings.Current.OutputFolder) ? App.Settings.Current.OutputFolder : null);
+
+                if (!string.IsNullOrWhiteSpace(folder) && System.IO.Directory.Exists(folder))
+                {
+                    App.Settings.Current.OutputFolder = folder;
+                    OutputFolderBox.Text = folder;
+                    await App.Settings.SaveAsync();
+                    App.Logger.Log($"Выходная папка Switch: {folder}", Models.LogLevel.Success);
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
         private async void ClearOutputFolder_Click(object sender, RoutedEventArgs e)
         {
-            App.Settings.Current.OutputFolder = string.Empty;
-            OutputFolderBox.Text = string.Empty;
-            await App.Settings.SaveAsync();
-            App.Logger.Log("[Settings] Выходная папка Switch по умолчанию очищена (сохранение в папку с исходником)", Models.LogLevel.Info);
+            try
+            {
+                App.Settings.Current.OutputFolder = string.Empty;
+                OutputFolderBox.Text = string.Empty;
+                await App.Settings.SaveAsync();
+                App.Logger.Log("[Settings] Выходная папка Switch по умолчанию очищена (сохранение в папку с исходником)", Models.LogLevel.Info);
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
+            }
         }
 
         #region Nintendo Switch 2 (Ounce / NVN2) Settings & Keys Handlers
@@ -1376,64 +1609,85 @@ namespace StormSwitchBox.Views
 
         private async void AutoDetectSwitch2Keys_Click(object sender, RoutedEventArgs e)
         {
-            string? autoFound = KeysService.AutoSearchSwitch2Keys();
-            if (!string.IsNullOrEmpty(autoFound))
+            try
             {
-                App.Settings.Current.Switch2KeysPath = autoFound;
-                string? titleKeys = KeysService.AutoSearchSwitch2TitleKeys(autoFound);
-                if (!string.IsNullOrEmpty(titleKeys))
+                string? autoFound = KeysService.AutoSearchSwitch2Keys();
+                if (!string.IsNullOrEmpty(autoFound))
                 {
-                    App.Settings.Current.Switch2TitleKeysPath = titleKeys;
+                    App.Settings.Current.Switch2KeysPath = autoFound;
+                    string? titleKeys = KeysService.AutoSearchSwitch2TitleKeys(autoFound);
+                    if (!string.IsNullOrEmpty(titleKeys))
+                    {
+                        App.Settings.Current.Switch2TitleKeysPath = titleKeys;
+                    }
+                    await App.Settings.SaveAsync();
+                    UpdateSwitch2KeysUi();
+                    var info = KeysService.AnalyzeSwitch2KeysFile(autoFound, App.Settings.Current.Switch2TitleKeysPath);
+                    App.Logger.Log($"[Switch 2] Ключи автоматически обнаружены: {autoFound} ({info.KeyCount} ключей, {info.FirmwareDescription})", Models.LogLevel.Success);
                 }
-                await App.Settings.SaveAsync();
-                UpdateSwitch2KeysUi();
-                var info = KeysService.AnalyzeSwitch2KeysFile(autoFound, App.Settings.Current.Switch2TitleKeysPath);
-                App.Logger.Log($"[Switch 2] Ключи автоматически обнаружены: {autoFound} ({info.KeyCount} ключей, {info.FirmwareDescription})", Models.LogLevel.Success);
+                else
+                {
+                    App.Logger.Log("[Switch 2] Авто-поиск не обнаружил файлов prod.keys / ounce.keys в системных каталогах. Укажите файл вручную.", Models.LogLevel.Warning);
+                }
             }
-            else
+            catch (Exception ex)
             {
-                App.Logger.Log("[Switch 2] Авто-поиск не обнаружил файлов prod.keys / ounce.keys в системных каталогах. Укажите файл вручную.", Models.LogLevel.Warning);
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
         private async void SelectSwitch2Keys_Click(object sender, RoutedEventArgs e)
         {
-            string? initialDir = null;
-            if (!string.IsNullOrEmpty(App.Settings.Current.Switch2KeysPath) && File.Exists(App.Settings.Current.Switch2KeysPath))
+            try
             {
-                initialDir = Path.GetDirectoryName(App.Settings.Current.Switch2KeysPath);
-            }
-            else if (Directory.Exists(@"Q:\CONSOLES\Nintendo Switch 2"))
-            {
-                initialDir = @"Q:\CONSOLES\Nintendo Switch 2";
-            }
-
-            string? filePath = await SystemDialogService.OpenFileDialogAsync(
-                "Выберите файл ключей Nintendo Switch 2 (prod.keys / ounce.keys / keys.txt)",
-                "Файлы ключей (*.keys;*.txt;*.dat;*.bin)|*.keys;*.txt;*.dat;*.bin|Все файлы (*.*)|*.*",
-                initialDir);
-
-            if (!string.IsNullOrWhiteSpace(filePath) && File.Exists(filePath))
-            {
-                App.Settings.Current.Switch2KeysPath = filePath;
-                string? titleKeys = KeysService.AutoSearchSwitch2TitleKeys(filePath);
-                if (!string.IsNullOrEmpty(titleKeys))
+                string? initialDir = null;
+                if (!string.IsNullOrEmpty(App.Settings.Current.Switch2KeysPath) && File.Exists(App.Settings.Current.Switch2KeysPath))
                 {
-                    App.Settings.Current.Switch2TitleKeysPath = titleKeys;
+                    initialDir = Path.GetDirectoryName(App.Settings.Current.Switch2KeysPath);
                 }
-                await App.Settings.SaveAsync();
-                UpdateSwitch2KeysUi();
-                var info = KeysService.AnalyzeSwitch2KeysFile(filePath, App.Settings.Current.Switch2TitleKeysPath);
-                App.Logger.Log($"[Switch 2] Файл ключей успешно применен: {filePath} ({info.KeyCount} ключей, {info.FirmwareDescription})", Models.LogLevel.Success);
+                else if (Directory.Exists(@"Q:\CONSOLES\Nintendo Switch 2"))
+                {
+                    initialDir = @"Q:\CONSOLES\Nintendo Switch 2";
+                }
+
+                string? filePath = await SystemDialogService.OpenFileDialogAsync(
+                    "Выберите файл ключей Nintendo Switch 2 (prod.keys / ounce.keys / keys.txt)",
+                    "Файлы ключей (*.keys;*.txt;*.dat;*.bin)|*.keys;*.txt;*.dat;*.bin|Все файлы (*.*)|*.*",
+                    initialDir);
+
+                if (!string.IsNullOrWhiteSpace(filePath) && File.Exists(filePath))
+                {
+                    App.Settings.Current.Switch2KeysPath = filePath;
+                    string? titleKeys = KeysService.AutoSearchSwitch2TitleKeys(filePath);
+                    if (!string.IsNullOrEmpty(titleKeys))
+                    {
+                        App.Settings.Current.Switch2TitleKeysPath = titleKeys;
+                    }
+                    await App.Settings.SaveAsync();
+                    UpdateSwitch2KeysUi();
+                    var info = KeysService.AnalyzeSwitch2KeysFile(filePath, App.Settings.Current.Switch2TitleKeysPath);
+                    App.Logger.Log($"[Switch 2] Файл ключей успешно применен: {filePath} ({info.KeyCount} ключей, {info.FirmwareDescription})", Models.LogLevel.Success);
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
         private async void ClearSwitch2Keys_Click(object sender, RoutedEventArgs e)
         {
-            App.Settings.Current.Switch2KeysPath = string.Empty;
-            await App.Settings.SaveAsync();
-            UpdateSwitch2KeysUi();
-            App.Logger.Log("[Switch 2] Путь к ключам Switch 2 сброшен", Models.LogLevel.Info);
+            try
+            {
+                App.Settings.Current.Switch2KeysPath = string.Empty;
+                await App.Settings.SaveAsync();
+                UpdateSwitch2KeysUi();
+                App.Logger.Log("[Switch 2] Путь к ключам Switch 2 сброшен", Models.LogLevel.Info);
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
+            }
         }
 
         private void KeysFileSwitch2_DragOver(object sender, DragEventArgs e)
@@ -1448,112 +1702,180 @@ namespace StormSwitchBox.Views
         private async void KeysFileSwitch2_Drop(object sender, DragEventArgs e)
         {
             e.Handled = true;
-            if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+            var deferral = e.GetDeferral();
+            try
             {
-                var items = await e.DataView.GetStorageItemsAsync();
-                var file = items.FirstOrDefault(i => i.IsOfType(Windows.Storage.StorageItemTypes.File));
-                if (file != null)
+                if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
                 {
-                    App.Settings.Current.Switch2KeysPath = file.Path;
-                    string? titleKeys = KeysService.AutoSearchSwitch2TitleKeys(file.Path);
-                    if (!string.IsNullOrEmpty(titleKeys))
+                    var items = await e.DataView.GetStorageItemsAsync();
+                    var file = items.FirstOrDefault(i => i.IsOfType(Windows.Storage.StorageItemTypes.File));
+                    if (file != null)
                     {
-                        App.Settings.Current.Switch2TitleKeysPath = titleKeys;
+                        App.Settings.Current.Switch2KeysPath = file.Path;
+                        string? titleKeys = KeysService.AutoSearchSwitch2TitleKeys(file.Path);
+                        if (!string.IsNullOrEmpty(titleKeys))
+                        {
+                            App.Settings.Current.Switch2TitleKeysPath = titleKeys;
+                        }
+                        await App.Settings.SaveAsync();
+                        UpdateSwitch2KeysUi();
+                        var info = KeysService.AnalyzeSwitch2KeysFile(file.Path, App.Settings.Current.Switch2TitleKeysPath);
+                        App.Logger.Log($"[Switch 2] Файл ключей перетащен и применен: {file.Path} ({info.KeyCount} ключей, {info.FirmwareDescription})", Models.LogLevel.Success);
                     }
-                    await App.Settings.SaveAsync();
-                    UpdateSwitch2KeysUi();
-                    var info = KeysService.AnalyzeSwitch2KeysFile(file.Path, App.Settings.Current.Switch2TitleKeysPath);
-                    App.Logger.Log($"[Switch 2] Файл ключей перетащен и применен: {file.Path} ({info.KeyCount} ключей, {info.FirmwareDescription})", Models.LogLevel.Success);
                 }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings Drop] {ex.Message}", Models.LogLevel.Warning);
+            }
+            finally
+            {
+                deferral.Complete();
             }
         }
 
         private async void SelectSwitch2TitleKeys_Click(object sender, RoutedEventArgs e)
         {
-            string? initialDir = !string.IsNullOrEmpty(App.Settings.Current.Switch2TitleKeysPath)
-                ? Path.GetDirectoryName(App.Settings.Current.Switch2TitleKeysPath)
-                : Path.GetDirectoryName(App.Settings.Current.Switch2KeysPath);
-
-            string? filePath = await SystemDialogService.OpenFileDialogAsync(
-                "Выберите файл ключей тайтлов Switch 2 (title.keys / keys.txt)",
-                "Файлы ключей (*.keys;*.txt;*.dat)|*.keys;*.txt;*.dat|Все файлы (*.*)|*.*",
-                initialDir);
-
-            if (!string.IsNullOrWhiteSpace(filePath) && File.Exists(filePath))
+            try
             {
-                App.Settings.Current.Switch2TitleKeysPath = filePath;
-                await App.Settings.SaveAsync();
-                UpdateSwitch2KeysUi();
-                App.Logger.Log($"[Switch 2] Файл title.keys применен: {filePath}", Models.LogLevel.Success);
+                string? initialDir = !string.IsNullOrEmpty(App.Settings.Current.Switch2TitleKeysPath)
+                    ? Path.GetDirectoryName(App.Settings.Current.Switch2TitleKeysPath)
+                    : Path.GetDirectoryName(App.Settings.Current.Switch2KeysPath);
+
+                string? filePath = await SystemDialogService.OpenFileDialogAsync(
+                    "Выберите файл ключей тайтлов Switch 2 (title.keys / keys.txt)",
+                    "Файлы ключей (*.keys;*.txt;*.dat)|*.keys;*.txt;*.dat|Все файлы (*.*)|*.*",
+                    initialDir);
+
+                if (!string.IsNullOrWhiteSpace(filePath) && File.Exists(filePath))
+                {
+                    App.Settings.Current.Switch2TitleKeysPath = filePath;
+                    await App.Settings.SaveAsync();
+                    UpdateSwitch2KeysUi();
+                    App.Logger.Log($"[Switch 2] Файл title.keys применен: {filePath}", Models.LogLevel.Success);
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
         private async void ClearSwitch2TitleKeys_Click(object sender, RoutedEventArgs e)
         {
-            App.Settings.Current.Switch2TitleKeysPath = string.Empty;
-            await App.Settings.SaveAsync();
-            UpdateSwitch2KeysUi();
-            App.Logger.Log("[Switch 2] Путь к title.keys сброшен", Models.LogLevel.Info);
+            try
+            {
+                App.Settings.Current.Switch2TitleKeysPath = string.Empty;
+                await App.Settings.SaveAsync();
+                UpdateSwitch2KeysUi();
+                App.Logger.Log("[Switch 2] Путь к title.keys сброшен", Models.LogLevel.Info);
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
+            }
         }
 
         private async void Switch2DefaultFormatCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (!_isSettingsPageLoaded) return;
-            if (Switch2DefaultFormatCombo.SelectedItem is ComboBoxItem item && item.Tag is string tag)
+            try
             {
-                App.Settings.Current.Switch2DefaultFormat = tag;
-                App.Settings.Current.Switch2SelectedFormatIndex = Switch2DefaultFormatCombo.SelectedIndex;
-                await App.Settings.SaveAsync();
+                if (!_isSettingsPageLoaded) return;
+                if (Switch2DefaultFormatCombo.SelectedItem is ComboBoxItem item && item.Tag is string tag)
+                {
+                    App.Settings.Current.Switch2DefaultFormat = tag;
+                    App.Settings.Current.Switch2SelectedFormatIndex = Switch2DefaultFormatCombo.SelectedIndex;
+                    await App.Settings.SaveAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
         private async void Switch2CompressionSlider_ValueChanged(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
         {
-            if (!_isSettingsPageLoaded) return;
-            int val = (int)e.NewValue;
-            App.Settings.Current.Switch2CompressionLevel = val;
-            if (Switch2CompressionValTxt != null)
+            try
             {
-                Switch2CompressionValTxt.Text = val.ToString();
+                if (!_isSettingsPageLoaded) return;
+                int val = (int)e.NewValue;
+                App.Settings.Current.Switch2CompressionLevel = val;
+                if (Switch2CompressionValTxt != null)
+                {
+                    Switch2CompressionValTxt.Text = val.ToString();
+                }
+                await App.Settings.SaveAsync();
             }
-            await App.Settings.SaveAsync();
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
+            }
         }
 
         private async void Switch2BlockSizeCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (!_isSettingsPageLoaded) return;
-            App.Settings.Current.Switch2BlockSizeIndex = Switch2BlockSizeCombo.SelectedIndex;
-            await App.Settings.SaveAsync();
+            try
+            {
+                if (!_isSettingsPageLoaded) return;
+                App.Settings.Current.Switch2BlockSizeIndex = Switch2BlockSizeCombo.SelectedIndex;
+                await App.Settings.SaveAsync();
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
+            }
         }
 
         private async void Switch2ThreadsCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (!_isSettingsPageLoaded) return;
-            App.Settings.Current.Switch2ThreadsIndex = Switch2ThreadsCombo.SelectedIndex;
-            await App.Settings.SaveAsync();
+            try
+            {
+                if (!_isSettingsPageLoaded) return;
+                App.Settings.Current.Switch2ThreadsIndex = Switch2ThreadsCombo.SelectedIndex;
+                await App.Settings.SaveAsync();
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
+            }
         }
 
         private async void SelectSwitch2ModsFolder_Click(object sender, RoutedEventArgs e)
         {
-            string? folder = await SystemDialogService.OpenFolderDialogAsync(
-                "Выберите папку модов и русификаторов Nintendo Switch 2",
-                !string.IsNullOrEmpty(App.Settings.Current.Switch2ModsFolder) ? App.Settings.Current.Switch2ModsFolder : null);
-
-            if (!string.IsNullOrWhiteSpace(folder) && Directory.Exists(folder))
+            try
             {
-                App.Settings.Current.Switch2ModsFolder = folder;
-                Switch2ModsFolderBox.Text = folder;
-                await App.Settings.SaveAsync();
-                App.Logger.Log($"Папка модов Switch 2: {folder}", Models.LogLevel.Success);
+                string? folder = await SystemDialogService.OpenFolderDialogAsync(
+                    "Выберите папку модов и русификаторов Nintendo Switch 2",
+                    !string.IsNullOrEmpty(App.Settings.Current.Switch2ModsFolder) ? App.Settings.Current.Switch2ModsFolder : null);
+
+                if (!string.IsNullOrWhiteSpace(folder) && Directory.Exists(folder))
+                {
+                    App.Settings.Current.Switch2ModsFolder = folder;
+                    Switch2ModsFolderBox.Text = folder;
+                    await App.Settings.SaveAsync();
+                    App.Logger.Log($"Папка модов Switch 2: {folder}", Models.LogLevel.Success);
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
         private async void ClearSwitch2ModsFolder_Click(object sender, RoutedEventArgs e)
         {
-            App.Settings.Current.Switch2ModsFolder = string.Empty;
-            Switch2ModsFolderBox.Text = string.Empty;
-            await App.Settings.SaveAsync();
-            App.Logger.Log("[Settings] Папка модов Switch 2 очищена", Models.LogLevel.Info);
+            try
+            {
+                App.Settings.Current.Switch2ModsFolder = string.Empty;
+                Switch2ModsFolderBox.Text = string.Empty;
+                await App.Settings.SaveAsync();
+                App.Logger.Log("[Settings] Папка модов Switch 2 очищена", Models.LogLevel.Info);
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
+            }
         }
 
         private void Switch2ModsFolder_DragOver(object sender, DragEventArgs e)
@@ -1568,40 +1890,66 @@ namespace StormSwitchBox.Views
         private async void Switch2ModsFolder_Drop(object sender, DragEventArgs e)
         {
             e.Handled = true;
-            if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+            var deferral = e.GetDeferral();
+            try
             {
-                var items = await e.DataView.GetStorageItemsAsync();
-                if (items.Count > 0 && items[0] is Windows.Storage.StorageFolder folder)
+                if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
                 {
-                    App.Settings.Current.Switch2ModsFolder = folder.Path;
-                    Switch2ModsFolderBox.Text = folder.Path;
-                    await App.Settings.SaveAsync();
-                    App.Logger.Log($"Папка модов Switch 2: {folder.Path}", Models.LogLevel.Success);
+                    var items = await e.DataView.GetStorageItemsAsync();
+                    if (items.Count > 0 && items[0] is Windows.Storage.StorageFolder folder)
+                    {
+                        App.Settings.Current.Switch2ModsFolder = folder.Path;
+                        Switch2ModsFolderBox.Text = folder.Path;
+                        await App.Settings.SaveAsync();
+                        App.Logger.Log($"Папка модов Switch 2: {folder.Path}", Models.LogLevel.Success);
+                    }
                 }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings Drop] {ex.Message}", Models.LogLevel.Warning);
+            }
+            finally
+            {
+                deferral.Complete();
             }
         }
 
         private async void SelectOutputFolderSwitch2_Click(object sender, RoutedEventArgs e)
         {
-            string? folder = await SystemDialogService.OpenFolderDialogAsync(
-                "Выберите выходную папку Nintendo Switch 2 по умолчанию",
-                !string.IsNullOrEmpty(App.Settings.Current.OutputFolderSwitch2) ? App.Settings.Current.OutputFolderSwitch2 : null);
-
-            if (!string.IsNullOrWhiteSpace(folder) && System.IO.Directory.Exists(folder))
+            try
             {
-                App.Settings.Current.OutputFolderSwitch2 = folder;
-                OutputFolderBoxSwitch2.Text = folder;
-                await App.Settings.SaveAsync();
-                App.Logger.Log($"Выходная папка Nintendo Switch 2: {folder}", Models.LogLevel.Success);
+                string? folder = await SystemDialogService.OpenFolderDialogAsync(
+                    "Выберите выходную папку Nintendo Switch 2 по умолчанию",
+                    !string.IsNullOrEmpty(App.Settings.Current.OutputFolderSwitch2) ? App.Settings.Current.OutputFolderSwitch2 : null);
+
+                if (!string.IsNullOrWhiteSpace(folder) && System.IO.Directory.Exists(folder))
+                {
+                    App.Settings.Current.OutputFolderSwitch2 = folder;
+                    OutputFolderBoxSwitch2.Text = folder;
+                    await App.Settings.SaveAsync();
+                    App.Logger.Log($"Выходная папка Nintendo Switch 2: {folder}", Models.LogLevel.Success);
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
         private async void ClearOutputFolderSwitch2_Click(object sender, RoutedEventArgs e)
         {
-            App.Settings.Current.OutputFolderSwitch2 = string.Empty;
-            OutputFolderBoxSwitch2.Text = string.Empty;
-            await App.Settings.SaveAsync();
-            App.Logger.Log("[Settings] Выходная папка Nintendo Switch 2 очищена (сохранение в папку с исходником)", Models.LogLevel.Info);
+            try
+            {
+                App.Settings.Current.OutputFolderSwitch2 = string.Empty;
+                OutputFolderBoxSwitch2.Text = string.Empty;
+                await App.Settings.SaveAsync();
+                App.Logger.Log("[Settings] Выходная папка Nintendo Switch 2 очищена (сохранение в папку с исходником)", Models.LogLevel.Info);
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
+            }
         }
 
         private void OutputFolderBoxSwitch2_DragOver(object sender, DragEventArgs e)
@@ -1616,40 +1964,66 @@ namespace StormSwitchBox.Views
         private async void OutputFolderBoxSwitch2_Drop(object sender, DragEventArgs e)
         {
             e.Handled = true;
-            if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+            var deferral = e.GetDeferral();
+            try
             {
-                var items = await e.DataView.GetStorageItemsAsync();
-                if (items.Count > 0 && items[0] is Windows.Storage.StorageFolder folder)
+                if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
                 {
-                    App.Settings.Current.OutputFolderSwitch2 = folder.Path;
-                    OutputFolderBoxSwitch2.Text = folder.Path;
-                    await App.Settings.SaveAsync();
-                    App.Logger.Log($"Выходная папка Nintendo Switch 2: {folder.Path}", Models.LogLevel.Success);
+                    var items = await e.DataView.GetStorageItemsAsync();
+                    if (items.Count > 0 && items[0] is Windows.Storage.StorageFolder folder)
+                    {
+                        App.Settings.Current.OutputFolderSwitch2 = folder.Path;
+                        OutputFolderBoxSwitch2.Text = folder.Path;
+                        await App.Settings.SaveAsync();
+                        App.Logger.Log($"Выходная папка Nintendo Switch 2: {folder.Path}", Models.LogLevel.Success);
+                    }
                 }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings Drop] {ex.Message}", Models.LogLevel.Warning);
+            }
+            finally
+            {
+                deferral.Complete();
             }
         }
 
         private async void SelectDownloadsFolderSwitch2_Click(object sender, RoutedEventArgs e)
         {
-            string? folder = await SystemDialogService.OpenFolderDialogAsync(
-                "Выберите папку загрузок и дампов Nintendo Switch 2",
-                !string.IsNullOrEmpty(App.Settings.Current.Switch2DownloadsFolder) ? App.Settings.Current.Switch2DownloadsFolder : null);
-
-            if (!string.IsNullOrWhiteSpace(folder) && Directory.Exists(folder))
+            try
             {
-                App.Settings.Current.Switch2DownloadsFolder = folder;
-                DownloadsFolderBoxSwitch2.Text = folder;
-                await App.Settings.SaveAsync();
-                App.Logger.Log($"Папка загрузок Nintendo Switch 2: {folder}", Models.LogLevel.Success);
+                string? folder = await SystemDialogService.OpenFolderDialogAsync(
+                    "Выберите папку загрузок и дампов Nintendo Switch 2",
+                    !string.IsNullOrEmpty(App.Settings.Current.Switch2DownloadsFolder) ? App.Settings.Current.Switch2DownloadsFolder : null);
+
+                if (!string.IsNullOrWhiteSpace(folder) && Directory.Exists(folder))
+                {
+                    App.Settings.Current.Switch2DownloadsFolder = folder;
+                    DownloadsFolderBoxSwitch2.Text = folder;
+                    await App.Settings.SaveAsync();
+                    App.Logger.Log($"Папка загрузок Nintendo Switch 2: {folder}", Models.LogLevel.Success);
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
         private async void ClearDownloadsFolderSwitch2_Click(object sender, RoutedEventArgs e)
         {
-            App.Settings.Current.Switch2DownloadsFolder = string.Empty;
-            DownloadsFolderBoxSwitch2.Text = string.Empty;
-            await App.Settings.SaveAsync();
-            App.Logger.Log("[Settings] Папка загрузок Nintendo Switch 2 очищена", Models.LogLevel.Info);
+            try
+            {
+                App.Settings.Current.Switch2DownloadsFolder = string.Empty;
+                DownloadsFolderBoxSwitch2.Text = string.Empty;
+                await App.Settings.SaveAsync();
+                App.Logger.Log("[Settings] Папка загрузок Nintendo Switch 2 очищена", Models.LogLevel.Info);
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
+            }
         }
 
         private void DownloadsFolderBoxSwitch2_DragOver(object sender, DragEventArgs e)
@@ -1664,127 +2038,156 @@ namespace StormSwitchBox.Views
         private async void DownloadsFolderBoxSwitch2_Drop(object sender, DragEventArgs e)
         {
             e.Handled = true;
-            if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+            var deferral = e.GetDeferral();
+            try
             {
-                var items = await e.DataView.GetStorageItemsAsync();
-                if (items.Count > 0 && items[0] is Windows.Storage.StorageFolder folder)
+                if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
                 {
-                    App.Settings.Current.Switch2DownloadsFolder = folder.Path;
-                    DownloadsFolderBoxSwitch2.Text = folder.Path;
-                    await App.Settings.SaveAsync();
-                    App.Logger.Log($"Папка загрузок Nintendo Switch 2: {folder.Path}", Models.LogLevel.Success);
+                    var items = await e.DataView.GetStorageItemsAsync();
+                    if (items.Count > 0 && items[0] is Windows.Storage.StorageFolder folder)
+                    {
+                        App.Settings.Current.Switch2DownloadsFolder = folder.Path;
+                        DownloadsFolderBoxSwitch2.Text = folder.Path;
+                        await App.Settings.SaveAsync();
+                        App.Logger.Log($"Папка загрузок Nintendo Switch 2: {folder.Path}", Models.LogLevel.Success);
+                    }
                 }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings Drop] {ex.Message}", Models.LogLevel.Warning);
+            }
+            finally
+            {
+                deferral.Complete();
             }
         }
 
         private async void PatchEmulatorExe_Click(object sender, RoutedEventArgs e)
         {
-            string? exePath = await SystemDialogService.OpenFileDialogAsync(
-                "Выберите исполняемый файл эмулятора Switch 2 (Eden, PokeDinner, Eglantine, Selevet)",
-                "Исполняемые файлы (*.exe)|*.exe|Все файлы (*.*)|*.*");
-
-            if (string.IsNullOrWhiteSpace(exePath) || !File.Exists(exePath)) return;
-
             try
             {
-                string bakPath = exePath + ".bak";
-                if (!File.Exists(bakPath))
+                string? exePath = await SystemDialogService.OpenFileDialogAsync(
+                    "Выберите исполняемый файл эмулятора Switch 2 (Eden, PokeDinner, Eglantine, Selevet)",
+                    "Исполняемые файлы (*.exe)|*.exe|Все файлы (*.*)|*.*");
+
+                if (string.IsNullOrWhiteSpace(exePath) || !File.Exists(exePath)) return;
+
+                try
                 {
-                    File.Copy(exePath, bakPath, true);
-                }
-
-                byte[] exeBytes = await File.ReadAllBytesAsync(exePath);
-                bool patched = false;
-
-                // Патч таймера частоты (19.2 МГц -> 31.25 МГц для Switch 2 Direct Boot)
-                byte[] oldTimer = BitConverter.GetBytes(19200000);
-                byte[] newTimer = BitConverter.GetBytes(31250000);
-
-                for (int i = 0; i <= exeBytes.Length - 4; i++)
-                {
-                    if (exeBytes[i] == oldTimer[0] && exeBytes[i + 1] == oldTimer[1] &&
-                        exeBytes[i + 2] == oldTimer[2] && exeBytes[i + 3] == oldTimer[3])
+                    string bakPath = exePath + ".bak";
+                    if (!File.Exists(bakPath))
                     {
-                        exeBytes[i] = newTimer[0];
-                        exeBytes[i + 1] = newTimer[1];
-                        exeBytes[i + 2] = newTimer[2];
-                        exeBytes[i + 3] = newTimer[3];
-                        patched = true;
-                        break;
+                        File.Copy(exePath, bakPath, true);
                     }
-                }
 
-                // Инъекция сигнатуры NSP-Box Direct Boot совместимости
-                string stamp = "NSPBOX_DIRECTBOOT_NUP_v1.0\0";
-                byte[] stampBytes = System.Text.Encoding.ASCII.GetBytes(stamp);
-                int freeOffset = exeBytes.Length - 512;
-                if (freeOffset > 0)
+                    byte[] exeBytes = await File.ReadAllBytesAsync(exePath);
+                    bool patched = false;
+
+                    // Патч таймера частоты (19.2 МГц -> 31.25 МГц для Switch 2 Direct Boot)
+                    byte[] oldTimer = BitConverter.GetBytes(19200000);
+                    byte[] newTimer = BitConverter.GetBytes(31250000);
+
+                    for (int i = 0; i <= exeBytes.Length - 4; i++)
+                    {
+                        if (exeBytes[i] == oldTimer[0] && exeBytes[i + 1] == oldTimer[1] &&
+                            exeBytes[i + 2] == oldTimer[2] && exeBytes[i + 3] == oldTimer[3])
+                        {
+                            exeBytes[i] = newTimer[0];
+                            exeBytes[i + 1] = newTimer[1];
+                            exeBytes[i + 2] = newTimer[2];
+                            exeBytes[i + 3] = newTimer[3];
+                            patched = true;
+                            break;
+                        }
+                    }
+
+                    // Инъекция сигнатуры NSP-Box Direct Boot совместимости
+                    string stamp = "NSPBOX_DIRECTBOOT_NUP_v1.0\0";
+                    byte[] stampBytes = System.Text.Encoding.ASCII.GetBytes(stamp);
+                    int freeOffset = exeBytes.Length - 512;
+                    if (freeOffset > 0)
+                    {
+                        Array.Copy(stampBytes, 0, exeBytes, freeOffset, stampBytes.Length);
+                        patched = true;
+                    }
+
+                    if (patched)
+                    {
+                        await File.WriteAllBytesAsync(exePath, exeBytes);
+                    }
+
+                    if (EmulatorPatcherStatusTxt != null)
+                    {
+                        EmulatorPatcherStatusTxt.Text = $"✅ Эмулятор {Path.GetFileName(exePath)} успешно пропатчен для Direct Boot (NUP и Plaintext NSP)! Резервная копия: {Path.GetFileName(bakPath)}.";
+                        EmulatorPatcherStatusTxt.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.LimeGreen);
+                    }
+                    App.Logger.Log($"[Direct Boot] Эмулятор пропатчен: {exePath} (бэкап: {bakPath})", Models.LogLevel.Success);
+                }
+                catch (Exception ex)
                 {
-                    Array.Copy(stampBytes, 0, exeBytes, freeOffset, stampBytes.Length);
-                    patched = true;
+                    if (EmulatorPatcherStatusTxt != null)
+                    {
+                        EmulatorPatcherStatusTxt.Text = $"⚠️ Ошибка при патчинге эмулятора: {ex.Message}";
+                        EmulatorPatcherStatusTxt.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.OrangeRed);
+                    }
+                    App.Logger.Log($"[Direct Boot] Ошибка патчинга: {ex.Message}", Models.LogLevel.Error);
                 }
-
-                await File.WriteAllBytesAsync(exePath, exeBytes);
-
-                if (EmulatorPatcherStatusTxt != null)
-                {
-                    EmulatorPatcherStatusTxt.Text = $"✅ Эмулятор {Path.GetFileName(exePath)} успешно пропатчен для Direct Boot (NUP и Plaintext NSP)! Резервная копия: {Path.GetFileName(bakPath)}.";
-                    EmulatorPatcherStatusTxt.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.LimeGreen);
-                }
-                App.Logger.Log($"[Direct Boot] Эмулятор пропатчен: {exePath} (бэкап: {bakPath})", Models.LogLevel.Success);
             }
             catch (Exception ex)
             {
-                if (EmulatorPatcherStatusTxt != null)
-                {
-                    EmulatorPatcherStatusTxt.Text = $"⚠️ Ошибка при патчинге эмулятора: {ex.Message}";
-                    EmulatorPatcherStatusTxt.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.OrangeRed);
-                }
-                App.Logger.Log($"[Direct Boot] Ошибка патчинга: {ex.Message}", Models.LogLevel.Error);
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
         private async void RestoreEmulatorExe_Click(object sender, RoutedEventArgs e)
         {
-            string? chosenPath = await SystemDialogService.OpenFileDialogAsync(
-                "Выберите исполняемый файл эмулятора или его резервную копию (.bak)",
-                "Файлы эмулятора (*.exe;*.bak)|*.exe;*.bak|Все файлы (*.*)|*.*");
-
-            if (string.IsNullOrWhiteSpace(chosenPath)) return;
-
-            string exePath = chosenPath.EndsWith(".bak", StringComparison.OrdinalIgnoreCase) 
-                ? chosenPath.Substring(0, chosenPath.Length - 4) 
-                : chosenPath;
-            string bakPath = exePath + ".bak";
-
-            if (!File.Exists(bakPath))
-            {
-                if (EmulatorPatcherStatusTxt != null)
-                {
-                    EmulatorPatcherStatusTxt.Text = $"⚠️ Резервная копия не найдена: {Path.GetFileName(bakPath)}";
-                    EmulatorPatcherStatusTxt.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.OrangeRed);
-                }
-                return;
-            }
-
             try
             {
-                File.Copy(bakPath, exePath, true);
-                if (EmulatorPatcherStatusTxt != null)
+                string? chosenPath = await SystemDialogService.OpenFileDialogAsync(
+                    "Выберите исполняемый файл эмулятора или его резервную копию (.bak)",
+                    "Файлы эмулятора (*.exe;*.bak)|*.exe;*.bak|Все файлы (*.*)|*.*");
+
+                if (string.IsNullOrWhiteSpace(chosenPath)) return;
+
+                string exePath = chosenPath.EndsWith(".bak", StringComparison.OrdinalIgnoreCase) 
+                    ? chosenPath.Substring(0, chosenPath.Length - 4) 
+                    : chosenPath;
+                string bakPath = exePath + ".bak";
+
+                if (!File.Exists(bakPath))
                 {
-                    EmulatorPatcherStatusTxt.Text = $"✅ Исполняемый файл {Path.GetFileName(exePath)} успешно восстановлен из резервной копии {Path.GetFileName(bakPath)}.";
-                    EmulatorPatcherStatusTxt.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.LimeGreen);
+                    if (EmulatorPatcherStatusTxt != null)
+                    {
+                        EmulatorPatcherStatusTxt.Text = $"⚠️ Резервная копия не найдена: {Path.GetFileName(bakPath)}";
+                        EmulatorPatcherStatusTxt.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.OrangeRed);
+                    }
+                    return;
                 }
-                App.Logger.Log($"[Direct Boot] Восстановлен оригинал эмулятора: {exePath} из {bakPath}", Models.LogLevel.Success);
+
+                try
+                {
+                    File.Copy(bakPath, exePath, true);
+                    if (EmulatorPatcherStatusTxt != null)
+                    {
+                        EmulatorPatcherStatusTxt.Text = $"✅ Исполняемый файл {Path.GetFileName(exePath)} успешно восстановлен из резервной копии {Path.GetFileName(bakPath)}.";
+                        EmulatorPatcherStatusTxt.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.LimeGreen);
+                    }
+                    App.Logger.Log($"[Direct Boot] Восстановлен оригинал эмулятора: {exePath} из {bakPath}", Models.LogLevel.Success);
+                }
+                catch (Exception ex)
+                {
+                    if (EmulatorPatcherStatusTxt != null)
+                    {
+                        EmulatorPatcherStatusTxt.Text = $"⚠️ Ошибка восстановления: {ex.Message}";
+                        EmulatorPatcherStatusTxt.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.OrangeRed);
+                    }
+                    App.Logger.Log($"[Direct Boot] Ошибка восстановления: {ex.Message}", Models.LogLevel.Error);
+                }
             }
             catch (Exception ex)
             {
-                if (EmulatorPatcherStatusTxt != null)
-                {
-                    EmulatorPatcherStatusTxt.Text = $"⚠️ Ошибка восстановления: {ex.Message}";
-                    EmulatorPatcherStatusTxt.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.OrangeRed);
-                }
-                App.Logger.Log($"[Direct Boot] Ошибка восстановления: {ex.Message}", Models.LogLevel.Error);
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
@@ -1852,24 +2255,45 @@ namespace StormSwitchBox.Views
 
         private async void CompressionCombo_Changed(object sender, SelectionChangedEventArgs e)
         {
-            if (sender is ComboBox cb && cb.SelectedItem is ComboBoxItem item)
+            try
             {
-                if (int.TryParse(item.Tag?.ToString(), out int level))
+                if (sender is ComboBox cb && cb.SelectedItem is ComboBoxItem item)
                 {
-                    App.Settings.Current.CompressionLevel = level;
-                    await App.Settings.SaveAsync();
+                    if (int.TryParse(item.Tag?.ToString(), out int level))
+                    {
+                        App.Settings.Current.CompressionLevel = level;
+                        await App.Settings.SaveAsync();
+                    }
                 }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
         private async void Setting_ValueChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
         {
-            await App.Settings.SaveAsync();
+            try
+            {
+                await App.Settings.SaveAsync();
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
+            }
         }
 
         private async void Toggle_Changed(object sender, RoutedEventArgs e)
         {
-            await App.Settings.SaveAsync();
+            try
+            {
+                await App.Settings.SaveAsync();
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
+            }
         }
 
         private void OutputFolderBox_DragOver(object sender, DragEventArgs e)
@@ -1884,50 +2308,76 @@ namespace StormSwitchBox.Views
         private async void OutputFolderBox_Drop(object sender, DragEventArgs e)
         {
             e.Handled = true;
-            if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+            var deferral = e.GetDeferral();
+            try
             {
-                var items = await e.DataView.GetStorageItemsAsync();
-                if (items.Count > 0)
+                if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
                 {
-                    var item = items[0];
-                    string path = item.Path;
-                    if (System.IO.File.Exists(path))
+                    var items = await e.DataView.GetStorageItemsAsync();
+                    if (items.Count > 0)
                     {
-                        path = System.IO.Path.GetDirectoryName(path) ?? path;
-                    }
-                    if (System.IO.Directory.Exists(path))
-                    {
-                        App.Settings.Current.OutputFolder = path;
-                        OutputFolderBox.Text = path;
-                        await App.Settings.SaveAsync();
-                        App.Logger.Log($"Выходная папка Switch установлена перетягиванием: {path}", Models.LogLevel.Success);
+                        var item = items[0];
+                        string path = item.Path;
+                        if (System.IO.File.Exists(path))
+                        {
+                            path = System.IO.Path.GetDirectoryName(path) ?? path;
+                        }
+                        if (System.IO.Directory.Exists(path))
+                        {
+                            App.Settings.Current.OutputFolder = path;
+                            OutputFolderBox.Text = path;
+                            await App.Settings.SaveAsync();
+                            App.Logger.Log($"Выходная папка Switch установлена перетягиванием: {path}", Models.LogLevel.Success);
+                        }
                     }
                 }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings Drop] {ex.Message}", Models.LogLevel.Warning);
+            }
+            finally
+            {
+                deferral.Complete();
             }
         }
 
         // ===== Выбор и очистка каталога для архивов SDMC =====
         private async void SelectSdmcArchiveFolder_Click(object sender, RoutedEventArgs e)
         {
-            string? folder = await SystemDialogService.OpenFolderDialogAsync(
-                "Выберите каталог для архивов SDMC",
-                !string.IsNullOrEmpty(App.Settings.Current.SdmcArchiveFolder) ? App.Settings.Current.SdmcArchiveFolder : null);
-
-            if (!string.IsNullOrWhiteSpace(folder) && System.IO.Directory.Exists(folder))
+            try
             {
-                App.Settings.Current.SdmcArchiveFolder = folder;
-                SdmcArchiveFolderBox.Text = folder;
-                await App.Settings.SaveAsync();
-                App.Logger.Log($"Каталог для архивов SDMC: {folder}", Models.LogLevel.Success);
+                string? folder = await SystemDialogService.OpenFolderDialogAsync(
+                    "Выберите каталог для архивов SDMC",
+                    !string.IsNullOrEmpty(App.Settings.Current.SdmcArchiveFolder) ? App.Settings.Current.SdmcArchiveFolder : null);
+
+                if (!string.IsNullOrWhiteSpace(folder) && System.IO.Directory.Exists(folder))
+                {
+                    App.Settings.Current.SdmcArchiveFolder = folder;
+                    SdmcArchiveFolderBox.Text = folder;
+                    await App.Settings.SaveAsync();
+                    App.Logger.Log($"Каталог для архивов SDMC: {folder}", Models.LogLevel.Success);
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
         private async void ClearSdmcArchiveFolder_Click(object sender, RoutedEventArgs e)
         {
-            App.Settings.Current.SdmcArchiveFolder = string.Empty;
-            SdmcArchiveFolderBox.Text = string.Empty;
-            await App.Settings.SaveAsync();
-            App.Logger.Log("[Settings] Каталог для архивов SDMC очищен (автономные ZIP-архивы отключены)", Models.LogLevel.Info);
+            try
+            {
+                App.Settings.Current.SdmcArchiveFolder = string.Empty;
+                SdmcArchiveFolderBox.Text = string.Empty;
+                await App.Settings.SaveAsync();
+                App.Logger.Log("[Settings] Каталог для архивов SDMC очищен (автономные ZIP-архивы отключены)", Models.LogLevel.Info);
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
+            }
         }
 
         private void SdmcArchiveFolderBox_DragOver(object sender, DragEventArgs e)
@@ -1942,50 +2392,76 @@ namespace StormSwitchBox.Views
         private async void SdmcArchiveFolderBox_Drop(object sender, DragEventArgs e)
         {
             e.Handled = true;
-            if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+            var deferral = e.GetDeferral();
+            try
             {
-                var items = await e.DataView.GetStorageItemsAsync();
-                if (items.Count > 0)
+                if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
                 {
-                    var item = items[0];
-                    string path = item.Path;
-                    if (System.IO.File.Exists(path))
+                    var items = await e.DataView.GetStorageItemsAsync();
+                    if (items.Count > 0)
                     {
-                        path = System.IO.Path.GetDirectoryName(path) ?? path;
-                    }
-                    if (System.IO.Directory.Exists(path))
-                    {
-                        App.Settings.Current.SdmcArchiveFolder = path;
-                        SdmcArchiveFolderBox.Text = path;
-                        await App.Settings.SaveAsync();
-                        App.Logger.Log($"Каталог для архивов SDMC установлен перетягиванием: {path}", Models.LogLevel.Success);
+                        var item = items[0];
+                        string path = item.Path;
+                        if (System.IO.File.Exists(path))
+                        {
+                            path = System.IO.Path.GetDirectoryName(path) ?? path;
+                        }
+                        if (System.IO.Directory.Exists(path))
+                        {
+                            App.Settings.Current.SdmcArchiveFolder = path;
+                            SdmcArchiveFolderBox.Text = path;
+                            await App.Settings.SaveAsync();
+                            App.Logger.Log($"Каталог для архивов SDMC установлен перетягиванием: {path}", Models.LogLevel.Success);
+                        }
                     }
                 }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings Drop] {ex.Message}", Models.LogLevel.Warning);
+            }
+            finally
+            {
+                deferral.Complete();
             }
         }
 
         // ===== Выбор и очистка выходной папки 3DS =====
         private async void SelectOutputFolder3ds_Click(object sender, RoutedEventArgs e)
         {
-            string? folder = await SystemDialogService.OpenFolderDialogAsync(
-                "Выберите выходную папку 3DS по умолчанию",
-                !string.IsNullOrEmpty(App.Settings.Current.OutputFolder3ds) ? App.Settings.Current.OutputFolder3ds : null);
-
-            if (!string.IsNullOrWhiteSpace(folder) && System.IO.Directory.Exists(folder))
+            try
             {
-                App.Settings.Current.OutputFolder3ds = folder;
-                OutputFolderBox3ds.Text = folder;
-                await App.Settings.SaveAsync();
-                App.Logger.Log($"Выходная папка 3DS: {folder}", Models.LogLevel.Success);
+                string? folder = await SystemDialogService.OpenFolderDialogAsync(
+                    "Выберите выходную папку 3DS по умолчанию",
+                    !string.IsNullOrEmpty(App.Settings.Current.OutputFolder3ds) ? App.Settings.Current.OutputFolder3ds : null);
+
+                if (!string.IsNullOrWhiteSpace(folder) && System.IO.Directory.Exists(folder))
+                {
+                    App.Settings.Current.OutputFolder3ds = folder;
+                    OutputFolderBox3ds.Text = folder;
+                    await App.Settings.SaveAsync();
+                    App.Logger.Log($"Выходная папка 3DS: {folder}", Models.LogLevel.Success);
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
         private async void ClearOutputFolder3ds_Click(object sender, RoutedEventArgs e)
         {
-            App.Settings.Current.OutputFolder3ds = string.Empty;
-            OutputFolderBox3ds.Text = string.Empty;
-            await App.Settings.SaveAsync();
-            App.Logger.Log("[Settings] Выходная папка 3DS по умолчанию очищена (сохранение в папку с исходником)", Models.LogLevel.Info);
+            try
+            {
+                App.Settings.Current.OutputFolder3ds = string.Empty;
+                OutputFolderBox3ds.Text = string.Empty;
+                await App.Settings.SaveAsync();
+                App.Logger.Log("[Settings] Выходная папка 3DS по умолчанию очищена (сохранение в папку с исходником)", Models.LogLevel.Info);
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
+            }
         }
 
         private void OutputFolderBox3ds_DragOver(object sender, DragEventArgs e)
@@ -2000,25 +2476,37 @@ namespace StormSwitchBox.Views
         private async void OutputFolderBox3ds_Drop(object sender, DragEventArgs e)
         {
             e.Handled = true;
-            if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+            var deferral = e.GetDeferral();
+            try
             {
-                var items = await e.DataView.GetStorageItemsAsync();
-                if (items.Count > 0)
+                if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
                 {
-                    var item = items[0];
-                    string path = item.Path;
-                    if (System.IO.File.Exists(path))
+                    var items = await e.DataView.GetStorageItemsAsync();
+                    if (items.Count > 0)
                     {
-                        path = System.IO.Path.GetDirectoryName(path) ?? path;
-                    }
-                    if (System.IO.Directory.Exists(path))
-                    {
-                        App.Settings.Current.OutputFolder3ds = path;
-                        OutputFolderBox3ds.Text = path;
-                        await App.Settings.SaveAsync();
-                        App.Logger.Log($"Выходная папка 3DS установлена перетягиванием: {path}", Models.LogLevel.Success);
+                        var item = items[0];
+                        string path = item.Path;
+                        if (System.IO.File.Exists(path))
+                        {
+                            path = System.IO.Path.GetDirectoryName(path) ?? path;
+                        }
+                        if (System.IO.Directory.Exists(path))
+                        {
+                            App.Settings.Current.OutputFolder3ds = path;
+                            OutputFolderBox3ds.Text = path;
+                            await App.Settings.SaveAsync();
+                            App.Logger.Log($"Выходная папка 3DS установлена перетягиванием: {path}", Models.LogLevel.Success);
+                        }
                     }
                 }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings Drop] {ex.Message}", Models.LogLevel.Warning);
+            }
+            finally
+            {
+                deferral.Complete();
             }
         }
 
@@ -2042,167 +2530,174 @@ namespace StormSwitchBox.Views
 
         private async void CheckUpdatesButton_Click(object sender, RoutedEventArgs e)
         {
-            CheckUpdatesButton.IsEnabled = false;
-            UpdateProgressRing.IsActive = true;
-            UpdateProgressRing.Visibility = Visibility.Visible;
-
             try
             {
-                using var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(12) };
-                client.DefaultRequestHeaders.Add("User-Agent", "StormSwitchBox-Updater");
+                CheckUpdatesButton.IsEnabled = false;
+                UpdateProgressRing.IsActive = true;
+                UpdateProgressRing.Visibility = Visibility.Visible;
 
-                var asmVer = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
-                var currentVer = asmVer != null ? new Version(asmVer.Major, asmVer.Minor, Math.Max(0, asmVer.Build)) : new Version(6, 3, 0);
-                string currentVerStr = currentVer.ToString();
-
-                string bestTag = "";
-                string bestBody = "";
-                string bestDownloadUrl = "";
-                string bestAssetName = "";
-                string bestSource = "GitHub + STORM GAMES WORLD";
-
-                // 1. Проверка на GitHub (https://github.com/ReiKatari/STORM_SWITCH_BOX)
                 try
                 {
-                    var ghResp = await client.GetAsync("https://api.github.com/repos/ReiKatari/STORM_SWITCH_BOX/releases/latest");
-                    if (ghResp.IsSuccessStatusCode)
-                    {
-                        var jsonString = await ghResp.Content.ReadAsStringAsync();
-                        using var doc = System.Text.Json.JsonDocument.Parse(jsonString);
-                        var root = doc.RootElement;
-                        string tagName = (root.TryGetProperty("tag_name", out var tp) ? tp.GetString() ?? "" : "").TrimStart('v', 'V').Trim();
-                        string body = root.TryGetProperty("body", out var bodyProp) ? bodyProp.GetString() ?? "" : "";
-                        string dlUrl = "";
-                        string aName = "";
+                    using var client = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(12) };
+                    client.DefaultRequestHeaders.Add("User-Agent", "StormSwitchBox-Updater");
 
-                        if (root.TryGetProperty("assets", out var assetsProp) && assetsProp.ValueKind == System.Text.Json.JsonValueKind.Array)
+                    var asmVer = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+                    var currentVer = asmVer != null ? new Version(asmVer.Major, asmVer.Minor, Math.Max(0, asmVer.Build)) : new Version(6, 3, 0);
+                    string currentVerStr = currentVer.ToString();
+
+                    string bestTag = "";
+                    string bestBody = "";
+                    string bestDownloadUrl = "";
+                    string bestAssetName = "";
+                    string bestSource = "GitHub + STORM GAMES WORLD";
+
+                    // 1. Проверка на GitHub (https://github.com/ReiKatari/STORM_SWITCH_BOX)
+                    try
+                    {
+                        var ghResp = await client.GetAsync("https://api.github.com/repos/ReiKatari/STORM_SWITCH_BOX/releases/latest");
+                        if (ghResp.IsSuccessStatusCode)
                         {
-                            foreach (var asset in assetsProp.EnumerateArray())
+                            var jsonString = await ghResp.Content.ReadAsStringAsync();
+                            using var doc = System.Text.Json.JsonDocument.Parse(jsonString);
+                            var root = doc.RootElement;
+                            string tagName = (root.TryGetProperty("tag_name", out var tp) ? tp.GetString() ?? "" : "").TrimStart('v', 'V').Trim();
+                            string body = root.TryGetProperty("body", out var bodyProp) ? bodyProp.GetString() ?? "" : "";
+                            string dlUrl = "";
+                            string aName = "";
+
+                            if (root.TryGetProperty("assets", out var assetsProp) && assetsProp.ValueKind == System.Text.Json.JsonValueKind.Array)
                             {
-                                string name = asset.GetProperty("name").GetString() ?? "";
-                                if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                                foreach (var asset in assetsProp.EnumerateArray())
                                 {
-                                    dlUrl = asset.GetProperty("browser_download_url").GetString() ?? "";
-                                    aName = name;
-                                    break;
-                                }
-                                else if (name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) && string.IsNullOrEmpty(dlUrl))
-                                {
-                                    dlUrl = asset.GetProperty("browser_download_url").GetString() ?? "";
-                                    aName = name;
+                                    string name = asset.GetProperty("name").GetString() ?? "";
+                                    if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        dlUrl = asset.GetProperty("browser_download_url").GetString() ?? "";
+                                        aName = name;
+                                        break;
+                                    }
+                                    else if (name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) && string.IsNullOrEmpty(dlUrl))
+                                    {
+                                        dlUrl = asset.GetProperty("browser_download_url").GetString() ?? "";
+                                        aName = name;
+                                    }
                                 }
                             }
-                        }
 
-                        if (!string.IsNullOrEmpty(tagName))
-                        {
-                            bestTag = tagName;
-                            bestBody = body;
-                            bestDownloadUrl = dlUrl;
-                            bestAssetName = aName;
-                            bestSource = "GitHub (ReiKatari/STORM_SWITCH_BOX)";
-                        }
-                    }
-                }
-                catch { }
-
-                // 2. Проверка на STORM GAMES WORLD (https://stormgamesworld.ru/programs?repo=STORM_SWITCH_BOX)
-                try
-                {
-                    var sgwResp = await client.GetAsync("https://stormgamesworld.ru/api/programs?id=storm_switch_box");
-                    if (sgwResp.IsSuccessStatusCode)
-                    {
-                        string sgwBody = await sgwResp.Content.ReadAsStringAsync();
-                        if (sgwBody.TrimStart().StartsWith("{"))
-                        {
-                            using var sgwDoc = System.Text.Json.JsonDocument.Parse(sgwBody);
-                            var sRoot = sgwDoc.RootElement;
-                            string sVer = (sRoot.TryGetProperty("version", out var vp) ? vp.GetString() ?? "" : "").TrimStart('v', 'V').Trim();
-                            if (!string.IsNullOrEmpty(sVer) && Version.TryParse(sVer, out var parsedSgw))
+                            if (!string.IsNullOrEmpty(tagName))
                             {
-                                if (string.IsNullOrEmpty(bestTag) || (Version.TryParse(bestTag, out var parsedGh) && parsedSgw > parsedGh))
-                                {
-                                    bestTag = sVer;
-                                    bestAssetName = $"STORM_SWITCH_BOX_{sVer}_Setup.exe";
-                                    bestDownloadUrl = sRoot.TryGetProperty("setupUrl", out var su) && !string.IsNullOrEmpty(su.GetString())
-                                        ? su.GetString()!
-                                        : $"https://github.com/ReiKatari/STORM_SWITCH_BOX/releases/download/{sVer}/{bestAssetName}";
-                                    bestBody = sRoot.TryGetProperty("changelog", out var cl) ? cl.GetString() ?? "" : $"Доступно обновление {sVer} на STORM GAMES WORLD.";
-                                    bestSource = "STORM GAMES WORLD (stormgamesworld.ru)";
-                                }
-                                else if (Version.TryParse(bestTag, out var parsedEq) && parsedSgw == parsedEq)
-                                {
-                                    bestSource = "GitHub и STORM GAMES WORLD";
-                                }
+                                bestTag = tagName;
+                                bestBody = body;
+                                bestDownloadUrl = dlUrl;
+                                bestAssetName = aName;
+                                bestSource = "GitHub (ReiKatari/STORM_SWITCH_BOX)";
                             }
                         }
                     }
-                }
-                catch { }
+                    catch { }
 
-                if (!string.IsNullOrEmpty(bestTag) && Version.TryParse(bestTag, out var latestVer) && latestVer > currentVer)
+                    // 2. Проверка на STORM GAMES WORLD (https://stormgamesworld.ru/programs?repo=STORM_SWITCH_BOX)
+                    try
+                    {
+                        var sgwResp = await client.GetAsync("https://stormgamesworld.ru/api/programs?id=storm_switch_box");
+                        if (sgwResp.IsSuccessStatusCode)
+                        {
+                            string sgwBody = await sgwResp.Content.ReadAsStringAsync();
+                            if (sgwBody.TrimStart().StartsWith("{"))
+                            {
+                                using var sgwDoc = System.Text.Json.JsonDocument.Parse(sgwBody);
+                                var sRoot = sgwDoc.RootElement;
+                                string sVer = (sRoot.TryGetProperty("version", out var vp) ? vp.GetString() ?? "" : "").TrimStart('v', 'V').Trim();
+                                if (!string.IsNullOrEmpty(sVer) && Version.TryParse(sVer, out var parsedSgw))
+                                {
+                                    if (string.IsNullOrEmpty(bestTag) || (Version.TryParse(bestTag, out var parsedGh) && parsedSgw > parsedGh))
+                                    {
+                                        bestTag = sVer;
+                                        bestAssetName = $"STORM_SWITCH_BOX_{sVer}_Setup.exe";
+                                        bestDownloadUrl = sRoot.TryGetProperty("setupUrl", out var su) && !string.IsNullOrEmpty(su.GetString())
+                                            ? su.GetString()!
+                                            : $"https://github.com/ReiKatari/STORM_SWITCH_BOX/releases/download/{sVer}/{bestAssetName}";
+                                        bestBody = sRoot.TryGetProperty("changelog", out var cl) ? cl.GetString() ?? "" : $"Доступно обновление {sVer} на STORM GAMES WORLD.";
+                                        bestSource = "STORM GAMES WORLD (stormgamesworld.ru)";
+                                    }
+                                    else if (Version.TryParse(bestTag, out var parsedEq) && parsedSgw == parsedEq)
+                                    {
+                                        bestSource = "GitHub и STORM GAMES WORLD";
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    catch { }
+
+                    if (!string.IsNullOrEmpty(bestTag) && Version.TryParse(bestTag, out var latestVer) && latestVer > currentVer)
+                    {
+                        var dialog = new ContentDialog
+                        {
+                            Title = "Доступно новое обновление!",
+                            PrimaryButtonText = "Скачать и обновить",
+                            SecondaryButtonText = "Открыть STORM GAMES WORLD",
+                            CloseButtonText = "Отмена",
+                            XamlRoot = this.XamlRoot,
+                            Content = new StackPanel
+                            {
+                                Spacing = 12,
+                                Children =
+                                {
+                                    new TextBlock { Text = $"Доступна версия: {bestTag} (Текущая: {currentVerStr})\nИсточник: {bestSource}", FontSize = 15, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold },
+                                    new TextBlock { Text = "Список изменений:", FontSize = 12, Foreground = Application.Current.Resources.TryGetValue("TextFillColorSecondaryBrush", out var resBrush) && resBrush is Microsoft.UI.Xaml.Media.Brush b ? b : new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Gray) },
+                                    new ScrollViewer
+                                    {
+                                        MaxHeight = 160,
+                                        Content = new TextBlock { Text = bestBody, TextWrapping = TextWrapping.Wrap, FontSize = 12 }
+                                    }
+                                }
+                            }
+                        };
+
+                        var result = await dialog.ShowAsync();
+                        if (result == ContentDialogResult.Primary && !string.IsNullOrEmpty(bestDownloadUrl))
+                        {
+                            await StartDownloadAndUpdateAsync(bestDownloadUrl, bestAssetName);
+                        }
+                        else if (result == ContentDialogResult.Secondary)
+                        {
+                            OpenStormWorldButton_Click(sender, e);
+                        }
+                    }
+                    else
+                    {
+                        var dialog = new ContentDialog
+                        {
+                            Title = "Обновления не найдены",
+                            Content = new TextBlock { Text = $"У вас установлена актуальная версия STORM SWITCH BOX {currentVerStr}.\nПроверены оба официальных источника:\n• https://github.com/ReiKatari/STORM_SWITCH_BOX\n• https://stormgamesworld.ru/programs?repo=STORM_SWITCH_BOX", TextWrapping = TextWrapping.Wrap },
+                            CloseButtonText = "OK",
+                            XamlRoot = this.XamlRoot
+                        };
+                        await dialog.ShowAsync();
+                    }
+                }
+                catch (Exception ex)
                 {
                     var dialog = new ContentDialog
                     {
-                        Title = "Доступно новое обновление!",
-                        PrimaryButtonText = "Скачать и обновить",
-                        SecondaryButtonText = "Открыть STORM GAMES WORLD",
-                        CloseButtonText = "Отмена",
-                        XamlRoot = this.XamlRoot,
-                        Content = new StackPanel
-                        {
-                            Spacing = 12,
-                            Children =
-                            {
-                                new TextBlock { Text = $"Доступна версия: {bestTag} (Текущая: {currentVerStr})\nИсточник: {bestSource}", FontSize = 15, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold },
-                                new TextBlock { Text = "Список изменений:", FontSize = 12, Foreground = Application.Current.Resources.TryGetValue("TextFillColorSecondaryBrush", out var resBrush) && resBrush is Microsoft.UI.Xaml.Media.Brush b ? b : new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Gray) },
-                                new ScrollViewer
-                                {
-                                    MaxHeight = 160,
-                                    Content = new TextBlock { Text = bestBody, TextWrapping = TextWrapping.Wrap, FontSize = 12 }
-                                }
-                            }
-                        }
-                    };
-
-                    var result = await dialog.ShowAsync();
-                    if (result == ContentDialogResult.Primary && !string.IsNullOrEmpty(bestDownloadUrl))
-                    {
-                        await StartDownloadAndUpdateAsync(bestDownloadUrl, bestAssetName);
-                    }
-                    else if (result == ContentDialogResult.Secondary)
-                    {
-                        OpenStormWorldButton_Click(sender, e);
-                    }
-                }
-                else
-                {
-                    var dialog = new ContentDialog
-                    {
-                        Title = "Обновления не найдены",
-                        Content = new TextBlock { Text = $"У вас установлена актуальная версия STORM SWITCH BOX {currentVerStr}.\nПроверены оба официальных источника:\n• https://github.com/ReiKatari/STORM_SWITCH_BOX\n• https://stormgamesworld.ru/programs?repo=STORM_SWITCH_BOX", TextWrapping = TextWrapping.Wrap },
+                        Title = "Ошибка при проверке обновлений",
+                        Content = new TextBlock { Text = ex.Message, TextWrapping = TextWrapping.Wrap },
                         CloseButtonText = "OK",
                         XamlRoot = this.XamlRoot
                     };
                     await dialog.ShowAsync();
                 }
+                finally
+                {
+                    CheckUpdatesButton.IsEnabled = true;
+                    UpdateProgressRing.IsActive = false;
+                    UpdateProgressRing.Visibility = Visibility.Collapsed;
+                }
             }
             catch (Exception ex)
             {
-                var dialog = new ContentDialog
-                {
-                    Title = "Ошибка при проверке обновлений",
-                    Content = new TextBlock { Text = ex.Message, TextWrapping = TextWrapping.Wrap },
-                    CloseButtonText = "OK",
-                    XamlRoot = this.XamlRoot
-                };
-                await dialog.ShowAsync();
-            }
-            finally
-            {
-                CheckUpdatesButton.IsEnabled = true;
-                UpdateProgressRing.IsActive = false;
-                UpdateProgressRing.Visibility = Visibility.Collapsed;
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
@@ -2376,9 +2871,10 @@ echo Обновление завершено. >> ""{logPath}""
         {
             try
             {
-                string logsDir = System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory, "logs");
-                if (System.IO.Directory.Exists(logsDir))
+                string logsDir = App.Logger.LogsDirectory;
+                if (!string.IsNullOrWhiteSpace(logsDir))
                 {
+                    System.IO.Directory.CreateDirectory(logsDir);
                     System.Diagnostics.Process.Start("explorer.exe", logsDir);
                 }
             }
@@ -2451,36 +2947,43 @@ echo Обновление завершено. >> ""{logPath}""
 
         private async void VerBox_TextChanged(object sender, TextChangedEventArgs e)
         {
-            if (_isInitializingVersion) return;
-
-            if (sender is TextBox tb)
+            try
             {
-                string val = new string(tb.Text.Where(char.IsDigit).ToArray());
-                if (tb.Text != val)
+                if (_isInitializingVersion) return;
+
+                if (sender is TextBox tb)
                 {
-                    tb.Text = val;
-                    tb.SelectionStart = val.Length;
-                    return;
+                    string val = new string(tb.Text.Where(char.IsDigit).ToArray());
+                    if (tb.Text != val)
+                    {
+                        tb.Text = val;
+                        tb.SelectionStart = val.Length;
+                        return;
+                    }
+
+                    if (val.Length == 1)
+                    {
+                        if (tb == VerBox1) VerBox2.Focus(FocusState.Programmatic);
+                        else if (tb == VerBox2) VerBox4.Focus(FocusState.Programmatic);
+                        else if (tb == VerBox4) VerBox6.Focus(FocusState.Programmatic);
+                    }
                 }
 
-                if (val.Length == 1)
+                string v1 = VerBox1.Text;
+                string v2 = VerBox2.Text;
+                string v4 = VerBox4.Text;
+                string v6 = VerBox6.Text;
+
+                string fullVersion = $"{v1}{v2}.{v4}.{v6}";
+                if (App.Settings.Current.KeysVersion != fullVersion)
                 {
-                    if (tb == VerBox1) VerBox2.Focus(FocusState.Programmatic);
-                    else if (tb == VerBox2) VerBox4.Focus(FocusState.Programmatic);
-                    else if (tb == VerBox4) VerBox6.Focus(FocusState.Programmatic);
+                    App.Settings.Current.KeysVersion = fullVersion;
+                    await App.Settings.SaveAsync();
                 }
             }
-
-            string v1 = VerBox1.Text;
-            string v2 = VerBox2.Text;
-            string v4 = VerBox4.Text;
-            string v6 = VerBox6.Text;
-
-            string fullVersion = $"{v1}{v2}.{v4}.{v6}";
-            if (App.Settings.Current.KeysVersion != fullVersion)
+            catch (Exception ex)
             {
-                App.Settings.Current.KeysVersion = fullVersion;
-                await App.Settings.SaveAsync();
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
@@ -2512,31 +3015,52 @@ echo Обновление завершено. >> ""{logPath}""
         // ===== Управление путями к папкам эмуляторов (Drag & Drop, выбор, удаление) =====
         private async void AddEmulatorDir_Click(object sender, RoutedEventArgs e)
         {
-            string? folder = await SystemDialogService.OpenFolderDialogAsync(
-                "Выберите папку эмулятора (STORM SWITCH, Yuzu, Ryujinx, Suyu, Sudachi и др.)", null);
-
-            if (!string.IsNullOrWhiteSpace(folder) && System.IO.Directory.Exists(folder))
+            try
             {
-                await AddEmulatorDirectoryAsync(folder);
+                string? folder = await SystemDialogService.OpenFolderDialogAsync(
+                    "Выберите папку эмулятора (STORM SWITCH, Yuzu, Ryujinx, Suyu, Sudachi и др.)", null);
+
+                if (!string.IsNullOrWhiteSpace(folder) && System.IO.Directory.Exists(folder))
+                {
+                    await AddEmulatorDirectoryAsync(folder);
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
         private async void ClearEmulatorDirs_Click(object sender, RoutedEventArgs e)
         {
-            _emulatorDirs.Clear();
-            App.Settings.Current.EmulatorDirectories = new System.Collections.Generic.List<string>();
-            await App.Settings.SaveAsync();
-            App.Logger.Log("Список пользовательских папок эмуляторов очищен (включен автоматический поиск по всем дискам).", Models.LogLevel.Info);
+            try
+            {
+                _emulatorDirs.Clear();
+                App.Settings.Current.EmulatorDirectories = new System.Collections.Generic.List<string>();
+                await App.Settings.SaveAsync();
+                App.Logger.Log("Список пользовательских папок эмуляторов очищен (включен автоматический поиск по всем дискам).", Models.LogLevel.Info);
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
+            }
         }
 
         private async void RemoveEmulatorDir_Click(object sender, RoutedEventArgs e)
         {
-            if (sender is Button btn && btn.Tag is string path)
+            try
             {
-                _emulatorDirs.Remove(path);
-                App.Settings.Current.EmulatorDirectories = System.Linq.Enumerable.ToList(_emulatorDirs);
-                await App.Settings.SaveAsync();
-                App.Logger.Log($"Удалена папка эмулятора: {path}", Models.LogLevel.Info);
+                if (sender is Button btn && btn.Tag is string path)
+                {
+                    _emulatorDirs.Remove(path);
+                    App.Settings.Current.EmulatorDirectories = System.Linq.Enumerable.ToList(_emulatorDirs);
+                    await App.Settings.SaveAsync();
+                    App.Logger.Log($"Удалена папка эмулятора: {path}", Models.LogLevel.Info);
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings] {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
@@ -2549,20 +3073,32 @@ echo Обновление завершено. >> ""{logPath}""
         private async void EmulatorDropZone_Drop(object sender, DragEventArgs e)
         {
             e.Handled = true;
-            if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+            var deferral = e.GetDeferral();
+            try
             {
-                var items = await e.DataView.GetStorageItemsAsync();
-                foreach (var item in items)
+                if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
                 {
-                    if (item is Windows.Storage.StorageFolder folder)
+                    var items = await e.DataView.GetStorageItemsAsync();
+                    foreach (var item in items)
                     {
-                        await AddEmulatorDirectoryAsync(folder.Path);
-                    }
-                    else if (System.IO.Directory.Exists(item.Path))
-                    {
-                        await AddEmulatorDirectoryAsync(item.Path);
+                        if (item is Windows.Storage.StorageFolder folder)
+                        {
+                            await AddEmulatorDirectoryAsync(folder.Path);
+                        }
+                        else if (System.IO.Directory.Exists(item.Path))
+                        {
+                            await AddEmulatorDirectoryAsync(item.Path);
+                        }
                     }
                 }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[Settings Drop] {ex.Message}", Models.LogLevel.Warning);
+            }
+            finally
+            {
+                deferral.Complete();
             }
         }
 

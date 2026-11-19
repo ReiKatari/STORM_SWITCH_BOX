@@ -30,15 +30,12 @@ namespace StormSwitchBox.Services
         {
             if (!Directory.Exists(directoryPath)) return;
 
-            // Автоматическое извлечение архивов (.zip, .rar, .7z) перед сканированием
-            await ExtractArchivesInDirectoryAsync(directoryPath, token);
-
             string[] extensions = { ".nsp", ".nsz", ".xci", ".xcz", ".3ds", ".cci", ".cia", ".cxi" };
             var files = Directory.EnumerateFiles(directoryPath, "*.*", SearchOption.AllDirectories)
                 .Where(f => extensions.Contains(System.IO.Path.GetExtension(f).ToLowerInvariant()))
                 .ToList();
 
-            // Дедупликация — отслеживаем уже добавленные пути
+            // Дедупликация - отслеживаем уже добавленные пути
             var processedPaths = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var existing in catalog)
                 processedPaths.Add(existing.FilePath);
@@ -50,7 +47,7 @@ namespace StormSwitchBox.Services
                 // Пропуск уже добавленных файлов (дедупликация по пути)
                 if (processedPaths.Contains(file)) continue;
 
-                // Проверка целостности — пропускаем недокачанные/временные файлы
+                // Проверка целостности - пропускаем недокачанные/временные файлы
                 if (!IsFileComplete(file)) continue;
 
                 processedPaths.Add(file);
@@ -68,7 +65,7 @@ namespace StormSwitchBox.Services
                 {
                     try
                     {
-                        ExtractMetadata(item, file, token);
+                        await ExtractMetadataAsync(item, file, token).ConfigureAwait(false);
                     }
                     catch (Exception ex)
                     {
@@ -124,75 +121,6 @@ namespace StormSwitchBox.Services
             }
         }
 
-        /// <summary>
-        /// Автоматически извлекает архивы (.zip, .rar, .7z) внутри директории.
-        /// </summary>
-        private async Task ExtractArchivesInDirectoryAsync(string directoryPath, CancellationToken token)
-        {
-            string[] archiveExtensions = { ".zip", ".rar", ".7z" };
-            var archives = Directory.EnumerateFiles(directoryPath, "*.*", SearchOption.AllDirectories)
-                .Where(f => archiveExtensions.Contains(System.IO.Path.GetExtension(f).ToLowerInvariant()))
-                .ToList();
-
-            foreach (var archive in archives)
-            {
-                token.ThrowIfCancellationRequested();
-                if (!IsFileComplete(archive)) continue;
-
-                string extractDir = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(archive)!, System.IO.Path.GetFileNameWithoutExtension(archive));
-                
-                // Не извлекаем, если папка уже есть (уже извлечено ранее)
-                if (Directory.Exists(extractDir)) continue;
-
-                string ext = System.IO.Path.GetExtension(archive).ToLowerInvariant();
-                
-                App.RunOnUI(() => App.Logger.Log($"📦 Автоизвлечение архива: {System.IO.Path.GetFileName(archive)}..."));
-
-                bool extracted = false;
-
-                if (ext == ".zip")
-                {
-                    try
-                    {
-                        System.IO.Compression.ZipFile.ExtractToDirectory(archive, extractDir, overwriteFiles: true);
-                        extracted = true;
-                    }
-                    catch (Exception ex)
-                    {
-                        App.RunOnUI(() => App.Logger.Log($"⚠️ Ошибка распаковки ZIP: {ex.Message}", LogLevel.Warning));
-                    }
-                }
-                else
-                {
-                    string sevenZipPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tools", "7z.exe");
-                    if (File.Exists(sevenZipPath))
-                    {
-                        try
-                        {
-                            var proc = new System.Diagnostics.Process();
-                            proc.StartInfo.FileName = sevenZipPath;
-                            proc.StartInfo.Arguments = $"x \"{archive}\" -o\"{extractDir}\" -y";
-                            proc.StartInfo.UseShellExecute = false;
-                            proc.StartInfo.CreateNoWindow = true;
-                            proc.Start();
-                            await proc.WaitForExitAsync();
-                            if (proc.ExitCode == 0) extracted = true;
-                        }
-                        catch (Exception ex)
-                        {
-                            App.RunOnUI(() => App.Logger.Log($"⚠️ Ошибка распаковки через 7z: {ex.Message}", LogLevel.Warning));
-                        }
-                    }
-                }
-
-                if (extracted)
-                {
-                    App.RunOnUI(() => App.Logger.Log($"✅ Архив {System.IO.Path.GetFileName(archive)} распакован.", LogLevel.Success));
-                }
-            }
-        }
-
-
         public async Task ScanSingleFileAsync(string filePath, ObservableCollection<CatalogItem> catalog, CancellationToken token)
         {
             if (!File.Exists(filePath)) return;
@@ -212,11 +140,11 @@ namespace StormSwitchBox.Services
 
             App.RunOnUI(() => catalog.Add(item));
 
-            await Task.Run(() =>
+            await Task.Run(async () =>
             {
                 try
                 {
-                    ExtractMetadata(item, filePath, token);
+                    await ExtractMetadataAsync(item, filePath, token).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -230,69 +158,49 @@ namespace StormSwitchBox.Services
             }, token);
         }
 
-        private void ExtractMetadata(CatalogItem item, string filePath, CancellationToken token)
+        private async Task ExtractMetadataAsync(CatalogItem item, string filePath, CancellationToken token)
         {
             string ext = System.IO.Path.GetExtension(filePath).ToLowerInvariant();
             if (Nintendo3dsService.Is3dsExtension(ext))
             {
-                item.Is3ds = true;
-                item.Platform = "3DS";
                 var info3ds = App.Nintendo3ds.Parse3dsFile(filePath);
+                var tcs3ds = new TaskCompletionSource<bool>();
                 App.RunOnUI(() =>
                 {
-                    item.TitleId = !string.IsNullOrEmpty(info3ds?.TitleId) ? info3ds.TitleId : "3DS";
-                    item.TitleName = !string.IsNullOrEmpty(info3ds?.GameName) ? info3ds.GameName : System.IO.Path.GetFileNameWithoutExtension(filePath);
-                    item.Version = !string.IsNullOrEmpty(info3ds?.Version) ? info3ds.Version : "v0";
-                    item.Publisher = !string.IsNullOrEmpty(info3ds?.Publisher) ? info3ds.Publisher : "Nintendo";
-                    item.Category = "Nintendo 3DS";
-                    if (info3ds?.IconBytes != null && info3ds.IconBytes.Length > 0)
+                    try
                     {
-                        item.CoverBytes = info3ds.IconBytes;
-                        try
+                        item.Is3ds = true;
+                        item.Platform = "3DS";
+                        item.TitleId = !string.IsNullOrEmpty(info3ds?.TitleId) ? info3ds.TitleId : "3DS";
+                        item.TitleName = !string.IsNullOrEmpty(info3ds?.GameName) ? info3ds.GameName : System.IO.Path.GetFileNameWithoutExtension(filePath);
+                        item.Version = !string.IsNullOrEmpty(info3ds?.Version) ? info3ds.Version : "v0";
+                        item.Publisher = !string.IsNullOrEmpty(info3ds?.Publisher) ? info3ds.Publisher : "Nintendo";
+                        item.Category = "Nintendo 3DS";
+                        if (info3ds?.IconBytes != null && info3ds.IconBytes.Length > 0)
                         {
-                            var bmp = new BitmapImage();
-                            using var ms = new MemoryStream(info3ds.IconBytes);
-                            bmp.SetSource(ms.AsRandomAccessStream());
-                            item.CoverImage = bmp;
+                            item.CoverBytes = info3ds.IconBytes;
+                            try
+                            {
+                                var bmp = new BitmapImage();
+                                using var ms = new MemoryStream(info3ds.IconBytes);
+                                bmp.SetSource(ms.AsRandomAccessStream());
+                                item.CoverImage = bmp;
+                            }
+                            catch { }
                         }
-                        catch { }
+                        item.IsLoading = false;
                     }
-                    item.IsLoading = false;
+                    finally
+                    {
+                        tcs3ds.TrySetResult(true);
+                    }
                 });
+                if (App.MainDispatcher != null) await tcs3ds.Task.ConfigureAwait(false);
                 return;
             }
 
-            bool isXci = filePath.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) || filePath.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase);
-
-            using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
-            IStorage storage = fileStream.AsStorage();
-            
-            IFileSystem? fileSystem = null;
-
-            if (isXci)
-            {
-                storage.GetSize(out long storageSize).ThrowIfFailure();
-                var rootStorage = new SubStorage(storage, 0x10000, storageSize - 0x10000);
-                var rootPfs = new PartitionFileSystem(rootStorage);
-                
-                
-                using var secureFile = new LibHac.Common.UniqueRef<IFile>();
-                using var securePath2 = new LibHac.Fs.Path();
-                securePath2.Initialize(new LibHac.Common.U8Span(System.Text.Encoding.UTF8.GetBytes("/secure"))).ThrowIfFailure();
-                rootPfs.OpenFile(ref secureFile.Ref, in securePath2, LibHac.Fs.OpenMode.Read).ThrowIfFailure();
-                
-                var pfs = new PartitionFileSystem(secureFile.Release().AsStorage());
-                
-                fileSystem = pfs;
-            }
-            else
-            {
-                var pfs = new PartitionFileSystem(storage);
-                
-                fileSystem = pfs;
-            }
-
-
+            using var container = SwitchContainerHandle.Open(filePath);
+            IFileSystem fileSystem = container.FileSystem;
 
             var entries = fileSystem.EnumerateEntries().ToList();
             var titleKeyMap = new System.Collections.Generic.Dictionary<string, byte[]>();
@@ -355,6 +263,23 @@ namespace StormSwitchBox.Services
                 }
             }
 
+            // Локальные переменные вместо гонки потоков с App.RunOnUI
+            string localTitleId = item.TitleId;
+            string localTitleName = item.TitleName;
+            string localPublisher = item.Publisher;
+            string localDispVer = item.Version;
+            string localVersionCode = item.VersionCode;
+            string localSupportedLangs = item.SupportedLanguages;
+            string localRatingAge = item.RatingAge;
+            string localVideoCapture = item.VideoCapture;
+            string localSaveDataSize = item.SaveDataSize;
+            string localRegions = item.Regions;
+            byte[]? localCoverBytes = null;
+            var localScreenshots = new System.Collections.Generic.List<byte[]>();
+            bool hasControlMeta = false;
+            bool metaError = false;
+            string fileNameOnly = System.IO.Path.GetFileName(filePath);
+
             try
             {
                 foreach (var entry in entries)
@@ -387,8 +312,7 @@ namespace StormSwitchBox.Services
                             continue;
                         }
 
-                        // Оптимизация: сканеру каталога нужны ТОЛЬКО Control (иконка/название/языки), Manual (скриншоты) и Meta (CNMT версия).
-                        // Пропускаем тяжелые Program и Data NCAs (многогигабайтные образы) без их распаковки на диск!
+                        // Оптимизация: сканеру каталога нужны ТОЛЬКО Control, Manual и Meta.
                         if (nca.Header.ContentType != NcaContentType.Control && 
                             nca.Header.ContentType != NcaContentType.Manual && 
                             nca.Header.ContentType != NcaContentType.Meta)
@@ -415,295 +339,261 @@ namespace StormSwitchBox.Services
 
                         try
                         {
-                        if (nca.Header.ContentType == NcaContentType.Control)
-                        {
-                            var romfs = nca.OpenFileSystem(NcaSectionType.Data, IntegrityCheckLevel.ErrorOnInvalid);
-                            
-                            // Parse NACP
-                            using var nacpFileRef = new LibHac.Common.UniqueRef<IFile>();
-                            using var nacpPath = new LibHac.Fs.Path();
-                            nacpPath.Initialize(new LibHac.Common.U8Span(System.Text.Encoding.UTF8.GetBytes("/control.nacp"))).ThrowIfFailure();
-                            
-                            if (romfs.OpenFile(ref nacpFileRef.Ref, in nacpPath, LibHac.Fs.OpenMode.Read).IsSuccess())
-                            {
-                                var nacpStream = nacpFileRef.Release().AsStream();
-                                var nacp = new LibHac.Ns.ApplicationControlProperty();
-                                nacpStream.Read(System.Runtime.InteropServices.MemoryMarshal.AsBytes(new Span<LibHac.Ns.ApplicationControlProperty>(ref nacp)));
-                                
-                                string title = nacp.Title[0].NameString.ToString();
-                                string pub = nacp.Title[0].PublisherString.ToString();
-
-                                if (HasGarbageCharacters(title)) title = "";
-                                if (HasGarbageCharacters(pub)) pub = "";
-
-                                if (string.IsNullOrWhiteSpace(title))
-                                {
-                                    for (int i = 0; i < 16; i++)
-                                    {
-                                        string t = nacp.Title[i].NameString.ToString();
-                                        if (!string.IsNullOrWhiteSpace(t)) { title = t; break; }
-                                    }
-                                }
-
-                                if (string.IsNullOrWhiteSpace(pub))
-                                {
-                                    for (int i = 0; i < 16; i++)
-                                    {
-                                        string p = nacp.Title[i].PublisherString.ToString();
-                                        if (!string.IsNullOrWhiteSpace(p)) { pub = p; break; }
-                                    }
-                                }
-
-                                string titleIdHex = nca.Header.TitleId.ToString("X16");
-                                if (titleIdHex.EndsWith("8"))
-                                {
-                                    titleIdHex = titleIdHex.Substring(0, 15) + "0";
-                                }
-
-                                string supportedLangs = "";
-                                try
-                                {
-                                    var langs = new System.Collections.Generic.List<string>();
-                                    uint langBits = (uint)nacp.SupportedLanguageFlag;
-                                    var langNames = new[] { "AmericanEnglish", "BritishEnglish", "Japanese", "French", "German", "LatinAmericanSpanish", "Spanish", "Italian", "Dutch", "CanadianFrench", "Portuguese", "Russian", "Korean", "TraditionalChinese", "SimplifiedChinese", "BrazilianPortuguese" };
-                                    for (int i = 0; i < langNames.Length; i++)
-                                    {
-                                        if ((langBits & (1u << i)) != 0) langs.Add(langNames[i].Replace("American", "").Replace("British", "").Replace("LatinAmerican", ""));
-                                    }
-                                    supportedLangs = string.Join(", ", langs.Distinct());
-                                }
-                                catch { }
-
-                                string rating = "Нет данных";
-                                try
-                                {
-                                    if (nacp.RatingAge[2] >= 0 && nacp.RatingAge[2] < 31)
-                                        rating = $"PEGI {nacp.RatingAge[2]}+";
-                                    else if (nacp.RatingAge[1] >= 0 && nacp.RatingAge[1] < 31)
-                                        rating = $"ESRB {nacp.RatingAge[1]}+";
-                                }
-                                catch { }
-
-                                string videoCap = "Неизвестно";
-                                try { videoCap = ((int)nacp.VideoCapture == 2) ? "Да" : "Нет"; } catch { }
-
-                                string saveSize = "Неизвестно";
-                                try { saveSize = Models.ProcessingTask.FormatSize(nacp.UserAccountSaveDataSize); } catch { }
-
-                                App.RunOnUI(() =>
-                                {
-                                    bool isCurrentUpdate = titleIdHex.EndsWith("800");
-                                    
-                                    // Нормализуем TitleId к базовой игре (000), чтобы TitleDbService работал корректно
-                                    string normalizedTitleId = titleIdHex;
-                                    if (isCurrentUpdate)
-                                    {
-                                        normalizedTitleId = titleIdHex.Substring(0, 13) + "000";
-                                    }
-
-                                    // Если у нас уже есть версия от ОБНОВЛЕНИЯ (мы поняли это по флагу или потому что уже записали высокую версию),
-                                    // а сейчас читается БАЗА (000), мы не должны откатывать версию назад.
-                                    // Простой хак: если текущая NACP - обновление, мы ВСЕГДА перезаписываем версию.
-                                    // Если текущая NACP - база, мы перезаписываем только если версия еще дефолтная.
-                                    if (!isCurrentUpdate && item.Version != "v0" && item.Version != "0" && !IsBaseVersion(item.Version))
-                                    {
-                                        // База не может перезаписывать уже извлеченную версию обновления
-                                        // Но TitleId и Имя можно обновить, если они еще пустые
-                                        if (item.TitleId == "0000000000000000") item.TitleId = normalizedTitleId;
-                                        if (item.TitleName == "Unknown Game" && !string.IsNullOrWhiteSpace(title)) item.TitleName = title;
-                                        return;
-                                    }
-
-                                    item.TitleName = string.IsNullOrWhiteSpace(title) ? "Unknown" : title;
-                                    item.Publisher = string.IsNullOrWhiteSpace(pub) ? "Unknown" : pub;
-                                    string nacpVer = nacp.DisplayVersionString.ToString();
-                                    if (!IsBaseVersion(nacpVer) || IsBaseVersion(item.Version))
-                                    {
-                                        item.Version = CleanVersion(nacpVer);
-                                    }
-                                    item.TitleId = normalizedTitleId;
-
-                                    item.SupportedLanguages = string.IsNullOrEmpty(supportedLangs) ? "Неизвестно" : supportedLangs;
-                                    item.RatingAge = rating;
-                                    item.VideoCapture = videoCap;
-                                    item.SaveDataSize = saveSize;
-
-                                    // Пытаемся извлечь Регион ИЗ САМОГО ФАЙЛА (на основе вшитых языков в NACP)
-                                    string fileRegion = "";
-                                    if (!string.IsNullOrEmpty(supportedLangs))
-                                    {
-                                        bool hasUs = supportedLangs.Contains("English");
-                                        bool hasEu = supportedLangs.Contains("French") || supportedLangs.Contains("German") || supportedLangs.Contains("Italian") || supportedLangs.Contains("Spanish") || supportedLangs.Contains("Dutch");
-                                        bool hasJp = supportedLangs.Contains("Japanese");
-                                        bool hasKr = supportedLangs.Contains("Korean");
-                                        bool hasCn = supportedLangs.Contains("Chinese");
-
-                                        if (hasUs && hasEu && hasJp) fileRegion = "WW";
-                                        else if (hasUs && hasEu) fileRegion = "US/EU";
-                                        else if (hasUs && !hasEu && !hasJp) fileRegion = "US";
-                                        else if (!hasUs && hasEu) fileRegion = "EU";
-                                        else if (hasJp && !hasUs && !hasEu) fileRegion = "JP";
-                                        else if (hasKr && !hasUs && !hasEu && !hasJp) fileRegion = "KR";
-                                        else if (hasCn && !hasUs && !hasEu && !hasJp) fileRegion = "AS";
-                                    }
-
-                                    if (string.IsNullOrEmpty(fileRegion))
-                                    {
-                                        fileRegion = "UNKNOWN";
-                                    }
-                                    
-                                    item.Regions = fileRegion;
-                                });
-                            }
-
-                            // Try to get icon
-                            var iconLangs = new[] { "AmericanEnglish", "BritishEnglish", "Japanese", "French", "German", "LatinAmericanSpanish", "Spanish", "Italian", "Dutch", "CanadianFrench", "Portuguese", "Russian", "Korean", "TraditionalChinese", "SimplifiedChinese" };
-                            
-                            foreach (var lang in iconLangs)
-                            {
-                                using var iconFileRef = new LibHac.Common.UniqueRef<IFile>();
-                                using var iconPath = new LibHac.Fs.Path();
-                                iconPath.Initialize(new LibHac.Common.U8Span(System.Text.Encoding.UTF8.GetBytes($"/icon_{lang}.dat"))).ThrowIfFailure();
-                                
-                                if (romfs.OpenFile(ref iconFileRef.Ref, in iconPath, LibHac.Fs.OpenMode.Read).IsSuccess())
-                                {
-                                    using var memStream = new MemoryStream();
-                                    iconFileRef.Release().AsStream().CopyTo(memStream);
-                                    memStream.Position = 0;
-                                    var buffer = memStream.ToArray();
-
-                                    App.RunOnUI(async () =>
-                                    {
-                                        try
-                                        {
-                                            var bmp = new BitmapImage();
-                                            using var ms = new MemoryStream(buffer);
-                                            await bmp.SetSourceAsync(ms.AsRandomAccessStream());
-                                            item.CoverImage = bmp;
-                                            item.CoverBytes = buffer;
-                                        }
-                                        catch { }
-                                    });
-                                    break; // Icon found
-                                }
-                            }
-                            
-                            App.RunOnUI(() => item.IsLoading = false);
-                        }
-                        else if (nca.Header.ContentType == NcaContentType.Manual)
-                        {
-                            try
+                            if (nca.Header.ContentType == NcaContentType.Control)
                             {
                                 var romfs = nca.OpenFileSystem(NcaSectionType.Data, IntegrityCheckLevel.ErrorOnInvalid);
-                                int count = 0;
-                                foreach (var imgEntry in romfs.EnumerateEntries("/", "*.jpg").Concat(romfs.EnumerateEntries("/", "*.png")))
+                                try
                                 {
-                                    if (count >= 5) break; // Limit to 5 screenshots
-                                    
-                                    using var imgFileRef = new LibHac.Common.UniqueRef<IFile>();
-                                    using var imgPath = new LibHac.Fs.Path();
-                                    imgPath.Initialize(new LibHac.Common.U8Span(System.Text.Encoding.UTF8.GetBytes(imgEntry.FullPath))).ThrowIfFailure();
-                                    
-                                    if (romfs.OpenFile(ref imgFileRef.Ref, in imgPath, LibHac.Fs.OpenMode.Read).IsSuccess())
-                                    {
-                                        using var memStream = new MemoryStream();
-                                        imgFileRef.Release().AsStream().CopyTo(memStream);
-                                        var buffer = memStream.ToArray();
+                                    // Parse NACP
+                                    using var nacpFileRef = new LibHac.Common.UniqueRef<IFile>();
+                                    using var nacpPath = new LibHac.Fs.Path();
+                                    nacpPath.Initialize(new LibHac.Common.U8Span(System.Text.Encoding.UTF8.GetBytes("/control.nacp"))).ThrowIfFailure();
 
-                                        App.RunOnUI(async () =>
+                                    if (romfs.OpenFile(ref nacpFileRef.Ref, in nacpPath, LibHac.Fs.OpenMode.Read).IsSuccess())
+                                    {
+                                        using var nacpFile = nacpFileRef.Release();
+                                        using var nacpStream = nacpFile.AsStream();
+                                        var nacp = new LibHac.Ns.ApplicationControlProperty();
+                                        nacpStream.Read(System.Runtime.InteropServices.MemoryMarshal.AsBytes(new Span<LibHac.Ns.ApplicationControlProperty>(ref nacp)));
+
+                                        string title = nacp.Title[0].NameString.ToString();
+                                        string pub = nacp.Title[0].PublisherString.ToString();
+
+                                        if (HasGarbageCharacters(title)) title = "";
+                                        if (HasGarbageCharacters(pub)) pub = "";
+
+                                        if (string.IsNullOrWhiteSpace(title))
                                         {
+                                            for (int i = 0; i < 16; i++)
+                                            {
+                                                string t = nacp.Title[i].NameString.ToString();
+                                                if (!string.IsNullOrWhiteSpace(t)) { title = t; break; }
+                                            }
+                                        }
+
+                                        if (string.IsNullOrWhiteSpace(pub))
+                                        {
+                                            for (int i = 0; i < 16; i++)
+                                            {
+                                                string p = nacp.Title[i].PublisherString.ToString();
+                                                if (!string.IsNullOrWhiteSpace(p)) { pub = p; break; }
+                                            }
+                                        }
+
+                                        string rawTitleIdHex = nca.Header.TitleId.ToString("X16");
+                                        bool isCurrentUpdate = rawTitleIdHex.EndsWith("800", StringComparison.OrdinalIgnoreCase);
+                                        string normalizedTitleId = TitleIdHelper.NormalizeBaseTitleIdHex(rawTitleIdHex);
+
+                                        string supportedLangs = "";
+                                        try
+                                        {
+                                            var langs = new System.Collections.Generic.List<string>();
+                                            uint langBits = (uint)nacp.SupportedLanguageFlag;
+                                            var langNames = new[] { "AmericanEnglish", "BritishEnglish", "Japanese", "French", "German", "LatinAmericanSpanish", "Spanish", "Italian", "Dutch", "CanadianFrench", "Portuguese", "Russian", "Korean", "TraditionalChinese", "SimplifiedChinese", "BrazilianPortuguese" };
+                                            for (int i = 0; i < langNames.Length; i++)
+                                            {
+                                                if ((langBits & (1u << i)) != 0) langs.Add(langNames[i].Replace("American", "").Replace("British", "").Replace("LatinAmerican", ""));
+                                            }
+                                            supportedLangs = string.Join(", ", langs.Distinct());
+                                        }
+                                        catch { }
+
+                                        string rating = "Нет данных";
+                                        try
+                                        {
+                                            if (nacp.RatingAge[2] >= 0 && nacp.RatingAge[2] < 31)
+                                                rating = $"PEGI {nacp.RatingAge[2]}+";
+                                            else if (nacp.RatingAge[1] >= 0 && nacp.RatingAge[1] < 31)
+                                                rating = $"ESRB {nacp.RatingAge[1]}+";
+                                        }
+                                        catch { }
+
+                                        string videoCap = "Неизвестно";
+                                        try { videoCap = ((int)nacp.VideoCapture == 2) ? "Да" : "Нет"; } catch { }
+
+                                        string saveSize = "Неизвестно";
+                                        try { saveSize = Models.ProcessingTask.FormatSize(nacp.UserAccountSaveDataSize); } catch { }
+
+                                        if (!isCurrentUpdate && localDispVer != "v0" && localDispVer != "0" && !IsBaseVersion(localDispVer))
+                                        {
+                                            if (localTitleId == "0000000000000000") localTitleId = normalizedTitleId;
+                                            if (localTitleName == "Unknown Game" && !string.IsNullOrWhiteSpace(title)) localTitleName = title;
+                                        }
+                                        else
+                                        {
+                                            localTitleName = string.IsNullOrWhiteSpace(title) ? "Unknown" : title;
+                                            localPublisher = string.IsNullOrWhiteSpace(pub) ? "Unknown" : pub;
+                                            string nacpVer = nacp.DisplayVersionString.ToString();
+                                            if (!IsBaseVersion(nacpVer) || IsBaseVersion(localDispVer))
+                                            {
+                                                localDispVer = CleanVersion(nacpVer);
+                                            }
+                                            localTitleId = normalizedTitleId;
+
+                                            localSupportedLangs = string.IsNullOrEmpty(supportedLangs) ? "Неизвестно" : supportedLangs;
+                                            localRatingAge = rating;
+                                            localVideoCapture = videoCap;
+                                            localSaveDataSize = saveSize;
+
+                                            string fileRegion = "";
+                                            if (!string.IsNullOrEmpty(supportedLangs))
+                                            {
+                                                bool hasUs = supportedLangs.Contains("English");
+                                                bool hasEu = supportedLangs.Contains("French") || supportedLangs.Contains("German") || supportedLangs.Contains("Italian") || supportedLangs.Contains("Spanish") || supportedLangs.Contains("Dutch");
+                                                bool hasJp = supportedLangs.Contains("Japanese");
+                                                bool hasKr = supportedLangs.Contains("Korean");
+                                                bool hasCn = supportedLangs.Contains("Chinese");
+
+                                                if (hasUs && hasEu && hasJp) fileRegion = "WW";
+                                                else if (hasUs && hasEu) fileRegion = "US/EU";
+                                                else if (hasUs && !hasEu && !hasJp) fileRegion = "US";
+                                                else if (!hasUs && hasEu) fileRegion = "EU";
+                                                else if (hasJp && !hasUs && !hasEu) fileRegion = "JP";
+                                                else if (hasKr && !hasUs && !hasEu && !hasJp) fileRegion = "KR";
+                                                else if (hasCn && !hasUs && !hasEu && !hasJp) fileRegion = "AS";
+                                            }
+
+                                            localRegions = string.IsNullOrEmpty(fileRegion) ? "UNKNOWN" : fileRegion;
+                                            hasControlMeta = true;
+                                        }
+                                    }
+
+                                    // Try to get icon (только если ещё не извлекли локальную иконку)
+                                    if (localCoverBytes == null)
+                                    {
+                                        var iconLangs = new[] { "AmericanEnglish", "BritishEnglish", "Japanese", "French", "German", "LatinAmericanSpanish", "Spanish", "Italian", "Dutch", "CanadianFrench", "Portuguese", "Russian", "Korean", "TraditionalChinese", "SimplifiedChinese" };
+
+                                        foreach (var lang in iconLangs)
+                                        {
+                                            using var iconFileRef = new LibHac.Common.UniqueRef<IFile>();
+                                            using var iconPath = new LibHac.Fs.Path();
+                                            iconPath.Initialize(new LibHac.Common.U8Span(System.Text.Encoding.UTF8.GetBytes($"/icon_{lang}.dat"))).ThrowIfFailure();
+
+                                            if (romfs.OpenFile(ref iconFileRef.Ref, in iconPath, LibHac.Fs.OpenMode.Read).IsSuccess())
+                                            {
+                                                using var iconFile = iconFileRef.Release();
+                                                using var memStream = new MemoryStream();
+                                                iconFile.AsStream().CopyTo(memStream);
+                                                localCoverBytes = memStream.ToArray();
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                                finally
+                                {
+                                    (romfs as IDisposable)?.Dispose();
+                                }
+                            }
+                            else if (nca.Header.ContentType == NcaContentType.Manual)
+                            {
+                                try
+                                {
+                                    var romfs = nca.OpenFileSystem(NcaSectionType.Data, IntegrityCheckLevel.ErrorOnInvalid);
+                                    try
+                                    {
+                                        foreach (var imgEntry in romfs.EnumerateEntries("/", "*.jpg").Concat(romfs.EnumerateEntries("/", "*.png")))
+                                        {
+                                            if (localScreenshots.Count >= 5) break;
+
+                                            using var imgFileRef = new LibHac.Common.UniqueRef<IFile>();
+                                            using var imgPath = new LibHac.Fs.Path();
+                                            imgPath.Initialize(new LibHac.Common.U8Span(System.Text.Encoding.UTF8.GetBytes(imgEntry.FullPath))).ThrowIfFailure();
+
+                                            if (romfs.OpenFile(ref imgFileRef.Ref, in imgPath, LibHac.Fs.OpenMode.Read).IsSuccess())
+                                            {
+                                                using var imgFile = imgFileRef.Release();
+                                                using var memStream = new MemoryStream();
+                                                imgFile.AsStream().CopyTo(memStream);
+                                                localScreenshots.Add(memStream.ToArray());
+                                            }
+                                        }
+                                    }
+                                    finally
+                                    {
+                                        (romfs as IDisposable)?.Dispose();
+                                    }
+                                }
+                                catch { }
+                            }
+                            else if (nca.Header.ContentType == NcaContentType.Meta)
+                            {
+                                try
+                                {
+                                    var fs = nca.OpenFileSystem(0, IntegrityCheckLevel.ErrorOnInvalid);
+                                    try
+                                    {
+                                        foreach (var cnmtEntry in fs.EnumerateEntries())
+                                        {
+                                            if (!cnmtEntry.Name.EndsWith(".cnmt", StringComparison.OrdinalIgnoreCase)) continue;
+
+                                            using var cnmtFileRef = new LibHac.Common.UniqueRef<IFile>();
+                                            using var cnmtPath = new LibHac.Fs.Path();
+                                            cnmtPath.Initialize(new LibHac.Common.U8Span(System.Text.Encoding.UTF8.GetBytes(cnmtEntry.FullPath))).ThrowIfFailure();
+                                            fs.OpenFile(ref cnmtFileRef.Ref, in cnmtPath, LibHac.Fs.OpenMode.Read).ThrowIfFailure();
+
+                                            using var cnmtFile = cnmtFileRef.Release();
+                                            using var cnmtStream = new MemoryStream();
+                                            cnmtFile.AsStream().CopyTo(cnmtStream);
+                                            byte[] cnmtBytes = cnmtStream.ToArray();
+                                            uint version = 0;
                                             try
                                             {
-                                                var bmp = new BitmapImage();
-                                                using var ms = new MemoryStream(buffer);
-                                                await bmp.SetSourceAsync(ms.AsRandomAccessStream());
-                                                item.Screenshots.Add(bmp);
-                                                item.HasScreenshots = true;
+                                                if (cnmtBytes.Length >= 12)
+                                                    version = BitConverter.ToUInt32(cnmtBytes, 0x08);
                                             }
                                             catch { }
-                                        });
-                                        count++;
-                                    }
-                                }
-                            }
-                            catch { }
-                        }
-                        else if (nca.Header.ContentType == NcaContentType.Meta)
-                        {
-                            try
-                            {
-                                var fs = nca.OpenFileSystem(0, IntegrityCheckLevel.ErrorOnInvalid);
-                                foreach (var cnmtEntry in fs.EnumerateEntries())
-                                {
-                                    if (!cnmtEntry.Name.EndsWith(".cnmt", StringComparison.OrdinalIgnoreCase)) continue;
-                                    
-                                    using var cnmtFileRef = new LibHac.Common.UniqueRef<IFile>();
-                                    using var cnmtPath = new LibHac.Fs.Path();
-                                    cnmtPath.Initialize(new LibHac.Common.U8Span(System.Text.Encoding.UTF8.GetBytes(cnmtEntry.FullPath))).ThrowIfFailure();
-                                    fs.OpenFile(ref cnmtFileRef.Ref, in cnmtPath, LibHac.Fs.OpenMode.Read).ThrowIfFailure();
-                                    
-                                    using var cnmtStream = new MemoryStream();
-                                    cnmtFileRef.Release().AsStream().CopyTo(cnmtStream);
-                                    byte[] cnmtBytes = cnmtStream.ToArray();
-                                    uint version = 0;
-                                    try 
-                                    {
-                                        if (cnmtBytes.Length >= 12)
-                                            version = BitConverter.ToUInt32(cnmtBytes, 0x08);
-                                    }
-                                    catch { }
-                                    
-                                    uint fixedVersion = FixHexPackedVersionCode(version);
 
-                                    App.RunOnUI(() => 
-                                    {
-                                        uint currentVer = 0;
-                                        uint.TryParse(item.VersionCode, out currentVer);
-                                        currentVer = FixHexPackedVersionCode(currentVer);
-                                        
-                                        var match = System.Text.RegularExpressions.Regex.Match(item.FileName ?? "", @"\[v(\d+)\]");
-                                        if (match.Success && uint.TryParse(match.Groups[1].Value, out uint nameVer))
-                                        {
-                                            nameVer = FixHexPackedVersionCode(nameVer);
-                                            if (nameVer > currentVer) currentVer = nameVer;
+                                            uint fixedVersion = FixHexPackedVersionCode(version);
+                                            uint currentVer = 0;
+                                            uint.TryParse(localVersionCode, out currentVer);
+                                            currentVer = FixHexPackedVersionCode(currentVer);
+
+                                            var match = System.Text.RegularExpressions.Regex.Match(fileNameOnly, @"\[v(\d+)\]");
+                                            if (match.Success && uint.TryParse(match.Groups[1].Value, out uint nameVer))
+                                            {
+                                                nameVer = FixHexPackedVersionCode(nameVer);
+                                                if (nameVer > currentVer) currentVer = nameVer;
+                                            }
+
+                                            if (fixedVersion > currentVer)
+                                                localVersionCode = fixedVersion.ToString();
+                                            else if (currentVer > 0)
+                                                localVersionCode = currentVer.ToString();
+                                            break;
                                         }
-                                        
-                                        if (fixedVersion > currentVer)
-                                            item.VersionCode = fixedVersion.ToString();
-                                        else if (currentVer > 0)
-                                            item.VersionCode = currentVer.ToString();
-                                    });
-                                    break;
+                                    }
+                                    finally
+                                    {
+                                        (fs as IDisposable)?.Dispose();
+                                    }
+                                }
+                                catch
+                                {
+                                    metaError = true;
                                 }
                             }
-                            catch
+                        }
+                        catch (Exception ex)
+                        {
+                            if (ex.Message.Contains("Unable to decrypt NCA header", StringComparison.OrdinalIgnoreCase))
                             {
-                                App.RunOnUI(() => {
-                                    if (item.VersionCode == "0") item.VersionCode = "ERR_META";
-                                });
+                                App.Logger.Log($"[CatalogScanner] Заголовок {entryName} зашифрован (пропущен)", LogLevel.Warning);
+                            }
+                            else
+                            {
+                                App.Logger.Log($"[CatalogScanner] Ошибка парсинга {entryName}: {ex.Message}", LogLevel.Warning);
                             }
                         }
-                    }
-                    catch (Exception ex)
-                    {
-                        if (ex.Message.Contains("Unable to decrypt NCA header", StringComparison.OrdinalIgnoreCase))
+                        finally
                         {
-                            App.Logger.Log($"[CatalogScanner] Заголовок {entryName} зашифрован (пропущен)", LogLevel.Warning);
-                        }
-                        else
-                        {
-                            App.Logger.Log($"[CatalogScanner] Ошибка парсинга {entryName}: {ex.Message}", LogLevel.Warning);
-                        }
-                    }
-                    finally
-                    {
-                        if (toDispose != null)
-                        {
-                            try { toDispose.Dispose(); } catch { }
+                            if (toDispose != null)
+                            {
+                                try { toDispose.Dispose(); } catch { }
+                            }
                         }
                     }
                 }
-            }
             }
             finally
             {
@@ -713,20 +603,72 @@ namespace StormSwitchBox.Services
                 }
             }
 
-            // Применяем эталонный алгоритм разрешения версий из E:\STORM EDEN 3
-            string dispVer = item.Version;
-            string vCode = item.VersionCode;
-            ResolveVersionFromPath(filePath, ref dispVer, ref vCode);
+            if (metaError && localVersionCode == "0")
+                localVersionCode = "ERR_META";
 
-            App.RunOnUI(() =>
+            // Вычисляем итоговую версию в локальных переменных ДО единственного вызова App.RunOnUI
+            ResolveVersionFromPath(filePath, ref localDispVer, ref localVersionCode);
+
+            var uiApplyTcs = new TaskCompletionSource<bool>();
+            App.RunOnUI(async () =>
             {
-                item.Version = dispVer;
-                item.VersionCode = vCode;
+                try
+                {
+                    item.TitleId = localTitleId;
+                    item.TitleName = localTitleName;
+                    item.Publisher = localPublisher;
+                    item.Version = localDispVer;
+                    item.VersionCode = localVersionCode;
+                    item.SupportedLanguages = localSupportedLangs;
+                    item.RatingAge = localRatingAge;
+                    item.VideoCapture = localVideoCapture;
+                    item.SaveDataSize = localSaveDataSize;
+                    item.Regions = localRegions;
+
+                    if (localCoverBytes != null && localCoverBytes.Length > 0)
+                    {
+                        item.CoverBytes = localCoverBytes;
+                        try
+                        {
+                            var bmp = new BitmapImage();
+                            using var ms = new MemoryStream(localCoverBytes);
+                            await bmp.SetSourceAsync(ms.AsRandomAccessStream());
+                            item.CoverImage = bmp;
+                        }
+                        catch { }
+                    }
+
+                    if (localScreenshots.Count > 0)
+                    {
+                        foreach (var shotBytes in localScreenshots)
+                        {
+                            try
+                            {
+                                var bmp = new BitmapImage();
+                                using var ms = new MemoryStream(shotBytes);
+                                await bmp.SetSourceAsync(ms.AsRandomAccessStream());
+                                item.Screenshots.Add(bmp);
+                                item.HasScreenshots = true;
+                            }
+                            catch { }
+                        }
+                    }
+
+                    if (hasControlMeta)
+                        item.IsLoading = false;
+                }
+                finally
+                {
+                    uiApplyTcs.TrySetResult(true);
+                }
             });
+
+            if (App.MainDispatcher != null)
+                await uiApplyTcs.Task.ConfigureAwait(false);
 
             // Обогащаем данными из онлайн базы TitleDB в фоне и завершаем загрузку
             App.TitleDb.EnrichCatalogItem(item);
-            App.RunOnUI(() => 
+            App.RunOnUI(() =>
             {
                 item.IsLoading = false;
             });

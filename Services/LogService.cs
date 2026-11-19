@@ -1,78 +1,107 @@
 using System;
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Text;
 using System.Threading.Channels;
 using System.Threading.Tasks;
-using Microsoft.UI.Dispatching;
 using StormSwitchBox.Models;
 
 namespace StormSwitchBox.Services
 {
-    public class LogService
+    public sealed class LogService : IDisposable
     {
-        public ObservableCollection<LogMessage> Logs { get; } = new ObservableCollection<LogMessage>();
-        private readonly DispatcherQueue? _dispatcherQueue;
+        public ObservableCollection<LogMessage> Logs { get; } = new();
+        public string LogsDirectory { get; }
+
         private readonly string _logFilePath;
         private readonly Channel<LogMessage> _logChannel;
+        private bool _disposed;
+
         public LogService()
+        {
+            LogsDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "StormSwitchBox", "logs");
+            try { Directory.CreateDirectory(LogsDirectory); } catch { }
+            PruneOldSessionLogs();
+
+            _logFilePath = Path.Combine(LogsDirectory, $"session_{DateTime.Now:yyyy-MM-dd_HH-mm-ss}.log");
+            _logChannel = Channel.CreateBounded<LogMessage>(new BoundedChannelOptions(4096)
+            {
+                FullMode = BoundedChannelFullMode.DropOldest,
+                SingleReader = true
+            });
+
+            _ = Task.Run(ProcessLogQueueAsync);
+        }
+
+        private void PruneOldSessionLogs()
         {
             try
             {
-                _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
-            }
-            catch
-            {
-                _dispatcherQueue = null;
-            }
-            
-            string logsDir;
-            try
-            {
-                logsDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "StormSwitchBox", "logs");
-                if (!Directory.Exists(logsDir))
+                var cutoff = DateTime.UtcNow.AddDays(-14);
+                foreach (var file in Directory.EnumerateFiles(LogsDirectory, "session_*.log"))
                 {
-                    Directory.CreateDirectory(logsDir);
+                    try
+                    {
+                        if (File.GetLastWriteTimeUtc(file) < cutoff)
+                            File.Delete(file);
+                    }
+                    catch { }
                 }
             }
-            catch
-            {
-                logsDir = Path.GetTempPath();
-            }
-            
-            _logFilePath = Path.Combine(logsDir, $"session_{DateTime.Now:yyyyMMdd_HHmmss}.log");
-            
-            _logChannel = Channel.CreateUnbounded<LogMessage>(new UnboundedChannelOptions { SingleReader = true });
-            _ = ProcessLogQueueAsync();
+            catch { }
         }
 
         private async Task ProcessLogQueueAsync()
         {
-            await foreach (var log in _logChannel.Reader.ReadAllAsync())
+            StreamWriter? writer = null;
+            try
             {
-                try
+                var fs = new FileStream(_logFilePath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite, 4096, useAsync: true);
+                writer = new StreamWriter(fs, Encoding.UTF8) { AutoFlush = false };
+
+                while (await _logChannel.Reader.WaitToReadAsync().ConfigureAwait(false))
                 {
-                    await File.AppendAllTextAsync(_logFilePath, $"[{log.FormattedTime}] [{log.Level}] {log.Message}\n");
+                    while (_logChannel.Reader.TryRead(out var log))
+                    {
+                        await writer.WriteLineAsync($"[{log.FormattedTime}] [{log.Level}] {log.Message}").ConfigureAwait(false);
+                    }
+                    await writer.FlushAsync().ConfigureAwait(false);
                 }
-                catch { }
+            }
+            catch { }
+            finally
+            {
+                try { writer?.Dispose(); } catch { }
             }
         }
 
         public void Log(string message, LogLevel level = LogLevel.Info)
         {
+            if (_disposed) return;
             var log = new LogMessage { Message = message, Level = level };
-            
             _logChannel.Writer.TryWrite(log);
-            
-            // Output to UI
-            _dispatcherQueue?.TryEnqueue(() =>
+
+            if (App.MainDispatcher != null)
             {
-                Logs.Add(log);
-                
-                if (Logs.Count > 1000)
+                App.RunOnUI(() =>
                 {
-                    Logs.RemoveAt(0);
-                }
-            });
+                    Logs.Add(log);
+                    if (Logs.Count > 1000)
+                        Logs.RemoveAt(0);
+                });
+            }
+        }
+
+        public void Clear()
+        {
+            App.RunOnUI(() => Logs.Clear());
+        }
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            _logChannel.Writer.TryComplete();
         }
     }
 }

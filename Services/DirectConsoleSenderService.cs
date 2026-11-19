@@ -24,7 +24,7 @@ namespace StormSwitchBox.Services
         public int Port { get; set; } = 5000;
         public string ServiceName { get; set; } = string.Empty;
         public string Banner { get; set; } = string.Empty;
-        public string DisplayLabel => $"{IpAddress}:{Port} — {ServiceName}" + (string.IsNullOrEmpty(Banner) ? "" : $" ({Banner})");
+        public string DisplayLabel => $"{IpAddress}:{Port} - {ServiceName}" + (string.IsNullOrEmpty(Banner) ? "" : $" ({Banner})");
     }
 
     /// <summary>
@@ -166,11 +166,33 @@ namespace StormSwitchBox.Services
                 {
                     client.SendBufferSize = 4 * 1024 * 1024;
                     using var netStream = client.GetStream();
-                    byte[] headerBuf = new byte[8192];
-                    int read = await netStream.ReadAsync(headerBuf, 0, headerBuf.Length, ct);
-                    if (read <= 0) return;
 
-                    string requestText = Encoding.UTF8.GetString(headerBuf, 0, read);
+                    // Читаем HTTP-заголовки в цикле до \r\n\r\n (максимум 64 КБ)
+                    using var headerMs = new MemoryStream();
+                    byte[] headerBuf = new byte[4096];
+                    int headerEndIdx = -1;
+                    while (headerMs.Length < 65536)
+                    {
+                        int read = await netStream.ReadAsync(headerBuf, 0, headerBuf.Length, ct);
+                        if (read <= 0) break;
+                        headerMs.Write(headerBuf, 0, read);
+                        byte[] currentBytes = headerMs.GetBuffer();
+                        int len = (int)headerMs.Length;
+                        for (int i = Math.Max(0, len - read - 3); i <= len - 4; i++)
+                        {
+                            if (currentBytes[i] == '\r' && currentBytes[i + 1] == '\n' &&
+                                currentBytes[i + 2] == '\r' && currentBytes[i + 3] == '\n')
+                            {
+                                headerEndIdx = i;
+                                break;
+                            }
+                        }
+                        if (headerEndIdx >= 0) break;
+                    }
+
+                    if (headerMs.Length == 0) return;
+
+                    string requestText = Encoding.UTF8.GetString(headerMs.GetBuffer(), 0, headerEndIdx >= 0 ? headerEndIdx : (int)headerMs.Length);
                     string[] lines = requestText.Split("\r\n", StringSplitOptions.RemoveEmptyEntries);
                     if (lines.Length == 0) return;
 
@@ -214,8 +236,8 @@ namespace StormSwitchBox.Services
                     }
 
                     // Match /dl/<idx>.ext or /files/<idx>/<filename>
-                    int fileIndex = 0;
-                    var mShort = Regex.Match(rawPath, @"^/(?:dl|files)/(\d+)");
+                    int fileIndex = -1;
+                    var mShort = Regex.Match(rawPath, @"^/(?:dl|files)/(\d+)(?:[./]|$)");
                     if (mShort.Success && int.TryParse(mShort.Groups[1].Value, out int parsedIdx))
                     {
                         fileIndex = parsedIdx;
@@ -232,30 +254,56 @@ namespace StormSwitchBox.Services
                     var fi = new FileInfo(filePath);
                     long totalLength = fi.Length;
                     long startOffset = 0;
-                    long endOffset = totalLength - 1;
+                    long endOffset = totalLength > 0 ? totalLength - 1 : -1;
                     bool isRange = false;
 
                     foreach (var line in lines.Skip(1))
                     {
                         if (line.StartsWith("Range:", StringComparison.OrdinalIgnoreCase))
                         {
-                            var rm = Regex.Match(line, @"bytes=(\d+)-(\d*)");
-                            if (rm.Success)
+                            var rm = Regex.Match(line, @"bytes=(\d*)-(\d*)");
+                            if (rm.Success && totalLength > 0)
                             {
-                                isRange = true;
-                                startOffset = long.Parse(rm.Groups[1].Value);
-                                if (!string.IsNullOrEmpty(rm.Groups[2].Value))
+                                string g1 = rm.Groups[1].Value;
+                                string g2 = rm.Groups[2].Value;
+                                bool validRange = false;
+                                if (string.IsNullOrEmpty(g1) && long.TryParse(g2, out long suffixLen) && suffixLen > 0)
                                 {
-                                    endOffset = Math.Min(totalLength - 1, long.Parse(rm.Groups[2].Value));
+                                    startOffset = Math.Max(0, totalLength - suffixLen);
+                                    endOffset = totalLength - 1;
+                                    validRange = true;
                                 }
+                                else if (!string.IsNullOrEmpty(g1) && long.TryParse(g1, out long parsedStart))
+                                {
+                                    startOffset = parsedStart;
+                                    if (string.IsNullOrEmpty(g2))
+                                    {
+                                        endOffset = totalLength - 1;
+                                        validRange = startOffset >= 0 && startOffset < totalLength;
+                                    }
+                                    else if (long.TryParse(g2, out long parsedEnd))
+                                    {
+                                        endOffset = Math.Min(totalLength - 1, parsedEnd);
+                                        validRange = startOffset >= 0 && startOffset < totalLength && endOffset >= startOffset;
+                                    }
+                                }
+                                if (!validRange)
+                                {
+                                    byte[] rangeErr = Encoding.ASCII.GetBytes($"HTTP/1.1 416 Range Not Satisfiable\r\nContent-Range: bytes */{totalLength}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                                    await netStream.WriteAsync(rangeErr, 0, rangeErr.Length, ct);
+                                    return;
+                                }
+                                isRange = true;
                             }
                         }
                     }
 
-                    long contentLength = Math.Max(0, endOffset - startOffset + 1);
+                    long contentLength = totalLength == 0 ? 0 : Math.Max(0, endOffset - startOffset + 1);
                     string statusLine = isRange ? "HTTP/1.1 206 Partial Content\r\n" : "HTTP/1.1 200 OK\r\n";
                     string rangeHeader = isRange ? $"Content-Range: bytes {startOffset}-{endOffset}/{totalLength}\r\n" : "";
                     string fileName = Path.GetFileName(filePath);
+                    string asciiFallbackName = Regex.Replace(fileName, @"[^\x20-\x7E]|[""\\]", "_");
+                    string utf8EncodedName = Uri.EscapeDataString(fileName);
 
                     string responseHeaders =
                         statusLine +
@@ -263,7 +311,7 @@ namespace StormSwitchBox.Services
                         "Accept-Ranges: bytes\r\n" +
                         rangeHeader +
                         $"Content-Length: {contentLength}\r\n" +
-                        $"Content-Disposition: attachment; filename=\"{fileName}\"\r\n" +
+                        $"Content-Disposition: attachment; filename=\"{asciiFallbackName}\"; filename*=UTF-8''{utf8EncodedName}\r\n" +
                         "Connection: close\r\n\r\n";
 
                     byte[] respHdrBytes = Encoding.ASCII.GetBytes(responseHeaders);
@@ -403,19 +451,40 @@ namespace StormSwitchBox.Services
             using var reader = new StreamReader(ctrlStream, Encoding.UTF8);
             using var writer = new StreamWriter(ctrlStream, new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\r\n" };
 
-            await ReadFtpReplyAsync(reader);
-            await SendFtpCommandAsync(writer, reader, "USER anonymous");
-            await SendFtpCommandAsync(writer, reader, "PASS storm@switch");
-            await SendFtpCommandAsync(writer, reader, "TYPE I");
+            await ReadFtpReplyAsync(reader, ct);
+            string userReply = await SendFtpCommandAsync(writer, reader, "USER anonymous", ct);
+            if (!userReply.StartsWith("230", StringComparison.Ordinal))
+            {
+                await SendFtpCommandAsync(writer, reader, "PASS storm@switch", ct);
+            }
+            await SendFtpCommandAsync(writer, reader, "TYPE I", ct);
 
             if (!string.IsNullOrWhiteSpace(remoteDirectory) && remoteDirectory != "/")
             {
-                string cleanDir = remoteDirectory.Replace('\\', '/').TrimEnd('/');
-                await SendFtpCommandAsync(writer, reader, $"MKD {cleanDir}", ignoreError: true);
-                await SendFtpCommandAsync(writer, reader, $"CWD {cleanDir}", ignoreError: true);
+                string normalizedDir = remoteDirectory.Replace('\\', '/').Trim();
+                bool isAbsolute = normalizedDir.StartsWith('/');
+                string[] segments = normalizedDir.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                if (isAbsolute)
+                {
+                    await SendFtpCommandAsync(writer, reader, "CWD /", ct);
+                }
+
+                string builtPath = isAbsolute ? "" : ".";
+                foreach (string seg in segments)
+                {
+                    builtPath = builtPath == "" ? "/" + seg : (builtPath == "." ? seg : builtPath + "/" + seg);
+                    await SendFtpCommandAsync(writer, reader, $"MKD {builtPath}", ct, ignoreError: true);
+                }
+
+                string targetCwd = isAbsolute ? ("/" + string.Join("/", segments)) : string.Join("/", segments);
+                string cwdReply = await SendFtpCommandAsync(writer, reader, $"CWD {targetCwd}", ct);
+                if (!cwdReply.StartsWith("2", StringComparison.Ordinal))
+                {
+                    throw new IOException($"Не удалось перейти в удалённый FTP-каталог '{targetCwd}': {cwdReply}");
+                }
             }
 
-            string pasvReply = await SendFtpCommandAsync(writer, reader, "PASV");
+            string pasvReply = await SendFtpCommandAsync(writer, reader, "PASV", ct);
             var m = Regex.Match(pasvReply, @"\((\d+),(\d+),(\d+),(\d+),(\d+),(\d+)\)");
             if (!m.Success)
                 throw new InvalidOperationException($"Сервер консоли не вернул адрес PASV: {pasvReply}");
@@ -428,8 +497,8 @@ namespace StormSwitchBox.Services
             dataClient.SendBufferSize = 2 * 1024 * 1024;
             var dataConnectTask = dataClient.ConnectAsync(dataIp, dataPort, ct).AsTask();
 
-            await writer.WriteLineAsync($"STOR {fileName}");
-            string storInit = await ReadFtpReplyAsync(reader);
+            await writer.WriteLineAsync($"STOR {fileName}".AsMemory(), ct);
+            string storInit = await ReadFtpReplyAsync(reader, ct);
             if (!storInit.StartsWith("1") && !storInit.StartsWith("2"))
                 throw new IOException($"Отказ FTP-сервера при старте записи STOR: {storInit}");
 
@@ -456,28 +525,28 @@ namespace StormSwitchBox.Services
             }
 
             dataClient.Close();
-            await ReadFtpReplyAsync(reader);
+            await ReadFtpReplyAsync(reader, ct);
             ServerLogAdded?.Invoke($"[FTP] ✅ Файл {fileName} успешно загружен на {hostIp}:{port}{remoteDirectory}");
         }
 
-        private static async Task<string> SendFtpCommandAsync(StreamWriter writer, StreamReader reader, string cmd, bool ignoreError = false)
+        private static async Task<string> SendFtpCommandAsync(StreamWriter writer, StreamReader reader, string cmd, CancellationToken ct, bool ignoreError = false)
         {
-            await writer.WriteLineAsync(cmd);
-            string reply = await ReadFtpReplyAsync(reader);
-            if (!ignoreError && (reply.StartsWith("4") || reply.StartsWith("5")))
+            await writer.WriteLineAsync(cmd.AsMemory(), ct);
+            string reply = await ReadFtpReplyAsync(reader, ct);
+            if (!ignoreError && (reply.StartsWith("4") || reply.StartsWith("5") || string.IsNullOrEmpty(reply)))
                 throw new IOException($"Ошибка FTP ({cmd}): {reply}");
             return reply;
         }
 
-        private static async Task<string> ReadFtpReplyAsync(StreamReader reader)
+        private static async Task<string> ReadFtpReplyAsync(StreamReader reader, CancellationToken ct)
         {
-            string? line = await reader.ReadLineAsync();
+            string? line = await reader.ReadLineAsync(ct);
             if (line == null) return "";
             string lastLine = line;
             if (line.Length >= 4 && line[3] == '-')
             {
                 string code = line.Substring(0, 3);
-                while ((line = await reader.ReadLineAsync()) != null)
+                while ((line = await reader.ReadLineAsync(ct)) != null)
                 {
                     lastLine = line;
                     if (line.Length >= 4 && line.StartsWith(code) && line[3] == ' ')
@@ -495,7 +564,8 @@ namespace StormSwitchBox.Services
         /// </summary>
         public static byte[] GenerateQrCodePngBytes(string text, int scale = 8)
         {
-            byte[] payload = Encoding.UTF8.GetBytes(text);
+            string effectiveText = text;
+            byte[] payload = Encoding.UTF8.GetBytes(effectiveText);
 
             // Параметры версий 1..6 (ECC Level L): (Version, Size, TotalDataBytes, EccBytesPerBlock, NumBlocks)
             (int Ver, int Size, int DataBytes, int EccPerBlock, int Blocks)[] specs =
@@ -511,9 +581,23 @@ namespace StormSwitchBox.Services
             var spec = specs.FirstOrDefault(s => payload.Length + 2 <= s.DataBytes);
             if (spec.Ver == 0)
             {
-                spec = specs[^1];
-                if (payload.Length > spec.DataBytes - 2)
-                    Array.Resize(ref payload, spec.DataBytes - 2);
+                // Не обрезаем URL молча: преобразуем длинный маршрут /files/{index}/... в короткий /dl/{index}{ext}
+                var mFiles = Regex.Match(effectiveText, @"^(https?://[^/]+)/files/(\d+)/[^?#]*(?:(\.[a-z0-9]+))?", RegexOptions.IgnoreCase);
+                if (mFiles.Success)
+                {
+                    string ext = Path.GetExtension(effectiveText);
+                    if (string.IsNullOrEmpty(ext) || ext.Length > 8) ext = mFiles.Groups[3].Value;
+                    effectiveText = $"{mFiles.Groups[1].Value}/dl/{mFiles.Groups[2].Value}{ext}";
+                    payload = Encoding.UTF8.GetBytes(effectiveText);
+                    spec = specs.FirstOrDefault(s => payload.Length + 2 <= s.DataBytes);
+                }
+
+                if (spec.Ver == 0)
+                {
+                    throw new ArgumentException(
+                        $"URL/текст слишком длинный для QR-кода ({payload.Length} байт, максимум {specs[^1].DataBytes - 2}). Используйте короткий маршрут /dl/{{index}}.",
+                        nameof(text));
+                }
             }
 
             // 1. Формируем битовый поток данных: Mode=0100 (4 бита) + Length (8 бит) + Payload + Terminator (0000)

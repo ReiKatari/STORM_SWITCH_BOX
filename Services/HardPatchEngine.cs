@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 using System;
 using System.IO;
 using System.Linq;
@@ -201,7 +201,7 @@ namespace StormSwitchBox.Services
                 TempCleanupService.RegisterActiveTempDirectory(tempDir);
 
                 // Декомпрессия NSZ через nsz.exe (проверенный инструмент, корректно регенерирует IVFC хеш-деревья)
-                // StormNczStorage НЕ используется здесь — он создаёт NCA с невалидными хеш-деревьями целостности
+                // StormNczStorage НЕ используется здесь - он создаёт NCA с невалидными хеш-деревьями целостности
                 if (baseFile.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) || baseFile.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase))
                 {
                     App.RunOnUI(() => task.LogDetails += $"\nРаспаковка {System.IO.Path.GetExtension(baseFile)} -> .nsp (nsz.exe)...");
@@ -322,19 +322,13 @@ namespace StormSwitchBox.Services
                         bool extracted = false;
                         if (File.Exists(sevenZipPath))
                         {
-                            var psi = new ProcessStartInfo
-                            {
-                                FileName = sevenZipPath,
-                                Arguments = $"x -y \"{arch}\" -o\"{extractDir}\"",
-                                UseShellExecute = false,
-                                CreateNoWindow = true
-                            };
-                            using var proc = Process.Start(psi);
-                            if (proc != null)
-                            {
-                                proc.WaitForExit(60000);
-                                extracted = (proc.ExitCode == 0);
-                            }
+                            int zipExit = await ExternalProcessRunner.RunAsync(
+                                sevenZipPath!,
+                                $"x -y \"{arch}\" -o\"{extractDir}\"",
+                                extractDir,
+                                task,
+                                cancellationToken);
+                            extracted = (zipExit == 0);
                         }
                         if (!extracted && (System.IO.Path.GetExtension(arch).Equals(".zip", StringComparison.OrdinalIgnoreCase) || System.IO.Path.GetExtension(arch).Equals(".bin", StringComparison.OrdinalIgnoreCase)))
                         {
@@ -519,13 +513,14 @@ namespace StormSwitchBox.Services
                         var bPfs = new PartitionFileSystem(bFs.AsStorage());
                         foreach (var bEntry in bPfs.EnumerateEntries().Where(e => e.Name.EndsWith(".cnmt.nca", StringComparison.OrdinalIgnoreCase)))
                         {
-                            var bFile = OpenFileSafe(bPfs, bEntry.FullPath);
+                            using var bFile = OpenFileSafe(bPfs, bEntry.FullPath);
                             var nca = new Nca(_keysService.CurrentKeyset, bFile.AsStorage());
                             if (nca.Header.TitleId.ToString("X16").EndsWith("800", StringComparison.OrdinalIgnoreCase))
                             {
                                 using var ms = new MemoryStream();
-                                bFile.AsStream().Position = 0;
-                                bFile.AsStream().CopyTo(ms);
+                                using var bStream = bFile.AsStream();
+                                bStream.Position = 0;
+                                bStream.CopyTo(ms);
                                 patchCnmtNcaBytes = ms.ToArray();
                                 patchCnmtFileName = bEntry.Name;
                                 break;
@@ -550,153 +545,153 @@ namespace StormSwitchBox.Services
                     App.RunOnUI(() => task.LogDetails += "\n[1/4] Извлечение RomFS из существующего монолита...");
                     bool romfsExtracted = false;
                     Nca? baseProgNca = null;
+                    FileStream? bFs = null;
+                    IFile? baseProgFile = null;
+                    IFile? updProgFile = null;
+
                     try
                     {
-                        using var bFs = new FileStream(baseFile, FileMode.Open, FileAccess.Read, FileShare.Read);
-                        var bPfs = new PartitionFileSystem(bFs.AsStorage());
-                        SmartShrinkService.HarvestTicketsFromFileSystem(bPfs, _keysService.CurrentKeyset);
-
-                        var candidateProgEntries = bPfs.EnumerateEntries()
-                            .Where(e => (e.Name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase) || e.Name.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase)) && !e.Name.EndsWith(".cnmt.nca", StringComparison.OrdinalIgnoreCase))
-                            .OrderByDescending(e => e.Size)
-                            .ToList();
-
-                        foreach (var progEntry in candidateProgEntries)
+                        try
                         {
-                            try
+                            bFs = new FileStream(baseFile, FileMode.Open, FileAccess.Read, FileShare.Read);
+                            var bPfs = new PartitionFileSystem(bFs.AsStorage());
+                            SmartShrinkService.HarvestTicketsFromFileSystem(bPfs, _keysService.CurrentKeyset);
+
+                            var candidateProgEntries = bPfs.EnumerateEntries()
+                                .Where(e => (e.Name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase) || e.Name.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase)) && !e.Name.EndsWith(".cnmt.nca", StringComparison.OrdinalIgnoreCase))
+                                .OrderByDescending(e => e.Size)
+                                .ToList();
+
+                            foreach (var progEntry in candidateProgEntries)
                             {
-                                var progFile = OpenFileSafe(bPfs, progEntry.FullPath);
-                                var pNca = new Nca(_keysService.CurrentKeyset, progFile.AsStorage());
-                                KeysService.RegisterRightsIdFallback(_keysService.CurrentKeyset, pNca);
-                                if (pNca.Header.ContentType == NcaContentType.Program)
+                                IFile? progFile = null;
+                                bool keepOpen = false;
+                                try
                                 {
-                                    baseProgNca = pNca;
-                                    if (baseProgNca.CanOpenSection(1))
+                                    progFile = OpenFileSafe(bPfs, progEntry.FullPath);
+                                    var pNca = new Nca(_keysService.CurrentKeyset, progFile.AsStorage());
+                                    if (pNca.Header.ContentType == NcaContentType.Program)
                                     {
-                                        var rFs = baseProgNca.OpenFileSystem(1, IntegrityCheckLevel.None);
-                                        ExtractAllEntriesFromRomFs(rFs, targetRomFs, cancellationToken);
-                                        romfsExtracted = Directory.EnumerateFileSystemEntries(targetRomFs).Any();
-                                        if (romfsExtracted) break;
+                                        baseProgNca = pNca;
+                                        baseProgFile = progFile;
+                                        keepOpen = true;
+                                        if (baseProgNca.CanOpenSection(1))
+                                        {
+                                            var rFs = baseProgNca.OpenFileSystem(1, IntegrityCheckLevel.None);
+                                            using var rFsDisp = rFs as IDisposable;
+                                            ExtractAllEntriesFromRomFs(rFs, targetRomFs, cancellationToken);
+                                            romfsExtracted = Directory.EnumerateFileSystemEntries(targetRomFs).Any();
+                                            if (romfsExtracted) break;
+                                        }
                                     }
                                 }
+                                catch { }
+                                finally
+                                {
+                                    if (!keepOpen) progFile?.Dispose();
+                                }
                             }
-                            catch { }
                         }
-                    }
-                    catch (Exception exLib)
-                    {
-                        App.Logger.Log($"[Путь Б] LibHac RomFS extract: {exLib.Message}", Models.LogLevel.Info);
-                    }
-                    if (!romfsExtracted)
-                    {
-                        ExtractRomFsWithHactoolnet(baseFile, null, targetRomFs, keysPath, isolatedUserProfile);
-                    }
-
-                    // 2. Извлечение ExeFS и Control NCA из нового обновления
-                    App.RunOnUI(() => task.LogDetails += "\n[2/4] Извлечение ExeFS и Control NCA из нового обновления...");
-                    using var uFs = new FileStream(updateFile, FileMode.Open, FileAccess.Read, FileShare.Read);
-                    var uPfs = new PartitionFileSystem(uFs.AsStorage());
-                    SmartShrinkService.HarvestTicketsFromFileSystem(uPfs, _keysService.CurrentKeyset);
-                    Nca? updProgNca = null;
-
-                    foreach (var uEntry in uPfs.EnumerateEntries().Where(e => e.Name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase)))
-                    {
-                        var uFile = OpenFileSafe(uPfs, uEntry.FullPath);
-                        var uNca = new Nca(_keysService.CurrentKeyset, uFile.AsStorage());
-                        KeysService.RegisterRightsIdFallback(_keysService.CurrentKeyset, uNca);
-
-                        if (uNca.Header.ContentType == NcaContentType.Program)
+                        catch (Exception exLib)
                         {
-                            updProgNca = uNca;
-                            break;
+                            App.Logger.Log($"[Путь Б] LibHac RomFS extract: {exLib.Message}", Models.LogLevel.Info);
                         }
-                    }
-
-                    if (updProgNca == null)
-                        throw new InvalidOperationException("В файле обновления не найден Program NCA.");
-
-                    if (updProgNca.CanOpenSection(0))
-                    {
-                        var exefs = updProgNca.OpenFileSystem(0, IntegrityCheckLevel.None);
-                        ExtractAllEntriesFromRomFs(exefs, targetExeFs, cancellationToken);
-                    }
-
-                    ulong npdmBaseTid = 0;
-                    if (ulong.TryParse(titleId, System.Globalization.NumberStyles.HexNumber, null, out ulong parsedTid))
-                    {
-                        npdmBaseTid = (parsedTid & ~0xFFFUL);
-                    }
-                    if (npdmBaseTid > 0)
-                    {
-                        string npdmFile = System.IO.Path.Combine(targetExeFs, "main.npdm");
-                        if (File.Exists(npdmFile)) PatchNpdmTitleId(npdmFile, npdmBaseTid);
-                    }
-
-                    string controlNca = ExtractControlNcaIfMissing(baseFile, updateFile, tempUnpack, _keysService);
-
-                    // 3. Файловый апгрейд RomFS
-                    App.RunOnUI(() => task.LogDetails += "\n[3/4] Файловый апгрейд RomFS по таблице BKTR...");
-                    await UpgradeMonolithicRomFsAsync(targetRomFs, baseFile, updateFile, baseProgNca, updProgNca, _keysService, keysPath, isolatedUserProfile, task, cancellationToken);
-
-                    // Применение модов
-                    if (hasModsToApply)
-                    {
-                        App.RunOnUI(() => task.LogDetails += "\n  Инъекция пользовательских модов...");
-                        foreach (var rMod in romfsMods) CopyDirectoryContentFiltered(rMod, targetRomFs);
-                        foreach (var eMod in exefsMods) CopyDirectoryContentFiltered(eMod, targetExeFs);
-                        if (!string.IsNullOrEmpty(exefsPatchesMod)) ApplyExeFsPatches(exefsPatchesMod, targetExeFs, task);
-                        foreach (var sMod in standaloneModFiles) InjectStandaloneModFile(sMod, targetRomFs, task);
-                        SynchronizeCrossRegionLocalization(targetRomFs, romfsMods, standaloneModFiles, task);
-                    }
-                    if (App.Settings.Current.AutoInject60FpsPatches)
-                    {
-                        App.GraphicsPatch.TryInjectGraphicsPatches(titleId, targetExeFs, task);
-                    }
-
-                    ModOptimizerService.CleanJunkFiles(targetRomFs, task);
-                    ModOptimizerService.CleanJunkFiles(targetExeFs, task);
-
-                    // 4. Сборка нового монолитного Program NCA
-                    App.RunOnUI(() => task.LogDetails += "\n[4/4] Монолитная сборка (yanu-cli pack)...");
-                    string packArgs = $"{keyfileFlag}pack --titleid {titleId} --controlnca \"{controlNca}\" --romfsdir \"{targetRomFs}\" --exefsdir \"{targetExeFs}\" -o \"{yanuOutDir}\" {keepLangsArg} {titleVersionArg}".TrimEnd();
-
-                    var packPsi = new ProcessStartInfo
-                    {
-                        FileName = yanuCliPath,
-                        Arguments = packArgs,
-                        WorkingDirectory = tempUnpack,
-                        UseShellExecute = false,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true,
-                        CreateNoWindow = true,
-                        StandardOutputEncoding = System.Text.Encoding.UTF8,
-                        StandardErrorEncoding = System.Text.Encoding.UTF8
-                    };
-                    packPsi.EnvironmentVariables["USERPROFILE"] = isolatedUserProfile;
-                    packPsi.EnvironmentVariables["LOCALAPPDATA"] = isolatedLocalAppData;
-                    packPsi.EnvironmentVariables["APPDATA"] = isolatedLocalAppData;
-                    packPsi.EnvironmentVariables["TEMP"] = tempDir;
-                    packPsi.EnvironmentVariables["TMP"] = tempDir;
-
-                    using (var packProc = Process.Start(packPsi))
-                    {
-                        if (packProc == null) throw new Exception("Не удалось запустить yanu-cli pack");
-                        var packStderr = new System.Text.StringBuilder();
-                        using (var logBuffer = new ProgressLogBuffer(task))
+                        if (!romfsExtracted)
                         {
-                            packProc.OutputDataReceived += (s, e) => { if (e.Data != null) logBuffer.AppendLine(e.Data); };
-                            packProc.ErrorDataReceived += (s, e) => { if (e.Data != null) packStderr.AppendLine(e.Data); };
-                            packProc.BeginOutputReadLine();
-                            packProc.BeginErrorReadLine();
-                            await packProc.WaitForExitAsync(cancellationToken);
+                            ExtractRomFsWithHactoolnet(baseFile, null, targetRomFs, keysPath, isolatedUserProfile);
                         }
-                        if (packProc.ExitCode != 0) throw new Exception($"Ошибка yanu-cli pack:\n{packStderr}");
-                    }
 
-                    yanuUpdateSuccess = true;
+                        // 2. Извлечение ExeFS и Control NCA из нового обновления
+                        App.RunOnUI(() => task.LogDetails += "\n[2/4] Извлечение ExeFS и Control NCA из нового обновления...");
+                        using var uFs = new FileStream(updateFile, FileMode.Open, FileAccess.Read, FileShare.Read);
+                        var uPfs = new PartitionFileSystem(uFs.AsStorage());
+                        SmartShrinkService.HarvestTicketsFromFileSystem(uPfs, _keysService.CurrentKeyset);
+                        Nca? updProgNca = null;
+
+                        foreach (var uEntry in uPfs.EnumerateEntries().Where(e => e.Name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase)))
+                        {
+                            IFile uFile = OpenFileSafe(uPfs, uEntry.FullPath);
+                            var uNca = new Nca(_keysService.CurrentKeyset, uFile.AsStorage());
+
+                            if (uNca.Header.ContentType == NcaContentType.Program)
+                            {
+                                updProgNca = uNca;
+                                updProgFile = uFile;
+                                break;
+                            }
+                            uFile.Dispose();
+                        }
+
+                        if (updProgNca == null)
+                            throw new InvalidOperationException("В файле обновления не найден Program NCA.");
+
+                        if (updProgNca.CanOpenSection(0))
+                        {
+                            var exefs = updProgNca.OpenFileSystem(0, IntegrityCheckLevel.None);
+                            using var exefsDisp = exefs as IDisposable;
+                            ExtractAllEntriesFromRomFs(exefs, targetExeFs, cancellationToken);
+                        }
+
+                        ulong npdmBaseTid = 0;
+                        if (ulong.TryParse(titleId, System.Globalization.NumberStyles.HexNumber, null, out ulong parsedTid))
+                        {
+                            npdmBaseTid = (parsedTid & ~0xFFFUL);
+                        }
+                        if (npdmBaseTid > 0)
+                        {
+                            string npdmFile = System.IO.Path.Combine(targetExeFs, "main.npdm");
+                            if (File.Exists(npdmFile)) PatchNpdmTitleId(npdmFile, npdmBaseTid);
+                        }
+
+                        string controlNca = ExtractControlNcaIfMissing(baseFile, updateFile, tempUnpack, _keysService);
+
+                        // 3. Файловый апгрейд RomFS
+                        App.RunOnUI(() => task.LogDetails += "\n[3/4] Файловый апгрейд RomFS по таблице BKTR...");
+                        await UpgradeMonolithicRomFsAsync(targetRomFs, baseFile, updateFile, baseProgNca, updProgNca, _keysService, keysPath, isolatedUserProfile, task, cancellationToken);
+
+                        // Применение модов
+                        if (hasModsToApply)
+                        {
+                            App.RunOnUI(() => task.LogDetails += "\n  Инъекция пользовательских модов...");
+                            foreach (var rMod in romfsMods) CopyDirectoryContentFiltered(rMod, targetRomFs);
+                            foreach (var eMod in exefsMods) CopyDirectoryContentFiltered(eMod, targetExeFs);
+                            if (!string.IsNullOrEmpty(exefsPatchesMod)) ApplyExeFsPatches(exefsPatchesMod, targetExeFs, task);
+                            foreach (var sMod in standaloneModFiles) InjectStandaloneModFile(sMod, targetRomFs, task);
+                            SynchronizeCrossRegionLocalization(targetRomFs, romfsMods, standaloneModFiles, task);
+                        }
+                        if (App.Settings.Current.AutoInject60FpsPatches)
+                        {
+                            App.GraphicsPatch.TryInjectGraphicsPatches(titleId, targetExeFs, task);
+                        }
+
+                        ModOptimizerService.CleanJunkFiles(targetRomFs, task);
+                        ModOptimizerService.CleanJunkFiles(targetExeFs, task);
+
+                        // 4. Сборка нового монолитного Program NCA
+                        App.RunOnUI(() => task.LogDetails += "\n[4/4] Монолитная сборка (yanu-cli pack)...");
+                        string packArgs = $"{keyfileFlag}pack --titleid {titleId} --controlnca \"{controlNca}\" --romfsdir \"{targetRomFs}\" --exefsdir \"{targetExeFs}\" -o \"{yanuOutDir}\" {keepLangsArg} {titleVersionArg}".TrimEnd();
+
+                        int packExit = await ExternalProcessRunner.RunAsync(
+                            yanuCliPath,
+                            packArgs,
+                            tempUnpack,
+                            task,
+                            cancellationToken,
+                            isolatedUserProfile,
+                            isolatedLocalAppData);
+                        if (packExit != 0) throw new Exception($"Ошибка yanu-cli pack (код {packExit})");
+
+                        yanuUpdateSuccess = true;
+                    }
+                    finally
+                    {
+                        updProgFile?.Dispose();
+                        baseProgFile?.Dispose();
+                        bFs?.Dispose();
+                    }
                 }
 
-                // СЦЕНАРИЙ 1: Если модов нет и передан файл обновления — сначала пробуем прямой и быстрый yanu-cli update
+                // СЦЕНАРИЙ 1: Если модов нет и передан файл обновления - сначала пробуем прямой и быстрый yanu-cli update
                 if (!yanuUpdateSuccess && !hasModsToApply && !string.IsNullOrEmpty(updateFile))
                 {
                     App.RunOnUI(() => task.LogDetails += $"\n[1/2] Интеграция обновления (yanu-cli update)...");
@@ -710,71 +705,48 @@ namespace StormSwitchBox.Services
 
                     App.Logger.Log($"[yanu-cli] update: {updateArgs}", Models.LogLevel.Info);
 
-                    var updatePsi = new ProcessStartInfo
-                    {
-                        FileName = yanuCliPath,
-                        Arguments = updateArgs,
-                        UseShellExecute = false,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true,
-                        CreateNoWindow = true,
-                        WorkingDirectory = updateWorkDir,
-                        StandardOutputEncoding = System.Text.Encoding.UTF8,
-                        StandardErrorEncoding = System.Text.Encoding.UTF8
-                    };
-                    updatePsi.EnvironmentVariables["USERPROFILE"] = isolatedUserProfile;
-                    updatePsi.EnvironmentVariables["LOCALAPPDATA"] = isolatedLocalAppData;
-                    updatePsi.EnvironmentVariables["APPDATA"] = isolatedLocalAppData;
-                    updatePsi.EnvironmentVariables["TEMP"] = tempDir;
-                    updatePsi.EnvironmentVariables["TMP"] = tempDir;
+                    int updateExit = await ExternalProcessRunner.RunAsync(
+                        yanuCliPath,
+                        updateArgs,
+                        updateWorkDir,
+                        task,
+                        cancellationToken,
+                        isolatedUserProfile,
+                        isolatedLocalAppData);
 
-                    using var updateProc = Process.Start(updatePsi);
-                    if (updateProc != null)
+                    if (updateExit == 0)
                     {
-                        var updateStderr = new System.Text.StringBuilder();
-                        using (var logBuffer = new ProgressLogBuffer(task))
+                        var updateNsps = Directory.GetFiles(yanuOutDir, "*.nsp");
+                        long minAcceptableSize = Math.Min(25L * 1024 * 1024, (long)(baseSize * 0.2));
+                        if (updateNsps.Length > 0 && (baseSize <= 50 * 1024 * 1024 || new FileInfo(updateNsps[0]).Length >= minAcceptableSize))
                         {
-                            updateProc.OutputDataReceived += (s, e) => { if (e.Data != null) logBuffer.AppendLine(e.Data); };
-                            updateProc.ErrorDataReceived += (s, e) => { if (e.Data != null) updateStderr.AppendLine(e.Data); };
-                            updateProc.BeginOutputReadLine();
-                            updateProc.BeginErrorReadLine();
-                            await updateProc.WaitForExitAsync(cancellationToken);
-                        }
-
-                        if (updateProc.ExitCode == 0)
-                        {
-                            var updateNsps = Directory.GetFiles(yanuOutDir, "*.nsp");
-                            long minAcceptableSize = Math.Min(25L * 1024 * 1024, (long)(baseSize * 0.2));
-                            if (updateNsps.Length > 0 && (baseSize <= 50 * 1024 * 1024 || new FileInfo(updateNsps[0]).Length >= minAcceptableSize))
-                            {
-                                yanuUpdateSuccess = true;
-                                App.Logger.Log($"[yanu-cli] update OK. Создан NSP ({new FileInfo(updateNsps[0]).Length} байт).", Models.LogLevel.Info);
-                                App.RunOnUI(() => task.LogDetails += $"\n  yanu-cli update: успешно!");
-                            }
-                            else
-                            {
-                                if (updateNsps.Length > 0)
-                                {
-                                    App.Logger.Log($"[yanu-cli] update exit=0, но размер NSP ({new FileInfo(updateNsps[0]).Length} байт) меньше порога ({minAcceptableSize} байт). Удаляем поврежденный файл и переключаемся на unpack/pack.", Models.LogLevel.Warning);
-                                    foreach (var f in updateNsps) try { File.Delete(f); } catch { }
-                                }
-                                else
-                                {
-                                    App.Logger.Log("[yanu-cli] update exit=0, но NSP не найден. Переключение на unpack/pack.", Models.LogLevel.Warning);
-                                }
-                            }
+                            yanuUpdateSuccess = true;
+                            App.Logger.Log($"[yanu-cli] update OK. Создан NSP ({new FileInfo(updateNsps[0]).Length} байт).", Models.LogLevel.Info);
+                            App.RunOnUI(() => task.LogDetails += $"\n  yanu-cli update: успешно!");
                         }
                         else
                         {
-                            App.Logger.Log($"[yanu-cli] update failed (exit={updateProc.ExitCode}): {updateStderr.ToString().Trim()}", Models.LogLevel.Warning);
-                            App.RunOnUI(() => task.LogDetails += $"\n  yanu-cli update: прямой патч не удался. Запуск универсального unpack/pack...");
+                            if (updateNsps.Length > 0)
+                            {
+                                App.Logger.Log($"[yanu-cli] update exit=0, но размер NSP ({new FileInfo(updateNsps[0]).Length} байт) меньше порога ({minAcceptableSize} байт). Удаляем поврежденный файл и переключаемся на unpack/pack.", Models.LogLevel.Warning);
+                                foreach (var f in updateNsps) try { File.Delete(f); } catch { }
+                            }
+                            else
+                            {
+                                App.Logger.Log("[yanu-cli] update exit=0, но NSP не найден. Переключение на unpack/pack.", Models.LogLevel.Warning);
+                            }
                         }
+                    }
+                    else
+                    {
+                        App.Logger.Log($"[yanu-cli] update failed (exit={updateExit})", Models.LogLevel.Warning);
+                        App.RunOnUI(() => task.LogDetails += $"\n  yanu-cli update: прямой патч не удался. Запуск универсального unpack/pack...");
                     }
 
                     try { if (Directory.Exists(updateWorkDir)) Directory.Delete(updateWorkDir, true); } catch { }
                 }
 
-                // СЦЕНАРИЙ 2: Если есть моды или прямой update не удался — полный конвейер unpack + dynamic resolve + mod inject + pack
+                // СЦЕНАРИЙ 2: Если есть моды или прямой update не удался - полный конвейер unpack + dynamic resolve + mod inject + pack
                 if (!yanuUpdateSuccess)
                 {
 
@@ -789,38 +761,18 @@ namespace StormSwitchBox.Services
                     if (!string.IsNullOrEmpty(updateFile)) unpackArgs += $" --update \"{updateFile}\"";
                     unpackArgs += $" -o \"{tempUnpack}\"";
 
-                    var unpackPsi = new ProcessStartInfo
-                    {
-                        FileName = yanuCliPath,
-                        Arguments = unpackArgs,
-                        WorkingDirectory = tempUnpack,
-                        UseShellExecute = false,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true,
-                        CreateNoWindow = true,
-                        StandardOutputEncoding = System.Text.Encoding.UTF8,
-                        StandardErrorEncoding = System.Text.Encoding.UTF8
-                    };
-                    unpackPsi.EnvironmentVariables["USERPROFILE"] = isolatedUserProfile;
-                    unpackPsi.EnvironmentVariables["LOCALAPPDATA"] = isolatedLocalAppData;
-                    unpackPsi.EnvironmentVariables["APPDATA"] = isolatedLocalAppData;
-                    unpackPsi.EnvironmentVariables["TEMP"] = tempDir;
-                    unpackPsi.EnvironmentVariables["TMP"] = tempDir;
-                    using var unpackProc = Process.Start(unpackPsi);
-                    if (unpackProc == null) throw new Exception("Не удалось запустить yanu-cli unpack");
+                    int unpackExit = await ExternalProcessRunner.RunAsync(
+                        yanuCliPath,
+                        unpackArgs,
+                        tempUnpack,
+                        task,
+                        cancellationToken,
+                        isolatedUserProfile,
+                        isolatedLocalAppData);
 
-                    var unpackStderr = new System.Text.StringBuilder();
-                    using (var logBuffer = new ProgressLogBuffer(task))
+                    if (unpackExit != 0)
                     {
-                        unpackProc.OutputDataReceived += (s, e) => { if (e.Data != null) logBuffer.AppendLine(e.Data); };
-                        unpackProc.ErrorDataReceived += (s, e) => { if (e.Data != null) unpackStderr.AppendLine(e.Data); };
-                        unpackProc.BeginOutputReadLine();
-                        unpackProc.BeginErrorReadLine();
-                        await unpackProc.WaitForExitAsync(cancellationToken);
-                    }
-                    if (unpackProc.ExitCode != 0)
-                    {
-                        App.Logger.Log($"[HardPatchEngine] yanu-cli unpack вернул код {unpackProc.ExitCode} (обновление без BKTR Patch NCA). Переключение на гибридный нативный распаковщик (LibHac + hactoolnet)...", Models.LogLevel.Info);
+                        App.Logger.Log($"[HardPatchEngine] yanu-cli unpack вернул код {unpackExit} (обновление без BKTR Patch NCA). Переключение на гибридный нативный распаковщик (LibHac + hactoolnet)...", Models.LogLevel.Info);
                         await ExtractMergedRomFsNativeFallbackAsync(baseFile, updateFile, tempUnpack, keysPath, isolatedUserProfile, _keysService, cancellationToken);
                     }
 
@@ -884,36 +836,15 @@ namespace StormSwitchBox.Services
 
                     string titleIdStr = !string.IsNullOrEmpty(resolvedTitleId) ? resolvedTitleId : titleId;
                     string packArgs = $"{keyfileFlag}pack --titleid {titleIdStr} --controlnca \"{controlNca}\" --romfsdir \"{targetRomFs}\" --exefsdir \"{targetExeFs}\" -o \"{yanuOutDir}\" {keepLangsArg} {titleVersionArg}".TrimEnd();
-                    var packPsi = new ProcessStartInfo
-                    {
-                        FileName = yanuCliPath,
-                        Arguments = packArgs,
-                        WorkingDirectory = tempUnpack,
-                        UseShellExecute = false,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true,
-                        CreateNoWindow = true,
-                        StandardOutputEncoding = System.Text.Encoding.UTF8,
-                        StandardErrorEncoding = System.Text.Encoding.UTF8
-                    };
-                    packPsi.EnvironmentVariables["USERPROFILE"] = isolatedUserProfile;
-                    packPsi.EnvironmentVariables["LOCALAPPDATA"] = isolatedLocalAppData;
-                    packPsi.EnvironmentVariables["APPDATA"] = isolatedLocalAppData;
-                    packPsi.EnvironmentVariables["TEMP"] = tempDir;
-                    packPsi.EnvironmentVariables["TMP"] = tempDir;
-                    using var packProc = Process.Start(packPsi);
-                    if (packProc == null) throw new Exception("Не удалось запустить yanu-cli pack");
-
-                    var packStderr = new System.Text.StringBuilder();
-                    using (var logBuffer = new ProgressLogBuffer(task))
-                    {
-                        packProc.OutputDataReceived += (s, e) => { if (e.Data != null) logBuffer.AppendLine(e.Data); };
-                        packProc.ErrorDataReceived += (s, e) => { if (e.Data != null) packStderr.AppendLine(e.Data); };
-                        packProc.BeginOutputReadLine();
-                        packProc.BeginErrorReadLine();
-                        await packProc.WaitForExitAsync(cancellationToken);
-                    }
-                    if (packProc.ExitCode != 0) throw new Exception($"Ошибка yanu-cli pack:\n{packStderr}");
+                    int packExit2 = await ExternalProcessRunner.RunAsync(
+                        yanuCliPath,
+                        packArgs,
+                        tempUnpack,
+                        task,
+                        cancellationToken,
+                        isolatedUserProfile,
+                        isolatedLocalAppData);
+                    if (packExit2 != 0) throw new Exception($"Ошибка yanu-cli pack (код {packExit2})");
                 }
 
                 // Поиск сгенерированного NSP
@@ -1054,60 +985,6 @@ namespace StormSwitchBox.Services
             }
         }
 
-        private static void CopyDirectory(string sourceDir, string destinationDir, bool recursive)
-        {
-            var dir = new DirectoryInfo(sourceDir);
-            if (!dir.Exists)
-                throw new DirectoryNotFoundException($"Source directory not found: {dir.FullName}");
-
-            DirectoryInfo[] dirs = dir.GetDirectories();
-            Directory.CreateDirectory(destinationDir);
-
-            foreach (FileInfo file in dir.GetFiles())
-            {
-                string targetFilePath = System.IO.Path.Combine(destinationDir, file.Name);
-                file.CopyTo(targetFilePath, true);
-            }
-
-            if (recursive)
-            {
-                foreach (DirectoryInfo subDir in dirs)
-                {
-                    string newDestinationDir = System.IO.Path.Combine(destinationDir, subDir.Name);
-                    CopyDirectory(subDir.FullName, newDestinationDir, true);
-                }
-            }
-        }
-
-        private static async Task RunProcessAsync(string fileName, string arguments, Action<string>? onProgress, CancellationToken ct)
-        {
-            var psi = new ProcessStartInfo
-            {
-                FileName = fileName,
-                Arguments = arguments,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true,
-                StandardOutputEncoding = System.Text.Encoding.UTF8,
-                StandardErrorEncoding = System.Text.Encoding.UTF8
-            };
-            using var proc = Process.Start(psi);
-            if (proc == null) return;
-            var err = new System.Text.StringBuilder();
-            proc.OutputDataReceived += (s, e) => {
-                if (e.Data != null) onProgress?.Invoke(e.Data);
-            };
-            proc.ErrorDataReceived += (s, e) => {
-                if (e.Data != null) err.AppendLine(e.Data);
-            };
-            proc.BeginOutputReadLine();
-            proc.BeginErrorReadLine();
-            await proc.WaitForExitAsync(ct);
-            if (proc.ExitCode != 0)
-                App.Logger.Log($"[RunProcess] {System.IO.Path.GetFileName(fileName)} exit={proc.ExitCode}: {err.ToString().Trim()}", Models.LogLevel.Warning);
-        }
-
         private static string FindYanuCli()
         {
             string appDir = AppDomain.CurrentDomain.BaseDirectory;
@@ -1199,54 +1076,25 @@ namespace StormSwitchBox.Services
 
             // nsz.exe -D <input> -o <output_dir> --overwrite --minimal-output --keys <keys> -t 0
             string args = $"-D \"{inputFile}\" -o \"{outputDir}\" --overwrite --minimal-output {keysParam} -t 0".Trim();
-            
-            var psi = new ProcessStartInfo
-            {
-                FileName = "cmd.exe",
-                Arguments = $"/c chcp 65001 >nul & \"{nszExe}\" {args}",
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true,
-                StandardOutputEncoding = System.Text.Encoding.UTF8,
-                StandardErrorEncoding = System.Text.Encoding.UTF8
-            };
-            psi.EnvironmentVariables["USERPROFILE"] = isolatedUserProfile;
-            psi.EnvironmentVariables["PYTHONIOENCODING"] = "utf-8";
-            psi.EnvironmentVariables["PYTHONUTF8"] = "1";
 
-            using var proc = Process.Start(psi);
-            if (proc == null)
+            int exitCode = await ExternalProcessRunner.RunAsync(
+                nszExe,
+                args,
+                outputDir,
+                task,
+                cancellationToken,
+                isolatedUserProfile,
+                null);
+
+            App.Logger.Log($"[nsz.exe] Exit={exitCode}", Models.LogLevel.Info);
+
+            if (exitCode != 0)
             {
-                App.Logger.Log("[nsz.exe] Не удалось запустить процесс", Models.LogLevel.Error);
+                App.Logger.Log($"[nsz.exe] Decompression failed (exit={exitCode})", Models.LogLevel.Error);
                 return null;
             }
 
-            var stderr = new System.Text.StringBuilder();
-            using (var logBuffer = new ProgressLogBuffer(task))
-            {
-                proc.OutputDataReceived += (s, e) => {
-                    if (e.Data != null) logBuffer.AppendLine(e.Data);
-                };
-                proc.ErrorDataReceived += (s, e) => {
-                    if (e.Data != null) stderr.AppendLine(e.Data);
-                };
-                proc.BeginOutputReadLine();
-                proc.BeginErrorReadLine();
-                await proc.WaitForExitAsync(cancellationToken);
-            }
-
-            App.Logger.Log($"[nsz.exe] Exit={proc.ExitCode}", Models.LogLevel.Info);
-            if (stderr.Length > 0)
-                App.Logger.Log($"[nsz.exe] stderr={stderr.ToString().Trim()}", Models.LogLevel.Warning);
-
-            if (proc.ExitCode != 0)
-            {
-                App.Logger.Log($"[nsz.exe] Decompression failed (exit={proc.ExitCode})", Models.LogLevel.Error);
-                return null;
-            }
-
-            // Find the output file — nsz.exe creates .nsp from .nsz, .xci from .xcz
+            // Find the output file - nsz.exe creates .nsp from .nsz, .xci from .xcz
             string expectedExt = inputFile.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) ? ".nsp" : ".xci";
             string baseName = System.IO.Path.GetFileNameWithoutExtension(inputFile);
             
@@ -1267,111 +1115,6 @@ namespace StormSwitchBox.Services
 
             App.Logger.Log($"[nsz.exe] Output file not found in {outputDir}", Models.LogLevel.Error);
             return null;
-        }
-
-        private static void CopyDirectoryContent(string sourceDir, string destinationDir)
-        {
-            if (!Directory.Exists(destinationDir))
-            {
-                Directory.CreateDirectory(destinationDir);
-            }
-
-            foreach (var file in Directory.GetFiles(sourceDir))
-            {
-                if (ModOptimizerService.IsJunkFile(file)) continue;
-                string dest = System.IO.Path.Combine(destinationDir, System.IO.Path.GetFileName(file));
-                File.Copy(file, dest, true);
-            }
-
-            foreach (var dir in Directory.GetDirectories(sourceDir))
-            {
-                string dirName = System.IO.Path.GetFileName(dir);
-                if (dirName.Equals(".git", StringComparison.OrdinalIgnoreCase) || 
-                    dirName.Equals(".svn", StringComparison.OrdinalIgnoreCase)) continue;
-                string dest = System.IO.Path.Combine(destinationDir, dirName);
-                CopyDirectoryContent(dir, dest);
-            }
-        }
-        /// <summary>
-        /// Manually builds a PFS0 (NSP) archive from all files in sourceDir.
-        /// PFS0 format: "PFS0" magic, file count, string table size, reserved,
-        /// then per-file entries (offset, size, name offset, reserved), string table, file data.
-        /// </summary>
-        private static void BuildPfs0Nsp(string sourceDir, string outputPath)
-        {
-            var files = Directory.GetFiles(sourceDir)
-                .Where(f => IsValidNspEntry(System.IO.Path.GetFileName(f)))
-                .OrderBy(f => System.IO.Path.GetFileName(f), StringComparer.OrdinalIgnoreCase)
-                .ToArray();
-            if (files.Length == 0) return;
-
-            // Build string table
-            var stringTable = new System.IO.MemoryStream();
-            var nameOffsets = new int[files.Length];
-            for (int i = 0; i < files.Length; i++)
-            {
-                nameOffsets[i] = (int)stringTable.Position;
-                byte[] nameBytes = System.Text.Encoding.UTF8.GetBytes(System.IO.Path.GetFileName(files[i]));
-                stringTable.Write(nameBytes, 0, nameBytes.Length);
-                stringTable.WriteByte(0); // null terminator
-            }
-            // Pad string table to 0x20 alignment
-            while (stringTable.Length % 0x20 != 0)
-                stringTable.WriteByte(0);
-            byte[] stringTableData = stringTable.ToArray();
-
-            int headerSize = 0x10; // magic(4) + fileCount(4) + strTableSize(4) + reserved(4)
-            int entrySize = 0x18;  // offset(8) + size(8) + nameOffset(4) + reserved(4)
-            long dataOffset = headerSize + (entrySize * files.Length) + stringTableData.Length;
-
-            using var output = new FileStream(outputPath, FileMode.Create, FileAccess.Write, FileShare.None);
-            using var writer = new BinaryWriter(output);
-
-            // PFS0 header
-            writer.Write(System.Text.Encoding.ASCII.GetBytes("PFS0")); // magic
-            writer.Write((int)files.Length);                            // file count
-            writer.Write((int)stringTableData.Length);                 // string table size
-            writer.Write((int)0);                                      // reserved
-
-            // File entries
-            long currentOffset = 0;
-            for (int i = 0; i < files.Length; i++)
-            {
-                long fileSize = new FileInfo(files[i]).Length;
-                writer.Write(currentOffset);       // offset relative to data start
-                writer.Write(fileSize);            // size
-                writer.Write(nameOffsets[i]);       // string table offset
-                writer.Write((int)0);              // reserved
-                currentOffset += fileSize;
-            }
-
-            // String table
-            writer.Write(stringTableData);
-
-            // File data
-            byte[] buffer = new byte[8 * 1024 * 1024]; // 8MB buffer
-            for (int i = 0; i < files.Length; i++)
-            {
-                using var fileStream = new FileStream(files[i], FileMode.Open, FileAccess.Read, FileShare.Read);
-                int bytesRead;
-                while ((bytesRead = fileStream.Read(buffer, 0, buffer.Length)) > 0)
-                {
-                    writer.Write(buffer, 0, bytesRead);
-                }
-            }
-        }
-
-        /// <summary>
-        /// Checks if a file entry name is valid for inclusion in an NSP (PFS0) container.
-        /// Filters out metadata artifacts (.xml, .json) that tools like yanu-cli create
-        /// but which don't belong in the final NSP.
-        /// </summary>
-        private static bool IsValidNspEntry(string name)
-        {
-            // Valid NSP entries: .nca, .ncz, .tik, .cert
-            // Invalid: .xml, .json, .cnmt.xml (yanu-cli artifacts)
-            string ext = System.IO.Path.GetExtension(name).ToLowerInvariant();
-            return ext == ".nca" || ext == ".ncz" || ext == ".tik" || ext == ".cert";
         }
 
         /// <summary>
@@ -1436,7 +1179,7 @@ namespace StormSwitchBox.Services
         }
 
         /// <summary>
-        /// Применяет стандартный IPS/IPSwitch патч к бинарному исполняемому файлу
+        /// Применяет стандартный IPS ("PATCH") или IPS32 ("IPS32") патч к бинарному исполняемому файлу
         /// </summary>
         public static void ApplyIpsPatchToFile(string ipsFilePath, string targetBinaryPath)
         {
@@ -1445,21 +1188,39 @@ namespace StormSwitchBox.Services
             byte[] ips = File.ReadAllBytes(ipsFilePath);
             if (ips.Length < 8) return;
 
-            // Проверка сигнатуры "PATCH" (0x50, 0x41, 0x54, 0x43, 0x48)
-            if (ips[0] != (byte)'P' || ips[1] != (byte)'A' || ips[2] != (byte)'T' || ips[3] != (byte)'C' || ips[4] != (byte)'H')
-                return;
+            bool isIps32 = ips[0] == (byte)'I' && ips[1] == (byte)'P' && ips[2] == (byte)'S' && ips[3] == (byte)'3' && ips[4] == (byte)'2';
+            bool isIps24 = ips[0] == (byte)'P' && ips[1] == (byte)'A' && ips[2] == (byte)'T' && ips[3] == (byte)'C' && ips[4] == (byte)'H';
+            if (!isIps32 && !isIps24) return;
 
             using var fs = new FileStream(targetBinaryPath, FileMode.Open, FileAccess.ReadWrite, FileShare.Read);
             int pos = 5;
 
-            while (pos + 3 <= ips.Length)
+            while (pos < ips.Length)
             {
-                // Проверка EOF ("EOF" = 0x45, 0x4F, 0x46)
-                if (ips[pos] == (byte)'E' && ips[pos + 1] == (byte)'O' && ips[pos + 2] == (byte)'F')
-                    break;
+                if (isIps32)
+                {
+                    if (pos + 4 > ips.Length) break;
+                    if (ips[pos] == (byte)'E' && ips[pos + 1] == (byte)'E' && ips[pos + 2] == (byte)'O' && ips[pos + 3] == (byte)'F')
+                        break;
+                }
+                else
+                {
+                    if (pos + 3 > ips.Length) break;
+                    if (ips[pos] == (byte)'E' && ips[pos + 1] == (byte)'O' && ips[pos + 2] == (byte)'F')
+                        break;
+                }
 
-                int offset = (ips[pos] << 16) | (ips[pos + 1] << 8) | ips[pos + 2];
-                pos += 3;
+                long offset;
+                if (isIps32)
+                {
+                    offset = ((long)ips[pos] << 24) | ((long)ips[pos + 1] << 16) | ((long)ips[pos + 2] << 8) | ips[pos + 3];
+                    pos += 4;
+                }
+                else
+                {
+                    offset = (ips[pos] << 16) | (ips[pos + 1] << 8) | ips[pos + 2];
+                    pos += 3;
+                }
 
                 if (pos + 2 > ips.Length) break;
                 int length = (ips[pos] << 8) | ips[pos + 1];
@@ -1549,7 +1310,7 @@ namespace StormSwitchBox.Services
                 }
             }
 
-            // 1.4 Если main.npdm все еще отсутствует в targetExeFs — гарантированно извлекаем через fallback
+            // 1.4 Если main.npdm все еще отсутствует в targetExeFs - гарантированно извлекаем через fallback
             if (!File.Exists(System.IO.Path.Combine(targetExeFs, "main.npdm")))
             {
                 ExtractExeFsFromNspWithLibHac(
@@ -1564,7 +1325,7 @@ namespace StormSwitchBox.Services
                     isolatedLocalAppData);
             }
 
-            // Если main.npdm найден в любой другой подпапке tempUnpack — копируем его в targetExeFs
+            // Если main.npdm найден в любой другой подпапке tempUnpack - копируем его в targetExeFs
             if (!File.Exists(System.IO.Path.Combine(targetExeFs, "main.npdm")))
             {
                 var anyNpdm = Directory.GetFiles(tempUnpack, "*.npdm", SearchOption.AllDirectories).FirstOrDefault();
@@ -1783,46 +1544,31 @@ namespace StormSwitchBox.Services
                 string keyfileFlag = (!string.IsNullOrEmpty(keysPath) && File.Exists(keysPath) && !isDefaultLocation) ? $"-k \"{keysPath}\" " : "";
                 string unpackArgs = $"{keyfileFlag}unpack --base \"{baseFile}\" -o \"{tempBaseUnpack}\"";
 
-                var psi = new ProcessStartInfo
-                {
-                    FileName = yanuCliPath,
-                    Arguments = unpackArgs,
-                    WorkingDirectory = tempBaseUnpack,
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    CreateNoWindow = true,
-                    StandardOutputEncoding = System.Text.Encoding.UTF8,
-                    StandardErrorEncoding = System.Text.Encoding.UTF8
-                };
-                psi.EnvironmentVariables["USERPROFILE"] = isolatedUserProfile;
-                psi.EnvironmentVariables["LOCALAPPDATA"] = isolatedLocalAppData;
-                psi.EnvironmentVariables["APPDATA"] = isolatedLocalAppData;
-                psi.EnvironmentVariables["TEMP"] = tempDir;
-                psi.EnvironmentVariables["TMP"] = tempDir;
+                using var timeoutCts = new CancellationTokenSource(System.TimeSpan.FromSeconds(60));
+                Task.Run(() => ExternalProcessRunner.RunAsync(
+                    yanuCliPath,
+                    unpackArgs,
+                    tempBaseUnpack,
+                    null,
+                    timeoutCts.Token,
+                    isolatedUserProfile,
+                    isolatedLocalAppData), timeoutCts.Token).GetAwaiter().GetResult();
 
-                using var proc = Process.Start(psi);
-                if (proc != null)
+                var npdmFiles = Directory.GetFiles(tempBaseUnpack, "main.npdm", SearchOption.AllDirectories);
+                if (npdmFiles.Length > 0)
                 {
-                    proc.BeginOutputReadLine();
-                    proc.BeginErrorReadLine();
-                    proc.WaitForExit(60000);
-                    var npdmFiles = Directory.GetFiles(tempBaseUnpack, "main.npdm", SearchOption.AllDirectories);
-                    if (npdmFiles.Length > 0)
+                    string baseExeFsDir = System.IO.Path.GetDirectoryName(npdmFiles[0])!;
+                    foreach (var file in Directory.GetFiles(baseExeFsDir))
                     {
-                        string baseExeFsDir = System.IO.Path.GetDirectoryName(npdmFiles[0])!;
-                        foreach (var file in Directory.GetFiles(baseExeFsDir))
+                        string fileName = System.IO.Path.GetFileName(file);
+                        string dest = System.IO.Path.Combine(targetExeFs, fileName);
+                        // main.npdm, sdk, rtld и subsdk копируем всегда; main не перезаписываем, если в targetExeFs уже есть обновленный main
+                        if (fileName.Equals("main.npdm", StringComparison.OrdinalIgnoreCase) || !File.Exists(dest))
                         {
-                            string fileName = System.IO.Path.GetFileName(file);
-                            string dest = System.IO.Path.Combine(targetExeFs, fileName);
-                            // main.npdm, sdk, rtld и subsdk копируем всегда; main не перезаписываем, если в targetExeFs уже есть обновленный main
-                            if (fileName.Equals("main.npdm", StringComparison.OrdinalIgnoreCase) || !File.Exists(dest))
-                            {
-                                File.Copy(file, dest, true);
-                            }
+                            File.Copy(file, dest, true);
                         }
-                        App.Logger.Log($"[HardPatchEngine] Успешно извлечен оригинальный main.npdm через yanu-cli unpack.", Models.LogLevel.Info);
                     }
+                    App.Logger.Log($"[HardPatchEngine] Успешно извлечен оригинальный main.npdm через yanu-cli unpack.", Models.LogLevel.Info);
                 }
             }
             catch (Exception ex)
@@ -1844,35 +1590,8 @@ namespace StormSwitchBox.Services
             {
                 if (!File.Exists(filePath)) return;
 
-                bool isXci = filePath.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) || filePath.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase);
-
-                using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
-                IStorage storage = fileStream.AsStorage();
-
-                IFileSystem? fileSystem = null;
-
-                if (isXci)
-                {
-                    storage.GetSize(out long storageSize).ThrowIfFailure();
-                    if (storageSize > 0x10000)
-                    {
-                        var rootStorage = new SubStorage(storage, 0x10000, storageSize - 0x10000);
-                        var rootPfs = new PartitionFileSystem(rootStorage);
-                        using var secureFile = new UniqueRef<IFile>();
-                        using var securePath = new LibHac.Fs.Path();
-                        securePath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes("/secure"))).ThrowIfFailure();
-                        if (rootPfs.OpenFile(ref secureFile.Ref, in securePath, OpenMode.Read).IsSuccess())
-                        {
-                            fileSystem = new PartitionFileSystem(secureFile.Release().AsStorage());
-                        }
-                    }
-                }
-                else
-                {
-                    fileSystem = new PartitionFileSystem(storage);
-                }
-
-                if (fileSystem == null) return;
+                using var container = SwitchContainerHandle.Open(filePath);
+                IFileSystem fileSystem = container.FileSystem;
 
                 // Харвестинг тикетов (.tik) и регистрация TitleKeys
                 var keysToAdd = new List<string>();
@@ -1944,7 +1663,7 @@ namespace StormSwitchBox.Services
                     {
                         try
                         {
-                            IFile ncaFile = ncaFileRef.Release();
+                            using IFile ncaFile = ncaFileRef.Release();
                             var nca = new LibHac.Tools.FsSystem.NcaUtils.Nca(keysService.CurrentKeyset, ncaFile.AsStorage());
                             if (nca.Header.ContentType == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Program || (byte)nca.Header.ContentType == 3 || (byte)nca.Header.ContentType == 0)
                             {
@@ -2026,47 +1745,25 @@ namespace StormSwitchBox.Services
                 if (!string.IsNullOrEmpty(baseFile) && File.Exists(baseFile))
                 {
                     string tFlag = (baseFile.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) || baseFile.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase)) ? "-t xci" : "-t pfs0";
-                    var psi = new ProcessStartInfo
-                    {
-                        FileName = hactoolnetPath,
-                        Arguments = $"{kFlag}{tkFlag}{tFlag} --exefsdir \"{targetExeFs}\" \"{baseFile}\"",
-                        UseShellExecute = false,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true,
-                        CreateNoWindow = true
-                    };
-                    using var proc = Process.Start(psi);
-                    if (proc != null)
-                    {
-                        proc.OutputDataReceived += static (_, _) => { };
-                        proc.ErrorDataReceived += static (_, _) => { };
-                        proc.BeginOutputReadLine();
-                        proc.BeginErrorReadLine();
-                        if (!proc.WaitForExit(30000)) { try { proc.Kill(true); } catch { } }
-                    }
+                    using var ctsBase = new CancellationTokenSource(System.TimeSpan.FromSeconds(30));
+                    Task.Run(() => ExternalProcessRunner.RunAsync(
+                        hactoolnetPath,
+                        $"{kFlag}{tkFlag}{tFlag} --exefsdir \"{targetExeFs}\" \"{baseFile}\"",
+                        targetExeFs,
+                        null,
+                        ctsBase.Token), ctsBase.Token).GetAwaiter().GetResult();
                 }
 
                 if (!string.IsNullOrEmpty(updateFile) && File.Exists(updateFile))
                 {
                     string tFlag = (updateFile.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) || updateFile.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase)) ? "-t xci" : "-t pfs0";
-                    var psi = new ProcessStartInfo
-                    {
-                        FileName = hactoolnetPath,
-                        Arguments = $"{kFlag}{tkFlag}{tFlag} --exefsdir \"{targetExeFs}\" \"{updateFile}\"",
-                        UseShellExecute = false,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true,
-                        CreateNoWindow = true
-                    };
-                    using var proc = Process.Start(psi);
-                    if (proc != null)
-                    {
-                        proc.OutputDataReceived += static (_, _) => { };
-                        proc.ErrorDataReceived += static (_, _) => { };
-                        proc.BeginOutputReadLine();
-                        proc.BeginErrorReadLine();
-                        if (!proc.WaitForExit(30000)) { try { proc.Kill(true); } catch { } }
-                    }
+                    using var ctsUpd = new CancellationTokenSource(System.TimeSpan.FromSeconds(30));
+                    Task.Run(() => ExternalProcessRunner.RunAsync(
+                        hactoolnetPath,
+                        $"{kFlag}{tkFlag}{tFlag} --exefsdir \"{targetExeFs}\" \"{updateFile}\"",
+                        targetExeFs,
+                        null,
+                        ctsUpd.Token), ctsUpd.Token).GetAwaiter().GetResult();
                 }
 
                 App.Logger.Log($"[HardPatchEngine] hactoolnet ExeFS extraction check completed.", Models.LogLevel.Info);
@@ -2098,56 +1795,34 @@ namespace StormSwitchBox.Services
                 if (!string.IsNullOrEmpty(baseFile) && File.Exists(baseFile))
                 {
                     string tFlag = (baseFile.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) || baseFile.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase)) ? "-t xci" : "-t pfs0";
-                    var psi = new ProcessStartInfo
+                    using var ctsBase = new CancellationTokenSource(System.TimeSpan.FromSeconds(240));
+                    try
                     {
-                        FileName = hactoolnetPath,
-                        Arguments = $"{kFlag}{tkFlag}{tFlag} --romfsdir \"{targetRomFs}\" \"{baseFile}\"",
-                        UseShellExecute = false,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true,
-                        CreateNoWindow = true
-                    };
-                    psi.EnvironmentVariables["USERPROFILE"] = isolatedUserProfile;
-                    using var proc = Process.Start(psi);
-                    if (proc != null)
+                        Task.Run(() => ExternalProcessRunner.RunAsync(
+                            hactoolnetPath,
+                            $"{kFlag}{tkFlag}{tFlag} --romfsdir \"{targetRomFs}\" \"{baseFile}\"",
+                            targetRomFs,
+                            null,
+                            ctsBase.Token,
+                            isolatedUserProfile), ctsBase.Token).GetAwaiter().GetResult();
+                    }
+                    catch (OperationCanceledException)
                     {
-                        proc.OutputDataReceived += static (_, _) => { };
-                        proc.ErrorDataReceived += static (_, _) => { };
-                        proc.BeginOutputReadLine();
-                        proc.BeginErrorReadLine();
-                        if (!proc.WaitForExit(240000))
-                        {
-                            try { proc.Kill(true); } catch { }
-                            try { if (Directory.Exists(targetRomFs)) Directory.Delete(targetRomFs, true); Directory.CreateDirectory(targetRomFs); } catch { }
-                        }
+                        try { if (Directory.Exists(targetRomFs)) Directory.Delete(targetRomFs, true); Directory.CreateDirectory(targetRomFs); } catch { }
                     }
                 }
 
                 if (!string.IsNullOrEmpty(updateFile) && File.Exists(updateFile))
                 {
                     string tFlag = (updateFile.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) || updateFile.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase)) ? "-t xci" : "-t pfs0";
-                    var psi = new ProcessStartInfo
-                    {
-                        FileName = hactoolnetPath,
-                        Arguments = $"{kFlag}{tkFlag}{tFlag} --romfsdir \"{targetRomFs}\" \"{updateFile}\"",
-                        UseShellExecute = false,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true,
-                        CreateNoWindow = true
-                    };
-                    psi.EnvironmentVariables["USERPROFILE"] = isolatedUserProfile;
-                    using var proc = Process.Start(psi);
-                    if (proc != null)
-                    {
-                        proc.OutputDataReceived += static (_, _) => { };
-                        proc.ErrorDataReceived += static (_, _) => { };
-                        proc.BeginOutputReadLine();
-                        proc.BeginErrorReadLine();
-                        if (!proc.WaitForExit(180000))
-                        {
-                            try { proc.Kill(true); } catch { }
-                        }
-                    }
+                    using var ctsUpd = new CancellationTokenSource(System.TimeSpan.FromSeconds(180));
+                    Task.Run(() => ExternalProcessRunner.RunAsync(
+                        hactoolnetPath,
+                        $"{kFlag}{tkFlag}{tFlag} --romfsdir \"{targetRomFs}\" \"{updateFile}\"",
+                        targetRomFs,
+                        null,
+                        ctsUpd.Token,
+                        isolatedUserProfile), ctsUpd.Token).GetAwaiter().GetResult();
                 }
 
                 App.Logger.Log($"[HardPatchEngine] hactoolnet RomFS extraction check completed.", Models.LogLevel.Info);
@@ -2174,34 +1849,8 @@ namespace StormSwitchBox.Services
                 try
                 {
                     if (!File.Exists(file)) continue;
-                    bool isXci = file.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) || file.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase);
-
-                    using var fileStream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read);
-                    IStorage storage = fileStream.AsStorage();
-                    IFileSystem? fileSystem = null;
-
-                    if (isXci)
-                    {
-                        storage.GetSize(out long storageSize).ThrowIfFailure();
-                        if (storageSize > 0x10000)
-                        {
-                            var rootStorage = new SubStorage(storage, 0x10000, storageSize - 0x10000);
-                            var rootPfs = new PartitionFileSystem(rootStorage);
-                            using var secureFile = new UniqueRef<IFile>();
-                            using var securePath = new LibHac.Fs.Path();
-                            securePath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes("/secure"))).ThrowIfFailure();
-                            if (rootPfs.OpenFile(ref secureFile.Ref, in securePath, OpenMode.Read).IsSuccess())
-                            {
-                                fileSystem = new PartitionFileSystem(secureFile.Release().AsStorage());
-                            }
-                        }
-                    }
-                    else
-                    {
-                        fileSystem = new PartitionFileSystem(storage);
-                    }
-
-                    if (fileSystem == null) continue;
+                    using var container = SwitchContainerHandle.Open(file);
+                    IFileSystem fileSystem = container.FileSystem;
                     SmartShrinkService.HarvestTicketsFromFileSystem(fileSystem, keysService.CurrentKeyset);
 
                     foreach (var entry in fileSystem.EnumerateEntries().Where(e => e.Name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase)))
@@ -2213,9 +1862,8 @@ namespace StormSwitchBox.Services
                         {
                             try
                             {
-                                IFile ncaFile = ncaFileRef.Release();
+                                using IFile ncaFile = ncaFileRef.Release();
                                 var nca = new LibHac.Tools.FsSystem.NcaUtils.Nca(keysService.CurrentKeyset, ncaFile.AsStorage());
-                                KeysService.RegisterRightsIdFallback(keysService.CurrentKeyset, nca);
 
                                 if (nca.Header.ContentType == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Control || (byte)nca.Header.ContentType == 2)
                                 {
@@ -2248,25 +1896,13 @@ namespace StormSwitchBox.Services
                                                 string? kPath = FindKeysFile();
                                                 if (!string.IsNullOrEmpty(hpExe) && File.Exists(hpExe) && !string.IsNullOrEmpty(kPath) && File.Exists(kPath))
                                                 {
-                                                    var psi = new ProcessStartInfo
-                                                    {
-                                                        FileName = hpExe,
-                                                        Arguments = $"-k \"{kPath}\" --type nca --ncatype control --titleid {baseTidHex} --romfsdir \"{ctrlRomfsDir}\" -o \"{ctrlOutDir}\" --backupdir \"{ctrlBkupDir}\"",
-                                                        WorkingDirectory = ctrlWorkDir,
-                                                        UseShellExecute = false,
-                                                        CreateNoWindow = true,
-                                                        RedirectStandardOutput = true,
-                                                        RedirectStandardError = true
-                                                    };
-                                                    using var p = Process.Start(psi);
-                                                    if (p != null)
-                                                    {
-                                                        p.OutputDataReceived += static (_, _) => { };
-                                                        p.ErrorDataReceived += static (_, _) => { };
-                                                        p.BeginOutputReadLine();
-                                                        p.BeginErrorReadLine();
-                                                        if (!p.WaitForExit(30000)) { try { p.Kill(true); } catch { } }
-                                                    }
+                                                    using var ctsHp = new CancellationTokenSource(System.TimeSpan.FromSeconds(30));
+                                                    Task.Run(() => ExternalProcessRunner.RunAsync(
+                                                        hpExe,
+                                                        $"-k \"{kPath}\" --type nca --ncatype control --titleid {baseTidHex} --romfsdir \"{ctrlRomfsDir}\" -o \"{ctrlOutDir}\" --backupdir \"{ctrlBkupDir}\"",
+                                                        ctrlWorkDir,
+                                                        null,
+                                                        ctsHp.Token), ctsHp.Token).GetAwaiter().GetResult();
                                                     var builtNcas = Directory.GetFiles(ctrlOutDir, "*.nca");
                                                     if (builtNcas.Length > 0 && new FileInfo(builtNcas[0]).Length > 0)
                                                     {
@@ -2283,7 +1919,7 @@ namespace StormSwitchBox.Services
                                         {
                                             App.Logger.Log($"[HardPatchEngine] Предупреждение пересборки Control NCA: {rex.Message}", Models.LogLevel.Warning);
                                         }
-                                        // Не допускаем записи сырого Control NCA с чужим TitleID (...800) или TitleRights без тикета — переходим к следующему источнику (baseFile)
+                                        // Не допускаем записи сырого Control NCA с чужим TitleID (...800) или TitleRights без тикета - переходим к следующему источнику (baseFile)
                                         if ((rawTid & 0xFFFUL) != 0)
                                             continue;
                                     }
@@ -2390,31 +2026,8 @@ namespace StormSwitchBox.Services
                     foreach (var srcFile in new[] { baseFile, updateFile })
                     {
                         if (string.IsNullOrEmpty(srcFile) || !File.Exists(srcFile)) continue;
-                        bool isXci = srcFile.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) || srcFile.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase);
-                        var fs = new FileStream(srcFile, FileMode.Open, FileAccess.Read, FileShare.Read);
-                        openedStreams.Add(fs);
-                        IStorage storage = fs.AsStorage();
-                        IFileSystem? pfs = null;
-
-                        if (isXci)
-                        {
-                            storage.GetSize(out long sz).ThrowIfFailure();
-                            if (sz > 0x10000)
-                            {
-                                var rootPfs = new PartitionFileSystem(new SubStorage(storage, 0x10000, sz - 0x10000));
-                                using var secFile = new UniqueRef<IFile>();
-                                using var secPath = new LibHac.Fs.Path();
-                                secPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes("/secure"))).ThrowIfFailure();
-                                if (rootPfs.OpenFile(ref secFile.Ref, in secPath, OpenMode.Read).IsSuccess())
-                                    pfs = new PartitionFileSystem(secFile.Release().AsStorage());
-                            }
-                        }
-                        else
-                        {
-                            pfs = new PartitionFileSystem(storage);
-                        }
-
-                        if (pfs == null) continue;
+                        using var container = SwitchContainerHandle.Open(srcFile);
+                        IFileSystem pfs = container.FileSystem;
                         SmartShrinkService.HarvestTicketsFromFileSystem(pfs, keysService.CurrentKeyset);
 
                         foreach (var entry in pfs.EnumerateEntries().Where(e => e.Name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase)))
@@ -2424,8 +2037,9 @@ namespace StormSwitchBox.Services
                             ncaPath.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(entry.FullPath))).ThrowIfFailure();
                             if (!pfs.OpenFile(ref ncaRef.Ref, in ncaPath, OpenMode.Read).IsSuccess()) continue;
 
-                            var nca = new LibHac.Tools.FsSystem.NcaUtils.Nca(keysService.CurrentKeyset, ncaRef.Release().AsStorage());
-                            KeysService.RegisterRightsIdFallback(keysService.CurrentKeyset, nca);
+                            IFile ncaIFile = ncaRef.Release();
+                            openedStreams.Add(ncaIFile);
+                            var nca = new LibHac.Tools.FsSystem.NcaUtils.Nca(keysService.CurrentKeyset, ncaIFile.AsStorage());
 
                             if (nca.Header.ContentType == LibHac.Tools.FsSystem.NcaUtils.NcaContentType.Program)
                             {
@@ -2510,7 +2124,7 @@ namespace StormSwitchBox.Services
             // 1. Сначала извлекаем напрямую через нативный LibHac Virtual FS в памяти (без риска зависания stdout-пайпа hactoolnet и с авто-харвестингом тикетов)
             await Task.Run(() => ExtractLibHacRomFsAndExeFs(baseFile, updateFile, patchRomFs, patchExeFs, keysService, token), token);
 
-            // 2. Только если после LibHac каталог RomFS или ExeFS пуст — используем резервный hactoolnet с чтением пайпов
+            // 2. Только если после LibHac каталог RomFS или ExeFS пуст - используем резервный hactoolnet с чтением пайпов
             if (!Directory.EnumerateFileSystemEntries(patchRomFs).Any())
             {
                 ExtractRomFsWithHactoolnet(baseFile, updateFile, patchRomFs, keysPath ?? "", isolatedUserProfile);
@@ -2533,25 +2147,13 @@ namespace StormSwitchBox.Services
                         {
                             if (string.IsNullOrEmpty(srcFile) || !File.Exists(srcFile)) continue;
                             string tFlag = (srcFile.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) || srcFile.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase)) ? "-t xci" : "-t pfs0";
-                            var psi = new ProcessStartInfo
-                            {
-                                FileName = hactoolnetPath,
-                                Arguments = $"{kFlag}{tkFlag}{tFlag} --exefsdir \"{patchExeFs}\" \"{srcFile}\"",
-                                UseShellExecute = false,
-                                RedirectStandardOutput = true,
-                                RedirectStandardError = true,
-                                CreateNoWindow = true
-                            };
-                            psi.EnvironmentVariables["USERPROFILE"] = isolatedUserProfile;
-                            using var proc = Process.Start(psi);
-                            if (proc != null)
-                            {
-                                proc.OutputDataReceived += static (_, _) => { };
-                                proc.ErrorDataReceived += static (_, _) => { };
-                                proc.BeginOutputReadLine();
-                                proc.BeginErrorReadLine();
-                                await proc.WaitForExitAsync(token);
-                            }
+                            await ExternalProcessRunner.RunAsync(
+                                hactoolnetPath,
+                                $"{kFlag}{tkFlag}{tFlag} --exefsdir \"{patchExeFs}\" \"{srcFile}\"",
+                                tempUnpack,
+                                null,
+                                token,
+                                isolatedUserProfile);
                         }
                     }
                     catch { }
@@ -2894,7 +2496,7 @@ namespace StormSwitchBox.Services
                     }
                 }
 
-                // 2. Если LibHac выбросил исключение — используем надежный hactoolnet с --basenca
+                // 2. Если LibHac выбросил исключение - используем надежный hactoolnet с --basenca
                 if (!upgraded)
                 {
                     App.RunOnUI(() => task.LogDetails += "\n  Применение BKTR RomFS обновления через hactoolnet...");
@@ -2926,7 +2528,8 @@ namespace StormSwitchBox.Services
                     path.Initialize(new U8Span(System.Text.Encoding.UTF8.GetBytes(entry.FullPath))).ThrowIfFailure();
                     if (romfs.OpenFile(ref fRef.Ref, in path, OpenMode.Read).IsSuccess())
                     {
-                        using var inStream = fRef.Release().AsStream();
+                        using IFile srcIFile = fRef.Release();
+                        using var inStream = srcIFile.AsStream();
                         using var outStream = new FileStream(targetFilePath, FileMode.Create, FileAccess.Write, FileShare.None, 65536);
                         inStream.CopyTo(outStream);
                     }
@@ -3345,155 +2948,6 @@ namespace StormSwitchBox.Services
                         File.WriteAllBytes(normMetaPath, newMetaNca);
                         entryOverrides[idx] = (newMetaName, normMetaPath, newMetaNca.Length);
                         App.Logger?.Log($"[HardPatchEngine] Updated Meta NCA {ent.Name} -> {newMetaName}", Models.LogLevel.Info);
-                    }
-
-                    // Обновление внедряемого 4 KB Patch CNMT (...800.cnmt.nca) при наличии
-                    string? extraCnmtRebuiltName = null;
-                    string? extraCnmtRebuiltPath = null;
-                    long extraCnmtRebuiltSize = 0;
-
-                    if (extraPatchCnmtBytes != null && extraPatchCnmtBytes.Length >= 0x1000 && progReplacements.Count > 0)
-                    {
-                        try
-                        {
-                            byte[] rawNca = (byte[])extraPatchCnmtBytes.Clone();
-                            byte[] rawHdr = new byte[0xC00];
-                            Buffer.BlockCopy(rawNca, 0, rawHdr, 0, 0xC00);
-                            byte[] decHdr = (rawHdr[0x200] == 'N' && rawHdr[0x201] == 'C' && rawHdr[0x202] == 'A' && rawHdr[0x203] == '3')
-                                ? (byte[])rawHdr.Clone()
-                                : NcaXtsCryptHeader0xC00(rawHdr, headerKey, decrypt: true);
-
-                            if (decHdr[0x200] == 'N' && decHdr[0x201] == 'C' && decHdr[0x202] == 'A' && decHdr[0x203] == '3')
-                            {
-                                uint sb = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(decHdr.AsSpan(0x240, 4));
-                                uint eb = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(decHdr.AsSpan(0x244, 4));
-                                if (eb > sb)
-                                {
-                                    int secStart = (int)(sb * 0x200);
-                                    int secLen = (int)((eb - sb) * 0x200);
-                                    if (secStart + secLen <= rawNca.Length)
-                                    {
-                                        byte encType = decHdr[0x404];
-                                        byte[] gensec = new byte[8];
-                                        Buffer.BlockCopy(decHdr, 0x540, gensec, 0, 8);
-                                        byte[]? ctrKey = (encType == 3) ? ResolveNcaCtrKey(decHdr, keysService.CurrentKeyset) : null;
-
-                                        byte[] secPlain = new byte[secLen];
-                                        Buffer.BlockCopy(rawNca, secStart, secPlain, 0, secLen);
-                                        if (encType == 3 && ctrKey != null)
-                                            AesCtrCryptInPlace(secPlain, 0, secLen, ctrKey, gensec, secStart);
-
-                                        // Точное обновление CNMT-записей (TitleVersion, Program NCA recType==1 и Control NCA recType==3) внутри 4 KB Patch CNMT
-                                        var repProg = progReplacements.Values.First();
-                                        long cPfsOff = System.Buffers.Binary.BinaryPrimitives.ReadInt64LittleEndian(decHdr.AsSpan(0x440, 8));
-                                        long cPfsSize = System.Buffers.Binary.BinaryPrimitives.ReadInt64LittleEndian(decHdr.AsSpan(0x448, 8));
-                                        if (cPfsOff >= 0 && cPfsOff + cPfsSize <= secLen && secPlain[cPfsOff] == 'P' && secPlain[cPfsOff + 1] == 'F' && secPlain[cPfsOff + 2] == 'S' && secPlain[cPfsOff + 3] == '0')
-                                        {
-                                            int mNum = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(secPlain.AsSpan((int)cPfsOff + 4, 4));
-                                            int mStrSz = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(secPlain.AsSpan((int)cPfsOff + 8, 4));
-                                            int mDataBase = (int)cPfsOff + 16 + mNum * 24 + mStrSz;
-                                            for (int m = 0; m < mNum; m++)
-                                            {
-                                                long mRelOff = System.Buffers.Binary.BinaryPrimitives.ReadInt64LittleEndian(secPlain.AsSpan((int)cPfsOff + 16 + m * 24, 8));
-                                                long mSz = System.Buffers.Binary.BinaryPrimitives.ReadInt64LittleEndian(secPlain.AsSpan((int)cPfsOff + 16 + m * 24 + 8, 8));
-                                                int mSOff = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(secPlain.AsSpan((int)cPfsOff + 16 + m * 24 + 16, 4));
-                                                int mSEnd = mSOff;
-                                                while (mSEnd < mStrSz && secPlain[(int)cPfsOff + 16 + mNum * 24 + mSEnd] != 0) mSEnd++;
-                                                string mName = System.Text.Encoding.UTF8.GetString(secPlain, (int)cPfsOff + 16 + mNum * 24 + mSOff, mSEnd - mSOff);
-                                                if (!mName.EndsWith(".cnmt", StringComparison.OrdinalIgnoreCase)) continue;
-
-                                                int cnmtPos = mDataBase + (int)mRelOff;
-                                                if (cnmtPos + 0x20 > secLen) continue;
-
-                                                if (expectedTitleVersion.HasValue && expectedTitleVersion.Value > 0)
-                                                {
-                                                    System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(secPlain.AsSpan(cnmtPos + 0x08, 4), expectedTitleVersion.Value);
-                                                }
-
-                                                ushort tableOffset = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(secPlain.AsSpan(cnmtPos + 0x0E, 2));
-                                                ushort contentCount = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(secPlain.AsSpan(cnmtPos + 0x10, 2));
-                                                int recBase = cnmtPos + 0x20 + tableOffset;
-
-                                                for (int r = 0; r < contentCount; r++)
-                                                {
-                                                    int rPos = recBase + r * 56;
-                                                    if (rPos + 56 > cnmtPos + mSz || rPos + 56 > secLen) break;
-                                                    byte recType = secPlain[rPos + 0x36];
-                                                    if (recType == 1 && repProg.NewHash != null)
-                                                    {
-                                                        repProg.NewHash.CopyTo(secPlain.AsSpan(rPos, 32));
-                                                        repProg.NewHash.AsSpan(0, 16).CopyTo(secPlain.AsSpan(rPos + 0x20, 16));
-                                                        ulong sz48 = (ulong)repProg.NewSize;
-                                                        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(secPlain.AsSpan(rPos + 0x30, 4), (uint)(sz48 & 0xFFFFFFFFUL));
-                                                        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(secPlain.AsSpan(rPos + 0x34, 2), (ushort)((sz48 >> 32) & 0xFFFFUL));
-                                                    }
-                                                    else if (recType == 3 && activeCtrlHash != null && activeCtrlSize > 0)
-                                                    {
-                                                        activeCtrlHash.CopyTo(secPlain.AsSpan(rPos, 32));
-                                                        activeCtrlHash.AsSpan(0, 16).CopyTo(secPlain.AsSpan(rPos + 0x20, 16));
-                                                        ulong sz48 = (ulong)activeCtrlSize;
-                                                        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(secPlain.AsSpan(rPos + 0x30, 4), (uint)(sz48 & 0xFFFFFFFFUL));
-                                                        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(secPlain.AsSpan(rPos + 0x34, 2), (ushort)((sz48 >> 32) & 0xFFFFUL));
-                                                    }
-                                                }
-                                            }
-                                        }
-
-                                        // Регенерация PFS0 хешей
-                                        long pfsOff = -1, pfsSize = -1, htOff = -1, htSize = -1;
-                                        int effBlk = 0;
-                                        for (int pOff = 0; pOff <= secLen - 16; pOff += 4)
-                                        {
-                                            if (secPlain[pOff] == 'P' && secPlain[pOff + 1] == 'F' && secPlain[pOff + 2] == 'S' && secPlain[pOff + 3] == '0')
-                                            {
-                                                pfsOff = pOff;
-                                                pfsSize = secLen - pOff;
-                                                htOff = 0;
-                                                htSize = pOff;
-                                                effBlk = (int)(1L << decHdr[0x403]);
-                                                break;
-                                            }
-                                        }
-
-                                        if (pfsOff >= 0 && effBlk > 0)
-                                        {
-                                            int bIdx = 0;
-                                            for (long off = 0; off < pfsSize; off += effBlk)
-                                            {
-                                                int chunkLen = (int)Math.Min(effBlk, pfsSize - off);
-                                                byte[] bh = System.Security.Cryptography.SHA256.HashData(secPlain.AsSpan((int)(pfsOff + off), chunkLen));
-                                                if (htOff + (bIdx + 1) * 32 <= secLen)
-                                                    bh.CopyTo(secPlain.AsSpan((int)htOff + bIdx * 32, 32));
-                                                bIdx++;
-                                            }
-
-                                            byte[] mHash = System.Security.Cryptography.SHA256.HashData(secPlain.AsSpan((int)htOff, (int)htSize));
-                                            mHash.CopyTo(decHdr.AsSpan(0x408, 32));
-                                            byte[] fHash = System.Security.Cryptography.SHA256.HashData(decHdr.AsSpan(0x400, 0x200));
-                                            fHash.CopyTo(decHdr.AsSpan(0x280, 32));
-
-                                            byte[] secEnc = (byte[])secPlain.Clone();
-                                            if (encType == 3 && ctrKey != null)
-                                                AesCtrCryptInPlace(secEnc, 0, secLen, ctrKey, gensec, secStart);
-
-                                            byte[] newMetaHdr = NcaXtsCryptHeader0xC00(decHdr, headerKey, decrypt: false);
-                                            byte[] newMetaNca = (byte[])rawNca.Clone();
-                                            Buffer.BlockCopy(newMetaHdr, 0, newMetaNca, 0, 0xC00);
-                                            Buffer.BlockCopy(secEnc, 0, newMetaNca, secStart, secLen);
-
-                                            byte[] newMetaSha = System.Security.Cryptography.SHA256.HashData(newMetaNca);
-                                            extraCnmtRebuiltName = Convert.ToHexString(newMetaSha, 0, 16).ToLowerInvariant() + ".cnmt.nca";
-                                            Directory.CreateDirectory(workDir);
-                                            extraCnmtRebuiltPath = System.IO.Path.Combine(workDir, extraCnmtRebuiltName);
-                                            File.WriteAllBytes(extraCnmtRebuiltPath, newMetaNca);
-                                            extraCnmtRebuiltSize = newMetaNca.Length;
-                                            App.Logger?.Log($"[HardPatchEngine] Embedded 4 KB Patch CNMT -> {extraCnmtRebuiltName}", Models.LogLevel.Info);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        catch { }
                     }
 
                     if (entryOverrides.Count == 0) return;

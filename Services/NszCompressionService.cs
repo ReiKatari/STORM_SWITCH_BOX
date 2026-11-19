@@ -88,11 +88,8 @@ namespace StormSwitchBox.Services
             return cleaned.Trim();
         }
 
-        private readonly SwitchFormatService _formatService;
-
-        public NszCompressionService(SwitchFormatService formatService)
+        public NszCompressionService(SwitchFormatService? formatService = null)
         {
-            _formatService = formatService;
         }
 
         /// <summary>
@@ -168,7 +165,7 @@ namespace StormSwitchBox.Services
                 var harvestedTitleKeys = new Dictionary<string, byte[]>();
 
                 // Предварительно регистрируем билеты в KeySet и извлекаем TitleKey для расшифровки секций перед Zstd-сжатием
-                SmartShrinkService.HarvestTicketsFromFileSystem(pfs, App.Keys.CurrentKeyset ?? new KeySet());
+                SmartShrinkService.HarvestTicketsFromFileSystem(pfs, App.Keys?.CurrentKeyset ?? new KeySet());
 
                 foreach (var entry in entries)
                 {
@@ -182,7 +179,7 @@ namespace StormSwitchBox.Services
                             byte[] tikData = new byte[tikSize];
                             tikStorage.Read(0, tikData).ThrowIfFailure();
 
-                            var ticketInfo = TicketHarvesterService.ExtractDecryptedTicket(tikData, (int)tikSize, App.Keys.CurrentKeyset ?? new KeySet());
+                            var ticketInfo = TicketHarvesterService.ExtractDecryptedTicket(tikData, (int)tikSize, App.Keys?.CurrentKeyset ?? new KeySet());
                             if (ticketInfo.HasValue && !string.IsNullOrEmpty(ticketInfo.Value.RightsId) && ticketInfo.Value.TitleKey != null && ticketInfo.Value.TitleKey.Length == 16)
                             {
                                 string rId = ticketInfo.Value.RightsId;
@@ -203,53 +200,9 @@ namespace StormSwitchBox.Services
                     }
                 }
 
-                if (false && harvestedTitleKeys.Count > 0)
-                {
-                    try
-                    {
-                        string titleKeysPath = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "title.keys");
-                        var dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                        if (System.IO.File.Exists(titleKeysPath))
-                        {
-                            var lines = System.IO.File.ReadAllLines(titleKeysPath);
-                            foreach (var line in lines)
-                            {
-                                var parts = line.Split('=');
-                                if (parts.Length == 2)
-                                {
-                                    dict[parts[0].Trim().ToLowerInvariant()] = parts[1].Trim().ToLowerInvariant();
-                                }
-                            }
-                        }
-                        else
-                        {
-                            System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(titleKeysPath)!);
-                        }
-
-                        bool changed = false;
-                        foreach (var kvp in harvestedTitleKeys)
-                        {
-                            string rid = kvp.Key.Trim().ToLowerInvariant();
-                            string keyHex = BitConverter.ToString(kvp.Value).Replace("-", "").ToLowerInvariant();
-                            if (!dict.TryGetValue(rid, out var existingVal) || existingVal != keyHex)
-                            {
-                                dict[rid] = keyHex;
-                                changed = true;
-                            }
-                        }
-
-                        if (changed)
-                        {
-                            var outputLines = dict.Select(kv => $"{kv.Key} = {kv.Value}").ToList();
-                            System.IO.File.WriteAllLines(titleKeysPath, outputLines);
-                        }
-                    }
-                    catch { }
-                }
-
-                bool removeDelta = App.Settings.Current.RemoveDeltaNca;
+                bool removeDelta = App.Settings?.Current?.RemoveDeltaNca ?? true;
                 var deltaNcas = SmartShrinkService.AnalyzeRedundantEntriesInFileSystem(
-                    pfs, App.Keys.CurrentKeyset ?? new KeySet(), removeDelta, out int deltaCount, out int supCount);
+                    pfs, App.Keys?.CurrentKeyset ?? new KeySet(), removeDelta, out int deltaCount, out int supCount);
                 if (removeDelta)
                 {
                     foreach (var d in MultiContentService.DetectDeltaNcasToExclude(new List<string> { inputPath }))
@@ -295,7 +248,7 @@ namespace StormSwitchBox.Services
 
                             try
                             {
-                                var currentKeyset = App.Keys.CurrentKeyset ?? new KeySet();
+                                var currentKeyset = App.Keys?.CurrentKeyset ?? new KeySet();
                                 var probeNca = new Nca(currentKeyset, probeStorage);
                                 KeysService.RegisterRightsIdFallback(currentKeyset, probeNca);
                                 var nt = probeNca.Header.ContentType;
@@ -378,7 +331,7 @@ namespace StormSwitchBox.Services
                                 entryStorage,
                                 tempNczPath,
                                 level,
-                                App.Keys.CurrentKeyset ?? new KeySet(),
+                                App.Keys?.CurrentKeyset ?? new KeySet(),
                                 task,
                                 cancellationToken,
                                 harvestedTitleKeys);
@@ -459,13 +412,14 @@ namespace StormSwitchBox.Services
                             });
 
                             string tempRecompNcz = System.IO.Path.Combine(tempDir, entryName);
-                            using (var nczStorage = new Core.NSZ.StormNczStorage(physicalStorage, harvestedTitleKeys, null, App.Keys.CurrentKeyset))
+                            var activeKeyset = App.Keys?.CurrentKeyset ?? new KeySet();
+                            using (var nczStorage = new Core.NSZ.StormNczStorage(physicalStorage, harvestedTitleKeys, null, activeKeyset))
                             {
                                 Core.NSZ.StormNczCompressor.CompressNcaToNcz(
                                     nczStorage,
                                     tempRecompNcz,
                                     level,
-                                    App.Keys.CurrentKeyset,
+                                    activeKeyset,
                                     task,
                                     cancellationToken,
                                     harvestedTitleKeys);
@@ -538,7 +492,7 @@ namespace StormSwitchBox.Services
 
                 if (isXci)
                 {
-                    Core.NCA.StormXciBuilder.BuildXciFromPfs0(targetPfsPath, tempOutNszPath, App.Keys.CurrentKeyset);
+                    Core.NCA.StormXciBuilder.BuildXciFromPfs0(targetPfsPath, tempOutNszPath, App.Keys?.CurrentKeyset);
                     try { File.Delete(targetPfsPath); } catch { }
                 }
 
@@ -581,7 +535,7 @@ namespace StormSwitchBox.Services
                     StormSwitchBox.Services.HistoryService.AddToHistory(task);
                 });
 
-                App.Logger.Log($"[NSZ Engine] Сжатие завершено: {fileName}. Экономия: {100 - ratio:F1}%", LogLevel.Success);
+                App.Logger?.Log($"[NSZ Engine] Сжатие завершено: {fileName}. Экономия: {100 - ratio:F1}%", LogLevel.Success);
             }
             catch (OperationCanceledException)
             {
@@ -638,21 +592,18 @@ namespace StormSwitchBox.Services
         public async Task<string?> DecompressNszAsync(ProcessingTask task, string inputPath, string outDir, CancellationToken cancellationToken)
         {
             string fileName = System.IO.Path.GetFileNameWithoutExtension(inputPath);
-            string expectedExt = inputPath.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase) ? ".xci" : ".nsp";
-            string outNspPath = System.IO.Path.Combine(outDir, fileName + expectedExt);
+            bool isXci = inputPath.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase);
+            string expectedExt = isXci ? ".xci" : ".nsp";
+            string outFinalPath = System.IO.Path.Combine(outDir, fileName + expectedExt);
 
             // 1. Сначала пробуем надежную распаковку через nsz.exe для восстановления всех NCA блоков 1-в-1
-            string appDir = AppDomain.CurrentDomain.BaseDirectory;
-            string toolsDir = System.IO.Path.Combine(appDir, "tools");
-            if (!Directory.Exists(toolsDir))
-            {
-                string parentTools = System.IO.Path.Combine(appDir, "..", "tools");
-                if (Directory.Exists(parentTools)) toolsDir = parentTools;
-            }
-            string nszExe = System.IO.Path.Combine(toolsDir, "nsz", "nsz.exe");
+            string? nszExe = StormToolResolver.ResolveNszExe();
 
-            if (File.Exists(nszExe))
+            if (!string.IsNullOrEmpty(nszExe) && File.Exists(nszExe))
             {
+                string isolatedWorkDir = System.IO.Path.Combine(outDir, "_nsz_dec_" + Guid.NewGuid().ToString("N").Substring(0, 8));
+                string isolatedInputDir = System.IO.Path.Combine(isolatedWorkDir, "in");
+                string isolatedOutDir = System.IO.Path.Combine(isolatedWorkDir, "out");
                 try
                 {
                     App.EnsureUserKeysAvailable();
@@ -663,9 +614,12 @@ namespace StormSwitchBox.Services
                         task.LogDetails += $"\n🟡 [Декомпрессия] Распаковка через nsz.exe: {System.IO.Path.GetFileName(inputPath)}";
                     });
 
+                    Directory.CreateDirectory(isolatedInputDir);
+                    Directory.CreateDirectory(isolatedOutDir);
+
                     string origFileName = System.IO.Path.GetFileName(inputPath);
                     string safeInputName = SanitizeFileName(origFileName);
-                    string tempSafeInputPath = System.IO.Path.Combine(outDir, safeInputName);
+                    string tempSafeInputPath = System.IO.Path.Combine(isolatedInputDir, safeInputName);
 
                     bool linkCreated = false;
                     try { linkCreated = CreateHardLink(tempSafeInputPath, inputPath, IntPtr.Zero); } catch { }
@@ -675,14 +629,13 @@ namespace StormSwitchBox.Services
                     }
 
                     string targetInputForNsz = linkCreated ? tempSafeInputPath : inputPath;
-                    string isolatedOutDir = System.IO.Path.Combine(outDir, "_nsz_dec_" + Guid.NewGuid().ToString("N").Substring(0, 8));
-                    Directory.CreateDirectory(isolatedOutDir);
-                    string expectedTempNsp = System.IO.Path.Combine(isolatedOutDir, System.IO.Path.GetFileNameWithoutExtension(safeInputName) + expectedExt);
+                    string expectedTempOut = System.IO.Path.Combine(isolatedOutDir, System.IO.Path.GetFileNameWithoutExtension(safeInputName) + expectedExt);
 
                     string keysParam = "";
-                    if (!string.IsNullOrEmpty(App.Settings.Current.KeysPath) && File.Exists(App.Settings.Current.KeysPath))
+                    string? keysPath = App.Settings?.Current?.KeysPath;
+                    if (!string.IsNullOrEmpty(keysPath) && File.Exists(keysPath))
                     {
-                        keysParam = $"--keys \"{App.Settings.Current.KeysPath}\"";
+                        keysParam = $"--keys \"{keysPath}\"";
                     }
 
                     string nszArgs = $"-D -w --minimal-output {keysParam} -o \"{isolatedOutDir}\" \"{targetInputForNsz}\"".Trim();
@@ -694,16 +647,11 @@ namespace StormSwitchBox.Services
                         cancellationToken: cancellationToken
                     );
 
-                    if (linkCreated && File.Exists(tempSafeInputPath))
-                    {
-                        try { File.Delete(tempSafeInputPath); } catch { }
-                    }
+                    cancellationToken.ThrowIfCancellationRequested();
 
-                    string? foundNsp = null;
-                    if (File.Exists(expectedTempNsp) && new FileInfo(expectedTempNsp).Length > 0)
-                        foundNsp = expectedTempNsp;
-                    else if (File.Exists(outNspPath) && new FileInfo(outNspPath).Length > 0)
-                        foundNsp = outNspPath;
+                    string? foundOut = null;
+                    if (File.Exists(expectedTempOut) && new FileInfo(expectedTempOut).Length > 0)
+                        foundOut = expectedTempOut;
                     else
                     {
                         try
@@ -713,31 +661,51 @@ namespace StormSwitchBox.Services
                                 .Where(f => new FileInfo(f).Length > 0)
                                 .OrderByDescending(f => new FileInfo(f).Length)
                                 .ToList();
-                            if (candidates.Count > 0) foundNsp = candidates[0];
+                            if (candidates.Count > 0) foundOut = candidates[0];
                         }
                         catch { }
                     }
 
-                    if (!string.IsNullOrEmpty(foundNsp))
+                    if (exitCode == 0 && !string.IsNullOrEmpty(foundOut))
                     {
-                        if (!foundNsp.Equals(outNspPath, StringComparison.OrdinalIgnoreCase))
+                        if (!foundOut.Equals(outFinalPath, StringComparison.OrdinalIgnoreCase))
                         {
-                            if (File.Exists(outNspPath)) try { File.Delete(outNspPath); } catch { }
-                            File.Move(foundNsp, outNspPath);
+                            if (File.Exists(outFinalPath)) try { File.Delete(outFinalPath); } catch { }
+                            File.Move(foundOut, outFinalPath);
                         }
-                        try { if (Directory.Exists(isolatedOutDir)) Directory.Delete(isolatedOutDir, true); } catch { }
+                        App.RunOnUI(() =>
+                        {
+                            task.Progress = 100;
+                            task.Status = "Успешно";
+                            task.IsRunning = false;
+                        });
                         App.Logger.Log($"[NSZ Engine] Успешная распаковка nsz.exe: {fileName}", LogLevel.Success);
-                        return outNspPath;
+                        return outFinalPath;
                     }
-                    try { if (Directory.Exists(isolatedOutDir)) Directory.Delete(isolatedOutDir, true); } catch { }
+                }
+                catch (OperationCanceledException)
+                {
+                    App.RunOnUI(() =>
+                    {
+                        task.Status = "Отменено";
+                        task.IsRunning = false;
+                    });
+                    throw;
                 }
                 catch (Exception ex)
                 {
                     App.Logger.Log($"[NSZ Engine] nsz.exe warning: {ex.Message}. Fallback to Zero-Disk-IO...", LogLevel.Warning);
                 }
+                finally
+                {
+                    try { if (Directory.Exists(isolatedWorkDir)) Directory.Delete(isolatedWorkDir, true); } catch { }
+                }
             }
 
-            var openedFiles = new List<IFile>();
+            var disposables = new List<IDisposable>();
+            string nativeTempDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "StormNszNativeDec_" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            bool succeeded = false;
+            bool canceled = false;
             try
             {
                 App.RunOnUI(() =>
@@ -751,20 +719,16 @@ namespace StormSwitchBox.Services
 
                 using var fileStream = new FileStream(inputPath, FileMode.Open, FileAccess.Read, FileShare.Read);
                 IStorage storage = fileStream.AsStorage();
-                // XCI/XCZ: читаем содержимое раздела /secure (а не корневой HFS0 с /update, /normal, /secure).
-                // Результат Zero-Disk-IO всегда PFS0, поэтому файл обязан иметь расширение .nsp, а не .xci.
                 var fileSystem = App.SwitchFormat.OpenSwitchContainerFileSystem(storage, inputPath);
-                if (expectedExt == ".xci")
+                if (fileSystem is IDisposable fsDisp)
                 {
-                    outNspPath = System.IO.Path.Combine(outDir, fileName + ".nsp");
+                    disposables.Add(fsDisp);
                 }
 
                 var pfsBuilder = new PartitionFileSystemBuilder();
                 int entryIdx = 0;
 
-                List<string> solidFiles = new List<string>();
-                List<string> physicalFiles = new List<string>();
-
+                var solidFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 var sortedEntries = fileSystem.EnumerateEntries().ToList();
 
                 bool IsNczMagic(IStorage fileStorage)
@@ -787,7 +751,7 @@ namespace StormSwitchBox.Services
                             string m2 = Encoding.ASCII.GetString(magicBuf);
                             if (m2 == "NCZSECTN" || m2 == "NCZBLOCK") return true;
                         }
-                        
+
                         return false;
                     }
                     catch
@@ -798,31 +762,21 @@ namespace StormSwitchBox.Services
 
                 foreach (var entry in sortedEntries)
                 {
-                    bool isMetadata = !entry.Name.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase) && 
+                    bool isMetadata = !entry.Name.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase) &&
                                       !entry.Name.EndsWith(".nca", StringComparison.OrdinalIgnoreCase);
-
-                    if (isMetadata)
-                    {
-                        physicalFiles.Add(entry.Name);
-                        continue;
-                    }
+                    if (isMetadata) continue;
 
                     using var entryFile = OpenFileSafe(fileSystem, entry.FullPath);
                     IStorage entryStorage = entryFile.AsStorage();
 
-                    bool isVirtualOrBlock = IsNczMagic(entryStorage) || entry.Name.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase);
-                    
-                    if (isVirtualOrBlock)
+                    if (IsNczMagic(entryStorage) || entry.Name.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase))
                     {
                         solidFiles.Add(entry.Name);
-                    }
-                    else
-                    {
-                        physicalFiles.Add(entry.Name);
                     }
                 }
 
                 var titleKeyMap = new Dictionary<string, byte[]>();
+                var activeKeyset = App.Keys?.CurrentKeyset ?? new KeySet();
                 foreach (var entry in sortedEntries)
                 {
                     if (entry.Name.EndsWith(".tik", StringComparison.OrdinalIgnoreCase))
@@ -835,7 +789,7 @@ namespace StormSwitchBox.Services
                             byte[] tikData = new byte[tikSize];
                             tikStorage.Read(0, tikData).ThrowIfFailure();
 
-                            var ticketInfo = TicketHarvesterService.ExtractDecryptedTicket(tikData, (int)tikSize, App.Keys.CurrentKeyset ?? new KeySet());
+                            var ticketInfo = TicketHarvesterService.ExtractDecryptedTicket(tikData, (int)tikSize, activeKeyset);
                             if (ticketInfo.HasValue && !string.IsNullOrEmpty(ticketInfo.Value.RightsId) && ticketInfo.Value.TitleKey != null && ticketInfo.Value.TitleKey.Length == 16)
                             {
                                 string rightsIdStr = ticketInfo.Value.RightsId;
@@ -860,8 +814,15 @@ namespace StormSwitchBox.Services
                 if (solidEntry != null)
                 {
                     var solidFile = OpenFileSafe(fileSystem, solidEntry.FullPath);
-                    openedFiles.Add(solidFile);
+                    disposables.Add(solidFile);
                     globalSolidStorage = solidFile.AsStorage();
+                }
+
+                string pfsOutPath = outFinalPath;
+                if (isXci)
+                {
+                    Directory.CreateDirectory(nativeTempDir);
+                    pfsOutPath = System.IO.Path.Combine(nativeTempDir, fileName + ".nsp");
                 }
 
                 await Task.Run(() =>
@@ -880,78 +841,102 @@ namespace StormSwitchBox.Services
 
                         if (solidFiles.Contains(entryName))
                         {
-                            string ncaName = entryName.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase) 
-                                ? System.IO.Path.ChangeExtension(entryName, ".nca") 
+                            string ncaName = entryName.EndsWith(".ncz", StringComparison.OrdinalIgnoreCase)
+                                ? System.IO.Path.ChangeExtension(entryName, ".nca")
                                 : entryName;
-                            
+
                             var entryFile = OpenFileSafe(fileSystem, entry.FullPath);
-                            openedFiles.Add(entryFile);
+                            disposables.Add(entryFile);
                             IStorage entryStorage = entryFile.AsStorage();
-                            var decStorage = new Core.NSZ.StormNczStorage(entryStorage, titleKeyMap, globalSolidStorage, App.Keys.CurrentKeyset);
-                             
+                            var decStorage = new Core.NSZ.StormNczStorage(entryStorage, titleKeyMap, globalSolidStorage, activeKeyset);
+                            disposables.Add(decStorage);
+
                             pfsBuilder.AddFile(ncaName, new StorageFile(new SafeStorageWrapper(decStorage), LibHac.Fs.OpenMode.Read));
                         }
                         else
                         {
                             var entryFile = OpenFileSafe(fileSystem, entry.FullPath);
-                            openedFiles.Add(entryFile);
+                            disposables.Add(entryFile);
                             IStorage physicalStorage = entryFile.AsStorage();
                             pfsBuilder.AddFile(entryName, new StorageFile(new SafeStorageWrapper(physicalStorage), LibHac.Fs.OpenMode.Read));
                         }
                     }
 
                     App.RunOnUI(() => task.LogDetails += "\nЗапись распакованного контейнера на диск...");
-                    using var builtPfs = pfsBuilder.Build(PartitionFileSystemType.Standard);
-                    
-                    using var destStream = new FileStream(outNspPath, FileMode.Create, FileAccess.Write, FileShare.None, 16 * 1024 * 1024);
-                    
-                    builtPfs.GetSize(out long totalPfsSize).ThrowIfFailure();
-                    long remaining = totalPfsSize;
-                    long offset = 0;
-                    byte[] buffer = new byte[81920];
-                    System.Diagnostics.Stopwatch uiSw = System.Diagnostics.Stopwatch.StartNew();
-                    while (remaining > 0)
+                    using (var builtPfs = pfsBuilder.Build(PartitionFileSystemType.Standard))
+                    using (var destStream = new FileStream(pfsOutPath, FileMode.Create, FileAccess.Write, FileShare.None, 16 * 1024 * 1024))
                     {
-                        task.PauseEvent.Wait(cancellationToken);
-                        cancellationToken.ThrowIfCancellationRequested();
-                        int toRead = (int)Math.Min(buffer.Length, remaining);
-                        builtPfs.Read(offset, buffer.AsSpan(0, toRead)).ThrowIfFailure();
-                        destStream.Write(buffer, 0, toRead);
-                        offset += toRead;
-                        remaining -= toRead;
-                        if (uiSw.ElapsedMilliseconds > 200 || remaining == 0)
+                        builtPfs.GetSize(out long totalPfsSize).ThrowIfFailure();
+                        long remaining = totalPfsSize;
+                        long offset = 0;
+                        byte[] buffer = new byte[81920];
+                        System.Diagnostics.Stopwatch uiSw = System.Diagnostics.Stopwatch.StartNew();
+                        while (remaining > 0)
                         {
-                            uiSw.Restart();
-                            double packProgress = 99.0 + ((double)offset / totalPfsSize * 1.0);
-                            App.RunOnUI(() => task.Progress = Math.Min(99.9, packProgress));
+                            task.PauseEvent.Wait(cancellationToken);
+                            cancellationToken.ThrowIfCancellationRequested();
+                            int toRead = (int)Math.Min(buffer.Length, remaining);
+                            builtPfs.Read(offset, buffer.AsSpan(0, toRead)).ThrowIfFailure();
+                            destStream.Write(buffer, 0, toRead);
+                            offset += toRead;
+                            remaining -= toRead;
+                            if (uiSw.ElapsedMilliseconds > 200 || remaining == 0)
+                            {
+                                uiSw.Restart();
+                                double packProgress = 99.0 + ((double)offset / totalPfsSize * 1.0);
+                                App.RunOnUI(() => task.Progress = Math.Min(99.9, packProgress));
+                            }
                         }
+                    }
+
+                    if (isXci)
+                    {
+                        App.RunOnUI(() => task.LogDetails += "\nСборка XCI картриджа через StormXciBuilder...");
+                        Core.NCA.StormXciBuilder.BuildXciFromPfs0(pfsOutPath, outFinalPath, activeKeyset);
                     }
                 }, cancellationToken);
 
-                App.Logger.Log($"[NSZ Engine] Потоковая распаковка завершена: {outNspPath}", LogLevel.Success);
-                if (globalSolidStorage != null)
-                {
-                    try { ((IDisposable)globalSolidStorage).Dispose(); } catch { }
-                }
-                return outNspPath;
+                succeeded = true;
+                App.Logger?.Log($"[NSZ Engine] Потоковая распаковка завершена: {outFinalPath}", LogLevel.Success);
+                return outFinalPath;
             }
             catch (OperationCanceledException)
             {
-                try { if (System.IO.File.Exists(outNspPath)) System.IO.File.Delete(outNspPath); } catch { }
-                return null;
+                canceled = true;
+                try { if (System.IO.File.Exists(outFinalPath)) System.IO.File.Delete(outFinalPath); } catch { }
+                throw;
             }
             catch (Exception ex)
             {
                 App.Logger.Log($"[NSZ Engine] Ошибка потоковой распаковки:\n{ex}", LogLevel.Error);
-                try { if (System.IO.File.Exists(outNspPath)) System.IO.File.Delete(outNspPath); } catch { }
+                try { if (System.IO.File.Exists(outFinalPath)) System.IO.File.Delete(outFinalPath); } catch { }
                 return null;
             }
             finally
             {
-                foreach (var f in openedFiles)
+                foreach (var d in disposables)
                 {
-                    try { f.Dispose(); } catch { }
+                    try { d.Dispose(); } catch { }
                 }
+                try { if (Directory.Exists(nativeTempDir)) Directory.Delete(nativeTempDir, true); } catch { }
+                App.RunOnUI(() =>
+                {
+                    task.IsRunning = false;
+                    if (succeeded)
+                    {
+                        if (task == null) return;
+                        task.Progress = 100;
+                        task.Status = "Успешно";
+                    }
+                    else if (canceled)
+                    {
+                        task.Status = "Отменено";
+                    }
+                    else
+                    {
+                        task.Status = "Ошибка";
+                    }
+                });
             }
         }
 
@@ -960,7 +945,8 @@ namespace StormSwitchBox.Services
             if (isXci)
             {
                 storage.GetSize(out long storageSize).ThrowIfFailure();
-                var rootStorage = new SubStorage(storage, 0x10000, storageSize - 0x10000);
+                long rootOffset = SwitchContainerHandle.TryDetectXciRootHfs0Offset(storage, storageSize) ?? 0xF000L;
+                var rootStorage = new SubStorage(storage, rootOffset, storageSize - rootOffset);
                 var rootPfs = new PartitionFileSystem(rootStorage);
                 
                 using var secureFile = new UniqueRef<IFile>();
@@ -987,44 +973,40 @@ namespace StormSwitchBox.Services
             return fRef.Release();
         }
 
-        public async Task CompressSolidViaNszAsync(ProcessingTask task, string inputPath, string outDir, CancellationToken cancellationToken)
+        public async Task CompressSolidViaNszAsync(ProcessingTask task, string inputPath, string outDir, CancellationToken cancellationToken, bool forceSolidMode = false)
         {
-            string toolsDir = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tools");
-            string nszExe = System.IO.Path.Combine(toolsDir, "nsz", "nsz.exe");
-            if (!System.IO.File.Exists(nszExe))
-            {
-                nszExe = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "tools", "nsz", "nsz.exe");
-            }
-            if (!System.IO.File.Exists(nszExe))
-            {
-                string globalTools = @"f:\STORM SWITCH BOX\tools\nsz\nsz.exe";
-                if (System.IO.File.Exists(globalTools)) nszExe = globalTools;
-            }
+            string? nszExe = StormToolResolver.ResolveNszExe();
 
             long totalBytes = new FileInfo(inputPath).Length;
             string fileName = System.IO.Path.GetFileNameWithoutExtension(inputPath);
             bool isXci = inputPath.EndsWith(".xci", StringComparison.OrdinalIgnoreCase);
             string expectedExt = isXci ? ".xcz" : ".nsz";
             string outNszPath = System.IO.Path.Combine(outDir, fileName + expectedExt);
+            bool isSolidMode = forceSolidMode || (task?.TargetFormat?.Contains("SOLID", StringComparison.OrdinalIgnoreCase) == true);
 
             App.RunOnUI(() =>
             {
-                if (task.SourceSizeBytes <= 0) task.SourceSizeBytes = totalBytes;
-                task.Status = "Сжатие Block NSZ (1 МБ)...";
-                task.IsRunning = true;
-                task.Progress = 0;
-                task.LogDetails += $"\n⚡ [Block NSZ] Загрузка: {System.IO.Path.GetFileName(inputPath)} ({Models.ProcessingTask.FormatSize(totalBytes)})\n     Запуск блочного сжатия (--block, 1 МБ, Zstandard)...";
+                if (task != null)
+                {
+                    if (task.SourceSizeBytes <= 0) task.SourceSizeBytes = totalBytes;
+                    task.Status = isSolidMode ? "Сжатие Solid NSZ..." : "Сжатие Block NSZ (1 МБ)...";
+                    task.IsRunning = true;
+                    task.Progress = 0;
+                    task.LogDetails += isSolidMode
+                        ? $"\n⚡ [Solid NSZ] Загрузка: {System.IO.Path.GetFileName(inputPath)} ({Models.ProcessingTask.FormatSize(totalBytes)})\n     Запуск потокового сжатия (-S, Zstandard)..."
+                        : $"\n⚡ [Block NSZ] Загрузка: {System.IO.Path.GetFileName(inputPath)} ({Models.ProcessingTask.FormatSize(totalBytes)})\n     Запуск блочного сжатия (--block, 1 МБ, Zstandard)...";
+                }
             });
 
-            if (!System.IO.File.Exists(nszExe))
+            if (string.IsNullOrEmpty(nszExe) || !System.IO.File.Exists(nszExe))
             {
                 App.Logger.Log("[NSZ Engine] nsz.exe не найден для сжатия.", LogLevel.Warning);
-                App.RunOnUI(() => task.LogDetails += "\n⚠️ nsz.exe не найден. Переключение на встроенное блочное сжатие...");
+                App.RunOnUI(() => { if (task != null) task.LogDetails += "\n⚠️ nsz.exe не найден. Переключение на встроенное блочное сжатие..."; });
                 throw new FileNotFoundException("nsz.exe не найден для сжатия, переключение на нативный StormNczCompressor");
             }
 
             string keysParam = "";
-            string keysPath = App.Settings.Current.KeysPath;
+            string? keysPath = App.Settings?.Current?.KeysPath;
             if (!string.IsNullOrEmpty(keysPath) && System.IO.File.Exists(keysPath))
             {
                 keysParam = $"--keys \"{keysPath}\"";
@@ -1038,7 +1020,7 @@ namespace StormSwitchBox.Services
                 }
             }
 
-            int level = Math.Clamp(App.Settings.Current.CompressionLevel, 1, 22);
+            int level = Math.Clamp(App.Settings?.Current?.CompressionLevel ?? 18, 1, 22);
 
             string targetDrive = System.IO.Path.GetPathRoot(System.IO.Path.GetFullPath(outDir)) ?? "";
             string tempCompressDir = !string.IsNullOrEmpty(targetDrive) && System.IO.Directory.Exists(targetDrive)
@@ -1054,19 +1036,19 @@ namespace StormSwitchBox.Services
 
                 // Lossless Shrink Engine: если во входном NSP есть мусорные DeltaFragment NCA или невалидные файлы,
                 // предварительно очищаем их, чтобы nsz.exe не сжимал лишние гигабайты Delta NCA!
-                if (!isXci && App.Settings.Current.RemoveDeltaNca)
+                if (!isXci && (App.Settings?.Current?.RemoveDeltaNca ?? true))
                 {
                     try
                     {
                         using var srcFs = new FileStream(inputPath, FileMode.Open, FileAccess.Read, FileShare.Read);
                         var srcPfs = new PartitionFileSystem(srcFs.AsStorage());
                         var redundantSet = SmartShrinkService.AnalyzeRedundantEntriesInFileSystem(
-                            srcPfs, App.Keys.CurrentKeyset, true, out int dCount, out int sCount);
+                            srcPfs, App.Keys?.CurrentKeyset ?? new KeySet(), true, out int dCount, out int sCount);
 
                         if (redundantSet.Count > 0)
                         {
                             string shrunkStagingNsp = System.IO.Path.Combine(tempCompressDir, System.IO.Path.GetFileName(inputPath));
-                            App.RunOnUI(() => task.LogDetails += $"\n🗑️ [SmartShrink] Предварительное удаление {redundantSet.Count} избыточных Delta NCA перед сжатием...");
+                            App.RunOnUI(() => { if (task != null) task.LogDetails += $"\n🗑️ [SmartShrink] Предварительное удаление {redundantSet.Count} избыточных Delta NCA перед сжатием..."; });
 
                             var pfsBuilder = new PartitionFileSystemBuilder();
                             var openedStagingFiles = new List<IFile>();
@@ -1097,25 +1079,22 @@ namespace StormSwitchBox.Services
                 }
 
                 int totalCores = Math.Max(1, Environment.ProcessorCount);
-                int concurrentWorkers = Math.Max(1, App.Settings.Current.ConcurrentTasks);
-                int threadsPerWorker = Math.Max(1, totalCores / concurrentWorkers);
-
-                var gpuService = GpuAccelerationService.Instance;
-                string gpuDesc = gpuService.GetAccelerationStatusDescription();
+                int threadsPerWorker = Math.Max(1, totalCores / 4);
 
                 App.RunOnUI(() =>
                 {
-                    task.LogDetails += $"\n{gpuDesc}";
-                    task.LogDetails += $"\n⚙️ [Worker Pool] Многопоточный пул: выделено {threadsPerWorker} потоков на задачу (Всего ядер: {totalCores})";
+                    if (task != null)
+                        task.LogDetails += $"\n⚙️ [Worker Pool] Многопоточный пул (Low-CPU cap): выделено {threadsPerWorker} потоков на задачу (Всего ядер: {totalCores})";
                 });
 
-                string args = $"-C -B -L -s 20 -l {level} -t {threadsPerWorker} --overwrite {keysParam} -o \"{tempCompressDir}\" \"{effectiveInputPath}\"".Trim();
+                string modeArgs = isSolidMode ? "-S" : "-B -s 20";
+                string args = $"-C {modeArgs} -L -l {level} -t {threadsPerWorker} --overwrite {keysParam} -o \"{tempCompressDir}\" \"{effectiveInputPath}\"".Trim();
 
                 int exitCode = await ExternalProcessRunner.RunAsync(
                     nszExe,
                     args,
                     workingDirectory: System.IO.Path.GetDirectoryName(nszExe) ?? "",
-                    task: task,
+                    task: task!,
                     cancellationToken: cancellationToken
                 );
 
@@ -1156,6 +1135,7 @@ namespace StormSwitchBox.Services
 
                     App.RunOnUI(() =>
                     {
+                        if (task == null) return;
                         task.Progress = 100;
                         task.Status = "Успешно";
                         task.IsRunning = false;
@@ -1187,10 +1167,11 @@ namespace StormSwitchBox.Services
 
         public SafeStorageWrapper(IStorage baseStorage)
         {
+            ArgumentNullException.ThrowIfNull(baseStorage);
             _baseStorage = baseStorage;
             try
             {
-                if (_baseStorage != null && _baseStorage.GetSize(out long sz).IsSuccess())
+                if (_baseStorage.GetSize(out long sz).IsSuccess())
                 {
                     _cachedSize = sz;
                 }

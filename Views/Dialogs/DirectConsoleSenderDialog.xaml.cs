@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -103,33 +103,40 @@ namespace StormSwitchBox.Views.Dialogs
 
         private async void UpdateQrAndUrlForSelection(int index)
         {
-            if (index < 0 || index >= _files.Count) return;
-
-            string file = _files[index];
-            string ext = Path.GetExtension(file).ToLowerInvariant();
-            if (ext == ".cia" || ext == ".3ds" || ext == ".cci" || ext == ".cxi")
-            {
-                FtpRemoteDirBox.Text = "/cias";
-            }
-            else
-            {
-                FtpRemoteDirBox.Text = "/switch";
-            }
-
-            string shortUrl = _senderService.GetShortFileUrl(index);
-            DirectUrlBox.Text = shortUrl;
-
             try
             {
-                byte[] qrPng = DirectConsoleSenderService.GenerateQrCodePngBytes(shortUrl, scale: 8);
-                using var ms = new MemoryStream(qrPng);
-                var bmp = new BitmapImage();
-                await bmp.SetSourceAsync(ms.AsRandomAccessStream());
-                QrCodeImage.Source = bmp;
+                if (index < 0 || index >= _files.Count) return;
+
+                string file = _files[index];
+                string ext = Path.GetExtension(file).ToLowerInvariant();
+                if (ext == ".cia" || ext == ".3ds" || ext == ".cci" || ext == ".cxi")
+                {
+                    FtpRemoteDirBox.Text = "/cias";
+                }
+                else
+                {
+                    FtpRemoteDirBox.Text = "/switch";
+                }
+
+                string shortUrl = _senderService.GetShortFileUrl(index);
+                DirectUrlBox.Text = shortUrl;
+
+                try
+                {
+                    byte[] qrPng = DirectConsoleSenderService.GenerateQrCodePngBytes(shortUrl, scale: 8);
+                    using var ms = new MemoryStream(qrPng);
+                    var bmp = new BitmapImage();
+                    await bmp.SetSourceAsync(ms.AsRandomAccessStream());
+                    QrCodeImage.Source = bmp;
+                }
+                catch (Exception ex)
+                {
+                    AppendLog("[QR] Ошибка генерации QR: " + ex.Message);
+                }
             }
             catch (Exception ex)
             {
-                AppendLog("[QR] Ошибка генерации QR: " + ex.Message);
+                App.Logger?.Log($"[DirectConsoleSenderDialog.xaml.cs] {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
@@ -143,15 +150,22 @@ namespace StormSwitchBox.Views.Dialogs
 
         private async void BrowseFiles_Click(object sender, RoutedEventArgs e)
         {
-            var picked = await SystemDialogService.OpenMultipleFilesDialogAsync(
-                "Выберите игровые пакеты для отправки на консоль Switch / 3DS",
-                "Пакеты Switch и 3DS (*.nsp;*.nsz;*.xci;*.xcz;*.cia;*.3ds;*.cci;*.nro)|*.nsp;*.nsz;*.xci;*.xcz;*.cia;*.3ds;*.cci;*.nro|Все файлы (*.*)|*.*");
-
-            if (picked != null && picked.Count > 0)
+            try
             {
-                _files.Clear();
-                _files.AddRange(picked.Where(File.Exists));
-                RefreshFilesAndRestartServer();
+                var picked = await SystemDialogService.OpenMultipleFilesDialogAsync(
+                    "Выберите игровые пакеты для отправки на консоль Switch / 3DS",
+                    "Пакеты Switch и 3DS (*.nsp;*.nsz;*.xci;*.xcz;*.cia;*.3ds;*.cci;*.nro)|*.nsp;*.nsz;*.xci;*.xcz;*.cia;*.3ds;*.cci;*.nro|Все файлы (*.*)|*.*");
+
+                if (picked != null && picked.Count > 0)
+                {
+                    _files.Clear();
+                    _files.AddRange(picked.Where(File.Exists));
+                    RefreshFilesAndRestartServer();
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[DirectConsoleSenderDialog.xaml.cs] {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
@@ -166,37 +180,44 @@ namespace StormSwitchBox.Views.Dialogs
 
         private async void ScanLan_Click(object sender, RoutedEventArgs e)
         {
-            ScanLanBtn.IsEnabled = false;
-            StatusText.Text = "🔍 Поиск консолей Switch / 3DS (порты 5000, 21) в локальной сети...";
             try
             {
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
-                _discoveredConsoles = await DirectConsoleSenderService.DiscoverConsolesInLanAsync(cts.Token);
-                DiscoveredConsolesCombo.Items.Clear();
+                ScanLanBtn.IsEnabled = false;
+                StatusText.Text = "🔍 Поиск консолей Switch / 3DS (порты 5000, 21) в локальной сети...";
+                try
+                {
+                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+                    _discoveredConsoles = await DirectConsoleSenderService.DiscoverConsolesInLanAsync(cts.Token);
+                    DiscoveredConsolesCombo.Items.Clear();
 
-                foreach (var c in _discoveredConsoles)
-                {
-                    DiscoveredConsolesCombo.Items.Add(c.DisplayLabel);
-                }
+                    foreach (var c in _discoveredConsoles)
+                    {
+                        DiscoveredConsolesCombo.Items.Add(c.DisplayLabel);
+                    }
 
-                if (_discoveredConsoles.Count > 0)
-                {
-                    DiscoveredConsolesCombo.SelectedIndex = 0;
-                    StatusText.Text = $"✅ Найдено активных консолей в сети: {_discoveredConsoles.Count}";
-                    AppendLog($"[LAN Scan] Обнаружено устройств: {_discoveredConsoles.Count}");
+                    if (_discoveredConsoles.Count > 0)
+                    {
+                        DiscoveredConsolesCombo.SelectedIndex = 0;
+                        StatusText.Text = $"✅ Найдено активных консолей в сети: {_discoveredConsoles.Count}";
+                        AppendLog($"[LAN Scan] Обнаружено устройств: {_discoveredConsoles.Count}");
+                    }
+                    else
+                    {
+                        StatusText.Text = "ℹ️ Открытых FTP-серверов (порты 5000/21) в подсети не найдено. Убедитесь, что на консоли запущен DBI FTP / ftpd.";
+                    }
                 }
-                else
+                catch (Exception ex)
                 {
-                    StatusText.Text = "ℹ️ Открытых FTP-серверов (порты 5000/21) в подсети не найдено. Убедитесь, что на консоли запущен DBI FTP / ftpd.";
+                    StatusText.Text = "⚠️ Ошибка сканирования сети: " + ex.Message;
+                }
+                finally
+                {
+                    ScanLanBtn.IsEnabled = true;
                 }
             }
             catch (Exception ex)
             {
-                StatusText.Text = "⚠️ Ошибка сканирования сети: " + ex.Message;
-            }
-            finally
-            {
-                ScanLanBtn.IsEnabled = true;
+                App.Logger?.Log($"[DirectConsoleSenderDialog.xaml.cs] {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
@@ -213,94 +234,108 @@ namespace StormSwitchBox.Views.Dialogs
 
         private async void SendFtp_Click(object sender, RoutedEventArgs e)
         {
-            int idx = Math.Max(0, FilesComboBox.SelectedIndex);
-            if (_files.Count == 0 || idx >= _files.Count)
-            {
-                StatusText.Text = "⚠️ Сначала выберите файл для отправки.";
-                return;
-            }
-
-            string host = FtpHostBox.Text.Trim();
-            if (string.IsNullOrEmpty(host))
-            {
-                StatusText.Text = "⚠️ Укажите IP-адрес консоли.";
-                return;
-            }
-
-            if (!int.TryParse(FtpPortBox.Text.Trim(), out int port) || port <= 0 || port > 65535)
-                port = 5000;
-
-            string remoteDir = string.IsNullOrWhiteSpace(FtpRemoteDirBox.Text) ? "/" : FtpRemoteDirBox.Text.Trim();
-            string file = _files[idx];
-
-            SendFtpBtn.IsEnabled = false;
-            _activeOpCts?.Cancel();
-            _activeOpCts = new CancellationTokenSource();
-
             try
             {
-                StatusText.Text = $"📡 Подключение по FTP к {host}:{port} и передача {Path.GetFileName(file)}...";
-                await _senderService.UploadFileViaFtpAsync(file, host, port, remoteDir, _activeOpCts.Token);
-                TransferProgressBar.Value = 100;
-                StatusText.Text = $"✅ Файл {Path.GetFileName(file)} успешно отправлен на консоль ({host}:{port}{remoteDir})!";
+                int idx = Math.Max(0, FilesComboBox.SelectedIndex);
+                if (_files.Count == 0 || idx >= _files.Count)
+                {
+                    StatusText.Text = "⚠️ Сначала выберите файл для отправки.";
+                    return;
+                }
+
+                string host = FtpHostBox.Text.Trim();
+                if (string.IsNullOrEmpty(host))
+                {
+                    StatusText.Text = "⚠️ Укажите IP-адрес консоли.";
+                    return;
+                }
+
+                if (!int.TryParse(FtpPortBox.Text.Trim(), out int port) || port <= 0 || port > 65535)
+                    port = 5000;
+
+                string remoteDir = string.IsNullOrWhiteSpace(FtpRemoteDirBox.Text) ? "/" : FtpRemoteDirBox.Text.Trim();
+                string file = _files[idx];
+
+                SendFtpBtn.IsEnabled = false;
+                _activeOpCts?.Cancel();
+                _activeOpCts = new CancellationTokenSource();
+
+                try
+                {
+                    StatusText.Text = $"📡 Подключение по FTP к {host}:{port} и передача {Path.GetFileName(file)}...";
+                    await _senderService.UploadFileViaFtpAsync(file, host, port, remoteDir, _activeOpCts.Token);
+                    TransferProgressBar.Value = 100;
+                    StatusText.Text = $"✅ Файл {Path.GetFileName(file)} успешно отправлен на консоль ({host}:{port}{remoteDir})!";
+                }
+                catch (Exception ex)
+                {
+                    StatusText.Text = "❌ Ошибка FTP-передачи: " + ex.Message;
+                    AppendLog("[FTP Ошибка] " + ex.Message);
+                }
+                finally
+                {
+                    SendFtpBtn.IsEnabled = true;
+                }
             }
             catch (Exception ex)
             {
-                StatusText.Text = "❌ Ошибка FTP-передачи: " + ex.Message;
-                AppendLog("[FTP Ошибка] " + ex.Message);
-            }
-            finally
-            {
-                SendFtpBtn.IsEnabled = true;
+                App.Logger?.Log($"[DirectConsoleSenderDialog.xaml.cs] {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
         private async void CopyUsbDrive_Click(object sender, RoutedEventArgs e)
         {
-            int idx = Math.Max(0, FilesComboBox.SelectedIndex);
-            if (_files.Count == 0 || idx >= _files.Count)
-            {
-                StatusText.Text = "⚠️ Сначала выберите файл для копирования.";
-                return;
-            }
-
-            string file = _files[idx];
-            string? targetFolder = await SystemDialogService.OpenFolderDialogAsync("Выберите папку на SD-карте или USB-накопителе консоли");
-            if (string.IsNullOrWhiteSpace(targetFolder) || !Directory.Exists(targetFolder)) return;
-
-            CopyUsbDriveBtn.IsEnabled = false;
             try
             {
-                string destPath = Path.Combine(targetFolder, Path.GetFileName(file));
-                long total = new FileInfo(file).Length;
-                StatusText.Text = $"💾 Копирование {Path.GetFileName(file)} на {targetFolder}...";
-
-                await Task.Run(async () =>
+                int idx = Math.Max(0, FilesComboBox.SelectedIndex);
+                if (_files.Count == 0 || idx >= _files.Count)
                 {
-                    byte[] buf = new byte[4 * 1024 * 1024];
-                    using var src = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read, buf.Length);
-                    using var dst = new FileStream(destPath, FileMode.Create, FileAccess.Write, FileShare.None, buf.Length);
-                    long copied = 0;
-                    int r;
-                    while ((r = await src.ReadAsync(buf, 0, buf.Length)) > 0)
-                    {
-                        await dst.WriteAsync(buf, 0, r);
-                        copied += r;
-                        OnTransferProgressChanged(Path.GetFileName(file), copied, total);
-                    }
-                });
+                    StatusText.Text = "⚠️ Сначала выберите файл для копирования.";
+                    return;
+                }
 
-                TransferProgressBar.Value = 100;
-                StatusText.Text = $"✅ Скопировано на накопитель: {destPath}";
-                AppendLog($"[USB/SD] Файл скопирован: {destPath}");
+                string file = _files[idx];
+                string? targetFolder = await SystemDialogService.OpenFolderDialogAsync("Выберите папку на SD-карте или USB-накопителе консоли");
+                if (string.IsNullOrWhiteSpace(targetFolder) || !Directory.Exists(targetFolder)) return;
+
+                CopyUsbDriveBtn.IsEnabled = false;
+                try
+                {
+                    string destPath = Path.Combine(targetFolder, Path.GetFileName(file));
+                    long total = new FileInfo(file).Length;
+                    StatusText.Text = $"💾 Копирование {Path.GetFileName(file)} на {targetFolder}...";
+
+                    await Task.Run(async () =>
+                    {
+                        byte[] buf = new byte[4 * 1024 * 1024];
+                        using var src = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read, buf.Length);
+                        using var dst = new FileStream(destPath, FileMode.Create, FileAccess.Write, FileShare.None, buf.Length);
+                        long copied = 0;
+                        int r;
+                        while ((r = await src.ReadAsync(buf, 0, buf.Length)) > 0)
+                        {
+                            await dst.WriteAsync(buf, 0, r);
+                            copied += r;
+                            OnTransferProgressChanged(Path.GetFileName(file), copied, total);
+                        }
+                    });
+
+                    TransferProgressBar.Value = 100;
+                    StatusText.Text = $"✅ Скопировано на накопитель: {destPath}";
+                    AppendLog($"[USB/SD] Файл скопирован: {destPath}");
+                }
+                catch (Exception ex)
+                {
+                    StatusText.Text = "❌ Ошибка копирования: " + ex.Message;
+                }
+                finally
+                {
+                    CopyUsbDriveBtn.IsEnabled = true;
+                }
             }
             catch (Exception ex)
             {
-                StatusText.Text = "❌ Ошибка копирования: " + ex.Message;
-            }
-            finally
-            {
-                CopyUsbDriveBtn.IsEnabled = true;
+                App.Logger?.Log($"[DirectConsoleSenderDialog.xaml.cs] {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
@@ -335,6 +370,8 @@ namespace StormSwitchBox.Views.Dialogs
         {
             App.Localization.UnregisterRoot(this);
             if (_langHandler != null) App.Localization.LanguageChanged -= _langHandler;
+            _senderService.ServerLogAdded -= OnServerLogAdded;
+            _senderService.TransferProgressChanged -= OnTransferProgressChanged;
             try { _activeOpCts?.Cancel(); } catch { }
             _senderService.Dispose();
         }

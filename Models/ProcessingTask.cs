@@ -7,8 +7,9 @@ using System.Collections.Generic;
 
 namespace StormSwitchBox.Models
 {
-    public partial class ProcessingTask : ObservableObject
+    public partial class ProcessingTask : ObservableObject, IDisposable
     {
+        private bool _disposed;
         [ObservableProperty] private string _id = string.Empty;
         [ObservableProperty]
         [property: System.Text.Json.Serialization.JsonIgnore]
@@ -188,11 +189,10 @@ namespace StormSwitchBox.Models
         [System.Text.Json.Serialization.JsonIgnore]
         public Visibility FormatSelectableVisibility => Visibility.Visible;
 
-        private static readonly SolidColorBrush FormatGreenBrush = new(Windows.UI.Color.FromArgb(255, 46, 204, 113));
-        private static readonly SolidColorBrush FormatCyanBrush = new(Windows.UI.Color.FromArgb(255, 0, 229, 255));
-
         [System.Text.Json.Serialization.JsonIgnore]
-        public SolidColorBrush TargetFormatColor => IsCompleted ? FormatGreenBrush : FormatCyanBrush;
+        public SolidColorBrush TargetFormatColor => IsCompleted
+            ? UiBrushCache.Get(Windows.UI.Color.FromArgb(255, 46, 204, 113))
+            : UiBrushCache.Get(Windows.UI.Color.FromArgb(255, 0, 229, 255));
 
         [System.Text.Json.Serialization.JsonIgnore]
         public Windows.UI.Text.FontWeight TargetFormatWeight => IsCompleted 
@@ -304,9 +304,9 @@ namespace StormSwitchBox.Models
 
         public void Pause()
         {
-            if (!IsRunning || IsPaused) return;
+            if (_disposed || !IsRunning || IsPaused) return;
             IsPaused = true;
-            PauseEvent.Reset();
+            try { PauseEvent.Reset(); } catch (ObjectDisposedException) { }
             Status = "⏸ Сохранено на паузе";
             Speed = string.Empty;
             try
@@ -322,9 +322,9 @@ namespace StormSwitchBox.Models
 
         public void Resume()
         {
-            if (!IsRunning || !IsPaused) return;
+            if (_disposed || !IsRunning || !IsPaused) return;
             IsPaused = false;
-            PauseEvent.Set();
+            try { PauseEvent.Set(); } catch (ObjectDisposedException) { }
             Status = "Возобновление...";
             try
             {
@@ -342,7 +342,10 @@ namespace StormSwitchBox.Models
             try
             {
                 OnCancelRequested?.Invoke();
-                PauseEvent.Set();
+                if (!_disposed)
+                {
+                    try { PauseEvent.Set(); } catch (ObjectDisposedException) { }
+                }
                 if (ActiveTorrentManager != null)
                 {
                     _ = ActiveTorrentManager.StopAsync();
@@ -356,21 +359,34 @@ namespace StormSwitchBox.Models
             IsPaused = false;
         }
 
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            try { Cts?.Cancel(); } catch { }
+            try { Cts?.Dispose(); } catch { }
+            Cts = null;
+            try { PauseEvent.Set(); } catch { }
+            try { PauseEvent.Dispose(); } catch { }
+            GC.SuppressFinalize(this);
+        }
+
         [System.Text.Json.Serialization.JsonIgnore]
         public SolidColorBrush StatusColor
         {
             get
             {
-                if (Status == "Успешно" || Status == "Готово" || Status == "Корректна" || Status == "Ок" || Status == "Да" || Status == "Да (Гибрид)") 
-                    return new SolidColorBrush(Windows.UI.Color.FromArgb(255, 46, 204, 113)); // Emerald Green
-                if (Status == "Ошибка" || Status == "Поврежден" || Status.StartsWith("Нет") || Status.Contains("ошибка") || Status.Contains("Ошибка")) 
-                    return new SolidColorBrush(Windows.UI.Color.FromArgb(255, 231, 76, 60)); // Alizarin Red
-                if (Status == "Пауза") return new SolidColorBrush(Windows.UI.Color.FromArgb(255, 245, 158, 11)); // Amber/Orange for Pause
-                if (Status == "Отменен" || Status == "Отменено" || Status.Contains("Предупреждение")) 
-                    return new SolidColorBrush(Windows.UI.Color.FromArgb(255, 243, 156, 18)); // Orange
-                if (Status == "Ожидание") 
-                    return new SolidColorBrush(Windows.UI.Color.FromArgb(255, 149, 165, 166)); // Asbestos Gray
-                return new SolidColorBrush(Windows.UI.Color.FromArgb(255, 52, 152, 219)); // Peter River Blue
+                if (Status == "Успешно" || Status == "Готово" || Status == "Корректна" || Status == "Ок" || Status == "Да" || Status == "Да (Гибрид)")
+                    return UiBrushCache.Get(Windows.UI.Color.FromArgb(255, 46, 204, 113)); // Emerald Green
+                if (Status == "Ошибка" || Status == "Поврежден" || Status.StartsWith("Нет") || Status.Contains("ошибка") || Status.Contains("Ошибка"))
+                    return UiBrushCache.Get(Windows.UI.Color.FromArgb(255, 231, 76, 60)); // Alizarin Red
+                if (Status == "Пауза")
+                    return UiBrushCache.Get(Windows.UI.Color.FromArgb(255, 245, 158, 11)); // Amber/Orange for Pause
+                if (Status == "Отменен" || Status == "Отменено" || Status.Contains("Предупреждение"))
+                    return UiBrushCache.Get(Windows.UI.Color.FromArgb(255, 243, 156, 18)); // Orange
+                if (Status == "Ожидание")
+                    return UiBrushCache.Get(Windows.UI.Color.FromArgb(255, 149, 165, 166)); // Asbestos Gray
+                return UiBrushCache.Get(Windows.UI.Color.FromArgb(255, 52, 152, 219)); // Peter River Blue
             }
         }
 
@@ -402,14 +418,7 @@ namespace StormSwitchBox.Models
     
         public static string SanitizeFileName(string name)
         {
-            if (string.IsNullOrWhiteSpace(name)) return string.Empty;
-            var invalid = System.IO.Path.GetInvalidFileNameChars();
-            var sb = new System.Text.StringBuilder(name.Length);
-            foreach (char c in name)
-            {
-                sb.Append(invalid.Contains(c) ? '_' : c);
-            }
-            return sb.ToString().Trim();
+            return StormToolResolver.SanitizeFileName(name, string.Empty);
         }
 
         public static long TryParseFormattedSizeToBytes(string? formatted)
@@ -467,25 +476,7 @@ namespace StormSwitchBox.Models
             foreach (var path in paths)
             {
                 if (string.IsNullOrWhiteSpace(path)) continue;
-                try
-                {
-                    if (System.IO.File.Exists(path))
-                    {
-                        total += new System.IO.FileInfo(path).Length;
-                    }
-                    else if (System.IO.Directory.Exists(path))
-                    {
-                        foreach (var f in System.IO.Directory.EnumerateFiles(path, "*.*", System.IO.SearchOption.AllDirectories))
-                        {
-                            try
-                            {
-                                total += new System.IO.FileInfo(f).Length;
-                            }
-                            catch { }
-                        }
-                    }
-                }
-                catch { }
+                total += StormToolResolver.CalculateDirectorySize(path);
             }
             return total;
         }

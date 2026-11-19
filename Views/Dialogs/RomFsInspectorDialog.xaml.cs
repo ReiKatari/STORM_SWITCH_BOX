@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -117,85 +117,106 @@ namespace StormSwitchBox.Views.Dialogs
 
         private async void BrowseContainer_Click(object sender, RoutedEventArgs e)
         {
-            string? path = await SystemDialogService.OpenFileDialogAsync(
-                "Выберите игровой образ Switch / 3DS",
-                "Игровые контейнеры (*.nsp;*.nsz;*.xci;*.xcz;*.nca;*.3ds;*.cci;*.cia;*.cxi)|*.nsp;*.nsz;*.xci;*.xcz;*.nca;*.3ds;*.cci;*.cia;*.cxi|Все файлы (*.*)|*.*");
-            if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
+            try
             {
-                await LoadContainerAsync(path);
+                string? path = await SystemDialogService.OpenFileDialogAsync(
+                    "Выберите игровой образ Switch / 3DS",
+                    "Игровые контейнеры (*.nsp;*.nsz;*.xci;*.xcz;*.nca;*.3ds;*.cci;*.cia;*.cxi)|*.nsp;*.nsz;*.xci;*.xcz;*.nca;*.3ds;*.cci;*.cia;*.cxi|Все файлы (*.*)|*.*");
+                if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
+                {
+                    await LoadContainerAsync(path);
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[RomFsInspectorDialog.xaml.cs] {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
         private async void Decrypt3ds_Click(object sender, RoutedEventArgs e)
         {
-            if (string.IsNullOrEmpty(_currentContainerPath) || !File.Exists(_currentContainerPath)) return;
-            Decrypt3dsBtn.IsEnabled = false;
             try
             {
-                string ext = Path.GetExtension(_currentContainerPath);
-                string decPath = Path.Combine(
-                    Path.GetDirectoryName(_currentContainerPath) ?? "",
-                    Path.GetFileNameWithoutExtension(_currentContainerPath) + " [Decrypted]" + ext);
-
-                var prog = new Progress<(double Percent, string Status)>(p => StatusText.Text = p.Status);
-                bool ok = await Nintendo3dsCryptoService.Decrypt3dsFileAsync(_currentContainerPath, decPath, null, prog, CancellationToken.None);
-                if (ok && File.Exists(decPath))
+                if (string.IsNullOrEmpty(_currentContainerPath) || !File.Exists(_currentContainerPath)) return;
+                Decrypt3dsBtn.IsEnabled = false;
+                try
                 {
-                    await LoadContainerAsync(decPath);
+                    string ext = Path.GetExtension(_currentContainerPath);
+                    string decPath = Path.Combine(
+                        Path.GetDirectoryName(_currentContainerPath) ?? "",
+                        Path.GetFileNameWithoutExtension(_currentContainerPath) + " [Decrypted]" + ext);
+
+                    var prog = new Progress<(double Percent, string Status)>(p => StatusText.Text = p.Status);
+                    bool ok = await Nintendo3dsCryptoService.Decrypt3dsFileAsync(_currentContainerPath, decPath, null, prog, CancellationToken.None);
+                    if (ok && File.Exists(decPath))
+                    {
+                        await LoadContainerAsync(decPath);
+                    }
+                }
+                finally
+                {
+                    Decrypt3dsBtn.IsEnabled = true;
                 }
             }
-            finally
+            catch (Exception ex)
             {
-                Decrypt3dsBtn.IsEnabled = true;
+                App.Logger?.Log($"[RomFsInspectorDialog.xaml.cs] {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
         private async void EntriesListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (EntriesListView.SelectedItem is not VirtualArchiveEntry entry) return;
-
-            PreviewHeaderText.Text = $"{entry.Section}: {entry.FullPath} ({entry.SizeFormatted})";
             try
             {
-                int maxPreview = entry.Name.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ||
-                                 entry.Name.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ||
-                                 entry.Name.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase) ||
-                                 entry.Name.EndsWith(".dat", StringComparison.OrdinalIgnoreCase)
-                    ? 2 * 1024 * 1024
-                    : 4096;
+                if (EntriesListView.SelectedItem is not VirtualArchiveEntry entry) return;
 
-                byte[] bytes = await VirtualRomFsInspectorService.ReadEntryBytesAsync(_currentContainerPath, entry, maxPreview);
-                if (bytes.Length == 0)
+                PreviewHeaderText.Text = $"{entry.Section}: {entry.FullPath} ({entry.SizeFormatted})";
+                try
+                {
+                    int maxPreview = entry.Name.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ||
+                                     entry.Name.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ||
+                                     entry.Name.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase) ||
+                                     entry.Name.EndsWith(".dat", StringComparison.OrdinalIgnoreCase)
+                        ? 2 * 1024 * 1024
+                        : 4096;
+
+                    byte[] bytes = await VirtualRomFsInspectorService.ReadEntryBytesAsync(_currentContainerPath, entry, maxPreview);
+                    if (bytes.Length == 0)
+                    {
+                        PreviewImage.Visibility = Visibility.Collapsed;
+                        TextPreviewScroll.Visibility = Visibility.Visible;
+                        PreviewTextBlock.Text = "(файл пуст или недоступен для прямого чтения)";
+                        return;
+                    }
+
+                    // Check if PNG or JPEG magic
+                    bool isPng = bytes.Length > 8 && bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47;
+                    bool isJpg = bytes.Length > 4 && bytes[0] == 0xFF && bytes[1] == 0xD8;
+                    if (isPng || isJpg)
+                    {
+                        using var ms = new MemoryStream(bytes);
+                        var bmp = new BitmapImage();
+                        await bmp.SetSourceAsync(ms.AsRandomAccessStream());
+                        PreviewImage.Source = bmp;
+                        PreviewImage.Visibility = Visibility.Visible;
+                        TextPreviewScroll.Visibility = Visibility.Collapsed;
+                        return;
+                    }
+
+                    PreviewImage.Visibility = Visibility.Collapsed;
+                    TextPreviewScroll.Visibility = Visibility.Visible;
+                    PreviewTextBlock.Text = FormatHexAndTextPreview(bytes);
+                }
+                catch (Exception ex)
                 {
                     PreviewImage.Visibility = Visibility.Collapsed;
                     TextPreviewScroll.Visibility = Visibility.Visible;
-                    PreviewTextBlock.Text = "(файл пуст или недоступен для прямого чтения)";
-                    return;
+                    PreviewTextBlock.Text = "Ошибка предпросмотра: " + ex.Message;
                 }
-
-                // Check if PNG or JPEG magic
-                bool isPng = bytes.Length > 8 && bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47;
-                bool isJpg = bytes.Length > 4 && bytes[0] == 0xFF && bytes[1] == 0xD8;
-                if (isPng || isJpg)
-                {
-                    using var ms = new MemoryStream(bytes);
-                    var bmp = new BitmapImage();
-                    await bmp.SetSourceAsync(ms.AsRandomAccessStream());
-                    PreviewImage.Source = bmp;
-                    PreviewImage.Visibility = Visibility.Visible;
-                    TextPreviewScroll.Visibility = Visibility.Collapsed;
-                    return;
-                }
-
-                PreviewImage.Visibility = Visibility.Collapsed;
-                TextPreviewScroll.Visibility = Visibility.Visible;
-                PreviewTextBlock.Text = FormatHexAndTextPreview(bytes);
             }
             catch (Exception ex)
             {
-                PreviewImage.Visibility = Visibility.Collapsed;
-                TextPreviewScroll.Visibility = Visibility.Visible;
-                PreviewTextBlock.Text = "Ошибка предпросмотра: " + ex.Message;
+                App.Logger?.Log($"[RomFsInspectorDialog.xaml.cs] {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
@@ -224,46 +245,60 @@ namespace StormSwitchBox.Views.Dialogs
 
         private async void ExtractSelected_Click(object sender, RoutedEventArgs e)
         {
-            if (EntriesListView.SelectedItem is not VirtualArchiveEntry entry)
-            {
-                StatusText.Text = "⚠ Выберите файл в списке для выборочного извлечения.";
-                return;
-            }
-
-            string? folder = await SystemDialogService.OpenFolderDialogAsync("Выберите папку для извлечения файла");
-            if (string.IsNullOrWhiteSpace(folder)) return;
-
             try
             {
-                int count = await VirtualRomFsInspectorService.ExtractEntriesAsync(
-                    _currentContainerPath, new[] { entry }, folder, null, CancellationToken.None);
-                StatusText.Text = $"✅ Успешно извлечён файл: {entry.FullPath} -> {folder}";
+                if (EntriesListView.SelectedItem is not VirtualArchiveEntry entry)
+                {
+                    StatusText.Text = "⚠ Выберите файл в списке для выборочного извлечения.";
+                    return;
+                }
+
+                string? folder = await SystemDialogService.OpenFolderDialogAsync("Выберите папку для извлечения файла");
+                if (string.IsNullOrWhiteSpace(folder)) return;
+
+                try
+                {
+                    int count = await VirtualRomFsInspectorService.ExtractEntriesAsync(
+                        _currentContainerPath, new[] { entry }, folder, null, CancellationToken.None);
+                    StatusText.Text = $"✅ Успешно извлечён файл: {entry.FullPath} -> {folder}";
+                }
+                catch (Exception ex)
+                {
+                    StatusText.Text = "❌ Ошибка извлечения: " + ex.Message;
+                }
             }
             catch (Exception ex)
             {
-                StatusText.Text = "❌ Ошибка извлечения: " + ex.Message;
+                App.Logger?.Log($"[RomFsInspectorDialog.xaml.cs] {ex.Message}", Models.LogLevel.Warning);
             }
         }
 
         private async void ExtractFiltered_Click(object sender, RoutedEventArgs e)
         {
-            if (FilteredEntries.Count == 0) return;
-
-            string? folder = await SystemDialogService.OpenFolderDialogAsync($"Выберите папку для извлечения {FilteredEntries.Count} файлов");
-            if (string.IsNullOrWhiteSpace(folder)) return;
-
-            var prog = new Progress<(int Done, int Total, string CurrentFile)>(p =>
-                StatusText.Text = $"⏳ Извлечение ({p.Done}/{p.Total}): {p.CurrentFile}");
-
             try
             {
-                int count = await VirtualRomFsInspectorService.ExtractEntriesAsync(
-                    _currentContainerPath, FilteredEntries.ToList(), folder, prog, CancellationToken.None);
-                StatusText.Text = $"✅ Успешно извлечено файлов: {count} в папку {folder}";
+                if (FilteredEntries.Count == 0) return;
+
+                string? folder = await SystemDialogService.OpenFolderDialogAsync($"Выберите папку для извлечения {FilteredEntries.Count} файлов");
+                if (string.IsNullOrWhiteSpace(folder)) return;
+
+                var prog = new Progress<(int Done, int Total, string CurrentFile)>(p =>
+                    StatusText.Text = $"⏳ Извлечение ({p.Done}/{p.Total}): {p.CurrentFile}");
+
+                try
+                {
+                    int count = await VirtualRomFsInspectorService.ExtractEntriesAsync(
+                        _currentContainerPath, FilteredEntries.ToList(), folder, prog, CancellationToken.None);
+                    StatusText.Text = $"✅ Успешно извлечено файлов: {count} в папку {folder}";
+                }
+                catch (Exception ex)
+                {
+                    StatusText.Text = "❌ Ошибка пакетного извлечения: " + ex.Message;
+                }
             }
             catch (Exception ex)
             {
-                StatusText.Text = "❌ Ошибка пакетного извлечения: " + ex.Message;
+                App.Logger?.Log($"[RomFsInspectorDialog.xaml.cs] {ex.Message}", Models.LogLevel.Warning);
             }
         }
     }

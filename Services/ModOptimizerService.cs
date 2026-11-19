@@ -97,6 +97,10 @@ namespace StormSwitchBox.Services
         /// </summary>
         public static string? FindOxipngExe()
         {
+            string? resolved = StormToolResolver.ResolveOxipng();
+            if (!string.IsNullOrEmpty(resolved) && File.Exists(resolved))
+                return resolved;
+
             string baseDir = AppDomain.CurrentDomain.BaseDirectory;
             string[] candidatePaths = new[]
             {
@@ -104,8 +108,7 @@ namespace StormSwitchBox.Services
                 Path.Combine(baseDir, "tools", "oxipng", "oxipng.exe"),
                 Path.Combine(baseDir, "..", "..", "..", "..", "tools", "oxipng.exe"),
                 Path.Combine(AppContext.BaseDirectory, "tools", "oxipng.exe"),
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".cargo", "bin", "oxipng.exe"),
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".gemini", "antigravity", "bin", "oxipng.exe")
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".cargo", "bin", "oxipng.exe")
             };
 
             foreach (var p in candidatePaths)
@@ -144,7 +147,7 @@ namespace StormSwitchBox.Services
             string? oxipngPath = FindOxipngExe();
             if (string.IsNullOrEmpty(oxipngPath) || !File.Exists(oxipngPath))
             {
-                App.Logger.Log("[Mod Optimizer] oxipng.exe не найден — пропуск сжатия текстур", LogLevel.Warning);
+                App.Logger.Log("[Mod Optimizer] oxipng.exe не найден - пропуск сжатия текстур", LogLevel.Warning);
                 return (0, 0);
             }
 
@@ -182,30 +185,16 @@ namespace StormSwitchBox.Services
                 cancellationToken.ThrowIfCancellationRequested();
 
                 var batch = pngFiles.Skip(i).Take(batchSize).ToList();
-                var formattedFiles = string.Join(" ", batch.Select(f => $"\"{f}\""));
-                // Параметры: -o 4 (высокая степень сжатия без потерь), --strip safe (удаление метаданных без нарушения формата), -t 0 (все ядра)
-                string arguments = $"-o 4 --strip safe -t 0 {formattedFiles}";
-
-                var psi = new ProcessStartInfo
-                {
-                    FileName = oxipngPath,
-                    Arguments = arguments,
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true
-                };
+                var args = new List<string> { "-o", "4", "--strip", "safe", "-t", "0" };
+                args.AddRange(batch);
 
                 try
                 {
-                    using var proc = Process.Start(psi);
-                    if (proc != null)
-                    {
-                        using (cancellationToken.Register(() => { try { proc.Kill(true); } catch { } }))
-                        {
-                            await proc.WaitForExitAsync(cancellationToken);
-                        }
-                    }
+                    await ExternalProcessRunner.RunAsync(oxipngPath, args, directory, task, cancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
                 }
                 catch (Exception ex)
                 {

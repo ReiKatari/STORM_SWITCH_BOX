@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.IO;
 using System.Runtime.InteropServices;
 
 namespace StormSwitchBox.Services
@@ -55,7 +57,8 @@ namespace StormSwitchBox.Services
         }
 
         private static IntPtr _jobHandle = IntPtr.Zero;
-        private static readonly object _lock = new object();
+        private static readonly object _lock = new();
+        private static readonly ConcurrentDictionary<int, long> _trackedChildPids = new();
 
         public static void InitializeJobForCurrentProcess()
         {
@@ -71,7 +74,7 @@ namespace StormSwitchBox.Services
                         var info = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION();
                         info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
 
-                        int length = Marshal.SizeOf(typeof(JOBOBJECT_EXTENDED_LIMIT_INFORMATION));
+                        int length = Marshal.SizeOf<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>();
                         IntPtr ptr = Marshal.AllocHGlobal(length);
                         try
                         {
@@ -91,49 +94,78 @@ namespace StormSwitchBox.Services
             }
         }
 
-        public static void AddProcess(Process process)
+        public static void AddProcess(Process? process)
         {
+            if (process == null) return;
             InitializeJobForCurrentProcess();
-            if (_jobHandle != IntPtr.Zero && process != null)
-            {
-                try
-                {
-                    if (!process.HasExited)
-                    {
-                        AssignProcessToJobObject(_jobHandle, process.Handle);
-                    }
-                }
-                catch { }
-            }
-        }
 
-        public static void KillAllToolProcesses()
-        {
             try
             {
-                string[] toolNames = { "nsz", "python", "squirrel", "yanu-cli", "hacpack", "nut" };
-                int currentPid = Environment.ProcessId;
-                foreach (var name in toolNames)
+                if (!process.HasExited)
                 {
-                    try
-                    {
-                        var procs = Process.GetProcessesByName(name);
-                        foreach (var p in procs)
-                        {
-                            try
-                            {
-                                if (p.Id != currentPid)
-                                {
-                                    p.Kill(true);
-                                }
-                            }
-                            catch { }
-                        }
-                    }
-                    catch { }
+                    if (_jobHandle != IntPtr.Zero)
+                        AssignProcessToJobObject(_jobHandle, process.Handle);
+
+                    long startTicks = 0;
+                    try { startTicks = process.StartTime.Ticks; } catch { }
+                    _trackedChildPids[process.Id] = startTicks;
                 }
             }
             catch { }
+        }
+
+        public static void UnregisterProcess(int pid)
+        {
+            _trackedChildPids.TryRemove(pid, out _);
+        }
+
+        /// <summary>
+        /// Безопасно завершает строго дочерние процессы, запущенные самим приложением (без убийства сторонних процессов ОС).
+        /// </summary>
+        public static void KillAllToolProcesses()
+        {
+            int currentPid = Environment.ProcessId;
+            string toolsDir = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "tools"));
+
+            foreach (var kv in _trackedChildPids.ToArray())
+            {
+                int pid = kv.Key;
+                long expectedTicks = kv.Value;
+                if (pid == currentPid) continue;
+
+                try
+                {
+                    using var proc = Process.GetProcessById(pid);
+                    if (!proc.HasExited)
+                    {
+                        bool matchesStart = expectedTicks == 0;
+                        if (!matchesStart)
+                        {
+                            try { matchesStart = proc.StartTime.Ticks == expectedTicks; } catch { matchesStart = false; }
+                        }
+
+                        bool isInsideTools = false;
+                        if (!matchesStart)
+                        {
+                            try
+                            {
+                                string? exePath = proc.MainModule?.FileName;
+                                if (!string.IsNullOrEmpty(exePath))
+                                    isInsideTools = Path.GetFullPath(exePath).StartsWith(toolsDir, StringComparison.OrdinalIgnoreCase);
+                            }
+                            catch { }
+                        }
+
+                        if (matchesStart || isInsideTools)
+                            proc.Kill(entireProcessTree: true);
+                    }
+                }
+                catch { }
+                finally
+                {
+                    _trackedChildPids.TryRemove(pid, out _);
+                }
+            }
         }
     }
 }

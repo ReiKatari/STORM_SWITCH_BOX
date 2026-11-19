@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Threading.Tasks;
 using Microsoft.UI.Xaml;
@@ -174,13 +174,33 @@ namespace StormSwitchBox.Views.Dialogs
 
         private async void IconDropArea_Drop(object sender, DragEventArgs e)
         {
-            if (e.DataView.Contains(StandardDataFormats.StorageItems))
+            try
             {
-                var items = await e.DataView.GetStorageItemsAsync();
-                if (items.Count > 0 && items[0] is StorageFile file)
+                e.Handled = true;
+                var deferral = e.GetDeferral();
+                try
                 {
-                    await LoadCustomIconFileAsync(file.Path);
+                    if (e.DataView.Contains(StandardDataFormats.StorageItems))
+                    {
+                        var items = await e.DataView.GetStorageItemsAsync();
+                        if (items.Count > 0 && items[0] is StorageFile file)
+                        {
+                            await LoadCustomIconFileAsync(file.Path);
+                        }
+                    }
                 }
+                catch (Exception ex)
+                {
+                    App.Logger?.Log($"[ControlEditorDialog Drop] {ex.Message}", Models.LogLevel.Warning);
+                }
+                finally
+                {
+                    deferral.Complete();
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Logger?.Log($"[ControlEditorDialog.xaml.cs] {ex.Message}", Models.LogLevel.Warning);
             }
         }
 

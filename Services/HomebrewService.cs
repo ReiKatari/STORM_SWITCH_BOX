@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -132,10 +132,6 @@ namespace StormSwitchBox.Services
                 Path.Combine(appDir, "..", "..", "..", "..", "tools"),
                 Path.Combine(appDir, "..", "..", "..", "..", "..", "tools")
             };
-            if (Directory.Exists(@"F:\STORM SWITCH BOX\tools"))
-            {
-                searchDirs.Add(@"F:\STORM SWITCH BOX\tools");
-            }
 
             string foundHacpack = "";
             string foundTools = "";
@@ -386,9 +382,9 @@ namespace StormSwitchBox.Services
                 foreach (var f in allFiles)
                 {
                     if (f.Equals(primaryNro, StringComparison.OrdinalIgnoreCase)) continue;
-                    if (pkg.RomFsDir != null && f.StartsWith(pkg.RomFsDir, StringComparison.OrdinalIgnoreCase)) continue;
-                    if (pkg.ExeFsDir != null && f.StartsWith(pkg.ExeFsDir, StringComparison.OrdinalIgnoreCase)) continue;
-                    if (pkg.SaveDataDir != null && f.StartsWith(pkg.SaveDataDir, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (pkg.RomFsDir != null && f.StartsWith(pkg.RomFsDir.TrimEnd('\\', '/') + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (pkg.ExeFsDir != null && f.StartsWith(pkg.ExeFsDir.TrimEnd('\\', '/') + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (pkg.SaveDataDir != null && f.StartsWith(pkg.SaveDataDir.TrimEnd('\\', '/') + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) continue;
 
                     // Не добавляем файлы, которые уже входят в любую добавленную директорию
                     if (pkg.InputFiles.Any(d => Directory.Exists(d) && f.StartsWith(d.TrimEnd('\\', '/') + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))) continue;
@@ -1200,8 +1196,8 @@ namespace StormSwitchBox.Services
                     foreach (var f in allDataFiles)
                     {
                         if (f.Equals(nspPath, StringComparison.OrdinalIgnoreCase)) continue;
-                        if (pkg.RomFsDir != null && f.StartsWith(pkg.RomFsDir, StringComparison.OrdinalIgnoreCase)) continue;
-                        if (pkg.ExeFsDir != null && f.StartsWith(pkg.ExeFsDir, StringComparison.OrdinalIgnoreCase)) continue;
+                        if (pkg.RomFsDir != null && f.StartsWith(pkg.RomFsDir.TrimEnd('\\', '/') + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) continue;
+                        if (pkg.ExeFsDir != null && f.StartsWith(pkg.ExeFsDir.TrimEnd('\\', '/') + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) continue;
 
                         string ext = Path.GetExtension(f);
                         string fileName = Path.GetFileName(f);
@@ -1254,9 +1250,8 @@ namespace StormSwitchBox.Services
                         entryPath.Initialize(new U8Span(Encoding.UTF8.GetBytes(entry.FullPath))).ThrowIfFailure();
                         if (pfs.OpenFile(ref ncaFileRef.Ref, in entryPath, OpenMode.Read).IsSuccess())
                         {
-                            var ncaStorage = ncaFileRef.Release().AsStorage();
-                            var nca = new Nca(_keysService.CurrentKeyset, ncaStorage);
-                            KeysService.RegisterRightsIdFallback(_keysService.CurrentKeyset, nca);
+                            using IFile ncaFile = ncaFileRef.Release();
+                            var nca = new Nca(_keysService.CurrentKeyset, ncaFile.AsStorage());
 
                             if (nca.Header.ContentType == NcaContentType.Control)
                             {
@@ -1383,9 +1378,8 @@ namespace StormSwitchBox.Services
                         entryPath.Initialize(new U8Span(Encoding.UTF8.GetBytes(entry.FullPath))).ThrowIfFailure();
                         if (pfs.OpenFile(ref ncaFileRef.Ref, in entryPath, OpenMode.Read).IsSuccess())
                         {
-                            var ncaStorage = ncaFileRef.Release().AsStorage();
-                            var nca = new Nca(_keysService.CurrentKeyset, ncaStorage);
-                            KeysService.RegisterRightsIdFallback(_keysService.CurrentKeyset, nca);
+                            using IFile ncaFile = ncaFileRef.Release();
+                            var nca = new Nca(_keysService.CurrentKeyset, ncaFile.AsStorage());
                             if (nca.Header.ContentType == NcaContentType.Program)
                             {
                                 // 1. Извлекаем ExeFS (Section 0)
@@ -1821,8 +1815,7 @@ namespace StormSwitchBox.Services
         /// </summary>
         public async Task BuildHomebrewAsync(ProcessingTask task, CancellationToken ct)
         {
-            string rootDrive = Path.GetPathRoot(AppDomain.CurrentDomain.BaseDirectory) ?? "C:\\";
-            string tempDir = Path.Combine(rootDrive, "Temp", "StormHB", Guid.NewGuid().ToString("N").Substring(0, 8));
+            string tempDir = Path.Combine(Path.GetTempPath(), "StormHB_" + Guid.NewGuid().ToString("N").Substring(0, 8));
             Directory.CreateDirectory(tempDir);
             TempCleanupService.RegisterActiveTempDirectory(tempDir);
 
@@ -2149,7 +2142,7 @@ namespace StormSwitchBox.Services
                         string nextArgvContent = nextPath;
 
                         // Поддержка RetroArch Core + ROM Forwarder (стандарт CNX17 NSP-Auto-Installer-Maker 2.9):
-                        // Если NRO является ядром Libretro (*_libretro_libnx.nro) и в файлах есть ROM — прописываем прямой запуск ядра с аргументом ROM
+                        // Если NRO является ядром Libretro (*_libretro_libnx.nro) и в файлах есть ROM - прописываем прямой запуск ядра с аргументом ROM
                         if (nroName.Contains("libretro", StringComparison.OrdinalIgnoreCase))
                         {
                             string[] romExts = { ".nes", ".sfc", ".smc", ".z64", ".n64", ".v64", ".gb", ".gbc", ".gba", ".md", ".gen", ".sms", ".gg", ".pce", ".nds", ".iso", ".cue", ".chd", ".pbp", ".cdi", ".gdi" };
@@ -2869,92 +2862,7 @@ namespace StormSwitchBox.Services
                 }
             }
 
-            // 1. Генерация резервного main.npdm по спецификации Switch META/ACI0/ACID
-            byte[] npdm = new byte[0x500];
-
-            // META Header (0x00..0x80)
-            Encoding.ASCII.GetBytes("META").CopyTo(npdm, 0x00);
-            npdm[0x0C] = 0x03; // Flags: Is64BitInstruction (bit 0) + AddressSpace64Bit (bits 1..3)
-            npdm[0x0E] = 44;   // MainThreadPriority (0x2C)
-            npdm[0x0F] = 0;    // DefaultCpuId
-            BitConverter.GetBytes(0x00100000U).CopyTo(npdm, 0x14); // SystemResourceSize / Stack
-            BitConverter.GetBytes(0x00100000U).CopyTo(npdm, 0x1C); // MainThreadStackSize (1 MB)
-            Encoding.ASCII.GetBytes("Application").CopyTo(npdm, 0x20); // TitleName
-
-            BitConverter.GetBytes(0x00000340U).CopyTo(npdm, 0x70); // ACI0 offset
-            BitConverter.GetBytes(0x00000100U).CopyTo(npdm, 0x74); // ACI0 size
-            BitConverter.GetBytes(0x00000080U).CopyTo(npdm, 0x78); // ACID offset
-            BitConverter.GetBytes(0x000002C0U).CopyTo(npdm, 0x7C); // ACID size
-
-            // ACID Section (0x80: 0x200 RSA sig + public key, 0x280: "ACID")
-            Encoding.ASCII.GetBytes("ACID").CopyTo(npdm, 0x280);
-            BitConverter.GetBytes(0x00000001U).CopyTo(npdm, 0x284); // Flags (production)
-            BitConverter.GetBytes(titleId).CopyTo(npdm, 0x290); // ProgramIdMin
-            BitConverter.GetBytes(titleId).CopyTo(npdm, 0x298); // ProgramIdMax
-
-            // ACI0 Section (0x340)
-            Encoding.ASCII.GetBytes("ACI0").CopyTo(npdm, 0x340);
-            BitConverter.GetBytes(titleId).CopyTo(npdm, 0x350); // ProgramId
-
-            File.WriteAllBytes(Path.Combine(exefsDir, "main.npdm"), npdm);
-
-            // 2. Генерация NSO forwarder binary (main)
-            byte[] nso = GenerateForwarderNso(titleId);
-            File.WriteAllBytes(Path.Combine(exefsDir, "main"), nso);
-            return false;
-        }
-
-        /// <summary>
-        /// Генерация стандартного NSO бинарника Forwarder'а
-        /// </summary>
-        private byte[] GenerateForwarderNso(ulong titleId)
-        {
-            // NSO0 заголовок (0x100 байт) + минимальный исполняемый код
-            byte[] nso = new byte[0x1000];
-
-            // Magic 'NSO0'
-            Encoding.ASCII.GetBytes("NSO0").CopyTo(nso, 0x00);
-            BitConverter.GetBytes(0U).CopyTo(nso, 0x04); // Version
-            BitConverter.GetBytes(0U).CopyTo(nso, 0x08); // Flags (uncompressed)
-
-            // Text segment
-            BitConverter.GetBytes(0x100U).CopyTo(nso, 0x10); // File offset
-            BitConverter.GetBytes(0x0000U).CopyTo(nso, 0x14); // Memory offset
-            BitConverter.GetBytes(0x400U).CopyTo(nso, 0x18);  // Decompressed size
-
-            // Ro segment
-            BitConverter.GetBytes(0x500U).CopyTo(nso, 0x20); // File offset
-            BitConverter.GetBytes(0x1000U).CopyTo(nso, 0x24); // Memory offset
-            BitConverter.GetBytes(0x200U).CopyTo(nso, 0x28);  // Decompressed size
-
-            // Data segment
-            BitConverter.GetBytes(0x700U).CopyTo(nso, 0x30); // File offset
-            BitConverter.GetBytes(0x2000U).CopyTo(nso, 0x34); // Memory offset
-            BitConverter.GetBytes(0x100U).CopyTo(nso, 0x38);  // Decompressed size
-
-            BitConverter.GetBytes(0x1000U).CopyTo(nso, 0x3C); // BSS size
-
-            // Module ID / Build ID (32 bytes)
-            using var sha = SHA256.Create();
-            byte[] buildId = sha.ComputeHash(BitConverter.GetBytes(titleId));
-            Array.Copy(buildId, 0, nso, 0x40, 32);
-
-            // ARM64 Exit/Return stub (RET: 0xD65F03C0, SVC 0x07 ExitProcess: 0xD40000E1)
-            // 0x100 Text offset
-            BitConverter.GetBytes(0xD2800000U).CopyTo(nso, 0x100); // MOV X0, #0
-            BitConverter.GetBytes(0xD40000E1U).CopyTo(nso, 0x104); // SVC #7 (ExitProcess)
-            BitConverter.GetBytes(0xD65F03C0U).CopyTo(nso, 0x108); // RET
-
-            // Вычисляем sha256 хеши секций и записываем в NSO заголовок
-            byte[] textHash = sha.ComputeHash(nso, 0x100, 0x400);
-            byte[] roHash = sha.ComputeHash(nso, 0x500, 0x200);
-            byte[] dataHash = sha.ComputeHash(nso, 0x700, 0x100);
-
-            Array.Copy(textHash, 0, nso, 0xA0, 32);
-            Array.Copy(roHash, 0, nso, 0xC0, 32);
-            Array.Copy(dataHash, 0, nso, 0xE0, 32);
-
-            return nso;
+            throw new FileNotFoundException("Не найден шаблон ExeFS форвардера (tools/forwarder/main и tools/forwarder/main.npdm).");
         }
 
         private byte[] GenerateNacp(string title, string author, string version, string titleIdStr)
@@ -2979,7 +2887,7 @@ namespace StormSwitchBox.Services
             {
                 BitConverter.GetBytes(tid).CopyTo(nacp, 0x3078);
                 BitConverter.GetBytes(tid).CopyTo(nacp, 0x3038); // PresenceGroupId
-                BitConverter.GetBytes(tid).CopyTo(nacp, 0x3070); // AddOnContentBaseId
+                BitConverter.GetBytes(TitleIdHelper.ComputeDlcBaseId(tid)).CopyTo(nacp, 0x3070); // AddOnContentBaseId
             }
 
             return nacp;
@@ -3040,7 +2948,7 @@ namespace StormSwitchBox.Services
         {
             var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            // 0. Если пользователь явно указал папки эмуляторов в Настройках — проверяем и используем ТОЛЬКО ИХ, остальные игнорируем!
+            // 0. Если пользователь явно указал папки эмуляторов в Настройках - проверяем и используем ТОЛЬКО ИХ, остальные игнорируем!
             try
             {
                 var customDirs = App.Settings?.Current?.EmulatorDirectories ?? SettingsService.Instance?.Current?.EmulatorDirectories;
@@ -3139,82 +3047,7 @@ namespace StormSwitchBox.Services
             }
             catch { }
 
-            // 3. Сканирование всех доступных дисков (C:, D:, E:, L: и т.д.)
-            try
-            {
-                foreach (var drive in DriveInfo.GetDrives())
-                {
-                    if (!drive.IsReady) continue;
-                    string root = drive.RootDirectory.FullName;
-
-                    string[] directCandidates = new[]
-                    {
-                        Path.Combine(root, "CONSOLES", "Nintendo Switch", "STORM SWITCH 4", "user", "sdmc"),
-                        Path.Combine(root, "CONSOLES", "Nintendo Switch", "STORM SWITCH", "user", "sdmc"),
-                        Path.Combine(root, "CONSOLES", "Nintendo Switch", "STORM EDEN", "user", "sdmc"),
-                        Path.Combine(root, "CONSOLES", "Nintendo Switch", "Eden", "user", "sdmc"),
-                        Path.Combine(root, "STORM SWITCH 4", "Assembling", "user", "sdmc"),
-                        Path.Combine(root, "STORM SWITCH 4", "user", "sdmc"),
-                        Path.Combine(root, "STORM SWITCH 4", "sdmc"),
-                        Path.Combine(root, "STORM SWITCH", "Assembling", "user", "sdmc"),
-                        Path.Combine(root, "STORM SWITCH", "user", "sdmc"),
-                        Path.Combine(root, "STORM SWITCH", "sdmc"),
-                        Path.Combine(root, "STORM EDEN 3", "Assembling", "user", "sdmc"),
-                        Path.Combine(root, "STORM EDEN 3", "user", "sdmc"),
-                        Path.Combine(root, "STORM EDEN", "user", "sdmc"),
-                        Path.Combine(root, "Eden", "user", "sdmc"),
-                        Path.Combine(root, "Eden", "sdmc"),
-                        Path.Combine(root, "yuzu", "user", "sdmc"),
-                        Path.Combine(root, "yuzu", "sdmc"),
-                        Path.Combine(root, "Ryujinx", "user", "sdmc"),
-                        Path.Combine(root, "Ryujinx", "sdmc"),
-                        Path.Combine(root, "suyu", "user", "sdmc"),
-                        Path.Combine(root, "sudachi", "user", "sdmc"),
-                        Path.Combine(root, "Emulators", "STORM SWITCH 4", "user", "sdmc"),
-                        Path.Combine(root, "Emulators", "STORM SWITCH", "user", "sdmc"),
-                        Path.Combine(root, "Emulators", "STORM EDEN 3", "user", "sdmc"),
-                        Path.Combine(root, "Emulators", "yuzu", "user", "sdmc"),
-                        Path.Combine(root, "Emulators", "Ryujinx", "user", "sdmc"),
-                        Path.Combine(root, "Games", "Emulators", "STORM SWITCH 4", "user", "sdmc"),
-                        Path.Combine(root, "Games", "Emulators", "STORM SWITCH", "user", "sdmc"),
-                        Path.Combine(root, "Games", "Emulators", "STORM EDEN 3", "user", "sdmc")
-                    };
-
-                    foreach (var cand in directCandidates)
-                    {
-                        if (Directory.Exists(cand))
-                        {
-                            result.Add(cand);
-                        }
-                    }
-
-                    // Поиск в корневых папках диска (1 уровень вложенности)
-                    try
-                    {
-                        foreach (var topDir in Directory.GetDirectories(root))
-                        {
-                            string topName = Path.GetFileName(topDir).ToLowerInvariant();
-                            if (topName.Contains("eden") || topName.Contains("yuzu") || topName.Contains("ryujinx") ||
-                                topName.Contains("suyu") || topName.Contains("sudachi") || topName.Contains("emulator") ||
-                                topName.Contains("storm switch") || (topName.StartsWith("switch") && !topName.Contains("box")))
-                            {
-                                string userSdmc = Path.Combine(topDir, "user", "sdmc");
-                                if (Directory.Exists(userSdmc)) result.Add(userSdmc);
-
-                                string directSdmc = Path.Combine(topDir, "sdmc");
-                                if (Directory.Exists(directSdmc)) result.Add(directSdmc);
-
-                                string assemblingUserSdmc = Path.Combine(topDir, "Assembling", "user", "sdmc");
-                                if (Directory.Exists(assemblingUserSdmc)) result.Add(assemblingUserSdmc);
-                            }
-                        }
-                    }
-                    catch { }
-                }
-            }
-            catch { }
-
-            // 4. Поиск в запущенных процессах эмуляторов
+            // 3. Поиск в запущенных процессах эмуляторов (без авто-скана всех дисков)
             try
             {
                 string[] processNames = new[] { "eden", "stormeden", "yuzu", "ryujinx", "suyu", "sudachi", "torzu", "citron" };

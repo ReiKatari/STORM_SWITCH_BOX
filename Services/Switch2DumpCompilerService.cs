@@ -127,7 +127,45 @@ namespace StormSwitchBox.Services
             var compParts = new List<string> { "1G" };
             if (!string.IsNullOrEmpty(sw2Info.MaxUpdateVersion)) compParts.Add("1U");
             if (sw2Info.DlcCount > 0) compParts.Add($"{sw2Info.DlcCount}D");
-            return $"{sw2Info.GameName} [WW] [RUS] ({versionPart}) ({string.Join("+", compParts)})";
+            string langTag = DetectRussianLanguage(sw2Info) ? " [RUS]" : string.Empty;
+            return $"{sw2Info.GameName} [WW]{langTag} ({versionPart}) ({string.Join("+", compParts)})";
+        }
+
+        private static bool DetectRussianLanguage(Switch2DumpInfo sw2Info)
+        {
+            try
+            {
+                string combinedNames = $"{sw2Info.GameName} {sw2Info.GameRootDir}";
+                if (Regex.IsMatch(combinedNames, @"(\[RUS\]|\[RU\]|\bRUS\b|Russian|Русский|Перевод)", RegexOptions.IgnoreCase))
+                    return true;
+
+                var dirsToCheck = new List<string>();
+                if (!string.IsNullOrEmpty(sw2Info.UpdateDir)) dirsToCheck.Add(sw2Info.UpdateDir);
+                if (!string.IsNullOrEmpty(sw2Info.BaseDir)) dirsToCheck.Add(sw2Info.BaseDir);
+
+                foreach (var d in dirsToCheck)
+                {
+                    if (File.Exists(Path.Combine(d, "control", "icon_Russian.dat")))
+                        return true;
+
+                    string romfsDir = Path.Combine(d, "romfs");
+                    if (Directory.Exists(romfsDir))
+                    {
+                        foreach (var sub in Directory.EnumerateDirectories(romfsDir))
+                        {
+                            string name = Path.GetFileName(sub);
+                            if (name.Equals("ru", StringComparison.OrdinalIgnoreCase) ||
+                                name.Equals("ru-RU", StringComparison.OrdinalIgnoreCase) ||
+                                name.Equals("Russian", StringComparison.OrdinalIgnoreCase))
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+            return false;
         }
 
         public static bool IsSwitch2OrExtractedGameDumpDirectory(string dirPath)
@@ -504,15 +542,15 @@ namespace StormSwitchBox.Services
 
             try
             {
-                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
-                http.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+                var http = StormHttpClientFactory.Shared;
                 string encoded = Uri.EscapeDataString(gameTitle);
 
                 string eshopUrl = $"https://search.nintendo-europe.com/en/select?q={encoded}&fq=type:GAME&rows=5&wt=json";
-                var resp = await http.GetAsync(eshopUrl);
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                using var resp = await http.GetAsync(eshopUrl, cts.Token);
                 if (resp.IsSuccessStatusCode)
                 {
-                    string json = await resp.Content.ReadAsStringAsync();
+                    string json = await resp.Content.ReadAsStringAsync(cts.Token);
                     var m = Regex.Match(json, @"""image_url_sq_s""\s*:\s*""([^""]+)""");
                     if (!m.Success) m = Regex.Match(json, @"""wishlist_email_square_image_url_s""\s*:\s*""([^""]+)""");
                     if (!m.Success) m = Regex.Match(json, @"""image_url_h2x1_s""\s*:\s*""([^""]+)""");
@@ -523,8 +561,8 @@ namespace StormSwitchBox.Services
                         if (imgUrl.StartsWith("//")) imgUrl = "https:" + imgUrl;
                         else if (!imgUrl.StartsWith("http")) imgUrl = "https://" + imgUrl;
 
-                        var imgBytes = await http.GetByteArrayAsync(imgUrl);
-                        if (imgBytes.Length > 1024)
+                        var imgBytes = await http.GetByteArrayAsync(imgUrl, cts.Token);
+                        if (imgBytes.Length > 1024 && StormHttpClientFactory.IsValidImageBytes(imgBytes))
                         {
                             try { await File.WriteAllBytesAsync(cachedPath, imgBytes); } catch { }
                             return imgBytes;
@@ -536,21 +574,21 @@ namespace StormSwitchBox.Services
 
             try
             {
-                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(4) };
-                http.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0");
+                var http = StormHttpClientFactory.Shared;
                 string encoded = Uri.EscapeDataString(gameTitle);
                 string steamUrl = $"https://store.steampowered.com/api/storesearch/?term={encoded}&l=russian&cc=RU";
-                var resp = await http.GetAsync(steamUrl);
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(4));
+                using var resp = await http.GetAsync(steamUrl, cts.Token);
                 if (resp.IsSuccessStatusCode)
                 {
-                    string json = await resp.Content.ReadAsStringAsync();
+                    string json = await resp.Content.ReadAsStringAsync(cts.Token);
                     var m = Regex.Match(json, @"""id""\s*:\s*(\d+)");
                     if (m.Success)
                     {
                         string appId = m.Groups[1].Value;
                         string bannerUrl = $"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appId}/library_600x900.jpg";
-                        var imgBytes = await http.GetByteArrayAsync(bannerUrl);
-                        if (imgBytes.Length > 1024)
+                        var imgBytes = await http.GetByteArrayAsync(bannerUrl, cts.Token);
+                        if (imgBytes.Length > 1024 && StormHttpClientFactory.IsValidImageBytes(imgBytes))
                         {
                             try { await File.WriteAllBytesAsync(cachedPath, imgBytes); } catch { }
                             return imgBytes;
@@ -928,6 +966,30 @@ namespace StormSwitchBox.Services
                 });
                 App.Logger.Log($"[Switch 2] Сборка успешно завершена: {Path.GetFileName(finalOutPath)} ({formattedTargetSize})", LogLevel.Success);
             }
+            catch (OperationCanceledException)
+            {
+                App.RunOnUI(() =>
+                {
+                    task.Status = "Отменено";
+                    task.IsRunning = false;
+                    task.FinishedAt = DateTime.Now;
+                    HistoryService.AddToHistory(task);
+                });
+                throw;
+            }
+            catch (Exception ex)
+            {
+                App.RunOnUI(() =>
+                {
+                    task.Status = "Ошибка";
+                    task.IsRunning = false;
+                    task.FinishedAt = DateTime.Now;
+                    task.LogDetails += $"\n❌ Ошибка компиляции Switch 2: {ex.Message}\n";
+                    HistoryService.AddToHistory(task);
+                });
+                App.Logger.Log($"[Switch 2] Ошибка сборки: {ex.Message}", LogLevel.Error);
+                throw;
+            }
             finally
             {
                 try { Directory.Delete(tempWorkDir, true); } catch { }
@@ -1248,19 +1310,9 @@ namespace StormSwitchBox.Services
                 exefsEntries.Add(Tuple.Create(kv.Key, data));
             }
             byte[] rawExefsPfs0 = BuildMemoryPfs0(exefsEntries);
-            int exefsAlignedLen = ((rawExefsPfs0.Length + 0x1FF) / 0x200) * 0x200;
-            byte[] exefsAligned = new byte[exefsAlignedLen];
-            Array.Copy(rawExefsPfs0, exefsAligned, rawExefsPfs0.Length);
-
             using var sha = SHA256.Create();
-            byte[] exefsLayer1Hash = sha.ComputeHash(rawExefsPfs0);
-            byte[] exefsMasterHash = sha.ComputeHash(exefsLayer1Hash);
-
-            byte[] hAligned = new byte[0x200];
-            Array.Copy(exefsLayer1Hash, 0, hAligned, 0, 32);
-            byte[] totalSec0 = new byte[hAligned.Length + exefsAligned.Length];
-            Array.Copy(hAligned, 0, totalSec0, 0, hAligned.Length);
-            Array.Copy(exefsAligned, 0, totalSec0, hAligned.Length, exefsAligned.Length);
+            const int ExefsHashBlockSize = 0x10000;
+            byte[] totalSec0 = BuildHierarchicalSha256Section(rawExefsPfs0, ExefsHashBlockSize, sha, out byte[] exefsMasterHash, out long exefsLayer0Size, out long exefsLayer1Offset);
 
             // 2. Build RomFS
             var romfsMap = prebuiltRomfsMap != null ? prebuiltRomfsMap : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -1345,13 +1397,11 @@ namespace StormSwitchBox.Services
                 ncaHdr[fs0 + 3] = 2; // HierarchicalSha256
                 ncaHdr[fs0 + 4] = 1; // None
                 Array.Copy(exefsMasterHash, 0, ncaHdr, fs0 + 8, 32);
-                int exefsBlk = 0x1000;
-                while (exefsBlk < rawExefsPfs0.Length) exefsBlk <<= 1;
-                BitConverter.GetBytes(exefsBlk).CopyTo(ncaHdr, fs0 + 0x28);
+                BitConverter.GetBytes(ExefsHashBlockSize).CopyTo(ncaHdr, fs0 + 0x28);
                 BitConverter.GetBytes(2).CopyTo(ncaHdr, fs0 + 0x2C);
                 BitConverter.GetBytes(0L).CopyTo(ncaHdr, fs0 + 0x30);
-                BitConverter.GetBytes(32L).CopyTo(ncaHdr, fs0 + 0x38);
-                BitConverter.GetBytes(0x200L).CopyTo(ncaHdr, fs0 + 0x40);
+                BitConverter.GetBytes(exefsLayer0Size).CopyTo(ncaHdr, fs0 + 0x38);
+                BitConverter.GetBytes(exefsLayer1Offset).CopyTo(ncaHdr, fs0 + 0x40);
                 BitConverter.GetBytes((long)rawExefsPfs0.Length).CopyTo(ncaHdr, fs0 + 0x48);
                 ncaHdr[fs0 + 0x140] = 2;
                 byte[] fs0Sha = sha.ComputeHash(ncaHdr, fs0, 0x200);
@@ -1400,12 +1450,13 @@ namespace StormSwitchBox.Services
             ulong tidVal = Convert.ToUInt64(titleId, 16);
             BitConverter.GetBytes(tidVal).CopyTo(cnmtBytes, 0);
 
-            int verInt = int.TryParse(versionStr, out int vi) ? vi : 0;
+            uint verInt = uint.TryParse(versionStr, out uint vi) ? vi : 0u;
             BitConverter.GetBytes(verInt).CopyTo(cnmtBytes, 0x08);
             cnmtBytes[0x0C] = 0x80; // Application
             BitConverter.GetBytes((short)0x10).CopyTo(cnmtBytes, 0x0E); // ExtendedHeaderSize
             BitConverter.GetBytes((short)2).CopyTo(cnmtBytes, 0x10); // ContentCount
             BitConverter.GetBytes((short)0).CopyTo(cnmtBytes, 0x12); // ContentMetaCount
+            cnmtBytes[0x17] = 1; // is_committed
 
             ulong patchTid = (tidVal & ~0xFFFUL) | 0x800UL;
             BitConverter.GetBytes(patchTid).CopyTo(cnmtBytes, 0x20);
@@ -1428,22 +1479,9 @@ namespace StormSwitchBox.Services
 
             string cnmtName = $"Application_{titleId.ToLowerInvariant()}.cnmt";
             byte[] rawPfs0 = BuildMemoryPfs0(new List<Tuple<string, byte[]>> { Tuple.Create(cnmtName, cnmtBytes) });
-            int pfs0AlignedLen = ((rawPfs0.Length + 0x1FF) / 0x200) * 0x200;
-            byte[] pfs0Aligned = new byte[pfs0AlignedLen];
-            Array.Copy(rawPfs0, pfs0Aligned, rawPfs0.Length);
-
             using var sha = SHA256.Create();
-            byte[] layer1Hash = sha.ComputeHash(rawPfs0);
-            byte[] masterHash = sha.ComputeHash(layer1Hash);
-            byte[] hashAligned = new byte[0x200];
-            Array.Copy(layer1Hash, 0, hashAligned, 0, 32);
-
-            byte[] secRaw = new byte[hashAligned.Length + pfs0Aligned.Length];
-            Array.Copy(hashAligned, 0, secRaw, 0, hashAligned.Length);
-            Array.Copy(pfs0Aligned, 0, secRaw, hashAligned.Length, pfs0Aligned.Length);
-            int secAlignedLen = ((secRaw.Length + 0x1FF) / 0x200) * 0x200;
-            byte[] secAligned = new byte[secAlignedLen];
-            Array.Copy(secRaw, secAligned, secRaw.Length);
+            const int CnmtHashBlockSize = 0x10000;
+            byte[] secAligned = BuildHierarchicalSha256Section(rawPfs0, CnmtHashBlockSize, sha, out byte[] masterHash, out long layer0Size, out long layer1Offset);
 
             long totalNcaSize = 0x4000L + secAligned.Length;
             byte[] ncaHdr = new byte[0x4000];
@@ -1467,13 +1505,11 @@ namespace StormSwitchBox.Services
             ncaHdr[fs0 + 3] = 2; // HierarchicalSha256
             ncaHdr[fs0 + 4] = 1; // None
             Array.Copy(masterHash, 0, ncaHdr, fs0 + 8, 32);
-            int blk = 0x1000;
-            while (blk < rawPfs0.Length) blk <<= 1;
-            BitConverter.GetBytes(blk).CopyTo(ncaHdr, fs0 + 0x28);
+            BitConverter.GetBytes(CnmtHashBlockSize).CopyTo(ncaHdr, fs0 + 0x28);
             BitConverter.GetBytes(2).CopyTo(ncaHdr, fs0 + 0x2C);
             BitConverter.GetBytes(0L).CopyTo(ncaHdr, fs0 + 0x30);
-            BitConverter.GetBytes(32L).CopyTo(ncaHdr, fs0 + 0x38);
-            BitConverter.GetBytes(0x200L).CopyTo(ncaHdr, fs0 + 0x40);
+            BitConverter.GetBytes(layer0Size).CopyTo(ncaHdr, fs0 + 0x38);
+            BitConverter.GetBytes(layer1Offset).CopyTo(ncaHdr, fs0 + 0x40);
             BitConverter.GetBytes((long)rawPfs0.Length).CopyTo(ncaHdr, fs0 + 0x48);
             ncaHdr[fs0 + 0x140] = 2;
             byte[] fs0Sha = sha.ComputeHash(ncaHdr, fs0, 0x200);
@@ -1623,22 +1659,9 @@ namespace StormSwitchBox.Services
 
             string cnmtName = $"AddOnContent_{dlcTitleId.ToLowerInvariant()}.cnmt";
             byte[] rawPfs0 = BuildMemoryPfs0(new List<Tuple<string, byte[]>> { Tuple.Create(cnmtName, cnmtBytes) });
-            int pfs0AlignedLen = ((rawPfs0.Length + 0x1FF) / 0x200) * 0x200;
-            byte[] pfs0Aligned = new byte[pfs0AlignedLen];
-            Array.Copy(rawPfs0, pfs0Aligned, rawPfs0.Length);
-
             using var sha = SHA256.Create();
-            byte[] layer1Hash = sha.ComputeHash(rawPfs0);
-            byte[] masterHash = sha.ComputeHash(layer1Hash);
-            byte[] hashAligned = new byte[0x200];
-            Array.Copy(layer1Hash, 0, hashAligned, 0, 32);
-
-            byte[] secRaw = new byte[hashAligned.Length + pfs0Aligned.Length];
-            Array.Copy(hashAligned, 0, secRaw, 0, hashAligned.Length);
-            Array.Copy(pfs0Aligned, 0, secRaw, hashAligned.Length, pfs0Aligned.Length);
-            int secAlignedLen = ((secRaw.Length + 0x1FF) / 0x200) * 0x200;
-            byte[] secAligned = new byte[secAlignedLen];
-            Array.Copy(secRaw, secAligned, secRaw.Length);
+            const int DlcCnmtHashBlockSize = 0x10000;
+            byte[] secAligned = BuildHierarchicalSha256Section(rawPfs0, DlcCnmtHashBlockSize, sha, out byte[] masterHash, out long layer0Size, out long layer1Offset);
 
             long totalNcaSize = 0x4000L + secAligned.Length;
             byte[] ncaHdr = new byte[0x4000];
@@ -1662,13 +1685,11 @@ namespace StormSwitchBox.Services
             ncaHdr[fs0 + 3] = 2; // HierarchicalSha256
             ncaHdr[fs0 + 4] = 1; // None
             Array.Copy(masterHash, 0, ncaHdr, fs0 + 8, 32);
-            int blk = 0x1000;
-            while (blk < rawPfs0.Length) blk <<= 1;
-            BitConverter.GetBytes(blk).CopyTo(ncaHdr, fs0 + 0x28);
+            BitConverter.GetBytes(DlcCnmtHashBlockSize).CopyTo(ncaHdr, fs0 + 0x28);
             BitConverter.GetBytes(2).CopyTo(ncaHdr, fs0 + 0x2C);
             BitConverter.GetBytes(0L).CopyTo(ncaHdr, fs0 + 0x30);
-            BitConverter.GetBytes(32L).CopyTo(ncaHdr, fs0 + 0x38);
-            BitConverter.GetBytes(0x200L).CopyTo(ncaHdr, fs0 + 0x40);
+            BitConverter.GetBytes(layer0Size).CopyTo(ncaHdr, fs0 + 0x38);
+            BitConverter.GetBytes(layer1Offset).CopyTo(ncaHdr, fs0 + 0x40);
             BitConverter.GetBytes((long)rawPfs0.Length).CopyTo(ncaHdr, fs0 + 0x48);
             ncaHdr[fs0 + 0x140] = 2;
             byte[] fs0Sha = sha.ComputeHash(ncaHdr, fs0, 0x200);
@@ -1705,9 +1726,6 @@ namespace StormSwitchBox.Services
             while (strTable.Length % 0x20 != 0) strTable.WriteByte(0);
             byte[] strTableBytes = strTable.ToArray();
 
-            int headerSize = 0x10;
-            int entrySize = 0x18;
-
             using var outFs = new FileStream(outPath, FileMode.Create, FileAccess.Write, FileShare.None, 16 * 1024 * 1024);
             using var writer = new BinaryWriter(outFs);
 
@@ -1740,6 +1758,37 @@ namespace StormSwitchBox.Services
             }
         }
 
+        private static byte[] BuildHierarchicalSha256Section(
+            byte[] rawPfs0,
+            int hashBlockSize,
+            SHA256 sha,
+            out byte[] masterHash,
+            out long layer0Size,
+            out long layer1Offset)
+        {
+            int blockCount = Math.Max(1, (rawPfs0.Length + hashBlockSize - 1) / hashBlockSize);
+            byte[] layer1Hashes = new byte[blockCount * 32];
+            for (int b = 0; b < blockCount; b++)
+            {
+                int off = b * hashBlockSize;
+                int len = Math.Min(hashBlockSize, rawPfs0.Length - off);
+                byte[] chunkHash = len > 0 ? sha.ComputeHash(rawPfs0, off, len) : sha.ComputeHash(Array.Empty<byte>());
+                Array.Copy(chunkHash, 0, layer1Hashes, b * 32, 32);
+            }
+
+            masterHash = sha.ComputeHash(layer1Hashes);
+            layer0Size = layer1Hashes.Length;
+
+            int hAlignedLen = ((layer1Hashes.Length + 0x1FF) / 0x200) * 0x200;
+            layer1Offset = hAlignedLen;
+
+            int pfs0AlignedLen = ((rawPfs0.Length + 0x1FF) / 0x200) * 0x200;
+            byte[] secAligned = new byte[hAlignedLen + pfs0AlignedLen];
+            Array.Copy(layer1Hashes, 0, secAligned, 0, layer1Hashes.Length);
+            Array.Copy(rawPfs0, 0, secAligned, hAlignedLen, rawPfs0.Length);
+            return secAligned;
+        }
+
         private static byte[] BuildMemoryPfs0(List<Tuple<string, byte[]>> entries)
         {
             var strTable = new MemoryStream();
@@ -1754,7 +1803,10 @@ namespace StormSwitchBox.Services
             while (strTable.Length % 0x20 != 0) strTable.WriteByte(0);
             byte[] strTableBytes = strTable.ToArray();
 
-            int totalSize = 0x10 + entries.Count * 0x18 + strTableBytes.Length + entries.Sum(e => e.Item2.Length);
+            long totalSizeLong = 0x10L + (long)entries.Count * 0x18L + strTableBytes.Length + entries.Sum(e => (long)e.Item2.Length);
+            if (totalSizeLong > int.MaxValue)
+                throw new InvalidOperationException($"In-memory PFS0 exceeds maximum supported size ({totalSizeLong} bytes).");
+            int totalSize = (int)totalSizeLong;
             byte[] outBuf = new byte[totalSize];
 
             Encoding.ASCII.GetBytes("PFS0").CopyTo(outBuf, 0);
@@ -1803,13 +1855,21 @@ namespace StormSwitchBox.Services
                 Array.Copy(pBytes, 0, nacp, baseOff + 0x200, Math.Min(pBytes.Length, 0xFF));
             }
 
+            // DisplayVersion at 0x3060 (max 15 bytes + '\0')
             byte[] vBytes = Encoding.UTF8.GetBytes(version.Length > 0 ? version : "1.0.0");
-            Array.Copy(vBytes, 0, nacp, 0x3060, Math.Min(vBytes.Length, 0x10));
+            Array.Copy(vBytes, 0, nacp, 0x3060, Math.Min(vBytes.Length, 15));
 
-            ulong tidVal = Convert.ToUInt64(titleId, 16);
+            ulong tidVal = TitleIdHelper.TryParseHex16(titleId, out ulong parsedTid) ? parsedTid : Convert.ToUInt64(titleId, 16);
+            // PresenceGroupId (0x3038)
             BitConverter.GetBytes(tidVal).CopyTo(nacp, 0x3038);
-            ulong aocBaseId = (tidVal & ~0xFFFUL) + 0x1000UL;
+            // AddOnContentBaseId (0x3070)
+            ulong aocBaseId = TitleIdHelper.ComputeDlcBaseId(tidVal);
             BitConverter.GetBytes(aocBaseId).CopyTo(nacp, 0x3070);
+            // SaveDataOwnerId (0x3078)
+            BitConverter.GetBytes(tidVal).CopyTo(nacp, 0x3078);
+            // UserAccountSaveDataSize (0x3080) & UserAccountSaveDataJournalSize (0x3088) = 64 MB
+            BitConverter.GetBytes(0x04000000L).CopyTo(nacp, 0x3080);
+            BitConverter.GetBytes(0x04000000L).CopyTo(nacp, 0x3088);
 
             nacp[0x30F0] = 0; // LicensedByNintendo
             nacp[0x30F4] = 2; // Auto
@@ -2209,6 +2269,8 @@ namespace StormSwitchBox.Services
                     written += pad;
                 }
 
+                long fileStartWritten = written;
+
                 if (f.SourceFullPath.StartsWith("__NUP__|", StringComparison.Ordinal) && nupStream != null)
                 {
                     string[] parts = f.SourceFullPath.Split('|');
@@ -2252,11 +2314,10 @@ namespace StormSwitchBox.Services
                             while (remaining > 0)
                             {
                                 int toRead = (int)Math.Min(remaining, buf.Length);
-                                int r = nupStream.Read(buf, 0, toRead);
-                                if (r <= 0) break;
-                                outFs.Write(buf, 0, r);
-                                written += r;
-                                remaining -= r;
+                                nupStream.ReadExactly(buf, 0, toRead);
+                                outFs.Write(buf, 0, toRead);
+                                written += toRead;
+                                remaining -= toRead;
                             }
                         }
                     }
@@ -2270,6 +2331,12 @@ namespace StormSwitchBox.Services
                         outFs.Write(buf, 0, r);
                         written += r;
                     }
+                }
+
+                long actualFileWritten = written - fileStartWritten;
+                if (actualFileWritten != f.DataSize)
+                {
+                    throw new InvalidDataException($"Несоответствие размера файла RomFS '{f.Name}': ожидалось {f.DataSize} байт, записано {actualFileWritten} байт.");
                 }
 
                 if (i % 200 == 0 || i == orderedFiles.Count - 1)
@@ -2310,7 +2377,7 @@ namespace StormSwitchBox.Services
                 {
                     string subName = getString(dirs[(int)childVal].NameOff, dirs[(int)childVal].NameLen);
                     if (string.IsNullOrEmpty(subName)) subName = $"dir_{childVal}";
-                    string subPath = Path.Combine(currentOutDir, subName);
+                    string subPath = StormToolResolver.EnsureSafeSubPath(currentOutDir, subName);
                     await ExtractNupExeFsRecursiveAsync(nupStream, blobOffset, childVal, subPath, dirs, files, children, getString, ct);
                 }
                 else
@@ -2321,7 +2388,7 @@ namespace StormSwitchBox.Services
                         var fe = files[fileIdx];
                         string fileName = getString(fe.NameOff, fe.NameLen);
                         if (string.IsNullOrEmpty(fileName)) fileName = $"file_{fileIdx}.bin";
-                        string filePath = Path.Combine(currentOutDir, fileName);
+                        string filePath = StormToolResolver.EnsureSafeSubPath(currentOutDir, fileName);
 
                         ulong readOffset = fe.ExtentOffset < blobOffset ? (blobOffset + fe.ExtentOffset) : fe.ExtentOffset;
                         nupStream.Seek((long)readOffset, SeekOrigin.Begin);
@@ -2404,6 +2471,8 @@ namespace StormSwitchBox.Services
                 task.LogDetails += $"\n[NUP Stream] Запуск прямого потокового компилятора Switch 2 без распаковки на диск ({Path.GetFileName(nupPath)})...\n";
             });
 
+            try
+            {
             await using var fs = new FileStream(nupPath, FileMode.Open, FileAccess.Read, FileShare.Read, 2 * 1024 * 1024, useAsync: true);
             if (fs.Length < 0x80) throw new InvalidDataException("Файл слишком мал для заголовка NUP.");
 
@@ -2864,6 +2933,31 @@ namespace StormSwitchBox.Services
             {
                 try { Directory.Delete(tempWorkDir, true); } catch { }
             }
+            }
+            catch (OperationCanceledException)
+            {
+                App.RunOnUI(() =>
+                {
+                    task.Status = "Отменено";
+                    task.IsRunning = false;
+                    task.FinishedAt = DateTime.Now;
+                    HistoryService.AddToHistory(task);
+                });
+                throw;
+            }
+            catch (Exception ex)
+            {
+                App.RunOnUI(() =>
+                {
+                    task.Status = "Ошибка";
+                    task.IsRunning = false;
+                    task.FinishedAt = DateTime.Now;
+                    task.LogDetails += $"\n❌ Ошибка сборки из .nup: {ex.Message}\n";
+                    HistoryService.AddToHistory(task);
+                });
+                App.Logger.Log($"[Switch 2 NUP] Ошибка сборки: {ex.Message}", LogLevel.Error);
+                throw;
+            }
         }
 
 
@@ -2876,12 +2970,15 @@ namespace StormSwitchBox.Services
             byte[] block = new byte[blockSize];
             using (var fs = new FileStream(romfsFile, FileMode.Open, FileAccess.Read, FileShare.Read, 1024 * 1024))
             {
-                int r;
-                while ((r = fs.Read(block, 0, blockSize)) > 0)
+                long remaining = fs.Length;
+                while (remaining > 0)
                 {
-                    if (r < blockSize) Array.Clear(block, r, blockSize - r);
+                    int toRead = (int)Math.Min(blockSize, remaining);
+                    fs.ReadExactly(block, 0, toRead);
+                    if (toRead < blockSize) Array.Clear(block, toRead, blockSize - toRead);
                     byte[] hash = sha.ComputeHash(block);
                     lv5List.AddRange(hash);
+                    remaining -= toRead;
                 }
             }
             byte[] lv5Raw = lv5List.ToArray();
@@ -2962,13 +3059,99 @@ namespace StormSwitchBox.Services
 
         private static byte[] GenerateDefaultSwitchCoverBytes(string title)
         {
-            // Simple 256x256 fallback bitmap or JPEG placeholder
-            byte[] placeholder = new byte[2048];
-            placeholder[0] = 0xFF;
-            placeholder[1] = 0xD8;
-            placeholder[2] = 0xFF;
-            placeholder[3] = 0xE0;
-            return placeholder;
+            try
+            {
+                using var bmp = new System.Drawing.Bitmap(256, 256, System.Drawing.Imaging.PixelFormat.Format24bppRgb);
+                using (var g = System.Drawing.Graphics.FromImage(bmp))
+                {
+                    g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                    g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+
+                    using var bgBrush = new System.Drawing.Drawing2D.LinearGradientBrush(
+                        new System.Drawing.Rectangle(0, 0, 256, 256),
+                        System.Drawing.Color.FromArgb(14, 18, 32),
+                        System.Drawing.Color.FromArgb(26, 38, 68),
+                        System.Drawing.Drawing2D.LinearGradientMode.ForwardDiagonal);
+                    g.FillRectangle(bgBrush, 0, 0, 256, 256);
+
+                    using var accentPen = new System.Drawing.Pen(System.Drawing.Color.FromArgb(0, 210, 255), 4f);
+                    g.DrawRectangle(accentPen, 8, 8, 240, 240);
+
+                    string displayTitle = string.IsNullOrWhiteSpace(title) ? "SWITCH 2" : title.Trim();
+                    if (displayTitle.Length > 48) displayTitle = displayTitle.Substring(0, 48);
+
+                    using var font = new System.Drawing.Font("Segoe UI", 16f, System.Drawing.FontStyle.Bold);
+                    using var textBrush = new System.Drawing.SolidBrush(System.Drawing.Color.White);
+                    using var sf = new System.Drawing.StringFormat
+                    {
+                        Alignment = System.Drawing.StringAlignment.Center,
+                        LineAlignment = System.Drawing.StringAlignment.Center
+                    };
+                    g.DrawString(displayTitle, font, textBrush, new System.Drawing.RectangleF(20, 20, 216, 216), sf);
+                }
+
+                using var ms = new MemoryStream();
+                var jpegCodec = System.Drawing.Imaging.ImageCodecInfo.GetImageEncoders()
+                    .FirstOrDefault(c => c.FormatID == System.Drawing.Imaging.ImageFormat.Jpeg.Guid);
+                if (jpegCodec != null)
+                {
+                    using var encParams = new System.Drawing.Imaging.EncoderParameters(1);
+                    encParams.Param[0] = new System.Drawing.Imaging.EncoderParameter(System.Drawing.Imaging.Encoder.Quality, 90L);
+                    bmp.Save(ms, jpegCodec, encParams);
+                }
+                else
+                {
+                    bmp.Save(ms, System.Drawing.Imaging.ImageFormat.Jpeg);
+                }
+                return ms.ToArray();
+            }
+            catch
+            {
+                // Minimal valid 16x16 baseline JFIF JPEG (FF D8 ... FF D9)
+                return new byte[]
+                {
+                    0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x01, 0x00, 0x60,
+                    0x00, 0x60, 0x00, 0x00, 0xFF, 0xDB, 0x00, 0x43, 0x00, 0x03, 0x02, 0x02, 0x03, 0x02, 0x02, 0x03,
+                    0x03, 0x03, 0x03, 0x04, 0x03, 0x03, 0x04, 0x05, 0x08, 0x05, 0x05, 0x04, 0x04, 0x05, 0x0A, 0x07,
+                    0x07, 0x06, 0x08, 0x0C, 0x0A, 0x0C, 0x0C, 0x0B, 0x0A, 0x0B, 0x0B, 0x0D, 0x0E, 0x12, 0x10, 0x0D,
+                    0x0E, 0x11, 0x0E, 0x0B, 0x0B, 0x10, 0x16, 0x10, 0x11, 0x13, 0x14, 0x15, 0x15, 0x15, 0x0C, 0x0F,
+                    0x17, 0x18, 0x16, 0x14, 0x18, 0x12, 0x14, 0x15, 0x14, 0xFF, 0xDB, 0x00, 0x43, 0x01, 0x03, 0x04,
+                    0x04, 0x05, 0x04, 0x05, 0x09, 0x05, 0x05, 0x09, 0x14, 0x0D, 0x0B, 0x0D, 0x14, 0x14, 0x14, 0x14,
+                    0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14,
+                    0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14,
+                    0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0xFF, 0xC0, 0x00,
+                    0x11, 0x08, 0x00, 0x10, 0x00, 0x10, 0x03, 0x01, 0x22, 0x00, 0x02, 0x11, 0x01, 0x03, 0x11, 0x01,
+                    0xFF, 0xC4, 0x00, 0x1F, 0x00, 0x00, 0x01, 0x05, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A,
+                    0x0B, 0xFF, 0xC4, 0x00, 0xB5, 0x10, 0x00, 0x02, 0x01, 0x03, 0x03, 0x02, 0x04, 0x03, 0x05, 0x05,
+                    0x04, 0x04, 0x00, 0x00, 0x01, 0x7D, 0x01, 0x02, 0x03, 0x00, 0x04, 0x11, 0x05, 0x12, 0x21, 0x31,
+                    0x41, 0x06, 0x13, 0x51, 0x61, 0x07, 0x22, 0x71, 0x14, 0x32, 0x81, 0x91, 0xA1, 0x08, 0x23, 0x42,
+                    0xB1, 0xC1, 0x15, 0x52, 0xD1, 0xF0, 0x24, 0x33, 0x62, 0x72, 0x82, 0x09, 0x0A, 0x16, 0x17, 0x18,
+                    0x19, 0x1A, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2A, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3A, 0x43,
+                    0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4A, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5A, 0x63,
+                    0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6A, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7A, 0x83,
+                    0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8A, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9A,
+                    0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7, 0xA8, 0xA9, 0xAA, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7, 0xB8,
+                    0xB9, 0xBA, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xC7, 0xC8, 0xC9, 0xCA, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6,
+                    0xD7, 0xD8, 0xD9, 0xDA, 0xE1, 0xE2, 0xE3, 0xE4, 0xE5, 0xE6, 0xE7, 0xE8, 0xE9, 0xEA, 0xF1, 0xF2,
+                    0xF3, 0xF4, 0xF5, 0xF6, 0xF7, 0xF8, 0xF9, 0xFA, 0xFF, 0xC4, 0x00, 0x1F, 0x01, 0x00, 0x03, 0x01,
+                    0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x02,
+                    0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0xFF, 0xC4, 0x00, 0xB5, 0x11, 0x00, 0x02,
+                    0x01, 0x02, 0x04, 0x04, 0x03, 0x04, 0x07, 0x05, 0x04, 0x04, 0x00, 0x01, 0x02, 0x77, 0x00, 0x01,
+                    0x02, 0x03, 0x11, 0x04, 0x05, 0x21, 0x31, 0x06, 0x12, 0x41, 0x51, 0x07, 0x61, 0x71, 0x13, 0x22,
+                    0x32, 0x81, 0x08, 0x14, 0x42, 0x91, 0xA1, 0xB1, 0xC1, 0x09, 0x23, 0x33, 0x52, 0xF0, 0x15, 0x62,
+                    0x72, 0xD1, 0x0A, 0x16, 0x24, 0x34, 0xE1, 0x25, 0xF1, 0x17, 0x18, 0x19, 0x1A, 0x26, 0x27, 0x28,
+                    0x29, 0x2A, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3A, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4A,
+                    0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5A, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6A,
+                    0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7A, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89,
+                    0x8A, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9A, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7,
+                    0xA8, 0xA9, 0xAA, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7, 0xB8, 0xB9, 0xBA, 0xC2, 0xC3, 0xC4, 0xC5,
+                    0xC6, 0xC7, 0xC8, 0xC9, 0xCA, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6, 0xD7, 0xD8, 0xD9, 0xDA, 0xE2, 0xE3,
+                    0xE4, 0xE5, 0xE6, 0xE7, 0xE8, 0xE9, 0xEA, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7, 0xF8, 0xF9, 0xFA,
+                    0xFF, 0xDA, 0x00, 0x0C, 0x03, 0x01, 0x00, 0x02, 0x11, 0x03, 0x11, 0x00, 0x3F, 0x00, 0xFC, 0xAA,
+                    0xA2, 0x8A, 0x28, 0x03, 0xFF, 0xD9
+                };
+            }
         }
     }
 

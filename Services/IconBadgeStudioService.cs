@@ -103,7 +103,7 @@ namespace StormSwitchBox.Services
 
         private static void DrawBottomRibbon(Graphics g, int size, List<(string Text, Color BgStart, Color BgEnd)> badges)
         {
-            string combined = string.Join(" ? ", badges.ConvertAll(b => b.Text));
+            string combined = string.Join(" \u2022 ", badges.ConvertAll(b => b.Text));
             int barHeight = Math.Max(12, (int)(size * 0.19f));
             int y = size - barHeight;
 
@@ -344,6 +344,7 @@ namespace StormSwitchBox.Services
             if (Encoding.ASCII.GetString(raw, 0, 4) != "RIFF" || Encoding.ASCII.GetString(raw, 8, 4) != "WAVE")
                 return null;
 
+            int audioFormat = 1;
             int channels = 1;
             int sampleRate = 22050;
             int bitsPerSample = 16;
@@ -359,9 +360,14 @@ namespace StormSwitchBox.Services
 
                 if (chunkId == "fmt " && chunkSize >= 16)
                 {
+                    audioFormat = BitConverter.ToUInt16(raw, pos);
                     channels = BitConverter.ToUInt16(raw, pos + 2);
                     sampleRate = BitConverter.ToInt32(raw, pos + 4);
                     bitsPerSample = BitConverter.ToUInt16(raw, pos + 14);
+                    if (audioFormat == 0xFFFE && chunkSize >= 40)
+                    {
+                        audioFormat = BitConverter.ToUInt16(raw, pos + 24);
+                    }
                 }
                 else if (chunkId == "data")
                 {
@@ -374,20 +380,54 @@ namespace StormSwitchBox.Services
 
             if (pcmData == null || pcmData.Length == 0) return null;
 
-            // Обработка аудио и графики баннера
+            // Конвертация в Mono PCM16 (поддержка 8/16/24/32-bit PCM и 32-bit IEEE Float + микширование стерео)
             var monoSamples = new List<short>();
             int bytesPerSample = Math.Max(1, bitsPerSample / 8);
-            int frameSize = bytesPerSample * Math.Max(1, channels);
+            int channelCount = Math.Max(1, channels);
+            int frameSize = bytesPerSample * channelCount;
             int maxSamples = Math.Min(pcmData.Length / frameSize, sampleRate * 3);
 
             for (int i = 0; i < maxSamples; i++)
             {
-                int offset = i * frameSize;
-                if (offset + bytesPerSample > pcmData.Length) break;
-                short sample = bitsPerSample == 8
-                    ? (short)((pcmData[offset] - 128) << 8)
-                    : BitConverter.ToInt16(pcmData, offset);
-                monoSamples.Add(sample);
+                int frameOffset = i * frameSize;
+                if (frameOffset + frameSize > pcmData.Length) break;
+
+                double sum = 0.0;
+                for (int ch = 0; ch < channelCount; ch++)
+                {
+                    int off = frameOffset + ch * bytesPerSample;
+                    double sampleVal = 0.0;
+
+                    if (audioFormat == 3 && bitsPerSample == 32)
+                    {
+                        float f = BitConverter.ToSingle(pcmData, off);
+                        if (float.IsNaN(f) || float.IsInfinity(f)) f = 0f;
+                        sampleVal = Math.Clamp(f, -1.0f, 1.0f) * 32767.0;
+                    }
+                    else if (bitsPerSample == 8)
+                    {
+                        sampleVal = (pcmData[off] - 128) << 8;
+                    }
+                    else if (bitsPerSample == 16)
+                    {
+                        sampleVal = BitConverter.ToInt16(pcmData, off);
+                    }
+                    else if (bitsPerSample == 24)
+                    {
+                        int v = pcmData[off] | (pcmData[off + 1] << 8) | ((sbyte)pcmData[off + 2] << 16);
+                        sampleVal = v >> 8;
+                    }
+                    else if (bitsPerSample == 32)
+                    {
+                        int v = BitConverter.ToInt32(pcmData, off);
+                        sampleVal = v >> 16;
+                    }
+
+                    sum += sampleVal;
+                }
+
+                double mixed = Math.Clamp(sum / channelCount, short.MinValue, short.MaxValue);
+                monoSamples.Add((short)Math.Round(mixed));
             }
 
             int numSamples = monoSamples.Count;
@@ -600,12 +640,114 @@ namespace StormSwitchBox.Services
 
                 fs.Position = smdhOffset;
                 fs.Write(newSmdh, 0, 0x36C0);
+
+                // Пересчитываем SHA-256 записи icon в ExeFS и ExeFS Superblock Hash в NCCH Header
+                TryRecalculateNcchExefsHashes(fs, smdhOffset, newSmdh);
                 return true;
             }
             catch
             {
                 return false;
             }
+        }
+
+        private static void TryRecalculateNcchExefsHashes(FileStream fs, long smdhOffset, byte[] newSmdh)
+        {
+            long ncchOffset = LocateOwningNcchOffset(fs, smdhOffset);
+            if (ncchOffset < 0 || ncchOffset + 0x200 > fs.Length) return;
+
+            byte[] ncchHdr = new byte[0x200];
+            fs.Position = ncchOffset;
+            if (fs.Read(ncchHdr, 0, 0x200) < 0x200) return;
+            if (ncchHdr[0x100] != 'N' || ncchHdr[0x101] != 'C' || ncchHdr[0x102] != 'C' || ncchHdr[0x103] != 'H') return;
+
+            uint exefsOffsetUnits = BitConverter.ToUInt32(ncchHdr, 0x1A0);
+            uint exefsSizeUnits = BitConverter.ToUInt32(ncchHdr, 0x1A4);
+            uint exefsHashRegionUnits = BitConverter.ToUInt32(ncchHdr, 0x1A8);
+            if (exefsOffsetUnits == 0 || exefsSizeUnits == 0) return;
+
+            long exefsOffset = ncchOffset + (long)exefsOffsetUnits * 0x200L;
+            if (exefsOffset + 0x200 > fs.Length) return;
+
+            byte[] exefsHdr = new byte[0x200];
+            fs.Position = exefsOffset;
+            if (fs.Read(exefsHdr, 0, 0x200) < 0x200) return;
+
+            bool updatedIconHash = false;
+            for (int i = 0; i < 10; i++)
+            {
+                string fname = Encoding.ASCII.GetString(exefsHdr, i * 16, 8).TrimEnd('\0');
+                uint fOff = BitConverter.ToUInt32(exefsHdr, i * 16 + 8);
+                uint fSize = BitConverter.ToUInt32(exefsHdr, i * 16 + 12);
+                long absFileOff = exefsOffset + 0x200L + fOff;
+                if (fname == "icon" && fSize >= 0x36C0 && absFileOff == smdhOffset && absFileOff + fSize <= fs.Length)
+                {
+                    byte[] iconPayload = new byte[fSize];
+                    fs.Position = absFileOff;
+                    fs.Read(iconPayload, 0, (int)fSize);
+                    byte[] iconHash = System.Security.Cryptography.SHA256.HashData(iconPayload);
+                    int hashSlotOff = 0x1E0 - i * 32; // Таблица хешей ExeFS хранится в обратном порядке (9..0)
+                    Buffer.BlockCopy(iconHash, 0, exefsHdr, hashSlotOff, 32);
+                    updatedIconHash = true;
+                    break;
+                }
+            }
+
+            if (!updatedIconHash) return;
+
+            fs.Position = exefsOffset;
+            fs.Write(exefsHdr, 0, 0x200);
+
+            long hashRegionBytes = Math.Max(0x200L, (long)exefsHashRegionUnits * 0x200L);
+            if (exefsOffset + hashRegionBytes <= fs.Length)
+            {
+                byte[] hashRegion = new byte[hashRegionBytes];
+                fs.Position = exefsOffset;
+                fs.Read(hashRegion, 0, (int)hashRegionBytes);
+                byte[] superblockHash = System.Security.Cryptography.SHA256.HashData(hashRegion);
+                fs.Position = ncchOffset + 0x1C0;
+                fs.Write(superblockHash, 0, 32);
+            }
+        }
+
+        private static long LocateOwningNcchOffset(FileStream fs, long smdhOffset)
+        {
+            if (fs.Length >= 0x200)
+            {
+                byte[] magic = new byte[4];
+                fs.Position = 0x100;
+                fs.Read(magic, 0, 4);
+                string mStr = Encoding.ASCII.GetString(magic);
+                if (mStr == "NCCH") return 0;
+                if (mStr == "NCSD" && fs.Length >= 0x4200)
+                {
+                    byte[] partBuf = new byte[4];
+                    fs.Position = 0x120;
+                    fs.Read(partBuf, 0, 4);
+                    uint part0Units = BitConverter.ToUInt32(partBuf, 0);
+                    return (long)part0Units * 0x200L;
+                }
+            }
+
+            // Поиск ближайшего NCCH заголовка перед smdhOffset (например внутри CIA)
+            long searchStart = Math.Max(0, smdhOffset - 16L * 1024 * 1024);
+            byte[] buf = new byte[64 * 1024];
+            long bestNcch = -1;
+            for (long pos = searchStart; pos < smdhOffset; pos += buf.Length - 0x200)
+            {
+                fs.Position = pos;
+                int r = fs.Read(buf, 0, buf.Length);
+                if (r < 0x104) break;
+                for (int i = 0x100; i <= r - 4; i += 0x40)
+                {
+                    if (buf[i] == 'N' && buf[i + 1] == 'C' && buf[i + 2] == 'C' && buf[i + 3] == 'H')
+                    {
+                        long cand = pos + i - 0x100;
+                        if (cand < smdhOffset) bestNcch = cand;
+                    }
+                }
+            }
+            return bestNcch;
         }
     }
 }
