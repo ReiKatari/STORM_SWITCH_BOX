@@ -358,7 +358,7 @@
                     </Grid>
 
                     <!-- Виртуализированный список раздач -->
-                    <ListView x:Name="TopicsListView" Grid.Row="2" SelectionMode="Single" SelectionChanged="TopicsListView_SelectionChanged"
+                    <ListView x:Name="TopicsListView" Grid.Row="2" SelectionMode="Single" IsItemClickEnabled="True" ItemClick="TopicsListView_ItemClick" SelectionChanged="TopicsListView_SelectionChanged"
                               Background="#090712" BorderBrush="#1F1A36" BorderThickness="1" CornerRadius="6" Padding="2">
                         <ListView.ItemContainerStyle>
                             <Style TargetType="ListViewItem">

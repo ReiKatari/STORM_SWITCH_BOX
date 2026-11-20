@@ -39,6 +39,9 @@ namespace StormSwitchBox.Views.Dialogs
         private bool _suppressTopicSelectionInspect;
         private bool _suppressGroupRebuild;
         private bool _suppressSlotMergeSelection;
+        private string _activeLoadedTopicId = string.Empty;
+        private bool _activeTopicHasRealFiles;
+        private bool _isTopicLoading;
 
         private string _workspaceMode = "Overview";
         private bool _isTopicsPanelCollapsed;
@@ -106,6 +109,7 @@ namespace StormSwitchBox.Views.Dialogs
 
             _viewModel = viewModel;
             _targetTask = targetTask;
+            RuTrackerModService.WarmupFastConnections();
 
             TopicsListView.ItemsSource = _topics;
             GameSlotsListView.ItemsSource = _gameSlots;
@@ -592,7 +596,7 @@ namespace StormSwitchBox.Views.Dialogs
                     : query.ToList()
             };
 
-            _suppressTopicSelectionInspect = !autoSelectFirst;
+            _suppressTopicSelectionInspect = true;
             try
             {
                 _topics.Clear();
@@ -616,6 +620,19 @@ namespace StormSwitchBox.Views.Dialogs
             finally
             {
                 _suppressTopicSelectionInspect = false;
+            }
+
+            if (_topics.Count > 0)
+            {
+                _service.PrefetchTopicsMetadata(_topics, maxCount: 4);
+                if (autoSelectFirst)
+                {
+                    var firstTopic = _topics[0];
+                    if (!string.Equals(firstTopic.TopicId, _activeLoadedTopicId, StringComparison.OrdinalIgnoreCase) || (!_isTopicLoading && !_activeTopicHasRealFiles))
+                    {
+                        _ = LoadSelectedTopicAsync(firstTopic);
+                    }
+                }
             }
         }
 
@@ -800,14 +817,19 @@ namespace StormSwitchBox.Views.Dialogs
                 {
                     _allFetchedTopics.Clear();
                     _allFetchedTopics.AddRange(instantHits);
-                    ApplyTopicFilterAndSort(autoSelectFirst: false);
+                    ApplyTopicFilterAndSort(autoSelectFirst: true);
                 }
 
                 var results = await _service.SearchTopicsAsync(input, catFilter, CancellationToken.None);
 
-                _allFetchedTopics.Clear();
-                _allFetchedTopics.AddRange(results);
-                ApplyTopicFilterAndSort(autoSelectFirst: true);
+                bool listChanged = results.Count != _allFetchedTopics.Count ||
+                    !results.Select(r => r.TopicId).SequenceEqual(_allFetchedTopics.Select(x => x.TopicId));
+                if (listChanged)
+                {
+                    _allFetchedTopics.Clear();
+                    _allFetchedTopics.AddRange(results);
+                    ApplyTopicFilterAndSort(autoSelectFirst: true);
+                }
 
                 if (_topics.Count > 0)
                 {
@@ -817,7 +839,10 @@ namespace StormSwitchBox.Views.Dialogs
                         _isTopicsPanelCollapsed = false;
                         ApplyWorkspaceLayout();
                     }
-                    StatusText.Text = $"Найдено раздач: {_topics.Count}. Выберите раздачу слева для просмотра файлов и модов.";
+                    if (string.IsNullOrEmpty(_activeLoadedTopicId))
+                    {
+                        StatusText.Text = $"Найдено раздач: {_topics.Count}. Выберите раздачу слева для просмотра файлов и модов.";
+                    }
                 }
                 else
                 {
@@ -837,13 +862,33 @@ namespace StormSwitchBox.Views.Dialogs
         private CancellationTokenSource? _topicSelectionCts;
         private long _topicSelectionSeq;
 
-        private async void TopicsListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        private void TopicsListView_ItemClick(object sender, ItemClickEventArgs e)
+        {
+            if (e.ClickedItem is RuTrackerTopicItem clicked)
+            {
+                if (!ReferenceEquals(TopicsListView.SelectedItem, clicked))
+                {
+                    TopicsListView.SelectedItem = clicked;
+                }
+                else if (!string.Equals(clicked.TopicId, _activeLoadedTopicId, StringComparison.OrdinalIgnoreCase) || (!_isTopicLoading && !_activeTopicHasRealFiles))
+                {
+                    _ = LoadSelectedTopicAsync(clicked);
+                }
+            }
+        }
+
+        private void TopicsListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (_suppressTopicSelectionInspect)
                 return;
             if (TopicsListView.SelectedItem is not RuTrackerTopicItem topic)
                 return;
 
+            _ = LoadSelectedTopicAsync(topic);
+        }
+
+        private async Task LoadSelectedTopicAsync(RuTrackerTopicItem topic)
+        {
             var prevCts = System.Threading.Interlocked.Exchange(ref _topicSelectionCts, null);
             if (prevCts != null)
             {
@@ -856,14 +901,21 @@ namespace StormSwitchBox.Views.Dialogs
             long mySeq = System.Threading.Interlocked.Increment(ref _topicSelectionSeq);
 
             _localTorrentPath = null;
+            _activeLoadedTopicId = topic.TopicId ?? string.Empty;
+            _activeTopicHasRealFiles = false;
+            _isTopicLoading = true;
             _currentTopicTitle = topic.Title;
             _currentTopicUrl = topic.TopicUrl;
             _currentTopicPosterUrl = topic.PosterUrl ?? string.Empty;
 
-            // МГНОВЕННАЯ ФАЗА (< 3 мс): сразу наполняем слоты, TitleID/версию/иконку из TitleDB, Magnet и кэшированные файлы!
+            // МГНОВЕННАЯ ОЧИСТКА И ФАЗА (< 3 мс): сбрасываем прежние слоты/файлы, наполняем новую тему из TitleDB/RAM-кэша
+            _discussionLinks.Clear();
+            _torrentFiles.Clear();
+            _fileGroups.Clear();
+            _linkGroups.Clear();
+
             _service.PrimeQuickTopicState(topic);
 
-            _discussionLinks.Clear();
             if (topic.ExtractedModLinks != null && topic.ExtractedModLinks.Count > 0)
             {
                 PopulateDiscussionLinks(topic.ExtractedModLinks);
@@ -878,6 +930,7 @@ namespace StormSwitchBox.Views.Dialogs
             var instantCachedFiles = _service.TryGetInstantCachedTorrentFiles(topic);
             if (instantCachedFiles != null && instantCachedFiles.Count > 0)
             {
+                _activeTopicHasRealFiles = instantCachedFiles.Any(f => f.IsRealTorrentFile);
                 SyncGameSlotsWithDiscoveredFiles(instantCachedFiles);
                 PopulateTorrentFiles(instantCachedFiles);
             }
@@ -899,7 +952,6 @@ namespace StormSwitchBox.Views.Dialogs
             }
             else
             {
-                _torrentFiles.Clear();
                 TorrentFilesHeader.Text = "Чтение списка файлов раздачи...";
                 RebuildFileAndLinkGroups();
             }
@@ -920,14 +972,47 @@ namespace StormSwitchBox.Views.Dialogs
             else
                 StatusText.Text = $"Быстрая подгрузка файлов и ссылок темы [{topic.TopicId}]...";
 
+            bool filesApplied = false;
+            void ApplyResolvedFilesOnUi(List<TorrentFileSelectionItem> entries)
+            {
+                if (ct.IsCancellationRequested || mySeq != System.Threading.Interlocked.Read(ref _topicSelectionSeq))
+                    return;
+                filesApplied = true;
+
+                bool hasReal = entries.Any(f => f.IsRealTorrentFile);
+                if (hasReal)
+                    _activeTopicHasRealFiles = true;
+
+                SyncGameSlotsWithDiscoveredFiles(entries);
+                PopulateTorrentFiles(entries);
+                var slotTitles = _gameSlots.Select(s => s.GameTitle).ToList();
+                _suppressGroupRebuild = true;
+                RuTrackerModService.AutoAssignFilesToGameSlots(_torrentFiles, slotTitles);
+                RuTrackerModService.AutoAssignLinksToGameSlots(_discussionLinks, slotTitles);
+                _suppressGroupRebuild = false;
+                EnrichGameSlotsFromFilesAndTitleDb();
+                UpdateGameSlotsSummary();
+                RebuildFileAndLinkGroups();
+
+                if (hasReal || entries.Count > 1 || (entries.Count == 1 && entries[0].CategoryBadge != "MAGNET"))
+                {
+                    StatusText.Text = $"Раздача готова: {entries.Count} файлов в .torrent ({_gameSlots.Count} игр/частей). Отметьте нужные файлы или скачайте раздачу.";
+                }
+                else if (!string.IsNullOrEmpty(topic.MagnetUri))
+                {
+                    TorrentFilesHeader.Text = $"Magnet-разрешение активно ({topic.SizeText}) - файлы будут получены через P2P";
+                    StatusText.Text = "Раздача готова к высокоскоростной загрузке.";
+                }
+            }
+
             try
             {
-                // ПАРАЛЛЕЛЬНАЯ ФАЗА (~0.3-0.6 сек): список файлов .torrent и 1-я страница темы грузятся ОДНОВРЕМЕННО!
+                // ПАРАЛЛЕЛЬНАЯ ФАЗА (~0.3-0.7 сек): список файлов .torrent и 1-я страница темы грузятся ОДНОВРЕМЕННО!
                 Task<List<TorrentFileSelectionItem>>? filesTask = (instantCachedFiles == null || instantCachedFiles.Count == 0)
                     ? _service.InspectTorrentFilesAsync(topic, null, ct)
                     : null;
 
-                Task<RuTrackerTopicItem?> detailsTask = _service.FetchTopicDetailsAsync(topic.TopicId, ct, includeCommentPages: false);
+                Task<RuTrackerTopicItem?> detailsTask = _service.FetchTopicDetailsAsync(topic.TopicId ?? string.Empty, ct, includeCommentPages: false);
 
                 if (filesTask != null)
                 {
@@ -935,45 +1020,25 @@ namespace StormSwitchBox.Views.Dialogs
                     {
                         if (t.IsCanceled || t.IsFaulted || ct.IsCancellationRequested) return;
                         var entries = t.Result;
-                        App.RunOnUI(() =>
-                        {
-                            if (ct.IsCancellationRequested || mySeq != System.Threading.Interlocked.Read(ref _topicSelectionSeq))
-                                return;
-
-                            SyncGameSlotsWithDiscoveredFiles(entries);
-                            PopulateTorrentFiles(entries);
-                            var slotTitles = _gameSlots.Select(s => s.GameTitle).ToList();
-                            _suppressGroupRebuild = true;
-                            RuTrackerModService.AutoAssignFilesToGameSlots(_torrentFiles, slotTitles);
-                            RuTrackerModService.AutoAssignLinksToGameSlots(_discussionLinks, slotTitles);
-                            _suppressGroupRebuild = false;
-                            EnrichGameSlotsFromFilesAndTitleDb();
-                            UpdateGameSlotsSummary();
-                            RebuildFileAndLinkGroups();
-
-                            if (entries.Count > 1 || (entries.Count == 1 && entries[0].CategoryBadge != "MAGNET"))
-                            {
-                                StatusText.Text = $"Раздача готова: {entries.Count} файлов в .torrent ({_gameSlots.Count} игр/частей). Отметьте нужные файлы или скачайте раздачу.";
-                            }
-                            else if (!string.IsNullOrEmpty(topic.MagnetUri))
-                            {
-                                TorrentFilesHeader.Text = $"Magnet-разрешение активно ({topic.SizeText}) - файлы будут получены через P2P";
-                                StatusText.Text = "Раздача готова к высокоскоростной загрузке.";
-                            }
-                        });
+                        App.RunOnUI(() => { if (!filesApplied) ApplyResolvedFilesOnUi(entries); });
                     }, TaskScheduler.Default);
                 }
 
+                string hashBeforeDetails = topic.InfoHash ?? string.Empty;
                 var detailed = await detailsTask;
                 if (ct.IsCancellationRequested || mySeq != System.Threading.Interlocked.Read(ref _topicSelectionSeq))
                     return;
 
+                bool discoveredNewHash = false;
                 if (detailed != null)
                 {
                     if (!string.IsNullOrEmpty(detailed.MagnetUri))
                         topic.MagnetUri = detailed.MagnetUri;
-                    if (!string.IsNullOrEmpty(detailed.InfoHash))
+                    if (!string.IsNullOrEmpty(detailed.InfoHash) && !string.Equals(detailed.InfoHash, hashBeforeDetails, StringComparison.OrdinalIgnoreCase))
+                    {
                         topic.InfoHash = detailed.InfoHash;
+                        discoveredNewHash = true;
+                    }
                     if (!string.IsNullOrEmpty(detailed.PosterUrl))
                     {
                         topic.PosterUrl = detailed.PosterUrl;
@@ -1005,7 +1070,7 @@ namespace StormSwitchBox.Views.Dialogs
                 {
                     try
                     {
-                        var fullLinks = await _service.FetchTopicCommentLinksAsync(topic.TopicId, ct).ConfigureAwait(false);
+                        var fullLinks = await _service.FetchTopicCommentLinksAsync(topic.TopicId ?? string.Empty, ct).ConfigureAwait(false);
                         if (ct.IsCancellationRequested) return;
                         App.RunOnUI(() =>
                         {
@@ -1042,7 +1107,17 @@ namespace StormSwitchBox.Views.Dialogs
                 }, ct);
 
                 if (filesTask != null)
-                    await filesTask;
+                {
+                    var resolvedEntries = await filesTask;
+                    if (!filesApplied)
+                        ApplyResolvedFilesOnUi(resolvedEntries);
+                }
+
+                if (discoveredNewHash && !_activeTopicHasRealFiles && !ct.IsCancellationRequested && mySeq == System.Threading.Interlocked.Read(ref _topicSelectionSeq))
+                {
+                    var followUpEntries = await _service.InspectTorrentFilesAsync(topic, null, ct);
+                    ApplyResolvedFilesOnUi(followUpEntries);
+                }
             }
             catch (OperationCanceledException)
             {
@@ -1051,6 +1126,11 @@ namespace StormSwitchBox.Views.Dialogs
             {
                 if (!ct.IsCancellationRequested)
                     StatusText.Text = $"Ошибка чтения темы: {ex.Message}";
+            }
+            finally
+            {
+                if (mySeq == System.Threading.Interlocked.Read(ref _topicSelectionSeq))
+                    _isTopicLoading = false;
             }
         }
 
