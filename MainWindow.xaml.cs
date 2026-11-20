@@ -161,7 +161,7 @@ namespace StormSwitchBox
             };
 
             SelectNavigationItemByTag(tag);
-            ContentFrame.Navigate(typeof(Views.TasksPage), new Views.TasksStartupArgs { Action = tag, Paths = paths, Format = format });
+            NavigateContentPage(typeof(Views.TasksPage), new Views.TasksStartupArgs { Action = tag, Paths = paths, Format = format });
         }
 
         private void SaveWindowState()
@@ -177,11 +177,27 @@ namespace StormSwitchBox
             _ = App.Settings.SaveAsync();
         }
 
+        private void NavigateContentPage(Type pageType, object? parameter = null)
+        {
+            bool samePageType = ContentFrame.Content?.GetType() == pageType;
+            if (samePageType && pageType == typeof(TasksPage))
+            {
+                ContentFrame.Navigate(pageType, parameter, new Microsoft.UI.Xaml.Media.Animation.SuppressNavigationTransitionInfo());
+                return;
+            }
+
+            ContentFrame.Navigate(pageType, parameter, new Microsoft.UI.Xaml.Media.Animation.EntranceNavigationTransitionInfo());
+            if (ContentFrame.Content is UIElement contentEl)
+            {
+                Services.UiMotionHelper.AnimateEntrance(contentEl, offsetY: 10f, durationMs: 170);
+            }
+        }
+
         private void MainNavigation_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
         {
             if (args.IsSettingsSelected)
             {
-                ContentFrame.Navigate(typeof(SettingsPage));
+                NavigateContentPage(typeof(SettingsPage));
             }
             else if (args.SelectedItemContainer != null)
             {
@@ -190,23 +206,23 @@ namespace StormSwitchBox
                 {
                     if (tag == "History")
                     {
-                        ContentFrame.Navigate(typeof(HistoryPage));
+                        NavigateContentPage(typeof(HistoryPage));
                     }
                     else if (tag == "Catalog")
                     {
-                        ContentFrame.Navigate(typeof(CatalogPage));
+                        NavigateContentPage(typeof(CatalogPage));
                     }
                     else if (tag == "GameLibrary")
                     {
-                        ContentFrame.Navigate(typeof(GameLibraryPage));
+                        NavigateContentPage(typeof(GameLibraryPage));
                     }
                     else if (tag == "Instruction")
                     {
-                        ContentFrame.Navigate(typeof(InstructionPage));
+                        NavigateContentPage(typeof(InstructionPage));
                     }
                     else
                     {
-                        ContentFrame.Navigate(typeof(TasksPage), tag);
+                        NavigateContentPage(typeof(TasksPage), tag);
                     }
                 }
             }
@@ -317,7 +333,7 @@ namespace StormSwitchBox
 
         public void UpdateLocalization()
         {
-            this.Title = $"STORM SWITCH BOX {App.Settings.Current.AppVersion}";
+            this.Title = $"STORM SWITCH BOX {App.AppVersionString}";
 
             if (_notifyIcon != null)
             {
@@ -426,6 +442,7 @@ namespace StormSwitchBox
                 GlobalAlertInfoBar.Message = App.Localization.TranslateText("Приложение уже запущено. Повторный запуск заблокирован.");
                 GlobalAlertInfoBar.Severity = InfoBarSeverity.Informational;
                 GlobalAlertInfoBar.IsOpen = true;
+                Services.UiMotionHelper.AnimateEntrance(GlobalAlertInfoBar, offsetY: -10f, durationMs: 180);
 
                 _ = System.Threading.Tasks.Task.Run(async () =>
                 {
@@ -475,7 +492,7 @@ namespace StormSwitchBox
                             if (!(ContentFrame.Content is Views.TasksPage))
                             {
                                 SelectNavigationItemByTag("Update");
-                                ContentFrame.Navigate(typeof(Views.TasksPage), "Update");
+                                NavigateContentPage(typeof(Views.TasksPage), "Update");
                             }
                             await App.TasksVM.AddDroppedFilesBatchAsync(paths);
                         }

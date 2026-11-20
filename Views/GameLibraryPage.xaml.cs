@@ -869,7 +869,7 @@ namespace StormSwitchBox.Views
                     try
                     {
                         string coverUrl = CoverCacheService.ResolveCoverUrl(game.CoverUrl, game.System, game.Title, game.Id);
-                        DialogCoverImage.Source = new BitmapImage(new Uri(coverUrl));
+                        DialogCoverImage.Source = new BitmapImage { DecodePixelWidth = 440, DecodePixelType = DecodePixelType.Logical, UriSource = new Uri(coverUrl) };
                     }
                     catch
                     {

@@ -918,7 +918,7 @@ namespace StormSwitchBox.Views
                     if (activeIconBytes != null && activeIconBytes.Length > 0)
                     {
                         using var ms = new System.IO.MemoryStream(activeIconBytes);
-                        var bmp = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
+                        var bmp = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage { DecodePixelWidth = 96, DecodePixelType = Microsoft.UI.Xaml.Media.Imaging.DecodePixelType.Logical };
                         bmp.SetSource(ms.AsRandomAccessStream());
                         task.GameIcon = bmp;
 

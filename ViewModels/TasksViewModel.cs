@@ -171,7 +171,11 @@ public partial class TasksViewModel : ObservableObject
 	public IRelayCommand StartAllTasksCommand => startAllTasksCommand ?? (startAllTasksCommand = new RelayCommand(StartAllTasks));
 
 	private volatile bool _isDirty;
-	private readonly SemaphoreSlim _persistSemaphore = new(1, 1);
+	private static readonly SemaphoreSlim _persistSemaphore = new(1, 1);
+	private static readonly System.Text.Json.JsonSerializerOptions _persistJsonOptions = new() { WriteIndented = false };
+	private int _persistRequestVersion;
+	private int _persistLoopActive;
+	private bool _lastAnyTaskRunning;
 
 	public TasksViewModel()
 	{
@@ -193,18 +197,16 @@ public partial class TasksViewModel : ObservableObject
 		};
 		dispatcherTimer.Tick += delegate
 		{
-			OnPropertyChanged("IsAnyTaskRunning");
-			autoSaveTicks++;
-			if (autoSaveTicks % 10 == 0) // Каждые 5 секунд автосохранение состояния при изменениях
+			bool anyRunning = Tasks.Any(t => t.IsRunning);
+			if (anyRunning != _lastAnyTaskRunning)
 			{
-				if (Tasks.Any(t => t.IsRunning))
-				{
-					_isDirty = true;
-				}
-				if (_isDirty)
-				{
-					_ = SavePersistedTasksInternalAsync();
-				}
+				_lastAnyTaskRunning = anyRunning;
+				OnPropertyChanged("IsAnyTaskRunning");
+			}
+			autoSaveTicks++;
+			if (autoSaveTicks % 10 == 0 && (anyRunning || _isDirty)) // Каждые 5 секунд автосохранение состояния при изменениях
+			{
+				SavePersistedTasks();
 			}
 		};
 		dispatcherTimer.Start();
@@ -701,7 +703,7 @@ public partial class TasksViewModel : ObservableObject
 						try
 						{
 							using var ms = new MemoryStream(pkg.IconBytes);
-							var bitmap = new BitmapImage();
+							var bitmap = new BitmapImage { DecodePixelWidth = 96, DecodePixelType = DecodePixelType.Logical };
 							await bitmap.SetSourceAsync(ms.AsRandomAccessStream());
 							task.GameIcon = bitmap;
 						}
@@ -1120,7 +1122,7 @@ public partial class TasksViewModel : ObservableObject
 							{
 								try
 								{
-									var bmp = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
+									var bmp = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage { DecodePixelWidth = 96, DecodePixelType = Microsoft.UI.Xaml.Media.Imaging.DecodePixelType.Logical };
 									using var ms = new MemoryStream(coverBytes);
 									bmp.SetSource(ms.AsRandomAccessStream());
 									sw2Task.GameIcon = bmp;
@@ -1132,7 +1134,7 @@ public partial class TasksViewModel : ObservableObject
 							{
 								try
 								{
-									var bmp = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(resolvedIconPath));
+									var bmp = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage { DecodePixelWidth = 96, DecodePixelType = Microsoft.UI.Xaml.Media.Imaging.DecodePixelType.Logical, UriSource = new Uri(resolvedIconPath) };
 									sw2Task.GameIcon = bmp;
 									sw2Task.IconBitmap = bmp;
 								}
@@ -1990,32 +1992,56 @@ public partial class TasksViewModel : ObservableObject
 	public void SavePersistedTasks()
 	{
 		_isDirty = true;
-		_ = SavePersistedTasksInternalAsync();
+		Interlocked.Increment(ref _persistRequestVersion);
+		if (Interlocked.CompareExchange(ref _persistLoopActive, 1, 0) == 0)
+		{
+			_ = RunCoalescedPersistLoopAsync();
+		}
 	}
 
-	private async Task SavePersistedTasksInternalAsync()
+	private async Task RunCoalescedPersistLoopAsync()
 	{
 		try
 		{
-			List<PersistedTaskSnapshot>? snapshots = await CapturePersistedSnapshotsAsync();
-			if (snapshots == null) return;
-
-			await Task.Run(async () =>
+			while (true)
 			{
-				await _persistSemaphore.WaitAsync().ConfigureAwait(false);
-				try
+				// Коалесцируем всплески обновлений задач за 350 мс в одну атомарную запись
+				await Task.Delay(350).ConfigureAwait(false);
+				int targetVersion = Volatile.Read(ref _persistRequestVersion);
+
+				List<PersistedTaskSnapshot>? snapshots = await CapturePersistedSnapshotsAsync().ConfigureAwait(false);
+				if (snapshots != null)
 				{
-					await WritePersistedSnapshotsAsync(snapshots).ConfigureAwait(false);
+					await _persistSemaphore.WaitAsync().ConfigureAwait(false);
+					try
+					{
+						await WritePersistedSnapshotsAsync(snapshots).ConfigureAwait(false);
+					}
+					finally
+					{
+						_persistSemaphore.Release();
+					}
 				}
-				finally
+
+				if (Volatile.Read(ref _persistRequestVersion) == targetVersion)
 				{
-					_persistSemaphore.Release();
+					break;
 				}
-			}).ConfigureAwait(false);
+			}
 		}
 		catch (Exception ex)
 		{
 			App.Logger?.Log($"[Задачник] Ошибка сохранения задач: {ex.Message}", LogLevel.Warning);
+		}
+		finally
+		{
+			int lastSeen = Volatile.Read(ref _persistRequestVersion);
+			Volatile.Write(ref _persistLoopActive, 0);
+			if (Volatile.Read(ref _persistRequestVersion) != lastSeen &&
+			    Interlocked.CompareExchange(ref _persistLoopActive, 1, 0) == 0)
+			{
+				_ = RunCoalescedPersistLoopAsync();
+			}
 		}
 	}
 
@@ -2128,20 +2154,34 @@ public partial class TasksViewModel : ObservableObject
 		}).ToList();
 	}
 
+	private static void DeletePersistedFilesSafe(string p)
+	{
+		try { if (File.Exists(p)) { SafeFileOperations.ResetFileAttributesSafe(p); File.Delete(p); } } catch { }
+		try
+		{
+			string? dir = Path.GetDirectoryName(p);
+			if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir))
+			{
+				foreach (var stale in Directory.GetFiles(dir, "persisted_tasks.json*.tmp"))
+				{
+					try { SafeFileOperations.ResetFileAttributesSafe(stale); File.Delete(stale); } catch { }
+				}
+			}
+		}
+		catch { }
+	}
+
 	private static async Task WritePersistedSnapshotsAsync(List<PersistedTaskSnapshot> snapshots)
 	{
 		string p = GetPersistedTasksPath();
-		string tmp = p + ".tmp";
 		if (snapshots.Count == 0)
 		{
-			if (File.Exists(p)) File.Delete(p);
-			if (File.Exists(tmp)) File.Delete(tmp);
+			DeletePersistedFilesSafe(p);
 			return;
 		}
 
-		string json = System.Text.Json.JsonSerializer.Serialize(snapshots, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
-		await File.WriteAllTextAsync(tmp, json).ConfigureAwait(false);
-		File.Move(tmp, p, overwrite: true);
+		string json = System.Text.Json.JsonSerializer.Serialize(snapshots, _persistJsonOptions);
+		await SafeFileOperations.WriteAllTextAtomicAsync(p, json).ConfigureAwait(false);
 	}
 
 	public void SaveTasksOnExit()
@@ -2156,27 +2196,25 @@ public partial class TasksViewModel : ObservableObject
 					task.Status = "⏸ Сохранено на паузе";
 				}
 			}
+			Interlocked.Increment(ref _persistRequestVersion);
 			var snapshots = BuildPersistedSnapshotsOnUI();
-			_persistSemaphore.Wait();
+			bool acquired = _persistSemaphore.Wait(3000);
 			try
 			{
 				string p = GetPersistedTasksPath();
-				string tmp = p + ".tmp";
 				if (snapshots.Count == 0)
 				{
-					if (File.Exists(p)) File.Delete(p);
-					if (File.Exists(tmp)) File.Delete(tmp);
+					DeletePersistedFilesSafe(p);
 				}
 				else
 				{
-					string json = System.Text.Json.JsonSerializer.Serialize(snapshots, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
-					File.WriteAllText(tmp, json);
-					File.Move(tmp, p, overwrite: true);
+					string json = System.Text.Json.JsonSerializer.Serialize(snapshots, _persistJsonOptions);
+					SafeFileOperations.WriteAllTextAtomic(p, json);
 				}
 			}
 			finally
 			{
-				_persistSemaphore.Release();
+				if (acquired) _persistSemaphore.Release();
 			}
 		}
 		catch { }

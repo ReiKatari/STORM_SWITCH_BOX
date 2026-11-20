@@ -1813,6 +1813,7 @@ new TopicItem
                 
                 PreviewContent.Children.Clear();
                 topic.SetupPreview(PreviewContent);
+                StormSwitchBox.Services.UiMotionHelper.AnimateEntrance(ContentScrollViewer, offsetY: 10f, durationMs: 170);
             }
         }
 

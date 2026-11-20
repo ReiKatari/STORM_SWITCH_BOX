@@ -475,7 +475,7 @@ namespace StormSwitchBox.Services
                 try
                 {
                     using var ms = new MemoryStream(dataCopy);
-                    var bmp = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
+                    var bmp = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage { DecodePixelWidth = 256, DecodePixelType = Microsoft.UI.Xaml.Media.Imaging.DecodePixelType.Logical };
                     await bmp.SetSourceAsync(ms.AsRandomAccessStream());
                     SlotIconBitmap = bmp;
                 }

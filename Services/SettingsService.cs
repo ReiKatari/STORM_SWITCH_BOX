@@ -32,6 +32,7 @@ namespace StormSwitchBox.Services
         private static readonly string SettingsPath = GetSettingsFilePath();
         private static readonly string LegacySettingsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "ssb.settings");
         private static readonly object _saveLock = new object();
+        private static readonly JsonSerializerOptions _saveJsonOptions = new JsonSerializerOptions { WriteIndented = true };
         private static SettingsService? _instance;
         private static AppSettings _sharedCurrent = CreateDefaultSettings();
 
@@ -204,31 +205,20 @@ namespace StormSwitchBox.Services
             {
                 try
                 {
-                    var options = new JsonSerializerOptions { WriteIndented = true };
-                    var node = JsonSerializer.SerializeToNode(Current, options) as JsonObject;
+                    var node = JsonSerializer.SerializeToNode(Current, _saveJsonOptions) as JsonObject;
                     string json;
                     if (node != null)
                     {
                         node[nameof(AppSettings.RuTrackerCookie)] = ProtectSecret(Current.RuTrackerCookie);
                         node[nameof(AppSettings.RuTrackerCfClearance)] = ProtectSecret(Current.RuTrackerCfClearance);
-                        json = node.ToJsonString(options);
+                        json = node.ToJsonString(_saveJsonOptions);
                     }
                     else
                     {
-                        json = JsonSerializer.Serialize(Current, options);
+                        json = JsonSerializer.Serialize(Current, _saveJsonOptions);
                     }
 
-                    string dir = Path.GetDirectoryName(SettingsPath) ?? "";
-                    if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-                    string tmpPath = SettingsPath + ".tmp";
-                    using (var fs = new FileStream(tmpPath, FileMode.Create, FileAccess.Write, FileShare.None))
-                    using (var sw = new StreamWriter(fs, new System.Text.UTF8Encoding(false)))
-                    {
-                        sw.Write(json);
-                        sw.Flush();
-                        fs.Flush(true);
-                    }
-                    File.Move(tmpPath, SettingsPath, true);
+                    SafeFileOperations.WriteAllTextAtomic(SettingsPath, json, flushToDisk: true);
                 }
                 catch { }
             }

@@ -181,7 +181,7 @@ namespace StormSwitchBox.Services
                             item.CoverBytes = info3ds.IconBytes;
                             try
                             {
-                                var bmp = new BitmapImage();
+                                var bmp = new BitmapImage { DecodePixelWidth = 256, DecodePixelType = DecodePixelType.Logical };
                                 using var ms = new MemoryStream(info3ds.IconBytes);
                                 bmp.SetSource(ms.AsRandomAccessStream());
                                 item.CoverImage = bmp;
@@ -630,7 +630,7 @@ namespace StormSwitchBox.Services
                         item.CoverBytes = localCoverBytes;
                         try
                         {
-                            var bmp = new BitmapImage();
+                            var bmp = new BitmapImage { DecodePixelWidth = 256, DecodePixelType = DecodePixelType.Logical };
                             using var ms = new MemoryStream(localCoverBytes);
                             await bmp.SetSourceAsync(ms.AsRandomAccessStream());
                             item.CoverImage = bmp;
@@ -644,7 +644,7 @@ namespace StormSwitchBox.Services
                         {
                             try
                             {
-                                var bmp = new BitmapImage();
+                                var bmp = new BitmapImage { DecodePixelWidth = 256, DecodePixelType = DecodePixelType.Logical };
                                 using var ms = new MemoryStream(shotBytes);
                                 await bmp.SetSourceAsync(ms.AsRandomAccessStream());
                                 item.Screenshots.Add(bmp);

@@ -602,7 +602,7 @@ namespace StormSwitchBox.Services
                                 {
                                     try
                                     {
-                                        var bmp = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(shotUrl));
+                                        var bmp = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage { DecodePixelWidth = 640, DecodePixelType = Microsoft.UI.Xaml.Media.Imaging.DecodePixelType.Logical, UriSource = new Uri(shotUrl) };
                                         item.Screenshots.Add(bmp);
                                         item.HasScreenshots = true;
                                     }
@@ -783,7 +783,7 @@ namespace StormSwitchBox.Services
                             var imgBytes = await StormHttpClientFactory.Shared.GetByteArrayAsync(entry.IconUrl, imgCts.Token);
                             if (StormHttpClientFactory.IsValidImageBytes(imgBytes))
                             {
-                                var bmp = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
+                                var bmp = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage { DecodePixelWidth = 256, DecodePixelType = Microsoft.UI.Xaml.Media.Imaging.DecodePixelType.Logical };
                                 using var ms = new System.IO.MemoryStream(imgBytes);
                                 await bmp.SetSourceAsync(ms.AsRandomAccessStream());
                                 item.CoverImage = bmp;

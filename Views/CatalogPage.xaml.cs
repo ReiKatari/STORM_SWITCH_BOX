@@ -410,7 +410,7 @@ namespace StormSwitchBox.Views
                             try
                             {
                                 string resolved = CoverCacheService.ResolveCoverUrl(item.Intro, item.Platform, item.TitleName, item.TitleId);
-                                item.CoverImage = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(resolved));
+                                item.CoverImage = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage { DecodePixelWidth = 256, DecodePixelType = Microsoft.UI.Xaml.Media.Imaging.DecodePixelType.Logical, UriSource = new Uri(resolved) };
                             }
                             catch { }
                         }
@@ -472,7 +472,7 @@ namespace StormSwitchBox.Views
                     try
                     {
                         string resolved = CoverCacheService.ResolveCoverUrl(item.Intro, item.Platform, item.TitleName, item.TitleId);
-                        DetailCover.Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(resolved));
+                        DetailCover.Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage { DecodePixelWidth = 440, DecodePixelType = Microsoft.UI.Xaml.Media.Imaging.DecodePixelType.Logical, UriSource = new Uri(resolved) };
                     }
                     catch
                     {
@@ -555,7 +555,7 @@ namespace StormSwitchBox.Views
                                 {
                                     try
                                     {
-                                        var bmp = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(shotUrl));
+                                        var bmp = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage { DecodePixelWidth = 640, DecodePixelType = Microsoft.UI.Xaml.Media.Imaging.DecodePixelType.Logical, UriSource = new Uri(shotUrl) };
                                         item.Screenshots.Add(bmp);
                                     }
                                     catch { }

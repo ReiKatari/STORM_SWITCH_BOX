@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using System.Threading;
 using System.Text;
 using System.Text.RegularExpressions;
 using StormSwitchBox.Models;
@@ -17,8 +18,9 @@ namespace StormSwitchBox.Services
         private string? _latestStatus;
         private double? _latestProgress;
         private bool _completed;
+        private int _uiFlushPending;
 
-        public LogBatcher(ProcessingTask task, int intervalMs = 150)
+        public LogBatcher(ProcessingTask task, int intervalMs = 120)
         {
             _task = task;
             _timer = new System.Timers.Timer(intervalMs);
@@ -76,6 +78,10 @@ namespace StormSwitchBox.Services
         public void Flush(bool allowWhenCompleting = false)
         {
             if (_task == null) return;
+            if (!allowWhenCompleting && Interlocked.CompareExchange(ref _uiFlushPending, 1, 0) != 0)
+            {
+                return;
+            }
 
             string chunk;
             string? statusToSet;
@@ -83,7 +89,11 @@ namespace StormSwitchBox.Services
 
             lock (_lock)
             {
-                if (_completed && !allowWhenCompleting) return;
+                if (_completed && !allowWhenCompleting)
+                {
+                    Volatile.Write(ref _uiFlushPending, 0);
+                    return;
+                }
                 chunk = _buffer.ToString();
                 _buffer.Clear();
                 statusToSet = _latestStatus;
@@ -92,20 +102,31 @@ namespace StormSwitchBox.Services
                 _latestProgress = null;
             }
 
-            if (chunk.Length == 0 && statusToSet == null && !progressToSet.HasValue) return;
+            if (chunk.Length == 0 && statusToSet == null && !progressToSet.HasValue)
+            {
+                Volatile.Write(ref _uiFlushPending, 0);
+                return;
+            }
 
             App.RunOnUI(() =>
             {
-                if (_task == null) return;
-                if (statusToSet != null) _task.Status = statusToSet;
-                if (progressToSet.HasValue) _task.Progress = progressToSet.Value;
-
-                if (chunk.Length > 0)
+                try
                 {
-                    string existing = _task.LogDetails ?? string.Empty;
-                    if (existing.Length > 80_000)
-                        existing = "..." + existing.Substring(existing.Length - 40_000);
-                    _task.LogDetails = existing + chunk;
+                    if (_task == null) return;
+                    if (statusToSet != null) _task.Status = statusToSet;
+                    if (progressToSet.HasValue) _task.Progress = progressToSet.Value;
+
+                    if (chunk.Length > 0)
+                    {
+                        string existing = _task.LogDetails ?? string.Empty;
+                        if (existing.Length > 80_000)
+                            existing = "..." + existing.Substring(existing.Length - 40_000);
+                        _task.LogDetails = existing + chunk;
+                    }
+                }
+                finally
+                {
+                    Volatile.Write(ref _uiFlushPending, 0);
                 }
             });
         }

@@ -2277,7 +2277,7 @@ namespace StormSwitchBox.Views.Dialogs
                 if (previewBytes != null && previewBytes.Length > 0)
                 {
                     using var ms = new MemoryStream(previewBytes);
-                    var bmp = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
+                    var bmp = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage { DecodePixelWidth = 256, DecodePixelType = Microsoft.UI.Xaml.Media.Imaging.DecodePixelType.Logical };
                     bmp.SetSource(ms.AsRandomAccessStream());
                     StudioIconPreviewImage.Source = bmp;
                 }
@@ -3685,7 +3685,7 @@ namespace StormSwitchBox.Views.Dialogs
                         try
                         {
                             using var ms = new MemoryStream(iconData);
-                            var bitmap = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
+                            var bitmap = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage { DecodePixelWidth = 256, DecodePixelType = Microsoft.UI.Xaml.Media.Imaging.DecodePixelType.Logical };
                             await bitmap.SetSourceAsync(ms.AsRandomAccessStream());
                             task.GameIcon = bitmap;
                         }

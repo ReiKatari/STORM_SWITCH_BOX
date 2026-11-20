@@ -348,5 +348,112 @@ namespace StormSwitchBox.Services
                 }
             }
         }
+  
+        /// <summary>
+        /// Атомарная потокобезопасная запись текста через уникальный временный файл с защитой от блокировок другими процессами.
+        /// </summary>
+        public static void WriteAllTextAtomic(string targetPath, string content, System.Text.Encoding? encoding = null, bool flushToDisk = false)
+        {
+            if (string.IsNullOrWhiteSpace(targetPath)) return;
+            string? dir = Path.GetDirectoryName(targetPath);
+            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+
+            var enc = encoding ?? new System.Text.UTF8Encoding(false);
+            string tmpPath = $"{targetPath}.{Environment.ProcessId}.{Guid.NewGuid():N}.tmp";
+            int[] delaysMs = { 35, 75, 140, 260, 450, 700 };
+
+            try
+            {
+                using (var fs = new FileStream(tmpPath, FileMode.Create, FileAccess.Write, FileShare.None, 65536, FileOptions.SequentialScan))
+                using (var sw = new StreamWriter(fs, enc, 65536, leaveOpen: true))
+                {
+                    sw.Write(content);
+                    sw.Flush();
+                    if (flushToDisk) fs.Flush(true);
+                }
+
+                for (int attempt = 0; ; attempt++)
+                {
+                    try
+                    {
+                        if (File.Exists(targetPath))
+                            ResetFileAttributesSafe(targetPath);
+                        File.Move(tmpPath, targetPath, overwrite: true);
+                        break;
+                    }
+                    catch (Exception ex) when ((ex is IOException || ex is UnauthorizedAccessException) && attempt < delaysMs.Length)
+                    {
+                        Thread.Sleep(delaysMs[attempt]);
+                    }
+                }
+
+                string legacyTmp = targetPath + ".tmp";
+                if (File.Exists(legacyTmp))
+                {
+                    try { ResetFileAttributesSafe(legacyTmp); File.Delete(legacyTmp); } catch { }
+                }
+            }
+            finally
+            {
+                if (File.Exists(tmpPath))
+                {
+                    try { File.Delete(tmpPath); } catch { }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Асинхронная атомарная запись текста через уникальный временный файл с защитой от блокировок другими процессами.
+        /// </summary>
+        public static async Task WriteAllTextAtomicAsync(string targetPath, string content, System.Text.Encoding? encoding = null, bool flushToDisk = false, CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrWhiteSpace(targetPath)) return;
+            string? dir = Path.GetDirectoryName(targetPath);
+            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+
+            var enc = encoding ?? new System.Text.UTF8Encoding(false);
+            string tmpPath = $"{targetPath}.{Environment.ProcessId}.{Guid.NewGuid():N}.tmp";
+            int[] delaysMs = { 35, 75, 140, 260, 450, 700 };
+
+            try
+            {
+                using (var fs = new FileStream(tmpPath, FileMode.Create, FileAccess.Write, FileShare.None, 65536, FileOptions.Asynchronous | FileOptions.SequentialScan))
+                using (var sw = new StreamWriter(fs, enc, 65536, leaveOpen: true))
+                {
+                    await sw.WriteAsync(content.AsMemory(), cancellationToken).ConfigureAwait(false);
+                    await sw.FlushAsync(cancellationToken).ConfigureAwait(false);
+                    if (flushToDisk) fs.Flush(true);
+                }
+
+                for (int attempt = 0; ; attempt++)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    try
+                    {
+                        if (File.Exists(targetPath))
+                            ResetFileAttributesSafe(targetPath);
+                        File.Move(tmpPath, targetPath, overwrite: true);
+                        break;
+                    }
+                    catch (Exception ex) when ((ex is IOException || ex is UnauthorizedAccessException) && attempt < delaysMs.Length)
+                    {
+                        await Task.Delay(delaysMs[attempt], cancellationToken).ConfigureAwait(false);
+                    }
+                }
+
+                string legacyTmp = targetPath + ".tmp";
+                if (File.Exists(legacyTmp))
+                {
+                    try { ResetFileAttributesSafe(legacyTmp); File.Delete(legacyTmp); } catch { }
+                }
+            }
+            finally
+            {
+                if (File.Exists(tmpPath))
+                {
+                    try { File.Delete(tmpPath); } catch { }
+                }
+            }
+        }
     }
 }

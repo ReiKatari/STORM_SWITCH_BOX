@@ -14,6 +14,7 @@ namespace StormSwitchBox.Views
         public Visibility Keys3dsSelectedVisibility => string.IsNullOrEmpty(App.Settings.Current.KeysPath3ds) ? Visibility.Collapsed : Visibility.Visible;
         private System.Collections.ObjectModel.ObservableCollection<string> _emulatorDirs = new();
         private bool _isSettingsPageLoaded = false;
+        private int _lastSelectedTab = -1;
         private Action? _langHandler;
 
         public SettingsPage()
@@ -1143,6 +1144,19 @@ namespace StormSwitchBox.Views
             ThreeDsTabButton.BorderBrush = index == 3 ? accentBrush : defaultBrush;
             ThreeDsTabButton.BorderThickness = new Thickness(index == 3 ? 2 : 1);
             ThreeDsTabIcon.Foreground = index == 3 ? accentBrush : secondaryTextBrush;
+
+            if (_lastSelectedTab != index)
+            {
+                _lastSelectedTab = index;
+                FrameworkElement activePanel = index switch
+                {
+                    1 => SwitchSettingsPanel,
+                    2 => Switch2SettingsPanel,
+                    3 => ThreeDsSettingsPanel,
+                    _ => GeneralSettingsPanel
+                };
+                StormSwitchBox.Services.UiMotionHelper.AnimateEntrance(activePanel, offsetY: 10f, durationMs: 180);
+            }
         }
 
         private void LanguageCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)

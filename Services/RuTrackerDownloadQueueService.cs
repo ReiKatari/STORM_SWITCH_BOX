@@ -346,6 +346,7 @@ namespace StormSwitchBox.Services
 
         private readonly object _syncLock = new();
         private readonly System.Threading.Timer _uiTimer;
+        private static readonly JsonSerializerOptions _queueJsonOptions = new JsonSerializerOptions { WriteIndented = true };
         private readonly string _queueStatePath;
 
         private RuTrackerDownloadQueueService()
@@ -1710,18 +1711,8 @@ namespace StormSwitchBox.Services
                     }).ToList();
                 }
 
-                string json = JsonSerializer.Serialize(records, new JsonSerializerOptions { WriteIndented = true });
-                string? dir = Path.GetDirectoryName(_queueStatePath);
-                if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-                string tmpPath = _queueStatePath + ".tmp";
-                using (var fs = new FileStream(tmpPath, FileMode.Create, FileAccess.Write, FileShare.None))
-                using (var sw = new StreamWriter(fs, new System.Text.UTF8Encoding(false)))
-                {
-                    sw.Write(json);
-                    sw.Flush();
-                    fs.Flush(true);
-                }
-                File.Move(tmpPath, _queueStatePath, overwrite: true);
+                string json = JsonSerializer.Serialize(records, _queueJsonOptions);
+                SafeFileOperations.WriteAllTextAtomic(_queueStatePath, json, flushToDisk: true);
             }
             catch { }
         }

@@ -19,7 +19,7 @@
         android:appCategory="game"
         android:largeHeap="true"
         android:icon="@mipmap/ic_launcher"
-        android:roundIcon="@mipmap/ic_launcher_round"
+        android:roundIcon="@mipmap/ic_launcher"
         android:label="STORM SWITCH BOX"
         android:requestLegacyExternalStorage="true"
         android:supportsRtl="true"

@@ -229,35 +229,24 @@ namespace StormSwitchBox.Services
                 var targetTheme = (App.Settings.Current.AppTheme == "STORM DAY") ? ElementTheme.Light : ElementTheme.Dark;
                 var oppositeTheme = (targetTheme == ElementTheme.Dark) ? ElementTheme.Light : ElementTheme.Dark;
 
-                // Переключаем тему корневого элемента на противоположную и обратно,
-                // чтобы WinUI 3 немедленно перевычислил все ThemeResource подписи во всём визуальном дереве
-                root.RequestedTheme = oppositeTheme;
-                root.RequestedTheme = targetTheme;
-
                 if (root is Grid mainGrid)
                 {
                     foreach (var child in mainGrid.Children)
                     {
                         if (child is NavigationView nav)
                         {
-                            nav.RequestedTheme = oppositeTheme;
-                            nav.RequestedTheme = targetTheme;
-                            
-                            if (nav.Content is Frame frame && frame.Content is Page activePage)
+                            if (nav.RequestedTheme != ElementTheme.Default) nav.RequestedTheme = ElementTheme.Default;
+                            if (nav.Content is Frame frame && frame.Content is Page activePage && activePage.RequestedTheme != ElementTheme.Default)
                             {
-                                activePage.RequestedTheme = oppositeTheme;
-                                activePage.RequestedTheme = targetTheme;
+                                activePage.RequestedTheme = ElementTheme.Default;
                             }
                         }
                     }
                 }
 
-                // Асинхронно подтверждаем обновление через 1 кадр на DispatcherQueue для 100% плавного и моментального изменения
-                _ = App.RunOnUIAsync(async () =>
-                {
-                    await Task.Delay(16);
-                    root.RequestedTheme = targetTheme;
-                });
+                // Единичный проход переключения темы на корневом элементе (без многоуровневого мерцания и лишнего кадра)
+                root.RequestedTheme = oppositeTheme;
+                root.RequestedTheme = targetTheme;
             }
         }
 

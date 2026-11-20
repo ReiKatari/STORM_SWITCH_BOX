@@ -111,7 +111,7 @@ public static string GetDeterministicSourceHash(ProcessingTask task)
                 try
                 {
                     using var ms = new MemoryStream(iconBytes);
-                    var bmp = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
+                    var bmp = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage { DecodePixelWidth = 96, DecodePixelType = Microsoft.UI.Xaml.Media.Imaging.DecodePixelType.Logical };
                     await bmp.SetSourceAsync(ms.AsRandomAccessStream());
                     task.GameIcon = bmp;
                     task.IconBitmap = bmp;
@@ -587,7 +587,7 @@ public static string GetDeterministicSourceHash(ProcessingTask task)
                         try
                         {
                             using var ms = new MemoryStream(bytes);
-                            var bitmap = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
+                            var bitmap = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage { DecodePixelWidth = 96, DecodePixelType = Microsoft.UI.Xaml.Media.Imaging.DecodePixelType.Logical };
                             await bitmap.SetSourceAsync(ms.AsRandomAccessStream());
                             task.GameIcon = bitmap;
                             task.IconBitmap = bitmap;
@@ -600,6 +600,7 @@ public static string GetDeterministicSourceHash(ProcessingTask task)
         }
 
         private static readonly SemaphoreSlim _saveLock = new SemaphoreSlim(1, 1);
+        private static readonly JsonSerializerOptions _historyJsonOptions = new JsonSerializerOptions { WriteIndented = true };
 
         public static async Task SaveHistoryAsync()
         {
@@ -626,16 +627,8 @@ public static string GetDeterministicSourceHash(ProcessingTask task)
                     snapshot = HistoryTasks.ToList();
                 }
 
-                var json = JsonSerializer.Serialize(snapshot, new JsonSerializerOptions { WriteIndented = true });
-                string tmpPath = HistoryFilePath + ".tmp";
-                using (var fs = new FileStream(tmpPath, FileMode.Create, FileAccess.Write, FileShare.None))
-                using (var sw = new StreamWriter(fs, new UTF8Encoding(false)))
-                {
-                    await sw.WriteAsync(json).ConfigureAwait(false);
-                    await sw.FlushAsync().ConfigureAwait(false);
-                    fs.Flush(true);
-                }
-                File.Move(tmpPath, HistoryFilePath, overwrite: true);
+                var json = JsonSerializer.Serialize(snapshot, _historyJsonOptions);
+                await SafeFileOperations.WriteAllTextAtomicAsync(HistoryFilePath, json, flushToDisk: true).ConfigureAwait(false);
             }
             catch (Exception ex)
             {

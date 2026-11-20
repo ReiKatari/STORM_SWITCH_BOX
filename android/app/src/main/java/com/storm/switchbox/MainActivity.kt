@@ -2601,6 +2601,18 @@ class MainActivity : Activity() {
         parent.addView(renameCard)
     }
 
+    private var lastProgressUiPostMs: Long = 0L
+
+    private fun setProgressSmooth(pb: ProgressBar, percent: Int) {
+        val clamped = percent.coerceIn(0, 100)
+        if (pb.progress == clamped) return
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+            pb.setProgress(clamped, true)
+        } else {
+            pb.progress = clamped
+        }
+    }
+
     private fun executeQueueBatch(progressBar: ProgressBar, statusTxt: TextView) {
         isTaskRunning = true
         cancelCurrentTaskRequested = false
@@ -2640,10 +2652,14 @@ class MainActivity : Activity() {
                             if (cancelCurrentTaskRequested || StormNczEngine.cancelRequested) {
                                 throw java.util.concurrent.CancellationException("Задача отменена пользователем")
                             }
-                            mainHandler.post {
-                                if (!cancelCurrentTaskRequested && !StormNczEngine.cancelRequested) {
-                                    progressBar.progress = p.percent
-                                    statusTxt.text = "$prefix ${p.stageText} (${p.percent}%)"
+                            val nowMs = android.os.SystemClock.uptimeMillis()
+                            if (p.percent == 0 || p.percent == 100 || nowMs - lastProgressUiPostMs >= 40L) {
+                                lastProgressUiPostMs = nowMs
+                                mainHandler.post {
+                                    if (!cancelCurrentTaskRequested && !StormNczEngine.cancelRequested) {
+                                        setProgressSmooth(progressBar, p.percent)
+                                        statusTxt.text = "$prefix ${p.stageText} (${p.percent}%)"
+                                    }
                                 }
                             }
                         }
@@ -2720,7 +2736,7 @@ class MainActivity : Activity() {
 
                     val savedAll = (totalOrigAll - totalOutAll).coerceAtLeast(0L)
                     mainHandler.post {
-                        progressBar.progress = 100
+                        setProgressSmooth(progressBar, 100)
                         statusTxt.text = "✅ Готово! Собрано игр: $builtGamesCount/${gameGroups.size} • Экономия: ${StormNczEngine.formatSize(savedAll)}"
                     }
                 } else {
@@ -2741,10 +2757,14 @@ class MainActivity : Activity() {
                             if (cancelCurrentTaskRequested || StormNczEngine.cancelRequested) {
                                 throw java.util.concurrent.CancellationException("Задача отменена пользователем")
                             }
-                            mainHandler.post {
-                                if (!cancelCurrentTaskRequested && !StormNczEngine.cancelRequested) {
-                                    progressBar.progress = p.percent
-                                    statusTxt.text = "$prefix ${p.stageText} (${p.percent}%)"
+                            val nowMs = android.os.SystemClock.uptimeMillis()
+                            if (p.percent == 0 || p.percent == 100 || nowMs - lastProgressUiPostMs >= 40L) {
+                                lastProgressUiPostMs = nowMs
+                                mainHandler.post {
+                                    if (!cancelCurrentTaskRequested && !StormNczEngine.cancelRequested) {
+                                        setProgressSmooth(progressBar, p.percent)
+                                        statusTxt.text = "$prefix ${p.stageText} (${p.percent}%)"
+                                    }
                                 }
                             }
                         }
@@ -2876,14 +2896,14 @@ class MainActivity : Activity() {
 
                     val saved = (totalOrig - totalOut).coerceAtLeast(0L)
                     mainHandler.post {
-                        progressBar.progress = 100
+                        setProgressSmooth(progressBar, 100)
                         statusTxt.text = "✅ Обработано файлов: $successCount/${snapshot.size} • Сэкономлено: ${StormNczEngine.formatSize(saved)}"
                     }
                 }
             } catch (e: java.util.concurrent.CancellationException) {
                 appendLog("⏹ Задача отменена пользователем")
                 mainHandler.post {
-                    progressBar.progress = 0
+                    setProgressSmooth(progressBar, 0)
                     statusTxt.text = "⏹ Задача отменена пользователем"
                 }
             } catch (e: Exception) {
@@ -4607,7 +4627,7 @@ class MainActivity : Activity() {
         scroll.post { scroll.scrollTo(0, 0) }
 
         if (currentTask != null) {
-            progressBar.progress = currentTask?.progressPct ?: 0
+            setProgressSmooth(progressBar, currentTask?.progressPct ?: 0)
             stageHeaderTxt.text = "${currentTask?.stageTitle} (${currentTask?.progressPct}%)"
             statusTxt.text = currentTask?.detailText ?: ""
             if (currentTask?.stepLogs?.isNotEmpty() == true) {
@@ -4621,7 +4641,7 @@ class MainActivity : Activity() {
         fun attachTaskListener(task: BgPipelineTask) {
             task.onUpdateListener = { t ->
                 mainHandler.post {
-                    progressBar.progress = t.progressPct
+                    setProgressSmooth(progressBar, t.progressPct)
                     stageHeaderTxt.text = "${t.stageTitle} (${t.progressPct}%)"
                     statusTxt.text = t.detailText
                     if (t.stepLogs.isNotEmpty()) {
