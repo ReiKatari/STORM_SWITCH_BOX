@@ -478,6 +478,12 @@ namespace StormSwitchBox.Views
                 picker.FileTypeFilter.Add(".cci");
                 picker.FileTypeFilter.Add(".cia");
                 picker.FileTypeFilter.Add(".cxi");
+                picker.FileTypeFilter.Add(".3dsx");
+                picker.FileTypeFilter.Add(".zcci");
+                picker.FileTypeFilter.Add(".zcxi");
+                picker.FileTypeFilter.Add(".zcia");
+                picker.FileTypeFilter.Add(".z3dsx");
+                picker.FileTypeFilter.Add(".z3ds");
                 picker.FileTypeFilter.Add(".zip");
                 picker.FileTypeFilter.Add(".rar");
                 picker.FileTypeFilter.Add(".7z");
@@ -747,12 +753,17 @@ namespace StormSwitchBox.Views
                      f.EndsWith(".3ds", StringComparison.OrdinalIgnoreCase) ||
                      f.EndsWith(".cci", StringComparison.OrdinalIgnoreCase) ||
                      f.EndsWith(".cia", StringComparison.OrdinalIgnoreCase) ||
-                     f.EndsWith(".cxi", StringComparison.OrdinalIgnoreCase)));
+                     f.EndsWith(".cxi", StringComparison.OrdinalIgnoreCase) ||
+                     f.EndsWith(".3dsx", StringComparison.OrdinalIgnoreCase) ||
+                     f.EndsWith(".zcci", StringComparison.OrdinalIgnoreCase) ||
+                     f.EndsWith(".zcxi", StringComparison.OrdinalIgnoreCase) ||
+                     f.EndsWith(".zcia", StringComparison.OrdinalIgnoreCase) ||
+                     f.EndsWith(".z3dsx", StringComparison.OrdinalIgnoreCase)));
 
                 string? builtOutputFile = null;
                 if (!string.IsNullOrWhiteSpace(task.OutputFolder) && !string.IsNullOrWhiteSpace(task.OutputFileName))
                 {
-                    string[] candidateExts = new[] { task.GetPrimaryExtension(), ".nsz", ".nsp", ".xci", ".xcz", ".3ds", ".cia", ".cci" };
+                    string[] candidateExts = new[] { task.GetPrimaryExtension(), ".nsz", ".nsp", ".xci", ".xcz", ".3ds", ".cia", ".cci", ".cxi", ".3dsx", ".zcci", ".zcia", ".zcxi", ".z3dsx" };
                     foreach (var ext in candidateExts.Distinct(StringComparer.OrdinalIgnoreCase))
                     {
                         string candidatePath = Path.Combine(task.OutputFolder, task.OutputFileName + ext);
@@ -1164,7 +1175,7 @@ namespace StormSwitchBox.Views
             if (match.Success) tid = match.Groups[1].Value.ToUpperInvariant();
 
             bool isDlc = (!string.IsNullOrEmpty(tid) && tid.Length == 16 && !tid.EndsWith("000") && !tid.EndsWith("800")) ||
-                         ((ext == ".nsp" || ext == ".nsz" || ext == ".xci" || ext == ".xcz" || ext == ".cia" || ext == ".3ds") &&
+                         ((ext == ".nsp" || ext == ".nsz" || ext == ".xci" || ext == ".xcz" || ext == ".cia" || ext == ".3ds" || ext == ".zcia" || ext == ".zcci") &&
                           (fileName.Contains("DLC", StringComparison.OrdinalIgnoreCase) || fileName.Contains("AddOn", StringComparison.OrdinalIgnoreCase)));
 
             if (isDlc)

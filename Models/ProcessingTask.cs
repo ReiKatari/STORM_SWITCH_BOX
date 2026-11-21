@@ -42,6 +42,11 @@ namespace StormSwitchBox.Models
                 {
                     OnPropertyChanged(nameof(TargetFormatColor));
                     OnPropertyChanged(nameof(TargetFormatWeight));
+                    string newDefaultLvl = ComputeDefaultCompressionLevel(value, IsSwitch2Task);
+                    if (newDefaultLvl == "-" || string.IsNullOrWhiteSpace(CompressionLevel) || CompressionLevel == "-")
+                    {
+                        CompressionLevel = newDefaultLvl;
+                    }
                     OverwriteConfirmed = false;
                     if (IsCompleted && !IsRunning)
                     {
@@ -126,14 +131,17 @@ namespace StormSwitchBox.Models
         partial void OnIs3dsTaskChanged(bool value)
         {
             AvailableTargetFormats = value
-                ? new List<string> { "3DS", "CIA", "CXI", "3DS + CIA" }
+                ? new List<string> { "3DS", "CIA", "CXI", "3DS + CIA", "ZCCI", "ZCIA", "ZCXI", "Z3DSX", "Z3DS (Авто)", "3DS + ZCCI" }
                 : new List<string> { "NSP", "NSZ", "XCI", "XCZ", "NUP", "NSP + NSZ", "XCI + XCZ" };
 
-            if (_targetFormat == "3DS" || _targetFormat == "CIA" || _targetFormat == "CXI" || _targetFormat == "3DS + CIA")
+            if (_targetFormat == "3DS" || _targetFormat == "CIA" || _targetFormat == "CXI" || _targetFormat == "3DS + CIA"
+                || _targetFormat == "ZCCI" || _targetFormat == "ZCIA" || _targetFormat == "ZCXI" || _targetFormat == "Z3DSX"
+                || _targetFormat == "Z3DS (Авто)" || _targetFormat == "3DS + ZCCI" || _targetFormat == "3DSX" || _targetFormat == "CCI")
             {
                 if (!value) TargetFormat = "NSP";
             }
-            else if (_targetFormat == "NSP" || _targetFormat == "NSZ" || _targetFormat == "XCI" || _targetFormat == "XCZ" || _targetFormat == "NSP + NSZ" || _targetFormat == "XCI + XCZ")
+            else if (_targetFormat == "NSP" || _targetFormat == "NSZ" || _targetFormat == "XCI" || _targetFormat == "XCZ"
+                || _targetFormat == "NUP" || _targetFormat == "NSP + NSZ" || _targetFormat == "XCI + XCZ")
             {
                 if (value) TargetFormat = "3DS";
             }
@@ -145,7 +153,8 @@ namespace StormSwitchBox.Models
         public bool IsDualFormat =>
             string.Equals(TargetFormat, "NSP + NSZ", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(TargetFormat, "XCI + XCZ", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(TargetFormat, "3DS + CIA", StringComparison.OrdinalIgnoreCase);
+            string.Equals(TargetFormat, "3DS + CIA", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(TargetFormat, "3DS + ZCCI", StringComparison.OrdinalIgnoreCase);
 
         public string GetPrimaryExtension()
         {
@@ -154,16 +163,37 @@ namespace StormSwitchBox.Models
                 "NSP + NSZ" => ".nsp",
                 "XCI + XCZ" => ".xci",
                 "3DS + CIA" => ".3ds",
+                "3DS + ZCCI" => ".3ds",
                 "NSP" => ".nsp",
                 "NSZ" => ".nsz",
                 "XCI" => ".xci",
                 "XCZ" => ".xcz",
                 "NUP" => ".nup",
                 "3DS" => ".3ds",
+                "CCI" => ".cci",
                 "CIA" => ".cia",
                 "CXI" => ".cxi",
+                "3DSX" => ".3dsx",
+                "ZCCI" => ".zcci",
+                "ZCIA" => ".zcia",
+                "ZCXI" => ".zcxi",
+                "Z3DSX" => ".z3dsx",
+                "Z3DS (Авто)" => ResolveAutoZ3dsExtension(),
                 _ => "." + (string.IsNullOrWhiteSpace(TargetFormat) ? "nsp" : TargetFormat.Trim().ToLowerInvariant())
             };
+        }
+
+        private string ResolveAutoZ3dsExtension()
+        {
+            string? src = InputFiles?.FirstOrDefault();
+            if (!string.IsNullOrEmpty(src))
+            {
+                string ext = System.IO.Path.GetExtension(src).ToLowerInvariant();
+                if (ext == ".cia" || ext == ".zcia") return ".zcia";
+                if (ext == ".cxi" || ext == ".cfa" || ext == ".zcxi") return ".zcxi";
+                if (ext == ".3dsx" || ext == ".z3dsx") return ".z3dsx";
+            }
+            return ".zcci";
         }
 
         public string GetSecondaryExtension()
@@ -173,6 +203,7 @@ namespace StormSwitchBox.Models
                 "NSP + NSZ" => ".nsz",
                 "XCI + XCZ" => ".xcz",
                 "3DS + CIA" => ".cia",
+                "3DS + ZCCI" => ".zcci",
                 _ => string.Empty
             };
         }
@@ -496,13 +527,13 @@ namespace StormSwitchBox.Models
             }
 
             string fmt = targetFormat.Trim().ToUpperInvariant();
-            if (fmt.Contains("NSZ") || fmt.Contains("XCZ"))
+            if (fmt.Contains("NSZ") || fmt.Contains("XCZ") || fmt.Contains("ZCCI") || fmt.Contains("ZCIA") || fmt.Contains("ZCXI") || fmt.Contains("Z3DS"))
             {
                 int lvl = App.Settings?.Current?.CompressionLevel ?? 22;
                 return lvl > 0 ? lvl.ToString() : "22";
             }
 
-            if (fmt == "NSP" || fmt == "XCI" || fmt == "3DS" || fmt == "CIA" || fmt == "CXI")
+            if (fmt == "NSP" || fmt == "XCI" || fmt == "3DS" || fmt == "CCI" || fmt == "CIA" || fmt == "CXI" || fmt == "3DSX" || fmt == "3DS + CIA")
             {
                 return "-";
             }
@@ -668,7 +699,14 @@ namespace StormSwitchBox.Models
                         f.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) ||
                         f.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase) ||
                         f.EndsWith(".3ds", StringComparison.OrdinalIgnoreCase) ||
+                        f.EndsWith(".cci", StringComparison.OrdinalIgnoreCase) ||
                         f.EndsWith(".cia", StringComparison.OrdinalIgnoreCase) ||
+                        f.EndsWith(".cxi", StringComparison.OrdinalIgnoreCase) ||
+                        f.EndsWith(".3dsx", StringComparison.OrdinalIgnoreCase) ||
+                        f.EndsWith(".zcci", StringComparison.OrdinalIgnoreCase) ||
+                        f.EndsWith(".zcxi", StringComparison.OrdinalIgnoreCase) ||
+                        f.EndsWith(".zcia", StringComparison.OrdinalIgnoreCase) ||
+                        f.EndsWith(".z3dsx", StringComparison.OrdinalIgnoreCase) ||
                         f.EndsWith(".nup", StringComparison.OrdinalIgnoreCase)).ToList();
 
                     primaryOut = candidates.FirstOrDefault(f =>

@@ -19,7 +19,7 @@ namespace StormSwitchBox.Services
     {
         private static readonly HashSet<string> AllowedGameExtensions = new(StringComparer.OrdinalIgnoreCase)
         {
-            ".nsp", ".nsz", ".xci", ".xcz", ".nup", ".cia", ".3ds"
+            ".nsp", ".nsz", ".xci", ".xcz", ".nup", ".cia", ".3ds", ".zcci", ".zcia", ".zcxi", ".z3dsx", ".3dsx"
         };
 
         private HttpListener? _httpListener;

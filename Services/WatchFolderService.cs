@@ -294,7 +294,9 @@ namespace StormSwitchBox.Services
         private void On3dsFileDetected(object sender, FileSystemEventArgs e)
         {
             string ext = Path.GetExtension(e.FullPath).ToLowerInvariant();
-            if (ext != ".3ds" && ext != ".cci" && ext != ".cia" && ext != ".cxi" && ext != ".cfa" && ext != ".zip" && ext != ".rar" && ext != ".7z")
+            if (ext != ".3ds" && ext != ".cci" && ext != ".cia" && ext != ".cxi" && ext != ".cfa" && ext != ".3dsx"
+                && ext != ".zcci" && ext != ".zcxi" && ext != ".zcia" && ext != ".z3dsx" && ext != ".z3ds"
+                && ext != ".zip" && ext != ".rar" && ext != ".7z")
                 return;
 
             if (!File.Exists(e.FullPath))
@@ -378,7 +380,7 @@ namespace StormSwitchBox.Services
             var settings = App.Settings.Current;
             string[] actions = new string[] { "Конвертация", "Распаковка", "Упаковка", "Мульти-контент", "Проверка" };
             string[] pageTypes = new string[] { "Convert", "Unpack", "Pack", "Multi", "Verify" };
-            string[] formats = new string[] { "3DS", "CIA", "CXI" };
+            string[] formats = new string[] { "3DS", "CIA", "CXI", "ZCCI", "ZCIA", "ZCXI", "Z3DSX", "Z3DS (Авто)" };
 
             int actIdx = Math.Clamp(settings.WatchFolderAction3ds, 0, actions.Length - 1);
             int fmtIdx = Math.Clamp(settings.WatchFolderFormat3ds, 0, formats.Length - 1);

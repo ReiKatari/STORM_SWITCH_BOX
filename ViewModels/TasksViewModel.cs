@@ -28,12 +28,13 @@ namespace StormSwitchBox.ViewModels;
 public partial class TasksViewModel : ObservableObject
 {
 	public static readonly string[] FormatNames = new string[] { "NSP", "NSZ", "XCI", "XCZ", "NUP", "NSP + NSZ", "XCI + XCZ" };
-	public static readonly string[] FormatNames3ds = new string[] { "3DS", "CIA", "CXI", "3DS + CIA" };
+	public static readonly string[] FormatNames3ds = new string[] { "3DS", "CIA", "CXI", "3DS + CIA", "ZCCI", "ZCIA", "ZCXI", "Z3DSX", "Z3DS (Авто)", "3DS + ZCCI" };
 
 	private static readonly HashSet<string> GameExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) 
 	{ 
 		".NSP", ".XCI", ".NSZ", ".XCZ", ".NUP",
-		".3DS", ".CCI", ".CIA", ".CXI", ".CFA",
+		".3DS", ".CCI", ".CIA", ".CXI", ".CFA", ".3DSX",
+		".ZCCI", ".ZCXI", ".ZCIA", ".Z3DSX", ".Z3DS",
 		".NPDM", ".NSO", ".NACP", ".NCA", ".NCZ" 
 	};
 
@@ -1394,7 +1395,8 @@ public partial class TasksViewModel : ObservableObject
 		{
 			string singleExt = exts[0];
 			if (singleExt == "NSP" || singleExt == "NSZ" || singleExt == "XCI" || singleExt == "XCZ" || singleExt == "NUP" ||
-			    singleExt == "3DS" || singleExt == "CIA" || singleExt == "CXI")
+			    singleExt == "3DS" || singleExt == "CIA" || singleExt == "CXI" || singleExt == "3DSX" ||
+			    singleExt == "ZCCI" || singleExt == "ZCIA" || singleExt == "ZCXI" || singleExt == "Z3DSX" || singleExt == "Z3DS")
 			{
 				return singleExt;
 			}
@@ -1680,7 +1682,7 @@ public partial class TasksViewModel : ObservableObject
 						SourceSizeBytes = sizeBytes,
 						TargetSize = "-",
 						SizeDifference = "-",
-						CompressionLevel = App.Settings.Current.CompressionLevel.ToString(),
+						CompressionLevel = ProcessingTask.ComputeDefaultCompressionLevel(targetFmt, isSwitch2),
 						FilesCount = filesCount.ToString(),
 						InputFiles = inputFiles,
 						FilesList = filesList,
@@ -2680,9 +2682,17 @@ public partial class TasksViewModel : ObservableObject
 			{
 				if (task.Operation == "Verify")
 				{
+					bool allValid = true;
+					string z3dsSummary = string.Empty;
 					foreach (string f in task.InputFiles)
 					{
 						if (cts.IsCancellationRequested) break;
+						if (Z3dsService.IsZ3dsFile(f))
+						{
+							var zcheck = Z3dsService.VerifyZ3dsIntegrity(f);
+							if (!zcheck.IsValid) allValid = false;
+							z3dsSummary = zcheck.Details;
+						}
 						var meta = await App.Nintendo3ds.Parse3dsFileAsync(f);
 						task.VerifyType = meta.ContentType;
 						task.VerifyStructure = meta.FileFormat;
@@ -2693,19 +2703,18 @@ public partial class TasksViewModel : ObservableObject
 					{
 						App.RunOnUI(() =>
 						{
-							task.Status = "Корректна";
+							task.Status = allValid ? "Корректна" : "Ошибка";
 							task.IsRunning = false;
-							task.LogDetails += "\n✅ [3DS Verify] Структура файла корректна.";
+							task.LogDetails += allValid
+								? $"\n✅ [3DS Verify] Структура файла корректна. {(string.IsNullOrEmpty(z3dsSummary) ? "" : z3dsSummary)}"
+								: $"\n❌ [3DS Verify] Проверка не пройдена. {z3dsSummary}";
 						});
 					}
 					return;
 				}
 				if (task.Operation == "Update" || task.Operation == "Multi")
 				{
-					string outExt = (task.TargetFormat ?? "3DS").ToLowerInvariant().Replace(" (cci)", "").Trim();
-					if (outExt == "3ds" || outExt == "cci" || outExt == "3ds + cia") outExt = "3ds";
-					else if (outExt == "cia") outExt = "cia";
-					else outExt = "cxi";
+					string outExt = task.GetPrimaryExtension().TrimStart('.');
 					string outPath = Path.Combine(task.OutputFolder, task.OutputFileName + "." + outExt);
 					await PreAnalyzeFilesAsync(task, task.InputFiles);
 					await App.Nintendo3ds.Build3dsMultiContentAsync(task, task.InputFiles, outPath, task.TargetFormat ?? "3DS", cts.Token);
@@ -3221,6 +3230,10 @@ public partial class TasksViewModel : ObservableObject
 						sb.AppendLine($"\n{typeLabel3ds}  {fileName3ds}");
 						sb.AppendLine($"  ├ TitleID:     {tid3ds}");
 						sb.AppendLine($"  ├ ProductCode: {info3ds.ProductCode}");
+						if (Z3dsService.TryReadHeaderAndMetadata(filePath, out var zh3ds, out _, out int zFrames))
+						{
+							sb.AppendLine($"  ├ Z3DS:        v{zh3ds.Version} ({zh3ds.UnderlyingFormatDisplay}), кадров: {zFrames}");
+						}
 						sb.AppendLine($"  └ Версия:      {ver3ds}  Размер: {ProcessingTask.FormatSize(new FileInfo(filePath).Length)}");
 						if (!string.IsNullOrEmpty(tid3ds)) allTitleIds.Add(tid3ds);
 						continue;

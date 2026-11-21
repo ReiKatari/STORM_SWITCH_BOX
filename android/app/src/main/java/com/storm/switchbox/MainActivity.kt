@@ -1057,7 +1057,7 @@ class MainActivity : Activity() {
                 }
                 selectedOperationMode = json.optInt("operationMode", 0).coerceIn(0, 7)
                 selectedCompressionMethod = json.optInt("compressionMethod", 0).coerceIn(0, 3)
-                selectedOutputFormat = json.optInt("outputFormat", 0).coerceIn(0, 7)
+                selectedOutputFormat = json.optInt("outputFormat", 0).coerceIn(0, 12)
                 useBlockNcz = json.optBoolean("useBlockNcz", true)
                 smartMergeDedup = json.optBoolean("smartMergeDedup", true)
                 autoEmbedMods = json.optBoolean("autoEmbedMods", true)
@@ -1612,7 +1612,7 @@ class MainActivity : Activity() {
 
         // 3DS: .3ds, .cia, .cxi, or roms_3ds
         val ext = file.extension.lowercase()
-        val is3ds = ext in listOf("3ds", "cia", "cxi", "cci") || path.contains("/roms_3ds/", ignoreCase = true)
+        val is3ds = ext in listOf("3ds", "cia", "cxi", "cci", "cfa", "3dsx", "zcci", "zcxi", "zcia", "z3dsx", "z3ds") || path.contains("/roms_3ds/", ignoreCase = true)
         if (is3ds) {
             custom3dsOutputDir.mkdirs()
             return custom3dsOutputDir
@@ -2068,7 +2068,12 @@ class MainActivity : Activity() {
             "CCI - Образ картриджа Nintendo 3DS / Citra / Azahar (NCSD + NoCrypto)",
             "3DS - Образ картриджа Nintendo 3DS (NCSD Decrypted + Trim 0xFF)",
             "CIA - Установочный архив Nintendo 3DS (CTR Importable Archive)",
-            "NUP - Монолитный контейнер Switch 2 / Eden (NUP v1.0, Zstd + Дедупликация)"
+            "NUP - Монолитный контейнер Switch 2 / Eden (NUP v1.0, Zstd + Дедупликация)",
+            "ZCCI - Сжатый картридж Nintendo 3DS (Azahar Z3DS, Seekable Zstd)",
+            "ZCIA - Сжатый установочный пакет Nintendo 3DS (Azahar Z3DS)",
+            "ZCXI - Сжатый NCCH контейнер Nintendo 3DS (Azahar Z3DS)",
+            "Z3DSX - Сжатый Homebrew Nintendo 3DS (Azahar Z3DS)",
+            "Z3DS - Автовыбор сжатого формата 3DS по исходному файлу"
         )
         val formatDropdown = makeStormDropdown(outputFormats, selectedOutputFormat, th) { pos ->
             selectedOutputFormat = pos
@@ -2303,6 +2308,11 @@ class MainActivity : Activity() {
             5 -> "3ds"
             6 -> "cia"
             7 -> "nup"
+            8 -> "zcci"
+            9 -> "zcia"
+            10 -> "zcxi"
+            11 -> "z3dsx"
+            12 -> "zcci"
             else -> "nsz"
         }
 
@@ -2771,9 +2781,15 @@ class MainActivity : Activity() {
 
                         val res = when (selectedOperationMode) {
                             3 -> {
-                                val outExt = if (ext == "xcz" || ext == "xci") "xci" else "nsp"
-                                val outFile = File(getEffectiveOutputDirForFile(inFile), "${baseName}_unpacked.$outExt")
-                                StormNczEngine.decompressNszOrXczToNsp(inFile, outFile, cb)
+                                if (StormNczEngine.isZ3dsFile(inFile)) {
+                                    val plainExt = try { StormNczEngine.Z3dsReadHandle(inFile).use { it.header.recommendedPlainExt } } catch (_: Throwable) { "cci" }
+                                    val outFile = File(getEffectiveOutputDirForFile(inFile), "${baseName}.$plainExt")
+                                    StormNczEngine.decompressZ3ds(inFile, outFile, cb)
+                                } else {
+                                    val outExt = if (ext == "xcz" || ext == "xci") "xci" else "nsp"
+                                    val outFile = File(getEffectiveOutputDirForFile(inFile), "${baseName}_unpacked.$outExt")
+                                    StormNczEngine.decompressNszOrXczToNsp(inFile, outFile, cb)
+                                }
                             }
                             4 -> {
                                 val outFile = File(getEffectiveOutputDirForFile(inFile), "${baseName}_trimmed.$ext")
@@ -5015,14 +5031,14 @@ class MainActivity : Activity() {
             ),
             InstructionTopicItem(
                 9,
-                "9. Архитектура и форматы Nintendo 3DS (3DS, CCI, CIA, CXI, CFA, NDS)",
+                "9. Архитектура и форматы Nintendo 3DS (3DS, CCI, CIA, CXI, 3DSX и Azahar Z3DS)",
                 "Форматы Switch и 3DS",
                 "NINTENDO 3DS",
                 "Встроен полноценный нативный конвейер для образов Nintendo 3DS (Citra, Azahar, Lime3DS):\n" +
                     "• Аппаратный 128-битный генератор ключей KeyScrambler: NormalKey = ROL128((ROL128(KeyX, 2) xor KeyY) + C, 87).\n" +
                     "• Расшифровка разделов NCCH и установка флага NoCrypto (0x04 по смещению +0x18F) для запуска в эмуляторах без aes_keys.txt.\n" +
-                    "• Прямая взаимная конвертация установочных архивов CIA <-> картриджей CCI / 3DS (с пересборкой таблицы разделов NCSD 0x120 и заголовков CIA).",
-                "Совет: Для эмуляторов Azahar и Citra на Android рекомендуется выбирать выходной формат «CCI - Образ картриджа Nintendo 3DS»."
+                    "• Прямая взаимная конвертация CIA <-> CCI / 3DS и сжатые форматы Azahar Z3DS (.zcci, .zcxi, .zcia, .z3dsx) на базе Seekable Zstandard (автодешифровка + Trim 0xFF + Seek Table 0x8F92EAB1 с произвольным чтением кадров без полной распаковки).",
+                "Совет: Для Azahar выберите ZCCI / ZCIA / ZCXI / Z3DSX (экономия места с прямым запуском без распаковки), а для Citra и других эмуляторов - CCI."
             ),
             InstructionTopicItem(
                 10,
@@ -5979,7 +5995,7 @@ class MainActivity : Activity() {
             }
             return 0
         }
-        val validExts = setOf("nsp", "nsz", "xci", "xcz", "nup", "nca", "ncz", "3ds", "cci", "cia", "cxi", "cfa", "3dsx", "nds", "zip", "rar", "7z", "ips", "pchtxt")
+        val validExts = setOf("nsp", "nsz", "xci", "xcz", "nup", "nca", "ncz", "3ds", "cci", "cia", "cxi", "cfa", "3dsx", "zcci", "zcxi", "zcia", "z3dsx", "z3ds", "nds", "zip", "rar", "7z", "ips", "pchtxt")
         var added = 0
         folder.walkTopDown().maxDepth(4).forEach { f ->
             if (f.isFile && f.extension.lowercase() in validExts) {
@@ -6000,7 +6016,7 @@ class MainActivity : Activity() {
         val th = themes[currentThemeIndex]
         var currentDir = if (initialDir.exists() && initialDir.isDirectory) initialDir else File("/storage/emulated/0")
         val selectedPaths = LinkedHashSet<File>()
-        val validExts = setOf("nsp", "nsz", "xci", "xcz", "nup", "nca", "ncz", "3ds", "cci", "cia", "cxi", "cfa", "3dsx", "nds", "zip", "rar", "7z", "ips", "pchtxt")
+        val validExts = setOf("nsp", "nsz", "xci", "xcz", "nup", "nca", "ncz", "3ds", "cci", "cia", "cxi", "cfa", "3dsx", "zcci", "zcxi", "zcia", "z3dsx", "z3ds", "nds", "zip", "rar", "7z", "ips", "pchtxt")
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL

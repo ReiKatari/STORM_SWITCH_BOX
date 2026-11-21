@@ -79,7 +79,7 @@
                         <ComboBoxItem Content="NSP + NSZ"/>
                         <ComboBoxItem Content="XCI + XCZ"/>
                     </ComboBox>
-                    <ComboBox x:Name="FormatComboBox3ds" SelectedIndex="{x:Bind ViewModel.SelectedFormatIndex3ds, Mode=TwoWay}" Width="118" 
+                    <ComboBox x:Name="FormatComboBox3ds" SelectedIndex="{x:Bind ViewModel.SelectedFormatIndex3ds, Mode=TwoWay}" Width="136" 
                               SelectionChanged="FormatComboBox3ds_SelectionChanged"
                               ToolTipService.ToolTip="Выходной формат для 3DS"
                               Visibility="{x:Bind ViewModel.Is3dsPlatformVisible, Mode=OneWay}">
@@ -87,6 +87,12 @@
                         <ComboBoxItem Content="CIA"/>
                         <ComboBoxItem Content="CXI"/>
                         <ComboBoxItem Content="3DS + CIA"/>
+                        <ComboBoxItem Content="ZCCI"/>
+                        <ComboBoxItem Content="ZCIA"/>
+                        <ComboBoxItem Content="ZCXI"/>
+                        <ComboBoxItem Content="Z3DSX"/>
+                        <ComboBoxItem Content="Z3DS (Авто)"/>
+                        <ComboBoxItem Content="3DS + ZCCI"/>
                     </ComboBox>
                 </StackPanel>
             </AppBarElementContainer>

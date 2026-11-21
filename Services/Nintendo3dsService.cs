@@ -59,7 +59,8 @@ namespace StormSwitchBox.Services
         {
             if (string.IsNullOrEmpty(ext)) return false;
             string lower = ext.ToLowerInvariant().TrimStart('.');
-            return lower == "3ds" || lower == "cci" || lower == "cia" || lower == "cxi" || lower == "cfa";
+            return lower == "3ds" || lower == "cci" || lower == "cia" || lower == "cxi" || lower == "cfa"
+                || lower == "3dsx" || lower == "zcci" || lower == "zcxi" || lower == "zcia" || lower == "z3dsx" || lower == "z3ds";
         }
 
         public async Task<Nintendo3dsInfo> Parse3dsFileAsync(string filePath)
@@ -79,10 +80,33 @@ namespace StormSwitchBox.Services
 
             try
             {
-                using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-                using var reader = new BinaryReader(fs);
+                using Stream fs = Z3dsService.OpenTransparentReadStream(filePath);
+                using var reader = new BinaryReader(fs, Encoding.ASCII, leaveOpen: true);
 
-                if (fs.Length >= 0x200)
+                if (fs.Length >= 0x20)
+                {
+                    fs.Seek(0, SeekOrigin.Begin);
+                    byte[] magic0 = reader.ReadBytes(4);
+                    if (magic0.Length == 4 && magic0[0] == (byte)'3' && magic0[1] == (byte)'D' && magic0[2] == (byte)'S' && magic0[3] == (byte)'X')
+                    {
+                        info.ContentType = "Homebrew";
+                        if (string.IsNullOrEmpty(info.TitleId)) info.TitleId = "3DSX";
+                        if (string.IsNullOrEmpty(info.Version)) info.Version = "1.0.0";
+                        ushort hdrSize3dsx = reader.ReadUInt16();
+                        if (hdrSize3dsx >= 0x2C && fs.Length >= 0x2C)
+                        {
+                            fs.Seek(0x20, SeekOrigin.Begin);
+                            uint smdhOff = reader.ReadUInt32();
+                            uint smdhLen = reader.ReadUInt32();
+                            if (smdhOff > 0 && smdhLen >= 0x36C0 && (long)smdhOff + 0x36C0 <= fs.Length)
+                            {
+                                TryReadSmdhAtOffset(fs, reader, smdhOff, info);
+                            }
+                        }
+                    }
+                }
+
+                if (fs.Length >= 0x200 && info.ContentType != "Homebrew")
                 {
                     byte[] magic = new byte[4];
                     fs.Seek(0x100, SeekOrigin.Begin);
@@ -171,6 +195,25 @@ namespace StormSwitchBox.Services
                     }
                 }
 
+                if (fs is Z3dsReadStream zstream)
+                {
+                    var smdhMeta = zstream.Metadata.GetBytes("smdh");
+                    if (smdhMeta != null && smdhMeta.Length >= 0x36C0 && (string.IsNullOrEmpty(info.GameName) || info.IconBytes == null))
+                    {
+                        TryReadSmdhFromBytes(smdhMeta, info);
+                    }
+                    var tinfo = zstream.Metadata.GetBytes("titleinfo");
+                    if (tinfo != null && tinfo.Length >= 0x18)
+                    {
+                        ulong tidMeta = BitConverter.ToUInt64(tinfo, 0);
+                        ushort verMeta = BitConverter.ToUInt16(tinfo, 0x10);
+                        if (tidMeta != 0 && (string.IsNullOrEmpty(info.TitleId) || info.TitleId == "0000000000000000"))
+                            info.TitleId = tidMeta.ToString("X16");
+                        if (verMeta > 0 && (string.IsNullOrEmpty(info.Version) || info.Version == "v0"))
+                            info.Version = $"v{verMeta}";
+                    }
+                }
+
                 Classify3dsTitleId(info);
 
                 if (string.IsNullOrEmpty(info.GameName))
@@ -201,7 +244,7 @@ namespace StormSwitchBox.Services
             else if (string.IsNullOrEmpty(info.ContentType)) info.ContentType = "Application";
         }
 
-        private static void TryReadNcchAndSmdh(FileStream fs, BinaryReader reader, long ncchOffset, Nintendo3dsInfo info)
+        private static void TryReadNcchAndSmdh(Stream fs, BinaryReader reader, long ncchOffset, Nintendo3dsInfo info)
         {
             try
             {
@@ -261,7 +304,14 @@ namespace StormSwitchBox.Services
             catch { }
         }
 
-        private static void TryReadSmdhAtOffset(FileStream fs, BinaryReader reader, long smdhOffset, Nintendo3dsInfo info)
+        private static void TryReadSmdhFromBytes(byte[] smdhData, Nintendo3dsInfo info)
+        {
+            using var ms = new MemoryStream(smdhData, writable: false);
+            using var br = new BinaryReader(ms, Encoding.ASCII, leaveOpen: true);
+            TryReadSmdhAtOffset(ms, br, 0, info);
+        }
+
+        private static void TryReadSmdhAtOffset(Stream fs, BinaryReader reader, long smdhOffset, Nintendo3dsInfo info)
         {
             try
             {
@@ -426,7 +476,7 @@ namespace StormSwitchBox.Services
 
                 if (baseFile == null)
                 {
-                    throw new Exception("Не найден базовый файл игры (.3ds, .cci, .cia, .cxi).");
+                    throw new Exception("Не найден базовый файл игры (.3ds, .cci, .cia, .cxi, .3dsx, .zcci, .zcxi, .zcia, .z3dsx).");
                 }
 
                 // Sort updates ascending by version so the newest update overlays last
@@ -445,21 +495,25 @@ namespace StormSwitchBox.Services
                     if (patchFiles.Count > 0) task.LogDetails += $"\n  🩹 Бинарные патчи (IPS/BPS): {patchFiles.Count} шт.";
                 });
 
-                bool isDual3ds = string.Equals(targetFormat, "3DS + CIA", StringComparison.OrdinalIgnoreCase);
-                string outExt = targetFormat.ToLowerInvariant().Replace(" (cci)", "").Trim();
-                if (outExt == "3ds" || outExt == "cci" || isDual3ds) outExt = "3ds";
-                else if (outExt == "cia") outExt = "cia";
-                else outExt = "cxi";
-
-                string targetOutFile = Path.ChangeExtension(outputFilePath, "." + outExt);
+                var spec = Resolve3dsTargetSpec(targetFormat, baseFile);
 
                 // If only a single base file and no updates/mods/dlcs/patches, convert directly unless forceRebuild is requested
                 bool hasCustomMeta = task.CustomMetadata != null && task.CustomMetadata.HasModifications;
                 if (!forceRebuild && !hasCustomMeta && sortedUpdates.Count == 0 && modDirs.Count == 0 && dlcFiles.Count == 0 && patchFiles.Count == 0)
                 {
-                    await Convert3dsContainerAsync(task, baseFile, Path.GetDirectoryName(targetOutFile) ?? "", targetFormat, cancellationToken);
+                    string convDir = Path.GetDirectoryName(outputFilePath) ?? "";
+                    await Convert3dsContainerAsync(task, baseFile, convDir, targetFormat, cancellationToken, Path.GetFileNameWithoutExtension(outputFilePath));
                     return;
                 }
+
+                if (spec.PlainExt == "3dsx")
+                {
+                    throw new InvalidOperationException("Homebrew .3DSX не поддерживает сборку с обновлениями/DLC/модами через makerom.");
+                }
+
+                string targetOutFile = spec.WantZ3ds && !spec.IsDualZcci
+                    ? Path.Combine(tempDir, "built_intermediate." + spec.PlainExt)
+                    : Path.ChangeExtension(outputFilePath, "." + spec.PlainExt);
 
                 // Step 1: Extract Base Game (RomFS, ExeFS, ExHeader, Logo, PlainRgn + Secondary CFAs)
                 string extractedBaseDir = Path.Combine(tempDir, "base_extracted");
@@ -580,11 +634,28 @@ namespace StormSwitchBox.Services
                     extractedBaseDir,
                     tempDir,
                     targetOutFile,
-                    outExt,
-                    isDual3ds,
+                    spec.PlainExt,
+                    spec.IsDualCia,
                     baseMeta,
                     extraCfaFiles,
                     cancellationToken);
+
+                if ((spec.WantZ3ds || spec.IsDualZcci) && File.Exists(targetOutFile))
+                {
+                    string z3dsOutPath = Path.ChangeExtension(outputFilePath, spec.Z3dsExt);
+                    int compLvl = Resolve3dsCompressionLevel(task);
+                    await Z3dsService.CompressToZ3dsAsync(targetOutFile, z3dsOutPath, compLvl, 0, null, task, cancellationToken);
+                    if (spec.IsDualZcci && File.Exists(z3dsOutPath))
+                    {
+                        long sPlain = new FileInfo(targetOutFile).Length;
+                        long sZcci = new FileInfo(z3dsOutPath).Length;
+                        App.RunOnUI(() =>
+                        {
+                            task.TargetSize = $"{ProcessingTask.FormatSize(sPlain)} / {ProcessingTask.FormatSize(sZcci)}";
+                            task.LogDetails += $"\n📦 [Форматы 3DS + ZCCI] Сохранены оба файла:\n  • {Path.GetFileName(targetOutFile)} ({ProcessingTask.FormatSize(sPlain)})\n  • {Path.GetFileName(z3dsOutPath)} ({ProcessingTask.FormatSize(sZcci)})";
+                        });
+                    }
+                }
             }
             finally
             {
@@ -599,6 +670,12 @@ namespace StormSwitchBox.Services
             CancellationToken cancellationToken,
             bool extractSecondaryCfa)
         {
+            if (Z3dsService.TryReadHeaderAndMetadata(inputFile, out var zHdr, out _, out _))
+            {
+                string decompTemp = Path.Combine(tempDir, "decomp_" + Path.GetFileNameWithoutExtension(inputFile) + zHdr.RecommendedPlainExtension);
+                await Z3dsService.DecompressZ3dsAsync(inputFile, decompTemp, null, cancellationToken);
+                inputFile = decompTemp;
+            }
             inputFile = await Nintendo3dsCryptoService.EnsureDecrypted3dsFileAsync(inputFile, tempDir, null, cancellationToken);
             string ctrtool = GetCtrtoolPath();
             string threedstool = Get3dstoolPath();
@@ -1206,38 +1283,235 @@ namespace StormSwitchBox.Services
             }
         }
 
+        private readonly record struct Target3dsSpec(string PlainExt, string Z3dsExt, bool WantZ3ds, bool IsDualCia, bool IsDualZcci);
+
+        private static Target3dsSpec Resolve3dsTargetSpec(string? targetFormat, string? inputPath = null)
+        {
+            string fmt = (targetFormat ?? "3DS").Trim().ToUpperInvariant();
+            if (fmt == "3DS + CIA")
+                return new Target3dsSpec("3ds", ".zcci", false, true, false);
+            if (fmt == "3DS + ZCCI")
+                return new Target3dsSpec("3ds", ".zcci", true, false, true);
+            if (fmt == "ZCCI")
+                return new Target3dsSpec("3ds", ".zcci", true, false, false);
+            if (fmt == "ZCIA")
+                return new Target3dsSpec("cia", ".zcia", true, false, false);
+            if (fmt == "ZCXI")
+                return new Target3dsSpec("cxi", ".zcxi", true, false, false);
+            if (fmt == "Z3DSX")
+                return new Target3dsSpec("3dsx", ".z3dsx", true, false, false);
+            if (fmt == "3DSX")
+                return new Target3dsSpec("3dsx", ".z3dsx", false, false, false);
+            if (fmt == "CIA")
+                return new Target3dsSpec("cia", ".zcia", false, false, false);
+            if (fmt == "CXI")
+                return new Target3dsSpec("cxi", ".zcxi", false, false, false);
+            if (fmt == "CCI")
+                return new Target3dsSpec("cci", ".zcci", false, false, false);
+
+            if (fmt.StartsWith("Z3DS", StringComparison.OrdinalIgnoreCase))
+            {
+                string detectedPlain = "3ds";
+                string detectedZext = ".zcci";
+                if (!string.IsNullOrEmpty(inputPath) && File.Exists(inputPath))
+                {
+                    if (Z3dsService.TryReadHeaderAndMetadata(inputPath, out var zh, out _, out _))
+                    {
+                        detectedZext = zh.RecommendedCompressedExtension;
+                        detectedPlain = zh.UnderlyingMagicString switch
+                        {
+                            "CIA" => "cia",
+                            "NCCH" => "cxi",
+                            "3DSX" => "3dsx",
+                            _ => "3ds"
+                        };
+                    }
+                    else
+                    {
+                        string ext = Path.GetExtension(inputPath).ToLowerInvariant();
+                        if (ext == ".cia") { detectedPlain = "cia"; detectedZext = ".zcia"; }
+                        else if (ext == ".cxi" || ext == ".cfa") { detectedPlain = "cxi"; detectedZext = ".zcxi"; }
+                        else if (ext == ".3dsx") { detectedPlain = "3dsx"; detectedZext = ".z3dsx"; }
+                    }
+                }
+                return new Target3dsSpec(detectedPlain, detectedZext, true, false, false);
+            }
+
+            return new Target3dsSpec("3ds", ".zcci", false, false, false);
+        }
+
+        private static int Resolve3dsCompressionLevel(ProcessingTask? task)
+        {
+            if (task != null && int.TryParse(task.CompressionLevel, out int parsed) && parsed >= 1 && parsed <= 22)
+                return parsed;
+            int cfg = App.Settings?.Current?.CompressionLevel ?? 18;
+            return Math.Clamp(cfg <= 0 ? 18 : cfg, 1, 22);
+        }
+
         public async Task Convert3dsContainerAsync(
             ProcessingTask task,
             string inputPath,
             string outputFolder,
             string targetFormat,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            string? customBaseName = null)
         {
-            string makerom = GetMakeromPath();
-            if (!File.Exists(makerom)) throw new FileNotFoundException($"makerom не найден: {makerom}");
-
-            bool isDual3ds = string.Equals(targetFormat, "3DS + CIA", StringComparison.OrdinalIgnoreCase);
-            string inExt = Path.GetExtension(inputPath).ToLowerInvariant().TrimStart('.');
-            string outExt = targetFormat.ToLowerInvariant().Replace(" (cci)", "").Trim();
-            if (outExt == "3ds" || outExt == "cci" || isDual3ds) outExt = "3ds";
-            else if (outExt == "cia") outExt = "cia";
-            else outExt = "cxi";
-
-            string outFileName = Path.GetFileNameWithoutExtension(inputPath) + "." + outExt;
-            string outPath = Path.Combine(outputFolder, outFileName);
+            var spec = Resolve3dsTargetSpec(targetFormat, inputPath);
+            string baseOutName = !string.IsNullOrWhiteSpace(customBaseName)
+                ? customBaseName
+                : (!string.IsNullOrWhiteSpace(task.OutputFileName) ? ProcessingTask.SanitizeFileName(task.OutputFileName) : Path.GetFileNameWithoutExtension(inputPath));
+            if (string.IsNullOrWhiteSpace(baseOutName))
+                baseOutName = Path.GetFileNameWithoutExtension(inputPath);
 
             if (!Directory.Exists(outputFolder)) Directory.CreateDirectory(outputFolder);
-            if (task.CustomMetadata != null && !string.IsNullOrWhiteSpace(task.CustomMetadata.CustomAudioWavPath))
-            {
-                await Build3dsMultiContentAsync(task, new List<string> { inputPath }, outPath, targetFormat, cancellationToken, forceRebuild: true);
-                return;
-            }
+            int compLvl = Resolve3dsCompressionLevel(task);
+
             string? decTemp = null;
             try
             {
+                bool hasBannerAudioEdit = task.CustomMetadata != null && !string.IsNullOrWhiteSpace(task.CustomMetadata.CustomAudioWavPath);
+                bool hasSmdhEdit = task.CustomMetadata != null && task.CustomMetadata.HasModifications;
+
+                // 1. Handle Z3DS input (.zcci / .zcxi / .zcia / .z3dsx)
+                if (Z3dsService.TryReadHeaderAndMetadata(inputPath, out var inZhdr, out _, out _))
+                {
+                    string inPlainExt = inZhdr.RecommendedPlainExtension.TrimStart('.');
+                    bool isDirectPlainTarget = !spec.WantZ3ds && !spec.IsDualCia && !spec.IsDualZcci && !hasSmdhEdit &&
+                        ((inPlainExt == "cci" && (spec.PlainExt == "3ds" || spec.PlainExt == "cci")) || inPlainExt == spec.PlainExt);
+
+                    if (isDirectPlainTarget)
+                    {
+                        string directOutExt = spec.PlainExt == "cci" ? "cci" : (inPlainExt == "cci" ? "3ds" : inPlainExt);
+                        string directOutPath = Path.Combine(outputFolder, baseOutName + "." + directOutExt);
+                        await Z3dsService.DecompressZ3dsAsync(inputPath, directOutPath, task, cancellationToken);
+                        return;
+                    }
+
+                    decTemp = Path.Combine(Path.GetTempPath(), $"Storm3DS_Z3Decomp_{Guid.NewGuid():N}");
+                    Directory.CreateDirectory(decTemp);
+                    TempCleanupService.RegisterActiveTempDirectory(decTemp);
+                    string decompPlainPath = Path.Combine(decTemp, baseOutName + inZhdr.RecommendedPlainExtension);
+                    await Z3dsService.DecompressZ3dsAsync(inputPath, decompPlainPath, task, cancellationToken);
+                    inputPath = decompPlainPath;
+                }
+
+                string inExt = Path.GetExtension(inputPath).ToLowerInvariant().TrimStart('.');
+
+                // 2. Direct Homebrew 3DSX path (does not require makerom)
+                if (inExt == "3dsx")
+                {
+                    if (spec.WantZ3ds && spec.Z3dsExt == ".z3dsx")
+                    {
+                        string z3dsxPath = Path.Combine(outputFolder, baseOutName + ".z3dsx");
+                        await Z3dsService.CompressToZ3dsAsync(inputPath, z3dsxPath, compLvl, 0, null, task, cancellationToken);
+                        return;
+                    }
+                    if (!spec.WantZ3ds && !spec.IsDualCia && !spec.IsDualZcci && (spec.PlainExt == "3dsx" || spec.PlainExt == "3ds"))
+                    {
+                        string plain3dsxOut = Path.Combine(outputFolder, baseOutName + ".3dsx");
+                        if (!string.Equals(Path.GetFullPath(inputPath), Path.GetFullPath(plain3dsxOut), StringComparison.OrdinalIgnoreCase))
+                        {
+                            File.Copy(inputPath, plain3dsxOut, overwrite: true);
+                        }
+                        long sz3dsx = new FileInfo(plain3dsxOut).Length;
+                        App.RunOnUI(() =>
+                        {
+                            task.Progress = 100;
+                            task.Status = "Успешно";
+                            task.IsRunning = false;
+                            task.TargetSize = ProcessingTask.FormatSize(sz3dsx);
+                            task.LogDetails += $"\n✅ [Готово] Сохранен: {Path.GetFileName(plain3dsxOut)} ({task.TargetSize})";
+                        });
+                        return;
+                    }
+                    throw new InvalidOperationException("Homebrew .3DSX можно сжать в .Z3DSX или оставить в .3DSX (конвертация в NCSD/CIA не поддерживается).");
+                }
+
+                if (spec.PlainExt == "3dsx")
+                {
+                    throw new InvalidOperationException($"Нельзя конвертировать контейнер {inExt.ToUpperInvariant()} в .3DSX / .Z3DSX.");
+                }
+
+                // 3. Direct same-container Z3DS compression (fast path: auto-decrypt + auto-trim + Zstd seekable)
+                bool isMatchingPlainToZ3ds = !spec.IsDualCia && (spec.WantZ3ds || spec.IsDualZcci) && !hasBannerAudioEdit &&
+                    (((inExt == "3ds" || inExt == "cci") && spec.Z3dsExt == ".zcci") ||
+                     (inExt == "cia" && spec.Z3dsExt == ".zcia") ||
+                     ((inExt == "cxi" || inExt == "cfa") && spec.Z3dsExt == ".zcxi"));
+
+                if (isMatchingPlainToZ3ds)
+                {
+                    string workingPlain = inputPath;
+                    if (Nintendo3dsCryptoService.Is3dsFileEncrypted(workingPlain))
+                    {
+                        decTemp ??= Path.Combine(Path.GetTempPath(), $"Storm3DS_DecConv_{Guid.NewGuid():N}");
+                        Directory.CreateDirectory(decTemp);
+                        TempCleanupService.RegisterActiveTempDirectory(decTemp);
+                        workingPlain = await Nintendo3dsCryptoService.EnsureDecrypted3dsFileAsync(workingPlain, decTemp, task, cancellationToken);
+                    }
+
+                    if (spec.IsDualZcci)
+                    {
+                        string target3ds = Path.Combine(outputFolder, baseOutName + ".3ds");
+                        string targetZcci = Path.Combine(outputFolder, baseOutName + ".zcci");
+                        if (!string.Equals(Path.GetFullPath(workingPlain), Path.GetFullPath(target3ds), StringComparison.OrdinalIgnoreCase))
+                        {
+                            File.Copy(workingPlain, target3ds, overwrite: true);
+                        }
+                        if (hasSmdhEdit)
+                        {
+                            IconBadgeStudioService.Patch3dsSmdhInPlace(target3ds, task.CustomMetadata!);
+                        }
+                        SmartShrinkService.Trim3dsCardImage(target3ds, task);
+                        await Z3dsService.CompressToZ3dsAsync(target3ds, targetZcci, compLvl, 0, null, task, cancellationToken);
+
+                        long s3ds = File.Exists(target3ds) ? new FileInfo(target3ds).Length : 0;
+                        long sZcci = File.Exists(targetZcci) ? new FileInfo(targetZcci).Length : 0;
+                        App.RunOnUI(() =>
+                        {
+                            task.Progress = 100;
+                            task.Status = "Успешно";
+                            task.IsRunning = false;
+                            task.TargetSize = $"{ProcessingTask.FormatSize(s3ds)} / {ProcessingTask.FormatSize(sZcci)}";
+                            task.LogDetails += $"\n📦 [Форматы 3DS + ZCCI] Сохранены оба файла:\n  • {Path.GetFileName(target3ds)} ({ProcessingTask.FormatSize(s3ds)})\n  • {Path.GetFileName(targetZcci)} ({ProcessingTask.FormatSize(sZcci)})";
+                        });
+                        return;
+                    }
+
+                    if (hasSmdhEdit)
+                    {
+                        decTemp ??= Path.Combine(Path.GetTempPath(), $"Storm3DS_DecConv_{Guid.NewGuid():N}");
+                        Directory.CreateDirectory(decTemp);
+                        TempCleanupService.RegisterActiveTempDirectory(decTemp);
+                        string patchedCopy = Path.Combine(decTemp, "patched_" + Path.GetFileName(workingPlain));
+                        File.Copy(workingPlain, patchedCopy, overwrite: true);
+                        IconBadgeStudioService.Patch3dsSmdhInPlace(patchedCopy, task.CustomMetadata!);
+                        workingPlain = patchedCopy;
+                    }
+
+                    string finalZ3dsOut = Path.Combine(outputFolder, baseOutName + spec.Z3dsExt);
+                    await Z3dsService.CompressToZ3dsAsync(workingPlain, finalZ3dsOut, compLvl, 0, null, task, cancellationToken);
+                    return;
+                }
+
+                // 4. General conversion / cross-container conversion via makerom
+                string makerom = GetMakeromPath();
+                if (!File.Exists(makerom)) throw new FileNotFoundException($"makerom не найден: {makerom}");
+
+                string outExt = spec.PlainExt;
+                string outFileName = baseOutName + "." + outExt;
+                string plainWorkOutPath = (spec.WantZ3ds && !spec.IsDualZcci)
+                    ? Path.Combine(Path.GetTempPath(), $"Storm3DS_ConvOut_{Guid.NewGuid():N}.{outExt}")
+                    : Path.Combine(outputFolder, outFileName);
+
+                if (hasBannerAudioEdit)
+                {
+                    await Build3dsMultiContentAsync(task, new List<string> { inputPath }, Path.Combine(outputFolder, baseOutName + "." + outExt), targetFormat, cancellationToken, forceRebuild: true);
+                    return;
+                }
+
                 if (Nintendo3dsCryptoService.Is3dsFileEncrypted(inputPath))
                 {
-                    decTemp = Path.Combine(Path.GetTempPath(), $"Storm3DS_DecConv_{Guid.NewGuid():N}");
+                    decTemp ??= Path.Combine(Path.GetTempPath(), $"Storm3DS_DecConv_{Guid.NewGuid():N}");
                     Directory.CreateDirectory(decTemp);
                     TempCleanupService.RegisterActiveTempDirectory(decTemp);
                     inputPath = await Nintendo3dsCryptoService.EnsureDecrypted3dsFileAsync(inputPath, decTemp, task, cancellationToken);
@@ -1247,18 +1521,18 @@ namespace StormSwitchBox.Services
                 {
                     task.IsRunning = true;
                     task.Progress = 30;
-                    task.Status = $"Конвертация {inExt.ToUpper()} -> {targetFormat}...";
+                    task.Status = $"Конвертация {inExt.ToUpperInvariant()} -> {targetFormat}...";
                     task.LogDetails += $"\n🔄 [3DS Convert] Конвертация {Path.GetFileName(inputPath)} -> {targetFormat}...";
                 });
 
-                if (isDual3ds)
+                if (spec.IsDualCia)
                 {
-                    string target3ds = Path.Combine(outputFolder, Path.GetFileNameWithoutExtension(inputPath) + ".3ds");
-                    string targetCia = Path.Combine(outputFolder, Path.GetFileNameWithoutExtension(inputPath) + ".cia");
+                    string target3ds = Path.Combine(outputFolder, baseOutName + ".3ds");
+                    string targetCia = Path.Combine(outputFolder, baseOutName + ".cia");
 
                     if (inExt == "3ds" || inExt == "cci")
                     {
-                        if (!string.Equals(inputPath, target3ds, StringComparison.OrdinalIgnoreCase))
+                        if (!string.Equals(Path.GetFullPath(inputPath), Path.GetFullPath(target3ds), StringComparison.OrdinalIgnoreCase))
                         {
                             File.Copy(inputPath, target3ds, overwrite: true);
                         }
@@ -1270,7 +1544,7 @@ namespace StormSwitchBox.Services
                     }
                     else if (inExt == "cia")
                     {
-                        if (!string.Equals(inputPath, targetCia, StringComparison.OrdinalIgnoreCase))
+                        if (!string.Equals(Path.GetFullPath(inputPath), Path.GetFullPath(targetCia), StringComparison.OrdinalIgnoreCase))
                         {
                             File.Copy(inputPath, targetCia, overwrite: true);
                         }
@@ -1305,61 +1579,82 @@ namespace StormSwitchBox.Services
                     return;
                 }
 
-                bool isSameFormat = (inExt == outExt) || (inExt == "cci" && outExt == "3ds");
-                if (isSameFormat)
+                try
                 {
-                    if (!string.Equals(Path.GetFullPath(inputPath), Path.GetFullPath(outPath), StringComparison.OrdinalIgnoreCase))
+                    bool isSameFormat = (inExt == outExt) || (inExt == "cci" && outExt == "3ds") || (inExt == "3ds" && outExt == "cci");
+                    if (isSameFormat)
                     {
-                        File.Copy(inputPath, outPath, overwrite: true);
+                        if (!string.Equals(Path.GetFullPath(inputPath), Path.GetFullPath(plainWorkOutPath), StringComparison.OrdinalIgnoreCase))
+                        {
+                            File.Copy(inputPath, plainWorkOutPath, overwrite: true);
+                        }
                     }
-                }
-                else if ((inExt == "3ds" || inExt == "cci") && outExt == "cia")
-                {
-                    try { await RunProcessAsync(makerom, $"-ccitocia \"{inputPath}\" -o \"{outPath}\"", outputFolder, cancellationToken); } catch { }
-                    if (!File.Exists(outPath))
+                    else if ((inExt == "3ds" || inExt == "cci") && outExt == "cia")
                     {
-                        try { await RunProcessAsync(makerom, $"-ccitocia \"{inputPath}\" \"{outPath}\"", outputFolder, cancellationToken); } catch { }
+                        try { await RunProcessAsync(makerom, $"-ccitocia \"{inputPath}\" -o \"{plainWorkOutPath}\"", outputFolder, cancellationToken); } catch { }
+                        if (!File.Exists(plainWorkOutPath))
+                        {
+                            try { await RunProcessAsync(makerom, $"-ccitocia \"{inputPath}\" \"{plainWorkOutPath}\"", outputFolder, cancellationToken); } catch { }
+                        }
                     }
-                }
-                else if (inExt == "cia" && (outExt == "3ds" || outExt == "cci"))
-                {
-                    try { await RunProcessAsync(makerom, $"-ciatocci \"{inputPath}\" -o \"{outPath}\"", outputFolder, cancellationToken); } catch { }
-                    if (!File.Exists(outPath))
+                    else if (inExt == "cia" && (outExt == "3ds" || outExt == "cci"))
                     {
-                        try { await RunProcessAsync(makerom, $"-ciatocci \"{inputPath}\" \"{outPath}\"", outputFolder, cancellationToken); } catch { }
+                        try { await RunProcessAsync(makerom, $"-ciatocci \"{inputPath}\" -o \"{plainWorkOutPath}\"", outputFolder, cancellationToken); } catch { }
+                        if (!File.Exists(plainWorkOutPath))
+                        {
+                            try { await RunProcessAsync(makerom, $"-ciatocci \"{inputPath}\" \"{plainWorkOutPath}\"", outputFolder, cancellationToken); } catch { }
+                        }
                     }
-                }
 
-                if (!File.Exists(outPath))
-                {
-                    // Fallback to full extraction & rebuild (handles CXI -> 3DS/CIA, 3DS/CIA -> CXI, and non-standard headers)
-                    await Build3dsMultiContentAsync(task, new List<string> { inputPath }, outPath, targetFormat, cancellationToken, forceRebuild: true);
-                    return;
-                }
-
-                if (File.Exists(outPath))
-                {
-                    if (task.CustomMetadata != null && task.CustomMetadata.HasModifications)
+                    if (!File.Exists(plainWorkOutPath))
                     {
-                        IconBadgeStudioService.Patch3dsSmdhInPlace(outPath, task.CustomMetadata);
+                        await Build3dsMultiContentAsync(task, new List<string> { inputPath }, Path.Combine(outputFolder, outFileName), targetFormat, cancellationToken, forceRebuild: true);
+                        return;
+                    }
+
+                    if (hasSmdhEdit)
+                    {
+                        IconBadgeStudioService.Patch3dsSmdhInPlace(plainWorkOutPath, task.CustomMetadata!);
                     }
                     if (outExt == "3ds" || outExt == "cci")
                     {
-                        SmartShrinkService.Trim3dsCardImage(outPath, task);
+                        SmartShrinkService.Trim3dsCardImage(plainWorkOutPath, task);
                     }
-                    long finalSize = new FileInfo(outPath).Length;
-                    App.RunOnUI(() =>
+
+                    if (spec.WantZ3ds || spec.IsDualZcci)
                     {
-                        task.Progress = 100;
-                        task.Status = "Успешно";
-                        task.IsRunning = false;
-                        task.TargetSize = ProcessingTask.FormatSize(finalSize);
-                        task.LogDetails += $"\n✅ [Готово] Сохранен: {outFileName} ({task.TargetSize})";
-                    });
+                        string finalZ3dsPath = Path.Combine(outputFolder, baseOutName + spec.Z3dsExt);
+                        await Z3dsService.CompressToZ3dsAsync(plainWorkOutPath, finalZ3dsPath, compLvl, 0, null, task, cancellationToken);
+                        if (spec.IsDualZcci && File.Exists(finalZ3dsPath))
+                        {
+                            long s3ds = new FileInfo(plainWorkOutPath).Length;
+                            long sZcci = new FileInfo(finalZ3dsPath).Length;
+                            App.RunOnUI(() =>
+                            {
+                                task.TargetSize = $"{ProcessingTask.FormatSize(s3ds)} / {ProcessingTask.FormatSize(sZcci)}";
+                                task.LogDetails += $"\n📦 [Форматы 3DS + ZCCI] Сохранены оба файла:\n  • {Path.GetFileName(plainWorkOutPath)} ({ProcessingTask.FormatSize(s3ds)})\n  • {Path.GetFileName(finalZ3dsPath)} ({ProcessingTask.FormatSize(sZcci)})";
+                            });
+                        }
+                    }
+                    else
+                    {
+                        long finalSize = new FileInfo(plainWorkOutPath).Length;
+                        App.RunOnUI(() =>
+                        {
+                            task.Progress = 100;
+                            task.Status = "Успешно";
+                            task.IsRunning = false;
+                            task.TargetSize = ProcessingTask.FormatSize(finalSize);
+                            task.LogDetails += $"\n✅ [Готово] Сохранен: {outFileName} ({task.TargetSize})";
+                        });
+                    }
                 }
-                else
+                finally
                 {
-                    throw new Exception($"Конвертация 3DS завершилась с ошибкой. Выходной файл не создан.");
+                    if (spec.WantZ3ds && !spec.IsDualZcci && File.Exists(plainWorkOutPath))
+                    {
+                        try { File.Delete(plainWorkOutPath); } catch { }
+                    }
                 }
             }
             finally
@@ -1377,6 +1672,15 @@ namespace StormSwitchBox.Services
             string outputBaseFolder,
             CancellationToken cancellationToken)
         {
+            if (Z3dsService.TryReadHeaderAndMetadata(inputPath, out var zHdr, out _, out _) &&
+                zHdr.UnderlyingMagicString == "3DSX")
+            {
+                if (!Directory.Exists(outputBaseFolder)) Directory.CreateDirectory(outputBaseFolder);
+                string out3dsx = Path.Combine(outputBaseFolder, Path.GetFileNameWithoutExtension(inputPath) + ".3dsx");
+                await Z3dsService.DecompressZ3dsAsync(inputPath, out3dsx, task, cancellationToken);
+                return;
+            }
+
             string ctrtool = GetCtrtoolPath();
             if (!File.Exists(ctrtool)) throw new FileNotFoundException($"ctrtool не найден: {ctrtool}");
 
@@ -1425,24 +1729,24 @@ namespace StormSwitchBox.Services
             if (!File.Exists(makerom)) throw new FileNotFoundException($"makerom не найден: {makerom}");
 
             string targetFormat = task.TargetFormat ?? "3DS";
-            bool isDual3ds = string.Equals(targetFormat, "3DS + CIA", StringComparison.OrdinalIgnoreCase);
-            string outExt = targetFormat.ToLowerInvariant().Replace(" (cci)", "").Trim();
-            if (outExt == "3ds" || outExt == "cci" || isDual3ds) outExt = "3ds";
-            else if (outExt == "cia") outExt = "cia";
-            else outExt = "cxi";
+            var spec = Resolve3dsTargetSpec(targetFormat);
+            if (spec.PlainExt == "3dsx")
+                throw new InvalidOperationException("Упаковка из папки в Homebrew .3DSX / .Z3DSX через makerom не поддерживается.");
 
-            string outName = string.IsNullOrEmpty(outputFileName) ? Path.GetFileName(inputFolder) : outputFileName;
-            if (!outName.EndsWith("." + outExt, StringComparison.OrdinalIgnoreCase))
-            {
-                outName = Path.ChangeExtension(outName, "." + outExt);
-            }
+            string outExt = spec.PlainExt;
+            string rawBase = string.IsNullOrEmpty(outputFileName) ? Path.GetFileName(inputFolder) : Path.GetFileNameWithoutExtension(outputFileName);
+            if (string.IsNullOrWhiteSpace(rawBase)) rawBase = Path.GetFileName(inputFolder);
 
-            string outPath = Path.Combine(outputBaseFolder, outName);
+            string outName = rawBase + "." + outExt;
             if (!Directory.Exists(outputBaseFolder)) Directory.CreateDirectory(outputBaseFolder);
 
             string tempDir = Path.Combine(Path.GetTempPath(), $"Storm3DS_Pack_{Guid.NewGuid():N}");
             Directory.CreateDirectory(tempDir);
             TempCleanupService.RegisterActiveTempDirectory(tempDir);
+
+            string workOutPath = (spec.WantZ3ds && !spec.IsDualZcci)
+                ? Path.Combine(tempDir, "pack_intermediate." + outExt)
+                : Path.Combine(outputBaseFolder, outName);
 
             try
             {
@@ -1450,11 +1754,11 @@ namespace StormSwitchBox.Services
                 {
                     task.IsRunning = true;
                     task.Progress = 20;
-                    task.Status = $"Сборка {outExt.ToUpper()}...";
-                    task.LogDetails += $"\n🔨 [3DS Pack] Упаковка из папки {inputFolder} в {outName}...";
+                    task.Status = $"Сборка {targetFormat}...";
+                    task.LogDetails += $"\n🔨 [3DS Pack] Упаковка из папки {inputFolder} в {rawBase}{(spec.WantZ3ds ? spec.Z3dsExt : "." + outExt)}...";
                 });
 
-                var meta = new Nintendo3dsInfo { GameName = Path.GetFileNameWithoutExtension(outName) };
+                var meta = new Nintendo3dsInfo { GameName = rawBase };
                 string iconPath = Path.Combine(inputFolder, "exefs", "icon.bin");
                 if (File.Exists(iconPath) && new FileInfo(iconPath).Length >= 0x36C0)
                 {
@@ -1467,12 +1771,29 @@ namespace StormSwitchBox.Services
                     task,
                     inputFolder,
                     tempDir,
-                    outPath,
+                    workOutPath,
                     outExt,
-                    isDual3ds,
+                    spec.IsDualCia,
                     meta,
                     null,
                     cancellationToken);
+
+                if ((spec.WantZ3ds || spec.IsDualZcci) && File.Exists(workOutPath))
+                {
+                    string finalZ3dsPath = Path.Combine(outputBaseFolder, rawBase + spec.Z3dsExt);
+                    int compLvl = Resolve3dsCompressionLevel(task);
+                    await Z3dsService.CompressToZ3dsAsync(workOutPath, finalZ3dsPath, compLvl, 0, null, task, cancellationToken);
+                    if (spec.IsDualZcci && File.Exists(finalZ3dsPath))
+                    {
+                        long sPlain = new FileInfo(workOutPath).Length;
+                        long sZcci = new FileInfo(finalZ3dsPath).Length;
+                        App.RunOnUI(() =>
+                        {
+                            task.TargetSize = $"{ProcessingTask.FormatSize(sPlain)} / {ProcessingTask.FormatSize(sZcci)}";
+                            task.LogDetails += $"\n📦 [Форматы 3DS + ZCCI] Сохранены оба файла:\n  • {Path.GetFileName(workOutPath)} ({ProcessingTask.FormatSize(sPlain)})\n  • {Path.GetFileName(finalZ3dsPath)} ({ProcessingTask.FormatSize(sZcci)})";
+                        });
+                    }
+                }
             }
             finally
             {

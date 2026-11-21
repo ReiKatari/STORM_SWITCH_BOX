@@ -121,7 +121,7 @@ namespace StormSwitchBox.Views.Dialogs
             {
                 string? path = await SystemDialogService.OpenFileDialogAsync(
                     "Выберите игровой образ Switch / 3DS",
-                    "Игровые контейнеры (*.nsp;*.nsz;*.xci;*.xcz;*.nca;*.3ds;*.cci;*.cia;*.cxi)|*.nsp;*.nsz;*.xci;*.xcz;*.nca;*.3ds;*.cci;*.cia;*.cxi|Все файлы (*.*)|*.*");
+                    "Игровые контейнеры (*.nsp;*.nsz;*.xci;*.xcz;*.nca;*.3ds;*.cci;*.cia;*.cxi;*.3dsx;*.zcci;*.zcxi;*.zcia;*.z3dsx)|*.nsp;*.nsz;*.xci;*.xcz;*.nca;*.3ds;*.cci;*.cia;*.cxi;*.3dsx;*.zcci;*.zcxi;*.zcia;*.z3dsx|Все файлы (*.*)|*.*");
                 if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
                 {
                     await LoadContainerAsync(path);

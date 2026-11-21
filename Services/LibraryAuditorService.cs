@@ -38,7 +38,7 @@ namespace StormSwitchBox.Services
     {
         private static readonly HashSet<string> SupportedExts = new(StringComparer.OrdinalIgnoreCase)
         {
-            ".nsp", ".nsz", ".xci", ".xcz", ".3ds", ".cci", ".cia", ".cxi"
+            ".nsp", ".nsz", ".xci", ".xcz", ".3ds", ".cci", ".cia", ".cxi", ".3dsx", ".zcci", ".zcxi", ".zcia", ".z3dsx"
         };
 
         public static async Task<LibraryAuditReport> ScanLibraryFolderAsync(

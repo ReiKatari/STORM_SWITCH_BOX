@@ -1124,12 +1124,19 @@
                             <Grid>
                                 <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
                                     <TextBlock x:Name="ThreeDsFormatTitleTxt" Text="Выходной формат 3DS по умолчанию" FontWeight="Medium"/>
-                                    <TextBlock x:Name="ThreeDsFormatDescTxt" Text="Формат по умолчанию для конвертации и сборки (.3ds / .cci для эмуляторов Citra/Lime3DS, .cia для установки)" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                    <TextBlock x:Name="ThreeDsFormatDescTxt" Text="Формат по умолчанию для конвертации и сборки (.3ds / .cci / сжатые Azahar Z3DS: .zcci, .zcia, .zcxi, .z3dsx, или .cia)" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
                                 </StackPanel>
-                                <ComboBox x:Name="Format3dsCombo" HorizontalAlignment="Right" Width="300" SelectionChanged="Format3dsCombo_SelectionChanged" VerticalAlignment="Center">
+                                <ComboBox x:Name="Format3dsCombo" HorizontalAlignment="Right" Width="320" SelectionChanged="Format3dsCombo_SelectionChanged" VerticalAlignment="Center">
                                     <ComboBoxItem Content="3DS (CCI - для эмуляторов)" Tag="3DS"/>
                                     <ComboBoxItem Content="CIA (Установочный пакет)" Tag="CIA"/>
                                     <ComboBoxItem Content="CXI (Исполняемый NCCH)" Tag="CXI"/>
+                                    <ComboBoxItem Content="3DS + CIA (Двойной вывод)" Tag="3DS + CIA"/>
+                                    <ComboBoxItem Content="ZCCI (Сжатый картридж Azahar Z3DS)" Tag="ZCCI"/>
+                                    <ComboBoxItem Content="ZCIA (Сжатый пакет CIA Z3DS)" Tag="ZCIA"/>
+                                    <ComboBoxItem Content="ZCXI (Сжатый NCCH Z3DS)" Tag="ZCXI"/>
+                                    <ComboBoxItem Content="Z3DSX (Сжатый Homebrew Z3DS)" Tag="Z3DSX"/>
+                                    <ComboBoxItem Content="Z3DS (Автовыбор по исходнику)" Tag="Z3DS (Авто)"/>
+                                    <ComboBoxItem Content="3DS + ZCCI (Двойной вывод)" Tag="3DS + ZCCI"/>
                                 </ComboBox>
                             </Grid>
 
@@ -1140,7 +1147,7 @@
                                 <Grid>
                                     <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,16,0">
                                         <TextBlock x:Name="ThreeDsWatchTitleTxt" Text="«Умная» папка Nintendo 3DS" FontWeight="Medium"/>
-                                        <TextBlock x:Name="ThreeDsWatchDescTxt" Text="Автоматически обнаруживает файлы 3DS (.3ds, .cci, .cia, .cxi, архивы .zip, .rar, .7z) и отправляет в задачи" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                        <TextBlock x:Name="ThreeDsWatchDescTxt" Text="Автоматически обнаруживает файлы 3DS (.3ds, .cci, .cia, .cxi, .3dsx, Z3DS: .zcci/.zcxi/.zcia/.z3dsx, архивы .zip, .rar, .7z) и отправляет в задачи" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
                                     </StackPanel>
                                     <ToggleSwitch x:Name="WatchFolder3dsToggle" HorizontalAlignment="Right" IsOn="{x:Bind Settings.EnableWatchFolder3ds, Mode=TwoWay}" Toggled="WatchFolder3dsToggle_Toggled" VerticalAlignment="Center"/>
                                 </Grid>
@@ -1177,10 +1184,15 @@
                                             <ComboBoxItem Content="Проверка" Tag="4"/>
                                         </ComboBox>
 
-                                        <ComboBox x:Name="WatchFolderFormatCombo3ds" Grid.Column="2" Width="90" Margin="0,0,12,0" SelectionChanged="WatchFolderFormatCombo3ds_SelectionChanged" VerticalAlignment="Center">
+                                        <ComboBox x:Name="WatchFolderFormatCombo3ds" Grid.Column="2" Width="125" Margin="0,0,12,0" SelectionChanged="WatchFolderFormatCombo3ds_SelectionChanged" VerticalAlignment="Center">
                                             <ComboBoxItem Content="3DS" Tag="0"/>
                                             <ComboBoxItem Content="CIA" Tag="1"/>
                                             <ComboBoxItem Content="CXI" Tag="2"/>
+                                            <ComboBoxItem Content="ZCCI" Tag="3"/>
+                                            <ComboBoxItem Content="ZCIA" Tag="4"/>
+                                            <ComboBoxItem Content="ZCXI" Tag="5"/>
+                                            <ComboBoxItem Content="Z3DSX" Tag="6"/>
+                                            <ComboBoxItem Content="Z3DS (Авто)" Tag="7"/>
                                         </ComboBox>
 
                                         <Button x:Name="ToggleWatchFolder3dsBtn" Grid.Column="3" Content="▶ Запустить отслеживание" Click="ToggleWatchFolder3dsBtn_Click" 
@@ -1200,7 +1212,7 @@
                                 </Grid.RowDefinitions>
                                 <StackPanel Grid.Row="0" Margin="0,0,0,8" Spacing="2">
                                     <TextBlock x:Name="ThreeDsOutFolderTitleTxt" Text="Выходная папка 3DS по умолчанию" FontWeight="Medium" VerticalAlignment="Center"/>
-                                    <TextBlock x:Name="ThreeDsOutFolderDescTxt" Text="Папка для сохранения обработанных файлов 3DS (.3ds / .cia / .cxi). Можно перетащить папку сюда" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
+                                    <TextBlock x:Name="ThreeDsOutFolderDescTxt" Text="Папка для сохранения обработанных файлов 3DS (.3ds / .cia / .cxi / .zcci / .zcia / .zcxi / .z3dsx). Можно перетащить папку сюда" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextWrapping="Wrap"/>
                                 </StackPanel>
                                 <Grid Grid.Row="1" AllowDrop="True" DragOver="OutputFolderBox3ds_DragOver" Drop="OutputFolderBox3ds_Drop">
                                     <Grid.ColumnDefinitions>

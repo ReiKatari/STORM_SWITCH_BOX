@@ -79,9 +79,16 @@ namespace StormSwitchBox.Views
 
             // 3DS Format combo initialization
             string f3ds = App.Settings.Current.DefaultFormat3ds ?? "3DS";
-            if (f3ds == "CIA") Format3dsCombo.SelectedIndex = 1;
-            else if (f3ds == "CXI") Format3dsCombo.SelectedIndex = 2;
-            else Format3dsCombo.SelectedIndex = 0;
+            int matchedF3dsIdx = 0;
+            for (int i = 0; i < Format3dsCombo.Items.Count; i++)
+            {
+                if (Format3dsCombo.Items[i] is ComboBoxItem cbi && string.Equals(cbi.Tag?.ToString(), f3ds, StringComparison.OrdinalIgnoreCase))
+                {
+                    matchedF3dsIdx = i;
+                    break;
+                }
+            }
+            Format3dsCombo.SelectedIndex = matchedF3dsIdx;
 
             // AccentColor combo initialization
             string color = App.Settings.Current.AccentColorTheme ?? "Default";
@@ -121,7 +128,7 @@ namespace StormSwitchBox.Views
             else WatchFolderActionCombo3ds.SelectedIndex = 0;
 
             int wfFormat3ds = App.Settings.Current.WatchFolderFormat3ds;
-            if (wfFormat3ds >= 0 && wfFormat3ds <= 2) WatchFolderFormatCombo3ds.SelectedIndex = wfFormat3ds;
+            if (wfFormat3ds >= 0 && wfFormat3ds <= 7) WatchFolderFormatCombo3ds.SelectedIndex = wfFormat3ds;
             else WatchFolderFormatCombo3ds.SelectedIndex = 0;
 
             // Language combo initialization
@@ -694,7 +701,7 @@ namespace StormSwitchBox.Views
 
             try
             {
-                string[] supportedExts = { ".3ds", ".cci", ".cia", ".cxi", ".cfa" };
+                string[] supportedExts = { ".3ds", ".cci", ".cia", ".cxi", ".cfa", ".3dsx", ".zcci", ".zcxi", ".zcia", ".z3dsx", ".z3ds" };
                 int totalTasks = 0;
 
                 var rootFiles = new System.Collections.Generic.List<string>();
@@ -709,8 +716,11 @@ namespace StormSwitchBox.Views
                 }
 
                 string[] pageTypes3ds = { "Convert", "Unpack", "Pack", "Multi", "Verify" };
+                string[] watchFormats3ds = { "3DS", "CIA", "CXI", "ZCCI", "ZCIA", "ZCXI", "Z3DSX", "Z3DS (Авто)" };
                 int actIdx3ds = Math.Clamp(settings.WatchFolderAction3ds, 0, pageTypes3ds.Length - 1);
-                int fmtIdx3ds = Math.Clamp(settings.WatchFolderFormat3ds, 0, 2);
+                int wfIdx3ds = Math.Clamp(settings.WatchFolderFormat3ds, 0, watchFormats3ds.Length - 1);
+                int fmtIdx3ds = Array.IndexOf(ViewModels.TasksViewModel.FormatNames3ds, watchFormats3ds[wfIdx3ds]);
+                if (fmtIdx3ds < 0) fmtIdx3ds = 0;
                 string pageType3ds = pageTypes3ds[actIdx3ds];
 
                 if (rootFiles.Count > 0)
@@ -1417,10 +1427,12 @@ namespace StormSwitchBox.Views
                 if (Format3dsCombo?.SelectedItem is ComboBoxItem item && item.Tag is string tagStr)
                 {
                     App.Settings.Current.DefaultFormat3ds = tagStr;
-                    App.Settings.Current.SelectedFormatIndex3ds = Format3dsCombo.SelectedIndex;
+                    int vmFmtIdx = Array.IndexOf(ViewModels.TasksViewModel.FormatNames3ds, tagStr);
+                    if (vmFmtIdx < 0) vmFmtIdx = Format3dsCombo.SelectedIndex;
+                    App.Settings.Current.SelectedFormatIndex3ds = vmFmtIdx;
                     if (App.TasksVM != null)
                     {
-                        App.TasksVM.SelectedFormatIndex3ds = Format3dsCombo.SelectedIndex;
+                        App.TasksVM.SelectedFormatIndex3ds = vmFmtIdx;
                     }
                     await App.Settings.SaveAsync();
                 }

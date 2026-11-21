@@ -191,8 +191,69 @@ namespace StormSwitchBox.Services
         {
             try
             {
-                using var fs = new FileStream(containerPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-                using var br = new BinaryReader(fs);
+                using Stream fs = Z3dsService.OpenTransparentReadStream(containerPath);
+                using var br = new BinaryReader(fs, Encoding.ASCII, leaveOpen: true);
+
+                if (fs.Length >= 0x20)
+                {
+                    fs.Position = 0;
+                    byte[] magic0 = br.ReadBytes(4);
+                    if (magic0.Length == 4 && magic0[0] == (byte)'3' && magic0[1] == (byte)'D' && magic0[2] == (byte)'S' && magic0[3] == (byte)'X')
+                    {
+                        ushort hdrSize3dsx = br.ReadUInt16();
+                        results.Add(new VirtualArchiveEntry
+                        {
+                            Name = "3dsx_header.bin",
+                            FullPath = "/3dsx_header.bin",
+                            Section = "Homebrew",
+                            Size = hdrSize3dsx,
+                            TitleId = "3DSX",
+                            Is3dsDirectSlice = true,
+                            SliceOffset = 0,
+                            SliceLength = Math.Min((long)hdrSize3dsx, fs.Length)
+                        });
+                        if (hdrSize3dsx >= 0x2C && fs.Length >= 0x2C)
+                        {
+                            fs.Position = 0x20;
+                            uint smdhOff = br.ReadUInt32();
+                            uint smdhLen = br.ReadUInt32();
+                            uint fsOff = br.ReadUInt32();
+                            if (smdhOff > 0 && smdhLen >= 0x36C0 && (long)smdhOff + smdhLen <= fs.Length)
+                            {
+                                results.Add(new VirtualArchiveEntry
+                                {
+                                    Name = "icon.smdh",
+                                    FullPath = "/control/icon.smdh",
+                                    Section = "Control",
+                                    Size = smdhLen,
+                                    TitleId = "3DSX",
+                                    Is3dsDirectSlice = true,
+                                    SliceOffset = smdhOff,
+                                    SliceLength = smdhLen
+                                });
+                            }
+                            if (fsOff > 0 && fsOff < fs.Length)
+                            {
+                                long romfsByteLen = fs.Length - fsOff;
+                                if (!TryParse3dsIvfcRomFs(fs, br, fsOff, romfsByteLen, "3DSX", results))
+                                {
+                                    results.Add(new VirtualArchiveEntry
+                                    {
+                                        Name = "romfs.bin",
+                                        FullPath = "/romfs.bin",
+                                        Section = "RomFS",
+                                        Size = romfsByteLen,
+                                        TitleId = "3DSX",
+                                        Is3dsDirectSlice = true,
+                                        SliceOffset = fsOff,
+                                        SliceLength = romfsByteLen
+                                    });
+                                }
+                            }
+                        }
+                        return;
+                    }
+                }
 
                 long ncchOffset = FindFirstNcchOffset(fs, br);
                 if (ncchOffset >= 0 && ncchOffset + 0x200 <= fs.Length)
@@ -323,7 +384,7 @@ namespace StormSwitchBox.Services
             catch { }
         }
 
-        private static bool TryParse3dsIvfcRomFs(FileStream fs, BinaryReader br, long romfsStart, long romfsLen, string tid, List<VirtualArchiveEntry> results)
+        private static bool TryParse3dsIvfcRomFs(Stream fs, BinaryReader br, long romfsStart, long romfsLen, string tid, List<VirtualArchiveEntry> results)
         {
             try
             {
@@ -431,7 +492,7 @@ namespace StormSwitchBox.Services
             }
         }
 
-        private static long FindFirstNcchOffset(FileStream fs, BinaryReader br)
+        private static long FindFirstNcchOffset(Stream fs, BinaryReader br)
         {
             if (fs.Length >= 0x4200)
             {
@@ -452,7 +513,7 @@ namespace StormSwitchBox.Services
             return FindMagicAt100(fs, "NCCH", 8 * 1024 * 1024);
         }
 
-        private static long FindMagicAt100(FileStream fs, string magic, long maxScan)
+        private static long FindMagicAt100(Stream fs, string magic, long maxScan)
         {
             byte[] buf = new byte[64 * 1024];
             long limit = Math.Min(fs.Length, maxScan);
@@ -471,7 +532,7 @@ namespace StormSwitchBox.Services
             return -1;
         }
 
-        private static long FindMagicInFile(FileStream fs, string magic, long maxScan)
+        private static long FindMagicInFile(Stream fs, string magic, long maxScan)
         {
             byte[] buf = new byte[64 * 1024];
             long limit = Math.Min(fs.Length, maxScan);
@@ -500,7 +561,7 @@ namespace StormSwitchBox.Services
 
                 if (entry.Is3dsDirectSlice)
                 {
-                    using var fs3ds = new FileStream(containerPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                    using Stream fs3ds = Z3dsService.OpenTransparentReadStream(containerPath);
                     if (entry.SliceOffset < 0 || entry.SliceOffset >= fs3ds.Length) return Array.Empty<byte>();
                     long len = entry.SliceLength;
                     if (maxBytes > 0 && len > maxBytes) len = maxBytes;
@@ -627,7 +688,7 @@ namespace StormSwitchBox.Services
 
             if (is3ds)
             {
-                using var srcFs = new FileStream(containerPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                using Stream srcFs = Z3dsService.OpenTransparentReadStream(containerPath);
                 for (int i = 0; i < list.Count; i++)
                 {
                     ct.ThrowIfCancellationRequested();

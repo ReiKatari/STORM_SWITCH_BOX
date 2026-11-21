@@ -68,10 +68,21 @@ namespace StormSwitchBox.Services
 
             try
             {
-                using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                using Stream fs = Z3dsService.OpenTransparentReadStream(filePath);
+                if (fs.Length >= 4)
+                {
+                    byte[] hdr4 = new byte[4];
+                    fs.Seek(0, SeekOrigin.Begin);
+                    fs.ReadExactly(hdr4);
+                    if (hdr4[0] == (byte)'3' && hdr4[1] == (byte)'D' && hdr4[2] == (byte)'S' && hdr4[3] == (byte)'X')
+                    {
+                        details = "Homebrew 3DSX (без шифрования)";
+                        return false;
+                    }
+                }
                 if (fs.Length < 0x200) return false;
 
-                using var reader = new BinaryReader(fs);
+                using var reader = new BinaryReader(fs, Encoding.ASCII, leaveOpen: true);
                 long ncchOffset = LocatePrimaryNcchOffset(fs, reader, out bool ciaContentEncrypted);
 
                 if (ciaContentEncrypted)
@@ -184,6 +195,11 @@ namespace StormSwitchBox.Services
                 try
                 {
                     if (!File.Exists(sourcePath)) return false;
+
+                    if (Z3dsService.IsZ3dsFile(sourcePath) && !Is3dsFileEncrypted(sourcePath))
+                    {
+                        return false;
+                    }
 
                     string? outDir = Path.GetDirectoryName(outputPath);
                     if (!string.IsNullOrEmpty(outDir) && !Directory.Exists(outDir))
@@ -793,7 +809,7 @@ namespace StormSwitchBox.Services
             return sha.Hash ?? new byte[32];
         }
 
-        private static long LocatePrimaryNcchOffset(FileStream fs, BinaryReader reader, out bool ciaContentEncrypted)
+        private static long LocatePrimaryNcchOffset(Stream fs, BinaryReader reader, out bool ciaContentEncrypted)
         {
             ciaContentEncrypted = false;
             fs.Seek(0x100, SeekOrigin.Begin);

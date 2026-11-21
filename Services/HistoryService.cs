@@ -383,8 +383,7 @@ public static string GetDeterministicSourceHash(ProcessingTask task)
                                             f.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) ||
                                             f.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase) ||
                                             f.EndsWith(".nup", StringComparison.OrdinalIgnoreCase) ||
-                                            f.EndsWith(".3ds", StringComparison.OrdinalIgnoreCase) ||
-                                            f.EndsWith(".cia", StringComparison.OrdinalIgnoreCase)));
+                                            Nintendo3dsService.Is3dsExtension(Path.GetExtension(f))));
                         }
                         catch { }
                     }
@@ -463,8 +462,12 @@ public static string GetDeterministicSourceHash(ProcessingTask task)
                         string outXci = Path.Combine(task.OutputFolder, task.OutputFileName + ".xci");
                         string outCia = Path.Combine(task.OutputFolder, task.OutputFileName + ".cia");
                         string out3ds = Path.Combine(task.OutputFolder, task.OutputFileName + ".3ds");
+                        string outZcci = Path.Combine(task.OutputFolder, task.OutputFileName + ".zcci");
+                        string outZcia = Path.Combine(task.OutputFolder, task.OutputFileName + ".zcia");
+                        string outZcxi = Path.Combine(task.OutputFolder, task.OutputFileName + ".zcxi");
+                        string outZ3dsx = Path.Combine(task.OutputFolder, task.OutputFileName + ".z3dsx");
 
-                        string? existingOut = new[] { outNsp, outNsz, outXci, outCia, out3ds }.FirstOrDefault(File.Exists);
+                        string? existingOut = new[] { outNsp, outNsz, outXci, outCia, out3ds, outZcci, outZcia, outZcxi, outZ3dsx }.FirstOrDefault(File.Exists);
                         if (existingOut != null)
                         {
                             if (Nintendo3dsService.Is3dsExtension(Path.GetExtension(existingOut)))

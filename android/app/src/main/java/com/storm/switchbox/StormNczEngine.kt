@@ -829,7 +829,105 @@ object StormNczEngine {
                         return result
                     }
                 }
+                if (isZ3dsFile(file)) {
+                    try {
+                        Z3dsReadHandle(file).use { zhandle ->
+                            val hdr = zhandle.header
+                            result.add(Pfs0Entry("[Z3DS] Header (${hdr.underlyingFormatDisplay}, frames=${zhandle.seekTable.size}, comp=${formatSize(hdr.compressedSize)})", 0L, hdr.compressedSize, hdr.payloadOffset))
+                            val uncompLen = hdr.uncompressedSize
+                            fun readAt(off: Long, sz: Int): ByteArray = zhandle.readAt(off, sz)
+                            if (hdr.underlyingMagicStr == "3DSX") {
+                                result.add(Pfs0Entry("[3DSX] Homebrew Executable", 0L, uncompLen, 0L))
+                                if (uncompLen >= 0x2CL) {
+                                    val hb = readAt(0L, 0x2C)
+                                    val hbb = ByteBuffer.wrap(hb).order(ByteOrder.LITTLE_ENDIAN)
+                                    val hdrSz = hbb.getShort(4).toInt() and 0xFFFF
+                                    if (hdrSz >= 0x2C) {
+                                        val smdhOff = hbb.getInt(0x20).toLong() and 0xFFFFFFFFL
+                                        val smdhLen = hbb.getInt(0x24).toLong() and 0xFFFFFFFFL
+                                        val fsOff = hbb.getInt(0x28).toLong() and 0xFFFFFFFFL
+                                        if (smdhOff > 0L && smdhLen >= 0x36C0L && smdhOff + smdhLen <= uncompLen) {
+                                            result.add(Pfs0Entry("[3DSX] icon.smdh", smdhOff, smdhLen, smdhOff))
+                                        }
+                                        if (fsOff > 0L && fsOff < uncompLen) {
+                                            result.add(Pfs0Entry("[3DSX] romfs.bin", fsOff, uncompLen - fsOff, fsOff))
+                                        }
+                                    }
+                                }
+                                return result
+                            } else if (hdr.underlyingMagicStr == "NCSD" && uncompLen > 0x200L) {
+                                val pt = readAt(0x120L, 64)
+                                val pbb = ByteBuffer.wrap(pt).order(ByteOrder.LITTLE_ENDIAN)
+                                val partNames = listOf("Game Executable (CXI 0)", "Manual (CFA 1)", "Download Play (CFA 2)", "Partition 3", "Partition 4", "Partition 5", "New3DS Update 6", "Update Data 7")
+                                for (i in 0 until 8) {
+                                    val offU = pbb.int.toLong() and 0xFFFFFFFFL
+                                    val lenU = pbb.int.toLong() and 0xFFFFFFFFL
+                                    if (lenU > 0L) {
+                                        val byteOff = offU * 0x200L
+                                        val byteLen = lenU * 0x200L
+                                        result.add(Pfs0Entry("[ZCCI NCSD] ${partNames[i]}.ncch", byteOff, byteLen, byteOff))
+                                    }
+                                }
+                                return result
+                            } else if (hdr.underlyingMagicStr == "NCCH") {
+                                result.add(Pfs0Entry("[ZCXI NCCH] ${file.name}", 0L, uncompLen, 0L))
+                                return result
+                            } else if (hdr.underlyingMagicStr == "CIA" && uncompLen > 0x40L) {
+                                val ciaHdr = readAt(0L, 32)
+                                val cbb = ByteBuffer.wrap(ciaHdr).order(ByteOrder.LITTLE_ENDIAN)
+                                val hdrSize = cbb.int.toLong() and 0xFFFFFFFFL
+                                cbb.int
+                                val certSize = cbb.int.toLong() and 0xFFFFFFFFL
+                                val tikSize = cbb.int.toLong() and 0xFFFFFFFFL
+                                val tmdSize = cbb.int.toLong() and 0xFFFFFFFFL
+                                val metaSize = cbb.int.toLong() and 0xFFFFFFFFL
+                                val contentSize = cbb.long
+                                fun align64(v: Long): Long = (v + 63L) and -64L
+                                val certOff = align64(hdrSize)
+                                val tikOff = align64(certOff + certSize)
+                                val tmdOff = align64(tikOff + tikSize)
+                                val contentOff = align64(tmdOff + tmdSize)
+                                if (contentOff < uncompLen && contentSize > 0L) {
+                                    result.add(Pfs0Entry("[ZCIA CIA] cert.bin", certOff, certSize, certOff))
+                                    result.add(Pfs0Entry("[ZCIA CIA] ticket.bin", tikOff, tikSize, tikOff))
+                                    result.add(Pfs0Entry("[ZCIA CIA] tmd.bin", tmdOff, tmdSize, tmdOff))
+                                    result.add(Pfs0Entry("[ZCIA CIA] content_0000.cxi", contentOff, contentSize.coerceAtMost(uncompLen - contentOff), contentOff))
+                                    if (metaSize > 0L) {
+                                        val metaOff = align64(contentOff + contentSize)
+                                        if (metaOff < uncompLen) {
+                                            result.add(Pfs0Entry("[ZCIA CIA] smdh_meta.bin", metaOff, metaSize.coerceAtMost(uncompLen - metaOff), metaOff))
+                                        }
+                                    }
+                                }
+                                return result
+                            }
+                            return result
+                        }
+                    } catch (_: Throwable) {}
+                }
                 val ext = file.extension.lowercase()
+                if (ext == "3dsx" && raf.length() >= 0x2CL) {
+                    val hb = ByteArray(0x2C)
+                    raf.seek(0L)
+                    raf.readFully(hb)
+                    if (String(hb, 0, 4, StandardCharsets.US_ASCII) == "3DSX") {
+                        result.add(Pfs0Entry("[3DSX] Homebrew Executable", 0L, raf.length(), 0L))
+                        val hbb = ByteBuffer.wrap(hb).order(ByteOrder.LITTLE_ENDIAN)
+                        val hdrSz = hbb.getShort(4).toInt() and 0xFFFF
+                        if (hdrSz >= 0x2C) {
+                            val smdhOff = hbb.getInt(0x20).toLong() and 0xFFFFFFFFL
+                            val smdhLen = hbb.getInt(0x24).toLong() and 0xFFFFFFFFL
+                            val fsOff = hbb.getInt(0x28).toLong() and 0xFFFFFFFFL
+                            if (smdhOff > 0L && smdhLen >= 0x36C0L && smdhOff + smdhLen <= raf.length()) {
+                                result.add(Pfs0Entry("[3DSX] icon.smdh", smdhOff, smdhLen, smdhOff))
+                            }
+                            if (fsOff > 0L && fsOff < raf.length()) {
+                                result.add(Pfs0Entry("[3DSX] romfs.bin", fsOff, raf.length() - fsOff, fsOff))
+                            }
+                        }
+                        return result
+                    }
+                }
                 if (ext == "cia" && raf.length() > 0x2040) {
                     raf.seek(0L)
                     val ciaHdr = ByteArray(32)
@@ -2903,6 +3001,11 @@ object StormNczEngine {
             "cci" -> 4
             "3ds" -> 5
             "cia" -> 6
+            "zcci" -> 8
+            "zcia" -> 9
+            "zcxi" -> 10
+            "z3dsx" -> 11
+            "z3ds" -> 12
             else -> 2
         }
         return buildSmartMultiContentPackage(
@@ -3016,12 +3119,39 @@ object StormNczEngine {
         val extracted = mutableListOf<File>()
         val entries = inspectContainer(inputFile)
         val targetEntries = entries.filter { e ->
-            !e.name.startsWith("[XCI HEAD]") && e.dataStartOffset >= 0L && e.size > 0L && (selectedNames == null || selectedNames.contains(e.name))
+            !e.name.startsWith("[XCI HEAD]") && !e.name.startsWith("[Z3DS]") && e.dataStartOffset >= 0L && e.size > 0L && (selectedNames == null || selectedNames.contains(e.name))
         }
         if (targetEntries.isEmpty()) return extracted
 
         val totalBytes = targetEntries.sumOf { it.size }.coerceAtLeast(1L)
         var processed = 0L
+
+        if (isZ3dsFile(inputFile)) {
+            Z3dsReadHandle(inputFile).use { zhandle ->
+                val chunkSize = 256 * 1024
+                for ((idx, entry) in targetEntries.withIndex()) {
+                    val cleanName = entry.name.substringAfterLast('/').replace(Regex("^\\[[^\\]]+\\]\\s*"), "")
+                    val outFile = File(outputDir, cleanName)
+                    var curOff = entry.dataStartOffset
+                    var rem = entry.size
+                    FileOutputStream(outFile).use { fos ->
+                        while (rem > 0L) {
+                            val toRead = min(rem, chunkSize.toLong()).toInt()
+                            val chunk = zhandle.readAt(curOff, toRead)
+                            if (chunk.isEmpty()) break
+                            fos.write(chunk)
+                            curOff += chunk.size.toLong()
+                            rem -= chunk.size.toLong()
+                            processed += chunk.size.toLong()
+                        }
+                    }
+                    extracted.add(outFile)
+                    val pct = ((processed * 100L) / totalBytes).toInt().coerceIn(0, 100)
+                    onProgress(NczProgress(entry.name, idx + 1, targetEntries.size, processed, totalBytes, 0.0, pct, "Извлечено: ${outFile.name}"))
+                }
+            }
+            return extracted
+        }
 
         RandomAccessFile(inputFile, "r").use { raf ->
             val buf = ByteArray(256 * 1024)
@@ -3061,10 +3191,47 @@ object StormNczEngine {
         val fallbackTid = tidMatch?.groupValues?.get(1)?.uppercase() ?: "0100000000010000"
         val fallbackVer = extractDisplayVersionFromFileName(file.name) ?: "1.0.0"
         val ext = file.extension.lowercase()
-        val family = if (ext in listOf("3ds", "cci", "cia", "cxi", "cfa", "3dsx", "nds")) "3DS" else "SWITCH"
+        val family = if (ext in listOf("3ds", "cci", "cia", "cxi", "cfa", "3dsx", "nds", "zcci", "zcxi", "zcia", "z3dsx", "z3ds")) "3DS" else "SWITCH"
 
-        if (!file.exists() || file.length() < 1024L) {
+        if (!file.exists() || file.length() < 32L) {
             return ContainerMetadataInfo(cleanFallbackTitle, "Nintendo", fallbackVer, fallbackTid, family, null)
+        }
+
+        if (isZ3dsFile(file)) {
+            try {
+                Z3dsReadHandle(file).use { zhandle ->
+                    var resolvedTid = fallbackTid
+                    var resolvedVer = fallbackVer
+                    val tinfo = zhandle.getMetadataBytes("titleinfo")
+                    if (tinfo != null && tinfo.size >= 0x18) {
+                        val tbb = ByteBuffer.wrap(tinfo).order(ByteOrder.LITTLE_ENDIAN)
+                        val tidVal = tbb.getLong(0)
+                        val verVal = tbb.getShort(0x10).toInt() and 0xFFFF
+                        if (tidVal != 0L) resolvedTid = "%016X".format(tidVal)
+                        if (verVal > 0) resolvedVer = "v$verVal"
+                    }
+                    val smdhMeta = zhandle.getMetadataBytes("smdh")
+                    if (smdhMeta != null && smdhMeta.size >= 0x36C0 && String(smdhMeta, 0, 4, StandardCharsets.US_ASCII) == "SMDH") {
+                        val shortTitle = String(smdhMeta, 8 + 0x80, 0x80, Charsets.UTF_16LE).trimEnd('\u0000').trim()
+                        val pub = String(smdhMeta, 8 + 0x180, 0x80, Charsets.UTF_16LE).trimEnd('\u0000').trim()
+                        if (shortTitle.isNotBlank()) {
+                            return ContainerMetadataInfo(shortTitle, pub.ifBlank { "Nintendo 3DS" }, resolvedVer, resolvedTid, "3DS", null)
+                        }
+                    }
+                    val scanSize = min(zhandle.header.uncompressedSize, 8L * 1024L * 1024L).toInt()
+                    val buf = zhandle.readAt(0L, scanSize)
+                    for (i in 0 until buf.size - 0x200) {
+                        if (buf[i] == 'S'.code.toByte() && buf[i + 1] == 'M'.code.toByte() && buf[i + 2] == 'D'.code.toByte() && buf[i + 3] == 'H'.code.toByte()) {
+                            val shortTitle = String(buf, i + 8 + 0x80, 0x80, Charsets.UTF_16LE).trimEnd('\u0000').trim()
+                            val pub = String(buf, i + 8 + 0x180, 0x80, Charsets.UTF_16LE).trimEnd('\u0000').trim()
+                            if (shortTitle.isNotBlank()) {
+                                return ContainerMetadataInfo(shortTitle, pub.ifBlank { "Nintendo 3DS" }, resolvedVer, resolvedTid, "3DS", null)
+                            }
+                        }
+                    }
+                    return ContainerMetadataInfo(cleanFallbackTitle, "Nintendo 3DS", resolvedVer, resolvedTid, "3DS", null)
+                }
+            } catch (_: Throwable) {}
         }
 
         try {
@@ -4345,16 +4512,911 @@ object StormNczEngine {
      * - Конвертация CIA -> CCI / 3DS
      * - Обновление внутреннего заголовка SMDH при включённом PreBuildCustomization.
      */
+
+    // =========================================================================
+    // ПОДДЕРЖКА СЖАТЫХ ФОРМАТОВ AZAHAR Z3DS (.zcci, .zcxi, .zcia, .z3dsx)
+    // =========================================================================
+
+    private const val Z3DS_HEADER_SIZE = 0x20
+    private const val Z3DS_VERSION = 1
+    private const val Z3DS_DEFAULT_FRAME_SIZE = 256 * 1024
+    private const val Z3DS_CIA_FRAME_SIZE = 32 * 1024 * 1024
+    private const val ZSTD_SKIPPABLE_MAGIC = 0x184D2A5EL
+    private const val ZSTD_SEEKABLE_MAGIC = 0x8F92EAB1L
+
+    data class Z3dsHeader(
+        val underlyingMagic: ByteArray,
+        val underlyingMagicStr: String,
+        val version: Int,
+        val headerSize: Int,
+        val metadataSize: Long,
+        val compressedSize: Long,
+        val uncompressedSize: Long
+    ) {
+        val payloadOffset: Long get() = headerSize.toLong() + metadataSize
+        val recommendedPlainExt: String get() = when (underlyingMagicStr) {
+            "NCSD" -> "cci"
+            "NCCH" -> "cxi"
+            "CIA" -> "cia"
+            "3DSX" -> "3dsx"
+            else -> "bin"
+        }
+        val recommendedCompressedExt: String get() = when (underlyingMagicStr) {
+            "NCSD" -> "zcci"
+            "NCCH" -> "zcxi"
+            "CIA" -> "zcia"
+            "3DSX" -> "z3dsx"
+            else -> "z3ds"
+        }
+        val underlyingFormatDisplay: String get() = when (underlyingMagicStr) {
+            "NCSD" -> "3DS / CCI (NCSD)"
+            "NCCH" -> "CXI (NCCH)"
+            "CIA" -> "CIA"
+            "3DSX" -> "3DSX Homebrew"
+            else -> underlyingMagicStr
+        }
+    }
+
+    data class Z3dsSeekEntry(
+        val compressedOffset: Long,
+        val compressedSize: Int,
+        val decompressedOffset: Long,
+        val decompressedSize: Int
+    )
+
+    class Z3dsReadHandle(file: File) : Closeable {
+        private val raf = RandomAccessFile(file, "r")
+        val header: Z3dsHeader
+        val metadata: LinkedHashMap<String, ByteArray> = LinkedHashMap()
+        val seekTable: List<Z3dsSeekEntry>
+        private val frameCache = object : java.util.LinkedHashMap<Int, ByteArray>(16, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Int, ByteArray>?): Boolean = size > 8
+        }
+
+        init {
+            try {
+                if (raf.length() < Z3DS_HEADER_SIZE.toLong()) {
+                    throw IOException("Файл слишком мал для заголовка Z3DS")
+                }
+                val hBuf = ByteArray(Z3DS_HEADER_SIZE)
+                raf.seek(0L)
+                raf.readFully(hBuf)
+                val magicStr = String(hBuf, 0, 4, StandardCharsets.US_ASCII)
+                if (magicStr != "Z3DS") {
+                    throw IOException("Отсутствует сигнатура Z3DS")
+                }
+                val uMagic = hBuf.copyOfRange(4, 8)
+                val uMagicStr = String(uMagic, StandardCharsets.US_ASCII).trimEnd('\u0000')
+                val bb = ByteBuffer.wrap(hBuf).order(ByteOrder.LITTLE_ENDIAN)
+                val ver = hBuf[8].toInt() and 0xFF
+                val hdrSize = bb.getShort(0x0A).toInt() and 0xFFFF
+                val metaSize = bb.getInt(0x0C).toLong() and 0xFFFFFFFFL
+                val compSize = bb.getLong(0x10)
+                val uncompSize = bb.getLong(0x18)
+
+                if (ver != Z3DS_VERSION || hdrSize < Z3DS_HEADER_SIZE) {
+                    throw IOException("Неподдерживаемая версия или размер заголовка Z3DS ($ver)")
+                }
+                if (hdrSize.toLong() + metaSize > raf.length()) {
+                    throw IOException("Повреждена область метаданных Z3DS")
+                }
+
+                header = Z3dsHeader(uMagic, uMagicStr, ver, hdrSize, metaSize, compSize, uncompSize)
+
+                if (metaSize > 0L) {
+                    val mLen = min(metaSize, 16L * 1024L * 1024L).toInt()
+                    val mBuf = ByteArray(mLen)
+                    raf.seek(hdrSize.toLong())
+                    raf.readFully(mBuf)
+                    parseZ3dsMetadataInto(mBuf, metadata)
+                }
+
+                seekTable = parseSeekTable(raf, header)
+            } catch (t: Throwable) {
+                try { raf.close() } catch (_: Throwable) {}
+                throw t
+            }
+        }
+
+        fun getMetadataString(key: String): String? {
+            val b = metadata[key] ?: return null
+            return String(b, StandardCharsets.UTF_8).trimEnd('\u0000')
+        }
+
+        fun getMetadataBytes(key: String): ByteArray? = metadata[key]
+
+        @Synchronized
+        fun readAt(offset: Long, length: Int): ByteArray {
+            if (length <= 0 || offset < 0L || offset >= header.uncompressedSize) return ByteArray(0)
+            val actualLen = min(length.toLong(), header.uncompressedSize - offset).toInt()
+            val out = ByteArray(actualLen)
+            var outPos = 0
+            var curOff = offset
+            var rem = actualLen
+
+            while (rem > 0) {
+                val frameIdx = findFrameIndex(curOff)
+                if (frameIdx < 0) break
+                val entry = seekTable[frameIdx]
+                val frameBytes = loadFrame(frameIdx)
+                val inFrameOff = (curOff - entry.decompressedOffset).toInt()
+                val copyLen = min(rem, frameBytes.size - inFrameOff)
+                if (copyLen <= 0) break
+                System.arraycopy(frameBytes, inFrameOff, out, outPos, copyLen)
+                outPos += copyLen
+                curOff += copyLen
+                rem -= copyLen
+            }
+            return if (outPos == actualLen) out else out.copyOf(outPos)
+        }
+
+        private fun findFrameIndex(offset: Long): Int {
+            var lo = 0
+            var hi = seekTable.size - 1
+            while (lo <= hi) {
+                val mid = (lo + hi) ushr 1
+                val e = seekTable[mid]
+                when {
+                    offset < e.decompressedOffset -> hi = mid - 1
+                    offset >= e.decompressedOffset + e.decompressedSize -> lo = mid + 1
+                    else -> return mid
+                }
+            }
+            return -1
+        }
+
+        private fun loadFrame(index: Int): ByteArray {
+            frameCache[index]?.let { return it }
+            val entry = seekTable[index]
+            val compBuf = ByteArray(entry.compressedSize)
+            raf.seek(entry.compressedOffset)
+            raf.readFully(compBuf)
+            val decompBuf = ByteArray(entry.decompressedSize)
+            if (entry.decompressedSize > 0) {
+                val n = Zstd.decompressByteArray(decompBuf, 0, entry.decompressedSize, compBuf, 0, entry.compressedSize)
+                if (Zstd.isError(n) || n != entry.decompressedSize.toLong()) {
+                    throw IOException("Ошибка распаковки кадра Z3DS #$index: ${Zstd.getErrorName(n)}")
+                }
+            }
+            frameCache[index] = decompBuf
+            return decompBuf
+        }
+
+        override fun close() {
+            raf.close()
+        }
+
+        companion object {
+            private fun parseZ3dsMetadataInto(buf: ByteArray, out: LinkedHashMap<String, ByteArray>) {
+                if (buf.isEmpty() || (buf[0].toInt() and 0xFF) != 1) return
+                var pos = 1
+                while (pos + 4 <= buf.size) {
+                    val type = buf[pos].toInt() and 0xFF
+                    val nameLen = buf[pos + 1].toInt() and 0xFF
+                    val dataLen = ((buf[pos + 2].toInt() and 0xFF)) or ((buf[pos + 3].toInt() and 0xFF) shl 8)
+                    pos += 4
+                    if (type == 0) break
+                    if (pos + nameLen + dataLen > buf.size) break
+                    if (type == 1) {
+                        val name = String(buf, pos, nameLen, StandardCharsets.UTF_8)
+                        val payload = buf.copyOfRange(pos + nameLen, pos + nameLen + dataLen)
+                        out[name] = payload
+                    }
+                    pos += nameLen + dataLen
+                }
+            }
+
+            private fun parseSeekTable(raf: RandomAccessFile, header: Z3dsHeader): List<Z3dsSeekEntry> {
+                val expectedEnd = header.payloadOffset + header.compressedSize
+                val seekEnd = if (header.compressedSize > 0L && expectedEnd <= raf.length()) expectedEnd else raf.length()
+                if (seekEnd < header.payloadOffset + 17L) {
+                    throw IOException("Отсутствует Seekable-таблица Z3DS в конце файла")
+                }
+
+                val footer = ByteArray(9)
+                raf.seek(seekEnd - 9L)
+                raf.readFully(footer)
+                val fbb = ByteBuffer.wrap(footer).order(ByteOrder.LITTLE_ENDIAN)
+                val frameCount = fbb.getInt(0).toLong() and 0xFFFFFFFFL
+                val descriptor = footer[4].toInt() and 0xFF
+                val footerMagic = fbb.getInt(5).toLong() and 0xFFFFFFFFL
+                if (footerMagic != ZSTD_SEEKABLE_MAGIC) {
+                    throw IOException("Отсутствует Seekable-сигнатура 0x8F92EAB1 в конце Z3DS")
+                }
+
+                val hasChecksum = (descriptor and 0x80) != 0
+                val entrySize = if (hasChecksum) 12 else 8
+                val bodySize = frameCount * entrySize.toLong() + 9L
+                val skippableStart = seekEnd - 8L - bodySize
+                if (skippableStart < header.payloadOffset) {
+                    throw IOException("Некорректная позиция Seek Table в Z3DS")
+                }
+
+                val skipHdr = ByteArray(8)
+                raf.seek(skippableStart)
+                raf.readFully(skipHdr)
+                val sbb = ByteBuffer.wrap(skipHdr).order(ByteOrder.LITTLE_ENDIAN)
+                val skipMagic = sbb.getInt(0).toLong() and 0xFFFFFFFFL
+                val skipLen = sbb.getInt(4).toLong() and 0xFFFFFFFFL
+                if (skipMagic != ZSTD_SKIPPABLE_MAGIC || skipLen != bodySize) {
+                    throw IOException("Повреждён skippable-кадр Seek Table в Z3DS")
+                }
+
+                val tableBytes = ByteArray((frameCount * entrySize.toLong()).toInt())
+                if (tableBytes.isNotEmpty()) raf.readFully(tableBytes)
+                val tbb = ByteBuffer.wrap(tableBytes).order(ByteOrder.LITTLE_ENDIAN)
+
+                val entries = ArrayList<Z3dsSeekEntry>(frameCount.toInt())
+                var compOff = header.payloadOffset
+                var decompOff = 0L
+                for (i in 0 until frameCount.toInt()) {
+                    val idx = i * entrySize
+                    val cSz = tbb.getInt(idx)
+                    val dSz = tbb.getInt(idx + 4)
+                    if (compOff + cSz.toLong() > skippableStart) {
+                        throw IOException("Кадр Z3DS #$i выходит за границы сжатых данных")
+                    }
+                    entries.add(Z3dsSeekEntry(compOff, cSz, decompOff, dSz))
+                    compOff += cSz.toLong()
+                    decompOff += dSz.toLong()
+                }
+                if (header.uncompressedSize > 0L && decompOff != header.uncompressedSize) {
+                    throw IOException("Несовпадение размера Z3DS ($decompOff != ${header.uncompressedSize})")
+                }
+                return entries
+            }
+        }
+    }
+
+    fun isZ3dsExtension(ext: String): Boolean {
+        val norm = ext.lowercase().trimStart('.')
+        return norm in setOf("zcci", "zcxi", "zcia", "z3dsx", "z3ds")
+    }
+
+    fun isZ3dsFile(file: File): Boolean {
+        if (!file.exists() || !file.isFile || file.length() < Z3DS_HEADER_SIZE.toLong()) return false
+        return try {
+            RandomAccessFile(file, "r").use { raf ->
+                val b = ByteArray(9)
+                raf.seek(0L)
+                raf.readFully(b)
+                b[0] == 'Z'.code.toByte() && b[1] == '3'.code.toByte() &&
+                    b[2] == 'D'.code.toByte() && b[3] == 'S'.code.toByte() &&
+                    (b[8].toInt() and 0xFF) == Z3DS_VERSION
+            }
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    private fun detectPlain3dsForZ3ds(file: File): Triple<ByteArray, String, Int> {
+        RandomAccessFile(file, "r").use { raf ->
+            val len = raf.length()
+            if (len >= 0x20L) {
+                val m0 = ByteArray(4)
+                raf.seek(0L)
+                raf.readFully(m0)
+                val s0 = String(m0, StandardCharsets.US_ASCII)
+                if (s0 == "3DSX") {
+                    return Triple("3DSX".toByteArray(StandardCharsets.US_ASCII), "z3dsx", Z3DS_DEFAULT_FRAME_SIZE)
+                }
+                if (s0 == "Z3DS") {
+                    throw IOException("Файл уже сжат в формат Z3DS: ${file.name}")
+                }
+            }
+            if (len >= 0x200L) {
+                val m100 = ByteArray(4)
+                raf.seek(0x100L)
+                raf.readFully(m100)
+                val s100 = String(m100, StandardCharsets.US_ASCII)
+                if (s100 == "NCSD") {
+                    return Triple("NCSD".toByteArray(StandardCharsets.US_ASCII), "zcci", Z3DS_DEFAULT_FRAME_SIZE)
+                }
+                if (s100 == "NCCH") {
+                    return Triple("NCCH".toByteArray(StandardCharsets.US_ASCII), "zcxi", Z3DS_DEFAULT_FRAME_SIZE)
+                }
+            }
+            if (len >= 0x40L) {
+                val ciaHdr = ByteArray(32)
+                raf.seek(0L)
+                raf.readFully(ciaHdr)
+                val cbb = ByteBuffer.wrap(ciaHdr).order(ByteOrder.LITTLE_ENDIAN)
+                val hdrSize = cbb.int.toLong() and 0xFFFFFFFFL
+                cbb.int
+                val certSize = cbb.int.toLong() and 0xFFFFFFFFL
+                val tikSize = cbb.int.toLong() and 0xFFFFFFFFL
+                val tmdSize = cbb.int.toLong() and 0xFFFFFFFFL
+                cbb.int
+                val contentSize = cbb.long
+                fun align64(v: Long): Long = (v + 63L) and -64L
+                val contentOff = align64(align64(align64(hdrSize) + certSize) + tikSize) + align64(tmdSize)
+                if (hdrSize in 0x20L..0x4000L && certSize > 0L && tmdSize > 0L && contentSize > 0L && contentOff < len) {
+                    val ciaMagic = byteArrayOf('C'.code.toByte(), 'I'.code.toByte(), 'A'.code.toByte(), 0)
+                    val heapCap = Runtime.getRuntime().maxMemory()
+                    val frameSz = if (heapCap < 256L * 1024L * 1024L) 4 * 1024 * 1024 else Z3DS_CIA_FRAME_SIZE
+                    return Triple(ciaMagic, "zcia", frameSz)
+                }
+            }
+        }
+        throw IOException("Неизвестный или неподдерживаемый контейнер 3DS для Z3DS: ${file.name}")
+    }
+
+    private fun buildTitleInfo24Bytes(tid: Long, size: Long, version: Int, type: Long): ByteArray {
+        val bb = ByteBuffer.allocate(0x18).order(ByteOrder.LITTLE_ENDIAN)
+        bb.putLong(tid)
+        bb.putLong(size)
+        bb.putShort(version.toShort())
+        bb.putShort(0)
+        bb.putInt(type.toInt())
+        return bb.array()
+    }
+
+    private fun extractZ3dsContainerMetadata(plainFile: File, underlyingMagic: ByteArray, frameSize: Int): LinkedHashMap<String, ByteArray> {
+        val meta = LinkedHashMap<String, ByteArray>()
+        meta["compressor"] = "STORM SWITCH BOX 8.0.7".toByteArray(StandardCharsets.UTF_8)
+        val df = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply {
+            timeZone = java.util.TimeZone.getTimeZone("UTC")
+        }
+        meta["date"] = df.format(java.util.Date()).toByteArray(StandardCharsets.UTF_8)
+        meta["maxframesize"] = frameSize.toString().toByteArray(StandardCharsets.UTF_8)
+
+        val mStr = String(underlyingMagic, StandardCharsets.US_ASCII).trimEnd('\u0000')
+        try {
+            RandomAccessFile(plainFile, "r").use { raf ->
+                if (mStr == "NCSD" && raf.length() >= 0x4200L) {
+                    raf.seek(0x120L)
+                    val b4 = ByteArray(4)
+                    raf.readFully(b4)
+                    val offUnits = ByteBuffer.wrap(b4).order(ByteOrder.LITTLE_ENDIAN).int.toLong() and 0xFFFFFFFFL
+                    val ncchOff = if (offUnits > 0L) offUnits * 0x200L else 0x4000L
+                    if (ncchOff + 0x200L <= raf.length()) {
+                        val ncch = ByteArray(0x200)
+                        raf.seek(ncchOff)
+                        raf.readFully(ncch)
+                        if (String(ncch, 0x100, 4, StandardCharsets.US_ASCII) == "NCCH") {
+                            val nbb = ByteBuffer.wrap(ncch).order(ByteOrder.LITTLE_ENDIAN)
+                            val sizeUnits = nbb.getInt(0x104).toLong() and 0xFFFFFFFFL
+                            val ver = nbb.getShort(0x112).toInt() and 0xFFFF
+                            val tid = nbb.getLong(0x118)
+                            meta["titleinfo"] = buildTitleInfo24Bytes(tid, sizeUnits * 0x200L, ver, 0L)
+                        }
+                    }
+                } else if (mStr == "NCCH" && raf.length() >= 0x200L) {
+                    val ncch = ByteArray(0x200)
+                    raf.seek(0L)
+                    raf.readFully(ncch)
+                    if (String(ncch, 0x100, 4, StandardCharsets.US_ASCII) == "NCCH") {
+                        val nbb = ByteBuffer.wrap(ncch).order(ByteOrder.LITTLE_ENDIAN)
+                        val sizeUnits = nbb.getInt(0x104).toLong() and 0xFFFFFFFFL
+                        val ver = nbb.getShort(0x112).toInt() and 0xFFFF
+                        val tid = nbb.getLong(0x118)
+                        meta["titleinfo"] = buildTitleInfo24Bytes(tid, sizeUnits * 0x200L, ver, 0L)
+                    }
+                } else if (mStr == "CIA" && raf.length() >= 0x40L) {
+                    val ciaHdr = ByteArray(32)
+                    raf.seek(0L)
+                    raf.readFully(ciaHdr)
+                    val cbb = ByteBuffer.wrap(ciaHdr).order(ByteOrder.LITTLE_ENDIAN)
+                    val hdrSize = cbb.int.toLong() and 0xFFFFFFFFL
+                    cbb.int
+                    val certSize = cbb.int.toLong() and 0xFFFFFFFFL
+                    val tikSize = cbb.int.toLong() and 0xFFFFFFFFL
+                    val tmdSize = cbb.int.toLong() and 0xFFFFFFFFL
+                    val metaSize = cbb.int.toLong() and 0xFFFFFFFFL
+                    val ciaContentSize = cbb.long
+                    fun align64(v: Long): Long = (v + 63L) and -64L
+                    val tmdOff = align64(align64(align64(hdrSize) + certSize) + tikSize)
+                    val contentOff = tmdOff + align64(tmdSize)
+
+                    if (tmdOff + 0x104L <= raf.length()) {
+                        val sigBuf = ByteArray(4)
+                        raf.seek(tmdOff)
+                        raf.readFully(sigBuf)
+                        val sigType = ByteBuffer.wrap(sigBuf).order(ByteOrder.BIG_ENDIAN).int
+                        val sigSize = when (sigType) {
+                            0x00010000, 0x00010003 -> 0x240
+                            0x00010001, 0x00010004 -> 0x140
+                            0x00010002, 0x00010005 -> 0x80
+                            else -> 0x140
+                        }
+                        val tmdBody = tmdOff + sigSize.toLong()
+                        if (tmdBody + 0x9C4L <= raf.length()) {
+                            val bodyPrefix = ByteArray(0xA4)
+                            raf.seek(tmdBody)
+                            raf.readFully(bodyPrefix)
+                            val tbb = ByteBuffer.wrap(bodyPrefix).order(ByteOrder.BIG_ENDIAN)
+                            val tid = tbb.getLong(0x4C)
+                            val tType = tbb.getInt(0x54).toLong() and 0xFFFFFFFFL
+                            val tVer = tbb.getShort(0x9C).toInt() and 0xFFFF
+                            val cCount = (tbb.getShort(0x9E).toInt() and 0xFFFF).coerceIn(1, 256)
+                            var combinedSize = 0L
+                            val recOffBase = tmdBody + 0x9C4L
+                            for (c in 0 until cCount) {
+                                val rOff = recOffBase + c.toLong() * 0x30L
+                                if (rOff + 16L > contentOff) break
+                                val szBuf = ByteArray(8)
+                                raf.seek(rOff + 8L)
+                                raf.readFully(szBuf)
+                                combinedSize += ByteBuffer.wrap(szBuf).order(ByteOrder.BIG_ENDIAN).long
+                            }
+                            if (combinedSize <= 0L) combinedSize = ciaContentSize
+                            meta["titleinfo"] = buildTitleInfo24Bytes(tid, combinedSize, tVer, tType)
+                        }
+                    }
+
+                    if (metaSize >= 0x3AC0L) {
+                        val smdhOff = contentOff + align64(ciaContentSize) + 0x400L
+                        if (smdhOff + 0x36C0L <= raf.length()) {
+                            val smdh = ByteArray(0x36C0)
+                            raf.seek(smdhOff)
+                            raf.readFully(smdh)
+                            if (String(smdh, 0, 4, StandardCharsets.US_ASCII) == "SMDH") {
+                                meta["smdh"] = smdh
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (_: Throwable) {}
+        return meta
+    }
+
+    private fun serializeZ3dsMetadataPadded16(items: Map<String, ByteArray>): ByteArray {
+        if (items.isEmpty()) return ByteArray(0)
+        val baos = ByteArrayOutputStream()
+        baos.write(1) // METADATA_VERSION
+        val hdr = ByteArray(4)
+        for ((k, v) in items) {
+            val kBytes = k.toByteArray(StandardCharsets.UTF_8)
+            val kLen = min(0xFF, kBytes.size)
+            val vLen = min(0xFFFF, v.size)
+            hdr[0] = 1
+            hdr[1] = kLen.toByte()
+            hdr[2] = (vLen and 0xFF).toByte()
+            hdr[3] = ((vLen ushr 8) and 0xFF).toByte()
+            baos.write(hdr)
+            baos.write(kBytes, 0, kLen)
+            baos.write(v, 0, vLen)
+        }
+        baos.write(ByteArray(4)) // TYPE_END
+        val rawLen = baos.size()
+        val pad = (16 - (rawLen % 16)) % 16
+        if (pad > 0) baos.write(ByteArray(pad))
+        return baos.toByteArray()
+    }
+
+    private fun writeZ3dsHeaderBytes(
+        underlyingMagic: ByteArray,
+        metaSize: Long,
+        compressedSize: Long,
+        uncompressedSize: Long
+    ): ByteArray {
+        val bb = ByteBuffer.allocate(Z3DS_HEADER_SIZE).order(ByteOrder.LITTLE_ENDIAN)
+        bb.put("Z3DS".toByteArray(StandardCharsets.US_ASCII))
+        bb.put(underlyingMagic, 0, 4)
+        bb.put(Z3DS_VERSION.toByte())
+        bb.put(0.toByte())
+        bb.putShort(Z3DS_HEADER_SIZE.toShort())
+        bb.putInt(metaSize.toInt())
+        bb.putLong(compressedSize)
+        bb.putLong(uncompressedSize)
+        return bb.array()
+    }
+
+    fun compressToZ3ds(
+        inputFile: File,
+        outputFile: File,
+        zstdLevel: Int = 18,
+        customFrameSize: Int = 0,
+        preBuildCustomization: PreBuildCustomization = PreBuildCustomization(),
+        onProgress: (NczProgress) -> Unit
+    ): CompressionResult {
+        val startMs = System.currentTimeMillis()
+        outputFile.parentFile?.mkdirs()
+        if (!inputFile.exists() || !inputFile.isFile) {
+            return CompressionResult(false, inputFile.absolutePath, outputFile.absolutePath, 0L, 0L, 1L, 0, 1, 18, zstdLevel, "Исходный файл не найден")
+        }
+
+        val (underlyingMagic, _, defaultFrameSize) = detectPlain3dsForZ3ds(inputFile)
+        val magicStr = String(underlyingMagic, StandardCharsets.US_ASCII).trimEnd('\u0000')
+        val frameSize = if (customFrameSize >= 4096) customFrameSize else defaultFrameSize
+        val level = zstdLevel.coerceIn(1, 22)
+
+        val tempWorkFile = if (magicStr == "CIA") {
+            null
+        } else {
+            File(outputFile.parentFile ?: inputFile.parentFile ?: File("."), ".storm_z3ds_work_${System.currentTimeMillis()}_${inputFile.name}")
+        }
+        val tempOutFile = File(outputFile.parentFile ?: File("."), ".storm_z3ds_out_${System.currentTimeMillis()}.tmp")
+
+        fun fail(msg: String): CompressionResult {
+            try { tempOutFile.delete() } catch (_: Throwable) {}
+            try { tempWorkFile?.delete() } catch (_: Throwable) {}
+            return CompressionResult(false, inputFile.absolutePath, outputFile.absolutePath, inputFile.length(), 0L, (System.currentTimeMillis() - startMs).coerceAtLeast(1L), 0, 1, 18, level, msg)
+        }
+
+        try {
+            var workingFile = inputFile
+
+            if (magicStr == "CIA") {
+                RandomAccessFile(inputFile, "r").use { raf ->
+                    val ciaHdr = ByteArray(32)
+                    raf.seek(0L)
+                    raf.readFully(ciaHdr)
+                    val cbb = ByteBuffer.wrap(ciaHdr).order(ByteOrder.LITTLE_ENDIAN)
+                    val hdrSize = cbb.int.toLong() and 0xFFFFFFFFL
+                    cbb.int
+                    val certSize = cbb.int.toLong() and 0xFFFFFFFFL
+                    val tikSize = cbb.int.toLong() and 0xFFFFFFFFL
+                    val tmdSize = cbb.int.toLong() and 0xFFFFFFFFL
+                    fun align64(v: Long): Long = (v + 63L) and -64L
+                    val tmdOff = align64(align64(align64(hdrSize) + certSize) + tikSize)
+                    val contentOff = tmdOff + align64(tmdSize)
+                    if (tmdSize >= 0xB04L + 0x24L && tmdOff + 0xB0CL <= raf.length()) {
+                        raf.seek(tmdOff + 0xB0AL)
+                        val cTypeFlags = ((raf.readByte().toInt() and 0xFF) shl 8) or (raf.readByte().toInt() and 0xFF)
+                        if ((cTypeFlags and 0x0001) != 0) {
+                            return fail("CIA зашифрован консольным TitleKey (0x0001); для Z3DS подайте расшифрованный .cia или .cci")
+                        }
+                    }
+                    if (contentOff + 0x200L <= raf.length()) {
+                        val ncch = ByteArray(0x200)
+                        raf.seek(contentOff)
+                        raf.readFully(ncch)
+                        if (String(ncch, 0x100, 4, StandardCharsets.US_ASCII) == "NCCH" && (ncch[0x18F].toInt() and 0x04) == 0) {
+                            return fail("NCCH внутри CIA зашифрован; сначала расшифруйте образ (или конвертируйте в .cci)")
+                        }
+                    }
+                }
+            } else if ((magicStr == "NCSD" || magicStr == "NCCH") && tempWorkFile != null) {
+                var needsTempCopy = false
+                val partList = mutableListOf<Pair<Long, Long>>()
+                var trimSize = inputFile.length()
+
+                RandomAccessFile(inputFile, "r").use { raf ->
+                    if (magicStr == "NCSD") {
+                        raf.seek(0x120L)
+                        val pt = ByteArray(64)
+                        raf.readFully(pt)
+                        val pbb = ByteBuffer.wrap(pt).order(ByteOrder.LITTLE_ENDIAN)
+                        var maxEnd = 0x4000L
+                        for (i in 0 until 8) {
+                            val offU = pbb.int.toLong() and 0xFFFFFFFFL
+                            val lenU = pbb.int.toLong() and 0xFFFFFFFFL
+                            if (lenU > 0L) {
+                                val bOff = offU * 0x200L
+                                val bLen = lenU * 0x200L
+                                partList.add(bOff to bLen)
+                                if (bOff + bLen > maxEnd) maxEnd = bOff + bLen
+                            }
+                        }
+                        val alignedEnd = (maxEnd + 0x1FFL) and -0x200L
+                        if (alignedEnd in 0x4000L until inputFile.length()) {
+                            trimSize = alignedEnd
+                            needsTempCopy = true
+                        }
+                    } else {
+                        partList.add(0L to inputFile.length())
+                    }
+
+                    for ((pOff, _) in partList) {
+                        if (pOff + 0x200L <= raf.length()) {
+                            raf.seek(pOff + 0x18F)
+                            val f7 = raf.readByte().toInt() and 0xFF
+                            if ((f7 and 0x04) == 0) needsTempCopy = true
+                        }
+                    }
+                    if (preBuildCustomization.enabled && preBuildCustomization.customInternalTitle.isNotBlank()) {
+                        needsTempCopy = true
+                    }
+
+                    if (needsTempCopy) {
+                        onProgress(NczProgress(inputFile.name, 1, 1, 0L, trimSize, 0.0, 5, "Подготовка и дешифровка 3DS перед Z3DS..."))
+                        raf.seek(0L)
+                        BufferedOutputStream(FileOutputStream(tempWorkFile), 256 * 1024).use { bos ->
+                            val buf = ByteArray(256 * 1024)
+                            var rem = trimSize
+                            while (rem > 0L) {
+                                val r = raf.read(buf, 0, min(rem, buf.size.toLong()).toInt())
+                                if (r <= 0) break
+                                bos.write(buf, 0, r)
+                                rem -= r
+                            }
+                        }
+                        val decErr = decrypt3dsNcchPartitionsInPlace(tempWorkFile, partList)
+                        if (decErr != null) {
+                            return fail(decErr)
+                        }
+                        if (preBuildCustomization.enabled && preBuildCustomization.customInternalTitle.isNotBlank()) {
+                            patch3dsSmdhTitleInPlace(tempWorkFile, preBuildCustomization.customInternalTitle, preBuildCustomization.customPublisher.ifBlank { "Nintendo" })
+                        }
+                        workingFile = tempWorkFile
+                    }
+                }
+            }
+
+            val metaItems = extractZ3dsContainerMetadata(workingFile, underlyingMagic, frameSize)
+            val metaBytes = serializeZ3dsMetadataPadded16(metaItems)
+            val uncompressedSize = workingFile.length()
+            val frameCount = if (uncompressedSize == 0L) 0 else ((uncompressedSize + frameSize - 1L) / frameSize.toLong()).toInt()
+
+            val seekEntries = ArrayList<Z3dsSeekEntry>(frameCount)
+            var compressedPayloadSize = 0L
+
+            RandomAccessFile(workingFile, "r").use { inRaf ->
+                RandomAccessFile(tempOutFile, "rw").use { outRaf ->
+                    outRaf.setLength(0L)
+                    outRaf.write(writeZ3dsHeaderBytes(underlyingMagic, metaBytes.size.toLong(), 0L, uncompressedSize))
+                    if (metaBytes.isNotEmpty()) outRaf.write(metaBytes)
+
+                    val rawBuf = ByteArray(frameSize)
+                    val boundLong = Zstd.compressBound(frameSize.toLong())
+                    val compBuf = ByteArray(boundLong.toInt())
+
+                    var writtenUncomp = 0L
+                    var lastReportMs = 0L
+
+                    for (i in 0 until frameCount) {
+                        if (cancelRequested) throw java.util.concurrent.CancellationException("Отменено пользователем")
+                        val toRead = min(frameSize.toLong(), uncompressedSize - writtenUncomp).toInt()
+                        inRaf.readFully(rawBuf, 0, toRead)
+
+                        val cSizeLong = Zstd.compressByteArray(compBuf, 0, compBuf.size, rawBuf, 0, toRead, level)
+                        if (Zstd.isError(cSizeLong)) {
+                            return fail("Ошибка Zstd при сжатии Z3DS: ${Zstd.getErrorName(cSizeLong)}")
+                        }
+                        val cSize = cSizeLong.toInt()
+                        val cOff = outRaf.filePointer
+                        outRaf.write(compBuf, 0, cSize)
+
+                        seekEntries.add(Z3dsSeekEntry(cOff, cSize, writtenUncomp, toRead))
+                        compressedPayloadSize += cSize.toLong()
+                        writtenUncomp += toRead.toLong()
+
+                        val nowMs = System.currentTimeMillis()
+                        if (nowMs - lastReportMs >= 100L || i == frameCount - 1) {
+                            lastReportMs = nowMs
+                            val pct = 10 + ((writtenUncomp * 88L) / uncompressedSize.coerceAtLeast(1L)).toInt()
+                            val elapsedSec = ((nowMs - startMs) / 1000.0).coerceAtLeast(0.05)
+                            val mbPerSec = (writtenUncomp / (1024.0 * 1024.0)) / elapsedSec
+                            onProgress(NczProgress(outputFile.name, 1, 1, writtenUncomp, uncompressedSize, mbPerSec, pct.coerceIn(0, 98), "Сжатие Z3DS ($pct%)"))
+                        }
+                    }
+
+                    // Write standard Seekable Zstandard skippable Seek Table frame
+                    val seekBodySize = frameCount * 8 + 9
+                    val seekBuf = ByteBuffer.allocate(8 + seekBodySize).order(ByteOrder.LITTLE_ENDIAN)
+                    seekBuf.putInt(ZSTD_SKIPPABLE_MAGIC.toInt())
+                    seekBuf.putInt(seekBodySize)
+                    for (e in seekEntries) {
+                        seekBuf.putInt(e.compressedSize)
+                        seekBuf.putInt(e.decompressedSize)
+                    }
+                    seekBuf.putInt(frameCount)
+                    seekBuf.put(0.toByte()) // Checksum_Flag = 0
+                    seekBuf.putInt(ZSTD_SEEKABLE_MAGIC.toInt())
+
+                    val seekBytes = seekBuf.array()
+                    outRaf.write(seekBytes)
+                    compressedPayloadSize += seekBytes.size.toLong()
+
+                    // Finalize 32-byte header
+                    outRaf.seek(0L)
+                    outRaf.write(writeZ3dsHeaderBytes(underlyingMagic, metaBytes.size.toLong(), compressedPayloadSize, uncompressedSize))
+                }
+            }
+
+            if (outputFile.exists()) outputFile.delete()
+            if (!tempOutFile.renameTo(outputFile)) {
+                tempOutFile.copyTo(outputFile, overwrite = true)
+                tempOutFile.delete()
+            }
+
+            val elapsed = (System.currentTimeMillis() - startMs).coerceAtLeast(1L)
+            onProgress(NczProgress(outputFile.name, 1, 1, uncompressedSize, uncompressedSize, 0.0, 100, "Готово: ${outputFile.name}"))
+            return CompressionResult(
+                success = true,
+                inputPath = inputFile.absolutePath,
+                outputPath = outputFile.absolutePath,
+                originalBytes = inputFile.length(),
+                compressedBytes = outputFile.length(),
+                elapsedMs = elapsed,
+                compressedNcaCount = frameCount,
+                totalFilesCount = 1,
+                blockSizeExponent = 18,
+                zstdLevel = level,
+                message = "Сжат Z3DS: ${outputFile.name} (${formatSize(outputFile.length())} из ${formatSize(uncompressedSize)})"
+            )
+        } catch (t: Throwable) {
+            return fail("Ошибка сжатия Z3DS: ${t.message}")
+        } finally {
+            try { tempWorkFile?.delete() } catch (_: Throwable) {}
+            try { if (tempOutFile.exists()) tempOutFile.delete() } catch (_: Throwable) {}
+        }
+    }
+
+    fun decompressZ3ds(
+        inputFile: File,
+        outputFile: File,
+        onProgress: (NczProgress) -> Unit
+    ): CompressionResult {
+        val startMs = System.currentTimeMillis()
+        outputFile.parentFile?.mkdirs()
+        if (!inputFile.exists() || !inputFile.isFile) {
+            return CompressionResult(false, inputFile.absolutePath, outputFile.absolutePath, 0L, 0L, 1L, 0, 1, 18, 0, "Файл Z3DS не найден")
+        }
+
+        val tempOutFile = File(outputFile.parentFile ?: File("."), ".storm_z3ds_dec_${System.currentTimeMillis()}.tmp")
+        try {
+            var writtenTotal = 0L
+            var totalUncomp = 0L
+            var frameCount = 0
+            Z3dsReadHandle(inputFile).use { handle ->
+                totalUncomp = handle.header.uncompressedSize
+                frameCount = handle.seekTable.size
+                onProgress(NczProgress(inputFile.name, 1, 1, 0L, totalUncomp, 0.0, 5, "Распаковка Z3DS (${handle.header.underlyingFormatDisplay})..."))
+                RandomAccessFile(inputFile, "r").use { inRaf ->
+                    BufferedOutputStream(FileOutputStream(tempOutFile), 1024 * 1024).use { bos ->
+                        var lastReportMs = 0L
+                        var compBuf = ByteArray(0)
+                        var decompBuf = ByteArray(0)
+                        for ((idx, entry) in handle.seekTable.withIndex()) {
+                            if (cancelRequested) throw java.util.concurrent.CancellationException("Отменено пользователем")
+                            if (compBuf.size < entry.compressedSize) compBuf = ByteArray(entry.compressedSize)
+                            if (decompBuf.size < entry.decompressedSize) decompBuf = ByteArray(entry.decompressedSize)
+                            inRaf.seek(entry.compressedOffset)
+                            inRaf.readFully(compBuf, 0, entry.compressedSize)
+                            if (entry.decompressedSize > 0) {
+                                val resLen = Zstd.decompressByteArray(decompBuf, 0, entry.decompressedSize, compBuf, 0, entry.compressedSize)
+                                if (Zstd.isError(resLen) || resLen != entry.decompressedSize.toLong()) {
+                                    throw IOException("Повреждён кадр Z3DS #$idx: ${Zstd.getErrorName(resLen)}")
+                                }
+                                bos.write(decompBuf, 0, entry.decompressedSize)
+                                writtenTotal += entry.decompressedSize.toLong()
+                            }
+                            val nowMs = System.currentTimeMillis()
+                            if (nowMs - lastReportMs >= 100L || idx == handle.seekTable.size - 1) {
+                                lastReportMs = nowMs
+                                val pct = 5 + ((writtenTotal * 93L) / totalUncomp.coerceAtLeast(1L)).toInt()
+                                onProgress(NczProgress(outputFile.name, 1, 1, writtenTotal, totalUncomp, 0.0, pct.coerceIn(0, 98), "Распаковка Z3DS ($pct%)"))
+                            }
+                        }
+                        bos.flush()
+                    }
+                }
+                if (writtenTotal != totalUncomp) {
+                    throw IOException("Итоговый размер распаковки Z3DS не совпадает с заголовком ($writtenTotal != $totalUncomp)")
+                }
+            }
+            if (outputFile.exists()) outputFile.delete()
+            if (!tempOutFile.renameTo(outputFile)) {
+                tempOutFile.copyTo(outputFile, overwrite = true)
+                tempOutFile.delete()
+            }
+            val elapsed = (System.currentTimeMillis() - startMs).coerceAtLeast(1L)
+            onProgress(NczProgress(outputFile.name, 1, 1, writtenTotal, totalUncomp, 0.0, 100, "Готово: ${outputFile.name}"))
+            return CompressionResult(
+                success = true,
+                inputPath = inputFile.absolutePath,
+                outputPath = outputFile.absolutePath,
+                originalBytes = inputFile.length(),
+                compressedBytes = outputFile.length(),
+                elapsedMs = elapsed,
+                compressedNcaCount = frameCount,
+                totalFilesCount = 1,
+                blockSizeExponent = 18,
+                zstdLevel = 0,
+                message = "Распакован Z3DS -> ${outputFile.name} (${formatSize(outputFile.length())})"
+            )
+        } catch (t: Throwable) {
+            try { if (tempOutFile.exists()) tempOutFile.delete() } catch (_: Throwable) {}
+            return CompressionResult(false, inputFile.absolutePath, outputFile.absolutePath, inputFile.length(), 0L, (System.currentTimeMillis() - startMs).coerceAtLeast(1L), 0, 1, 18, 0, "Ошибка распаковки Z3DS: ${t.message}")
+        }
+    }
+
     fun processAndConvert3dsContainer(
         inputFile: File,
         outputDir: File,
         targetFormatMode: Int,
         preBuildCustomization: PreBuildCustomization = PreBuildCustomization(),
+        zstdLevel: Int = 18,
         onProgress: (NczProgress) -> Unit
     ): CompressionResult {
         val startMs = System.currentTimeMillis()
         outputDir.mkdirs()
+        val cleanName = extractCleanGameTitle(inputFile.name).ifBlank { inputFile.nameWithoutExtension }
+        fun buildOutFile(extStr: String, suffix: String = ""): File {
+            val fname = if (preBuildCustomization.enabled && preBuildCustomization.customOutputFileName.isNotBlank()) {
+                val userBase = preBuildCustomization.customOutputFileName.trim().filter { it !in "\\/:*?\"<>|[]" }
+                if (userBase.contains('.')) userBase.substringBeforeLast('.') + ".$extStr" else "$userBase.$extStr"
+            } else {
+                "${cleanName}$suffix.$extStr"
+            }
+            return File(outputDir, fname)
+        }
+
+        // Handle Z3DS input
+        if (isZ3dsFile(inputFile)) {
+            val zHeader = try { Z3dsReadHandle(inputFile).use { it.header } } catch (t: Throwable) { null }
+            val plainExtFromZ = zHeader?.recommendedPlainExt ?: "cci"
+            val wantZ3ds = targetFormatMode in 8..12
+            if (!wantZ3ds) {
+                val desiredPlainExt = when (targetFormatMode) {
+                    4 -> "cci"
+                    5 -> "3ds"
+                    6 -> "cia"
+                    else -> plainExtFromZ
+                }
+                val isSamePlain = desiredPlainExt == plainExtFromZ || (plainExtFromZ == "cci" && desiredPlainExt == "3ds")
+                if (isSamePlain && !(preBuildCustomization.enabled && preBuildCustomization.customInternalTitle.isNotBlank())) {
+                    return decompressZ3ds(inputFile, buildOutFile(desiredPlainExt), onProgress)
+                }
+            }
+            // Decompress Z3DS to temp file for re-conversion / re-compression
+            val tmpPlain = File(outputDir, ".storm_z3_plain_${System.currentTimeMillis()}.$plainExtFromZ")
+            try {
+                val decRes = decompressZ3ds(inputFile, tmpPlain, onProgress)
+                if (!decRes.success) return decRes
+                val convRes = processAndConvert3dsContainer(tmpPlain, outputDir, targetFormatMode, preBuildCustomization, zstdLevel, onProgress)
+                return convRes.copy(inputPath = inputFile.absolutePath, originalBytes = inputFile.length())
+            } finally {
+                try { if (tmpPlain.exists()) tmpPlain.delete() } catch (_: Throwable) {}
+            }
+        }
+
         val inExt = inputFile.extension.lowercase()
+
+        // Direct 3DSX Homebrew handling
+        if (inExt == "3dsx") {
+            return when (targetFormatMode) {
+                11, 12 -> compressToZ3ds(inputFile, buildOutFile("z3dsx"), zstdLevel, 0, preBuildCustomization, onProgress)
+                4, 5 -> {
+                    val out3dsx = buildOutFile("3dsx")
+                    if (inputFile.canonicalPath != out3dsx.canonicalPath) inputFile.copyTo(out3dsx, overwrite = true)
+                    CompressionResult(true, inputFile.absolutePath, out3dsx.absolutePath, inputFile.length(), out3dsx.length(), (System.currentTimeMillis() - startMs).coerceAtLeast(1L), 1, 1, 18, 0, "Скопирован 3DSX: ${out3dsx.name}")
+                }
+                else -> CompressionResult(false, inputFile.absolutePath, "", inputFile.length(), 0L, 1L, 0, 1, 18, 0, "Homebrew .3DSX можно сжать только в .z3dsx")
+            }
+        }
+
+        // Direct Z3DS compression modes (8=ZCCI, 9=ZCIA, 10=ZCXI, 11=Z3DSX, 12=Z3DS auto)
+        if (targetFormatMode in 8..12) {
+            val (detectedMagic, recommendedZext, _) = try {
+                detectPlain3dsForZ3ds(inputFile)
+            } catch (t: Throwable) {
+                return CompressionResult(false, inputFile.absolutePath, "", inputFile.length(), 0L, 1L, 0, 1, 18, zstdLevel, t.message ?: "Ошибка формата 3DS")
+            }
+            val detectedMagicStr = String(detectedMagic, StandardCharsets.US_ASCII).trimEnd('\u0000')
+            val targetZext = when (targetFormatMode) {
+                8 -> "zcci"
+                9 -> "zcia"
+                10 -> "zcxi"
+                11 -> "z3dsx"
+                else -> recommendedZext
+            }
+            if (targetZext == "z3dsx") {
+                return CompressionResult(false, inputFile.absolutePath, "", inputFile.length(), 0L, 1L, 0, 1, 18, zstdLevel, "Формат .z3dsx поддерживается только для файлов Homebrew .3dsx")
+            }
+            val matchesDirect = (detectedMagicStr == "NCSD" && targetZext == "zcci") ||
+                (detectedMagicStr == "CIA" && targetZext == "zcia") ||
+                (detectedMagicStr == "NCCH" && targetZext == "zcxi")
+            if (matchesDirect) {
+                return compressToZ3ds(inputFile, buildOutFile(targetZext), zstdLevel, 0, preBuildCustomization, onProgress)
+            }
+            if (detectedMagicStr == "CIA" && targetZext == "zcci") {
+                val tmpCci = File(outputDir, ".storm_cia2cci_${System.currentTimeMillis()}.cci")
+                try {
+                    val plainRes = processAndConvert3dsContainer(inputFile, outputDir, 4, preBuildCustomization.copy(customOutputFileName = tmpCci.name), zstdLevel, onProgress)
+                    if (!plainRes.success) return plainRes
+                    val compRes = compressToZ3ds(File(plainRes.outputPath), buildOutFile("zcci"), zstdLevel, 0, PreBuildCustomization(), onProgress)
+                    return compRes.copy(inputPath = inputFile.absolutePath, originalBytes = inputFile.length())
+                } finally {
+                    try { if (tmpCci.exists()) tmpCci.delete() } catch (_: Throwable) {}
+                }
+            }
+            return CompressionResult(false, inputFile.absolutePath, "", inputFile.length(), 0L, 1L, 0, 1, 18, zstdLevel, "Прямая конвертация $detectedMagicStr -> .$targetZext не поддерживается без пересборки CIA")
+        }
+
         val targetExt = when (targetFormatMode) {
             4 -> "cci"
             5 -> "3ds"
@@ -4362,14 +5424,7 @@ object StormNczEngine {
             else -> if (inExt == "cia") "cci" else if (inExt == "3ds") "cci" else "3ds"
         }
 
-        val cleanName = extractCleanGameTitle(inputFile.name).ifBlank { inputFile.nameWithoutExtension }
-        val finalFileName = if (preBuildCustomization.enabled && preBuildCustomization.customOutputFileName.isNotBlank()) {
-            val userBase = preBuildCustomization.customOutputFileName.trim().filter { it !in "\\/:*?\"<>|[]" }
-            if (userBase.contains('.')) userBase.substringBeforeLast('.') + ".$targetExt" else "$userBase.$targetExt"
-        } else {
-            "${cleanName}_[Decrypted].$targetExt"
-        }
-        val outputFile = File(outputDir, finalFileName)
+        val outputFile = buildOutFile(targetExt, "_[Decrypted]")
 
         onProgress(NczProgress(inputFile.name, 1, 1, 0L, inputFile.length(), 0.0, 10, "Анализ 3DS контейнера (${inExt.uppercase()} -> ${targetExt.uppercase()})..."))
 
@@ -4997,12 +6052,13 @@ object StormNczEngine {
         // Если входной файл относится к семейству Nintendo 3DS (или выбран выходной формат 3DS/CCI/CIA: 4, 5, 6),
         // направляем в нативный 3DS конвейер.
         val firstExt = inputFiles.first().extension.lowercase()
-        if (firstExt in listOf("3ds", "cci", "cia", "cxi", "cfa", "3dsx", "nds") || targetFormatMode in 4..6) {
+        if (firstExt in listOf("3ds", "cci", "cia", "cxi", "cfa", "3dsx", "nds", "zcci", "zcxi", "zcia", "z3dsx", "z3ds") || targetFormatMode in 4..6 || targetFormatMode in 8..12) {
             return processAndConvert3dsContainer(
                 inputFile = inputFiles.first(),
                 outputDir = outputDir,
                 targetFormatMode = targetFormatMode,
                 preBuildCustomization = preBuildCustomization,
+                zstdLevel = zstdLevel,
                 onProgress = onProgress
             )
         }
@@ -6175,7 +7231,7 @@ object StormNczEngine {
      * Аудитор библиотеки ROM: выявляет несжатые .nsp, необрезанные .xci/.3ds/.cci и дубликаты по TitleID.
      */
     fun auditLibraryFolder(folders: List<File>): LibraryAuditReport {
-        val validExts = setOf("nsp", "nsz", "xci", "xcz", "3ds", "cci", "cia", "cxi", "cfa")
+        val validExts = setOf("nsp", "nsz", "xci", "xcz", "3ds", "cci", "cia", "cxi", "cfa", "3dsx", "zcci", "zcxi", "zcia", "z3dsx")
         val seenPaths = HashSet<String>()
         val allRomFiles = mutableListOf<File>()
 
