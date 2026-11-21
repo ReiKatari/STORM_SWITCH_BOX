@@ -2430,7 +2430,9 @@ namespace StormSwitchBox.Views.Dialogs
                 pkg.SetText(clean);
                 Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(pkg);
                 Windows.ApplicationModel.DataTransfer.Clipboard.Flush();
-                StatusText.Text = $"Скопировано ({label}): {clean}";
+                string preview = clean.Replace("\r\n", " | ").Replace("\n", " | ");
+                if (preview.Length > 140) preview = preview.Substring(0, 137) + "...";
+                StatusText.Text = $"Скопировано ({label}): {preview}";
             }
             catch (Exception ex)
             {
@@ -2770,14 +2772,48 @@ namespace StormSwitchBox.Views.Dialogs
                 };
                 foreach (var fileItem in visibleGrpFiles)
                     block.Files.Add(fileItem);
+
+                var catBuckets = visibleGrpFiles
+                    .GroupBy(f => RuTrackerModService.GetCategoryGroupKey(f.CategoryBadge))
+                    .OrderBy(cg => RuTrackerModService.GetFileRolePriority(cg.Key))
+                    .ToList();
+
+                foreach (var cg in catBuckets)
+                {
+                    var catFiles = cg.ToList();
+                    int cTotal = catFiles.Count;
+                    int cSel = catFiles.Count(x => x.IsSelected);
+                    long cSelBytes = catFiles.Where(x => x.IsSelected).Sum(x => Math.Max(0L, x.SizeBytes));
+                    long cTotBytes = catFiles.Sum(x => Math.Max(0L, x.SizeBytes));
+                    var (cBg, cFg) = RuTrackerModService.GetCategoryGroupColors(cg.Key);
+                    string catSummary = $"{cSel} из {cTotal} • {ProcessingTask.FormatSize(cSel > 0 ? cSelBytes : cTotBytes)}";
+
+                    var catGroup = new RuTrackerFileCategoryGroup
+                    {
+                        SlotNumber = slotNum,
+                        CategoryKey = cg.Key,
+                        SortOrder = RuTrackerModService.GetFileRolePriority(cg.Key),
+                        BadgeBackground = cBg,
+                        BadgeForeground = cFg,
+                        HeaderCountBadge = $"({cTotal})",
+                        CategorySummary = catSummary
+                    };
+                    foreach (var cf in catFiles)
+                        catGroup.Files.Add(cf);
+                    block.CategoryGroups.Add(catGroup);
+                }
+
                 newFileGroups.Add(block);
             }
 
-            // Проверяем, изменилась ли структура групп, чтобы не сбрасывать скролл без необходимости
+            // Проверяем, изменилась ли структура групп/категорий, чтобы не сбрасывать скролл без необходимости
             bool sameFileStructure = _fileGroups.Count == newFileGroups.Count &&
                 _fileGroups.Zip(newFileGroups, (a, b) =>
                     a.SlotNumber == b.SlotNumber &&
-                    a.Files.SequenceEqual(b.Files)).All(x => x);
+                    a.CategoryGroups.Count == b.CategoryGroups.Count &&
+                    a.CategoryGroups.Zip(b.CategoryGroups, (ca, cb) =>
+                        ca.CategoryKey == cb.CategoryKey &&
+                        ca.Files.SequenceEqual(cb.Files)).All(x => x)).All(x => x);
 
             if (sameFileStructure)
             {
@@ -2786,6 +2822,11 @@ namespace StormSwitchBox.Views.Dialogs
                     _fileGroups[i].GroupBadge = newFileGroups[i].GroupBadge;
                     _fileGroups[i].GroupTitle = newFileGroups[i].GroupTitle;
                     _fileGroups[i].GroupSummary = newFileGroups[i].GroupSummary;
+                    for (int c = 0; c < _fileGroups[i].CategoryGroups.Count; c++)
+                    {
+                        _fileGroups[i].CategoryGroups[c].HeaderCountBadge = newFileGroups[i].CategoryGroups[c].HeaderCountBadge;
+                        _fileGroups[i].CategoryGroups[c].CategorySummary = newFileGroups[i].CategoryGroups[c].CategorySummary;
+                    }
                 }
             }
             else
@@ -2948,6 +2989,50 @@ namespace StormSwitchBox.Views.Dialogs
             _suppressGroupRebuild = false;
             UpdateDlcUnlockerAutoState();
             UpdateGameSlotsSummary();
+        }
+
+        private void ToggleCategoryGroupSelection_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not FrameworkElement fe || fe.Tag is not RuTrackerFileCategoryGroup catGroup || catGroup.Files.Count == 0)
+                return;
+
+            bool selectNext = catGroup.Files.Any(f => !f.IsSelected);
+            _suppressGroupRebuild = true;
+            foreach (var f in catGroup.Files)
+                f.IsSelected = selectNext;
+            _suppressGroupRebuild = false;
+            UpdateDlcUnlockerAutoState();
+            EnrichGameSlotsFromFilesAndTitleDb();
+            UpdateGameSlotsSummary();
+        }
+
+        private void CopyDlcName_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not FrameworkElement fe || fe.Tag is not TorrentFileSelectionItem fileItem)
+                return;
+
+            var slot = _gameSlots.FirstOrDefault(s => s.SlotNumber == fileItem.TargetGameSlot) ?? _gameSlots.FirstOrDefault();
+            string cleanDlc = RuTrackerModService.ExtractCleanDlcName(fileItem.RelativePath, slot?.GameTitle);
+            if (!string.IsNullOrWhiteSpace(cleanDlc))
+                CopyTextToClipboardWithFeedback(cleanDlc, "Название DLC");
+        }
+
+        private void CopyAllDlcNamesInGroup_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not FrameworkElement fe || fe.Tag is not RuTrackerFileCategoryGroup catGroup || catGroup.Files.Count == 0)
+                return;
+
+            var slot = _gameSlots.FirstOrDefault(s => s.SlotNumber == catGroup.SlotNumber) ?? _gameSlots.FirstOrDefault();
+            var names = catGroup.Files
+                .Select(f => RuTrackerModService.ExtractCleanDlcName(f.RelativePath, slot?.GameTitle))
+                .Where(n => !string.IsNullOrWhiteSpace(n))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (names.Count > 0)
+            {
+                CopyTextToClipboardWithFeedback(string.Join(Environment.NewLine, names), $"Названия DLC ({names.Count})");
+            }
         }
 
         private void ToggleFileGroupSelection_Click(object sender, RoutedEventArgs e)
@@ -3505,7 +3590,7 @@ namespace StormSwitchBox.Views.Dialogs
 
                 // Сканируем каталог релиза на наличие распакованных romfs / exefs ТОЛЬКО если выбрана соответствующая запись мода
                 var selectedModEntries = payload.TorrentFiles != null
-                    ? payload.TorrentFiles.Where(f => f.IsSelected && f.CategoryBadge == "МОД / РУСИФИКАТОР").ToList()
+                    ? payload.TorrentFiles.Where(f => f.IsSelected && (f.CategoryBadge == "МОДЫ" || f.CategoryBadge == "МОД / РУСИФИКАТОР")).ToList()
                     : new List<TorrentFileSelectionItem>();
 
                 bool hasAllowedModsInRelease = selectedModEntries.Count > 0 || payload.CloudLinks.Count > 0;

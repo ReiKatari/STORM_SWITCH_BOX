@@ -596,19 +596,36 @@ namespace StormSwitchBox.Services
                 {
                     OnPropertyChanged(nameof(RoleBadgeBackground));
                     OnPropertyChanged(nameof(RoleBadgeForeground));
+                    OnPropertyChanged(nameof(IsDlcItem));
+                    OnPropertyChanged(nameof(CleanDlcName));
+                    OnPropertyChanged(nameof(CopyDlcButtonVisibility));
+                    OnPropertyChanged(nameof(CopyDlcTooltip));
                 }
             }
         }
 
         public bool IsRealTorrentFile { get; set; } = false;
 
+        public bool IsDlcItem => string.Equals(CategoryBadge, "DLC", StringComparison.OrdinalIgnoreCase);
+
+        public string CleanDlcName => IsDlcItem ? RuTrackerModService.ExtractCleanDlcName(RelativePath) : string.Empty;
+
+        public Microsoft.UI.Xaml.Visibility CopyDlcButtonVisibility =>
+            IsDlcItem ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
+
+        public string CopyDlcTooltip => IsDlcItem && !string.IsNullOrWhiteSpace(CleanDlcName)
+            ? $"Копировать название DLC: {CleanDlcName}"
+            : "Копировать название дополнения";
+
         public string RoleBadgeBackground => CategoryBadge switch
         {
             "ИГРА" => "#064E3B",
             "ОБНОВЛЕНИЕ" => "#0C4A6E",
             "ОБНОВЛЕНИЕ (РУС)" => "#164E63",
-            "DLC" => "#4C1D95",
-            "МОД / РУСИФИКАТОР" => "#78350F",
+            "DLC" or "ДОПОЛНЕНИЯ" => "#4C1D95",
+            "UNLOCKER" => "#134E4A",
+            "МОДЫ" or "МОД / РУСИФИКАТОР" => "#78350F",
+            "СЭЙВЫ" => "#4A1D4D",
             "ИНФО" => "#1E293B",
             _ => "#1E293B"
         };
@@ -618,11 +635,45 @@ namespace StormSwitchBox.Services
             "ИГРА" => "#34D399",
             "ОБНОВЛЕНИЕ" => "#38BDF8",
             "ОБНОВЛЕНИЕ (РУС)" => "#67E8F9",
-            "DLC" => "#C084FC",
-            "МОД / РУСИФИКАТОР" => "#FBBF24",
+            "DLC" or "ДОПОЛНЕНИЯ" => "#C084FC",
+            "UNLOCKER" => "#5EEAD4",
+            "МОДЫ" or "МОД / РУСИФИКАТОР" => "#FBBF24",
+            "СЭЙВЫ" => "#F472B6",
             "ИНФО" => "#94A3B8",
             _ => "#FBBF24"
         };
+    }
+
+    public sealed class RuTrackerFileCategoryGroup : CommunityToolkit.Mvvm.ComponentModel.ObservableObject
+    {
+        public int SlotNumber { get; set; }
+        public string CategoryKey { get; set; } = string.Empty;
+        public int SortOrder { get; set; }
+        public string BadgeBackground { get; set; } = "#1E293B";
+        public string BadgeForeground { get; set; } = "#E2E8F0";
+
+        private string _headerCountBadge = "0";
+        public string HeaderCountBadge
+        {
+            get => _headerCountBadge;
+            set => SetProperty(ref _headerCountBadge, value);
+        }
+
+        private string _categorySummary = string.Empty;
+        public string CategorySummary
+        {
+            get => _categorySummary;
+            set => SetProperty(ref _categorySummary, value);
+        }
+
+        public bool IsDlcCategory => string.Equals(CategoryKey, "ДОПОЛНЕНИЯ", StringComparison.OrdinalIgnoreCase);
+
+        public Microsoft.UI.Xaml.Visibility CopyAllDlcVisibility =>
+            IsDlcCategory && Files.Count > 0
+                ? Microsoft.UI.Xaml.Visibility.Visible
+                : Microsoft.UI.Xaml.Visibility.Collapsed;
+
+        public System.Collections.ObjectModel.ObservableCollection<TorrentFileSelectionItem> Files { get; } = new();
     }
 
     public sealed class RuTrackerFileGroupBlock : CommunityToolkit.Mvvm.ComponentModel.ObservableObject
@@ -677,6 +728,7 @@ namespace StormSwitchBox.Services
         };
 
         public System.Collections.ObjectModel.ObservableCollection<TorrentFileSelectionItem> Files { get; } = new();
+        public System.Collections.ObjectModel.ObservableCollection<RuTrackerFileCategoryGroup> CategoryGroups { get; } = new();
     }
 
     public sealed class RuTrackerLinkGroupBlock : CommunityToolkit.Mvvm.ComponentModel.ObservableObject
@@ -2726,6 +2778,79 @@ namespace StormSwitchBox.Services
             }
         }
 
+        /// <summary>
+        /// Извлекает чистое название DLC по стандарту STORM GAMES WORLD:
+        /// из "[Game] [DLC Early Purchase Bonus Exploration Support Pack] [0100453019AA9001][v0].nsp" -> "Early Purchase Bonus Exploration Support Pack".
+        /// </summary>
+        public static string ExtractCleanDlcName(string? rawNameOrPath, string? gameTitleHint = null)
+        {
+            if (string.IsNullOrWhiteSpace(rawNameOrPath)) return string.Empty;
+
+            string work = rawNameOrPath.Trim().Replace('\\', '/');
+            if (work.Contains('/'))
+                work = Path.GetFileName(work);
+
+            string ext = Path.GetExtension(work);
+            if (!string.IsNullOrEmpty(ext) &&
+                (BinaryContainerExtensions.Contains(ext) || ArchiveExtensions.Contains(ext) || InfoExtensions.Contains(ext)))
+            {
+                work = Path.GetFileNameWithoutExtension(work);
+            }
+
+            // 1. Точное правило STORM GAMES WORLD: содержимое тега [DLC ...] (или [Standalone DLC - ...])
+            var bracketDlcMatch = Regex.Match(
+                work,
+                @"\[(?:Standalone\s+)?DLC(?:\s*[:\-]\s*|\s+)(?<name>[^\]]+)\]",
+                RegexOptions.IgnoreCase);
+            if (bracketDlcMatch.Success)
+            {
+                string extracted = bracketDlcMatch.Groups["name"].Value.Trim();
+                extracted = Regex.Replace(extracted, @"\s+", " ").Trim(' ', '-', ':', '_', '/', '\u2014', '\u2013');
+                if (!string.IsNullOrWhiteSpace(extracted))
+                    return extracted.Replace('\u2014', '-').Replace('\u2013', '-');
+            }
+
+            // 2. Запасной разбор для имён без [DLC ...] (убираем TitleID, версию, теги регионов/форматов и префикс игры)
+            string tid = ExtractTitleId(work);
+            string stripped = work;
+            stripped = Regex.Replace(stripped, @"\[[0-9A-Fa-f]{16}\]", " ");
+            stripped = Regex.Replace(stripped, @"\[v\d+\]", " ", RegexOptions.IgnoreCase);
+            stripped = Regex.Replace(stripped, @"\[(?:DLC|ADDON|NSP|NSZ|XCI|XCZ|NUP|3DS|CIA|WW|US|EU|JP|KR|RUS|ENG)\]", " ", RegexOptions.IgnoreCase);
+            stripped = Regex.Replace(stripped, @"\(\d+(?:[.,]\d+)?\s*(?:GB|MB|KB|TB|ГБ|МБ|КБ|ТБ)\)", " ", RegexOptions.IgnoreCase);
+            stripped = Regex.Replace(stripped, @"\s+", " ").Trim(' ', '-', ':', '_', '/');
+
+            if (!string.IsNullOrWhiteSpace(gameTitleHint))
+            {
+                string hint = Regex.Replace(gameTitleHint.Trim(), @"\s+", " ");
+                if (stripped.StartsWith(hint, StringComparison.OrdinalIgnoreCase))
+                {
+                    string rem = stripped.Substring(hint.Length).Trim(' ', '-', ':', '_', '/', '\u2014', '\u2013');
+                    if (!string.IsNullOrWhiteSpace(rem))
+                        stripped = rem;
+                }
+            }
+
+            if ((string.IsNullOrWhiteSpace(stripped) ||
+                 (!string.IsNullOrWhiteSpace(gameTitleHint) && string.Equals(stripped, gameTitleHint.Trim(), StringComparison.OrdinalIgnoreCase))) &&
+                tid.Length == 16 &&
+                App.TitleDb != null &&
+                App.TitleDb.TryGetTitleInfo(tid, out var dbEntry) &&
+                !string.IsNullOrWhiteSpace(dbEntry?.Name))
+            {
+                string dbName = dbEntry.Name.Trim();
+                if (!string.IsNullOrWhiteSpace(gameTitleHint) &&
+                    dbName.StartsWith(gameTitleHint.Trim(), StringComparison.OrdinalIgnoreCase))
+                {
+                    string rem = dbName.Substring(gameTitleHint.Trim().Length).Trim(' ', '-', ':', '_', '/', '\u2014', '\u2013');
+                    if (!string.IsNullOrWhiteSpace(rem))
+                        dbName = rem;
+                }
+                stripped = dbName;
+            }
+
+            return Regex.Replace(stripped, @"\s+", " ").Replace('\u2014', '-').Replace('\u2013', '-').Trim();
+        }
+
         public static (string MainVersion, Dictionary<string, string> PerTitleVersions) ExtractGameVersionsFromTopicHtml(string? html)
         {
             var perTitleVersions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -4380,14 +4505,48 @@ namespace StormSwitchBox.Services
 
         public static int GetFileRolePriority(string? categoryBadge) => GetRoleSortOrder(categoryBadge);
 
+        public static string GetCategoryGroupKey(string? categoryBadge)
+        {
+            string b = (categoryBadge ?? string.Empty).Trim().ToUpperInvariant();
+            if (b == "ИГРА" || b.StartsWith("ИГРА #") || b == "MAGNET") return "ИГРА";
+            if (b == "ОБНОВЛЕНИЕ (РУС)") return "ОБНОВЛЕНИЕ (РУС)";
+            if (b == "ОБНОВЛЕНИЕ" || b == "UPDATE") return "ОБНОВЛЕНИЕ";
+            if (b == "DLC" || b == "ДОПОЛНЕНИЯ") return "ДОПОЛНЕНИЯ";
+            if (b == "UNLOCKER") return "UNLOCKER";
+            if (b == "СЭЙВЫ" || b == "СЕЙВЫ" || b == "SAVES") return "СЭЙВЫ";
+            if (b.Contains("МОД") || b.Contains("РУСИФИКАТОР")) return "МОДЫ";
+            return "ИНФО";
+        }
+
+        public static (string Bg, string Fg) GetCategoryGroupColors(string? categoryKey)
+        {
+            return (categoryKey ?? string.Empty).Trim().ToUpperInvariant() switch
+            {
+                "ИГРА" => ("#064E3B", "#34D399"),
+                "ОБНОВЛЕНИЕ" => ("#0C4A6E", "#38BDF8"),
+                "ДОПОЛНЕНИЯ" or "DLC" => ("#4C1D95", "#C084FC"),
+                "UNLOCKER" => ("#134E4A", "#5EEAD4"),
+                "МОДЫ" or "МОД / РУСИФИКАТОР" => ("#78350F", "#FBBF24"),
+                "ОБНОВЛЕНИЕ (РУС)" => ("#164E63", "#67E8F9"),
+                "СЭЙВЫ" => ("#4A1D4D", "#F472B6"),
+                _ => ("#1E293B", "#94A3B8")
+            };
+        }
+
         public static int GetRoleSortOrder(string? categoryBadge)
         {
-            string b = (categoryBadge ?? "").ToUpperInvariant();
-            if (b == "ИГРА" || b.StartsWith("ИГРА #")) return 0;
-            if (b.Contains("ОБНОВЛЕНИЕ") || b.Contains("UPDATE")) return 1;
-            if (b.Contains("DLC")) return 2;
-            if (b.Contains("МОД") || b.Contains("РУСИФИКАТОР") || b.Contains("UNLOCKER")) return 3;
-            return 4;
+            string key = GetCategoryGroupKey(categoryBadge);
+            return key switch
+            {
+                "ИГРА" => 0,
+                "ОБНОВЛЕНИЕ" => 1,
+                "ДОПОЛНЕНИЯ" => 2,
+                "UNLOCKER" => 3,
+                "МОДЫ" => 4,
+                "ОБНОВЛЕНИЕ (РУС)" => 5,
+                "СЭЙВЫ" => 6,
+                _ => 7
+            };
         }
 
         /// <summary>
@@ -4689,6 +4848,26 @@ namespace StormSwitchBox.Services
             }
         }
 
+        private static bool IsSaveEntryPath(string normPath)
+        {
+            if (string.IsNullOrWhiteSpace(normPath)) return false;
+            string ext = Path.GetExtension(normPath).ToLowerInvariant();
+            if (ext == ".sav") return true;
+            return Regex.IsMatch(
+                normPath,
+                @"(?:^|[\s_\-./\\(\[])(?:saves?|savegame|save[\s_\-]?data|jksv|checkpoint|сейв[а-я]*|сэйв[а-я]*|сохранени[а-я]*)(?:$|[\s_\-./\\)\]\d])",
+                RegexOptions.IgnoreCase);
+        }
+
+        private static bool IsUnlockerEntryPath(string normPath)
+        {
+            if (string.IsNullOrWhiteSpace(normPath)) return false;
+            return Regex.IsMatch(
+                normPath,
+                @"(?:unlocker|анлокер|dlc[\s_\-]?unlock)",
+                RegexOptions.IgnoreCase);
+        }
+
         public static string ClassifyTorrentEntryBadge(string path)
         {
             if (string.IsNullOrWhiteSpace(path)) return "ФАЙЛ";
@@ -4701,7 +4880,15 @@ namespace StormSwitchBox.Services
             if (ext is ".txt" or ".nfo" or ".url" or ".md" or ".html" or ".htm" or ".jpg" or ".jpeg" or ".png" or ".webp" or ".sfv")
                 return "ИНФО";
 
-            // 2. Игровые контейнеры Switch / 3DS (.nsp, .nsz, .xci, .xcz, .nup, .3ds, .cia, .cci, .cxi) - проверяем ДО папок с "rus"!
+            // 2. Сэйвы / сохранения (проверяем ДО модов и контейнеров)
+            if (IsSaveEntryPath(norm))
+                return "СЭЙВЫ";
+
+            // 3. Отдельные DLC Unlocker
+            if (IsUnlockerEntryPath(norm))
+                return "UNLOCKER";
+
+            // 4. Игровые контейнеры Switch / 3DS (.nsp, .nsz, .xci, .xcz, .nup, .3ds, .cia, .cci, .cxi)
             if (ext is ".nsp" or ".nsz" or ".xci" or ".xcz" or ".nup" or ".3ds" or ".cia" or ".cci" or ".cxi")
             {
                 string tid = ExtractTitleId(fn);
@@ -4709,19 +4896,20 @@ namespace StormSwitchBox.Services
                 bool isUpdateByVer = Regex.IsMatch(fn, @"\[v[1-9]\d*\]") || Regex.IsMatch(fn, @"(?:^|[\s_\-\.\(\[])(?:update|patch|upd)(?:$|[\s_\-\.\)\]v\d])");
                 if (isUpdateByTid || isUpdateByVer)
                 {
-                    bool inTransSubfolder = Regex.IsMatch(dir, @"(?:translation|перевод|русиф|machine\s*trans|rus[\s_\-]mod|укр|ukr)", RegexOptions.IgnoreCase);
+                    bool inTransSubfolder = Regex.IsMatch(dir, @"(?:translation|перевод|русиф|machine\s*trans|rus[\s_\-]mod|локализац|укр|ukr)", RegexOptions.IgnoreCase) ||
+                                            Regex.IsMatch(fn, @"(?:translation|перевод|русиф|machine\s*trans|rus[\s_\-]mod|локализац)", RegexOptions.IgnoreCase);
                     return inTransSubfolder ? "ОБНОВЛЕНИЕ (РУС)" : "ОБНОВЛЕНИЕ";
                 }
 
                 bool isDlcByTid = tid.Length == 16 && !tid.EndsWith("000", StringComparison.OrdinalIgnoreCase) && !tid.EndsWith("800", StringComparison.OrdinalIgnoreCase);
-                bool isDlcByName = Regex.IsMatch(fn, @"(?:^|[\s_\-\.\(\[])(?:dlc|addon|unlocker)(?:$|[\s_\-\.\)\]\d])");
+                bool isDlcByName = Regex.IsMatch(fn, @"(?:^|[\s_\-\.\(\[])(?:dlc|addon)(?:$|[\s_\-\.\)\]\d])");
                 if (isDlcByTid || isDlcByName)
                     return "DLC";
 
                 return "ИГРА";
             }
 
-            // 3. Архивы модификаций, LayeredFS (atmosphere/romfs/exefs), читы и IPS-патчи
+            // 5. Архивы модификаций, русификаторов, LayeredFS (atmosphere/romfs/exefs), читы и IPS-патчи
             if (ext is ".7z" or ".zip" or ".rar" or ".ips" or ".pchtxt" or ".bps" ||
                 norm.Contains("atmosphere", StringComparison.OrdinalIgnoreCase) ||
                 norm.Contains("romfs", StringComparison.OrdinalIgnoreCase) ||
@@ -4729,9 +4917,9 @@ namespace StormSwitchBox.Services
                 norm.Contains("contents", StringComparison.OrdinalIgnoreCase) ||
                 norm.Contains("luma", StringComparison.OrdinalIgnoreCase) ||
                 norm.Contains("cheats", StringComparison.OrdinalIgnoreCase) ||
-                Regex.IsMatch(norm, @"(?:translation|перевод|русиф|mod|мод|rus|укр|ukr)", RegexOptions.IgnoreCase))
+                Regex.IsMatch(norm, @"(?:translation|перевод|русиф|локализац|mod|мод|rus|укр|ukr|60fps)", RegexOptions.IgnoreCase))
             {
-                return "МОД / РУСИФИКАТОР";
+                return "МОДЫ";
             }
 
             return "ФАЙЛ";
@@ -4887,11 +5075,14 @@ namespace StormSwitchBox.Services
                         : prefix;
                     cleanPrefixDisplay = cleanPrefixDisplay.TrimEnd('/');
 
+                    string folderBadge = IsSaveEntryPath(prefix)
+                        ? "СЭЙВЫ"
+                        : (IsUnlockerEntryPath(prefix) ? "UNLOCKER" : "МОДЫ");
                     var collapsedItem = new TorrentFileSelectionItem
                     {
-                        IsSelected = true,
+                        IsSelected = folderBadge == "UNLOCKER",
                         IsRealTorrentFile = true,
-                        CategoryBadge = "МОД / РУСИФИКАТОР",
+                        CategoryBadge = folderBadge,
                         Length = group.Sum(x => x.Length),
                         RelativePath = !string.IsNullOrEmpty(tid) && !prefix.Contains(tid, StringComparison.OrdinalIgnoreCase)
                             ? $"{prefix} [{tid}]"
@@ -4950,27 +5141,27 @@ namespace StormSwitchBox.Services
                 }
                 items[idx].DisplayPath = disp;
 
-                // Отключаем текстовые ReadMe / NFO / картинки по умолчанию
-                if (items[idx].CategoryBadge == "ИНФО")
-                {
-                    items[idx].IsSelected = false;
-                }
+                // Строгий стандарт выбора по умолчанию: включены ТОЛЬКО оригинальная ИГРА, последнее ОБНОВЛЕНИЕ, DLC и UNLOCKER.
+                // Все моды, русификаторы, русские обновления, сэйвы и инфо-файлы отключены по умолчанию.
+                string b = items[idx].CategoryBadge ?? "ФАЙЛ";
+                bool isOriginalDefault = b == "ИГРА" || b.StartsWith("ИГРА #") || b == "ОБНОВЛЕНИЕ" || b == "DLC" || b == "UNLOCKER";
+                items[idx].IsSelected = isOriginalDefault;
             }
 
-            // 2. Умное разрешение нескольких обновлений одной игры (напр. в корне лежит свежий v262144, а в папке русификатора рядом с atmosphere.7z лежит v131072 под перевод)
-            var updates = items
-                .Where(i => i.CategoryBadge == "ОБНОВЛЕНИЕ" || i.CategoryBadge == "ОБНОВЛЕНИЕ (РУС)")
+            // 2. Среди официальных обновлений одной игры оставляем включённым ТОЛЬКО самое свежее [vXXXXX] (ОБНОВЛЕНИЕ (РУС) всегда отключено по умолчанию)
+            var officialUpdates = items
+                .Where(i => i.CategoryBadge == "ОБНОВЛЕНИЕ")
                 .ToList();
 
-            if (updates.Count >= 2)
+            if (officialUpdates.Count >= 2)
             {
-                var modDirs = items
-                    .Where(i => i.CategoryBadge == "МОД / РУСИФИКАТОР" && i.IsSelected)
-                    .Select(i => (Path.GetDirectoryName(i.DisplayPath.Replace('\\', '/')) ?? "").Replace('\\', '/').Trim('/'))
-                    .Where(d => !string.IsNullOrEmpty(d))
-                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                static long ParseVer(TorrentFileSelectionItem it)
+                {
+                    var vm = Regex.Match(it.RelativePath, @"\[v(\d+)\]", RegexOptions.IgnoreCase);
+                    return vm.Success && long.TryParse(vm.Groups[1].Value, out long v) ? v : 0L;
+                }
 
-                var groupedByGame = updates.GroupBy(u =>
+                var groupedByGame = officialUpdates.GroupBy(u =>
                 {
                     string tid = ExtractTitleId(u.RelativePath);
                     return tid.Length >= 13 ? tid.Substring(0, 13).ToUpperInvariant() : ExtractCleanGameTitleFromFilePath(u.RelativePath).ToUpperInvariant();
@@ -4980,31 +5171,9 @@ namespace StormSwitchBox.Services
                 {
                     var grpList = grp.ToList();
                     if (grpList.Count < 2) continue;
-
-                    var modPairedUpdates = grpList.Where(u =>
-                    {
-                        string uDir = (Path.GetDirectoryName(u.DisplayPath.Replace('\\', '/')) ?? "").Replace('\\', '/').Trim('/');
-                        return !string.IsNullOrEmpty(uDir) && modDirs.Contains(uDir);
-                    }).ToList();
-
-                    if (modPairedUpdates.Count > 0)
-                    {
-                        // Оставляем включённым обновление, спаренное с папкой русификатора, а конфликтующие обновления снимаем по умолчанию (пользователь видит оба и может переключить)
-                        foreach (var u in grpList)
-                            u.IsSelected = modPairedUpdates.Contains(u);
-                    }
-                    else
-                    {
-                        // Если модов в подпапках нет - оставляем включённым самое свежее обновление [vXXXXX]
-                        long ParseVer(TorrentFileSelectionItem it)
-                        {
-                            var vm = Regex.Match(it.RelativePath, @"\[v(\d+)\]", RegexOptions.IgnoreCase);
-                            return vm.Success && long.TryParse(vm.Groups[1].Value, out long v) ? v : 0L;
-                        }
-                        var newest = grpList.OrderByDescending(ParseVer).ThenByDescending(x => x.Length).First();
-                        foreach (var u in grpList)
-                            u.IsSelected = ReferenceEquals(u, newest);
-                    }
+                    var newest = grpList.OrderByDescending(ParseVer).ThenByDescending(x => x.Length).First();
+                    foreach (var u in grpList)
+                        u.IsSelected = ReferenceEquals(u, newest);
                 }
             }
         }

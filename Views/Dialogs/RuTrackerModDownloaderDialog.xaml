@@ -792,48 +792,99 @@
                                             </Grid>
                                         </Border>
 
-                                        <!-- Файлы этой игры -->
-                                        <ItemsControl ItemsSource="{Binding Files}">
+                                        <!-- Файлы этой игры, сгруппированные по категориям -->
+                                        <ItemsControl ItemsSource="{Binding CategoryGroups}">
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate>
-                                                    <Border Background="#0B101D" BorderBrush="#1D283A" BorderThickness="1" CornerRadius="5" Padding="6,3" Margin="0,1">
-                                                        <Grid ColumnSpacing="7" VerticalAlignment="Center">
-                                                            <Grid.ColumnDefinitions>
-                                                                <ColumnDefinition Width="Auto"/>
-                                                                <ColumnDefinition Width="*"/>
-                                                                <ColumnDefinition Width="102"/>
-                                                                <ColumnDefinition Width="122"/>
-                                                                <ColumnDefinition Width="72"/>
-                                                            </Grid.ColumnDefinitions>
-                                                            <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected, Mode=TwoWay}" MinWidth="0" VerticalAlignment="Center"/>
-                                                            <TextBlock Grid.Column="1" Text="{Binding DisplayPath}" FontSize="11.5" Foreground="#E2E8F0"
-                                                                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
-                                                                       ToolTipService.ToolTip="{Binding RelativePath}"/>
-                                                            <ComboBox Grid.Column="2" SelectedIndex="{Binding TargetGameSlot, Mode=TwoWay}" SelectionChanged="SlotAssignmentCombo_SelectionChanged"
-                                                                      FontSize="10.5" Height="25" MinHeight="25" Padding="7,0,5,0"
-                                                                      VerticalAlignment="Center" VerticalContentAlignment="Center" HorizontalAlignment="Stretch" CornerRadius="4"
-                                                                      ToolTipService.ToolTip="К какой игре или части относится этот файл раздачи">
-                                                                <ComboBoxItem Content="Все игры"/>
-                                                                <ComboBoxItem Content="Игра #1"/>
-                                                                <ComboBoxItem Content="Игра #2"/>
-                                                                <ComboBoxItem Content="Игра #3"/>
-                                                                <ComboBoxItem Content="Игра #4"/>
-                                                                <ComboBoxItem Content="Игра #5"/>
-                                                                <ComboBoxItem Content="Игра #6"/>
-                                                                <ComboBoxItem Content="Игра #7"/>
-                                                                <ComboBoxItem Content="Игра #8"/>
-                                                                <ComboBoxItem Content="Игра #9"/>
-                                                                <ComboBoxItem Content="Игра #10"/>
-                                                            </ComboBox>
-                                                            <Border Grid.Column="3" Background="{Binding RoleBadgeBackground}" CornerRadius="4" Padding="6,2"
-                                                                    HorizontalAlignment="Stretch" VerticalAlignment="Center">
-                                                                <TextBlock Text="{Binding CategoryBadge}" FontSize="9.5" Foreground="{Binding RoleBadgeForeground}"
-                                                                           FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                                            </Border>
-                                                            <TextBlock Grid.Column="4" Text="{Binding SizeFormatted}" FontSize="10.5" FontFamily="Consolas" Foreground="#94A3B8"
-                                                                       HorizontalAlignment="Right" VerticalAlignment="Center"/>
-                                                        </Grid>
-                                                    </Border>
+                                                    <StackPanel Spacing="2" Margin="0,2,0,2">
+                                                        <!-- Подзаголовок категории (ИГРА / ОБНОВЛЕНИЕ / ДОПОЛНЕНИЯ / UNLOCKER / МОДЫ / ОБНОВЛЕНИЕ (РУС) / СЭЙВЫ) -->
+                                                        <Border Background="#141E33" BorderBrush="#223250" BorderThickness="1" CornerRadius="5" Padding="6,3">
+                                                            <Grid ColumnSpacing="7">
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="Auto"/>
+                                                                    <ColumnDefinition Width="Auto"/>
+                                                                    <ColumnDefinition Width="Auto"/>
+                                                                    <ColumnDefinition Width="Auto"/>
+                                                                    <ColumnDefinition Width="*"/>
+                                                                </Grid.ColumnDefinitions>
+                                                                <Button Grid.Column="0" Click="ToggleCategoryGroupSelection_Click" Tag="{Binding}"
+                                                                        Height="20" MinHeight="20" Padding="5,0" CornerRadius="4"
+                                                                        Background="#1E2C47" BorderBrush="#334B75" BorderThickness="1" Foreground="#E2E8F0"
+                                                                        ToolTipService.ToolTip="Отметить или снять все файлы этой категории">
+                                                                    <FontIcon Glyph="&#xE73A;" FontSize="9"/>
+                                                                </Button>
+                                                                <Border Grid.Column="1" Background="{Binding BadgeBackground}" CornerRadius="4" Padding="6,1" VerticalAlignment="Center">
+                                                                    <TextBlock Text="{Binding CategoryKey}" FontSize="9.5" Foreground="{Binding BadgeForeground}" FontWeight="Bold" VerticalAlignment="Center"/>
+                                                                </Border>
+                                                                <TextBlock Grid.Column="2" Text="{Binding HeaderCountBadge}" FontSize="10" Foreground="#94A3B8" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                                                <Button Grid.Column="3" Click="CopyAllDlcNamesInGroup_Click" Tag="{Binding}"
+                                                                        Visibility="{Binding CopyAllDlcVisibility}"
+                                                                        Height="20" MinHeight="20" Padding="7,0" CornerRadius="4"
+                                                                        Background="#3B1966" BorderBrush="#7C3AED" BorderThickness="1"
+                                                                        ToolTipService.ToolTip="Скопировать чистые названия всех DLC списком (совместимо со STORM GAMES WORLD)">
+                                                                    <StackPanel Orientation="Horizontal" Spacing="4">
+                                                                        <FontIcon Glyph="&#xE8C8;" FontSize="10" Foreground="#E9D5FF"/>
+                                                                        <TextBlock Text="Копировать все DLC" FontSize="9.5" Foreground="#E9D5FF" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                                                    </StackPanel>
+                                                                </Button>
+                                                                <TextBlock Grid.Column="4" Text="{Binding CategorySummary}" FontSize="10" FontFamily="Consolas" Foreground="#7DD3FC"
+                                                                           VerticalAlignment="Center" HorizontalAlignment="Right"/>
+                                                            </Grid>
+                                                        </Border>
+
+                                                        <ItemsControl ItemsSource="{Binding Files}">
+                                                            <ItemsControl.ItemTemplate>
+                                                                <DataTemplate>
+                                                                    <Border Background="#0B101D" BorderBrush="#1D283A" BorderThickness="1" CornerRadius="5" Padding="6,3" Margin="10,1,0,1">
+                                                                        <Grid ColumnSpacing="7" VerticalAlignment="Center">
+                                                                            <Grid.ColumnDefinitions>
+                                                                                <ColumnDefinition Width="Auto"/>
+                                                                                <ColumnDefinition Width="*"/>
+                                                                                <ColumnDefinition Width="Auto"/>
+                                                                                <ColumnDefinition Width="102"/>
+                                                                                <ColumnDefinition Width="122"/>
+                                                                                <ColumnDefinition Width="72"/>
+                                                                            </Grid.ColumnDefinitions>
+                                                                            <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected, Mode=TwoWay}" MinWidth="0" VerticalAlignment="Center"/>
+                                                                            <TextBlock Grid.Column="1" Text="{Binding DisplayPath}" FontSize="11.5" Foreground="#E2E8F0"
+                                                                                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                                                                       ToolTipService.ToolTip="{Binding RelativePath}"/>
+                                                                            <Button Grid.Column="2" Click="CopyDlcName_Click" Tag="{Binding}"
+                                                                                    Visibility="{Binding CopyDlcButtonVisibility}"
+                                                                                    Height="22" MinHeight="22" Padding="6,0" CornerRadius="4"
+                                                                                    Background="#2E1065" BorderBrush="#7C3AED" BorderThickness="1"
+                                                                                    ToolTipService.ToolTip="{Binding CopyDlcTooltip}">
+                                                                                <FontIcon Glyph="&#xE8C8;" FontSize="10.5" Foreground="#E9D5FF"/>
+                                                                            </Button>
+                                                                            <ComboBox Grid.Column="3" SelectedIndex="{Binding TargetGameSlot, Mode=TwoWay}" SelectionChanged="SlotAssignmentCombo_SelectionChanged"
+                                                                                      FontSize="10.5" Height="25" MinHeight="25" Padding="7,0,5,0"
+                                                                                      VerticalAlignment="Center" VerticalContentAlignment="Center" HorizontalAlignment="Stretch" CornerRadius="4"
+                                                                                      ToolTipService.ToolTip="К какой игре или части относится этот файл раздачи">
+                                                                                <ComboBoxItem Content="Все игры"/>
+                                                                                <ComboBoxItem Content="Игра #1"/>
+                                                                                <ComboBoxItem Content="Игра #2"/>
+                                                                                <ComboBoxItem Content="Игра #3"/>
+                                                                                <ComboBoxItem Content="Игра #4"/>
+                                                                                <ComboBoxItem Content="Игра #5"/>
+                                                                                <ComboBoxItem Content="Игра #6"/>
+                                                                                <ComboBoxItem Content="Игра #7"/>
+                                                                                <ComboBoxItem Content="Игра #8"/>
+                                                                                <ComboBoxItem Content="Игра #9"/>
+                                                                                <ComboBoxItem Content="Игра #10"/>
+                                                                            </ComboBox>
+                                                                            <Border Grid.Column="4" Background="{Binding RoleBadgeBackground}" CornerRadius="4" Padding="6,2"
+                                                                                    HorizontalAlignment="Stretch" VerticalAlignment="Center">
+                                                                                <TextBlock Text="{Binding CategoryBadge}" FontSize="9.5" Foreground="{Binding RoleBadgeForeground}"
+                                                                                           FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                                            </Border>
+                                                                            <TextBlock Grid.Column="5" Text="{Binding SizeFormatted}" FontSize="10.5" FontFamily="Consolas" Foreground="#94A3B8"
+                                                                                       HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                                                                        </Grid>
+                                                                    </Border>
+                                                                </DataTemplate>
+                                                            </ItemsControl.ItemTemplate>
+                                                        </ItemsControl>
+                                                    </StackPanel>
                                                 </DataTemplate>
                                             </ItemsControl.ItemTemplate>
                                         </ItemsControl>

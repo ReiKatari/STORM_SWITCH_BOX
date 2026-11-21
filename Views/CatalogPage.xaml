@@ -242,8 +242,20 @@
                                 <Button Grid.Column="1" Background="#E91E63" CornerRadius="4" Padding="6,2" BorderThickness="0">
                                     <Button.Flyout>
                                         <Flyout>
-                                            <StackPanel Width="350">
-                                                <TextBlock Text="Список дополнений" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                                            <StackPanel Width="380">
+                                                <Grid Margin="0,0,0,10">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Grid.Column="0" Text="Список дополнений" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                                    <Button Grid.Column="1" Click="CopyAllCatalogDlcNames_Click" Tag="{Binding}" Padding="8,3" CornerRadius="4" ToolTipService.ToolTip="Скопировать чистые названия всех DLC списком">
+                                                        <StackPanel Orientation="Horizontal" Spacing="5">
+                                                            <FontIcon Glyph="&#xE8C8;" FontSize="11"/>
+                                                            <TextBlock Text="Копировать все" FontSize="11"/>
+                                                        </StackPanel>
+                                                    </Button>
+                                                </Grid>
                                                 <ListView ItemsSource="{Binding DlcList}" MaxHeight="400" SelectionMode="Single">
                                                     <ListView.ItemContainerTransitions>
                                                         <TransitionCollection>
@@ -252,10 +264,19 @@
                                                     </ListView.ItemContainerTransitions>
                                                     <ListView.ItemTemplate>
                                                         <DataTemplate>
-                                                            <StackPanel Padding="0,4">
-                                                                <TextBlock Text="{Binding Name}" TextWrapping="Wrap" FontSize="13" IsTextSelectionEnabled="True"/>
-                                                                <TextBlock Text="{Binding Id}" FontSize="11" Foreground="Gray" IsTextSelectionEnabled="True"/>
-                                                            </StackPanel>
+                                                            <Grid Padding="0,4" ColumnSpacing="8">
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="*"/>
+                                                                    <ColumnDefinition Width="Auto"/>
+                                                                </Grid.ColumnDefinitions>
+                                                                <StackPanel Grid.Column="0">
+                                                                    <TextBlock Text="{Binding Name}" TextWrapping="Wrap" FontSize="13" IsTextSelectionEnabled="True"/>
+                                                                    <TextBlock Text="{Binding Id}" FontSize="11" Foreground="Gray" IsTextSelectionEnabled="True"/>
+                                                                </StackPanel>
+                                                                <Button Grid.Column="1" Click="CopyCatalogDlcName_Click" Tag="{Binding}" VerticalAlignment="Center" Padding="6,4" Background="Transparent" BorderThickness="1" BorderBrush="{ThemeResource SurfaceStrokeColorDefaultBrush}" CornerRadius="4" ToolTipService.ToolTip="Копировать название дополнения">
+                                                                    <FontIcon Glyph="&#xE8C8;" FontSize="12"/>
+                                                                </Button>
+                                                            </Grid>
                                                         </DataTemplate>
                                                     </ListView.ItemTemplate>
                                                 </ListView>

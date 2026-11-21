@@ -988,6 +988,38 @@ namespace StormSwitchBox.Views
             }
         }
 
+        private void CopyCatalogDlcName_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not FrameworkElement fe || fe.Tag is not TitleDbEntry dlcEntry)
+                return;
+
+            string? parentTitle = null;
+            if (!string.IsNullOrWhiteSpace(dlcEntry.Id) && dlcEntry.Id.Length == 16)
+            {
+                string baseTid = RuTrackerModService.NormalizeSwitchBaseApplicationTitleId(dlcEntry.Id);
+                parentTitle = _allCatalogItems.FirstOrDefault(i =>
+                    string.Equals(RuTrackerModService.NormalizeSwitchBaseApplicationTitleId(i.TitleId), baseTid, StringComparison.OrdinalIgnoreCase))?.TitleName;
+            }
+            string raw = !string.IsNullOrWhiteSpace(dlcEntry.Name) ? dlcEntry.Name : (dlcEntry.Id ?? string.Empty);
+            string clean = RuTrackerModService.ExtractCleanDlcName(raw, parentTitle);
+            CopyToClipboard(!string.IsNullOrWhiteSpace(clean) ? clean : raw);
+        }
+
+        private void CopyAllCatalogDlcNames_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not FrameworkElement fe || fe.Tag is not CatalogItem item || item.DlcList.Count == 0)
+                return;
+
+            var names = item.DlcList
+                .Select(d => RuTrackerModService.ExtractCleanDlcName(d.Name, item.TitleName))
+                .Where(n => !string.IsNullOrWhiteSpace(n))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (names.Count > 0)
+                CopyToClipboard(string.Join(Environment.NewLine, names));
+        }
+
         private void CopyToClipboard(string text)
         {
             if (string.IsNullOrEmpty(text)) return;
