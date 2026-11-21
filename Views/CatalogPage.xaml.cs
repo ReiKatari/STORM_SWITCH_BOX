@@ -12,26 +12,80 @@ namespace StormSwitchBox.Views
 {
     public sealed partial class CatalogPage : Page
     {
-        private ObservableCollection<CatalogItem> _allCatalogItems = new();
-        private CatalogScannerService _scannerService;
+        private readonly ObservableCollection<CatalogItem> _allCatalogItems = new();
+        private readonly ObservableCollection<CatalogItem> _displayedCatalogItems = new();
+        private readonly ObservableCollection<CatalogFolderEntry> _folderEntries = new();
+        private readonly CatalogScannerService _scannerService;
+        private readonly RuTrackerCatalogUpdateService _ruTrackerUpdateService = new();
         private CancellationTokenSource? _scanCts;
+        private CancellationTokenSource? _ruTrackerCheckCts;
         private CatalogItem? _selectedCatalogItem;
         private Action? _langHandler;
+        private bool _showUpdatesOnly = false;
+        private bool _isScanningFolders = false;
+        private bool _isCheckingRuTracker = false;
 
         public CatalogPage()
         {
             this.InitializeComponent();
             this.NavigationCacheMode = Microsoft.UI.Xaml.Navigation.NavigationCacheMode.Required;
             _scannerService = new CatalogScannerService(App.Keys);
-            CatalogGridView.ItemsSource = _allCatalogItems;
+            CatalogGridView.ItemsSource = _displayedCatalogItems;
             
             // Загружаем папки
-            FoldersListView.ItemsSource = App.Settings.Current.CatalogFolders;
+            FoldersListView.ItemsSource = _folderEntries;
+            RefreshFoldersList();
             _langHandler = () => App.RunOnUI(ApplyLocalization);
             this.Loaded += CatalogPage_Loaded;
             this.Unloaded += CatalogPage_Unloaded;
 
             ApplyLocalization();
+        }
+
+        private void RefreshFoldersList()
+        {
+            _folderEntries.Clear();
+            foreach (var folder in App.Settings.Current.CatalogFolders)
+            {
+                _folderEntries.Add(new CatalogFolderEntry
+                {
+                    FolderPath = folder,
+                    IsRecursive = App.Settings.Current.IsCatalogFolderRecursive(folder)
+                });
+            }
+        }
+
+        private bool MatchesCurrentLocalFilter(CatalogItem item)
+        {
+            if (item == null) return false;
+            if (_selectedPlatformFilter == 1 && (item.Is3ds || item.CheckIsSwitch2)) return false;
+            if (_selectedPlatformFilter == 2 && !item.CheckIsSwitch2) return false;
+            if (_selectedPlatformFilter == 3 && !item.Is3ds) return false;
+            if (_showUpdatesOnly && !item.HasRuTrackerUpdate) return false;
+
+            string query = SearchBox?.Text?.Trim() ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(query))
+            {
+                bool hit = (item.TitleName != null && item.TitleName.Contains(query, StringComparison.OrdinalIgnoreCase)) ||
+                           (item.TitleId != null && item.TitleId.Contains(query, StringComparison.OrdinalIgnoreCase)) ||
+                           (item.Publisher != null && item.Publisher.Contains(query, StringComparison.OrdinalIgnoreCase));
+                if (!hit) return false;
+            }
+            return true;
+        }
+
+        private void OnCatalogItemAdded(CatalogItem item)
+        {
+            if (MatchesCurrentLocalFilter(item) && !_displayedCatalogItems.Contains(item))
+            {
+                // Удаляем онлайн-заглушки TitleDB, как только появляется первая локальная игра
+                for (int i = _displayedCatalogItems.Count - 1; i >= 0; i--)
+                {
+                    if (_displayedCatalogItems[i].IsOnlineOnly)
+                        _displayedCatalogItems.RemoveAt(i);
+                }
+                _displayedCatalogItems.Add(item);
+            }
         }
 
         private void CatalogPage_Unloaded(object sender, RoutedEventArgs e)
@@ -61,14 +115,11 @@ namespace StormSwitchBox.Views
                     _scanCts = new CancellationTokenSource();
                 }
                 
-                await _scannerService.ScanSingleFileAsync(finalPath, _allCatalogItems, _scanCts.Token);
+                await _scannerService.ScanSingleFileAsync(finalPath, _allCatalogItems, _scanCts.Token, OnCatalogItemAdded);
                 
-                // Refresh UI binding so the newly added item shows up immediately even if a search filter is active
                 App.MainDispatcher?.TryEnqueue(() => 
                 {
-                    CatalogGridView.ItemsSource = null;
-                    CatalogGridView.ItemsSource = _allCatalogItems;
-                    SearchBox_TextChanged(null!, null!);
+                    ApplyCurrentFilter();
                 });
             }
         }
@@ -106,27 +157,71 @@ namespace StormSwitchBox.Views
 
         private async void AddFolder_Click(object sender, RoutedEventArgs e)
         {
+            bool recursive = AddFolderRecursiveCheckBox?.IsChecked == true;
             string? folderPath = await SystemDialogService.OpenFolderDialogAsync("Выберите папку для сканирования игр");
             if (!string.IsNullOrWhiteSpace(folderPath) && System.IO.Directory.Exists(folderPath))
             {
-                if (!App.Settings.Current.CatalogFolders.Contains(folderPath))
+                string normNew = folderPath.TrimEnd('\\', '/');
+                bool exists = App.Settings.Current.CatalogFolders.Any(f =>
+                    f.TrimEnd('\\', '/').Equals(normNew, StringComparison.OrdinalIgnoreCase));
+
+                if (!exists)
                 {
                     App.Settings.Current.CatalogFolders.Add(folderPath);
-                    FoldersListView.ItemsSource = null;
-                    FoldersListView.ItemsSource = App.Settings.Current.CatalogFolders;
-                    _ = App.Settings.SaveAsync();
                 }
+                App.Settings.Current.SetCatalogFolderRecursive(folderPath, recursive);
+                RefreshFoldersList();
+                if (AddFolderRecursiveCheckBox != null)
+                    AddFolderRecursiveCheckBox.IsChecked = false;
+                _ = App.Settings.SaveAsync();
+
+                BrowseButton.Flyout?.Hide();
+                await ScanSingleFolderIncrementalAsync(folderPath, recursive);
             }
         }
 
         private void RemoveFolder_Click(object sender, RoutedEventArgs e)
         {
-            if (FoldersListView.SelectedItem is string selectedPath)
+            string? selectedPath = (FoldersListView.SelectedItem as CatalogFolderEntry)?.FolderPath
+                                   ?? FoldersListView.SelectedItem as string;
+            if (!string.IsNullOrWhiteSpace(selectedPath))
             {
-                App.Settings.Current.CatalogFolders.Remove(selectedPath);
-                FoldersListView.ItemsSource = null;
-                FoldersListView.ItemsSource = App.Settings.Current.CatalogFolders;
+                string normRemoved = selectedPath.TrimEnd('\\', '/');
+                App.Settings.Current.CatalogFolders.RemoveAll(f =>
+                    f.TrimEnd('\\', '/').Equals(normRemoved, StringComparison.OrdinalIgnoreCase));
+                App.Settings.Current.SetCatalogFolderRecursive(selectedPath, false);
+                RefreshFoldersList();
                 _ = App.Settings.SaveAsync();
+
+                // Динамически удаляем игры, относящиеся только к удаленной папке
+                string removedPrefix = normRemoved + System.IO.Path.DirectorySeparatorChar;
+                for (int i = _allCatalogItems.Count - 1; i >= 0; i--)
+                {
+                    var item = _allCatalogItems[i];
+                    string itemPath = item.FilePath ?? string.Empty;
+                    bool wasInRemoved = itemPath.StartsWith(removedPrefix, StringComparison.OrdinalIgnoreCase);
+                    if (!wasInRemoved) continue;
+
+                    bool stillCovered = App.Settings.Current.CatalogFolders.Any(rem =>
+                    {
+                        string normRem = rem.TrimEnd('\\', '/');
+                        bool rec = App.Settings.Current.IsCatalogFolderRecursive(rem);
+                        if (rec)
+                            return itemPath.StartsWith(normRem + System.IO.Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+                        string? itemDir = System.IO.Path.GetDirectoryName(itemPath)?.TrimEnd('\\', '/');
+                        return string.Equals(itemDir, normRem, StringComparison.OrdinalIgnoreCase);
+                    });
+
+                    if (!stillCovered)
+                    {
+                        _displayedCatalogItems.Remove(item);
+                        _allCatalogItems.RemoveAt(i);
+                    }
+                }
+
+                UpdateRuTrackerSummaryUi();
+                ScanStatusText.Text = _allCatalogItems.Count > 0 ? $"Найдено игр: {_allCatalogItems.Count}" : "";
+                ApplyCurrentFilter();
             }
         }
 
@@ -178,11 +273,17 @@ namespace StormSwitchBox.Views
         private async void StartScan()
         {
             _scanCts?.Cancel();
+            _ruTrackerCheckCts?.Cancel();
             _scanCts = new CancellationTokenSource();
-            _allCatalogItems.Clear();
-            SearchBox.Text = "";
+            var ct = _scanCts.Token;
 
-            BrowseButton.IsEnabled = false;
+            _showUpdatesOnly = false;
+            _allCatalogItems.Clear();
+            _displayedCatalogItems.Clear();
+            SearchBox.Text = "";
+            UpdateRuTrackerSummaryUi();
+
+            _isScanningFolders = true;
             ScanProgress.IsActive = true;
             
             var folders = App.Settings.Current.CatalogFolders.ToList();
@@ -192,13 +293,16 @@ namespace StormSwitchBox.Views
             {
                 foreach (var path in folders)
                 {
+                    ct.ThrowIfCancellationRequested();
                     if (System.IO.Directory.Exists(path))
                     {
+                        bool recursive = App.Settings.Current.IsCatalogFolderRecursive(path);
                         ScanStatusText.Text = $"Сканирование: {System.IO.Path.GetFileName(path)}...";
-                        await _scannerService.ScanDirectoryAsync(path, _allCatalogItems, _scanCts.Token);
+                        await _scannerService.ScanDirectoryAsync(path, _allCatalogItems, ct, recursive, OnCatalogItemAdded);
                     }
                 }
                 ScanStatusText.Text = $"Найдено игр: {_allCatalogItems.Count}";
+                ApplyCurrentFilter();
             }
             catch (OperationCanceledException)
             {
@@ -210,9 +314,204 @@ namespace StormSwitchBox.Views
             }
             finally
             {
-                BrowseButton.IsEnabled = true;
+                _isScanningFolders = false;
                 ScanProgress.IsActive = false;
             }
+
+            if (!ct.IsCancellationRequested && _allCatalogItems.Any(i => !i.Is3ds && !i.IsOnlineOnly))
+            {
+                _ = CheckRuTrackerUpdatesInternalAsync(isAuto: true);
+            }
+        }
+
+        private async System.Threading.Tasks.Task ScanSingleFolderIncrementalAsync(string folderPath, bool recursive)
+        {
+            if (_isScanningFolders || _allCatalogItems.Count == 0)
+            {
+                StartScan();
+                return;
+            }
+
+            _ruTrackerCheckCts?.Cancel();
+            var ct = _scanCts?.Token ?? CancellationToken.None;
+            ScanProgress.IsActive = true;
+            ScanStatusText.Text = $"Сканирование: {System.IO.Path.GetFileName(folderPath)}...";
+
+            var addedSlice = new System.Collections.Generic.List<CatalogItem>();
+            try
+            {
+                await _scannerService.ScanDirectoryAsync(folderPath, _allCatalogItems, ct, recursive, item =>
+                {
+                    addedSlice.Add(item);
+                    OnCatalogItemAdded(item);
+                });
+                ScanStatusText.Text = $"Найдено игр: {_allCatalogItems.Count}";
+                ApplyCurrentFilter();
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception ex)
+            {
+                ScanStatusText.Text = $"Ошибка: {ex.Message}";
+            }
+            finally
+            {
+                ScanProgress.IsActive = false;
+            }
+
+            if (!ct.IsCancellationRequested && addedSlice.Count > 0)
+            {
+                _ = CheckRuTrackerUpdatesInternalAsync(isAuto: true);
+            }
+        }
+
+        private void CheckRuTrackerUpdates_Click(object sender, RoutedEventArgs e)
+        {
+            if (_isCheckingRuTracker)
+            {
+                _ruTrackerCheckCts?.Cancel();
+                return;
+            }
+            _ = CheckRuTrackerUpdatesInternalAsync(isAuto: false);
+        }
+
+        private void UpdatesOnlyFilterButton_Click(object sender, RoutedEventArgs e)
+        {
+            _showUpdatesOnly = !_showUpdatesOnly;
+            UpdateRuTrackerSummaryUi();
+            ApplyCurrentFilter();
+        }
+
+        private void ResetUpdatesFilter_Click(object sender, RoutedEventArgs e)
+        {
+            _showUpdatesOnly = false;
+            UpdateRuTrackerSummaryUi();
+            ApplyCurrentFilter();
+        }
+
+        private async void OpenRuTrackerUpdateForItem_Click(object sender, RoutedEventArgs e)
+        {
+            if ((sender as FrameworkElement)?.DataContext is not CatalogItem item)
+                return;
+
+            string query = item.HasRuTrackerTopic
+                ? item.RuTrackerTopicId
+                : (!string.IsNullOrWhiteSpace(item.TitleName) && item.TitleName != "Unknown Game"
+                    ? item.TitleName
+                    : (item.TitleId ?? string.Empty));
+
+            try
+            {
+                var dlg = new Dialogs.RuTrackerModDownloaderDialog(App.TasksVM, null, query)
+                {
+                    XamlRoot = this.XamlRoot
+                };
+                await dlg.ShowAsync();
+            }
+            catch (Exception ex)
+            {
+                App.Logger.Log($"[RuTracker] Ошибка открытия загрузчика: {ex.Message}", LogLevel.Error);
+            }
+        }
+
+        private async System.Threading.Tasks.Task CheckRuTrackerUpdatesInternalAsync(bool isAuto)
+        {
+            var localGames = _allCatalogItems.Where(i => !i.Is3ds && !i.IsOnlineOnly).ToList();
+            if (localGames.Count == 0)
+            {
+                if (!isAuto && RuTrackerUpdatesSummaryText != null)
+                    RuTrackerUpdatesSummaryText.Text = "Добавьте папку с играми Nintendo Switch для проверки обновлений.";
+                return;
+            }
+
+            _ruTrackerCheckCts?.Cancel();
+            var cts = new CancellationTokenSource();
+            _ruTrackerCheckCts = cts;
+            var ct = cts.Token;
+
+            _isCheckingRuTracker = true;
+            if (CheckRuTrackerUpdatesTextBlock != null)
+                CheckRuTrackerUpdatesTextBlock.Text = App.Localization["Остановить проверку"];
+            if (RuTrackerCheckProgress != null)
+            {
+                RuTrackerCheckProgress.Visibility = Visibility.Visible;
+                RuTrackerCheckProgress.IsActive = true;
+            }
+            if (RuTrackerUpdatesSummaryText != null)
+                RuTrackerUpdatesSummaryText.Text = "Проверка версий и дополнений на RuTracker...";
+
+            try
+            {
+                int updatedCount = await _ruTrackerUpdateService.CheckCatalogUpdatesAsync(
+                    localGames,
+                    (done, total, found) =>
+                    {
+                        App.MainDispatcher?.TryEnqueue(() =>
+                        {
+                            if (ct.IsCancellationRequested) return;
+                            if (RuTrackerUpdatesSummaryText != null)
+                                RuTrackerUpdatesSummaryText.Text = $"Проверено игр: {done} из {total} | Найдено обновлений: {found}";
+                            UpdateRuTrackerSummaryUi();
+                        });
+                    },
+                    ct);
+
+                if (!ct.IsCancellationRequested)
+                {
+                    UpdateRuTrackerSummaryUi();
+                    int verUpdates = _allCatalogItems.Count(i => i.HasRuTrackerVersionUpdate);
+                    int dlcUpdates = _allCatalogItems.Count(i => i.HasRuTrackerNewDlc);
+                    if (RuTrackerUpdatesSummaryText != null)
+                    {
+                        RuTrackerUpdatesSummaryText.Text = updatedCount > 0
+                            ? $"Найдены обновления RuTracker для {updatedCount} игр (версий: {verUpdates}, новых DLC: {dlcUpdates})"
+                            : $"Проверено игр: {localGames.Count}. У всех игр актуальные версии и дополнения.";
+                    }
+                    if (_showUpdatesOnly) ApplyCurrentFilter();
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                if (RuTrackerUpdatesSummaryText != null)
+                    RuTrackerUpdatesSummaryText.Text = "Проверка обновлений RuTracker остановлена.";
+            }
+            catch (Exception ex)
+            {
+                if (RuTrackerUpdatesSummaryText != null)
+                    RuTrackerUpdatesSummaryText.Text = $"Ошибка проверки RuTracker: {ex.Message}";
+            }
+            finally
+            {
+                if (ReferenceEquals(_ruTrackerCheckCts, cts))
+                {
+                    _isCheckingRuTracker = false;
+                    if (CheckRuTrackerUpdatesTextBlock != null)
+                        CheckRuTrackerUpdatesTextBlock.Text = App.Localization["Проверить обновления (RuTracker)"];
+                    if (RuTrackerCheckProgress != null)
+                    {
+                        RuTrackerCheckProgress.IsActive = false;
+                        RuTrackerCheckProgress.Visibility = Visibility.Collapsed;
+                    }
+                }
+            }
+        }
+
+        private void UpdateRuTrackerSummaryUi()
+        {
+            int totalUpdates = _allCatalogItems.Count(i => i.HasRuTrackerUpdate);
+            if (UpdatesOnlyCountTextBlock != null)
+                UpdatesOnlyCountTextBlock.Text = $"({totalUpdates})";
+
+            if (UpdatesOnlyFilterButton != null)
+            {
+                UpdatesOnlyFilterButton.Visibility = (totalUpdates > 0 || _showUpdatesOnly) ? Visibility.Visible : Visibility.Collapsed;
+                UpdatesOnlyFilterButton.BorderBrush = _showUpdatesOnly
+                    ? new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.LimeGreen)
+                    : new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(255, 16, 185, 129));
+            }
+            if (ResetUpdatesFilterButton != null)
+                ResetUpdatesFilterButton.Visibility = _showUpdatesOnly ? Visibility.Visible : Visibility.Collapsed;
         }
 
         private CancellationTokenSource? _searchCts;
@@ -292,7 +591,7 @@ namespace StormSwitchBox.Views
                 {
                     var itemsCopy = itemsSnapshot;
                     
-                    // Filter by platform
+                    // Filter by platform & RuTracker updates
                     if (_selectedPlatformFilter == 1) // Switch only
                     {
                         itemsCopy = itemsCopy.Where(i => !i.Is3ds && !i.CheckIsSwitch2).ToList();
@@ -305,10 +604,14 @@ namespace StormSwitchBox.Views
                     {
                         itemsCopy = itemsCopy.Where(i => i.Is3ds).ToList();
                     }
+                    if (_showUpdatesOnly)
+                    {
+                        itemsCopy = itemsCopy.Where(i => i.HasRuTrackerUpdate).ToList();
+                    }
 
                     if (string.IsNullOrWhiteSpace(query))
                     {
-                        if (itemsCopy.Count == 0 && _selectedPlatformFilter != 2)
+                        if (itemsCopy.Count == 0 && _selectedPlatformFilter != 2 && !_showUpdatesOnly && App.Settings.Current.CatalogFolders.Count == 0)
                         {
                             var initialDb = App.TitleDb.GetAllEntries()
                                 .Where(x => !string.IsNullOrEmpty(x.Id) && x.Id.EndsWith("000") && !string.IsNullOrEmpty(x.Name))
@@ -416,7 +719,9 @@ namespace StormSwitchBox.Views
                         }
                     }
 
-                    CatalogGridView.ItemsSource = new ObservableCollection<CatalogItem>(filtered);
+                    _displayedCatalogItems.Clear();
+                    foreach (var fi in filtered)
+                        _displayedCatalogItems.Add(fi);
                 }
             }
             catch (TaskCanceledException) { }
@@ -459,7 +764,24 @@ namespace StormSwitchBox.Views
                 DetailVersionCode.Text = !string.IsNullOrEmpty(item.VersionCode) ? item.VersionCode : "0";
                 
                 DetailRegions.Text = item.Regions ?? "N/A";
-                DetailDlcCount.Text = item.DlcCount.ToString();
+                DetailDlcCount.Text = (!item.IsOnlineOnly && item.LocalDlcCount > 0)
+                    ? (item.DlcCount > item.LocalDlcCount
+                        ? $"{item.LocalDlcCount} (в файле) / {item.DlcCount} (TitleDB)"
+                        : $"{item.LocalDlcCount} (в файле)")
+                    : item.DlcCount.ToString();
+
+                if (DetailRuTrackerUpdateBanner != null && DetailRuTrackerUpdateText != null)
+                {
+                    if (item.HasRuTrackerUpdate)
+                    {
+                        DetailRuTrackerUpdateBanner.Visibility = Visibility.Visible;
+                        DetailRuTrackerUpdateText.Text = item.RuTrackerUpdateSummary;
+                    }
+                    else
+                    {
+                        DetailRuTrackerUpdateBanner.Visibility = Visibility.Collapsed;
+                    }
+                }
 
                 DetailTitleId.Text = item.TitleId ?? "0000000000000000";
                 DetailSize.Text = item.FileSize ?? "0 MB";
@@ -596,9 +918,11 @@ namespace StormSwitchBox.Views
             DownloadUpdatesDlcButton.IsEnabled = false;
             try
             {
-                string query = !string.IsNullOrWhiteSpace(_selectedCatalogItem.TitleName) && _selectedCatalogItem.TitleName != "Unknown Game"
-                    ? _selectedCatalogItem.TitleName
-                    : (_selectedCatalogItem.TitleId ?? string.Empty);
+                string query = _selectedCatalogItem.HasRuTrackerTopic
+                    ? _selectedCatalogItem.RuTrackerTopicId
+                    : (!string.IsNullOrWhiteSpace(_selectedCatalogItem.TitleName) && _selectedCatalogItem.TitleName != "Unknown Game"
+                        ? _selectedCatalogItem.TitleName
+                        : (_selectedCatalogItem.TitleId ?? string.Empty));
 
                 var dlg = new Dialogs.RuTrackerModDownloaderDialog(App.TasksVM, null, query)
                 {

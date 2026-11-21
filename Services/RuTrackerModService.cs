@@ -36,6 +36,8 @@ namespace StormSwitchBox.Services
         public string DirectTorrentUrl { get; set; } = string.Empty;
         public string PosterUrl { get; set; } = string.Empty;
         public List<CloudModLinkItem> ExtractedModLinks { get; set; } = new();
+        public string ParsedGameVersion { get; set; } = string.Empty;
+        public Dictionary<string, string> ParsedTitleVersions { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
         public string CleanTitleDisplay
         {
@@ -226,7 +228,10 @@ namespace StormSwitchBox.Services
                     if (!string.IsNullOrEmpty(extractedIv))
                         InternalVersion = extractedIv;
                 }
-                raw = Regex.Replace(raw, @"^[vV]+", "").Trim();
+                if (raw != "?" && raw != "...")
+                {
+                    raw = Regex.Replace(raw, @"^[vV]+", "").Trim();
+                }
                 if (string.IsNullOrWhiteSpace(raw))
                     raw = "1.0.0";
 
@@ -495,7 +500,7 @@ namespace StormSwitchBox.Services
             return new StormSwitchBox.Models.GameMetadataEditModel
             {
                 TitleId = !string.IsNullOrWhiteSpace(TitleId) ? TitleId : "0100000000000000",
-                Version = DisplayVersion,
+                Version = (DisplayVersion == "?" || DisplayVersion == "...") ? string.Empty : DisplayVersion,
                 TitleNameEnglish = eng,
                 TitleNameRussian = rus,
                 Publisher = pub,
@@ -2684,6 +2689,160 @@ namespace StormSwitchBox.Services
                 return hex;
             }
         }
+
+        public static bool IsStandaloneBonusFile(string? pathOrName)
+        {
+            if (string.IsNullOrWhiteSpace(pathOrName)) return false;
+            return pathOrName.Contains("Standalone", StringComparison.OrdinalIgnoreCase) ||
+                   pathOrName.Contains("Soundtrack", StringComparison.OrdinalIgnoreCase) ||
+                   pathOrName.Contains("Artbook", StringComparison.OrdinalIgnoreCase) ||
+                   pathOrName.Contains("Art Gallery", StringComparison.OrdinalIgnoreCase) ||
+                   pathOrName.Contains("Digital Art", StringComparison.OrdinalIgnoreCase) ||
+                   pathOrName.Contains("Digital Sound", StringComparison.OrdinalIgnoreCase) ||
+                   pathOrName.Contains("Sound & Art", StringComparison.OrdinalIgnoreCase) ||
+                   pathOrName.Contains("Sound and Art", StringComparison.OrdinalIgnoreCase) ||
+                   pathOrName.Contains("Original Sound", StringComparison.OrdinalIgnoreCase) ||
+                   Regex.IsMatch(pathOrName, @"(?:^|[\s_\-\[(])(?:OST|Саундтрек|Артбук|Бонусное приложение)(?:$|[\s_\-\])])", RegexOptions.IgnoreCase);
+        }
+
+        public static bool IsDlcOfBaseTitle(string? baseTidHex, string? candidateTidHex)
+        {
+            if (string.IsNullOrWhiteSpace(baseTidHex) || string.IsNullOrWhiteSpace(candidateTidHex))
+                return false;
+            string b = baseTidHex.Trim();
+            string c = candidateTidHex.Trim();
+            if (b.Length != 16 || c.Length != 16) return false;
+            try
+            {
+                ulong baseVal = Convert.ToUInt64(b, 16);
+                ulong candVal = Convert.ToUInt64(c, 16);
+                ulong baseMask = baseVal & 0xFFFFFFFFFFFFF000UL;
+                ulong candMask = candVal & 0xFFFFFFFFFFFFF000UL;
+                return candMask == (baseMask + 0x1000UL) && (candVal & 0xFFFUL) > 0UL;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        public static (string MainVersion, Dictionary<string, string> PerTitleVersions) ExtractGameVersionsFromTopicHtml(string? html)
+        {
+            var perTitleVersions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (string.IsNullOrWhiteSpace(html)) return (string.Empty, perTitleVersions);
+
+            string body = html;
+            var pbMatch = Regex.Match(html, @"<div[^>]+class=""[^""]*post_body[^""]*""[^>]*>(.*?)</div>\s*<!--/post_body-->", RegexOptions.Singleline | RegexOptions.IgnoreCase);
+            if (pbMatch.Success)
+            {
+                body = pbMatch.Groups[1].Value;
+            }
+            else if (body.Length > 35000)
+            {
+                body = body.Substring(0, 35000);
+            }
+
+            body = Regex.Replace(body, @"<br\s*/?>|</p>|</li>|</tr>|</div>|</h[1-6]>", "\n", RegexOptions.IgnoreCase);
+            body = Regex.Replace(body, @"<[^>]+>", " ");
+            body = WebUtility.HtmlDecode(body);
+
+            string bestMainVersion = string.Empty;
+
+            static bool IsSemanticGameVerLocal(string ver, string lineBeforeMatch)
+            {
+                if (!TitleDbService.IsValidSemanticVersion(ver)) return false;
+                if (Regex.IsMatch(lineBeforeMatch, @"(?:прошивк|firmware|\bhos\b|\bcfw\b|atmosphere|\bams\b|sysver|требуемая\s+версия|минимальная\s+версия\s+по|\bsdk\b|yuzu|ryujinx|eden|suyu|torzu)\s*[:\-]?\s*$", RegexOptions.IgnoreCase))
+                    return false;
+                return true;
+            }
+
+            void ConsiderMainVersion(string candidate)
+            {
+                if (!TitleDbService.IsValidSemanticVersion(candidate)) return;
+                string clean = candidate.Trim().TrimStart('v', 'V');
+                if (string.IsNullOrEmpty(bestMainVersion) || TitleDbService.CompareSemanticVersions(clean, bestMainVersion) > 0)
+                {
+                    bestMainVersion = clean;
+                }
+            }
+
+            var lines = body.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            foreach (var rawLine in lines)
+            {
+                string line = Regex.Replace(rawLine, @"[ \t\u00A0]+", " ").Trim();
+                if (line.Length == 0 || line.Length > 400) continue;
+
+                // 1. Primary header lines/segments: "Версия: 1.1.6", "Год выпуска: 2021 | Версия: 1.1.6 | Версия прошивки: 13.1.0"
+                foreach (Match headerMatch in Regex.Matches(
+                    line,
+                    @"(?:^|[|\u2022;/])\s*(?:[-*\u25AA\u25CF]\s*)?(?:актуальная\s+)?(?:(?!(?:версия\s+(?:прошивк|систем|перевод|русификатор|мод|эмулятор)))(?:версия(?:\s+(?:игры|обновления|патча|файла|сборки|релиза))?|(?:game\s+|current\s+|latest\s+)?version|update(?:\s+version)?))\s*[:\-=\u2013\u2014]\s*(?<val>[^|\r\n]+)",
+                    RegexOptions.IgnoreCase))
+                {
+                    string val = headerMatch.Groups["val"].Value;
+                    // Truncate right before any inline firmware/system/translation/mod clause on the same line
+                    var fwSplit = Regex.Match(val, @"(?i)(?:прошивк|firmware|\bhos\b|\bcfw\b|требуем|мин\.?\s*по|system\s+version|версия\s+(?:перевод|русификатор|мод|эмулятор))");
+                    if (fwSplit.Success && fwSplit.Index > 0)
+                        val = val.Substring(0, fwSplit.Index);
+
+                    foreach (Match vm in Regex.Matches(val, @"(?:^|[\s(\[/]|[vV]\.?)(?<ver>\d{1,2}\.\d{1,4}(?:\.\d{1,4}){0,2})(?=$|[\s)\]/,;|+])"))
+                    {
+                        string prefix = val.Substring(0, vm.Index);
+                        int after = vm.Index + vm.Length;
+                        string tail = after < val.Length ? val.Substring(after, Math.Min(10, val.Length - after)) : string.Empty;
+                        if (Regex.IsMatch(tail, @"^\s*(?:GB|MB|KB|TB|ГБ|МБ|КБ|ТБ)\b", RegexOptions.IgnoreCase))
+                            continue;
+                        if (IsSemanticGameVerLocal(vm.Groups["ver"].Value, prefix))
+                            ConsiderMainVersion(vm.Groups["ver"].Value);
+                    }
+                }
+
+                // 2. Explicit update lines in release notes / spoilers: "Обновлено до версии 1.1.6", "Updated to v1.2.0"
+                foreach (Match um in Regex.Matches(
+                    line,
+                    @"(?:обновлено(?:\s+до)?(?:\s+версии)?|обновление(?:\s+до)?|updated?\s+to(?:\s+ver\.?)?|patch\s+to)\s*[vV]?\s*(?<ver>\d{1,2}\.\d{1,4}(?:\.\d{1,4}){0,2})(?=$|[\s)\]/,;|!])",
+                    RegexOptions.IgnoreCase))
+                {
+                    int after = um.Index + um.Length;
+                    string tail = after < line.Length ? line.Substring(after, Math.Min(10, line.Length - after)) : string.Empty;
+                    if (Regex.IsMatch(tail, @"^\s*(?:GB|MB|KB|TB|ГБ|МБ|КБ|ТБ)\b", RegexOptions.IgnoreCase))
+                        continue;
+                    if (TitleDbService.IsValidSemanticVersion(um.Groups["ver"].Value))
+                        ConsiderMainVersion(um.Groups["ver"].Value);
+                }
+
+                // 3. Per-TitleID line mapping for multi-game packs (excluding Standalone lines)
+                if (!IsStandaloneBonusFile(line))
+                {
+                    var tidMatch = Regex.Match(line, @"\b(0[14]00[0-9A-Fa-f]{12})\b");
+                    if (tidMatch.Success)
+                    {
+                        string baseTid = NormalizeSwitchBaseApplicationTitleId(tidMatch.Groups[1].Value);
+                        if (baseTid.Length == 16)
+                        {
+                            foreach (Match vm in Regex.Matches(line, @"(?:^|[\s(\[/]|[vV]\.?)(?<ver>\d{1,2}\.\d{1,4}(?:\.\d{1,4}){0,2})(?=$|[\s)\]/,;|+])"))
+                            {
+                                string prefix = line.Substring(0, vm.Index);
+                                int after = vm.Index + vm.Length;
+                                string tail = after < line.Length ? line.Substring(after, Math.Min(10, line.Length - after)) : string.Empty;
+                                if (Regex.IsMatch(tail, @"^\s*(?:GB|MB|KB|TB|ГБ|МБ|КБ|ТБ)\b", RegexOptions.IgnoreCase))
+                                    continue;
+                                if (IsSemanticGameVerLocal(vm.Groups["ver"].Value, prefix))
+                                {
+                                    string cleanV = vm.Groups["ver"].Value.Trim().TrimStart('v', 'V');
+                                    if (!perTitleVersions.TryGetValue(baseTid, out var existingTidVer) ||
+                                        TitleDbService.CompareSemanticVersions(cleanV, existingTidVer) > 0)
+                                    {
+                                        perTitleVersions[baseTid] = cleanV;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            return (bestMainVersion, perTitleVersions);
+        }
         #endregion
         public async Task<RuTrackerTopicItem?> FetchTopicDetailsAsync(string topicIdOrUrl, CancellationToken ct, bool includeCommentPages = true)
         {
@@ -2719,6 +2878,7 @@ namespace StormSwitchBox.Services
 
             if (_topicParsedCache.TryGetValue(tid, out var cachedParsed) &&
                 cachedParsed != null &&
+                cachedParsed.SchemaVersion >= 2 &&
                 (DateTimeOffset.UtcNow.ToUnixTimeSeconds() - cachedParsed.UpdatedUnix) < 86400 &&
                 (!includeCommentPages || cachedParsed.CommentsScanned))
             {
@@ -2726,6 +2886,9 @@ namespace StormSwitchBox.Services
                 if (!string.IsNullOrWhiteSpace(cachedParsed.MagnetUri)) item.MagnetUri = cachedParsed.MagnetUri;
                 if (!string.IsNullOrWhiteSpace(cachedParsed.InfoHash)) item.InfoHash = cachedParsed.InfoHash;
                 if (!string.IsNullOrWhiteSpace(cachedParsed.PosterUrl)) item.PosterUrl = cachedParsed.PosterUrl;
+                if (!string.IsNullOrWhiteSpace(cachedParsed.ParsedGameVersion)) item.ParsedGameVersion = cachedParsed.ParsedGameVersion;
+                if (cachedParsed.ParsedTitleVersions != null && cachedParsed.ParsedTitleVersions.Count > 0)
+                    item.ParsedTitleVersions = new Dictionary<string, string>(cachedParsed.ParsedTitleVersions, StringComparer.OrdinalIgnoreCase);
                 item.ExtractedModLinks = cachedParsed.Links?.Select(CloneCloudModLink).ToList() ?? new List<CloudModLinkItem>();
                 if (string.IsNullOrEmpty(item.MagnetUri) && !string.IsNullOrEmpty(item.InfoHash))
                     item.MagnetUri = BuildMagnetUri(item.InfoHash, item.Title);
@@ -2742,6 +2905,10 @@ namespace StormSwitchBox.Services
                     string rawTitle = !string.IsNullOrEmpty(titleMatch.Groups[1].Value) ? titleMatch.Groups[1].Value : titleMatch.Groups[2].Value;
                     item.Title = WebUtility.HtmlDecode(Regex.Replace(rawTitle, "<.*?>", "")).Replace(":: RuTracker.org", "").Trim();
                 }
+
+                var (parsedMainVer, parsedPerTitleVers) = ExtractGameVersionsFromTopicHtml(topicHtml);
+                item.ParsedGameVersion = parsedMainVer;
+                item.ParsedTitleVersions = parsedPerTitleVers;
 
                 var magnetMatch = Regex.Match(topicHtml, @"href=""(magnet:\?xt=urn:btih:[^""]+)""", RegexOptions.IgnoreCase);
                 if (magnetMatch.Success)
@@ -2783,10 +2950,13 @@ namespace StormSwitchBox.Services
 
                 _topicParsedCache[tid] = new TopicParsedCacheEntry
                 {
+                    SchemaVersion = 2,
                     Title = item.Title,
                     MagnetUri = item.MagnetUri,
                     InfoHash = item.InfoHash,
                     PosterUrl = item.PosterUrl,
+                    ParsedGameVersion = item.ParsedGameVersion,
+                    ParsedTitleVersions = new Dictionary<string, string>(item.ParsedTitleVersions, StringComparer.OrdinalIgnoreCase),
                     Links = allLinks.Select(CloneCloudModLink).ToList(),
                     PendingOffsets = commentsScanned ? new List<int>() : targetOffsets,
                     CommentsScanned = commentsScanned,
@@ -4234,9 +4404,11 @@ namespace StormSwitchBox.Services
 
             var byBaseTid = new Dictionary<string, (string CleanName, int FolderOrder)>(StringComparer.OrdinalIgnoreCase);
 
-            // Собираем все реальные файлы с валидным Switch BaseTitleID (включая игры, где в папке есть только DLC/Update или все части антологии)
+            // Собираем все реальные файлы с валидным Switch BaseTitleID (исключая Standalone-бонусы, чтобы артбуки не вытесняли основную игру)
+            bool hasNonStandaloneReal = realFiles.Any(f => !IsStandaloneBonusFile(f.RelativePath));
             foreach (var f in realFiles)
             {
+                if (hasNonStandaloneReal && IsStandaloneBonusFile(f.RelativePath)) continue;
                 string rawTid = !string.IsNullOrWhiteSpace(f.DetectedTitleId) ? f.DetectedTitleId : ExtractTitleId(f.RelativePath);
                 string normTid = NormalizeSwitchBaseApplicationTitleId(rawTid);
                 string cleanName = ExtractCleanGameTitleFromFilePath(f.RelativePath);
@@ -4322,8 +4494,10 @@ namespace StormSwitchBox.Services
 
             // 1. Строим карту BaseTitleID (16 символов) -> (CleanGameName, FolderOrder) и сортируем группы игр в естественном порядке (Папка 1..N -> Часть 1..N)
             var tidToTitle = new Dictionary<string, (string CleanName, int FolderOrder)>(StringComparer.OrdinalIgnoreCase);
+            bool hasNonStandaloneAssign = files.Any(f => !IsStandaloneBonusFile(f.RelativePath));
             foreach (var f in files)
             {
+                if (hasNonStandaloneAssign && IsStandaloneBonusFile(f.RelativePath)) continue;
                 string rawTid = !string.IsNullOrEmpty(f.DetectedTitleId) ? f.DetectedTitleId : ExtractTitleId(f.RelativePath);
                 string normTid = NormalizeSwitchBaseApplicationTitleId(rawTid);
                 if (normTid.Length == 16)
@@ -8581,10 +8755,13 @@ namespace StormSwitchBox.Services
         }
         private sealed class TopicParsedCacheEntry
         {
+            public int SchemaVersion { get; set; } = 0;
             public string Title { get; set; } = string.Empty;
             public string MagnetUri { get; set; } = string.Empty;
             public string InfoHash { get; set; } = string.Empty;
             public string PosterUrl { get; set; } = string.Empty;
+            public string ParsedGameVersion { get; set; } = string.Empty;
+            public Dictionary<string, string> ParsedTitleVersions { get; set; } = new(StringComparer.OrdinalIgnoreCase);
             public List<CloudModLinkItem> Links { get; set; } = new();
             public List<int> PendingOffsets { get; set; } = new();
             public bool CommentsScanned { get; set; }

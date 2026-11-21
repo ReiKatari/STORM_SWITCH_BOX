@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Runtime.InteropServices;
@@ -224,7 +225,25 @@ namespace StormSwitchBox.Models
         
         // Каталог
         public List<string> CatalogFolders { get; set; } = new();
+        public List<string> CatalogRecursiveFolders { get; set; } = new();
         public Dictionary<string, string> VersionOverrides { get; set; } = new();
+
+        public bool IsCatalogFolderRecursive(string? folderPath)
+        {
+            if (string.IsNullOrWhiteSpace(folderPath) || CatalogRecursiveFolders == null) return false;
+            string norm = folderPath.TrimEnd('\\', '/');
+            return CatalogRecursiveFolders.Any(f => f != null && f.TrimEnd('\\', '/').Equals(norm, StringComparison.OrdinalIgnoreCase));
+        }
+
+        public void SetCatalogFolderRecursive(string? folderPath, bool recursive)
+        {
+            if (string.IsNullOrWhiteSpace(folderPath)) return;
+            CatalogRecursiveFolders ??= new List<string>();
+            string norm = folderPath.TrimEnd('\\', '/');
+            CatalogRecursiveFolders.RemoveAll(f => f != null && f.TrimEnd('\\', '/').Equals(norm, StringComparison.OrdinalIgnoreCase));
+            if (recursive)
+                CatalogRecursiveFolders.Add(folderPath);
+        }
 
         // Состояние интерфейса
         public bool TaskPanelVisible { get; set; } = true;

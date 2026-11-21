@@ -68,6 +68,8 @@ namespace StormSwitchBox.Views.Dialogs
         private string _currentTopicTitle = string.Empty;
         private string _currentTopicUrl = string.Empty;
         private string _currentTopicPosterUrl = string.Empty;
+        private string _currentTopicParsedGameVersion = string.Empty;
+        private Dictionary<string, string> _currentTopicParsedTitleVersions = new(StringComparer.OrdinalIgnoreCase);
         private CancellationTokenSource? _downloadCts;
         private readonly List<CancellationTokenSource> _activeBatchCtsList = new();
         private readonly object _batchLock = new();
@@ -907,6 +909,10 @@ namespace StormSwitchBox.Views.Dialogs
             _currentTopicTitle = topic.Title;
             _currentTopicUrl = topic.TopicUrl;
             _currentTopicPosterUrl = topic.PosterUrl ?? string.Empty;
+            _currentTopicParsedGameVersion = topic.ParsedGameVersion ?? string.Empty;
+            _currentTopicParsedTitleVersions = topic.ParsedTitleVersions != null
+                ? new Dictionary<string, string>(topic.ParsedTitleVersions, StringComparer.OrdinalIgnoreCase)
+                : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
             // МГНОВЕННАЯ ОЧИСТКА И ФАЗА (< 3 мс): сбрасываем прежние слоты/файлы, наполняем новую тему из TitleDB/RAM-кэша
             _discussionLinks.Clear();
@@ -1049,6 +1055,22 @@ namespace StormSwitchBox.Views.Dialogs
                     {
                         topic.InfoHash = detailed.InfoHash;
                         discoveredNewHash = true;
+                    }
+                    if (!string.IsNullOrWhiteSpace(detailed.Title) &&
+                        !detailed.Title.StartsWith("Раздача RuTracker #", StringComparison.OrdinalIgnoreCase))
+                    {
+                        topic.Title = detailed.Title;
+                        _currentTopicTitle = detailed.Title;
+                    }
+                    if (!string.IsNullOrWhiteSpace(detailed.ParsedGameVersion))
+                    {
+                        topic.ParsedGameVersion = detailed.ParsedGameVersion;
+                        _currentTopicParsedGameVersion = detailed.ParsedGameVersion;
+                    }
+                    if (detailed.ParsedTitleVersions != null && detailed.ParsedTitleVersions.Count > 0)
+                    {
+                        topic.ParsedTitleVersions = new Dictionary<string, string>(detailed.ParsedTitleVersions, StringComparer.OrdinalIgnoreCase);
+                        _currentTopicParsedTitleVersions = new Dictionary<string, string>(detailed.ParsedTitleVersions, StringComparer.OrdinalIgnoreCase);
                     }
                     if (!string.IsNullOrEmpty(detailed.PosterUrl))
                     {
@@ -1224,7 +1246,13 @@ namespace StormSwitchBox.Views.Dialogs
             finally
             {
                 if (mySeq == System.Threading.Interlocked.Read(ref _topicSelectionSeq))
+                {
                     _isTopicLoading = false;
+                    if (!ct.IsCancellationRequested && _gameSlots.Any(s => s.DisplayVersion == "..."))
+                    {
+                        EnrichGameSlotsFromFilesAndTitleDb();
+                    }
+                }
             }
         }
 
@@ -1939,8 +1967,10 @@ namespace StormSwitchBox.Views.Dialogs
                     ? selectedSlotFiles
                     : _torrentFiles.Where(f => f.TargetGameSlot == slot.SlotNumber || (_gameSlots.Count == 1 && f.TargetGameSlot <= 1)).ToList();
 
-                string bestTid = string.Empty;
-                int maxPatchVer = 0;
+                string bestBaseGameTid = string.Empty;
+                string bestUpdateTid = string.Empty;
+                string bestOtherTid = string.Empty;
+                string bestStandaloneTid = string.Empty;
                 string cleanTitleFromFile = string.Empty;
                 bool is3ds = false;
 
@@ -1955,25 +1985,55 @@ namespace StormSwitchBox.Views.Dialogs
                         is3ds = true;
                     }
 
+                    bool isStandalone = RuTrackerModService.IsStandaloneBonusFile(rel);
                     string tid = !string.IsNullOrWhiteSpace(f.DetectedTitleId)
                         ? f.DetectedTitleId
                         : RuTrackerModService.ExtractTitleId(rel);
                     if (tid.Length == 16)
                     {
                         string baseTid = RuTrackerModService.NormalizeSwitchBaseApplicationTitleId(tid);
-                        if (baseTid.Length == 16 && (string.IsNullOrEmpty(bestTid) || tid.EndsWith("000", StringComparison.OrdinalIgnoreCase)))
-                            bestTid = baseTid;
+                        if (baseTid.Length == 16)
+                        {
+                            if (!isStandalone && f.CategoryBadge == "ИГРА" && tid.EndsWith("000", StringComparison.OrdinalIgnoreCase) && string.IsNullOrEmpty(bestBaseGameTid))
+                                bestBaseGameTid = baseTid;
+                            else if (!isStandalone && tid.EndsWith("800", StringComparison.OrdinalIgnoreCase) && string.IsNullOrEmpty(bestUpdateTid))
+                                bestUpdateTid = baseTid;
+                            else if (!isStandalone && string.IsNullOrEmpty(bestOtherTid))
+                                bestOtherTid = baseTid;
+                            else if (isStandalone && string.IsNullOrEmpty(bestStandaloneTid))
+                                bestStandaloneTid = baseTid;
+                        }
+                    }
+
+                    if (!isStandalone && string.IsNullOrEmpty(cleanTitleFromFile) && f.CategoryBadge == "ИГРА")
+                    {
+                        cleanTitleFromFile = RuTrackerModService.ExtractCleanGameTitleFromFilePath(rel);
+                    }
+                }
+
+                string bestTid = !string.IsNullOrEmpty(bestBaseGameTid) ? bestBaseGameTid
+                    : (!string.IsNullOrEmpty(bestUpdateTid) ? bestUpdateTid
+                    : (!string.IsNullOrEmpty(bestOtherTid) ? bestOtherTid : bestStandaloneTid));
+
+                int maxPatchVer = 0;
+                foreach (var f in slotFiles)
+                {
+                    string rel = f.RelativePath ?? string.Empty;
+                    if (RuTrackerModService.IsStandaloneBonusFile(rel)) continue;
+                    string rawTid = !string.IsNullOrWhiteSpace(f.DetectedTitleId)
+                        ? f.DetectedTitleId
+                        : RuTrackerModService.ExtractTitleId(rel);
+                    string normFileTid = rawTid.Length == 16 ? RuTrackerModService.NormalizeSwitchBaseApplicationTitleId(rawTid) : string.Empty;
+                    if (!string.IsNullOrEmpty(bestTid) && !string.IsNullOrEmpty(normFileTid) &&
+                        !string.Equals(normFileTid, bestTid, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
                     }
 
                     var vMatch = System.Text.RegularExpressions.Regex.Match(rel, @"\[v(?<ver>\d+)\]", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
                     if (vMatch.Success && int.TryParse(vMatch.Groups["ver"].Value, out int vNum) && vNum > maxPatchVer)
                     {
                         maxPatchVer = vNum;
-                    }
-
-                    if (string.IsNullOrEmpty(cleanTitleFromFile) && f.CategoryBadge == "ИГРА")
-                    {
-                        cleanTitleFromFile = RuTrackerModService.ExtractCleanGameTitleFromFilePath(rel);
                     }
                 }
 
@@ -2025,27 +2085,33 @@ namespace StormSwitchBox.Views.Dialogs
                         bestTid = RuTrackerModService.NormalizeSwitchBaseApplicationTitleId(nameEntry.Id.Trim().ToUpperInvariant());
                 }
 
-                // Извлекаем семантическую версию (строго без 'v', например 1.15.0) и внутреннюю числовую версию (например 983040)
+                // Извлекаем семантическую версию (строго без 'v', без выдуманной эвристики 1.{major}.0)
                 string? explicitSemanticVer = null;
                 var candidateVerSources = new List<string>();
                 foreach (var sf in slotFiles)
                 {
-                    if (!string.IsNullOrWhiteSpace(sf.RelativePath))
-                        candidateVerSources.Add(sf.RelativePath);
+                    if (string.IsNullOrWhiteSpace(sf.RelativePath)) continue;
+                    if (RuTrackerModService.IsStandaloneBonusFile(sf.RelativePath)) continue;
+                    string rawSfTid = !string.IsNullOrWhiteSpace(sf.DetectedTitleId)
+                        ? sf.DetectedTitleId
+                        : RuTrackerModService.ExtractTitleId(sf.RelativePath);
+                    string normSfTid = rawSfTid.Length == 16 ? RuTrackerModService.NormalizeSwitchBaseApplicationTitleId(rawSfTid) : string.Empty;
+                    if (!string.IsNullOrEmpty(bestTid) && !string.IsNullOrEmpty(normSfTid) &&
+                        !string.Equals(normSfTid, bestTid, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+                    candidateVerSources.Add(sf.RelativePath);
                 }
-                if (!string.IsNullOrWhiteSpace(slot.GameTitle))
-                    candidateVerSources.Add(slot.GameTitle);
-                if (_gameSlots.Count == 1 && !string.IsNullOrWhiteSpace(_currentTopicTitle))
-                    candidateVerSources.Add(_currentTopicTitle);
 
-                foreach (var srcText in candidateVerSources)
+                void ScanVerTextSource(string srcText, bool scanPatchInt)
                 {
                     var comboMatch = System.Text.RegularExpressions.Regex.Match(srcText, @"\((?<dv>\d+\.\d+(?:\.\d+)*)\s*-\s*(?<iv>\d+)\)");
                     if (comboMatch.Success)
                     {
-                        if (string.IsNullOrEmpty(explicitSemanticVer))
-                            explicitSemanticVer = comboMatch.Groups["dv"].Value;
-                        if (int.TryParse(comboMatch.Groups["iv"].Value, out int ivCombo) && ivCombo > maxPatchVer)
+                        if (string.IsNullOrEmpty(explicitSemanticVer) && TitleDbService.IsValidSemanticVersion(comboMatch.Groups["dv"].Value))
+                            explicitSemanticVer = comboMatch.Groups["dv"].Value.Trim().TrimStart('v', 'V');
+                        if (scanPatchInt && int.TryParse(comboMatch.Groups["iv"].Value, out int ivCombo) && ivCombo > maxPatchVer)
                             maxPatchVer = ivCombo;
                     }
 
@@ -2055,41 +2121,72 @@ namespace StormSwitchBox.Views.Dialogs
                         System.Text.RegularExpressions.RegexOptions.IgnoreCase))
                     {
                         string cand = vm.Groups["sv"].Value.Trim();
-                        // Отсекаем даты вида 12.05.2024 и размеры
-                        var parts = cand.Split('.');
-                        if (parts.Length == 3 && parts[2].Length == 4) continue;
+                        if (!TitleDbService.IsValidSemanticVersion(cand)) continue;
                         int afterIdx = vm.Index + vm.Length;
                         string tail = afterIdx < srcText.Length ? srcText.Substring(afterIdx, Math.Min(8, srcText.Length - afterIdx)) : string.Empty;
                         if (System.Text.RegularExpressions.Regex.IsMatch(tail, @"^\s*(?:GB|MB|KB|TB|ГБ|МБ|КБ|ТБ)\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
                             continue;
-                        explicitSemanticVer = cand;
+                        if (string.IsNullOrEmpty(explicitSemanticVer) || TitleDbService.CompareSemanticVersions(cand, explicitSemanticVer) > 0)
+                            explicitSemanticVer = cand;
                     }
 
-                    foreach (System.Text.RegularExpressions.Match ivm in System.Text.RegularExpressions.Regex.Matches(
-                        srcText,
-                        @"\[v?(?<iv>\d{5,10})\]",
-                        System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                    if (scanPatchInt)
                     {
-                        if (int.TryParse(ivm.Groups["iv"].Value, out int ivVal) && ivVal > maxPatchVer)
-                            maxPatchVer = ivVal;
+                        foreach (System.Text.RegularExpressions.Match ivm in System.Text.RegularExpressions.Regex.Matches(
+                            srcText,
+                            @"\[v?(?<iv>\d{5,10})\]",
+                            System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                        {
+                            if (int.TryParse(ivm.Groups["iv"].Value, out int ivVal) && ivVal > maxPatchVer)
+                                maxPatchVer = ivVal;
+                        }
                     }
                 }
 
-                if (dbEntry?.VersionsDictionary != null && dbEntry.VersionsDictionary.Count > 0)
+                // 1. Семантическая версия из имён файлов слота
+                foreach (var srcText in candidateVerSources)
+                    ScanVerTextSource(srcText, scanPatchInt: true);
+
+                // 2. Семантическая версия из локального кэша наблюдённых NACP и TitleDB
+                if (string.IsNullOrEmpty(explicitSemanticVer) && maxPatchVer > 0 && App.TitleDb != null &&
+                    App.TitleDb.TryResolveDisplayVersion(bestTid, maxPatchVer, out var resolvedFromDb) &&
+                    TitleDbService.IsValidSemanticVersion(resolvedFromDb))
                 {
-                    if (maxPatchVer > 0 && string.IsNullOrEmpty(explicitSemanticVer) &&
-                        dbEntry.VersionsDictionary.TryGetValue(maxPatchVer.ToString(), out var mappedSem) &&
-                        !string.IsNullOrWhiteSpace(mappedSem))
-                    {
-                        explicitSemanticVer = mappedSem.Trim().TrimStart('v', 'V');
-                    }
-                    else if (maxPatchVer == 0 && !string.IsNullOrEmpty(explicitSemanticVer))
-                    {
-                        var rev = dbEntry.VersionsDictionary.FirstOrDefault(kv =>
-                            string.Equals(kv.Value?.Trim().TrimStart('v', 'V'), explicitSemanticVer, StringComparison.OrdinalIgnoreCase));
-                        if (!string.IsNullOrEmpty(rev.Key) && int.TryParse(rev.Key, out int mappedIv) && mappedIv > 0)
-                            maxPatchVer = mappedIv;
-                    }
+                    explicitSemanticVer = resolvedFromDb;
+                }
+
+                // 3. Семантическая версия из HTML шапки темы RuTracker (per-TitleID или общая версия раздачи)
+                if (string.IsNullOrEmpty(explicitSemanticVer) && !string.IsNullOrEmpty(bestTid) &&
+                    _currentTopicParsedTitleVersions.TryGetValue(bestTid, out var parsedTidVer) &&
+                    TitleDbService.IsValidSemanticVersion(parsedTidVer))
+                {
+                    explicitSemanticVer = parsedTidVer;
+                }
+                if (string.IsNullOrEmpty(explicitSemanticVer) && _gameSlots.Count == 1 &&
+                    TitleDbService.IsValidSemanticVersion(_currentTopicParsedGameVersion))
+                {
+                    explicitSemanticVer = _currentTopicParsedGameVersion;
+                }
+
+                // 4. Семантическая версия из названия слота или заголовка темы
+                if (string.IsNullOrEmpty(explicitSemanticVer) && !string.IsNullOrWhiteSpace(slot.GameTitle))
+                    ScanVerTextSource(slot.GameTitle, scanPatchInt: true);
+                if (string.IsNullOrEmpty(explicitSemanticVer) && _gameSlots.Count == 1 && !string.IsNullOrWhiteSpace(_currentTopicTitle))
+                    ScanVerTextSource(_currentTopicTitle, scanPatchInt: _gameSlots.Count == 1);
+
+                // Если знаем внутренний код и семантическую версию из шапки/заголовка - кэшируем связку навсегда
+                if (maxPatchVer > 0 && !string.IsNullOrEmpty(explicitSemanticVer) && !string.IsNullOrEmpty(bestTid))
+                {
+                    App.TitleDb?.RecordObservedDisplayVersion(bestTid, maxPatchVer.ToString(), explicitSemanticVer);
+                }
+
+                if (maxPatchVer == 0 && !string.IsNullOrEmpty(explicitSemanticVer) &&
+                    dbEntry?.VersionsDictionary != null && dbEntry.VersionsDictionary.Count > 0)
+                {
+                    var rev = dbEntry.VersionsDictionary.FirstOrDefault(kv =>
+                        string.Equals(kv.Value?.Trim().TrimStart('v', 'V'), explicitSemanticVer, StringComparison.OrdinalIgnoreCase));
+                    if (!string.IsNullOrEmpty(rev.Key) && int.TryParse(rev.Key, out int mappedIv) && mappedIv > 0)
+                        maxPatchVer = mappedIv;
                 }
 
                 string displayVer;
@@ -2097,14 +2194,17 @@ namespace StormSwitchBox.Views.Dialogs
                 {
                     displayVer = explicitSemanticVer.Trim().TrimStart('v', 'V');
                 }
-                else if (maxPatchVer >= 65536)
+                else if (maxPatchVer == 0)
                 {
-                    int major = maxPatchVer / 65536;
-                    displayVer = $"1.{major}.0";
+                    displayVer = "1.0.0";
+                }
+                else if (_isTopicLoading)
+                {
+                    displayVer = "...";
                 }
                 else
                 {
-                    displayVer = "1.0.0";
+                    displayVer = "?";
                 }
 
                 string internalVerStr = maxPatchVer > 0 ? maxPatchVer.ToString() : "0";

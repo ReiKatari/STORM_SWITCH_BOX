@@ -26,12 +26,22 @@ namespace StormSwitchBox.Services
             _keysService = keysService;
         }
 
-        public async Task ScanDirectoryAsync(string directoryPath, ObservableCollection<CatalogItem> catalog, CancellationToken token)
+        public async Task ScanDirectoryAsync(
+            string directoryPath,
+            ObservableCollection<CatalogItem> catalog,
+            CancellationToken token,
+            bool recursive = false,
+            Action<CatalogItem>? onItemAdded = null)
         {
             if (!Directory.Exists(directoryPath)) return;
 
             string[] extensions = { ".nsp", ".nsz", ".xci", ".xcz", ".3ds", ".cci", ".cia", ".cxi" };
-            var files = Directory.EnumerateFiles(directoryPath, "*.*", SearchOption.AllDirectories)
+            var enumOpts = new EnumerationOptions
+            {
+                RecurseSubdirectories = recursive,
+                IgnoreInaccessible = true
+            };
+            var files = Directory.EnumerateFiles(directoryPath, "*.*", enumOpts)
                 .Where(f => extensions.Contains(System.IO.Path.GetExtension(f).ToLowerInvariant()))
                 .ToList();
 
@@ -39,6 +49,8 @@ namespace StormSwitchBox.Services
             var processedPaths = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var existing in catalog)
                 processedPaths.Add(existing.FilePath);
+
+            var addedInScan = new System.Collections.Generic.List<CatalogItem>();
 
             foreach (var file in files)
             {
@@ -58,8 +70,13 @@ namespace StormSwitchBox.Services
                     FileName = System.IO.Path.GetFileName(file),
                     FileSize = Models.ProcessingTask.FormatSize(new FileInfo(file).Length)
                 };
+                addedInScan.Add(item);
 
-                App.RunOnUI(() => catalog.Add(item));
+                App.RunOnUI(() =>
+                {
+                    catalog.Add(item);
+                    onItemAdded?.Invoke(item);
+                });
 
                 await Task.Run(async () =>
                 {
@@ -69,7 +86,7 @@ namespace StormSwitchBox.Services
                     }
                     catch (Exception ex)
                     {
-                        App.RunOnUI(() => 
+                        App.RunOnUI(() =>
                         {
                             item.IsLoading = false;
                             item.HasError = true;
@@ -78,6 +95,46 @@ namespace StormSwitchBox.Services
                     }
                 }, token);
             }
+
+            // Агрегируем отдельные [DLC]-файлы из той же папки в счетчик локальных DLC родительской игры
+            AggregateSiblingDlcIds(catalog, addedInScan);
+        }
+
+        private static void AggregateSiblingDlcIds(
+            ObservableCollection<CatalogItem> catalog,
+            System.Collections.Generic.List<CatalogItem> scannedItems)
+        {
+            try
+            {
+                var baseItems = catalog
+                    .Where(c => c != null && !c.Is3ds && !string.IsNullOrWhiteSpace(c.TitleId) && c.TitleId.Length == 16 && c.TitleId != "0000000000000000")
+                    .ToList();
+                if (baseItems.Count == 0) return;
+
+                foreach (var src in scannedItems)
+                {
+                    string rawFnTid = RuTrackerModService.ExtractTitleId(src.FileName ?? string.Empty);
+                    if (rawFnTid.Length != 16) continue;
+                    string baseTid = RuTrackerModService.NormalizeSwitchBaseApplicationTitleId(rawFnTid);
+                    if (!RuTrackerModService.IsDlcOfBaseTitle(baseTid, rawFnTid)) continue;
+
+                    var parent = baseItems.FirstOrDefault(p =>
+                        string.Equals(RuTrackerModService.NormalizeSwitchBaseApplicationTitleId(p.TitleId), baseTid, StringComparison.OrdinalIgnoreCase) &&
+                        !ReferenceEquals(p, src));
+                    if (parent != null)
+                    {
+                        App.RunOnUI(() =>
+                        {
+                            if (parent.LocalDlcIds.Add(rawFnTid.ToUpperInvariant()))
+                            {
+                                if (parent.LocalDlcIds.Count > parent.LocalDlcCount)
+                                    parent.LocalDlcCount = parent.LocalDlcIds.Count;
+                            }
+                        });
+                    }
+                }
+            }
+            catch { }
         }
 
         /// <summary>
@@ -121,7 +178,7 @@ namespace StormSwitchBox.Services
             }
         }
 
-        public async Task ScanSingleFileAsync(string filePath, ObservableCollection<CatalogItem> catalog, CancellationToken token)
+        public async Task ScanSingleFileAsync(string filePath, ObservableCollection<CatalogItem> catalog, CancellationToken token, Action<CatalogItem>? onItemAdded = null)
         {
             if (!File.Exists(filePath)) return;
 
@@ -138,7 +195,11 @@ namespace StormSwitchBox.Services
                 FileSize = Models.ProcessingTask.FormatSize(new FileInfo(filePath).Length)
             };
 
-            App.RunOnUI(() => catalog.Add(item));
+            App.RunOnUI(() =>
+            {
+                catalog.Add(item);
+                onItemAdded?.Invoke(item);
+            });
 
             await Task.Run(async () =>
             {
@@ -204,11 +265,19 @@ namespace StormSwitchBox.Services
 
             var entries = fileSystem.EnumerateEntries().ToList();
             var titleKeyMap = new System.Collections.Generic.Dictionary<string, byte[]>();
+            var localContainedTids = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var localExplicitAocTids = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             foreach (var entry in entries)
             {
                 if (entry.Name.EndsWith(".tik", StringComparison.OrdinalIgnoreCase))
                 {
+                    if (entry.Name.Length >= 16)
+                    {
+                        string tikTid = entry.Name.Substring(0, 16);
+                        if (tikTid.All(Uri.IsHexDigit))
+                            localContainedTids.Add(tikTid.ToUpperInvariant());
+                    }
                     try
                     {
                         using var tikFileRefOut = new LibHac.Common.UniqueRef<IFile>();
@@ -310,6 +379,11 @@ namespace StormSwitchBox.Services
                         catch
                         {
                             continue;
+                        }
+
+                        if (nca.Header.TitleId != 0)
+                        {
+                            localContainedTids.Add(nca.Header.TitleId.ToString("X16"));
                         }
 
                         // Оптимизация: сканеру каталога нужны ТОЛЬКО Control, Manual и Meta.
@@ -537,30 +611,47 @@ namespace StormSwitchBox.Services
                                             cnmtFile.AsStream().CopyTo(cnmtStream);
                                             byte[] cnmtBytes = cnmtStream.ToArray();
                                             uint version = 0;
+                                            ulong cnmtTid = 0;
+                                            byte cnmtType = 0;
                                             try
                                             {
-                                                if (cnmtBytes.Length >= 12)
+                                                if (cnmtBytes.Length >= 13)
+                                                {
+                                                    cnmtTid = BitConverter.ToUInt64(cnmtBytes, 0x00);
                                                     version = BitConverter.ToUInt32(cnmtBytes, 0x08);
+                                                    cnmtType = cnmtBytes[0x0C];
+                                                }
                                             }
                                             catch { }
 
-                                            uint fixedVersion = FixHexPackedVersionCode(version);
-                                            uint currentVer = 0;
-                                            uint.TryParse(localVersionCode, out currentVer);
-                                            currentVer = FixHexPackedVersionCode(currentVer);
-
-                                            var match = System.Text.RegularExpressions.Regex.Match(fileNameOnly, @"\[v(\d+)\]");
-                                            if (match.Success && uint.TryParse(match.Groups[1].Value, out uint nameVer))
+                                            if (cnmtTid != 0)
                                             {
-                                                nameVer = FixHexPackedVersionCode(nameVer);
-                                                if (nameVer > currentVer) currentVer = nameVer;
+                                                string cnmtTidHex = cnmtTid.ToString("X16");
+                                                localContainedTids.Add(cnmtTidHex);
+                                                if (cnmtType == 0x82)
+                                                    localExplicitAocTids.Add(cnmtTidHex);
                                             }
 
-                                            if (fixedVersion > currentVer)
-                                                localVersionCode = fixedVersion.ToString();
-                                            else if (currentVer > 0)
-                                                localVersionCode = currentVer.ToString();
-                                            break;
+                                            // Для версии игры учитываем только Application (0x80) и Patch (0x81), а не номер версии отдельного DLC (0x82)
+                                            if (cnmtType != 0x82)
+                                            {
+                                                uint fixedVersion = FixHexPackedVersionCode(version);
+                                                uint currentVer = 0;
+                                                uint.TryParse(localVersionCode, out currentVer);
+                                                currentVer = FixHexPackedVersionCode(currentVer);
+
+                                                var match = System.Text.RegularExpressions.Regex.Match(fileNameOnly, @"\[v(\d+)\]");
+                                                if (match.Success && uint.TryParse(match.Groups[1].Value, out uint nameVer))
+                                                {
+                                                    nameVer = FixHexPackedVersionCode(nameVer);
+                                                    if (nameVer > currentVer) currentVer = nameVer;
+                                                }
+
+                                                if (fixedVersion > currentVer)
+                                                    localVersionCode = fixedVersion.ToString();
+                                                else if (currentVer > 0)
+                                                    localVersionCode = currentVer.ToString();
+                                            }
                                         }
                                     }
                                     finally
@@ -609,6 +700,31 @@ namespace StormSwitchBox.Services
             // Вычисляем итоговую версию в локальных переменных ДО единственного вызова App.RunOnUI
             ResolveVersionFromPath(filePath, ref localDispVer, ref localVersionCode);
 
+            var matchedDlcIds = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (!string.IsNullOrWhiteSpace(localTitleId) && localTitleId != "0000000000000000")
+            {
+                foreach (var tid in localContainedTids)
+                {
+                    if (RuTrackerModService.IsDlcOfBaseTitle(localTitleId, tid))
+                        matchedDlcIds.Add(tid.ToUpperInvariant());
+                }
+                foreach (var aocTid in localExplicitAocTids)
+                {
+                    if (RuTrackerModService.IsDlcOfBaseTitle(localTitleId, aocTid))
+                        matchedDlcIds.Add(aocTid.ToUpperInvariant());
+                }
+            }
+            int localDlcCount = matchedDlcIds.Count;
+            var fnDlcMatch = System.Text.RegularExpressions.Regex.Match(fileNameOnly, @"\+(\d+)D(?=[)\+\s]|$)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (fnDlcMatch.Success && int.TryParse(fnDlcMatch.Groups[1].Value, out int fnDlc) && fnDlc > localDlcCount)
+                localDlcCount = fnDlc;
+
+            if (hasControlMeta && !string.IsNullOrWhiteSpace(localTitleId) &&
+                localTitleId != "0000000000000000" && !IsBaseVersion(localDispVer))
+            {
+                App.TitleDb?.RecordObservedDisplayVersion(localTitleId, localVersionCode, localDispVer);
+            }
+
             var uiApplyTcs = new TaskCompletionSource<bool>();
             App.RunOnUI(async () =>
             {
@@ -624,6 +740,8 @@ namespace StormSwitchBox.Services
                     item.VideoCapture = localVideoCapture;
                     item.SaveDataSize = localSaveDataSize;
                     item.Regions = localRegions;
+                    item.LocalDlcIds = matchedDlcIds;
+                    item.LocalDlcCount = localDlcCount;
 
                     if (localCoverBytes != null && localCoverBytes.Length > 0)
                     {
@@ -667,7 +785,7 @@ namespace StormSwitchBox.Services
                 await uiApplyTcs.Task.ConfigureAwait(false);
 
             // Обогащаем данными из онлайн базы TitleDB в фоне и завершаем загрузку
-            App.TitleDb.EnrichCatalogItem(item);
+            App.TitleDb?.EnrichCatalogItem(item);
             App.RunOnUI(() =>
             {
                 item.IsLoading = false;
@@ -769,10 +887,7 @@ namespace StormSwitchBox.Services
                     {
                         versionCode = fm.Groups[2].Value;
                     }
-                    if (IsBaseVersion(displayVersion) && uint.TryParse(versionCode, out uint vcNum) && vcNum > 0 && vcNum % 65536 == 0)
-                    {
-                        displayVersion = $"1.0.{vcNum / 65536}";
-                    }
+                    // Никогда не подменяем реальную отображаемую версию эвристикой 1.0.{vcNum/65536}
                     return;
                 }
             }

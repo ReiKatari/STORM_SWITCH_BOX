@@ -11,11 +11,12 @@
     <Grid Padding="24">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
         <!-- Header -->
-        <Grid Grid.Row="0" Margin="0,0,0,24">
+        <Grid Grid.Row="0" Margin="0,0,0,12">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
@@ -42,6 +43,7 @@
                             <StackPanel Spacing="10" Width="400">
                                 <TextBlock x:Name="FlyoutFoldersTitle" Text="Папки для сканирования" FontWeight="SemiBold" FontSize="15"/>
                                 <ListView x:Name="FoldersListView" MaxHeight="200" Background="{ThemeResource LayerFillColorDefaultBrush}" CornerRadius="4" SelectionMode="Single" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.HorizontalScrollMode="Disabled"/>
+                                <CheckBox x:Name="AddFolderRecursiveCheckBox" Content="Сканировать подпапки (рекурсивно)" IsChecked="False" Margin="0,2,0,0" ToolTipService.ToolTip="По умолчанию сканируется только выбранная папка без вложенных подпапок"/>
                                 <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
                                     <Button Click="AddFolder_Click">
                                         <Button.ContentTemplate>
@@ -101,8 +103,40 @@
             </StackPanel>
         </Grid>
 
+        <!-- RuTracker Updates & DLC Monitor Bar -->
+        <Border Grid.Row="1" Margin="0,0,0,14" Padding="12,8" CornerRadius="10" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource SurfaceStrokeColorDefaultBrush}" BorderThickness="1">
+            <Grid ColumnSpacing="12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <Button x:Name="CheckRuTrackerUpdatesButton" Grid.Column="0" Click="CheckRuTrackerUpdates_Click" Height="34" Padding="12,0" CornerRadius="8" Style="{StaticResource AccentButtonStyle}" ToolTipService.ToolTip="Проверить наличие новых версий и дополнений для ваших игр на RuTracker">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE774;" FontSize="14"/>
+                        <TextBlock x:Name="CheckRuTrackerUpdatesTextBlock" Text="Проверить обновления (RuTracker)" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+                <Button x:Name="UpdatesOnlyFilterButton" Grid.Column="1" Click="UpdatesOnlyFilterButton_Click" Height="34" Padding="12,0" CornerRadius="8" Visibility="Collapsed" Background="#1E3A2F" BorderBrush="#10B981" BorderThickness="1">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <FontIcon Glyph="&#xE896;" FontSize="13" Foreground="#34D399"/>
+                        <TextBlock x:Name="UpdatesOnlyFilterTextBlock" Text="Есть обновления" FontWeight="SemiBold" Foreground="#ECFDF5" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="UpdatesOnlyCountTextBlock" Text="(0)" FontWeight="Bold" Foreground="#6EE7B7" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <ProgressRing x:Name="RuTrackerCheckProgress" IsActive="False" Width="16" Height="16" Visibility="Collapsed" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="RuTrackerUpdatesSummaryText" Text="Нажмите «Проверить обновления (RuTracker)» для поиска новых версий и DLC" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                </StackPanel>
+                <Button x:Name="ResetUpdatesFilterButton" Grid.Column="3" Click="ResetUpdatesFilter_Click" Visibility="Collapsed" Height="30" Padding="10,0" CornerRadius="6" Background="Transparent" BorderThickness="1" BorderBrush="{ThemeResource SurfaceStrokeColorDefaultBrush}">
+                    <TextBlock Text="Сбросить фильтр" FontSize="12"/>
+                </Button>
+            </Grid>
+        </Border>
+
         <!-- Catalog Grid -->
-        <GridView Grid.Row="1" x:Name="CatalogGridView" 
+        <GridView Grid.Row="2" x:Name="CatalogGridView" 
                   SelectionMode="None" 
                   IsItemClickEnabled="True"
                   ItemClick="CatalogGridView_ItemClick"
@@ -117,7 +151,7 @@
             </GridView.ItemContainerStyle>
             <GridView.ItemTemplate>
                 <DataTemplate x:DataType="models:CatalogItem">
-                    <Grid Width="240" Height="440" CornerRadius="12" 
+                    <Grid Width="240" Height="476" CornerRadius="12" 
                           Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" 
                           BorderBrush="{ThemeResource SurfaceStrokeColorDefaultBrush}" 
                           BorderThickness="1" 
@@ -253,6 +287,10 @@
                                     </StackPanel>
                                 </Button>
                             </Grid>
+
+                            <Button Margin="0,4,0,0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Background="#065F46" BorderBrush="#10B981" BorderThickness="1" CornerRadius="4" Padding="6,3" Visibility="{Binding RuTrackerUpdateBadgeVisibility, Mode=OneWay}" Click="OpenRuTrackerUpdateForItem_Click" ToolTipService.ToolTip="Открыть раздачу на RuTracker для загрузки обновления или дополнений">
+                                <TextBlock Text="{Binding RuTrackerUpdateSummary}" FontSize="10" Foreground="#ECFDF5" FontWeight="SemiBold" TextWrapping="Wrap" MaxLines="2"/>
+                            </Button>
                         </StackPanel>
                     </Grid>
                 </DataTemplate>
@@ -260,7 +298,7 @@
         </GridView>
         
         <!-- Details Overlay -->
-        <Grid x:Name="DetailsOverlay" Grid.RowSpan="2" Background="#99000000" Visibility="Collapsed" PointerPressed="DetailsOverlay_PointerPressed">
+        <Grid x:Name="DetailsOverlay" Grid.RowSpan="3" Background="#99000000" Visibility="Collapsed" PointerPressed="DetailsOverlay_PointerPressed">
             <Border Width="850" Height="650" CornerRadius="16" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}" BorderBrush="{ThemeResource SurfaceStrokeColorDefaultBrush}" BorderThickness="1" HorizontalAlignment="Center" VerticalAlignment="Center" PointerPressed="DetailsContent_PointerPressed">
                 <Grid>
                     <Grid.RowDefinitions>
@@ -368,6 +406,13 @@
                                     <TextBlock x:Name="DetailSize" Text="0 MB" FontSize="15" FontWeight="SemiBold"/>
                                 </StackPanel>
 
+                                <Border x:Name="DetailRuTrackerUpdateBanner" Visibility="Collapsed" Margin="0,8,0,0" Padding="10,8" CornerRadius="8" Background="#064E3B" BorderBrush="#10B981" BorderThickness="1">
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Text="Доступно обновление на RuTracker" FontSize="12" FontWeight="Bold" Foreground="#6EE7B7"/>
+                                        <TextBlock x:Name="DetailRuTrackerUpdateText" Text="" FontSize="12" Foreground="#ECFDF5" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </Border>
+
                                 <Button x:Name="DownloadUpdatesDlcButton" Style="{StaticResource AccentButtonStyle}" Margin="0,12,0,0" HorizontalAlignment="Stretch" Click="DownloadUpdatesDlcButton_Click" CornerRadius="8" Height="38">
                                     <StackPanel Orientation="Horizontal" Spacing="8">
                                         <FontIcon Glyph="&#xE896;" FontSize="14"/>
@@ -439,7 +484,7 @@
         </Grid>
 
         <!-- Fullscreen Screenshot Overlay -->
-        <Grid x:Name="FullscreenImageOverlay" Grid.RowSpan="2" Background="#F0000000" Visibility="Collapsed" PointerPressed="FullscreenImageOverlay_PointerPressed">
+        <Grid x:Name="FullscreenImageOverlay" Grid.RowSpan="3" Background="#F0000000" Visibility="Collapsed" PointerPressed="FullscreenImageOverlay_PointerPressed">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>

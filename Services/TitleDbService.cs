@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
+using System.Text.RegularExpressions;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -120,10 +122,19 @@ namespace StormSwitchBox.Services
         private const string DbUrl = "https://tinfoil.media/repo/db/titles.json";
         private const string FallbackDbUrl = "https://raw.githubusercontent.com/blawar/titledb/master/US.en.json";
 
+        private readonly ConcurrentDictionary<string, string> _observedDisplayVersions = new(StringComparer.OrdinalIgnoreCase);
+        private static readonly string _observedVersionsCachePath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "STORM SWITCH BOX",
+            "cache",
+            "known_display_versions.json");
+        private int _observedVersionsSaveScheduled = 0;
+
         public TitleDbService()
         {
             _dbPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".switch", "titledb.json");
             _eShopService = new NintendoEShopService();
+            LoadObservedDisplayVersions();
             
             // Асинхронно загружаем базу из локального кэша
             _ = LoadLocalDbAsync();
@@ -814,6 +825,139 @@ namespace StormSwitchBox.Services
                     yield return entry;
                 }
             }
+        }
+
+        public static bool IsValidSemanticVersion(string? version)
+        {
+            if (string.IsNullOrWhiteSpace(version)) return false;
+            string v = version.Trim().TrimStart('v', 'V');
+            var m = Regex.Match(v, @"^(?<maj>\d{1,3})\.(?<min>\d{1,4})(?:\.(?<pat>\d{1,4}))?(?:\.(?<bld>\d{1,4}))?$");
+            if (!m.Success) return false;
+            if (!int.TryParse(m.Groups["maj"].Value, out int maj) || maj >= 100) return false;
+            if (m.Groups["pat"].Success && m.Groups["pat"].Value.Length == 4 &&
+                int.TryParse(m.Groups["pat"].Value, out int y) && y >= 2015 && y <= 2099)
+                return false;
+            return true;
+        }
+
+        public static int CompareSemanticVersions(string? a, string? b)
+        {
+            string va = (a ?? string.Empty).Trim().TrimStart('v', 'V');
+            string vb = (b ?? string.Empty).Trim().TrimStart('v', 'V');
+            if (string.IsNullOrEmpty(va) && string.IsNullOrEmpty(vb)) return 0;
+            if (string.IsNullOrEmpty(va)) return -1;
+            if (string.IsNullOrEmpty(vb)) return 1;
+
+            var pa = va.Split('.');
+            var pb = vb.Split('.');
+            int maxLen = Math.Max(pa.Length, pb.Length);
+            for (int i = 0; i < maxLen; i++)
+            {
+                int ia = (i < pa.Length && int.TryParse(Regex.Replace(pa[i], @"[^\d]", ""), out int vaNum)) ? vaNum : 0;
+                int ib = (i < pb.Length && int.TryParse(Regex.Replace(pb[i], @"[^\d]", ""), out int vbNum)) ? vbNum : 0;
+                if (ia != ib) return ia.CompareTo(ib);
+            }
+            return 0;
+        }
+
+        private void LoadObservedDisplayVersions()
+        {
+            try
+            {
+                if (!File.Exists(_observedVersionsCachePath)) return;
+                string json = File.ReadAllText(_observedVersionsCachePath);
+                var loaded = JsonSerializer.Deserialize<Dictionary<string, string>>(json);
+                if (loaded == null) return;
+                foreach (var kvp in loaded)
+                {
+                    if (!string.IsNullOrWhiteSpace(kvp.Key) && IsValidSemanticVersion(kvp.Value))
+                    {
+                        _observedDisplayVersions[kvp.Key] = kvp.Value.Trim().TrimStart('v', 'V');
+                    }
+                }
+            }
+            catch { }
+        }
+
+        public void RecordObservedDisplayVersion(string? titleId, string? versionCode, string? displayVersion)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(titleId) || string.IsNullOrWhiteSpace(versionCode) || string.IsNullOrWhiteSpace(displayVersion))
+                    return;
+                string baseTid = RuTrackerModService.NormalizeSwitchBaseApplicationTitleId(titleId);
+                if (baseTid.Length != 16) return;
+                if (!uint.TryParse(Regex.Replace(versionCode.Trim(), @"[^\d]", ""), out uint patchCode) || patchCode == 0)
+                    return;
+                string cleanVer = displayVersion.Trim().TrimStart('v', 'V');
+                if (!IsValidSemanticVersion(cleanVer)) return;
+
+                string key = $"{baseTid}:{patchCode}";
+                if (_observedDisplayVersions.TryGetValue(key, out var existing) &&
+                    string.Equals(existing, cleanVer, StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+
+                _observedDisplayVersions[key] = cleanVer;
+                if (Interlocked.Exchange(ref _observedVersionsSaveScheduled, 1) == 0)
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await Task.Delay(1200).ConfigureAwait(false);
+                            var dir = Path.GetDirectoryName(_observedVersionsCachePath);
+                            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+                            var snap = new Dictionary<string, string>(_observedDisplayVersions, StringComparer.OrdinalIgnoreCase);
+                            string outJson = JsonSerializer.Serialize(snap);
+                            File.WriteAllText(_observedVersionsCachePath, outJson);
+                        }
+                        catch { }
+                        finally
+                        {
+                            Interlocked.Exchange(ref _observedVersionsSaveScheduled, 0);
+                        }
+                    });
+                }
+            }
+            catch { }
+        }
+
+        public bool TryResolveDisplayVersion(string? titleId, int patchCode, out string displayVersion)
+        {
+            displayVersion = string.Empty;
+            if (string.IsNullOrWhiteSpace(titleId) || patchCode <= 0) return false;
+            string baseTid = RuTrackerModService.NormalizeSwitchBaseApplicationTitleId(titleId);
+            if (baseTid.Length != 16) return false;
+
+            string cacheKey = $"{baseTid}:{patchCode}";
+            if (_observedDisplayVersions.TryGetValue(cacheKey, out var cachedVer) && IsValidSemanticVersion(cachedVer))
+            {
+                displayVersion = cachedVer;
+                return true;
+            }
+
+            string patchCodeStr = patchCode.ToString(CultureInfo.InvariantCulture);
+            if (TryGetTitleInfo(baseTid, out var baseEntry) && baseEntry?.VersionsDictionary != null &&
+                baseEntry.VersionsDictionary.TryGetValue(patchCodeStr, out var baseSem) &&
+                IsValidSemanticVersion(baseSem))
+            {
+                displayVersion = baseSem.Trim().TrimStart('v', 'V');
+                return true;
+            }
+
+            string updateTid = TitleIdHelper.TryParseHex16(baseTid, out ulong baseTidNum) ? TitleIdHelper.ComputePatchTitleId(baseTidNum).ToString("X16") : string.Empty;
+            if (!string.IsNullOrEmpty(updateTid) && TryGetTitleInfo(updateTid, out var updEntry) &&
+                updEntry?.VersionsDictionary != null &&
+                updEntry.VersionsDictionary.TryGetValue(patchCodeStr, out var updSem) &&
+                IsValidSemanticVersion(updSem))
+            {
+                displayVersion = updSem.Trim().TrimStart('v', 'V');
+                return true;
+            }
+
+            return false;
         }
 
         private static bool HasGarbageCharacters(string s)

@@ -138,7 +138,83 @@ namespace StormSwitchBox.Models
         public Microsoft.UI.Xaml.Visibility OutdatedVisibility => IsOutdated ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
         public Microsoft.UI.Xaml.Visibility RegionsVisibility => string.IsNullOrEmpty(Regions) || Regions == "N/A" ? Microsoft.UI.Xaml.Visibility.Collapsed : Microsoft.UI.Xaml.Visibility.Visible;
         public Microsoft.UI.Xaml.Visibility ReleaseDateVisibility => string.IsNullOrEmpty(ReleaseDate) || ReleaseDate == "N/A" ? Microsoft.UI.Xaml.Visibility.Collapsed : Microsoft.UI.Xaml.Visibility.Visible;
-        public string DlcCountDisplay => $"Дополнения: {DlcCount}";
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(DlcCountDisplay))]
+        [NotifyPropertyChangedFor(nameof(RuTrackerUpdateSummary))]
+        private int _localDlcCount = 0;
+
+        [JsonIgnore]
+        public System.Collections.Generic.HashSet<string> LocalDlcIds { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(RuTrackerUpdateBadgeVisibility))]
+        [NotifyPropertyChangedFor(nameof(RuTrackerUpdateSummary))]
+        private bool _hasRuTrackerUpdate = false;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(RuTrackerUpdateSummary))]
+        private bool _hasRuTrackerVersionUpdate = false;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(RuTrackerUpdateSummary))]
+        private bool _hasRuTrackerNewDlc = false;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(RuTrackerUpdateSummary))]
+        private string _ruTrackerVersion = string.Empty;
+
+        [ObservableProperty]
+        private string _ruTrackerVersionCode = string.Empty;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(RuTrackerUpdateSummary))]
+        private int _ruTrackerDlcCount = 0;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(HasRuTrackerTopic))]
+        private string _ruTrackerTopicId = string.Empty;
+
+        [ObservableProperty]
+        private string _ruTrackerTopicTitle = string.Empty;
+
+        public Microsoft.UI.Xaml.Visibility RuTrackerUpdateBadgeVisibility => HasRuTrackerUpdate ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
+        public bool HasRuTrackerTopic => !string.IsNullOrWhiteSpace(RuTrackerTopicId);
+
+        public string RuTrackerUpdateSummary
+        {
+            get
+            {
+                if (!HasRuTrackerUpdate) return string.Empty;
+                var parts = new System.Collections.Generic.List<string>();
+                if (HasRuTrackerVersionUpdate && !string.IsNullOrWhiteSpace(RuTrackerVersion))
+                {
+                    string localVer = !string.IsNullOrWhiteSpace(Version) ? Version : "0";
+                    parts.Add($"Версия: {localVer} -> {RuTrackerVersion}");
+                }
+                if (HasRuTrackerNewDlc && RuTrackerDlcCount > LocalDlcCount)
+                {
+                    int delta = Math.Max(1, RuTrackerDlcCount - LocalDlcCount);
+                    parts.Add($"DLC: {LocalDlcCount} -> {RuTrackerDlcCount} (+{delta})");
+                }
+                if (parts.Count == 0)
+                    parts.Add($"RuTracker: {RuTrackerVersion}");
+                return "RuTracker: " + string.Join(" | ", parts);
+            }
+        }
+
+        public string DlcCountDisplay
+        {
+            get
+            {
+                if (!IsOnlineOnly && LocalDlcCount > 0)
+                {
+                    return DlcCount > LocalDlcCount
+                        ? $"DLC: {LocalDlcCount}/{DlcCount}"
+                        : $"DLC: {LocalDlcCount}";
+                }
+                return $"Дополнения: {DlcCount}";
+            }
+        }
         
         [ObservableProperty]
         private System.Collections.ObjectModel.ObservableCollection<BitmapImage> _screenshots = new();
@@ -147,5 +223,13 @@ namespace StormSwitchBox.Models
         private bool _hasScreenshots = false;
 
         public System.Collections.ObjectModel.ObservableCollection<TitleDbEntry> DlcList { get; } = new();
+    }
+
+    public sealed class CatalogFolderEntry
+    {
+        public string FolderPath { get; set; } = string.Empty;
+        public bool IsRecursive { get; set; }
+        public string DisplayName => IsRecursive ? $"{FolderPath}  [подпапки]" : FolderPath;
+        public override string ToString() => DisplayName;
     }
 }

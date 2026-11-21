@@ -1590,18 +1590,20 @@ namespace StormSwitchBox.Services
                                  fname.Contains("romfs", StringComparison.OrdinalIgnoreCase) ||
                                  fname.Contains("exefs", StringComparison.OrdinalIgnoreCase);
 
-                bool isDlc = (!string.IsNullOrEmpty(tid) && tid.Length == 16 && !tid.EndsWith("000") && !tid.EndsWith("800")) ||
-                             fname.Contains("DLC", StringComparison.OrdinalIgnoreCase) ||
-                             fname.Contains("AddOn", StringComparison.OrdinalIgnoreCase);
+                bool isStandalone = RuTrackerModService.IsStandaloneBonusFile(fname);
 
-                bool isPatch = !isModFile && ((!string.IsNullOrEmpty(tid) && tid.Length == 16 && tid.EndsWith("800")) ||
+                bool isDlc = !isStandalone && ((!string.IsNullOrEmpty(tid) && tid.Length == 16 && !tid.EndsWith("000") && !tid.EndsWith("800")) ||
+                             fname.Contains("DLC", StringComparison.OrdinalIgnoreCase) ||
+                             fname.Contains("AddOn", StringComparison.OrdinalIgnoreCase));
+
+                bool isPatch = !isModFile && !isStandalone && ((!string.IsNullOrEmpty(tid) && tid.Length == 16 && tid.EndsWith("800")) ||
                                fname.Contains("Update", StringComparison.OrdinalIgnoreCase) ||
                                fname.Contains("Patch", StringComparison.OrdinalIgnoreCase) ||
                                (fname.Contains("[v") && !fname.Contains("[v0]")));
 
-                bool isBase = (!string.IsNullOrEmpty(tid) && tid.Length == 16 && tid.EndsWith("000")) ||
+                bool isBase = !isStandalone && ((!string.IsNullOrEmpty(tid) && tid.Length == 16 && tid.EndsWith("000")) ||
                               fname.Contains("[v0]") || fname.EndsWith("v0.nsp", StringComparison.OrdinalIgnoreCase) ||
-                              fname.Contains("patched_base");
+                              fname.Contains("patched_base"));
 
                 if (isModFile)
                 {
@@ -1620,11 +1622,16 @@ namespace StormSwitchBox.Services
                     {
                         patchVer = matchVer.Groups[1].Value;
                     }
+                    if (string.IsNullOrEmpty(titleId) && !string.IsNullOrEmpty(tid) && tid.Length == 16 && tid.EndsWith("800"))
+                    {
+                        titleId = RuTrackerModService.NormalizeSwitchBaseApplicationTitleId(tid);
+                    }
                 }
                 else if (isBase)
                 {
                     gameCount++;
-                    if (string.IsNullOrEmpty(titleId) && !string.IsNullOrEmpty(tid)) titleId = tid;
+                    if (!string.IsNullOrEmpty(tid) && tid.EndsWith("000")) titleId = tid;
+                    else if (string.IsNullOrEmpty(titleId) && !string.IsNullOrEmpty(tid)) titleId = tid;
                 }
             }
 
