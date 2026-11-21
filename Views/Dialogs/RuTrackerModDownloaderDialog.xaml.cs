@@ -199,11 +199,27 @@ namespace StormSwitchBox.Views.Dialogs
             AutoBuildCheckBox.IsChecked = cfg.RuTrackerAutoBuildTask;
             DeleteRuTrackerSourceCheckBox.IsChecked = cfg.RuTrackerDeleteSourceOnSuccess;
 
-            string defaultDlFolder = !string.IsNullOrWhiteSpace(cfg.RuTrackerDownloadFolder)
-                ? cfg.RuTrackerDownloadFolder
-                : (!string.IsNullOrWhiteSpace(cfg.OutputFolder)
-                    ? Path.Combine(cfg.OutputFolder, "RuTracker_Downloads")
-                    : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "STORM_SWITCH_BOX_Downloads"));
+            string normalizedSavedDl = NormalizeNonTempOutputDir(cfg.RuTrackerDownloadFolder);
+            string normalizedGlobalOut = NormalizeNonTempOutputDir(cfg.OutputFolder);
+            bool savedPointsToTemp = IsTempRuTrackerStagingDir(cfg.RuTrackerDownloadFolder);
+
+            string defaultDlFolder;
+            if (!string.IsNullOrWhiteSpace(cfg.RuTrackerDownloadFolder) && !savedPointsToTemp)
+            {
+                defaultDlFolder = cfg.RuTrackerDownloadFolder.Trim();
+            }
+            else if (!string.IsNullOrWhiteSpace(normalizedGlobalOut))
+            {
+                defaultDlFolder = normalizedGlobalOut;
+            }
+            else if (!string.IsNullOrWhiteSpace(normalizedSavedDl))
+            {
+                defaultDlFolder = normalizedSavedDl;
+            }
+            else
+            {
+                defaultDlFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "STORM_SWITCH_BOX_Downloads");
+            }
             DownloadFolderBox.Text = defaultDlFolder;
             if (!string.IsNullOrWhiteSpace(CookieBox.Text))
             {
@@ -221,7 +237,21 @@ namespace StormSwitchBox.Views.Dialogs
             cfg.RuTrackerProxy = ProxyBox.Text?.Trim() ?? string.Empty;
             cfg.RuTrackerUsername = LoginUserBox.Text?.Trim() ?? string.Empty;
             cfg.RuTrackerCookie = CookieBox.Text?.Trim() ?? string.Empty;
-            cfg.RuTrackerDownloadFolder = DownloadFolderBox.Text?.Trim() ?? string.Empty;
+
+            string normalizedInput = NormalizeNonTempOutputDir(DownloadFolderBox.Text);
+            string normalizedGlobal = NormalizeNonTempOutputDir(cfg.OutputFolder);
+            if (string.IsNullOrWhiteSpace(normalizedInput) ||
+                (!string.IsNullOrWhiteSpace(normalizedGlobal) &&
+                 string.Equals(normalizedInput, normalizedGlobal, StringComparison.OrdinalIgnoreCase)))
+            {
+                // Keep synced with global OutputFolder when user didn't pick a distinct override
+                cfg.RuTrackerDownloadFolder = string.Empty;
+            }
+            else
+            {
+                cfg.RuTrackerDownloadFolder = normalizedInput;
+            }
+
             cfg.RuTrackerAutoBuildTask = AutoBuildCheckBox.IsChecked == true;
             cfg.RuTrackerDeleteSourceOnSuccess = DeleteRuTrackerSourceCheckBox.IsChecked == true;
             _ = App.Settings.SaveAsync();
@@ -3210,18 +3240,15 @@ namespace StormSwitchBox.Views.Dialogs
                 return;
             }
 
-            string baseDownloadDir = DownloadFolderBox.Text?.Trim() ?? string.Empty;
-            if (string.IsNullOrWhiteSpace(baseDownloadDir))
-            {
-                baseDownloadDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "STORM_SWITCH_BOX_Downloads");
-            }
+            string baseDownloadDir = ResolveRuTrackerFinalOutputFolder(GetDefaultTargetFormat(), string.Empty, DownloadFolderBox.Text);
+            string stagingRootDir = Path.Combine(baseDownloadDir, "RuTracker_Downloads");
 
             string batchShortId = Guid.NewGuid().ToString("N").Substring(0, 6);
             string safeSubFolder = SanitizeFolderName(!string.IsNullOrWhiteSpace(_currentTopicTitle)
                 ? _currentTopicTitle
                 : (_targetTask?.GameName ?? $"Release_{DateTime.Now:yyyyMMdd_HHmmss}"));
 
-            string sharedReleaseDir = Path.Combine(baseDownloadDir, $"{safeSubFolder}_{batchShortId}");
+            string sharedReleaseDir = Path.Combine(stagingRootDir, $"{safeSubFolder}_{batchShortId}");
             Directory.CreateDirectory(sharedReleaseDir);
 
             string globalCustomModTitle = CustomModNameBox.Text?.Trim() ?? string.Empty;
@@ -3328,6 +3355,8 @@ namespace StormSwitchBox.Views.Dialogs
                 string chosenFormat = !string.IsNullOrWhiteSpace(slot.TargetFormat)
                     ? slot.TargetFormat.Trim()
                     : GetDefaultTargetFormat();
+                string slotFinalOutputDir = ResolveRuTrackerFinalOutputFolder(chosenFormat, slot.TitleId, DownloadFolderBox.Text);
+                Directory.CreateDirectory(slotFinalOutputDir);
 
                 var slotMetadataModel = slot.ToMetadataEditModel();
                 var payload = new RuTrackerTaskPayload
@@ -3367,6 +3396,8 @@ namespace StormSwitchBox.Views.Dialogs
                         task.OutputFileName = SanitizeFileName(slotTitle);
                     }
                     task.TargetFormat = chosenFormat;
+                    if (string.IsNullOrWhiteSpace(task.OutputFolder) || IsTempRuTrackerStagingDir(task.OutputFolder))
+                        task.OutputFolder = slotFinalOutputDir;
                     task.KeepExactOutputFileName = !appendAutoTags;
                     task.IsRuTrackerTask = true;
                     task.DeleteSourceAfterVerify = deleteRtSource;
@@ -3417,7 +3448,7 @@ namespace StormSwitchBox.Views.Dialogs
                         IsRunning = true,
                         IsRuTrackerTask = true,
                         DeleteSourceAfterVerify = deleteRtSource,
-                        OutputFolder = baseDownloadDir,
+                        OutputFolder = slotFinalOutputDir,
                         OutputFileName = SanitizeFileName(slotTitle),
                         SourceSizeBytes = initBytes,
                         SourceSize = initBytes > 0 ? ProcessingTask.FormatSize(initBytes) : "-",
@@ -3623,11 +3654,7 @@ namespace StormSwitchBox.Views.Dialogs
                 else if (Directory.Exists(payload.TargetReleaseDir))
                 {
                     candidateContainers = Directory.EnumerateFiles(payload.TargetReleaseDir, "*.*", SearchOption.AllDirectories)
-                        .Where(p => p.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) ||
-                                    p.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) ||
-                                    p.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) ||
-                                    p.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase) ||
-                                    p.EndsWith(".nro", StringComparison.OrdinalIgnoreCase))
+                        .Where(IsSupportedGameContainerPath)
                         .ToList();
                 }
                 else
@@ -3641,6 +3668,10 @@ namespace StormSwitchBox.Views.Dialogs
                     payload.SlotNumber,
                     payload.SlotGameTitle ?? string.Empty,
                     new List<string> { payload.SlotGameTitle ?? string.Empty });
+                if (matchedContainers.Count == 0 && candidateContainers.Count > 0 && IsDedicatedPartDir(payload.TargetReleaseDir))
+                {
+                    matchedContainers = candidateContainers;
+                }
 
                 // 3. Привязка файлов к задаче (на UI-потоке во избежание RPC_E_WRONG_THREAD)
                 var bindTcs = new TaskCompletionSource<bool>();
@@ -3660,18 +3691,19 @@ namespace StormSwitchBox.Views.Dialogs
                 // 4. Автоматическая сборка мульти-контента (как в Android-версии)
                 if (payload.AutoBuild && task.InputFiles.Count > 0)
                 {
+                    string outExt = task.GetPrimaryExtension();
+                    string outDir = ResolveRuTrackerFinalOutputFolder(task.TargetFormat, task.TitleId, task.OutputFolder);
+                    Directory.CreateDirectory(outDir);
+
                     App.RunOnUI(() =>
                     {
-                        task.Status = "Сборка мульти-контента...";
+                        task.OutputFolder = outDir;
+                        task.Status = payload.TotalSlots > 1
+                            ? $"Сборка ({payload.SlotNumber}/{payload.TotalSlots}): {payload.SlotGameTitle}..."
+                            : "Сборка мульти-контента...";
                         task.Speed = string.Empty;
                         task.Progress = 0;
                     });
-
-                    string outExt = task.GetPrimaryExtension();
-                    string outDir = string.IsNullOrWhiteSpace(task.OutputFolder)
-                        ? (string.IsNullOrWhiteSpace(App.Settings.Current.OutputFolder) ? payload.TargetReleaseDir : App.Settings.Current.OutputFolder)
-                        : task.OutputFolder;
-                    Directory.CreateDirectory(outDir);
                     string outPath = Path.Combine(outDir, task.OutputFileName + outExt);
 
                     await App.MultiContent.BuildMultiContentAsync(
@@ -3697,18 +3729,12 @@ namespace StormSwitchBox.Views.Dialogs
                     if (task.DeleteSourceAfterVerify && buildSucceeded)
                     {
                         CleanupRuTrackerReleaseDirectory(payload.TargetReleaseDir, outDir);
-                        if (!string.IsNullOrWhiteSpace(payload.SharedReleaseDir) &&
+                        // Multi-slot SharedReleaseDir is cleaned up only by ExecuteMultiGameRuTrackerPipelineAsync after ALL slots finish
+                        if (payload.TotalSlots <= 1 &&
+                            !string.IsNullOrWhiteSpace(payload.SharedReleaseDir) &&
                             !string.Equals(payload.SharedReleaseDir, payload.TargetReleaseDir, StringComparison.OrdinalIgnoreCase))
                         {
-                            bool anySiblingStillPending = viewModel.Tasks.Any(other =>
-                                other != task &&
-                                other.RuTrackerPayload != null &&
-                                string.Equals(other.RuTrackerPayload.SharedReleaseDir, payload.SharedReleaseDir, StringComparison.OrdinalIgnoreCase) &&
-                                (other.IsRunning || other.Status == "Ожидание" || other.Status.Contains("Подключение") || other.Status.Contains("Загрузка") || other.Status.Contains("Сборка")));
-                            if (!anySiblingStillPending)
-                            {
-                                CleanupRuTrackerReleaseDirectory(payload.SharedReleaseDir, outDir);
-                            }
+                            CleanupRuTrackerReleaseDirectory(payload.SharedReleaseDir, outDir);
                         }
                     }
 
@@ -3723,6 +3749,20 @@ namespace StormSwitchBox.Views.Dialogs
                         task.IsPaused = false;
                         task.Speed = string.Empty;
                         task.FinishedAt = DateTime.Now;
+                        viewModel.SavePersistedTasks();
+                    });
+                }
+                else if (payload.AutoBuild)
+                {
+                    App.RunOnUI(() =>
+                    {
+                        task.Status = "Ошибка";
+                        task.Progress = 0;
+                        task.IsRunning = false;
+                        task.IsPaused = false;
+                        task.Speed = string.Empty;
+                        task.FinishedAt = DateTime.Now;
+                        task.LogDetails += $"\n❌ Ошибка: Не найдены игровые файлы для сборки в каталоге {payload.TargetReleaseDir}.";
                         viewModel.SavePersistedTasks();
                     });
                 }
@@ -3800,16 +3840,7 @@ namespace StormSwitchBox.Views.Dialogs
             if (Directory.Exists(downloadDir))
             {
                 var discoveredFiles = Directory.EnumerateFiles(downloadDir, "*.*", SearchOption.AllDirectories)
-                    .Where(p => p.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) ||
-                                p.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) ||
-                                p.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) ||
-                                p.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase) ||
-                                p.EndsWith(".nup", StringComparison.OrdinalIgnoreCase) ||
-                                p.EndsWith(".nro", StringComparison.OrdinalIgnoreCase) ||
-                                p.EndsWith(".3ds", StringComparison.OrdinalIgnoreCase) ||
-                                p.EndsWith(".cia", StringComparison.OrdinalIgnoreCase) ||
-                                p.EndsWith(".cci", StringComparison.OrdinalIgnoreCase) ||
-                                p.EndsWith(".cxi", StringComparison.OrdinalIgnoreCase))
+                    .Where(IsSupportedGameContainerPath)
                     .ToList();
 
                 HashSet<string>? allowedNames = null;
@@ -4055,6 +4086,115 @@ namespace StormSwitchBox.Views.Dialogs
             catch { }
         }
 
+        public static bool IsTempRuTrackerStagingDir(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                return false;
+            string trimmed = path.Trim().TrimEnd('\\', '/');
+            if (string.IsNullOrEmpty(trimmed))
+                return false;
+            string leaf = Path.GetFileName(trimmed);
+            return leaf.Equals("RuTracker_Downloads", StringComparison.OrdinalIgnoreCase) ||
+                   leaf.Equals("RuTracker_Staging", StringComparison.OrdinalIgnoreCase) ||
+                   leaf.Equals("_Staging_", StringComparison.OrdinalIgnoreCase);
+        }
+
+        public static bool IsDedicatedPartDir(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                return false;
+            string leaf = Path.GetFileName(path.Trim().TrimEnd('\\', '/'));
+            return leaf.StartsWith("Part_", StringComparison.OrdinalIgnoreCase);
+        }
+
+        public static bool IsSupportedGameContainerPath(string? p)
+        {
+            if (string.IsNullOrWhiteSpace(p))
+                return false;
+            return p.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) ||
+                   p.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) ||
+                   p.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) ||
+                   p.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase) ||
+                   p.EndsWith(".nup", StringComparison.OrdinalIgnoreCase) ||
+                   p.EndsWith(".nro", StringComparison.OrdinalIgnoreCase) ||
+                   p.EndsWith(".3ds", StringComparison.OrdinalIgnoreCase) ||
+                   p.EndsWith(".cia", StringComparison.OrdinalIgnoreCase) ||
+                   p.EndsWith(".cci", StringComparison.OrdinalIgnoreCase) ||
+                   p.EndsWith(".cxi", StringComparison.OrdinalIgnoreCase) ||
+                   p.EndsWith(".3dsx", StringComparison.OrdinalIgnoreCase) ||
+                   p.EndsWith(".zcci", StringComparison.OrdinalIgnoreCase) ||
+                   p.EndsWith(".zcxi", StringComparison.OrdinalIgnoreCase) ||
+                   p.EndsWith(".zcia", StringComparison.OrdinalIgnoreCase) ||
+                   p.EndsWith(".z3dsx", StringComparison.OrdinalIgnoreCase) ||
+                   p.EndsWith(".z3ds", StringComparison.OrdinalIgnoreCase);
+        }
+
+        public static string NormalizeNonTempOutputDir(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                return string.Empty;
+            string trimmed = path.Trim().TrimEnd('\\', '/');
+            if (string.IsNullOrEmpty(trimmed))
+                return string.Empty;
+            if (IsTempRuTrackerStagingDir(trimmed))
+            {
+                string? parent = Path.GetDirectoryName(trimmed);
+                if (!string.IsNullOrWhiteSpace(parent))
+                    return parent.TrimEnd('\\', '/');
+            }
+            return trimmed;
+        }
+
+        public static string ResolveRuTrackerFinalOutputFolder(string? chosenFormat, string? titleId, string? dialogFolderInput)
+        {
+            var cfg = App.Settings?.Current;
+            string fmt = (chosenFormat ?? string.Empty).Trim().ToUpperInvariant();
+            string tid = (titleId ?? string.Empty).Trim();
+
+            bool is3ds = fmt is "3DS" or "CIA" or "CXI" or "CCI" or "3DSX" or "ZCCI" or "ZCIA" or "ZCXI" or "Z3DSX" ||
+                         fmt.StartsWith("Z3DS", StringComparison.Ordinal) ||
+                         fmt.StartsWith("3DS +", StringComparison.Ordinal) ||
+                         tid.StartsWith("0004", StringComparison.OrdinalIgnoreCase);
+            bool isSwitch2 = fmt == "NUP" || tid.StartsWith("0400", StringComparison.OrdinalIgnoreCase);
+
+            if (isSwitch2 && cfg != null && !string.IsNullOrWhiteSpace(cfg.OutputFolderSwitch2))
+            {
+                string sw2Out = NormalizeNonTempOutputDir(cfg.OutputFolderSwitch2);
+                if (!string.IsNullOrWhiteSpace(sw2Out))
+                    return sw2Out;
+            }
+
+            if (is3ds && cfg != null && !string.IsNullOrWhiteSpace(cfg.OutputFolder3ds))
+            {
+                string out3ds = NormalizeNonTempOutputDir(cfg.OutputFolder3ds);
+                if (!string.IsNullOrWhiteSpace(out3ds))
+                    return out3ds;
+            }
+
+            string rawDialog = (dialogFolderInput ?? string.Empty).Trim().TrimEnd('\\', '/');
+            if (!string.IsNullOrWhiteSpace(rawDialog) && !IsTempRuTrackerStagingDir(rawDialog))
+            {
+                return rawDialog;
+            }
+
+            if (cfg != null)
+            {
+                string globalOut = NormalizeNonTempOutputDir(cfg.OutputFolder);
+                if (!string.IsNullOrWhiteSpace(globalOut))
+                    return globalOut;
+
+                string lastMulti = NormalizeNonTempOutputDir(cfg.LastOutPath_Multi);
+                if (!string.IsNullOrWhiteSpace(lastMulti))
+                    return lastMulti;
+            }
+
+            string normalizedDialog = NormalizeNonTempOutputDir(rawDialog);
+            if (!string.IsNullOrWhiteSpace(normalizedDialog))
+                return normalizedDialog;
+
+            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "STORM_SWITCH_BOX_Downloads");
+        }
+
         public static void CleanupRuTrackerReleaseDirectory(string? dirToDelete, string? outDir)
         {
             if (string.IsNullOrWhiteSpace(dirToDelete) || !Directory.Exists(dirToDelete))
@@ -4080,7 +4220,8 @@ namespace StormSwitchBox.Views.Dialogs
                     {
                         string pName = Path.GetFileName(parentDir);
                         if (pName.Equals("_Staging_", StringComparison.OrdinalIgnoreCase) ||
-                            pName.Equals("RuTracker_Staging", StringComparison.OrdinalIgnoreCase))
+                            pName.Equals("RuTracker_Staging", StringComparison.OrdinalIgnoreCase) ||
+                            pName.Equals("RuTracker_Downloads", StringComparison.OrdinalIgnoreCase))
                         {
                             if (!Directory.EnumerateFileSystemEntries(parentDir).Any())
                             {
@@ -4280,52 +4421,78 @@ namespace StormSwitchBox.Views.Dialogs
                 .ToList();
             await ExtractLocalTorrentModArchivesAsync(sharedReleaseDir, ct, unionSelectedRelPaths).ConfigureAwait(false);
 
-            // Собираем все скачанные игровые контейнеры в общей папке и раскладываем их по слотам игр (1..N)
+            // Собираем все скачанные игровые контейнеры в общей папке и заранее раскладываем их по Part_k_... слотам игр (1..N)
             var allDownloadedContainers = Directory.Exists(sharedReleaseDir)
                 ? Directory.EnumerateFiles(sharedReleaseDir, "*.*", SearchOption.AllDirectories)
                     .Where(p => !p.Contains($"{Path.DirectorySeparatorChar}Part_", StringComparison.OrdinalIgnoreCase) &&
-                                (p.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) ||
-                                 p.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) ||
-                                 p.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) ||
-                                 p.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase) ||
-                                 p.EndsWith(".nro", StringComparison.OrdinalIgnoreCase)))
+                                IsSupportedGameContainerPath(p))
                     .ToList()
                 : new List<string>();
 
             var allSlotTitles = createdTasks.Select(c => c.Payload.SlotGameTitle).ToList();
 
-            // 2. Для каждой отдельной части/игры качаем её собственные ссылки (русификаторы/патчи/DLC) и собираем её задачу
-            for (int i = 0; i < createdTasks.Count; i++)
+            // Phase 1: Pre-stage all slots' containers before building slot 0
+            var perSlotMatches = new List<List<string>>(createdTasks.Count);
+            var containerRefCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (_, payload, slot) in createdTasks)
             {
-                ct.ThrowIfCancellationRequested();
-                var (task, payload, slot) = createdTasks[i];
-                int slotNum = slot.SlotNumber;
-
-                // Определяем файлы контейнеров, относящиеся именно к этой части игры
-                var matchedContainers = FilterDownloadedContainersForSlot(
+                var matched = FilterDownloadedContainersForSlot(
                     allDownloadedContainers,
                     payload.TorrentFiles,
-                    slotNum,
+                    slot.SlotNumber,
                     payload.SlotGameTitle,
                     allSlotTitles);
-
-                foreach (var srcContainer in matchedContainers)
+                perSlotMatches.Add(matched);
+                foreach (var srcPath in matched)
                 {
+                    containerRefCounts[srcPath] = containerRefCounts.TryGetValue(srcPath, out int c) ? c + 1 : 1;
+                }
+            }
+
+            var remainingMoveCounts = new Dictionary<string, int>(containerRefCounts, StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < createdTasks.Count; i++)
+            {
+                var (_, payload, _) = createdTasks[i];
+                Directory.CreateDirectory(payload.TargetReleaseDir);
+                foreach (var srcContainer in perSlotMatches[i])
+                {
+                    int rem = remainingMoveCounts.TryGetValue(srcContainer, out int rCount) ? rCount - 1 : 0;
+                    remainingMoveCounts[srcContainer] = rem;
+
                     string dstFile = Path.Combine(payload.TargetReleaseDir, Path.GetFileName(srcContainer));
-                    if (!string.Equals(Path.GetFullPath(srcContainer), Path.GetFullPath(dstFile), StringComparison.OrdinalIgnoreCase) && !File.Exists(dstFile))
+                    if (string.Equals(Path.GetFullPath(srcContainer), Path.GetFullPath(dstFile), StringComparison.OrdinalIgnoreCase) || File.Exists(dstFile))
+                        continue;
+                    if (!File.Exists(srcContainer))
+                        continue;
+
+                    try
                     {
+                        if (rem > 0)
+                            File.Copy(srcContainer, dstFile, true);
+                        else
+                            File.Move(srcContainer, dstFile);
+                    }
+                    catch (Exception moveEx)
+                    {
+                        App.Logger?.Log($"[RuTracker] Не удалось подготовить файл '{Path.GetFileName(srcContainer)}' для части #{payload.SlotNumber}: {moveEx.Message}", LogLevel.Warning);
                         try
                         {
-                            File.Move(srcContainer, dstFile);
+                            if (File.Exists(srcContainer)) File.Copy(srcContainer, dstFile, true);
                         }
-                        catch
+                        catch (Exception copyEx)
                         {
-                            try { File.Copy(srcContainer, dstFile, true); } catch { }
+                            App.Logger?.Log($"[RuTracker] Повторное копирование '{Path.GetFileName(srcContainer)}' не удалось: {copyEx.Message}", LogLevel.Warning);
                         }
                     }
                 }
+            }
 
-                // Запускаем стадию облачных модов и сборки для конкретной задачи (HasTorrentSource = false, т.к. торрент уже скачан)
+            // Phase 2: Для каждой отдельной части/игры качаем её собственные ссылки и собираем её задачу (с изоляцией ошибок)
+            for (int i = 0; i < createdTasks.Count; i++)
+            {
+                ct.ThrowIfCancellationRequested();
+                var (task, payload, _) = createdTasks[i];
+
                 var slotExecPayload = new RuTrackerTaskPayload
                 {
                     Topic = payload.Topic,
@@ -4346,26 +4513,46 @@ namespace StormSwitchBox.Views.Dialogs
                 };
 
                 int capturedIdx = i + 1;
-                await ExecuteRuTrackerPipelineAsync(
-                    task,
-                    slotExecPayload,
-                    _viewModel,
-                    service,
-                    null,
-                    mp =>
+                try
+                {
+                    await ExecuteRuTrackerPipelineAsync(
+                        task,
+                        slotExecPayload,
+                        _viewModel,
+                        service,
+                        null,
+                        mp =>
+                        {
+                            if (activeRowItem != null)
+                                UpdateActiveDownloadCloudProgress(activeRowItem, mp);
+                            else
+                                UpdateDialogCloudProgress(mp, capturedIdx, createdTasks.Count, payload.SlotGameTitle);
+                        }).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception slotEx)
+                {
+                    App.Logger?.Log($"[RuTracker Multi-Game] Ошибка обработки части #{payload.SlotNumber} ({payload.SlotGameTitle}): {slotEx.Message}", LogLevel.Error);
+                    App.RunOnUI(() =>
                     {
-                        if (activeRowItem != null)
-                            UpdateActiveDownloadCloudProgress(activeRowItem, mp);
-                        else
-                            UpdateDialogCloudProgress(mp, capturedIdx, createdTasks.Count, payload.SlotGameTitle);
-                    }).ConfigureAwait(false);
+                        task.Status = "Ошибка";
+                        task.IsRunning = false;
+                        task.IsPaused = false;
+                        task.Speed = string.Empty;
+                        task.LogDetails += $"\n❌ Ошибка части #{payload.SlotNumber}: {slotEx.Message}";
+                        _viewModel.SavePersistedTasks();
+                    });
+                }
             }
 
-            // По завершении всех задач многосоставной раздачи гарантированно удаляем общую папку раздачи (напр. [Nintendo Switch] Aggelos 1-2 [NSP][RUS_Multi10])
+            // Phase 3: По завершении всех задач многосоставной раздачи удаляем общую временную папку раздачи
             if (createdTasks.Any(c => c.Task.DeleteSourceAfterVerify) &&
                 createdTasks.All(c => c.Task.Status == "Успешно" || c.Task.Status == "Готово"))
             {
-                string primaryOutDir = createdTasks[0].Task.OutputFolder;
+                string primaryOutDir = ResolveRuTrackerFinalOutputFolder(createdTasks[0].Task.TargetFormat, createdTasks[0].Task.TitleId, createdTasks[0].Task.OutputFolder);
                 CleanupRuTrackerReleaseDirectory(sharedReleaseDir, primaryOutDir);
             }
         }
@@ -4381,7 +4568,7 @@ namespace StormSwitchBox.Views.Dialogs
                 return new List<string>();
 
             var selectedItems = (slotFileSelections ?? new List<TorrentFileSelectionItem>())
-                .Where(f => f.IsSelected && (f.TargetGameSlot == slotNumber || (allSlotTitles.Count <= 1 && f.TargetGameSlot <= 1)))
+                .Where(f => f.IsSelected && (f.TargetGameSlot == 0 || f.TargetGameSlot == slotNumber || (allSlotTitles.Count <= 1 && f.TargetGameSlot <= 1)))
                 .ToList();
 
             bool hasRealTorrentFiles = selectedItems.Any(f => f.IsRealTorrentFile);

@@ -864,7 +864,7 @@ namespace StormSwitchBox.Services
 
             // Сканируем каталог релиза на наличие распакованных romfs / exefs
             var selectedModEntries = payload.TorrentFiles != null
-                ? payload.TorrentFiles.Where(f => f.IsSelected && f.CategoryBadge == "МОД / РУСИФИКАТОР").ToList()
+                ? payload.TorrentFiles.Where(f => f.IsSelected && (f.CategoryBadge == "МОДЫ" || f.CategoryBadge == "МОД / РУСИФИКАТОР")).ToList()
                 : new List<TorrentFileSelectionItem>();
 
             bool hasAllowedModsInRelease = selectedModEntries.Count > 0 || payload.CloudLinks.Count > 0;
@@ -889,20 +889,22 @@ namespace StormSwitchBox.Services
             }
 
             // Выбираем игровые контейнеры
+            var candidateContainers = Directory.Exists(payload.TargetReleaseDir)
+                ? Directory.EnumerateFiles(payload.TargetReleaseDir, "*.*", SearchOption.AllDirectories)
+                    .Where(RuTrackerModDownloaderDialog.IsSupportedGameContainerPath)
+                    .ToList()
+                : new List<string>();
+
             var matchedContainers = RuTrackerModDownloaderDialog.FilterDownloadedContainersForSlot(
-                Directory.Exists(payload.TargetReleaseDir)
-                    ? Directory.EnumerateFiles(payload.TargetReleaseDir, "*.*", SearchOption.AllDirectories)
-                        .Where(p => p.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) ||
-                                    p.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) ||
-                                    p.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) ||
-                                    p.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase) ||
-                                    p.EndsWith(".nro", StringComparison.OrdinalIgnoreCase))
-                        .ToList()
-                    : new List<string>(),
+                candidateContainers,
                 payload.TorrentFiles ?? new List<TorrentFileSelectionItem>(),
                 payload.SlotNumber,
                 payload.SlotGameTitle,
                 new List<string> { payload.SlotGameTitle });
+            if (matchedContainers.Count == 0 && candidateContainers.Count > 0 && RuTrackerModDownloaderDialog.IsDedicatedPartDir(payload.TargetReleaseDir))
+            {
+                matchedContainers = candidateContainers;
+            }
 
             // 4. Привязка файлов к задаче на UI-потоке
             var bindTcs = new TaskCompletionSource<bool>();
@@ -924,23 +926,26 @@ namespace StormSwitchBox.Services
             {
                 item.RawStageBadge = "СБОРКА";
                 item.RawStageColor = Windows.UI.Color.FromArgb(255, 168, 85, 247); // #A855F7 Purple
-                item.RawDetails = "Сборка мульти-контента...";
+                item.RawDetails = payload.TotalSlots > 1
+                    ? $"Сборка ({payload.SlotNumber}/{payload.TotalSlots}): {payload.SlotGameTitle}..."
+                    : "Сборка мульти-контента...";
                 item.RawSpeedText = "Сборка";
                 RunOnUiSyncOrAsync(() => item.CommitUiUpdates());
                 EvaluateQueuePriorities(); // Немедленно освобождаем сетевой слот для следующей закачки в очереди!
 
+                string outExt = task.GetPrimaryExtension();
+                string outDir = RuTrackerModDownloaderDialog.ResolveRuTrackerFinalOutputFolder(task.TargetFormat, task.TitleId, task.OutputFolder);
+                Directory.CreateDirectory(outDir);
+
                 App.RunOnUI(() =>
                 {
-                    task.Status = "Сборка мульти-контента...";
+                    task.OutputFolder = outDir;
+                    task.Status = payload.TotalSlots > 1
+                        ? $"Сборка ({payload.SlotNumber}/{payload.TotalSlots}): {payload.SlotGameTitle}..."
+                        : "Сборка мульти-контента...";
                     task.Speed = string.Empty;
                     task.Progress = 0;
                 });
-
-                string outExt = task.GetPrimaryExtension();
-                string outDir = string.IsNullOrWhiteSpace(task.OutputFolder)
-                    ? (string.IsNullOrWhiteSpace(App.Settings.Current.OutputFolder) ? payload.TargetReleaseDir : App.Settings.Current.OutputFolder)
-                    : task.OutputFolder;
-                Directory.CreateDirectory(outDir);
                 string outPath = Path.Combine(outDir, task.OutputFileName + outExt);
 
                 await App.MultiContent.BuildMultiContentAsync(
@@ -1000,22 +1005,12 @@ namespace StormSwitchBox.Services
                     try
                     {
                         RuTrackerModDownloaderDialog.CleanupRuTrackerReleaseDirectory(payload.TargetReleaseDir, outDir);
-                        if (!string.IsNullOrWhiteSpace(payload.SharedReleaseDir) &&
+                        // Multi-slot SharedReleaseDir is owned by ExecuteMultiTaskPipelineAsync and deleted ONLY after ALL slots complete
+                        if (payload.TotalSlots <= 1 &&
+                            !string.IsNullOrWhiteSpace(payload.SharedReleaseDir) &&
                             !string.Equals(payload.SharedReleaseDir, payload.TargetReleaseDir, StringComparison.OrdinalIgnoreCase))
                         {
-                            bool anySiblingStillPending = false;
-                            RunOnUiSyncOrAsync(() =>
-                            {
-                                anySiblingStillPending = item.ViewModel != null && item.ViewModel.Tasks.Any(other =>
-                                    other != task &&
-                                    other.RuTrackerPayload != null &&
-                                    string.Equals(other.RuTrackerPayload.SharedReleaseDir, payload.SharedReleaseDir, StringComparison.OrdinalIgnoreCase) &&
-                                    (other.IsRunning || other.Status == "Ожидание" || other.Status.Contains("Подключение") || other.Status.Contains("Загрузка") || other.Status.Contains("Сборка")));
-                            });
-                            if (!anySiblingStillPending && payload.SlotNumber >= payload.TotalSlots - 1)
-                            {
-                                RuTrackerModDownloaderDialog.CleanupRuTrackerReleaseDirectory(payload.SharedReleaseDir, outDir);
-                            }
+                            RuTrackerModDownloaderDialog.CleanupRuTrackerReleaseDirectory(payload.SharedReleaseDir, outDir);
                         }
                     }
                     catch { }
@@ -1050,6 +1045,20 @@ namespace StormSwitchBox.Services
                     });
                     try { EvaluateQueuePriorities(); } catch { }
                 }
+            }
+            else if (payload.AutoBuild)
+            {
+                App.RunOnUI(() =>
+                {
+                    task.Status = "Ошибка";
+                    task.Progress = 0;
+                    task.IsRunning = false;
+                    task.IsPaused = false;
+                    task.Speed = string.Empty;
+                    task.FinishedAt = DateTime.Now;
+                    task.LogDetails += $"\n❌ Ошибка: Не найдены игровые файлы для сборки в каталоге {payload.TargetReleaseDir}.";
+                });
+                throw new InvalidOperationException($"Не найдены игровые файлы для сборки части #{payload.SlotNumber} ({payload.SlotGameTitle}).");
             }
             else
             {
@@ -1144,43 +1153,83 @@ namespace StormSwitchBox.Services
                 .ToList();
             await RuTrackerModDownloaderDialog.ExtractLocalTorrentModArchivesAsync(sharedReleaseDir, ct, unionSelectedRelPaths).ConfigureAwait(false);
 
-            // Собираем контейнеры
+            // Собираем все игровые контейнеры в общей папке раздачи и распределяем по всем слотам ДО сборки первого слота
             var allDownloadedContainers = Directory.Exists(sharedReleaseDir)
                 ? Directory.EnumerateFiles(sharedReleaseDir, "*.*", SearchOption.AllDirectories)
                     .Where(p => !p.Contains($"{Path.DirectorySeparatorChar}Part_", StringComparison.OrdinalIgnoreCase) &&
-                                (p.EndsWith(".nsp", StringComparison.OrdinalIgnoreCase) ||
-                                 p.EndsWith(".nsz", StringComparison.OrdinalIgnoreCase) ||
-                                 p.EndsWith(".xci", StringComparison.OrdinalIgnoreCase) ||
-                                 p.EndsWith(".xcz", StringComparison.OrdinalIgnoreCase) ||
-                                 p.EndsWith(".nro", StringComparison.OrdinalIgnoreCase)))
+                                RuTrackerModDownloaderDialog.IsSupportedGameContainerPath(p))
                     .ToList()
                 : new List<string>();
 
             var allSlotTitles = createdTasks.Select(c => c.Payload.SlotGameTitle).ToList();
 
-            // 2. Для каждой части/игры выполняем её облачные моды и сборку
+            // Phase 1: Pre-stage all slots' containers before building slot 0
+            var perSlotMatches = new List<List<string>>(createdTasks.Count);
+            var containerRefCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (_, payload, slot) in createdTasks)
+            {
+                var matched = RuTrackerModDownloaderDialog.FilterDownloadedContainersForSlot(
+                    allDownloadedContainers,
+                    payload.TorrentFiles,
+                    slot.SlotNumber,
+                    payload.SlotGameTitle,
+                    allSlotTitles);
+                perSlotMatches.Add(matched);
+                foreach (var srcPath in matched)
+                {
+                    containerRefCounts[srcPath] = containerRefCounts.TryGetValue(srcPath, out int c) ? c + 1 : 1;
+                }
+            }
+
+            var remainingMoveCounts = new Dictionary<string, int>(containerRefCounts, StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < createdTasks.Count; i++)
+            {
+                var (_, payload, _) = createdTasks[i];
+                Directory.CreateDirectory(payload.TargetReleaseDir);
+                foreach (var srcContainer in perSlotMatches[i])
+                {
+                    int rem = remainingMoveCounts.TryGetValue(srcContainer, out int rCount) ? rCount - 1 : 0;
+                    remainingMoveCounts[srcContainer] = rem;
+
+                    string dstFile = Path.Combine(payload.TargetReleaseDir, Path.GetFileName(srcContainer));
+                    if (string.Equals(Path.GetFullPath(srcContainer), Path.GetFullPath(dstFile), StringComparison.OrdinalIgnoreCase) || File.Exists(dstFile))
+                        continue;
+                    if (!File.Exists(srcContainer))
+                        continue;
+
+                    try
+                    {
+                        if (rem > 0)
+                            File.Copy(srcContainer, dstFile, true);
+                        else
+                            File.Move(srcContainer, dstFile);
+                    }
+                    catch (Exception moveEx)
+                    {
+                        App.Logger?.Log($"[RuTracker Queue] Ошибка подготовки файла '{Path.GetFileName(srcContainer)}' для части #{payload.SlotNumber}: {moveEx.Message}", LogLevel.Warning);
+                        try
+                        {
+                            if (File.Exists(srcContainer)) File.Copy(srcContainer, dstFile, true);
+                        }
+                        catch (Exception copyEx)
+                        {
+                            App.Logger?.Log($"[RuTracker Queue] Повторное копирование '{Path.GetFileName(srcContainer)}' не удалось: {copyEx.Message}", LogLevel.Warning);
+                        }
+                    }
+                }
+            }
+
+            // Phase 2: Для каждой части/игры выполняем её облачные моды и сборку с изоляцией ошибок по слотам
             for (int i = 0; i < createdTasks.Count; i++)
             {
                 ct.ThrowIfCancellationRequested();
-                var (task, payload, slot) = createdTasks[i];
-                int slotNum = slot.SlotNumber;
+                var (task, payload, _) = createdTasks[i];
 
-                var matchedContainers = RuTrackerModDownloaderDialog.FilterDownloadedContainersForSlot(
-                    allDownloadedContainers,
-                    payload.TorrentFiles,
-                    slotNum,
-                    payload.SlotGameTitle,
-                    allSlotTitles);
-
-                foreach (var srcContainer in matchedContainers)
-                {
-                    string dstFile = Path.Combine(payload.TargetReleaseDir, Path.GetFileName(srcContainer));
-                    if (!string.Equals(Path.GetFullPath(srcContainer), Path.GetFullPath(dstFile), StringComparison.OrdinalIgnoreCase) && !File.Exists(dstFile))
-                    {
-                        try { File.Move(srcContainer, dstFile); }
-                        catch { try { File.Copy(srcContainer, dstFile, true); } catch { } }
-                    }
-                }
+                item.RawStageBadge = "СБОРКА";
+                item.RawStageColor = Windows.UI.Color.FromArgb(255, 168, 85, 247);
+                item.RawDetails = $"Сборка ({i + 1}/{createdTasks.Count}): {payload.SlotGameTitle}...";
+                item.RawSpeedText = $"Часть {i + 1}/{createdTasks.Count}";
+                RunOnUiSyncOrAsync(() => item.CommitUiUpdates());
 
                 var slotExecPayload = new RuTrackerTaskPayload
                 {
@@ -1201,15 +1250,66 @@ namespace StormSwitchBox.Services
                     CustomMetadata = payload.CustomMetadata
                 };
 
-                await ExecuteSingleTaskPipelineAsync(item, task, slotExecPayload, ct).ConfigureAwait(false);
+                try
+                {
+                    await ExecuteSingleTaskPipelineAsync(item, task, slotExecPayload, ct).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception slotEx)
+                {
+                    App.Logger?.Log($"[RuTracker Queue Multi] Ошибка обработки части #{payload.SlotNumber} ({payload.SlotGameTitle}): {slotEx.Message}", LogLevel.Error);
+                    RunOnUiSyncOrAsync(() =>
+                    {
+                        if (task.Status != "Ошибка" && task.Status != "Отменено")
+                            task.Status = "Ошибка";
+                        task.IsRunning = false;
+                        task.IsPaused = false;
+                        task.Speed = string.Empty;
+                        task.LogDetails += $"\n❌ Ошибка части #{payload.SlotNumber}: {slotEx.Message}";
+                        item.ViewModel?.SavePersistedTasks();
+                    });
+                }
             }
 
-            item.IsBuildCompletedOnDisk = true;
-            item.RawStageBadge = "ГОТОВО";
-            item.RawStageColor = Windows.UI.Color.FromArgb(255, 34, 197, 94);
-            item.RawPercent = 100.0;
-            item.RawSpeedText = "100% Завершено";
-            item.RawDetails = "Сборка завершена";
+            // Phase 3: Итоговая очистка общей временной папки и точный статус многосоставной раздачи
+            int okCount = createdTasks.Count(c => c.Task.Status == "Успешно" || c.Task.Status == "Готово");
+            bool allSucceeded = okCount == createdTasks.Count;
+
+            if (allSucceeded && createdTasks.Any(c => c.Task.DeleteSourceAfterVerify))
+            {
+                try
+                {
+                    var primaryTask = createdTasks[0].Task;
+                    string primaryOutDir = RuTrackerModDownloaderDialog.ResolveRuTrackerFinalOutputFolder(
+                        primaryTask.TargetFormat,
+                        primaryTask.TitleId,
+                        primaryTask.OutputFolder);
+                    RuTrackerModDownloaderDialog.CleanupRuTrackerReleaseDirectory(sharedReleaseDir, primaryOutDir);
+                }
+                catch { }
+            }
+
+            if (allSucceeded)
+            {
+                item.IsBuildCompletedOnDisk = true;
+                item.RawStageBadge = "ГОТОВО";
+                item.RawStageColor = Windows.UI.Color.FromArgb(255, 34, 197, 94);
+                item.RawPercent = 100.0;
+                item.RawSpeedText = "100% Завершено";
+                item.RawDetails = createdTasks.Count > 1 ? $"Сборка завершена ({createdTasks.Count} игр)" : "Сборка завершена";
+            }
+            else
+            {
+                item.IsBuildCompletedOnDisk = okCount > 0;
+                item.RawStageBadge = "ОШИБКА";
+                item.RawStageColor = Windows.UI.Color.FromArgb(255, 239, 68, 68);
+                item.RawSpeedText = "Ошибка";
+                item.RawDetails = $"Собрано {okCount} из {createdTasks.Count} игр (см. лог задач)";
+            }
+
             item.IsActive = false;
             RunOnUiSyncOrAsync(() =>
             {
@@ -1516,9 +1616,7 @@ namespace StormSwitchBox.Services
                             item.CreatedTasks[i] = (matchedVmTask, payload, slot);
 
                             bool outputExists = false;
-                            string outDir = string.IsNullOrWhiteSpace(matchedVmTask.OutputFolder)
-                                ? (string.IsNullOrWhiteSpace(App.Settings.Current.OutputFolder) ? payload.TargetReleaseDir : App.Settings.Current.OutputFolder)
-                                : matchedVmTask.OutputFolder;
+                            string outDir = RuTrackerModDownloaderDialog.ResolveRuTrackerFinalOutputFolder(matchedVmTask.TargetFormat, matchedVmTask.TitleId, matchedVmTask.OutputFolder);
                             if (Directory.Exists(outDir))
                             {
                                 string displayTid = RuTrackerModService.NormalizeSwitchBaseApplicationTitleId(matchedVmTask.GameName);
@@ -1742,9 +1840,7 @@ namespace StormSwitchBox.Services
                                 {
                                     foreach (var tp in r.Tasks)
                                     {
-                                        string outDir = string.IsNullOrWhiteSpace(tp.OutputFolder)
-                                            ? (string.IsNullOrWhiteSpace(App.Settings.Current.OutputFolder) ? (tp.TargetReleaseDir ?? string.Empty) : App.Settings.Current.OutputFolder)
-                                            : tp.OutputFolder;
+                                        string outDir = RuTrackerModDownloaderDialog.ResolveRuTrackerFinalOutputFolder(tp.OutputFormat, string.Empty, tp.OutputFolder);
                                         string gameName = !string.IsNullOrWhiteSpace(tp.TaskTitle)
                                             ? tp.TaskTitle
                                             : (!string.IsNullOrWhiteSpace(tp.SlotGameTitle) ? tp.SlotGameTitle : (r.DisplayTitle ?? string.Empty));
@@ -1826,7 +1922,7 @@ namespace StormSwitchBox.Services
                                             Id = !string.IsNullOrEmpty(tp.TaskId) ? tp.TaskId : Guid.NewGuid().ToString("N").Substring(0, 8),
                                             GameName = !string.IsNullOrWhiteSpace(tp.TaskTitle) ? tp.TaskTitle : (tp.SlotGameTitle ?? string.Empty),
                                             TargetFormat = tp.OutputFormat ?? "NSP",
-                                            OutputFolder = tp.OutputFolder ?? string.Empty,
+                                            OutputFolder = RuTrackerModDownloaderDialog.ResolveRuTrackerFinalOutputFolder(tp.OutputFormat, string.Empty, tp.OutputFolder),
                                             DeleteSourceAfterVerify = tp.DeleteSourceAfterVerify,
                                             Progress = r.ProgressPercent,
                                             Status = isCompleted ? (r.StageBadge == "ГОТОВО" ? "Успешно" : (r.StageBadge ?? "ОТМЕНЕНО")) : "⏸ Сохранено на паузе",

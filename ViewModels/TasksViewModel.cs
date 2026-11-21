@@ -2486,28 +2486,30 @@ public partial class TasksViewModel : ObservableObject
 						}
 					}
 
-					// Если у задачи RuTracker остались временные папки раздачи (Part_... или общая папка релиза), удаляем их
+					// Если у задачи RuTracker остались временные папки раздачи (Part_... или общая папка релиза), безопасно удаляем их
 					if (task.RuTrackerPayload != null)
 					{
 						try
 						{
-							string outDirFull = !string.IsNullOrWhiteSpace(task.OutputFolder) ? Path.GetFullPath(task.OutputFolder).TrimEnd('\\', '/') : string.Empty;
-							if (!string.IsNullOrWhiteSpace(task.RuTrackerPayload.TargetReleaseDir) && Directory.Exists(task.RuTrackerPayload.TargetReleaseDir))
+							string safeOutDir = Views.Dialogs.RuTrackerModDownloaderDialog.ResolveRuTrackerFinalOutputFolder(task.TargetFormat, task.TitleId, task.OutputFolder);
+							if (!string.IsNullOrWhiteSpace(task.RuTrackerPayload.TargetReleaseDir))
 							{
-								string tDirFull = Path.GetFullPath(task.RuTrackerPayload.TargetReleaseDir).TrimEnd('\\', '/');
-								if (!string.Equals(tDirFull, outDirFull, StringComparison.OrdinalIgnoreCase))
-									Directory.Delete(task.RuTrackerPayload.TargetReleaseDir, recursive: true);
+								Views.Dialogs.RuTrackerModDownloaderDialog.CleanupRuTrackerReleaseDirectory(task.RuTrackerPayload.TargetReleaseDir, safeOutDir);
 							}
-							if (!string.IsNullOrWhiteSpace(task.RuTrackerPayload.SharedReleaseDir) && Directory.Exists(task.RuTrackerPayload.SharedReleaseDir))
+							if (!string.IsNullOrWhiteSpace(task.RuTrackerPayload.SharedReleaseDir) &&
+								!string.Equals(task.RuTrackerPayload.SharedReleaseDir, task.RuTrackerPayload.TargetReleaseDir, StringComparison.OrdinalIgnoreCase))
 							{
-								string sDirFull = Path.GetFullPath(task.RuTrackerPayload.SharedReleaseDir).TrimEnd('\\', '/');
 								bool neededBySibling = Tasks.Any(other =>
 									other != task &&
-									(other.Status == "Ожидание" || other.IsRunning) &&
+									other.Status != "Успешно" &&
+									other.Status != "Готово" &&
+									other.Status != "Отменено" &&
 									other.RuTrackerPayload != null &&
 									string.Equals(other.RuTrackerPayload.SharedReleaseDir, task.RuTrackerPayload.SharedReleaseDir, StringComparison.OrdinalIgnoreCase));
-								if (!neededBySibling && !string.Equals(sDirFull, outDirFull, StringComparison.OrdinalIgnoreCase))
-									Directory.Delete(task.RuTrackerPayload.SharedReleaseDir, recursive: true);
+								if (!neededBySibling)
+								{
+									Views.Dialogs.RuTrackerModDownloaderDialog.CleanupRuTrackerReleaseDirectory(task.RuTrackerPayload.SharedReleaseDir, safeOutDir);
+								}
 							}
 						}
 						catch { }
