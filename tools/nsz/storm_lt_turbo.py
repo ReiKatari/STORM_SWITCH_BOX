@@ -30,8 +30,21 @@ DEFAULT_PUBLIC_TRACKERS = [
     "udp://tracker.torrent.eu.org:451/announce",
     "udp://exodus.desync.com:6969/announce",
     "udp://open.demonii.com:1337/announce",
+    "udp://tracker.dler.org:6969/announce",
+    "udp://open.dstud.io:6969/announce",
+    "udp://explodie.org:6969/announce",
+    "udp://p4p.arenabg.com:1337/announce",
+    "udp://opentor.org:2710/announce",
+    "udp://tracker.theoks.net:6969/announce",
+    "udp://retracker.hotplug.ru:2710/announce",
+    "udp://bt1.archive.org:6969/announce",
+    "udp://bt2.archive.org:6969/announce",
+    "udp://tracker.bittor.pw:1337/announce",
+    "udp://tracker.tiny-vps.com:6969/announce",
     "https://tracker.opentrackr.org:443/announce",
     "https://tracker.gbitt.info:443/announce",
+    "https://tracker.tamersunion.org:443/announce",
+    "https://tr.burnabyhighstar.com:443/announce",
 ]
 
 
@@ -52,30 +65,37 @@ def build_turbo_settings(listen_port=44859, metadata_only=False):
         "enable_incoming_tcp": True,
         "enable_dht": True,
         "enable_lsd": False,
-        "enable_upnp": False,
-        "enable_natpmp": False,
+        "enable_upnp": not metadata_only,
+        "enable_natpmp": not metadata_only,
         "announce_to_all_trackers": True,
         "announce_to_all_tiers": True,
         "mixed_mode_algorithm": 1,  # peer_proportional: never throttle uTP seeds
         "choking_algorithm": 0,
         "seed_choking_algorithm": 1,
-        "connection_speed": 500,
+        "smooth_connects": False,
+        "connection_speed": 1000,
         "torrent_connect_boost": 255,
-        "connections_limit": max(2000, int(base.get("connections_limit", 8000))),
-        "max_out_request_queue": 2500,
-        "max_allowed_in_request_queue": 2500,
-        "request_queue_time": 3,
+        "connections_limit": max(3000, int(base.get("connections_limit", 8000))),
+        "max_peerlist_size": 6000,
+        "max_out_request_queue": 4000,
+        "max_allowed_in_request_queue": 4000,
+        "request_queue_time": 5,
         "strict_end_game_mode": False,
         "whole_pieces_threshold": 20,
         "send_socket_buffer_size": 0,
         "recv_socket_buffer_size": 0,
-        "utp_gain_factor": 3000,
-        "utp_target_delay": 150,
+        "utp_gain_factor": 5000,
+        "utp_target_delay": 200,
         "allowed_fast_set_size": 5,
         "suggest_mode": 0,
         "download_rate_limit": 0,
         "upload_rate_limit": 0,
-        "max_queued_disk_bytes": 128 * 1024 * 1024,
+        "peer_turnover": 0,
+        "piece_extent_affinity": True,
+        "coalesce_reads": True,
+        "coalesce_writes": True,
+        "rate_limit_ip_overhead": False,
+        "max_queued_disk_bytes": 256 * 1024 * 1024,
         "send_buffer_watermark": 33554432,
         "send_buffer_low_watermark": 4194304,
         "send_buffer_watermark_factor": 150,
@@ -87,11 +107,11 @@ def build_turbo_settings(listen_port=44859, metadata_only=False):
         "peer_timeout": 45,
         "in_enc_policy": 1,
         "out_enc_policy": 1,
-        "prefer_rc4": False,
+        "prefer_rc4": True,
         "peer_fingerprint": "-qB5000-",
         "user_agent": "qBittorrent/5.0.0",
-        "aio_threads": 12,
-        "hashing_threads": 4,
+        "aio_threads": 16,
+        "hashing_threads": 8,
         "dht_bootstrap_nodes": (
             "router.bittorrent.com:6881,"
             "dht.transmissionbt.com:6881,"
@@ -144,7 +164,7 @@ def is_valid_ip(host_part):
 
 
 def parse_peer_endpoint(entry):
-    entry = (entry or "").strip()
+    entry = (entry or "").lstrip("\ufeff").strip()
     if not entry:
         return None
     if entry.startswith("["):
@@ -165,13 +185,13 @@ def parse_peer_endpoint(entry):
         return None
 
     host_part, port_part = entry.rsplit(":", 1)
-    host_part = host_part.strip()
+    host_part = host_part.lstrip("\ufeff").strip()
     if not host_part or not port_part.isdigit():
         return None
     port_num = int(port_part)
     if not (0 < port_num <= 65535):
         return None
-    if ":" in host_part and not is_valid_ip(host_part):
+    if not is_valid_ip(host_part):
         return None
     return (host_part, port_num)
 
@@ -214,9 +234,9 @@ def merge_trackers(existing_trackers):
         if url not in seen:
             seen.add(url)
             merged.append(url)
-            if len(merged) >= 16:
+            if len(merged) >= 24:
                 break
-    return merged[:16]
+    return merged[:24]
 
 
 def apply_clean_trackers(handle, trackers):
@@ -268,7 +288,7 @@ def run_metadata_only(ses, args):
                 with open(args.peers_file, "r", encoding="utf-8", errors="ignore") as pf:
                     lines = pf.readlines()
                 for raw in lines:
-                    entry = raw.strip()
+                    entry = raw.lstrip("\ufeff").strip()
                     if not entry or entry in connected_set:
                         continue
                     connected_set.add(entry)
@@ -284,6 +304,8 @@ def run_metadata_only(ses, args):
 
         pump_peers(force=True)
         last_parent_check = 0.0
+        started_meta_at = time.time()
+        did_retry_meta = False
         got_meta = False
 
         while time.time() < deadline and handle.is_valid():
@@ -294,6 +316,13 @@ def run_metadata_only(ses, args):
                     break
 
             pump_peers(force=False)
+            if not did_retry_meta and (now_t - started_meta_at) >= 2.2 and ordered_peers:
+                did_retry_meta = True
+                for parsed in ordered_peers:
+                    try:
+                        handle.connect_peer(parsed)
+                    except Exception:
+                        pass
             st = handle.status()
             if bool(getattr(st, "has_metadata", False)):
                 got_meta = True
@@ -481,7 +510,7 @@ def main():
                     with open(args.peers_file, "r", encoding="utf-8", errors="ignore") as pf:
                         lines = pf.readlines()
                     for raw in lines:
-                        entry = raw.strip()
+                        entry = raw.lstrip("\ufeff").strip()
                         if not entry or entry in connected_peers:
                             continue
                         connected_peers.add(entry)
@@ -495,10 +524,10 @@ def main():
                 except Exception:
                     pass
 
-        # Periodically retry existing peers if speed < 12 MB/s and seeds < 20
-        if (now_t - last_reinject_at) >= 20.0 and ordered_peers and current_rate < (12 * 1024 * 1024) and current_seeds < 20:
+        # Periodically retry existing peers if speed < 20 MB/s and seeds < 25
+        if (now_t - last_reinject_at) >= 10.0 and ordered_peers and current_rate < (20 * 1024 * 1024) and current_seeds < 25:
             last_reinject_at = now_t
-            batch_size = min(80, len(ordered_peers))
+            batch_size = min(120, len(ordered_peers))
             total_len = len(ordered_peers)
             for _ in range(batch_size):
                 parsed = ordered_peers[reinject_cursor % total_len]
@@ -509,6 +538,7 @@ def main():
                     pass
 
     last_parent_check = 0.0
+    last_tracker_reannounce = time.time()
     try:
         inject_new_peers(force_now=True)
         while handle.is_valid():
@@ -558,6 +588,13 @@ def main():
                 continue
 
             st = handle.status()
+            if (now_check - last_tracker_reannounce) >= 45.0 and st.download_rate < (15 * 1024 * 1024) and st.num_seeds < 15:
+                last_tracker_reannounce = now_check
+                try:
+                    handle.force_reannounce()
+                    handle.force_dht_announce()
+                except Exception:
+                    pass
             inject_new_peers(force_now=False, current_rate=st.download_rate, current_seeds=st.num_seeds)
 
             has_meta = bool(getattr(st, "has_metadata", False))

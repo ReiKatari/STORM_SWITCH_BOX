@@ -624,7 +624,7 @@ namespace StormSwitchBox.Views.Dialogs
 
             if (_topics.Count > 0)
             {
-                _service.PrefetchTopicsMetadata(_topics, maxCount: 4);
+                _service.PrefetchTopicsMetadata(_topics, maxCount: 6);
                 if (autoSelectFirst)
                 {
                     var firstTopic = _topics[0];
@@ -1173,8 +1173,44 @@ namespace StormSwitchBox.Views.Dialogs
                             }
                         };
                     ApplyResolvedFilesOnUi(fallbackEntries);
-                    TorrentFilesHeader.Text = $"Magnet-разрешение активно ({topic.SizeText}) - файлы загрузятся при старте";
-                    StatusText.Text = "Раздача готова к высокоскоростной загрузке.";
+
+                    if (!string.IsNullOrWhiteSpace(topic.InfoHash) && !ct.IsCancellationRequested)
+                    {
+                        TorrentFilesHeader.Text = $"Получение списка файлов по P2P ({topic.SizeText})...";
+                        StatusText.Text = "Раздача готова к высокоскоростной загрузке.";
+                        _ = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                var bgItems = await _service.ResolveMagnetMetadataBackgroundAsync(topic, TimeSpan.FromSeconds(22), ct).ConfigureAwait(false);
+                                if (ct.IsCancellationRequested || mySeq != System.Threading.Interlocked.Read(ref _topicSelectionSeq))
+                                    return;
+
+                                if (bgItems != null && bgItems.Count > 0)
+                                {
+                                    App.RunOnUI(() =>
+                                    {
+                                        if (!ct.IsCancellationRequested && mySeq == System.Threading.Interlocked.Read(ref _topicSelectionSeq))
+                                            ApplyResolvedFilesOnUi(bgItems);
+                                    });
+                                }
+                                else
+                                {
+                                    App.RunOnUI(() =>
+                                    {
+                                        if (!ct.IsCancellationRequested && mySeq == System.Threading.Interlocked.Read(ref _topicSelectionSeq) && !_activeTopicHasRealFiles && TorrentFilesHeader != null)
+                                            TorrentFilesHeader.Text = $"Magnet-разрешение активно ({topic.SizeText}) - файлы загрузятся при старте";
+                                    });
+                                }
+                            }
+                            catch { }
+                        }, ct);
+                    }
+                    else
+                    {
+                        TorrentFilesHeader.Text = $"Magnet-разрешение активно ({topic.SizeText}) - файлы загрузятся при старте";
+                        StatusText.Text = "Раздача готова к высокоскоростной загрузке.";
+                    }
                 }
             }
             catch (OperationCanceledException)

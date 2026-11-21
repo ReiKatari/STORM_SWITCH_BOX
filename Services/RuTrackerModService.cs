@@ -1256,9 +1256,10 @@ namespace StormSwitchBox.Services
         private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte[]> _memoryTorrentCache = new(StringComparer.OrdinalIgnoreCase);
         private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Task<byte[]?>> _inFlightTorrentFetches = new(StringComparer.OrdinalIgnoreCase);
         private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, long> _cloudProxyCooldownUntilUnix = new(StringComparer.OrdinalIgnoreCase);
-        private static readonly SemaphoreSlim _prefetchThrottle = new(3, 3);
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, long> _missedMirrorHashes = new(StringComparer.OrdinalIgnoreCase);
+        private static readonly SemaphoreSlim _prefetchThrottle = new(4, 4);
+        private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
         private static int _fastWarmupStarted;
-        private static long _cacheMirrorsCooldownUntilUnix;
         private static volatile string _preferredCfEdgeIp = "188.114.96.3";
 
         public byte[]? LoadedTorrentBytes => _loadedTorrentBytes;
@@ -1309,14 +1310,14 @@ namespace StormSwitchBox.Services
                 try
                 {
                     using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2.5));
-                    using var req = new HttpRequestMessage(HttpMethod.Head, "https://itorrents.org/");
+                    using var req = new HttpRequestMessage(HttpMethod.Head, "https://itorrents.net/");
                     await StormHttpClientFactory.Shared.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, cts.Token).ConfigureAwait(false);
                 }
                 catch { }
             });
         }
 
-        public void PrefetchTopicsMetadata(IEnumerable<RuTrackerTopicItem>? topics, int maxCount = 4)
+        public void PrefetchTopicsMetadata(IEnumerable<RuTrackerTopicItem>? topics, int maxCount = 6)
         {
             if (topics == null || maxCount <= 0) return;
             var targets = new List<(string Hash, string CachedPath)>();
@@ -3383,7 +3384,8 @@ namespace StormSwitchBox.Services
             if (_memoryTorrentCache.TryGetValue(hash, out var cachedMem) && TryLoadValidatedTorrent(cachedMem, hash, out _))
                 return cachedMem;
 
-            if (DateTimeOffset.UtcNow.ToUnixTimeSeconds() < Interlocked.Read(ref _cacheMirrorsCooldownUntilUnix))
+            if (_missedMirrorHashes.TryGetValue(hash, out long missedUntil) &&
+                DateTimeOffset.UtcNow.ToUnixTimeSeconds() < missedUntil)
                 return null;
 
             Task<byte[]?> inFlight = _inFlightTorrentFetches.GetOrAdd(hash, h => FetchTorrentFromCacheMirrorsCoreAsync(h, cachedTorrentPath));
@@ -3397,15 +3399,42 @@ namespace StormSwitchBox.Services
             }
         }
 
+        private static async Task<HttpResponseMessage?> SendWithCrossSchemeRedirectAsync(
+            HttpClient client,
+            string url,
+            CancellationToken ct,
+            int maxRedirects = 3)
+        {
+            var currentUri = new Uri(url);
+            for (int hop = 0; hop <= maxRedirects; hop++)
+            {
+                using var req = new HttpRequestMessage(HttpMethod.Get, currentUri);
+                req.Headers.TryAddWithoutValidation("Accept", "*/*");
+                var resp = await client.SendAsync(req, ct).ConfigureAwait(false);
+                int code = (int)resp.StatusCode;
+                if (code is 301 or 302 or 303 or 307 or 308 && resp.Headers.Location != null)
+                {
+                    var nextUri = resp.Headers.Location.IsAbsoluteUri
+                        ? resp.Headers.Location
+                        : new Uri(currentUri, resp.Headers.Location);
+                    resp.Dispose();
+                    currentUri = nextUri;
+                    continue;
+                }
+                return resp;
+            }
+            return null;
+        }
+
         private static async Task<byte[]?> FetchTorrentFromCacheMirrorsCoreAsync(string hash, string cachedTorrentPath)
         {
             string[] urls = new[]
             {
-                $"https://itorrents.org/torrent/{hash}.torrent",
-                $"https://torrage.info/torrent.php?h={hash}"
+                $"https://itorrents.net/torrent/{hash}.torrent",
+                $"https://itorrents.org/torrent/{hash}.torrent"
             };
 
-            using var raceCts = new CancellationTokenSource(TimeSpan.FromSeconds(2.4));
+            using var raceCts = new CancellationTokenSource(TimeSpan.FromSeconds(3.2));
             var rct = raceCts.Token;
 
             try
@@ -3414,10 +3443,8 @@ namespace StormSwitchBox.Services
                 {
                     try
                     {
-                        using var req = new HttpRequestMessage(HttpMethod.Get, cacheUrl);
-                        req.Headers.TryAddWithoutValidation("Accept", "*/*");
-                        using var resp = await StormHttpClientFactory.Shared.SendAsync(req, rct).ConfigureAwait(false);
-                        if (!resp.IsSuccessStatusCode) return null;
+                        using var resp = await SendWithCrossSchemeRedirectAsync(StormHttpClientFactory.Shared, cacheUrl, rct).ConfigureAwait(false);
+                        if (resp == null || !resp.IsSuccessStatusCode) return null;
 
                         byte[] bytes = await resp.Content.ReadAsByteArrayAsync(rct).ConfigureAwait(false);
                         if (bytes.Length > 2 && bytes[0] == 0x1F && bytes[1] == 0x8B)
@@ -3442,7 +3469,7 @@ namespace StormSwitchBox.Services
                     byte[]? res = await done.ConfigureAwait(false);
                     if (res != null)
                     {
-                        Interlocked.Exchange(ref _cacheMirrorsCooldownUntilUnix, 0);
+                        _missedMirrorHashes.TryRemove(hash, out _);
                         raceCts.Cancel();
                         _memoryTorrentCache[hash] = res;
                         if (!string.IsNullOrEmpty(cachedTorrentPath))
@@ -3455,7 +3482,7 @@ namespace StormSwitchBox.Services
                         return res;
                     }
                 }
-                Interlocked.Exchange(ref _cacheMirrorsCooldownUntilUnix, DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 60);
+                _missedMirrorHashes[hash] = DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 45;
                 return null;
             }
             finally
@@ -3692,10 +3719,10 @@ namespace StormSwitchBox.Services
                 }
             }
 
-            // STEP 3 (~0.3s): Parallel race across .torrent cache mirrors + Direct HTTP viewtorrent.php + WebView2 handlers!
+            // STEP 3 (~0.25s): Parallel race across .torrent cache mirrors + Direct HTTP viewtorrent.php + WebView2 handlers!
             using (var fastRaceCts = CancellationTokenSource.CreateLinkedTokenSource(ct))
             {
-                fastRaceCts.CancelAfter(TimeSpan.FromSeconds(1.8));
+                fastRaceCts.CancelAfter(TimeSpan.FromSeconds(2.6));
                 var rct = fastRaceCts.Token;
 
                 Task<byte[]?> mirrorTorrentTask = (hash.Length == 40 && !string.IsNullOrEmpty(cachedTorrentPath))
@@ -3919,6 +3946,39 @@ namespace StormSwitchBox.Services
             }
 
             return new List<TorrentFileSelectionItem>();
+        }
+
+        public async Task<List<TorrentFileSelectionItem>?> ResolveMagnetMetadataBackgroundAsync(
+            RuTrackerTopicItem topic,
+            TimeSpan timeout,
+            CancellationToken ct)
+        {
+            if (topic == null || ct.IsCancellationRequested)
+                return null;
+
+            string hash = ExtractInfoHashHex(topic);
+            if (hash.Length != 40)
+                return null;
+
+            MagnetLink? mag = null;
+            if (!string.IsNullOrWhiteSpace(topic.MagnetUri) && MagnetLink.TryParse(topic.MagnetUri, out var parsedMag))
+                mag = parsedMag;
+            else if (MagnetLink.TryParse(BuildMagnetUri(hash, topic.Title), out var builtMag))
+                mag = builtMag;
+
+            if (mag == null)
+                return null;
+
+            var bgItems = await ResolveMagnetMetadataViaSwarmAsync(mag, hash, timeout, ct).ConfigureAwait(false);
+            if (bgItems != null && bgItems.Count > 0 && !ct.IsCancellationRequested)
+            {
+                var detectedParts = DetectMultiGameTitlesFromRelease(topic.Title, topic.TopicId);
+                SaveFileTreeCacheAsync(topic.TopicId, bgItems.Select(f => (f.RelativePath, f.Length)));
+                PopulateDisplayPathsAndSmartSelection(bgItems);
+                AutoAssignFilesToGameSlots(bgItems, detectedParts);
+                return bgItems;
+            }
+            return null;
         }
 
         /// <summary>
@@ -4835,7 +4895,7 @@ namespace StormSwitchBox.Services
                     try
                     {
                         using var fs = new FileStream(peersFile, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
-                        using var sw = new StreamWriter(fs, Encoding.UTF8);
+                        using var sw = new StreamWriter(fs, Utf8NoBom);
                         foreach (var line in fresh)
                             sw.WriteLine(line);
                         sw.Flush();
@@ -5838,7 +5898,11 @@ namespace StormSwitchBox.Services
             }
         }
 
-        private static async Task<List<PeerInfo>> QueryUdpTrackersBep15Async(byte[] infoHashBytes, int listenPort, CancellationToken ct)
+        private static async Task<List<PeerInfo>> QueryUdpTrackersBep15Async(
+            byte[] infoHashBytes,
+            int listenPort,
+            CancellationToken ct,
+            Action<List<string>>? onBatchPeers = null)
         {
             var discovered = new System.Collections.Concurrent.ConcurrentBag<PeerInfo>();
             if (infoHashBytes == null || infoHashBytes.Length != 20)
@@ -5850,8 +5914,16 @@ namespace StormSwitchBox.Services
                 ("open.stealth.si", 80),
                 ("exodus.desync.com", 6969),
                 ("tracker.torrent.eu.org", 451),
-                ("tracker.openbittorrent.com", 6969),
-                ("explodie.org", 6969)
+                ("open.demonii.com", 1337),
+                ("tracker.dler.org", 6969),
+                ("open.dstud.io", 6969),
+                ("explodie.org", 6969),
+                ("p4p.arenabg.com", 1337),
+                ("opentor.org", 2710),
+                ("tracker.theoks.net", 6969),
+                ("retracker.hotplug.ru", 2710),
+                ("bt1.archive.org", 6969),
+                ("bt2.archive.org", 6969)
             };
 
             byte[] peerIdBytes = Encoding.ASCII.GetBytes("-qB5000-" + Guid.NewGuid().ToString("N").Substring(0, 12));
@@ -5918,6 +5990,7 @@ namespace StormSwitchBox.Services
                             if (seeders + leechers > _lastSwarmTotalPeers)
                                 _lastSwarmTotalPeers = seeders + leechers;
 
+                            var batchKeys = onBatchPeers != null ? new List<string>() : null;
                             for (int pos = 20; pos + 6 <= annResp.Buffer.Length; pos += 6)
                             {
                                 byte b0 = annResp.Buffer[pos];
@@ -5930,6 +6003,11 @@ namespace StormSwitchBox.Services
                                 string hHex = Convert.ToHexString(infoHashBytes).ToUpperInvariant();
                                 GetHttpPeersForHash(hHex)[key] = 1;
                                 discovered.Add(new PeerInfo(new Uri($"ipv4://{key}")));
+                                batchKeys?.Add(key);
+                            }
+                            if (onBatchPeers != null && batchKeys != null && batchKeys.Count > 0)
+                            {
+                                try { onBatchPeers(batchKeys); } catch { }
                             }
                         }
                     }
@@ -6041,7 +6119,7 @@ namespace StormSwitchBox.Services
 
                 async Task<List<PeerInfo>> RunUdpAsync()
                 {
-                    var udpList = await QueryUdpTrackersBep15Async(hashBytes, listenPort, ct).ConfigureAwait(false);
+                    var udpList = await QueryUdpTrackersBep15Async(hashBytes, listenPort, ct, onFastWavePeers).ConfigureAwait(false);
                     if (onFastWavePeers != null && udpList.Count > 0)
                     {
                         var fastUdp = udpList
@@ -6769,7 +6847,7 @@ namespace StormSwitchBox.Services
                         try
                         {
                             using var fs = new FileStream(peersFile, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
-                            using var sw = new StreamWriter(fs, Encoding.UTF8);
+                            using var sw = new StreamWriter(fs, Utf8NoBom);
                             foreach (var peerLine in fresh)
                                 sw.WriteLine(peerLine);
                             sw.Flush();
@@ -6872,7 +6950,7 @@ namespace StormSwitchBox.Services
                     try
                     {
                         using var fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.ReadWrite);
-                        using var sw = new StreamWriter(fs, Encoding.UTF8);
+                        using var sw = new StreamWriter(fs, Utf8NoBom);
                         sw.Write(command);
                         sw.Flush();
                     }
