@@ -1018,14 +1018,25 @@ namespace StormSwitchBox.Views.Dialogs
                 {
                     _ = filesTask.ContinueWith(t =>
                     {
-                        if (t.IsCanceled || t.IsFaulted || ct.IsCancellationRequested) return;
+                        if (!t.IsCompletedSuccessfully || ct.IsCancellationRequested) return;
                         var entries = t.Result;
+                        if (entries == null) return;
                         App.RunOnUI(() => { if (!filesApplied) ApplyResolvedFilesOnUi(entries); });
                     }, TaskScheduler.Default);
                 }
 
                 string hashBeforeDetails = topic.InfoHash ?? string.Empty;
-                var detailed = await detailsTask;
+                RuTrackerTopicItem? detailed = null;
+                try
+                {
+                    detailed = await detailsTask;
+                }
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                {
+                }
+                catch when (!ct.IsCancellationRequested)
+                {
+                }
                 if (ct.IsCancellationRequested || mySeq != System.Threading.Interlocked.Read(ref _topicSelectionSeq))
                     return;
 
@@ -1108,15 +1119,62 @@ namespace StormSwitchBox.Views.Dialogs
 
                 if (filesTask != null)
                 {
-                    var resolvedEntries = await filesTask;
-                    if (!filesApplied)
-                        ApplyResolvedFilesOnUi(resolvedEntries);
+                    try
+                    {
+                        var resolvedEntries = await filesTask;
+                        if (!filesApplied && resolvedEntries != null)
+                            ApplyResolvedFilesOnUi(resolvedEntries);
+                    }
+                    catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                    {
+                    }
+                    catch when (!ct.IsCancellationRequested)
+                    {
+                    }
                 }
 
                 if (discoveredNewHash && !_activeTopicHasRealFiles && !ct.IsCancellationRequested && mySeq == System.Threading.Interlocked.Read(ref _topicSelectionSeq))
                 {
-                    var followUpEntries = await _service.InspectTorrentFilesAsync(topic, null, ct);
-                    ApplyResolvedFilesOnUi(followUpEntries);
+                    try
+                    {
+                        var followUpEntries = await _service.InspectTorrentFilesAsync(topic, null, ct);
+                        if (followUpEntries != null && followUpEntries.Count > 0)
+                            ApplyResolvedFilesOnUi(followUpEntries);
+                    }
+                    catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                    {
+                    }
+                    catch when (!ct.IsCancellationRequested)
+                    {
+                    }
+                }
+
+                if (!filesApplied && !ct.IsCancellationRequested && mySeq == System.Threading.Interlocked.Read(ref _topicSelectionSeq))
+                {
+                    var fallbackParts = RuTrackerModService.DetectMultiGameTitlesFromRelease(topic.Title, topic.TopicId);
+                    var fallbackEntries = fallbackParts.Count > 1
+                        ? fallbackParts.Select((partName, idx) => new TorrentFileSelectionItem
+                        {
+                            IsSelected = true,
+                            TargetGameSlot = idx + 1,
+                            RelativePath = $"{partName} - Базовая игра + Обновления / DLC (получение по Magnet/DHT)",
+                            Length = 0,
+                            CategoryBadge = $"ИГРА #{idx + 1}"
+                        }).ToList()
+                        : new List<TorrentFileSelectionItem>
+                        {
+                            new TorrentFileSelectionItem
+                            {
+                                IsSelected = true,
+                                TargetGameSlot = 1,
+                                RelativePath = $"{topic.CleanTitleDisplay} - Полный пакет раздачи (получение списка файлов по Magnet при старте)",
+                                Length = topic.EffectiveSizeBytes,
+                                CategoryBadge = "MAGNET"
+                            }
+                        };
+                    ApplyResolvedFilesOnUi(fallbackEntries);
+                    TorrentFilesHeader.Text = $"Magnet-разрешение активно ({topic.SizeText}) - файлы загрузятся при старте";
+                    StatusText.Text = "Раздача готова к высокоскоростной загрузке.";
                 }
             }
             catch (OperationCanceledException)
@@ -3845,7 +3903,7 @@ namespace StormSwitchBox.Views.Dialogs
                 item.RawDetails = p.IsMetadataPhase ? "Поиск пиров..." : $"{p.Percent:F1}%";
             }
 
-            item.RawSpeedText = $"{p.SpeedMbPerSec:F2} МБ/с • Сиды: {p.Seeds}";
+            item.RawSpeedText = p.Peers > 0 ? $"{p.SpeedMbPerSec:F2} МБ/с • Сиды: {p.Seeds} • Пиры: {p.Peers}" : $"{p.SpeedMbPerSec:F2} МБ/с • Сиды: {p.Seeds}";
 
             if (p.IsMetadataPhase)
             {
@@ -4528,12 +4586,7 @@ namespace StormSwitchBox.Views.Dialogs
                         return;
                     }
 
-                    string tid = "";
-                    var tm = System.Text.RegularExpressions.Regex.Match(url, @"t=(\d+)");
-                    if (tm.Success) tid = tm.Groups[1].Value;
-
-                    var solvedHtml = await SolveCloudflareChallengeInDialogAsync(url, tid, ct);
-                    tcs.TrySetResult(solvedHtml);
+                    tcs.TrySetResult(null);
                 }
                 catch
                 {
@@ -4821,17 +4874,19 @@ namespace StormSwitchBox.Views.Dialogs
             // Если WebView2 ещё не находится на домене rutracker.*, сначала открываем страницу темы (проходя Cloudflare при необходимости)
             string currentHost = "";
             var hostTcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-            App.RunOnUI(() =>
+            using (ct.Register(() => hostTcs.TrySetResult("")))
             {
-                try { hostTcs.TrySetResult(CloudflareWebView?.Source?.Host ?? ""); }
-                catch { hostTcs.TrySetResult(""); }
-            });
-            currentHost = await hostTcs.Task.ConfigureAwait(false);
+                App.RunOnUI(() =>
+                {
+                    try { hostTcs.TrySetResult(CloudflareWebView?.Source?.Host ?? ""); }
+                    catch { hostTcs.TrySetResult(""); }
+                });
+                currentHost = await hostTcs.Task.ConfigureAwait(false);
+            }
 
-            if (!currentHost.Contains("rutracker.", StringComparison.OrdinalIgnoreCase))
+            if (ct.IsCancellationRequested || !currentHost.Contains("rutracker.", StringComparison.OrdinalIgnoreCase))
             {
-                string mirror = RuTrackerModService.GetActiveMirror();
-                await SolveCloudflareChallengeInDialogAsync($"{mirror}/forum/viewtopic.php?t={topicId}", topicId, ct).ConfigureAwait(false);
+                return null;
             }
 
             var tcs = new TaskCompletionSource<List<(string Path, long Size)>?>(TaskCreationOptions.RunContinuationsAsynchronously);

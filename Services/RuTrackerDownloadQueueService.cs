@@ -414,8 +414,8 @@ namespace StormSwitchBox.Services
             if (snapshot.Length == 0) return;
 
             double totalSpeedBps = 0;
-            int maxSeeds = 0;
-            int maxPeers = 0;
+            int totalSeeds = 0;
+            int totalPeers = 0;
             int runningCount = 0;
 
             foreach (var item in snapshot)
@@ -447,8 +447,8 @@ namespace StormSwitchBox.Services
                 {
                     runningCount++;
                     totalSpeedBps += item.RawSpeedBps;
-                    if (item.RawSeeds > maxSeeds) maxSeeds = item.RawSeeds;
-                    if (item.RawPeers > maxPeers) maxPeers = item.RawPeers;
+                    totalSeeds += Math.Max(0, item.RawSeeds);
+                    totalPeers += Math.Max(0, item.RawPeers);
                 }
 
                 // Синхронизируем состояние задач в TasksViewModel.Tasks
@@ -491,7 +491,7 @@ namespace StormSwitchBox.Services
             var activeDlg = RuTrackerModDownloaderDialog.ActiveInstance;
             if (activeDlg != null)
             {
-                activeDlg.UpdateHeaderSummary(inList, downloading, inQueue, finished, totalSpeedBps, maxSeeds, maxPeers);
+                activeDlg.UpdateHeaderSummary(inList, downloading, inQueue, finished, totalSpeedBps, totalSeeds, totalPeers);
             }
         }
 
@@ -1239,7 +1239,7 @@ namespace StormSwitchBox.Services
                 item.RawDetails = p.IsMetadataPhase ? "Поиск пиров..." : $"{p.Percent:F1}%";
             }
 
-            item.RawSpeedText = $"{p.SpeedMbPerSec:F2} МБ/с • Сиды: {p.Seeds}";
+            item.RawSpeedText = p.Peers > 0 ? $"{p.SpeedMbPerSec:F2} МБ/с • Сиды: {p.Seeds} • Пиры: {p.Peers}" : $"{p.SpeedMbPerSec:F2} МБ/с • Сиды: {p.Seeds}";
 
             if (p.IsMetadataPhase)
             {
