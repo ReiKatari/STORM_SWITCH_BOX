@@ -1474,5 +1474,42 @@ namespace StormSwitchBox.Services
             }
             catch { }
         }
+
+        public bool HasSeedingEntryMatching(string? infoHash, string? topicId, string? displayTitle)
+        {
+            string normHash = (infoHash ?? string.Empty).Trim();
+            string normTopic = (topicId ?? string.Empty).Trim();
+            string normTitle = (displayTitle ?? string.Empty).Trim();
+
+            lock (_syncLock)
+            {
+                if (_backingItems.Any(it =>
+                    (normHash.Length == 40 && string.Equals(it.InfoHash?.Trim(), normHash, StringComparison.OrdinalIgnoreCase)) ||
+                    (!string.IsNullOrEmpty(normTopic) && string.Equals(it.TopicId?.Trim(), normTopic, StringComparison.OrdinalIgnoreCase)) ||
+                    (!string.IsNullOrEmpty(normTitle) && string.Equals(it.DisplayTitle?.Trim(), normTitle, StringComparison.OrdinalIgnoreCase))))
+                {
+                    return true;
+                }
+            }
+
+            if (Volatile.Read(ref _loadedOnce) == 0 && File.Exists(_stateFilePath))
+            {
+                try
+                {
+                    string json = File.ReadAllText(_stateFilePath);
+                    var records = JsonSerializer.Deserialize<List<RuTrackerPersistedSeedingRecord>>(json);
+                    if (records != null && records.Any(r =>
+                        (normHash.Length == 40 && string.Equals(r.InfoHash?.Trim(), normHash, StringComparison.OrdinalIgnoreCase)) ||
+                        (!string.IsNullOrEmpty(normTopic) && string.Equals(r.TopicId?.Trim(), normTopic, StringComparison.OrdinalIgnoreCase)) ||
+                        (!string.IsNullOrEmpty(normTitle) && string.Equals(r.DisplayTitle?.Trim(), normTitle, StringComparison.OrdinalIgnoreCase))))
+                    {
+                        return true;
+                    }
+                }
+                catch { }
+            }
+
+            return false;
+        }
     }
 }

@@ -5428,6 +5428,27 @@ namespace StormSwitchBox.Services
                     }
                     catch { }
 
+                    if (foundPath == null && !string.IsNullOrWhiteSpace(parsedTorrent.Name))
+                    {
+                        try
+                        {
+                            string withRoot = StormToolResolver.EnsureSafeSubPath(saveDirectory, Path.Combine(parsedTorrent.Name, tf.Path));
+                            if (File.Exists(withRoot)) foundPath = withRoot;
+                        }
+                        catch { }
+
+                        string trimmedRoot = parsedTorrent.Name.Trim();
+                        if (foundPath == null && !string.Equals(trimmedRoot, parsedTorrent.Name, StringComparison.Ordinal))
+                        {
+                            try
+                            {
+                                string withTrimmedRoot = StormToolResolver.EnsureSafeSubPath(saveDirectory, Path.Combine(trimmedRoot, tf.Path));
+                                if (File.Exists(withTrimmedRoot)) foundPath = withTrimmedRoot;
+                            }
+                            catch { }
+                        }
+                    }
+
                     if (foundPath == null && normRel.Contains('/'))
                     {
                         string withoutTop = normRel.Substring(normRel.IndexOf('/') + 1);
@@ -5437,6 +5458,30 @@ namespace StormSwitchBox.Services
                             if (File.Exists(stripped)) foundPath = stripped;
                         }
                         catch { }
+                    }
+
+                    if (foundPath == null && downloadedPaths != null && downloadedPaths.Count > 0)
+                    {
+                        string suffix = "/" + normRel;
+                        foundPath = downloadedPaths.FirstOrDefault(p =>
+                        {
+                            if (!File.Exists(p)) return false;
+                            string normP = p.Replace('\\', '/');
+                            return normP.EndsWith(suffix, StringComparison.OrdinalIgnoreCase);
+                        });
+
+                        if (foundPath == null)
+                        {
+                            string targetName = Path.GetFileName(tf.Path);
+                            foundPath = downloadedPaths.FirstOrDefault(p =>
+                            {
+                                if (!File.Exists(p)) return false;
+                                if (!string.Equals(Path.GetFileName(p), targetName, StringComparison.OrdinalIgnoreCase))
+                                    return false;
+                                try { return new FileInfo(p).Length == tf.Length; }
+                                catch { return false; }
+                            });
+                        }
                     }
 
                     if (foundPath == null)
@@ -5457,7 +5502,7 @@ namespace StormSwitchBox.Services
                 }
             }
 
-            foreach (var p in downloadedPaths)
+            foreach (var p in downloadedPaths ?? Array.Empty<string>())
             {
                 if (!File.Exists(p))
                 {

@@ -50,13 +50,15 @@ DEFAULT_PUBLIC_TRACKERS = [
 ]
 
 
-def build_turbo_settings(listen_port=44859, metadata_only=False, download_limit=0):
+def build_turbo_settings(listen_port=44859, metadata_only=False, download_limit=0, seed_mode=False):
     default_keys = set(lt.default_settings().keys())
-    base = {}
-    try:
-        base = dict(lt.high_performance_seed())
-    except Exception:
-        base = {}
+    if seed_mode:
+        try:
+            base = dict(lt.high_performance_seed())
+        except Exception:
+            base = dict(lt.default_settings())
+    else:
+        base = dict(lt.default_settings())
 
     port = int(listen_port) if listen_port and 1024 <= int(listen_port) <= 65535 else 44859
     desired = {
@@ -75,50 +77,56 @@ def build_turbo_settings(listen_port=44859, metadata_only=False, download_limit=
         "choking_algorithm": 0,
         "seed_choking_algorithm": 1,
         "smooth_connects": False,
-        "connection_speed": 2000,
+        "connection_speed": 500 if seed_mode else 200,
         "torrent_connect_boost": 255,
-        "connections_limit": 10000,
-        "max_peerlist_size": 10000,
+        "connections_limit": 8000 if seed_mode else 2000,
+        "max_peerlist_size": 8000 if seed_mode else 4000,
         "active_downloads": -1,
         "active_seeds": -1,
         "active_limit": -1,
         "active_checking": -1,
         "unchoke_slots_limit": -1,
-        "max_out_request_queue": 8000,
-        "max_allowed_in_request_queue": 8000,
+        "max_out_request_queue": 2000,
+        "max_allowed_in_request_queue": 2000,
         "request_queue_time": 5,
-        "strict_end_game_mode": False,
-        "whole_pieces_threshold": 20,
+        "strict_end_game_mode": True,
+        "whole_pieces_threshold": 5,
         "send_socket_buffer_size": 0,
         "recv_socket_buffer_size": 0,
-        "utp_gain_factor": 5000,
+        "utp_gain_factor": 3000,
         "utp_target_delay": 200,
         "allowed_fast_set_size": 5,
         "suggest_mode": 0,
         "download_rate_limit": max(0, int(download_limit)) if download_limit and int(download_limit) > 0 else 0,
         "upload_rate_limit": 0,
-        "peer_turnover": 0,
+        "peer_turnover": 4,
+        "peer_turnover_cutoff": 90,
+        "peer_turnover_interval": 300,
         "piece_extent_affinity": True,
         "coalesce_reads": True,
         "coalesce_writes": True,
         "rate_limit_ip_overhead": False,
-        "max_queued_disk_bytes": 64 * 1024 * 1024,
-        "send_buffer_watermark": 67108864,
-        "send_buffer_low_watermark": 8388608,
-        "send_buffer_watermark_factor": 200,
+        "disk_write_mode": 0,      # always_pwrite: avoid 6-9 GB mmap working-set blowup
+        "disk_io_write_mode": 0,   # enable_os_cache: avoid synchronous ReFS write_through stall
+        "disk_io_read_mode": 0,    # enable_os_cache
+        "max_queued_disk_bytes": 256 * 1024 * 1024,
+        "send_buffer_watermark": 33554432 if seed_mode else 16777216,
+        "send_buffer_low_watermark": 4194304,
+        "send_buffer_watermark_factor": 150,
         "allow_multiple_connections_per_ip": True,
-        "min_reconnect_time": 1,
-        "max_failcount": 10,
+        "min_reconnect_time": 2,
+        "max_failcount": 8,
         "peer_connect_timeout": 6,
-        "request_timeout": 25,
-        "peer_timeout": 45,
+        "request_timeout": 15,
+        "peer_timeout": 35,
+        "inactivity_timeout": 60,
         "in_enc_policy": 1,
         "out_enc_policy": 1,
         "prefer_rc4": True,
         "peer_fingerprint": "-qB5000-",
         "user_agent": "qBittorrent/5.0.0",
-        "aio_threads": 4,
-        "hashing_threads": 2,
+        "aio_threads": 8,
+        "hashing_threads": 4,
         "dht_bootstrap_nodes": (
             "router.bittorrent.com:6881,"
             "dht.transmissionbt.com:6881,"
@@ -238,12 +246,13 @@ def read_limit_file(limit_file):
         return None
 
 
-def apply_download_limit(ses, handle, limit_bps):
+def apply_download_limit(ses, handle, limit_bps, apply_session=True):
     val = int(limit_bps) if limit_bps and int(limit_bps) > 0 else 0
-    try:
-        ses.apply_settings({"download_rate_limit": val})
-    except Exception:
-        pass
+    if apply_session and ses is not None:
+        try:
+            ses.apply_settings({"download_rate_limit": val})
+        except Exception:
+            pass
     if handle is not None:
         try:
             handle.set_download_limit(val if val > 0 else -1)
@@ -265,6 +274,21 @@ def is_pad_file(fs, idx):
     except Exception:
         pass
     return False
+
+
+def remap_skip_indices_for_pad_files(ti, raw_skip_set):
+    if ti is None or not raw_skip_set:
+        return set(raw_skip_set) if raw_skip_set else set()
+    try:
+        fs = ti.files()
+        num_f = fs.num_files()
+        has_pad = any(is_pad_file(fs, i) for i in range(num_f))
+        if not has_pad:
+            return {i for i in raw_skip_set if 0 <= i < num_f}
+        non_pad = [i for i in range(num_f) if not is_pad_file(fs, i)]
+        return {non_pad[i] for i in raw_skip_set if 0 <= i < len(non_pad)}
+    except Exception:
+        return set(raw_skip_set)
 
 
 def check_all_wanted_file_progress(handle, ti, skip_set):
@@ -1225,7 +1249,7 @@ def main():
         lf_init = read_limit_file(args.limit_file)
         if lf_init is not None:
             init_limit = lf_init
-    ses.apply_settings(build_turbo_settings(args.listen_port, metadata_only=args.metadata_only, download_limit=init_limit))
+    ses.apply_settings(build_turbo_settings(args.listen_port, metadata_only=args.metadata_only, download_limit=init_limit, seed_mode=args.seed_daemon))
 
     if args.seed_daemon:
         rc = run_seed_daemon(ses, args)
@@ -1246,18 +1270,20 @@ def main():
     except Exception:
         pass
 
-    skip_set = set()
+    raw_skip_set = set()
     if args.skip_indices:
         for part in args.skip_indices.split(","):
             part = part.strip()
             if part.isdigit():
-                skip_set.add(int(part))
+                raw_skip_set.add(int(part))
+    effective_skip_set = set(raw_skip_set)
 
     file_prio_applied = False
     ti_snapshot = None
     if args.torrent and os.path.exists(args.torrent):
         info = lt.torrent_info(args.torrent)
         ti_snapshot = info
+        effective_skip_set = remap_skip_indices_for_pad_files(info, raw_skip_set)
         atp = lt.add_torrent_params()
         atp.ti = info
         atp.save_path = args.save_dir
@@ -1271,15 +1297,15 @@ def main():
             pass
         try:
             num_f = info.num_files()
-            atp.file_priorities = [0 if idx in skip_set else 4 for idx in range(num_f)]
+            atp.file_priorities = [0 if idx in effective_skip_set else 4 for idx in range(num_f)]
             file_prio_applied = True
         except Exception:
             pass
         handle = ses.add_torrent(atp)
         apply_clean_trackers(handle, clean_trackers)
-        if file_prio_applied and skip_set:
+        if file_prio_applied and effective_skip_set:
             try:
-                handle.prioritize_files([0 if idx in skip_set else 4 for idx in range(info.num_files())])
+                handle.prioritize_files([0 if idx in effective_skip_set else 4 for idx in range(info.num_files())])
             except Exception:
                 pass
     elif args.magnet:
@@ -1305,7 +1331,10 @@ def main():
         except Exception:
             pass
     last_applied_limit = init_limit
-    apply_download_limit(ses, handle, init_limit)
+    last_ses_limit = init_limit
+    last_limit_poll = 0.0
+    last_limit_apply = time.time()
+    apply_download_limit(ses, handle, init_limit, apply_session=False)
 
     try:
         handle.force_reannounce()
@@ -1326,8 +1355,11 @@ def main():
     last_is_meta = False
 
     def emit_status(pct, speed_bps, seeds, peers, swarm, done_bytes, total_bytes, state, is_meta=False):
+        rounded_pct = round(float(pct), 2)
+        if state != "finished" and rounded_pct >= 100.0:
+            rounded_pct = 99.9
         payload = {
-            "pct": round(float(pct), 2),
+            "pct": rounded_pct,
             "speed_bps": int(speed_bps),
             "seeds": int(seeds),
             "peers": int(peers),
@@ -1381,6 +1413,10 @@ def main():
 
     last_parent_check = 0.0
     last_tracker_reannounce = time.time()
+    endgame_stall_since = None
+    last_endgame_rescue = 0.0
+    finished_fp_wait_since = None
+    did_fp_flush = False
     finished_verified = False
     abort_exit_code = 4
     try:
@@ -1397,11 +1433,21 @@ def main():
                     flush_torrent_cache(ses, handle)
                     break
 
-            if args.limit_file:
+            if args.limit_file and (now_check - last_limit_poll) >= 1.5:
+                last_limit_poll = now_check
                 new_limit = read_limit_file(args.limit_file)
                 if new_limit is not None and new_limit != last_applied_limit:
-                    last_applied_limit = new_limit
-                    apply_download_limit(ses, handle, new_limit)
+                    should_apply = (
+                        new_limit == 0
+                        or (abs(new_limit - last_applied_limit) >= 262144 and (now_check - last_limit_apply) >= 2.0)
+                    )
+                    if should_apply:
+                        last_applied_limit = new_limit
+                        last_limit_apply = now_check
+                        ses_changed = (new_limit != last_ses_limit)
+                        apply_download_limit(ses, handle, new_limit, apply_session=ses_changed)
+                        if ses_changed:
+                            last_ses_limit = new_limit
 
             if args.control_file and os.path.exists(args.control_file):
                 try:
@@ -1479,9 +1525,10 @@ def main():
                 file_prio_applied = True
                 try:
                     if ti_snapshot is not None:
+                        effective_skip_set = remap_skip_indices_for_pad_files(ti_snapshot, raw_skip_set)
                         num_files = ti_snapshot.num_files()
                         for i in range(num_files):
-                            handle.file_priority(i, 0 if i in skip_set else 4)
+                            handle.file_priority(i, 0 if i in effective_skip_set else 4)
                         if args.save_torrent and (not os.path.exists(args.save_torrent) or os.path.getsize(args.save_torrent) <= 64):
                             save_torrent_info_file(ti_snapshot, args.save_torrent)
                 except Exception:
@@ -1497,27 +1544,68 @@ def main():
             else:
                 pct = min(100.0, st.progress * 100.0)
 
+            complete_state = (
+                bool(getattr(st, "is_finished", False))
+                or bool(getattr(st, "is_seeding", False))
+                or (st.state in (lt.torrent_status.states.finished, lt.torrent_status.states.seeding))
+            )
+            if not complete_state or (total_wanted > 0 and total_wanted_done < total_wanted):
+                pct = min(99.9, pct)
+
             swarm = max(st.num_seeds + non_seed_peers, st.num_complete + st.num_incomplete)
             last_pct = pct
             last_swarm = swarm
             last_done = total_wanted_done
             last_total = total_wanted
 
-            complete_state = st.state in (lt.torrent_status.states.finished, lt.torrent_status.states.seeding)
+            if not complete_state and pct >= 99.0 and st.download_rate < 32768:
+                if endgame_stall_since is None:
+                    endgame_stall_since = now_check
+                elif (now_check - endgame_stall_since) >= 12.0 and (now_check - last_endgame_rescue) >= 15.0:
+                    last_endgame_rescue = now_check
+                    if last_applied_limit != 0:
+                        last_applied_limit = 0
+                        last_ses_limit = 0
+                        apply_download_limit(ses, handle, 0, apply_session=True)
+                    try:
+                        handle.force_reannounce()
+                        handle.force_dht_announce()
+                    except Exception:
+                        pass
+                    for parsed in ordered_peers[:250]:
+                        try:
+                            handle.connect_peer(parsed)
+                        except Exception:
+                            pass
+            else:
+                endgame_stall_since = None
+
             is_finished = has_meta and file_prio_applied and complete_state and total_wanted > 0 and total_wanted_done >= total_wanted
             if is_finished:
-                fp_ok, fp_err = check_all_wanted_file_progress(handle, ti_snapshot, skip_set)
+                fp_ok, fp_err = check_all_wanted_file_progress(handle, ti_snapshot, effective_skip_set)
                 if not fp_ok:
-                    emit_status(pct, st.download_rate, st.num_seeds, non_seed_peers, swarm, total_wanted_done, total_wanted, "downloading")
-                    time.sleep(0.3)
-                    continue
+                    if finished_fp_wait_since is None:
+                        finished_fp_wait_since = now_check
+                        if not did_fp_flush:
+                            did_fp_flush = True
+                            try:
+                                handle.flush_cache()
+                            except Exception:
+                                pass
+                    if (now_check - finished_fp_wait_since) < 10.0:
+                        clamped_done = min(total_wanted_done, max(0, total_wanted - 1)) if total_wanted > 0 else total_wanted_done
+                        emit_status(min(99.9, pct), st.download_rate, st.num_seeds, non_seed_peers, swarm, clamped_done, total_wanted, "downloading")
+                        time.sleep(0.3)
+                        continue
+                    sys.stderr.write(f"Proceeding to flush/verify after 10s file_progress wait: {fp_err}\n")
+                    sys.stderr.flush()
 
                 fin_seeds = st.num_seeds
                 finalize_torrent_and_flush(ses, handle, args.dht_state)
                 handle = None
                 ses = None
 
-                ok_disk, disk_err = verify_downloaded_files_integrity(ti_snapshot, args.save_dir, skip_set)
+                ok_disk, disk_err = verify_downloaded_files_integrity(ti_snapshot, args.save_dir, effective_skip_set)
                 if not ok_disk:
                     err_payload = {
                         "pct": round(float(pct), 2),

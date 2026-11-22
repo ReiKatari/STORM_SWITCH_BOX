@@ -119,7 +119,7 @@ namespace StormSwitchBox.Views.Dialogs
             GameSlotsListView.ItemsSource = _gameSlots;
             TorrentFilesListView.ItemsSource = _fileGroups;
             DiscussionLinksListView.ItemsSource = _linkGroups;
-            ActiveDownloadsItemsControl.ItemsSource = RuTrackerDownloadQueueService.Instance.Items;
+            ActiveDownloadsItemsControl.ItemsSource = RuTrackerDownloadQueueService.Instance.BottomDockItems;
             if (SeedingItemsListView != null)
                 SeedingItemsListView.ItemsSource = RuTrackerDownloadQueueService.Instance.SeedingItems;
             _ = Task.Run(() => RuTrackerSeedingService.Instance.LoadAndResumePersistedAsync());
@@ -596,14 +596,19 @@ namespace StormSwitchBox.Views.Dialogs
             }
         }
 
+        public bool IsDownloadsTabActive => _workspaceMode == "Downloads";
+
         private void SyncQueueVisibilityState()
         {
             if (ActiveDownloadsScrollViewer == null) return;
-            int queueCount = RuTrackerDownloadQueueService.Instance.Items.Count;
             int seedCount = RuTrackerDownloadQueueService.Instance.SeedingItems.Count;
 
             if (_workspaceMode == "Downloads")
             {
+                var tabSource = RuTrackerDownloadQueueService.Instance.Items;
+                if (!ReferenceEquals(ActiveDownloadsItemsControl.ItemsSource, tabSource))
+                    ActiveDownloadsItemsControl.ItemsSource = tabSource;
+                int queueCount = tabSource.Count;
                 bool hasDownloads = queueCount > 0;
                 ActiveDownloadsScrollViewer.Visibility = hasDownloads ? Visibility.Visible : Visibility.Collapsed;
                 if (NoActiveDownloadsText != null)
@@ -627,6 +632,11 @@ namespace StormSwitchBox.Views.Dialogs
                 return;
             }
 
+            var dockSource = RuTrackerDownloadQueueService.Instance.BottomDockItems;
+            if (!ReferenceEquals(ActiveDownloadsItemsControl.ItemsSource, dockSource))
+                ActiveDownloadsItemsControl.ItemsSource = dockSource;
+            int dockQueueCount = dockSource.Count;
+
             if (SeedingPanelBorder != null)
                 SeedingPanelBorder.Visibility = Visibility.Collapsed;
             if (NoActiveDownloadsText != null)
@@ -636,11 +646,11 @@ namespace StormSwitchBox.Views.Dialogs
             if (SeedingSectionRowDef != null)
                 SeedingSectionRowDef.Height = new GridLength(0);
 
-            bool showList = queueCount > 0 && _isQueuePanelExpanded;
+            bool showList = dockQueueCount > 0 && _isQueuePanelExpanded;
             ActiveDownloadsScrollViewer.Visibility = showList ? Visibility.Visible : Visibility.Collapsed;
             ToggleQueueExpandIcon.Glyph = showList ? "\uE70E" : "\uE70D";
-            ToggleQueueExpandText.Text = queueCount > 0
-                ? (showList ? App.Localization.TranslateText($"Свернуть ({queueCount})") : App.Localization.TranslateText($"Очередь ({queueCount})"))
+            ToggleQueueExpandText.Text = dockQueueCount > 0
+                ? (showList ? App.Localization.TranslateText($"Свернуть ({dockQueueCount})") : App.Localization.TranslateText($"Очередь ({dockQueueCount})"))
                 : App.Localization.TranslateText("Очередь");
         }
 
@@ -5846,7 +5856,8 @@ namespace StormSwitchBox.Views.Dialogs
             double uploadSpeedBps = 0,
             long totalUploadedBytes = 0,
             int seedingLeeches = 0,
-            int seedingSeeds = 0)
+            int seedingSeeds = 0,
+            int totalInQueueAndFinished = -1)
         {
             if (_lastObservedQueueCount == 0 && inList > 0)
             {
@@ -5857,13 +5868,14 @@ namespace StormSwitchBox.Views.Dialogs
             DownloadProgressBar.Visibility = Visibility.Collapsed;
             SyncQueueVisibilityState();
 
+            int tabQueueCount = totalInQueueAndFinished >= 0 ? totalInQueueAndFinished : inList;
             if (ModeDownloadsBtnText != null)
             {
                 string dlWord = App.Localization.TranslateText("Закачки");
-                ModeDownloadsBtnText.Text = (inList, seedingTotal) switch
+                ModeDownloadsBtnText.Text = (tabQueueCount, seedingTotal) switch
                 {
-                    (> 0, > 0) => $"{dlWord} ({inList} | \u2191{seedingTotal})",
-                    (> 0, _) => $"{dlWord} ({inList})",
+                    (> 0, > 0) => $"{dlWord} ({tabQueueCount} | \u2191{seedingTotal})",
+                    (> 0, _) => $"{dlWord} ({tabQueueCount})",
                     (_, > 0) => $"{dlWord} (\u2191{seedingTotal})",
                     _ => dlWord
                 };
@@ -5893,14 +5905,9 @@ namespace StormSwitchBox.Views.Dialogs
                 StageBadgeText.Text = App.Localization.TranslateText($"В ОЧЕРЕДИ ({inQueue})");
                 StageBadgeBorder.Background = BrushStageQueue;
             }
-            else if (finished > 0)
+            else if (finished > 0 || seedingTotal > 0)
             {
-                StageBadgeText.Text = App.Localization.TranslateText("ГОТОВО");
-                StageBadgeBorder.Background = BrushStageDone;
-            }
-            else if (seedingActive > 0)
-            {
-                StageBadgeText.Text = App.Localization.TranslateText("РАЗДАЧА");
+                StageBadgeText.Text = App.Localization.TranslateText(seedingActive > 0 ? "РАЗДАЧА" : "ГОТОВО");
                 StageBadgeBorder.Background = BrushStageDone;
             }
             else
@@ -5911,9 +5918,18 @@ namespace StormSwitchBox.Views.Dialogs
 
             if (QueueSummaryText != null)
             {
-                QueueSummaryText.Text = inList > 0
-                    ? App.Localization.TranslateText($"В списке: {inList} • Качается: {downloading} • В очереди: {inQueue} • Готово: {finished}")
-                    : App.Localization.TranslateText("Активных закачек нет");
+                if (_workspaceMode == "Downloads")
+                {
+                    QueueSummaryText.Text = tabQueueCount > 0
+                        ? App.Localization.TranslateText($"В списке: {tabQueueCount} • Качается: {downloading} • В очереди: {inQueue} • Готово: {finished}")
+                        : App.Localization.TranslateText("Активных закачек нет");
+                }
+                else
+                {
+                    QueueSummaryText.Text = inList > 0
+                        ? App.Localization.TranslateText($"В списке: {inList} • Качается: {downloading} • В очереди: {inQueue}")
+                        : App.Localization.TranslateText("Активных закачек нет");
+                }
             }
 
             if (totalSpeedBps > 1024)

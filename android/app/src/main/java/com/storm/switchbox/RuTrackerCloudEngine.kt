@@ -42,18 +42,20 @@ object RuTrackerCloudEngine {
             "UNLIMITED" -> -1
             "CUSTOM" -> {
                 val mb = customSpeedLimitMb
-                if (mb > 0.1) (mb * 1024.0 * 1024.0).toInt().coerceAtLeast(128 * 1024) else -1
+                if (mb > 0.1) (mb * 1024.0 * 1024.0).toInt().coerceAtLeast(256 * 1024) else -1
             }
             else -> {
-                if (currentRateBps > observedPeakBps && currentRateBps > 512L * 1024L) {
+                if (currentRateBps > observedPeakBps && currentRateBps >= 2L * 1024L * 1024L) {
                     observedPeakBps = currentRateBps
                 }
                 val elapsed = nowMs - dlStartMs
-                if (observedPeakBps <= 0L || elapsed < 6000L) {
+                if (observedPeakBps < 6L * 1024L * 1024L || elapsed < 15000L) {
                     -1
                 } else {
                     val reserveBps = (reserveBandwidthMb.coerceAtLeast(0.5) * 1024.0 * 1024.0).toLong()
-                    (observedPeakBps - reserveBps).coerceAtLeast(1024L * 1024L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+                    val targetBudget = (observedPeakBps - reserveBps).coerceAtLeast(4L * 1024L * 1024L)
+                    if (currentRateBps < (targetBudget * 0.88).toLong()) -1
+                    else targetBudget.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
                 }
             }
         }
@@ -4712,20 +4714,24 @@ object RuTrackerCloudEngine {
                     } catch (_: Throwable) {}
                 }
 
+                val isCompleteState = st.state() == org.libtorrent4j.TorrentStatus.State.FINISHED ||
+                    st.state() == org.libtorrent4j.TorrentStatus.State.SEEDING
                 if (now - lastReportMs >= 800L) {
                     lastReportMs = now
                     val activeDownloadCount = activeDownloadHashes.size.coerceAtLeast(1)
                     val targetLimit = computeEffectiveDownloadLimitBps(st.downloadRate().toLong(), dlStartMs, now)
-                    val perTorrentLimit = if (targetLimit > 0) (targetLimit / activeDownloadCount).coerceAtLeast(256 * 1024) else -1
+                    val perTorrentLimit = if (targetLimit > 0) {
+                        if (speedLimitMode.equals("CUSTOM", ignoreCase = true) && activeDownloadCount > 1 && st.downloadRate().toLong() < (targetLimit * 0.88).toLong()) targetLimit
+                        else (targetLimit / activeDownloadCount).coerceAtLeast(256 * 1024)
+                    } else -1
                     if (perTorrentLimit != lastAppliedLimitBps) {
                         lastAppliedLimitBps = perTorrentLimit
                         try { handle.swig().set_download_limit(perTorrentLimit) } catch (_: Throwable) {}
                     }
                     val effectiveSeeds = maxOf(st.numSeeds(), st.listSeeds().coerceAtLeast(0))
-                    onProgress(done, total, st.downloadRate().toDouble() / (1024.0 * 1024.0), st.numPeers(), effectiveSeeds)
+                    val reportedDone = if (!isCompleteState && total > 0L && done >= total) (total - 1L).coerceAtLeast(0L) else done
+                    onProgress(reportedDone, total, st.downloadRate().toDouble() / (1024.0 * 1024.0), st.numPeers(), effectiveSeeds)
                 }
-                val isCompleteState = st.state() == org.libtorrent4j.TorrentStatus.State.FINISHED ||
-                    st.state() == org.libtorrent4j.TorrentStatus.State.SEEDING
                 val appearsFinished = isCompleteState && st.totalWanted() > 0L && done >= total
                 if (appearsFinished) {
                     val fp = try { handle.fileProgress() } catch (_: Throwable) { null }

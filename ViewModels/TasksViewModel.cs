@@ -2325,6 +2325,11 @@ public partial class TasksViewModel : ObservableObject
 						continue;
 					}
 
+					if (snap.Status == "Успешно" || snap.Status == "Готово" || snap.Status == "Отменено" || snap.Status == "Отменен")
+						continue;
+					if (RuTrackerDownloadQueueService.HasBuiltOutputOnDisk(snap.TargetFormat, snap.OutputFolder, snap.TitleId, null, snap.GameName))
+						continue;
+
 					var validInputs = (snap.InputFiles ?? new List<string>()).Where(f => File.Exists(f) || Directory.Exists(f)).ToList();
 					if (validInputs.Count == 0)
 						continue;

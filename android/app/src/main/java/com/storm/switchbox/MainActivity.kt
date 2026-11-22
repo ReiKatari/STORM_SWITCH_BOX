@@ -408,6 +408,61 @@ class MainActivity : Activity() {
             val existingIds = bgPipelineTasks.map { it.id }.toSet()
 
             var clearedAndRequeued = false
+            val completedKeys = mutableSetOf<String>()
+            fun recordKey(topicId: String?, infoHash: String?, titleId: String?, title: String?) {
+                val t = topicId?.trim().orEmpty()
+                val h = infoHash?.trim()?.lowercase().orEmpty()
+                val tid = titleId?.trim()?.uppercase().orEmpty()
+                val nm = title?.trim()?.lowercase().orEmpty()
+                if (t.isNotEmpty()) completedKeys.add("topic:$t")
+                if (h.length == 40) completedKeys.add("hash:$h")
+                if (tid.length == 16) completedKeys.add("tid:$tid")
+                if (nm.isNotEmpty()) completedKeys.add("title:$nm")
+            }
+            fun isKeyCompleted(topicId: String?, infoHash: String?, titleId: String?, title: String?): Boolean {
+                val t = topicId?.trim().orEmpty()
+                val h = infoHash?.trim()?.lowercase().orEmpty()
+                val tid = titleId?.trim()?.uppercase().orEmpty()
+                val nm = title?.trim()?.lowercase().orEmpty()
+                return (t.isNotEmpty() && "topic:$t" in completedKeys) ||
+                    (h.length == 40 && "hash:$h" in completedKeys) ||
+                    (tid.length == 16 && "tid:$tid" in completedKeys) ||
+                    (nm.isNotEmpty() && "title:$nm" in completedKeys)
+            }
+
+            try {
+                for (se in RuTrackerCloudEngine.seedingEntries) {
+                    recordKey(se.topicId, se.infoHash, null, se.title)
+                }
+                for (se in RuTrackerCloudEngine.loadSeedingEntriesFromFile()) {
+                    recordKey(se.topicId, se.infoHash, null, se.title)
+                }
+            } catch (_: Throwable) {}
+
+            // Pass A: Identify all completed tasks first so unfinished duplicates cannot restart them
+            val isCompletedFlags = BooleanArray(jsonArray.length())
+            for (i in 0 until jsonArray.length()) {
+                val obj = jsonArray.getJSONObject(i)
+                val rawStateStr = obj.optString("state", "PAUSED")
+                val resultFilePath = obj.optString("resultFilePath", "")
+                val resultFileObj = if (resultFilePath.isNotEmpty()) File(resultFilePath) else null
+                val done = rawStateStr != "CANCELLED" && (
+                    rawStateStr == "COMPLETED" ||
+                    (resultFileObj != null && resultFileObj.isFile && resultFileObj.length() > 0L)
+                )
+                isCompletedFlags[i] = done
+                if (done) {
+                    val tObj = obj.optJSONObject("topicItem")
+                    recordKey(
+                        tObj?.optString("topicId"),
+                        tObj?.optString("infoHash"),
+                        obj.optString("titleId"),
+                        obj.optString("title", tObj?.optString("title") ?: "")
+                    )
+                }
+            }
+
+            val seenPendingKeys = mutableSetOf<String>()
             for (i in 0 until jsonArray.length()) {
                 val obj = jsonArray.getJSONObject(i)
                 val id = obj.optString("id", "")
@@ -434,8 +489,21 @@ class MainActivity : Activity() {
 
                 val resultFilePath = obj.optString("resultFilePath", "")
                 val resultFileObj = if (resultFilePath.isNotEmpty()) File(resultFilePath) else null
-                val isCompleted = rawStateStr == "COMPLETED" ||
-                    (resultFileObj != null && resultFileObj.isFile && resultFileObj.length() > 0L)
+                val isCompleted = isCompletedFlags[i]
+                val itemTitle = obj.optString("title", topicItem.title)
+                val itemTitleId = obj.optString("titleId", "")
+
+                if (!isCompleted && isKeyCompleted(topicItem.topicId, topicItem.infoHash, itemTitleId, itemTitle)) {
+                    clearedAndRequeued = true
+                    continue
+                }
+                if (!isCompleted) {
+                    val pendingDedupKey = "${topicItem.topicId.trim()}|${itemTitle.trim().lowercase()}"
+                    if (!seenPendingKeys.add(pendingDedupKey)) {
+                        clearedAndRequeued = true
+                        continue
+                    }
+                }
 
                 val rfList = mutableListOf<RuTrackerCloudEngine.ReleaseContentFile>()
                 val rfArr = obj.optJSONArray("selectedReleaseFiles")
